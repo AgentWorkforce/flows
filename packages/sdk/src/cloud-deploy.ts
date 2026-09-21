@@ -243,9 +243,18 @@ export async function deployToCloud(
     sources,
     ...(extensions.length === 0 ? {} : { extensions }),
     requirements: {
-      integrations: requirements.integrations.map(i => i.provider),
-      harnesses: requirements.harnesses,
-      mcp: requirements.mcp,
+      integrations: [...new Set([
+        ...requirements.integrations.map(i => i.provider),
+        ...extensions.flatMap(extension => extension.manifest.permissions.integrations),
+      ])],
+      harnesses: [...new Set([
+        ...requirements.harnesses,
+        ...extensions.flatMap(extension => extension.manifest.permissions.harnesses),
+      ])],
+      mcp: [...new Set([
+        ...requirements.mcp,
+        ...extensions.flatMap(extension => extension.manifest.permissions.mcp),
+      ])],
     },
   }) });
   if (!isCloudRecord(result) || typeof result.agentId !== 'string' || typeof result.status !== 'string') {

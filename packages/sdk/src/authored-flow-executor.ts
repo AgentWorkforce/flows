@@ -45,7 +45,7 @@ import {
 import { AuthoredFlowLifecycle } from './authored-flow-lifecycle.js';
 import { JournalClient } from './journal-client.js';
 import { createHookEvaluator } from './authored-hooks.js';
-import type { LoadedFlowExtension } from './flow-extension-loader.js';
+import { probeFlowExtension, type LoadedFlowExtension } from './flow-extension-loader.js';
 import type {
   CompletionReason as ProtocolCompletionReason,
   RunCompletionReason as ProtocolRunCompletionReason,
@@ -175,7 +175,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     ...(options.onWait !== undefined ? { onWait: options.onWait } : {}),
   };
   const definition = getDefinition<Input>(handle);
-  const headerFields = Object.keys(definition.header).filter(key => key !== 'tools' && key !== 'budget' && key !== 'memory');
+  const headerFields = Object.keys(definition.header).filter(key => key !== 'tools' && key !== 'budget' && key !== 'memory' && key !== 'version' && key !== 'hooks');
   if (definition.header.tools && Object.keys(definition.header.tools).some(key => !['mcp', ...helperProviders.map(p => p.namespace)].includes(key))) headerFields.push('tools');
   if (definition.header.tools?.relayfile !== undefined) headerFields.push('tools.relayfile');
   const helperPreflight = checkSlackHelpers(definition);
@@ -192,6 +192,9 @@ export async function executeAuthoredFlow<Input = undefined>(
 
   const checkedMcp = await checkMcpHeader(definition, flowPath);
   if (!checkedMcp.report.ok) throw new McpPreflightError(checkedMcp.report);
+  for (const extension of options.extensions ?? []) {
+    if (extension.manifest !== undefined) await probeFlowExtension(extension.manifest);
+  }
 
   const budget = new AuthoredBudget(definition.header.budget);
   if (definition.header.memory?.agent === true) {
@@ -359,6 +362,8 @@ export async function executeAuthoredFlow<Input = undefined>(
     flowName: definition.name,
     declared: definition.header.hooks ?? [],
     extensions: options.extensions ?? [],
+    peekStep: () => nextStep,
+    restoreStep: (step) => { nextStep = step; },
   });
 
   const context: Ctx = {

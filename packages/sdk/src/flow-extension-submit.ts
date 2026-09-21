@@ -44,10 +44,6 @@ function encodeFile(path: string, data: Uint8Array): FlowExtensionFileSubmission
   };
 }
 
-function submissionSize(submission: FlowExtensionSubmission): number {
-  return submission.files.reduce((sum, file) => sum + file.bytes, 0);
-}
-
 async function submissionFromStore(extension: LoadedFlowExtension): Promise<FlowExtensionSubmission> {
   const stored = await readStoredPluginFiles(extension.directory, extension.digest);
   const files = stored.filter(file => file.path !== 'manifest.json').map(file => encodeFile(file.path, file.data));
@@ -102,7 +98,7 @@ export async function collectExtensionSubmissions(
     names.add(extra.name);
     submissions.push(extra);
   }
-  const total = submissions.reduce((sum, item) => sum + submissionSize(item), 0);
+  const total = Buffer.byteLength(JSON.stringify(submissions), 'utf8');
   if (total > MAX_EXTENSIONS_BYTES) {
     throw new CloudFlowError('invalid_input', `Flow extensions exceed Cloud's ${MAX_EXTENSIONS_BYTES}-byte extensions cap.`);
   }

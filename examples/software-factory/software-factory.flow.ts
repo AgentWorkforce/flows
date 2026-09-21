@@ -47,6 +47,11 @@ export default flow<Input>("software-factory", {
   // Fresh work dir, excluded from git, no leftover verdicts.
   await f.run(`rm -rf ${WORK} && mkdir -p ${WORK} && { grep -qxF '${WORK}/' .git/info/exclude 2>/dev/null || echo '${WORK}/' >> .git/info/exclude; }`);
 
+  if (!await f.hook("pre-implement", { title, issue })) {
+    await f.run("echo 'Stopped: pre-implement hook refused this ticket.' >&2");
+    return f.done("declined");
+  }
+
   await f.agent("implementer", {
     cli: "claude",
     task: `Implement this ticket in the current repository, on the current branch, with regression tests. Commit as you go.\n` +
@@ -65,6 +70,14 @@ export default flow<Input>("software-factory", {
   }).gate({ type: "subprocess_gate", command: `test -s ${WORK}/review.md` });
 
   await f.run(TEST, { timeout: "15m" });
+
+  if (!await f.hook("post-review", { title })) {
+    await f.run(`{ cat ${WORK}/summary.md; printf '\\n\\n## post-review: blocked\\n\\n'; } > ${WORK}/pr-body.md`);
+    await f.run("git add -A && (git diff --cached --quiet || git commit -qm 'Software factory: implementation and review fixes')");
+    await f.run("git push --set-upstream origin HEAD");
+    await f.run(`gh pr create --draft --title ${shellWord(`[blocked] ${title}`)} --body-file ${WORK}/pr-body.md`);
+    return f.done("step_failed");
+  }
 
   // Passed means exactly one verdict, and it is the pass marker.
   const verdict = await f.run(`if [ -f ${WORK}/review.passed ] && [ ! -f ${WORK}/review.blocked ]; then echo PASSED; else echo BLOCKED; fi`);

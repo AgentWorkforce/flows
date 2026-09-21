@@ -11,6 +11,8 @@ export interface HookRecord {
   plugin: string | null;
   verdict: 'pass' | 'fail' | 'noop';
   because?: string;
+  /** Parent `nextStep` after this verdict, so resume does not reuse inner step ids. */
+  afterStep?: number;
 }
 
 function recordKey(record: HookRecord): string {
@@ -29,6 +31,8 @@ export function createHookEvaluator(options: {
   readonly flowName: string;
   readonly declared: readonly string[];
   readonly extensions: readonly LoadedFlowExtension[];
+  readonly peekStep?: () => number;
+  readonly restoreStep?: (step: number) => void;
 }): (id: string, name: string, input: unknown, context: Ctx) => Promise<boolean> {
   let recorded: Promise<Map<string, HookRecord>> | undefined;
 
@@ -78,6 +82,7 @@ export function createHookEvaluator(options: {
       const existing = await lookup(`${id}:noop`);
       const record = existing ?? { hook: name, step: id, plugin: null, verdict: 'noop' as const };
       if (existing === undefined) await append(record);
+      else if (existing.afterStep !== undefined) options.restoreStep?.(existing.afterStep);
       return true;
     }
     for (const extension of impls) {
@@ -96,8 +101,11 @@ export function createHookEvaluator(options: {
           hook: name, step: id, plugin: extension.name,
           verdict: verdict ? 'pass' : 'fail',
           ...(because === undefined ? {} : { because }),
+          ...(options.peekStep === undefined ? {} : { afterStep: options.peekStep() }),
         };
         await append(record);
+      } else if (record.afterStep !== undefined) {
+        options.restoreStep?.(record.afterStep);
       }
       if (record.verdict === 'fail') return false;
     }

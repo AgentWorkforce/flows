@@ -61,16 +61,20 @@ describe('hook AND composition', () => {
   it('replays a recorded verdict and does not re-run the closure', async () => {
     const { journal, streams } = fakeJournal();
     streams.set('hooks', [
-      { hook: 'merge-gate', step: 'hook-1', plugin: 'first', verdict: 'fail', because: 'held' },
+      { hook: 'merge-gate', step: 'hook-1', plugin: 'first', verdict: 'fail', because: 'held', afterStep: 9 },
     ]);
     let calls = 0;
+    let nextStep = 2;
     const evaluate = createHookEvaluator({
       journal, rootRunId: 'root-1', flowName: 'software-factory',
       declared: ['merge-gate'],
       extensions: [extension('first', async () => { calls += 1; return true; })],
+      peekStep: () => nextStep,
+      restoreStep: (step) => { nextStep = step; },
     });
     await expect(evaluate('hook-1', 'merge-gate', {}, ctx)).resolves.toBe(false);
     expect(calls).toBe(0);
+    expect(nextStep).toBe(9);
     expect(streams.get('hooks')).toHaveLength(1);
   });
 

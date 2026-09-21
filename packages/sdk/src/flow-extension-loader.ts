@@ -61,6 +61,28 @@ export interface LoadFlowExtensionsOptions<Authority> {
 }
 
 const EXTENSION_HEADER_FIELDS = new Set(['budget', 'tools']);
+const WALLCLOCK_MS = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
+
+function wallclockMs(value: string): number | undefined {
+  const match = /^(\d+)(ms|s|m|h|d)$/.exec(value);
+  if (!match) return undefined;
+  const unit = match[2] as keyof typeof WALLCLOCK_MS;
+  return Number(match[1]) * WALLCLOCK_MS[unit];
+}
+
+/** Credentials and servers declared on a flow-extension, probed before the base body starts. */
+export async function probeFlowExtension(manifest: FlowExtensionManifest, env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  for (const credential of manifest.preflight.credentials) {
+    if (!env[credential]?.trim()) throw new PluginError('plugin_credential_missing', `${manifest.name} requires ${credential}.`);
+  }
+  for (const server of manifest.preflight.servers) {
+    try {
+      const response = await fetch(server, { method: 'HEAD', signal: AbortSignal.timeout(5000) });
+      await response.body?.cancel();
+      if (!response.ok) throw new Error('unsuccessful response');
+    } catch { throw new PluginError('plugin_server_unreachable', `${manifest.name} cannot reach ${server}.`); }
+  }
+}
 
 function unsupported(name: string, what: string): never {
   throw new PluginError('plugin_unsupported', `${name}: ${what} is not composed by this release.`);
@@ -111,6 +133,13 @@ async function loadOne<Authority>(
   const ceiling = manifest.permissions.budget;
   if (ceiling?.dollars !== undefined && typeof baseBudget === 'object' && baseBudget.dollars !== undefined && ceiling.dollars > baseBudget.dollars) {
     throw new PluginError('plugin_incompatible', `${manifest.name} declares a $${ceiling.dollars} budget ceiling above the base flow's $${baseBudget.dollars}.`);
+  }
+  if (ceiling?.wallclock !== undefined && typeof baseBudget === 'object' && baseBudget.wallclock !== undefined) {
+    const pluginMs = wallclockMs(ceiling.wallclock);
+    const baseMs = wallclockMs(baseBudget.wallclock);
+    if (pluginMs !== undefined && baseMs !== undefined && pluginMs > baseMs) {
+      throw new PluginError('plugin_incompatible', `${manifest.name} declares a ${ceiling.wallclock} wallclock ceiling above the base flow's ${baseBudget.wallclock}.`);
+    }
   }
   const entryPath = join(directory, manifest.entry);
   let imported: ImportedFlow<Authority>;

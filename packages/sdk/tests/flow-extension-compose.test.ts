@@ -164,6 +164,7 @@ describe('composition fails closed', () => {
     ['a base flow it does not extend', (m: Record<string, unknown>) => ({ ...m, compat: { ...(m.compat as object), base: [{ name: 'other-flow', version: '*' }] } }), 'plugin_incompatible', 'not "software-factory"'],
     ['a base version range the unversioned base cannot satisfy', (m: Record<string, unknown>) => ({ ...m, compat: { ...(m.compat as object), base: [{ name: 'software-factory', version: '^1.0.0' }] } }), 'plugin_incompatible', 'declares no version'],
     ['a budget ceiling above the base', (m: Record<string, unknown>) => ({ ...m, permissions: { ...(m.permissions as object), budget: { dollars: 11 } } }), 'plugin_incompatible', 'above the base flow'],
+    ['a wallclock ceiling above the base', (m: Record<string, unknown>) => ({ ...m, permissions: { ...(m.permissions as object), budget: { wallclock: '2h' } } }), 'plugin_incompatible', 'wallclock ceiling'],
   ])('refuses %s', async (_, patch, code, message) => {
     const p = project();
     await install(p, variant(patch));
