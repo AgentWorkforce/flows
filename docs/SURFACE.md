@@ -245,19 +245,31 @@ No process runs between events: the handler wakes, executes to its next await, p
    error. Every subprocess starts with ambient `RELAYFLOW_MODEL` removed.
    Provider adapters pass only the declared flag; wrapper readiness receives
    only an allowlisted declared model, while worker instruction/model/wake
-   values travel only in the post-identification session request. Preflight
-   never invokes an undeclared model or guesses from host state.
+   values travel only in the post-identification session request. The model in
+   that probe is the *effective* one: the step's, else the selected named
+   agent's, else the adapter's own default. A default is probed because it is
+   what would run; preflight still never guesses a model from host state, and a
+   wrapper adapter has no default, so a wrapper step with no declared model is
+   probed without one. Each resolution reports the CLI's source and the model's
+   own source separately — `RESOLVED step "s" cli "claude" from step model
+   "claude-opus-5" from adapter default` — so a defaulted model is never
+   presented as one the step declared.
 
    **Deterministic model registry:** model existence is not inferred from a
    regex or provider prefix. The nearest `flows.json` owns an exact,
-   case-sensitive `models` allowlist. When that file exists, `flows check`
-   first refuses a declared model absent from that list as `model_unknown`,
-   without starting the CLI. When no `flows.json` exists anywhere in the flow
-   file's ancestry, inline named-agent declarations (`agents: { drafter:
-   { cli, model } }`) proceed to the real CLI/model probe without a registry.
-   A model declared directly on a step still requires the project allowlist.
-   An existing config with no `models` field or an empty list remains an
-   explicit policy and refuses unlisted models, including named agents.
+   case-sensitive `models` allowlist. When that file declares `models`,
+   `flows check` first refuses an effective model absent from that list as
+   `model_unknown`, without starting the CLI. The check governs the model that
+   would execute, so an adapter default is checked exactly like a declared one;
+   its refusal says the step declared no model and names the default, because
+   the author wrote no `model:` to correct. When no `flows.json` exists anywhere
+   in the flow file's ancestry, inline named-agent declarations (`agents: {
+   drafter: { cli, model } }`) proceed to the real CLI/model probe without a
+   registry. A config with no `models` field declares no model policy and
+   enforces none — the same state as no config at all, so a flow that declares
+   no model needs no edit to that tracked file to run. `models: []` is a
+   different thing: an explicit empty allowlist, which refuses every model,
+   including named agents.
    One pure first pass collects every model rejected by that policy and every
    unresolved step CLI
    before any CLI, command, executor, or daemon probe, independent of step

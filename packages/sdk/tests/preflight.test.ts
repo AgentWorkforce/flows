@@ -949,4 +949,182 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       expect.objectContaining({ kind: 'model_unknown', agent: 'drafter', model: 'claude-sonnet-5' }),
     ]);
   });
+
+  it('refuses an adapter-defaulted model under a registry without claiming the step declared it', () => {
+    // The reported defect: the step has no `model:` key at all, so blaming it
+    // for "declaring" claude-opus-5 sends the author looking for a line that
+    // was never written. The refusal itself is correct — the default is the
+    // model that would run — so only its attribution and remedy change.
+    const calls: string[] = [];
+    const result = preflight(flow({
+      id: 'review-semantics',
+      type: 'agent',
+      cli: 'claude',
+      instruction: 'Review the semantics.',
+    }), {
+      models: ['claude-sonnet-5'],
+      modelRegistryPath: '/project/flows.json',
+      probes: {
+        cli: () => { calls.push('cli'); throw new Error('PROBE_CALLED'); },
+        command: () => { calls.push('command'); throw new Error('PROBE_CALLED'); },
+        executor: () => { calls.push('executor'); throw new Error('PROBE_CALLED'); },
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual([{
+      severity: 'refusal',
+      kind: 'model_unknown',
+      stepId: 'review-semantics',
+      cli: 'claude',
+      model: 'claude-opus-5',
+      message: 'Step "review-semantics" declares no model; the default for CLI "claude" is "claude-opus-5",'
+        + ' which is not listed in project model registry "/project/flows.json";'
+        + ' add the exact model to "models" in "/project/flows.json" only after verifying that project is'
+        + ' allowed to use it, or declare an allowed model on the step.',
+    }]);
+    expect((result.diagnostics[0] as { message: string }).message).not.toContain('declares model');
+    expect(calls).toEqual([]);
+  });
+
+  it('treats an explicit empty registry as policy for a defaulted model', () => {
+    // `models: []` is a real, empty allowlist; only a missing `models` key
+    // means "no policy". The default must not slip through the empty one.
+    const result = preflight(flow({
+      id: 'review-semantics',
+      type: 'agent',
+      cli: 'claude',
+      instruction: 'Review the semantics.',
+    }), {
+      models: [],
+      modelRegistryPath: '/project/flows.json',
+      probes: probes({ cli: () => { throw new Error('PROBE_CALLED'); } }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ kind: 'model_unknown', stepId: 'review-semantics', model: 'claude-opus-5' }),
+    ]);
+  });
+
+  it('probes an adapter default that the registry allows', () => {
+    const calls: Array<[string, string, string | undefined]> = [];
+    const result = preflight(flow({
+      id: 'review-semantics',
+      type: 'agent',
+      cli: 'claude',
+      instruction: 'Review the semantics.',
+    }), {
+      models: ['claude-opus-5'],
+      modelRegistryPath: '/project/flows.json',
+      probes: probes({
+        cli: (cli, source, model) => {
+          calls.push([cli, source, model]);
+          return { exists: true, authenticated: true, modelAvailable: true };
+        },
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics).toEqual([]);
+    expect(calls).toEqual([['claude', 'step', 'claude-opus-5']]);
+  });
+
+  it('resolves and probes an adapter default when no registry exists', () => {
+    // Exactly what check.ts sends for a flows.json with no `models` key: an
+    // empty list with no registry path. No governance policy exists, so a
+    // flow that declares no model must not need a tracked-file edit to run.
+    const calls: Array<[string, string, string | undefined]> = [];
+    const result = preflight(flow({
+      id: 'review-semantics',
+      type: 'agent',
+      cli: 'claude',
+      instruction: 'Review the semantics.',
+    }), {
+      models: [],
+      probes: probes({
+        cli: (cli, source, model) => {
+          calls.push([cli, source, model]);
+          return { exists: true, authenticated: true, modelAvailable: true };
+        },
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.resolutions).toEqual([{
+      stepId: 'review-semantics',
+      cli: 'claude',
+      source: 'step',
+      model: 'claude-opus-5',
+      modelSource: 'adapter',
+    }]);
+    expect(calls).toEqual([['claude', 'step', 'claude-opus-5']]);
+  });
+
+  it('keeps the declared-model refusal wording when the step declared the model', () => {
+    const result = preflight(flow({
+      id: 'review-semantics',
+      type: 'agent',
+      cli: 'claude',
+      model: 'claude-opus-4-7',
+      instruction: 'Review the semantics.',
+    }), {
+      models: ['claude-sonnet-5'],
+      modelRegistryPath: '/project/flows.json',
+      probes: probes({ cli: () => { throw new Error('PROBE_CALLED'); } }),
+    });
+
+    expect(result.diagnostics).toEqual([expect.objectContaining({
+      kind: 'model_unknown',
+      message: 'Step "review-semantics" declares model "claude-opus-4-7" for CLI "claude",'
+        + ' but it is not listed in project model registry "/project/flows.json";'
+        + ' add the exact model only after verifying that project is allowed to use it.',
+    })]);
+  });
+
+  it.each([
+    ['step', 'Step "review" declares model "allowed-model" for CLI "claude"'],
+    ['named', 'Step "review" uses model "allowed-model" from its named agent for CLI "claude"'],
+    ['adapter', 'Step "review" declares no model; the default for CLI "claude" is "claude-opus-5"'],
+  ] as const)('attributes an unavailable %s model to where the author put it', (source, prefix) => {
+    const model = source === 'adapter' ? 'claude-opus-5' : 'allowed-model';
+    const authored: FlowSpec = source === 'named'
+      ? {
+          version: '0.1.0',
+          agents: { reviewer: { cli: 'claude', model } },
+          steps: [{ id: 'review', type: 'agent', agent: 'reviewer', instruction: 'Review.' }],
+        }
+      : flow({
+          id: 'review',
+          type: 'agent',
+          cli: 'claude',
+          ...(source === 'step' ? { model } : {}),
+          instruction: 'Review.',
+        });
+
+    const result = preflight(authored, {
+      models: [model],
+      modelRegistryPath: '/project/flows.json',
+      probes: probes({
+        cli: () => ({
+          exists: true,
+          authenticated: true,
+          modelAvailable: false,
+          modelCommand: `claude -p --model ${model}`,
+        }),
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual([{
+      severity: 'refusal',
+      kind: 'model_unavailable',
+      stepId: 'review',
+      cli: 'claude',
+      model,
+      message: `${prefix}, but its model-scoped "claude -p --model ${model}" probe exited non-zero;`
+        + " verify the model name and this credential's access.",
+    }]);
+  });
 });
