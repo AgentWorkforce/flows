@@ -160,17 +160,33 @@ Cloud currently omits the original comment directive, so an issue-comment wake
 rereads state then returns `needs_human`; it cannot authorize conflict repair
 from an invented or unrelated comment. Other PRs are refused, not retargeted.
 
-Two hosted-path limits are Cloud's, not this flow's, and they are checked
-against Cloud's launcher rather than assumed. `flowPullRequestFromEvent`
-attributes a `check_run` delivery by the **first** entry in
-`check_run.pull_requests`, and skips the delivery as `not_a_pull_request` when
-that array is empty. So on the hosted path a fork PR's CI never wakes the
-listener at all, and a head commit shared by several PRs wakes for whichever
-GitHub lists first — the hosted binding then refuses the delivery as another
-PR's rather than retargeting it. The raw-webhook entry point has no such gap:
-an unattributed `check_run` is an ordinary hint there and reaches the reread.
-Closing this needs a change in Cloud's attribution, not a relaxation here, and
-until it lands a hosted proof must not be read as covering fork CI.
+**Fork pull requests are out of scope for the hosted path entirely**, and that
+is the grant model rather than a gap. `resolveFlowPullRequestRepositoryRequest`
+refuses any change request whose `head.repo.full_name` is not the deployment
+repository with `flow_pull_request_fork` (409, terminal in the delivery drain):
+the repository's installation token cannot push to a fork. Cloud states the
+intent in `launch-flow-deployment.ts` — a fork "is not an answer", an operator
+has to resolve it, so it stays visible. Ten of the eleven subscriptions
+therefore fail loudly on a fork PR.
+
+`check_run.completed` is the exception, and it fails *earlier and more quietly*.
+`flowPullRequestFromEvent` attributes a check run by the **first** entry in
+`check_run.pull_requests` and skips the delivery as `not_a_pull_request` when
+that array is empty, which is what GitHub sends for a fork. So the one fork case
+that produces no signal at all is the one feeding the merge gate. Note what this
+means for anyone tempted to fix it: **changing the attribution would not enable
+fork CI.** It would convert a silent skip into the same 409, because the grant —
+not the attribution — is what holds forks out.
+
+A head commit shared by several PRs has the milder version of the attribution
+rule: the delivery wakes for whichever PR GitHub lists first, and the hosted
+binding then refuses it as another PR's rather than retargeting it.
+
+The raw-webhook entry point has none of this. It carries no installation grant
+and its coordinates are operator-pinned, so an unattributed `check_run` is an
+ordinary hint there and reaches the reread. No flows-side relaxation was added
+to paper over the hosted behaviour, and a hosted proof must not be read as
+covering forks — of the CI subscription or of any other.
 
 Capture the real GitHub delivery GUID, Cloud ingress/run IDs, deployed source
 digest and the run's live-read output before claiming E2E. A successful deploy,

@@ -108,3 +108,52 @@ This is Cloud's attribution, not a flows defect, and no flows-side
 relaxation was added for it. The raw-webhook path already handles an
 unattributed check_run (tests/wake.test.ts, 'a fork check_run with no PR
 attribution still wakes and rereads').
+
+================================================================
+E. CORRECTION to section D, found after it was written.
+   D said the fork gap was Cloud's check_run ATTRIBUTION and that
+   changing it would close the gap. That is wrong. The grant model
+   holds forks out of the hosted path regardless of attribution.
+================================================================
+$ grep -rn 'flow_pull_request_fork' packages/web/lib/flows/flow-deploy-launch.ts
+171:      "flow_pull_request_fork",
+329:      "flow_pull_request_fork",
+
+$ sed -n '165,177p' packages/web/lib/flows/flow-deploy-launch.ts
+  // `head.repo` is the repository the head branch lives in; GitHub reports
+  // `null` once a fork has been deleted. Either way it is not this repository,
+  // so the installation token cannot continue that branch.
+  const headRepo = typeof head?.repo?.full_name === "string" ? head.repo.full_name : "";
+  if (!headRepo || headRepo.toLowerCase() !== `${input.owner}/${input.repo}`.toLowerCase()) {
+    throw new FlowDeployError(
+      "flow_pull_request_fork",
+      409,
+      headRepo
+        ? `Pull request #${input.number} comes from ${headRepo}; the repository's installation cannot push to a fork.`
+        : `Pull request #${input.number}'s head repository is gone; nothing can continue its branch.`,
+    );
+  }
+
+launchFlowDeployment calls this resolver for EVERY change-request
+delivery, then treats the refusal as a hard failure on purpose:
+$ sed -n '309,317p' packages/web/lib/flows/launch-flow-deployment.ts
+      //
+      // Every OTHER refusal stays a failure. A fork in particular is not an
+      // answer: the installation grant cannot push to another repository and
+      // an operator has to resolve that, so it must stay visible.
+      if (error.code === "flow_pull_request_closed") {
+        return { ok: true, status: 200, skipped: "pull_request_closed" };
+      }
+      return { ok: false, status: error.status, error: error.message };
+    }
+
+$ grep -n 'FLOW_TERMINAL_LAUNCH_STATUSES: ' packages/web/lib/proactive-runtime/integration-watch-deliveries.ts
+1396:const FLOW_TERMINAL_LAUNCH_STATUSES: ReadonlySet<number> = new Set([403, 404, 409]);
+
+So, on the hosted path, for a pull request from a fork:
+  - ten of the eleven subscriptions fail TERMINALLY with 409
+    flow_pull_request_fork, which Cloud intends to stay visible;
+  - check_run.completed alone dies earlier and SILENTLY, skipped as
+    not_a_pull_request because check_run.pull_requests is empty.
+Fixing the attribution would convert that silent skip into the same
+409. It would not enable fork CI. README corrected accordingly.
