@@ -47,7 +47,7 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@relayfile/adapter-core": "0.5.26",
+    "@relayfile/adapter-core": "0.6.2",
     "@relayfile/relay-helpers": "0.4.12",
     "@relayflows/surface": "2.0.25",
     "@types/js-yaml": "^4.0.9",

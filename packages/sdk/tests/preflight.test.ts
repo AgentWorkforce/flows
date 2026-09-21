@@ -681,7 +681,7 @@ describe('preflight: CLI resolution and refusal predicates', () => {
         { ref: 'github:o/r@main#ext', fetch: repo([...files(manifest), { path: 'ext/link', data: Buffer.from('x'), mode: '120000' }]) },
         { ref: 'github:o/r@main#ext', fetch: repo([...files(manifest), { path: 'ext/big', data: Buffer.alloc(256_001) }]) },
         { ref: 'github:o/r@main#ext', fetch: repo(files({ ...manifest, kind: 'banana' })) },
-        { ref: 'github:o/r@main#ext', fetch: repo(files({ ...manifest, triggers: [{ provider: 'github', event: 'pull_request', actions: ['ready_for_review'] }] })) },
+        { ref: 'github:o/r@main#ext', fetch: repo(files({ ...manifest, triggers: [{ provider: 'github', event: 'pull_request', actions: ['future_action'] }] })) },
         { ref: 'github:o/r@main#ext', fetch: repo(files({ ...manifest, compat: { ...manifest.compat, surface: '^1.0.0' } })) },
         { ref: 'github:o/r@main#ext', fetch: repo(files({ ...manifest, source: { host: 'github', owner: 'someone', repo: 'else', path: 'ext' } })) },
       ];

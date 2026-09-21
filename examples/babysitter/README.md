@@ -75,12 +75,9 @@ flows add github:AgentWorkforce/flows@<sha>#examples/babysitter
 
 The manifest's `triggers` are the eleven-subscription contract in
 `subscriptions.ts`, family by family, and `tests/manifest.test.ts` pins the
-two lists to each other. Three of those actions — `pull_request.ready_for_review`,
-`labeled`, `unlabeled` — are not yet in the surface event registry
-(`providerEventTypes`), so the flows CLI refuses this manifest with
-`plugin_event_unroutable` until that registry change lands; the manifest
-deliberately declares the full contract rather than the routable subset, so
-that an install grants exactly the events the flow registers.
+two lists to each other. The Surface registry includes all eleven events,
+including `pull_request.ready_for_review`, `labeled`, and `unlabeled`, so an
+install grants exactly the events the flow registers.
 
 ## Operator input
 

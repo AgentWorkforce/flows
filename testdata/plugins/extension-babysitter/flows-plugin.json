@@ -27,7 +27,10 @@
         "opened",
         "synchronize",
         "reopened",
-        "closed"
+        "ready_for_review",
+        "closed",
+        "labeled",
+        "unlabeled"
       ]
     },
     {
