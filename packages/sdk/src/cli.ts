@@ -356,6 +356,7 @@ async function checkAuthoredFlowComposed(path: string): Promise<{ report: CheckR
       ...mcp.report,
       ...(triggers?.report.schedules === undefined ? {} : { schedules: triggers.report.schedules }),
       ...(triggers?.report.extensions === undefined ? {} : { extensions: triggers.report.extensions }),
+      ...(triggers?.report.hooks === undefined ? {} : { hooks: triggers.report.hooks }),
       // The authored definition sees helper flags, body use and `cli:`
       // declarations; the compiled view underneath knows only its steps.
       ...(triggers?.report.requirements === undefined ? {} : { requirements: triggers.report.requirements }),

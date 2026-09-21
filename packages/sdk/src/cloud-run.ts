@@ -185,7 +185,10 @@ export async function prepareCloudSubmission(
     workflow: authored.source, fileType: 'ts', authoredAuthority: authored.authority,
     inputs: authoredInput, inputPresent: true, name: authored.name, schedules: authored.schedules,
     ...(authored.extensions.length === 0 ? {} : { extensions: authored.extensions }),
-    specHash: createHash('sha256').update(canonicalize({ authority: authored.authority, input: authoredInput })).digest('hex'),
+    specHash: createHash('sha256').update(canonicalize({
+      authority: authored.authority, input: authoredInput,
+      extensions: authored.extensions.map(extension => ({ name: extension.name, digest: extension.digest, ref: extension.ref })),
+    })).digest('hex'),
   };
 }
 

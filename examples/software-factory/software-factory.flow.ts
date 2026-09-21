@@ -89,7 +89,7 @@ export default flow<Input>("software-factory", {
   if (verdict.trim() === "PASSED") {
     const origin = (await f.run("git remote get-url origin")).trim();
     const headSha = (await f.run("git rev-parse HEAD")).trim();
-    const matched = /github\.com[:/]([^/]+)\/([^/.]+)/.exec(origin);
+    const matched = /github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?$/.exec(origin);
     const allowed = await f.hook("merge-gate", {
       owner: matched?.[1] ?? "",
       repo: matched?.[2] ?? "",

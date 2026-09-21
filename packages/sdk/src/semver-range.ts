@@ -29,7 +29,29 @@ function compare(a: Parsed, b: Parsed): number {
   if (a.pre === b.pre) return 0;
   if (a.pre === undefined) return 1;
   if (b.pre === undefined) return -1;
-  return a.pre < b.pre ? -1 : 1;
+  return comparePrerelease(a.pre, b.pre);
+}
+
+function comparePrerelease(a: string, b: string): number {
+  const as = a.split('.');
+  const bs = b.split('.');
+  const n = Math.max(as.length, bs.length);
+  for (let i = 0; i < n; i++) {
+    const left = as[i];
+    const right = bs[i];
+    if (left === undefined) return -1;
+    if (right === undefined) return 1;
+    const leftNum = /^\d+$/.test(left) ? Number(left) : undefined;
+    const rightNum = /^\d+$/.test(right) ? Number(right) : undefined;
+    if (leftNum !== undefined && rightNum !== undefined) {
+      if (leftNum !== rightNum) return leftNum - rightNum;
+      continue;
+    }
+    if (leftNum !== undefined) return -1;
+    if (rightNum !== undefined) return 1;
+    if (left !== right) return left < right ? -1 : 1;
+  }
+  return 0;
 }
 
 /** Whether `version` satisfies `range`; false for malformed input rather than a throw. */

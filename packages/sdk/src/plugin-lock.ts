@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PluginError } from './plugin-manifest.js';
 import { SHA, canonicalPluginRef, isGithubPluginRef, parseCanonicalPluginRef, type PluginSourceRef } from './plugin-source.js';
@@ -73,6 +73,17 @@ export function readPluginLock(root: string): PluginLock {
 
 export function writePluginLock(root: string, lock: PluginLock): void {
   writeFileSync(join(root, PLUGIN_LOCK_FILE), `${JSON.stringify(parsePluginLock(lock), null, 2)}\n`);
+}
+
+/** Write declaration and lock temps, then rename both so a crash cannot leave one updated. */
+export function writeFlowsAndLock(root: string, configPath: string, config: Record<string, unknown>, plugins: readonly string[], lock: PluginLock): void {
+  const jsonTmp = `${configPath}.tmp`;
+  const lockPath = join(root, PLUGIN_LOCK_FILE);
+  const lockTmp = `${lockPath}.tmp`;
+  writeFileSync(jsonTmp, `${JSON.stringify({ ...config, plugins: [...plugins] }, null, 2)}\n`);
+  writeFileSync(lockTmp, `${JSON.stringify(parsePluginLock(lock), null, 2)}\n`);
+  renameSync(lockTmp, lockPath);
+  renameSync(jsonTmp, configPath);
 }
 
 /**

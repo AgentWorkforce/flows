@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { CliIo } from '../cli.js';
 import { diffExtension, extensionManifestOf } from './add-extension.js';
@@ -7,7 +7,7 @@ import { validateFlowExtensionManifest, type FlowExtensionManifest } from '../fl
 import { fetchGithubPlugin, resolveGithubSha, type FetchLike } from '../plugin-github.js';
 import {
   PLUGIN_LOCK_FILE, lockForDeclared, lockWithPlugin, lockedPlugins, readPluginLock, reconcileDeclaredExtensions,
-  writePluginLock, type PluginLock, type PluginLockEntry,
+  writeFlowsAndLock, type PluginLock, type PluginLockEntry,
 } from '../plugin-lock.js';
 import { findPluginProject } from '../plugin-loader.js';
 import { PluginError } from '../plugin-manifest.js';
@@ -134,11 +134,6 @@ function readFlowsConfig(root: string): { path: string; config: Record<string, u
   return { path, config, plugins: [...((config.plugins as string[] | undefined) ?? [])] };
 }
 
-function writeFlowsPlugins(path: string, config: Record<string, unknown>, plugins: readonly string[]): void {
-  config.plugins = [...plugins];
-  writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
-}
-
 function storedManifest(directory: string): FlowExtensionManifest {
   let raw: string;
   try { raw = readFileSync(join(directory, 'flows-plugin.json'), 'utf8'); }
@@ -165,8 +160,7 @@ async function removePlugin(root: string, parsed: Extract<PluginArgs, { sub: 're
   const { path, config, plugins } = readFlowsConfig(root);
   const nextDeclared = plugins.filter(ref => ref !== match.ref);
   const nextLock = lockForDeclared(readPluginLock(root), nextDeclared);
-  writeFlowsPlugins(path, config, nextDeclared);
-  writePluginLock(root, nextLock);
+  writeFlowsAndLock(root, path, config, nextDeclared, nextLock);
   await dropUnreferencedStore(root, match.entry.name, match.entry.digest, nextLock);
   if (parsed.json) {
     io.stdout(JSON.stringify({ ok: true, removed: { name: match.entry.name, ref: match.ref, digest: match.entry.digest } }));
@@ -256,7 +250,17 @@ async function updatePlugins(
     if (parsed.json) io.stdout(JSON.stringify({ ok: true, plugins: summary }));
     return 0;
   }
-  if (!parsed.yes) throw new PluginError('plugin_manifest_invalid', 'Re-run with --yes to apply this update.');
+  if (!parsed.yes) {
+    if (parsed.json) {
+      io.stdout(JSON.stringify({
+        ok: false, applied: false, code: 'plugin_manifest_invalid',
+        message: 'Re-run with --yes to apply this update.', plugins: summary,
+      }));
+      io.stderr('REFUSED [plugin_manifest_invalid] Re-run with --yes to apply this update.');
+      return 2;
+    }
+    throw new PluginError('plugin_manifest_invalid', 'Re-run with --yes to apply this update.');
+  }
 
   let declared = readFlowsConfig(root).plugins;
   let lock = readPluginLock(root);
@@ -271,8 +275,7 @@ async function updatePlugins(
       resolvedAt: (options.now ?? (() => new Date()))().toISOString(),
     });
     const { path, config } = readFlowsConfig(root);
-    writeFlowsPlugins(path, config, declared);
-    writePluginLock(root, lock);
+    writeFlowsAndLock(root, path, config, declared, lock);
     await dropUnreferencedStore(root, plan.current.entry.name, plan.current.entry.digest, lock);
     applied.push({ name: plan.manifest.name, ref: plan.ref, digest });
   }

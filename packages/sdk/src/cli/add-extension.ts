@@ -1,11 +1,11 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { CliIo } from '../cli.js';
 import { sha256 } from '../bundle.js';
 import { assertCompatible, runtimeVersions, type RuntimeVersions } from '../flow-extension-compat.js';
 import { validateFlowExtensionManifest, type FlowExtensionManifest } from '../flow-extension-manifest.js';
 import { fetchGithubPlugin, resolveGithubSha, type FetchLike, type FetchedPlugin } from '../plugin-github.js';
-import { PLUGIN_LOCK_FILE, lockWithPlugin, readPluginLock, writePluginLock } from '../plugin-lock.js';
+import { PLUGIN_LOCK_FILE, lockWithPlugin, readPluginLock, writeFlowsAndLock } from '../plugin-lock.js';
 import { findPluginProject } from '../plugin-loader.js';
 import { PluginError } from '../plugin-manifest.js';
 import { canonicalPluginRef, parsePluginSource } from '../plugin-source.js';
@@ -118,14 +118,12 @@ export async function addExtensionPlugin(input: string, io: CliIo, options: AddE
       source: { host: 'github', owner: source.owner, repo: source.repo, sha: source.sha, path: source.path },
       digest, manifestSha256, resolvedAt: (options.now ?? (() => new Date()))().toISOString(),
     });
-    config.plugins = plugins;
-    writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
-    writePluginLock(root, next);
+    writeFlowsAndLock(root, configPath, config, plugins, next);
     io.stdout(`Added ${manifest.name}@${manifest.version} (flow-extension) from ${ref}`);
     io.stdout(`  digest sha256:${digest}`);
     io.stdout(`  materialized at ${directory}`);
     for (const line of describeExtension(manifest)) io.stdout(line);
-    io.stdout(`  recorded in flows.json and ${PLUGIN_LOCK_FILE}; runtime composition is not yet supported (plugin_unsupported at run time)`);
+    io.stdout(`  recorded in flows.json and ${PLUGIN_LOCK_FILE}`);
     return 0;
   } catch (error) {
     const refusal = error instanceof PluginError ? error : new PluginError('plugin_manifest_invalid', (error as Error).message);

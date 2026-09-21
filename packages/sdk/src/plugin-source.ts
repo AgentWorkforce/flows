@@ -59,8 +59,12 @@ export function parsePluginSource(input: string): PluginSourceInput {
     if (url.username || url.password || url.search || url.hash) return invalid('Plugin URL must not carry credentials, a query, or a fragment.');
     const m = /^\/([^/]+)\/([^/]+)\/(?:tree|blob)\/([^/]+)(?:\/(.*))?$/.exec(url.pathname);
     if (!m) return invalid('Expected https://github.com/<owner>/<repo>/tree/<ref>/<path>.');
-    [, owner, repo, ref] = m.map(part => part === undefined ? part : decodeURIComponent(part));
-    path = m[4] === undefined ? '' : decodeURIComponent(m[4]);
+    try {
+      [, owner, repo, ref] = m.map(part => part === undefined ? part : decodeURIComponent(part));
+      path = m[4] === undefined ? '' : decodeURIComponent(m[4]);
+    } catch {
+      return invalid('Plugin URL contains invalid percent-encoding.');
+    }
   } else return invalid('Expected a github: reference or a https://github.com/ URL.');
   if (owner === undefined || !OWNER.test(owner)) return invalid('Invalid GitHub owner.');
   if (repo === undefined || !REPO.test(repo) || repo === '.' || repo === '..') return invalid('Invalid GitHub repository name.');

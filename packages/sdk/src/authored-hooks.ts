@@ -33,6 +33,7 @@ export function createHookEvaluator(options: {
   readonly extensions: readonly LoadedFlowExtension[];
   readonly peekStep?: () => number;
   readonly restoreStep?: (step: number) => void;
+  readonly signal?: AbortSignal;
 }): (id: string, name: string, input: unknown, context: Ctx) => Promise<boolean> {
   let recorded: Promise<Map<string, HookRecord>> | undefined;
 
@@ -92,7 +93,7 @@ export function createHookEvaluator(options: {
         let verdict = false;
         let because: string | undefined;
         try {
-          verdict = await extension.hooks[name]!(context, input) === true;
+          verdict = await boundHook(extension.hooks[name]!(context, input), options.signal) === true;
         } catch (error) {
           verdict = false;
           because = error instanceof Error ? error.message : String(error);
@@ -111,4 +112,20 @@ export function createHookEvaluator(options: {
     }
     return true;
   };
+}
+
+const HOOK_DEADLINE_MS = 15 * 60 * 1000;
+
+async function boundHook(run: Promise<boolean>, signal?: AbortSignal): Promise<boolean> {
+  const timeout = AbortSignal.timeout(HOOK_DEADLINE_MS);
+  const abort = signal === undefined ? timeout : AbortSignal.any([signal, timeout]);
+  if (abort.aborted) throw new Error('hook cancelled');
+  return await new Promise<boolean>((resolve, reject) => {
+    const onAbort = () => reject(new Error('hook cancelled'));
+    abort.addEventListener('abort', onAbort, { once: true });
+    run.then(
+      value => { abort.removeEventListener('abort', onAbort); resolve(value); },
+      error => { abort.removeEventListener('abort', onAbort); reject(error); },
+    );
+  });
 }

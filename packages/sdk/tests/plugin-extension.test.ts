@@ -54,6 +54,7 @@ describe('plugin source references', () => {
     'github:o/r@main#../etc', 'github:o/r@main#a/../b', 'github:o/r@main#/abs', 'github:o/r@../x', 'github:o/r@main#a\\b',
     'https://github.com/o/r/tree/main/x?token=1', 'https://user:pw@github.com/o/r/tree/main/x', 'https://gitlab.com/o/r/tree/main/x',
     'github:o/r', 'github:o/r@main#examples/flows-plugin.json', 'github:-bad/r@main', 'github:o/r@main.lock',
+    'https://github.com/o/r/tree/main/%E0%A4%A',
   ])('refuses %s', input => {
     expect(() => parsePluginSource(input)).toThrow(expect.objectContaining({ code: 'plugin_source_invalid' }));
   });
@@ -71,6 +72,7 @@ describe('semver ranges', () => {
     ['2.0.30', '~2.0.22', true], ['2.1.0', '~2.0.22', false], ['5.0.0', '>=2.0.0', true], ['2.5.0', '>=2.0.0 <2.5.0', false],
     ['2.0.22', '2.0.22', true], ['2.0.23', '2.0.22', false], ['0.0.9', '*', true], ['0.1.5', '^0.1.0', true], ['0.2.0', '^0.1.0', false],
     ['2.0.22', 'latest', false], ['x', '*', false],
+    ['1.0.0-alpha.10', '>=1.0.0-alpha.2', true], ['1.0.0-alpha.2', '>=1.0.0-alpha.10', false],
   ])('%s satisfies %s → %s', (version, range, ok) => { expect(satisfiesRange(version, range)).toBe(ok); });
 });
 
@@ -92,7 +94,7 @@ describe('flows add <github ref>', () => {
     expect(p.text()).toContain(`Added babysitter@0.1.0 (flow-extension) from ${REF}`);
     expect(p.text()).toContain('events: github pull_request[opened,synchronize,reopened,closed]; github pull_request_review[submitted,dismissed]; github check_run[completed]; github issue_comment[created]');
     expect(p.text()).toContain('writes (declared, unenforced): github:pull_request:comment');
-    expect(p.text()).toContain('runtime composition is not yet supported');
+    expect(p.text()).toContain('recorded in flows.json and flows.lock.json');
     expect(gh.calls.some(url => url.includes('/commits/feat%2Fbabysitter-v2'))).toBe(true);
     // A tag naming the same commit is a no-op re-add: no duplicate declaration, same lock entry.
     expect(await addPlugin('https://github.com/AgentWorkforce/flows/tree/v0.1.0/examples/babysitter', p.io, { cwd: p.cwd, extension: { fetch: gh.fetch, now, versions } })).toBe(0);
@@ -353,6 +355,18 @@ describe('flows plugin remove / update', () => {
       cwd: p.cwd, fetch: gh.fetch, now, versions,
     })).toBe(0);
     expect(JSON.parse(p.text())).toMatchObject({ ok: true, plugins: [{ name: 'babysitter', changed: false, digest }] });
+  });
+  it('emits the permissions diff in JSON without --yes and does not rewrite the lock', async () => {
+    const { p, digest } = await installed();
+    const updated = github(withManifest(m => ({ ...m, version: '0.2.0' })));
+    updated.repos['AgentWorkforce/flows']!.commits[SHA_B] = updated.repos['AgentWorkforce/flows']!.commits[SHA_A]!;
+    const to = `github:AgentWorkforce/flows@${SHA_B}#examples/babysitter`;
+    p.messages.length = 0;
+    expect(await runPluginCommand({ command: 'plugin', sub: 'update', json: true, yes: false, name: 'babysitter', to }, p.io, {
+      cwd: p.cwd, fetch: updated.fetch, now, versions,
+    })).toBe(2);
+    expect(JSON.parse(p.messages.find(line => line.startsWith('{'))!)).toMatchObject({ ok: false, applied: false, code: 'plugin_manifest_invalid', plugins: [{ name: 'babysitter', changed: true }] });
+    expect(readPluginLock(p.cwd).plugins[0]!.digest).toBe(digest);
   });
   it('parses the new subcommands and refuses a malformed invocation', () => {
     expect(parsePluginArgs(['remove', 'babysitter'])).toEqual({ command: 'plugin', sub: 'remove', json: false, name: 'babysitter' });

@@ -364,6 +364,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     extensions: options.extensions ?? [],
     peekStep: () => nextStep,
     restoreStep: (step) => { nextStep = step; },
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
   });
 
   const context: Ctx = {
