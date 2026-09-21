@@ -6,7 +6,7 @@ import { assertCompatible, runtimeVersions, type RuntimeVersions } from '../flow
 import { validateFlowExtensionManifest, type FlowExtensionManifest } from '../flow-extension-manifest.js';
 import { fetchGithubPlugin, resolveGithubSha, type FetchLike } from '../plugin-github.js';
 import {
-  PLUGIN_LOCK_FILE, lockForDeclared, lockWithPlugin, lockedPlugins, readPluginLock, reconcileDeclaredExtensions,
+  PLUGIN_LOCK_FILE, lockForDeclared, lockWithPlugin, lockedPlugins, readPluginLock, reconcileDeclaredExtensions, recoverFlowsAndLock,
   writeFlowsAndLock, type PluginLock, type PluginLockEntry,
 } from '../plugin-lock.js';
 import { findPluginProject } from '../plugin-loader.js';
@@ -120,6 +120,7 @@ export async function runPluginCommand(parsed: PluginArgs, io: CliIo, options: P
 }
 
 function readFlowsConfig(root: string): { path: string; config: Record<string, unknown>; plugins: string[] } {
+  recoverFlowsAndLock(root);
   const path = join(root, 'flows.json');
   let parsed: unknown;
   try { parsed = JSON.parse(readFileSync(path, 'utf8')); }

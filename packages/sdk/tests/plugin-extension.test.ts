@@ -9,7 +9,7 @@ import { runCli } from '../src/cli.js';
 import { validateFlowExtensionManifest } from '../src/flow-extension-manifest.js';
 import { fetchGithubPlugin, resolveGithubSha } from '../src/plugin-github.js';
 import { loadPlugins } from '../src/plugin-loader.js';
-import { parsePluginLock, readPluginLock } from '../src/plugin-lock.js';
+import { parsePluginLock, readPluginLock, reconcileDeclaredExtensions } from '../src/plugin-lock.js';
 import { validatePluginManifest } from '../src/plugin-manifest.js';
 import { canonicalPluginRef, parseCanonicalPluginRef, parsePluginSource } from '../src/plugin-source.js';
 import { pluginStoreDirectory } from '../src/plugin-store.js';
@@ -112,6 +112,28 @@ describe('flows add <github ref>', () => {
     const c = project();
     await addExtensionPlugin(REF, c.io, { cwd: c.cwd, fetch: changed.fetch, now, versions });
     expect(readPluginLock(c.cwd).plugins[0]!.digest).not.toBe(readPluginLock(a.cwd).plugins[0]!.digest);
+  });
+  it('recovers both crash points in the flows.json and lock transaction', async () => {
+    const gh = github();
+    for (const lockAlreadyRenamed of [false, true]) {
+      const p = project({ cli: 'claude' });
+      await addExtensionPlugin(REF, p.io, { cwd: p.cwd, fetch: gh.fetch, now, versions });
+      const nextConfig = JSON.stringify({ cli: 'claude', plugins: [] });
+      const nextLock = JSON.stringify({ version: 2, plugins: [] });
+      writeFileSync(join(p.cwd, 'flows.json.tmp'), nextConfig);
+      writeFileSync(join(p.cwd, lockAlreadyRenamed ? 'flows.lock.json' : 'flows.lock.json.tmp'), nextLock);
+
+      expect(reconcileDeclaredExtensions(p.cwd)).toEqual([]);
+      expect(JSON.parse(readFileSync(join(p.cwd, 'flows.json'), 'utf8'))).toEqual({ cli: 'claude', plugins: [] });
+      expect(readPluginLock(p.cwd)).toEqual({ version: 2, plugins: [] });
+      expect(existsSync(join(p.cwd, 'flows.json.tmp'))).toBe(false);
+      expect(existsSync(join(p.cwd, 'flows.lock.json.tmp'))).toBe(false);
+    }
+
+    const aborted = project();
+    writeFileSync(join(aborted.cwd, 'flows.lock.json.tmp'), JSON.stringify({ version: 2, plugins: [] }));
+    expect(readPluginLock(aborted.cwd)).toEqual({ version: 2, plugins: [] });
+    expect(existsSync(join(aborted.cwd, 'flows.lock.json.tmp'))).toBe(false);
   });
   it.each([
     ['github:AgentWorkforce/flows@nope#examples/babysitter', 'plugin_source_unresolved'],

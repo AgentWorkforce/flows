@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PluginError } from './plugin-manifest.js';
 import { SHA, canonicalPluginRef, isGithubPluginRef, parseCanonicalPluginRef, type PluginSourceRef } from './plugin-source.js';
@@ -12,6 +12,7 @@ import { SHA, canonicalPluginRef, isGithubPluginRef, parseCanonicalPluginRef, ty
  */
 export const PLUGIN_LOCK_FILE = 'flows.lock.json';
 export const PLUGIN_LOCK_VERSION = 2;
+const FLOWS_FILE = 'flows.json';
 
 export interface PluginLockEntry {
   readonly name: string;
@@ -63,6 +64,7 @@ export function parsePluginLock(input: unknown): PluginLock {
 
 /** Absent file → empty lock; unreadable or malformed → refusal. */
 export function readPluginLock(root: string): PluginLock {
+  recoverFlowsAndLock(root);
   const path = join(root, PLUGIN_LOCK_FILE);
   if (!existsSync(path)) return Object.freeze({ version: PLUGIN_LOCK_VERSION, plugins: Object.freeze([]) });
   let parsed: unknown;
@@ -75,15 +77,47 @@ export function writePluginLock(root: string, lock: PluginLock): void {
   writeFileSync(join(root, PLUGIN_LOCK_FILE), `${JSON.stringify(parsePluginLock(lock), null, 2)}\n`);
 }
 
-/** Write declaration and lock temps, then rename both so a crash cannot leave one updated. */
+/**
+ * Finish or abort a two-file update left by a process crash. The lock temp is
+ * written first: by itself it is only preparation and can be discarded. Once
+ * the config temp exists, both complete snapshots exist and recovery rolls
+ * them forward in the same lock-then-declaration order as the writer.
+ */
+export function recoverFlowsAndLock(root: string, configPath = join(root, FLOWS_FILE)): void {
+  const jsonTmp = `${configPath}.tmp`;
+  const lockPath = join(root, PLUGIN_LOCK_FILE);
+  const lockTmp = `${lockPath}.tmp`;
+  const hasJson = existsSync(jsonTmp);
+  const hasLock = existsSync(lockTmp);
+  if (!hasJson && !hasLock) return;
+  if (!hasJson) {
+    unlinkSync(lockTmp);
+    return;
+  }
+  let pendingConfig: unknown;
+  try { pendingConfig = JSON.parse(readFileSync(jsonTmp, 'utf8')); }
+  catch { return invalid('pending transaction has invalid flows.json.tmp.'); }
+  if (!object(pendingConfig) || !Array.isArray(pendingConfig.plugins)
+    || !pendingConfig.plugins.every(plugin => typeof plugin === 'string')) {
+    return invalid('pending transaction has invalid flows.json.tmp.');
+  }
+  const lockSource = hasLock ? lockTmp : lockPath;
+  let pendingLock: unknown;
+  try { pendingLock = JSON.parse(readFileSync(lockSource, 'utf8')); }
+  catch { return invalid('pending transaction has no valid lock snapshot.'); }
+  parsePluginLock(pendingLock);
+  if (hasLock) renameSync(lockTmp, lockPath);
+  renameSync(jsonTmp, configPath);
+}
+
+/** Write complete snapshots, then recover them as one roll-forward transaction. */
 export function writeFlowsAndLock(root: string, configPath: string, config: Record<string, unknown>, plugins: readonly string[], lock: PluginLock): void {
   const jsonTmp = `${configPath}.tmp`;
   const lockPath = join(root, PLUGIN_LOCK_FILE);
   const lockTmp = `${lockPath}.tmp`;
-  writeFileSync(jsonTmp, `${JSON.stringify({ ...config, plugins: [...plugins] }, null, 2)}\n`);
   writeFileSync(lockTmp, `${JSON.stringify(parsePluginLock(lock), null, 2)}\n`);
-  renameSync(lockTmp, lockPath);
-  renameSync(jsonTmp, configPath);
+  writeFileSync(jsonTmp, `${JSON.stringify({ ...config, plugins: [...plugins] }, null, 2)}\n`);
+  recoverFlowsAndLock(root, configPath);
 }
 
 /**
@@ -121,6 +155,7 @@ export function lockedPlugins(lock: PluginLock): readonly { ref: string; entry: 
 
 /** The `github:` entries of `flows.json.plugins`, in declaration order; helper entries are left out. */
 export function declaredExtensionRefs(root: string): readonly string[] {
+  recoverFlowsAndLock(root);
   let config: { plugins?: unknown };
   try { config = JSON.parse(readFileSync(join(root, 'flows.json'), 'utf8')); }
   catch { throw new PluginError('plugin_manifest_invalid', 'Invalid flows.json.'); }

@@ -5,7 +5,7 @@ import { sha256 } from '../bundle.js';
 import { assertCompatible, runtimeVersions, type RuntimeVersions } from '../flow-extension-compat.js';
 import { validateFlowExtensionManifest, type FlowExtensionManifest } from '../flow-extension-manifest.js';
 import { fetchGithubPlugin, resolveGithubSha, type FetchLike, type FetchedPlugin } from '../plugin-github.js';
-import { PLUGIN_LOCK_FILE, lockWithPlugin, readPluginLock, writeFlowsAndLock } from '../plugin-lock.js';
+import { PLUGIN_LOCK_FILE, lockWithPlugin, readPluginLock, recoverFlowsAndLock, writeFlowsAndLock } from '../plugin-lock.js';
 import { findPluginProject } from '../plugin-loader.js';
 import { PluginError } from '../plugin-manifest.js';
 import { canonicalPluginRef, parsePluginSource } from '../plugin-source.js';
@@ -95,6 +95,7 @@ export async function addExtensionPlugin(input: string, io: CliIo, options: AddE
     const requested = parsePluginSource(input);
     const root = findPluginProject(options.cwd ?? process.cwd());
     if (!root) throw new PluginError('plugin_manifest_invalid', 'flows add requires a project with flows.json.');
+    recoverFlowsAndLock(root);
     const configPath = join(root, 'flows.json');
     const config = JSON.parse(readFileSync(configPath, 'utf8'));
     if (!config || Array.isArray(config) || typeof config !== 'object' || (config.plugins !== undefined && (!Array.isArray(config.plugins) || !config.plugins.every((p: unknown) => typeof p === 'string')))) throw new PluginError('plugin_manifest_invalid', 'Invalid flows.json plugins list.');
