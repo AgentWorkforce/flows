@@ -96,16 +96,27 @@ export function recoverFlowsAndLock(root: string, configPath = join(root, FLOWS_
   }
   let pendingConfig: unknown;
   try { pendingConfig = JSON.parse(readFileSync(jsonTmp, 'utf8')); }
-  catch { return invalid('pending transaction has invalid flows.json.tmp.'); }
+  catch {
+    if (hasLock) { unlinkSync(jsonTmp); unlinkSync(lockTmp); return; }
+    return invalid('pending transaction has invalid flows.json.tmp.');
+  }
   if (!object(pendingConfig) || !Array.isArray(pendingConfig.plugins)
     || !pendingConfig.plugins.every(plugin => typeof plugin === 'string')) {
+    if (hasLock) { unlinkSync(jsonTmp); unlinkSync(lockTmp); return; }
     return invalid('pending transaction has invalid flows.json.tmp.');
   }
   const lockSource = hasLock ? lockTmp : lockPath;
   let pendingLock: unknown;
   try { pendingLock = JSON.parse(readFileSync(lockSource, 'utf8')); }
-  catch { return invalid('pending transaction has no valid lock snapshot.'); }
-  parsePluginLock(pendingLock);
+  catch {
+    if (hasLock) { unlinkSync(jsonTmp); unlinkSync(lockTmp); return; }
+    return invalid('pending transaction has no valid lock snapshot.');
+  }
+  try { parsePluginLock(pendingLock); }
+  catch (error) {
+    if (hasLock) { unlinkSync(jsonTmp); unlinkSync(lockTmp); return; }
+    throw error;
+  }
   if (hasLock) renameSync(lockTmp, lockPath);
   renameSync(jsonTmp, configPath);
 }

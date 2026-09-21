@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { BundleFile } from './bundle.js';
 import { safePath, sha256 } from './bundle.js';
@@ -36,7 +36,10 @@ export async function verifyBundlePluginLock(bundle: string): Promise<void> {
   let parsed: unknown;
   try { parsed = JSON.parse(await readFile(join(bundle, 'lockfile.json'), 'utf8')); }
   catch { throw new Error('lockfile.json: not valid JSON'); }
-  if (isLegacyV1Lock(parsed) || isLegacyNpmLock(parsed)) return;
+  if (isLegacyV1Lock(parsed) || isLegacyNpmLock(parsed)) {
+    await assertNoLegacyPluginPayload(bundle);
+    return;
+  }
   let lock: PluginLock;
   try { lock = parsePluginLock(parsed); }
   catch (error) {
@@ -54,6 +57,18 @@ export async function verifyBundlePluginLock(bundle: string): Promise<void> {
     if (sha256(pluginManifest) !== entry.manifestSha256) {
       throw new Error(`lockfile.json: plugin ${entry.name} flows-plugin.json does not match the lockfile manifest hash`);
     }
+  }
+}
+
+async function assertNoLegacyPluginPayload(bundle: string): Promise<void> {
+  let entries: string[];
+  try { entries = await readdir(join(bundle, 'plugins')); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw error;
+  }
+  if (entries.length > 0) {
+    throw new Error('lockfile.json: legacy locks cannot authenticate plugins/ payloads');
   }
 }
 

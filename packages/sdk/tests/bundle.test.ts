@@ -231,6 +231,15 @@ describe('immutable bundles', () => {
     await verifyBundlePluginLock(bundle);
   });
 
+  it('never accepts plugin payloads under a legacy npm lock', async () => {
+    const bundle = await temp();
+    await writeFile(join(bundle, 'lockfile.json'), JSON.stringify({ lockfileVersion: 3, packages: {} }));
+    await verifyBundlePluginLock(bundle);
+    await mkdir(join(bundle, 'plugins/example'), { recursive: true });
+    await writeFile(join(bundle, 'plugins/example/entry.js'), 'export default true;\n');
+    await expect(verifyBundlePluginLock(bundle)).rejects.toThrow('legacy locks cannot authenticate plugins/ payloads');
+  });
+
   it('seals materialized flow-extension files under plugins/<name>/ and verifies them', async () => {
     const cwd = await temp();
     const fixture = join(repo, 'testdata/plugins/extension-babysitter');

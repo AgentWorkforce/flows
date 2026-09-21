@@ -134,6 +134,14 @@ describe('flows add <github ref>', () => {
     writeFileSync(join(aborted.cwd, 'flows.lock.json.tmp'), JSON.stringify({ version: 2, plugins: [] }));
     expect(readPluginLock(aborted.cwd)).toEqual({ version: 2, plugins: [] });
     expect(existsSync(join(aborted.cwd, 'flows.lock.json.tmp'))).toBe(false);
+
+    const truncated = project({ cli: 'claude' });
+    writeFileSync(join(truncated.cwd, 'flows.lock.json.tmp'), JSON.stringify({ version: 2, plugins: [] }));
+    writeFileSync(join(truncated.cwd, 'flows.json.tmp'), '{"plugins":');
+    expect(readPluginLock(truncated.cwd)).toEqual({ version: 2, plugins: [] });
+    expect(JSON.parse(readFileSync(join(truncated.cwd, 'flows.json'), 'utf8'))).toEqual({ cli: 'claude' });
+    expect(existsSync(join(truncated.cwd, 'flows.json.tmp'))).toBe(false);
+    expect(existsSync(join(truncated.cwd, 'flows.lock.json.tmp'))).toBe(false);
   });
   it.each([
     ['github:AgentWorkforce/flows@nope#examples/babysitter', 'plugin_source_unresolved'],
@@ -402,6 +410,16 @@ describe('flows plugin remove / update', () => {
 });
 
 describe('legacy helper plugins are untouched', () => {
+  it('recovers a pending extension transaction before adding a helper', async () => {
+    const p = project({ plugins: ['old-helper'] });
+    writeFileSync(join(p.cwd, 'flows.lock.json.tmp'), JSON.stringify({ version: 2, plugins: [] }));
+    writeFileSync(join(p.cwd, 'flows.json.tmp'), JSON.stringify({ plugins: ['pending-helper'] }));
+    vi.stubEnv('DATADOG_API_KEY', 'test');
+    const install = () => cpSync(join(fixtureRoot, 'helper-datadog'), join(p.cwd, 'node_modules/@flows/helper-datadog'), { recursive: true });
+    expect(await addPlugin('helper-datadog', p.io, { cwd: p.cwd, install })).toBe(0);
+    expect(JSON.parse(readFileSync(join(p.cwd, 'flows.json'), 'utf8')).plugins)
+      .toEqual(['pending-helper', '@flows/helper-datadog']);
+  });
   it('never contacts GitHub for a helper name and leaves the helper path to npm', async () => {
     const gh = github(); const p = project();
     const install = vi.fn(() => { throw { stderr: 'offline' }; });
