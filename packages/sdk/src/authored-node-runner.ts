@@ -13,6 +13,7 @@ import {
   AuthoredFlowExecutionError, AuthoredHumanParked,
   type AuthoredFlowExecutionErrorCode, type AuthoredHumanWait,
 } from './authored-flow-error.js';
+import type { StepFailedDetails } from './failure-kinds.js';
 import { HUMAN_WAIT_ID } from './authored-human.js';
 import { assertAuthoredPromiseHooks } from './authored-runtime-capability.js';
 
@@ -139,7 +140,8 @@ export async function runAuthoredInNode(
                 ? new AuthoredHumanParked(message.wait, rootRunId)
                 : typeof message.code === 'string'
                   ? new AuthoredFlowExecutionError(message.code as AuthoredFlowExecutionErrorCode,
-                    message.message, message.completionReason, message.runId)
+                    message.message, message.completionReason, message.runId,
+                    stepFailedFrame(message.details))
                   : new Error(message.message);
             } else throw new Error('unknown authored runtime message');
           } catch (error) { stop(error instanceof Error ? error : new Error('invalid authored runtime message')); }
@@ -169,6 +171,36 @@ function isHumanWaitFrame(value: unknown): value is AuthoredHumanWait {
     && typeof wait.waitId === 'string' && HUMAN_WAIT_ID.test(wait.waitId)
     && typeof wait.question === 'string' && wait.question !== ''
     && typeof wait.to === 'string' && wait.to !== '';
+}
+
+/**
+ * Step evidence arriving over IPC, reduced to the fields `StepFailedDetails`
+ * declares and the types it declares them as. The child is the same pinned
+ * payload the parent hashed, but the frame is still a claim: an unrecognised
+ * or mistyped field is dropped rather than trusted, and a malformed `details`
+ * yields no details at all. It throws on nothing `JSON.parse` can produce —
+ * the run is already failing, and losing the original failure to report a bad
+ * evidence frame would replace the answer with a worse one.
+ */
+export function stepFailedFrame(value: unknown): StepFailedDetails | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const frame = value as Record<string, unknown>;
+  const text = (key: string): string | undefined =>
+    typeof frame[key] === 'string' ? (frame[key] as string).slice(0, 8192) : undefined;
+  const count = (key: string): number | undefined =>
+    typeof frame[key] === 'number' && Number.isSafeInteger(frame[key]) ? frame[key] as number : undefined;
+  const details: StepFailedDetails = {};
+  for (const [key, parsed] of [
+    ['stepId', text('stepId')], ['stepType', text('stepType')],
+    ['completionReason', text('completionReason')], ['attempt', count('attempt')],
+    ['maxIterations', count('maxIterations')], ['exitCode', count('exitCode')],
+    ['stdoutTail', text('stdoutTail')], ['stderrTail', text('stderrTail')],
+    ['detail', text('detail')], ['transcriptPath', text('transcriptPath')],
+    ['hint', text('hint')], ['journalPath', text('journalPath')],
+  ] as const) {
+    if (parsed !== undefined) (details as Record<string, unknown>)[key] = parsed;
+  }
+  return Object.keys(details).length === 0 ? undefined : details;
 }
 
 /** The IPC frame is a claim, not a durable terminal fact or a sandbox boundary. */

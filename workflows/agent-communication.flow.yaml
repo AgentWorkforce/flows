@@ -1,0 +1,25 @@
+version: '0.1.0'
+name: agent-communication
+cli: claude
+communication:
+  timeoutMs: 300000
+  links:
+    - { from: designer, to: reviewer }
+    - { from: reviewer, to: designer }
+steps:
+  - id: designer
+    type: agent
+    maxIterations: 1
+    instruction: >-
+      Propose a concise retry policy for a webhook handler. Send proposal-v1 to
+      reviewer. Wait for their automatically injected critique, process and ack it.
+      Send proposal-v2 addressing the critique. Wait for their final verdict,
+      process and ack it, then call complete with your final policy.
+  - id: reviewer
+    type: agent
+    maxIterations: 1
+    instruction: >-
+      Wait for designer's automatically injected proposal. Process and ack it.
+      Send critique-v1 challenging duplicate side effects under concurrent retries.
+      Wait for the revision, process and ack it. Send verdict-v1 explaining
+      whether the revision addresses the concern, then call complete.

@@ -1,3 +1,4 @@
+import { communicationInstruction } from './communication/spec.js';
 import { loadPlugins, type LoadedPlugin } from './plugin-loader.js';
 import { PluginError } from './plugin-manifest.js';
 import type { FlowSpec, StepSpec, TriggerSpec, McpServerConfig } from './spec.js';
@@ -32,7 +33,7 @@ export interface CliResolution {
 
 export interface CliProbeResult {
   exists: boolean;
-  authenticated: boolean;
+  authenticated: boolean | 'unverified';
   /** False when a custom executable did not identify as a wrapper adapter. */
   supported?: boolean;
   /** Exact declared model passed the CLI's model-scoped readiness probe. */
@@ -81,7 +82,7 @@ export interface PreflightProbes {
    * model in scope, so readiness answers "can this CLI use THIS model" rather
    * than the weaker "is this CLI authenticated at all".
    */
-  cli(cli: string, source: CliResolutionSource, model?: string): CliProbeResult;
+  cli(cli: string, source: CliResolutionSource, model?: string, execution?: 'managed'): CliProbeResult;
   executor(trigger: TriggerSpec): boolean;
   command(binary: string): boolean;
 }
@@ -303,7 +304,8 @@ function preflightSync(flow: unknown, options: PreflightOptions): PreflightResul
       continue;
     }
     const resolution = resolutionByStep.get(step.id)!;
-    probeResolvedCli(resolution, options.probes, cliProbeResults, diagnostics);
+    probeResolvedCli(resolution, options.probes, cliProbeResults, diagnostics,
+      step.type === 'agent' && communicationInstruction(step.instruction) !== undefined);
   }
 
   for (const trigger of compiled.triggers ?? []) {
@@ -464,6 +466,7 @@ function probeResolvedCli(
   probes: PreflightProbes,
   cache: Map<string, CliProbeOutcome>,
   diagnostics: PreflightDiagnostic[],
+  managed = false,
 ): void {
   // Source is load-bearing: the same relative CLI string resolves from the
   // flow directory for step/named/flow declarations and the config directory for
@@ -471,11 +474,13 @@ function probeResolvedCli(
   // Model is part of the key: the same CLI probed with two different models
   // is two different questions, and caching on the CLI alone would let a
   // model that the CLI cannot resolve inherit an earlier model's pass.
-  const cacheKey = JSON.stringify([resolution.cli, resolution.source, resolution.model ?? null]);
+  const cacheKey = JSON.stringify([resolution.cli, resolution.source, resolution.model ?? null, managed]);
   let outcome = cache.get(cacheKey);
   if (outcome === undefined) {
     try {
-      outcome = { result: probes.cli(resolution.cli, resolution.source, resolution.model) };
+      outcome = { result: managed
+        ? probes.cli(resolution.cli, resolution.source, resolution.model, 'managed')
+        : probes.cli(resolution.cli, resolution.source, resolution.model) };
     } catch (error) {
       const detail = error instanceof CliProbeError ? error.detail : undefined;
       outcome = { failure: detail ?? null };
@@ -511,7 +516,10 @@ function probeResolvedCli(
       cli: resolution.cli,
       message: `Step "${resolution.stepId}" declares CLI "${resolution.cli}", but it is neither a supported raw Claude/Codex executable nor a conforming Relayflows wrapper; custom wrappers must identify with the relayflows-agent-cli-v1 contract.`,
     });
-  } else if (!result.authenticated) {
+  } else if (managed && result.authenticated === 'unverified') {
+    diagnostics.push({ severity: 'warning', kind: 'managed_cli_unverified', stepId: resolution.stepId,
+      message: `Step "${resolution.stepId}" uses Relay's interactive CLI transport. The executable exists, but authentication${resolution.model ? ' and access to model "' + resolution.model + '"' : ''} could not be verified before startup. The managed session must execute its task and report completion; startup or task failure fails the step.` });
+  } else if (result.authenticated !== true) {
     const command = result.authCommand ?? `${resolution.cli} auth status`;
     // Say what the probe reported. A refusal that names only the command turns
     // a transient provider rejection and a genuinely unauthenticated CLI into

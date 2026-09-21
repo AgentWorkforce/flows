@@ -92,6 +92,15 @@ async function entries(directory: string, runId: string) {
 }
 
 describe('Bun 1.4.0 standalone → native Node authored lifecycle', () => {
+  it('suppresses the loader warning while preserving authored experimental warnings', () => {
+    const f = fixture(`process.emitWarning('authored warning remains visible', 'ExperimentalWarning');
+      await f.run('printf ok'); f.done('success');`);
+    const result = f.run();
+    expect(result.status, result.stderr + result.stdout).toBe(0);
+    expect(result.stderr).not.toContain('stripTypeScriptTypes');
+    expect(result.stderr).toContain('ExperimentalWarning: authored warning remains visible');
+  });
+
   it('awaits agent plus three run steps and resumes without repeating effects', async () => {
     const f = fixture(sequential + `f.done('success');`);
     const first = f.run(); expect(first.status, first.stderr + first.stdout).toBe(0);

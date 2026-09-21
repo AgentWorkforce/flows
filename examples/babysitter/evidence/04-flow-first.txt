@@ -1,0 +1,15 @@
+$ node --experimental-strip-types --test examples/babysitter/tests/flow.test.ts
+✔ seven real wake handlers and both compatibility entries use one implementation (0.949233ms)
+✔ malformed input makes zero effects; missing live state declines before agents (1.226562ms)
+✔ duplicate delivery cannot bypass missing publication or agent-scope capability (0.40124ms)
+✔ exact-head review/check wakes evaluate merge but do not simulate an unavailable receipt (0.558643ms)
+✔ authorized conflict wakes hand off unresolved semantic work; ordinary/unauthorized comments decline (0.462834ms)
+✔ merge transport sends exact SHA and fails if provider does not confirm (0.384308ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 127.620074

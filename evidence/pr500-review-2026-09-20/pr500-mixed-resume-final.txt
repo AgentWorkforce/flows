@@ -1,0 +1,14 @@
+cwd: /tmp/flows-relay-communication/packages/sdk
+$ env RELAYFLOWD_BIN=/tmp/flows-pr-cleanup/pr499/kernel/target/debug/relayflowd ./node_modules/.bin/vitest run tests/communication-mixed-resume.test.ts
+
+ RUN  v2.1.9 /tmp/flows-relay-communication/packages/sdk
+
+ ✓ tests/communication-mixed-resume.test.ts (1 test) 162ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  01:48:42
+   Duration  1.07s (transform 387ms, setup 0ms, collect 689ms, tests 162ms, environment 0ms, prepare 56ms)
+
+
+exit status: 0

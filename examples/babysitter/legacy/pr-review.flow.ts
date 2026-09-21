@@ -1,0 +1,375 @@
+// pr-review — this repository's own pull-request reviewer, a v2 relayflow.
+//
+// Deployed to Agent Relay Cloud as a `pull_request` listener on
+// AgentWorkforce/flows (see workflows/README.md). Cloud checks out the PR
+// head, passes `input.pullRequest`, and runs this body. Three reviewers read
+// the same diff through lenses that match this codebase — the Rust kernel,
+// the TypeScript SDK/surface, and the examples + docs that make claims about
+// them — each gated on writing findings. A reconciliation step then looks for
+// places two lenses disagree and publishes the reconciled verdict as the
+// PR's single review comment (created once, edited in place on later wakes;
+// see workflows/pr-review-post.cjs), so the review is on the PR itself.
+//
+// Local: flows run workflows/pr-review.flow.ts --local-agent \
+//          --input '{"diffRange":"origin/main...HEAD"}'
+// (the comment step is skipped without a pull request). The agent CLI is
+// pinned to `claude` below, so no flows.json is needed.
+//
+// This file reviewed its own first version (run 01M2TQC0JF1WB1RAS9PTBXJK32,
+// 2026-09-18): the findings directory, the diff transport, the CLI pin, the
+// comment transport, the fetch loop bound and the re-run behaviour below all
+// come from that review.
+
+import { flow } from "@relayflows/surface";
+
+const shellWord = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
+
+export interface PrReviewInput {
+  /** Local runs: e.g. "origin/main...HEAD". Cloud runs derive it from pullRequest. */
+  diffRange?: string;
+  /** Present on Cloud `--on github:events=pull_request` runs (docs/CLOUD.md). */
+  pullRequest?: {
+    number: number; baseRef: string; headSha: string; draft?: boolean; title?: string;
+    /** Present when the wake was a submitted review (docs/CLOUD.md); we do not re-review on those. */
+    review?: unknown;
+  };
+  approver?: string;
+}
+
+interface Pr { number: number; baseRef: string; headSha: string; draft: boolean; reviewWake: boolean }
+
+// `flow<Input>` is type-only; the listener input crosses a network boundary,
+// and baseRef/headSha reach a shell, so validate before either does.
+function prFromInput(input: PrReviewInput): Pr | undefined {
+  const pr = input.pullRequest;
+  if (pr === undefined) return undefined;
+  if (!Number.isSafeInteger(pr.number) || pr.number <= 0) throw new Error(`flows-pr-review: pullRequest.number is not a positive integer: ${JSON.stringify(pr.number)}`);
+  if (typeof pr.baseRef !== "string" || pr.baseRef.length === 0 || pr.baseRef.startsWith("-")) throw new Error("flows-pr-review: pullRequest.baseRef must be a non-empty ref name");
+  if (typeof pr.headSha !== "string" || !/^[0-9a-f]{40}$/u.test(pr.headSha)) throw new Error("flows-pr-review: pullRequest.headSha must be a 40-hex commit");
+  return { number: pr.number, baseRef: pr.baseRef, headSha: pr.headSha, draft: pr.draft === true, reviewWake: pr.review !== undefined };
+}
+
+const REPO = { owner: "AgentWorkforce", repo: "flows" } as const;
+const CLI = "claude";
+
+const LENSES = {
+  kernel:
+    "the Rust kernel under kernel/ (relayflowd, relayflowd-core): journal and " +
+    "machine invariants (a step completes exactly once; completion and " +
+    "run-terminal actions are separate), lease and park semantics, verb " +
+    "contracts in DESIGN.md, and anything that could make resume or replay " +
+    "diverge from the first run",
+  sdk:
+    "the TypeScript SDK and surface under packages/: preflight refusal " +
+    "shapes and their names, the authored-flow executor and lowering, CLI " +
+    "argument parsing and USAGE, Cloud HTTP contracts (cloud-*.ts), shell " +
+    "quoting of anything interpolated into f.run, and test coverage for each " +
+    "new branch",
+  docs:
+    "examples/ and docs/ (SURFACE.md, CLOUD.md, README.md): every claim a " +
+    "doc or example makes about a verb, flag, refusal, or Cloud behaviour " +
+    "must match what the diff (and the code it touches) actually does; flag " +
+    "stale status lines, commands that would not run, and inputs the example " +
+    "would not receive on Cloud",
+  repo:
+    "everything the other lenses do not own: .github/workflows (publish, " +
+    "runtime artifact, review swarm, guards), scripts/, ops/, workflows/, " +
+    "testdata/, package manifests and lockfiles, tsconfigs, and generated " +
+    "files — release and pin safety, CI that would silently stop running, " +
+    "secrets or tokens in the diff, and files that should not be committed",
+} as const;
+type Lens = keyof typeof LENSES;
+const findingsPath = (lens: Lens): string => `review/${lens}.md`;
+const DIFF = "review/diff.patch";
+const CONSENSUS = "review/consensus.md";
+
+export default flow<PrReviewInput>(
+  "flows-pr-review",
+  { budget: "$4/run" },
+  async (f, input) => {
+    const pr = prFromInput(input);
+    // Cloud wakes on opened / new commits / reopened / reviewed, not on
+    // ready_for_review: a draft is reviewed at its next push, reopen or review
+    // after being marked ready.
+    if (pr?.draft) return f.done("declined");
+    // The same listener wakes when a review is submitted; a reviewer's
+    // comment on the PR is not a reason to review the code again.
+    if (pr?.reviewWake) return f.done("declined");
+
+    let range = input.diffRange;
+    if (range === undefined) {
+      if (pr === undefined) {
+        throw new Error("flows-pr-review needs diffRange (local) or input.pullRequest (a pull_request trigger)");
+      }
+      // Cloud clones at the PR head; fetch the base tip and deepen until the
+      // merge base exists so the three-dot diff is the PR's own change. The
+      // loop is bounded: on a full clone --deepen is a no-op, and an unrelated
+      // head would otherwise spin until the lease expired.
+      const base = shellWord(`refs/heads/${pr.baseRef}`);
+      await f.run(
+        `git fetch --no-tags --depth=200 origin ${base} && n=0; `
+          + `until git merge-base FETCH_HEAD ${shellWord(pr.headSha)} >/dev/null 2>&1; do `
+          + `n=$((n+1)); [ "$n" -le 5 ] || { echo "no merge base with ${pr.baseRef} after 5 deepens" >&2; exit 1; }; `
+          + `git fetch --no-tags --deepen=500 origin ${base} || exit 1; done`,
+        { timeout: "5m" },
+      );
+      range = `FETCH_HEAD...${pr.headSha}`;
+    }
+
+    // `review/` (gitignored) is not a dot-directory on purpose: the worker
+    // journals the artifacts it finds by scanning the tree, and that scan
+    // skips dot entries. It is recreated per run because `artifact_exists`
+    // records presence on content change, so a re-run writing the same "No
+    // findings" text into a leftover file would fail its gate.
+    await f.run("rm -rf review && mkdir -p review");
+    // The diff goes through a file, not through f.run's return value: that
+    // value is the kernel's stdout tail (64 KiB) and a task string is one
+    // argv entry, so a large PR would be reviewed from a silently truncated
+    // tail. Evidence transcripts and lockfiles are noise for a reviewer.
+    const diffBytes = await f.run(
+      `git diff ${shellWord(range)} -- . ':(exclude)docs/evidence/**' ':(exclude)evidence/**' ':(exclude,glob)**/*.lock' ':(exclude)package-lock.json' > ${DIFF} && wc -c < ${DIFF}`,
+      { timeout: "2m" },
+    );
+    // The listener has no path filter, so a PR that only touches excluded
+    // paths is a valid wake with nothing to review — decline, don't fail.
+    if (Number(diffBytes.trim()) === 0) return f.done("declined");
+
+    await Promise.all(
+      (Object.keys(LENSES) as Lens[]).map((lens) =>
+        f
+          .agent(`${lens}-reviewer`, {
+            cli: CLI,
+            task:
+              `You are reviewing a pull request to AgentWorkforce/flows through ONE lens: ${LENSES[lens]}. ` +
+              `Ignore everything outside that lens. The diff is in ${DIFF} (read it; do not run git). Read the ` +
+              `surrounding code where the diff is not self-explanatory. Write every finding to ${findingsPath(lens)} ` +
+              `as a Markdown list — each item: file:line, severity (blocker / should-fix / nit), what is wrong, and ` +
+              `the concrete fix. If there is nothing, write exactly "No ${lens} findings." Do not modify any other file.`,
+          })
+          .gate({ type: "artifact_exists", path: findingsPath(lens) }),
+      ),
+    );
+
+    await f
+      .agent("consensus", {
+        cli: CLI,
+        task:
+          `Read ${(Object.keys(LENSES) as Lens[]).map(findingsPath).join(", ")} (the diff they reviewed is in ${DIFF}). ` +
+          `Produce ONE review comment for the pull request in ${CONSENSUS}: a one-line verdict (APPROVE / REQUEST ` +
+          `CHANGES / COMMENT), then the blockers, then should-fixes, each with file:line. Where two lenses reached ` +
+          `opposite conclusions about the same spot, resolve it with a reason or list it under "Unresolved" with ` +
+          `both positions — never let one silently win. Drop nits unless there are no other findings. Start the ` +
+          `file with "<!-- flows-pr-review -->". Do not modify any other file.`,
+      })
+      .gate((r) => r.artifacts.includes(CONSENSUS), `the consensus step must write ${CONSENSUS}`);
+
+    if (pr !== undefined) {
+      // headSha is the wake's snapshot. If the PR moved while the agents ran,
+      // a newer wake is reviewing the new commit; don't post a stale verdict.
+      // A lookup failure or blank result is a step failure (the run can be
+      // resumed), never a reason to drop a finished review.
+      const head = await f.run(
+        `h=$(git ls-remote --exit-code origin ${shellWord(`refs/pull/${pr.number}/head`)} | cut -f1) && `
+          + `printf '%s' "$h" | grep -Eq '^[0-9a-f]{40}$' && printf '%s' "$h"`,
+        { timeout: "1m" },
+      );
+      if (head.trim() !== pr.headSha) return f.done("declined");
+      await postComment(f, pr);
+    }
+    f.done("success");
+  },
+);
+
+// The comment goes through the REST API with the repository token Cloud puts
+// in the sandbox as GH_TOKEN (the same credential git uses there). The
+// relayfile GitHub mount behind `f.github.*` is not attached to authored
+// runs on Cloud (cloud #3812) — its first live run failed with
+// helper_provider.mount_required at exactly this step.
+//
+// One review comment per PR, edited in place: the marker names the head SHA
+// reviewed; an existing marker comment is PATCHed (skipped when it already
+// carries this SHA, so a re-dispatched step never double-posts), else one is
+// POSTed. The body is bounded from the front (f.run returns a 64 KiB stdout
+// *tail*, which would drop the verdict) under GitHub's 65,536-char limit.
+// Embedded verbatim from workflows/pr-review-post.cjs — packages/sdk/tests/pr-review-post.test.ts
+// fails if the two drift. The file is the source of truth; edit it, not this.
+const POST_SCRIPT = `
+#!/usr/bin/env node
+// pr-review-post — publish flows-pr-review's verdict as ONE comment per PR.
+//
+// Used by workflows/pr-review.flow.ts (which embeds this file verbatim and
+// writes it into the run's scratch dir; packages/sdk/tests/pr-review-post.test.ts
+// keeps the two in sync and exercises every branch against a fake GitHub).
+//
+//   node pr-review-post.cjs <owner> <repo> <pr-number> <head-sha> <body-file>
+//   env: GH_TOKEN (required), GITHUB_API (default https://api.github.com)
+//
+// Ownership: a marker "<!-- flows-pr-review <sha> by:<login> -->" is ours only
+// when the comment's author IS that login — anyone can type the marker,
+// nobody else can post as our identity. Legacy markers without "by:" (from
+// the previously deployed copy) are adopted when authored by the same login
+// as a comment we own, or by the login we just posted as.
+//
+// Ordering: a verdict for an older head never overwrites a newer one. GitHub's
+// compare API decides (ahead/identical → theirs stays; behind → ours wins;
+// diverged, i.e. rebase → the more recently committed head wins). A head the
+// repo can no longer resolve loses.
+//
+// Delivery: only the POST/PATCH that carries the verdict is fatal. Cleanup,
+// compare and re-read calls are best-effort and log instead of failing.
+
+const [owner, repo, number, headSha, bodyPath] = process.argv.slice(2);
+const token = process.env.GH_TOKEN;
+if (!owner || !repo || !number || !headSha || !bodyPath) { console.error("usage: pr-review-post.cjs <owner> <repo> <number> <headSha> <bodyFile>"); process.exit(2); }
+if (!token) { console.error("GH_TOKEN is not set; cannot post the review"); process.exit(1); }
+const fs = require("fs");
+const API = (process.env.GITHUB_API || "https://api.github.com") + "/repos/" + owner + "/" + repo;
+const MARK = "<!-- flows-pr-review";
+const headers = { Authorization: "Bearer " + token, Accept: "application/vnd.github+json", "Content-Type": "application/json", "User-Agent": "flows-pr-review" };
+
+// Soft calls never exit: they return { status } on failure so callers can tell
+// "gone" (404) from "transient" (5xx, network), and act conservatively on the
+// latter — a transient error must never turn into a POST, PATCH or DELETE.
+const TRANSIENT = Symbol("transient");
+async function gh(method, url, body, opts) {
+  const soft = opts && opts.soft;
+  let res;
+  try {
+    res = await fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  } catch (error) {
+    if (soft) { console.log("soft-fail " + method + " " + url + ": " + (error && error.message)); return { status: 0, [TRANSIENT]: true }; }
+    console.error(method + " " + url + " failed: " + (error && error.message)); process.exit(1);
+  }
+  if (!res.ok) {
+    const text = (await res.text()).slice(0, 300);
+    if (soft) { console.log("soft-fail " + method + " " + url + " -> " + res.status + " " + text); return { status: res.status, [TRANSIENT]: res.status !== 404 && res.status !== 403 && res.status !== 422 }; }
+    console.error(method + " " + url + " -> " + res.status + " " + text); process.exit(1);
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+const failed = (v) => v && typeof v === "object" && "status" in v && Object.getOwnPropertySymbols(v).includes(TRANSIENT);
+const transient = (v) => failed(v) && v[TRANSIENT] === true;
+const markerFor = (login) => MARK + " " + headSha + " by:" + login + " -->";
+/** {sha, login|null} for any marker line (new or legacy form), else null. */
+function readMark(c) {
+  if (!c || typeof c.body !== "string" || !c.user) return null;
+  const m = c.body.match(/^<!-- flows-pr-review ([0-9a-f]{40})(?: by:(\S+))? -->/);
+  return m ? { sha: m[1], login: m[2] || null } : null;
+}
+/** Marker comments that are provably ours; \`knownLogins\` adopts legacy/pending markers by author. */
+async function ours(knownLogins) {
+  const all = [];
+  for (let page = 1; page <= 50; page += 1) {
+    const list = await gh("GET", API + "/issues/" + number + "/comments?per_page=100&page=" + page);
+    for (const c of list) { const m = readMark(c); if (m) all.push({ c, m }); }
+    if (list.length < 100) break;
+    if (page === 50) { console.error("more than 5000 comments; refusing to post without a complete scan"); process.exit(1); }
+  }
+  const logins = new Set(knownLogins || []);
+  for (const x of all) if (x.m.login && x.m.login !== "pending" && x.c.user.login === x.m.login) logins.add(x.m.login);
+  return all.filter((x) => (x.m.login && x.m.login !== "pending") ? x.c.user.login === x.m.login : logins.has(x.c.user.login));
+}
+/** Committer date in ms; null when the commit is gone (404); undefined on a transient failure. */
+async function committerDate(sha) {
+  const c = await gh("GET", API + "/commits/" + sha, undefined, { soft: true });
+  if (failed(c)) return transient(c) ? undefined : null;
+  return Date.parse(c.commit.committer.date);
+}
+/**
+ * Does head \`a\` outrank head \`b\`? true / false, or "unknown" on a transient
+ * failure. A head the repo cannot resolve (404) loses; when compare fails
+ * for the pair, each head's existence decides.
+ */
+async function headWins(a, b) {
+  if (a === b) return true;
+  const cmp = await gh("GET", API + "/compare/" + b + "..." + a, undefined, { soft: true });
+  if (failed(cmp)) {
+    if (transient(cmp)) return "unknown";
+    const [da, db] = [await committerDate(a), await committerDate(b)];
+    if (da === undefined || db === undefined) return "unknown";
+    if (da === null && db === null) return "unknown";
+    if (da === null) return false;
+    if (db === null) return true;
+    return da >= db;
+  }
+  if (cmp.status === "ahead" || cmp.status === "identical") return true;
+  if (cmp.status === "behind") return false;
+  const [da, db] = [await committerDate(a), await committerDate(b)];
+  if (da === undefined || db === undefined) return "unknown";
+  if (da === null) return false;
+  if (db === null) return true;
+  return da >= db;
+}
+/** Should the comment carrying \`theirSha\` stay? Unknown → yes (never overwrite on doubt). */
+async function theirsWins(theirSha) { const w = await headWins(theirSha, headSha); return w === true || w === "unknown"; }
+/** Among our comments, the one whose head is newest; same head → lowest id. Unknown → keep both (returns null). */
+async function keeperOf(cands) {
+  let keep = cands[0];
+  for (const other of cands.slice(1)) {
+    if (other.m.sha === keep.m.sha) { if (other.c.id < keep.c.id) keep = other; continue; }
+    const w = await headWins(other.m.sha, keep.m.sha);
+    if (w === "unknown") return null;
+    if (w === true) keep = other;
+  }
+  return keep;
+}
+async function softDelete(id) { await gh("DELETE", API + "/issues/comments/" + id, undefined, { soft: true }); console.log("deleted duplicate comment " + id); }
+
+(async () => {
+  let text = fs.readFileSync(bodyPath, "utf8");
+  if (Buffer.byteLength(text) > 60000) text = Buffer.from(text).subarray(0, 60000).toString() + "\n\n_…truncated; the full review is in the run artifacts._\n";
+
+  // Identity first when the token allows (a user token does; an installation
+  // token may 403): it lets legacy markers be adopted on the first scan and
+  // makes the create path a single write.
+  const me = await gh("GET", (process.env.GITHUB_API || "https://api.github.com") + "/user", undefined, { soft: true });
+  let found = await ours(me && me.login ? [me.login] : []);
+  if (found.length > 1) {
+    // Converge duplicates to one comment without discarding a newer verdict:
+    // keep the one whose head is newest (never "ours" by identity). If that
+    // cannot be decided right now, leave them all and try again next wake.
+    const keep = await keeperOf(found);
+    if (keep === null) { console.log("could not order the existing comments (transient); leaving them"); process.exit(0); }
+    for (const dup of found) if (dup.c.id !== keep.c.id) await softDelete(dup.c.id);
+    found = [keep];
+  }
+  const existing = found[0];
+
+  if (!existing) {
+    const posted = await gh("POST", API + "/issues/" + number + "/comments", { body: markerFor(me && me.login ? me.login : "pending") + "\n" + text });
+    const login = posted.user.login;
+    if (!(me && me.login)) await gh("PATCH", API + "/issues/comments/" + posted.id, { body: markerFor(login) + "\n" + text }, { soft: true });
+    // Two wakes can both scan-then-create. Re-scan (adopting any by:pending
+    // orphans this login left) and converge on the comment whose head wins.
+    const again = (await ours([login])).filter((x) => x.c.user.login === login);
+    if (again.length > 1) {
+      const keep = await keeperOf(again);
+      if (keep === null) { console.log("posted comment " + posted.id + " for " + headSha + " (duplicates left for the next wake: transient)"); return; }
+      for (const other of again) if (other.c.id !== keep.c.id) await softDelete(other.c.id);
+      if (keep.c.id !== posted.id) { console.log("raced: kept " + keep.c.id + " (" + keep.m.sha.slice(0, 8) + "), deleted ours " + posted.id); return; }
+    }
+    console.log("posted comment " + posted.id + " for " + headSha); return;
+  }
+
+  // Re-read right before writing; a vanished comment means "none exists".
+  const fresh = await gh("GET", API + "/issues/comments/" + existing.c.id, undefined, { soft: true });
+  if (transient(fresh)) { console.log("could not re-read comment " + existing.c.id + " (transient); not writing"); return; }
+  if (failed(fresh)) {
+    const posted = await gh("POST", API + "/issues/" + number + "/comments", { body: markerFor(existing.c.user.login) + "\n" + text });
+    console.log("re-posted comment " + posted.id + " for " + headSha + " (previous one vanished)"); return;
+  }
+  const cur = readMark(fresh);
+  if (cur && (await theirsWins(cur.sha))) { console.log("comment already carries " + cur.sha + "; not overwriting with " + headSha); return; }
+  await gh("PATCH", API + "/issues/comments/" + existing.c.id, { body: markerFor(existing.c.user.login) + "\n" + text });
+  console.log("updated comment " + existing.c.id + " for " + headSha);
+})();
+`;
+async function postComment(f: Ctx, pr: Pr): Promise<void> {
+  await f.run("cat > review/post.cjs <<'EOF'\n" + POST_SCRIPT + "EOF\n");
+  await f.run(
+    `node review/post.cjs ${shellWord(REPO.owner)} ${shellWord(REPO.repo)} ${shellWord(String(pr.number))} ${shellWord(pr.headSha)} ${shellWord(CONSENSUS)}`,
+    { timeout: "2m" },
+  );
+}
+type Ctx = Parameters<Parameters<typeof flow<PrReviewInput>>[2]>[0];

@@ -192,22 +192,47 @@ No process runs between events: the handler wakes, executes to its next await, p
 
    **Declared wrapper bounds.** A wrapper author writes against four bounds,
    all enforced by the reader so that no wrapper can defeat one by withholding
-   an event. Each is a refusal with `exit_code: null` and a diagnostic naming
-   the bound it exceeded, which the worker completes as `worker_error`.
+   an event. Exceeding an armed bound is a refusal with `exit_code: null` and a
+   diagnostic naming the bound, which the worker completes as `worker_error`.
+   Three are always armed; the execution deadline is off unless a caller sets a
+   positive one.
 
    | Bound | Default | Applies to | On exceeding |
    |---|---|---|---|
    | Handshake deadline | 10 s | From spawn until the wrapper has emitted both `relayflows-agent-cli-v1` and `relayflows-agent-cli-v1-execute` | Session refused: "did not identify as `relayflows-agent-cli-v1` within *N*ms" |
    | Handshake byte limit | 8192 bytes | Only the **un-terminated** residue of the handshake buffer — bytes not yet ended by a newline while the handshake is still open. Complete lines are drained first, so the execute token always ends the handshake before this is measured, and a result payload behind it is execution output governed by `maxOutputBytes`, not by this bound | Session refused: "exceeded the wrapper handshake limit of 8192 bytes before completing the `relayflows-agent-cli-v1` handshake" |
-   | Execution deadline | 300 s | From the execute token until the wrapper's output is complete | `SIGTERM`, then `SIGKILL` 1 s later; the reader settles on its own deadline whether or not the process closes its pipes. Refused: "execution timed out after *N*ms" |
+   | Execution deadline | **none** | From the execute token until the wrapper's output is complete. Off by default, so a wrapper-backed step gets the same duration a native `claude` or `codex` step gets, which is no constant of its own. A positive programmatic `executionTimeoutMs` arms it; `0` means no deadline and is not coerced back to a default | `SIGTERM`, then `SIGKILL` 1 s later; the reader settles on its own deadline whether or not the process closes its pipes. Refused: "execution timed out after *N*ms" |
    | `maxOutputBytes` | 1 MiB | Total captured stdout **plus** stderr after the execute token. Inclusive: exactly at the limit is accepted, one byte over is refused. Enforced on arrival, so an unbounded or newline-free flood is cut off by the reader rather than buffered | Session refused: "exceeded the captured output limit of *N* bytes" |
 
-   Because the deadlines are reader-owned, a wrapper that exits while leaving a
+   Because the bounds are reader-owned, a wrapper that exits while leaving a
    descendant holding an inherited stdio pipe — which withholds Node's `'close'`
-   event forever — is still bounded and still journals a `completionReason`. It
-   is bounded at the *execution deadline* rather than at the wrapper's own exit,
-   so a wrapper that leaks a pipe pays the full 300 s. Wrappers should not leave
-   descendants holding stdout or stderr.
+   event forever — is still bounded and still journals a `completionReason`.
+   With no execution deadline the bound is the wrapper's **own exit**, not a
+   constant: once the direct child has exited *and* the execute token has been
+   consumed, the reader drains for 250 ms, finalizes the output it has, stops
+   the wrapper's process group (`SIGTERM`, `SIGKILL` 1 s later) and settles on
+   its own deadline whether or not `'close'` ever arrives. That settlement is a
+   real result — the wrapper's own exit code and output, including a `null` code
+   for a signalled death — not a refusal, because the wrapper did finish. Bytes
+   arriving after settlement are discarded, and a protocol violation, an
+   exceeded output limit, or an aborted lease during that window still outranks
+   a successful exit. A descendant that had already detached into its own
+   process group is reparented when the wrapper dies and is out of reach: the
+   session is still bounded, but that process is not signalled and is not
+   reaped. Wrappers should not leave descendants holding stdout or stderr.
+
+   A positive programmatic `executionTimeoutMs` is unchanged by any of this: the
+   session is bounded at that deadline and refuses, and the post-exit drain does
+   not apply. The same session backs both `agent` and `llm` wrapper steps, so
+   neither carries a wrapper-specific duration cap.
+
+   What does bound a wrapper's duration is the same thing that bounds a native
+   `claude` or `codex` step. The step's worker lease is *renewable ownership*,
+   not a duration budget: a live worker keeps renewing it and never ages out of
+   one, while a worker that dies stops renewing and the lease expires. The run's
+   wallclock budget is separate and stops *new* work, draining whatever is
+   already running rather than cancelling a step mid-flight. A wrapper step and
+   a native step therefore get the same duration.
 
    `flows check` resolves the binary (a path is relative to the declaring flow
    or project config; a bare name resolves via `PATH`) and caches each resolved
@@ -693,6 +718,68 @@ socket is opened, no `relayflowd` binary is invoked, the data dir is not
 touched. Refusals (`no workspace key configured`, mint failure) print
 `REFUSED [observer_link_unavailable] <reason>` on stderr and exit 2.
 
+### Reading a failed step
+
+Step-failure messages share the evidence clauses below. A declarative run
+uses the opening shown here; an authored child failure opens with
+`journal step "<step-id>" completed with <reason>` before the same evidence.
+
+```text
+FAILED [step_failed] Run "<run-id>" failed with completionReason: step_failed.
+ Step "<step-id>" (<type>) completionReason: <reason> attempt=<n>/<budget> exit=<code>.
+Detail: <the worker's own account, when it left one>
+Stdout (last 1,024 bytes):
+<tail>
+Stderr (last 1,024 bytes):
+<tail>
+Transcript: <path>
+Inspect: flows replay <run-id> --at <step-id>
+Journal: <data-dir>/runs/<run-id>.sqlite3
+```
+
+Each clause is present only when the journal holds the fact behind it; nothing
+is defaulted. The same fields appear as named keys on the `--json` diagnostic
+(`stepId`, `stepType`, `completionReason`, `attempt`, `maxIterations`,
+`exitCode`, `stdoutTail`, `stderrTail`, `detail`, `transcriptPath`, `hint`,
+`journalPath`), so the rendered line and the machine-readable record carry the
+same facts rather than the message being the only copy.
+
+`attempt=<n>/<budget>` is read from the journal, not from the spec: `n` is the
+`step.attempt.started` envelope's attempt number and `budget` is the
+`max_iterations` that attempt was started against. It is printed beside the
+completion reason because `retries_exhausted` is the kernel's word for
+"the attempt budget is spent" and does not imply that any retry happened — a
+step with the default budget exhausts it on its first failure, and reads
+`attempt=1/1`.
+
+`Inspect:` is derived from the run id alone, so it is still printed when the
+evidence itself could not be read. In that case the message says so —
+`Could not inspect the failed step: <reason>` — beside the step failure rather
+than in place of it.
+
+**Authored bodies.** Each `f.run`, `f.agent` and `f.llm` operation creates a
+child kernel run with its own journal, so `Inspect:` names the child, not the
+authored root. These operations and lowered predicate gates are indexed on the root's
+`authored-steps` durable stream as it happens: one
+`relayflows.authored-step.v1` record naming the authored step id, the child
+run id and its state, appended when the child is admitted and again when it
+completes. Admission is indexed once `run.start` returns the child's id,
+before waiting for an agent or LLM child. Deterministic children execute
+inline, so their admission is indexed after that execution returns. A crash
+before the `run.start` response or index append can still leave an unindexed
+child. Helper-provider, MCP and plugin-effect children are not yet included
+in this index. Once appended, the index survives process exit and is readable from
+the journal on disk, including after a cooperative nonzero exit.
+
+An authored step-failure JSON report keeps the child in `runId` and adds
+`rootRunId` for the durable authored root. Consumers must use `rootRunId` for
+the resume pointer and root index, and `runId` for the failing child's evidence.
+The root driver assigns this field after any Node-child IPC boundary.
+
+Cloud must separately collect these journals before tearing down a failed
+sandbox. The index alone does not persist Cloud step rows or provide a
+deterministic command's Cloud log endpoint.
+
 ### Run self-inspection: `flows status`
 
 `flows status` is what a step can see about its own run. By default it reads
@@ -1064,32 +1151,55 @@ whose final message is a JSON object owns its output shape and journals no
 artifacts; gate such a step on a deterministic check instead. The relay
 transport journals none, because the agent ran on another host.
 
+What the scan reports is every **regular file** under the working directory
+that is new, or whose content changed, between the two snapshots — content
+(size + sha256), not mtime, so a rewrite inside the filesystem's timestamp
+resolution still counts. Symlinks are not followed. Three entry names are
+skipped, matched **exactly**, at any depth, before the entry's type is
+consulted: `.git` (a directory, or the regular file a linked worktree has),
+`.relayflowd` (the default data dir) and `node_modules`. Exact names, not
+prefixes — `.github`, `.relayflowd-notes` and every other author-chosen name
+that merely starts the same way is scanned normally.
+
+**Dot-directories are artifacts.** `.workflow-artifacts/` is the conventional
+place a flow tells its agents to write, so
+`.gate({ type: 'artifact_exists', path: '.workflow-artifacts/x/y.md' })` is an
+ordinary gate and the path appears verbatim in `output.artifacts`. An earlier
+scanner skipped every entry whose name began with a dot; that made a whole
+class of author-chosen paths invisible to the journal, and a gate naming one
+could never pass — it failed on a file that was sitting on disk, with nothing
+in the completion to say why (flows#512).
+
 The diff is of the working directory, not of what the agent did, so anything
 written under it during the attempt is an artifact by default — including files
-the runtime itself writes. The worker's own per-attempt evidence lives under
+the runtime itself writes, and writes by any unrelated process that happens to
+touch the tree. A content hash proves a change during the interval; it does not
+prove the agent made it. The worker's own per-attempt evidence lives under
 `<data-dir>/runs/<run-id>/steps/<step-id>/` (the transcript file, the
 `attempt-<n>.<stream>.tail` files and the `.tmp` each tail is staged as), and a
-local `--data-dir` inside the project puts all of it inside the scanned tree.
-Every one of those paths is excluded from the diff by name in
-`packages/sdk/src/worker-cli.ts`'s `ownEvidencePaths`, derived from the attempt
-identity — the same input that decides where each file is written, so the
-exclusion cannot drift from the files. Deriving it from anything the run
-*produces* is a mistake worth naming: an earlier version read the transcript's
-path off `result.transcript.file`, which `finish` omits when the close outruns
-its deadline or the attempt aborts, so the exclusion lapsed on exactly the paths
-where the file is slowest to finish and most likely to still be sitting there.
+local `--data-dir` inside the project puts all of it inside the scanned tree —
+under any name the caller chose, which is usually not one of the three skipped
+above. So `packages/sdk/src/worker-cli.ts` drops the **entire configured data
+directory subtree** from the diff, comparing symlink-resolved paths against the
+data dir the step was dispatched with. That is the attempt's own identity, the
+same input that decides where each file is written, so the exclusion cannot
+drift from the files. Deriving it from anything the run *produces* is a mistake
+worth naming: an earlier version listed each runtime-written file by name and
+read the transcript's path off `result.transcript.file`, which `finish` omits
+when the close outruns its deadline or the attempt aborts, so the exclusion
+lapsed on exactly the paths where the file is slowest to finish and most likely
+to still be sitting there. A subtree exclusion has nothing to enumerate and so
+nothing to forget.
 
-Anyone adding a new runtime-written file under the run's data dir has to add it
-to `ownEvidencePaths` in the same change. **Missing one is silent by default.**
-`step.complete` bounds `trajectory_tail` and passes `output` through verbatim
-(`kernel/relayflowd/src/server.rs`), so the kernel accepts the polluted list and
-the run succeeds with the worker's own bookkeeping journaled as the agent's
+Pollution of that list is silent by default. `step.complete` bounds
+`trajectory_tail` and passes `output` through verbatim
+(`kernel/relayflowd/src/server.rs`), so the kernel accepts whatever list the
+worker sends and the run succeeds with it journaled as the agent's
 `output.artifacts`. It only becomes loud where something reads that list: an
 `artifact_exists` gate on a path that is now crowded, or a flow body that
-asserts on `AgentResult.artifacts` — which is how this was caught at all, by
-`packages/sdk/tests/agent-transcript-live.test.ts` failing its own
-`artifacts.length !== 0` check. Dotfiles and dotdirs are skipped by the walk, so
-`.relayflowd` is already invisible; a data dir under any other name is not.
+asserts on `AgentResult.artifacts` — which is how the data-dir case was caught
+at all, by `packages/sdk/tests/agent-transcript-live.test.ts` failing its own
+`artifacts.length !== 0` check.
 
 - Are YAML helper verbs (`slack:`, `mcp:`) core spec vocabulary or compile-time expansion into `run`/effect steps? Leaning: expansion — the kernel spec stays seven words; helpers stay a surface concern.
 - Helper generation cadence: generated from relayfile adapter manifests at build time vs published per-adapter packages. Leaning: generated, with hand-tuned verb names for the top providers.

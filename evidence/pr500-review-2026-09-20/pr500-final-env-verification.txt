@@ -1,0 +1,7 @@
+cwd: /tmp/flows-relay-communication
+$ python /tmp/flows-pr500-review-live/verify-env-final.py
+{"cli": "claude", "unrelatedCredentialsAbsent": true, "sessionAuthenticationPresent": true}
+{"cli": "codex", "unrelatedCredentialsAbsent": true, "sessionAuthenticationPresent": true}
+{"cli": "cursor", "unrelatedCredentialsAbsent": true, "sessionAuthenticationPresent": true}
+
+exit status: 0

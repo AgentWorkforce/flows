@@ -2,3 +2,4 @@
 
 mod contract;
 mod pins;
+mod eligibility;

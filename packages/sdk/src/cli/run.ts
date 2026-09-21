@@ -1,3 +1,5 @@
+import { communicationInstruction } from '../communication/spec.js';
+import { checkCommunicationEnvironment, CommunicationEnvironmentError } from '../communication/preflight.js';
 import { parseHumanRecipient } from '../human-to.js';
 import { parseDigestReference } from '../bundle-transport.js';
 import { prepareDigestRun } from './run-digest.js';
@@ -13,7 +15,7 @@ import { ensureDaemon, type EnsureDaemonOptions } from '../daemon-lifecycle.js';
 import { isAuthoredFlowPath } from '../direct-input.js';
 import { daemonRefusal } from './daemon-refusal.js';
 import type { RunFailureKind, RunWarningKind, StepFailedDetails } from '../failure-kinds.js';
-import { inspectionHint, stepFailureDetails } from './step-failure.js';
+import { inspectionHint, renderInspection, renderStepEvidence, stepFailureDetails } from './step-failure.js';
 import { JournalClient, JournalProtocolError } from '../journal-client.js';
 import { attachLocalAgent } from '../local-agent.js';
 import { LlmWorker } from '../llm-worker.js';
@@ -49,6 +51,8 @@ export interface RunReport {
   command: RunCommand;
   path?: string;
   runId?: string;
+  /** Authored root to resume/collect when runId identifies a failed child. */
+  rootRunId?: string;
   socketPath?: string;
   status?: RunStatus;
   completionReason?: RunCompletionReason;
@@ -129,16 +133,26 @@ async function executeCheckedFlow(
   // Carry the preflight's diagnostics as a RunReport from here on, so the
   // attach step has one accumulator to append to (see `connect`).
   const base = fromCheckReport('run', checked.report);
+  if (options.localAgent) {
+    try { checkCommunicationEnvironment(checked.flow!); }
+    catch (error) { return { exitCode: 2, report: { ...base, diagnostics: [...base.diagnostics,
+      { severity: 'refusal', kind: 'probe_failed', message: error instanceof Error ? error.message : 'Communication environment could not be checked.' }] } }; }
+  }
   const client = new JournalClient(socketPath);
   const connected = await connect(client, 'run', dataDir, base, options);
   if (connected !== undefined) return connected;
 
+  let communicationWorkers: Awaited<ReturnType<typeof import('../communication/local.js').attachCommunicationWorkers>> | undefined;
   let localAgent: Awaited<ReturnType<typeof attachLocalAgent>> | undefined;
   try {
     const spec = toKernelSpec(checked.flow!);
     // Use the checked CLI/model and declared surfaces unchanged. The worker
     // advertises its existing pins; the daemon still owns surface matching.
     if (options.localAgent) localAgent = await attachLocalAgent(client, dataDir, options.onPtyReady);
+    if (options.localAgent && spec.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
+      const { attachCommunicationWorkers } = await import('../communication/local.js');
+      communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir);
+    }
     const outcome = await client.runStart(spec, options.reuseFromRunId);
     const execution = await classifyOutcome(client, 'run', outcome, base, socketPath, { ...options, dataDir });
     if (options.reuseFromRunId !== undefined) {
@@ -146,6 +160,8 @@ async function executeCheckedFlow(
     }
     return execution;
   } catch (error) {
+    if (error instanceof CommunicationEnvironmentError) return { exitCode: 2, report: { ...base,
+      diagnostics: [...base.diagnostics, { severity: 'refusal', kind: 'probe_failed', message: error.message }] } };
     if (error instanceof JournalProtocolError && (
       error.code === 'reuse_spec_mismatch' || error.code === 'reuse_run_not_found'
       || error.code === 'reuse_journal_read_failed'
@@ -155,9 +171,9 @@ async function executeCheckedFlow(
         diagnostics: [...base.diagnostics, { severity: failed ? 'failure' : 'refusal',
           kind: error.code, message: error.message }] } };
     }
-    return protocolFailure('run', base, socketPath, localAgent?.failure ?? error);
+    return protocolFailure('run', base, socketPath, communicationWorkers?.failure ?? localAgent?.failure ?? error);
   } finally {
-    try { await localAgent?.close(); } finally { client.close(); }
+    try { await communicationWorkers?.close(); } finally { try { await localAgent?.close(); } finally { client.close(); } }
   }
 }
 
@@ -172,6 +188,7 @@ export async function resumeFlow(
   const connected = await connect(client, 'resume', dataDir, base, options);
   if (connected !== undefined) return connected;
 
+  let communicationWorkers: Awaited<ReturnType<typeof import('../communication/local.js').attachCommunicationWorkers>> | undefined;
   let authoredAgent: Awaited<ReturnType<typeof attachLocalAgent>> | undefined;
   let authoredLlm: LlmWorker | undefined;
   let authoredLlmClient: JournalClient | undefined;
@@ -206,12 +223,23 @@ export async function resumeFlow(
     // slack effect resume plus every other provider from N's codegen. The
     // second call the earlier rebase left is a stale reference from before
     // the helper fanout renamed the API.
+    if (options.localAgent) {
+      authoredAgent = await attachLocalAgent(client, dataDir, options.onPtyReady);
+      const entries = (await client.journalRead(runId, 1)).entries as Array<{ entry_type: string; payload?: { spec?: import('../spec.js').KernelRunSpec } }>;
+      const spec = entries.find(entry => entry.entry_type === 'run.spawned')?.payload?.spec;
+      if (spec?.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
+        const { attachCommunicationWorkers } = await import('../communication/local.js');
+        communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir);
+      }
+    }
     let outcome = await client.runResume(runId, options.allowHumanInfluenced);
     if (await resumeHelperEffect(client, runId, dataDir)) {
       outcome = await client.runResume(runId, options.allowHumanInfluenced);
     }
     return await classifyOutcome(client, 'resume', outcome, base, socketPath, { ...options, dataDir });
   } catch (error) {
+    if (error instanceof CommunicationEnvironmentError) return { exitCode: 2, report: { ...base, runId, socketPath,
+      diagnostics: [...base.diagnostics, { severity: 'refusal', kind: 'probe_failed', message: error.message }] } };
     if (error instanceof JournalProtocolError && error.code === 'human_influenced_run') {
       return { exitCode: 2, report: { ...base, runId, socketPath,
         diagnostics: [{ severity: 'refusal', kind: 'human_influenced_run', message: error.message.replace(/^human_influenced_run: /, '') }] } };
@@ -255,6 +283,7 @@ export async function resumeFlow(
     };
   } finally {
     try {
+      await communicationWorkers?.close();
       await authoredLlm?.close();
       authoredLlmClient?.close();
       await authoredAgent?.close();
@@ -287,16 +316,23 @@ export function authoredStepFailure(
   // The failing step runs as its own kernel run, so the error's run id is the
   // one whose journal holds the evidence. The resume target is the fallback.
   const runId = error.runId ?? fallbackRunId;
+  const rootRunId = error.rootRunId ?? fallbackRunId;
   return {
     exitCode: 1,
     report: {
       ...fromBase(command, base),
       ok: false,
       ...(runId === undefined ? {} : { runId }),
+      ...(rootRunId === undefined ? {} : { rootRunId }),
       socketPath,
       status: 'failed',
       completionReason: 'step_failed',
       diagnostics: [...base.diagnostics, {
+        // The structured evidence the failing step left in its own journal.
+        // `RunDiagnostic extends StepFailedDetails`, so `--json` gains the
+        // fields it already declares instead of leaving them to be re-parsed
+        // out of the rendered message.
+        ...error.details,
         severity: 'failure',
         // A predicate gate that judged false is a run failure with its own
         // name, so the report says which kind of check the body did not pass.
@@ -522,7 +558,9 @@ export async function classifyOutcome(
   let unclassifiedPolls = 0;
   while (current.status === 'parked') {
     const inspection = await inspectOutOfBandStep(client, current.run_id);
-    if (inspection?.parkedStep !== undefined) {
+    // A runnable sibling may only be waiting for capacity held by a live
+    // attempt. Keep driving until that lease releases before declaring a park.
+    if (inspection?.parkedStep !== undefined && (inspection.needsHuman || inspection.runningStep === undefined)) {
       parkedStep = inspection.parkedStep;
       needsHuman = inspection.needsHuman;
       break;
@@ -603,8 +641,7 @@ export async function classifyOutcome(
       // must still end with somewhere to go rather than with a dead end.
       const where = inspectionHint(current.run_id, details?.stepId, options.dataDir);
       Object.assign(diagnostic, where);
-      diagnostic.message += `\nInspect: ${where.hint}`
-        + (where.journalPath === undefined ? '' : `\nJournal: ${where.journalPath}`);
+      diagnostic.message += renderInspection(where);
     }
     return {
       exitCode: 1,
@@ -791,25 +828,6 @@ export function socketFor(dataDir: string): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'unknown protocol error';
-}
-
-/**
- * The evidence half of a `step_failed` diagnostic; `inspectionHint` adds the
- * rest. Each field is printed only when the journal actually carried it — an
- * agent step has no exit code to report, and inventing `exit=undefined` (which
- * is what the deterministic-only version printed for one) is worse than
- * silence on that field.
- */
-function renderStepEvidence(details: StepFailedDetails): string {
-  return ` Step ${JSON.stringify(details.stepId)}`
-    + (details.stepType === undefined ? '' : ` (${details.stepType})`)
-    + ` completionReason: ${details.completionReason}`
-    + (details.exitCode === undefined ? '' : ` exit=${details.exitCode}`)
-    + '.'
-    + (details.detail === undefined ? '' : `\nDetail: ${details.detail}`)
-    + (details.stdoutTail ? `\nStdout (last 1,024 bytes):\n${details.stdoutTail}` : '')
-    + (details.stderrTail ? `\nStderr (last 1,024 bytes):\n${details.stderrTail}` : '')
-    + (details.transcriptPath === undefined ? '' : `\nTranscript: ${details.transcriptPath}`);
 }
 
 function throwIfCanceled(signal: AbortSignal | undefined, stepId: string): void {

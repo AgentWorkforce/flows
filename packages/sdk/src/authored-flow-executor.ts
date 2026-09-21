@@ -206,7 +206,10 @@ export async function executeAuthoredFlow<Input = undefined>(
   let requestedCompletion: LoweredCompletionReason | undefined;
 
   const lowerDeterministic = authoredDeterministicRunner(
-    definition.name, journal, journalSteps, budget, options.rootRunId,
+    definition.name, journal, journalSteps, budget, {
+      ...(options.rootRunId === undefined ? {} : { rootRunId: options.rootRunId }),
+      ...(options.dataDir === undefined ? {} : { dataDir: options.dataDir }),
+    },
   );
 
   const worker = authoredWorkerRunner(

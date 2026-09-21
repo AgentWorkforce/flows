@@ -1,0 +1,67 @@
+Mutation testing of the two NEW hosted boundary tests.
+
+These are not reverts of a prior fix — the boundary they pin was already
+correct — so they are not labelled "mutation-verified" in the revert sense.
+What is shown: each test was run against an injected wrong implementation in
+hosted.ts that trusts a delivered field, the test failed, and hosted.ts was
+restored byte-for-byte (cmp) before the next injection.
+
+Injections (each replaces or precedes the single babysitConfigured call):
+  M1  ...babysitConfigured(f, { ...configured, headSha: pr.headSha }, ...)
+  M2  if (pr.action === 'closed') return f.done('declined');
+  M3  if (record(pr.review).state === 'approved') return f.done('needs_human');
+
+Command per row:
+  node --experimental-strip-types --test --test-name-pattern '<name>' tests/hosted.test.ts
+
+=== M1: trust the delivered headSha as an operator head pin — targets: 'enriched pull request is a hint' ===
+✖ Cloud's enriched pull request is a hint, not state: draft, labels, author and review cannot decide (13.205292ms)
+ℹ tests 1
+ℹ pass 0
+ℹ fail 1
+✖ failing tests:
+✖ Cloud's enriched pull request is a hint, not state: draft, labels, author and review cannot decide (13.205292ms)
+exit=1  (nonzero = the test caught the mutation)
+
+restore byte-identical (cmp exit 0)
+
+=== M2: trust the delivered pullRequest.action as lifecycle state — targets: 'enriched pull request is a hint' ===
+✖ Cloud's enriched pull request is a hint, not state: draft, labels, author and review cannot decide (13.247209ms)
+ℹ tests 1
+ℹ pass 0
+ℹ fail 1
+✖ failing tests:
+✖ Cloud's enriched pull request is a hint, not state: draft, labels, author and review cannot decide (13.247209ms)
+exit=1  (nonzero = the test caught the mutation)
+
+restore byte-identical (cmp exit 0)
+
+=== M3: trust the delivered review.state as the merge verdict — targets: 'delivered approved review cannot open the merge gate' ===
+✖ a delivered approved review cannot open the merge gate (12.754625ms)
+ℹ tests 1
+ℹ pass 0
+ℹ fail 1
+✖ failing tests:
+✖ a delivered approved review cannot open the merge gate (12.754625ms)
+exit=1  (nonzero = the test caught the mutation)
+
+restore byte-identical (cmp exit 0)
+
+=== after restore: both new tests green ===
+--- 'enriched pull request is a hint' ---
+✔ Cloud's enriched pull request is a hint, not state: draft, labels, author and review cannot decide (6.48525ms)
+ℹ tests 1
+ℹ pass 1
+ℹ fail 0
+exit=0
+
+--- 'delivered approved review cannot open the merge gate' ---
+✔ a delivered approved review cannot open the merge gate (5.994834ms)
+ℹ tests 1
+ℹ pass 1
+ℹ fail 0
+exit=0
+
+
+=== hosted.ts is unmodified against the committed tree ===
+(empty above = unmodified)

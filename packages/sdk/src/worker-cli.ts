@@ -1,5 +1,5 @@
 import { realpathSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, sep } from 'node:path';
 import { diffWorkspaceFiles, snapshotWorkspaceFiles } from './agent-artifacts.js';
 import { claudeResultOutcome, decodeProviderResult, decodeWrapperResult, requirePricedUsage } from './worker-usage.js';
 import { openSidechannel, type SidechannelContext } from './pty-sidechannel.js';
@@ -23,7 +23,7 @@ import {
 import { wrapperEnvironment } from './wrapper-runtime.js';
 import { redactRelayError } from './redact.js';
 import { applyStepEnvironment } from './step-env.js';
-import { TAIL_CLOSE_TIMEOUT_MS, openTranscriptTail, transcriptTailPath, type TranscriptTailWriter } from './transcript-tail.js';
+import { TAIL_CLOSE_TIMEOUT_MS, openTranscriptTail, type TranscriptTailWriter } from './transcript-tail.js';
 import {
   runAgentRelayTask,
   AgentRelayTransportError,
@@ -110,28 +110,23 @@ export async function runAgentCli(
   // serialized around their snapshot-spawn-snapshot interval, so one agent's
   // writes are never attributed to a concurrent one in the same directory.
   //
-  // This process writes its own evidence during that interval — the attempt's
-  // transcript file and the two `flows status --tail` tails — and when the data
-  // dir sits under the cwd (a local `--data-dir` inside the project) they all
-  // land inside the scanned tree. None of them is agent-authored content, so
-  // every one is dropped from the diff by path. Missing any of them reports
-  // our own bookkeeping back to the kernel as the step's artifacts.
+  // Bookkeeping written during that interval is not agent-authored content,
+  // and when the data dir sits under the cwd (a local `--data-dir` inside the
+  // project) all of it lands inside the scanned tree: this process's own
+  // transcript file and two `flows status --tail` tails, and the run journals
+  // the daemon appends to while the agent runs. So the whole data dir is
+  // dropped from the diff. Anything left in reports the kernel's own state
+  // back to the kernel as the step's artifacts, where an `artifact_exists`
+  // gate then reads it.
   const artifactRoot = mode === 'agent' ? resolve(cwd ?? process.cwd()) : undefined;
   return artifactRoot === undefined
     ? execute()
     : serializedByDirectory(artifactRoot, async () => {
       const before = await snapshotWorkspaceFiles(artifactRoot);
       const result = await execute();
-      const ours = new Set<string>();
-      for (const path of ownEvidencePaths(sidechannel)) {
-        const real = realPath(path);
-        if (real !== undefined) ours.add(real);
-      }
+      const kernelData = sidechannel === undefined ? undefined : realPath(resolve(sidechannel.dataDir));
       const artifacts = diffWorkspaceFiles(before, await snapshotWorkspaceFiles(artifactRoot))
-        .filter(path => {
-          const real = realPath(resolve(artifactRoot, path));
-          return real === undefined || !ours.has(real);
-        });
+        .filter(path => !under(realPath(resolve(artifactRoot, path)), kernelData));
       return { ...result, artifacts };
     });
 
@@ -198,39 +193,25 @@ function openTails(context: SidechannelContext): { stdout: TranscriptTailWriter;
 }
 
 /**
- * Every path this process may write under the workspace during an attempt, so
- * the artifact diff can drop all of them.
+ * Whether `path` is `directory` or anything beneath it, both symlink-free.
  *
- * Derived from the attempt identity — the same input `openTranscriptWriter` and
- * `openTails` use to decide where to write — and never from the result. The
- * transcript pointer on the result is optional: `finish` drops it when the
- * close outruns `TAIL_CLOSE_TIMEOUT_MS` and `discardTranscript` drops it on
- * abort, and on both paths the file is already on disk. An exclusion built from
- * that pointer therefore lost the transcript exactly when the close was slow,
- * which is the moment the file is most likely to still be there.
+ * The artifact exclusion is a subtree, not a list of names, because the files
+ * to exclude are not all knowable in advance. The attempt's own transcript and
+ * tails are (they derive from the attempt identity), but the daemon decides on
+ * its own when to write which run journal, and a journal appended to inside
+ * the snapshot interval is indistinguishable in a diff from a file the agent
+ * wrote. Excluding the directory covers both, and covers them without reading
+ * the result: the transcript pointer there is optional — `finish` drops it
+ * when the close outruns `TAIL_CLOSE_TIMEOUT_MS` and `discardTranscript` drops
+ * it on abort, while the file stays on disk — so an exclusion built from it
+ * lost the transcript exactly when the close was slow (flows#495).
  *
- * Empty when there is no sidechannel or no attempt to name, which is exactly
- * when nothing is written.
+ * `false` when there is no data dir to exclude, which is exactly when this
+ * process has nowhere to write.
  */
-function ownEvidencePaths(context: SidechannelContext | undefined): string[] {
-  const attempt = context?.attempt;
-  if (context === undefined || attempt === undefined) return [];
-  const identity = { dataDir: context.dataDir, runId: context.runId, stepId: context.stepId, attempt };
-  try {
-    // For each tail, both the finished file and the `.tmp` the writer stages
-    // and renames over (`transcript-tail.ts`): a close that timed out or a
-    // flush that failed can leave the staging file behind, and it is no more
-    // agent-authored than the file it was going to become.
-    const paths = [transcriptPath(identity, attempt)];
-    for (const stream of ['stdout', 'stderr'] as const) {
-      const tail = transcriptTailPath(identity, stream);
-      paths.push(tail, `${tail}.tmp`);
-    }
-    return paths;
-  } catch {
-    // An id the path cannot carry; nothing was written under it either.
-    return [];
-  }
+function under(path: string | undefined, directory: string | undefined): boolean {
+  if (path === undefined || directory === undefined) return false;
+  return path === directory || path.startsWith(directory.endsWith(sep) ? directory : directory + sep);
 }
 
 /** Symlink-free form of a path, or the path itself when it cannot be resolved. */

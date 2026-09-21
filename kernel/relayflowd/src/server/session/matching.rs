@@ -74,8 +74,16 @@ fn worker_can_pin(worker: &Worker, step: &StepSpec, required_pins: &Pins) -> boo
         return false;
     }
     let StepKind::Agent { surfaces, .. } = &step.kind else {
-        return true;
+        return worker.required_streams.is_empty();
     };
+    if !worker.required_streams.iter().all(|required| {
+        surfaces
+            .streams
+            .iter()
+            .any(|declared| &declared.stream == required)
+    }) {
+        return false;
+    }
     surfaces.workspace.iter().all(|declared| {
         worker
             .pins
