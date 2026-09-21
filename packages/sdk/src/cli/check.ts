@@ -478,15 +478,41 @@ function probeCli(
       modelCommand,
     };
   }
-  const authStatus = probe(auth).status;
+  const authProbe = probe(auth);
+  const authenticated = authProbe.status === 0;
   return {
     exists: true,
     supported: true,
-    authenticated: authStatus === 0,
+    authenticated,
     modelAvailable: false,
     authCommand,
     modelCommand,
+    // Only on failure: on success there is nothing to explain, and the output
+    // is the most identity-bearing thing this function touches.
+    ...(authenticated
+      ? {}
+      : {
+        authExitCode: authProbe.status,
+        authFailureDetail: redactProbeOutput(
+          `${authProbe.stderr}${authProbe.stdout}`,
+        ).trim().slice(0, 500),
+      }),
   };
+}
+
+/**
+ * Redact anything that looks like a credential or an account identifier.
+ *
+ * `auth status` output is diagnostic, but it is also the one place an account
+ * email, org id or token fragment can appear. The point of surfacing it is to
+ * say WHY a probe failed, which survives redaction; leaking an identity into a
+ * refusal message that gets pasted into issues does not.
+ */
+function redactProbeOutput(text: string): string {
+  return text
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '<redacted-email>')
+    .replace(/\b(sk|pk|oat|rt)[-_][A-Za-z0-9._-]{8,}/gi, '<redacted-token>')
+    .replace(/\b[A-Fa-f0-9]{32,}\b/g, '<redacted-hex>');
 }
 
 function runProbe(
@@ -494,20 +520,28 @@ function runProbe(
   directory: string,
   invocation: CliInvocation,
   environment: NodeJS.ProcessEnv = process.env,
-): { status: number | null; stdout: string } {
+): { status: number | null; stdout: string; stderr: string } {
   const env = { ...environment };
   delete env[MODEL_ENV];
   if (invocation.modelEnv !== undefined) env[MODEL_ENV] = invocation.modelEnv;
   const result = spawnSync(executable, invocation.args, {
     cwd: directory,
     encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'ignore'],
+    // stderr was 'ignore'. A failing `auth status` writes its reason there, so
+    // discarding it made every authentication refusal structurally
+    // undiagnosable: the refusal could say a probe exited non-zero and never
+    // what it said. Captured, then redacted at the point of use.
+    stdio: ['ignore', 'pipe', 'pipe'],
     timeout: invocation.timeoutMs,
     env,
   });
   const failure = classifySpawnFailure(result.error, result.signal, invocation.timeoutMs);
   if (failure !== undefined) throw failure;
-  return { status: result.status, stdout: result.stdout };
+  return {
+    status: result.status,
+    stdout: result.stdout,
+    stderr: result.stderr ?? '',
+  };
 }
 
 function resolveExecutable(command: string, directory: string): string | undefined {
