@@ -192,6 +192,39 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     expect(unauthenticated.diagnostics[0]?.message).toContain('"locked auth status" exited non-zero');
   });
 
+  it('says WHY the auth probe failed, and redacts identity from what it quotes', () => {
+    // A refusal that names only the command cannot distinguish a transient
+    // provider rejection from a genuinely unauthenticated CLI, and that
+    // difference decides whether retrying is correct. In production this made
+    // 23 of 100 runs fail with a message that could not be acted on.
+    const detailed = preflight(
+      flow({ id: 'auth-step', type: 'agent', instruction: 'i', cli: 'locked' }),
+      {
+        probes: probes({
+          cli: () => ({
+            exists: true,
+            authenticated: false,
+            authExitCode: 7,
+            authFailureDetail: 'HTTP 429 rate limited for <redacted-email>',
+          }),
+        }),
+      },
+    );
+    const message = detailed.diagnostics[0]?.message ?? '';
+    expect(message).toContain('exit 7');
+    expect(message).toContain('HTTP 429 rate limited');
+  });
+
+  it('says so explicitly when the probe produced no output at all', () => {
+    // Silence is itself diagnostic: it means the reason is unavailable rather
+    // than that no reason exists, and the message must not imply the latter.
+    const silent = preflight(
+      flow({ id: 'auth-step', type: 'agent', instruction: 'i', cli: 'locked' }),
+      { probes: probes({ cli: () => ({ exists: true, authenticated: false }) }) },
+    );
+    expect(silent.diagnostics[0]?.message).toContain('produced no output');
+  });
+
   it('probes a shared CLI once per preflight call', () => {
     let probeCount = 0;
     const sharedCliFlow: FlowSpec = {

@@ -39,6 +39,17 @@ export interface CliProbeResult {
   modelAvailable?: boolean;
   authCommand?: string;
   modelCommand?: string;
+  /** Exit code of the authentication probe, when it failed. */
+  authExitCode?: number | null;
+  /**
+   * Redacted output of a FAILED authentication probe.
+   *
+   * Present only on failure. Without it a `cli_unauthenticated` refusal can
+   * state that a probe exited non-zero and never what it said, which makes an
+   * intermittent probe failure impossible to tell apart from a genuinely
+   * unauthenticated CLI.
+   */
+  authFailureDetail?: string;
 }
 
 export type CliProbeFailureDetail =
@@ -502,12 +513,22 @@ function probeResolvedCli(
     });
   } else if (!result.authenticated) {
     const command = result.authCommand ?? `${resolution.cli} auth status`;
+    // Say what the probe reported. A refusal that names only the command turns
+    // a transient provider rejection and a genuinely unauthenticated CLI into
+    // the same message, and the difference decides whether retrying is
+    // correct.
+    const exitCode = result.authExitCode === undefined || result.authExitCode === null
+      ? ''
+      : ` (exit ${result.authExitCode})`;
+    const detail = result.authFailureDetail !== undefined && result.authFailureDetail.length > 0
+      ? ` It reported: ${result.authFailureDetail}`
+      : ' It produced no output, so the reason is unavailable.';
     diagnostics.push({
       severity: 'refusal',
       kind: 'cli_unauthenticated',
       stepId: resolution.stepId,
       cli: resolution.cli,
-      message: `Step "${resolution.stepId}" declares CLI "${resolution.cli}", but "${command}" exited non-zero; authenticate it or repair that adapter's authentication probe.`,
+      message: `Step "${resolution.stepId}" declares CLI "${resolution.cli}", but "${command}" exited non-zero${exitCode}; authenticate it or repair that adapter's authentication probe.${detail}`,
     });
   } else if (resolution.model !== undefined && result.modelAvailable !== true) {
     diagnostics.push({
