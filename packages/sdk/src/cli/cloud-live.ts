@@ -27,7 +27,7 @@ import {
   type CloudRunDetail, type CloudRunLog, type CloudStep,
 } from '../cloud-read.js';
 import { isCloudRunActive, type CloudRunState } from '../cloud-run-record.js';
-import { redact } from '../redact.js';
+import { openSecretStart, redact } from '../redact.js';
 import { thousands } from './cloud-format.js';
 import { fail, isTransientRead, refusalFor, RUN_ID_REQUIRED, type CloudReadOptions } from './cloud-refusal.js';
 import { renderCloudStatus, scrubRun, scrubSteps } from './cloud-status-view.js';
@@ -151,37 +151,72 @@ export async function runCloudStatusWatch(
 // ------------------------------------------------------ flows logs --follow
 
 /**
- * What has been shown of the runner log, and what is still half a line.
+ * What has been shown of the runner log, and where the rest starts.
  *
- * Byte and line bookkeeping is kept on the log exactly as Cloud served it,
- * before redaction: a secret split across two polls is reassembled here and
- * redacted as one whole line, so no chunk boundary can let half a token past
- * the redactor.
+ * Bookkeeping is kept on the log exactly as Cloud served it, before redaction:
+ * the un-released remainder is redacted as one block on every poll, so a
+ * secret is matched against the whole text it spans — several lines of a PEM,
+ * or halves that arrived in two different polls — rather than against one line
+ * at a time, which no multi-line value can ever match.
  */
 interface LogFollowState {
   /** The whole log as last served, held to prove the next read extends it. */
   consumed: string;
-  /** A trailing fragment with no newline yet; never printed until it ends. */
-  pending: string;
+  /** How much of `consumed` has been printed; the rest is still redactable. */
+  released: number;
   emitted: boolean;
 }
 
 /**
- * Emit whatever whole lines the new content completed.
+ * Print `text` as lines.
  *
  * Splitting is on `\n` only, and one trailing `\r` per line is dropped: a
  * CRLF log printed with its carriage returns intact makes a terminal overwrite
- * each line it just drew. Blank lines and repeated identical lines are
+ * each line it just drew. A final newline ends the last line rather than
+ * starting an empty one. Blank lines and repeated identical lines are
  * preserved — they are the log.
  */
-function emitLines(fresh: string, state: LogFollowState, io: CliIo, env: NodeJS.ProcessEnv): void {
-  state.pending += fresh;
-  let newline: number;
-  while ((newline = state.pending.indexOf('\n')) >= 0) {
-    const line = state.pending.slice(0, newline).replace(/\r$/u, '');
-    state.pending = state.pending.slice(newline + 1);
-    io.stdout(redact(line, env));
+function writeLines(text: string, state: LogFollowState, io: CliIo): void {
+  const lines = text.split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  for (const line of lines) {
+    io.stdout(line.replace(/\r$/u, ''));
     state.emitted = true;
+  }
+}
+
+/** The last line boundary at or before `at`: 0, or the index after a newline. */
+function lineBoundaryAtOrBefore(text: string, at: number): number {
+  return at <= 0 ? 0 : text.lastIndexOf('\n', at - 1) + 1;
+}
+
+/**
+ * Release every line the log has settled on, redacted as one block.
+ *
+ * Two things hold a line back. `openSecretStart` marks where a secret value
+ * has begun and not ended, so nothing at or past it can be shown until the
+ * next poll completes it. And a candidate block is released only when
+ * redacting it alone gives the same text as the front of the whole redacted
+ * remainder: if the cut fell inside something the redactor would have caught —
+ * the second line of a private key, a header whose value is on the next line —
+ * the two disagree, and the cut moves back a line and is tried again.
+ *
+ * A poll that can release nothing prints nothing; the bytes are not lost, they
+ * are held until a later poll or the drain flush can redact them whole.
+ */
+function releaseLines(state: LogFollowState, io: CliIo, env: NodeJS.ProcessEnv): void {
+  const raw = state.consumed;
+  if (state.released >= raw.length) return;
+  const remainder = redact(raw.slice(state.released), env);
+  let cut = lineBoundaryAtOrBefore(raw, openSecretStart(raw, env));
+  while (cut > state.released) {
+    const block = redact(raw.slice(state.released, cut), env);
+    if (remainder.startsWith(block)) {
+      writeLines(block, state, io);
+      state.released = cut;
+      return;
+    }
+    cut = lineBoundaryAtOrBefore(raw, cut - 1);
   }
 }
 
@@ -238,7 +273,7 @@ export async function runCloudLogsFollow(
       args.json, io);
   }
 
-  const state: LogFollowState = { consumed: '', pending: '', emitted: false };
+  const state: LogFollowState = { consumed: '', released: 0, emitted: false };
   let header = false;
   let failures = 0;
   for (;;) {
@@ -271,7 +306,6 @@ export async function runCloudLogsFollow(
           + `\`flows logs ${runId}\`.`,
       }, args.json, io);
     }
-    const fresh = log.content.slice(state.consumed.length);
     state.consumed = log.content;
     const terminal = !isCloudRunActive(outcome.status);
     const drained = logDrained(log, terminal, log.content);
@@ -281,7 +315,7 @@ export async function runCloudLogsFollow(
         io.stdout(`LOG ${runId}  runner  following  ${thousands(log.total_size)} bytes so far`);
         header = true;
       }
-      emitLines(fresh, state, io, env);
+      releaseLines(state, io, env);
     }
     if (!drained) {
       await sleep(interval, signal);
@@ -297,10 +331,9 @@ export async function runCloudLogsFollow(
       }));
       return exitFor(outcome);
     }
-    if (state.pending.length > 0) {
-      io.stdout(redact(state.pending.replace(/\r$/u, ''), env));
-      state.pending = '';
-      state.emitted = true;
+    if (state.released < state.consumed.length) {
+      writeLines(redact(state.consumed.slice(state.released), env), state, io);
+      state.released = state.consumed.length;
     }
     if (!state.emitted) io.stdout('  (empty)');
     io.stdout(`${outcome.status.toUpperCase()} ${runId} completionReason: `

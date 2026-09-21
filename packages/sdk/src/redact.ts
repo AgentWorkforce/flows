@@ -104,3 +104,30 @@ export function redactRelayError(message: string, env: NodeJS.ProcessEnv = proce
   }
   return redact(message, env);
 }
+
+/**
+ * Where a secret value may still be half-arrived at the end of `text`.
+ *
+ * A stream is redacted in pieces, and `redact` only replaces a secret it can
+ * see whole: releasing text up to a point where a secret has begun but not
+ * ended would print the first half of it and never match the second. This
+ * returns the smallest index `i` for which `text.slice(i)` is a proper prefix
+ * of some secret env value — the point past which nothing may be released
+ * until more of the stream arrives — or `text.length` when no value is open.
+ *
+ * Values only, not the token and header *shapes*: those are bounded by
+ * whitespace, so a reader that releases whole lines cannot cut one in half.
+ */
+export function openSecretStart(text: string, env: NodeJS.ProcessEnv = process.env): number {
+  let start = text.length;
+  for (const [, value] of secretEnvValues(env)) {
+    // A proper prefix is shorter than the value, so it can only begin inside
+    // the last `value.length - 1` characters; the first character narrows the
+    // scan to the few positions worth comparing.
+    const first = Math.max(0, text.length - value.length + 1);
+    for (let at = text.indexOf(value[0]!, first); at >= 0 && at < start; at = text.indexOf(value[0]!, at + 1)) {
+      if (value.startsWith(text.slice(at))) { start = at; break; }
+    }
+  }
+  return start;
+}

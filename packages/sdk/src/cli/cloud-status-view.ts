@@ -93,7 +93,12 @@ function renderStep(step: CloudStep, runId: string, idWidth: number, now: number
   ];
   const attempt = attemptCell(step);
   if (attempt !== null) cells.push(attempt);
-  const elapsed = step.duration_ms ?? liveElapsed(step, now);
+  // The derived time first, not second: a row that is still in flight can
+  // carry a `wallclockMs` from the attempt that already ended, and preferring
+  // it would freeze the cell at that attempt's duration while the step runs
+  // on. `liveElapsed` is null for every row that is not demonstrably in
+  // flight, so a finished row still prints the duration Cloud reported.
+  const elapsed = liveElapsed(step, now) ?? step.duration_ms;
   if (elapsed !== null) cells.push(formatDuration(elapsed));
   if (step.completion_reason !== null) cells.push(safe(step.completion_reason));
   if (step.gate !== null) cells.push(`gate: ${safe(step.gate.gate)} ${safe(step.gate.verdict)}`);

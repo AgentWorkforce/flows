@@ -295,6 +295,15 @@ benefit is that no line can be duplicated or skipped. If what was already
 printed is no longer a prefix of what Cloud serves, `--follow` refuses with
 `cloud_log_rewritten` rather than guessing which bytes are new.
 
+What has not been printed yet is redacted as one block, never a line at a
+time, and a line is held back while a secret env value has begun in it and not
+ended — whether the rest of that value is further down the same response or
+has not been served yet. A multi-line value, a PEM private key being the usual
+one, is therefore replaced whole by `[redacted:<NAME>]`: no line of it can
+reach stdout on its own, which is exactly what a line-at-a-time redactor can
+never prevent. The cost is that a line can appear one poll later than the byte
+that completed it.
+
 `--cloud` takes neither `--data-dir` nor `--tail`: both name things on this
 filesystem, which a hosted run has none of, so pairing them is refused as an
 invocation rather than quietly ignored. `--watch` is refused without `--cloud`

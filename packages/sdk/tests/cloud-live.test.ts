@@ -130,6 +130,22 @@ function live(extra: Record<string, unknown> = {}) {
 }
 
 describe('live step rows', () => {
+  it('advances an in-flight row that carries a finished attempt’s wallclock', async () => {
+    // A retried step keeps the previous attempt's `wallclockMs` in its detail.
+    // Printing that as the running row's elapsed time would freeze the cell at
+    // the attempt that already ended while the new one burns.
+    stagedCloud([{
+      run: RUNNING,
+      steps: stepsBody([stepRow({
+        status: 'backoff', retryCount: 1,
+        detail: { attempts: [{ attempt: 1, disposition: 'step_failed' }], wallclockMs: 3 },
+      })]),
+    }]);
+    const out = io();
+    expect(await runCloudStatusCli({ runId: RUN, json: false }, out.io, { ...CONNECTION, now: () => NOW })).toBe(0);
+    expect(out.stdout.join('\n')).toContain('↻ agent-5  agent          backoff      attempt 2  6m50s');
+  });
+
   it('renders running, backoff, waiting and needs_human beside a finished step', async () => {
     stagedCloud([{
       run: RUNNING,
@@ -497,6 +513,49 @@ describe('flows logs --follow', () => {
     expect(rendered).not.toContain('supersecrettokenvalue');
     expect(rendered).toContain('[redacted]');
     expect(rendered).toContain('[redacted:CI_TOKEN]');
+  });
+
+  // A PEM in the environment is the shape a line-at-a-time redactor cannot
+  // catch: no single line of it equals the value, so every line of key
+  // material goes straight to stdout. The value is fake.
+  const PEM = '-----BEGIN PRIVATE KEY-----\nFAKE_PRIVATE_KEY_MATERIAL_1234567890\n-----END PRIVATE KEY-----';
+  const PEM_ENV = { SERVICE_PRIVATE_KEY: PEM };
+
+  it('redacts a multiline secret that arrives whole in one response', async () => {
+    stagedCloud([{ run: COMPLETED, log: logBody(`credential dump:\n${PEM}\n`, { done: true }) }]);
+    const out = io();
+    expect(await runCloudLogsFollow({ runId: RUN, step: undefined, json: false }, out.io, live({ env: PEM_ENV })))
+      .toBe(0);
+    const rendered = out.stdout.join('\n');
+    expect(rendered).not.toContain('FAKE_PRIVATE_KEY_MATERIAL_1234567890');
+    expect(rendered).not.toContain('BEGIN PRIVATE KEY');
+    expect(out.stdout.slice(1, -1)).toEqual(['credential dump:', '[redacted:SERVICE_PRIVATE_KEY]']);
+  });
+
+  it('holds a multiline secret’s first lines back until the polls that complete it', async () => {
+    const head = `credential dump:\n${PEM.split('\n')[0]!}\n`;
+    const most = `credential dump:\n${PEM.split('\n').slice(0, 2).join('\n')}\n`;
+    const whole = `credential dump:\n${PEM}\ndone\n`;
+    // What stdout held when each poll's run record was answered, so a line
+    // released late is distinguishable from one released at the drain.
+    const seen: string[][] = [];
+    const out = io();
+    stagedCloud([
+      { run: RUNNING, log: logBody(head) },
+      { run: RUNNING, log: logBody(most) },
+      { run: COMPLETED, log: logBody(whole, { done: true }) },
+    ], (path) => { if (path === 'run') seen.push([...out.stdout]); });
+    expect(await runCloudLogsFollow({ runId: RUN, step: undefined, json: false }, out.io, live({ env: PEM_ENV })))
+      .toBe(0);
+    const rendered = out.stdout.join('\n');
+    expect(rendered).not.toContain('FAKE_PRIVATE_KEY_MATERIAL_1234567890');
+    expect(rendered).not.toContain('BEGIN PRIVATE KEY');
+    expect(rendered).not.toContain('END PRIVATE KEY');
+    expect(out.stdout.slice(1, -1)).toEqual(['credential dump:', '[redacted:SERVICE_PRIVATE_KEY]', 'done']);
+    // The line before the secret is not held hostage by it: it left on the
+    // first poll, and nothing of the key left before the third.
+    expect(seen[1]!.slice(1)).toEqual(['credential dump:']);
+    expect(seen[2]!.slice(1)).toEqual(['credential dump:']);
   });
 
   it('refuses a log that no longer begins with what was already shown', async () => {

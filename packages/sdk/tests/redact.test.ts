@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { redact, redactRelayError } from '../src/redact.js';
+import { openSecretStart, redact, redactRelayError } from '../src/redact.js';
 
 const ENV: NodeJS.ProcessEnv = {
   GITHUB_TOKEN: 'ghp_abcdefghijklmnopqrstuvwxyz0123',
@@ -126,5 +126,33 @@ describe('redact — JSON credential fields', () => {
 
   it('does not re-redact an already redacted value', () => {
     expect(redact('{"token":"[redacted]"}', {})).toBe('{"token":"[redacted]"}');
+  });
+});
+
+describe('openSecretStart', () => {
+  const PEM = '-----BEGIN PRIVATE KEY-----\nFAKE_KEY_MATERIAL_0123456789\n-----END PRIVATE KEY-----';
+  const ENV_PEM: NodeJS.ProcessEnv = { SERVICE_PRIVATE_KEY: PEM };
+
+  it('answers the length when nothing is half-arrived', () => {
+    expect(openSecretStart('nothing to see here\n', ENV_PEM)).toBe(20);
+    expect(openSecretStart('', ENV_PEM)).toBe(0);
+    expect(openSecretStart(`already whole: ${PEM}\n`, ENV_PEM)).toBe(16 + PEM.length);
+  });
+
+  it('marks where a value has begun and not ended, across lines', () => {
+    const head = 'dump:\n-----BEGIN PRIVATE KEY-----\n';
+    expect(openSecretStart(head, ENV_PEM)).toBe(6);
+    expect(openSecretStart(`dump:\n${PEM.slice(0, 3)}`, ENV_PEM)).toBe(6);
+  });
+
+  it('ignores a value no secret name exports, and one too short to be material', () => {
+    expect(openSecretStart('dump:\n-----BEGIN PRIVATE KEY-----\n', {})).toBe(34);
+    expect(openSecretStart('mode is of', { AUTH_MODE: 'off' })).toBe(10);
+  });
+
+  it('takes the earliest start when two secrets are open at once', () => {
+    const env = { A_TOKEN: 'abcdefgh-longer-one', B_TOKEN: 'gh-longer-one-still' };
+    // `abcdefgh-` opens at 4; `gh-longer-one-still` would open at 11.
+    expect(openSecretStart('tailabcdefgh-', env)).toBe(4);
   });
 });
