@@ -30,6 +30,8 @@ test('merge-gate is a live-state predicate: no matching PR is a pass, a held gat
   const f = { run: async () => '[]' } as unknown as Ctx;
   assert.equal(await mergeGate(f, { owner: 'acme', repo: 'api', headSha: sha }), true);
   await assert.rejects(() => mergeGate(f, { owner: 'acme', repo: 'api' }), /40-hex headSha/);
+  const failing = { run: async () => { throw new Error('HTTP 502'); } } as unknown as Ctx;
+  await assert.rejects(() => mergeGate(failing, { owner: 'acme', repo: 'api', headSha: sha }), /HTTP 502/);
 });
 
 test('the manifest budget is the flow header budget, and the entry name is the file the flow lives in', () => {

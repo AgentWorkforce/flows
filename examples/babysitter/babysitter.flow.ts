@@ -106,10 +106,10 @@ export async function mergeGate(f: Ctx, input: unknown): Promise<boolean> {
     throw new Error('merge-gate requires owner, repo, and a 40-hex headSha');
   }
   const head = x.headSha;
-  const listing = await f.run(`gh pr list --repo ${shellWord(`${x.owner}/${x.repo}`)} --state open --json number,headRefOid --limit 50`);
-  const rows = JSON.parse(listing) as { number: number; headRefOid: string }[];
-  if (!Array.isArray(rows)) throw new Error('merge-gate: gh pr list did not return a list');
-  const match = rows.find(row => row.headRefOid === head);
+  const listing = await f.run(`gh api ${shellWord(`repos/${x.owner}/${x.repo}/commits/${head}/pulls`)} --paginate`);
+  const rows = JSON.parse(listing) as { number: number; state?: string }[];
+  if (!Array.isArray(rows)) throw new Error('merge-gate: GitHub did not return a pull list for this head');
+  const match = rows.find(row => row.state === 'open' || row.state === undefined);
   if (match === undefined) return true;
   const config = parseInput({
     ...x, number: match.number,
