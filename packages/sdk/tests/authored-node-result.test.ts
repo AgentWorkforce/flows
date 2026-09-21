@@ -101,6 +101,34 @@ describe('authored IPC result durable verification',()=>{
     if (accepted) await expect(verified).resolves.toBeUndefined();
     else await expect(verified).rejects.toThrow('no matching durable completion');
   });
+  it('attests a claimed detail against the marker the journal actually holds',async()=>{
+    const detail='review found 1 P2: review.clean was not created';
+    const marker=(value:string)=>`printf '%s' '${JSON.stringify({completionReason:'step_failed',detail:value})}'`;
+    const claimed={...result(),completionReason:'step_failed' as const,completionDetail:detail};
+    records.set('child-2',entries(marker(detail)));
+    await expect(verifyAuthoredNodeResult(claimed,metadata,'root','socket')).resolves.toBeUndefined();
+
+    // A frame that alters one character of what the journal recorded.
+    records.set('child-2',entries(marker(`${detail}!`)));
+    await expect(verifyAuthoredNodeResult(claimed,metadata,'root','socket')).rejects.toThrow('no matching durable completion');
+
+    // A frame that claims a detail over a marker that carries none.
+    records.set('child-2',entries(`printf '%s' '{"completionReason":"step_failed"}'`));
+    await expect(verifyAuthoredNodeResult(claimed,metadata,'root','socket')).rejects.toThrow('no matching durable completion');
+
+    // A frame that drops a detail the marker does hold.
+    records.set('child-2',entries(marker(detail)));
+    await expect(verifyAuthoredNodeResult({...result(),completionReason:'step_failed'},metadata,'root','socket'))
+      .rejects.toThrow('no matching durable completion');
+  });
+  it.each([
+    ['a non-string detail',7],
+    ['an over-long detail','a'.repeat(2001)],
+    ['an empty detail',''],
+  ] as const)('refuses %s on the frame before it reaches the marker comparison',async(_label,detail)=>{
+    const claimed={...result(),completionDetail:detail} as unknown as AuthoredFlowExecutionResult;
+    await expect(verifyAuthoredNodeResult(claimed,metadata,'root','socket')).rejects.toThrow('no matching durable completion');
+  });
   it('reads successful terminal evidence beyond 100-entry journal pages',async()=>{
     const original=records.get('child-1')!;
     records.set('child-1',[original[0]!,...Array.from({length:248},()=>({entry_type:'worker.stream'})),...original.slice(1)]);

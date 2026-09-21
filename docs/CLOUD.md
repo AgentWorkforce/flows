@@ -229,6 +229,22 @@ step rows because the run record carries no total, and Cloud stores each
 step's cost as a float — unlike the local view, which adds the journal's
 decimal strings exactly (`run-state.ts`).
 
+A failed run also prints its `error`, which is where an authored verdict's
+detail arrives. A flow that ends `done("step_failed", { detail })` puts that
+sentence in the run report's `step_failed` diagnostic message, and Cloud stores
+that message as the run's `error`; `flows status --cloud` renders it under an
+`error` heading, redacted again on the way out. The message is deliberately one
+line even when the detail the flow passed had line breaks in it — the escapes
+`\n`, `\r`, `\t` and `\uXXXX` are how the breaks appear — because this view
+elides the middle of a long multi-line error, and a forty-line detail rendered
+as forty lines would lose exactly the finding it exists to carry. The
+unescaped detail is in the report's own `completionDetail` and in the
+diagnostic's `detail`. See docs/SURFACE.md for the bound and the redaction.
+
+Cloud's projection of the report into `error` is the server's, not this
+client's; what this repository establishes is that the message reaches a
+reader once `error` holds it.
+
 Every refusal is one `REFUSED [code] message` line naming what to do next:
 
 | code | when |

@@ -26,7 +26,10 @@ import type {
   RunStatus,
 } from '../protocol.js';
 import type { StepType } from '../spec.js';
-import type { LoweredCompletionReason } from '../authored-flow-executor.js';
+import {
+  singleLineCompletionDetail,
+  type LoweredCompletionReason,
+} from '../authored-completion.js';
 import {
   checkFlow,
   type CheckReport,
@@ -56,6 +59,13 @@ export interface RunReport {
   socketPath?: string;
   status?: RunStatus;
   completionReason?: RunCompletionReason;
+  /**
+   * What the body passed to `done(reason, { detail })`, normalized: redacted,
+   * trimmed, and bounded to 2,000 code points. Absent for every one-argument
+   * call, so an existing report keeps its exact shape — and absent on the
+   * paths where no authored body declared the outcome at all.
+   */
+  completionDetail?: string;
   completedSteps?: number;
   reuse?: { fromRunId: string; reusedSteps: number; executedSteps: number };
   parkedStep?: ParkedStep;
@@ -398,15 +408,30 @@ export function authoredCompletion(
   command: RunCommand,
   base: RunReport,
   socketPath: string,
-  result: { name: string; completionReason: LoweredCompletionReason; journalSteps: readonly unknown[] },
+  result: {
+    name: string;
+    completionReason: LoweredCompletionReason;
+    completionDetail?: string;
+    journalSteps: readonly unknown[];
+  },
   runId: string | undefined,
 ): RunExecution {
   const common: RunReport = {
     ...fromBase(command, base),
     ...(runId === undefined ? {} : { runId }),
     socketPath,
+    ...(result.completionDetail === undefined ? {} : { completionDetail: result.completionDetail }),
     completedSteps: result.journalSteps.length,
   };
+  // Two spellings of the same fact, on purpose. `detail` is the structured
+  // one — the `StepFailedDetails` key the diagnostic already declares, here
+  // describing the AUTHOR's verdict rather than the daemon's account of a
+  // failing step — and keeps the body's own line breaks. `said` is the same
+  // text folded onto one line for the message, because Cloud renders a run's
+  // `error` through a view that elides the middle of a long one.
+  const detail = result.completionDetail;
+  const evidence = detail === undefined ? {} : { detail };
+  const said = detail === undefined ? '' : singleLineCompletionDetail(detail);
   switch (result.completionReason) {
     case 'success':
       return {
@@ -420,7 +445,9 @@ export function authoredCompletion(
           ...common, ok: true, status: 'completed', completionReason: 'success',
           diagnostics: [...base.diagnostics, {
             severity: 'declined', kind: 'run_declined',
-            message: 'Flow deliberately chose not to act on this input.',
+            ...evidence,
+            message: 'Flow deliberately chose not to act on this input.'
+              + (detail === undefined ? '' : ` ${said}`),
           }],
         },
       };
@@ -431,7 +458,9 @@ export function authoredCompletion(
           ...common, ok: false, status: 'parked',
           diagnostics: [...base.diagnostics, {
             severity: 'parked', kind: 'run_parked',
-            message: `Flow "${result.name}" needs_human; see the journal for accumulated blockers.`,
+            ...evidence,
+            message: `Flow "${result.name}" needs_human; see the journal for accumulated blockers.`
+              + (detail === undefined ? '' : ` ${said}`),
           }],
         },
       };
@@ -447,9 +476,16 @@ export function authoredCompletion(
           ...common, ok: false, status: 'failed', completionReason: 'step_failed',
           diagnostics: [...base.diagnostics, {
             severity: 'failure', kind: 'step_failed',
-            message: `Flow "${result.name}" declared done("step_failed"): its own checks did not pass. `
-              + 'No step failed, so there is no step-level evidence to inspect; the journal holds '
-              + 'every step the flow ran before it decided.',
+            ...evidence,
+            // With a detail, the flow's own account REPLACES the generic
+            // sentence: "no step-level evidence to inspect" is the only thing
+            // there is to say when the body said nothing, and saying it
+            // beside a real explanation would bury the explanation.
+            message: detail === undefined
+              ? `Flow "${result.name}" declared done("step_failed"): its own checks did not pass. `
+                + 'No step failed, so there is no step-level evidence to inspect; the journal holds '
+                + 'every step the flow ran before it decided.'
+              : `Flow "${result.name}" declared done("step_failed"): ${said}`,
           }],
         },
       };

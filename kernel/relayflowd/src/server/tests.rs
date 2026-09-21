@@ -119,6 +119,86 @@ fn run_start_admission_key_recovers_the_same_run_and_refuses_spec_drift() {
     assert_eq!(drifted.error.unwrap().code, "run_admission_conflict");
 }
 
+/// flows#545: an authored `done("step_failed", { detail })` travels as JSON
+/// inside the terminal marker's deterministic command.
+///
+/// The SDK relies on three kernel properties for that to be durable evidence
+/// rather than a claim: the command is journaled verbatim and survives a
+/// reopen, re-admitting the identical spec under the same admission key
+/// returns the same run without spawning a second one, and a spec whose
+/// marker data changed is refused instead of quietly admitted. No kernel
+/// change was needed for the detail — it is opaque data in a shell string —
+/// so this test exists to keep it that way.
+#[test]
+fn deterministic_marker_carrying_json_survives_reopen_and_refuses_changed_detail() {
+    let directory = tempdir().unwrap();
+    let data_dir = directory.path();
+    let hub = Arc::new(ProtocolHub::default());
+    let (writer, _peer) = shared_writer();
+    let marker = |detail: &str| {
+        format!(
+            r#"printf '%s' '{{"completionReason":"step_failed","detail":"{detail}"}}'"#
+        )
+    };
+    let start = |id: &str, command: &str| {
+        json!({"id": id, "verb": "run.start", "params": {
+            "admission_key": "authored-child:complete-2",
+            "spec": {"name": "software-factory/complete-2", "steps": [{
+                "id": "complete-2", "type": "deterministic", "command": command,
+            }]}
+        }})
+        .to_string()
+    };
+
+    let detail = "review found 1 P2: review.clean was not created";
+    let first = request(data_dir, &hub, 1, &writer, &start("one", &marker(detail)));
+    assert!(first.ok, "first admission failed: {:?}", first.error);
+    let run_id = first.result.unwrap()["run_id"].as_str().unwrap().to_owned();
+
+    // Same spec, same key: the same run, not a second effect.
+    let retried = request(data_dir, &hub, 1, &writer, &start("two", &marker(detail)));
+    assert!(retried.ok, "idempotent retry failed: {:?}", retried.error);
+    assert_eq!(retried.result.unwrap()["run_id"], run_id);
+
+    // Reopened from disk by this request, the journal holds exactly one
+    // spawn, and the marker command came back character for character.
+    let read = request(
+        data_dir,
+        &hub,
+        1,
+        &writer,
+        &json!({"id":"read","verb":"journal.read","params":{"run_id": run_id}}).to_string(),
+    );
+    assert!(read.ok, "journal.read failed: {:?}", read.error);
+    let entries = read.result.unwrap();
+    let spawned: Vec<_> = entries["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| entry["entry_type"] == "run.spawned")
+        .collect();
+    assert_eq!(spawned.len(), 1, "one admitted run, one spawn");
+    assert_eq!(
+        spawned[0]["payload"]["spec"]["steps"][0]["command"]
+            .as_str()
+            .unwrap(),
+        marker(detail),
+    );
+
+    // One character of the detail differs: a different spec under an identity
+    // that is already spoken for, and the kernel fails closed rather than
+    // letting a second verdict take the first one's place.
+    let drifted = request(
+        data_dir,
+        &hub,
+        1,
+        &writer,
+        &start("three", &marker("review found 2 P2s")),
+    );
+    assert!(!drifted.ok);
+    assert_eq!(drifted.error.unwrap().code, "run_admission_conflict");
+}
+
 #[test]
 fn run_start_refuses_invalid_admission_keys() {
     let directory = tempdir().unwrap();
