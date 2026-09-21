@@ -190,6 +190,7 @@ export const CLI_VERBS = [
     options: [
       { flags: '--step <name>', description: 'Show that agent step’s transcript instead of the runner log' },
       { flags: '--raw', description: 'Print the transcript JSONL unrendered (still redacted)' },
+      { flags: '--follow', description: 'Append new runner output until the run ends; exits with the run’s outcome' },
       JSON_OPTION,
     ],
     variants: ['logs'],
@@ -325,6 +326,7 @@ export const CLI_VERBS = [
       DATA_DIR_OPTION,
       { flags: '--tail <n>', description: 'Lines of each agent attempt’s transcript tail to show' },
       { flags: '--cloud', description: 'Read the run from Cloud instead of a local journal; needs the run id' },
+      { flags: '--watch', description: 'With --cloud: redraw until the run ends, then exit with its outcome' },
     ],
     variants: ['status'],
   },

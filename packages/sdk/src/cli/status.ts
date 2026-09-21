@@ -31,6 +31,15 @@ export interface StatusArgs {
    * module keeps its property of opening one file and no socket.
    */
   cloud?: true;
+  /**
+   * `--watch`: redraw the hosted page until the run is terminal.
+   *
+   * Only with `--cloud`. A local `flows status` reads one journal file and
+   * returns; there is no loop for it to hang in, so `--watch` without
+   * `--cloud` is a contradiction rather than a narrower request, and is
+   * refused with the rest of the invocation. Handled in `cli/cloud-live.ts`.
+   */
+  watch?: true;
 }
 
 export const DEFAULT_TAIL_LINES = 20;
@@ -63,6 +72,7 @@ export interface StatusOptions {
 export function parseStatusArgs(args: readonly string[]): StatusArgs | undefined {
   let json = false;
   let cloud = false;
+  let watch = false;
   let dataDir: string | undefined;
   let tail: number | undefined;
   const positionals: string[] = [];
@@ -74,6 +84,9 @@ export function parseStatusArgs(args: readonly string[]): StatusArgs | undefined
     } else if (argument === '--cloud') {
       if (cloud) return undefined;
       cloud = true;
+    } else if (argument === '--watch') {
+      if (watch) return undefined;
+      watch = true;
     } else if (argument === '--data-dir' || argument === '--tail') {
       const value = args[++index];
       if (value === undefined || value.length === 0 || value.startsWith('-')) return undefined;
@@ -97,9 +110,11 @@ export function parseStatusArgs(args: readonly string[]): StatusArgs | undefined
   // but a contradiction, and is refused as an invocation rather than silently
   // ignored. A hosted run id is mandatory: there is no ambient one.
   if (cloud && (dataDir !== undefined || tail !== undefined || positionals.length === 0)) return undefined;
+  if (watch && !cloud) return undefined;
   return {
     command: 'status', json,
     ...(cloud ? { cloud: true as const } : {}),
+    ...(watch ? { watch: true as const } : {}),
     ...(dataDir === undefined ? {} : { dataDir }),
     ...(tail === undefined ? {} : { tail }),
     ...(positionals[0] === undefined ? {} : { runId: positionals[0] }),
