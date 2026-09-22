@@ -5,6 +5,8 @@
   "scripts": {
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "build:recommended": "node build-recommended.mjs",
+    "check:recommended": "node build-recommended.mjs --check"
   }
 }

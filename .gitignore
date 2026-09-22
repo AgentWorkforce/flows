@@ -1,6 +1,7 @@
 node_modules/
 target/
 dist/
+!examples/babysitter/dist/
 *.log
 .DS_Store
 .agent-relay/

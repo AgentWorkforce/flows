@@ -82,6 +82,36 @@ two lists to each other. Three of those actions — `pull_request.ready_for_revi
 deliberately declares the full contract rather than the routable subset, so
 that an install grants exactly the events the flow registers.
 
+## Recommended Flow artifact
+
+`recommended.ts` is the standalone entry point for a second Cloud Recommended
+Flow alongside Software Garden. It consumes Cloud's normalized
+`{ approver, pullRequest, event }` input and derives the repository and pull
+request coordinates from that trusted activation envelope rather than pinning
+one PR at build time. `build-recommended.mjs` bundles the authored modules into
+the committed one-file catalog artifact at
+`dist/babysitter-recommended.flow.ts`; its check mode fails when that artifact
+is stale.
+
+The catalog trigger for this artifact is repository-scoped pull-request
+routing with the opt-in label:
+
+```json
+{"provider":"github","settings":{"events":"pull_request","labels":"babysit"}}
+```
+
+Cloud's activation `label` remains only the display name for the grouped
+activation. The trigger setting above is the GitHub label contract: adding
+`babysit` admits a PR after Cloud rereads it, while removing the label causes a
+later delivery to be filtered before launch. Repository selection remains an
+activation concern, so one activation may cover selected approved repositories
+or all approved repositories.
+
+The recommended artifact is deliberately fail-closed. Automatic merge is off,
+its validation command is `false` until Cloud collects explicit repository test
+policy, and the existing write/publication capability gates remain false. It
+does not claim automatic fixes, review publication, or merge.
+
 ## Operator input
 
 Pin configuration outside the PR and webhook, for example:
