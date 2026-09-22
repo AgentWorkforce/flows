@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { createServer } from 'node:http';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -22,6 +23,7 @@ import { validateFlowExtensionManifest } from '../src/flow-extension-manifest.js
 import { materializePlugin } from '../src/plugin-store.js';
 
 const roots: string[] = [];
+const require = createRequire(import.meta.url);
 afterEach(() => roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })));
 
 const manifest = (writes: string[] = ['cloud:babysitter-turn']) => ({
@@ -169,6 +171,46 @@ describe('hosted extension capability isolation', () => {
       pullRequest: { owner: 'AgentWorkforce', repository: 'flows', number: 551 },
     } }]);
   });
+
+  it.runIf(process.platform === 'linux')(
+    'launches through the captured process primitive after builtin export synchronization',
+    async () => {
+      const builtinChildProcess = require('node:child_process') as typeof import('node:child_process');
+      const originalSpawn = builtinChildProcess.spawn;
+      const installed = await artifact();
+      const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
+        provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-1',
+      });
+      let poisonCalls = 0;
+      try {
+        Object.defineProperty(builtinChildProcess, 'spawn', {
+          ...Object.getOwnPropertyDescriptor(builtinChildProcess, 'spawn'),
+          value: (...args: unknown[]) => {
+            const caller = (new Error().stack ?? '').split('\n', 4)[3] ?? '';
+            if (caller.includes('/src/hosted-extension-sandbox.')) {
+              poisonCalls += 1;
+              throw new Error('ambient spawn must not run');
+            }
+            return Reflect.apply(originalSpawn, builtinChildProcess, args);
+          },
+        });
+        syncBuiltinESMExports();
+        await expect(runVerifiedNativeExtensionSandbox({
+          artifact: installed,
+          manifest: validateFlowExtensionManifest(manifest()),
+          dispatch,
+          input: descriptor(),
+          babysitterTurn: { queue: async () => ({ receiptId: 'receipt-spawn', status: 'queued' }) },
+        })).resolves.toEqual({ completionReason: 'success', capabilityCalls: 1 });
+      } finally {
+        Object.defineProperty(builtinChildProcess, 'spawn', {
+          ...Object.getOwnPropertyDescriptor(builtinChildProcess, 'spawn'), value: originalSpawn,
+        });
+        syncBuiltinESMExports();
+      }
+      expect(poisonCalls).toBe(0);
+    },
+  );
 
   it('mounts the verified snapshot when the live store is atomically replaced before bwrap', async () => {
     const installed = await artifact();

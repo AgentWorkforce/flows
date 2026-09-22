@@ -3,7 +3,8 @@ import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, parse, resolve } from 'node:path';
-import { spawn } from 'node:child_process';
+import { ChildProcess, spawn } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import type { Readable, Writable } from 'node:stream';
 import { sha256 } from './bundle.js';
 import { PluginError } from './plugin-manifest.js';
@@ -15,6 +16,28 @@ import {
 import { materializePlugin, readStoredPluginFiles } from './plugin-store.js';
 
 const HOSTED_WRITE = 'cloud:babysitter-turn';
+const CREATE_REQUIRE = createRequire;
+const EXISTS_SYNC = existsSync;
+const LSTAT_SYNC = lstatSync;
+const READ_FILE_SYNC = readFileSync;
+const REALPATH_SYNC = realpathSync;
+const MKDIR = mkdir;
+const MKDTEMP = mkdtemp;
+const RM = rm;
+const WRITE_FILE = writeFile;
+const TMPDIR = tmpdir;
+const PATH_DIRNAME = dirname;
+const PATH_JOIN = join;
+const PATH_PARSE = parse;
+const PATH_RESOLVE = resolve;
+const SPAWN = spawn;
+const PROMISE = Promise;
+const EVENT_ON = Function.prototype.call.bind(EventEmitter.prototype.on) as (
+  emitter: EventEmitter, event: string, listener: (...args: unknown[]) => void,
+) => EventEmitter;
+const CHILD_PROCESS_KILL = Function.prototype.call.bind(ChildProcess.prototype.kill) as (
+  child: ChildProcess, signal?: NodeJS.Signals | number,
+) => boolean;
 const ARRAY_PUSH = Function.prototype.call.bind(Array.prototype.push) as <T>(array: T[], ...values: T[]) => number;
 const JSON_PARSE = JSON.parse;
 const JSON_STRINGIFY = JSON.stringify;
@@ -74,14 +97,14 @@ export async function runHostedExtensionSandbox(
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) {
     return unsupported('hosted extension timeout must be an integer from 1 to 60000ms');
   }
-  const entryPath = resolve(options.artifactDirectory, options.entry);
-  if (!STRING_STARTS_WITH(entryPath, `${resolve(options.artifactDirectory)}/`)) {
+  const entryPath = PATH_RESOLVE(options.artifactDirectory, options.entry);
+  if (!STRING_STARTS_WITH(entryPath, `${PATH_RESOLVE(options.artifactDirectory)}/`)) {
     throw new PluginError('plugin_path_invalid', `${options.entry}: hosted extension entry escapes its artifact.`);
   }
   const surfaceRoot = resolveSurfaceRoot(options.surfaceVersion, options.surfaceRoot);
-  const runtimeDirectory = await mkdtemp(join(tmpdir(), 'flows-hosted-extension-'));
-  const runner = join(runtimeDirectory, 'runner.mjs');
-  const surfaceFacade = join(runtimeDirectory, 'surface');
+  const runtimeDirectory = await MKDTEMP(PATH_JOIN(TMPDIR(), 'flows-hosted-extension-'));
+  const runner = PATH_JOIN(runtimeDirectory, 'runner.mjs');
+  const surfaceFacade = PATH_JOIN(runtimeDirectory, 'surface');
   try {
     const storedFiles = await readStoredPluginFiles(options.artifactDirectory, options.artifactDigest);
     const payloadFiles: { path: string; data: Buffer }[] = [];
@@ -96,69 +119,77 @@ export async function runHostedExtensionSandbox(
         'Hosted extension changed while its isolated snapshot was created.',
       );
     }
-    await writeFile(runner, HOSTED_EXTENSION_SANDBOX_SOURCE, { mode: 0o400, flag: 'wx' });
+    await WRITE_FILE(runner, HOSTED_EXTENSION_SANDBOX_SOURCE, { mode: 0o400, flag: 'wx' });
     await writeSurfaceFacade(surfaceFacade, surfaceRoot);
     const args = sandboxArguments({
       node,
       runner,
-      extension: realpathSync(snapshot.directory),
+      extension: REALPATH_SYNC(snapshot.directory),
       surfaceFacade,
     });
     await options.beforeLaunch?.();
     const commandArgs = [`--as=${ADDRESS_SPACE_BYTES}`, `--data=${DATA_BYTES}`, '--', bwrap];
     for (let index = 0; index < args.length; index += 1) commandArgs[commandArgs.length] = args[index]!;
-    const child = spawn(prlimit, commandArgs, {
+    const child = SPAWN(prlimit, commandArgs, {
       cwd: '/', env: {}, stdio: ['pipe', 'ignore', 'pipe', 'pipe'],
     });
-    return await exchangeHostedExtension(
-      child,
-      child.stdio[3] as Readable,
-      child.stdin as Writable,
-      child.stderr as Readable,
-      timeoutMs,
-      {
-        type: 'execute',
-        entry: `/extension/src/${options.entry}`,
-        surfaceRuntime: '/extension/node_modules/@relayflows/surface/runtime.js',
-        capability: HOSTED_WRITE,
-        identity: options.identity,
-        input: options.input,
-      },
-      options.invoke,
-    );
+    const childClosed = child.exitCode !== null || child.signalCode !== null
+      ? new PROMISE<void>(resolvePromise => resolvePromise())
+      : new PROMISE<void>(resolvePromise => { EVENT_ON(child, 'close', () => resolvePromise()); });
+    try {
+      return await exchangeHostedExtension(
+        child,
+        child.stdio[3] as Readable,
+        child.stdin as Writable,
+        child.stderr as Readable,
+        timeoutMs,
+        {
+          type: 'execute',
+          entry: `/extension/src/${options.entry}`,
+          surfaceRuntime: '/extension/node_modules/@relayflows/surface/runtime.js',
+          capability: HOSTED_WRITE,
+          identity: options.identity,
+          input: options.input,
+        },
+        options.invoke,
+      );
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) CHILD_PROCESS_KILL(child, 'SIGKILL');
+      await childClosed;
+    }
   } finally {
-    await rm(runtimeDirectory, { recursive: true, force: true });
+    await RM(runtimeDirectory, { recursive: true, force: true });
   }
 }
 
 function resolveSurfaceRoot(expectedVersion: string, override?: string): string {
   if (override !== undefined) return checkedSurfaceRoot(override, expectedVersion);
   let resolved: string;
-  try { resolved = realpathSync(createRequire(import.meta.url).resolve('@relayflows/surface')); }
+  try { resolved = REALPATH_SYNC(CREATE_REQUIRE(import.meta.url).resolve('@relayflows/surface')); }
   catch { return unsupported('hosted extension cannot resolve @relayflows/surface'); }
-  let directory = dirname(resolved);
-  const root = parse(directory).root;
+  let directory = PATH_DIRNAME(resolved);
+  const root = PATH_PARSE(directory).root;
   while (directory !== root) {
-    const packageJson = join(directory, 'package.json');
-    if (existsSync(packageJson)) {
+    const packageJson = PATH_JOIN(directory, 'package.json');
+    if (EXISTS_SYNC(packageJson)) {
       try {
-        const manifest = JSON_PARSE(readFileSync(packageJson, 'utf8')) as { name?: unknown; version?: unknown };
+        const manifest = JSON_PARSE(READ_FILE_SYNC(packageJson, 'utf8')) as { name?: unknown; version?: unknown };
         if (manifest.name === '@relayflows/surface' && manifest.version === expectedVersion) {
-          return realpathSync(directory);
+          return REALPATH_SYNC(directory);
         }
       } catch { /* keep walking */ }
     }
-    directory = dirname(directory);
+    directory = PATH_DIRNAME(directory);
   }
   return unsupported('hosted extension resolved an invalid @relayflows/surface package');
 }
 
 function checkedSurfaceRoot(root: string, expectedVersion: string): string {
   let real: string;
-  try { real = realpathSync(root); }
+  try { real = REALPATH_SYNC(root); }
   catch { return unsupported('hosted extension cannot resolve @relayflows/surface'); }
   try {
-    const manifest = JSON_PARSE(readFileSync(join(real, 'package.json'), 'utf8')) as {
+    const manifest = JSON_PARSE(READ_FILE_SYNC(PATH_JOIN(real, 'package.json'), 'utf8')) as {
       name?: unknown; version?: unknown;
     };
     if (manifest.name === '@relayflows/surface' && manifest.version === expectedVersion) return real;
@@ -167,36 +198,36 @@ function checkedSurfaceRoot(root: string, expectedVersion: string): string {
 }
 
 async function writeSurfaceFacade(directory: string, surfaceRoot: string): Promise<void> {
-  await mkdir(join(directory, 'dist/helpers'), { recursive: true });
-  await mkdir(join(directory, 'dist/triggers'), { recursive: true });
+  await MKDIR(PATH_JOIN(directory, 'dist/helpers'), { recursive: true });
+  await MKDIR(PATH_JOIN(directory, 'dist/triggers'), { recursive: true });
   const entries = OBJECT_ENTRIES(SURFACE_RUNTIME_SHA256);
   const runtimeFiles: { file: string; bytes: Buffer; expected: string }[] = [];
   for (let index = 0; index < entries.length; index += 1) {
     const file = entries[index]![0];
     const expected = entries[index]![1];
     let bytes: Buffer;
-    try { bytes = readFileSync(join(surfaceRoot, 'dist', file)); }
+    try { bytes = READ_FILE_SYNC(PATH_JOIN(surfaceRoot, 'dist', file)); }
     catch { return unsupported(`hosted extension cannot read pinned Surface runtime ${file}`); }
     if (sha256(bytes) !== expected) {
       return unsupported(`hosted extension Surface runtime ${file} differs from the reviewed bytes`);
     }
     runtimeFiles[index] = { file, bytes, expected };
   }
-  await writeFile(join(directory, 'package.json'), JSON_STRINGIFY({
+  await WRITE_FILE(PATH_JOIN(directory, 'package.json'), JSON_STRINGIFY({
     name: '@relayflows/surface', type: 'module', exports: { '.': './index.js', './runtime': './runtime.js' },
   }), { mode: 0o400, flag: 'wx' });
-  await writeFile(join(directory, 'index.js'),
+  await WRITE_FILE(PATH_JOIN(directory, 'index.js'),
     "export { flow } from './dist/flow.js';\nexport { github } from './dist/triggers/github.js';\n",
     { mode: 0o400, flag: 'wx' });
-  await writeFile(join(directory, 'runtime.js'), "export { getFlowDefinition } from './dist/flow.js';\n",
+  await WRITE_FILE(PATH_JOIN(directory, 'runtime.js'), "export { getFlowDefinition } from './dist/flow.js';\n",
     { mode: 0o400, flag: 'wx' });
   for (let index = 0; index < runtimeFiles.length; index += 1) {
     const { file, bytes } = runtimeFiles[index]!;
-    await writeFile(join(directory, 'dist', file), bytes, { mode: 0o400, flag: 'wx' });
+    await WRITE_FILE(PATH_JOIN(directory, 'dist', file), bytes, { mode: 0o400, flag: 'wx' });
   }
   for (let index = 0; index < runtimeFiles.length; index += 1) {
     const { file, expected } = runtimeFiles[index]!;
-    if (sha256(readFileSync(join(directory, 'dist', file))) !== expected) {
+    if (sha256(READ_FILE_SYNC(PATH_JOIN(directory, 'dist', file))) !== expected) {
       throw new PluginError('plugin_source_drift', `Private Surface runtime snapshot changed at ${file}.`);
     }
   }
@@ -212,16 +243,16 @@ export function sandboxArguments(input: {
   const libraryPaths = ['/usr/lib', '/usr/lib64', '/lib', '/lib64'];
   for (let index = 0; index < libraryPaths.length; index += 1) {
     const path = libraryPaths[index]!;
-    if (existsSync(path)) ARRAY_PUSH(args, '--ro-bind', realpathSync(path), path);
+    if (EXISTS_SYNC(path)) ARRAY_PUSH(args, '--ro-bind', REALPATH_SYNC(path), path);
   }
   ARRAY_PUSH(args,
     '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp',
     '--dir', '/runtime', '--ro-bind', input.node, '/runtime/node', '--ro-bind', input.runner, '/runtime/runner.mjs',
     '--dir', '/extension', '--dir', '/extension/node_modules', '--dir', '/extension/node_modules/@relayflows',
     '--dir', '/extension/node_modules/@relayflows/surface',
-    '--ro-bind', join(input.surfaceFacade, 'package.json'), '/extension/node_modules/@relayflows/surface/package.json',
-    '--ro-bind', join(input.surfaceFacade, 'index.js'), '/extension/node_modules/@relayflows/surface/index.js',
-    '--ro-bind', join(input.surfaceFacade, 'runtime.js'), '/extension/node_modules/@relayflows/surface/runtime.js',
+    '--ro-bind', PATH_JOIN(input.surfaceFacade, 'package.json'), '/extension/node_modules/@relayflows/surface/package.json',
+    '--ro-bind', PATH_JOIN(input.surfaceFacade, 'index.js'), '/extension/node_modules/@relayflows/surface/index.js',
+    '--ro-bind', PATH_JOIN(input.surfaceFacade, 'runtime.js'), '/extension/node_modules/@relayflows/surface/runtime.js',
     '--dir', '/extension/node_modules/@relayflows/surface/dist',
     '--dir', '/extension/node_modules/@relayflows/surface/dist/helpers',
     '--dir', '/extension/node_modules/@relayflows/surface/dist/triggers',
@@ -247,7 +278,7 @@ function surfaceRuntimeMounts(surfaceFacade: string): string[] {
     ARRAY_PUSH(
       mounts,
       '--ro-bind',
-      realpathSync(join(surfaceFacade, 'dist', file)),
+      REALPATH_SYNC(PATH_JOIN(surfaceFacade, 'dist', file)),
       `/extension/node_modules/@relayflows/surface/dist/${file}`,
     );
   }
@@ -257,9 +288,9 @@ function surfaceRuntimeMounts(surfaceFacade: string): string[] {
 
 function executable(path: string, name: string): string {
   let real: string;
-  try { real = realpathSync(path); }
+  try { real = REALPATH_SYNC(path); }
   catch { return unsupported(`${name} is unavailable`); }
-  if (!lstatSync(real).isFile()) return unsupported(`${name} is not a regular file`);
+  if (!LSTAT_SYNC(real).isFile()) return unsupported(`${name} is not a regular file`);
   return real;
 }
 

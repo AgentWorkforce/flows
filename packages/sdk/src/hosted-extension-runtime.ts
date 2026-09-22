@@ -9,8 +9,8 @@ import {
   removeHostedBaseSnapshot,
   type HostedBaseSourceRoot,
 } from './hosted-base-snapshot.js';
+import { findHostedProject } from './hosted-project.js';
 import { PluginError } from './plugin-manifest.js';
-import { findPluginProject } from './plugin-loader.js';
 import { PLUGIN_LOCK_FILE, PLUGIN_LOCK_VERSION, parsePluginLock, type PluginLockEntry } from './plugin-lock.js';
 import { canonicalPluginRef, isGithubPluginRef, type PluginSourceRef } from './plugin-source.js';
 import { pluginStoreDirectory, verifyStoredPlugin } from './plugin-store.js';
@@ -60,6 +60,7 @@ const WEAK_SET_HAS = Function.prototype.call.bind(WeakSet.prototype.has) as <T e
 
 interface RuntimeGeneration {
   readonly origin: string;
+  readonly projectRoot: string | undefined;
   declarations: string;
   sourceRoots: readonly HostedBaseSourceRoot[];
   sourceSha256: string;
@@ -98,7 +99,7 @@ export async function loadHostedExtensionRuntime(flowPath: string): Promise<Host
   const loaded = await installationAt(origin, generation);
   generation.declarations = loaded.declarations;
   const base = await baseAt(origin, generation);
-  if (loaded.declarations !== declaredExtensions(origin).signature) {
+  if (loaded.declarations !== declaredExtensions(generation).signature) {
     throw new PluginError(
       'plugin_source_drift',
       'Hosted extension declarations changed while their runtime generation was loaded.',
@@ -122,7 +123,7 @@ export async function loadHostedExtensionArtifacts(flowPath: string): Promise<Ho
 export async function loadHostedExtensionBase(flowPath: string): Promise<HostedExtensionBase> {
   const origin = await REALPATH(PATH_RESOLVE(flowPath));
   const generation = newGeneration(origin);
-  generation.declarations = declaredExtensions(origin).signature;
+  generation.declarations = declaredExtensions(generation).signature;
   return await baseAt(origin, generation);
 }
 
@@ -176,7 +177,7 @@ async function installationAt(
   installation: HostedExtensionInstallation;
   declarations: string;
 }> {
-  const root = findPluginProject(PATH_DIRNAME(origin));
+  const root = generation.projectRoot;
   if (root === undefined)
     return {
       installation: installation([], generation),
@@ -203,8 +204,8 @@ async function installationAt(
   };
 }
 
-function declaredExtensions(origin: string): { readonly signature: string } {
-  const root = findPluginProject(PATH_DIRNAME(origin));
+function declaredExtensions(generation: RuntimeGeneration): { readonly signature: string } {
+  const root = generation.projectRoot;
   return {
     signature: root === undefined ? canonicalize([]) : declarationSignature(hostedDeclaredExtensions(root)),
   };
@@ -334,6 +335,7 @@ function readBoundedDeclaration(path: string): Buffer {
 function newGeneration(origin: string): RuntimeGeneration {
   return {
     origin,
+    projectRoot: findHostedProject(PATH_DIRNAME(origin)),
     declarations: canonicalize([]),
     sourceRoots: OBJECT_FREEZE([]),
     sourceSha256: '',
@@ -348,7 +350,7 @@ async function assertCurrentGeneration(generation: RuntimeGeneration): Promise<v
     throw new PluginError('plugin_source_invalid', 'Hosted extension runtime generation is no longer readable.');
   }
   if (
-    declaredExtensions(generation.origin).signature !== generation.declarations ||
+    declaredExtensions(generation).signature !== generation.declarations ||
     currentSource !== generation.sourceSha256
   ) {
     throw new PluginError(
@@ -359,7 +361,7 @@ async function assertCurrentGeneration(generation: RuntimeGeneration): Promise<v
 }
 
 async function baseAt(origin: string, generation: RuntimeGeneration): Promise<HostedExtensionBase> {
-  const snapshot = await createHostedBaseSnapshot(origin);
+  const snapshot = await createHostedBaseSnapshot(origin, generation.projectRoot ?? PATH_DIRNAME(origin));
   generation.sourceRoots = snapshot.liveSources;
   generation.sourceSha256 = snapshot.liveDigest;
   try {

@@ -16,7 +16,7 @@ import {
   readDirectoryEntry,
   statDescriptor,
 } from './fs-descriptor.js';
-import { findPluginProject } from './plugin-loader.js';
+import { findHostedProject } from './hosted-project.js';
 import { PluginError } from './plugin-manifest.js';
 
 const EXCLUDED_DIRECTORIES = new Set(['.flows', '.git', 'node_modules']);
@@ -93,9 +93,12 @@ export interface HostedBaseSnapshot {
  * node_modules is never linked or read. Every admitted source byte is
  * represented in liveDigest and copied to the private identity directory.
  */
-export async function createHostedBaseSnapshot(flowPath: string): Promise<HostedBaseSnapshot> {
+export async function createHostedBaseSnapshot(
+  flowPath: string,
+  projectRootOverride?: string,
+): Promise<HostedBaseSnapshot> {
   const origin = await REALPATH(PATH_RESOLVE(flowPath));
-  const discovered = findPluginProject(PATH_DIRNAME(origin)) ?? PATH_DIRNAME(origin);
+  const discovered = projectRootOverride ?? findHostedProject(PATH_DIRNAME(origin)) ?? PATH_DIRNAME(origin);
   const projectRoot = await REALPATH(discovered);
   const flowRelative = PATH_RELATIVE(projectRoot, origin);
   if (

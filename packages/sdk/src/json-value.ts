@@ -4,6 +4,7 @@ const ARRAY_IS_ARRAY = Array.isArray;
 const ARRAY_PUSH = Function.prototype.call.bind(Array.prototype.push) as <T>(array: T[], value: T) => number;
 const ARRAY_PROTOTYPE = Array.prototype;
 const ERROR = Error;
+const IS_PROXY = isProxy;
 const JSON_STRINGIFY = JSON.stringify;
 const NUMBER = Number;
 const NUMBER_IS_FINITE = Number.isFinite;
@@ -88,7 +89,7 @@ function snapshot(
   // Every ordinary reflective operation on a Proxy can execute author code.
   // Node and Bun expose this trap-free brand check, so reject before touching
   // its prototype, keys, descriptors, or identity collection.
-  if (isProxy(value)) throw nonJson(at, 'Proxy objects are not allowed');
+  if (IS_PROXY(value)) throw nonJson(at, 'Proxy objects are not allowed');
   if (WEAK_SET_HAS(ancestors, value)) throw nonJson(at, 'cycles are not allowed');
   WEAK_SET_ADD(ancestors, value);
   try {

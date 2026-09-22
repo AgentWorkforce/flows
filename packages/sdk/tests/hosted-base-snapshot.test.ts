@@ -144,8 +144,13 @@ describe('hosted base private snapshot', () => {
   it('keeps declaration and reviewed-base reads bound after builtin export synchronization', async () => {
     const { flowPath } = fixture();
     const builtinFs = require('node:fs') as typeof import('node:fs');
+    const builtinPath = require('node:path') as typeof import('node:path');
     const originalOpenSync = builtinFs.openSync;
     const originalReadFile = builtinFs.promises.readFile;
+    const originalExistsSync = builtinFs.existsSync;
+    const originalResolve = builtinPath.resolve;
+    const originalJoin = builtinPath.join;
+    const originalDirname = builtinPath.dirname;
     let poisonCalls = 0;
     const directProductionCaller = (): boolean => {
       const directCaller = (new Error().stack ?? '').split('\n', 4)[3] ?? '';
@@ -172,6 +177,32 @@ describe('hosted base private snapshot', () => {
           return await Reflect.apply(originalReadFile, builtinFs.promises, args);
         },
       });
+      Object.defineProperty(builtinFs, 'existsSync', {
+        ...Object.getOwnPropertyDescriptor(builtinFs, 'existsSync'),
+        value: (...args: unknown[]) => {
+          const caller = (new Error().stack ?? '').split('\n', 4)[3] ?? '';
+          if (caller.includes('/src/hosted-project.')) {
+            poisonCalls += 1;
+            throw new Error('ambient existsSync must not run');
+          }
+          return Reflect.apply(originalExistsSync, builtinFs, args);
+        },
+      });
+      for (const [name, original] of [
+        ['resolve', originalResolve], ['join', originalJoin], ['dirname', originalDirname],
+      ] as const) {
+        Object.defineProperty(builtinPath, name, {
+          ...Object.getOwnPropertyDescriptor(builtinPath, name),
+          value: (...args: unknown[]) => {
+            const caller = (new Error().stack ?? '').split('\n', 4)[3] ?? '';
+            if (caller.includes('/src/hosted-project.')) {
+              poisonCalls += 1;
+              throw new Error(`ambient path.${name} must not run`);
+            }
+            return Reflect.apply(original, builtinPath, args);
+          },
+        });
+      }
       syncBuiltinESMExports();
       await expect(loadHostedExtensionRuntime(flowPath)).rejects.toMatchObject({
         code: 'plugin_source_invalid',
@@ -185,6 +216,19 @@ describe('hosted base private snapshot', () => {
       Object.defineProperty(builtinFs.promises, 'readFile', {
         ...Object.getOwnPropertyDescriptor(builtinFs.promises, 'readFile'),
         value: originalReadFile,
+      });
+      Object.defineProperty(builtinFs, 'existsSync', {
+        ...Object.getOwnPropertyDescriptor(builtinFs, 'existsSync'),
+        value: originalExistsSync,
+      });
+      Object.defineProperty(builtinPath, 'resolve', {
+        ...Object.getOwnPropertyDescriptor(builtinPath, 'resolve'), value: originalResolve,
+      });
+      Object.defineProperty(builtinPath, 'join', {
+        ...Object.getOwnPropertyDescriptor(builtinPath, 'join'), value: originalJoin,
+      });
+      Object.defineProperty(builtinPath, 'dirname', {
+        ...Object.getOwnPropertyDescriptor(builtinPath, 'dirname'), value: originalDirname,
       });
       syncBuiltinESMExports();
     }

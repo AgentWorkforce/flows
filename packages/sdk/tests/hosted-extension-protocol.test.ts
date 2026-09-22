@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -20,6 +21,7 @@ import { validateFlowExtensionManifest } from '../src/flow-extension-manifest.js
 import { materializePlugin } from '../src/plugin-store.js';
 
 const roots: string[] = [];
+const require = createRequire(import.meta.url);
 afterEach(() => roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })));
 
 const manifest = () => ({
@@ -152,6 +154,24 @@ describe('hosted extension hostile protocol', () => {
     Object.setPrototypeOf(value, prototype);
     expect(() => snapshotJsonValue(value, 'delivery')).toThrow(/intrinsic prototype/);
     expect(traps).toBe(0);
+  });
+
+  it('uses the captured proxy detector after builtin export synchronization', () => {
+    const builtinUtil = require('node:util') as typeof import('node:util');
+    const originalIsProxy = builtinUtil.types.isProxy;
+    let poisonCalls = 0;
+    try {
+      builtinUtil.types.isProxy = (() => {
+        poisonCalls += 1;
+        return false;
+      }) as typeof builtinUtil.types.isProxy;
+      syncBuiltinESMExports();
+      expect(() => snapshotJsonValue(new Proxy({}, {}), 'delivery')).toThrow(/Proxy objects are not allowed/);
+    } finally {
+      builtinUtil.types.isProxy = originalIsProxy;
+      syncBuiltinESMExports();
+    }
+    expect(poisonCalls).toBe(0);
   });
 
   it('shadows a poisoned Array.prototype.toJSON on copied arrays', () => {
