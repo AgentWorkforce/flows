@@ -8,6 +8,7 @@ const NUMBER = Number;
 const NUMBER_IS_FINITE = Number.isFinite;
 const NUMBER_IS_INTEGER = Number.isInteger;
 const OBJECT_CREATE = Object.create;
+const OBJECT_DEFINE_PROPERTY = Object.defineProperty;
 const OBJECT_FREEZE = Object.freeze;
 const OBJECT_GET_OWN_PROPERTY_DESCRIPTOR = Object.getOwnPropertyDescriptor;
 const OBJECT_GET_PROTOTYPE_OF = Object.getPrototypeOf;
@@ -120,6 +121,10 @@ function snapshotArray(
     if (descriptor === undefined) throw nonJson(`${at}[${index}]`, 'array holes are not allowed');
     ARRAY_PUSH.call(out, snapshotDescriptor(descriptor, `${at}[${index}]`, ancestors, budget, depth + 1));
   }
+  // JSON.stringify consults `toJSON` before applying array semantics. Shadow
+  // any poisoned Array.prototype hook with inert, non-JSON-visible data while
+  // retaining the intrinsic prototype expected by downstream array consumers.
+  OBJECT_DEFINE_PROPERTY(out, 'toJSON', { value: undefined });
   return OBJECT_FREEZE(out) as unknown as JsonValue[];
 }
 

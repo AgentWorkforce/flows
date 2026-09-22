@@ -147,6 +147,25 @@ describe('hosted extension hostile protocol', () => {
     expect(traps).toBe(0);
   });
 
+  it('shadows a poisoned Array.prototype.toJSON on copied arrays', () => {
+    const previous = Object.getOwnPropertyDescriptor(Array.prototype, 'toJSON');
+    let calls = 0;
+    try {
+      Object.defineProperty(Array.prototype, 'toJSON', {
+        configurable: true,
+        value: () => { calls += 1; return 'x'.repeat(1024 * 1024); },
+      });
+      const snapshot = snapshotJsonValue(['safe'], 'delivery', {
+        maxDepth: 4, maxNodes: 4, maxBytes: 32,
+      });
+      expect(JSON.stringify(snapshot)).toBe('["safe"]');
+      expect(calls).toBe(0);
+    } finally {
+      if (previous === undefined) delete (Array.prototype as { toJSON?: unknown }).toJSON;
+      else Object.defineProperty(Array.prototype, 'toJSON', previous);
+    }
+  });
+
   it.each(['inherited toJSON', 'stateful getter'] as const)(
     'refuses a delivery descriptor with %s before the adapter', async attack => {
       const input = descriptor();
