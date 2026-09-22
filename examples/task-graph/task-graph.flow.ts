@@ -98,6 +98,7 @@ export default flow<Input>("task-graph", async (f, input) => {
   // 1. The plan: given, or written by a planner agent.
   let subtasks = input.plan?.subtasks;
   if (!subtasks) {
+    const before = (await f.run("git rev-parse HEAD")).trim();
     await f.agent("planner", {
       cli: "claude",
       task:
@@ -105,11 +106,12 @@ export default flow<Input>("task-graph", async (f, input) => {
         `fit one focused agent session. Make dependsOn honest: only list a dependency when the subtask ` +
         `really needs that code merged first — everything else runs in parallel. Do not write code.\n` +
         `Write ONLY this JSON to ${work}/plan.json:\n${PLAN_SHAPE}\n\nTask:\n${brief}`,
-    // The planner must only plan: a parseable plan AND an untouched working tree (.relayflow/ is excluded).
+    // The planner must only plan: a parseable plan, the same HEAD (no commits) and an untouched
+    // working tree (.relayflow/ is excluded).
     }).gate({
       type: "subprocess_gate",
       command: `node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' ${shellWord(`${work}/plan.json`)} && ` +
-        `test -z "$(git status --porcelain)"`,
+        `test "$(git rev-parse HEAD)" = ${before} && test -z "$(git status --porcelain)"`,
     });
     subtasks = (JSON.parse(await f.run(`cat ${shellWord(`${work}/plan.json`)}`)) as { subtasks: Subtask[] }).subtasks;
   }
