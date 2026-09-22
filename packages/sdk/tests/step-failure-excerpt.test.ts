@@ -98,6 +98,8 @@ describe('formatStepExcerpt: what it keeps', () => {
 
 describe('formatStepExcerpt: which lines it highlights', () => {
   it.each([
+    ['Go per-test failures', '--- FAIL: TestFoo (0.00s)'],
+    ['Jest failure headings', '  ● pty exits cleanly'],
     ['TAP', 'not ok 13 - pty-exit: child process exit is detected'],
     ['indented TAP subtests', '    not ok 2 - nested subtest'],
     ['pytest', 'FAILED tests/test_pty.py::test_exit - assert 1 == 0'],
@@ -298,5 +300,15 @@ describe('formatStepExcerpt: what it is safe to print', () => {
   it.each([0, -1, 255, 1.5, Number.NaN])('refuses the unusable budget %s rather than eliding in silence', budget => {
     expect(() => formatStepExcerpt('x'.repeat(10_000), budget))
       .toThrow('step excerpt budget must be an integer of at least 256 bytes');
+  });
+});
+
+
+describe('Jest section headings', () => {
+  it('does not spend a failure slot on Console', () => {
+    const filler = 'ok - passing case\n'.repeat(1000);
+    const excerpt = formatStepExcerpt(filler + '  ● Console\n' + filler);
+    expect(excerpt).not.toContain('● Console');
+    expect(excerpt).not.toContain('failure marker');
   });
 });

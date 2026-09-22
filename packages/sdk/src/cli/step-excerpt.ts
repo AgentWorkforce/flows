@@ -62,6 +62,8 @@ const TRUNCATED_MARKER = '… line truncated …';
  * through `re2js`.
  */
 const FAILURE_MARKERS: readonly RegExp[] = [
+  /^\s*--- FAIL\b/u, // Go per-test failures (package summaries already match FAIL).
+  /^\s*●\s(?!Console\b)/u, // Jest failure heading, excluding the Console section.
   /^\s*not ok\b/u, // TAP: node --test, prove
   /^\s*FAILED\b/u, // pytest short test summary: `FAILED tests/x.py::y - ...`
   /^\s*FAIL\b/u, // vitest / jest file header: `FAIL src/x.test.ts`

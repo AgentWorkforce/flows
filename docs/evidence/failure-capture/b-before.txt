@@ -1,0 +1,216 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/step-failure-excerpt.test.ts (45 tests | 2 failed) 190ms
+   × formatStepExcerpt: which lines it highlights > recognises a Go per-test failures failure line from anywhere in the stream 12ms
+     → expected 'ok - a passing case with a realistica…' to contain '--- FAIL: TestFoo (0.00s)'
+   × formatStepExcerpt: which lines it highlights > recognises a Jest failure headings failure line from anywhere in the stream 3ms
+     → expected 'ok - a passing case with a realistica…' to contain '  ● pty exits cleanly'
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/step-failure-excerpt.test.ts > formatStepExcerpt: which lines it highlights > recognises a Go per-test failures failure line from anywhere in the stream
+AssertionError: expected 'ok - a passing case with a realistica…' to contain '--- FAIL: TestFoo (0.00s)'
+
+- Expected
++ Received
+
+- --- FAIL: TestFoo (0.00s)
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ … 4,132 bytes elided …
++  realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++
+
+ ❯ tests/step-failure-excerpt.test.ts:117:21
+    115|     // The ANSI case is matched on an escape-stripped view but rendere…
+    116|     // the display sanitiser, so compare on what survives sanitising.
+    117|     expect(excerpt).toContain(line.replaceAll(/[\p{Cc}\p{Cf}]/gu, '?')…
+       |                     ^
+    118|     expect(excerpt).toMatch(/1 line matched a failure marker/u);
+    119|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/step-failure-excerpt.test.ts > formatStepExcerpt: which lines it highlights > recognises a Jest failure headings failure line from anywhere in the stream
+AssertionError: expected 'ok - a passing case with a realistica…' to contain '  ● pty exits cleanly'
+
+- Expected
++ Received
+
+-   ● pty exits cleanly
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ … 4,130 bytes elided …
++  realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++ ok - a passing case with a realistically long name
++
+
+ ❯ tests/step-failure-excerpt.test.ts:117:21
+    115|     // The ANSI case is matched on an escape-stripped view but rendere…
+    116|     // the display sanitiser, so compare on what survives sanitising.
+    117|     expect(excerpt).toContain(line.replaceAll(/[\p{Cc}\p{Cf}]/gu, '?')…
+       |                     ^
+    118|     expect(excerpt).toMatch(/1 line matched a failure marker/u);
+    119|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 43 passed (45)
+   Start at  23:56:32
+   Duration  426ms (transform 54ms, setup 0ms, collect 53ms, tests 190ms, environment 0ms, prepare 50ms)
+

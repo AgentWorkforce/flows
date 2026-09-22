@@ -1,0 +1,13 @@
+$ cd packages/sdk && npx vitest run tests/step-failure-excerpt.test.ts
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/step-failure-excerpt.test.ts (45 tests) 167ms
+
+ Test Files  1 passed (1)
+      Tests  45 passed (45)
+   Start at  23:56:48
+   Duration  397ms (transform 55ms, setup 0ms, collect 56ms, tests 167ms, environment 0ms, prepare 41ms)
+
+
+Exit code: 0
