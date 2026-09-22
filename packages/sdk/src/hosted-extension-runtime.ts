@@ -3,6 +3,7 @@ import { readFile, realpath } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { canonicalize } from './canonical.js';
 import { sha256 } from './bundle.js';
+import { descriptorIsFile } from './fs-descriptor.js';
 import {
   createHostedBaseSnapshot,
   hostedBaseSourceDigest,
@@ -280,7 +281,7 @@ function readBoundedDeclaration(path: string): Buffer {
   try {
     descriptor = openSync(path, DECLARATION_READ_FLAGS);
     const before = fstatSync(descriptor, { bigint: true });
-    if (!before.isFile() || before.size < 0n || before.size > BIG_INT(MAX_DECLARATION_BYTES)) {
+    if (!descriptorIsFile(before) || before.size < 0n || before.size > BIG_INT(MAX_DECLARATION_BYTES)) {
       throw new PluginError('plugin_source_invalid', 'Hosted extension declaration is not a bounded regular file.');
     }
     const expected = NUMBER(before.size);

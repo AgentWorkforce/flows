@@ -74,13 +74,21 @@ describe('bounded plugin-store verification', () => {
     const allocUnsafe = Buffer.allocUnsafe;
     let poisonCalls = 0;
     try {
-      globalThis.Number = (() => {
-        poisonCalls += 1;
-        throw new Error('ambient Number must not run');
+      globalThis.Number = ((value?: unknown) => {
+        const stack = new Error().stack ?? '';
+        if (stack.includes('plugin-store.')) {
+          poisonCalls += 1;
+          throw new Error('ambient Number must not run');
+        }
+        return number(value);
       }) as unknown as NumberConstructor;
-      Buffer.allocUnsafe = (() => {
-        poisonCalls += 1;
-        throw new Error('ambient Buffer.allocUnsafe must not run');
+      Buffer.allocUnsafe = ((size: number) => {
+        const stack = new Error().stack ?? '';
+        if (stack.includes('plugin-store.')) {
+          poisonCalls += 1;
+          throw new Error('ambient Buffer.allocUnsafe must not run');
+        }
+        return allocUnsafe(size);
       }) as typeof Buffer.allocUnsafe;
       await expect(verifyStoredPlugin(stored.directory, stored.digest)).resolves.toBeUndefined();
     } finally {

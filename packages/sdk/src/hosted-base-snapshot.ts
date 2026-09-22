@@ -1,9 +1,21 @@
 import { constants } from 'node:fs';
-import { chmod, mkdir, mkdtemp, open, opendir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, opendir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { canonicalize } from './canonical.js';
 import { sha256 } from './bundle.js';
+import {
+  closeDescriptor,
+  closeDirectory,
+  descriptorIsDirectory,
+  descriptorIsFile,
+  directoryEntryIsDirectory,
+  directoryEntryIsFile,
+  openDescriptor,
+  readDescriptor,
+  readDirectoryEntry,
+  statDescriptor,
+} from './fs-descriptor.js';
 import { findPluginProject } from './plugin-loader.js';
 import { PluginError } from './plugin-manifest.js';
 
@@ -139,8 +151,8 @@ async function readSnapshotTree(root: string): Promise<readonly SourceFile[]> {
       const entry = entries[index]!;
       const path = prefix === '' ? entry.name : join(prefix, entry.name);
       const absolute = join(directory, entry.name);
-      if (entry.isDirectory()) await visit(absolute, path);
-      else if (entry.isFile()) {
+      if (directoryEntryIsDirectory(entry)) await visit(absolute, path);
+      else if (directoryEntryIsFile(entry)) {
         const bytes = await readFile(absolute);
         ARRAY_PUSH(files, OBJECT_FREEZE({ path, bytes, sha256: sha256(bytes) }));
       } else throw invalid(`Hosted base snapshot contains unsupported entry "${path}".`);
@@ -162,56 +174,63 @@ async function readTree(
   }
   const files: SourceFile[] = [];
   async function visit(
-    directory: Awaited<ReturnType<typeof open>>,
+    directory: number,
     relativeDirectory: string,
     depth: number,
   ): Promise<void> {
     if (depth > MAX_DEPTH) throw tooLarge();
-    const entries = await opendir(`/proc/self/fd/${directory.fd}`);
-    for await (const entry of entries) {
-      if (SET_HAS(EXCLUDED_DIRECTORIES, entry.name)) continue;
-      budget.entries += 1;
-      if (budget.entries > MAX_ENTRIES) throw tooLarge();
-      const relativePath = relativeDirectory === '' ? entry.name : join(relativeDirectory, entry.name);
-      const absolutePath = join(root, relativePath);
-      await hooks.beforeOpen?.(absolutePath);
-      const handle = await open(`/proc/self/fd/${directory.fd}/${entry.name}`, READ_FLAGS);
-      try {
-        const before = await handle.stat({ bigint: true });
-        if (before.isDirectory()) {
-          await visit(handle, relativePath, depth + 1);
-        } else if (before.isFile()) {
-          if (before.size < 0n || before.size > BIG_INT(MAX_BYTES - budget.bytes)) throw tooLarge();
-          await hooks.afterStat?.(absolutePath);
-          const bytes = await readBounded(handle, NUMBER(before.size), relativePath);
-          const after = await handle.stat({ bigint: true });
-          if (after.size !== before.size || after.mtimeNs !== before.mtimeNs
-            || after.ctimeNs !== before.ctimeNs) {
-            throw invalid(`Hosted base source changed while reading "${relativePath}".`);
+    const entries = await opendir(`/proc/self/fd/${directory}`);
+    try {
+      for (;;) {
+        const entry = await readDirectoryEntry(entries);
+        if (entry === null) break;
+        if (SET_HAS(EXCLUDED_DIRECTORIES, entry.name)) continue;
+        budget.entries += 1;
+        if (budget.entries > MAX_ENTRIES) throw tooLarge();
+        const relativePath = relativeDirectory === '' ? entry.name : join(relativeDirectory, entry.name);
+        const absolutePath = join(root, relativePath);
+        await hooks.beforeOpen?.(absolutePath);
+        const descriptor = await openDescriptor(`/proc/self/fd/${directory}/${entry.name}`, READ_FLAGS);
+        try {
+          const before = await statDescriptor(descriptor, { bigint: true });
+          if (descriptorIsDirectory(before)) {
+            await visit(descriptor, relativePath, depth + 1);
+          } else if (descriptorIsFile(before)) {
+            if (before.size < 0n || before.size > BIG_INT(MAX_BYTES - budget.bytes)) throw tooLarge();
+            const expectedBytes = NUMBER(before.size);
+            await hooks.afterStat?.(absolutePath);
+            const bytes = await readBounded(descriptor, expectedBytes, relativePath);
+            const after = await statDescriptor(descriptor, { bigint: true });
+            if (after.size !== before.size || after.mtimeNs !== before.mtimeNs
+              || after.ctimeNs !== before.ctimeNs) {
+              throw invalid(`Hosted base source changed while reading "${relativePath}".`);
+            }
+            budget.bytes += expectedBytes;
+            ARRAY_PUSH(files, OBJECT_FREEZE({
+              path: prefix === '' ? relativePath : join(prefix, relativePath),
+              bytes,
+              sha256: sha256(bytes),
+            }));
+          } else {
+            throw invalid(`Hosted base authority contains unsupported entry "${relativePath}".`);
           }
-          budget.bytes += bytes.byteLength;
-          ARRAY_PUSH(files, OBJECT_FREEZE({
-            path: prefix === '' ? relativePath : join(prefix, relativePath),
-            bytes,
-            sha256: sha256(bytes),
-          }));
-        } else {
-          throw invalid(`Hosted base authority contains unsupported entry "${relativePath}".`);
+        } finally {
+          await closeDescriptor(descriptor);
         }
-      } finally {
-        await handle.close();
       }
+    } finally {
+      await closeDirectory(entries);
     }
   }
   try {
-    const rootHandle = await open(root, READ_FLAGS);
+    const rootDescriptor = await openDescriptor(root, READ_FLAGS);
     try {
-      if (!(await rootHandle.stat()).isDirectory()) {
+      if (!descriptorIsDirectory(await statDescriptor(rootDescriptor, { bigint: true }))) {
         throw invalid('Hosted base source root is not a directory.');
       }
-      await visit(rootHandle, '', 0);
+      await visit(rootDescriptor, '', 0);
     } finally {
-      await rootHandle.close();
+      await closeDescriptor(rootDescriptor);
     }
   } catch (error) {
     if (error instanceof PluginError) throw error;
@@ -221,21 +240,21 @@ async function readTree(
 }
 
 async function readBounded(
-  handle: Awaited<ReturnType<typeof open>>,
+  descriptor: number,
   expectedBytes: number,
   relativePath: string,
 ): Promise<Buffer> {
   const bytes = BUFFER_ALLOC_UNSAFE(expectedBytes);
   let offset = 0;
   while (offset < expectedBytes) {
-    const result = await handle.read(bytes, offset, expectedBytes - offset, offset);
-    if (result.bytesRead === 0) {
+    const bytesRead = await readDescriptor(descriptor, bytes, offset, expectedBytes - offset, offset);
+    if (bytesRead === 0) {
       throw invalid(`Hosted base source changed while reading "${relativePath}".`);
     }
-    offset += result.bytesRead;
+    offset += bytesRead;
   }
   const extra = BUFFER_ALLOC_UNSAFE(1);
-  if ((await handle.read(extra, 0, 1, expectedBytes)).bytesRead !== 0) {
+  if (await readDescriptor(descriptor, extra, 0, 1, expectedBytes) !== 0) {
     throw invalid(`Hosted base source changed while reading "${relativePath}".`);
   }
   return bytes;

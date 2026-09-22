@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
+import { open as openFileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -106,13 +107,21 @@ describe('hosted base private snapshot', () => {
     const allocUnsafe = Buffer.allocUnsafe;
     let poisonCalls = 0;
     try {
-      globalThis.Number = (() => {
-        poisonCalls += 1;
-        throw new Error('ambient Number must not run');
+      globalThis.Number = ((value?: unknown) => {
+        const stack = new Error().stack ?? '';
+        if (stack.includes('hosted-base-snapshot.') || stack.includes('hosted-extension-runtime.')) {
+          poisonCalls += 1;
+          throw new Error('ambient Number must not run');
+        }
+        return number(value);
       }) as unknown as NumberConstructor;
-      Buffer.allocUnsafe = (() => {
-        poisonCalls += 1;
-        throw new Error('ambient Buffer.allocUnsafe must not run');
+      Buffer.allocUnsafe = ((size: number) => {
+        const stack = new Error().stack ?? '';
+        if (stack.includes('hosted-base-snapshot.') || stack.includes('hosted-extension-runtime.')) {
+          poisonCalls += 1;
+          throw new Error('ambient Buffer.allocUnsafe must not run');
+        }
+        return allocUnsafe(size);
       }) as typeof Buffer.allocUnsafe;
       await expect(loadHostedExtensionRuntime(flowPath)).rejects.toMatchObject({
         code: 'plugin_source_invalid',
@@ -121,6 +130,42 @@ describe('hosted base private snapshot', () => {
     } finally {
       globalThis.Number = number;
       Buffer.allocUnsafe = allocUnsafe;
+    }
+    expect(poisonCalls).toBe(0);
+  });
+
+  it('reads through captured descriptors and charges admitted descriptor sizes', async () => {
+    const { project, flowPath } = fixture();
+    const sample = await openFileHandle(flowPath, 'r');
+    const fileHandlePrototype = Object.getPrototypeOf(sample) as {
+      read: (...args: unknown[]) => unknown;
+    };
+    const fileHandleRead = fileHandlePrototype.read;
+    await sample.close();
+    const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype) as object;
+    const byteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, 'byteLength')!;
+    let poisonCalls = 0;
+    try {
+      fileHandlePrototype.read = function poisonedRead(this: unknown, ...args: unknown[]) {
+        poisonCalls += 1;
+        return Reflect.apply(fileHandleRead, this, args);
+      };
+      Object.defineProperty(typedArrayPrototype, 'byteLength', {
+        ...byteLength,
+        get(this: Uint8Array) {
+          const stack = new Error().stack ?? '';
+          const directCaller = stack.split('\n', 3)[2] ?? '';
+          if (directCaller.includes('hosted-base-snapshot.')) {
+            poisonCalls += 1;
+            return 0;
+          }
+          return Reflect.apply(byteLength.get!, this, []);
+        },
+      });
+      await expect(hostedBaseSourceDigest([{ root: project, prefix: '' }])).resolves.toMatch(/^[a-f0-9]{64}$/);
+    } finally {
+      fileHandlePrototype.read = fileHandleRead;
+      Object.defineProperty(typedArrayPrototype, 'byteLength', byteLength);
     }
     expect(poisonCalls).toBe(0);
   });

@@ -1,7 +1,19 @@
 import { constants } from 'node:fs';
-import { lstat, mkdir, mkdtemp, open, opendir, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, opendir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { payloadManifest, safePath, sha256 } from './bundle.js';
+import {
+  closeDescriptor,
+  closeDirectory,
+  descriptorIsDirectory,
+  descriptorIsFile,
+  directoryEntryIsDirectory,
+  directoryEntryIsFile,
+  openDescriptor,
+  readDescriptor,
+  readDirectoryEntry,
+  statDescriptor,
+} from './fs-descriptor.js';
 import { MAX_PLUGIN_FILE_BYTES, MAX_PLUGIN_FILES, MAX_PLUGIN_TOTAL_BYTES } from './plugin-github.js';
 import { PluginError } from './plugin-manifest.js';
 
@@ -98,8 +110,8 @@ async function regularFile(
   const absolute = join(root, path);
   const handle = await openStoredFile(root, path, hooks);
   try {
-    const before = await handle.stat({ bigint: true });
-    if (!before.isFile() || before.size < 0n || before.size > BIG_INT(maxBytes)
+    const before = await statDescriptor(handle, { bigint: true });
+    if (!descriptorIsFile(before) || before.size < 0n || before.size > BIG_INT(maxBytes)
       || (expectedBytes !== undefined && before.size !== BIG_INT(expectedBytes))) {
       throw new PluginError('plugin_source_drift', `${path}: expected a bounded regular file.`);
     }
@@ -108,24 +120,24 @@ async function regularFile(
     const bytes = BUFFER_ALLOC_UNSAFE(size);
     let offset = 0;
     while (offset < size) {
-      const result = await handle.read(bytes, offset, size - offset, offset);
-      if (result.bytesRead === 0) {
+      const bytesRead = await readDescriptor(handle, bytes, offset, size - offset, offset);
+      if (bytesRead === 0) {
         throw new PluginError('plugin_source_drift', `${path}: changed while reading.`);
       }
-      offset += result.bytesRead;
+      offset += bytesRead;
     }
     const extra = BUFFER_ALLOC_UNSAFE(1);
-    if ((await handle.read(extra, 0, 1, size)).bytesRead !== 0) {
+    if (await readDescriptor(handle, extra, 0, 1, size) !== 0) {
       throw new PluginError('plugin_source_drift', `${path}: changed while reading.`);
     }
-    const after = await handle.stat({ bigint: true });
+    const after = await statDescriptor(handle, { bigint: true });
     if (after.size !== before.size || after.mtimeNs !== before.mtimeNs
       || after.ctimeNs !== before.ctimeNs) {
       throw new PluginError('plugin_source_drift', `${path}: changed while reading.`);
     }
     return bytes;
   } finally {
-    await handle.close();
+    await closeDescriptor(handle);
   }
 }
 
@@ -133,38 +145,38 @@ async function openStoredFile(
   root: string,
   path: string,
   hooks: StoredPluginReadTestHooks,
-): Promise<Awaited<ReturnType<typeof open>>> {
+): Promise<number> {
   const parts = STRING_SPLIT(path, '/');
   if (process.platform !== 'linux') {
     for (let i = 1; i < parts.length; i++) {
       let parent = root;
       for (let index = 0; index < i; index += 1) parent = join(parent, parts[index]!);
-      if (!(await lstat(parent)).isDirectory()) {
+      if (!descriptorIsDirectory(await lstat(parent))) {
         throw new PluginError('plugin_source_drift', `${path}: expected a regular file, without symlinks.`);
       }
     }
     await hooks.beforeOpen?.(join(root, path));
-    return await open(join(root, path), READ_FLAGS);
+    return await openDescriptor(join(root, path), READ_FLAGS);
   }
-  let directory = await open(resolve(root), READ_FLAGS);
+  let directory = await openDescriptor(resolve(root), READ_FLAGS);
   try {
-    if (!(await directory.stat()).isDirectory()) {
+    if (!descriptorIsDirectory(await statDescriptor(directory, { bigint: true }))) {
       throw new PluginError('plugin_source_drift', `${path}: plugin store root is not a directory.`);
     }
     for (let index = 0; index < parts.length - 1; index += 1) {
       const part = parts[index]!;
-      const child = await open(`/proc/self/fd/${directory.fd}/${part}`, READ_FLAGS);
-      if (!(await child.stat()).isDirectory()) {
-        await child.close();
+      const child = await openDescriptor(`/proc/self/fd/${directory}/${part}`, READ_FLAGS);
+      if (!descriptorIsDirectory(await statDescriptor(child, { bigint: true }))) {
+        await closeDescriptor(child);
         throw new PluginError('plugin_source_drift', `${path}: expected a regular file, without symlinks.`);
       }
-      await directory.close();
+      await closeDescriptor(directory);
       directory = child;
     }
     await hooks.beforeOpen?.(join(root, path));
-    return await open(`/proc/self/fd/${directory.fd}/${parts[parts.length - 1]!}`, READ_FLAGS);
+    return await openDescriptor(`/proc/self/fd/${directory}/${parts[parts.length - 1]!}`, READ_FLAGS);
   } finally {
-    await directory.close();
+    await closeDescriptor(directory);
   }
 }
 
@@ -185,7 +197,7 @@ async function readVerifiedStoredPluginFiles(
   const drift = (message: string): never => { throw new PluginError('plugin_source_drift', `${directory}: ${message}`); };
   let manifest: Buffer;
   try {
-    if (!(await lstat(directory)).isDirectory()) return drift('not a directory');
+    if (!descriptorIsDirectory(await lstat(directory))) return drift('not a directory');
     manifest = await regularFile(directory, 'manifest.json', MAX_PLUGIN_MANIFEST_BYTES, undefined, hooks);
   } catch (error) { return drift(error instanceof PluginError ? error.message : 'manifest.json is missing'); }
   const raw = BUFFER_TO_STRING(manifest, 'utf8');
@@ -239,16 +251,24 @@ async function rejectExtras(root: string, prefix: string, paths: Set<string>, dr
   let entries = 0;
   async function visit(currentPrefix: string): Promise<void> {
     const directory = await opendir(join(root, currentPrefix));
-    for await (const entry of directory) {
-      entries += 1;
-      if (entries > MAX_PLUGIN_STORE_ENTRIES) drift('plugin store contains too many entries');
-      const path = currentPrefix + entry.name;
-      let declaredDescendant = false;
-      SET_FOR_EACH(paths, file => {
-        if (STRING_STARTS_WITH(file, `${path}/`)) declaredDescendant = true;
-      });
-      if (entry.isDirectory() && declaredDescendant) await visit(`${path}/`);
-      else if (!entry.isFile() || !SET_HAS(paths, path)) drift(`${path}: unlisted file or unsupported file type`);
+    try {
+      for (;;) {
+        const entry = await readDirectoryEntry(directory);
+        if (entry === null) break;
+        entries += 1;
+        if (entries > MAX_PLUGIN_STORE_ENTRIES) drift('plugin store contains too many entries');
+        const path = currentPrefix + entry.name;
+        let declaredDescendant = false;
+        SET_FOR_EACH(paths, file => {
+          if (STRING_STARTS_WITH(file, `${path}/`)) declaredDescendant = true;
+        });
+        if (directoryEntryIsDirectory(entry) && declaredDescendant) await visit(`${path}/`);
+        else if (!directoryEntryIsFile(entry) || !SET_HAS(paths, path)) {
+          drift(`${path}: unlisted file or unsupported file type`);
+        }
+      }
+    } finally {
+      await closeDirectory(directory);
     }
   }
   await visit(prefix);
