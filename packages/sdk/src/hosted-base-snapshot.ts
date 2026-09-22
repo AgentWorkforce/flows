@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { chmod, mkdir, mkdtemp, opendir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, opendir, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { canonicalize } from './canonical.js';
@@ -20,9 +20,25 @@ import { findPluginProject } from './plugin-loader.js';
 import { PluginError } from './plugin-manifest.js';
 
 const EXCLUDED_DIRECTORIES = new Set(['.flows', '.git', 'node_modules']);
+const CHMOD = chmod;
+const MKDIR = mkdir;
+const MKDTEMP = mkdtemp;
+const OPENDIR = opendir;
+const READDIR = readdir;
+const REALPATH = realpath;
+const RM = rm;
+const WRITE_FILE = writeFile;
+const TMPDIR = tmpdir;
+const PATH_DIRNAME = dirname;
+const PATH_IS_ABSOLUTE = isAbsolute;
+const PATH_JOIN = join;
+const PATH_RELATIVE = relative;
+const PATH_RESOLVE = resolve;
+const PATH_SEPARATOR = sep;
 const ARRAY_PUSH = Function.prototype.call.bind(Array.prototype.push) as <T>(array: T[], value: T) => number;
 const ARRAY_SORT = Function.prototype.call.bind(Array.prototype.sort) as <T>(
-  array: T[], compare?: (left: T, right: T) => number,
+  array: T[],
+  compare?: (left: T, right: T) => number,
 ) => T[];
 const OBJECT_FREEZE = Object.freeze;
 const BIG_INT = BigInt;
@@ -30,10 +46,12 @@ const BUFFER_ALLOC_UNSAFE = Buffer.allocUnsafe;
 const NUMBER = Number;
 const SET_HAS = Function.prototype.call.bind(Set.prototype.has) as <T>(set: Set<T>, value: T) => boolean;
 const STRING_LOCALE_COMPARE = Function.prototype.call.bind(String.prototype.localeCompare) as (
-  value: string, other: string,
+  value: string,
+  other: string,
 ) => number;
 const STRING_STARTS_WITH = Function.prototype.call.bind(String.prototype.startsWith) as (
-  value: string, search: string,
+  value: string,
+  search: string,
 ) => boolean;
 const MAX_ENTRIES = 10_000;
 const MAX_BYTES = 64 * 1024 * 1024;
@@ -67,6 +85,7 @@ export interface HostedBaseSnapshot {
   readonly liveDigest: string;
   readonly snapshotRoot: string;
   readonly snapshotFlowPath: string;
+  readonly snapshotFlowSha256: string;
 }
 
 /**
@@ -75,41 +94,50 @@ export interface HostedBaseSnapshot {
  * represented in liveDigest and copied to the private identity directory.
  */
 export async function createHostedBaseSnapshot(flowPath: string): Promise<HostedBaseSnapshot> {
-  const origin = await realpath(resolve(flowPath));
-  const discovered = findPluginProject(dirname(origin)) ?? dirname(origin);
-  const projectRoot = await realpath(discovered);
-  const flowRelative = relative(projectRoot, origin);
-  if (flowRelative === '' || isAbsolute(flowRelative)
-    || flowRelative === '..' || STRING_STARTS_WITH(flowRelative, `..${sep}`)) {
+  const origin = await REALPATH(PATH_RESOLVE(flowPath));
+  const discovered = findPluginProject(PATH_DIRNAME(origin)) ?? PATH_DIRNAME(origin);
+  const projectRoot = await REALPATH(discovered);
+  const flowRelative = PATH_RELATIVE(projectRoot, origin);
+  if (
+    flowRelative === '' ||
+    PATH_IS_ABSOLUTE(flowRelative) ||
+    flowRelative === '..' ||
+    STRING_STARTS_WITH(flowRelative, `..${PATH_SEPARATOR}`)
+  ) {
     throw invalid('Hosted base flow must be a file inside its project root.');
   }
-  const liveSources = OBJECT_FREEZE([
-    OBJECT_FREEZE({ root: projectRoot, prefix: '' }),
-  ]);
+  const liveSources = OBJECT_FREEZE([OBJECT_FREEZE({ root: projectRoot, prefix: '' })]);
   const files = await readAuthorityFiles(liveSources);
   const liveDigest = sourceDigest(files);
-  const snapshotRoot = await mkdtemp(join(tmpdir(), 'flows-hosted-base-'));
-  await chmod(snapshotRoot, 0o700);
+  const liveFlow = sourceFileAt(files, flowRelative);
+  if (liveFlow === undefined) throw invalid('Hosted base flow is missing from its admitted source.');
+  const snapshotRoot = await MKDTEMP(PATH_JOIN(TMPDIR(), 'flows-hosted-base-'));
+  await CHMOD(snapshotRoot, 0o700);
   try {
     for (let index = 0; index < files.length; index += 1) {
       const file = files[index]!;
-      const target = join(snapshotRoot, file.path);
-      await mkdir(dirname(target), { recursive: true, mode: 0o700 });
-      await writeFile(target, file.bytes, { flag: 'wx', mode: 0o400 });
+      const target = PATH_JOIN(snapshotRoot, file.path);
+      await MKDIR(PATH_DIRNAME(target), { recursive: true, mode: 0o700 });
+      await WRITE_FILE(target, file.bytes, { flag: 'wx', mode: 0o400 });
     }
     const snapshotFiles = await readSnapshotTree(snapshotRoot);
     const snapshotDigest = sourceDigest(snapshotFiles);
     if (snapshotDigest !== liveDigest) {
       throw invalid('Hosted base private snapshot does not match its buffered source.');
     }
+    const snapshotFlow = sourceFileAt(snapshotFiles, flowRelative);
+    if (snapshotFlow === undefined || snapshotFlow.sha256 !== liveFlow.sha256) {
+      throw invalid('Hosted base private snapshot does not contain its buffered flow source.');
+    }
     return OBJECT_FREEZE({
       liveSources,
       liveDigest,
       snapshotRoot,
-      snapshotFlowPath: join(snapshotRoot, flowRelative),
+      snapshotFlowPath: PATH_JOIN(snapshotRoot, flowRelative),
+      snapshotFlowSha256: snapshotFlow.sha256,
     });
   } catch (error) {
-    await rm(snapshotRoot, { recursive: true, force: true });
+    await RM(snapshotRoot, { recursive: true, force: true });
     throw error;
   }
 }
@@ -122,7 +150,7 @@ export async function hostedBaseSourceDigest(
 }
 
 export async function removeHostedBaseSnapshot(snapshot: HostedBaseSnapshot): Promise<void> {
-  await rm(snapshot.snapshotRoot, { recursive: true, force: true });
+  await RM(snapshot.snapshotRoot, { recursive: true, force: true });
 }
 
 async function readAuthorityFiles(
@@ -144,17 +172,34 @@ async function readAuthorityFiles(
 
 async function readSnapshotTree(root: string): Promise<readonly SourceFile[]> {
   const files: SourceFile[] = [];
+  const budget: SourceBudget = { entries: 0, bytes: 0 };
   async function visit(directory: string, prefix: string): Promise<void> {
-    const entries = await readdir(directory, { withFileTypes: true });
+    const entries = await READDIR(directory, { withFileTypes: true });
     ARRAY_SORT(entries, (left, right) => STRING_LOCALE_COMPARE(left.name, right.name));
     for (let index = 0; index < entries.length; index += 1) {
       const entry = entries[index]!;
-      const path = prefix === '' ? entry.name : join(prefix, entry.name);
-      const absolute = join(directory, entry.name);
+      budget.entries += 1;
+      if (budget.entries > MAX_ENTRIES) throw tooLarge();
+      const path = prefix === '' ? entry.name : PATH_JOIN(prefix, entry.name);
+      const absolute = PATH_JOIN(directory, entry.name);
       if (directoryEntryIsDirectory(entry)) await visit(absolute, path);
       else if (directoryEntryIsFile(entry)) {
-        const bytes = await readFile(absolute);
-        ARRAY_PUSH(files, OBJECT_FREEZE({ path, bytes, sha256: sha256(bytes) }));
+        const descriptor = await openDescriptor(absolute, READ_FLAGS);
+        try {
+          const before = await statDescriptor(descriptor, { bigint: true });
+          if (!descriptorIsFile(before) || before.size < 0n || before.size > BIG_INT(MAX_BYTES - budget.bytes))
+            throw tooLarge();
+          const expectedBytes = NUMBER(before.size);
+          const bytes = await readBounded(descriptor, expectedBytes, path);
+          const after = await statDescriptor(descriptor, { bigint: true });
+          if (after.size !== before.size || after.mtimeNs !== before.mtimeNs || after.ctimeNs !== before.ctimeNs) {
+            throw invalid(`Hosted base snapshot changed while reading "${path}".`);
+          }
+          budget.bytes += expectedBytes;
+          ARRAY_PUSH(files, OBJECT_FREEZE({ path, bytes, sha256: sha256(bytes) }));
+        } finally {
+          await closeDescriptor(descriptor);
+        }
       } else throw invalid(`Hosted base snapshot contains unsupported entry "${path}".`);
     }
   }
@@ -173,13 +218,9 @@ async function readTree(
     throw invalid('Hosted base source snapshotting requires Linux.');
   }
   const files: SourceFile[] = [];
-  async function visit(
-    directory: number,
-    relativeDirectory: string,
-    depth: number,
-  ): Promise<void> {
+  async function visit(directory: number, relativeDirectory: string, depth: number): Promise<void> {
     if (depth > MAX_DEPTH) throw tooLarge();
-    const entries = await opendir(`/proc/self/fd/${directory}`);
+    const entries = await OPENDIR(`/proc/self/fd/${directory}`);
     try {
       for (;;) {
         const entry = await readDirectoryEntry(entries);
@@ -187,8 +228,8 @@ async function readTree(
         if (SET_HAS(EXCLUDED_DIRECTORIES, entry.name)) continue;
         budget.entries += 1;
         if (budget.entries > MAX_ENTRIES) throw tooLarge();
-        const relativePath = relativeDirectory === '' ? entry.name : join(relativeDirectory, entry.name);
-        const absolutePath = join(root, relativePath);
+        const relativePath = relativeDirectory === '' ? entry.name : PATH_JOIN(relativeDirectory, entry.name);
+        const absolutePath = PATH_JOIN(root, relativePath);
         await hooks.beforeOpen?.(absolutePath);
         const descriptor = await openDescriptor(`/proc/self/fd/${directory}/${entry.name}`, READ_FLAGS);
         try {
@@ -201,16 +242,18 @@ async function readTree(
             await hooks.afterStat?.(absolutePath);
             const bytes = await readBounded(descriptor, expectedBytes, relativePath);
             const after = await statDescriptor(descriptor, { bigint: true });
-            if (after.size !== before.size || after.mtimeNs !== before.mtimeNs
-              || after.ctimeNs !== before.ctimeNs) {
+            if (after.size !== before.size || after.mtimeNs !== before.mtimeNs || after.ctimeNs !== before.ctimeNs) {
               throw invalid(`Hosted base source changed while reading "${relativePath}".`);
             }
             budget.bytes += expectedBytes;
-            ARRAY_PUSH(files, OBJECT_FREEZE({
-              path: prefix === '' ? relativePath : join(prefix, relativePath),
-              bytes,
-              sha256: sha256(bytes),
-            }));
+            ARRAY_PUSH(
+              files,
+              OBJECT_FREEZE({
+                path: prefix === '' ? relativePath : PATH_JOIN(prefix, relativePath),
+                bytes,
+                sha256: sha256(bytes),
+              }),
+            );
           } else {
             throw invalid(`Hosted base authority contains unsupported entry "${relativePath}".`);
           }
@@ -239,11 +282,7 @@ async function readTree(
   return OBJECT_FREEZE(files);
 }
 
-async function readBounded(
-  descriptor: number,
-  expectedBytes: number,
-  relativePath: string,
-): Promise<Buffer> {
+async function readBounded(descriptor: number, expectedBytes: number, relativePath: string): Promise<Buffer> {
   const bytes = BUFFER_ALLOC_UNSAFE(expectedBytes);
   let offset = 0;
   while (offset < expectedBytes) {
@@ -254,7 +293,7 @@ async function readBounded(
     offset += bytesRead;
   }
   const extra = BUFFER_ALLOC_UNSAFE(1);
-  if (await readDescriptor(descriptor, extra, 0, 1, expectedBytes) !== 0) {
+  if ((await readDescriptor(descriptor, extra, 0, 1, expectedBytes)) !== 0) {
     throw invalid(`Hosted base source changed while reading "${relativePath}".`);
   }
   return bytes;
@@ -271,6 +310,13 @@ function sourceDigest(files: readonly SourceFile[]): string {
     records[index] = { path: file.path, sha256: file.sha256 };
   }
   return sha256(canonicalize(records));
+}
+
+function sourceFileAt(files: readonly SourceFile[], path: string): SourceFile | undefined {
+  for (let index = 0; index < files.length; index += 1) {
+    if (files[index]!.path === path) return files[index];
+  }
+  return undefined;
 }
 
 function invalid(message: string): PluginError {

@@ -25,8 +25,14 @@ describe('bounded plugin-store verification', () => {
     let calls = 0;
     let encoded: string | undefined;
     try {
-      Array.prototype.sort = (() => { calls += 1; return []; }) as typeof Array.prototype.sort;
-      Array.prototype.map = (() => { calls += 1; return []; }) as typeof Array.prototype.map;
+      Array.prototype.sort = (() => {
+        calls += 1;
+        return [];
+      }) as typeof Array.prototype.sort;
+      Array.prototype.map = (() => {
+        calls += 1;
+        return [];
+      }) as typeof Array.prototype.map;
       encoded = payloadManifest([
         { path: 'z.ts', data: Buffer.from('z') },
         { path: 'a.ts', data: Buffer.from('a') },
@@ -76,7 +82,8 @@ describe('bounded plugin-store verification', () => {
     try {
       globalThis.Number = ((value?: unknown) => {
         const stack = new Error().stack ?? '';
-        if (stack.includes('plugin-store.')) {
+        const directCaller = stack.split('\n', 3)[2] ?? '';
+        if (directCaller.includes('/src/plugin-store.')) {
           poisonCalls += 1;
           throw new Error('ambient Number must not run');
         }
@@ -84,7 +91,8 @@ describe('bounded plugin-store verification', () => {
       }) as unknown as NumberConstructor;
       Buffer.allocUnsafe = ((size: number) => {
         const stack = new Error().stack ?? '';
-        if (stack.includes('plugin-store.')) {
+        const directCaller = stack.split('\n', 3)[2] ?? '';
+        if (directCaller.includes('/src/plugin-store.')) {
           poisonCalls += 1;
           throw new Error('ambient Buffer.allocUnsafe must not run');
         }
@@ -101,13 +109,15 @@ describe('bounded plugin-store verification', () => {
   it('bounds a payload that grows after its admitted size was checked', async () => {
     const stored = await fixture();
     const raced = join(stored.directory, 'entry.ts');
-    await expect(readStoredPluginFiles(stored.directory, stored.digest, {
-      afterStat: async path => {
-        if (path === raced) {
-          writeFileSync(raced, Buffer.alloc(256_001));
-        }
-      },
-    })).rejects.toMatchObject({
+    await expect(
+      readStoredPluginFiles(stored.directory, stored.digest, {
+        afterStat: async path => {
+          if (path === raced) {
+            writeFileSync(raced, Buffer.alloc(256_001));
+          }
+        },
+      }),
+    ).rejects.toMatchObject({
       code: 'plugin_source_drift',
       message: expect.stringContaining('changed while reading'),
     });

@@ -1,8 +1,7 @@
 import { constants, closeSync, existsSync, fstatSync, openSync, readSync } from 'node:fs';
-import { readFile, realpath } from 'node:fs/promises';
+import { realpath } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { canonicalize } from './canonical.js';
-import { sha256 } from './bundle.js';
 import { descriptorIsFile } from './fs-descriptor.js';
 import {
   createHostedBaseSnapshot,
@@ -12,42 +11,51 @@ import {
 } from './hosted-base-snapshot.js';
 import { PluginError } from './plugin-manifest.js';
 import { findPluginProject } from './plugin-loader.js';
-import {
-  PLUGIN_LOCK_FILE,
-  PLUGIN_LOCK_VERSION,
-  parsePluginLock,
-  type PluginLockEntry,
-} from './plugin-lock.js';
+import { PLUGIN_LOCK_FILE, PLUGIN_LOCK_VERSION, parsePluginLock, type PluginLockEntry } from './plugin-lock.js';
 import { canonicalPluginRef, isGithubPluginRef, type PluginSourceRef } from './plugin-source.js';
 import { pluginStoreDirectory, verifyStoredPlugin } from './plugin-store.js';
 
 const INSTALLATION_AUTHORITY = new WeakSet<object>();
 const BASE_AUTHORITY = new WeakSet<object>();
+const CLOSE_SYNC = closeSync;
+const EXISTS_SYNC = existsSync;
+const FSTAT_SYNC = fstatSync;
+const OPEN_SYNC = openSync;
+const READ_SYNC = readSync;
+const REALPATH = realpath;
+const PATH_DIRNAME = dirname;
+const PATH_JOIN = join;
+const PATH_RESOLVE = resolve;
+const ERROR = Error;
 const SOFTWARE_FACTORY_SHA256 = '49c993220b9c34fab2d4b0e51911656f62b8b657f534d988691960d45bb9d9b6';
 const MAX_DECLARATION_BYTES = 1024 * 1024;
 const BIG_INT = BigInt;
 const BUFFER_ALLOC_UNSAFE = Buffer.allocUnsafe;
 const BUFFER_TO_STRING = Function.prototype.call.bind(Buffer.prototype.toString) as (
-  value: Buffer, encoding: BufferEncoding,
+  value: Buffer,
+  encoding: BufferEncoding,
 ) => string;
 const NUMBER = Number;
-const DECLARATION_READ_FLAGS = constants.O_RDONLY
-  | (constants.O_NOFOLLOW ?? 0)
-  | (constants.O_NONBLOCK ?? 0);
+const DECLARATION_READ_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0);
 const JSON_PARSE = JSON.parse;
 const ARRAY_IS_ARRAY = Array.isArray;
 const OBJECT_FREEZE = Object.freeze;
 const WEAK_MAP_GET = Function.prototype.call.bind(WeakMap.prototype.get) as <K extends object, V>(
-  map: WeakMap<K, V>, key: K,
+  map: WeakMap<K, V>,
+  key: K,
 ) => V | undefined;
 const WEAK_MAP_SET = Function.prototype.call.bind(WeakMap.prototype.set) as <K extends object, V>(
-  map: WeakMap<K, V>, key: K, value: V,
+  map: WeakMap<K, V>,
+  key: K,
+  value: V,
 ) => WeakMap<K, V>;
 const WEAK_SET_ADD = Function.prototype.call.bind(WeakSet.prototype.add) as <T extends object>(
-  set: WeakSet<T>, value: T,
+  set: WeakSet<T>,
+  value: T,
 ) => WeakSet<T>;
 const WEAK_SET_HAS = Function.prototype.call.bind(WeakSet.prototype.has) as <T extends object>(
-  set: WeakSet<T>, value: T,
+  set: WeakSet<T>,
+  value: T,
 ) => boolean;
 
 interface RuntimeGeneration {
@@ -85,7 +93,7 @@ export interface HostedExtensionRuntime {
 
 /** Load one base/installation generation that cannot be paired across redeploys. */
 export async function loadHostedExtensionRuntime(flowPath: string): Promise<HostedExtensionRuntime> {
-  const origin = await realpath(resolve(flowPath));
+  const origin = await REALPATH(PATH_RESOLVE(flowPath));
   const generation = newGeneration(origin);
   const loaded = await installationAt(origin, generation);
   generation.declarations = loaded.declarations;
@@ -102,10 +110,8 @@ export async function loadHostedExtensionRuntime(flowPath: string): Promise<Host
 }
 
 /** @internal Metadata-only test seam; public hosted callers use the combined loader. */
-export async function loadHostedExtensionArtifacts(
-  flowPath: string,
-): Promise<HostedExtensionInstallation> {
-  const origin = await realpath(resolve(flowPath));
+export async function loadHostedExtensionArtifacts(flowPath: string): Promise<HostedExtensionInstallation> {
+  const origin = await REALPATH(PATH_RESOLVE(flowPath));
   const generation = newGeneration(origin);
   const loaded = await installationAt(origin, generation);
   generation.declarations = loaded.declarations;
@@ -114,7 +120,7 @@ export async function loadHostedExtensionArtifacts(
 
 /** @internal Base-only test seam; public hosted callers use the combined loader. */
 export async function loadHostedExtensionBase(flowPath: string): Promise<HostedExtensionBase> {
-  const origin = await realpath(resolve(flowPath));
+  const origin = await REALPATH(PATH_RESOLVE(flowPath));
   const generation = newGeneration(origin);
   generation.declarations = declaredExtensions(origin).signature;
   return await baseAt(origin, generation);
@@ -131,8 +137,11 @@ export async function assertHostedRuntimeAuthority(
       'Hosted extension base authority is malformed; use loadHostedExtensionRuntime.',
     );
   }
-  if (typeof installation !== 'object' || installation === null
-    || !WEAK_SET_HAS(INSTALLATION_AUTHORITY, installation)) {
+  if (
+    typeof installation !== 'object' ||
+    installation === null ||
+    !WEAK_SET_HAS(INSTALLATION_AUTHORITY, installation)
+  ) {
     throw new PluginError(
       'plugin_source_invalid',
       'Hosted extension installation authority is malformed; use loadHostedExtensionRuntime.',
@@ -150,8 +159,12 @@ export async function assertHostedRuntimeAuthority(
 
 /** @internal Validate a metadata-only installation used by selection tests. */
 export function assertHostedInstallationAuthority(value: unknown): asserts value is HostedExtensionInstallation {
-  if (typeof value !== 'object' || value === null || !WEAK_SET_HAS(INSTALLATION_AUTHORITY, value)
-    || !ARRAY_IS_ARRAY((value as Partial<HostedExtensionInstallation>).artifacts)) {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !WEAK_SET_HAS(INSTALLATION_AUTHORITY, value) ||
+    !ARRAY_IS_ARRAY((value as Partial<HostedExtensionInstallation>).artifacts)
+  ) {
     throw new PluginError('plugin_source_invalid', 'Hosted extension installation authority is malformed.');
   }
 }
@@ -159,11 +172,16 @@ export function assertHostedInstallationAuthority(value: unknown): asserts value
 async function installationAt(
   origin: string,
   generation: RuntimeGeneration,
-): Promise<{ installation: HostedExtensionInstallation; declarations: string }> {
-  const root = findPluginProject(dirname(origin));
-  if (root === undefined) return {
-    installation: installation([], generation), declarations: canonicalize([]),
-  };
+): Promise<{
+  installation: HostedExtensionInstallation;
+  declarations: string;
+}> {
+  const root = findPluginProject(PATH_DIRNAME(origin));
+  if (root === undefined)
+    return {
+      installation: installation([], generation),
+      declarations: canonicalize([]),
+    };
   const artifacts: HostedExtensionArtifact[] = [];
   const declared = hostedDeclaredExtensions(root);
   for (let index = 0; index < declared.length; index += 1) {
@@ -186,17 +204,13 @@ async function installationAt(
 }
 
 function declaredExtensions(origin: string): { readonly signature: string } {
-  const root = findPluginProject(dirname(origin));
+  const root = findPluginProject(PATH_DIRNAME(origin));
   return {
-    signature: root === undefined
-      ? canonicalize([])
-      : declarationSignature(hostedDeclaredExtensions(root)),
+    signature: root === undefined ? canonicalize([]) : declarationSignature(hostedDeclaredExtensions(root)),
   };
 }
 
-function declarationSignature(
-  declared: ReturnType<typeof hostedDeclaredExtensions>,
-): string {
+function declarationSignature(declared: ReturnType<typeof hostedDeclaredExtensions>): string {
   const records: Array<{
     ref: string;
     name: string;
@@ -220,12 +234,13 @@ function declarationSignature(
 function hostedDeclaredExtensions(
   root: string,
 ): readonly { ref: string; entry: PluginLockEntry; source: PluginSourceRef }[] {
-  if (existsSync(join(root, 'flows.json.tmp')) || existsSync(join(root, `${PLUGIN_LOCK_FILE}.tmp`))) {
+  if (EXISTS_SYNC(PATH_JOIN(root, 'flows.json.tmp')) || EXISTS_SYNC(PATH_JOIN(root, `${PLUGIN_LOCK_FILE}.tmp`))) {
     throw new PluginError('plugin_lock_invalid', 'Hosted extension declarations have a pending transaction.');
   }
   let config: unknown;
-  try { config = JSON_PARSE(BUFFER_TO_STRING(readBoundedDeclaration(join(root, 'flows.json')), 'utf8')); }
-  catch (error) {
+  try {
+    config = JSON_PARSE(BUFFER_TO_STRING(readBoundedDeclaration(PATH_JOIN(root, 'flows.json')), 'utf8'));
+  } catch (error) {
     if (error instanceof PluginError) throw error;
     throw new PluginError('plugin_manifest_invalid', 'Invalid or oversized flows.json.');
   }
@@ -250,11 +265,12 @@ function hostedDeclaredExtensions(
     version: PLUGIN_LOCK_VERSION,
     plugins: OBJECT_FREEZE([]),
   });
-  const lockPath = join(root, PLUGIN_LOCK_FILE);
-  if (existsSync(lockPath)) {
+  const lockPath = PATH_JOIN(root, PLUGIN_LOCK_FILE);
+  if (EXISTS_SYNC(lockPath)) {
     let value: unknown;
-    try { value = JSON_PARSE(BUFFER_TO_STRING(readBoundedDeclaration(lockPath), 'utf8')); }
-    catch (error) {
+    try {
+      value = JSON_PARSE(BUFFER_TO_STRING(readBoundedDeclaration(lockPath), 'utf8'));
+    } catch (error) {
       if (error instanceof PluginError) throw error;
       throw new PluginError('plugin_lock_invalid', `${PLUGIN_LOCK_FILE}: not valid or exceeds the hosted size limit.`);
     }
@@ -263,7 +279,11 @@ function hostedDeclaredExtensions(
   if (declared.length !== lock.plugins.length) {
     throw new PluginError('plugin_lock_invalid', 'Hosted flows.json and flows.lock.json declarations differ.');
   }
-  const result: Array<{ ref: string; entry: PluginLockEntry; source: PluginSourceRef }> = [];
+  const result: Array<{
+    ref: string;
+    entry: PluginLockEntry;
+    source: PluginSourceRef;
+  }> = [];
   for (let index = 0; index < lock.plugins.length; index += 1) {
     const entry = lock.plugins[index]!;
     const source = OBJECT_FREEZE({ ...entry.source, ref: entry.source.sha });
@@ -279,8 +299,8 @@ function hostedDeclaredExtensions(
 function readBoundedDeclaration(path: string): Buffer {
   let descriptor: number | undefined;
   try {
-    descriptor = openSync(path, DECLARATION_READ_FLAGS);
-    const before = fstatSync(descriptor, { bigint: true });
+    descriptor = OPEN_SYNC(path, DECLARATION_READ_FLAGS);
+    const before = FSTAT_SYNC(descriptor, { bigint: true });
     if (!descriptorIsFile(before) || before.size < 0n || before.size > BIG_INT(MAX_DECLARATION_BYTES)) {
       throw new PluginError('plugin_source_invalid', 'Hosted extension declaration is not a bounded regular file.');
     }
@@ -288,21 +308,26 @@ function readBoundedDeclaration(path: string): Buffer {
     const bytes = BUFFER_ALLOC_UNSAFE(expected);
     let offset = 0;
     while (offset < expected) {
-      const count = readSync(descriptor, bytes, offset, expected - offset, offset);
-      if (count === 0) throw new Error('short read');
+      const count = READ_SYNC(descriptor, bytes, offset, expected - offset, offset);
+      if (count === 0) throw new ERROR('short read');
       offset += count;
     }
-    if (readSync(descriptor, BUFFER_ALLOC_UNSAFE(1), 0, 1, expected) !== 0) throw new Error('grew');
-    const after = fstatSync(descriptor, { bigint: true });
+    if (READ_SYNC(descriptor, BUFFER_ALLOC_UNSAFE(1), 0, 1, expected) !== 0) {
+      throw new ERROR('grew');
+    }
+    const after = FSTAT_SYNC(descriptor, { bigint: true });
     if (after.size !== before.size || after.mtimeNs !== before.mtimeNs || after.ctimeNs !== before.ctimeNs) {
-      throw new Error('changed');
+      throw new ERROR('changed');
     }
     return bytes;
   } catch (error) {
     if (error instanceof PluginError) throw error;
-    throw new PluginError('plugin_source_invalid', 'Hosted extension declaration is unreadable or changed while reading.');
+    throw new PluginError(
+      'plugin_source_invalid',
+      'Hosted extension declaration is unreadable or changed while reading.',
+    );
   } finally {
-    if (descriptor !== undefined) closeSync(descriptor);
+    if (descriptor !== undefined) CLOSE_SYNC(descriptor);
   }
 }
 
@@ -317,12 +342,15 @@ function newGeneration(origin: string): RuntimeGeneration {
 
 async function assertCurrentGeneration(generation: RuntimeGeneration): Promise<void> {
   let currentSource: string;
-  try { currentSource = await hostedBaseSourceDigest(generation.sourceRoots); }
-  catch {
+  try {
+    currentSource = await hostedBaseSourceDigest(generation.sourceRoots);
+  } catch {
     throw new PluginError('plugin_source_invalid', 'Hosted extension runtime generation is no longer readable.');
   }
-  if (declaredExtensions(generation.origin).signature !== generation.declarations
-    || currentSource !== generation.sourceSha256) {
+  if (
+    declaredExtensions(generation.origin).signature !== generation.declarations ||
+    currentSource !== generation.sourceSha256
+  ) {
     throw new PluginError(
       'plugin_source_invalid',
       'Hosted extension runtime generation is stale; reload the base and installation together.',
@@ -330,22 +358,21 @@ async function assertCurrentGeneration(generation: RuntimeGeneration): Promise<v
   }
 }
 
-async function baseAt(
-  origin: string,
-  generation: RuntimeGeneration,
-): Promise<HostedExtensionBase> {
+async function baseAt(origin: string, generation: RuntimeGeneration): Promise<HostedExtensionBase> {
   const snapshot = await createHostedBaseSnapshot(origin);
   generation.sourceRoots = snapshot.liveSources;
   generation.sourceSha256 = snapshot.liveDigest;
   try {
-    const baseBytes = await readFile(snapshot.snapshotFlowPath);
-    if (sha256(baseBytes) !== SOFTWARE_FACTORY_SHA256) {
+    if (snapshot.snapshotFlowSha256 !== SOFTWARE_FACTORY_SHA256) {
       throw new PluginError(
         'plugin_source_invalid',
         'Hosted capability isolation accepts only the reviewed Software Factory base source.',
       );
     }
-    const value = OBJECT_FREEZE({ name: 'software-factory', version: '2.0.22' });
+    const value = OBJECT_FREEZE({
+      name: 'software-factory',
+      version: '2.0.22',
+    });
     WEAK_SET_ADD(BASE_AUTHORITY, value);
     WEAK_MAP_SET(BASE_GENERATION, value, generation);
     return value;
