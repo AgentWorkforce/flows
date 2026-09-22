@@ -24,7 +24,7 @@ export function authoredWorkerRunner(
   definition: { name: string }, journal: JournalClient, flowPath: string,
   journalSteps: AuthoredFlowJournalStep[], waitOptions: RunLifecycleOptions,
   localAgentStream?: string, budget?: AuthoredBudget, headerBudget?: unknown,
-  rootRunId?: string, workerCapacity?: number,
+  rootRunId?: string, workerCapacity?: number, stepEdges?: AuthoredStepContext['stepEdges'],
 ) {
   // Sized to the attached local workers, so concurrent calls wait here for a
   // slot instead of being admitted and parked for want of a free worker.
@@ -33,6 +33,7 @@ export function authoredWorkerRunner(
   const context: AuthoredStepContext = {
     ...(rootRunId === undefined ? {} : { rootRunId }),
     ...(waitOptions.dataDir === undefined ? {} : { dataDir: waitOptions.dataDir }),
+    ...(stepEdges === undefined ? {} : { stepEdges }),
   };
   async function run(step: StepSpec): Promise<unknown> {
     const id = step.id;
@@ -61,7 +62,9 @@ export function authoredWorkerRunner(
     // Written BEFORE the wait, not after it. An agent runs for as long as its
     // lease allows; if this process dies mid-step, this record is the only
     // thing that still names the child run holding the evidence.
-    await recordAuthoredChild(journal, rootRunId, { step: id, runId: outcome.run_id, state: 'admitted' });
+    await recordAuthoredChild(journal, rootRunId, {
+      step: id, runId: outcome.run_id, state: 'admitted', ...stepEdges?.(id),
+    });
     // Reuse the declarative CLI's own wait/classification (cli/run.ts) rather
     // than a hand-rolled poll: `step.completed` and the run's own terminal
     // state are appended as two SEPARATE actions (kernel/relayflowd-core/src/machine.rs
@@ -101,12 +104,13 @@ export function authoredWorkerRunner(
       // a manufactured completion.
       if (isSurfaceCompletionReason(details?.completionReason)) {
         journalSteps.push(Object.freeze({
-          id, runId: outcome.run_id, completionReason: details.completionReason,
+          id, runId: outcome.run_id, completionReason: details.completionReason, ...stepEdges?.(id),
         }));
         message += await alsoRecord(journal, rootRunId, {
           step: id, runId: outcome.run_id, state: 'completed',
           completionReason: details.completionReason,
           ...(details.stepId === undefined ? {} : { kernelStep: details.stepId }),
+          ...stepEdges?.(id),
         });
       }
       throw new AuthoredFlowExecutionError(
@@ -242,7 +246,9 @@ export function authoredDeterministicRunner(
     }));
     const admissionKey = authoredChildAdmissionKey(rootRunId, id);
     const consume = async (outcome: import('./protocol.js').RunOutcome): Promise<string> => {
-      await recordAuthoredChild(journal, rootRunId, { step: id, runId: outcome.run_id, state: 'admitted' });
+      await recordAuthoredChild(journal, rootRunId, {
+        step: id, runId: outcome.run_id, state: 'admitted', ...context.stepEdges?.(id),
+      });
       return readSuccessfulOutput(journal, outcome, id, journalSteps, context);
     };
     if (terminal) return consume(await journal.runStart(spec, undefined, admissionKey));

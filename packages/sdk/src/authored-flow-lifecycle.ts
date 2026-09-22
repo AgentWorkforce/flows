@@ -1,6 +1,8 @@
 import { AsyncLocalStorage, executionAsyncId } from 'node:async_hooks';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
 import { AuthoredPromiseGraph } from './authored-promise-graph.js';
+import { AuthoredStepGraph } from './authored-step-graph.js';
+import type { AuthoredStepEdges } from './authored-step-index.js';
 
 type OperationToken = object;
 type ResolverProbe = Set<number>;
@@ -66,7 +68,7 @@ const observedCombinators: Record<CombinatorName, Combinator> = Object.fromEntri
       const members = collectMembers(values);
       if (members === undefined) return native.call(this, values);
       const aggregate = native.call(this, members);
-      activeLifecycle.getStore()?.registerCombinator(members, aggregate);
+      activeLifecycle.getStore()?.registerCombinator(members, aggregate, name);
       return aggregate;
     };
     Object.defineProperty(observed, 'name', { value: name, configurable: true });
@@ -117,6 +119,8 @@ export class AuthoredFlowLifecycle {
    */
   applyPredicateGate: (<T>(operation: { id: string; predicateGate: unknown }, value: T) => Promise<T>) | undefined = undefined;
   private readonly graph: AuthoredPromiseGraph;
+  private readonly stepGraph: AuthoredStepGraph;
+  private readonly operationPromises = new Map<OperationToken, number>();
   private readonly activeResolverProbes: ResolverProbe[] = [];
   private readonly invocations = new Map<OperationToken, AuthoredOperationInvocation[]>();
   private readonly promiseAllAggregates = new Map<OperationToken, Set<number>>();
@@ -135,6 +139,7 @@ export class AuthoredFlowLifecycle {
         for (const probe of this.activeResolverProbes) probe.add(asyncId);
       },
     );
+    this.stepGraph = new AuthoredStepGraph((asyncId) => this.graph.causesOf(asyncId));
     installPromiseAllObserver();
     try {
       this.graph.enable();
@@ -152,16 +157,25 @@ export class AuthoredFlowLifecycle {
     stepOwners.set(step, { lifecycle: this, operation });
   }
 
-  registerCombinator(values: readonly unknown[], aggregate: Promise<unknown>): void {
+  registerCombinator(
+    values: readonly unknown[],
+    aggregate: Promise<unknown>,
+    combinator: CombinatorName,
+  ): void {
     const aggregateId = this.graph.idOf(aggregate);
     if (aggregateId === undefined) return;
     this.graph.registerRoot(aggregateId);
     const memberIds = new Set<number>();
+    const awaitedMembers: number[] = [];
     for (const value of values) {
       if ((typeof value !== 'object' && typeof value !== 'function') || value === null) continue;
       const memberId = this.graph.idOf(value);
       if (memberId !== undefined) memberIds.add(memberId);
       const owner = stepOwners.get(value);
+      // A Step is a thenable, not a promise: its member identity for the step
+      // graph is the operation's own promise.
+      const awaited = owner?.lifecycle === this ? this.operationPromises.get(owner.operation) : memberId;
+      if (awaited !== undefined) awaitedMembers.push(awaited);
       if (owner?.lifecycle !== this) continue;
       let operationAggregates = this.promiseAllAggregates.get(owner.operation);
       if (operationAggregates === undefined) {
@@ -172,6 +186,33 @@ export class AuthoredFlowLifecycle {
     }
     this.promiseAllGroups.push({ aggregate: aggregateId, members: memberIds });
     this.registrations++;
+    this.stepGraph.registerAggregate(aggregateId, aggregate, combinator, awaitedMembers);
+  }
+
+  /**
+   * Record an operation's own promise and, for a step the run's DAG draws, its
+   * place in that DAG. Called synchronously from the operation's constructor:
+   * the causal predecessors are read from the context that invoked
+   * `f.agent`/`f.run`/`f.llm`, which is observable only at that moment.
+   *
+   * Every operation's promise is recorded so `Promise.all([step, …])` can
+   * expand to it; only a `node` becomes a frontier the walk stops at. An
+   * operation that is not drawn (a helper effect) is walked through instead,
+   * so an edge never names a step the index has no record for.
+   */
+  registerOperation(
+    operation: OperationToken,
+    promise: Promise<unknown>,
+    node?: { readonly step: string; readonly label?: string },
+  ): AuthoredStepEdges | undefined {
+    const promiseId = this.graph.idOf(promise);
+    if (promiseId !== undefined) this.operationPromises.set(operation, promiseId);
+    if (node === undefined) return undefined;
+    return this.stepGraph.registerStep(node.step, promiseId, executionAsyncId(), node.label);
+  }
+
+  stepEdges(step: string): AuthoredStepEdges | undefined {
+    return this.stepGraph.edgesOf(step);
   }
 
   registerInvocation(
@@ -304,6 +345,8 @@ export class AuthoredFlowLifecycle {
     this.closed = true;
     this.graph.disable();
     this.graph.clear();
+    this.stepGraph.release();
+    this.operationPromises.clear();
     this.invocations.clear();
     this.promiseAllAggregates.clear();
     this.promiseAllGroups.length = 0;
