@@ -115,8 +115,8 @@ pub(crate) fn execute_placed_with_input(
     let stderr = stderr_reader.join().unwrap_or_default();
     let output = json!({
         "exit_code": status.and_then(|status| status.code()).unwrap_or(-1),
-        "stdout_tail": tail(&stdout),
-        "stderr_tail": tail(&stderr),
+        "stdout_tail": crate::output_capture::capture(&stdout, OUTPUT_TAIL_BYTES),
+        "stderr_tail": crate::output_capture::capture(&stderr, OUTPUT_TAIL_BYTES),
     });
     // Failed completions deliberately null their reusable output. Preserve
     // command evidence in the existing diagnostic field before that happens.
@@ -156,11 +156,6 @@ fn read_all(mut reader: impl Read) -> Vec<u8> {
     let mut bytes = Vec::new();
     let _ = reader.read_to_end(&mut bytes);
     bytes
-}
-
-fn tail(bytes: &[u8]) -> String {
-    let start = bytes.len().saturating_sub(OUTPUT_TAIL_BYTES);
-    String::from_utf8_lossy(&bytes[start..]).into_owned()
 }
 
 fn worker_error(detail: &str) -> AttemptResult {
@@ -222,6 +217,21 @@ mod tests {
             completed.payload["trajectory_tail"]["stderr_tail"],
             "shakedown intentional failure"
         );
+    }
+
+    #[test]
+    fn exec_det_keeps_early_failure_in_both_large_streams() {
+        let step: StepSpec = serde_json::from_value(json!({
+            "id": "large", "type": "deterministic",
+            "command": "printf 'not ok 3 - early failure\\n'; printf 'not ok 3 - early failure\\n' >&2; head -c 90000 /dev/zero | tr '\\000' x; head -c 90000 /dev/zero | tr '\\000' x >&2; exit 1"
+        })).unwrap();
+        let result = execute(&step);
+        for stream in ["stdout_tail", "stderr_tail"] {
+            let text = result.output[stream].as_str().unwrap();
+            assert!(text.contains("not ok 3 - early failure"));
+            assert!(text.contains("bytes elided at capture"));
+            assert!(text.len() <= OUTPUT_TAIL_BYTES);
+        }
     }
 
     #[test]

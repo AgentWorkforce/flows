@@ -1,0 +1,40 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/step-failure-excerpt.test.ts (49 tests | 1 failed) 290ms
+   × capture-layer elision > preserves capture provenance within 256 bytes 19ms
+     → expected 'ok - passin\n… 63,143 bytes elided …\…' to contain '… relayflow: 9000000 bytes elided at …'
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/step-failure-excerpt.test.ts > capture-layer elision > preserves capture provenance within 256 bytes
+AssertionError: expected 'ok - passin\n… 63,143 bytes elided …\…' to contain '… relayflow: 9000000 bytes elided at …'
+
+- Expected
++ Received
+
+- … relayflow: 9000000 bytes elided at capture …
++ ok - passin
++ … 63,143 bytes elided …
++ … relayflow: 9000000 bytes elided at captu … line truncated …
++ … end of elided region …
++ assing
++ ok - passing
++ ok - passing
++
+
+ ❯ tests/step-failure-excerpt.test.ts:322:21
+    320|     const stream = 'ok - passing\n'.repeat(1260) + marker + '\n' + 'ok…
+    321|     const excerpt = formatStepExcerpt(stream, budget);
+    322|     expect(excerpt).toContain(marker);
+       |                     ^
+    323|     expect(excerpt).toMatch(/… [\d,]+ bytes elided …/u);
+    324|     expect(excerpt).not.toContain('failure marker');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 48 passed (49)
+   Start at  23:58:43
+   Duration  518ms (transform 48ms, setup 0ms, collect 47ms, tests 290ms, environment 0ms, prepare 55ms)
+

@@ -1,0 +1,47 @@
+$ cd kernel && sh ../ops/cargo.sh test -p relayflowd output_capture
+   Compiling relayflowd v0.1.0 (/home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.18s
+     Running unittests src/lib.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/relayflowd-f043db0bb3534a16)
+
+running 5 tests
+test output_capture::tests::cuts_never_split_utf8_and_all_budgets_hold ... FAILED
+test output_capture::tests::invalid_input_still_respects_the_byte_budget ... FAILED
+test output_capture::tests::one_byte_over_accounts_for_marker_space_too ... FAILED
+test output_capture::tests::short_and_exact_budget_are_unchanged ... ok
+test output_capture::tests::keeps_early_tap_failure_and_final_summary ... FAILED
+
+failures:
+
+---- output_capture::tests::cuts_never_split_utf8_and_all_budgets_hold stdout ----
+
+thread 'output_capture::tests::cuts_never_split_utf8_and_all_budgets_hold' (18953) panicked at relayflowd/src/output_capture.rs:47:13:
+assertion failed: !result.contains('\u{fffd}')
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- output_capture::tests::invalid_input_still_respects_the_byte_budget stdout ----
+
+thread 'output_capture::tests::invalid_input_still_respects_the_byte_budget' (18954) panicked at relayflowd/src/output_capture.rs:55:9:
+assertion failed: result.len() <= 65536
+
+---- output_capture::tests::one_byte_over_accounts_for_marker_space_too stdout ----
+
+thread 'output_capture::tests::one_byte_over_accounts_for_marker_space_too' (18956) panicked at relayflowd/src/output_capture.rs:26:63:
+called `Option::unwrap()` on a `None` value
+
+---- output_capture::tests::keeps_early_tap_failure_and_final_summary stdout ----
+
+thread 'output_capture::tests::keeps_early_tap_failure_and_final_summary' (18955) panicked at relayflowd/src/output_capture.rs:37:9:
+assertion failed: result.contains("not ok 3 - child reaped twice")
+
+
+failures:
+    output_capture::tests::cuts_never_split_utf8_and_all_budgets_hold
+    output_capture::tests::invalid_input_still_respects_the_byte_budget
+    output_capture::tests::keeps_early_tap_failure_and_final_summary
+    output_capture::tests::one_byte_over_accounts_for_marker_space_too
+
+test result: FAILED. 1 passed; 4 failed; 0 ignored; 0 measured; 54 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p relayflowd --lib`
+
+Exit code: 101

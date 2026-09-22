@@ -312,3 +312,24 @@ describe('Jest section headings', () => {
     expect(excerpt).not.toContain('failure marker');
   });
 });
+
+
+describe('capture-layer elision', () => {
+  it.each([256, 1024, EXCERPT_BYTES])('preserves capture provenance within %s bytes', budget => {
+    const marker = '… relayflow: 9000000 bytes elided at capture …';
+    const stream = 'ok - passing\n'.repeat(1260) + marker + '\n' + 'ok - passing\n'.repeat(3600);
+    const excerpt = formatStepExcerpt(stream, budget);
+    expect(excerpt).toContain(marker);
+    expect(excerpt).toMatch(/… [\d,]+ bytes elided …/u);
+    expect(excerpt).not.toContain('failure marker');
+    expect(bytes(excerpt)).toBeLessThanOrEqual(budget);
+  });
+
+  it('keeps capture provenance even after many failure matches', () => {
+    const marker = '… relayflow: 9000000 bytes elided at capture …';
+    const excerpt = formatStepExcerpt('ok\n'.repeat(2000) + 'not ok - failed\n'.repeat(100)
+      + marker + '\n' + 'ok\n'.repeat(16000));
+    expect(excerpt).toContain(marker);
+    expect(bytes(excerpt)).toBeLessThanOrEqual(EXCERPT_BYTES);
+  });
+});

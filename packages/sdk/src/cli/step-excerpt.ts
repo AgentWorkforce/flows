@@ -16,13 +16,9 @@
  *
  * What this can and cannot promise:
  *
- * - It selects from the field the journal carried, which for a deterministic
- *   step is the last 64 KiB the kernel captured (`OUTPUT_TAIL_BYTES`,
- *   relayflowd/src/exec_det.rs). A failure printed before that window is not
- *   here to be found, and no marker can say so — hence `captured excerpt`
- *   rather than a claim about the command's whole output.
- * - The absence of an elision marker means the supplied field fit whole. It
- *   does not mean the command printed nothing more.
+ * - It selects from the field the journal carried. Kernel capture retains a
+ *   bounded head and tail, with a distinct capture-elision marker carried
+ *   through here. Bytes discarded at capture cannot be recovered by rendering.
  * - The markers are hints, not a parser. They find the common runners' failing
  *   lines; ordinary prose can match one, and an unknown format matches none
  *   and still gets head-and-tail context.
@@ -73,6 +69,11 @@ const FAILURE_MARKERS: readonly RegExp[] = [
   /\bpanicked at\b/u, // rust panic
 ];
 
+// Capture metadata describes missing evidence, not a failing test.
+const STRUCTURAL_MARKERS: readonly RegExp[] = [
+  /^… relayflow: \d+ bytes elided at capture …$/u,
+];
+
 interface Range { start: number; end: number }
 
 /**
@@ -94,10 +95,15 @@ export function formatStepExcerpt(value: string, budget: number = EXCERPT_BYTES)
   if (source.length <= budget) return sanitise(value);
 
   const lines = lineRanges(source);
-  const matches = lines.filter(isFailureLine(source));
+  const matches = lines.filter(isMarkedLine(source, FAILURE_MARKERS));
+  const structural = lines.filter(isMarkedLine(source, STRUCTURAL_MARKERS));
   // Content space is what is left after the markers can be afforded at their
   // widest, so the excerpt can always state its own elision.
-  const content = Math.max(0, budget - markerReserve(source.length, matches.length));
+  const available = Math.max(0, budget - markerReserve(source.length, matches.length + structural.length));
+  // Reserve provenance before test highlights, so a busy failure stream cannot
+  // evict the capture marker. Genuine captures contribute one short line.
+  const provenance = selectHighlights(source, structural, available, 0, source.length);
+  const content = available - provenance.reduce((sum, item) => sum + size(item.range), 0);
   const tailShare = Math.floor(content / 2);
   const headShare = Math.floor(content / 4);
   const highlightShare = content - tailShare - headShare;
@@ -105,14 +111,17 @@ export function formatStepExcerpt(value: string, budget: number = EXCERPT_BYTES)
   const head = headRange(source, lines, headShare);
   // Provisional tail, which with the head defines the middle the highlights
   // are drawn from.
-  const highlights = selectHighlights(source, matches, highlightShare,
-    head.end, tailRange(source, tailShare, head.end).start);
+  const middleEnd = tailRange(source, tailShare, head.end).start;
+  const failures = selectHighlights(source, matches, highlightShare, head.end, middleEnd);
+  const highlights = [...failures, ...provenance.filter(item =>
+    item.range.start >= head.end && item.range.start < middleEnd)]
+    .sort((a, b) => a.range.start - b.range.start);
 
   // Every byte the head and the highlights did not need goes to the tail,
   // which is where a runner puts the summary. The tail may not cross the last
   // highlight, so the ranges stay disjoint and in source order.
   const spare = headShare - size(head)
-    + highlightShare - highlights.reduce((sum, highlight) => sum + size(highlight.range), 0);
+    + highlightShare - failures.reduce((sum, highlight) => sum + size(highlight.range), 0);
   let tail = tailRange(source, tailShare + spare, highlights.at(-1)?.range.end ?? head.end);
   // A highlight the tail resumes at the very byte it ends is not a range of
   // its own: the two are one unbroken run of source, so the tail starts at
@@ -137,7 +146,7 @@ export function formatStepExcerpt(value: string, budget: number = EXCERPT_BYTES)
   const parts: string[] = [];
   const terminated = (chunk: string): string => chunk.endsWith('\n') ? chunk : `${chunk}\n`;
   if (size(head) > 0) parts.push(terminated(text(source, head)));
-  parts.push(`${openMarker(elided, highlights.length, omitted)}\n`);
+  parts.push(`${openMarker(elided, highlights.filter(item => matches.some(match => match.start === item.range.start)).length, omitted)}\n`);
   for (const highlight of highlights) {
     parts.push(terminated(text(source, highlight.range) + (highlight.truncated ? ` ${TRUNCATED_MARKER}` : '')));
   }
@@ -246,10 +255,10 @@ function tailRange(source: Buffer, limit: number, stop: number): Range {
   return { start: Math.max(ceilBoundary(source, source.length - limit), stop), end: source.length };
 }
 
-function isFailureLine(source: Buffer): (line: Range) => boolean {
+function isMarkedLine(source: Buffer, markers: readonly RegExp[]): (line: Range) => boolean {
   return line => {
     const comparable = comparableLine(text(source, line));
-    return FAILURE_MARKERS.some(marker => marker.test(comparable));
+    return markers.some(marker => marker.test(comparable));
   };
 }
 

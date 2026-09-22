@@ -1,0 +1,51 @@
+ Downloading crates ...
+  Downloaded fastrand v2.5.0
+  Downloaded getrandom v0.4.3
+  Downloaded linux-raw-sys v0.12.1
+  Downloaded tempfile v3.27.0
+  Downloaded errno v0.3.14
+  Downloaded rustix v1.1.4
+   Compiling bitflags v2.13.1
+   Compiling getrandom v0.4.3
+   Compiling rustix v1.1.4
+   Compiling linux-raw-sys v0.12.1
+   Compiling rusqlite v0.37.0
+   Compiling fastrand v2.5.0
+   Compiling relayflowd-journal v0.1.0 (/home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/relayflowd-journal)
+   Compiling relayflowd v0.1.0 (/home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/relayflowd)
+   Compiling tempfile v3.27.0
+warning: function `capture` is never used
+ --> relayflowd/src/output_capture.rs:7:15
+  |
+7 | pub(crate) fn capture(bytes: &[u8], budget: usize) -> String {
+  |               ^^^^^^^
+  |
+  = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `relayflowd` (lib) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.53s
+     Running unittests src/lib.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/relayflowd-f043db0bb3534a16)
+
+running 6 tests
+test exec_det::tests::failed_command_evidence_survives_completion ... ok
+test exec_det::tests::captures_deterministic_output ... ok
+test exec_det::tests::exec_det_keeps_early_failure_in_both_large_streams ... FAILED
+test exec_det::tests::timeout_has_an_explicit_completion_reason ... ok
+test exec_det::tests::lease_override_bounds_execution_and_preserves_command_timeout ... ok
+test exec_det::tests::timeout_kills_the_whole_process_group ... ok
+
+failures:
+
+---- exec_det::tests::exec_det_keeps_early_failure_in_both_large_streams stdout ----
+
+thread 'exec_det::tests::exec_det_keeps_early_failure_in_both_large_streams' (13740) panicked at relayflowd/src/exec_det.rs:236:13:
+assertion failed: text.contains("not ok 3 - early failure")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    exec_det::tests::exec_det_keeps_early_failure_in_both_large_streams
+
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 53 filtered out; finished in 0.25s
+
+error: test failed, to rerun pass `-p relayflowd --lib`
