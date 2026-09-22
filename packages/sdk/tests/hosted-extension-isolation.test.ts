@@ -516,6 +516,43 @@ export default flow('babysitter', async f => f.done('declined'))
     expect(result).toEqual({ completionReason: 'success', capabilityCalls: 1 });
   });
 
+  it.runIf(process.platform === 'linux')(
+    'writes the Surface manifest and protocol without inherited toJSON behavior',
+    async () => {
+      const installed = await artifact();
+      const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
+        provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-to-json',
+      });
+      const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'toJSON');
+      let poisonCalls = 0;
+      try {
+        Object.defineProperty(Object.prototype, 'toJSON', {
+          configurable: true,
+          value: function poisonedToJSON(this: unknown) {
+            const caller = (new Error().stack ?? '').split('\n', 4)[3] ?? '';
+            if (caller.includes('/src/hosted-extension-')) {
+              poisonCalls += 1;
+              throw new Error('ambient Object.prototype.toJSON must not run');
+            }
+            return this;
+          },
+        });
+        await expect(runVerifiedNativeExtensionSandbox({
+          artifact: installed,
+          manifest: validateFlowExtensionManifest(manifest()),
+          dispatch,
+          input: descriptor('delivery-to-json'),
+          babysitterTurn: { queue: async () => ({ receiptId: 'receipt-to-json', status: 'queued' }) },
+          timeoutMs: 3_000,
+        })).resolves.toEqual({ completionReason: 'success', capabilityCalls: 1 });
+      } finally {
+        if (previous === undefined) delete (Object.prototype as { toJSON?: unknown }).toJSON;
+        else Object.defineProperty(Object.prototype, 'toJSON', previous);
+      }
+      expect(poisonCalls).toBe(0);
+    },
+  );
+
   it('fails closed when the handler omits or repeats the single capability call', async () => {
     for (const body of [
       `f.done('success')`,

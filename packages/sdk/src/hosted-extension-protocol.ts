@@ -18,6 +18,7 @@ const EVENT_ON = Function.prototype.call.bind(EventEmitter.prototype.on) as (
 ) => EventEmitter;
 const JSON_PARSE = JSON.parse;
 const JSON_STRINGIFY = JSON.stringify;
+const OBJECT_CREATE = Object.create;
 const OBJECT_HAS_OWN = Object.hasOwn;
 const OBJECT_KEYS = Object.keys;
 const OBJECT_FREEZE = Object.freeze;
@@ -93,6 +94,7 @@ export async function exchangeHostedExtension(
   request: unknown,
   invoke: (request: unknown) => Promise<unknown>,
 ): Promise<HostedExtensionProtocolResult> {
+  const requestSnapshot = boundedJsonSnapshot(request, 'hosted extension request');
   let buffer = '';
   let stderrText = '';
   let calls = 0;
@@ -175,11 +177,11 @@ export async function exchangeHostedExtension(
                 const snapshot = boundedJsonSnapshot(value, 'hosted capability result');
                 capabilityState = 'completed';
                 if (deferredProtocolError !== undefined) return finish(deferredProtocolError);
-                WRITABLE_WRITE(stdin, `${JSON_STRINGIFY({ type: 'capability-result', id: 1, ok: true, value: snapshot })}\n`);
+                WRITABLE_WRITE(stdin, capabilityResultFrame(true, snapshot));
               } catch (error) {
                 capabilityError = failure(error);
                 capabilityState = 'failed';
-                WRITABLE_WRITE(stdin, `${JSON_STRINGIFY({ type: 'capability-result', id: 1, ok: false, error: 'hosted capability refused' })}\n`);
+                WRITABLE_WRITE(stdin, capabilityResultFrame(false));
                 finish(capabilityError);
               }
             },
@@ -187,7 +189,7 @@ export async function exchangeHostedExtension(
               if (settled) return;
               capabilityError = failure(error);
               capabilityState = 'failed';
-              WRITABLE_WRITE(stdin, `${JSON_STRINGIFY({ type: 'capability-result', id: 1, ok: false, error: 'hosted capability refused' })}\n`);
+              WRITABLE_WRITE(stdin, capabilityResultFrame(false));
               finish(capabilityError);
             },
           );
@@ -222,8 +224,21 @@ export async function exchangeHostedExtension(
         + (stderrText === '' ? '' : `: ${stderrText}`),
       );
     });
-    WRITABLE_WRITE(stdin, `${JSON_STRINGIFY(request)}\n`);
+    WRITABLE_WRITE(stdin, `${JSON_STRINGIFY(requestSnapshot)}\n`);
   });
+}
+
+function capabilityResultFrame(ok: boolean, value?: unknown): string {
+  // JSON.stringify consults inherited `toJSON` before traversing an object.
+  // Protocol envelopes therefore never inherit from the ambient prototype;
+  // nested capability data is already a behavior-free bounded snapshot.
+  const envelope = OBJECT_CREATE(null) as Record<string, unknown>;
+  envelope.type = 'capability-result';
+  envelope.id = 1;
+  envelope.ok = ok;
+  if (ok) envelope.value = value;
+  else envelope.error = 'hosted capability refused';
+  return `${JSON_STRINGIFY(envelope)}\n`;
 }
 
 function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {

@@ -165,3 +165,45 @@ it('registers and completes protocol I/O with captured stream operations', async
   expect(rejection).toMatchObject({ code: 'plugin_unsupported' });
   expect({ poisonCalls, adapterCalls }).toEqual({ poisonCalls: 0, adapterCalls: 0 });
 });
+
+it('serializes protocol envelopes without inherited toJSON behavior', async () => {
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'toJSON');
+  const protocol = new PassThrough();
+  const stdin = new PassThrough();
+  const stderr = new PassThrough();
+  const child = Object.assign(new EventEmitter(), {
+    exitCode: null,
+    signalCode: null,
+    kill: () => true,
+  }) as unknown as ChildProcess;
+  let poisonCalls = 0;
+  let adapterCalls = 0;
+  stdin.on('data', chunk => {
+    if (String(chunk).includes('capability-result')) {
+      protocol.write('{"type":"result","completionReason":"success","capabilityCalls":1}\n');
+    }
+  });
+
+  try {
+    Object.defineProperty(Object.prototype, 'toJSON', {
+      configurable: true,
+      value: () => {
+        poisonCalls += 1;
+        throw new Error('ambient Object.prototype.toJSON must not run');
+      },
+    });
+    const run = exchangeHostedExtension(
+      child, protocol, stdin, stderr, 10_000, { type: 'execute', identity: { provider: 'github' } },
+      async () => {
+        adapterCalls += 1;
+        return { receiptId: 'receipt-to-json', status: 'queued' };
+      },
+    );
+    protocol.write('{"type":"capability","id":1,"name":"cloud:babysitter-turn","request":{"delivery":"exact"}}\n');
+    await expect(run).resolves.toEqual({ completionReason: 'success', capabilityCalls: 1 });
+  } finally {
+    if (previous === undefined) delete (Object.prototype as { toJSON?: unknown }).toJSON;
+    else Object.defineProperty(Object.prototype, 'toJSON', previous);
+  }
+  expect({ poisonCalls, adapterCalls }).toEqual({ poisonCalls: 0, adapterCalls: 1 });
+});

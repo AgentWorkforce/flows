@@ -43,7 +43,6 @@ const CHILD_PROCESS_KILL = Function.prototype.call.bind(ChildProcess.prototype.k
 ) => boolean;
 const ARRAY_PUSH = Function.prototype.call.bind(Array.prototype.push) as <T>(array: T[], ...values: T[]) => number;
 const JSON_PARSE = JSON.parse;
-const JSON_STRINGIFY = JSON.stringify;
 const OBJECT_ENTRIES = Object.entries;
 const OBJECT_FREEZE = Object.freeze;
 const OBJECT_KEYS = Object.keys;
@@ -216,9 +215,11 @@ async function writeSurfaceFacade(directory: string, surfaceRoot: string): Promi
     }
     runtimeFiles[index] = { file, bytes, expected };
   }
-  await WRITE_FILE(PATH_JOIN(directory, 'package.json'), JSON_STRINGIFY({
-    name: '@relayflows/surface', type: 'module', exports: { '.': './index.js', './runtime': './runtime.js' },
-  }), { mode: 0o400, flag: 'wx' });
+  await WRITE_FILE(
+    PATH_JOIN(directory, 'package.json'),
+    '{"name":"@relayflows/surface","type":"module","exports":{".":"./index.js","./runtime":"./runtime.js"}}',
+    { mode: 0o400, flag: 'wx' },
+  );
   await WRITE_FILE(PATH_JOIN(directory, 'index.js'),
     "export { flow } from './dist/flow.js';\nexport { github } from './dist/triggers/github.js';\n",
     { mode: 0o400, flag: 'wx' });
