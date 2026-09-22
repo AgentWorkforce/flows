@@ -26,6 +26,8 @@ describe('WorkerSlots', () => {
     expect(started).toEqual([0, 1]);
     gates[1]!.resolve();
     await runs[1];
+    // The freed slot is handed over on the next macrotask (see WorkerSlots.release).
+    await new Promise(done => setImmediate(done));
     expect(started).toEqual([0, 1, 2]);
     gates[0]!.resolve(); gates[2]!.resolve(); gates[3]!.resolve();
     expect(await Promise.all(runs)).toEqual([0, 1, 2, 3]);
@@ -46,6 +48,22 @@ describe('WorkerSlots', () => {
     await expect(slots.run(async () => 'c')).rejects.toBe(reason);
     gate.resolve();
     expect(await running).toBe('a');
+    expect(started).toEqual(['a']);
+  });
+
+  // The Cursor case on #554: the holder's own rejection fails the body, and
+  // that failure reaches close() through microtasks only. A synchronous
+  // handoff let the next waiter start before close() could refuse it.
+  it('does not start a waiter when the holder fails and close follows through microtasks', async () => {
+    const slots = new WorkerSlots(1);
+    const started: string[] = [];
+    const reason = new Error('holder failed');
+    const holder = slots.run(async () => { started.push('a'); throw reason; });
+    const waiter = slots.run(async () => { started.push('b'); return 'b'; });
+    // As the executor does: the body's failure, observed a few microtasks later, closes the slots.
+    void holder.catch(async (error: unknown) => { await Promise.resolve(); await Promise.resolve(); slots.close(error); });
+    await expect(holder).rejects.toBe(reason);
+    await expect(waiter).rejects.toBe(reason);
     expect(started).toEqual(['a']);
   });
 

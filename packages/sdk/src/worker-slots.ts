@@ -31,13 +31,50 @@ export class WorkerSlots {
     if (this.held < this.capacity) this.held++;
     // A released slot is handed straight to the next waiter, so `held` never
     // dips below capacity while anyone is queued and no later caller can jump it.
-    else await new Promise<void>((resolve, reject) => this.waiting.push({ resolve, reject }));
+    else {
+      await new Promise<void>((resolve, reject) => this.waiting.push({ resolve, reject }));
+      // Woken with the slot, but the body may have failed in between (see release).
+      const closed = this.closedReason();
+      if (closed !== undefined) {
+        this.release();
+        throw closed.reason;
+      }
+    }
     try {
       return await work();
     } finally {
-      const next = this.waiting.shift();
-      if (next !== undefined) next.resolve(); else this.held--;
+      this.release();
     }
+  }
+
+  /** Read through a call so a check after an `await` is not narrowed away. */
+  private closedReason(): { readonly reason: unknown } | undefined {
+    return this.closed;
+  }
+
+  /**
+   * Hand the slot to the next waiter on a later macrotask, not synchronously.
+   * When the work that held it rejected and that rejection fails the body, the
+   * failure reaches `close` through microtasks only (operation → Promise.all →
+   * body → executor). Waking the waiter synchronously let it admit a child run
+   * before `close` could refuse it; deferring lets the teardown land first.
+   */
+  private release(): void {
+    const next = this.waiting.shift();
+    if (next === undefined) {
+      this.held--;
+      return;
+    }
+    setImmediate(() => {
+      if (this.closed === undefined) {
+        next.resolve();
+        return;
+      }
+      // Closed meanwhile. `close` could not see this waiter (already taken off
+      // the queue), so refuse it here, and pass the slot on instead of leaking it.
+      next.reject(this.closed.reason);
+      this.release();
+    });
   }
 
   /**

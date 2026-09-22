@@ -1,5 +1,5 @@
 import { realpathSync } from 'node:fs';
-import { resolve, sep } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { diffWorkspaceFiles, snapshotWorkspaceFiles } from './agent-artifacts.js';
 import { claudeResultOutcome, decodeProviderResult, decodeWrapperResult, requirePricedUsage } from './worker-usage.js';
 import { openSidechannel, type SidechannelContext } from './pty-sidechannel.js';
@@ -121,7 +121,7 @@ export async function runAgentCli(
   const artifactRoot = mode === 'agent' ? resolve(cwd ?? process.cwd()) : undefined;
   return artifactRoot === undefined
     ? execute()
-    : serializedByDirectory(realPath(artifactRoot)!, async () => {
+    : serializedByDirectory(canonicalTree(artifactRoot), async () => {
       const before = await snapshotWorkspaceFiles(artifactRoot);
       const result = await execute();
       const kernelData = sidechannel === undefined ? undefined : realPath(resolve(sidechannel.dataDir));
@@ -212,6 +212,27 @@ function openTails(context: SidechannelContext): { stdout: TranscriptTailWriter;
 function under(path: string | undefined, directory: string | undefined): boolean {
   if (path === undefined || directory === undefined) return false;
   return path === directory || path.startsWith(directory.endsWith(sep) ? directory : directory + sep);
+}
+
+/**
+ * Symlink-free form of an absolute path that may not exist yet: the deepest
+ * existing ancestor is resolved and the missing tail is kept. A plain
+ * `realPath` fallback would leave `/link/new` unresolved while `/link`
+ * resolves, and the overlap check would then treat them as disjoint trees.
+ */
+export function canonicalTree(path: string): string {
+  const missing: string[] = [];
+  let current = path;
+  for (;;) {
+    try {
+      return join(realpathSync(current), ...missing.reverse());
+    } catch {
+      const parent = dirname(current);
+      if (parent === current) return path;
+      missing.push(basename(current));
+      current = parent;
+    }
+  }
 }
 
 /** Symlink-free form of a path, or the path itself when it cannot be resolved. */

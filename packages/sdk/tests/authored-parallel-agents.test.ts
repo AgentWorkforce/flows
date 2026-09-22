@@ -15,19 +15,23 @@ afterEach(async () => {
 });
 
 /** The fixture's wrapper, but each session holds for a while and journals when it ran. */
-async function slowAgents(capacity: number) {
+async function slowAgents(capacity: number, failFirstSession = false) {
   const fixture = chainFixture();
   closes.push(() => fixture.close());
   const spans = join(fixture.root, 'spans.jsonl');
   writeFileSync(fixture.wrapper, `#!/usr/bin/env node
 import { receiveWrapperRequest } from ${JSON.stringify(resolve('../../testdata/preflight/wrapper-session.mjs'))};
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, existsSync, writeFileSync } from 'node:fs';
 if (process.argv[2] === 'auth') process.exit(0);
 const request = await receiveWrapperRequest();
 if (request) {
   const start = Date.now();
   await new Promise(done => setTimeout(done, 400));
   appendFileSync(${JSON.stringify(spans)}, JSON.stringify({ start, end: Date.now() }) + '\\n');
+  ${failFirstSession ? `if (!existsSync(${JSON.stringify(join(fixture.root, 'failed-once'))})) {
+    writeFileSync(${JSON.stringify(join(fixture.root, 'failed-once'))}, '');
+    process.exit(1);
+  }` : ''}
   process.stdout.write('done');
 }
 `);
@@ -142,6 +146,17 @@ describe('authored steps under local workers with capacity', () => {
     })).rejects.toThrow('body failed');
     // Teardown waits for the one agent already holding the slot; the two
     // queued behind it are refused, not admitted after the flow has failed.
+    await new Promise(done => setTimeout(done, 1_000));
+    expect(readSpans()).toHaveLength(1);
+  });
+
+  // #554 (Cursor): the holder's own failure fails the body; the next queued
+  // agent must not be handed the slot before teardown refuses it.
+  it('never starts a queued agent when the agent holding the only slot fails', async () => {
+    const { fixture, client, agent, readSpans } = await slowAgents(1, true);
+    await expect(executeAuthoredFlow(threeReviewers, client, undefined, {
+      flowPath: fixture.flowPath, localAgentStream: agent.stream, workerCapacity: 1,
+    })).rejects.toBeDefined();
     await new Promise(done => setTimeout(done, 1_000));
     expect(readSpans()).toHaveLength(1);
   });
