@@ -14,9 +14,9 @@ The enforced boundary is:
   every dispatch rechecks the current declarations plus complete project
   source; base stdout, globals, process termination, relative/package imports,
   and an earlier module cache cannot forge the parent-pinned identity; source
-  directory entries are streamed beneath a shared entry bound; nonblocking
-  no-follow descriptors and explicitly bounded reads enforce the byte limit
-  before contents are buffered;
+  directory entries are streamed beneath a shared entry bound; `flows.json`
+  and `flows.lock.json` plus source files use nonblocking no-follow descriptors
+  and explicitly bounded reads before contents are buffered or parsed;
 - reverify every content-addressed artifact, lock metadata, manifest hash,
   base/runtime compatibility, and route uniqueness using bounded descriptor
   reads that enforce the fetched plugin's 500-file, 256-KB-per-file, and 2-MB
@@ -28,7 +28,8 @@ The enforced boundary is:
   parent intrinsics before validation or serialization, rejecting proxies,
   accessors, inherited `toJSON`, symbol keys, cycles, holes, and extra fields;
   enforce depth, node-count, and encoded-byte limits incrementally while
-  traversing (including repeatedly shared subtrees), and validate exact keys
+  traversing (including repeatedly shared subtrees), count string escaping
+  without materializing an unbounded encoded copy, and validate exact keys
   without ambient array methods; then validate that snapshot against the
   symbol-branded verified dispatch before import;
 - import and execute the matching handler only inside a bubblewrap namespace

@@ -156,6 +156,22 @@ describe('hosted extension hostile protocol', () => {
     expect(calls).toBe(0);
   });
 
+  it('rejects an oversized escaped string before materializing its JSON encoding', async () => {
+    const input = { ...descriptor(), extra: '\0'.repeat(1024 * 1024) };
+    let calls = 0;
+    const started = Date.now();
+    await expect(runVerifiedNativeExtensionSandbox({
+      artifact: await artifact(normalImport()),
+      manifest: validateFlowExtensionManifest(manifest()), dispatch: dispatch(), input,
+      babysitterTurn: { queue: async () => {
+        calls += 1;
+        return { receiptId: 'never', status: 'queued' };
+      } },
+    })).rejects.toMatchObject({ code: 'plugin_unsupported' });
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(calls).toBe(0);
+  });
+
   it('rejects extra delivery fields with Array.prototype.sort poisoned', async () => {
     const installed = await artifact(normalImport());
     const validated = validateFlowExtensionManifest(manifest());

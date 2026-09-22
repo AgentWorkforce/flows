@@ -8,6 +8,7 @@ import {
   hostedBaseSourceDigest,
   removeHostedBaseSnapshot,
 } from '../src/hosted-base-snapshot.js';
+import { loadHostedExtensionRuntime } from '../src/hosted-extension-runtime.js';
 
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })));
@@ -64,6 +65,19 @@ describe('hosted base private snapshot', () => {
       message: expect.stringContaining('snapshot entry or byte limit'),
     });
   });
+
+  it.each(['flows.json', 'flows.lock.json'])(
+    'refuses oversized sparse %s before parsing it', async declaration => {
+      const { project, flowPath } = fixture();
+      const path = join(project, declaration);
+      if (!existsSync(path)) writeFileSync(path, '');
+      truncateSync(path, 1024 * 1024 + 1);
+      await expect(loadHostedExtensionRuntime(flowPath)).rejects.toMatchObject({
+        code: 'plugin_source_invalid',
+        message: expect.stringContaining('bounded regular file'),
+      });
+    },
+  );
 
   it('bounds a file that grows after its admitted size was checked', async () => {
     const { project } = fixture();

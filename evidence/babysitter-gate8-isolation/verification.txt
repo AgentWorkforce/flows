@@ -7,6 +7,7 @@ bubblewrap 0.12.0
 prlimit from util-linux 2.42.3
 v26.8.1
 
+$ export TMPDIR=/home/khaliqgant/Projects/AgentWorkforce/gate8-test-tmp
 $ cd packages/sdk && npm run typecheck && npm run build && npm run typecheck:tests && ./node_modules/.bin/vitest run tests/plugin-store-bounds.test.ts tests/hosted-base-snapshot.test.ts tests/hosted-extension-routing.test.ts tests/preflight.test.ts tests/babysitter-native-extension.test.ts tests/hosted-extension-protocol.test.ts tests/authored-flow.test.ts tests/hosted-extension-isolation.test.ts
 
 > @relayflows/sdk@2.0.26 typecheck
@@ -20,20 +21,20 @@ $ cd packages/sdk && npm run typecheck && npm run build && npm run typecheck:tes
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
 
- ✓ tests/plugin-store-bounds.test.ts (3 tests) 11ms
- ✓ tests/hosted-base-snapshot.test.ts (6 tests) 362ms
-   ✓ hosted base private snapshot > stops streaming project entries at the shared count limit 343ms
+ ✓ tests/plugin-store-bounds.test.ts (3 tests) 15ms
+ ✓ tests/hosted-base-snapshot.test.ts (8 tests) 650ms
+   ✓ hosted base private snapshot > stops streaming project entries at the shared count limit 627ms
  ✓ tests/hosted-extension-routing.test.ts (2 tests) 4ms
- ✓ tests/preflight.test.ts (59 tests) 100ms
- ✓ tests/babysitter-native-extension.test.ts (38 tests) 396ms
- ✓ tests/authored-flow.test.ts (34 tests) 756ms
- ✓ tests/hosted-extension-protocol.test.ts (15 tests) 655ms
- ✓ tests/hosted-extension-isolation.test.ts (13 tests) 725ms
+ ✓ tests/preflight.test.ts (59 tests) 107ms
+ ✓ tests/babysitter-native-extension.test.ts (38 tests) 431ms
+ ✓ tests/authored-flow.test.ts (34 tests) 762ms
+ ✓ tests/hosted-extension-protocol.test.ts (16 tests) 627ms
+ ✓ tests/hosted-extension-isolation.test.ts (13 tests) 811ms
 
  Test Files  8 passed (8)
-      Tests  170 passed (170)
-   Start at  09:46:29
-   Duration  1.96s (transform 1.17s, setup 0ms, collect 6.04s, tests 3.01s, environment 1ms, prepare 523ms)
+      Tests  173 passed (173)
+   Start at  10:01:55
+   Duration  2.08s (transform 1.41s, setup 0ms, collect 6.28s, tests 3.41s, environment 1ms, prepare 418ms)
 
 $ mise exec node@22 -- node --version
 v22.23.2

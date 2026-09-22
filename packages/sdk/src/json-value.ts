@@ -2,7 +2,6 @@ import { isProxy } from 'node:util/types';
 
 const ARRAY_IS_ARRAY = Array.isArray;
 const ARRAY_PUSH = Array.prototype.push;
-const BUFFER_BYTE_LENGTH = Buffer.byteLength;
 const JSON_STRINGIFY = JSON.stringify;
 const NUMBER = Number;
 const NUMBER_IS_FINITE = Number.isFinite;
@@ -52,13 +51,17 @@ function snapshot(
   depth: number,
 ): JsonValue {
   consumeNode(budget, at, depth);
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') {
-    consumeBytes(budget, encodedBytes(value), at);
+  if (typeof value === 'string') {
+    consumeStringBytes(budget, value, at);
+    return value;
+  }
+  if (value === null || typeof value === 'boolean') {
+    consumeBytes(budget, value === null ? 4 : value ? 4 : 5, at);
     return value;
   }
   if (typeof value === 'number') {
     if (NUMBER_IS_FINITE(value)) {
-      consumeBytes(budget, encodedBytes(value), at);
+      consumeBytes(budget, STRING(value).length, at);
       return value;
     }
     throw nonJson(at, 'numbers must be finite');
@@ -130,7 +133,8 @@ function snapshotObject(
     // optionals. Arrays remain strict because undefined there becomes null.
     if (child === undefined) continue;
     if (included > 0) consumeBytes(budget, 1, at);
-    consumeBytes(budget, encodedBytes(key) + 1, childAt);
+    consumeStringBytes(budget, key, childAt);
+    consumeBytes(budget, 1, childAt);
     out[key] = snapshot(child, childAt, ancestors, budget, depth + 1);
     included += 1;
   }
@@ -159,13 +163,10 @@ function isArrayIndex(key: string, length: number): boolean {
 }
 
 function propertyPath(at: string, key: string): string {
+  if (key.length > 100) return `${at}[long property]`;
   return REGEXP_TEST.call(/^[A-Za-z_$][A-Za-z0-9_$]*$/, key)
     ? `${at}.${key}`
     : `${at}[${JSON_STRINGIFY(key)}]`;
-}
-
-function encodedBytes(value: null | boolean | number | string): number {
-  return BUFFER_BYTE_LENGTH(JSON_STRINGIFY(value));
 }
 
 function consumeNode(budget: SnapshotBudget, at: string, depth: number): void {
@@ -173,6 +174,33 @@ function consumeNode(budget: SnapshotBudget, at: string, depth: number): void {
   if (budget.limits !== undefined
     && (depth > budget.limits.maxDepth || budget.nodes > budget.limits.maxNodes)) {
     throw nonJson(at, 'snapshot depth or node limit exceeded');
+  }
+}
+
+/** Count JSON's UTF-8 string encoding without allocating the escaped value. */
+function consumeStringBytes(budget: SnapshotBudget, value: string, at: string): void {
+  consumeBytes(budget, 2, at);
+  if (budget.limits !== undefined && value.length > budget.limits.maxBytes - budget.bytes) {
+    throw nonJson(at, 'snapshot byte limit exceeded');
+  }
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code === 0x22 || code === 0x5c || code === 0x08 || code === 0x09
+      || code === 0x0a || code === 0x0c || code === 0x0d) {
+      consumeBytes(budget, 2, at);
+    } else if (code < 0x20 || (code >= 0xd800 && code <= 0xdfff)) {
+      if (code <= 0xdbff && index + 1 < value.length) {
+        const low = value.charCodeAt(index + 1);
+        if (low >= 0xdc00 && low <= 0xdfff) {
+          consumeBytes(budget, 4, at);
+          index += 1;
+          continue;
+        }
+      }
+      consumeBytes(budget, 6, at);
+    } else if (code < 0x80) consumeBytes(budget, 1, at);
+    else if (code < 0x800) consumeBytes(budget, 2, at);
+    else consumeBytes(budget, 3, at);
   }
 }
 
