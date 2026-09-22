@@ -451,6 +451,32 @@ export default flow('babysitter', async f => f.done('declined'))
     },
   );
 
+  it('returns a typed adapter rejection even when the hostile child hangs', async () => {
+    const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
+      provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-1',
+    });
+    const refusal = Object.assign(new Error('typed Cloud refusal'), { code: 'cloud_policy_refusal' });
+    let rejectAdapter!: (error: Error) => void;
+    const adapter = new Promise<never>((_resolve, reject) => { rejectAdapter = reject; });
+    let markInvoked!: () => void;
+    const invoked = new Promise<void>(resolve => { markInvoked = resolve; });
+    let calls = 0;
+    const run = runVerifiedNativeExtensionSandbox({
+      artifact: await artifact(hostileImport([capabilityFrame()])),
+      manifest: validateFlowExtensionManifest(manifest()), dispatch, input: descriptor(), timeoutMs: 100,
+      babysitterTurn: { queue: async () => {
+        calls += 1;
+        markInvoked();
+        return await adapter;
+      } },
+    });
+    const observed = run.then(() => undefined, error => error as Error);
+    await invoked;
+    rejectAdapter(refusal);
+    expect(await observed).toBe(refusal);
+    expect(calls).toBe(1);
+  });
+
   it('accepts only Node releases that implement every sandbox flag', () => {
     expect(supportsHostedSandboxFlags('22.12.0')).toBe(false);
     expect(supportsHostedSandboxFlags('22.13.0')).toBe(true);

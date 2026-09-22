@@ -117,16 +117,16 @@ export async function exchangeHostedExtension(
               } catch (error) {
                 capabilityError = failure(error);
                 capabilityState = 'failed';
-                if (deferredProtocolError !== undefined) return finish(capabilityError);
                 stdin.write(`${JSON.stringify({ type: 'capability-result', id: 1, ok: false, error: 'hosted capability refused' })}\n`);
+                finish(capabilityError);
               }
             },
             error => {
               if (settled) return;
               capabilityError = failure(error);
               capabilityState = 'failed';
-              if (deferredProtocolError !== undefined) return finish(capabilityError);
               stdin.write(`${JSON.stringify({ type: 'capability-result', id: 1, ok: false, error: 'hosted capability refused' })}\n`);
+              finish(capabilityError);
             },
           );
         } else if (message.type === 'result') {

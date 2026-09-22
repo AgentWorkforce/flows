@@ -35,7 +35,7 @@ the context proxy, its once-only counter, and `done('success')` are correctness
 checks only: hostile code may bypass all of them by writing descriptor 3. The
 parent therefore enforces the exact delivery, one-call limit, terminal ordering,
 and authoritative adapter outcome independently, including when a child emits
-an error immediately after its request.
+an error immediately after its request or hangs after a typed adapter rejection.
 
 Cloud PR #3942 remains responsible for persisted dispatch context, live PR and
 label/head revalidation, authorized existing-session resolution, lineage-based

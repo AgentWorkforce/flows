@@ -53,7 +53,8 @@ its inherited protocol descriptor directly and bypass child-side routing,
 context, call-count, and completion checks. Parent validation therefore treats
 every frame as hostile, permits at most the one exact delivery already bound to
 the branded dispatch, and waits for the adapter's authoritative outcome before
-settling any premature child terminal frame.
+settling any premature child terminal frame. An authoritative adapter rejection
+settles immediately with its original typed error even if the child hangs.
 
 Before replacing #549's refusal, the hosted caller must obtain opaque base and
 installation authorities for the same canonical flow path with
