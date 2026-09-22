@@ -1303,3 +1303,69 @@ $ /tmp/flows-pr552-standalone.taZTPK/flows --help
 Usage:
 flows add <helper-name|@flows/helper-name>
 [complete CLI usage emitted; exit 0]
+
+$ git rebase origin/main
+Successfully rebased and updated refs/heads/feat/babysitter-gate8-isolation.
+
+$ git rev-parse HEAD
+db86507419f201565c9033b043404f897cbc4c9c
+
+$ git rev-parse origin/main
+5546c4b3029938ed9d9eb1f9bfdbed81c88b9224
+
+$ git merge-base HEAD origin/main
+5546c4b3029938ed9d9eb1f9bfdbed81c88b9224
+
+$ cd packages/surface
+$ bun run build
+$ tsc
+
+$ cd ../sdk
+$ npm install ../surface --no-save --ignore-scripts
+changed 1 package, and audited 196 packages in 747ms
+
+$ git diff --check
+$ npm run typecheck
+
+> @relayflows/sdk@2.0.28 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+$ npm run build
+
+> @relayflows/sdk@2.0.28 build
+> tsc && node scripts/make-cli-executable.mjs
+
+$ npm run typecheck:tests
+
+> @relayflows/sdk@2.0.28 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+$ ./node_modules/.bin/vitest run tests/plugin-store-bounds.test.ts tests/hosted-base-snapshot.test.ts tests/hosted-extension-routing.test.ts tests/preflight.test.ts tests/babysitter-native-extension.test.ts tests/hosted-extension-protocol-intrinsics.test.ts tests/hosted-extension-protocol.test.ts tests/authored-flow.test.ts tests/hosted-extension-isolation.test.ts
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
+
+ ✓ tests/hosted-extension-protocol-intrinsics.test.ts (5 tests) 15ms
+ ✓ tests/plugin-store-bounds.test.ts (8 tests) 42ms
+ ✓ tests/hosted-base-snapshot.test.ts (13 tests) 558ms
+   ✓ hosted base private snapshot > stops streaming project entries at the shared count limit 508ms
+ ✓ tests/hosted-extension-routing.test.ts (4 tests) 6ms
+ ✓ tests/preflight.test.ts (67 tests) 99ms
+ ✓ tests/babysitter-native-extension.test.ts (40 tests) 470ms
+ ✓ tests/hosted-extension-protocol.test.ts (24 tests) 604ms
+ ✓ tests/authored-flow.test.ts (34 tests) 774ms
+ ✓ tests/hosted-extension-isolation.test.ts (19 tests) 946ms
+
+ Test Files  9 passed (9)
+      Tests  214 passed (214)
+   Start at  15:35:08
+   Duration  2.48s (transform 1.63s, setup 0ms, collect 8.09s, tests 3.51s, environment 1ms, prepare 537ms)
+
+$ node scripts/build-standalone-cli.mjs bun-linux-x64 /tmp/flows-pr552-standalone.t9SSsQ/flows
+Bundled 779 modules in 33ms
+authored-node.mjs  3.1 MB  (entry point)
+[50ms] bundle 712 modules
+[88ms] compile /tmp/flows-pr552-standalone.t9SSsQ/flows
+
+$ /tmp/flows-pr552-standalone.t9SSsQ/flows --help >/dev/null
+$ printf 'standalone-smoke-pass %s\n' /tmp/flows-pr552-standalone.t9SSsQ/flows
+standalone-smoke-pass /tmp/flows-pr552-standalone.t9SSsQ/flows
