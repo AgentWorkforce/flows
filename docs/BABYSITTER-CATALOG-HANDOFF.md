@@ -63,7 +63,8 @@ generation. The base, its ordinary relative imports, and the exact host-owned
 Surface package load from one rehashed private snapshot under Node's read-only
 permission model. Project `node_modules` is neither copied nor linked, and any
 base import other than the attested Surface package or its own relative source
-fails resolution. Mutable dependency paths and an earlier Node module cache
+fails resolution; relative imports that escape the project root are refused.
+Mutable dependency paths and an earlier Node module cache
 therefore cannot change or substitute the identity that was admitted;
 using the ordinary compose loader would import extension top-level JavaScript
 in the host before the sandbox exists. Cross-project, cross-redeploy, stale,

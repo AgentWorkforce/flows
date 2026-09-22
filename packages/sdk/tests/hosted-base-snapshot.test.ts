@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createHostedBaseSnapshot,
@@ -67,6 +67,23 @@ describe('hosted base private snapshot', () => {
       expect(await hostedBaseSourceDigest(snapshot.liveSources)).toBe(snapshot.liveDigest);
       writeFileSync(shared, `throw new Error('post-load replacement');\n`);
       expect(await hostedBaseSourceDigest(snapshot.liveSources)).not.toBe(snapshot.liveDigest);
+    } finally {
+      await removeHostedBaseSnapshot(snapshot);
+    }
+  });
+
+  it('refuses a relative import outside the snapshotted project root', async () => {
+    const { flowPath, surfaceEntry } = fixture();
+    writeFileSync(join(dirname(flowPath), '../outside-base.ts'), `export const name = 'software-factory';\n`);
+    writeFileSync(flowPath, `
+      import { flow } from '@relayflows/surface';
+      import { name } from '../outside-base.ts';
+      export default flow(name, async f => f.done('success'));
+    `);
+    const snapshot = await createHostedBaseSnapshot(flowPath, surfaceEntry);
+    try {
+      await expect(hostedBaseIdentityFromSnapshot(snapshot))
+        .rejects.toMatchObject({ code: 'plugin_source_invalid' });
     } finally {
       await removeHostedBaseSnapshot(snapshot);
     }
