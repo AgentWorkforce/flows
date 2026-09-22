@@ -94,6 +94,13 @@ describe('the durable child index on the root run', () => {
     await recordAuthoredChild(journal, 'root-1', {
       step: 'agent-2', runId: 'child-b', state: 'admitted', label: 'writer', after: ['agent-1'], afterTruncated: true,
     });
+    // A truncated walk that found no predecessor journals the flag alone.
+    await recordAuthoredChild(journal, 'root-1', {
+      step: 'agent-4', runId: 'child-d', state: 'admitted', afterTruncated: true,
+    });
+    await recordAuthoredChild(journal, 'root-1', {
+      step: 'agent-4', runId: 'child-d', state: 'completed', completionReason: 'success', afterTruncated: true,
+    });
     // A record's own fields win over the other's.
     await recordAuthoredChild(journal, 'root-1', {
       step: 'agent-3', runId: 'child-c', state: 'admitted', label: 'old', after: ['agent-1'],
@@ -110,6 +117,10 @@ describe('the durable child index on the root run', () => {
       {
         index: 'relayflows.authored-step.v1', step: 'agent-2', runId: 'child-b', state: 'completed',
         completionReason: 'success', label: 'writer', after: ['agent-1'], afterTruncated: true,
+      },
+      {
+        index: 'relayflows.authored-step.v1', step: 'agent-4', runId: 'child-d', state: 'completed',
+        completionReason: 'success', afterTruncated: true,
       },
       {
         index: 'relayflows.authored-step.v1', step: 'agent-3', runId: 'child-c', state: 'completed',

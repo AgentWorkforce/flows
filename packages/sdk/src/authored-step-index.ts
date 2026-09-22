@@ -200,13 +200,16 @@ export function foldAuthoredStepRecords(
 /** `primary`, with any `label` / `after` it lacks taken from `fallback`. */
 function withGraphFrom(primary: AuthoredStepRecord, fallback: AuthoredStepRecord): AuthoredStepRecord {
   const label = primary.label ?? fallback.label;
-  const edges = primary.after !== undefined ? primary : fallback;
+  // `after` and `afterTruncated` travel together: a truncated walk that found
+  // no predecessor journals the flag alone, and it must survive the fold.
+  const hasEdges = (record: AuthoredStepRecord) => record.after !== undefined || record.afterTruncated === true;
+  const edges = hasEdges(primary) ? primary : fallback;
   const { label: _label, after: _after, afterTruncated: _truncated, ...lifecycle } = primary;
   return {
     ...lifecycle,
     ...(label === undefined ? {} : { label }),
     ...(edges.after === undefined ? {} : { after: edges.after }),
-    ...(edges.after !== undefined && edges.afterTruncated === true ? { afterTruncated: true as const } : {}),
+    ...(edges.afterTruncated === true ? { afterTruncated: true as const } : {}),
   };
 }
 
