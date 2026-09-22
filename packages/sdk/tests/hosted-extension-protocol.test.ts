@@ -340,7 +340,7 @@ describe('hosted extension hostile protocol', () => {
     expect(calls).toBe(1);
   }, 15_000);
 
-  it('freezes successful completion with the captured intrinsic', async () => {
+  it('settles successful completion with captured intrinsics', async () => {
     const protocol = new PassThrough();
     const stdin = new PassThrough();
     const stderr = new PassThrough();
@@ -350,6 +350,8 @@ describe('hosted extension hostile protocol', () => {
       kill: () => true,
     }) as unknown as ChildProcess;
     const freeze = Object.freeze;
+    const then = Promise.prototype.then;
+    const adapter = Promise.resolve({ receiptId: 'receipt-captured-intrinsics', status: 'queued' });
     let poisonCalls = 0;
     let result: Awaited<ReturnType<typeof exchangeHostedExtension>> | undefined;
     try {
@@ -360,6 +362,14 @@ describe('hosted extension hostile protocol', () => {
         }
         return freeze(value);
       }) as typeof Object.freeze;
+      Promise.prototype.then = function poisonedThen(this: Promise<unknown>, onfulfilled, onrejected) {
+        if (this === adapter) {
+          poisonCalls += 1;
+          onfulfilled?.({ receiptId: 'forged', status: 'queued' });
+          return Promise.resolve(undefined) as Promise<unknown>;
+        }
+        return Reflect.apply(then, this, [onfulfilled, onrejected]) as Promise<unknown>;
+      } as typeof Promise.prototype.then;
       stdin.on('data', chunk => {
         if (String(chunk).includes('capability-result')) {
           protocol.write(`${JSON.stringify({
@@ -369,12 +379,13 @@ describe('hosted extension hostile protocol', () => {
       });
       const run = exchangeHostedExtension(
         child, protocol, stdin, stderr, 10_000, { type: 'run' },
-        async () => ({ receiptId: 'receipt-captured-freeze', status: 'queued' }),
+        () => adapter,
       );
       protocol.write(`${JSON.stringify(capabilityFrame())}\n`);
       result = await run;
     } finally {
       Object.freeze = freeze;
+      Promise.prototype.then = then;
     }
     expect(poisonCalls).toBe(0);
     expect(result).toEqual({ completionReason: 'success', capabilityCalls: 1 });

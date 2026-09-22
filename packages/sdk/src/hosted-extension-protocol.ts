@@ -13,6 +13,11 @@ const JSON_STRINGIFY = JSON.stringify;
 const OBJECT_HAS_OWN = Object.hasOwn;
 const OBJECT_KEYS = Object.keys;
 const OBJECT_FREEZE = Object.freeze;
+const PROMISE_THEN = Function.prototype.call.bind(Promise.prototype.then) as (
+  promise: Promise<unknown>,
+  fulfilled: (value: unknown) => void,
+  rejected: (reason: unknown) => void,
+) => Promise<unknown>;
 const STRING = String;
 const STRING_INDEX_OF = Function.prototype.call.bind(String.prototype.indexOf) as (
   value: string, search: string,
@@ -134,7 +139,7 @@ export async function exchangeHostedExtension(
             return refuse('Hosted extension requested an undeclared or repeated capability.');
           }
           capabilityState = 'pending';
-          void invoke(message.request).then(
+          void PROMISE_THEN(invoke(message.request),
             value => {
               if (settled) return;
               try {
