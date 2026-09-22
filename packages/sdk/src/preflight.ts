@@ -395,7 +395,9 @@ function unknownModelDiagnostics(
       stepId: step.id,
       ...(resolution === undefined ? {} : { cli: resolution.cli }),
       model,
-      message: unknownModelMessage(step.id, model, resolution?.cli, options.modelRegistryPath),
+      message: unknownModelMessage(
+        step.id, model, resolution?.cli, options.modelRegistryPath, resolution?.modelSource,
+      ),
     });
   }
 
@@ -418,15 +420,46 @@ function isKnownModel(model: string, models: readonly string[] | undefined): boo
   return models?.includes(model) === true;
 }
 
+/**
+ * Attribute an effective model to where its value actually came from. Only a
+ * `step` value was written on the step; saying "declares" about an adapter
+ * default sends the reader looking for a `model:` key that is not there.
+ */
+function describeEffectiveModel(
+  stepId: string,
+  model: string,
+  cli: string,
+  modelSource: CliModelSource | undefined,
+): string {
+  if (modelSource === 'adapter') {
+    return `Step "${stepId}" declares no model; the default for CLI "${cli}" is "${model}"`;
+  }
+  if (modelSource === 'named') {
+    return `Step "${stepId}" uses model "${model}" from its named agent for CLI "${cli}"`;
+  }
+  return `Step "${stepId}" declares model "${model}" for CLI "${cli}"`;
+}
+
 function unknownModelMessage(
   stepId: string,
   model: string,
   cli: string | undefined,
   registryPath: string | undefined,
+  modelSource: CliModelSource | undefined,
 ): string {
   const source = registryPath === undefined
     ? 'the nearest project config (no model registry was found)'
     : `project model registry "${registryPath}"`;
+  if (modelSource === 'adapter' && cli !== undefined) {
+    // Registry policy still governs a default — it is the model that will run
+    // — but the remedy has to name the value the author never typed, and the
+    // second way out: declaring a model the registry already allows.
+    const add = registryPath === undefined
+      ? 'add the exact model'
+      : `add the exact model to "models" in "${registryPath}"`;
+    return `${describeEffectiveModel(stepId, model, cli, modelSource)}, which is not listed in ${source}; `
+      + `${add} only after verifying that project is allowed to use it, or declare an allowed model on the step.`;
+  }
   const cliContext = cli === undefined ? '' : ` for CLI "${cli}"`;
   return `Step "${stepId}" declares model "${model}"${cliContext}, but it is not listed in ${source}; add the exact model only after verifying that project is allowed to use it.`;
 }
@@ -545,7 +578,9 @@ function probeResolvedCli(
       stepId: resolution.stepId,
       cli: resolution.cli,
       model: resolution.model,
-      message: `Step "${resolution.stepId}" declares model "${resolution.model}" for CLI "${resolution.cli}", but its model-scoped "${result.modelCommand ?? `${resolution.cli} auth status`}" probe exited non-zero; verify the model name and this credential's access.`,
+      message: describeEffectiveModel(resolution.stepId, resolution.model, resolution.cli, resolution.modelSource)
+        + `, but its model-scoped "${result.modelCommand ?? `${resolution.cli} auth status`}" probe exited non-zero;`
+        + ` verify the model name and this credential's access.`,
     });
   }
 }

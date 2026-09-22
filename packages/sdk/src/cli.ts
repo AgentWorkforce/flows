@@ -4,6 +4,7 @@ import { parsePluginArgs, runPluginCommand, type PluginArgs } from './cli/plugin
 import { watchCheck } from './cli-watch.js';
 import { checkHelperBody } from './cli/check-helper-body.js';
 import { describeFlowRequirements } from './flow-requirements.js';
+import type { CliModelSource } from './cli-adapter.js';
 
 import { renderProgress, type ProgressEvent } from './progress.js';
 import { realpathSync } from 'node:fs';
@@ -940,6 +941,17 @@ function parseTickArgs(rest: readonly string[]): ParsedArgs | undefined {
   };
 }
 
+const MODEL_PROVENANCE: Readonly<Record<CliModelSource, string>> = {
+  step: 'step',
+  named: 'named agent',
+  adapter: 'adapter default',
+};
+
+/** A resolution carrying no model source prints no provenance rather than a guess. */
+function modelProvenance(source: CliModelSource | undefined): string {
+  return source === undefined ? '' : ` from ${MODEL_PROVENANCE[source]}`;
+}
+
 function emitCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
   emitDiagnostics(report.diagnostics, io);
   if (json) {
@@ -976,8 +988,14 @@ function emitCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
     const config = resolution.source === 'project' && report.projectConfigPath !== undefined
       ? ` (${report.projectConfigPath})`
       : '';
-    const model = resolution.model === undefined ? '' : ` model "${resolution.model}"`;
-    io.stdout(`RESOLVED step "${resolution.stepId}" cli "${resolution.cli}"${model} from ${resolution.source}${config}`);
+    // `from <source>` describes whatever noun precedes it, and the source here
+    // is the CLI's. Printing it after the model made every step whose CLI and
+    // model come from different places claim the model was declared where the
+    // CLI was — a step `cli:` plus an adapter default read as `from step`.
+    const model = resolution.model === undefined
+      ? ''
+      : ` model "${resolution.model}"${modelProvenance(resolution.modelSource)}`;
+    io.stdout(`RESOLVED step "${resolution.stepId}" cli "${resolution.cli}" from ${resolution.source}${config}${model}`);
   }
   // What the workspace must have connected before this flow can run there;
   // the hosted verbs check the same list against Cloud before submitting.
