@@ -2,6 +2,7 @@ import { isProxy } from 'node:util/types';
 
 const ARRAY_IS_ARRAY = Array.isArray;
 const ARRAY_PUSH = Array.prototype.push;
+const ARRAY_PROTOTYPE = Array.prototype;
 const JSON_STRINGIFY = JSON.stringify;
 const NUMBER = Number;
 const NUMBER_IS_FINITE = Number.isFinite;
@@ -92,6 +93,10 @@ function snapshotArray(
   budget: SnapshotBudget,
   depth: number,
 ): JsonValue[] {
+  if (OBJECT_GET_PROTOTYPE_OF(value) !== ARRAY_PROTOTYPE
+    || OBJECT_GET_PROTOTYPE_OF(ARRAY_PROTOTYPE) !== OBJECT_PROTOTYPE) {
+    throw nonJson(at, 'only arrays with the intrinsic prototype are allowed');
+  }
   consumeBytes(budget, 2, at);
   if (budget.limits !== undefined && value.length > budget.limits.maxNodes - budget.nodes) {
     throw nonJson(at, 'snapshot depth or node limit exceeded');

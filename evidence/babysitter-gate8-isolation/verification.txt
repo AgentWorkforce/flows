@@ -149,14 +149,14 @@ $ ./node_modules/.bin/vitest run tests/plugin-store-bounds.test.ts tests/hosted-
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
 
- ✓ tests/plugin-store-bounds.test.ts (3 tests) 11ms
- ✓ tests/hosted-extension-routing.test.ts (2 tests) 4ms
- ✓ tests/preflight.test.ts (59 tests) 102ms
- ✓ tests/hosted-base-snapshot.test.ts (8 tests) 1020ms
- ✓ tests/babysitter-native-extension.test.ts (38 tests) 456ms
- ✓ tests/authored-flow.test.ts (34 tests) 699ms
- ✓ tests/hosted-extension-protocol.test.ts (19 tests) 720ms
- ✓ tests/hosted-extension-isolation.test.ts (13 tests) 809ms
+ ✓ tests/plugin-store-bounds.test.ts (3 tests) 9ms
+ ✓ tests/hosted-extension-routing.test.ts (2 tests) 5ms
+ ✓ tests/preflight.test.ts (59 tests) 110ms
+ ✓ tests/hosted-base-snapshot.test.ts (8 tests) 962ms
+ ✓ tests/babysitter-native-extension.test.ts (38 tests) 388ms
+ ✓ tests/authored-flow.test.ts (34 tests) 766ms
+ ✓ tests/hosted-extension-protocol.test.ts (20 tests) 677ms
+ ✓ tests/hosted-extension-isolation.test.ts (13 tests) 763ms
 
  Test Files  8 passed (8)
-      Tests  176 passed (176)
+      Tests  177 passed (177)

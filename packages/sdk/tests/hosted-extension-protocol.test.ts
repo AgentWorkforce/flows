@@ -135,6 +135,18 @@ describe('hosted extension hostile protocol', () => {
     expect(snapshotJsonValue(value, 'delivery')).toEqual({ visible: 'yes' });
   });
 
+  it('rejects a Proxy in an array prototype chain without executing its traps', () => {
+    let traps = 0;
+    const prototype = new Proxy(Array.prototype, {
+      ownKeys: () => { traps += 1; return []; },
+      getOwnPropertyDescriptor: () => { traps += 1; return undefined; },
+    });
+    const value: unknown[] = [];
+    Object.setPrototypeOf(value, prototype);
+    expect(() => snapshotJsonValue(value, 'delivery')).toThrow(/intrinsic prototype/);
+    expect(traps).toBe(0);
+  });
+
   it.each(['inherited toJSON', 'stateful getter'] as const)(
     'refuses a delivery descriptor with %s before the adapter', async attack => {
       const input = descriptor();
