@@ -12,7 +12,9 @@ The enforced boundary is:
   importing extension JavaScript; cross-project authority pairing refuses;
 - reverify every content-addressed artifact, lock metadata, manifest hash,
   base/runtime compatibility, and route uniqueness, then require the exact
-  immutable native ref/digest/manifest and narrow permission profile;
+  immutable native ref/digest/manifest and narrow permission profile; copy the
+  selected bytes into a private snapshot, recompute its digest, and mount only
+  that snapshot so later store replacement cannot change executed code;
 - validate a symbol-branded verified dispatch and a closed normalized delivery
   descriptor before import;
 - import and execute the matching handler only inside a bubblewrap namespace

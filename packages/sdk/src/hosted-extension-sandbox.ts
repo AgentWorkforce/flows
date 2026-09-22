@@ -11,12 +11,14 @@ import {
   exchangeHostedExtension,
   type HostedExtensionProtocolResult,
 } from './hosted-extension-protocol.js';
+import { materializePlugin, readStoredPluginFiles } from './plugin-store.js';
 
 const HOSTED_WRITE = 'cloud:babysitter-turn';
 const DEFAULT_TIMEOUT_MS = 10_000;
 
 export interface RunHostedExtensionSandboxOptions {
   readonly artifactDirectory: string;
+  readonly artifactDigest: string;
   readonly entry: string;
   readonly surfaceVersion: string;
   readonly identity: { readonly provider: string; readonly event: string; readonly action?: string };
@@ -49,12 +51,24 @@ export async function runHostedExtensionSandbox(
   const runner = join(runtimeDirectory, 'runner.mjs');
   const surfaceFacade = join(runtimeDirectory, 'surface');
   try {
+    const storedFiles = await readStoredPluginFiles(options.artifactDirectory, options.artifactDigest);
+    const snapshot = await materializePlugin(
+      runtimeDirectory,
+      'hosted-extension',
+      storedFiles.filter(file => file.path !== 'manifest.json'),
+    );
+    if (snapshot.digest !== options.artifactDigest) {
+      throw new PluginError(
+        'plugin_source_drift',
+        'Hosted extension changed while its isolated snapshot was created.',
+      );
+    }
     await writeFile(runner, HOSTED_EXTENSION_SANDBOX_SOURCE, { mode: 0o400, flag: 'wx' });
     await writeSurfaceFacade(surfaceFacade);
     const args = sandboxArguments({
       node,
       runner,
-      extension: realpathSync(options.artifactDirectory),
+      extension: realpathSync(snapshot.directory),
       surfaceFacade,
       surfaceRoot,
     });

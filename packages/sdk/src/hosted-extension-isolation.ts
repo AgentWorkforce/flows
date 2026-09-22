@@ -219,6 +219,7 @@ export async function runVerifiedNativeExtensionSandbox(
   });
   return await runHostedExtensionSandbox({
     artifactDirectory: options.artifact.directory,
+    artifactDigest: options.artifact.digest,
     entry: options.manifest.entry,
     surfaceVersion: versions.surface,
     identity,

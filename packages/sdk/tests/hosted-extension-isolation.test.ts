@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -153,6 +153,41 @@ describe('hosted extension capability isolation', () => {
       deliveryId: 'delivery-1', provider: 'github', eventType: 'pull_request.labeled',
       pullRequest: { owner: 'AgentWorkforce', repository: 'flows', number: 551 },
     } }]);
+  });
+
+  it('mounts the verified snapshot when the live store is atomically replaced before bwrap', async () => {
+    const installed = await artifact();
+    const wrapperRoot = mkdtempSync(join(tmpdir(), 'hosted-bwrap-wrapper-'));
+    roots.push(wrapperRoot);
+    const wrapper = join(wrapperRoot, 'bwrap-wrapper');
+    const replaced = `${installed.directory}.replaced`;
+    const replacementSource = hostileImport([{ type: 'error', message: 'replacement executed' }]);
+    writeFileSync(wrapper, `#!${process.execPath}
+const { mkdirSync, renameSync, writeFileSync } = require('node:fs');
+const { join } = require('node:path');
+const { spawnSync } = require('node:child_process');
+renameSync(${JSON.stringify(installed.directory)}, ${JSON.stringify(replaced)});
+mkdirSync(${JSON.stringify(installed.directory)}, { recursive: true });
+writeFileSync(join(${JSON.stringify(installed.directory)}, 'babysitter.flow.ts'), ${JSON.stringify(replacementSource)});
+const child = spawnSync('/usr/bin/bwrap', process.argv.slice(2), { stdio: [0, 1, 2, 3] });
+if (child.error) throw child.error;
+process.exit(child.status ?? 1);
+`);
+    chmodSync(wrapper, 0o700);
+    const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
+      provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-1',
+    });
+    let calls = 0;
+    await expect(runVerifiedNativeExtensionSandbox({
+      artifact: installed, manifest: validateFlowExtensionManifest(manifest()), dispatch, input: descriptor(),
+      bubblewrapPath: wrapper, timeoutMs: 3_000,
+      babysitterTurn: { queue: async () => {
+        calls += 1;
+        return { receiptId: 'receipt-1', status: 'queued' };
+      } },
+    })).resolves.toEqual({ completionReason: 'success', capabilityCalls: 1 });
+    expect(calls).toBe(1);
+    expect(readFileSync(join(installed.directory, 'babysitter.flow.ts'), 'utf8')).toBe(replacementSource);
   });
 
   it('preserves a typed host refusal while disclosing only a fixed marker to the child', async () => {

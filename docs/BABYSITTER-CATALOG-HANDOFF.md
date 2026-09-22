@@ -62,9 +62,12 @@ installation authorities for the same canonical flow path with
 `runHostedCapabilityExtension` with both values;
 using the ordinary compose loader would import extension top-level JavaScript
 in the host before the sandbox exists. Cross-project pairing and structural
-lookalikes fail before import. Independent review must prove this path at the
-exact release head. Broader per-agent-step file/network/access-preset enforcement
-remains open in #442 and is not claimed by this slice.
+lookalikes fail before import. The selected store bytes are copied into a
+private snapshot whose digest is recomputed before bubblewrap mounts it, so a
+later live-store replacement cannot alter imported code. Independent review
+must prove this path at the exact release head. Broader per-agent-step
+file/network/access-preset enforcement remains open in #442 and is not claimed
+by this slice.
 
 ## Export reviewed bytes
 
