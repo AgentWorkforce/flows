@@ -3,8 +3,10 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { addPlugin } from '../src/cli/add.js';
 import { runPluginCommand } from '../src/cli/plugin.js';
+import { extensionHandlerForHostedInput } from '../src/flow-extension-loader.js';
 import { SHA_A, fakeGithub, type FakeEntry } from './fake-github.js';
 import type { PreflightFailureKind } from '../src/failure-kinds.js';
+import { PluginError } from '../src/plugin-manifest.js';
 import { preflightHelpers } from '../src/preflight.js';
 import { describe, expect, it } from 'vitest';
 import {
@@ -692,6 +694,26 @@ describe('preflight: CLI resolution and refusal predicates', () => {
           const io = { stdout() {}, stderr(line: string) { refusalKinds.push(line.match(/\[([^\]]+)\]/)![1] as PreflightFailureKind); } };
           expect(await addPlugin(ref, io, { cwd: root, extension: { fetch, versions: { sdk: '2.0.22', surface: '2.0.22' } } })).toBe(2);
         } finally { rmSync(root, { recursive: true, force: true }); }
+      }
+      // `plugin_event_ambiguous`: two installed extensions claim the same
+      // normalized hosted event. The dispatcher must refuse instead of
+      // silently selecting lock order and suppressing one handler.
+      const handler = {
+        trigger: {
+          kind: 'webhook', name: 'github',
+          filter: { provider: 'github', type: 'pull_request', payload: { action: 'labeled' } },
+        },
+        body: async () => {},
+      };
+      try {
+        extensionHandlerForHostedInput(
+          { event: { provider: 'github', eventType: 'pull_request.labeled' } },
+          [{ name: 'one', handlers: [handler] }, { name: 'two', handlers: [handler] }] as never,
+        );
+        throw new Error('expected ambiguous extension dispatch to refuse');
+      } catch (error) {
+        expect(error).toBeInstanceOf(PluginError);
+        refusalKinds.push((error as PluginError).code);
       }
       // `plugin_lock_invalid`: a declaration with no lockfile entry behind it.
       const root = mkdtempSync(join(tmpdir(), 'plugin-lock-taxonomy-'));
