@@ -13,6 +13,7 @@ const ARRAY_SORT = Function.prototype.call.bind(Array.prototype.sort) as <T>(
   array: T[], compare?: (left: T, right: T) => number,
 ) => T[];
 const OBJECT_FREEZE = Object.freeze;
+const BIG_INT = BigInt;
 const SET_HAS = Function.prototype.call.bind(Set.prototype.has) as <T>(set: Set<T>, value: T) => boolean;
 const STRING_LOCALE_COMPARE = Function.prototype.call.bind(String.prototype.localeCompare) as (
   value: string, other: string,
@@ -178,7 +179,7 @@ async function readTree(
         if (before.isDirectory()) {
           await visit(handle, relativePath, depth + 1);
         } else if (before.isFile()) {
-          if (before.size < 0n || before.size > BigInt(MAX_BYTES - budget.bytes)) throw tooLarge();
+          if (before.size < 0n || before.size > BIG_INT(MAX_BYTES - budget.bytes)) throw tooLarge();
           await hooks.afterStat?.(absolutePath);
           const bytes = await readBounded(handle, Number(before.size), relativePath);
           const after = await handle.stat({ bigint: true });

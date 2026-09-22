@@ -1,5 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
 import type { Readable, Writable } from 'node:stream';
+import { clearTimeout as nodeClearTimeout, setTimeout as nodeSetTimeout } from 'node:timers';
 import { snapshotJsonValue } from './json-value.js';
 import { PluginError } from './plugin-manifest.js';
 
@@ -19,6 +20,13 @@ const PROMISE_THEN = Function.prototype.call.bind(Promise.prototype.then) as (
   fulfilled: (value: unknown) => void,
   rejected: (reason: unknown) => void,
 ) => Promise<unknown>;
+const CLEAR_TIMEOUT = nodeClearTimeout;
+const SET_TIMEOUT = nodeSetTimeout;
+const TIMER_SAMPLE = SET_TIMEOUT(() => undefined, 0);
+const TIMER_UNREF = Function.prototype.call.bind(TIMER_SAMPLE.unref) as (
+  timer: ReturnType<typeof SET_TIMEOUT>,
+) => ReturnType<typeof SET_TIMEOUT>;
+CLEAR_TIMEOUT(TIMER_SAMPLE);
 const STRING = String;
 const STRING_INDEX_OF = Function.prototype.call.bind(String.prototype.indexOf) as (
   value: string, search: string,
@@ -83,7 +91,7 @@ export async function exchangeHostedExtension(
     const finish = (error?: Error, result?: HostedExtensionProtocolResult) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timeout);
+      CLEAR_TIMEOUT(timeout);
       stdin.end();
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
       if (error !== undefined) rejectPromise(error);
@@ -101,7 +109,7 @@ export async function exchangeHostedExtension(
       }
       finish(capabilityError ?? error);
     };
-    const timeout = setTimeout(() => {
+    const timeout = SET_TIMEOUT(() => {
       child.kill('SIGKILL');
       finish(new PluginError(
         'plugin_unsupported',
@@ -110,7 +118,7 @@ export async function exchangeHostedExtension(
           : 'Hosted extension sandbox timed out.',
       ));
     }, timeoutMs);
-    timeout.unref();
+    TIMER_UNREF(timeout);
 
     stdin.on('error', () => refuse('Hosted extension capability channel closed.'));
     protocol.on('error', () => refuse('Hosted extension protocol channel failed.'));

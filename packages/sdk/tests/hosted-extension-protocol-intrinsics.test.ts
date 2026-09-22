@@ -55,3 +55,48 @@ it('constructs protocol completion with the captured Promise', async () => {
   expect(adapterCalls).toBe(1);
   expect(poisonCalls).toBe(0);
 });
+
+it('enforces the protocol deadline with captured timer operations', async () => {
+  const nativeSetTimeout = globalThis.setTimeout;
+  const nativeClearTimeout = globalThis.clearTimeout;
+  const sample = nativeSetTimeout(() => undefined, 60_000);
+  nativeClearTimeout(sample);
+  const timerPrototype = Object.getPrototypeOf(sample) as { unref: () => unknown };
+  const nativeUnref = timerPrototype.unref;
+  const protocol = new PassThrough();
+  const stdin = new PassThrough();
+  const stderr = new PassThrough();
+  const child = Object.assign(new EventEmitter(), {
+    exitCode: null,
+    signalCode: null,
+    kill: () => true,
+  }) as unknown as ChildProcess;
+  let setTimeoutCalls = 0;
+  let clearTimeoutCalls = 0;
+  let unrefCalls = 0;
+  let unrefCallsDuringSetup = 0;
+  try {
+    globalThis.setTimeout = (() => {
+      setTimeoutCalls += 1;
+      return { unref: () => { unrefCalls += 1; } };
+    }) as unknown as typeof setTimeout;
+    globalThis.clearTimeout = (() => { clearTimeoutCalls += 1; }) as typeof clearTimeout;
+    timerPrototype.unref = () => { unrefCalls += 1; };
+    const run = exchangeHostedExtension(
+      child, protocol, stdin, stderr, 5, { type: 'run' },
+      async () => ({ receiptId: 'never', status: 'queued' }),
+    );
+    unrefCallsDuringSetup = unrefCalls;
+    timerPrototype.unref = nativeUnref;
+    await expect(run).rejects.toMatchObject({ code: 'plugin_unsupported' });
+  } finally {
+    globalThis.setTimeout = nativeSetTimeout;
+    globalThis.clearTimeout = nativeClearTimeout;
+    timerPrototype.unref = nativeUnref;
+  }
+  expect({ setTimeoutCalls, clearTimeoutCalls, unrefCallsDuringSetup }).toEqual({
+    setTimeoutCalls: 0,
+    clearTimeoutCalls: 0,
+    unrefCallsDuringSetup: 0,
+  });
+});

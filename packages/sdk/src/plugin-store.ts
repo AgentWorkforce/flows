@@ -18,6 +18,7 @@ export const PLUGIN_STORE = '.flows/plugins';
 const MAX_PLUGIN_MANIFEST_BYTES = 4_000_000;
 const MAX_PLUGIN_STORE_ENTRIES = 10_000;
 const ARRAY_IS_ARRAY = Array.isArray;
+const BIG_INT = BigInt;
 const BUFFER_TO_STRING = Function.prototype.call.bind(Buffer.prototype.toString) as (
   value: Buffer, encoding: BufferEncoding,
 ) => string;
@@ -96,8 +97,8 @@ async function regularFile(
   const handle = await openStoredFile(root, path, hooks);
   try {
     const before = await handle.stat({ bigint: true });
-    if (!before.isFile() || before.size < 0n || before.size > BigInt(maxBytes)
-      || (expectedBytes !== undefined && before.size !== BigInt(expectedBytes))) {
+    if (!before.isFile() || before.size < 0n || before.size > BIG_INT(maxBytes)
+      || (expectedBytes !== undefined && before.size !== BIG_INT(expectedBytes))) {
       throw new PluginError('plugin_source_drift', `${path}: expected a bounded regular file.`);
     }
     await hooks.afterStat?.(absolute);

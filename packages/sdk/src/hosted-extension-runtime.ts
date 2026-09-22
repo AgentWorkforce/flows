@@ -24,6 +24,7 @@ const INSTALLATION_AUTHORITY = new WeakSet<object>();
 const BASE_AUTHORITY = new WeakSet<object>();
 const SOFTWARE_FACTORY_SHA256 = '49c993220b9c34fab2d4b0e51911656f62b8b657f534d988691960d45bb9d9b6';
 const MAX_DECLARATION_BYTES = 1024 * 1024;
+const BIG_INT = BigInt;
 const DECLARATION_READ_FLAGS = constants.O_RDONLY
   | (constants.O_NOFOLLOW ?? 0)
   | (constants.O_NONBLOCK ?? 0);
@@ -274,7 +275,7 @@ function readBoundedDeclaration(path: string): Buffer {
   try {
     descriptor = openSync(path, DECLARATION_READ_FLAGS);
     const before = fstatSync(descriptor, { bigint: true });
-    if (!before.isFile() || before.size < 0n || before.size > BigInt(MAX_DECLARATION_BYTES)) {
+    if (!before.isFile() || before.size < 0n || before.size > BIG_INT(MAX_DECLARATION_BYTES)) {
       throw new PluginError('plugin_source_invalid', 'Hosted extension declaration is not a bounded regular file.');
     }
     const expected = Number(before.size);

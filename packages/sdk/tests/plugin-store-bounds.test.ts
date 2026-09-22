@@ -51,10 +51,21 @@ describe('bounded plugin-store verification', () => {
   it('refuses an oversized sparse manifest before hashing it', async () => {
     const stored = await fixture();
     truncateSync(join(stored.directory, 'manifest.json'), 4_000_001);
-    await expect(verifyStoredPlugin(stored.directory, stored.digest)).rejects.toMatchObject({
-      code: 'plugin_source_drift',
-      message: expect.stringContaining('expected a bounded regular file'),
-    });
+    const bigint = BigInt;
+    let poisonCalls = 0;
+    try {
+      globalThis.BigInt = (() => {
+        poisonCalls += 1;
+        return 1n << 62n;
+      }) as unknown as BigIntConstructor;
+      await expect(verifyStoredPlugin(stored.directory, stored.digest)).rejects.toMatchObject({
+        code: 'plugin_source_drift',
+        message: expect.stringContaining('expected a bounded regular file'),
+      });
+    } finally {
+      globalThis.BigInt = bigint;
+    }
+    expect(poisonCalls).toBe(0);
   });
 
   it('bounds a payload that grows after its admitted size was checked', async () => {
