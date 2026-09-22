@@ -15,6 +15,8 @@ import {
 import { materializePlugin, readStoredPluginFiles } from './plugin-store.js';
 
 const HOSTED_WRITE = 'cloud:babysitter-turn';
+const JSON_PARSE = JSON.parse;
+const JSON_STRINGIFY = JSON.stringify;
 const DEFAULT_TIMEOUT_MS = 10_000;
 // These hard limits are inherited across prlimit -> bubblewrap -> Node and its
 // descendants. RLIMIT_AS stays high enough for Node 22-26's large virtual V8
@@ -134,7 +136,7 @@ function resolveSurfaceRoot(expectedVersion: string, override?: string): string 
     const packageJson = join(directory, 'package.json');
     if (existsSync(packageJson)) {
       try {
-        const manifest = JSON.parse(readFileSync(packageJson, 'utf8')) as { name?: unknown; version?: unknown };
+        const manifest = JSON_PARSE(readFileSync(packageJson, 'utf8')) as { name?: unknown; version?: unknown };
         if (manifest.name === '@relayflows/surface' && manifest.version === expectedVersion) {
           return realpathSync(directory);
         }
@@ -150,7 +152,7 @@ function checkedSurfaceRoot(root: string, expectedVersion: string): string {
   try { real = realpathSync(root); }
   catch { return unsupported('hosted extension cannot resolve @relayflows/surface'); }
   try {
-    const manifest = JSON.parse(readFileSync(join(real, 'package.json'), 'utf8')) as {
+    const manifest = JSON_PARSE(readFileSync(join(real, 'package.json'), 'utf8')) as {
       name?: unknown; version?: unknown;
     };
     if (manifest.name === '@relayflows/surface' && manifest.version === expectedVersion) return real;
@@ -173,7 +175,7 @@ async function writeSurfaceFacade(directory: string, surfaceRoot: string): Promi
     return { file, bytes, expected };
   });
   await Promise.all([
-    writeFile(join(directory, 'package.json'), JSON.stringify({
+    writeFile(join(directory, 'package.json'), JSON_STRINGIFY({
       name: '@relayflows/surface', type: 'module', exports: { '.': './index.js', './runtime': './runtime.js' },
     }), { mode: 0o400, flag: 'wx' }),
     writeFile(join(directory, 'index.js'),

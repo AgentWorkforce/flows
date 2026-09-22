@@ -21,19 +21,19 @@ $ cd packages/sdk && npm run typecheck && npm run build && npm run typecheck:tes
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
 
  ✓ tests/plugin-store-bounds.test.ts (3 tests) 11ms
- ✓ tests/hosted-base-snapshot.test.ts (6 tests) 371ms
-   ✓ hosted base private snapshot > stops streaming project entries at the shared count limit 354ms
- ✓ tests/hosted-extension-routing.test.ts (2 tests) 3ms
- ✓ tests/preflight.test.ts (59 tests) 97ms
- ✓ tests/babysitter-native-extension.test.ts (38 tests) 348ms
- ✓ tests/hosted-extension-protocol.test.ts (10 tests) 536ms
- ✓ tests/authored-flow.test.ts (34 tests) 743ms
- ✓ tests/hosted-extension-isolation.test.ts (13 tests) 753ms
+ ✓ tests/hosted-base-snapshot.test.ts (6 tests) 626ms
+   ✓ hosted base private snapshot > stops streaming project entries at the shared count limit 598ms
+ ✓ tests/hosted-extension-routing.test.ts (2 tests) 4ms
+ ✓ tests/preflight.test.ts (59 tests) 78ms
+ ✓ tests/babysitter-native-extension.test.ts (38 tests) 399ms
+ ✓ tests/authored-flow.test.ts (34 tests) 757ms
+ ✓ tests/hosted-extension-protocol.test.ts (13 tests) 645ms
+ ✓ tests/hosted-extension-isolation.test.ts (13 tests) 750ms
 
  Test Files  8 passed (8)
-      Tests  165 passed (165)
-   Start at  09:08:10
-   Duration  1.95s (transform 1.05s, setup 0ms, collect 5.73s, tests 2.86s, environment 1ms, prepare 483ms)
+      Tests  168 passed (168)
+   Start at  09:28:13
+   Duration  1.92s (transform 1.12s, setup 0ms, collect 5.60s, tests 3.27s, environment 1ms, prepare 463ms)
 
 $ mise exec node@22 -- node --version
 v22.23.2

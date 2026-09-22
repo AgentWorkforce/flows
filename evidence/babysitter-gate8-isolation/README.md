@@ -24,8 +24,11 @@ The enforced boundary is:
   immutable native ref/digest/manifest and narrow permission profile; copy the
   selected bytes into a private snapshot, recompute its digest, and mount only
   that snapshot so later store replacement cannot change executed code;
-- validate a symbol-branded verified dispatch and a closed normalized delivery
-  descriptor before import;
+- clone the delivery descriptor into behavior-free, frozen JSON with captured
+  parent intrinsics before validation or serialization, rejecting proxies,
+  accessors, inherited `toJSON`, symbol keys, cycles, holes, and extra fields;
+  then validate that snapshot against the symbol-branded verified dispatch
+  before import;
 - import and execute the matching handler only inside a bubblewrap namespace
   plus Node's permission model, with no network, writable filesystem, inherited
   environment, child process, workspace mount, MCP, helpers, harnesses, or base
@@ -40,9 +43,10 @@ The enforced boundary is:
 - expose one `capabilities.cloud.babysitterTurn.queue({ delivery })` call and
   `done`, validate the exact request and `{ receiptId, status }` response in the
   parent, and pass the original non-serializable authority to the host adapter;
-- treat descriptor 3 as hostile transport: validate every frame and both
-  boundary payloads, so direct writes can consume only the same exact one-shot
-  delivery capability already granted and cannot claim premature success;
+- treat descriptor 3 as hostile transport: clone and validate every frame and
+  both boundary payloads with captured parent intrinsics, so direct writes can
+  consume only the same exact one-shot delivery capability already granted and
+  cannot claim premature success;
 - fail closed on unknown frames, repeated/omitted calls, premature completion,
   timeouts, adapter rejection, incompatible bytes, route ambiguity, forged
   loader results, an unverified/composed base, and broader permissions.

@@ -34,6 +34,12 @@ export type {
 } from './hosted-extension-runtime.js';
 
 const HOSTED_WRITE = 'cloud:babysitter-turn';
+const ARRAY_IS_ARRAY = Array.isArray;
+const JSON_PARSE = JSON.parse;
+const NUMBER_IS_SAFE_INTEGER = Number.isSafeInteger;
+const OBJECT_HAS_OWN = Object.hasOwn;
+const OBJECT_KEYS = Object.keys;
+const REGEXP_TEST = RegExp.prototype.test;
 const BABYSITTER_REF = 'github:AgentWorkforce/flows@8b33ebab8347514f80d9da5a81206a087f641714#extensions/babysitter';
 const BABYSITTER_DIGEST = 'bdf2187b9a242667d34bbc63e7a744753e146dc8cd6f4047047f2aed28f406ee';
 const BABYSITTER_MANIFEST_SHA256 = '5631a06bbdc8186f4ee0ff955610ead24d001c5197b59fb1fe81fe422c44f226';
@@ -200,7 +206,7 @@ export async function selectHostedExtensionForRuntime(
 }
 
 async function verifiedManifest(artifact: HostedExtensionArtifact): Promise<FlowExtensionManifest> {
-  if (!/^[a-f0-9]{64}$/.test(artifact.digest) || !/^[a-f0-9]{64}$/.test(artifact.manifestSha256)) {
+  if (!matches(/^[a-f0-9]{64}$/, artifact.digest) || !matches(/^[a-f0-9]{64}$/, artifact.manifestSha256)) {
     throw new PluginError('plugin_source_drift', `${artifact.ref}: hosted extension digests are malformed.`);
   }
   const stored = await readStoredPluginFiles(artifact.directory, artifact.digest);
@@ -212,7 +218,7 @@ async function verifiedManifest(artifact: HostedExtensionArtifact): Promise<Flow
     throw new PluginError('plugin_source_drift', `${artifact.ref}: flows-plugin.json differs from the lockfile's manifest hash.`);
   }
   let input: unknown;
-  try { input = JSON.parse(bytes.toString('utf8')); }
+  try { input = JSON_PARSE(bytes.toString('utf8')); }
   catch { throw new PluginError('plugin_manifest_invalid', `${artifact.ref}: flows-plugin.json is not valid JSON.`); }
   const manifest = validateFlowExtensionManifest(input);
   if (manifest.name !== artifact.name || manifest.version !== artifact.version) {
@@ -287,7 +293,8 @@ export function hostedManifestRoutes(
 }
 
 function babysitterInput(input: unknown, dispatch: HostedExtensionDispatch): unknown {
-  const top = exactRecord(input, 'Hosted extension input', ['event', 'pullRequest']);
+  const snapshot = boundedJsonSnapshot(input, 'hosted extension input');
+  const top = exactRecord(snapshot, 'Hosted extension input', ['event', 'pullRequest']);
   const event = exactRecord(top.event, 'Hosted extension event', ['provider', 'eventType', 'deliveryId']);
   const pullRequest = optionalRecord(
     top.pullRequest,
@@ -297,55 +304,62 @@ function babysitterInput(input: unknown, dispatch: HostedExtensionDispatch): unk
   );
   if (event.provider !== dispatch.provider || event.eventType !== dispatch.eventType
     || event.deliveryId !== dispatch.deliveryId || event.provider !== 'github'
-    || !DELIVERY_ID.test(String(event.deliveryId))
+    || typeof event.deliveryId !== 'string' || !matches(DELIVERY_ID, event.deliveryId)
     || (pullRequest.host !== undefined && pullRequest.host !== 'github')
-    || typeof pullRequest.owner !== 'string' || !OWNER.test(pullRequest.owner)
-    || typeof pullRequest.repo !== 'string' || !REPOSITORY.test(pullRequest.repo)
+    || typeof pullRequest.owner !== 'string' || !matches(OWNER, pullRequest.owner)
+    || typeof pullRequest.repo !== 'string' || !matches(REPOSITORY, pullRequest.repo)
     || pullRequest.repo === '.' || pullRequest.repo === '..'
-    || typeof pullRequest.number !== 'number' || !Number.isSafeInteger(pullRequest.number) || pullRequest.number <= 0
+    || typeof pullRequest.number !== 'number' || !NUMBER_IS_SAFE_INTEGER(pullRequest.number) || pullRequest.number <= 0
     || (pullRequest.headSha !== undefined
-      && (typeof pullRequest.headSha !== 'string' || !HEAD_SHA.test(pullRequest.headSha)))) {
+      && (typeof pullRequest.headSha !== 'string' || !matches(HEAD_SHA, pullRequest.headSha)))) {
     throw new PluginError('plugin_event_unroutable', 'Hosted extension input does not match the verified GitHub delivery.');
   }
-  return boundedJsonSnapshot(input, 'hosted extension input');
+  return snapshot;
 }
 
 function babysitterRequest(value: unknown, input: unknown, dispatch: HostedExtensionDispatch): unknown {
-  const request = exactRecord(value, 'Babysitter capability request', ['delivery']);
+  const snapshot = boundedJsonSnapshot(value, 'Babysitter capability request');
+  const request = exactRecord(snapshot, 'Babysitter capability request', ['delivery']);
   const delivery = exactRecord(request.delivery, 'Babysitter delivery', ['deliveryId', 'provider', 'eventType', 'pullRequest']);
   const pullRequest = exactRecord(delivery.pullRequest, 'Babysitter pull request', ['owner', 'repository', 'number']);
   const normalized = exactRecord(input, 'Hosted extension input', ['event', 'pullRequest']);
   const inputPullRequest = record(normalized.pullRequest, 'Hosted extension pull request');
-  if (delivery.deliveryId !== dispatch.deliveryId || !DELIVERY_ID.test(String(delivery.deliveryId))
+  if (delivery.deliveryId !== dispatch.deliveryId
+    || typeof delivery.deliveryId !== 'string' || !matches(DELIVERY_ID, delivery.deliveryId)
     || delivery.provider !== 'github' || delivery.eventType !== dispatch.eventType
-    || typeof pullRequest.owner !== 'string' || !OWNER.test(pullRequest.owner)
-    || typeof pullRequest.repository !== 'string' || !REPOSITORY.test(pullRequest.repository)
+    || typeof pullRequest.owner !== 'string' || !matches(OWNER, pullRequest.owner)
+    || typeof pullRequest.repository !== 'string' || !matches(REPOSITORY, pullRequest.repository)
     || pullRequest.repository === '.' || pullRequest.repository === '..'
-    || typeof pullRequest.number !== 'number' || !Number.isSafeInteger(pullRequest.number) || pullRequest.number <= 0
+    || typeof pullRequest.number !== 'number' || !NUMBER_IS_SAFE_INTEGER(pullRequest.number) || pullRequest.number <= 0
     || pullRequest.owner !== inputPullRequest.owner
     || pullRequest.repository !== inputPullRequest.repo
     || pullRequest.number !== inputPullRequest.number) {
     throw new PluginError('plugin_event_unroutable', 'Babysitter capability request does not match verified delivery input.');
   }
-  return boundedJsonSnapshot(value, 'Babysitter capability request');
+  return snapshot;
 }
 
 function babysitterReceipt(value: unknown): unknown {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+  const snapshot = boundedJsonSnapshot(value, 'Babysitter capability receipt');
+  if (typeof snapshot !== 'object' || snapshot === null || ARRAY_IS_ARRAY(snapshot)) {
     throw new PluginError('plugin_unsupported', 'Babysitter capability returned an invalid receipt.');
   }
-  const receipt = value as Record<string, unknown>;
-  const keys = Object.keys(receipt).sort();
+  const receipt = snapshot as Record<string, unknown>;
+  const keys = OBJECT_KEYS(receipt).sort();
   if (keys.length !== 2 || keys[0] !== 'receiptId' || keys[1] !== 'status'
-    || typeof receipt.receiptId !== 'string' || !RECEIPT_ID.test(receipt.receiptId)
+    || typeof receipt.receiptId !== 'string' || !matches(RECEIPT_ID, receipt.receiptId)
     || (receipt.status !== 'queued' && receipt.status !== 'duplicate')) {
     throw new PluginError('plugin_unsupported', 'Babysitter capability returned an invalid receipt.');
   }
   return Object.freeze({ receiptId: receipt.receiptId, status: receipt.status });
 }
 
+function matches(pattern: RegExp, value: string): boolean {
+  return REGEXP_TEST.call(pattern, value);
+}
+
 function record(value: unknown, what: string): Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+  if (typeof value !== 'object' || value === null || ARRAY_IS_ARRAY(value)) {
     throw new PluginError('plugin_event_unroutable', `${what} must be an object.`);
   }
   return value as Record<string, unknown>;
@@ -353,7 +367,7 @@ function record(value: unknown, what: string): Record<string, unknown> {
 
 function exactRecord(value: unknown, what: string, keys: readonly string[]): Record<string, unknown> {
   const object = record(value, what);
-  const actual = Object.keys(object).sort();
+  const actual = OBJECT_KEYS(object).sort();
   const expected = [...keys].sort();
   if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
     throw new PluginError('plugin_event_unroutable', `${what} must contain exactly ${keys.join(', ')}.`);
@@ -368,8 +382,8 @@ function optionalRecord(
   required: readonly string[],
 ): Record<string, unknown> {
   const object = record(value, what);
-  const extra = Object.keys(object).filter(key => !allowed.includes(key));
-  const missing = required.filter(key => !Object.hasOwn(object, key));
+  const extra = OBJECT_KEYS(object).filter(key => !allowed.includes(key));
+  const missing = required.filter(key => !OBJECT_HAS_OWN(object, key));
   if (extra.length > 0 || missing.length > 0) {
     throw new PluginError('plugin_event_unroutable', `${what} has an invalid field set.`);
   }

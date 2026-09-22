@@ -1,5 +1,15 @@
 import { isProxy } from 'node:util/types';
 
+const ARRAY_IS_ARRAY = Array.isArray;
+const JSON_STRINGIFY = JSON.stringify;
+const NUMBER_IS_FINITE = Number.isFinite;
+const NUMBER_IS_INTEGER = Number.isInteger;
+const OBJECT_CREATE = Object.create;
+const OBJECT_FREEZE = Object.freeze;
+const OBJECT_GET_OWN_PROPERTY_DESCRIPTOR = Object.getOwnPropertyDescriptor;
+const OBJECT_GET_PROTOTYPE_OF = Object.getPrototypeOf;
+const REFLECT_OWN_KEYS = Reflect.ownKeys;
+
 export type JsonValue =
   | null
   | boolean
@@ -16,7 +26,7 @@ export function snapshotJsonValue(value: unknown, at: string): JsonValue {
 function snapshot(value: unknown, at: string, ancestors: WeakSet<object>): JsonValue {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
   if (typeof value === 'number') {
-    if (Number.isFinite(value)) return value;
+    if (NUMBER_IS_FINITE(value)) return value;
     throw nonJson(at, 'numbers must be finite');
   }
   if (typeof value !== 'object') {
@@ -29,7 +39,7 @@ function snapshot(value: unknown, at: string, ancestors: WeakSet<object>): JsonV
   if (ancestors.has(value)) throw nonJson(at, 'cycles are not allowed');
   ancestors.add(value);
   try {
-    return Array.isArray(value)
+    return ARRAY_IS_ARRAY(value)
       ? snapshotArray(value, at, ancestors)
       : snapshotObject(value, at, ancestors);
   } finally {
@@ -42,7 +52,7 @@ function snapshotArray(
   at: string,
   ancestors: WeakSet<object>,
 ): JsonValue[] {
-  const keys = Reflect.ownKeys(value);
+  const keys = REFLECT_OWN_KEYS(value);
   for (const key of keys) {
     if (key === 'length') continue;
     if (typeof key !== 'string' || !isArrayIndex(key, value.length)) {
@@ -51,11 +61,11 @@ function snapshotArray(
   }
   const out: JsonValue[] = [];
   for (let index = 0; index < value.length; index += 1) {
-    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    const descriptor = OBJECT_GET_OWN_PROPERTY_DESCRIPTOR(value, String(index));
     if (descriptor === undefined) throw nonJson(`${at}[${index}]`, 'array holes are not allowed');
     out.push(snapshotDescriptor(descriptor, `${at}[${index}]`, ancestors));
   }
-  return Object.freeze(out) as unknown as JsonValue[];
+  return OBJECT_FREEZE(out) as unknown as JsonValue[];
 }
 
 function snapshotObject(
@@ -63,15 +73,15 @@ function snapshotObject(
   at: string,
   ancestors: WeakSet<object>,
 ): { [key: string]: JsonValue } {
-  const prototype = Object.getPrototypeOf(value);
+  const prototype = OBJECT_GET_PROTOTYPE_OF(value);
   if (prototype !== Object.prototype && prototype !== null) {
     throw nonJson(at, 'only plain objects are allowed');
   }
-  const out = Object.create(null) as { [key: string]: JsonValue };
-  for (const key of Reflect.ownKeys(value)) {
+  const out = OBJECT_CREATE(null) as { [key: string]: JsonValue };
+  for (const key of REFLECT_OWN_KEYS(value)) {
     if (typeof key !== 'string') throw nonJson(at, 'symbol keys are not allowed');
     const childAt = propertyPath(at, key);
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    const descriptor = OBJECT_GET_OWN_PROPERTY_DESCRIPTOR(value, key);
     if (descriptor === undefined) throw nonJson(childAt, 'missing property descriptor');
     const child = descriptorValue(descriptor, childAt);
     // JSON.stringify and the pre-existing compiler omit undefined object
@@ -79,7 +89,7 @@ function snapshotObject(
     if (child === undefined) continue;
     out[key] = snapshot(child, childAt, ancestors);
   }
-  return Object.freeze(out);
+  return OBJECT_FREEZE(out);
 }
 
 function snapshotDescriptor(
@@ -98,11 +108,11 @@ function descriptorValue(descriptor: PropertyDescriptor, at: string): unknown {
 
 function isArrayIndex(key: string, length: number): boolean {
   const index = Number(key);
-  return Number.isInteger(index) && index >= 0 && index < length && String(index) === key;
+  return NUMBER_IS_INTEGER(index) && index >= 0 && index < length && String(index) === key;
 }
 
 function propertyPath(at: string, key: string): string {
-  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? `${at}.${key}` : `${at}[${JSON.stringify(key)}]`;
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? `${at}.${key}` : `${at}[${JSON_STRINGIFY(key)}]`;
 }
 
 function nonJson(at: string, detail: string): Error {

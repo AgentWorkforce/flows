@@ -10,6 +10,10 @@
 import { createHash } from 'node:crypto';
 import { snapshotJsonValue, type JsonValue } from './json-value.js';
 
+const ARRAY_IS_ARRAY = Array.isArray;
+const JSON_STRINGIFY = JSON.stringify;
+const OBJECT_KEYS = Object.keys;
+
 /**
  * Serialize a value as canonical JSON: object keys sorted recursively,
  * arrays in order, no whitespace. Numbers are kept as-is (tokens are
@@ -42,16 +46,16 @@ export function specHash(spec: unknown): string {
  */
 function serialize(value: JsonValue): string {
   if (value === null || typeof value !== 'object') {
-    return JSON.stringify(value);
+    return JSON_STRINGIFY(value);
   }
-  if (Array.isArray(value)) {
+  if (ARRAY_IS_ARRAY(value)) {
     return '[' + value.map(serialize).join(',') + ']';
   }
   const parts: string[] = [];
-  for (const key of Object.keys(value).sort()) {
+  for (const key of OBJECT_KEYS(value).sort()) {
     const child = value[key];
     if (child === undefined) continue;
-    parts.push(JSON.stringify(key) + ':' + serialize(child));
+    parts.push(JSON_STRINGIFY(key) + ':' + serialize(child));
   }
   return '{' + parts.join(',') + '}';
 }

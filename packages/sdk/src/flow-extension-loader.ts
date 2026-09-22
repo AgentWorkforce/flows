@@ -9,6 +9,8 @@ import { reconcileDeclaredExtensions, type PluginLockEntry } from './plugin-lock
 import { PluginError } from './plugin-manifest.js';
 import { pluginStoreDirectory, readStoredPluginFiles } from './plugin-store.js';
 
+const JSON_PARSE = JSON.parse;
+
 /**
  * Compose schema-2 flow extensions onto a base authored flow.
  *
@@ -215,7 +217,7 @@ async function loadOne<Authority>(
   if (manifestBytes === undefined) throw new PluginError('plugin_source_drift', `${ref}: flows-plugin.json is missing.`);
   if (sha256(manifestBytes) !== lock.manifestSha256) throw new PluginError('plugin_source_drift', `${ref}: flows-plugin.json differs from the lockfile's manifest hash.`);
   let input: unknown;
-  try { input = JSON.parse(manifestBytes.toString('utf8')); }
+  try { input = JSON_PARSE(manifestBytes.toString('utf8')); }
   catch { throw new PluginError('plugin_manifest_invalid', `${ref}: flows-plugin.json is not valid JSON.`); }
   const manifest = validateFlowExtensionManifest(input);
   if (manifest.name !== lock.name || manifest.version !== lock.version) throw new PluginError('plugin_source_drift', `${ref}: manifest names ${manifest.name}@${manifest.version}, lockfile has ${lock.name}@${lock.version}.`);

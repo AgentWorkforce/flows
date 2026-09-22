@@ -17,6 +17,7 @@ import { PluginError } from './plugin-manifest.js';
 export const PLUGIN_STORE = '.flows/plugins';
 const MAX_PLUGIN_MANIFEST_BYTES = 4_000_000;
 const MAX_PLUGIN_STORE_ENTRIES = 10_000;
+const JSON_PARSE = JSON.parse;
 const READ_FLAGS = constants.O_RDONLY
   | (constants.O_NOFOLLOW ?? 0)
   | (constants.O_NONBLOCK ?? 0);
@@ -161,7 +162,7 @@ async function readVerifiedStoredPluginFiles(
   const raw = manifest.toString('utf8');
   if (sha256(raw) !== expectedDigest) return drift('manifest.json digest differs from the lockfile');
   let entries: { path: string; sha256: string; bytes: number }[];
-  try { entries = JSON.parse(raw); if (!Array.isArray(entries)) throw new Error(); }
+  try { entries = JSON_PARSE(raw); if (!Array.isArray(entries)) throw new Error(); }
   catch { return drift('manifest.json is not a manifest'); }
   if (entries.length > MAX_PLUGIN_FILES) return drift(`manifest.json lists more than ${MAX_PLUGIN_FILES} files`);
   const paths = new Set<string>();

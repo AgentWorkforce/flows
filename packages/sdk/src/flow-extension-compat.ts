@@ -3,11 +3,13 @@ import type { FlowExtensionManifest } from './flow-extension-manifest.js';
 import { PluginError } from './plugin-manifest.js';
 import { satisfiesRange } from './semver-range.js';
 
+const JSON_PARSE = JSON.parse;
+
 export interface RuntimeVersions { readonly sdk: string; readonly surface: string }
 
 /** The versions a plugin's `compat` is checked against: this SDK and the surface it pins. */
 export function runtimeVersions(): RuntimeVersions {
-  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string; dependencies: Record<string, string> };
+  const pkg = JSON_PARSE(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string; dependencies: Record<string, string> };
   return { sdk: pkg.version, surface: pkg.dependencies['@relayflows/surface']! };
 }
 

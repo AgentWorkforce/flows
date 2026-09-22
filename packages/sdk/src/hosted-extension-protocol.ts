@@ -1,10 +1,14 @@
 import type { ChildProcess } from 'node:child_process';
 import type { Readable, Writable } from 'node:stream';
+import { snapshotJsonValue } from './json-value.js';
 import { PluginError } from './plugin-manifest.js';
 
 const HOSTED_WRITE = 'cloud:babysitter-turn';
 const MAX_FRAME_BYTES = 256 * 1024;
 const MAX_STDERR_BYTES = 16 * 1024;
+const JSON_PARSE = JSON.parse;
+const JSON_STRINGIFY = JSON.stringify;
+const OBJECT_KEYS = Object.keys;
 
 export interface HostedExtensionProtocolResult {
   readonly completionReason: 'success';
@@ -13,11 +17,16 @@ export interface HostedExtensionProtocolResult {
 
 /** A bounded JSON copy, stripped of prototypes and behavior. */
 export function boundedJsonSnapshot(value: unknown, what: string): unknown {
-  const encoded = JSON.stringify(value);
-  if (encoded === undefined || Buffer.byteLength(encoded) > MAX_FRAME_BYTES) {
+  let snapshot: ReturnType<typeof snapshotJsonValue>;
+  try { snapshot = snapshotJsonValue(value, what); }
+  catch {
     throw new PluginError('plugin_unsupported', `${what} is not bounded JSON data.`);
   }
-  return JSON.parse(encoded) as unknown;
+  const encoded = JSON_STRINGIFY(snapshot);
+  if (Buffer.byteLength(encoded) > MAX_FRAME_BYTES) {
+    throw new PluginError('plugin_unsupported', `${what} is not bounded JSON data.`);
+  }
+  return snapshot;
 }
 
 /**
@@ -90,7 +99,7 @@ export async function exchangeHostedExtension(
         const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
         let message: Record<string, unknown>;
         try {
-          const parsed = JSON.parse(line) as unknown;
+          const parsed = JSON_PARSE(line) as unknown;
           if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
             return refuse('Hosted extension emitted a non-object protocol frame.');
           }
@@ -113,11 +122,11 @@ export async function exchangeHostedExtension(
                 const snapshot = boundedJsonSnapshot(value, 'hosted capability result');
                 capabilityState = 'completed';
                 if (deferredProtocolError !== undefined) return finish(deferredProtocolError);
-                stdin.write(`${JSON.stringify({ type: 'capability-result', id: 1, ok: true, value: snapshot })}\n`);
+                stdin.write(`${JSON_STRINGIFY({ type: 'capability-result', id: 1, ok: true, value: snapshot })}\n`);
               } catch (error) {
                 capabilityError = failure(error);
                 capabilityState = 'failed';
-                stdin.write(`${JSON.stringify({ type: 'capability-result', id: 1, ok: false, error: 'hosted capability refused' })}\n`);
+                stdin.write(`${JSON_STRINGIFY({ type: 'capability-result', id: 1, ok: false, error: 'hosted capability refused' })}\n`);
                 finish(capabilityError);
               }
             },
@@ -125,7 +134,7 @@ export async function exchangeHostedExtension(
               if (settled) return;
               capabilityError = failure(error);
               capabilityState = 'failed';
-              stdin.write(`${JSON.stringify({ type: 'capability-result', id: 1, ok: false, error: 'hosted capability refused' })}\n`);
+              stdin.write(`${JSON_STRINGIFY({ type: 'capability-result', id: 1, ok: false, error: 'hosted capability refused' })}\n`);
               finish(capabilityError);
             },
           );
@@ -159,12 +168,12 @@ export async function exchangeHostedExtension(
         + (stderrText === '' ? '' : `: ${stderrText}`),
       );
     });
-    stdin.write(`${JSON.stringify(request)}\n`);
+    stdin.write(`${JSON_STRINGIFY(request)}\n`);
   });
 }
 
 function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
-  const actual = Object.keys(value).sort();
+  const actual = OBJECT_KEYS(value).sort();
   const expected = [...keys].sort();
   return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
 }

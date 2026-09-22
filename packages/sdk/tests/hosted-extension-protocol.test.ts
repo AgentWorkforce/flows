@@ -79,6 +79,26 @@ function hostileImport(frames: readonly unknown[]): string {
   `;
 }
 
+function normalImport(): string {
+  return `
+    import { flow, github } from '@relayflows/surface';
+    export default flow('babysitter', async f => f.done('declined'))
+      .on(github.pull_request('labeled'), async (f, input) => {
+        await f.capabilities.cloud.babysitterTurn.queue({ delivery: {
+          deliveryId: input.event.deliveryId,
+          provider: input.event.provider,
+          eventType: input.event.eventType,
+          pullRequest: {
+            owner: input.pullRequest.owner,
+            repository: input.pullRequest.repo,
+            number: input.pullRequest.number,
+          },
+        } });
+        f.done('success');
+      });
+  `;
+}
+
 const dispatch = () => hostedExtensionDispatchFromVerifiedDelivery({
   provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-1',
 });
@@ -91,6 +111,67 @@ async function waitForInvocation(invoked: Promise<void>): Promise<void> {
 }
 
 describe('hosted extension hostile protocol', () => {
+  it.each(['inherited toJSON', 'stateful getter'] as const)(
+    'refuses a delivery descriptor with %s before the adapter', async attack => {
+      const input = descriptor();
+      let hostile: unknown = input;
+      if (attack === 'inherited toJSON') {
+        hostile = Object.assign(Object.create({
+          toJSON: () => ({ ...input, pullRequest: { owner: 'attacker', repo: 'other', number: 999 } }),
+        }), input);
+      } else {
+        Object.defineProperty(input.pullRequest, 'owner', {
+          enumerable: true,
+          get: () => 'AgentWorkforce',
+        });
+      }
+      let calls = 0;
+      await expect(runVerifiedNativeExtensionSandbox({
+        artifact: await artifact(normalImport()),
+        manifest: validateFlowExtensionManifest(manifest()), dispatch: dispatch(), input: hostile,
+        babysitterTurn: { queue: async () => {
+          calls += 1;
+          return { receiptId: 'never', status: 'queued' };
+        } },
+      })).rejects.toMatchObject({ code: 'plugin_unsupported' });
+      expect(calls).toBe(0);
+    },
+  );
+
+  it.runIf(process.platform === 'linux')(
+    'uses captured JSON intrinsics for the complete parent boundary', async () => {
+      const installed = await artifact(normalImport());
+      const validated = validateFlowExtensionManifest(manifest());
+      const trustedDispatch = dispatch();
+      const stringify = Object.getOwnPropertyDescriptor(JSON, 'stringify')!;
+      const parse = Object.getOwnPropertyDescriptor(JSON, 'parse')!;
+      const calls: unknown[] = [];
+      let result: Awaited<ReturnType<typeof runVerifiedNativeExtensionSandbox>>;
+      try {
+        Object.defineProperty(JSON, 'stringify', { ...stringify, value: () => '{"forged":true}' });
+        Object.defineProperty(JSON, 'parse', { ...parse, value: () => ({ forged: true }) });
+        result = await runVerifiedNativeExtensionSandbox({
+          artifact: installed,
+          manifest: validated,
+          dispatch: trustedDispatch,
+          input: descriptor(),
+          babysitterTurn: { queue: async request => {
+            calls.push(request);
+            return { receiptId: 'receipt-1', status: 'queued' };
+          } },
+        });
+      } finally {
+        Object.defineProperty(JSON, 'stringify', stringify);
+        Object.defineProperty(JSON, 'parse', parse);
+      }
+      expect(result!).toEqual({ completionReason: 'success', capabilityCalls: 1 });
+      expect(calls).toEqual([{ delivery: {
+        deliveryId: 'delivery-1', provider: 'github', eventType: 'pull_request.labeled',
+        pullRequest: { owner: 'AgentWorkforce', repository: 'flows', number: 551 },
+      } }]);
+    },
+  );
+
   it('rejects completion while an exact direct call is pending', async () => {
     let settle!: (value: unknown) => void;
     const adapter = new Promise(resolve => { settle = resolve; });
