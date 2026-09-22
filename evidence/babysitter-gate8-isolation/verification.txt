@@ -127,3 +127,36 @@ e2664c65397f93fb486eb6f1e756c7cec3f88b3851d79c23567cad986f80f1ff  dist/provider-
 8fe72f176a75ec0b5f26e12db7a597575c259a2e2cbb59690f9dc20a5e63940b  dist/schedule.js
 4a3515b571a318f6c7a5661f9310bc9af43e3faf20ea39903a9b363c51258e4c  dist/triggers.js
 e312994320f82aad0af00d09c504175d929cc6c601dfe1bc522632462ad9a48b  dist/triggers/github.js
+
+$ export TMPDIR=/home/khaliqgant/Projects/AgentWorkforce/gate8-test-tmp
+$ cd packages/sdk
+$ npm run typecheck
+
+> @relayflows/sdk@2.0.26 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+$ npm run build
+
+> @relayflows/sdk@2.0.26 build
+> tsc && node scripts/make-cli-executable.mjs
+
+$ npm run typecheck:tests
+
+> @relayflows/sdk@2.0.26 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+$ ./node_modules/.bin/vitest run tests/plugin-store-bounds.test.ts tests/hosted-base-snapshot.test.ts tests/hosted-extension-routing.test.ts tests/preflight.test.ts tests/babysitter-native-extension.test.ts tests/hosted-extension-protocol.test.ts tests/authored-flow.test.ts tests/hosted-extension-isolation.test.ts
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
+
+ ✓ tests/plugin-store-bounds.test.ts (3 tests) 11ms
+ ✓ tests/hosted-extension-routing.test.ts (2 tests) 4ms
+ ✓ tests/preflight.test.ts (59 tests) 102ms
+ ✓ tests/hosted-base-snapshot.test.ts (8 tests) 1020ms
+ ✓ tests/babysitter-native-extension.test.ts (38 tests) 456ms
+ ✓ tests/authored-flow.test.ts (34 tests) 699ms
+ ✓ tests/hosted-extension-protocol.test.ts (19 tests) 720ms
+ ✓ tests/hosted-extension-isolation.test.ts (13 tests) 809ms
+
+ Test Files  8 passed (8)
+      Tests  176 passed (176)

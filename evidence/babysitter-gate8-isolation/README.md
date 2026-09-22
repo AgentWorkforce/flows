@@ -26,11 +26,13 @@ The enforced boundary is:
   that snapshot so later store replacement cannot change executed code;
 - clone the delivery descriptor into behavior-free, frozen JSON with captured
   parent intrinsics before validation or serialization, rejecting proxies,
-  accessors, inherited `toJSON`, symbol keys, cycles, holes, and extra fields;
-  enforce depth, node-count, and encoded-byte limits incrementally while
-  traversing (including repeatedly shared subtrees), count string escaping
-  without materializing an unbounded encoded copy, and validate exact keys
-  without ambient array methods; then validate that snapshot against the
+  accessors, inherited `toJSON`, cycles, holes, and extra JSON-visible fields
+  while stripping symbol and non-enumerable metadata; enforce depth,
+  property/node-count, and encoded-byte limits incrementally while traversing
+  (including repeatedly shared subtrees), count string escaping without
+  materializing an unbounded encoded copy, and enumerate JSON-visible keys
+  without first allocating an attacker-sized key array or using ambient array
+  methods; then validate that snapshot against the
   symbol-branded verified dispatch before import;
 - import and execute the matching handler only inside a bubblewrap namespace
   plus Node's permission model, with no network, writable filesystem, inherited

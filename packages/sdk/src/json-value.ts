@@ -10,8 +10,8 @@ const OBJECT_CREATE = Object.create;
 const OBJECT_FREEZE = Object.freeze;
 const OBJECT_GET_OWN_PROPERTY_DESCRIPTOR = Object.getOwnPropertyDescriptor;
 const OBJECT_GET_PROTOTYPE_OF = Object.getPrototypeOf;
+const OBJECT_HAS_OWN = Object.hasOwn;
 const OBJECT_PROTOTYPE = Object.prototype;
-const REFLECT_OWN_KEYS = Reflect.ownKeys;
 const REGEXP_TEST = RegExp.prototype.test;
 const STRING = String;
 const WEAK_SET_ADD = WeakSet.prototype.add;
@@ -35,12 +35,13 @@ export interface JsonSnapshotLimits {
 interface SnapshotBudget {
   readonly limits?: JsonSnapshotLimits;
   nodes: number;
+  properties: number;
   bytes: number;
 }
 
 /** Copy runtime input into frozen, behavior-free JSON data. */
 export function snapshotJsonValue(value: unknown, at: string, limits?: JsonSnapshotLimits): JsonValue {
-  return snapshot(value, at, new WeakSet<object>(), { limits, nodes: 0, bytes: 0 }, 0);
+  return snapshot(value, at, new WeakSet<object>(), { limits, nodes: 0, properties: 0, bytes: 0 }, 0);
 }
 
 function snapshot(
@@ -92,10 +93,18 @@ function snapshotArray(
   depth: number,
 ): JsonValue[] {
   consumeBytes(budget, 2, at);
-  const keys = REFLECT_OWN_KEYS(value);
-  for (const key of keys) {
-    if (key === 'length') continue;
-    if (typeof key !== 'string' || !isArrayIndex(key, value.length)) {
+  if (budget.limits !== undefined && value.length > budget.limits.maxNodes - budget.nodes) {
+    throw nonJson(at, 'snapshot depth or node limit exceeded');
+  }
+  // `Reflect.ownKeys` allocates the complete key list before a caller can
+  // enforce cardinality. Enumerate JSON-visible keys one at a time instead.
+  // Symbols and non-enumerable properties are deliberately ignored, matching
+  // JSON.stringify; the copied value has neither, so they cannot affect later
+  // validation or serialization.
+  for (const key in value) {
+    consumeProperty(budget, at);
+    if (!OBJECT_HAS_OWN(value, key)) continue;
+    if (!isArrayIndex(key, value.length)) {
       throw nonJson(at, 'arrays may contain only indexed data');
     }
   }
@@ -123,8 +132,13 @@ function snapshotObject(
   consumeBytes(budget, 2, at);
   const out = OBJECT_CREATE(null) as { [key: string]: JsonValue };
   let included = 0;
-  for (const key of REFLECT_OWN_KEYS(value)) {
-    if (typeof key !== 'string') throw nonJson(at, 'symbol keys are not allowed');
+  // Avoid materializing an attacker-sized key array in the unsandboxed
+  // parent. This visits only JSON-visible own string properties; symbols and
+  // non-enumerable properties are omitted exactly as JSON.stringify omits
+  // them, and cannot influence the null-prototype copy.
+  for (const key in value) {
+    consumeProperty(budget, at);
+    if (!OBJECT_HAS_OWN(value, key)) continue;
     const childAt = propertyPath(at, key);
     const descriptor = OBJECT_GET_OWN_PROPERTY_DESCRIPTOR(value, key);
     if (descriptor === undefined) throw nonJson(childAt, 'missing property descriptor');
@@ -177,6 +191,14 @@ function consumeNode(budget: SnapshotBudget, at: string, depth: number): void {
   }
 }
 
+function consumeProperty(budget: SnapshotBudget, at: string): void {
+  if (budget.limits === undefined) return;
+  budget.properties += 1;
+  if (budget.properties > budget.limits.maxNodes) {
+    throw nonJson(at, 'snapshot depth or node limit exceeded');
+  }
+}
+
 /** Count JSON's UTF-8 string encoding without allocating the escaped value. */
 function consumeStringBytes(budget: SnapshotBudget, value: string, at: string): void {
   consumeBytes(budget, 2, at);
@@ -189,7 +211,7 @@ function consumeStringBytes(budget: SnapshotBudget, value: string, at: string): 
       || code === 0x0a || code === 0x0c || code === 0x0d) {
       consumeBytes(budget, 2, at);
     } else if (code < 0x20 || (code >= 0xd800 && code <= 0xdfff)) {
-      if (code <= 0xdbff && index + 1 < value.length) {
+      if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length) {
         const low = value.charCodeAt(index + 1);
         if (low >= 0xdc00 && low <= 0xdfff) {
           consumeBytes(budget, 4, at);

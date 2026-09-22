@@ -8,6 +8,7 @@ import {
   runVerifiedNativeExtensionSandbox,
   type HostedExtensionArtifact,
 } from '../src/hosted-extension-isolation.js';
+import { snapshotJsonValue } from '../src/json-value.js';
 import { validateFlowExtensionManifest } from '../src/flow-extension-manifest.js';
 import { materializePlugin } from '../src/plugin-store.js';
 
@@ -111,6 +112,29 @@ async function waitForInvocation(invoked: Promise<void>): Promise<void> {
 }
 
 describe('hosted extension hostile protocol', () => {
+  it('counts a control followed by a low surrogate as two JSON escapes', () => {
+    expect(() => snapshotJsonValue('\0\udc00', 'delivery', {
+      maxDepth: 4, maxNodes: 4, maxBytes: 13,
+    })).toThrow(/snapshot byte limit exceeded/);
+  });
+
+  it('caps object cardinality without materializing the complete key list', () => {
+    const hostile = Object.create(null) as Record<string, unknown>;
+    for (let index = 0; index < 10_000; index += 1) hostile[`ignored-${index}`] = undefined;
+    const started = Date.now();
+    expect(() => snapshotJsonValue(hostile, 'delivery', {
+      maxDepth: 4, maxNodes: 32, maxBytes: 1024,
+    })).toThrow(/snapshot depth or node limit exceeded/);
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
+  it('copies only JSON-visible metadata into the behavior-free snapshot', () => {
+    const value = { visible: 'yes' } as Record<PropertyKey, unknown>;
+    Object.defineProperty(value, 'hidden', { value: 'no', enumerable: false });
+    value[Symbol('hidden')] = 'no';
+    expect(snapshotJsonValue(value, 'delivery')).toEqual({ visible: 'yes' });
+  });
+
   it.each(['inherited toJSON', 'stateful getter'] as const)(
     'refuses a delivery descriptor with %s before the adapter', async attack => {
       const input = descriptor();
