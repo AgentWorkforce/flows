@@ -1,20 +1,16 @@
-import { readFileSync } from 'node:fs';
 import type { FlowExtensionManifest } from './flow-extension-manifest.js';
 import { PluginError } from './plugin-manifest.js';
 import { satisfiesRange } from './semver-range.js';
 
-const JSON_PARSE = JSON.parse;
 const OBJECT_FREEZE = Object.freeze;
-const READ_FILE_SYNC = readFileSync;
-const PACKAGE_JSON_URL = new URL('../package.json', import.meta.url);
-
-const packageManifest = JSON_PARSE(READ_FILE_SYNC(PACKAGE_JSON_URL, 'utf8')) as {
-  version: string;
-  dependencies: Record<string, string>;
-};
+// These are release pins, not runtime discovery. Reading package.json here
+// would both consult mutable filesystem intrinsics after authored code and
+// break a compiled Bun executable, where import.meta.url names the virtual
+// executable rather than the installed SDK directory. A regression compares
+// both literals with the package manifests so a version bump cannot drift.
 const RUNTIME_VERSIONS = OBJECT_FREEZE({
-  sdk: packageManifest.version,
-  surface: packageManifest.dependencies['@relayflows/surface']!,
+  sdk: '2.0.27',
+  surface: '2.0.27',
 });
 
 export interface RuntimeVersions { readonly sdk: string; readonly surface: string }

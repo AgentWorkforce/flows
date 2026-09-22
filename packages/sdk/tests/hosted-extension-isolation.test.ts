@@ -20,6 +20,7 @@ import {
   runVerifiedNativeExtensionSandbox,
   type HostedExtensionArtifact,
 } from '../src/hosted-extension-isolation.js';
+import { runtimeVersions } from '../src/flow-extension-compat.js';
 import { validateFlowExtensionManifest } from '../src/flow-extension-manifest.js';
 import { materializePlugin } from '../src/plugin-store.js';
 
@@ -121,6 +122,14 @@ function hostileImport(frames: readonly unknown[]): string {
 }
 
 describe('hosted extension capability isolation', () => {
+  it('keeps compile-time runtime pins synchronized with both package manifests', () => {
+    const sdk = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
+    const surface = JSON.parse(readFileSync(new URL('../../surface/package.json', import.meta.url), 'utf8')) as {
+      version: string;
+    };
+    expect(runtimeVersions()).toEqual({ sdk: sdk.version, surface: surface.version });
+  });
+
   it('resolves locked artifacts without importing extension top-level code', async () => {
     const marker = join(mkdtempSync(join(tmpdir(), 'hosted-loader-marker-')), 'imported');
     roots.push(marker.slice(0, marker.lastIndexOf('/')));
