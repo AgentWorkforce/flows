@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { Ctx } from '@relayflows/surface';
 import type { AuthoredFlowDefinition, FlowHandle } from './authored-flow.js';
@@ -8,7 +7,7 @@ import { validateFlowExtensionManifest, type FlowExtensionManifest } from './flo
 import { findPluginProject } from './plugin-loader.js';
 import { reconcileDeclaredExtensions, type PluginLockEntry } from './plugin-lock.js';
 import { PluginError } from './plugin-manifest.js';
-import { pluginStoreDirectory, verifyStoredPlugin } from './plugin-store.js';
+import { pluginStoreDirectory, readStoredPluginFiles } from './plugin-store.js';
 
 /**
  * Compose schema-2 flow extensions onto a base authored flow.
@@ -211,8 +210,9 @@ async function loadOne<Authority>(
   options: LoadFlowExtensionsOptions<Authority>,
 ): Promise<LoadedFlowExtension> {
   const directory = pluginStoreDirectory(root, lock.name, lock.digest);
-  await verifyStoredPlugin(directory, lock.digest);
-  const manifestBytes = readFileSync(join(directory, 'flows-plugin.json'));
+  const stored = await readStoredPluginFiles(directory, lock.digest);
+  const manifestBytes = stored.find(file => file.path === 'flows-plugin.json')?.data;
+  if (manifestBytes === undefined) throw new PluginError('plugin_source_drift', `${ref}: flows-plugin.json is missing.`);
   if (sha256(manifestBytes) !== lock.manifestSha256) throw new PluginError('plugin_source_drift', `${ref}: flows-plugin.json differs from the lockfile's manifest hash.`);
   let input: unknown;
   try { input = JSON.parse(manifestBytes.toString('utf8')); }

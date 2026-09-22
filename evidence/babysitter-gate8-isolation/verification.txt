@@ -7,7 +7,7 @@ bubblewrap 0.12.0
 prlimit from util-linux 2.42.3
 v26.8.1
 
-$ cd packages/sdk && npm run typecheck && npm run build && npm run typecheck:tests && ./node_modules/.bin/vitest run tests/hosted-base-snapshot.test.ts tests/hosted-extension-isolation.test.ts tests/hosted-extension-routing.test.ts tests/hosted-extension-protocol.test.ts tests/babysitter-native-extension.test.ts tests/authored-flow.test.ts tests/preflight.test.ts
+$ cd packages/sdk && npm run typecheck && npm run build && npm run typecheck:tests && ./node_modules/.bin/vitest run tests/plugin-store-bounds.test.ts tests/hosted-base-snapshot.test.ts tests/hosted-extension-routing.test.ts tests/preflight.test.ts tests/babysitter-native-extension.test.ts tests/hosted-extension-protocol.test.ts tests/authored-flow.test.ts tests/hosted-extension-isolation.test.ts
 
 > @relayflows/sdk@2.0.26 typecheck
 > tsc --noEmit && tsc -p tsconfig.type-tests.json
@@ -20,19 +20,20 @@ $ cd packages/sdk && npm run typecheck && npm run build && npm run typecheck:tes
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
 
- ✓ tests/hosted-base-snapshot.test.ts (6 tests) 604ms
-   ✓ hosted base private snapshot > stops streaming project entries at the shared count limit 577ms
- ✓ tests/hosted-extension-routing.test.ts (2 tests) 4ms
- ✓ tests/preflight.test.ts (59 tests) 59ms
- ✓ tests/babysitter-native-extension.test.ts (38 tests) 393ms
- ✓ tests/hosted-extension-protocol.test.ts (10 tests) 559ms
- ✓ tests/authored-flow.test.ts (34 tests) 740ms
- ✓ tests/hosted-extension-isolation.test.ts (13 tests) 742ms
+ ✓ tests/plugin-store-bounds.test.ts (3 tests) 11ms
+ ✓ tests/hosted-base-snapshot.test.ts (6 tests) 371ms
+   ✓ hosted base private snapshot > stops streaming project entries at the shared count limit 354ms
+ ✓ tests/hosted-extension-routing.test.ts (2 tests) 3ms
+ ✓ tests/preflight.test.ts (59 tests) 97ms
+ ✓ tests/babysitter-native-extension.test.ts (38 tests) 348ms
+ ✓ tests/hosted-extension-protocol.test.ts (10 tests) 536ms
+ ✓ tests/authored-flow.test.ts (34 tests) 743ms
+ ✓ tests/hosted-extension-isolation.test.ts (13 tests) 753ms
 
- Test Files  7 passed (7)
-      Tests  162 passed (162)
-   Start at  08:41:19
-   Duration  1.87s (transform 1.04s, setup 0ms, collect 5.24s, tests 3.10s, environment 1ms, prepare 432ms)
+ Test Files  8 passed (8)
+      Tests  165 passed (165)
+   Start at  09:08:10
+   Duration  1.95s (transform 1.05s, setup 0ms, collect 5.73s, tests 2.86s, environment 1ms, prepare 483ms)
 
 $ mise exec node@22 -- node --version
 v22.23.2

@@ -1,6 +1,8 @@
-import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { lstat, mkdir, mkdtemp, open, opendir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { payloadManifest, safePath, sha256 } from './bundle.js';
+import { MAX_PLUGIN_FILE_BYTES, MAX_PLUGIN_FILES, MAX_PLUGIN_TOTAL_BYTES } from './plugin-github.js';
 import { PluginError } from './plugin-manifest.js';
 
 /**
@@ -13,12 +15,23 @@ import { PluginError } from './plugin-manifest.js';
  * refusal, not a surprise.
  */
 export const PLUGIN_STORE = '.flows/plugins';
+const MAX_PLUGIN_MANIFEST_BYTES = 4_000_000;
+const MAX_PLUGIN_STORE_ENTRIES = 10_000;
+const READ_FLAGS = constants.O_RDONLY
+  | (constants.O_NOFOLLOW ?? 0)
+  | (constants.O_NONBLOCK ?? 0);
 
 export function pluginStoreDirectory(root: string, name: string, digest: string): string {
   return join(resolve(root), PLUGIN_STORE, `${name}@sha256:${digest}`);
 }
 
 export interface StoredPluginFile { readonly path: string; readonly data: Uint8Array }
+
+/** @internal Deterministic race seams for the bounded store reader. */
+export interface StoredPluginReadTestHooks {
+  readonly beforeOpen?: (path: string) => Promise<void>;
+  readonly afterStat?: (path: string) => Promise<void>;
+}
 
 /** Write the files atomically; an existing directory is verified instead of overwritten. */
 export async function materializePlugin(root: string, name: string, files: readonly StoredPluginFile[]): Promise<{ directory: string; digest: string }> {
@@ -48,47 +61,137 @@ export async function materializePlugin(root: string, name: string, files: reado
   return { directory, digest };
 }
 
-async function regularFile(root: string, path: string): Promise<Buffer> {
-  const parts = path.split('/');
-  for (let i = 1; i <= parts.length; i++) {
-    const stat = await lstat(join(root, ...parts.slice(0, i)));
-    if (i === parts.length ? !stat.isFile() : !stat.isDirectory()) throw new PluginError('plugin_source_drift', `${path}: expected a regular file, without symlinks.`);
+async function regularFile(
+  root: string,
+  path: string,
+  maxBytes: number,
+  expectedBytes?: number,
+  hooks: StoredPluginReadTestHooks = {},
+): Promise<Buffer> {
+  const absolute = join(root, path);
+  const handle = await openStoredFile(root, path, hooks);
+  try {
+    const before = await handle.stat({ bigint: true });
+    if (!before.isFile() || before.size < 0n || before.size > BigInt(maxBytes)
+      || (expectedBytes !== undefined && before.size !== BigInt(expectedBytes))) {
+      throw new PluginError('plugin_source_drift', `${path}: expected a bounded regular file.`);
+    }
+    await hooks.afterStat?.(absolute);
+    const size = Number(before.size);
+    const bytes = Buffer.allocUnsafe(size);
+    let offset = 0;
+    while (offset < size) {
+      const result = await handle.read(bytes, offset, size - offset, offset);
+      if (result.bytesRead === 0) {
+        throw new PluginError('plugin_source_drift', `${path}: changed while reading.`);
+      }
+      offset += result.bytesRead;
+    }
+    const extra = Buffer.allocUnsafe(1);
+    if ((await handle.read(extra, 0, 1, size)).bytesRead !== 0) {
+      throw new PluginError('plugin_source_drift', `${path}: changed while reading.`);
+    }
+    const after = await handle.stat({ bigint: true });
+    if (after.size !== before.size || after.mtimeNs !== before.mtimeNs
+      || after.ctimeNs !== before.ctimeNs) {
+      throw new PluginError('plugin_source_drift', `${path}: changed while reading.`);
+    }
+    return bytes;
+  } finally {
+    await handle.close();
   }
-  return readFile(join(root, path));
+}
+
+async function openStoredFile(
+  root: string,
+  path: string,
+  hooks: StoredPluginReadTestHooks,
+): Promise<Awaited<ReturnType<typeof open>>> {
+  const parts = path.split('/');
+  if (process.platform !== 'linux') {
+    for (let i = 1; i < parts.length; i++) {
+      if (!(await lstat(join(root, ...parts.slice(0, i)))).isDirectory()) {
+        throw new PluginError('plugin_source_drift', `${path}: expected a regular file, without symlinks.`);
+      }
+    }
+    await hooks.beforeOpen?.(join(root, path));
+    return await open(join(root, path), READ_FLAGS);
+  }
+  let directory = await open(resolve(root), READ_FLAGS);
+  try {
+    if (!(await directory.stat()).isDirectory()) {
+      throw new PluginError('plugin_source_drift', `${path}: plugin store root is not a directory.`);
+    }
+    for (const part of parts.slice(0, -1)) {
+      const child = await open(`/proc/self/fd/${directory.fd}/${part}`, READ_FLAGS);
+      if (!(await child.stat()).isDirectory()) {
+        await child.close();
+        throw new PluginError('plugin_source_drift', `${path}: expected a regular file, without symlinks.`);
+      }
+      await directory.close();
+      directory = child;
+    }
+    await hooks.beforeOpen?.(join(root, path));
+    return await open(`/proc/self/fd/${directory.fd}/${parts.at(-1)!}`, READ_FLAGS);
+  } finally {
+    await directory.close();
+  }
 }
 
 /** Re-hash a materialized plugin and compare with the digest the lockfile recorded. */
-export async function verifyStoredPlugin(directory: string, expectedDigest: string): Promise<void> {
+export async function verifyStoredPlugin(
+  directory: string,
+  expectedDigest: string,
+  hooks: StoredPluginReadTestHooks = {},
+): Promise<void> {
+  await readVerifiedStoredPluginFiles(directory, expectedDigest, hooks);
+}
+
+async function readVerifiedStoredPluginFiles(
+  directory: string,
+  expectedDigest: string,
+  hooks: StoredPluginReadTestHooks,
+): Promise<readonly { path: string; data: Buffer }[]> {
   const drift = (message: string): never => { throw new PluginError('plugin_source_drift', `${directory}: ${message}`); };
-  let raw: string;
+  let manifest: Buffer;
   try {
     if (!(await lstat(directory)).isDirectory()) return drift('not a directory');
-    raw = (await regularFile(directory, 'manifest.json')).toString('utf8');
+    manifest = await regularFile(directory, 'manifest.json', MAX_PLUGIN_MANIFEST_BYTES, undefined, hooks);
   } catch (error) { return drift(error instanceof PluginError ? error.message : 'manifest.json is missing'); }
+  const raw = manifest.toString('utf8');
   if (sha256(raw) !== expectedDigest) return drift('manifest.json digest differs from the lockfile');
   let entries: { path: string; sha256: string; bytes: number }[];
   try { entries = JSON.parse(raw); if (!Array.isArray(entries)) throw new Error(); }
   catch { return drift('manifest.json is not a manifest'); }
+  if (entries.length > MAX_PLUGIN_FILES) return drift(`manifest.json lists more than ${MAX_PLUGIN_FILES} files`);
   const paths = new Set<string>();
+  const files = [{ path: 'manifest.json', data: manifest }];
+  let totalBytes = 0;
   for (const entry of entries) {
-    if (typeof entry?.path !== 'string' || !safePath(entry.path)) return drift('manifest.json lists an invalid path');
+    if (typeof entry?.path !== 'string' || !safePath(entry.path)
+      || typeof entry.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(entry.sha256)
+      || !Number.isSafeInteger(entry.bytes) || entry.bytes < 0 || entry.bytes > MAX_PLUGIN_FILE_BYTES
+      || paths.has(entry.path)) return drift('manifest.json lists an invalid file');
+    totalBytes += entry.bytes;
+    if (totalBytes > MAX_PLUGIN_TOTAL_BYTES) return drift(`plugin exceeds ${MAX_PLUGIN_TOTAL_BYTES} bytes`);
     let data: Buffer;
-    try { data = await regularFile(directory, entry.path); }
+    try { data = await regularFile(directory, entry.path, MAX_PLUGIN_FILE_BYTES, entry.bytes, hooks); }
     catch (error) { return drift(error instanceof PluginError ? error.message : `${entry.path} is missing`); }
-    if (data.length !== entry.bytes || sha256(data) !== entry.sha256) return drift(`${entry.path} changed since installation`);
+    if (sha256(data) !== entry.sha256) return drift(`${entry.path} changed since installation`);
     paths.add(entry.path);
+    files.push({ path: entry.path, data });
   }
   await rejectExtras(directory, '', new Set([...paths, 'manifest.json']), drift);
+  return Object.freeze(files.map(file => Object.freeze(file)));
 }
 
 /** Re-verify, then return every stored file including the payload `manifest.json`. */
-export async function readStoredPluginFiles(directory: string, expectedDigest: string): Promise<readonly { path: string; data: Buffer }[]> {
-  await verifyStoredPlugin(directory, expectedDigest);
-  const manifest = await regularFile(directory, 'manifest.json');
-  const entries = JSON.parse(manifest.toString('utf8')) as { path: string }[];
-  const files = [{ path: 'manifest.json', data: manifest }];
-  for (const entry of entries) files.push({ path: entry.path, data: await regularFile(directory, entry.path) });
-  return files;
+export async function readStoredPluginFiles(
+  directory: string,
+  expectedDigest: string,
+  hooks: StoredPluginReadTestHooks = {},
+): Promise<readonly { path: string; data: Buffer }[]> {
+  return await readVerifiedStoredPluginFiles(directory, expectedDigest, hooks);
 }
 
 /** Drop a materialized plugin directory. Missing is a no-op. */
@@ -97,9 +200,16 @@ export async function removeStoredPlugin(directory: string): Promise<void> {
 }
 
 async function rejectExtras(root: string, prefix: string, paths: Set<string>, drift: (m: string) => never): Promise<void> {
-  for (const entry of await readdir(join(root, prefix), { withFileTypes: true })) {
-    const path = prefix + entry.name;
-    if (entry.isDirectory() && [...paths].some(file => file.startsWith(`${path}/`))) await rejectExtras(root, `${path}/`, paths, drift);
-    else if (!entry.isFile() || !paths.has(path)) drift(`${path}: unlisted file or unsupported file type`);
+  let entries = 0;
+  async function visit(currentPrefix: string): Promise<void> {
+    const directory = await opendir(join(root, currentPrefix));
+    for await (const entry of directory) {
+      entries += 1;
+      if (entries > MAX_PLUGIN_STORE_ENTRIES) drift('plugin store contains too many entries');
+      const path = currentPrefix + entry.name;
+      if (entry.isDirectory() && [...paths].some(file => file.startsWith(`${path}/`))) await visit(`${path}/`);
+      else if (!entry.isFile() || !paths.has(path)) drift(`${path}: unlisted file or unsupported file type`);
+    }
   }
+  await visit(prefix);
 }

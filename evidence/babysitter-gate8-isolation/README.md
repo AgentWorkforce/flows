@@ -18,7 +18,9 @@ The enforced boundary is:
   no-follow descriptors and explicitly bounded reads enforce the byte limit
   before contents are buffered;
 - reverify every content-addressed artifact, lock metadata, manifest hash,
-  base/runtime compatibility, and route uniqueness, then require the exact
+  base/runtime compatibility, and route uniqueness using bounded descriptor
+  reads that enforce the fetched plugin's 500-file, 256-KB-per-file, and 2-MB
+  total limits before allocation, then require the exact
   immutable native ref/digest/manifest and narrow permission profile; copy the
   selected bytes into a private snapshot, recompute its digest, and mount only
   that snapshot so later store replacement cannot change executed code;

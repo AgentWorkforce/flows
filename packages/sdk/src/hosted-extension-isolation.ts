@@ -1,6 +1,4 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { canonicalize } from './canonical.js';
 import { validateFlowExtensionManifest, type FlowExtensionManifest } from './flow-extension-manifest.js';
 import { assertBaseCompatible, assertCompatible, runtimeVersions } from './flow-extension-compat.js';
@@ -16,7 +14,7 @@ import {
   type HostedExtensionInstallation,
 } from './hosted-extension-runtime.js';
 import { PluginError } from './plugin-manifest.js';
-import { verifyStoredPlugin } from './plugin-store.js';
+import { readStoredPluginFiles } from './plugin-store.js';
 import {
   boundedJsonSnapshot,
   type HostedExtensionProtocolResult,
@@ -205,8 +203,11 @@ async function verifiedManifest(artifact: HostedExtensionArtifact): Promise<Flow
   if (!/^[a-f0-9]{64}$/.test(artifact.digest) || !/^[a-f0-9]{64}$/.test(artifact.manifestSha256)) {
     throw new PluginError('plugin_source_drift', `${artifact.ref}: hosted extension digests are malformed.`);
   }
-  await verifyStoredPlugin(artifact.directory, artifact.digest);
-  const bytes = await readFile(join(artifact.directory, 'flows-plugin.json'));
+  const stored = await readStoredPluginFiles(artifact.directory, artifact.digest);
+  const bytes = stored.find(file => file.path === 'flows-plugin.json')?.data;
+  if (bytes === undefined) {
+    throw new PluginError('plugin_source_drift', `${artifact.ref}: flows-plugin.json is missing.`);
+  }
   if (sha256(bytes) !== artifact.manifestSha256) {
     throw new PluginError('plugin_source_drift', `${artifact.ref}: flows-plugin.json differs from the lockfile's manifest hash.`);
   }
@@ -231,11 +232,8 @@ async function assertPinnedBabysitter(artifact: HostedExtensionArtifact): Promis
       'Hosted capability isolation accepts only the reviewed native Babysitter artifact.',
     );
   }
-  const payload = JSON.parse(
-    (await readFile(join(artifact.directory, 'manifest.json'))).toString('utf8'),
-  ) as Array<{ path?: unknown }>;
-  if (payload.some(file => typeof file.path === 'string'
-    && (file.path === 'node_modules' || file.path.startsWith('node_modules/')))) {
+  const stored = await readStoredPluginFiles(artifact.directory, artifact.digest);
+  if (stored.some(file => file.path === 'node_modules' || file.path.startsWith('node_modules/'))) {
     throw new PluginError('plugin_source_drift', `${artifact.ref}: hosted extensions cannot carry node_modules.`);
   }
 }
