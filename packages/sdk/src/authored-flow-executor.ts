@@ -44,8 +44,14 @@ import {
 } from './authored-flow-operation.js';
 import { AuthoredFlowLifecycle } from './authored-flow-lifecycle.js';
 import { JournalClient } from './journal-client.js';
+import { PluginError } from './plugin-manifest.js';
 import { createHookEvaluator } from './authored-hooks.js';
-import { probeFlowExtension, type LoadedFlowExtension } from './flow-extension-loader.js';
+import {
+  extensionHandlerForHostedDispatch,
+  probeFlowExtension,
+  type HostedExtensionDispatch,
+  type LoadedFlowExtension,
+} from './flow-extension-loader.js';
 import type {
   CompletionReason as ProtocolCompletionReason,
   RunCompletionReason as ProtocolRunCompletionReason,
@@ -152,6 +158,11 @@ export interface ExecuteAuthoredFlowOptions {
   readonly rootRunId?: string;
   /** Installed flow-extension plugins, in lock order, so `f.hook` can AND-compose them. */
   readonly extensions?: readonly LoadedFlowExtension[];
+  /**
+   * Server-authenticated integration delivery authority. Never derive this
+   * from authored input: direct `/workflows/run` callers control that JSON.
+   */
+  readonly extensionDispatch?: HostedExtensionDispatch;
 }
 
 export async function executeAuthoredFlow<Input = undefined>(
@@ -175,6 +186,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     ...(options.onWait !== undefined ? { onWait: options.onWait } : {}),
   };
   const definition = getDefinition<Input>(handle);
+  const hostedHandler = extensionHandlerForHostedDispatch(options.extensionDispatch, options.extensions ?? []);
   const headerFields = Object.keys(definition.header).filter(key => key !== 'tools' && key !== 'budget' && key !== 'memory' && key !== 'version' && key !== 'hooks');
   if (definition.header.tools && Object.keys(definition.header.tools).some(key => !['mcp', ...helperProviders.map(p => p.namespace)].includes(key))) headerFields.push('tools');
   if (definition.header.tools?.relayfile !== undefined) headerFields.push('tools.relayfile');
@@ -194,6 +206,18 @@ export async function executeAuthoredFlow<Input = undefined>(
   if (!checkedMcp.report.ok) throw new McpPreflightError(checkedMcp.report);
   for (const extension of options.extensions ?? []) {
     if (extension.manifest !== undefined) await probeFlowExtension(extension.manifest);
+  }
+  if (hostedHandler !== undefined) {
+    // A schema-2 entry is ordinary authored JavaScript. Passing it the base
+    // context would not constrain direct Node access, f.run, helpers, MCP or
+    // agent harnesses to manifest.permissions; those declarations are still
+    // explicitly unenforced by gate 8 / #442. Refuse before either body runs.
+    // A later isolated runtime may replace this gate only when it can prove
+    // the manifest boundary, not merely proxy selected Ctx properties.
+    throw new PluginError(
+      'plugin_unsupported',
+      `${hostedHandler.extension.name}: hosted extension handlers require enforced manifest permission isolation (gate 8 / #442).`,
+    );
   }
 
   const budget = new AuthoredBudget(definition.header.budget);

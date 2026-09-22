@@ -99,6 +99,93 @@ function subscriptionOf(handler: TriggerHandler): { provider: string; event: str
   return action === undefined ? { provider, event: type } : { provider, event: type, action };
 }
 
+/**
+ * Server-authenticated integration delivery metadata. This is executor
+ * authority, not authored input: a caller must derive it from its verified
+ * delivery record and pass it out of band. User-controlled `input.event`
+ * objects never become this value.
+ */
+const HOSTED_EXTENSION_DISPATCH_AUTHORITY = Symbol('hosted-extension-dispatch-authority');
+
+export type HostedExtensionDispatch = {
+  readonly [HOSTED_EXTENSION_DISPATCH_AUTHORITY]: true;
+  readonly provenance: 'integration-watch';
+  readonly provider: string;
+  readonly eventType: string;
+  readonly deliveryId: string;
+};
+
+type HostedEventIdentity = { readonly provider: string; readonly event: string; readonly action?: string };
+const DISPATCH_PROVIDER = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const DISPATCH_EVENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const DISPATCH_DELIVERY = /^[A-Za-z0-9_.:-]{1,200}$/;
+
+function hostedEventIdentity(dispatch: unknown): HostedEventIdentity {
+  if (typeof dispatch !== 'object' || dispatch === null || Array.isArray(dispatch)) {
+    throw new PluginError('plugin_event_unroutable', 'Hosted extension dispatch authority is malformed.');
+  }
+  const { provenance, provider, eventType, deliveryId } = dispatch as Partial<HostedExtensionDispatch>;
+  if ((dispatch as Partial<HostedExtensionDispatch>)[HOSTED_EXTENSION_DISPATCH_AUTHORITY] !== true
+    || provenance !== 'integration-watch'
+    || typeof provider !== 'string' || !DISPATCH_PROVIDER.test(provider)
+    || typeof deliveryId !== 'string' || !DISPATCH_DELIVERY.test(deliveryId)
+    || typeof eventType !== 'string') {
+    throw new PluginError('plugin_event_unroutable', 'Hosted extension dispatch authority is malformed.');
+  }
+  const parts = eventType.split('.');
+  if ((parts.length !== 1 && parts.length !== 2) || parts.some(part => !DISPATCH_EVENT.test(part))) {
+    throw new PluginError('plugin_event_unroutable', `Hosted extension event ${JSON.stringify(eventType)} is malformed.`);
+  }
+  return parts.length === 1
+    ? { provider, event: parts[0]! }
+    : { provider, event: parts[0]!, action: parts[1]! };
+}
+
+/**
+ * Brand metadata only after the host has authenticated the integration
+ * delivery. The symbol is deliberately not serializable, so copying a direct
+ * run's JSON into executor options cannot mint dispatch authority.
+ */
+export function hostedExtensionDispatchFromVerifiedDelivery(
+  delivery: Omit<HostedExtensionDispatch, typeof HOSTED_EXTENSION_DISPATCH_AUTHORITY | 'provenance'>,
+): HostedExtensionDispatch {
+  const dispatch = Object.freeze({
+    [HOSTED_EXTENSION_DISPATCH_AUTHORITY]: true as const,
+    provenance: 'integration-watch' as const,
+    ...delivery,
+  });
+  hostedEventIdentity(dispatch);
+  return dispatch;
+}
+
+/**
+ * Resolve a server-authenticated delivery to one extension handler. Authored
+ * input is deliberately absent from this API: direct runs may contain any
+ * JSON shape and cannot opt themselves into extension execution. Overlapping
+ * subscriptions fail closed, including a generic event handler overlapping
+ * an action-specific handler.
+ */
+export function extensionHandlerForHostedDispatch(
+  dispatch: unknown,
+  extensions: readonly Pick<LoadedFlowExtension, 'name' | 'handlers'>[],
+): { readonly extension: Pick<LoadedFlowExtension, 'name' | 'handlers'>; readonly handler: TriggerHandler } | undefined {
+  if (dispatch === undefined) return undefined;
+  const identity = hostedEventIdentity(dispatch);
+  const matches = extensions.flatMap(extension => extension.handlers.flatMap(handler => {
+    const subscription = subscriptionOf(handler);
+    if (subscription === undefined || subscription.provider !== identity.provider || subscription.event !== identity.event) return [];
+    if (subscription.action !== undefined && subscription.action !== identity.action) return [];
+    return [{ extension, handler }];
+  }));
+  if (matches.length > 1) {
+    throw new PluginError(
+      'plugin_event_ambiguous',
+      `Hosted event ${identity.provider}.${identity.event}${identity.action === undefined ? '' : `.${identity.action}`} matches multiple extension handlers (${matches.map(match => match.extension.name).join(', ')}).`,
+    );
+  }
+  return matches[0];
+}
+
 function assertDeclaredSubscription(name: string, manifest: FlowExtensionManifest, handler: TriggerHandler, index: number): void {
   const subscription = subscriptionOf(handler);
   if (handler.trigger.kind === 'schedule') unsupported(name, `handler ${index} (a schedule trigger)`);
