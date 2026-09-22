@@ -83,7 +83,26 @@ export default flow<GitlabSurfaceParityInput>(
       );
     }
 
+    // The scratch tree is gitignored (`parity/`, beside `review/` for the
+    // PR-review flow). That is load-bearing, not tidiness: the no-op decline
+    // below reads `git status --porcelain`, so an unignored scratch directory
+    // would make every run look changed, skip the decline, and then fail at
+    // `git commit` with nothing staged.
+    // Nothing below is safe in a dirty checkout: STEP 7 stages with `git add -A`
+    // and force-pushes, so unrelated local edits would ride along to the
+    // automation branch. Refuse before touching anything rather than after.
+    const dirty = await f.run("git status --porcelain | head -c 4000");
+    if (dirty.trim().length > 0) {
+      throw new Error(
+        "gitlab-surface-parity: refusing to run in a dirty worktree; commit or stash first:\n" + dirty.trim().slice(0, 1000),
+      );
+    }
+
     await f.run("rm -rf parity && mkdir -p parity");
+    const ignored = await f.run("git check-ignore -q parity && echo ignored || echo tracked");
+    if (ignored.trim() !== "ignored") {
+      throw new Error("gitlab-surface-parity: parity/ must be gitignored; see .gitignore");
+    }
 
     // STEP 1 — probe the registry for a relay-helpers whose TRANSITIVE
     // adapter-core actually carries the GitLab resources. This installs each
@@ -125,15 +144,17 @@ export default flow<GitlabSurfaceParityInput>(
     }
 
     // STEP 3 — bump the pin, reinstall, regenerate. The pin is exact in this
-    // repository (packages/surface/package.json), so it is rewritten from the
-    // probe's own answer rather than from a range.
+    // repository and lives under `peerDependencies` (surface declares the
+    // helper library as a peer, not a dependency), so it is rewritten there
+    // from the probe's own answer rather than from a range.
     await f.run(
       `node -e '`
         + `const fs=require("fs"); const probe=JSON.parse(fs.readFileSync("${PROBE}","utf8"));`
         + `const p="${SURFACE_PKG}"; const m=JSON.parse(fs.readFileSync(p,"utf8"));`
-        + `const cur=m.dependencies["@relayfile/relay-helpers"];`
-        + `if(cur===undefined) throw new Error("no @relayfile/relay-helpers dependency in "+p);`
-        + `m.dependencies["@relayfile/relay-helpers"]=probe.version;`
+        + `const peers=m.peerDependencies||{};`
+        + `const cur=peers["@relayfile/relay-helpers"];`
+        + `if(cur===undefined) throw new Error("no @relayfile/relay-helpers peer dependency in "+p);`
+        + `peers["@relayfile/relay-helpers"]=probe.version;`
         + `fs.writeFileSync(p, JSON.stringify(m,null,2)+"\\n");`
         + `console.log(cur+" -> "+probe.version);'`,
       { timeout: "1m" },
@@ -189,14 +210,14 @@ export default flow<GitlabSurfaceParityInput>(
     // same PR instead of opening a second one. `gh` uses the sandbox's
     // GH_TOKEN, the same credential git has there (see pr-review.flow.ts:
     // the relayfile GitHub mount is not attached to authored Cloud runs).
-    const changed = await f.run("git status --porcelain | head -c 4000");
+    const changed = await f.run("git status --porcelain | head -c 4000");  // parity/ is ignored, so this is real work only
     if (changed.trim().length === 0) {
       await f.run(`printf '%s\\n' 'No change: the pin already resolved a catalog with the GitLab resources.' >> ${REPORT}`);
       return f.done("declined");
     }
     await f.run(
       `git checkout -B ${shellWord(branch)} && `
-        + `git add -A ':(exclude)parity' && `
+        + `git add -A && `
         + `git -c user.name='relayflow' -c user.email='flows@agent-relay.com' commit -m `
         + shellWord(
           "feat(surface): give the gitlab helper its issue and merge-request surface\n\n"
