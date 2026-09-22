@@ -4,11 +4,12 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { canonicalize } from './canonical.js';
 
 type Hash = ReturnType<typeof createHash>;
-const HASH_UPDATE = Function.prototype.call.bind(createHash('sha256').update) as (
+const CREATE_HASH = createHash;
+const HASH_UPDATE = Function.prototype.call.bind(CREATE_HASH('sha256').update) as (
   hash: Hash,
   data: Uint8Array | string,
 ) => Hash;
-const HASH_DIGEST = Function.prototype.call.bind(createHash('sha256').digest) as (
+const HASH_DIGEST = Function.prototype.call.bind(CREATE_HASH('sha256').digest) as (
   hash: Hash,
   encoding: 'hex',
 ) => string;
@@ -34,7 +35,7 @@ export interface BundleOptions {
 }
 
 export function sha256(data: Uint8Array | string): string {
-  const hash = createHash('sha256');
+  const hash = CREATE_HASH('sha256');
   HASH_UPDATE(hash, data);
   return HASH_DIGEST(hash, 'hex');
 }

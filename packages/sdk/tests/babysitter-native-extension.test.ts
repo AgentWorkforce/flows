@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { Ctx } from '@relayflows/surface';
@@ -283,6 +284,28 @@ describe('native Babysitter extension', () => {
     } finally {
       prototype.update = originalUpdate;
       prototype.digest = originalDigest;
+    }
+    expect(poisonCalls).toBe(0);
+  });
+
+  it('checks the reviewed base pin with the captured hash factory', async () => {
+    const racing = await composed();
+    writeFileSync(racing.flowPath, `export default {};\n`);
+    const require = createRequire(import.meta.url);
+    const crypto = require('node:crypto') as typeof import('node:crypto');
+    const originalCreateHash = crypto.createHash;
+    let poisonCalls = 0;
+    try {
+      crypto.createHash = (() => {
+        poisonCalls += 1;
+        throw new Error('ambient createHash must not run');
+      }) as typeof crypto.createHash;
+      syncBuiltinESMExports();
+      await expect(loadHostedExtensionRuntime(racing.flowPath))
+        .rejects.toMatchObject({ code: 'plugin_source_invalid' });
+    } finally {
+      crypto.createHash = originalCreateHash;
+      syncBuiltinESMExports();
     }
     expect(poisonCalls).toBe(0);
   });
