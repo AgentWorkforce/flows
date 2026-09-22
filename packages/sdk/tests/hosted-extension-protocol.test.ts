@@ -138,6 +138,45 @@ describe('hosted extension hostile protocol', () => {
     },
   );
 
+  it('bounds an exponentially shared delivery graph before cloning it', async () => {
+    let shared: Record<string, unknown> = { leaf: 'x' };
+    for (let depth = 0; depth < 40; depth += 1) shared = { left: shared, right: shared };
+    const input = { ...descriptor(), extra: shared };
+    let calls = 0;
+    const started = Date.now();
+    await expect(runVerifiedNativeExtensionSandbox({
+      artifact: await artifact(normalImport()),
+      manifest: validateFlowExtensionManifest(manifest()), dispatch: dispatch(), input,
+      babysitterTurn: { queue: async () => {
+        calls += 1;
+        return { receiptId: 'never', status: 'queued' };
+      } },
+    })).rejects.toMatchObject({ code: 'plugin_unsupported' });
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(calls).toBe(0);
+  });
+
+  it('rejects extra delivery fields with Array.prototype.sort poisoned', async () => {
+    const installed = await artifact(normalImport());
+    const validated = validateFlowExtensionManifest(manifest());
+    const input = { ...descriptor(), sessionId: 'forged-session' };
+    const sort = Object.getOwnPropertyDescriptor(Array.prototype, 'sort')!;
+    let calls = 0;
+    try {
+      Object.defineProperty(Array.prototype, 'sort', { ...sort, value: () => [] });
+      await expect(runVerifiedNativeExtensionSandbox({
+        artifact: installed, manifest: validated, dispatch: dispatch(), input,
+        babysitterTurn: { queue: async () => {
+          calls += 1;
+          return { receiptId: 'never', status: 'queued' };
+        } },
+      })).rejects.toMatchObject({ code: 'plugin_event_unroutable' });
+    } finally {
+      Object.defineProperty(Array.prototype, 'sort', sort);
+    }
+    expect(calls).toBe(0);
+  });
+
   it.runIf(process.platform === 'linux')(
     'uses captured JSON intrinsics for the complete parent boundary', async () => {
       const installed = await artifact(normalImport());

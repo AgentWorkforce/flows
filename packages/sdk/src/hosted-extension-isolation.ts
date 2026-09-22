@@ -38,8 +38,10 @@ const ARRAY_IS_ARRAY = Array.isArray;
 const JSON_PARSE = JSON.parse;
 const NUMBER_IS_SAFE_INTEGER = Number.isSafeInteger;
 const OBJECT_HAS_OWN = Object.hasOwn;
+const OBJECT_FREEZE = Object.freeze;
 const OBJECT_KEYS = Object.keys;
 const REGEXP_TEST = RegExp.prototype.test;
+const STRING_STARTS_WITH = String.prototype.startsWith;
 const BABYSITTER_REF = 'github:AgentWorkforce/flows@8b33ebab8347514f80d9da5a81206a087f641714#extensions/babysitter';
 const BABYSITTER_DIGEST = 'bdf2187b9a242667d34bbc63e7a744753e146dc8cd6f4047047f2aed28f406ee';
 const BABYSITTER_MANIFEST_SHA256 = '5631a06bbdc8186f4ee0ff955610ead24d001c5197b59fb1fe81fe422c44f226';
@@ -188,12 +190,12 @@ export async function selectHostedExtensionForRuntime(
     const manifest = await verifiedManifest(artifact);
     assertCompatible(manifest, versions);
     assertBaseCompatible(manifest, base);
-    if (hostedManifestRoutes(manifest, identity)) matches.push({ artifact, manifest });
+    if (hostedManifestRoutes(manifest, identity)) matches[matches.length] = { artifact, manifest };
   }
   if (matches.length > 1) {
     throw new PluginError(
       'plugin_event_ambiguous',
-      `Hosted event matches multiple extension manifests (${matches.map(match => match.manifest.name).join(', ')}).`,
+      `Hosted event matches multiple extension manifests (${manifestNames(matches)}).`,
     );
   }
   const selected = matches[0];
@@ -210,7 +212,10 @@ async function verifiedManifest(artifact: HostedExtensionArtifact): Promise<Flow
     throw new PluginError('plugin_source_drift', `${artifact.ref}: hosted extension digests are malformed.`);
   }
   const stored = await readStoredPluginFiles(artifact.directory, artifact.digest);
-  const bytes = stored.find(file => file.path === 'flows-plugin.json')?.data;
+  let bytes: Buffer | undefined;
+  for (let index = 0; index < stored.length; index += 1) {
+    if (stored[index]!.path === 'flows-plugin.json') bytes = stored[index]!.data;
+  }
   if (bytes === undefined) {
     throw new PluginError('plugin_source_drift', `${artifact.ref}: flows-plugin.json is missing.`);
   }
@@ -239,8 +244,11 @@ async function assertPinnedBabysitter(artifact: HostedExtensionArtifact): Promis
     );
   }
   const stored = await readStoredPluginFiles(artifact.directory, artifact.digest);
-  if (stored.some(file => file.path === 'node_modules' || file.path.startsWith('node_modules/'))) {
-    throw new PluginError('plugin_source_drift', `${artifact.ref}: hosted extensions cannot carry node_modules.`);
+  for (let index = 0; index < stored.length; index += 1) {
+    const path = stored[index]!.path;
+    if (path === 'node_modules' || STRING_STARTS_WITH.call(path, 'node_modules/')) {
+      throw new PluginError('plugin_source_drift', `${artifact.ref}: hosted extensions cannot carry node_modules.`);
+    }
   }
 }
 
@@ -286,10 +294,16 @@ export function hostedManifestRoutes(
   manifest: Pick<FlowExtensionManifest, 'triggers'>,
   identity: { readonly provider: string; readonly event: string; readonly action?: string },
 ): boolean {
-  return manifest.triggers.some(trigger => trigger.provider === identity.provider
-    && trigger.event === identity.event
-    && (trigger.actions.length === 0
-      || (identity.action !== undefined && trigger.actions.includes(identity.action))));
+  for (let triggerIndex = 0; triggerIndex < manifest.triggers.length; triggerIndex += 1) {
+    const trigger = manifest.triggers[triggerIndex]!;
+    if (trigger.provider !== identity.provider || trigger.event !== identity.event) continue;
+    if (trigger.actions.length === 0) return true;
+    if (identity.action === undefined) continue;
+    for (let actionIndex = 0; actionIndex < trigger.actions.length; actionIndex += 1) {
+      if (trigger.actions[actionIndex] === identity.action) return true;
+    }
+  }
+  return false;
 }
 
 function babysitterInput(input: unknown, dispatch: HostedExtensionDispatch): unknown {
@@ -345,13 +359,12 @@ function babysitterReceipt(value: unknown): unknown {
     throw new PluginError('plugin_unsupported', 'Babysitter capability returned an invalid receipt.');
   }
   const receipt = snapshot as Record<string, unknown>;
-  const keys = OBJECT_KEYS(receipt).sort();
-  if (keys.length !== 2 || keys[0] !== 'receiptId' || keys[1] !== 'status'
+  if (!hasExactKeys(receipt, ['receiptId', 'status'])
     || typeof receipt.receiptId !== 'string' || !matches(RECEIPT_ID, receipt.receiptId)
     || (receipt.status !== 'queued' && receipt.status !== 'duplicate')) {
     throw new PluginError('plugin_unsupported', 'Babysitter capability returned an invalid receipt.');
   }
-  return Object.freeze({ receiptId: receipt.receiptId, status: receipt.status });
+  return OBJECT_FREEZE({ receiptId: receipt.receiptId, status: receipt.status });
 }
 
 function matches(pattern: RegExp, value: string): boolean {
@@ -367,10 +380,8 @@ function record(value: unknown, what: string): Record<string, unknown> {
 
 function exactRecord(value: unknown, what: string, keys: readonly string[]): Record<string, unknown> {
   const object = record(value, what);
-  const actual = OBJECT_KEYS(object).sort();
-  const expected = [...keys].sort();
-  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
-    throw new PluginError('plugin_event_unroutable', `${what} must contain exactly ${keys.join(', ')}.`);
+  if (!hasExactKeys(object, keys)) {
+    throw new PluginError('plugin_event_unroutable', `${what} has an invalid field set.`);
   }
   return object;
 }
@@ -382,12 +393,43 @@ function optionalRecord(
   required: readonly string[],
 ): Record<string, unknown> {
   const object = record(value, what);
-  const extra = OBJECT_KEYS(object).filter(key => !allowed.includes(key));
-  const missing = required.filter(key => !OBJECT_HAS_OWN(object, key));
-  if (extra.length > 0 || missing.length > 0) {
-    throw new PluginError('plugin_event_unroutable', `${what} has an invalid field set.`);
+  const actual = OBJECT_KEYS(object);
+  for (let index = 0; index < actual.length; index += 1) {
+    if (!contains(allowed, actual[index]!)) {
+      throw new PluginError('plugin_event_unroutable', `${what} has an invalid field set.`);
+    }
+  }
+  for (let index = 0; index < required.length; index += 1) {
+    if (!OBJECT_HAS_OWN(object, required[index]!)) {
+      throw new PluginError('plugin_event_unroutable', `${what} has an invalid field set.`);
+    }
   }
   return object;
+}
+
+function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  if (OBJECT_KEYS(value).length !== keys.length) return false;
+  for (let index = 0; index < keys.length; index += 1) {
+    if (!OBJECT_HAS_OWN(value, keys[index]!)) return false;
+  }
+  return true;
+}
+
+function contains(values: readonly string[], expected: string): boolean {
+  for (let index = 0; index < values.length; index += 1) {
+    if (values[index] === expected) return true;
+  }
+  return false;
+}
+
+function manifestNames(
+  matches: readonly { readonly manifest: FlowExtensionManifest }[],
+): string {
+  let value = '';
+  for (let index = 0; index < matches.length; index += 1) {
+    value += `${index === 0 ? '' : ', '}${matches[index]!.manifest.name}`;
+  }
+  return value;
 }
 
 function sha256(value: Uint8Array | string): string {

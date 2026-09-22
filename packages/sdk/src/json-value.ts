@@ -1,14 +1,23 @@
 import { isProxy } from 'node:util/types';
 
 const ARRAY_IS_ARRAY = Array.isArray;
+const ARRAY_PUSH = Array.prototype.push;
+const BUFFER_BYTE_LENGTH = Buffer.byteLength;
 const JSON_STRINGIFY = JSON.stringify;
+const NUMBER = Number;
 const NUMBER_IS_FINITE = Number.isFinite;
 const NUMBER_IS_INTEGER = Number.isInteger;
 const OBJECT_CREATE = Object.create;
 const OBJECT_FREEZE = Object.freeze;
 const OBJECT_GET_OWN_PROPERTY_DESCRIPTOR = Object.getOwnPropertyDescriptor;
 const OBJECT_GET_PROTOTYPE_OF = Object.getPrototypeOf;
+const OBJECT_PROTOTYPE = Object.prototype;
 const REFLECT_OWN_KEYS = Reflect.ownKeys;
+const REGEXP_TEST = RegExp.prototype.test;
+const STRING = String;
+const WEAK_SET_ADD = WeakSet.prototype.add;
+const WEAK_SET_DELETE = WeakSet.prototype.delete;
+const WEAK_SET_HAS = WeakSet.prototype.has;
 
 export type JsonValue =
   | null
@@ -18,15 +27,40 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
-/** Copy runtime input into frozen, behavior-free JSON data. */
-export function snapshotJsonValue(value: unknown, at: string): JsonValue {
-  return snapshot(value, at, new WeakSet<object>());
+export interface JsonSnapshotLimits {
+  readonly maxDepth: number;
+  readonly maxNodes: number;
+  readonly maxBytes: number;
 }
 
-function snapshot(value: unknown, at: string, ancestors: WeakSet<object>): JsonValue {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+interface SnapshotBudget {
+  readonly limits?: JsonSnapshotLimits;
+  nodes: number;
+  bytes: number;
+}
+
+/** Copy runtime input into frozen, behavior-free JSON data. */
+export function snapshotJsonValue(value: unknown, at: string, limits?: JsonSnapshotLimits): JsonValue {
+  return snapshot(value, at, new WeakSet<object>(), { limits, nodes: 0, bytes: 0 }, 0);
+}
+
+function snapshot(
+  value: unknown,
+  at: string,
+  ancestors: WeakSet<object>,
+  budget: SnapshotBudget,
+  depth: number,
+): JsonValue {
+  consumeNode(budget, at, depth);
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') {
+    consumeBytes(budget, encodedBytes(value), at);
+    return value;
+  }
   if (typeof value === 'number') {
-    if (NUMBER_IS_FINITE(value)) return value;
+    if (NUMBER_IS_FINITE(value)) {
+      consumeBytes(budget, encodedBytes(value), at);
+      return value;
+    }
     throw nonJson(at, 'numbers must be finite');
   }
   if (typeof value !== 'object') {
@@ -36,14 +70,14 @@ function snapshot(value: unknown, at: string, ancestors: WeakSet<object>): JsonV
   // Node and Bun expose this trap-free brand check, so reject before touching
   // its prototype, keys, descriptors, or identity collection.
   if (isProxy(value)) throw nonJson(at, 'Proxy objects are not allowed');
-  if (ancestors.has(value)) throw nonJson(at, 'cycles are not allowed');
-  ancestors.add(value);
+  if (WEAK_SET_HAS.call(ancestors, value)) throw nonJson(at, 'cycles are not allowed');
+  WEAK_SET_ADD.call(ancestors, value);
   try {
     return ARRAY_IS_ARRAY(value)
-      ? snapshotArray(value, at, ancestors)
-      : snapshotObject(value, at, ancestors);
+      ? snapshotArray(value, at, ancestors, budget, depth)
+      : snapshotObject(value, at, ancestors, budget, depth);
   } finally {
-    ancestors.delete(value);
+    WEAK_SET_DELETE.call(ancestors, value);
   }
 }
 
@@ -51,7 +85,10 @@ function snapshotArray(
   value: unknown[],
   at: string,
   ancestors: WeakSet<object>,
+  budget: SnapshotBudget,
+  depth: number,
 ): JsonValue[] {
+  consumeBytes(budget, 2, at);
   const keys = REFLECT_OWN_KEYS(value);
   for (const key of keys) {
     if (key === 'length') continue;
@@ -61,9 +98,10 @@ function snapshotArray(
   }
   const out: JsonValue[] = [];
   for (let index = 0; index < value.length; index += 1) {
-    const descriptor = OBJECT_GET_OWN_PROPERTY_DESCRIPTOR(value, String(index));
+    if (index > 0) consumeBytes(budget, 1, at);
+    const descriptor = OBJECT_GET_OWN_PROPERTY_DESCRIPTOR(value, STRING(index));
     if (descriptor === undefined) throw nonJson(`${at}[${index}]`, 'array holes are not allowed');
-    out.push(snapshotDescriptor(descriptor, `${at}[${index}]`, ancestors));
+    ARRAY_PUSH.call(out, snapshotDescriptor(descriptor, `${at}[${index}]`, ancestors, budget, depth + 1));
   }
   return OBJECT_FREEZE(out) as unknown as JsonValue[];
 }
@@ -72,12 +110,16 @@ function snapshotObject(
   value: object,
   at: string,
   ancestors: WeakSet<object>,
+  budget: SnapshotBudget,
+  depth: number,
 ): { [key: string]: JsonValue } {
   const prototype = OBJECT_GET_PROTOTYPE_OF(value);
-  if (prototype !== Object.prototype && prototype !== null) {
+  if (prototype !== OBJECT_PROTOTYPE && prototype !== null) {
     throw nonJson(at, 'only plain objects are allowed');
   }
+  consumeBytes(budget, 2, at);
   const out = OBJECT_CREATE(null) as { [key: string]: JsonValue };
+  let included = 0;
   for (const key of REFLECT_OWN_KEYS(value)) {
     if (typeof key !== 'string') throw nonJson(at, 'symbol keys are not allowed');
     const childAt = propertyPath(at, key);
@@ -87,7 +129,10 @@ function snapshotObject(
     // JSON.stringify and the pre-existing compiler omit undefined object
     // optionals. Arrays remain strict because undefined there becomes null.
     if (child === undefined) continue;
-    out[key] = snapshot(child, childAt, ancestors);
+    if (included > 0) consumeBytes(budget, 1, at);
+    consumeBytes(budget, encodedBytes(key) + 1, childAt);
+    out[key] = snapshot(child, childAt, ancestors, budget, depth + 1);
+    included += 1;
   }
   return OBJECT_FREEZE(out);
 }
@@ -96,8 +141,10 @@ function snapshotDescriptor(
   descriptor: PropertyDescriptor,
   at: string,
   ancestors: WeakSet<object>,
+  budget: SnapshotBudget,
+  depth: number,
 ): JsonValue {
-  return snapshot(descriptorValue(descriptor, at), at, ancestors);
+  return snapshot(descriptorValue(descriptor, at), at, ancestors, budget, depth);
 }
 
 function descriptorValue(descriptor: PropertyDescriptor, at: string): unknown {
@@ -107,12 +154,33 @@ function descriptorValue(descriptor: PropertyDescriptor, at: string): unknown {
 }
 
 function isArrayIndex(key: string, length: number): boolean {
-  const index = Number(key);
-  return NUMBER_IS_INTEGER(index) && index >= 0 && index < length && String(index) === key;
+  const index = NUMBER(key);
+  return NUMBER_IS_INTEGER(index) && index >= 0 && index < length && STRING(index) === key;
 }
 
 function propertyPath(at: string, key: string): string {
-  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? `${at}.${key}` : `${at}[${JSON_STRINGIFY(key)}]`;
+  return REGEXP_TEST.call(/^[A-Za-z_$][A-Za-z0-9_$]*$/, key)
+    ? `${at}.${key}`
+    : `${at}[${JSON_STRINGIFY(key)}]`;
+}
+
+function encodedBytes(value: null | boolean | number | string): number {
+  return BUFFER_BYTE_LENGTH(JSON_STRINGIFY(value));
+}
+
+function consumeNode(budget: SnapshotBudget, at: string, depth: number): void {
+  budget.nodes += 1;
+  if (budget.limits !== undefined
+    && (depth > budget.limits.maxDepth || budget.nodes > budget.limits.maxNodes)) {
+    throw nonJson(at, 'snapshot depth or node limit exceeded');
+  }
+}
+
+function consumeBytes(budget: SnapshotBudget, bytes: number, at: string): void {
+  budget.bytes += bytes;
+  if (budget.limits !== undefined && budget.bytes > budget.limits.maxBytes) {
+    throw nonJson(at, 'snapshot byte limit exceeded');
+  }
 }
 
 function nonJson(at: string, detail: string): Error {

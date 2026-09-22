@@ -27,8 +27,10 @@ The enforced boundary is:
 - clone the delivery descriptor into behavior-free, frozen JSON with captured
   parent intrinsics before validation or serialization, rejecting proxies,
   accessors, inherited `toJSON`, symbol keys, cycles, holes, and extra fields;
-  then validate that snapshot against the symbol-branded verified dispatch
-  before import;
+  enforce depth, node-count, and encoded-byte limits incrementally while
+  traversing (including repeatedly shared subtrees), and validate exact keys
+  without ambient array methods; then validate that snapshot against the
+  symbol-branded verified dispatch before import;
 - import and execute the matching handler only inside a bubblewrap namespace
   plus Node's permission model, with no network, writable filesystem, inherited
   environment, child process, workspace mount, MCP, helpers, harnesses, or base

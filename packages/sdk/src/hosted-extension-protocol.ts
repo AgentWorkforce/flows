@@ -8,7 +8,13 @@ const MAX_FRAME_BYTES = 256 * 1024;
 const MAX_STDERR_BYTES = 16 * 1024;
 const JSON_PARSE = JSON.parse;
 const JSON_STRINGIFY = JSON.stringify;
+const OBJECT_HAS_OWN = Object.hasOwn;
 const OBJECT_KEYS = Object.keys;
+const SNAPSHOT_LIMITS = Object.freeze({
+  maxDepth: 64,
+  maxNodes: 262_144,
+  maxBytes: MAX_FRAME_BYTES,
+});
 
 export interface HostedExtensionProtocolResult {
   readonly completionReason: 'success';
@@ -18,7 +24,7 @@ export interface HostedExtensionProtocolResult {
 /** A bounded JSON copy, stripped of prototypes and behavior. */
 export function boundedJsonSnapshot(value: unknown, what: string): unknown {
   let snapshot: ReturnType<typeof snapshotJsonValue>;
-  try { snapshot = snapshotJsonValue(value, what); }
+  try { snapshot = snapshotJsonValue(value, what, SNAPSHOT_LIMITS); }
   catch {
     throw new PluginError('plugin_unsupported', `${what} is not bounded JSON data.`);
   }
@@ -173,7 +179,9 @@ export async function exchangeHostedExtension(
 }
 
 function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
-  const actual = OBJECT_KEYS(value).sort();
-  const expected = [...keys].sort();
-  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+  if (OBJECT_KEYS(value).length !== keys.length) return false;
+  for (let index = 0; index < keys.length; index += 1) {
+    if (!OBJECT_HAS_OWN(value, keys[index]!)) return false;
+  }
+  return true;
 }

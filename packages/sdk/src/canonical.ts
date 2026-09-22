@@ -11,6 +11,10 @@ import { createHash } from 'node:crypto';
 import { snapshotJsonValue, type JsonValue } from './json-value.js';
 
 const ARRAY_IS_ARRAY = Array.isArray;
+const ARRAY_JOIN = Array.prototype.join;
+const ARRAY_MAP = Array.prototype.map;
+const ARRAY_PUSH = Array.prototype.push;
+const ARRAY_SORT = Array.prototype.sort;
 const JSON_STRINGIFY = JSON.stringify;
 const OBJECT_KEYS = Object.keys;
 
@@ -49,13 +53,15 @@ function serialize(value: JsonValue): string {
     return JSON_STRINGIFY(value);
   }
   if (ARRAY_IS_ARRAY(value)) {
-    return '[' + value.map(serialize).join(',') + ']';
+    return '[' + ARRAY_JOIN.call(ARRAY_MAP.call(value, serialize), ',') + ']';
   }
   const parts: string[] = [];
-  for (const key of OBJECT_KEYS(value).sort()) {
+  const keys = OBJECT_KEYS(value);
+  ARRAY_SORT.call(keys);
+  for (const key of keys) {
     const child = value[key];
     if (child === undefined) continue;
-    parts.push(JSON_STRINGIFY(key) + ':' + serialize(child));
+    ARRAY_PUSH.call(parts, JSON_STRINGIFY(key) + ':' + serialize(child));
   }
-  return '{' + parts.join(',') + '}';
+  return '{' + ARRAY_JOIN.call(parts, ',') + '}';
 }
