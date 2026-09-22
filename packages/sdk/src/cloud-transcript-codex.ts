@@ -118,6 +118,28 @@ function bounded(text: string, clean: (t: string) => string, limit = TARGET_MAX_
   return oneLine(clean(text), limit);
 }
 
+/**
+ * The textual content of an MCP result, as one string. `content` is a string
+ * or the MCP content-block array; a block that carries no text (an image, say)
+ * contributes nothing, exactly as `textChars` counts nothing for it.
+ */
+function mcpResultText(result: Record<string, unknown>): string | null {
+  const content = result['content'];
+  if (typeof content === 'string') return content.length === 0 ? null : content;
+  const parts: string[] = [];
+  if (Array.isArray(content)) {
+    for (const block of content) {
+      if (!isRecord(block)) continue;
+      const text = str(block['text']);
+      if (text !== null && text.length > 0) parts.push(text);
+    }
+  }
+  if (parts.length > 0) return parts.join('\n');
+  // A result can be structured only; showing it beats reporting a size alone.
+  const structured = result['structured_content'];
+  return structured === undefined || structured === null ? null : JSON.stringify(structured);
+}
+
 /** A result's size, never its content. */
 function textChars(content: unknown): number {
   if (typeof content === 'string') return content.length;
@@ -209,12 +231,17 @@ function mcpEntry(item: Record<string, unknown>, complete: boolean, context: Con
   const structured = result === null ? null : result['structured_content'];
   const failure = errorText(item['error']);
   const status = str(item['status']);
+  // The result is evidence: bound and redact it exactly as command output is,
+  // instead of reporting a size the reader then has to fetch with `--raw`.
+  const text = result === null ? null : mcpResultText(result);
+  const cut = text === null ? null : excerpt(text, context.clean);
   return tool('mcp_tool_call', bounded(`${server ?? '?'}/${name ?? '?'}${rendered}`, context.clean),
     result === null ? null : textChars(result['content']) + (structured === undefined || structured === null
       ? 0 : JSON.stringify(structured).length),
     status === 'failed' || failure !== null, {
       seq, status: status === null ? null : bounded(status, context.clean, 40),
-      exit_code: null, output_excerpt: null, output_truncated: false, complete,
+      exit_code: null, output_excerpt: cut === null ? null : cut.text,
+      output_truncated: cut?.truncated === true, complete,
       error: failure === null ? null : bounded(failure, context.clean, ERROR_MAX_CHARS),
     });
 }

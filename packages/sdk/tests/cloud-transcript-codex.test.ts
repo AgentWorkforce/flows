@@ -258,7 +258,7 @@ describe('commands and MCP calls', () => {
     expect(rendered).toContain('… excerpt cut at 10 lines / 1,000 chars — see --raw');
   });
 
-  it('serializes nested MCP arguments and sizes a structured-only result', () => {
+  it('serializes nested MCP arguments and shows a structured-only result', () => {
     const rendered = render(frames(
       { type: 'item.completed', item: {
         id: 'i1', type: 'mcp_tool_call', server: 'demo', tool: 'shout',
@@ -267,7 +267,62 @@ describe('commands and MCP calls', () => {
       } },
     ));
     expect(rendered).toBe('  tool 1  mcp_tool_call  demo/shout'
-      + ' {"text":"hi","options":{"mode":"loud","retries":2}}  → 16 chars · completed');
+      + ' {"text":"hi","options":{"mode":"loud","retries":2}}  → 16 chars · completed'
+      + '\n      {"shouted":"HI"}');
+  });
+
+  it('shows an MCP result\u2019s text rather than only its size', () => {
+    const rendered = render(frames(
+      { type: 'item.completed', item: {
+        id: 'i1', type: 'mcp_tool_call', server: 'demo', tool: 'shout', arguments: {},
+        result: { content: [{ type: 'text', text: 'first block' }, { type: 'text', text: 'second block' }] },
+        error: null, status: 'completed',
+      } },
+    ));
+    expect(rendered).toContain('      first block');
+    expect(rendered).toContain('      second block');
+  });
+
+  it('carries a string MCP result through, and skips a block with no text', () => {
+    const rendered = render(frames(
+      { type: 'item.completed', item: {
+        id: 'i1', type: 'mcp_tool_call', server: 'demo', tool: 'a', arguments: {},
+        result: { content: 'plain string result' }, error: null, status: 'completed',
+      } },
+      { type: 'item.completed', item: {
+        id: 'i2', type: 'mcp_tool_call', server: 'demo', tool: 'b', arguments: {},
+        result: { content: [{ type: 'image', data: 'AAAA' }, { type: 'text', text: 'only text' }] },
+        error: null, status: 'completed',
+      } },
+    ));
+    expect(rendered).toContain('      plain string result');
+    expect(rendered).toContain('      only text');
+    expect(rendered).not.toContain('AAAA');
+  });
+
+  it('bounds an oversized MCP result the same way command output is bounded', () => {
+    const text = `${Array.from({ length: 40 }, (_, index) => `mcp ${index}`).join('\n')}`;
+    const rendered = render(frames(
+      { type: 'item.completed', item: {
+        id: 'i1', type: 'mcp_tool_call', server: 'demo', tool: 'shout', arguments: {},
+        result: { content: [{ type: 'text', text }] }, error: null, status: 'completed',
+      } },
+    ));
+    expect(rendered).toContain('      mcp 9');
+    expect(rendered).not.toContain('      mcp 10');
+    expect(rendered).toContain('\u2026 excerpt cut at 10 lines / 1,000 chars \u2014 see --raw');
+  });
+
+  it('redacts an MCP result exactly as it redacts command output', () => {
+    const rendered = render(frames(
+      { type: 'item.completed', item: {
+        id: 'i1', type: 'mcp_tool_call', server: 'demo', tool: 'shout', arguments: {},
+        result: { content: [{ type: 'text', text: 'token sk-secret-value' }] },
+        error: null, status: 'completed',
+      } },
+    ), { DEPLOY_TOKEN: 'sk-secret-value' });
+    expect(rendered).not.toContain('sk-secret-value');
+    expect(rendered).toContain('[redacted:DEPLOY_TOKEN]');
   });
 
   it('keeps a failed MCP call’s result size next to its error', () => {
@@ -279,6 +334,7 @@ describe('commands and MCP calls', () => {
       } },
     ));
     expect(rendered).toContain('  tool 1  mcp_tool_call  demo/shout {}  → 14 chars · failed');
+    expect(rendered).toContain('      partial output');
     expect(rendered).toContain('      error  server refused');
   });
 });
