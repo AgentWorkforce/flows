@@ -506,6 +506,13 @@ declaration and its `flows.tick` lowering either way.
   cannot learn from disk is Cloud's alone and is not guessed: its Cloud run id
   (a UUID Cloud may export separately), its sandbox, and which listener
   launched it.
+- Cloud's live step view comes from polling `flows status --json` for every
+  journal under the run's data dir. For an authored run the root journal's
+  view also carries `authored_steps` (SURFACE.md §5): each step's `label` and
+  `after`, from the moment the step is admitted. A Cloud reporter that reads it
+  can name and connect the run graph's nodes while the run is in flight; one
+  that does not ignores the extra field, so this runtime is safe to pin under
+  either.
 - From outside the sandbox, step state *is* readable — see
   [Reading a hosted run](#reading-a-hosted-run). `GET /runs/<id>/steps`
   answers per-step rows carrying state, attempts, timing, gate verdicts, spend

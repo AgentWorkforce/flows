@@ -161,22 +161,34 @@ export async function readAuthoredStepIndex(
   let offset = 0;
   for (;;) {
     const page = await journal.streamRead(rootRunId, AUTHORED_STEP_STREAM, offset, 1000);
-    for (const message of page.messages) {
-      // `stream.read` returns either the envelope or the bare message,
-      // matching how the executor reads predicate verdicts.
-      const raw = (message as { message?: unknown }).message ?? message;
-      if (!isAuthoredStepRecord(raw)) continue;
-      const previous = index.get(raw.step);
-      // An `admitted` record arriving after a `completed` one (a resumed body
-      // re-admitting the same child under its stable admission key) must not
-      // un-complete it.
-      if (previous?.state === 'completed' && raw.state === 'admitted') continue;
-      index.set(raw.step, raw);
-    }
+    // `stream.read` returns either the envelope or the bare message,
+    // matching how the executor reads predicate verdicts.
+    foldAuthoredStepRecords(page.messages.map((message) => (message as { message?: unknown }).message ?? message), index);
     if (page.messages.length === 0 || page.next_offset <= offset) break;
     offset = page.next_offset;
   }
   return [...index.values()];
+}
+
+/**
+ * The fold itself, over messages already read from the stream in append
+ * order — by `readAuthoredStepIndex` through the daemon, or by `flows status`
+ * straight from the journal file, which must agree with it record for record.
+ */
+export function foldAuthoredStepRecords(
+  messages: Iterable<unknown>,
+  index: Map<string, AuthoredStepRecord> = new Map(),
+): Map<string, AuthoredStepRecord> {
+  for (const raw of messages) {
+    if (!isAuthoredStepRecord(raw)) continue;
+    const previous = index.get(raw.step);
+    // An `admitted` record arriving after a `completed` one (a resumed body
+    // re-admitting the same child under its stable admission key) must not
+    // un-complete it.
+    if (previous?.state === 'completed' && raw.state === 'admitted') continue;
+    index.set(raw.step, raw);
+  }
+  return index;
 }
 
 function isAuthoredStepRecord(value: unknown): value is AuthoredStepRecord {

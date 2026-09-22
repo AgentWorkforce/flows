@@ -4,7 +4,18 @@ import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
 import { attachLocalAgent } from '../src/local-agent.js';
 import { AUTHORED_STEP_STREAM, readAuthoredStepIndex } from '../src/authored-step-index.js';
 import type { JournalClient } from '../src/journal-client.js';
+import { parseStatusArgs, runStatus } from '../src/cli/status.js';
 import { chainFixture } from './flow-chain-fixture.js';
+
+/** `flows status --json` for one run, read from the journal file on disk. */
+async function statusJson(dataDir: string, runId: string): Promise<Record<string, unknown>> {
+  const stdout: string[] = [];
+  const code = await runStatus(parseStatusArgs(['--json', '--data-dir', dataDir, runId])!, {
+    stdout: (line) => stdout.push(line), stderr: () => undefined,
+  }, { env: {} });
+  expect(code).toBe(0);
+  return JSON.parse(stdout[0]!) as Record<string, unknown>;
+}
 
 const closes: Array<() => Promise<void>> = [];
 // Every close runs even when an earlier one rejects, so a failed agent close never leaks the daemon.
@@ -90,5 +101,19 @@ describe('the authored step DAG through the live kernel', () => {
         state: 'completed', completionReason: 'success', ...edges,
       }])),
     );
+
+    // `flows status --json <root>` reads the same index straight off the
+    // journal file — the offline path Cloud's live reporter polls — and each
+    // entry names the child journal whose own view carries that step id, so a
+    // reader can join the two without guessing.
+    const root = await statusJson(fixture.data, rootRunId);
+    expect(root['authored_steps']).toEqual(index.map((record) => ({
+      step: record.step, run_id: record.runId, state: record.state,
+      completion_reason: record.completionReason,
+      ...(record.label === undefined ? {} : { label: record.label }),
+      ...(record.after === undefined ? {} : { after: record.after }),
+    })));
+    const writer = await statusJson(fixture.data, journaled['agent-4']!.runId);
+    expect((writer['steps'] as Array<{ id: string }>).map((step) => step.id)).toEqual(['agent-4']);
   }, 60_000);
 });

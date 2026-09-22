@@ -9,6 +9,7 @@
 // sandbox, its listener) is Cloud's to answer, and this verb does not guess.
 
 import type { CliIo } from '../cli.js';
+import { AUTHORED_STEP_STREAM, foldAuthoredStepRecords, type AuthoredStepRecord } from '../authored-step-index.js';
 import { canonicalize } from '../canonical.js';
 import { DEFAULT_DATA_DIR } from '../daemon-connection.js';
 import { JournalReadError, walkJournal, type JournalEvent } from '../journal-client.js';
@@ -179,12 +180,60 @@ export async function runStatus(args: StatusArgs, io: CliIo, options: StatusOpti
 
   const presented = present(view, thisStep, tails, env);
   if (args.json) {
-    io.stdout(canonicalize({ v: 1, ...presented, partial: taken.partial }));
+    const authored = authoredSteps(taken.events, env);
+    io.stdout(canonicalize({
+      v: 1, ...presented,
+      // Additive: only an authored root journals this stream, so every other
+      // run's JSON is byte-for-byte what it was.
+      ...(authored.length === 0 ? {} : { authored_steps: authored }),
+      partial: taken.partial,
+    }));
   } else {
     for (const line of renderText(presented, taken.partial, args.tail !== undefined)) io.stdout(line);
   }
   if (taken.failure !== undefined) io.stderr(`FAILED [${taken.failure.code}] ${taken.failure.message}`);
   return taken.partial.length === 0 ? 0 : 1;
+}
+
+/** One authored step as the root's `authored-steps` index names it. */
+export interface PresentedAuthoredStep {
+  step: string;
+  run_id: string;
+  state: AuthoredStepRecord['state'];
+  completion_reason?: string;
+  kernel_step?: string;
+  label?: string;
+  after?: string[];
+  after_truncated?: true;
+}
+
+/**
+ * The authored root's step index, folded from the journal already in hand.
+ *
+ * An authored body's steps each run in their own child journal, so a child's
+ * view cannot say what the step is called or what it waited for; the root's
+ * `authored-steps` stream can, from the moment each child is admitted. It is
+ * the same fold `readAuthoredStepIndex` applies through the daemon, so the two
+ * readers cannot disagree. Identifiers are printed as-is, like every other id
+ * here; the label is author-chosen free text and is redacted like one.
+ */
+function authoredSteps(events: readonly JournalEvent[], env: NodeJS.ProcessEnv): PresentedAuthoredStep[] {
+  const messages: unknown[] = [];
+  for (const event of events) {
+    if (event.entry_type !== 'stream.appended') continue;
+    const payload = event.payload as { stream?: unknown; message?: unknown } | null;
+    if (payload?.stream === AUTHORED_STEP_STREAM) messages.push(payload.message);
+  }
+  return [...foldAuthoredStepRecords(messages).values()].map((record) => ({
+    step: record.step,
+    run_id: record.runId,
+    state: record.state,
+    ...(record.completionReason === undefined ? {} : { completion_reason: record.completionReason }),
+    ...(record.kernelStep === undefined ? {} : { kernel_step: record.kernelStep }),
+    ...(record.label === undefined ? {} : { label: redact(record.label, env) }),
+    ...(record.after === undefined ? {} : { after: [...record.after] }),
+    ...(record.afterTruncated === true ? { after_truncated: true as const } : {}),
+  }));
 }
 
 type PresentedStep = StepView & { tails: StepTails };
