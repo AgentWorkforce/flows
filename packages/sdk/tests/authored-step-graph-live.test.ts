@@ -7,7 +7,14 @@ import type { JournalClient } from '../src/journal-client.js';
 import { chainFixture } from './flow-chain-fixture.js';
 
 const closes: Array<() => Promise<void>> = [];
-afterEach(async () => { for (const close of closes.splice(0).reverse()) await close(); });
+// Every close runs even when an earlier one rejects, so a failed agent close never leaks the daemon.
+afterEach(async () => {
+  const errors: unknown[] = [];
+  for (const close of closes.splice(0).reverse()) {
+    try { await close(); } catch (error) { errors.push(error); }
+  }
+  if (errors.length > 0) throw errors[0];
+});
 
 /** A mutable root the index is appended to, as in authored-run-failure-evidence.test.ts. */
 async function openRoot(journal: JournalClient): Promise<string> {

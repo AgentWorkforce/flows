@@ -329,6 +329,27 @@ describe('truncation through the reduction', () => {
   });
 });
 
+describe('a wide fan-in', () => {
+  it('counts every predecessor entry it inspects against the limit, not just distinct steps', () => {
+    // 200 independent steps, 20 siblings that each wait for all of them, then
+    // a join of the siblings. Reducing the join reads 4 000 predecessor
+    // entries but reaches only 200 distinct steps — under a 1 000 limit that
+    // counted distinct steps alone, it would never stop.
+    const bases = Array.from({ length: 200 }, (_, i) => 1 + i);
+    const siblings = Array.from({ length: 20 }, (_, i) => 1_001 + i);
+    const causes = new Map<number, readonly number[]>();
+    siblings.forEach((_, i) => causes.set(2_001 + i, bases));
+    causes.set(5_000, siblings);
+    const graph = new AuthoredStepGraph((asyncId) => causes.get(asyncId) ?? [], 1_000);
+    bases.forEach((promise, i) => graph.registerStep(`b${i}`, promise, 0));
+    siblings.forEach((promise, i) => graph.registerStep(`s${i}`, promise, 2_001 + i));
+    expect(graph.registerStep('join', 6_000, 5_000)).toEqual({
+      after: siblings.map((_, i) => `s${i}`),
+      afterTruncated: true,
+    });
+  });
+});
+
 describe('reading a settlement without handling it', () => {
   it('reports pending, fulfilled and rejected, including for a Promise subclass', async () => {
     class Sub<T> extends Promise<T> {}

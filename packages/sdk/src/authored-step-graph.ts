@@ -191,21 +191,30 @@ export class AuthoredStepGraph {
     // older than the oldest candidate can be one: the walk stops there.
     const oldest = this.orderOf(ordered[0]!);
     const reached = new Set<string>();
-    const stack = ordered.flatMap((step) => [...(this.nodes.get(step)?.after ?? [])]);
-    let visits = 0;
+    // Predecessor lists are read through cursors, never copied onto the stack, and every entry
+    // inspected counts toward the limit — duplicates included — so a wide fan-in bounds both
+    // allocation and work, not just the number of distinct steps reached.
+    const stack: Array<{ readonly values: readonly string[]; next: number }> = [];
+    const pushList = (values: readonly string[] | undefined): void => {
+      if (values !== undefined && values.length > 0) stack.push({ values, next: 0 });
+    };
+    for (const step of ordered) pushList(this.nodes.get(step)?.after);
+    let inspected = 0;
     let truncated = ordered.some((step) => this.nodes.get(step)?.truncated === true);
     while (stack.length > 0) {
-      const step = stack.pop()!;
-      if (reached.has(step)) continue;
-      if (++visits > this.walkLimit) {
+      const frame = stack[stack.length - 1]!;
+      const step = frame.values[frame.next++]!;
+      if (frame.next === frame.values.length) stack.pop();
+      if (++inspected > this.walkLimit) {
         truncated = true;
         break;
       }
+      if (reached.has(step)) continue;
       reached.add(step);
       const node = this.nodes.get(step);
       if (node === undefined || node.order <= oldest) continue;
       truncated ||= node.truncated;
-      stack.push(...node.after);
+      pushList(node.after);
     }
     return { steps: ordered.filter((step) => !reached.has(step)), truncated };
   }
