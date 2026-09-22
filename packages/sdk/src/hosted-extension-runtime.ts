@@ -30,10 +30,18 @@ const DECLARATION_READ_FLAGS = constants.O_RDONLY
 const JSON_PARSE = JSON.parse;
 const ARRAY_IS_ARRAY = Array.isArray;
 const OBJECT_FREEZE = Object.freeze;
-const WEAK_MAP_GET = WeakMap.prototype.get;
-const WEAK_MAP_SET = WeakMap.prototype.set;
-const WEAK_SET_ADD = WeakSet.prototype.add;
-const WEAK_SET_HAS = WeakSet.prototype.has;
+const WEAK_MAP_GET = Function.prototype.call.bind(WeakMap.prototype.get) as <K extends object, V>(
+  map: WeakMap<K, V>, key: K,
+) => V | undefined;
+const WEAK_MAP_SET = Function.prototype.call.bind(WeakMap.prototype.set) as <K extends object, V>(
+  map: WeakMap<K, V>, key: K, value: V,
+) => WeakMap<K, V>;
+const WEAK_SET_ADD = Function.prototype.call.bind(WeakSet.prototype.add) as <T extends object>(
+  set: WeakSet<T>, value: T,
+) => WeakSet<T>;
+const WEAK_SET_HAS = Function.prototype.call.bind(WeakSet.prototype.has) as <T extends object>(
+  set: WeakSet<T>, value: T,
+) => boolean;
 
 interface RuntimeGeneration {
   readonly origin: string;
@@ -110,21 +118,21 @@ export async function assertHostedRuntimeAuthority(
   installation: HostedExtensionInstallation,
   base: HostedExtensionBase,
 ): Promise<void> {
-  if (typeof base !== 'object' || base === null || !WEAK_SET_HAS.call(BASE_AUTHORITY, base)) {
+  if (typeof base !== 'object' || base === null || !WEAK_SET_HAS(BASE_AUTHORITY, base)) {
     throw new PluginError(
       'plugin_incompatible',
       'Hosted extension base authority is malformed; use loadHostedExtensionRuntime.',
     );
   }
   if (typeof installation !== 'object' || installation === null
-    || !WEAK_SET_HAS.call(INSTALLATION_AUTHORITY, installation)) {
+    || !WEAK_SET_HAS(INSTALLATION_AUTHORITY, installation)) {
     throw new PluginError(
       'plugin_source_invalid',
       'Hosted extension installation authority is malformed; use loadHostedExtensionRuntime.',
     );
   }
-  const generation = WEAK_MAP_GET.call(BASE_GENERATION, base);
-  if (generation === undefined || generation !== WEAK_MAP_GET.call(INSTALLATION_GENERATION, installation)) {
+  const generation = WEAK_MAP_GET(BASE_GENERATION, base);
+  if (generation === undefined || generation !== WEAK_MAP_GET(INSTALLATION_GENERATION, installation)) {
     throw new PluginError(
       'plugin_source_invalid',
       'Hosted extension base and installation must originate from the same runtime generation.',
@@ -135,7 +143,7 @@ export async function assertHostedRuntimeAuthority(
 
 /** @internal Validate a metadata-only installation used by selection tests. */
 export function assertHostedInstallationAuthority(value: unknown): asserts value is HostedExtensionInstallation {
-  if (typeof value !== 'object' || value === null || !WEAK_SET_HAS.call(INSTALLATION_AUTHORITY, value)
+  if (typeof value !== 'object' || value === null || !WEAK_SET_HAS(INSTALLATION_AUTHORITY, value)
     || !ARRAY_IS_ARRAY((value as Partial<HostedExtensionInstallation>).artifacts)) {
     throw new PluginError('plugin_source_invalid', 'Hosted extension installation authority is malformed.');
   }
@@ -331,8 +339,8 @@ async function baseAt(
       );
     }
     const value = OBJECT_FREEZE({ name: 'software-factory', version: '2.0.22' });
-    WEAK_SET_ADD.call(BASE_AUTHORITY, value);
-    WEAK_MAP_SET.call(BASE_GENERATION, value, generation);
+    WEAK_SET_ADD(BASE_AUTHORITY, value);
+    WEAK_MAP_SET(BASE_GENERATION, value, generation);
     return value;
   } finally {
     await removeHostedBaseSnapshot(snapshot);
@@ -346,7 +354,7 @@ function installation(
   const artifactCopy: HostedExtensionArtifact[] = [];
   for (let index = 0; index < artifacts.length; index += 1) artifactCopy[index] = artifacts[index]!;
   const value = OBJECT_FREEZE({ artifacts: OBJECT_FREEZE(artifactCopy) });
-  WEAK_SET_ADD.call(INSTALLATION_AUTHORITY, value);
-  WEAK_MAP_SET.call(INSTALLATION_GENERATION, value, generation);
+  WEAK_SET_ADD(INSTALLATION_AUTHORITY, value);
+  WEAK_MAP_SET(INSTALLATION_GENERATION, value, generation);
   return value;
 }

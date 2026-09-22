@@ -11,10 +11,11 @@ import { createHash } from 'node:crypto';
 import { snapshotJsonValue, type JsonValue } from './json-value.js';
 
 const ARRAY_IS_ARRAY = Array.isArray;
-const ARRAY_JOIN = Array.prototype.join;
-const ARRAY_MAP = Array.prototype.map;
-const ARRAY_PUSH = Array.prototype.push;
-const ARRAY_SORT = Array.prototype.sort;
+const ARRAY_JOIN = Function.prototype.call.bind(Array.prototype.join) as (
+  array: readonly string[], separator?: string,
+) => string;
+const ARRAY_PUSH = Function.prototype.call.bind(Array.prototype.push) as <T>(array: T[], value: T) => number;
+const ARRAY_SORT = Function.prototype.call.bind(Array.prototype.sort) as <T>(array: T[]) => T[];
 const JSON_STRINGIFY = JSON.stringify;
 const OBJECT_KEYS = Object.keys;
 
@@ -53,15 +54,18 @@ function serialize(value: JsonValue): string {
     return JSON_STRINGIFY(value);
   }
   if (ARRAY_IS_ARRAY(value)) {
-    return '[' + ARRAY_JOIN.call(ARRAY_MAP.call(value, serialize), ',') + ']';
+    const items: string[] = [];
+    for (let index = 0; index < value.length; index += 1) items[index] = serialize(value[index]!);
+    return '[' + ARRAY_JOIN(items, ',') + ']';
   }
   const parts: string[] = [];
   const keys = OBJECT_KEYS(value);
-  ARRAY_SORT.call(keys);
-  for (const key of keys) {
+  ARRAY_SORT(keys);
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index]!;
     const child = value[key];
     if (child === undefined) continue;
-    ARRAY_PUSH.call(parts, JSON_STRINGIFY(key) + ':' + serialize(child));
+    ARRAY_PUSH(parts, JSON_STRINGIFY(key) + ':' + serialize(child));
   }
-  return '{' + ARRAY_JOIN.call(parts, ',') + '}';
+  return '{' + ARRAY_JOIN(parts, ',') + '}';
 }

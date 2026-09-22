@@ -13,8 +13,12 @@ const JSON_STRINGIFY = JSON.stringify;
 const OBJECT_HAS_OWN = Object.hasOwn;
 const OBJECT_KEYS = Object.keys;
 const STRING = String;
-const STRING_INDEX_OF = String.prototype.indexOf;
-const STRING_SLICE = String.prototype.slice;
+const STRING_INDEX_OF = Function.prototype.call.bind(String.prototype.indexOf) as (
+  value: string, search: string,
+) => number;
+const STRING_SLICE = Function.prototype.call.bind(String.prototype.slice) as (
+  value: string, start?: number, end?: number,
+) => string;
 const SNAPSHOT_LIMITS = Object.freeze({
   maxDepth: 64,
   maxNodes: 262_144,
@@ -60,7 +64,7 @@ export async function exchangeHostedExtension(
   let calls = 0;
   stderr.setEncoding('utf8');
   stderr.on('data', chunk => {
-    stderrText = STRING_SLICE.call(stderrText + STRING(chunk), -MAX_STDERR_BYTES);
+    stderrText = STRING_SLICE(stderrText + STRING(chunk), -MAX_STDERR_BYTES);
   });
   protocol.setEncoding('utf8');
 
@@ -107,10 +111,10 @@ export async function exchangeHostedExtension(
       buffer += STRING(chunk);
       if (BUFFER_BYTE_LENGTH(buffer) > MAX_FRAME_BYTES) return refuse('Hosted extension protocol exceeded its size limit.');
       for (;;) {
-        const end = STRING_INDEX_OF.call(buffer, '\n');
+        const end = STRING_INDEX_OF(buffer, '\n');
         if (end < 0) break;
-        const line = STRING_SLICE.call(buffer, 0, end);
-        buffer = STRING_SLICE.call(buffer, end + 1);
+        const line = STRING_SLICE(buffer, 0, end);
+        buffer = STRING_SLICE(buffer, end + 1);
         let message: Record<string, unknown>;
         try {
           const parsed = JSON_PARSE(line) as unknown;
@@ -165,7 +169,7 @@ export async function exchangeHostedExtension(
           }
           const error = new PluginError(
             'plugin_unsupported',
-            `Hosted extension failed: ${STRING_SLICE.call(message.message, 0, 8192)}`,
+            `Hosted extension failed: ${STRING_SLICE(message.message, 0, 8192)}`,
           );
           if (capabilityState === 'pending') {
             deferredProtocolError ??= error;

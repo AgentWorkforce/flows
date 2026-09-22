@@ -229,11 +229,21 @@ describe('native Babysitter extension', () => {
   it('validates opaque runtime authority with captured WeakSet and WeakMap methods', async () => {
     const originalHas = WeakSet.prototype.has;
     const originalGet = WeakMap.prototype.get;
+    const originalCall = Function.prototype.call;
+    const reflectApply = Reflect.apply;
     let poisonCalls = 0;
     let failure: unknown;
     try {
       WeakSet.prototype.has = (() => { poisonCalls += 1; return true; }) as typeof WeakSet.prototype.has;
       WeakMap.prototype.get = (() => { poisonCalls += 1; return undefined; }) as typeof WeakMap.prototype.get;
+      Function.prototype.call = function poisonedCall(
+        this: Function,
+        thisArg: unknown,
+        ...args: unknown[]
+      ) {
+        if (this === originalHas || this === originalGet) poisonCalls += 1;
+        return reflectApply(originalCall, this, [thisArg, ...args]);
+      } as typeof Function.prototype.call;
       await assertHostedRuntimeAuthority(
         installed.hostedRuntime.installation,
         installed.hostedRuntime.base,
@@ -244,6 +254,7 @@ describe('native Babysitter extension', () => {
         failure = error;
       }
     } finally {
+      Function.prototype.call = originalCall;
       WeakSet.prototype.has = originalHas;
       WeakMap.prototype.get = originalGet;
     }

@@ -1,7 +1,7 @@
 import { isProxy } from 'node:util/types';
 
 const ARRAY_IS_ARRAY = Array.isArray;
-const ARRAY_PUSH = Array.prototype.push;
+const ARRAY_PUSH = Function.prototype.call.bind(Array.prototype.push) as <T>(array: T[], value: T) => number;
 const ARRAY_PROTOTYPE = Array.prototype;
 const ERROR = Error;
 const JSON_STRINGIFY = JSON.stringify;
@@ -15,13 +15,23 @@ const OBJECT_GET_OWN_PROPERTY_DESCRIPTOR = Object.getOwnPropertyDescriptor;
 const OBJECT_GET_PROTOTYPE_OF = Object.getPrototypeOf;
 const OBJECT_HAS_OWN = Object.hasOwn;
 const OBJECT_PROTOTYPE = Object.prototype;
-const REGEXP_TEST = RegExp.prototype.test;
+const REGEXP_TEST = Function.prototype.call.bind(RegExp.prototype.test) as (
+  regexp: RegExp, value: string,
+) => boolean;
 const STRING = String;
-const STRING_CHAR_CODE_AT = String.prototype.charCodeAt;
+const STRING_CHAR_CODE_AT = Function.prototype.call.bind(String.prototype.charCodeAt) as (
+  value: string, index: number,
+) => number;
 const WEAK_SET = WeakSet;
-const WEAK_SET_ADD = WeakSet.prototype.add;
-const WEAK_SET_DELETE = WeakSet.prototype.delete;
-const WEAK_SET_HAS = WeakSet.prototype.has;
+const WEAK_SET_ADD = Function.prototype.call.bind(WeakSet.prototype.add) as <T extends object>(
+  set: WeakSet<T>, value: T,
+) => WeakSet<T>;
+const WEAK_SET_DELETE = Function.prototype.call.bind(WeakSet.prototype.delete) as <T extends object>(
+  set: WeakSet<T>, value: T,
+) => boolean;
+const WEAK_SET_HAS = Function.prototype.call.bind(WeakSet.prototype.has) as <T extends object>(
+  set: WeakSet<T>, value: T,
+) => boolean;
 
 export type JsonValue =
   | null
@@ -79,14 +89,14 @@ function snapshot(
   // Node and Bun expose this trap-free brand check, so reject before touching
   // its prototype, keys, descriptors, or identity collection.
   if (isProxy(value)) throw nonJson(at, 'Proxy objects are not allowed');
-  if (WEAK_SET_HAS.call(ancestors, value)) throw nonJson(at, 'cycles are not allowed');
-  WEAK_SET_ADD.call(ancestors, value);
+  if (WEAK_SET_HAS(ancestors, value)) throw nonJson(at, 'cycles are not allowed');
+  WEAK_SET_ADD(ancestors, value);
   try {
     return ARRAY_IS_ARRAY(value)
       ? snapshotArray(value, at, ancestors, budget, depth)
       : snapshotObject(value, at, ancestors, budget, depth);
   } finally {
-    WEAK_SET_DELETE.call(ancestors, value);
+    WEAK_SET_DELETE(ancestors, value);
   }
 }
 
@@ -122,7 +132,7 @@ function snapshotArray(
     if (index > 0) consumeBytes(budget, 1, at);
     const descriptor = OBJECT_GET_OWN_PROPERTY_DESCRIPTOR(value, STRING(index));
     if (descriptor === undefined) throw nonJson(`${at}[${index}]`, 'array holes are not allowed');
-    ARRAY_PUSH.call(out, snapshotDescriptor(descriptor, `${at}[${index}]`, ancestors, budget, depth + 1));
+    ARRAY_PUSH(out, snapshotDescriptor(descriptor, `${at}[${index}]`, ancestors, budget, depth + 1));
   }
   // JSON.stringify consults `toJSON` before applying array semantics. Shadow
   // any poisoned Array.prototype hook with inert, non-JSON-visible data while
@@ -191,7 +201,7 @@ function isArrayIndex(key: string, length: number): boolean {
 
 function propertyPath(at: string, key: string): string {
   if (key.length > 100) return `${at}[long property]`;
-  return REGEXP_TEST.call(/^[A-Za-z_$][A-Za-z0-9_$]*$/, key)
+  return REGEXP_TEST(/^[A-Za-z_$][A-Za-z0-9_$]*$/, key)
     ? `${at}.${key}`
     : `${at}[${JSON_STRINGIFY(key)}]`;
 }
@@ -219,13 +229,13 @@ function consumeStringBytes(budget: SnapshotBudget, value: string, at: string): 
     throw nonJson(at, 'snapshot byte limit exceeded');
   }
   for (let index = 0; index < value.length; index += 1) {
-    const code = STRING_CHAR_CODE_AT.call(value, index);
+    const code = STRING_CHAR_CODE_AT(value, index);
     if (code === 0x22 || code === 0x5c || code === 0x08 || code === 0x09
       || code === 0x0a || code === 0x0c || code === 0x0d) {
       consumeBytes(budget, 2, at);
     } else if (code < 0x20 || (code >= 0xd800 && code <= 0xdfff)) {
       if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length) {
-        const low = STRING_CHAR_CODE_AT.call(value, index + 1);
+        const low = STRING_CHAR_CODE_AT(value, index + 1);
         if (low >= 0xdc00 && low <= 0xdfff) {
           consumeBytes(budget, 4, at);
           index += 1;

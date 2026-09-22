@@ -13,7 +13,9 @@ const JSON_PARSE = JSON.parse;
 const ARRAY_IS_ARRAY = Array.isArray;
 const JSON_STRINGIFY = JSON.stringify;
 const OBJECT_FREEZE = Object.freeze;
-const REGEXP_TEST = RegExp.prototype.test;
+const REGEXP_TEST = Function.prototype.call.bind(RegExp.prototype.test) as (
+  regexp: RegExp, value: string,
+) => boolean;
 const STRING_SPLIT = Function.prototype.call.bind(String.prototype.split) as (
   value: string,
   separator: string | RegExp,
@@ -136,15 +138,15 @@ function hostedEventIdentity(dispatch: unknown): HostedEventIdentity {
   const { provenance, provider, eventType, deliveryId } = dispatch as Partial<HostedExtensionDispatch>;
   if ((dispatch as Partial<HostedExtensionDispatch>)[HOSTED_EXTENSION_DISPATCH_AUTHORITY] !== true
     || provenance !== 'integration-watch'
-    || typeof provider !== 'string' || !REGEXP_TEST.call(DISPATCH_PROVIDER, provider)
-    || typeof deliveryId !== 'string' || !REGEXP_TEST.call(DISPATCH_DELIVERY, deliveryId)
+    || typeof provider !== 'string' || !REGEXP_TEST(DISPATCH_PROVIDER, provider)
+    || typeof deliveryId !== 'string' || !REGEXP_TEST(DISPATCH_DELIVERY, deliveryId)
     || typeof eventType !== 'string') {
     throw new PluginError('plugin_event_unroutable', 'Hosted extension dispatch authority is malformed.');
   }
   const parts = STRING_SPLIT(eventType, '.');
   let valid = parts.length === 1 || parts.length === 2;
   for (let index = 0; valid && index < parts.length; index += 1) {
-    valid = REGEXP_TEST.call(DISPATCH_EVENT, parts[index]!);
+    valid = REGEXP_TEST(DISPATCH_EVENT, parts[index]!);
   }
   if (!valid) {
     throw new PluginError('plugin_event_unroutable', `Hosted extension event ${JSON_STRINGIFY(eventType)} is malformed.`);

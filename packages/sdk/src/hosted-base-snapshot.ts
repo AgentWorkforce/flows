@@ -8,12 +8,18 @@ import { findPluginProject } from './plugin-loader.js';
 import { PluginError } from './plugin-manifest.js';
 
 const EXCLUDED_DIRECTORIES = new Set(['.flows', '.git', 'node_modules']);
-const ARRAY_PUSH = Array.prototype.push;
-const ARRAY_SORT = Array.prototype.sort;
+const ARRAY_PUSH = Function.prototype.call.bind(Array.prototype.push) as <T>(array: T[], value: T) => number;
+const ARRAY_SORT = Function.prototype.call.bind(Array.prototype.sort) as <T>(
+  array: T[], compare?: (left: T, right: T) => number,
+) => T[];
 const OBJECT_FREEZE = Object.freeze;
-const SET_HAS = Set.prototype.has;
-const STRING_LOCALE_COMPARE = String.prototype.localeCompare;
-const STRING_STARTS_WITH = String.prototype.startsWith;
+const SET_HAS = Function.prototype.call.bind(Set.prototype.has) as <T>(set: Set<T>, value: T) => boolean;
+const STRING_LOCALE_COMPARE = Function.prototype.call.bind(String.prototype.localeCompare) as (
+  value: string, other: string,
+) => number;
+const STRING_STARTS_WITH = Function.prototype.call.bind(String.prototype.startsWith) as (
+  value: string, search: string,
+) => boolean;
 const MAX_ENTRIES = 10_000;
 const MAX_BYTES = 64 * 1024 * 1024;
 const MAX_DEPTH = 64;
@@ -59,7 +65,7 @@ export async function createHostedBaseSnapshot(flowPath: string): Promise<Hosted
   const projectRoot = await realpath(discovered);
   const flowRelative = relative(projectRoot, origin);
   if (flowRelative === '' || isAbsolute(flowRelative)
-    || flowRelative === '..' || STRING_STARTS_WITH.call(flowRelative, `..${sep}`)) {
+    || flowRelative === '..' || STRING_STARTS_WITH(flowRelative, `..${sep}`)) {
     throw invalid('Hosted base flow must be a file inside its project root.');
   }
   const liveSources = OBJECT_FREEZE([
@@ -114,10 +120,10 @@ async function readAuthorityFiles(
     const source = sources[sourceIndex]!;
     const sourceFiles = await readTree(source.root, source.prefix, budget, hooks);
     for (let fileIndex = 0; fileIndex < sourceFiles.length; fileIndex += 1) {
-      ARRAY_PUSH.call(files, sourceFiles[fileIndex]!);
+      ARRAY_PUSH(files, sourceFiles[fileIndex]!);
     }
   }
-  ARRAY_SORT.call(files, (left, right) => STRING_LOCALE_COMPARE.call(left.path, right.path));
+  ARRAY_SORT(files, (left, right) => STRING_LOCALE_COMPARE(left.path, right.path));
   return OBJECT_FREEZE(files);
 }
 
@@ -125,7 +131,7 @@ async function readSnapshotTree(root: string): Promise<readonly SourceFile[]> {
   const files: SourceFile[] = [];
   async function visit(directory: string, prefix: string): Promise<void> {
     const entries = await readdir(directory, { withFileTypes: true });
-    ARRAY_SORT.call(entries, (left, right) => STRING_LOCALE_COMPARE.call(left.name, right.name));
+    ARRAY_SORT(entries, (left, right) => STRING_LOCALE_COMPARE(left.name, right.name));
     for (let index = 0; index < entries.length; index += 1) {
       const entry = entries[index]!;
       const path = prefix === '' ? entry.name : join(prefix, entry.name);
@@ -133,12 +139,12 @@ async function readSnapshotTree(root: string): Promise<readonly SourceFile[]> {
       if (entry.isDirectory()) await visit(absolute, path);
       else if (entry.isFile()) {
         const bytes = await readFile(absolute);
-        ARRAY_PUSH.call(files, OBJECT_FREEZE({ path, bytes, sha256: sha256(bytes) }));
+        ARRAY_PUSH(files, OBJECT_FREEZE({ path, bytes, sha256: sha256(bytes) }));
       } else throw invalid(`Hosted base snapshot contains unsupported entry "${path}".`);
     }
   }
   await visit(root, '');
-  ARRAY_SORT.call(files, (left, right) => STRING_LOCALE_COMPARE.call(left.path, right.path));
+  ARRAY_SORT(files, (left, right) => STRING_LOCALE_COMPARE(left.path, right.path));
   return OBJECT_FREEZE(files);
 }
 
@@ -160,7 +166,7 @@ async function readTree(
     if (depth > MAX_DEPTH) throw tooLarge();
     const entries = await opendir(`/proc/self/fd/${directory.fd}`);
     for await (const entry of entries) {
-      if (SET_HAS.call(EXCLUDED_DIRECTORIES, entry.name)) continue;
+      if (SET_HAS(EXCLUDED_DIRECTORIES, entry.name)) continue;
       budget.entries += 1;
       if (budget.entries > MAX_ENTRIES) throw tooLarge();
       const relativePath = relativeDirectory === '' ? entry.name : join(relativeDirectory, entry.name);
@@ -181,7 +187,7 @@ async function readTree(
             throw invalid(`Hosted base source changed while reading "${relativePath}".`);
           }
           budget.bytes += bytes.byteLength;
-          ARRAY_PUSH.call(files, OBJECT_FREEZE({
+          ARRAY_PUSH(files, OBJECT_FREEZE({
             path: prefix === '' ? relativePath : join(prefix, relativePath),
             bytes,
             sha256: sha256(bytes),
