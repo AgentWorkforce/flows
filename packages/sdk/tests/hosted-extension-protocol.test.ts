@@ -8,6 +8,7 @@ import {
   runVerifiedNativeExtensionSandbox,
   type HostedExtensionArtifact,
 } from '../src/hosted-extension-isolation.js';
+import { boundedJsonSnapshot } from '../src/hosted-extension-protocol.js';
 import { snapshotJsonValue } from '../src/json-value.js';
 import { validateFlowExtensionManifest } from '../src/flow-extension-manifest.js';
 import { materializePlugin } from '../src/plugin-store.js';
@@ -164,6 +165,25 @@ describe('hosted extension hostile protocol', () => {
       if (previous === undefined) delete (Array.prototype as { toJSON?: unknown }).toJSON;
       else Object.defineProperty(Array.prototype, 'toJSON', previous);
     }
+  });
+
+  it('uses captured byte-counting intrinsics', () => {
+    const byteLength = Object.getOwnPropertyDescriptor(Buffer, 'byteLength')!;
+    const charCodeAt = Object.getOwnPropertyDescriptor(String.prototype, 'charCodeAt')!;
+    let calls = 0;
+    try {
+      Object.defineProperty(Buffer, 'byteLength', {
+        ...byteLength, value: () => { calls += 1; return 0; },
+      });
+      Object.defineProperty(String.prototype, 'charCodeAt', {
+        ...charCodeAt, value: () => { calls += 1; return 0; },
+      });
+      expect(boundedJsonSnapshot({ delivery: 'safe' }, 'delivery')).toEqual({ delivery: 'safe' });
+    } finally {
+      Object.defineProperty(Buffer, 'byteLength', byteLength);
+      Object.defineProperty(String.prototype, 'charCodeAt', charCodeAt);
+    }
+    expect(calls).toBe(0);
   });
 
   it.each(['inherited toJSON', 'stateful getter'] as const)(

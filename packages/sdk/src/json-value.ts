@@ -3,6 +3,7 @@ import { isProxy } from 'node:util/types';
 const ARRAY_IS_ARRAY = Array.isArray;
 const ARRAY_PUSH = Array.prototype.push;
 const ARRAY_PROTOTYPE = Array.prototype;
+const ERROR = Error;
 const JSON_STRINGIFY = JSON.stringify;
 const NUMBER = Number;
 const NUMBER_IS_FINITE = Number.isFinite;
@@ -16,6 +17,8 @@ const OBJECT_HAS_OWN = Object.hasOwn;
 const OBJECT_PROTOTYPE = Object.prototype;
 const REGEXP_TEST = RegExp.prototype.test;
 const STRING = String;
+const STRING_CHAR_CODE_AT = String.prototype.charCodeAt;
+const WEAK_SET = WeakSet;
 const WEAK_SET_ADD = WeakSet.prototype.add;
 const WEAK_SET_DELETE = WeakSet.prototype.delete;
 const WEAK_SET_HAS = WeakSet.prototype.has;
@@ -43,7 +46,7 @@ interface SnapshotBudget {
 
 /** Copy runtime input into frozen, behavior-free JSON data. */
 export function snapshotJsonValue(value: unknown, at: string, limits?: JsonSnapshotLimits): JsonValue {
-  return snapshot(value, at, new WeakSet<object>(), { limits, nodes: 0, properties: 0, bytes: 0 }, 0);
+  return snapshot(value, at, new WEAK_SET<object>(), { limits, nodes: 0, properties: 0, bytes: 0 }, 0);
 }
 
 function snapshot(
@@ -216,13 +219,13 @@ function consumeStringBytes(budget: SnapshotBudget, value: string, at: string): 
     throw nonJson(at, 'snapshot byte limit exceeded');
   }
   for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
+    const code = STRING_CHAR_CODE_AT.call(value, index);
     if (code === 0x22 || code === 0x5c || code === 0x08 || code === 0x09
       || code === 0x0a || code === 0x0c || code === 0x0d) {
       consumeBytes(budget, 2, at);
     } else if (code < 0x20 || (code >= 0xd800 && code <= 0xdfff)) {
       if (code >= 0xd800 && code <= 0xdbff && index + 1 < value.length) {
-        const low = value.charCodeAt(index + 1);
+        const low = STRING_CHAR_CODE_AT.call(value, index + 1);
         if (low >= 0xdc00 && low <= 0xdfff) {
           consumeBytes(budget, 4, at);
           index += 1;
@@ -244,5 +247,5 @@ function consumeBytes(budget: SnapshotBudget, bytes: number, at: string): void {
 }
 
 function nonJson(at: string, detail: string): Error {
-  return new Error(`${at}: expected JSON-compatible data; ${detail}`);
+  return new ERROR(`${at}: expected JSON-compatible data; ${detail}`);
 }

@@ -6,10 +6,15 @@ import { PluginError } from './plugin-manifest.js';
 const HOSTED_WRITE = 'cloud:babysitter-turn';
 const MAX_FRAME_BYTES = 256 * 1024;
 const MAX_STDERR_BYTES = 16 * 1024;
+const ARRAY_IS_ARRAY = Array.isArray;
+const BUFFER_BYTE_LENGTH = Buffer.byteLength;
 const JSON_PARSE = JSON.parse;
 const JSON_STRINGIFY = JSON.stringify;
 const OBJECT_HAS_OWN = Object.hasOwn;
 const OBJECT_KEYS = Object.keys;
+const STRING = String;
+const STRING_INDEX_OF = String.prototype.indexOf;
+const STRING_SLICE = String.prototype.slice;
 const SNAPSHOT_LIMITS = Object.freeze({
   maxDepth: 64,
   maxNodes: 262_144,
@@ -29,7 +34,7 @@ export function boundedJsonSnapshot(value: unknown, what: string): unknown {
     throw new PluginError('plugin_unsupported', `${what} is not bounded JSON data.`);
   }
   const encoded = JSON_STRINGIFY(snapshot);
-  if (Buffer.byteLength(encoded) > MAX_FRAME_BYTES) {
+  if (BUFFER_BYTE_LENGTH(encoded) > MAX_FRAME_BYTES) {
     throw new PluginError('plugin_unsupported', `${what} is not bounded JSON data.`);
   }
   return snapshot;
@@ -54,7 +59,9 @@ export async function exchangeHostedExtension(
   let stderrText = '';
   let calls = 0;
   stderr.setEncoding('utf8');
-  stderr.on('data', chunk => { stderrText = (stderrText + String(chunk)).slice(-MAX_STDERR_BYTES); });
+  stderr.on('data', chunk => {
+    stderrText = STRING_SLICE.call(stderrText + STRING(chunk), -MAX_STDERR_BYTES);
+  });
   protocol.setEncoding('utf8');
 
   return await new Promise<HostedExtensionProtocolResult>((resolvePromise, rejectPromise) => {
@@ -97,16 +104,17 @@ export async function exchangeHostedExtension(
     stdin.on('error', () => refuse('Hosted extension capability channel closed.'));
     protocol.on('error', () => refuse('Hosted extension protocol channel failed.'));
     protocol.on('data', chunk => {
-      buffer += String(chunk);
-      if (Buffer.byteLength(buffer) > MAX_FRAME_BYTES) return refuse('Hosted extension protocol exceeded its size limit.');
+      buffer += STRING(chunk);
+      if (BUFFER_BYTE_LENGTH(buffer) > MAX_FRAME_BYTES) return refuse('Hosted extension protocol exceeded its size limit.');
       for (;;) {
-        const end = buffer.indexOf('\n');
+        const end = STRING_INDEX_OF.call(buffer, '\n');
         if (end < 0) break;
-        const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
+        const line = STRING_SLICE.call(buffer, 0, end);
+        buffer = STRING_SLICE.call(buffer, end + 1);
         let message: Record<string, unknown>;
         try {
           const parsed = JSON_PARSE(line) as unknown;
-          if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+          if (typeof parsed !== 'object' || parsed === null || ARRAY_IS_ARRAY(parsed)) {
             return refuse('Hosted extension emitted a non-object protocol frame.');
           }
           message = parsed as Record<string, unknown>;
@@ -157,7 +165,7 @@ export async function exchangeHostedExtension(
           }
           const error = new PluginError(
             'plugin_unsupported',
-            `Hosted extension failed: ${message.message.slice(0, 8192)}`,
+            `Hosted extension failed: ${STRING_SLICE.call(message.message, 0, 8192)}`,
           );
           if (capabilityState === 'pending') {
             deferredProtocolError ??= error;
