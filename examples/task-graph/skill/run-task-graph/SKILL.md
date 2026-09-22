@@ -43,6 +43,7 @@ The input shape is:
 {
   "task": { "title": "…", "body": "…", "url": "…" },
   "maxParallel": 4,
+  "maxFollowups": 3,
   "plan": { "subtasks": [
     { "id": "schema", "title": "…", "detail": "what done means", "dependsOn": [] },
     { "id": "api",    "title": "…", "detail": "…", "dependsOn": ["schema"] }
@@ -74,6 +75,7 @@ Rules. The flow refuses a plan that breaks any of these, so check them before su
 - There are no cycles.
 - There are at most 20 subtasks.
 - `maxParallel` is between 1 and 8.
+- `maxFollowups` is between 0 and 10. Use 0 when the user wants exactly the plan and nothing more.
 
 Only list a dependency when a subtask needs the other's **code merged**
 first. Every dependency you add removes some parallelism.

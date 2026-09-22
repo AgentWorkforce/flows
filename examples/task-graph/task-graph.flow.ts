@@ -27,6 +27,8 @@ type Input = {
   plan?: { subtasks: Subtask[] };
   /** Subtasks running at once. Default 4. */
   maxParallel?: number;
+  /** Follow-up subtasks agents may add mid-run. Default 3; 0 turns them off. */
+  maxFollowups?: number;
 };
 
 const MAX_SUBTASKS = 20;
@@ -74,6 +76,7 @@ export default flow<Input>("task-graph", async (f, input) => {
   }
   const brief = `${task.title}\n\n${task.body ?? ""}${task.url ? `\n\n${task.url}` : ""}`;
   const maxParallel = Math.max(1, Math.min(8, input.maxParallel ?? 4));
+  let followupBudget = Math.max(0, Math.min(10, input.maxFollowups ?? 3));
 
   const root = (await f.run("pwd")).trim();
   const work = `${root}/.relayflow`;
@@ -137,18 +140,24 @@ export default flow<Input>("task-graph", async (f, input) => {
       ))).trim();
       const result = `${work}/results/${s.id}.json`;
       const others = all.filter((o) => o.id !== s.id).map((o) => `- ${o.id}: ${o.title}`).join("\n");
+      // Only planned subtasks may propose follow-ups, and only work the task cannot ship without:
+      // left open, agents file polish and docs follow-ups that spawn more of the same.
+      const mayPropose = parent === undefined && followupBudget > 0;
       await f.agent(s.id, {
         cli: "claude",
-        // Not `cwd: tree`: the kernel refuses that field today (unknown field "cwd"), so the path is in the task.
+        cwd: tree,
         task:
-          `You are one subtask of a larger task. Your git worktree is ${tree} (branch ${branch}): ` +
-          `cd into it first, and read, edit, test and commit ONLY inside it — never in ${root}.\n` +
+          `You are one subtask of a larger task, working in your own git worktree (${tree}, branch ${branch}). ` +
+          `Read, edit, test and commit only inside it.\n` +
           `Overall task:\n${brief}\n\nYOUR subtask (${s.id}): ${s.title}\n${s.detail ?? ""}\n\n` +
           `Other subtasks are handled by other agents in parallel — stay inside yours:\n${others}\n\n` +
-          `Implement it with tests, run the relevant tests, and commit everything on ${branch}. ` +
-          `If you discover necessary work outside your scope, do not do it: list it as a follow-up.\n` +
-          `Finally write ${result} as JSON: {"summary":"what you did","followups":[${SUBTASK_SHAPE}, …]} ` +
-          `(followups may be empty; their ids must be new).`,
+          `Implement it with tests, run the relevant tests, and commit everything on ${branch}. Do not do work outside your scope.\n` +
+          (mayPropose
+            ? `If you found work the overall task CANNOT ship without and no subtask above covers, list it as a follow-up ` +
+              `(at most 2; never polish, docs, refactors or nice-to-haves — most subtasks have none).\n` +
+              `Finally write ${result} as JSON: {"summary":"what you did","followups":[${SUBTASK_SHAPE}]} ` +
+              `(followups is usually empty; ids must be new).`
+            : `Finally write ${result} as JSON: {"summary":"what you did"}.`),
       // Done means a result file AND at least one commit on the branch — not the agent saying so.
       }).gate({ type: "subprocess_gate", command: `test -s ${shellWord(result)} && test "$(git -C ${shellWord(tree)} rev-list --count ${base}..HEAD)" -gt 0` });
 
@@ -168,15 +177,17 @@ export default flow<Input>("task-graph", async (f, input) => {
       // 4. Follow-ups join the graph. They run after this subtask, plus whatever they declare.
       const report = JSON.parse(await f.run(`cat ${shellWord(result)}`)) as { summary?: string; followups?: Subtask[] };
       summaries.push(`- **${s.id}** — ${report.summary ?? s.title}`);
-      const followups = Array.isArray(report.followups) ? report.followups : [];
-      const rejected = followups.length > MAX_SUBTASKS - all.length
-        ? `would exceed ${MAX_SUBTASKS} subtasks`
-        : planError(followups, new Set(merged.keys()));
-      if (followups.length > 0 && rejected) {
-        await f.run(`echo ${shellWord(`Follow-ups from ${s.id} not scheduled: ${rejected}.`)} >&2`);
-      } else {
+      const proposed = mayPropose && Array.isArray(report.followups) ? report.followups : [];
+      // The budget is claimed synchronously, so two subtasks finishing together cannot both spend it.
+      const followups = proposed.slice(0, Math.min(followupBudget, MAX_SUBTASKS - all.length));
+      const invalid = planError(followups, new Set(merged.keys()));
+      if (invalid === null) {
+        followupBudget -= followups.length;
         for (const child of followups) schedule(child, s.id);
       }
+      const dropped = invalid ?? (followups.length < proposed.length
+        ? `${proposed.length - followups.length} over the follow-up budget` : null);
+      if (dropped) await f.run(`echo ${shellWord(`Follow-ups from ${s.id} not scheduled: ${dropped}.`)} >&2`);
     } finally {
       releaseSlot();
     }
