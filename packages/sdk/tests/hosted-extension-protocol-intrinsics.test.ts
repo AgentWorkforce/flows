@@ -1,6 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { PassThrough } from 'node:stream';
+import { PassThrough, Readable, Writable } from 'node:stream';
 import { expect, it } from 'vitest';
 import { exchangeHostedExtension } from '../src/hosted-extension-protocol.js';
 
@@ -99,4 +99,69 @@ it('enforces the protocol deadline with captured timer operations', async () => 
     clearTimeoutCalls: 0,
     unrefCallsDuringSetup: 0,
   });
+});
+
+it('registers and completes protocol I/O with captured stream operations', async () => {
+  const eventOn = EventEmitter.prototype.on;
+  const eventOnce = EventEmitter.prototype.once;
+  const setEncoding = Readable.prototype.setEncoding;
+  const resume = Readable.prototype.resume;
+  const write = Writable.prototype.write;
+  const end = Writable.prototype.end;
+  const protocol = new PassThrough();
+  const stdin = new PassThrough();
+  const stderr = new PassThrough();
+  let poisonCalls = 0;
+  let adapterCalls = 0;
+  const child = Object.assign(new EventEmitter(), {
+    exitCode: null,
+    signalCode: null,
+    kill: () => { poisonCalls += 1; return true; },
+  }) as unknown as ChildProcess;
+  let rejection: unknown;
+  try {
+    EventEmitter.prototype.on = function poisonedOn(this: EventEmitter, ...args) {
+      poisonCalls += 1;
+      return Reflect.apply(eventOn, this, args);
+    } as typeof EventEmitter.prototype.on;
+    EventEmitter.prototype.once = function poisonedOnce(this: EventEmitter, ...args) {
+      poisonCalls += 1;
+      return Reflect.apply(eventOnce, this, args);
+    } as typeof EventEmitter.prototype.once;
+    Readable.prototype.setEncoding = function poisonedSetEncoding(this: Readable, ...args) {
+      poisonCalls += 1;
+      return Reflect.apply(setEncoding, this, args);
+    } as typeof Readable.prototype.setEncoding;
+    Readable.prototype.resume = function poisonedResume(this: Readable, ...args) {
+      poisonCalls += 1;
+      return Reflect.apply(resume, this, args);
+    } as typeof Readable.prototype.resume;
+    Writable.prototype.write = function poisonedWrite(this: Writable, ...args) {
+      poisonCalls += 1;
+      return Reflect.apply(write, this, args);
+    } as typeof Writable.prototype.write;
+    Writable.prototype.end = function poisonedEnd(this: Writable, ...args) {
+      poisonCalls += 1;
+      return Reflect.apply(end, this, args);
+    } as typeof Writable.prototype.end;
+
+    const run = exchangeHostedExtension(
+      child, protocol, stdin, stderr, 10_000, { type: 'run' },
+      async () => {
+        adapterCalls += 1;
+        return { receiptId: 'must-not-run', status: 'queued' };
+      },
+    );
+    Reflect.apply(write, protocol, ['{}\n']);
+    try { await run; } catch (error) { rejection = error; }
+  } finally {
+    EventEmitter.prototype.on = eventOn;
+    EventEmitter.prototype.once = eventOnce;
+    Readable.prototype.setEncoding = setEncoding;
+    Readable.prototype.resume = resume;
+    Writable.prototype.write = write;
+    Writable.prototype.end = end;
+  }
+  expect(rejection).toMatchObject({ code: 'plugin_unsupported' });
+  expect({ poisonCalls, adapterCalls }).toEqual({ poisonCalls: 0, adapterCalls: 0 });
 });

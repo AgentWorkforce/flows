@@ -100,6 +100,31 @@ describe('hosted base private snapshot', () => {
     },
   );
 
+  it('captures conversion and allocation across declarations and source snapshots', async () => {
+    const { flowPath } = fixture();
+    const number = Number;
+    const allocUnsafe = Buffer.allocUnsafe;
+    let poisonCalls = 0;
+    try {
+      globalThis.Number = (() => {
+        poisonCalls += 1;
+        throw new Error('ambient Number must not run');
+      }) as unknown as NumberConstructor;
+      Buffer.allocUnsafe = (() => {
+        poisonCalls += 1;
+        throw new Error('ambient Buffer.allocUnsafe must not run');
+      }) as typeof Buffer.allocUnsafe;
+      await expect(loadHostedExtensionRuntime(flowPath)).rejects.toMatchObject({
+        code: 'plugin_source_invalid',
+        message: expect.stringContaining('reviewed Software Factory base source'),
+      });
+    } finally {
+      globalThis.Number = number;
+      Buffer.allocUnsafe = allocUnsafe;
+    }
+    expect(poisonCalls).toBe(0);
+  });
+
   it('bounds a file that grows after its admitted size was checked', async () => {
     const { project } = fixture();
     const raced = join(project, 'raced.bin');

@@ -1,5 +1,6 @@
-import type { ChildProcess } from 'node:child_process';
-import type { Readable, Writable } from 'node:stream';
+import { ChildProcess } from 'node:child_process';
+import { EventEmitter } from 'node:events';
+import { Readable, Writable } from 'node:stream';
 import { clearTimeout as nodeClearTimeout, setTimeout as nodeSetTimeout } from 'node:timers';
 import { snapshotJsonValue } from './json-value.js';
 import { PluginError } from './plugin-manifest.js';
@@ -9,6 +10,12 @@ const MAX_FRAME_BYTES = 256 * 1024;
 const MAX_STDERR_BYTES = 16 * 1024;
 const ARRAY_IS_ARRAY = Array.isArray;
 const BUFFER_BYTE_LENGTH = Buffer.byteLength;
+const CHILD_PROCESS_KILL = Function.prototype.call.bind(ChildProcess.prototype.kill) as (
+  child: ChildProcess, signal?: NodeJS.Signals | number,
+) => boolean;
+const EVENT_ON = Function.prototype.call.bind(EventEmitter.prototype.on) as (
+  emitter: EventEmitter, event: string, listener: (...args: unknown[]) => void,
+) => EventEmitter;
 const JSON_PARSE = JSON.parse;
 const JSON_STRINGIFY = JSON.stringify;
 const OBJECT_HAS_OWN = Object.hasOwn;
@@ -20,6 +27,12 @@ const PROMISE_THEN = Function.prototype.call.bind(Promise.prototype.then) as (
   fulfilled: (value: unknown) => void,
   rejected: (reason: unknown) => void,
 ) => Promise<unknown>;
+const READABLE_SET_ENCODING = Function.prototype.call.bind(Readable.prototype.setEncoding) as (
+  stream: Readable, encoding: BufferEncoding,
+) => Readable;
+const READABLE_RESUME = Function.prototype.call.bind(Readable.prototype.resume) as (
+  stream: Readable,
+) => Readable;
 const CLEAR_TIMEOUT = nodeClearTimeout;
 const SET_TIMEOUT = nodeSetTimeout;
 const TIMER_SAMPLE = SET_TIMEOUT(() => undefined, 0);
@@ -34,6 +47,12 @@ const STRING_INDEX_OF = Function.prototype.call.bind(String.prototype.indexOf) a
 const STRING_SLICE = Function.prototype.call.bind(String.prototype.slice) as (
   value: string, start?: number, end?: number,
 ) => string;
+const WRITABLE_END = Function.prototype.call.bind(Writable.prototype.end) as (
+  stream: Writable,
+) => Writable;
+const WRITABLE_WRITE = Function.prototype.call.bind(Writable.prototype.write) as (
+  stream: Writable, chunk: string,
+) => boolean;
 const SNAPSHOT_LIMITS = Object.freeze({
   maxDepth: 64,
   maxNodes: 262_144,
@@ -77,11 +96,12 @@ export async function exchangeHostedExtension(
   let buffer = '';
   let stderrText = '';
   let calls = 0;
-  stderr.setEncoding('utf8');
-  stderr.on('data', chunk => {
+  READABLE_SET_ENCODING(stderr, 'utf8');
+  EVENT_ON(stderr, 'data', chunk => {
     stderrText = STRING_SLICE(stderrText + STRING(chunk), -MAX_STDERR_BYTES);
   });
-  protocol.setEncoding('utf8');
+  READABLE_RESUME(stderr);
+  READABLE_SET_ENCODING(protocol, 'utf8');
 
   return await new PROMISE<HostedExtensionProtocolResult>((resolvePromise, rejectPromise) => {
     let settled = false;
@@ -92,8 +112,8 @@ export async function exchangeHostedExtension(
       if (settled) return;
       settled = true;
       CLEAR_TIMEOUT(timeout);
-      stdin.end();
-      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      WRITABLE_END(stdin);
+      if (child.exitCode === null && child.signalCode === null) CHILD_PROCESS_KILL(child, 'SIGKILL');
       if (error !== undefined) rejectPromise(error);
       else resolvePromise(result!);
     };
@@ -102,7 +122,7 @@ export async function exchangeHostedExtension(
       : new PluginError('plugin_unsupported', 'Hosted capability rejected with a non-error value.');
     const refuse = (message: string) => {
       const error = new PluginError('plugin_unsupported', message);
-      child.kill('SIGKILL');
+      CHILD_PROCESS_KILL(child, 'SIGKILL');
       if (capabilityState === 'pending') {
         deferredProtocolError ??= error;
         return;
@@ -110,7 +130,7 @@ export async function exchangeHostedExtension(
       finish(capabilityError ?? error);
     };
     const timeout = SET_TIMEOUT(() => {
-      child.kill('SIGKILL');
+      CHILD_PROCESS_KILL(child, 'SIGKILL');
       finish(new PluginError(
         'plugin_unsupported',
         capabilityState === 'pending'
@@ -120,9 +140,9 @@ export async function exchangeHostedExtension(
     }, timeoutMs);
     TIMER_UNREF(timeout);
 
-    stdin.on('error', () => refuse('Hosted extension capability channel closed.'));
-    protocol.on('error', () => refuse('Hosted extension protocol channel failed.'));
-    protocol.on('data', chunk => {
+    EVENT_ON(stdin, 'error', () => refuse('Hosted extension capability channel closed.'));
+    EVENT_ON(protocol, 'error', () => refuse('Hosted extension protocol channel failed.'));
+    EVENT_ON(protocol, 'data', chunk => {
       buffer += STRING(chunk);
       if (BUFFER_BYTE_LENGTH(buffer) > MAX_FRAME_BYTES) return refuse('Hosted extension protocol exceeded its size limit.');
       for (;;) {
@@ -155,11 +175,11 @@ export async function exchangeHostedExtension(
                 const snapshot = boundedJsonSnapshot(value, 'hosted capability result');
                 capabilityState = 'completed';
                 if (deferredProtocolError !== undefined) return finish(deferredProtocolError);
-                stdin.write(`${JSON_STRINGIFY({ type: 'capability-result', id: 1, ok: true, value: snapshot })}\n`);
+                WRITABLE_WRITE(stdin, `${JSON_STRINGIFY({ type: 'capability-result', id: 1, ok: true, value: snapshot })}\n`);
               } catch (error) {
                 capabilityError = failure(error);
                 capabilityState = 'failed';
-                stdin.write(`${JSON_STRINGIFY({ type: 'capability-result', id: 1, ok: false, error: 'hosted capability refused' })}\n`);
+                WRITABLE_WRITE(stdin, `${JSON_STRINGIFY({ type: 'capability-result', id: 1, ok: false, error: 'hosted capability refused' })}\n`);
                 finish(capabilityError);
               }
             },
@@ -167,7 +187,7 @@ export async function exchangeHostedExtension(
               if (settled) return;
               capabilityError = failure(error);
               capabilityState = 'failed';
-              stdin.write(`${JSON_STRINGIFY({ type: 'capability-result', id: 1, ok: false, error: 'hosted capability refused' })}\n`);
+              WRITABLE_WRITE(stdin, `${JSON_STRINGIFY({ type: 'capability-result', id: 1, ok: false, error: 'hosted capability refused' })}\n`);
               finish(capabilityError);
             },
           );
@@ -194,14 +214,15 @@ export async function exchangeHostedExtension(
         } else return refuse('Hosted extension emitted an unknown protocol message.');
       }
     });
-    child.once('error', () => refuse('Hosted extension sandbox could not start.'));
-    child.once('close', code => {
+    READABLE_RESUME(protocol);
+    EVENT_ON(child, 'error', () => refuse('Hosted extension sandbox could not start.'));
+    EVENT_ON(child, 'close', code => {
       if (!settled) refuse(
         `Hosted extension sandbox exited without a valid completion (exit ${code ?? 'signal'})`
         + (stderrText === '' ? '' : `: ${stderrText}`),
       );
     });
-    stdin.write(`${JSON_STRINGIFY(request)}\n`);
+    WRITABLE_WRITE(stdin, `${JSON_STRINGIFY(request)}\n`);
   });
 }
 

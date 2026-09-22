@@ -14,6 +14,8 @@ const ARRAY_SORT = Function.prototype.call.bind(Array.prototype.sort) as <T>(
 ) => T[];
 const OBJECT_FREEZE = Object.freeze;
 const BIG_INT = BigInt;
+const BUFFER_ALLOC_UNSAFE = Buffer.allocUnsafe;
+const NUMBER = Number;
 const SET_HAS = Function.prototype.call.bind(Set.prototype.has) as <T>(set: Set<T>, value: T) => boolean;
 const STRING_LOCALE_COMPARE = Function.prototype.call.bind(String.prototype.localeCompare) as (
   value: string, other: string,
@@ -181,7 +183,7 @@ async function readTree(
         } else if (before.isFile()) {
           if (before.size < 0n || before.size > BIG_INT(MAX_BYTES - budget.bytes)) throw tooLarge();
           await hooks.afterStat?.(absolutePath);
-          const bytes = await readBounded(handle, Number(before.size), relativePath);
+          const bytes = await readBounded(handle, NUMBER(before.size), relativePath);
           const after = await handle.stat({ bigint: true });
           if (after.size !== before.size || after.mtimeNs !== before.mtimeNs
             || after.ctimeNs !== before.ctimeNs) {
@@ -223,7 +225,7 @@ async function readBounded(
   expectedBytes: number,
   relativePath: string,
 ): Promise<Buffer> {
-  const bytes = Buffer.allocUnsafe(expectedBytes);
+  const bytes = BUFFER_ALLOC_UNSAFE(expectedBytes);
   let offset = 0;
   while (offset < expectedBytes) {
     const result = await handle.read(bytes, offset, expectedBytes - offset, offset);
@@ -232,7 +234,7 @@ async function readBounded(
     }
     offset += result.bytesRead;
   }
-  const extra = Buffer.allocUnsafe(1);
+  const extra = BUFFER_ALLOC_UNSAFE(1);
   if ((await handle.read(extra, 0, 1, expectedBytes)).bytesRead !== 0) {
     throw invalid(`Hosted base source changed while reading "${relativePath}".`);
   }

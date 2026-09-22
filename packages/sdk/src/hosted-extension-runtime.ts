@@ -25,6 +25,11 @@ const BASE_AUTHORITY = new WeakSet<object>();
 const SOFTWARE_FACTORY_SHA256 = '49c993220b9c34fab2d4b0e51911656f62b8b657f534d988691960d45bb9d9b6';
 const MAX_DECLARATION_BYTES = 1024 * 1024;
 const BIG_INT = BigInt;
+const BUFFER_ALLOC_UNSAFE = Buffer.allocUnsafe;
+const BUFFER_TO_STRING = Function.prototype.call.bind(Buffer.prototype.toString) as (
+  value: Buffer, encoding: BufferEncoding,
+) => string;
+const NUMBER = Number;
 const DECLARATION_READ_FLAGS = constants.O_RDONLY
   | (constants.O_NOFOLLOW ?? 0)
   | (constants.O_NONBLOCK ?? 0);
@@ -218,7 +223,7 @@ function hostedDeclaredExtensions(
     throw new PluginError('plugin_lock_invalid', 'Hosted extension declarations have a pending transaction.');
   }
   let config: unknown;
-  try { config = JSON_PARSE(readBoundedDeclaration(join(root, 'flows.json')).toString('utf8')); }
+  try { config = JSON_PARSE(BUFFER_TO_STRING(readBoundedDeclaration(join(root, 'flows.json')), 'utf8')); }
   catch (error) {
     if (error instanceof PluginError) throw error;
     throw new PluginError('plugin_manifest_invalid', 'Invalid or oversized flows.json.');
@@ -247,7 +252,7 @@ function hostedDeclaredExtensions(
   const lockPath = join(root, PLUGIN_LOCK_FILE);
   if (existsSync(lockPath)) {
     let value: unknown;
-    try { value = JSON_PARSE(readBoundedDeclaration(lockPath).toString('utf8')); }
+    try { value = JSON_PARSE(BUFFER_TO_STRING(readBoundedDeclaration(lockPath), 'utf8')); }
     catch (error) {
       if (error instanceof PluginError) throw error;
       throw new PluginError('plugin_lock_invalid', `${PLUGIN_LOCK_FILE}: not valid or exceeds the hosted size limit.`);
@@ -278,15 +283,15 @@ function readBoundedDeclaration(path: string): Buffer {
     if (!before.isFile() || before.size < 0n || before.size > BIG_INT(MAX_DECLARATION_BYTES)) {
       throw new PluginError('plugin_source_invalid', 'Hosted extension declaration is not a bounded regular file.');
     }
-    const expected = Number(before.size);
-    const bytes = Buffer.allocUnsafe(expected);
+    const expected = NUMBER(before.size);
+    const bytes = BUFFER_ALLOC_UNSAFE(expected);
     let offset = 0;
     while (offset < expected) {
       const count = readSync(descriptor, bytes, offset, expected - offset, offset);
       if (count === 0) throw new Error('short read');
       offset += count;
     }
-    if (readSync(descriptor, Buffer.allocUnsafe(1), 0, 1, expected) !== 0) throw new Error('grew');
+    if (readSync(descriptor, BUFFER_ALLOC_UNSAFE(1), 0, 1, expected) !== 0) throw new Error('grew');
     const after = fstatSync(descriptor, { bigint: true });
     if (after.size !== before.size || after.mtimeNs !== before.mtimeNs || after.ctimeNs !== before.ctimeNs) {
       throw new Error('changed');

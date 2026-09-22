@@ -68,6 +68,28 @@ describe('bounded plugin-store verification', () => {
     expect(poisonCalls).toBe(0);
   });
 
+  it('uses captured conversion and allocation intrinsics after size admission', async () => {
+    const stored = await fixture();
+    const number = Number;
+    const allocUnsafe = Buffer.allocUnsafe;
+    let poisonCalls = 0;
+    try {
+      globalThis.Number = (() => {
+        poisonCalls += 1;
+        throw new Error('ambient Number must not run');
+      }) as unknown as NumberConstructor;
+      Buffer.allocUnsafe = (() => {
+        poisonCalls += 1;
+        throw new Error('ambient Buffer.allocUnsafe must not run');
+      }) as typeof Buffer.allocUnsafe;
+      await expect(verifyStoredPlugin(stored.directory, stored.digest)).resolves.toBeUndefined();
+    } finally {
+      globalThis.Number = number;
+      Buffer.allocUnsafe = allocUnsafe;
+    }
+    expect(poisonCalls).toBe(0);
+  });
+
   it('bounds a payload that grows after its admitted size was checked', async () => {
     const stored = await fixture();
     const raced = join(stored.directory, 'entry.ts');

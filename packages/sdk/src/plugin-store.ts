@@ -19,10 +19,12 @@ const MAX_PLUGIN_MANIFEST_BYTES = 4_000_000;
 const MAX_PLUGIN_STORE_ENTRIES = 10_000;
 const ARRAY_IS_ARRAY = Array.isArray;
 const BIG_INT = BigInt;
+const BUFFER_ALLOC_UNSAFE = Buffer.allocUnsafe;
 const BUFFER_TO_STRING = Function.prototype.call.bind(Buffer.prototype.toString) as (
   value: Buffer, encoding: BufferEncoding,
 ) => string;
 const JSON_PARSE = JSON.parse;
+const NUMBER = Number;
 const NUMBER_IS_SAFE_INTEGER = Number.isSafeInteger;
 const OBJECT_FREEZE = Object.freeze;
 const REGEXP_TEST = Function.prototype.call.bind(RegExp.prototype.test) as (
@@ -102,8 +104,8 @@ async function regularFile(
       throw new PluginError('plugin_source_drift', `${path}: expected a bounded regular file.`);
     }
     await hooks.afterStat?.(absolute);
-    const size = Number(before.size);
-    const bytes = Buffer.allocUnsafe(size);
+    const size = NUMBER(before.size);
+    const bytes = BUFFER_ALLOC_UNSAFE(size);
     let offset = 0;
     while (offset < size) {
       const result = await handle.read(bytes, offset, size - offset, offset);
@@ -112,7 +114,7 @@ async function regularFile(
       }
       offset += result.bytesRead;
     }
-    const extra = Buffer.allocUnsafe(1);
+    const extra = BUFFER_ALLOC_UNSAFE(1);
     if ((await handle.read(extra, 0, 1, size)).bytesRead !== 0) {
       throw new PluginError('plugin_source_drift', `${path}: changed while reading.`);
     }
