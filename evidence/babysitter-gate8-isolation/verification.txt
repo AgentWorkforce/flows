@@ -19,20 +19,19 @@ $ cd packages/sdk && npm run typecheck && npm run build && npm run typecheck:tes
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
 
- ✓ tests/hosted-base-snapshot.test.ts (3 tests) 170ms
- ✓ tests/preflight.test.ts (59 tests) 88ms
- ✓ tests/authored-flow.test.ts (34 tests) 769ms
- ✓ tests/hosted-extension-protocol.test.ts (10 tests) 676ms
- ✓ tests/hosted-extension-isolation.test.ts (12 tests) 716ms
- ✓ tests/babysitter-native-extension.test.ts (38 tests) 1362ms
-   ✓ native Babysitter extension > refuses project-owned package imports instead of following live node_modules 369ms
+ ✓ tests/hosted-base-snapshot.test.ts (2 tests) 18ms
+ ✓ tests/preflight.test.ts (59 tests) 99ms
+ ✓ tests/babysitter-native-extension.test.ts (38 tests) 333ms
+ ✓ tests/authored-flow.test.ts (34 tests) 739ms
+ ✓ tests/hosted-extension-protocol.test.ts (10 tests) 630ms
+ ✓ tests/hosted-extension-isolation.test.ts (14 tests) 673ms
 
  Test Files  6 passed (6)
-      Tests  156 passed (156)
-   Start at  07:26:07
-   Duration  2.51s (transform 1.22s, setup 0ms, collect 5.03s, tests 3.78s, environment 1ms, prepare 432ms)
+      Tests  157 passed (157)
+   Start at  07:42:04
+   Duration  1.76s (transform 1.00s, setup 0ms, collect 4.17s, tests 2.49s, environment 1ms, prepare 417ms)
 
-$ cd packages/surface && npm run typecheck && npm run typecheck:regressions && npm test
+$ cd packages/surface && npm run typecheck && npm run typecheck:regressions && npm test && sha256sum dist/flow.js dist/helpers/providers.js dist/provider-trigger.js dist/schedule.js dist/triggers.js dist/triggers/github.js
 
 > @relayflows/surface@2.0.26 typecheck
 > tsc --noEmit
@@ -51,16 +50,23 @@ $ tsc
 
  ✓ tests/declined.test.ts (1 test) 2ms
  ✓ tests/triggers-github-events.test.ts (2 tests) 3ms
- ✓ tests/helpers.snapshot.test.ts (1 test) 249ms
- ✓ tests/triggers-all-providers.test.ts (4 tests) 36ms
- ✓ tests/slack-block-kit.test.ts (5 tests) 3ms
+ ✓ tests/helpers.snapshot.test.ts (1 test) 168ms
+ ✓ tests/triggers-all-providers.test.ts (4 tests) 41ms
+ ✓ tests/slack-block-kit.test.ts (5 tests) 4ms
  ✓ tests/provider-triggers.test.ts (3 tests) 5ms
- ✓ tests/triggers.test.ts (4 tests) 5ms
- ✓ tests/flow.test.ts (24 tests) 10ms
- ✓ tests/schedule.test.ts (7 tests) 4714ms
-   ✓ schedule.cron > measures a cron's longest quiet period so a silence budget can be declared honestly 4696ms
+ ✓ tests/triggers.test.ts (4 tests) 6ms
+ ✓ tests/flow.test.ts (24 tests) 9ms
+ ✓ tests/schedule.test.ts (7 tests) 7643ms
+   ✓ schedule.cron > measures a cron's longest quiet period so a silence budget can be declared honestly 7618ms
 
  Test Files  9 passed (9)
       Tests  51 passed (51)
-   Start at  05:18:30
-   Duration  5.21s (transform 551ms, setup 0ms, collect 2.23s, tests 5.03s, environment 1ms, prepare 499ms)
+   Start at  07:42:17
+   Duration  8.24s (transform 722ms, setup 0ms, collect 3.09s, tests 7.88s, environment 1ms, prepare 533ms)
+
+4aaeacc55de3074f4d121ce7253c3be50a93757e6540ba8159889a9450d1c05c  dist/flow.js
+7bc62eccaa3a9e786ae0a689bf74160585149e91feef8208e17ef8eca51eed7f  dist/helpers/providers.js
+e2664c65397f93fb486eb6f1e756c7cec3f88b3851d79c23567cad986f80f1ff  dist/provider-trigger.js
+8fe72f176a75ec0b5f26e12db7a597575c259a2e2cbb59690f9dc20a5e63940b  dist/schedule.js
+4a3515b571a318f6c7a5661f9310bc9af43e3faf20ea39903a9b363c51258e4c  dist/triggers.js
+e312994320f82aad0af00d09c504175d929cc6c601dfe1bc522632462ad9a48b  dist/triggers/github.js

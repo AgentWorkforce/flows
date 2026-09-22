@@ -1,9 +1,9 @@
-import { realpath } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { readFile, realpath } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { canonicalize } from './canonical.js';
 import {
   createHostedBaseSnapshot,
-  hostedBaseIdentityFromSnapshot,
   hostedBaseSourceDigest,
   removeHostedBaseSnapshot,
   type HostedBaseSourceRoot,
@@ -15,6 +15,7 @@ import { pluginStoreDirectory, verifyStoredPlugin } from './plugin-store.js';
 
 const INSTALLATION_AUTHORITY = new WeakSet<object>();
 const BASE_AUTHORITY = new WeakSet<object>();
+const SOFTWARE_FACTORY_SHA256 = '49c993220b9c34fab2d4b0e51911656f62b8b657f534d988691960d45bb9d9b6';
 
 interface RuntimeGeneration {
   readonly origin: string;
@@ -203,11 +204,14 @@ async function baseAt(
   generation.sourceRoots = snapshot.liveSources;
   generation.sourceSha256 = snapshot.liveDigest;
   try {
-    const identity = await hostedBaseIdentityFromSnapshot(snapshot);
-    const value = Object.freeze({
-      name: identity.name,
-      ...(identity.version === undefined ? {} : { version: identity.version }),
-    });
+    const baseBytes = await readFile(snapshot.snapshotFlowPath);
+    if (createHash('sha256').update(baseBytes).digest('hex') !== SOFTWARE_FACTORY_SHA256) {
+      throw new PluginError(
+        'plugin_source_invalid',
+        'Hosted capability isolation accepts only the reviewed Software Factory base source.',
+      );
+    }
+    const value = Object.freeze({ name: 'software-factory', version: '2.0.22' });
     BASE_AUTHORITY.add(value);
     BASE_GENERATION.set(value, generation);
     return value;

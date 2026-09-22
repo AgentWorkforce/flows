@@ -7,12 +7,13 @@ deployment.
 
 The enforced boundary is:
 
-- load the actual base flow with extensions disabled and resolve the complete
+- require the exact reviewed Software Factory base source hash without
+  importing tenant base code, and resolve the complete
   installation as one opaque generation without importing extension
   JavaScript; cross-project and same-path cross-redeploy pairing refuse, and
   every dispatch rechecks the current declarations plus complete project
-  source; the base and ordinary relative imports load from one unique private
-  snapshot, never mutable deployment paths or an earlier module cache;
+  source; base stdout, globals, process termination, relative/package imports,
+  and an earlier module cache cannot forge the parent-pinned identity;
 - reverify every content-addressed artifact, lock metadata, manifest hash,
   base/runtime compatibility, and route uniqueness, then require the exact
   immutable native ref/digest/manifest and narrow permission profile; copy the
@@ -24,7 +25,8 @@ The enforced boundary is:
   plus Node's permission model, with no network, writable filesystem, inherited
   environment, child process, workspace mount, MCP, helpers, harnesses, or base
   flow context; a generated facade mounts only `flow`, `github`,
-  `getFlowDefinition`, and their six reviewed Surface runtime files;
+  `getFlowDefinition`, and private copies of six SHA-256-pinned Surface runtime
+  files, followed by one final runtime-generation check before launch;
 - expose one `capabilities.cloud.babysitterTurn.queue({ delivery })` call and
   `done`, validate the exact request and `{ receiptId, status }` response in the
   parent, and pass the original non-serializable authority to the host adapter;

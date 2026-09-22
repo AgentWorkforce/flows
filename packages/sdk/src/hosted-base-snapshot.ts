@@ -1,11 +1,7 @@
-import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { promisify } from 'node:util';
 import { canonicalize } from './canonical.js';
 import { findPluginProject } from './plugin-loader.js';
 import { PluginError } from './plugin-manifest.js';
@@ -13,8 +9,6 @@ import { PluginError } from './plugin-manifest.js';
 const EXCLUDED_DIRECTORIES = new Set(['.flows', '.git', 'node_modules']);
 const MAX_FILES = 10_000;
 const MAX_BYTES = 64 * 1024 * 1024;
-const execFileAsync = promisify(execFile);
-const hostRequire = createRequire(import.meta.url);
 
 interface SourceFile {
   readonly path: string;
@@ -32,25 +26,14 @@ export interface HostedBaseSnapshot {
   readonly liveDigest: string;
   readonly snapshotRoot: string;
   readonly snapshotFlowPath: string;
-  readonly snapshotSurfaceDefinitionPath: string;
-}
-
-export interface HostedBaseIdentity {
-  readonly name: string;
-  readonly version?: string;
 }
 
 /**
- * Materialize project source plus the SDK-owned Surface package. Project
- * node_modules is never linked or read by the imported base; any package other
- * than the host's attested Surface fails resolution. Every executable file is
+ * Materialize project source without importing tenant code. Project
+ * node_modules is never linked or read. Every admitted source byte is
  * represented in liveDigest and copied to the private identity directory.
  */
-export async function createHostedBaseSnapshot(
-  flowPath: string,
-  /** @internal Test seam; hosted callers cannot supply trust roots. */
-  surfaceEntry = hostRequire.resolve('@relayflows/surface'),
-): Promise<HostedBaseSnapshot> {
+export async function createHostedBaseSnapshot(flowPath: string): Promise<HostedBaseSnapshot> {
   const origin = await realpath(resolve(flowPath));
   const discovered = findPluginProject(dirname(origin)) ?? dirname(origin);
   const projectRoot = await realpath(discovered);
@@ -59,7 +42,9 @@ export async function createHostedBaseSnapshot(
     || flowRelative === '..' || flowRelative.startsWith(`..${sep}`)) {
     throw invalid('Hosted base flow must be a file inside its project root.');
   }
-  const liveSources = await trustedSourceRoots(projectRoot, surfaceEntry);
+  const liveSources = Object.freeze([
+    Object.freeze({ root: projectRoot, prefix: '' }),
+  ]);
   const files = await readAuthorityFiles(liveSources);
   const liveDigest = sourceDigest(files);
   const snapshotRoot = await mkdtemp(join(tmpdir(), 'flows-hosted-base-'));
@@ -80,59 +65,11 @@ export async function createHostedBaseSnapshot(
       liveDigest,
       snapshotRoot,
       snapshotFlowPath: join(snapshotRoot, flowRelative),
-      snapshotSurfaceDefinitionPath: join(snapshotRoot, 'node_modules/@relayflows/surface/dist/flow.js'),
     });
   } catch (error) {
     await rm(snapshotRoot, { recursive: true, force: true });
     throw error;
   }
-}
-
-/** Import the private snapshot in a child that cannot read fallback packages. */
-export async function hostedBaseIdentityFromSnapshot(
-  snapshot: HostedBaseSnapshot,
-): Promise<HostedBaseIdentity> {
-  const bootstrap = `
-    const [flowUrl, runtimeUrl] = JSON.parse(process.argv[1]);
-    const authored = await import(flowUrl);
-    const runtime = await import(runtimeUrl);
-    const definition = runtime.getFlowDefinition(authored.default);
-    const identity = {name: definition.name};
-    if (definition.header.version !== undefined) identity.version = definition.header.version;
-    process.stdout.write(JSON.stringify(identity));
-  `;
-  let stdout: string;
-  try {
-    ({ stdout } = await execFileAsync(process.execPath, [
-      '--permission',
-      `--allow-fs-read=${snapshot.snapshotRoot}`,
-      '--experimental-strip-types',
-      '--disable-warning=ExperimentalWarning',
-      '--input-type=module',
-      '--eval', bootstrap,
-      JSON.stringify([
-        pathToFileURL(snapshot.snapshotFlowPath).href,
-        pathToFileURL(snapshot.snapshotSurfaceDefinitionPath).href,
-      ]),
-    ], { cwd: snapshot.snapshotRoot, env: {}, timeout: 10_000, maxBuffer: 4096 }));
-  } catch {
-    throw invalid('Hosted base could not be imported from its private dependency snapshot.');
-  }
-  let value: unknown;
-  try { value = JSON.parse(stdout); }
-  catch { throw invalid('Hosted base identity response is malformed.'); }
-  if (typeof value !== 'object' || value === null || Array.isArray(value)
-    || typeof (value as { name?: unknown }).name !== 'string'
-    || ((value as { version?: unknown }).version !== undefined
-      && typeof (value as { version?: unknown }).version !== 'string')
-    || Object.keys(value).some(key => !['name', 'version'].includes(key))) {
-    throw invalid('Hosted base identity response is malformed.');
-  }
-  const identity = value as { name: string; version?: string };
-  return Object.freeze({
-    name: identity.name,
-    ...(identity.version === undefined ? {} : { version: identity.version }),
-  });
 }
 
 export async function hostedBaseSourceDigest(
@@ -143,30 +80,6 @@ export async function hostedBaseSourceDigest(
 
 export async function removeHostedBaseSnapshot(snapshot: HostedBaseSnapshot): Promise<void> {
   await rm(snapshot.snapshotRoot, { recursive: true, force: true });
-}
-
-async function trustedSourceRoots(
-  projectRoot: string,
-  surfaceEntry: string,
-): Promise<readonly HostedBaseSourceRoot[]> {
-  const surfaceRoot = await packageRoot(surfaceEntry, '@relayflows/surface');
-  return Object.freeze([
-    Object.freeze({ root: projectRoot, prefix: '' }),
-    Object.freeze({ root: surfaceRoot, prefix: join('node_modules', '@relayflows/surface') }),
-  ]);
-}
-
-async function packageRoot(entry: string, expectedName: string): Promise<string> {
-  let current = dirname(await realpath(entry));
-  for (;;) {
-    try {
-      const manifest = JSON.parse(await readFile(join(current, 'package.json'), 'utf8')) as { name?: unknown };
-      if (manifest.name === expectedName) return current;
-    } catch { /* continue toward the filesystem root */ }
-    const parent = dirname(current);
-    if (parent === current) throw invalid(`Hosted base trusted dependency ${expectedName} has no package root.`);
-    current = parent;
-  }
 }
 
 async function readAuthorityFiles(sources: readonly HostedBaseSourceRoot[]): Promise<readonly SourceFile[]> {

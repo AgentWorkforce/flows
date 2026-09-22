@@ -30,13 +30,14 @@ not wired to hosted dispatch and must not be treated as enablement. The package'
 commit pinned below.
 
 The sandbox contract is deliberately narrower than #442. It re-verifies the
-complete lock-backed installation and every manifest, binds it to the actual
-base returned in the same `loadHostedExtensionRuntime` generation, detects
+complete lock-backed installation and every manifest, binds it to the exact
+reviewed Software Factory source in the same `loadHostedExtensionRuntime` generation, detects
 cross-extension route ambiguity, accepts only the exact published Babysitter
 ref/digest/manifest and native permission profile, imports the entry only
 inside Linux bubblewrap plus Node's
 permission model, mounts a minimal trusted Surface facade (`flow`, `github`,
-and `getFlowDefinition`) instead of the general helper runtime, checks
+and `getFlowDefinition`) from six integrity-pinned private runtime files instead
+of the general helper runtime, checks
 normalized input against non-serializable verified dispatch authority, and
 permits one queue call. The parent capability adapter
 receives that original authority plus immutable extension provenance; the
@@ -59,13 +60,14 @@ Before replacing #549's refusal, the hosted caller must obtain an opaque base
 and installation as one generation with `loadHostedExtensionRuntime`, then call
 `runHostedCapabilityExtension` with both values. Every dispatch rechecks the
 current extension declarations and complete project source tree against that
-generation. The base, its ordinary relative imports, and the exact host-owned
-Surface package load from one rehashed private snapshot under Node's read-only
-permission model. Project `node_modules` is neither copied nor linked, and any
-base import other than the attested Surface package or its own relative source
-fails resolution; relative imports that escape the project root are refused.
-Mutable dependency paths and an earlier Node module cache
-therefore cannot change or substitute the identity that was admitted;
+generation. The loader never imports tenant base code to derive authority. It
+requires the exact reviewed Software Factory flow-file SHA-256 and assigns its
+pinned name/version in the parent; project `node_modules`, relative imports,
+stdout, process termination, globals, and module caches therefore cannot forge
+that identity. The sandbox separately requires exact SHA-256 pins for every
+Surface runtime file it needs, copies those bytes into its private runtime, and
+mounts only the copies. A final generation check runs after both private
+snapshots exist and immediately before launch;
 using the ordinary compose loader would import extension top-level JavaScript
 in the host before the sandbox exists. Cross-project, cross-redeploy, stale,
 and structural pairings fail before import. The selected store bytes are copied into a

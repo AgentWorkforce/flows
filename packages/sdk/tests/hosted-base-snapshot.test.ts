@@ -1,10 +1,9 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createHostedBaseSnapshot,
-  hostedBaseIdentityFromSnapshot,
   hostedBaseSourceDigest,
   removeHostedBaseSnapshot,
 } from '../src/hosted-base-snapshot.js';
@@ -13,77 +12,42 @@ const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })));
 
 function fixture() {
-  const root = mkdtempSync(join(tmpdir(), 'hosted-base-snapshot-test-'));
-  roots.push(root);
-  const project = join(root, 'project');
-  const surface = join(root, 'trusted-surface');
-  mkdirSync(project, { recursive: true });
-  mkdirSync(join(surface, 'dist'), { recursive: true });
+  const project = mkdtempSync(join(tmpdir(), 'hosted-base-snapshot-test-'));
+  roots.push(project);
   writeFileSync(join(project, 'package.json'), '{"type":"module"}');
+  writeFileSync(join(project, 'flows.json'), '{}');
   const flowPath = join(project, 'software-factory.flow.ts');
-  writeFileSync(flowPath, `
-    import { flow } from '@relayflows/surface';
-    export default flow('software-factory', async f => f.done('success'));
-  `);
-  writeFileSync(join(surface, 'package.json'), JSON.stringify({
-    name: '@relayflows/surface', type: 'module', exports: './dist/index.js',
-  }));
-  writeFileSync(join(surface, 'dist/shared.js'), `
-    const definitions = new WeakMap();
-    export function flow(name) {
-      const handle = async () => {};
-      definitions.set(handle, { name, header: {} });
-      return handle;
-    }
-    export function getFlowDefinition(handle) { return definitions.get(handle); }
-  `);
-  writeFileSync(join(surface, 'dist/index.js'), `export { flow } from './shared.js';\n`);
-  writeFileSync(join(surface, 'dist/flow.js'), `export { getFlowDefinition } from './shared.js';\n`);
-  return { flowPath, surfaceEntry: join(surface, 'dist/index.js'), shared: join(surface, 'dist/shared.js') };
+  const source = `throw new Error('tenant base must not execute');\n`;
+  writeFileSync(flowPath, source);
+  return { project, flowPath, source };
 }
 
 describe('hosted base private snapshot', () => {
-  it('imports copied host package bytes when the live package changes before import', async () => {
-    const { flowPath, surfaceEntry, shared } = fixture();
-    const snapshot = await createHostedBaseSnapshot(flowPath, surfaceEntry);
+  it('keeps the buffered base bytes when the live source changes', async () => {
+    const { flowPath, source } = fixture();
+    const snapshot = await createHostedBaseSnapshot(flowPath);
     try {
-      writeFileSync(shared, `throw new Error('live replacement executed');\n`);
-      await expect(hostedBaseIdentityFromSnapshot(snapshot)).resolves.toEqual({
-        name: 'software-factory',
-      });
-      await expect(hostedBaseSourceDigest(snapshot.liveSources)).resolves.not.toBe(snapshot.liveDigest);
-    } finally {
-      await removeHostedBaseSnapshot(snapshot);
-    }
-  });
-
-  it('detects a live host package change after the copied identity was loaded', async () => {
-    const { flowPath, surfaceEntry, shared } = fixture();
-    const snapshot = await createHostedBaseSnapshot(flowPath, surfaceEntry);
-    try {
-      await expect(hostedBaseIdentityFromSnapshot(snapshot)).resolves.toEqual({
-        name: 'software-factory',
-      });
-      expect(await hostedBaseSourceDigest(snapshot.liveSources)).toBe(snapshot.liveDigest);
-      writeFileSync(shared, `throw new Error('post-load replacement');\n`);
+      writeFileSync(flowPath, `throw new Error('live replacement');\n`);
+      expect(readFileSync(snapshot.snapshotFlowPath, 'utf8')).toBe(source);
       expect(await hostedBaseSourceDigest(snapshot.liveSources)).not.toBe(snapshot.liveDigest);
     } finally {
       await removeHostedBaseSnapshot(snapshot);
     }
   });
 
-  it('refuses a relative import outside the snapshotted project root', async () => {
-    const { flowPath, surfaceEntry } = fixture();
-    writeFileSync(join(dirname(flowPath), '../outside-base.ts'), `export const name = 'software-factory';\n`);
-    writeFileSync(flowPath, `
-      import { flow } from '@relayflows/surface';
-      import { name } from '../outside-base.ts';
-      export default flow(name, async f => f.done('success'));
-    `);
-    const snapshot = await createHostedBaseSnapshot(flowPath, surfaceEntry);
+  it('excludes project node_modules from the admitted generation', async () => {
+    const { project, flowPath } = fixture();
+    const dependency = join(project, 'node_modules/local-identity');
+    mkdirSync(dependency, { recursive: true });
+    writeFileSync(join(dependency, 'package.json'), '{"name":"local-identity"}');
+    writeFileSync(join(dependency, 'index.js'), `throw new Error('must not execute');\n`);
+    const snapshot = await createHostedBaseSnapshot(flowPath);
     try {
-      await expect(hostedBaseIdentityFromSnapshot(snapshot))
-        .rejects.toMatchObject({ code: 'plugin_source_invalid' });
+      expect(() => readFileSync(join(snapshot.snapshotRoot, 'node_modules/local-identity/index.js')))
+        .toThrow();
+      const before = await hostedBaseSourceDigest(snapshot.liveSources);
+      writeFileSync(join(dependency, 'index.js'), `throw new Error('replacement');\n`);
+      expect(await hostedBaseSourceDigest(snapshot.liveSources)).toBe(before);
     } finally {
       await removeHostedBaseSnapshot(snapshot);
     }

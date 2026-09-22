@@ -105,7 +105,12 @@ export async function runHostedCapabilityExtension(
     identity,
     runtimeVersions(),
   );
-  return await runVerifiedNativeExtensionSandbox({ ...options, artifact, manifest });
+  return await runVerifiedNativeExtensionSandbox({
+    ...options,
+    artifact,
+    manifest,
+    beforeLaunch: () => assertHostedRuntimeAuthority(options.installation, options.base),
+  });
 }
 
 interface RunVerifiedNativeExtensionOptions {
@@ -117,6 +122,8 @@ interface RunVerifiedNativeExtensionOptions {
   readonly timeoutMs?: number;
   readonly bubblewrapPath?: string;
   readonly nodePath?: string;
+  readonly surfaceRoot?: string;
+  readonly beforeLaunch?: () => Promise<void>;
 }
 
 /** @internal Security-harness seam; not exported from the SDK package root. */
@@ -147,6 +154,8 @@ export async function runVerifiedNativeExtensionSandbox(
     timeoutMs: options.timeoutMs,
     bubblewrapPath: options.bubblewrapPath,
     nodePath: options.nodePath,
+    surfaceRoot: options.surfaceRoot,
+    beforeLaunch: options.beforeLaunch,
     invoke: async request => babysitterReceipt(await options.babysitterTurn.queue(
       babysitterRequest(request, normalizedInput, options.dispatch),
       authority,

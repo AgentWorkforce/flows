@@ -1,5 +1,13 @@
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -77,6 +85,24 @@ async function artifact(source = ordinaryExtension, value = manifest()): Promise
     digest: stored.digest,
     manifestSha256: createHash('sha256').update(manifestBytes).digest('hex'),
   };
+}
+
+function surfaceFixture(): string {
+  const sourceRoot = resolve('../surface');
+  const surfaceRoot = mkdtempSync(join(tmpdir(), 'hosted-surface-test-'));
+  roots.push(surfaceRoot);
+  writeFileSync(join(surfaceRoot, 'package.json'), JSON.stringify({
+    name: '@relayflows/surface', version: '2.0.26', type: 'module',
+  }));
+  for (const file of [
+    'flow.js', 'helpers/providers.js', 'provider-trigger.js',
+    'schedule.js', 'triggers.js', 'triggers/github.js',
+  ]) {
+    const target = join(surfaceRoot, 'dist', file);
+    mkdirSync(resolve(target, '..'), { recursive: true });
+    copyFileSync(join(sourceRoot, 'dist', file), target);
+  }
+  return surfaceRoot;
 }
 
 /** Emit raw parent-protocol frames during import, before any handler can run. */
@@ -177,6 +203,52 @@ process.exit(child.status ?? 1);
     })).resolves.toEqual({ completionReason: 'success', capabilityCalls: 1 });
     expect(calls).toBe(1);
     expect(readFileSync(join(installed.directory, 'babysitter.flow.ts'), 'utf8')).toBe(replacementSource);
+  });
+
+  it('mounts pinned private Surface bytes when the live package changes before launch', async () => {
+    const surfaceRoot = surfaceFixture();
+    const installed = await artifact();
+    const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
+      provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-1',
+    });
+    let calls = 0;
+    await expect(runVerifiedNativeExtensionSandbox({
+      artifact: installed,
+      manifest: validateFlowExtensionManifest(manifest()),
+      dispatch,
+      input: descriptor(),
+      surfaceRoot,
+      beforeLaunch: async () => {
+        writeFileSync(join(surfaceRoot, 'dist/flow.js'), `throw new Error('live Surface executed');\n`);
+      },
+      babysitterTurn: { queue: async () => {
+        calls += 1;
+        return { receiptId: 'receipt-1', status: 'queued' };
+      } },
+    })).resolves.toEqual({ completionReason: 'success', capabilityCalls: 1 });
+    expect(calls).toBe(1);
+    expect(readFileSync(join(surfaceRoot, 'dist/flow.js'), 'utf8')).toContain('live Surface executed');
+  });
+
+  it('refuses Surface runtime bytes that differ from the reviewed pin before launch', async () => {
+    const surfaceRoot = surfaceFixture();
+    writeFileSync(join(surfaceRoot, 'dist/flow.js'), `throw new Error('unreviewed Surface');\n`);
+    const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
+      provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-1',
+    });
+    let calls = 0;
+    await expect(runVerifiedNativeExtensionSandbox({
+      artifact: await artifact(),
+      manifest: validateFlowExtensionManifest(manifest()),
+      dispatch,
+      input: descriptor(),
+      surfaceRoot,
+      babysitterTurn: { queue: async () => {
+        calls += 1;
+        return { receiptId: 'receipt-1', status: 'queued' };
+      } },
+    })).rejects.toMatchObject({ code: 'plugin_unsupported' });
+    expect(calls).toBe(0);
   });
 
   it('preserves a typed host refusal while disclosing only a fixed marker to the child', async () => {
