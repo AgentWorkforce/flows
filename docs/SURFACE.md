@@ -379,7 +379,8 @@ per agent): `f.agent("api", { task, cwd: "/repo/.wt/api" })`. The kernel carries
 absolute in the kernel spec; the TypeScript surface resolves a relative `cwd`
 against the runner's directory, while a relative `cwd` in YAML is refused.
 Setting `cwd` is part of the step's spec hash; omitting it hashes exactly as
-before. Concurrent `f.llm` calls always overlap.
+before. Concurrent `f.llm` calls have no directory lock. They overlap up to the
+configured capacity, and calls beyond it wait for a slot.
 
 The LLM step remains `type: llm` in the journal. It uses the same CLI resolution,
 authentication probes, and exact `flows.json` model allow-list as agent steps;
