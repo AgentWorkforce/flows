@@ -187,6 +187,47 @@ assistant:
 ── result success · 6.2s · 2 turns · $0.108098 · 4 in / 248 out · 25,402 cache read · 25,638 cache write ──
 ```
 
+Both harness vocabularies render. A Codex step writes `codex exec --json`,
+and its frames are read too: `thread.started` as the session header,
+`turn.started`/`turn.completed` as separators with the turn's usage,
+`agent_message` as prose — **in full**, because the last one is the step's
+answer — `reasoning` as a character count and never its text, and
+`command_execution` and `mcp_tool_call` as **numbered** call lines carrying the
+result size, the exit code (zero included), the item's status, and a bounded
+excerpt of the output: ten lines or a thousand characters, whichever comes
+first, with the full size still on the call line and the whole of it under
+`--raw`. An `apply_patch` is file activity rather than a call, so it is listed
+by path and change kind and takes no number. A `turn.failed`, a top-level
+`error` frame and an `error` item print their message rather than anything that
+reads like success. Dispatch is per frame, so a log that mixes vocabularies
+renders each in its own shape, and an item type this vocabulary does not read —
+`web_search`, `todo_list`, anything newer — still gets the placeholder line
+naming it.
+
+```text
+LOG f92bf832-0d26-4f17-9c50-2b4b2e2f77d5  step agent-17  1,967 bytes  complete
+session  codex · thread 01a0c600-0000-7a10-a68c-000000000000
+── turn ────────────────────────────────────────────────────────────────
+assistant:
+  I’ll perform the requested review steps in order.
+  tool 1  command_execution  /bin/bash -lc 'cat src/pricing.ts'  → 110 chars · exit 0 · completed
+      export function total(cents: number, taxRate: number): number {
+        return Math.round(cents * (1 + taxRate));
+      }
+  tool 2  mcp_tool_call  demo/echo_shout {"text":"p2","options":{"mode":"loud"}}  → 29 chars · completed
+  files  1 change · completed
+      add  /project/review.md
+assistant:
+  Verdict: changes_requested
+
+  The rounding in `total` truncates before the tax is applied, so a
+  0.5-cent remainder is lost on every line item.
+
+  One P2 remains and the gate artifact `review.clean` was not created.
+── turn complete · 72,669 in / 244 out · 69,376 cache read · 0 cache write · 0 reasoning out ──
+```
+
+
 `--raw` prints the JSONL unrendered. It does **not** print it unredacted:
 every string that reaches the terminal — rendered, raw, or `--json` — goes
 through `redact.ts`, the redactor the local `flows status` uses. That is a
