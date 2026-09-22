@@ -1,5 +1,8 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { resolve, join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { pathToFileURL } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { exportBabysitterCatalogBundle } from '../src/babysitter-catalog-export.js';
 import { resolveExtensionSubmission } from '../src/flow-extension-submit.js';
@@ -26,6 +29,49 @@ async function artifact(change: (manifest: typeof template) => void = () => {}) 
 }
 
 describe('Babysitter catalog artifact export', () => {
+  it('CLI refuses an existing output and leaves no file on validation failure', async () => {
+    const a = await artifact();
+    const directory = mkdtempSync(join(tmpdir(), 'babysitter-export-cli-'));
+    try {
+      // Replay only the GitHub responses used by the real resolver. The child
+      // executes the actual CLI and built exporter; unexpected network is fatal.
+      const responses: Record<string, { status: number; body: string }> = {};
+      for (const url of [...new Set(a.github.calls)]) {
+        const response = await a.github.fetch(url, { headers: {}, signal: new AbortController().signal });
+        responses[url] = { status: response.status, body: Buffer.from(await response.arrayBuffer()).toString('base64') };
+      }
+      const preload = join(directory, 'github.mjs');
+      writeFileSync(preload, `const responses = ${JSON.stringify(responses)};
+globalThis.fetch = async url => {
+  const response = responses[String(url)];
+  if (!response) throw new Error('Unexpected network request: ' + url);
+  return new Response(Buffer.from(response.body, 'base64'), { status: response.status });
+};\n`);
+      const output = join(directory, 'bundle.json');
+      const invoke = (destination: string, digest = a.pin.digest) => spawnSync(process.execPath, [
+        '--import', pathToFileURL(preload).href, resolve('scripts/export-babysitter-catalog.mjs'),
+        ref, digest, a.pin.manifestSha256, destination,
+      ], { encoding: 'utf8', timeout: 15_000 });
+      const first = invoke(output);
+      expect(first.status, first.stderr).toBe(0);
+      const original = readFileSync(output);
+      expect(JSON.parse(original.toString())).toMatchObject(a.pin);
+      const duplicate = invoke(output);
+      expect(duplicate.status, duplicate.stderr).toBe(1);
+      expect(duplicate.stderr).toContain('EEXIST');
+      expect(duplicate.stdout).toBe('');
+      expect(readFileSync(output)).toEqual(original);
+      const invalidOutput = join(directory, 'invalid.json');
+      const invalid = invoke(invalidOutput, '0'.repeat(64));
+      expect(invalid.status, invalid.stderr).toBe(1);
+      expect(invalid.stderr).toContain('differs from the reviewed pin');
+      expect(invalid.stdout).toBe('');
+      expect(existsSync(invalidOutput)).toBe(false);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('preserves digest-bound manifest and binary bytes without executing code', async () => {
     const a = await artifact(m => { m.source = { host: 'github', owner: 'AgentWorkforce', repo: 'flows', path: 'examples/babysitter' }; });
     const exported = await exportBabysitterCatalogBundle(a.pin, a.options);
