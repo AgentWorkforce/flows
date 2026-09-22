@@ -7,14 +7,19 @@ import type { JournalClient } from '../src/journal-client.js';
 import { parseStatusArgs, runStatus } from '../src/cli/status.js';
 import { chainFixture } from './flow-chain-fixture.js';
 
-/** `flows status --json` for one run, read from the journal file on disk. */
-async function statusJson(dataDir: string, runId: string): Promise<Record<string, unknown>> {
+/** `flows status --json` for one run, read from the journal file on disk; the exit code beside it. */
+async function readStatus(dataDir: string, runId: string): Promise<{ code: number; view?: Record<string, unknown> }> {
   const stdout: string[] = [];
   const code = await runStatus(parseStatusArgs(['--json', '--data-dir', dataDir, runId])!, {
     stdout: (line) => stdout.push(line), stderr: () => undefined,
   }, { env: {} });
+  return { code, ...(stdout[0] === undefined ? {} : { view: JSON.parse(stdout[0]) as Record<string, unknown> }) };
+}
+
+async function statusJson(dataDir: string, runId: string): Promise<Record<string, unknown>> {
+  const { code, view } = await readStatus(dataDir, runId);
   expect(code).toBe(0);
-  return JSON.parse(stdout[0]!) as Record<string, unknown>;
+  return view!;
 }
 
 const closes: Array<() => Promise<void>> = [];
@@ -50,18 +55,51 @@ describe('the authored step DAG through the live kernel', () => {
     closes.push(() => agent.close());
     const rootRunId = await openRoot(journal);
 
+    // A poller outside the body, as Cloud's reporter is: it reads the root's
+    // journal file while the daemon is still writing it.
+    let release!: () => void;
+    const observed = new Promise<void>((resolve) => { release = resolve; });
     const handle = flow('graph-live', async (f) => {
       await f.run('printf plan');
       // Fan out on deterministic steps: the local agent worker serves one lease
       // at a time, so parallel agents would park rather than run.
       await Promise.all([f.run('printf left'), f.run('printf right')]);
+      // Hold here until the poller below has read the root mid-run.
+      await observed;
       await f.agent('writer', { task: 'write it' });
       await f.run('printf done');
       f.done('success');
     });
-    const result = await executeAuthoredFlow(handle, journal, undefined, {
+    const running = executeAuthoredFlow(handle, journal, undefined, {
       rootRunId, flowPath: fixture.flowPath, localAgentStream: agent.stream, dataDir: fixture.data,
     });
+    let midRun: Record<string, unknown> | undefined;
+    try {
+      const deadline = Date.now() + 30_000;
+      // A read that races the writer is refused (`journal_busy`) and simply
+      // retried, as Cloud's reporter retries on its next poll.
+      for (;;) {
+        const { code, view } = await readStatus(fixture.data, rootRunId);
+        if (code === 0) midRun = view;
+        const steps = midRun?.['authored_steps'] as Array<{ state: string }> | undefined;
+        if ((steps?.length === 3 && steps.every((step) => step.state === 'completed')) || Date.now() > deadline) break;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    } finally {
+      release();
+    }
+    const result = await running;
+
+    expect(midRun?.['status']).toBe('running');
+    // run-2 and run-3 run in parallel, so their admission order is not fixed.
+    expect((midRun?.['authored_steps'] as Array<Record<string, unknown>>)
+      .map(({ step, state, after }) => ({ step, state, after }))
+      .sort((a, b) => String(a.step).localeCompare(String(b.step))))
+      .toEqual([
+        { step: 'run-1', state: 'completed', after: undefined },
+        { step: 'run-2', state: 'completed', after: ['run-1'] },
+        { step: 'run-3', state: 'completed', after: ['run-1'] },
+      ]);
 
     // Step identity is the kernel's and the admission key's: unchanged.
     expect(result.journalSteps.map((step) => step.id).sort()).toEqual(

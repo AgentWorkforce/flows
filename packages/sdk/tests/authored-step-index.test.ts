@@ -77,6 +77,47 @@ describe('the durable child index on the root run', () => {
     ]);
   });
 
+  it('keeps graph fields across records, whichever record carried them', async () => {
+    const { journal } = streams();
+    // A completion without graph fields after an admission that had them.
+    await recordAuthoredChild(journal, 'root-1', {
+      step: 'agent-1', runId: 'child-a', state: 'admitted', label: 'plan', after: [],
+    });
+    await recordAuthoredChild(journal, 'root-1', {
+      step: 'agent-1', runId: 'child-a', state: 'completed', completionReason: 'success',
+    });
+    // A root an older runtime began: a bare completion, then a resumed body's
+    // re-admission that now carries the fields. It stays completed and gains them.
+    await recordAuthoredChild(journal, 'root-1', {
+      step: 'agent-2', runId: 'child-b', state: 'completed', completionReason: 'success',
+    });
+    await recordAuthoredChild(journal, 'root-1', {
+      step: 'agent-2', runId: 'child-b', state: 'admitted', label: 'writer', after: ['agent-1'], afterTruncated: true,
+    });
+    // A record's own fields win over the other's.
+    await recordAuthoredChild(journal, 'root-1', {
+      step: 'agent-3', runId: 'child-c', state: 'admitted', label: 'old', after: ['agent-1'],
+    });
+    await recordAuthoredChild(journal, 'root-1', {
+      step: 'agent-3', runId: 'child-c', state: 'completed', completionReason: 'success', label: 'new', after: ['agent-2'],
+    });
+
+    expect(await readAuthoredStepIndex(journal, 'root-1')).toEqual([
+      {
+        index: 'relayflows.authored-step.v1', step: 'agent-1', runId: 'child-a', state: 'completed',
+        completionReason: 'success', label: 'plan', after: [],
+      },
+      {
+        index: 'relayflows.authored-step.v1', step: 'agent-2', runId: 'child-b', state: 'completed',
+        completionReason: 'success', label: 'writer', after: ['agent-1'], afterTruncated: true,
+      },
+      {
+        index: 'relayflows.authored-step.v1', step: 'agent-3', runId: 'child-c', state: 'completed',
+        completionReason: 'success', label: 'new', after: ['agent-2'],
+      },
+    ]);
+  });
+
   it('keeps the kernel step id only when it differs from the authored one', async () => {
     const { journal } = streams();
     await recordAuthoredChild(journal, 'root-1', {

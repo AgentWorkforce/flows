@@ -182,13 +182,32 @@ export function foldAuthoredStepRecords(
   for (const raw of messages) {
     if (!isAuthoredStepRecord(raw)) continue;
     const previous = index.get(raw.step);
+    if (previous === undefined) {
+      index.set(raw.step, raw);
+      continue;
+    }
     // An `admitted` record arriving after a `completed` one (a resumed body
     // re-admitting the same child under its stable admission key) must not
-    // un-complete it.
-    if (previous?.state === 'completed' && raw.state === 'admitted') continue;
-    index.set(raw.step, raw);
+    // un-complete it. Either way, graph fields one record lacks are taken from
+    // the other: a completion written without them (or a re-admission that
+    // adds them, over a root an older runtime began) must not erase them.
+    const keepPrevious = previous.state === 'completed' && raw.state === 'admitted';
+    index.set(raw.step, withGraphFrom(keepPrevious ? previous : raw, keepPrevious ? raw : previous));
   }
   return index;
+}
+
+/** `primary`, with any `label` / `after` it lacks taken from `fallback`. */
+function withGraphFrom(primary: AuthoredStepRecord, fallback: AuthoredStepRecord): AuthoredStepRecord {
+  const label = primary.label ?? fallback.label;
+  const edges = primary.after !== undefined ? primary : fallback;
+  const { label: _label, after: _after, afterTruncated: _truncated, ...lifecycle } = primary;
+  return {
+    ...lifecycle,
+    ...(label === undefined ? {} : { label }),
+    ...(edges.after === undefined ? {} : { after: edges.after }),
+    ...(edges.after !== undefined && edges.afterTruncated === true ? { afterTruncated: true as const } : {}),
+  };
 }
 
 function isAuthoredStepRecord(value: unknown): value is AuthoredStepRecord {
