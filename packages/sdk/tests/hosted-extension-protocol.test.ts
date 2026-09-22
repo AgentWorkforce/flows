@@ -1,14 +1,20 @@
 import { createHash } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PassThrough } from 'node:stream';
+import type { ChildProcess } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 import { hostedExtensionDispatchFromVerifiedDelivery } from '../src/index.js';
 import {
   runVerifiedNativeExtensionSandbox,
   type HostedExtensionArtifact,
 } from '../src/hosted-extension-isolation.js';
-import { boundedJsonSnapshot } from '../src/hosted-extension-protocol.js';
+import {
+  boundedJsonSnapshot,
+  exchangeHostedExtension,
+} from '../src/hosted-extension-protocol.js';
 import { snapshotJsonValue } from '../src/json-value.js';
 import { validateFlowExtensionManifest } from '../src/flow-extension-manifest.js';
 import { materializePlugin } from '../src/plugin-store.js';
@@ -308,14 +314,26 @@ describe('hosted extension hostile protocol', () => {
     let markInvoked!: () => void;
     const invoked = new Promise<void>(resolve => { markInvoked = resolve; });
     let calls = 0;
-    const run = runVerifiedNativeExtensionSandbox({
-      artifact: await artifact(hostileImport([
-        capabilityFrame(),
-        { type: 'result', completionReason: 'success', capabilityCalls: 1 },
-      ])),
-      manifest: validateFlowExtensionManifest(manifest()), dispatch: dispatch(), input: descriptor(), timeoutMs: 10_000,
-      babysitterTurn: { queue: async () => { calls += 1; markInvoked(); return await adapter; } },
-    });
+    const protocol = new PassThrough();
+    const stdin = new PassThrough();
+    const stderr = new PassThrough();
+    const child = Object.assign(new EventEmitter(), {
+      exitCode: null,
+      signalCode: null,
+      kill: () => true,
+    }) as unknown as ChildProcess;
+    const run = exchangeHostedExtension(
+      child,
+      protocol,
+      stdin,
+      stderr,
+      10_000,
+      { type: 'run' },
+      async () => { calls += 1; markInvoked(); return await adapter; },
+    );
+    protocol.write(`${JSON.stringify(capabilityFrame())}\n${JSON.stringify({
+      type: 'result', completionReason: 'success', capabilityCalls: 1,
+    })}\n`);
     await waitForInvocation(invoked);
     settle({ receiptId: 'settled-after-refusal', status: 'queued' });
     await expect(run).rejects.toMatchObject({ code: 'plugin_unsupported' });
