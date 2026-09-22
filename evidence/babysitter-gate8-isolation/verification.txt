@@ -1425,3 +1425,56 @@ authored-node.mjs  3.1 MB  (entry point)
 $ /tmp/flows-pr552-standalone.tPG8GP/flows --help >/dev/null
 $ printf 'standalone-static-json-pass %s\n' /tmp/flows-pr552-standalone.tPG8GP/flows
 standalone-static-json-pass /tmp/flows-pr552-standalone.tPG8GP/flows
+
+$ git rev-parse HEAD
+aa26c50eb7ae00c5916084e6c1075712ac90fce3
+
+$ git rev-parse origin/main
+5546c4b3029938ed9d9eb1f9bfdbed81c88b9224
+
+$ cd packages/sdk
+$ git diff --check
+$ npm run typecheck
+
+> @relayflows/sdk@2.0.28 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+$ npm run build
+
+> @relayflows/sdk@2.0.28 build
+> tsc && node scripts/make-cli-executable.mjs
+
+$ npm run typecheck:tests
+
+> @relayflows/sdk@2.0.28 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+$ ./node_modules/.bin/vitest run tests/plugin-store-bounds.test.ts tests/hosted-base-snapshot.test.ts tests/hosted-extension-routing.test.ts tests/preflight.test.ts tests/babysitter-native-extension.test.ts tests/hosted-extension-protocol-intrinsics.test.ts tests/hosted-extension-protocol.test.ts tests/authored-flow.test.ts tests/hosted-extension-isolation.test.ts
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
+
+ ✓ tests/hosted-extension-protocol-intrinsics.test.ts (5 tests) 15ms
+ ✓ tests/plugin-store-bounds.test.ts (8 tests) 55ms
+ ✓ tests/hosted-base-snapshot.test.ts (13 tests) 647ms
+   ✓ hosted base private snapshot > stops streaming project entries at the shared count limit 587ms
+ ✓ tests/hosted-extension-routing.test.ts (4 tests) 6ms
+ ✓ tests/preflight.test.ts (67 tests) 101ms
+ ✓ tests/babysitter-native-extension.test.ts (40 tests) 470ms
+ ✓ tests/hosted-extension-protocol.test.ts (24 tests) 585ms
+ ✓ tests/authored-flow.test.ts (34 tests) 782ms
+ ✓ tests/hosted-extension-isolation.test.ts (20 tests) 1052ms
+
+ Test Files  9 passed (9)
+      Tests  215 passed (215)
+   Start at  15:50:08
+   Duration  2.66s (transform 1.58s, setup 0ms, collect 8.33s, tests 3.71s, environment 2ms, prepare 524ms)
+
+$ node scripts/build-standalone-cli.mjs bun-linux-x64 /tmp/flows-pr552-standalone.UflORW/flows
+Bundled 780 modules in 32ms
+authored-node.mjs  3.1 MB  (entry point)
+[56ms] bundle 713 modules
+[102ms] compile /tmp/flows-pr552-standalone.UflORW/flows
+
+$ /tmp/flows-pr552-standalone.UflORW/flows --help >/dev/null
+$ printf 'standalone-hosted-parser-pass %s\n' /tmp/flows-pr552-standalone.UflORW/flows
+standalone-hosted-parser-pass /tmp/flows-pr552-standalone.UflORW/flows
