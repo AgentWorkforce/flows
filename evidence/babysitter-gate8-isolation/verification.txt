@@ -1099,3 +1099,101 @@ $ ./node_modules/.bin/vitest run tests/plugin-store-bounds.test.ts tests/hosted-
       Tests  204 passed (204)
    Start at  15:12:20
    Duration  2.46s (transform 1.51s, setup 0ms, collect 7.22s, tests 3.68s, environment 2ms, prepare 629ms)
+
+$ git rebase origin/main
+Successfully rebased and updated refs/heads/feat/babysitter-gate8-isolation.
+
+$ git rev-parse HEAD
+ba79ad5360dff49a0cc9f2d1cdf528f984d8b444
+
+$ git rev-parse origin/main
+9551018167e5bfcf248b7d2533401cf935ceac77
+
+$ git merge-base HEAD origin/main
+9551018167e5bfcf248b7d2533401cf935ceac77
+
+$ cd packages/sdk
+$ git diff --check
+$ npm run typecheck
+
+> @relayflows/sdk@2.0.27 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+$ npm run build
+
+> @relayflows/sdk@2.0.27 build
+> tsc && node scripts/make-cli-executable.mjs
+
+$ npm run typecheck:tests
+
+> @relayflows/sdk@2.0.27 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+$ ./node_modules/.bin/vitest run tests/plugin-store-bounds.test.ts tests/hosted-base-snapshot.test.ts tests/hosted-extension-routing.test.ts tests/preflight.test.ts tests/babysitter-native-extension.test.ts tests/hosted-extension-protocol-intrinsics.test.ts tests/hosted-extension-protocol.test.ts tests/authored-flow.test.ts tests/hosted-extension-isolation.test.ts
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
+
+ ✓ tests/hosted-extension-protocol-intrinsics.test.ts (5 tests) 14ms
+ ✓ tests/plugin-store-bounds.test.ts (7 tests) 58ms
+ ✓ tests/hosted-base-snapshot.test.ts (13 tests) 411ms
+   ✓ hosted base private snapshot > stops streaming project entries at the shared count limit 373ms
+ ✓ tests/hosted-extension-routing.test.ts (4 tests) 4ms
+ ✓ tests/preflight.test.ts (67 tests) 102ms
+ ✓ tests/babysitter-native-extension.test.ts (40 tests) 398ms
+ ✓ tests/authored-flow.test.ts (34 tests) 736ms
+ ✓ tests/hosted-extension-protocol.test.ts (24 tests) 640ms
+ ✓ tests/hosted-extension-isolation.test.ts (18 tests) 1012ms
+
+ Test Files  9 passed (9)
+      Tests  212 passed (212)
+   Start at  15:14:56
+   Duration  2.24s (transform 1.24s, setup 0ms, collect 5.99s, tests 3.38s, environment 1ms, prepare 542ms)
+
+$ git rebase origin/main
+Successfully rebased and updated refs/heads/feat/babysitter-gate8-isolation.
+
+$ git rev-parse HEAD
+f25d5f7fa06c5b6b95e71ac107862bf40a7dcaa1
+
+$ git rev-parse origin/main
+62015ce5d2dbb7563616fba112a83fec89030a4e
+
+$ git merge-base HEAD origin/main
+62015ce5d2dbb7563616fba112a83fec89030a4e
+
+$ cd packages/sdk
+$ git diff --check
+$ npm run typecheck
+
+> @relayflows/sdk@2.0.27 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+$ npm run build
+
+> @relayflows/sdk@2.0.27 build
+> tsc && node scripts/make-cli-executable.mjs
+
+$ npm run typecheck:tests
+
+> @relayflows/sdk@2.0.27 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+$ ./node_modules/.bin/vitest run tests/plugin-store-bounds.test.ts tests/hosted-base-snapshot.test.ts tests/hosted-extension-routing.test.ts tests/preflight.test.ts tests/babysitter-native-extension.test.ts tests/hosted-extension-protocol-intrinsics.test.ts tests/hosted-extension-protocol.test.ts tests/authored-flow.test.ts tests/hosted-extension-isolation.test.ts
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
+
+ ✓ tests/hosted-extension-protocol-intrinsics.test.ts (5 tests) 11ms
+ ✓ tests/plugin-store-bounds.test.ts (7 tests) 49ms
+ ✓ tests/hosted-base-snapshot.test.ts (13 tests) 593ms
+   ✓ hosted base private snapshot > stops streaming project entries at the shared count limit 534ms
+ ✓ tests/hosted-extension-routing.test.ts (4 tests) 7ms
+ ✓ tests/preflight.test.ts (67 tests) 106ms
+ ✓ tests/babysitter-native-extension.test.ts (40 tests) 377ms
+ ✓ tests/authored-flow.test.ts (34 tests) 773ms
+ ✓ tests/hosted-extension-protocol.test.ts (24 tests) 659ms
+ ✓ tests/hosted-extension-isolation.test.ts (18 tests) 1068ms
+
+ Test Files  9 passed (9)
+      Tests  212 passed (212)
+   Start at  15:16:23
+   Duration  2.41s (transform 1.29s, setup 0ms, collect 6.81s, tests 3.64s, environment 2ms, prepare 660ms)
