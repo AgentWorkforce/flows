@@ -144,9 +144,9 @@ export async function runVerifiedNativeExtensionSandbox(
   assertManifestRoutes(options.manifest, identity);
   const normalizedInput = babysitterInput(options.input, options.dispatch);
   const versions = runtimeVersions();
-  const authority: HostedCapabilityAuthority = Object.freeze({
+  const authority: HostedCapabilityAuthority = OBJECT_FREEZE({
     dispatch: options.dispatch,
-    extension: Object.freeze({
+    extension: OBJECT_FREEZE({
       name: options.manifest.name,
       version: options.manifest.version,
       ref: options.artifact.ref,
@@ -186,7 +186,8 @@ export async function selectHostedExtensionForRuntime(
     throw new PluginError('plugin_incompatible', 'Hosted base identity is malformed.');
   }
   const matches: Array<{ artifact: HostedExtensionArtifact; manifest: FlowExtensionManifest }> = [];
-  for (const artifact of value.artifacts) {
+  for (let index = 0; index < value.artifacts.length; index += 1) {
+    const artifact = value.artifacts[index]!;
     const manifest = await verifiedManifest(artifact);
     assertCompatible(manifest, versions);
     assertBaseCompatible(manifest, base);

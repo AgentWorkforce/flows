@@ -37,6 +37,27 @@ describe('hosted base private snapshot', () => {
     }
   });
 
+  it('keeps source digests sensitive when ambient Array.map is poisoned', async () => {
+    const { project } = fixture();
+    const sources = [{ root: project, prefix: '' }];
+    const before = await hostedBaseSourceDigest(sources);
+    writeFileSync(join(project, 'helper.ts'), `export const identity = 'changed';\n`);
+    const originalMap = Array.prototype.map;
+    let poisonCalls = 0;
+    let after: string | undefined;
+    try {
+      Array.prototype.map = function poisonedMap() {
+        poisonCalls += 1;
+        return [];
+      } as typeof Array.prototype.map;
+      after = await hostedBaseSourceDigest(sources);
+    } finally {
+      Array.prototype.map = originalMap;
+    }
+    expect(poisonCalls).toBe(0);
+    expect(after).not.toBe(before);
+  });
+
   it('excludes project node_modules from the admitted generation', async () => {
     const { project, flowPath } = fixture();
     const dependency = join(project, 'node_modules/local-identity');

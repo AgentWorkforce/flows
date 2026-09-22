@@ -436,6 +436,38 @@ export default flow('babysitter', async f => f.done('declined'))
     expect(() => readFileSync(marker)).toThrow();
   });
 
+  it('constructs adapter authority with the captured freeze intrinsic', async () => {
+    const installed = await artifact();
+    const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
+      provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-freeze',
+    });
+    const validatedManifest = validateFlowExtensionManifest(manifest());
+    const originalFreeze = Object.freeze;
+    let poisonCalls = 0;
+    let result: Awaited<ReturnType<typeof runVerifiedNativeExtensionSandbox>> | undefined;
+    try {
+      Object.freeze = ((value: object) => {
+        if ('dispatch' in value || ('ref' in value && 'digest' in value && 'version' in value)) {
+          poisonCalls += 1;
+          throw new Error('ambient authority freeze');
+        }
+        return originalFreeze(value);
+      }) as typeof Object.freeze;
+      result = await runVerifiedNativeExtensionSandbox({
+        artifact: installed,
+        manifest: validatedManifest,
+        dispatch,
+        input: descriptor('delivery-freeze'),
+        babysitterTurn: { queue: async () => ({ receiptId: 'receipt-freeze', status: 'queued' }) },
+        timeoutMs: 3_000,
+      });
+    } finally {
+      Object.freeze = originalFreeze;
+    }
+    expect(poisonCalls).toBe(0);
+    expect(result).toEqual({ completionReason: 'success', capabilityCalls: 1 });
+  });
+
   it('fails closed when the handler omits or repeats the single capability call', async () => {
     for (const body of [
       `f.done('success')`,

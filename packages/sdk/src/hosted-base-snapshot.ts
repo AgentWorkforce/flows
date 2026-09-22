@@ -8,6 +8,12 @@ import { findPluginProject } from './plugin-loader.js';
 import { PluginError } from './plugin-manifest.js';
 
 const EXCLUDED_DIRECTORIES = new Set(['.flows', '.git', 'node_modules']);
+const ARRAY_PUSH = Array.prototype.push;
+const ARRAY_SORT = Array.prototype.sort;
+const OBJECT_FREEZE = Object.freeze;
+const SET_HAS = Set.prototype.has;
+const STRING_LOCALE_COMPARE = String.prototype.localeCompare;
+const STRING_STARTS_WITH = String.prototype.startsWith;
 const MAX_ENTRIES = 10_000;
 const MAX_BYTES = 64 * 1024 * 1024;
 const MAX_DEPTH = 64;
@@ -53,18 +59,19 @@ export async function createHostedBaseSnapshot(flowPath: string): Promise<Hosted
   const projectRoot = await realpath(discovered);
   const flowRelative = relative(projectRoot, origin);
   if (flowRelative === '' || isAbsolute(flowRelative)
-    || flowRelative === '..' || flowRelative.startsWith(`..${sep}`)) {
+    || flowRelative === '..' || STRING_STARTS_WITH.call(flowRelative, `..${sep}`)) {
     throw invalid('Hosted base flow must be a file inside its project root.');
   }
-  const liveSources = Object.freeze([
-    Object.freeze({ root: projectRoot, prefix: '' }),
+  const liveSources = OBJECT_FREEZE([
+    OBJECT_FREEZE({ root: projectRoot, prefix: '' }),
   ]);
   const files = await readAuthorityFiles(liveSources);
   const liveDigest = sourceDigest(files);
   const snapshotRoot = await mkdtemp(join(tmpdir(), 'flows-hosted-base-'));
   await chmod(snapshotRoot, 0o700);
   try {
-    for (const file of files) {
+    for (let index = 0; index < files.length; index += 1) {
+      const file = files[index]!;
       const target = join(snapshotRoot, file.path);
       await mkdir(dirname(target), { recursive: true, mode: 0o700 });
       await writeFile(target, file.bytes, { flag: 'wx', mode: 0o400 });
@@ -74,7 +81,7 @@ export async function createHostedBaseSnapshot(flowPath: string): Promise<Hosted
     if (snapshotDigest !== liveDigest) {
       throw invalid('Hosted base private snapshot does not match its buffered source.');
     }
-    return Object.freeze({
+    return OBJECT_FREEZE({
       liveSources,
       liveDigest,
       snapshotRoot,
@@ -103,29 +110,36 @@ async function readAuthorityFiles(
 ): Promise<readonly SourceFile[]> {
   const budget: SourceBudget = { entries: 0, bytes: 0 };
   const files: SourceFile[] = [];
-  for (const source of sources) files.push(...await readTree(source.root, source.prefix, budget, hooks));
-  files.sort((left, right) => left.path.localeCompare(right.path));
-  return Object.freeze(files);
+  for (let sourceIndex = 0; sourceIndex < sources.length; sourceIndex += 1) {
+    const source = sources[sourceIndex]!;
+    const sourceFiles = await readTree(source.root, source.prefix, budget, hooks);
+    for (let fileIndex = 0; fileIndex < sourceFiles.length; fileIndex += 1) {
+      ARRAY_PUSH.call(files, sourceFiles[fileIndex]!);
+    }
+  }
+  ARRAY_SORT.call(files, (left, right) => STRING_LOCALE_COMPARE.call(left.path, right.path));
+  return OBJECT_FREEZE(files);
 }
 
 async function readSnapshotTree(root: string): Promise<readonly SourceFile[]> {
   const files: SourceFile[] = [];
   async function visit(directory: string, prefix: string): Promise<void> {
     const entries = await readdir(directory, { withFileTypes: true });
-    entries.sort((left, right) => left.name.localeCompare(right.name));
-    for (const entry of entries) {
+    ARRAY_SORT.call(entries, (left, right) => STRING_LOCALE_COMPARE.call(left.name, right.name));
+    for (let index = 0; index < entries.length; index += 1) {
+      const entry = entries[index]!;
       const path = prefix === '' ? entry.name : join(prefix, entry.name);
       const absolute = join(directory, entry.name);
       if (entry.isDirectory()) await visit(absolute, path);
       else if (entry.isFile()) {
         const bytes = await readFile(absolute);
-        files.push(Object.freeze({ path, bytes, sha256: sha256(bytes) }));
+        ARRAY_PUSH.call(files, OBJECT_FREEZE({ path, bytes, sha256: sha256(bytes) }));
       } else throw invalid(`Hosted base snapshot contains unsupported entry "${path}".`);
     }
   }
   await visit(root, '');
-  files.sort((left, right) => left.path.localeCompare(right.path));
-  return Object.freeze(files);
+  ARRAY_SORT.call(files, (left, right) => STRING_LOCALE_COMPARE.call(left.path, right.path));
+  return OBJECT_FREEZE(files);
 }
 
 async function readTree(
@@ -146,7 +160,7 @@ async function readTree(
     if (depth > MAX_DEPTH) throw tooLarge();
     const entries = await opendir(`/proc/self/fd/${directory.fd}`);
     for await (const entry of entries) {
-      if (EXCLUDED_DIRECTORIES.has(entry.name)) continue;
+      if (SET_HAS.call(EXCLUDED_DIRECTORIES, entry.name)) continue;
       budget.entries += 1;
       if (budget.entries > MAX_ENTRIES) throw tooLarge();
       const relativePath = relativeDirectory === '' ? entry.name : join(relativeDirectory, entry.name);
@@ -167,7 +181,7 @@ async function readTree(
             throw invalid(`Hosted base source changed while reading "${relativePath}".`);
           }
           budget.bytes += bytes.byteLength;
-          files.push(Object.freeze({
+          ARRAY_PUSH.call(files, OBJECT_FREEZE({
             path: prefix === '' ? relativePath : join(prefix, relativePath),
             bytes,
             sha256: sha256(bytes),
@@ -194,7 +208,7 @@ async function readTree(
     if (error instanceof PluginError) throw error;
     throw invalid('Hosted base source or trusted dependency is unreadable.');
   }
-  return Object.freeze(files);
+  return OBJECT_FREEZE(files);
 }
 
 async function readBounded(
@@ -223,7 +237,12 @@ function tooLarge(): PluginError {
 }
 
 function sourceDigest(files: readonly SourceFile[]): string {
-  return sha256(canonicalize(files.map(file => ({ path: file.path, sha256: file.sha256 }))));
+  const records: Array<{ path: string; sha256: string }> = [];
+  for (let index = 0; index < files.length; index += 1) {
+    const file = files[index]!;
+    records[index] = { path: file.path, sha256: file.sha256 };
+  }
+  return sha256(canonicalize(records));
 }
 
 function sha256(value: Uint8Array | string): string {

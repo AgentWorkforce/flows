@@ -15,6 +15,7 @@ import {
   runHostedCapabilityExtension,
   selectHostedExtensionForRuntime,
 } from '../src/hosted-extension-isolation.js';
+import { assertHostedRuntimeAuthority } from '../src/hosted-extension-runtime.js';
 import { JournalClient } from '../src/journal-client.js';
 import { materializePlugin } from '../src/plugin-store.js';
 import { preflightProviderTriggers } from '../src/provider-trigger-contract.js';
@@ -223,6 +224,31 @@ describe('native Babysitter extension', () => {
       } },
     })).rejects.toMatchObject({ code: 'plugin_source_invalid' });
     expect(calls).toBe(0);
+  });
+
+  it('validates opaque runtime authority with captured WeakSet and WeakMap methods', async () => {
+    const originalHas = WeakSet.prototype.has;
+    const originalGet = WeakMap.prototype.get;
+    let poisonCalls = 0;
+    let failure: unknown;
+    try {
+      WeakSet.prototype.has = (() => { poisonCalls += 1; return true; }) as typeof WeakSet.prototype.has;
+      WeakMap.prototype.get = (() => { poisonCalls += 1; return undefined; }) as typeof WeakMap.prototype.get;
+      await assertHostedRuntimeAuthority(
+        installed.hostedRuntime.installation,
+        installed.hostedRuntime.base,
+      );
+      try {
+        await assertHostedRuntimeAuthority({ artifacts: [] } as never, { name: 'software-factory' } as never);
+      } catch (error) {
+        failure = error;
+      }
+    } finally {
+      WeakSet.prototype.has = originalHas;
+      WeakMap.prototype.get = originalGet;
+    }
+    expect(poisonCalls).toBe(0);
+    expect(failure).toMatchObject({ code: 'plugin_incompatible' });
   });
 
   it('refuses stale installation authority after the same flow path is redeployed', async () => {

@@ -10,6 +10,14 @@ import { PluginError } from './plugin-manifest.js';
 import { pluginStoreDirectory, readStoredPluginFiles } from './plugin-store.js';
 
 const JSON_PARSE = JSON.parse;
+const ARRAY_IS_ARRAY = Array.isArray;
+const JSON_STRINGIFY = JSON.stringify;
+const OBJECT_FREEZE = Object.freeze;
+const REGEXP_TEST = RegExp.prototype.test;
+const STRING_SPLIT = Function.prototype.call.bind(String.prototype.split) as (
+  value: string,
+  separator: string | RegExp,
+) => string[];
 
 /**
  * Compose schema-2 flow extensions onto a base authored flow.
@@ -95,7 +103,7 @@ function subscriptionOf(handler: TriggerHandler): { provider: string; event: str
   if (trigger.kind !== 'webhook' || trigger.filter === undefined) return undefined;
   const { provider, type, payload } = trigger.filter as { provider?: unknown; type?: unknown; payload?: unknown };
   if (typeof provider !== 'string' || provider !== trigger.name || typeof type !== 'string') return undefined;
-  const action = typeof payload === 'object' && payload !== null && !Array.isArray(payload) ? (payload as { action?: unknown }).action : undefined;
+  const action = typeof payload === 'object' && payload !== null && !ARRAY_IS_ARRAY(payload) ? (payload as { action?: unknown }).action : undefined;
   if (action !== undefined && typeof action !== 'string') return undefined;
   return action === undefined ? { provider, event: type } : { provider, event: type, action };
 }
@@ -122,20 +130,24 @@ const DISPATCH_EVENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const DISPATCH_DELIVERY = /^[A-Za-z0-9_.:-]{1,200}$/;
 
 function hostedEventIdentity(dispatch: unknown): HostedEventIdentity {
-  if (typeof dispatch !== 'object' || dispatch === null || Array.isArray(dispatch)) {
+  if (typeof dispatch !== 'object' || dispatch === null || ARRAY_IS_ARRAY(dispatch)) {
     throw new PluginError('plugin_event_unroutable', 'Hosted extension dispatch authority is malformed.');
   }
   const { provenance, provider, eventType, deliveryId } = dispatch as Partial<HostedExtensionDispatch>;
   if ((dispatch as Partial<HostedExtensionDispatch>)[HOSTED_EXTENSION_DISPATCH_AUTHORITY] !== true
     || provenance !== 'integration-watch'
-    || typeof provider !== 'string' || !DISPATCH_PROVIDER.test(provider)
-    || typeof deliveryId !== 'string' || !DISPATCH_DELIVERY.test(deliveryId)
+    || typeof provider !== 'string' || !REGEXP_TEST.call(DISPATCH_PROVIDER, provider)
+    || typeof deliveryId !== 'string' || !REGEXP_TEST.call(DISPATCH_DELIVERY, deliveryId)
     || typeof eventType !== 'string') {
     throw new PluginError('plugin_event_unroutable', 'Hosted extension dispatch authority is malformed.');
   }
-  const parts = eventType.split('.');
-  if ((parts.length !== 1 && parts.length !== 2) || parts.some(part => !DISPATCH_EVENT.test(part))) {
-    throw new PluginError('plugin_event_unroutable', `Hosted extension event ${JSON.stringify(eventType)} is malformed.`);
+  const parts = STRING_SPLIT(eventType, '.');
+  let valid = parts.length === 1 || parts.length === 2;
+  for (let index = 0; valid && index < parts.length; index += 1) {
+    valid = REGEXP_TEST.call(DISPATCH_EVENT, parts[index]!);
+  }
+  if (!valid) {
+    throw new PluginError('plugin_event_unroutable', `Hosted extension event ${JSON_STRINGIFY(eventType)} is malformed.`);
   }
   return parts.length === 1
     ? { provider, event: parts[0]! }
@@ -144,7 +156,7 @@ function hostedEventIdentity(dispatch: unknown): HostedEventIdentity {
 
 /** Validate and project branded host authority without making it serializable. */
 export function hostedExtensionDispatchIdentity(dispatch: unknown): HostedEventIdentity {
-  return Object.freeze(hostedEventIdentity(dispatch));
+  return OBJECT_FREEZE(hostedEventIdentity(dispatch));
 }
 
 /**
@@ -155,7 +167,7 @@ export function hostedExtensionDispatchIdentity(dispatch: unknown): HostedEventI
 export function hostedExtensionDispatchFromVerifiedDelivery(
   delivery: Omit<HostedExtensionDispatch, typeof HOSTED_EXTENSION_DISPATCH_AUTHORITY | 'provenance'>,
 ): HostedExtensionDispatch {
-  const dispatch = Object.freeze({
+  const dispatch = OBJECT_FREEZE({
     [HOSTED_EXTENSION_DISPATCH_AUTHORITY]: true as const,
     provenance: 'integration-watch' as const,
     ...delivery,
@@ -177,16 +189,29 @@ export function extensionHandlerForHostedDispatch(
 ): { readonly extension: Pick<LoadedFlowExtension, 'name' | 'handlers'>; readonly handler: TriggerHandler } | undefined {
   if (dispatch === undefined) return undefined;
   const identity = hostedEventIdentity(dispatch);
-  const matches = extensions.flatMap(extension => extension.handlers.flatMap(handler => {
-    const subscription = subscriptionOf(handler);
-    if (subscription === undefined || subscription.provider !== identity.provider || subscription.event !== identity.event) return [];
-    if (subscription.action !== undefined && subscription.action !== identity.action) return [];
-    return [{ extension, handler }];
-  }));
+  const matches: Array<{
+    extension: Pick<LoadedFlowExtension, 'name' | 'handlers'>;
+    handler: TriggerHandler;
+  }> = [];
+  for (let extensionIndex = 0; extensionIndex < extensions.length; extensionIndex += 1) {
+    const extension = extensions[extensionIndex]!;
+    for (let handlerIndex = 0; handlerIndex < extension.handlers.length; handlerIndex += 1) {
+      const handler = extension.handlers[handlerIndex]!;
+      const subscription = subscriptionOf(handler);
+      if (subscription === undefined || subscription.provider !== identity.provider
+        || subscription.event !== identity.event) continue;
+      if (subscription.action !== undefined && subscription.action !== identity.action) continue;
+      matches[matches.length] = { extension, handler };
+    }
+  }
   if (matches.length > 1) {
+    let matchingNames = '';
+    for (let index = 0; index < matches.length; index += 1) {
+      matchingNames += `${index === 0 ? '' : ', '}${matches[index]!.extension.name}`;
+    }
     throw new PluginError(
       'plugin_event_ambiguous',
-      `Hosted event ${identity.provider}.${identity.event}${identity.action === undefined ? '' : `.${identity.action}`} matches multiple extension handlers (${matches.map(match => match.extension.name).join(', ')}).`,
+      `Hosted event ${identity.provider}.${identity.event}${identity.action === undefined ? '' : `.${identity.action}`} matches multiple extension handlers (${matchingNames}).`,
     );
   }
   return matches[0];

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { github } from '@relayflows/surface';
-import { extensionHandlerForHostedDispatch } from '../src/flow-extension-loader.js';
+import {
+  extensionHandlerForHostedDispatch,
+  hostedExtensionDispatchIdentity,
+} from '../src/flow-extension-loader.js';
 import { hostedExtensionDispatchFromVerifiedDelivery } from '../src/index.js';
 import { hostedManifestRoutes } from '../src/hosted-extension-isolation.js';
 import { supportsHostedSandboxFlags } from '../src/hosted-extension-sandbox.js';
@@ -43,5 +46,41 @@ describe('hosted extension routing policy', () => {
     expect(() => extensionHandlerForHostedDispatch({
       provenance: 'integration-watch', provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-1',
     }, [specific])).toThrow(expect.objectContaining({ code: 'plugin_event_unroutable' }));
+  });
+
+  it('parses and routes dispatch authority with captured intrinsics', () => {
+    const body = async () => {};
+    const extension = { name: 'specific', handlers: [{ trigger: github.pull_request('labeled'), body }] };
+    const originals = {
+      freeze: Object.freeze,
+      split: String.prototype.split,
+      test: RegExp.prototype.test,
+      some: Array.prototype.some,
+      flatMap: Array.prototype.flatMap,
+    };
+    let poisonCalls = 0;
+    let identity: ReturnType<typeof hostedExtensionDispatchIdentity> | undefined;
+    let selected: ReturnType<typeof extensionHandlerForHostedDispatch>;
+    try {
+      Object.freeze = (() => { poisonCalls += 1; throw new Error('ambient freeze'); }) as typeof Object.freeze;
+      String.prototype.split = (() => { poisonCalls += 1; return ['forged']; }) as typeof String.prototype.split;
+      RegExp.prototype.test = (() => { poisonCalls += 1; return false; }) as typeof RegExp.prototype.test;
+      Array.prototype.some = (() => { poisonCalls += 1; return true; }) as typeof Array.prototype.some;
+      Array.prototype.flatMap = (() => { poisonCalls += 1; return []; }) as typeof Array.prototype.flatMap;
+      const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
+        provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-poison',
+      });
+      identity = hostedExtensionDispatchIdentity(dispatch);
+      selected = extensionHandlerForHostedDispatch(dispatch, [extension]);
+    } finally {
+      Object.freeze = originals.freeze;
+      String.prototype.split = originals.split;
+      RegExp.prototype.test = originals.test;
+      Array.prototype.some = originals.some;
+      Array.prototype.flatMap = originals.flatMap;
+    }
+    expect(poisonCalls).toBe(0);
+    expect(identity).toEqual({ provider: 'github', event: 'pull_request', action: 'labeled' });
+    expect(selected?.extension).toBe(extension);
   });
 });

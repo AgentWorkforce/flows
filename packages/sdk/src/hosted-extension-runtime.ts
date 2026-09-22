@@ -28,6 +28,12 @@ const DECLARATION_READ_FLAGS = constants.O_RDONLY
   | (constants.O_NOFOLLOW ?? 0)
   | (constants.O_NONBLOCK ?? 0);
 const JSON_PARSE = JSON.parse;
+const ARRAY_IS_ARRAY = Array.isArray;
+const OBJECT_FREEZE = Object.freeze;
+const WEAK_MAP_GET = WeakMap.prototype.get;
+const WEAK_MAP_SET = WeakMap.prototype.set;
+const WEAK_SET_ADD = WeakSet.prototype.add;
+const WEAK_SET_HAS = WeakSet.prototype.has;
 
 interface RuntimeGeneration {
   readonly origin: string;
@@ -76,8 +82,8 @@ export async function loadHostedExtensionRuntime(flowPath: string): Promise<Host
     );
   }
   await assertCurrentGeneration(generation);
-  Object.freeze(generation);
-  return Object.freeze({ installation: loaded.installation, base });
+  OBJECT_FREEZE(generation);
+  return OBJECT_FREEZE({ installation: loaded.installation, base });
 }
 
 /** @internal Metadata-only test seam; public hosted callers use the combined loader. */
@@ -104,21 +110,21 @@ export async function assertHostedRuntimeAuthority(
   installation: HostedExtensionInstallation,
   base: HostedExtensionBase,
 ): Promise<void> {
-  if (typeof base !== 'object' || base === null || !BASE_AUTHORITY.has(base)) {
+  if (typeof base !== 'object' || base === null || !WEAK_SET_HAS.call(BASE_AUTHORITY, base)) {
     throw new PluginError(
       'plugin_incompatible',
       'Hosted extension base authority is malformed; use loadHostedExtensionRuntime.',
     );
   }
   if (typeof installation !== 'object' || installation === null
-    || !INSTALLATION_AUTHORITY.has(installation)) {
+    || !WEAK_SET_HAS.call(INSTALLATION_AUTHORITY, installation)) {
     throw new PluginError(
       'plugin_source_invalid',
       'Hosted extension installation authority is malformed; use loadHostedExtensionRuntime.',
     );
   }
-  const generation = BASE_GENERATION.get(base);
-  if (generation === undefined || generation !== INSTALLATION_GENERATION.get(installation)) {
+  const generation = WEAK_MAP_GET.call(BASE_GENERATION, base);
+  if (generation === undefined || generation !== WEAK_MAP_GET.call(INSTALLATION_GENERATION, installation)) {
     throw new PluginError(
       'plugin_source_invalid',
       'Hosted extension base and installation must originate from the same runtime generation.',
@@ -129,8 +135,8 @@ export async function assertHostedRuntimeAuthority(
 
 /** @internal Validate a metadata-only installation used by selection tests. */
 export function assertHostedInstallationAuthority(value: unknown): asserts value is HostedExtensionInstallation {
-  if (typeof value !== 'object' || value === null || !INSTALLATION_AUTHORITY.has(value)
-    || !Array.isArray((value as Partial<HostedExtensionInstallation>).artifacts)) {
+  if (typeof value !== 'object' || value === null || !WEAK_SET_HAS.call(INSTALLATION_AUTHORITY, value)
+    || !ARRAY_IS_ARRAY((value as Partial<HostedExtensionInstallation>).artifacts)) {
     throw new PluginError('plugin_source_invalid', 'Hosted extension installation authority is malformed.');
   }
 }
@@ -145,17 +151,18 @@ async function installationAt(
   };
   const artifacts: HostedExtensionArtifact[] = [];
   const declared = hostedDeclaredExtensions(root);
-  for (const { ref, entry } of declared) {
+  for (let index = 0; index < declared.length; index += 1) {
+    const { ref, entry } = declared[index]!;
     const directory = pluginStoreDirectory(root, entry.name, entry.digest);
     await verifyStoredPlugin(directory, entry.digest);
-    artifacts.push(Object.freeze({
+    artifacts[artifacts.length] = OBJECT_FREEZE({
       ref,
       name: entry.name,
       version: entry.version,
       directory,
       digest: entry.digest,
       manifestSha256: entry.manifestSha256,
-    }));
+    });
   }
   return {
     installation: installation(artifacts, generation),
@@ -175,13 +182,24 @@ function declaredExtensions(origin: string): { readonly signature: string } {
 function declarationSignature(
   declared: ReturnType<typeof hostedDeclaredExtensions>,
 ): string {
-  return canonicalize(declared.map(({ ref, entry }) => ({
-    ref,
-    name: entry.name,
-    version: entry.version,
-    digest: entry.digest,
-    manifestSha256: entry.manifestSha256,
-  })));
+  const records: Array<{
+    ref: string;
+    name: string;
+    version: string;
+    digest: string;
+    manifestSha256: string;
+  }> = [];
+  for (let index = 0; index < declared.length; index += 1) {
+    const { ref, entry } = declared[index]!;
+    records[index] = {
+      ref,
+      name: entry.name,
+      version: entry.version,
+      digest: entry.digest,
+      manifestSha256: entry.manifestSha256,
+    };
+  }
+  return canonicalize(records);
 }
 
 function hostedDeclaredExtensions(
@@ -196,11 +214,11 @@ function hostedDeclaredExtensions(
     if (error instanceof PluginError) throw error;
     throw new PluginError('plugin_manifest_invalid', 'Invalid or oversized flows.json.');
   }
-  if (typeof config !== 'object' || config === null || Array.isArray(config)) {
+  if (typeof config !== 'object' || config === null || ARRAY_IS_ARRAY(config)) {
     throw new PluginError('plugin_manifest_invalid', 'flows.json plugins must be strings.');
   }
   const plugins = (config as { plugins?: unknown }).plugins;
-  if (plugins !== undefined && !Array.isArray(plugins)) {
+  if (plugins !== undefined && !ARRAY_IS_ARRAY(plugins)) {
     throw new PluginError('plugin_manifest_invalid', 'flows.json plugins must be strings.');
   }
   const declared: string[] = [];
@@ -213,9 +231,9 @@ function hostedDeclaredExtensions(
       if (isGithubPluginRef(ref)) declared[declared.length] = ref;
     }
   }
-  let lock: ReturnType<typeof parsePluginLock> = Object.freeze({
+  let lock: ReturnType<typeof parsePluginLock> = OBJECT_FREEZE({
     version: PLUGIN_LOCK_VERSION,
-    plugins: Object.freeze([]),
+    plugins: OBJECT_FREEZE([]),
   });
   const lockPath = join(root, PLUGIN_LOCK_FILE);
   if (existsSync(lockPath)) {
@@ -233,14 +251,14 @@ function hostedDeclaredExtensions(
   const result: Array<{ ref: string; entry: PluginLockEntry; source: PluginSourceRef }> = [];
   for (let index = 0; index < lock.plugins.length; index += 1) {
     const entry = lock.plugins[index]!;
-    const source = Object.freeze({ ...entry.source, ref: entry.source.sha });
+    const source = OBJECT_FREEZE({ ...entry.source, ref: entry.source.sha });
     const ref = canonicalPluginRef(source);
     if (declared[index] !== ref) {
       throw new PluginError('plugin_lock_invalid', 'Hosted flows.lock.json order differs from flows.json.plugins.');
     }
-    result[result.length] = Object.freeze({ ref, entry, source });
+    result[result.length] = OBJECT_FREEZE({ ref, entry, source });
   }
-  return Object.freeze(result);
+  return OBJECT_FREEZE(result);
 }
 
 function readBoundedDeclaration(path: string): Buffer {
@@ -277,7 +295,7 @@ function newGeneration(origin: string): RuntimeGeneration {
   return {
     origin,
     declarations: canonicalize([]),
-    sourceRoots: Object.freeze([]),
+    sourceRoots: OBJECT_FREEZE([]),
     sourceSha256: '',
   };
 }
@@ -312,9 +330,9 @@ async function baseAt(
         'Hosted capability isolation accepts only the reviewed Software Factory base source.',
       );
     }
-    const value = Object.freeze({ name: 'software-factory', version: '2.0.22' });
-    BASE_AUTHORITY.add(value);
-    BASE_GENERATION.set(value, generation);
+    const value = OBJECT_FREEZE({ name: 'software-factory', version: '2.0.22' });
+    WEAK_SET_ADD.call(BASE_AUTHORITY, value);
+    WEAK_MAP_SET.call(BASE_GENERATION, value, generation);
     return value;
   } finally {
     await removeHostedBaseSnapshot(snapshot);
@@ -325,8 +343,10 @@ function installation(
   artifacts: readonly HostedExtensionArtifact[],
   generation: RuntimeGeneration,
 ): HostedExtensionInstallation {
-  const value = Object.freeze({ artifacts: Object.freeze([...artifacts]) });
-  INSTALLATION_AUTHORITY.add(value);
-  INSTALLATION_GENERATION.set(value, generation);
+  const artifactCopy: HostedExtensionArtifact[] = [];
+  for (let index = 0; index < artifacts.length; index += 1) artifactCopy[index] = artifacts[index]!;
+  const value = OBJECT_FREEZE({ artifacts: OBJECT_FREEZE(artifactCopy) });
+  WEAK_SET_ADD.call(INSTALLATION_AUTHORITY, value);
+  WEAK_MAP_SET.call(INSTALLATION_GENERATION, value, generation);
   return value;
 }
