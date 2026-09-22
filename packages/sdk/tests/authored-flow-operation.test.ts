@@ -152,6 +152,46 @@ it('completes the gate in linear time over a body with 30000 ordinary awaits', a
   }
 });
 
+// The task-graph shape (flows examples/task-graph): a map of subtask promises,
+// each awaiting Promise.all of its dependencies, then a chain of steps, with
+// ordinary awaits standing in for the journal polling a long step does while it
+// waits. The gate used to ask dependsOn(member, invocation) per operation per
+// combinator member, re-walking the member's whole ancestry each time, and to
+// observe every settled derived promise once per operation: cubic. A 114-step
+// agent run spent ~180 s in it without yielding, starving the root's lease
+// renewal until the run was reaped as crashed. Measured on this shape (160
+// operations): 26 342 ms before, 68 ms after (40 / 80 / 160 operations:
+// 316 / 2 871 / 26 342 ms before, 20 / 36 / 68 ms after). The bound fails
+// anything quadratic in operations and will not flake on a slow host.
+it('completes the gate in near-linear time over a large task graph of Promise.all groups', async () => {
+  const lifecycle = new AuthoredFlowLifecycle();
+  const operations: AuthoredFlowOperation<unknown>[] = [];
+  const step = async (): Promise<void> => {
+    const authored = operation('run', lifecycle, operations.length + 1);
+    operations.push(authored as AuthoredFlowOperation<unknown>);
+    for (let poll = 0; poll < 40; poll++) await Promise.resolve(poll);
+    await authored.step;
+  };
+  try {
+    await lifecycle.runBody(async () => {
+      const done = new Map<number, Promise<void>>();
+      const subtask = async (id: number): Promise<void> => {
+        await Promise.all([done.get(id - 1), done.get(id - 2)].filter(Boolean));
+        for (let index = 0; index < 4; index++) await step();
+      };
+      for (let id = 0; id < 40; id++) done.set(id, subtask(id));
+      await Promise.all(done.values());
+      lifecycle.markCompletion();
+    });
+    expect(operations).toHaveLength(160);
+    const startedAt = Date.now();
+    await verifyAuthoredOperations('task-graph-gate', operations, lifecycle);
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+  } finally {
+    lifecycle.close();
+  }
+});
+
 // P1-B, second half: the graph used to retain every promise created ANYWHERE in
 // the process for the life of the flow (a probe measured 20 002 unrelated
 // promises held by strong reference). Only promises created inside the flow's
