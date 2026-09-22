@@ -18,6 +18,9 @@ const STRING_INCLUDES = Function.prototype.call.bind(String.prototype.includes) 
 const STRING_SPLIT = Function.prototype.call.bind(String.prototype.split) as (
   value: string, separator: string,
 ) => string[];
+const TYPED_ARRAY_LENGTH = Function.prototype.call.bind(
+  Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype) as object, 'length')!.get!,
+) as (value: Uint8Array) => number;
 
 export interface BundleEntry { path: string; sha256: string; bytes: number }
 export interface BundleFile { path: string; data: Uint8Array | string; executable?: boolean }
@@ -71,7 +74,7 @@ export function payloadManifest(files: readonly { path: string; data: Uint8Array
   const entries: { path: string; sha256: string; bytes: number }[] = [];
   for (let index = 0; index < sorted.length; index += 1) {
     const file = sorted[index]!;
-    entries[index] = { path: file.path, sha256: sha256(file.data), bytes: file.data.length };
+    entries[index] = { path: file.path, sha256: sha256(file.data), bytes: TYPED_ARRAY_LENGTH(file.data) };
   }
   return canonicalize(entries);
 }

@@ -46,6 +46,30 @@ describe('bounded plugin-store verification', () => {
     expect(JSON.parse(encoded!)).toMatchObject([{ path: 'a.ts' }, { path: 'z.ts' }]);
   });
 
+  it('counts manifest bytes without the ambient typed-array length getter', () => {
+    const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype) as object;
+    const length = Object.getOwnPropertyDescriptor(typedArrayPrototype, 'length')!;
+    const files = [{ path: 'entry.ts', data: Buffer.from('exact bytes') }];
+    let poisonCalls = 0;
+    let encoded: string | undefined;
+    try {
+      Object.defineProperty(typedArrayPrototype, 'length', {
+        ...length,
+        get() {
+          poisonCalls += 1;
+          throw new Error('ambient typed-array length must not run');
+        },
+      });
+      encoded = payloadManifest(files);
+    } finally {
+      Object.defineProperty(typedArrayPrototype, 'length', length);
+    }
+    expect(poisonCalls).toBe(0);
+    expect(JSON.parse(encoded!)).toEqual([
+      { bytes: 11, path: 'entry.ts', sha256: 'e38e581aade78b64cc86f7ac9f3555ca78c2dcca747942a7f1d9b3275a834f75' },
+    ]);
+  });
+
   it('refuses an oversized sparse payload before buffering it', async () => {
     const stored = await fixture();
     truncateSync(join(stored.directory, 'entry.ts'), 256_001);
