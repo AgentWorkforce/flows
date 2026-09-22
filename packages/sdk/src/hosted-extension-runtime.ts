@@ -40,6 +40,7 @@ const DECLARATION_READ_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) 
 const JSON_PARSE = JSON.parse;
 const ARRAY_IS_ARRAY = Array.isArray;
 const OBJECT_FREEZE = Object.freeze;
+const OBJECT_HAS_OWN = Object.hasOwn;
 const WEAK_MAP_GET = Function.prototype.call.bind(WeakMap.prototype.get) as <K extends object, V>(
   map: WeakMap<K, V>,
   key: K,
@@ -248,7 +249,9 @@ function hostedDeclaredExtensions(
   if (typeof config !== 'object' || config === null || ARRAY_IS_ARRAY(config)) {
     throw new PluginError('plugin_manifest_invalid', 'flows.json plugins must be strings.');
   }
-  const plugins = (config as { plugins?: unknown }).plugins;
+  const plugins = OBJECT_HAS_OWN(config, 'plugins')
+    ? (config as { plugins?: unknown }).plugins
+    : undefined;
   if (plugins !== undefined && !ARRAY_IS_ARRAY(plugins)) {
     throw new PluginError('plugin_manifest_invalid', 'flows.json plugins must be strings.');
   }

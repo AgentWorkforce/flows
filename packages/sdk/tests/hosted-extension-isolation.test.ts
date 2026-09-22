@@ -177,7 +177,9 @@ describe('hosted extension capability isolation', () => {
     'launches through the captured process primitive after builtin export synchronization',
     async () => {
       const builtinChildProcess = require('node:child_process') as typeof import('node:child_process');
+      const builtinFs = require('node:fs') as typeof import('node:fs');
       const originalSpawn = builtinChildProcess.spawn;
+      const originalReadFileSync = builtinFs.readFileSync;
       const originalExecPath = process.execPath;
       const installed = await artifact();
       const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
@@ -196,6 +198,17 @@ describe('hosted extension capability isolation', () => {
             return Reflect.apply(originalSpawn, builtinChildProcess, args);
           },
         });
+        Object.defineProperty(builtinFs, 'readFileSync', {
+          ...Object.getOwnPropertyDescriptor(builtinFs, 'readFileSync'),
+          value: (...args: unknown[]) => {
+            const caller = (new Error().stack ?? '').split('\n', 4)[3] ?? '';
+            if (caller.includes('/src/flow-extension-compat.')) {
+              poisonCalls += 1;
+              throw new Error('ambient runtime-version read must not run');
+            }
+            return Reflect.apply(originalReadFileSync, builtinFs, args as Parameters<typeof originalReadFileSync>);
+          },
+        });
         syncBuiltinESMExports();
         process.execPath = '/attacker-controlled-node';
         await expect(runVerifiedNativeExtensionSandbox({
@@ -210,11 +223,53 @@ describe('hosted extension capability isolation', () => {
         Object.defineProperty(builtinChildProcess, 'spawn', {
           ...Object.getOwnPropertyDescriptor(builtinChildProcess, 'spawn'), value: originalSpawn,
         });
+        Object.defineProperty(builtinFs, 'readFileSync', {
+          ...Object.getOwnPropertyDescriptor(builtinFs, 'readFileSync'), value: originalReadFileSync,
+        });
         syncBuiltinESMExports();
       }
       expect(poisonCalls).toBe(0);
     },
   );
+
+  it('requires flows.json to own its plugins declaration', async () => {
+    const installed = await artifact();
+    const root = resolve(installed.directory, '../../..');
+    writeFileSync(join(root, 'flows.json'), '{}');
+    writeFileSync(join(root, 'flows.lock.json'), JSON.stringify({
+      version: 2,
+      plugins: [{
+        name: 'babysitter', kind: 'flow-extension', version: '0.2.0',
+        source: {
+          host: 'github', owner: 'AgentWorkforce', repo: 'flows',
+          sha: 'a'.repeat(40), path: 'extensions/babysitter',
+        },
+        digest: installed.digest, manifestSha256: installed.manifestSha256,
+        order: 1, resolvedAt: '2026-09-22T12:00:00.000Z',
+      }],
+    }));
+    const flowPath = join(root, 'software-factory.flow.ts');
+    writeFileSync(flowPath, 'export default {};');
+    const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'plugins');
+    let poisonCalls = 0;
+    try {
+      Object.defineProperty(Object.prototype, 'plugins', {
+        configurable: true,
+        get: () => {
+          poisonCalls += 1;
+          return [installed.ref];
+        },
+      });
+      await expect(loadHostedExtensionArtifacts(flowPath)).rejects.toMatchObject({
+        code: 'plugin_lock_invalid',
+        message: expect.stringContaining('declarations differ'),
+      });
+    } finally {
+      if (previous === undefined) delete (Object.prototype as { plugins?: unknown }).plugins;
+      else Object.defineProperty(Object.prototype, 'plugins', previous);
+    }
+    expect(poisonCalls).toBe(0);
+  });
 
   it.runIf(process.platform === 'linux')(
     'ignores inherited launcher overrides and decodes manifests with the captured Buffer intrinsic',
