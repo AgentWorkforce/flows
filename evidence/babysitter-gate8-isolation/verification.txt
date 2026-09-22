@@ -766,3 +766,51 @@ $ ./node_modules/.bin/vitest run tests/plugin-store-bounds.test.ts tests/hosted-
       Tests  196 passed (196)
    Start at  14:04:23
    Duration  2.25s (transform 1.32s, setup 0ms, collect 6.81s, tests 3.35s, environment 1ms, prepare 609ms)
+
+$ git merge-base HEAD origin/main
+83addb00923adb02041f640d4e724ffaabcdd781
+$ git rev-parse origin/main
+83addb00923adb02041f640d4e724ffaabcdd781
+$ git diff --exit-code origin/main -- extensions/babysitter
+$ git diff --exit-code origin/main -- packages/sdk/src/authored-flow-executor.ts
+$ cd packages/sdk
+$ sha256sum ../../examples/software-factory/software-factory.flow.ts
+49c993220b9c34fab2d4b0e51911656f62b8b657f534d988691960d45bb9d9b6  ../../examples/software-factory/software-factory.flow.ts
+$ git diff --check
+$ npm run typecheck
+
+> @relayflows/sdk@2.0.27 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+
+$ npm run build
+
+> @relayflows/sdk@2.0.27 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+$ npm run typecheck:tests
+
+> @relayflows/sdk@2.0.27 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+
+$ ./node_modules/.bin/vitest run tests/plugin-store-bounds.test.ts tests/hosted-base-snapshot.test.ts tests/hosted-extension-routing.test.ts tests/preflight.test.ts tests/babysitter-native-extension.test.ts tests/hosted-extension-protocol-intrinsics.test.ts tests/hosted-extension-protocol.test.ts tests/authored-flow.test.ts tests/hosted-extension-isolation.test.ts
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
+
+ ✓ tests/hosted-extension-protocol-intrinsics.test.ts (3 tests) 14ms
+ ✓ tests/plugin-store-bounds.test.ts (5 tests) 10ms
+ ✓ tests/hosted-base-snapshot.test.ts (12 tests) 567ms
+   ✓ hosted base private snapshot > stops streaming project entries at the shared count limit 513ms
+ ✓ tests/hosted-extension-routing.test.ts (4 tests) 6ms
+ ✓ tests/preflight.test.ts (59 tests) 100ms
+ ✓ tests/babysitter-native-extension.test.ts (40 tests) 475ms
+ ✓ tests/authored-flow.test.ts (34 tests) 765ms
+ ✓ tests/hosted-extension-protocol.test.ts (24 tests) 648ms
+ ✓ tests/hosted-extension-isolation.test.ts (15 tests) 892ms
+
+ Test Files  9 passed (9)
+      Tests  196 passed (196)
+   Start at  14:06:25
+   Duration  2.12s (transform 1.18s, setup 0ms, collect 6.21s, tests 3.48s, environment 2ms, prepare 501ms)
