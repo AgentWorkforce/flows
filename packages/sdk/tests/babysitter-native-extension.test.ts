@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -9,6 +10,7 @@ import { exportBabysitterCatalogBundle } from '../src/babysitter-catalog-export.
 import { addExtensionPlugin } from '../src/cli/add-extension.js';
 import { hostedExtensionDispatchFromVerifiedDelivery } from '../src/flow-extension-loader.js';
 import { resolveExtensionSubmission } from '../src/flow-extension-submit.js';
+import { runHostedCapabilityExtension } from '../src/hosted-extension-isolation.js';
 import { JournalClient } from '../src/journal-client.js';
 import { preflightProviderTriggers } from '../src/provider-trigger-contract.js';
 import { SHA_A, entriesFromDirectory, fakeGithub } from './fake-github.js';
@@ -101,6 +103,32 @@ describe('native Babysitter extension', () => {
       extensions: loaded.extensions,
       extensionDispatch: hostedExtensionDispatchFromVerifiedDelivery({ provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'd-1' }),
     })).rejects.toMatchObject({ code: 'plugin_unsupported' });
+  });
+
+  it('keeps the committed handler refused until its declared runtime release exists', async () => {
+    const { extension } = installed;
+    const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
+      provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'gh-delivery-7',
+    });
+    let calls = 0;
+    await expect(runHostedCapabilityExtension({
+      artifact: {
+        ref: extension.ref,
+        name: extension.name,
+        version: extension.version,
+        directory: extension.directory,
+        digest: extension.digest,
+        manifestSha256: createHash('sha256')
+          .update(readFileSync(join(extension.directory, 'flows-plugin.json'))).digest('hex'),
+      },
+      dispatch,
+      input: descriptor('pull_request.labeled'),
+      babysitterTurn: { queue: async () => {
+        calls += 1;
+        return { receiptId: 'receipt-1', status: 'queued' };
+      } },
+    })).rejects.toMatchObject({ code: 'plugin_incompatible' });
+    expect(calls).toBe(0);
   });
 
   it('satisfies the #550 catalog exporter from the committed bytes, manifest unmodified', async () => {

@@ -11,14 +11,13 @@ interface TurnQueue {
 }
 
 /**
- * The declared write, as Cloud's capability adapter spells it. The SDK `Ctx`
- * has no `capabilities` field yet; a runtime without it must fail the run,
- * never skip the turn silently. The adapter, not this entry, holds workspace,
- * activation, and the verified delivery authority.
+ * The declared write, as Cloud's capability adapter spells it. `Ctx` types the
+ * optional port, but ordinary runtimes do not inject it; a runtime without it
+ * must fail the run, never skip the turn silently. The adapter, not this entry,
+ * holds workspace, activation, and the verified delivery authority.
  */
 function turnQueue(f: Ctx): TurnQueue {
-  const capabilities = (f as unknown as { readonly capabilities?: { readonly cloud?: { readonly babysitterTurn?: unknown } } }).capabilities;
-  const port = capabilities?.cloud?.babysitterTurn;
+  const port = f.capabilities?.cloud?.babysitterTurn;
   if (typeof port !== 'object' || port === null || typeof (port as Partial<TurnQueue>).queue !== 'function') {
     throw new Error('babysitter: this runtime does not provide the cloud:babysitter-turn write.');
   }

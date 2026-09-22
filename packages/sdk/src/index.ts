@@ -58,6 +58,16 @@ export type { HeaderBudget } from './budget.js';
 export type { StepSpend } from './protocol.js';
 export { SPEC_SCHEMA_VERSION } from './spec.js';
 
+export {
+  runHostedCapabilityExtension,
+  loadHostedExtensionArtifacts,
+  type HostedExtensionArtifact,
+  type HostedCapabilityAuthority,
+  type HostedBabysitterCapability,
+  type RunHostedExtensionOptions,
+  type HostedExtensionResult,
+} from './hosted-extension-isolation.js';
+
 export { CloudFlowError, type CloudConnectionOptions, type CloudConfigurationReason } from './cloud-http.js';
 export {
   listCloudRuns, getCloudRunDetail, getCloudRunSteps, getCloudRunLog,

@@ -19,11 +19,38 @@ exact live `babysit` label and the bound session/head. Permission declarations
 are not enforcement. Export success is byte verification, not execution approval.
 
 The native package source is `extensions/babysitter` (see its README for the
-turn contract). It is unreleased and cannot execute: #549 still refuses it,
-the SDK context has no `capabilities.cloud.babysitterTurn`, and its
+turn contract). It is unreleased and cannot execute through the generic
+executor: #549 still refuses it. The SDK now has a separate Linux-only
+capability sandbox that injects exactly
+`capabilities.cloud.babysitterTurn.queue` without exposing the base context,
+workspace, environment credentials, network, helpers, MCP, or harnesses. It is
+not wired to hosted dispatch and must not be treated as enablement. The package's
 `compat` requires a surface release after 2.0.25 that routes `labeled`,
 `unlabeled`, and `ready_for_review`. Export it only from a reviewed, merged
 commit.
+
+The sandbox contract is deliberately narrower than #442. It re-verifies the
+content-addressed artifact and manifest, accepts only the native Babysitter
+permission profile, imports the entry only inside Linux bubblewrap plus Node's
+permission model, mounts a minimal trusted Surface facade (`flow`, `github`,
+and `getFlowDefinition`) instead of the general helper runtime, checks
+normalized input against non-serializable verified dispatch authority, and
+permits one queue call. The parent capability adapter
+receives that original authority plus immutable extension provenance; the
+capability request never carries workspace, activation, listener, session,
+lineage, label, head, prompt, merge, route, or config authority. Cloud PR #3942 owns the
+lineage/authority core and must inject workspace, activation, and listener from
+persisted dispatch context, re-read live PR/label/head state, and return only
+`{ receiptId, status: 'queued' | 'duplicate' }`. Refusal or in-doubt transport
+rejects once with no fallback.
+
+Before replacing #549's refusal, the hosted caller must use
+`loadAuthoredFlow(..., { extensions: 'none' })`, obtain raw verified artifacts
+with `loadHostedExtensionArtifacts`, and call `runHostedCapabilityExtension`;
+using the ordinary compose loader would import extension top-level JavaScript
+in the host before the sandbox exists. Independent review must prove this path
+at the exact release head. Broader per-agent-step file/network/access-preset
+enforcement remains open in #442 and is not claimed by this slice.
 
 ## Export reviewed bytes
 

@@ -389,8 +389,18 @@ handler keep the base flow's default body; overlapping or malformed matches
 fail closed. This release also refuses a matching handler with
 `plugin_unsupported` before either body starts because schema-2 entries are
 ordinary JavaScript and their manifest permissions are not yet isolated by the
-runtime (gate 8 / #442). A handler's trigger is therefore a requirement, but
-the handler cannot execute until that boundary exists. The deploy body carries
+runtime (gate 8 / #442). The SDK now contains a Linux-only, capability-only
+isolation primitive for the native Babysitter profile. Hosted callers must load
+the base with `extensions: 'none'`, resolve extension bytes with
+`loadHostedExtensionArtifacts` (which does not import them), then use
+`runHostedCapabilityExtension`; the artifact is first imported inside a
+bubblewrap mount/PID/network/user namespace with an empty credential
+environment and a context exposing only
+`capabilities.cloud.babysitterTurn.queue` plus `done`. This is a prerequisite,
+not enablement: the generic executor refusal remains until the Cloud adapter,
+artifact provenance, and independent security review are complete. A handler's
+trigger is therefore a requirement, but the handler cannot execute through the
+generic executor yet. The deploy body carries
 the same list as `requirements` for Cloud to cross-check, and a declared harness Cloud cannot run yet (`gemini`)
 refuses the deploy unless `--agents` overrides it.
 

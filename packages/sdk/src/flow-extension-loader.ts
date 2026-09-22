@@ -115,7 +115,7 @@ export type HostedExtensionDispatch = {
   readonly deliveryId: string;
 };
 
-type HostedEventIdentity = { readonly provider: string; readonly event: string; readonly action?: string };
+export type HostedEventIdentity = { readonly provider: string; readonly event: string; readonly action?: string };
 const DISPATCH_PROVIDER = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const DISPATCH_EVENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const DISPATCH_DELIVERY = /^[A-Za-z0-9_.:-]{1,200}$/;
@@ -139,6 +139,11 @@ function hostedEventIdentity(dispatch: unknown): HostedEventIdentity {
   return parts.length === 1
     ? { provider, event: parts[0]! }
     : { provider, event: parts[0]!, action: parts[1]! };
+}
+
+/** Validate and project branded host authority without making it serializable. */
+export function hostedExtensionDispatchIdentity(dispatch: unknown): HostedEventIdentity {
+  return Object.freeze(hostedEventIdentity(dispatch));
 }
 
 /**
