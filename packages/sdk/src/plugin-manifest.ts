@@ -7,6 +7,7 @@ export const PLUGIN_FAILURE_KINDS = [
   'plugin_unsupported', 'plugin_credential_missing', 'plugin_server_unreachable',
   // schema 2 flow extensions (see flow-extension-manifest.ts, plugin-source.ts, plugin-github.ts)
   'plugin_kind_invalid', 'plugin_incompatible', 'plugin_event_unroutable', 'plugin_source_invalid',
+  'plugin_event_ambiguous',
   'plugin_source_unresolved', 'plugin_fetch_failed', 'plugin_path_invalid', 'plugin_too_large',
   'plugin_source_drift', 'plugin_lock_invalid',
 ] as const;

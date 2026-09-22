@@ -340,9 +340,13 @@ SDK; the same function reads a compiled YAML spec, where a helper step such as
 (`.on(github.issues())`), the `--on` sources and the deploy target (every
 launched run lands in `--repo`, so GitHub is always required), the `cli:` of
 each `f.agent`/`f.llm` call in the default body (else the nearest `flows.json`
-`cli`, else `claude`), and `tools.mcp`. Handler bodies are not scanned: hosted
-dispatch runs the default body (flows #301), so only a handler's trigger is a
-requirement. The deploy body carries the same list as `requirements` for
+`cli`, else `claude`), and `tools.mcp`. Handler bodies are not statically
+scanned for requirements. Hosted dispatch runs the one schema-2 extension
+handler matching Cloud's normalized `{ event: { provider, eventType } }`
+envelope; ticket deliveries, unmatched events, and direct runs keep the base
+flow's default body. Ambiguous extension matches fail closed. A handler's
+trigger is therefore a requirement, while its body must stay within the
+extension manifest's declared permissions. The deploy body carries the same list as `requirements` for
 Cloud to cross-check, and a declared harness Cloud cannot run yet (`gemini`)
 refuses the deploy unless `--agents` overrides it.
 

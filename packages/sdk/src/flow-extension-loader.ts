@@ -99,6 +99,54 @@ function subscriptionOf(handler: TriggerHandler): { provider: string; event: str
   return action === undefined ? { provider, event: type } : { provider, event: type, action };
 }
 
+type HostedEventIdentity = {
+  readonly provider: string;
+  readonly event: string;
+  readonly action?: string;
+};
+
+function hostedEventIdentity(input: unknown): HostedEventIdentity | undefined {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) return undefined;
+  const event = (input as { event?: unknown }).event;
+  if (typeof event !== 'object' || event === null || Array.isArray(event)) return undefined;
+  const { provider, eventType } = event as { provider?: unknown; eventType?: unknown };
+  if (typeof provider !== 'string' || provider.length === 0 || typeof eventType !== 'string' || eventType.length === 0) return undefined;
+  const separator = eventType.indexOf('.');
+  if (separator === -1) return { provider, event: eventType };
+  const name = eventType.slice(0, separator);
+  const action = eventType.slice(separator + 1);
+  if (name.length === 0 || action.length === 0) return undefined;
+  return { provider, event: name, action };
+}
+
+/**
+ * Select the one extension handler authorized by Cloud's normalized event
+ * envelope. The base body remains the fallback for ticket deliveries and
+ * direct runs. Overlapping extension subscriptions fail closed: silently
+ * choosing lock order would suppress an installed handler while claiming the
+ * composition ran.
+ */
+export function extensionHandlerForHostedInput(
+  input: unknown,
+  extensions: readonly Pick<LoadedFlowExtension, 'name' | 'handlers'>[],
+): TriggerHandler | undefined {
+  const identity = hostedEventIdentity(input);
+  if (identity === undefined) return undefined;
+  const matches = extensions.flatMap(extension => extension.handlers.flatMap(handler => {
+    const subscription = subscriptionOf(handler);
+    if (subscription === undefined || subscription.provider !== identity.provider || subscription.event !== identity.event) return [];
+    if (subscription.action !== undefined && subscription.action !== identity.action) return [];
+    return [{ extension: extension.name, handler }];
+  }));
+  if (matches.length > 1) {
+    throw new PluginError(
+      'plugin_event_ambiguous',
+      `Hosted event ${identity.provider}.${identity.event}${identity.action === undefined ? '' : `.${identity.action}`} matches multiple extension handlers (${matches.map(match => match.extension).join(', ')}).`,
+    );
+  }
+  return matches[0]?.handler;
+}
+
 function assertDeclaredSubscription(name: string, manifest: FlowExtensionManifest, handler: TriggerHandler, index: number): void {
   const subscription = subscriptionOf(handler);
   if (handler.trigger.kind === 'schedule') unsupported(name, `handler ${index} (a schedule trigger)`);

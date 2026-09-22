@@ -45,7 +45,7 @@ import {
 import { AuthoredFlowLifecycle } from './authored-flow-lifecycle.js';
 import { JournalClient } from './journal-client.js';
 import { createHookEvaluator } from './authored-hooks.js';
-import { probeFlowExtension, type LoadedFlowExtension } from './flow-extension-loader.js';
+import { extensionHandlerForHostedInput, probeFlowExtension, type LoadedFlowExtension } from './flow-extension-loader.js';
 import type {
   CompletionReason as ProtocolCompletionReason,
   RunCompletionReason as ProtocolRunCompletionReason,
@@ -175,6 +175,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     ...(options.onWait !== undefined ? { onWait: options.onWait } : {}),
   };
   const definition = getDefinition<Input>(handle);
+  const hostedHandler = extensionHandlerForHostedInput(input, options.extensions ?? []);
   const headerFields = Object.keys(definition.header).filter(key => key !== 'tools' && key !== 'budget' && key !== 'memory' && key !== 'version' && key !== 'hooks');
   if (definition.header.tools && Object.keys(definition.header.tools).some(key => !['mcp', ...helperProviders.map(p => p.namespace)].includes(key))) headerFields.push('tools');
   if (definition.header.tools?.relayfile !== undefined) headerFields.push('tools.relayfile');
@@ -568,7 +569,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   let bodyFailed = false;
   let bodyFailure: unknown;
   try {
-    const bodyPromise = lifecycle.runBody(() => definition.body(context, input as Input));
+    const bodyPromise = lifecycle.runBody(() => (hostedHandler?.body ?? definition.body)(context, input as Input));
     await bodyPromise;
   } catch (error) {
     bodyFailed = true;

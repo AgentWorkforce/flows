@@ -1,9 +1,11 @@
 import { rmSync } from 'node:fs';
 import type { Server } from 'node:net';
-import { flow, type Ctx, type FlowHeader } from '@relayflows/surface';
+import { flow, github, type Ctx, type FlowHeader } from '@relayflows/surface';
+import { getFlowDefinition } from '@relayflows/surface/runtime';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
 import { JournalClient } from '../src/journal-client.js';
+import type { LoadedFlowExtension } from '../src/flow-extension-loader.js';
 import {
   kernelDialectError,
   sendOk,
@@ -560,6 +562,53 @@ describe('authored flow journal executor', () => {
     } finally {
       client.close();
     }
+  });
+
+  it('runs the matching extension handler for a normalized hosted event instead of the base body', async () => {
+    const base = flow<{ event: { provider: string; eventType: string } }>('software-factory', async (f) => {
+      await f.run('printf base-body');
+      f.done('success');
+    });
+    const extensionHandle = flow('babysitter', async (f) => f.done('declined'))
+      .on(github.pull_request('labeled'), async (f) => {
+        await f.run('printf extension-body');
+        f.done('success');
+      });
+    const extension = {
+      name: 'babysitter',
+      handlers: getFlowDefinition(extensionHandle).handlers,
+      hooks: Object.freeze({}),
+      manifest: undefined,
+    } as unknown as LoadedFlowExtension;
+    const client = await connectedClient('authored-extension-handler-test');
+    const before = startedSpecs.length;
+    try {
+      await executeAuthoredFlow(base, client, {
+        event: { provider: 'github', eventType: 'pull_request.labeled' },
+      }, { extensions: [extension] });
+    } finally {
+      client.close();
+    }
+    expect(commandsSince(before)).toEqual(['printf extension-body', ':']);
+  });
+
+  it('fails closed when a hosted event matches more than one extension handler', async () => {
+    const handler = getFlowDefinition(
+      flow('one', async (f) => f.done('declined'))
+        .on(github.pull_request('labeled'), async (f) => f.done('success')),
+    ).handlers[0]!;
+    const extension = (name: string) => ({
+      name,
+      handlers: [handler],
+      hooks: Object.freeze({}),
+      manifest: undefined,
+    }) as unknown as LoadedFlowExtension;
+    await expect(executeAuthoredFlow(
+      flow('software-factory', async (f) => f.done('success')),
+      new JournalClient('/unused'),
+      { event: { provider: 'github', eventType: 'pull_request.labeled' } },
+      { extensions: [extension('one'), extension('two')] },
+    )).rejects.toMatchObject({ code: 'plugin_event_ambiguous' });
   });
 
   async function connectedClient(name: string): Promise<JournalClient> {
