@@ -1,0 +1,62 @@
+# Full SDK suite on this branch's final bytes (local macOS, not CI)
+$ (cd packages/sdk && npm test)
+ Test Files  23 failed | 140 passed | 3 skipped (166)
+      Tests  51 failed | 2556 passed | 25 skipped (2632)
+exit=1
+Failing files (count of failing tests):
+   1 tests/authored-flow-operation.test.ts
+   1 tests/authored-node-runtime.test.ts
+   2 tests/authored-root.test.ts
+   1 tests/budget-unmetered-live.test.ts
+   1 tests/build-gate.test.ts
+   4 tests/bundle-preflight.test.ts
+   3 tests/bundle.test.ts
+   1 tests/cli-status.test.ts
+   8 tests/cli-watch.test.ts
+   1 tests/cloud-schedule.test.ts
+   1 tests/communication-mixed-resume.test.ts
+   3 tests/deploy.test.ts
+   2 tests/direct-input.test.ts
+   3 tests/flow-executor-chain.test.ts
+   1 tests/flow-extension-compose.test.ts
+   6 tests/live-kernel.test.ts
+   1 tests/mcp.test.ts
+   3 tests/provider-trigger-executor.test.ts
+   5 tests/run-from-digest.test.ts
+   1 tests/stop-process-group.test.ts
+   6 tests/webhook-live.test.ts
+   1 tests/worker-cli.test.ts
+   1 tests/yaml-helper-live.test.ts
+tests/babysitter-native-extension.test.ts is not among them.
+
+# Baseline: 21 files that failed in an earlier full run, rerun at origin/main 607ac671 with this branch's changes stashed (git stash push -u)
+$ (cd packages/sdk && npm run build && npx vitest run <the 21 files>)
+ Test Files  17 failed | 4 passed (21)
+      Tests  38 failed | 236 passed | 18 skipped (292)
+exit=1
+   1 tests/authored-flow-operation.test.ts
+   1 tests/authored-node-runtime.test.ts
+   3 tests/authored-root.test.ts
+   2 tests/bundle.test.ts
+   1 tests/cli-status.test.ts
+   8 tests/cli-watch.test.ts
+   1 tests/cloud-schedule.test.ts
+   1 tests/communication-mixed-resume.test.ts
+   1 tests/direct-input.test.ts
+   4 tests/flow-executor-chain.test.ts
+   1 tests/flow-extension-compose.test.ts
+   3 tests/live-kernel.test.ts
+   1 tests/mcp.test.ts
+   3 tests/provider-trigger-executor.test.ts
+   3 tests/run-from-digest.test.ts
+   1 tests/stop-process-group.test.ts
+   6 tests/webhook-live.test.ts
+
+# Files failing in the final full run but not in that baseline, rerun in isolation on this branch
+$ (cd packages/sdk && npx vitest run tests/build-gate.test.ts tests/budget-unmetered-live.test.ts tests/deploy.test.ts tests/worker-cli.test.ts tests/yaml-helper-live.test.ts tests/bundle-preflight.test.ts)
+ Test Files  6 passed (6)
+      Tests  40 passed (40)
+exit=0
+
+Observed failure causes under full-suite load include 5000ms test timeouts, relayflowd lease expiry, ENOTEMPTY temp cleanup, and timing assertions (e.g. expected 5001 to be less than 5000).
+Claim limited to: the new suite passes; the listed failures also occur at origin/main in this environment or pass in isolation. CI is the authority.
