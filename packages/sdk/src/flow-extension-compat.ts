@@ -9,8 +9,8 @@ const OBJECT_FREEZE = Object.freeze;
 // executable rather than the installed SDK directory. A regression compares
 // both literals with the package manifests so a version bump cannot drift.
 const RUNTIME_VERSIONS = OBJECT_FREEZE({
-  sdk: '2.0.27',
-  surface: '2.0.27',
+  sdk: '2.0.28',
+  surface: '2.0.28',
 });
 
 export interface RuntimeVersions { readonly sdk: string; readonly surface: string }
