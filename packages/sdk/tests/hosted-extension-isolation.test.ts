@@ -332,6 +332,32 @@ export default flow('babysitter', async f => f.done('declined'))
     expect(() => readFileSync(escaped)).toThrow();
   });
 
+  it('enforces an OS address-space bound on native Buffer allocation', async () => {
+    const installed = await artifact(`
+      const allocation = Buffer.alloc(256 * 1024 * 1024, 1);
+      if (allocation.byteLength !== 256 * 1024 * 1024) throw new Error('short allocation');
+      ${ordinaryExtension}
+    `);
+    const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
+      provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-1',
+    });
+    let calls = 0;
+    await expect(runVerifiedNativeExtensionSandbox({
+      artifact: installed,
+      manifest: validateFlowExtensionManifest(manifest()),
+      dispatch,
+      input: descriptor(),
+      babysitterTurn: { queue: async () => {
+        calls += 1;
+        return { receiptId: 'receipt-1', status: 'queued' };
+      } },
+    })).rejects.toMatchObject({
+      code: 'plugin_unsupported',
+      message: expect.stringContaining('Failed to allocate memory'),
+    });
+    expect(calls).toBe(0);
+  });
+
   it('blocks extra handler fields and authority-bearing receipt fields at the parent port', async () => {
     const source = `
       import { flow, github } from '@relayflows/surface';

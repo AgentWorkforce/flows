@@ -16,6 +16,11 @@ import { materializePlugin, readStoredPluginFiles } from './plugin-store.js';
 
 const HOSTED_WRITE = 'cloud:babysitter-turn';
 const DEFAULT_TIMEOUT_MS = 10_000;
+// RLIMIT_AS is inherited across prlimit -> bubblewrap -> Node and covers V8,
+// Buffer/native allocations, mappings, and any descendants. 1.5 GiB leaves
+// room for Node's reserved code ranges while deterministically refusing a
+// hostile 256 MiB Buffer under the separately constrained 64 MiB old-space.
+const ADDRESS_SPACE_BYTES = 1_536 * 1024 * 1024;
 const SURFACE_RUNTIME_SHA256 = Object.freeze({
   'flow.js': '4aaeacc55de3074f4d121ce7253c3be50a93757e6540ba8159889a9450d1c05c',
   'helpers/providers.js': '7bc62eccaa3a9e786ae0a689bf74160585149e91feef8208e17ef8eca51eed7f',
@@ -36,6 +41,7 @@ export interface RunHostedExtensionSandboxOptions {
   readonly timeoutMs?: number;
   readonly bubblewrapPath?: string;
   readonly nodePath?: string;
+  readonly prlimitPath?: string;
   /** @internal Test seam for a package root with the exact pinned runtime bytes. */
   readonly surfaceRoot?: string;
   /** @internal Last parent-side authority check after private snapshots exist. */
@@ -50,6 +56,7 @@ export async function runHostedExtensionSandbox(
     return unsupported(`hosted extension isolation does not support Node ${process.versions.node}`);
   }
   const bwrap = executable(options.bubblewrapPath ?? '/usr/bin/bwrap', 'bubblewrap');
+  const prlimit = executable(options.prlimitPath ?? '/usr/bin/prlimit', 'prlimit');
   const node = executable(options.nodePath ?? process.execPath, 'Node');
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) {
@@ -85,7 +92,9 @@ export async function runHostedExtensionSandbox(
       surfaceFacade,
     });
     await options.beforeLaunch?.();
-    const child = spawn(bwrap, args, { cwd: '/', env: {}, stdio: ['pipe', 'ignore', 'pipe', 'pipe'] });
+    const child = spawn(prlimit, [`--as=${ADDRESS_SPACE_BYTES}`, '--', bwrap, ...args], {
+      cwd: '/', env: {}, stdio: ['pipe', 'ignore', 'pipe', 'pipe'],
+    });
     return await exchangeHostedExtension(
       child,
       child.stdio[3] as Readable,

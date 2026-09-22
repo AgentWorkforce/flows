@@ -26,7 +26,9 @@ The enforced boundary is:
   environment, child process, workspace mount, MCP, helpers, harnesses, or base
   flow context; a generated facade mounts only `flow`, `github`,
   `getFlowDefinition`, and private copies of six SHA-256-pinned Surface runtime
-  files, followed by one final runtime-generation check before launch;
+  files, followed by one final runtime-generation check before launch; an
+  inherited 1.5 GiB hard address-space limit covers heap, Buffer/native memory,
+  mappings, and descendants in addition to the 64 MiB V8 old-space setting;
 - expose one `capabilities.cloud.babysitterTurn.queue({ delivery })` call and
   `done`, validate the exact request and `{ receiptId, status }` response in the
   parent, and pass the original non-serializable authority to the host adapter;

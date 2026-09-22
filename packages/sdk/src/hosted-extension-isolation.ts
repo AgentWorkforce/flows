@@ -36,7 +36,7 @@ export type {
 } from './hosted-extension-runtime.js';
 
 const HOSTED_WRITE = 'cloud:babysitter-turn';
-const BABYSITTER_REF = 'github:AgentWorkforce/flows@d3ee3b55ae636518dd4ad562aca5bae9c99f1a05#extensions/babysitter';
+const BABYSITTER_REF = 'github:AgentWorkforce/flows@8b33ebab8347514f80d9da5a81206a087f641714#extensions/babysitter';
 const BABYSITTER_DIGEST = 'bdf2187b9a242667d34bbc63e7a744753e146dc8cd6f4047047f2aed28f406ee';
 const BABYSITTER_MANIFEST_SHA256 = '5631a06bbdc8186f4ee0ff955610ead24d001c5197b59fb1fe81fe422c44f226';
 const DELIVERY_ID = /^[A-Za-z0-9_.:-]{1,200}$/;
@@ -79,6 +79,8 @@ export interface RunHostedExtensionOptions {
   readonly bubblewrapPath?: string;
   /** Test/packaging override. Defaults to the current, fingerprinted Node executable. */
   readonly nodePath?: string;
+  /** Test/packaging override. Production resolves /usr/bin/prlimit. */
+  readonly prlimitPath?: string;
 }
 
 export type HostedExtensionResult = HostedExtensionProtocolResult;
@@ -122,6 +124,7 @@ interface RunVerifiedNativeExtensionOptions {
   readonly timeoutMs?: number;
   readonly bubblewrapPath?: string;
   readonly nodePath?: string;
+  readonly prlimitPath?: string;
   readonly surfaceRoot?: string;
   readonly beforeLaunch?: () => Promise<void>;
 }
@@ -154,6 +157,7 @@ export async function runVerifiedNativeExtensionSandbox(
     timeoutMs: options.timeoutMs,
     bubblewrapPath: options.bubblewrapPath,
     nodePath: options.nodePath,
+    prlimitPath: options.prlimitPath,
     surfaceRoot: options.surfaceRoot,
     beforeLaunch: options.beforeLaunch,
     invoke: async request => babysitterReceipt(await options.babysitterTurn.queue(

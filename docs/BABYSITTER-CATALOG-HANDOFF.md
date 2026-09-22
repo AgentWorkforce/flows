@@ -27,7 +27,9 @@ workspace, environment credentials, network, helpers, MCP, or harnesses. It is
 not wired to hosted dispatch and must not be treated as enablement. The package's
 `compat` requires the published 2.0.26 Surface/SDK release that routes
 `labeled`, `unlabeled`, and `ready_for_review`. Export it only from the reviewed
-commit pinned below.
+release commit pinned below. The Software Factory flow's own independently
+versioned header remains `2.0.22`; a regression requires the hosted identity to
+equal the identity obtained from that exact reviewed source.
 
 The sandbox contract is deliberately narrower than #442. It re-verifies the
 complete lock-backed installation and every manifest, binds it to the exact
@@ -35,7 +37,8 @@ reviewed Software Factory source in the same `loadHostedExtensionRuntime` genera
 cross-extension route ambiguity, accepts only the exact published Babysitter
 ref/digest/manifest and native permission profile, imports the entry only
 inside Linux bubblewrap plus Node's
-permission model, mounts a minimal trusted Surface facade (`flow`, `github`,
+permission model under an inherited 1.5 GiB hard address-space limit, mounts a
+minimal trusted Surface facade (`flow`, `github`,
 and `getFlowDefinition`) from six integrity-pinned private runtime files instead
 of the general helper runtime, checks
 normalized input against non-serializable verified dispatch authority, and
@@ -76,6 +79,11 @@ later live-store replacement cannot alter imported code. Independent review
 must prove this path at the exact release head. Broader per-agent-step
 file/network/access-preset enforcement remains open in #442 and is not claimed
 by this slice.
+
+The reviewed native source ref is
+`github:AgentWorkforce/flows@8b33ebab8347514f80d9da5a81206a087f641714#extensions/babysitter`,
+the commit included in the published 2.0.26 install. The earlier byte-identical
+pre-release commit is not accepted as authority.
 
 ## Export reviewed bytes
 

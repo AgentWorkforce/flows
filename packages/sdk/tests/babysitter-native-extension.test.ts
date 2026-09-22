@@ -21,7 +21,7 @@ import { preflightProviderTriggers } from '../src/provider-trigger-contract.js';
 import { entriesFromDirectory, fakeGithub } from './fake-github.js';
 
 const PATH = 'extensions/babysitter';
-const NATIVE_SHA = 'd3ee3b55ae636518dd4ad562aca5bae9c99f1a05';
+const NATIVE_SHA = '8b33ebab8347514f80d9da5a81206a087f641714';
 const REF = `github:AgentWorkforce/flows@${NATIVE_SHA}#${PATH}`;
 const DIGEST = 'bdf2187b9a242667d34bbc63e7a744753e146dc8cd6f4047047f2aed28f406ee';
 const MANIFEST_SHA256 = '5631a06bbdc8186f4ee0ff955610ead24d001c5197b59fb1fe81fe422c44f226';
@@ -105,7 +105,9 @@ async function handle(eventType: string, input: unknown, f: Ctx) {
 
 describe('native Babysitter extension', () => {
   it('composes onto Software Factory with exactly the declared, deliverable subscriptions', async () => {
-    const { loaded, extension } = installed;
+    const { loaded, extension, base, hostedRuntime } = installed;
+    expect(base).toEqual({ name: 'software-factory', version: '2.0.22' });
+    expect(hostedRuntime.base).toEqual(base);
     expect(extension.manifest.permissions).toEqual({
       integrations: ['github'], harnesses: ['codex'], mcp: [], writes: ['cloud:babysitter-turn'],
       budget: { dollars: 1, wallclock: '5m' },

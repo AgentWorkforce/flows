@@ -2,8 +2,9 @@ Native Babysitter gate-8 isolation — literal local verification
 Host: Linux sf-frame
 Date: 2026-09-22
 
-$ /usr/bin/bwrap --version && node --version && git diff --check
+$ /usr/bin/bwrap --version && /usr/bin/prlimit --version | head -1 && node --version && git diff --check
 bubblewrap 0.12.0
+prlimit from util-linux 2.42.3
 v26.8.1
 
 $ cd packages/sdk && npm run typecheck && npm run build && npm run typecheck:tests && ./node_modules/.bin/vitest run tests/hosted-base-snapshot.test.ts tests/hosted-extension-isolation.test.ts tests/hosted-extension-protocol.test.ts tests/babysitter-native-extension.test.ts tests/authored-flow.test.ts tests/preflight.test.ts
@@ -19,17 +20,17 @@ $ cd packages/sdk && npm run typecheck && npm run build && npm run typecheck:tes
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
 
- ✓ tests/hosted-base-snapshot.test.ts (2 tests) 18ms
- ✓ tests/preflight.test.ts (59 tests) 99ms
- ✓ tests/babysitter-native-extension.test.ts (38 tests) 333ms
- ✓ tests/authored-flow.test.ts (34 tests) 739ms
- ✓ tests/hosted-extension-protocol.test.ts (10 tests) 630ms
- ✓ tests/hosted-extension-isolation.test.ts (14 tests) 673ms
+ ✓ tests/hosted-base-snapshot.test.ts (2 tests) 11ms
+ ✓ tests/preflight.test.ts (59 tests) 67ms
+ ✓ tests/babysitter-native-extension.test.ts (38 tests) 387ms
+ ✓ tests/authored-flow.test.ts (34 tests) 758ms
+ ✓ tests/hosted-extension-protocol.test.ts (10 tests) 830ms
+ ✓ tests/hosted-extension-isolation.test.ts (15 tests) 972ms
 
  Test Files  6 passed (6)
-      Tests  157 passed (157)
-   Start at  07:42:04
-   Duration  1.76s (transform 1.00s, setup 0ms, collect 4.17s, tests 2.49s, environment 1ms, prepare 417ms)
+      Tests  158 passed (158)
+   Start at  07:58:01
+   Duration  2.11s (transform 1.09s, setup 0ms, collect 4.43s, tests 3.03s, environment 1ms, prepare 375ms)
 
 $ cd packages/surface && npm run typecheck && npm run typecheck:regressions && npm test && sha256sum dist/flow.js dist/helpers/providers.js dist/provider-trigger.js dist/schedule.js dist/triggers.js dist/triggers/github.js
 
