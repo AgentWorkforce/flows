@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import type { AuthoredBudget } from './authored-budget.js';
 import { parseBudget } from './budget.js';
 import type { AgentOptions, AgentResult, LlmOptions, NamedGate } from '@relayflows/surface';
@@ -173,7 +174,8 @@ export function authoredWorkerRunner(
         ...(options.workspace === undefined ? {} : { surfaces: { workspace: [{ surface: options.workspace }] } }),
         ...(options.cli === undefined ? {} : { cli: options.cli }),
         ...(options.model === undefined ? {} : { model: options.model }),
-        ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+        // The kernel takes only an absolute cwd; a relative one means the runner's own directory.
+        ...(options.cwd === undefined ? {} : { cwd: resolve(options.cwd) }),
         ...(options.transport === undefined ? {} : { transport: options.transport }),
         ...(verification === undefined ? {} : { verification }),
       });

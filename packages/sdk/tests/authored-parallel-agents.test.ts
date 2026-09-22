@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { flow } from '@relayflows/surface';
@@ -81,6 +81,21 @@ describe('authored steps under local workers with capacity', () => {
     expect(result.journalSteps.filter(step => step.id.startsWith('agent-'))).toHaveLength(3);
     // No overlap is asserted: agents sharing a working directory still take
     // turns for artifact attribution (worker-cli.ts serializedByDirectory).
+  });
+
+  it('runs agents in distinct working directories side by side (the kernel carries cwd)', async () => {
+    const { fixture, client, agent, readSpans } = await slowAgents(2);
+    const trees = ['a', 'b'].map(name => join(fixture.root, 'trees', name));
+    for (const tree of trees) mkdirSync(tree, { recursive: true });
+    const inTrees = flow('two-trees', async f => {
+      await Promise.all(trees.map((cwd, index) => f.agent(`tree-${index}`, { task: 'work here', cwd })));
+      f.done('success');
+    });
+    const result = await executeAuthoredFlow(inTrees, client, undefined, {
+      flowPath: fixture.flowPath, localAgentStream: agent.stream, workerCapacity: 2,
+    });
+    expect(result.completionReason).toBe('success');
+    expect(peakOverlap(readSpans())).toBe(2);
   });
 
   it('parks the overflow when the body is not told the capacity (the defect this closes)', async () => {

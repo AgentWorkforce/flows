@@ -372,9 +372,14 @@ wait, they would be submitted with no worker free, and the kernel would park
 them.
 
 Agents that share a working directory still run one at a time. This lets the
-worker attribute each file change to the step that made it. So today
-concurrent `f.agent` calls do not overlap, although they no longer park.
-Concurrent `f.llm` calls do overlap.
+worker attribute each file change to the step that made it. To run agents side
+by side, give each its own directory with `cwd` (for example one git worktree
+per agent): `f.agent("api", { task, cwd: "/repo/.wt/api" })`. The kernel carries
+`cwd` on the agent step and the worker starts the CLI there. It must be
+absolute in the kernel spec; the TypeScript surface resolves a relative `cwd`
+against the runner's directory, while a relative `cwd` in YAML is refused.
+Setting `cwd` is part of the step's spec hash; omitting it hashes exactly as
+before. Concurrent `f.llm` calls always overlap.
 
 The LLM step remains `type: llm` in the journal. It uses the same CLI resolution,
 authentication probes, and exact `flows.json` model allow-list as agent steps;
