@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -51,5 +51,16 @@ describe('hosted base private snapshot', () => {
     } finally {
       await removeHostedBaseSnapshot(snapshot);
     }
+  });
+
+  it('refuses an oversized source file before buffering its contents', async () => {
+    const { project, flowPath } = fixture();
+    const oversized = join(project, 'oversized.bin');
+    writeFileSync(oversized, '');
+    truncateSync(oversized, 64 * 1024 * 1024 + 1);
+    await expect(createHostedBaseSnapshot(flowPath)).rejects.toMatchObject({
+      code: 'plugin_source_invalid',
+      message: expect.stringContaining('snapshot file or byte limit'),
+    });
   });
 });

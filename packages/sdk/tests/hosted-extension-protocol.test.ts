@@ -83,22 +83,33 @@ const dispatch = () => hostedExtensionDispatchFromVerifiedDelivery({
   provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-1',
 });
 
+async function waitForInvocation(invoked: Promise<void>): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('hostile child did not invoke the adapter')), 10_000);
+    void invoked.then(() => { clearTimeout(timeout); resolve(); }, reject);
+  });
+}
+
 describe('hosted extension hostile protocol', () => {
   it('rejects completion while an exact direct call is pending', async () => {
     let settle!: (value: unknown) => void;
     const adapter = new Promise(resolve => { settle = resolve; });
+    let markInvoked!: () => void;
+    const invoked = new Promise<void>(resolve => { markInvoked = resolve; });
     let calls = 0;
-    setTimeout(() => settle({ receiptId: 'settled-after-refusal', status: 'queued' }), 20);
-    await expect(runVerifiedNativeExtensionSandbox({
+    const run = runVerifiedNativeExtensionSandbox({
       artifact: await artifact(hostileImport([
         capabilityFrame(),
         { type: 'result', completionReason: 'success', capabilityCalls: 1 },
       ])),
-      manifest: validateFlowExtensionManifest(manifest()), dispatch: dispatch(), input: descriptor(), timeoutMs: 1_000,
-      babysitterTurn: { queue: async () => { calls += 1; return await adapter; } },
-    })).rejects.toMatchObject({ code: 'plugin_unsupported' });
+      manifest: validateFlowExtensionManifest(manifest()), dispatch: dispatch(), input: descriptor(), timeoutMs: 10_000,
+      babysitterTurn: { queue: async () => { calls += 1; markInvoked(); return await adapter; } },
+    });
+    await waitForInvocation(invoked);
+    settle({ receiptId: 'settled-after-refusal', status: 'queued' });
+    await expect(run).rejects.toMatchObject({ code: 'plugin_unsupported' });
     expect(calls).toBe(1);
-  });
+  }, 15_000);
 
   it('rejects non-object protocol output with zero adapter calls', async () => {
     let calls = 0;
@@ -135,18 +146,25 @@ describe('hosted extension hostile protocol', () => {
   });
 
   it('rejects two forged calls after the authoritative first outcome settles', async () => {
+    let settle!: (value: unknown) => void;
+    const adapter = new Promise(resolve => { settle = resolve; });
+    let markInvoked!: () => void;
+    const invoked = new Promise<void>(resolve => { markInvoked = resolve; });
     let calls = 0;
-    await expect(runVerifiedNativeExtensionSandbox({
+    const run = runVerifiedNativeExtensionSandbox({
       artifact: await artifact(hostileImport([capabilityFrame(), capabilityFrame()])),
-      manifest: validateFlowExtensionManifest(manifest()), dispatch: dispatch(), input: descriptor(), timeoutMs: 1_000,
+      manifest: validateFlowExtensionManifest(manifest()), dispatch: dispatch(), input: descriptor(), timeoutMs: 10_000,
       babysitterTurn: { queue: async () => {
         calls += 1;
-        await new Promise(resolve => setTimeout(resolve, 20));
-        return { receiptId: 'settled', status: 'queued' };
+        markInvoked();
+        return await adapter;
       } },
-    })).rejects.toMatchObject({ code: 'plugin_unsupported' });
+    });
+    await waitForInvocation(invoked);
+    settle({ receiptId: 'settled', status: 'queued' });
+    await expect(run).rejects.toMatchObject({ code: 'plugin_unsupported' });
     expect(calls).toBe(1);
-  });
+  }, 15_000);
 
   it.each(['reject', 'resolve'] as const)(
     'waits for a pending adapter to %s after a forged child error', async outcome => {
@@ -163,15 +181,14 @@ describe('hosted extension hostile protocol', () => {
         babysitterTurn: { queue: async () => { markInvoked(); return await adapter; } },
       }).finally(() => { completed = true; });
       const observed = run.then(() => undefined, error => error as Error);
-      await invoked;
-      await new Promise(resolve => setTimeout(resolve, 20));
+      await waitForInvocation(invoked);
       expect(completed).toBe(false);
       if (outcome === 'reject') reject(refusal);
       else settle({ receiptId: 'settled', status: 'queued' });
       const error = await observed;
       if (outcome === 'reject') expect(error).toBe(refusal);
       else expect(error).toMatchObject({ code: 'plugin_unsupported' });
-    },
+    }, 15_000,
   );
 
   it('returns a typed adapter rejection even when the hostile child hangs', async () => {
@@ -187,13 +204,7 @@ describe('hosted extension hostile protocol', () => {
       babysitterTurn: { queue: async () => { calls += 1; markInvoked(); return await adapter; } },
     });
     const observed = run.then(() => undefined, error => error as Error);
-    await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error('hostile child did not invoke the adapter')),
-        10_000,
-      );
-      void invoked.then(() => { clearTimeout(timeout); resolve(); }, reject);
-    });
+    await waitForInvocation(invoked);
     rejectAdapter(refusal);
     expect(await observed).toBe(refusal);
     expect(calls).toBe(1);

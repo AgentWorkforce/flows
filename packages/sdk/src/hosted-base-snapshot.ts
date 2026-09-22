@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { chmod, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { canonicalize } from './canonical.js';
@@ -14,6 +15,11 @@ interface SourceFile {
   readonly path: string;
   readonly bytes: Uint8Array;
   readonly sha256: string;
+}
+
+interface SourceBudget {
+  files: number;
+  bytes: number;
 }
 
 export interface HostedBaseSourceRoot {
@@ -83,12 +89,10 @@ export async function removeHostedBaseSnapshot(snapshot: HostedBaseSnapshot): Pr
 }
 
 async function readAuthorityFiles(sources: readonly HostedBaseSourceRoot[]): Promise<readonly SourceFile[]> {
-  const files = (await Promise.all(sources.map(source => readTree(source.root, source.prefix)))).flat();
+  const budget: SourceBudget = { files: 0, bytes: 0 };
+  const files: SourceFile[] = [];
+  for (const source of sources) files.push(...await readTree(source.root, source.prefix, budget));
   files.sort((left, right) => left.path.localeCompare(right.path));
-  const totalBytes = files.reduce((total, file) => total + file.bytes.byteLength, 0);
-  if (files.length > MAX_FILES || totalBytes > MAX_BYTES) {
-    throw invalid('Hosted base source and trusted dependencies exceed the snapshot limit.');
-  }
   return Object.freeze(files);
 }
 
@@ -112,7 +116,11 @@ async function readSnapshotTree(root: string): Promise<readonly SourceFile[]> {
   return Object.freeze(files);
 }
 
-async function readTree(root: string, prefix: string): Promise<readonly SourceFile[]> {
+async function readTree(
+  root: string,
+  prefix: string,
+  budget: SourceBudget,
+): Promise<readonly SourceFile[]> {
   const files: SourceFile[] = [];
   async function visit(directory: string, relativeDirectory: string): Promise<void> {
     const entries = await readdir(directory, { withFileTypes: true });
@@ -123,12 +131,28 @@ async function readTree(root: string, prefix: string): Promise<readonly SourceFi
       const absolutePath = join(directory, entry.name);
       if (entry.isDirectory()) await visit(absolutePath, relativePath);
       else if (entry.isFile()) {
-        const bytes = await readFile(absolutePath);
-        files.push(Object.freeze({
-          path: prefix === '' ? relativePath : join(prefix, relativePath),
-          bytes,
-          sha256: sha256(bytes),
-        }));
+        budget.files += 1;
+        if (budget.files > MAX_FILES) throw tooLarge();
+        const handle = await open(absolutePath, constants.O_RDONLY | constants.O_NOFOLLOW);
+        try {
+          const before = await handle.stat({ bigint: true });
+          if (!before.isFile() || before.size < 0n
+            || before.size > BigInt(MAX_BYTES - budget.bytes)) throw tooLarge();
+          budget.bytes += Number(before.size);
+          const bytes = await handle.readFile();
+          const after = await handle.stat({ bigint: true });
+          if (bytes.byteLength !== Number(before.size) || after.size !== before.size
+            || after.mtimeNs !== before.mtimeNs || after.ctimeNs !== before.ctimeNs) {
+            throw invalid(`Hosted base source changed while reading "${relativePath}".`);
+          }
+          files.push(Object.freeze({
+            path: prefix === '' ? relativePath : join(prefix, relativePath),
+            bytes,
+            sha256: sha256(bytes),
+          }));
+        } finally {
+          await handle.close();
+        }
       } else throw invalid(`Hosted base authority contains unsupported entry "${relativePath}".`);
     }
   }
@@ -138,6 +162,10 @@ async function readTree(root: string, prefix: string): Promise<readonly SourceFi
     throw invalid('Hosted base source or trusted dependency is unreadable.');
   }
   return Object.freeze(files);
+}
+
+function tooLarge(): PluginError {
+  return invalid('Hosted base source exceeds the snapshot file or byte limit.');
 }
 
 function sourceDigest(files: readonly SourceFile[]): string {
