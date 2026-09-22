@@ -154,6 +154,12 @@ export interface ExecuteAuthoredFlowOptions {
   readonly onWait?: RunLifecycleOptions['onWait'];
   readonly onProgress?: (event: ProgressEvent) => void;
   readonly localAgentStream?: string;
+  /**
+   * How many agent (and, separately, LLM) dispatches the attached local
+   * workers hold at once. Set, it caps this body's concurrent `f.agent` /
+   * `f.llm` child runs to match; unset, calls are admitted as they arrive.
+   */
+  readonly workerCapacity?: number;
   /** Durable kernel root that owns this body's child admission identities. */
   readonly rootRunId?: string;
   /** Installed flow-extension plugins, in lock order, so `f.hook` can AND-compose them. */
@@ -245,7 +251,7 @@ export async function executeAuthoredFlow<Input = undefined>(
 
   const worker = authoredWorkerRunner(
     definition, journal, flowPath, journalSteps, waitOptions,
-    localAgentStream, budget, definition.header.budget, options.rootRunId,
+    localAgentStream, budget, definition.header.budget, options.rootRunId, options.workerCapacity,
   );
 
   /**
@@ -600,6 +606,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   }
   if (bodyFailed) {
     try {
+      worker.stop(bodyFailure);
       await stopAuthoredOperations(authoredSteps, bodyFailure);
     } finally {
       lifecycle.close();
@@ -626,6 +633,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       `flow "${definition.name}" returned without done()`,
     );
     try {
+      worker.stop(missingCompletion);
       await stopAuthoredOperations(authoredSteps, missingCompletion);
     } finally {
       lifecycle.close();

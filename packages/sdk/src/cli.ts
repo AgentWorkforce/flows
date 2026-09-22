@@ -44,6 +44,7 @@ import { runHnMonitor } from './cli/hn-monitor.js';
 import { runTickRunner } from './cli/tick-runner.js';
 import { DEFAULT_DATA_DIR } from './daemon-connection.js';
 import { CLI_VERB_NAMES } from './cli-commands.js';
+import { isAgentCapacity } from './worker-slots.js';
 import {
   mintObserverUrl,
   resolveObserverLinkEnv,
@@ -80,8 +81,8 @@ export type ParsedArgs =
   | { command: 'schedules'; json: boolean }
   | { command: 'unschedule'; scheduleId: string; json: boolean }
   | { command: 'check'; json: boolean; watch: boolean; value: string }
-  | { command: 'run'; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
-  | { command: 'resume'; localAgent: boolean; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
+  | { command: 'run'; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
+  | { command: 'resume'; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
   | { command: 'answer'; dataDir: string; json: boolean; spawn: boolean; note: string | undefined; by: string | undefined; runId: string; waitId: string; answer: boolean }
   | RunsArgs
   | LogsArgs
@@ -111,13 +112,13 @@ const USAGE = [
   'flows run <flow>@sha256:<digest> [--bucket <file-bucket-uri>] [--data-dir <dir>] [--json]',
   'flows check [--watch] [--json] <flow.ts|flow.yaml|spec.json>',
   'flows serve-webhook --data-dir <dir> --port <p> [--allow <name>[,<name>]]',
-  'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] [--reuse-from <run-id>] <flow.yaml|spec.json>',
+  'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] [--reuse-from <run-id>] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] [--sync-code] [--no-connect] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] [--sync-code] [--no-connect] <flow.ts> --input <inline-json-or-file>',
   'flows sync [--json] [--dry-run] [--dir <path>] <run-id>',
-  'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <flow.ts> --input <inline-json-or-file>',
+  'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
-  'flows resume [--allow-human-influenced] [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent] <run-id>',
+  'flows resume [--allow-human-influenced] [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <run-id>',
   'flows answer [--json] [--no-spawn] [--data-dir <dir>] [--note <text>] [--by <identity>] <run-id> <wait-id> <yes|no>',
   'flows replay [--allow-human-influenced] [--json] [--data-dir <dir>] <run-id> [--at <step-id>]',
   'flows status [--json] [--data-dir <dir>] [--tail <n>] [<run-id>]',
@@ -295,6 +296,7 @@ export async function runCli(
     onPtyReady: (path: string) => io.stderr(`PTY ${path}`),
     ...(parsed.command === 'run' && parsed.reuseFromRunId !== undefined ? { reuseFromRunId: parsed.reuseFromRunId } : {}),
     localAgent: parsed.localAgent,
+    ...(parsed.agentCapacity === undefined ? {} : { agentCapacity: parsed.agentCapacity }),
     onProgress: showProgress,
     onWait: (progress: RunProgress) => {
       emitWait(progress, io);
@@ -581,6 +583,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   let syncCode = false;
   let noConnect = false;
   let localAgent = false;
+  let agentCapacity: number | undefined;
   let allowHumanInfluenced = false;
   let dataDir = DEFAULT_DATA_DIR;
   let sawDataDir = false;
@@ -610,6 +613,14 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
     if (argument === '--local-agent') {
       if (command === 'check' || localAgent) return undefined;
       localAgent = true;
+      continue;
+    }
+    if (argument === '--agent-capacity') {
+      // Decimal digits only: `Number` would also read "0x4", "4e0" and " 4".
+      const value = args[++index];
+      if (command === 'check' || agentCapacity !== undefined || value === undefined || !/^[0-9]+$/.test(value)) return undefined;
+      agentCapacity = Number(value);
+      if (!isAgentCapacity(agentCapacity)) return undefined;
       continue;
     }
     if (argument === '--watch') {
@@ -669,6 +680,8 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
     positionals.push(argument);
   }
   if (positionals.length !== 1) return undefined;
+  // It sizes the in-process worker, so without `--local-agent` it describes nothing.
+  if (agentCapacity !== undefined && !localAgent) return undefined;
 
   if (bucket !== undefined && (cloud || !parseDigestReference(positionals[0]!))) return undefined;
   if (cloud) {
@@ -688,8 +701,8 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   return command === 'check'
     ? { command, json, watch, value: positionals[0]! }
     : command === 'run'
-      ? { command, bucket, reuseFromRunId, localAgent, dataDir, input, json, spawn, noObserverLink, allowHumanInfluenced, value: positionals[0]! }
-      : { command, localAgent, dataDir, json, spawn, noObserverLink, allowHumanInfluenced, value: positionals[0]! };
+      ? { command, bucket, reuseFromRunId, localAgent, agentCapacity, dataDir, input, json, spawn, noObserverLink, allowHumanInfluenced, value: positionals[0]! }
+      : { command, localAgent, agentCapacity, dataDir, json, spawn, noObserverLink, allowHumanInfluenced, value: positionals[0]! };
 }
 
 /**

@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import type { AuthoredBudget } from './authored-budget.js';
 import { parseBudget } from './budget.js';
 import type { AgentOptions, AgentResult, LlmOptions, NamedGate } from '@relayflows/surface';
@@ -14,6 +15,7 @@ import { snapshotJsonValue } from './json-value.js';
 import { authoredChildAdmissionKey } from './authored-admission.js';
 import { alsoRecord, recordAuthoredChild } from './authored-step-index.js';
 import type { StepFailedDetails } from './failure-kinds.js';
+import { WorkerSlots } from './worker-slots.js';
 
 const WORKSPACE_PERMISSION_ANNOTATION = /:\s*(readonly|readwrite)\s*$/i;
 
@@ -22,8 +24,12 @@ export function authoredWorkerRunner(
   definition: { name: string }, journal: JournalClient, flowPath: string,
   journalSteps: AuthoredFlowJournalStep[], waitOptions: RunLifecycleOptions,
   localAgentStream?: string, budget?: AuthoredBudget, headerBudget?: unknown,
-  rootRunId?: string,
+  rootRunId?: string, workerCapacity?: number,
 ) {
+  // Sized to the attached local workers, so concurrent calls wait here for a
+  // slot instead of being admitted and parked for want of a free worker.
+  const slots = workerCapacity === undefined ? undefined
+    : { agent: new WorkerSlots(workerCapacity), llm: new WorkerSlots(workerCapacity) };
   const context: AuthoredStepContext = {
     ...(rootRunId === undefined ? {} : { rootRunId }),
     ...(waitOptions.dataDir === undefined ? {} : { dataDir: waitOptions.dataDir }),
@@ -113,12 +119,18 @@ export function authoredWorkerRunner(
     return readCompletedStepOutput(journal, outcome.run_id, id, journalSteps, context);
     };
     const admissionKey = authoredChildAdmissionKey(rootRunId, id);
-    return budget === undefined
+    const admit = async () => budget === undefined
       ? consume(await journal.runStart(spec, undefined, admissionKey))
       : budget.execute(journal, spec, consume, admissionKey);
+    return slots === undefined ? admit() : slots[step.type === 'llm' ? 'llm' : 'agent'].run(admit);
   }
 
   return {
+    /** Refuse every agent/LLM call still waiting for a worker slot (body teardown). */
+    stop(reason: unknown): void {
+      slots?.agent.close(reason);
+      slots?.llm.close(reason);
+    },
     async agent(id: string, options: AgentOptions, verification?: NamedGate): Promise<AgentResult> {
       if (options.workspace !== undefined && localAgentStream !== undefined) {
         throw new AuthoredFlowExecutionError('unsupported_workspace_permission',
@@ -167,7 +179,8 @@ export function authoredWorkerRunner(
         ...(options.workspace === undefined ? {} : { surfaces: { workspace: [{ surface: options.workspace }] } }),
         ...(options.cli === undefined ? {} : { cli: options.cli }),
         ...(options.model === undefined ? {} : { model: options.model }),
-        ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+        // The kernel takes only an absolute cwd; a relative one means the runner's own directory.
+        ...(options.cwd === undefined ? {} : { cwd: resolve(options.cwd) }),
         ...(options.transport === undefined ? {} : { transport: options.transport }),
         ...(verification === undefined ? {} : { verification }),
       });

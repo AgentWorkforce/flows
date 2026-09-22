@@ -124,6 +124,9 @@ export class AuthoredFlowLifecycle {
   private readonly callbackFailures = new Map<OperationToken, unknown>();
   private completionAsyncId: number | undefined;
   private closed = false;
+  /** Bumped by every invocation and combinator registration; with the graph's version it keys `groupsByInvocation`. */
+  private registrations = 0;
+  private groupsByInvocation: { readonly key: string; readonly groups: Map<number, ReadonlySet<number>> } | undefined;
 
   constructor() {
     this.graph = new AuthoredPromiseGraph(
@@ -168,6 +171,7 @@ export class AuthoredFlowLifecycle {
       operationAggregates.add(aggregateId);
     }
     this.promiseAllGroups.push({ aggregate: aggregateId, members: memberIds });
+    this.registrations++;
   }
 
   registerInvocation(
@@ -178,6 +182,7 @@ export class AuthoredFlowLifecycle {
     const operationInvocations = this.invocations.get(operation);
     if (operationInvocations === undefined) this.invocations.set(operation, [invocation]);
     else operationInvocations.push(invocation);
+    this.registrations++;
     this.graph.registerRoot(asyncId);
     return invocation;
   }
@@ -244,20 +249,42 @@ export class AuthoredFlowLifecycle {
    * Must be called before the gate awaits anything.
    */
   derivedWorkInFlight<T extends OperationToken>(operations: readonly T[]): T[] {
+    const inFlight = this.graph.rootsInFlight();
     return operations.filter((operation) =>
-      this.graph.inFlightFrom(this.rootsFor(operation)).length > 0);
+      [...this.rootsFor(operation)].some((root) => inFlight.has(root)));
   }
 
+  /**
+   * Observe each settled derived promise once, crediting a rejection to every
+   * operation whose roots it derives from. Observing it once per operation
+   * instead — each after a scan of every tracked promise — was the gate's
+   * second quadratic term: roots of a task graph overlap heavily, so every
+   * operation re-observed most of the flow.
+   */
   async observeCallbackFailures(operations: readonly OperationToken[]): Promise<void> {
-    const observations: Promise<unknown>[] = [];
+    const operationsByRoot = new Map<number, OperationToken[]>();
     for (const operation of operations) {
-      for (const promise of this.graph.settledFrom(this.rootsFor(operation))) {
-        observations.push(nativePromiseThen.call(
-          promise,
-          () => undefined,
-          (error: unknown) => { this.recordCallbackFailure(operation, error); },
-        ));
+      for (const root of this.rootsFor(operation)) {
+        const owners = operationsByRoot.get(root);
+        if (owners === undefined) operationsByRoot.set(root, [operation]);
+        else owners.push(operation);
       }
+    }
+    const owners = new Map<Promise<unknown>, Set<OperationToken>>();
+    for (const { root, handle } of this.graph.settledWithRoots()) {
+      const rootOwners = operationsByRoot.get(root);
+      if (rootOwners === undefined) continue;
+      let promiseOwners = owners.get(handle);
+      if (promiseOwners === undefined) owners.set(handle, promiseOwners = new Set());
+      for (const operation of rootOwners) promiseOwners.add(operation);
+    }
+    const observations: Promise<unknown>[] = [];
+    for (const [promise, promiseOwners] of owners) {
+      observations.push(nativePromiseThen.call(
+        promise,
+        () => undefined,
+        (error: unknown) => { for (const operation of promiseOwners) this.recordCallbackFailure(operation, error); },
+      ));
     }
     await Promise.all(observations);
   }
@@ -280,6 +307,7 @@ export class AuthoredFlowLifecycle {
     this.invocations.clear();
     this.promiseAllAggregates.clear();
     this.promiseAllGroups.length = 0;
+    this.groupsByInvocation = undefined;
     this.callbackFailures.clear();
     this.activeResolverProbes.length = 0;
     uninstallPromiseAllObserver();
@@ -301,17 +329,41 @@ export class AuthoredFlowLifecycle {
 
   private aggregatesFor(operation: OperationToken): Set<number> {
     const aggregates = new Set(this.promiseAllAggregates.get(operation) ?? []);
+    const groups = this.aggregatesByInvocation();
     for (const invocation of this.invocations.get(operation) ?? []) {
-      for (const group of this.promiseAllGroups) {
-        if (
-          group.members.size > 0
-          && [...group.members].some((member) => this.graph.dependsOn(member, invocation.asyncId))
-        ) {
+      for (const aggregate of groups.get(invocation.asyncId) ?? []) aggregates.add(aggregate);
+    }
+    return aggregates;
+  }
+
+  /**
+   * For each invocation, the aggregates of every combinator group with a
+   * member that depends on it. Asked per group member per invocation, this was
+   * the gate's quadratic hot path: each question re-walked the member's whole
+   * ancestry. It is now one batch pass, recomputed only when the graph or the
+   * registrations have changed since the last gate question.
+   */
+  private aggregatesByInvocation(): Map<number, ReadonlySet<number>> {
+    const key = `${this.graph.version}:${this.registrations}`;
+    if (this.groupsByInvocation?.key === key) return this.groupsByInvocation.groups;
+    const targets: number[] = [];
+    for (const operationInvocations of this.invocations.values()) {
+      for (const invocation of operationInvocations) targets.push(invocation.asyncId);
+    }
+    const members = [...new Set(this.promiseAllGroups.flatMap((group) => [...group.members]))];
+    const reached = this.graph.dependenciesAmong(members, targets);
+    const groups = new Map<number, Set<number>>();
+    for (const group of this.promiseAllGroups) {
+      for (const member of group.members) {
+        for (const target of reached.get(member) ?? []) {
+          let aggregates = groups.get(target);
+          if (aggregates === undefined) groups.set(target, aggregates = new Set());
           aggregates.add(group.aggregate);
         }
       }
     }
-    return aggregates;
+    this.groupsByInvocation = { key, groups };
+    return groups;
   }
 }
 
