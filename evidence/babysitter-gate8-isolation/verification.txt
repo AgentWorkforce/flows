@@ -1197,3 +1197,49 @@ $ ./node_modules/.bin/vitest run tests/plugin-store-bounds.test.ts tests/hosted-
       Tests  212 passed (212)
    Start at  15:16:23
    Duration  2.41s (transform 1.29s, setup 0ms, collect 6.81s, tests 3.64s, environment 2ms, prepare 660ms)
+
+$ git rev-parse HEAD
+9d34380af04a843bac8187b0c4aaad3fc0498e53
+
+$ git rev-parse origin/main
+62015ce5d2dbb7563616fba112a83fec89030a4e
+
+$ git merge-base HEAD origin/main
+62015ce5d2dbb7563616fba112a83fec89030a4e
+
+$ cd packages/sdk
+$ git diff --check
+$ npm run typecheck
+
+> @relayflows/sdk@2.0.27 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+$ npm run build
+
+> @relayflows/sdk@2.0.27 build
+> tsc && node scripts/make-cli-executable.mjs
+
+$ npm run typecheck:tests
+
+> @relayflows/sdk@2.0.27 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+$ ./node_modules/.bin/vitest run tests/plugin-store-bounds.test.ts tests/hosted-base-snapshot.test.ts tests/hosted-extension-routing.test.ts tests/preflight.test.ts tests/babysitter-native-extension.test.ts tests/hosted-extension-protocol-intrinsics.test.ts tests/hosted-extension-protocol.test.ts tests/authored-flow.test.ts tests/hosted-extension-isolation.test.ts
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
+
+ ✓ tests/hosted-extension-protocol-intrinsics.test.ts (5 tests) 16ms
+ ✓ tests/plugin-store-bounds.test.ts (8 tests) 53ms
+ ✓ tests/hosted-extension-routing.test.ts (4 tests) 7ms
+ ✓ tests/preflight.test.ts (67 tests) 131ms
+ ✓ tests/authored-flow.test.ts (34 tests) 813ms
+ ✓ tests/babysitter-native-extension.test.ts (40 tests) 888ms
+ ✓ tests/hosted-base-snapshot.test.ts (13 tests) 2209ms
+   ✓ hosted base private snapshot > stops streaming project entries at the shared count limit 2131ms
+ ✓ tests/hosted-extension-protocol.test.ts (24 tests) 897ms
+ ✓ tests/hosted-extension-isolation.test.ts (18 tests) 1440ms
+
+ Test Files  9 passed (9)
+      Tests  213 passed (213)
+   Start at  15:20:04
+   Duration  3.58s (transform 2.46s, setup 0ms, collect 11.20s, tests 6.45s, environment 2ms, prepare 848ms)
