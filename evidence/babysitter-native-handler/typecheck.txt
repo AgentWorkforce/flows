@@ -1,0 +1,13 @@
+$ (cd packages/sdk && npm run typecheck)
+
+> @relayflows/sdk@2.0.25 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+Exit: 0
+
+$ (cd packages/sdk && npm run typecheck:tests)
+
+> @relayflows/sdk@2.0.25 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+Exit: 0

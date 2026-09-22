@@ -18,6 +18,13 @@ repository/PR event, and call the Cloud lineage path. Cloud must recheck the
 exact live `babysit` label and the bound session/head. Permission declarations
 are not enforcement. Export success is byte verification, not execution approval.
 
+The native package source is `extensions/babysitter` (see its README for the
+turn contract). It is unreleased and cannot execute: #549 still refuses it,
+the SDK context has no `capabilities.cloud.babysitterTurn`, and its
+`compat` requires a surface release after 2.0.25 that routes `labeled`,
+`unlabeled`, and `ready_for_review`. Export it only from a reviewed, merged
+commit.
+
 ## Export reviewed bytes
 
 After the native package is reviewed and committed, build the SDK and run:

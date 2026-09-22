@@ -1,0 +1,24 @@
+$ (cd packages/sdk && npx vitest run tests/babysitter-native-extension.test.ts)
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-native-handler/packages/sdk
+
+ ✓ tests/babysitter-native-extension.test.ts (31 tests) 366ms
+
+ Test Files  1 passed (1)
+      Tests  31 passed (31)
+   Start at  03:11:40
+   Duration  5.09s (transform 1.69s, setup 0ms, collect 2.94s, tests 366ms, environment 0ms, prepare 335ms)
+
+Exit: 0
+
+$ (cd packages/sdk && npx vitest run tests/babysitter-catalog-export.test.ts tests/flow-extension-compose.test.ts tests/plugin-extension.test.ts tests/authored-flow.test.ts tests/preflight.test.ts)  # passing lines elided
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-native-handler/packages/sdk
+
+
+ Test Files  5 passed (5)
+      Tests  219 passed (219)
+   Start at  03:11:47
+   Duration  14.25s (transform 5.37s, setup 0ms, collect 19.35s, tests 15.13s, environment 3ms, prepare 2.28s)
+
+Exit: 0
