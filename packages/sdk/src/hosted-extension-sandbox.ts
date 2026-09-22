@@ -15,8 +15,15 @@ import {
 import { materializePlugin, readStoredPluginFiles } from './plugin-store.js';
 
 const HOSTED_WRITE = 'cloud:babysitter-turn';
+const ARRAY_PUSH = Function.prototype.call.bind(Array.prototype.push) as <T>(array: T[], ...values: T[]) => number;
 const JSON_PARSE = JSON.parse;
 const JSON_STRINGIFY = JSON.stringify;
+const OBJECT_ENTRIES = Object.entries;
+const OBJECT_FREEZE = Object.freeze;
+const OBJECT_KEYS = Object.keys;
+const STRING_STARTS_WITH = Function.prototype.call.bind(String.prototype.startsWith) as (
+  value: string, search: string,
+) => boolean;
 const DEFAULT_TIMEOUT_MS = 10_000;
 // These hard limits are inherited across prlimit -> bubblewrap -> Node and its
 // descendants. RLIMIT_AS stays high enough for Node 22-26's large virtual V8
@@ -26,7 +33,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 // the pinned TypeScript handler from starting on supported Node releases.
 const ADDRESS_SPACE_BYTES = 16 * 1024 * 1024 * 1024;
 const DATA_BYTES = 3 * 1024 * 1024 * 1024;
-const SURFACE_RUNTIME_SHA256 = Object.freeze({
+const SURFACE_RUNTIME_SHA256 = OBJECT_FREEZE({
   'flow.js': '4aaeacc55de3074f4d121ce7253c3be50a93757e6540ba8159889a9450d1c05c',
   'helpers/providers.js': '7bc62eccaa3a9e786ae0a689bf74160585149e91feef8208e17ef8eca51eed7f',
   'provider-trigger.js': 'e2664c65397f93fb486eb6f1e756c7cec3f88b3851d79c23567cad986f80f1ff',
@@ -68,7 +75,7 @@ export async function runHostedExtensionSandbox(
     return unsupported('hosted extension timeout must be an integer from 1 to 60000ms');
   }
   const entryPath = resolve(options.artifactDirectory, options.entry);
-  if (!entryPath.startsWith(`${resolve(options.artifactDirectory)}/`)) {
+  if (!STRING_STARTS_WITH(entryPath, `${resolve(options.artifactDirectory)}/`)) {
     throw new PluginError('plugin_path_invalid', `${options.entry}: hosted extension entry escapes its artifact.`);
   }
   const surfaceRoot = resolveSurfaceRoot(options.surfaceVersion, options.surfaceRoot);
@@ -77,11 +84,12 @@ export async function runHostedExtensionSandbox(
   const surfaceFacade = join(runtimeDirectory, 'surface');
   try {
     const storedFiles = await readStoredPluginFiles(options.artifactDirectory, options.artifactDigest);
-    const snapshot = await materializePlugin(
-      runtimeDirectory,
-      'hosted-extension',
-      storedFiles.filter(file => file.path !== 'manifest.json'),
-    );
+    const payloadFiles: { path: string; data: Buffer }[] = [];
+    for (let index = 0; index < storedFiles.length; index += 1) {
+      const file = storedFiles[index]!;
+      if (file.path !== 'manifest.json') payloadFiles[payloadFiles.length] = file;
+    }
+    const snapshot = await materializePlugin(runtimeDirectory, 'hosted-extension', payloadFiles);
     if (snapshot.digest !== options.artifactDigest) {
       throw new PluginError(
         'plugin_source_drift',
@@ -97,11 +105,9 @@ export async function runHostedExtensionSandbox(
       surfaceFacade,
     });
     await options.beforeLaunch?.();
-    const child = spawn(prlimit, [
-      `--as=${ADDRESS_SPACE_BYTES}`,
-      `--data=${DATA_BYTES}`,
-      '--', bwrap, ...args,
-    ], {
+    const commandArgs = [`--as=${ADDRESS_SPACE_BYTES}`, `--data=${DATA_BYTES}`, '--', bwrap];
+    for (let index = 0; index < args.length; index += 1) commandArgs[commandArgs.length] = args[index]!;
+    const child = spawn(prlimit, commandArgs, {
       cwd: '/', env: {}, stdio: ['pipe', 'ignore', 'pipe', 'pipe'],
     });
     return await exchangeHostedExtension(
@@ -161,48 +167,54 @@ function checkedSurfaceRoot(root: string, expectedVersion: string): string {
 }
 
 async function writeSurfaceFacade(directory: string, surfaceRoot: string): Promise<void> {
-  await Promise.all([
-    mkdir(join(directory, 'dist/helpers'), { recursive: true }),
-    mkdir(join(directory, 'dist/triggers'), { recursive: true }),
-  ]);
-  const runtimeFiles = Object.entries(SURFACE_RUNTIME_SHA256).map(([file, expected]) => {
+  await mkdir(join(directory, 'dist/helpers'), { recursive: true });
+  await mkdir(join(directory, 'dist/triggers'), { recursive: true });
+  const entries = OBJECT_ENTRIES(SURFACE_RUNTIME_SHA256);
+  const runtimeFiles: { file: string; bytes: Buffer; expected: string }[] = [];
+  for (let index = 0; index < entries.length; index += 1) {
+    const file = entries[index]![0];
+    const expected = entries[index]![1];
     let bytes: Buffer;
     try { bytes = readFileSync(join(surfaceRoot, 'dist', file)); }
     catch { return unsupported(`hosted extension cannot read pinned Surface runtime ${file}`); }
     if (sha256(bytes) !== expected) {
       return unsupported(`hosted extension Surface runtime ${file} differs from the reviewed bytes`);
     }
-    return { file, bytes, expected };
-  });
-  await Promise.all([
-    writeFile(join(directory, 'package.json'), JSON_STRINGIFY({
-      name: '@relayflows/surface', type: 'module', exports: { '.': './index.js', './runtime': './runtime.js' },
-    }), { mode: 0o400, flag: 'wx' }),
-    writeFile(join(directory, 'index.js'),
-      "export { flow } from './dist/flow.js';\nexport { github } from './dist/triggers/github.js';\n",
-      { mode: 0o400, flag: 'wx' }),
-    writeFile(join(directory, 'runtime.js'), "export { getFlowDefinition } from './dist/flow.js';\n",
-      { mode: 0o400, flag: 'wx' }),
-    ...runtimeFiles.map(({ file, bytes }) => writeFile(join(directory, 'dist', file), bytes,
-      { mode: 0o400, flag: 'wx' })),
-  ]);
-  for (const { file, expected } of runtimeFiles) {
+    runtimeFiles[index] = { file, bytes, expected };
+  }
+  await writeFile(join(directory, 'package.json'), JSON_STRINGIFY({
+    name: '@relayflows/surface', type: 'module', exports: { '.': './index.js', './runtime': './runtime.js' },
+  }), { mode: 0o400, flag: 'wx' });
+  await writeFile(join(directory, 'index.js'),
+    "export { flow } from './dist/flow.js';\nexport { github } from './dist/triggers/github.js';\n",
+    { mode: 0o400, flag: 'wx' });
+  await writeFile(join(directory, 'runtime.js'), "export { getFlowDefinition } from './dist/flow.js';\n",
+    { mode: 0o400, flag: 'wx' });
+  for (let index = 0; index < runtimeFiles.length; index += 1) {
+    const { file, bytes } = runtimeFiles[index]!;
+    await writeFile(join(directory, 'dist', file), bytes, { mode: 0o400, flag: 'wx' });
+  }
+  for (let index = 0; index < runtimeFiles.length; index += 1) {
+    const { file, expected } = runtimeFiles[index]!;
     if (sha256(readFileSync(join(directory, 'dist', file))) !== expected) {
       throw new PluginError('plugin_source_drift', `Private Surface runtime snapshot changed at ${file}.`);
     }
   }
 }
 
-function sandboxArguments(input: {
+/** @internal Pure construction seam for hostile-intrinsic regressions. */
+export function sandboxArguments(input: {
   node: string; runner: string; extension: string; surfaceFacade: string;
 }): string[] {
   const args = [
     '--unshare-all', '--die-with-parent', '--new-session', '--clearenv', '--cap-drop', 'ALL', '--dir', '/usr',
   ];
-  for (const path of ['/usr/lib', '/usr/lib64', '/lib', '/lib64']) {
-    if (existsSync(path)) args.push('--ro-bind', realpathSync(path), path);
+  const libraryPaths = ['/usr/lib', '/usr/lib64', '/lib', '/lib64'];
+  for (let index = 0; index < libraryPaths.length; index += 1) {
+    const path = libraryPaths[index]!;
+    if (existsSync(path)) ARRAY_PUSH(args, '--ro-bind', realpathSync(path), path);
   }
-  args.push(
+  ARRAY_PUSH(args,
     '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp',
     '--dir', '/runtime', '--ro-bind', input.node, '/runtime/node', '--ro-bind', input.runner, '/runtime/runner.mjs',
     '--dir', '/extension', '--dir', '/extension/node_modules', '--dir', '/extension/node_modules/@relayflows',
@@ -213,7 +225,12 @@ function sandboxArguments(input: {
     '--dir', '/extension/node_modules/@relayflows/surface/dist',
     '--dir', '/extension/node_modules/@relayflows/surface/dist/helpers',
     '--dir', '/extension/node_modules/@relayflows/surface/dist/triggers',
-    ...surfaceRuntimeMounts(input.surfaceFacade),
+  );
+  const runtimeMounts = surfaceRuntimeMounts(input.surfaceFacade);
+  for (let index = 0; index < runtimeMounts.length; index += 1) {
+    args[args.length] = runtimeMounts[index]!;
+  }
+  ARRAY_PUSH(args,
     '--ro-bind', input.extension, '/extension/src', '--chdir', '/extension/src',
     '--setenv', 'HOME', '/tmp', '--setenv', 'TMPDIR', '/tmp', '--setenv', 'PATH', '/runtime',
     '/runtime/node', '--permission', '--experimental-strip-types', '--max-old-space-size=64',
@@ -223,10 +240,18 @@ function sandboxArguments(input: {
 }
 
 function surfaceRuntimeMounts(surfaceFacade: string): string[] {
-  return Object.keys(SURFACE_RUNTIME_SHA256).flatMap(file => [
-    '--ro-bind', realpathSync(join(surfaceFacade, 'dist', file)),
-    `/extension/node_modules/@relayflows/surface/dist/${file}`,
-  ]);
+  const files = OBJECT_KEYS(SURFACE_RUNTIME_SHA256);
+  const mounts: string[] = [];
+  for (let index = 0; index < files.length; index += 1) {
+    const file = files[index]!;
+    ARRAY_PUSH(
+      mounts,
+      '--ro-bind',
+      realpathSync(join(surfaceFacade, 'dist', file)),
+      `/extension/node_modules/@relayflows/surface/dist/${file}`,
+    );
+  }
+  return mounts;
 }
 
 

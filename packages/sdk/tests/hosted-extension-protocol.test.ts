@@ -340,6 +340,46 @@ describe('hosted extension hostile protocol', () => {
     expect(calls).toBe(1);
   }, 15_000);
 
+  it('freezes successful completion with the captured intrinsic', async () => {
+    const protocol = new PassThrough();
+    const stdin = new PassThrough();
+    const stderr = new PassThrough();
+    const child = Object.assign(new EventEmitter(), {
+      exitCode: null,
+      signalCode: null,
+      kill: () => true,
+    }) as unknown as ChildProcess;
+    const freeze = Object.freeze;
+    let poisonCalls = 0;
+    let result: Awaited<ReturnType<typeof exchangeHostedExtension>> | undefined;
+    try {
+      Object.freeze = ((value: object) => {
+        if ('completionReason' in value) {
+          poisonCalls += 1;
+          return { completionReason: 'forged', capabilityCalls: 0 } as typeof value;
+        }
+        return freeze(value);
+      }) as typeof Object.freeze;
+      stdin.on('data', chunk => {
+        if (String(chunk).includes('capability-result')) {
+          protocol.write(`${JSON.stringify({
+            type: 'result', completionReason: 'success', capabilityCalls: 1,
+          })}\n`);
+        }
+      });
+      const run = exchangeHostedExtension(
+        child, protocol, stdin, stderr, 10_000, { type: 'run' },
+        async () => ({ receiptId: 'receipt-captured-freeze', status: 'queued' }),
+      );
+      protocol.write(`${JSON.stringify(capabilityFrame())}\n`);
+      result = await run;
+    } finally {
+      Object.freeze = freeze;
+    }
+    expect(poisonCalls).toBe(0);
+    expect(result).toEqual({ completionReason: 'success', capabilityCalls: 1 });
+  });
+
   it('rejects non-object protocol output with zero adapter calls', async () => {
     let calls = 0;
     await expect(runVerifiedNativeExtensionSandbox({

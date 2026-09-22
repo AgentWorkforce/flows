@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 import { github } from '@relayflows/surface';
 import {
   extensionHandlerForHostedDispatch,
@@ -6,7 +9,10 @@ import {
 } from '../src/flow-extension-loader.js';
 import { hostedExtensionDispatchFromVerifiedDelivery } from '../src/index.js';
 import { hostedManifestRoutes } from '../src/hosted-extension-isolation.js';
-import { supportsHostedSandboxFlags } from '../src/hosted-extension-sandbox.js';
+import { sandboxArguments, supportsHostedSandboxFlags } from '../src/hosted-extension-sandbox.js';
+
+const roots: string[] = [];
+afterEach(() => roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })));
 
 describe('hosted extension routing policy', () => {
   it('accepts only Node releases that implement every sandbox flag', () => {
@@ -16,6 +22,57 @@ describe('hosted extension routing policy', () => {
     expect(supportsHostedSandboxFlags('23.5.0')).toBe(true);
     expect(supportsHostedSandboxFlags('24.0.0')).toBe(true);
     expect(supportsHostedSandboxFlags('not-a-version')).toBe(false);
+  });
+
+  it('constructs the pinned Surface mounts without ambient array methods', () => {
+    const root = mkdtempSync(join(tmpdir(), 'hosted-sandbox-arguments-'));
+    roots.push(root);
+    const facade = join(root, 'surface');
+    for (const file of [
+      'flow.js', 'helpers/providers.js', 'provider-trigger.js', 'schedule.js',
+      'triggers.js', 'triggers/github.js',
+    ]) {
+      mkdirSync(join(facade, 'dist', file, '..'), { recursive: true });
+      writeFileSync(join(facade, 'dist', file), file);
+    }
+    const flatMap = Array.prototype.flatMap;
+    const push = Array.prototype.push;
+    let calls = 0;
+    let args: string[] | undefined;
+    try {
+      Array.prototype.flatMap = function poisonedFlatMap(
+        this: unknown[],
+        callback: (value: unknown, index: number, array: unknown[]) => unknown,
+        thisArg?: unknown,
+      ) {
+        if (this.length === 6 && this[0] === 'flow.js') {
+          calls += 1;
+          return ['--bind', '/attacker', '/runtime/runner.mjs'] as never[];
+        }
+        return Reflect.apply(flatMap, this, [callback, thisArg]) as never[];
+      } as typeof Array.prototype.flatMap;
+      Array.prototype.push = function poisonedPush(this: unknown[], ...values: unknown[]) {
+        if (this[0] === '--unshare-all') {
+          calls += 1;
+          return this.length;
+        }
+        return Reflect.apply(push, this, values);
+      } as typeof Array.prototype.push;
+      args = sandboxArguments({
+        node: '/trusted/node', runner: '/trusted/runner', extension: '/trusted/extension', surfaceFacade: facade,
+      });
+    } finally {
+      Array.prototype.flatMap = flatMap;
+      Array.prototype.push = push;
+    }
+    expect(calls).toBe(0);
+    expect(args).not.toContain('/attacker');
+    for (const file of [
+      'flow.js', 'helpers/providers.js', 'provider-trigger.js', 'schedule.js',
+      'triggers.js', 'triggers/github.js',
+    ]) {
+      expect(args).toContain(`/extension/node_modules/@relayflows/surface/dist/${file}`);
+    }
   });
 
   it('matches the SDK router for exact, absent, duplicate, and generic-overlap routes', () => {

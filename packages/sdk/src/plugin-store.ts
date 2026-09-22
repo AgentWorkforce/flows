@@ -17,7 +17,28 @@ import { PluginError } from './plugin-manifest.js';
 export const PLUGIN_STORE = '.flows/plugins';
 const MAX_PLUGIN_MANIFEST_BYTES = 4_000_000;
 const MAX_PLUGIN_STORE_ENTRIES = 10_000;
+const ARRAY_IS_ARRAY = Array.isArray;
+const BUFFER_TO_STRING = Function.prototype.call.bind(Buffer.prototype.toString) as (
+  value: Buffer, encoding: BufferEncoding,
+) => string;
 const JSON_PARSE = JSON.parse;
+const NUMBER_IS_SAFE_INTEGER = Number.isSafeInteger;
+const OBJECT_FREEZE = Object.freeze;
+const REGEXP_TEST = Function.prototype.call.bind(RegExp.prototype.test) as (
+  pattern: RegExp, value: string,
+) => boolean;
+const SET = Set;
+const SET_ADD = Function.prototype.call.bind(Set.prototype.add) as <T>(set: Set<T>, value: T) => Set<T>;
+const SET_FOR_EACH = Function.prototype.call.bind(Set.prototype.forEach) as <T>(
+  set: Set<T>, callback: (value: T) => void,
+) => void;
+const SET_HAS = Function.prototype.call.bind(Set.prototype.has) as <T>(set: Set<T>, value: T) => boolean;
+const STRING_SPLIT = Function.prototype.call.bind(String.prototype.split) as (
+  value: string, separator: string,
+) => string[];
+const STRING_STARTS_WITH = Function.prototype.call.bind(String.prototype.startsWith) as (
+  value: string, search: string,
+) => boolean;
 const READ_FLAGS = constants.O_RDONLY
   | (constants.O_NOFOLLOW ?? 0)
   | (constants.O_NONBLOCK ?? 0);
@@ -47,7 +68,8 @@ export async function materializePlugin(root: string, name: string, files: reado
   await mkdir(parent, { recursive: true });
   const staging = await mkdtemp(join(parent, '.install-'));
   try {
-    for (const file of files) {
+    for (let index = 0; index < files.length; index += 1) {
+      const file = files[index]!;
       if (!safePath(file.path) || file.path === 'manifest.json') throw new PluginError('plugin_path_invalid', `${file.path}: invalid plugin path.`);
       await mkdir(dirname(join(staging, file.path)), { recursive: true });
       await writeFile(join(staging, file.path), file.data, { mode: 0o644 });
@@ -55,7 +77,8 @@ export async function materializePlugin(root: string, name: string, files: reado
     await writeFile(join(staging, 'manifest.json'), manifest);
     try { await rename(staging, directory); }
     catch (error) {
-      if (!['EEXIST', 'ENOTEMPTY'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'EEXIST' && code !== 'ENOTEMPTY') throw error;
       await verifyStoredPlugin(directory, digest);
     }
   } finally { await rm(staging, { recursive: true, force: true }); }
@@ -108,10 +131,12 @@ async function openStoredFile(
   path: string,
   hooks: StoredPluginReadTestHooks,
 ): Promise<Awaited<ReturnType<typeof open>>> {
-  const parts = path.split('/');
+  const parts = STRING_SPLIT(path, '/');
   if (process.platform !== 'linux') {
     for (let i = 1; i < parts.length; i++) {
-      if (!(await lstat(join(root, ...parts.slice(0, i)))).isDirectory()) {
+      let parent = root;
+      for (let index = 0; index < i; index += 1) parent = join(parent, parts[index]!);
+      if (!(await lstat(parent)).isDirectory()) {
         throw new PluginError('plugin_source_drift', `${path}: expected a regular file, without symlinks.`);
       }
     }
@@ -123,7 +148,8 @@ async function openStoredFile(
     if (!(await directory.stat()).isDirectory()) {
       throw new PluginError('plugin_source_drift', `${path}: plugin store root is not a directory.`);
     }
-    for (const part of parts.slice(0, -1)) {
+    for (let index = 0; index < parts.length - 1; index += 1) {
+      const part = parts[index]!;
       const child = await open(`/proc/self/fd/${directory.fd}/${part}`, READ_FLAGS);
       if (!(await child.stat()).isDirectory()) {
         await child.close();
@@ -133,7 +159,7 @@ async function openStoredFile(
       directory = child;
     }
     await hooks.beforeOpen?.(join(root, path));
-    return await open(`/proc/self/fd/${directory.fd}/${parts.at(-1)!}`, READ_FLAGS);
+    return await open(`/proc/self/fd/${directory.fd}/${parts[parts.length - 1]!}`, READ_FLAGS);
   } finally {
     await directory.close();
   }
@@ -159,31 +185,37 @@ async function readVerifiedStoredPluginFiles(
     if (!(await lstat(directory)).isDirectory()) return drift('not a directory');
     manifest = await regularFile(directory, 'manifest.json', MAX_PLUGIN_MANIFEST_BYTES, undefined, hooks);
   } catch (error) { return drift(error instanceof PluginError ? error.message : 'manifest.json is missing'); }
-  const raw = manifest.toString('utf8');
+  const raw = BUFFER_TO_STRING(manifest, 'utf8');
   if (sha256(raw) !== expectedDigest) return drift('manifest.json digest differs from the lockfile');
   let entries: { path: string; sha256: string; bytes: number }[];
-  try { entries = JSON_PARSE(raw); if (!Array.isArray(entries)) throw new Error(); }
+  try { entries = JSON_PARSE(raw); if (!ARRAY_IS_ARRAY(entries)) throw new Error(); }
   catch { return drift('manifest.json is not a manifest'); }
   if (entries.length > MAX_PLUGIN_FILES) return drift(`manifest.json lists more than ${MAX_PLUGIN_FILES} files`);
-  const paths = new Set<string>();
+  const paths = new SET<string>();
   const files = [{ path: 'manifest.json', data: manifest }];
   let totalBytes = 0;
-  for (const entry of entries) {
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index]!;
     if (typeof entry?.path !== 'string' || !safePath(entry.path)
-      || typeof entry.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(entry.sha256)
-      || !Number.isSafeInteger(entry.bytes) || entry.bytes < 0 || entry.bytes > MAX_PLUGIN_FILE_BYTES
-      || paths.has(entry.path)) return drift('manifest.json lists an invalid file');
+      || typeof entry.sha256 !== 'string' || !REGEXP_TEST(/^[a-f0-9]{64}$/, entry.sha256)
+      || !NUMBER_IS_SAFE_INTEGER(entry.bytes) || entry.bytes < 0 || entry.bytes > MAX_PLUGIN_FILE_BYTES
+      || SET_HAS(paths, entry.path)) return drift('manifest.json lists an invalid file');
     totalBytes += entry.bytes;
     if (totalBytes > MAX_PLUGIN_TOTAL_BYTES) return drift(`plugin exceeds ${MAX_PLUGIN_TOTAL_BYTES} bytes`);
     let data: Buffer;
     try { data = await regularFile(directory, entry.path, MAX_PLUGIN_FILE_BYTES, entry.bytes, hooks); }
     catch (error) { return drift(error instanceof PluginError ? error.message : `${entry.path} is missing`); }
     if (sha256(data) !== entry.sha256) return drift(`${entry.path} changed since installation`);
-    paths.add(entry.path);
-    files.push({ path: entry.path, data });
+    SET_ADD(paths, entry.path);
+    files[files.length] = { path: entry.path, data };
   }
-  await rejectExtras(directory, '', new Set([...paths, 'manifest.json']), drift);
-  return Object.freeze(files.map(file => Object.freeze(file)));
+  SET_ADD(paths, 'manifest.json');
+  await rejectExtras(directory, '', paths, drift);
+  const frozen: Readonly<{ path: string; data: Buffer }>[] = [];
+  for (let index = 0; index < files.length; index += 1) {
+    frozen[index] = OBJECT_FREEZE(files[index]!);
+  }
+  return OBJECT_FREEZE(frozen);
 }
 
 /** Re-verify, then return every stored file including the payload `manifest.json`. */
@@ -208,8 +240,12 @@ async function rejectExtras(root: string, prefix: string, paths: Set<string>, dr
       entries += 1;
       if (entries > MAX_PLUGIN_STORE_ENTRIES) drift('plugin store contains too many entries');
       const path = currentPrefix + entry.name;
-      if (entry.isDirectory() && [...paths].some(file => file.startsWith(`${path}/`))) await visit(`${path}/`);
-      else if (!entry.isFile() || !paths.has(path)) drift(`${path}: unlisted file or unsupported file type`);
+      let declaredDescendant = false;
+      SET_FOR_EACH(paths, file => {
+        if (STRING_STARTS_WITH(file, `${path}/`)) declaredDescendant = true;
+      });
+      if (entry.isDirectory() && declaredDescendant) await visit(`${path}/`);
+      else if (!entry.isFile() || !SET_HAS(paths, path)) drift(`${path}: unlisted file or unsupported file type`);
     }
   }
   await visit(prefix);

@@ -12,6 +12,7 @@ const JSON_PARSE = JSON.parse;
 const JSON_STRINGIFY = JSON.stringify;
 const OBJECT_HAS_OWN = Object.hasOwn;
 const OBJECT_KEYS = Object.keys;
+const OBJECT_FREEZE = Object.freeze;
 const STRING = String;
 const STRING_INDEX_OF = Function.prototype.call.bind(String.prototype.indexOf) as (
   value: string, search: string,
@@ -162,7 +163,7 @@ export async function exchangeHostedExtension(
             || message.completionReason !== 'success' || message.capabilityCalls !== 1) {
             return refuse('Hosted extension reported a completion without exactly one capability call.');
           }
-          finish(undefined, Object.freeze({ completionReason: 'success', capabilityCalls: 1 }));
+          finish(undefined, OBJECT_FREEZE({ completionReason: 'success', capabilityCalls: 1 }));
         } else if (message.type === 'error') {
           if (!hasExactKeys(message, ['type', 'message']) || typeof message.message !== 'string') {
             return refuse('Hosted extension emitted a malformed error frame.');

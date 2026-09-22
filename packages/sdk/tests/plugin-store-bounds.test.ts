@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { payloadManifest } from '../src/bundle.js';
 import { materializePlugin, readStoredPluginFiles, verifyStoredPlugin } from '../src/plugin-store.js';
 
 const roots: string[] = [];
@@ -18,6 +19,26 @@ async function fixture() {
 }
 
 describe('bounded plugin-store verification', () => {
+  it('hashes the exact supplied buffers without ambient sort or map', () => {
+    const sort = Array.prototype.sort;
+    const map = Array.prototype.map;
+    let calls = 0;
+    let encoded: string | undefined;
+    try {
+      Array.prototype.sort = (() => { calls += 1; return []; }) as typeof Array.prototype.sort;
+      Array.prototype.map = (() => { calls += 1; return []; }) as typeof Array.prototype.map;
+      encoded = payloadManifest([
+        { path: 'z.ts', data: Buffer.from('z') },
+        { path: 'a.ts', data: Buffer.from('a') },
+      ]);
+    } finally {
+      Array.prototype.sort = sort;
+      Array.prototype.map = map;
+    }
+    expect(calls).toBe(0);
+    expect(JSON.parse(encoded!)).toMatchObject([{ path: 'a.ts' }, { path: 'z.ts' }]);
+  });
+
   it('refuses an oversized sparse payload before buffering it', async () => {
     const stored = await fixture();
     truncateSync(join(stored.directory, 'entry.ts'), 256_001);
