@@ -29,8 +29,11 @@ The enforced boundary is:
   flow context; a generated facade mounts only `flow`, `github`,
   `getFlowDefinition`, and private copies of six SHA-256-pinned Surface runtime
   files, followed by one final runtime-generation check before launch; an
-  inherited 1.5 GiB hard address-space limit covers heap, Buffer/native memory,
-  mappings, and descendants in addition to the 64 MiB V8 old-space setting;
+  inherited hard limits of 16 GiB address space and 3 GiB data/anonymous
+  memory cover heap, Buffer/native memory, mappings, and descendants in
+  addition to the 64 MiB V8 old-space setting; the wider address-space ceiling
+  admits Node's virtual V8/Wasm reservations while the tighter data limit
+  refuses two hostile 2 GiB Buffers;
 - expose one `capabilities.cloud.babysitterTurn.queue({ delivery })` call and
   `done`, validate the exact request and `{ receiptId, status }` response in the
   parent, and pass the original non-serializable authority to the host adapter;

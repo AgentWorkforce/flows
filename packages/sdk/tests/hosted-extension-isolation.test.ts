@@ -8,6 +8,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -278,6 +279,13 @@ process.exit(child.status ?? 1);
   });
 
   it('denies ambient credentials, host files, writes, network, subprocesses, and undeclared context verbs', async () => {
+    const server = createServer((_request, response) => response.end('host-network-visible'));
+    await new Promise<void>((resolveListen, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolveListen);
+    });
+    const address = server.address();
+    if (address === null || typeof address === 'string') throw new Error('host network fixture did not listen');
     const sentinel = join(mkdtempSync(join(tmpdir(), 'hosted-sentinel-')), 'secret.txt');
     roots.push(sentinel.slice(0, sentinel.lastIndexOf('/')));
     writeFileSync(sentinel, 'host-secret');
@@ -286,13 +294,20 @@ process.exit(child.status ?? 1);
 import { flow, github } from '@relayflows/surface';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { connect } from 'node:net';
 const denied = async fn => { try { await fn(); return 'allowed'; } catch (error) { return error?.code ?? error?.message ?? 'denied'; } };
+const reachHostNetwork = () => new Promise((resolveNetwork, rejectNetwork) => {
+  const socket = connect({ host: '127.0.0.1', port: ${address.port} });
+  const timer = setTimeout(() => { socket.destroy(); rejectNetwork(new Error('network timeout')); }, 1000);
+  socket.once('connect', () => { clearTimeout(timer); socket.destroy(); resolveNetwork(); });
+  socket.once('error', error => { clearTimeout(timer); rejectNetwork(error); });
+});
 const evidence = {
   ambient: process.env.HOSTED_EXTENSION_TEST_SECRET,
   read: await denied(() => readFileSync(${JSON.stringify(sentinel)}, 'utf8')),
   write: await denied(() => writeFileSync(${JSON.stringify(escaped)}, 'escape')),
   child: await denied(() => { const result = spawnSync('/usr/bin/true'); if (result.error) throw result.error; }),
-  network: await denied(() => fetch('https://example.com')),
+  network: await denied(reachHostNetwork),
 };
 export default flow('babysitter', async f => f.done('declined'))
   .on(github.pull_request('labeled'), async (f, input) => {
@@ -326,16 +341,17 @@ export default flow('babysitter', async f => f.done('declined'))
         babysitterTurn: { queue: async () => ({ receiptId: 'receipt-1', status: 'queued' }) },
       });
     } finally {
+      server.close();
       if (original === undefined) delete process.env.HOSTED_EXTENSION_TEST_SECRET;
       else process.env.HOSTED_EXTENSION_TEST_SECRET = original;
     }
     expect(() => readFileSync(escaped)).toThrow();
   });
 
-  it('enforces an OS address-space bound on native Buffer allocation', async () => {
+  it('enforces OS address-space and data bounds on native Buffer allocation', async () => {
     const installed = await artifact(`
-      const allocation = Buffer.alloc(256 * 1024 * 1024, 1);
-      if (allocation.byteLength !== 256 * 1024 * 1024) throw new Error('short allocation');
+      const allocations = [Buffer.alloc(2 * 1024 * 1024 * 1024), Buffer.alloc(2 * 1024 * 1024 * 1024)];
+      if (allocations.some(allocation => allocation.byteLength !== 2 * 1024 * 1024 * 1024)) throw new Error('short allocation');
       ${ordinaryExtension}
     `);
     const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
@@ -353,7 +369,7 @@ export default flow('babysitter', async f => f.done('declined'))
       } },
     })).rejects.toMatchObject({
       code: 'plugin_unsupported',
-      message: expect.stringContaining('Failed to allocate memory'),
+      message: expect.stringMatching(/(?:Failed to allocate memory|Array buffer allocation failed)/u),
     });
     expect(calls).toBe(0);
   });

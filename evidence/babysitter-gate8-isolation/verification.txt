@@ -20,17 +20,53 @@ $ cd packages/sdk && npm run typecheck && npm run build && npm run typecheck:tes
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
 
- ✓ tests/hosted-base-snapshot.test.ts (3 tests) 20ms
- ✓ tests/preflight.test.ts (59 tests) 100ms
- ✓ tests/babysitter-native-extension.test.ts (38 tests) 413ms
- ✓ tests/authored-flow.test.ts (34 tests) 732ms
- ✓ tests/hosted-extension-protocol.test.ts (10 tests) 786ms
- ✓ tests/hosted-extension-isolation.test.ts (15 tests) 1060ms
+ ✓ tests/hosted-base-snapshot.test.ts (3 tests) 16ms
+ ✓ tests/preflight.test.ts (59 tests) 55ms
+ ✓ tests/babysitter-native-extension.test.ts (38 tests) 310ms
+ ✓ tests/hosted-extension-protocol.test.ts (10 tests) 557ms
+ ✓ tests/authored-flow.test.ts (34 tests) 749ms
+ ✓ tests/hosted-extension-isolation.test.ts (15 tests) 734ms
 
  Test Files  6 passed (6)
       Tests  159 passed (159)
-   Start at  08:06:54
-   Duration  2.12s (transform 1.01s, setup 0ms, collect 4.04s, tests 3.11s, environment 1ms, prepare 347ms)
+   Start at  08:26:17
+   Duration  1.77s (transform 933ms, setup 0ms, collect 3.92s, tests 2.42s, environment 1ms, prepare 325ms)
+
+$ mise exec node@22 -- node --version
+v22.23.2
+$ mise exec node@22 -- ./node_modules/.bin/vitest run tests/hosted-extension-isolation.test.ts
+
+ ✓ tests/hosted-extension-isolation.test.ts (15 tests) 775ms
+
+ Test Files  1 passed (1)
+      Tests  15 passed (15)
+
+$ mise exec node@23 -- node --version
+v23.11.1
+$ mise exec node@23 -- ./node_modules/.bin/vitest run tests/hosted-extension-isolation.test.ts
+
+ ✓ tests/hosted-extension-isolation.test.ts (15 tests) 910ms
+
+ Test Files  1 passed (1)
+      Tests  15 passed (15)
+
+$ mise exec node@24 -- node --version
+v24.21.0
+$ mise exec node@24 -- ./node_modules/.bin/vitest run tests/hosted-extension-isolation.test.ts
+
+ ✓ tests/hosted-extension-isolation.test.ts (15 tests) 681ms
+
+ Test Files  1 passed (1)
+      Tests  15 passed (15)
+
+$ node --version
+v26.8.1
+$ ./node_modules/.bin/vitest run tests/hosted-extension-isolation.test.ts
+
+ ✓ tests/hosted-extension-isolation.test.ts (15 tests) 737ms
+
+ Test Files  1 passed (1)
+      Tests  15 passed (15)
 
 $ cd packages/surface && npm run typecheck && npm run typecheck:regressions && npm test && sha256sum dist/flow.js dist/helpers/providers.js dist/provider-trigger.js dist/schedule.js dist/triggers.js dist/triggers/github.js
 

@@ -16,11 +16,14 @@ import { materializePlugin, readStoredPluginFiles } from './plugin-store.js';
 
 const HOSTED_WRITE = 'cloud:babysitter-turn';
 const DEFAULT_TIMEOUT_MS = 10_000;
-// RLIMIT_AS is inherited across prlimit -> bubblewrap -> Node and covers V8,
-// Buffer/native allocations, mappings, and any descendants. 1.5 GiB leaves
-// room for Node's reserved code ranges while deterministically refusing a
-// hostile 256 MiB Buffer under the separately constrained 64 MiB old-space.
-const ADDRESS_SPACE_BYTES = 1_536 * 1024 * 1024;
+// These hard limits are inherited across prlimit -> bubblewrap -> Node and its
+// descendants. RLIMIT_AS stays high enough for Node 22-26's large virtual V8
+// and Wasm reservations; RLIMIT_DATA is the tighter bound on anonymous/native
+// allocations (including Buffer mmap on supported Linux kernels). Together
+// with 64 MiB old-space they refuse two hostile 2 GiB Buffers without preventing
+// the pinned TypeScript handler from starting on supported Node releases.
+const ADDRESS_SPACE_BYTES = 16 * 1024 * 1024 * 1024;
+const DATA_BYTES = 3 * 1024 * 1024 * 1024;
 const SURFACE_RUNTIME_SHA256 = Object.freeze({
   'flow.js': '4aaeacc55de3074f4d121ce7253c3be50a93757e6540ba8159889a9450d1c05c',
   'helpers/providers.js': '7bc62eccaa3a9e786ae0a689bf74160585149e91feef8208e17ef8eca51eed7f',
@@ -92,7 +95,11 @@ export async function runHostedExtensionSandbox(
       surfaceFacade,
     });
     await options.beforeLaunch?.();
-    const child = spawn(prlimit, [`--as=${ADDRESS_SPACE_BYTES}`, '--', bwrap, ...args], {
+    const child = spawn(prlimit, [
+      `--as=${ADDRESS_SPACE_BYTES}`,
+      `--data=${DATA_BYTES}`,
+      '--', bwrap, ...args,
+    ], {
       cwd: '/', env: {}, stdio: ['pipe', 'ignore', 'pipe', 'pipe'],
     });
     return await exchangeHostedExtension(

@@ -37,7 +37,8 @@ reviewed Software Factory source in the same `loadHostedExtensionRuntime` genera
 cross-extension route ambiguity, accepts only the exact published Babysitter
 ref/digest/manifest and native permission profile, imports the entry only
 inside Linux bubblewrap plus Node's
-permission model under an inherited 1.5 GiB hard address-space limit, mounts a
+permission model under inherited 16 GiB address-space and 3 GiB
+data/anonymous-memory hard limits, mounts a
 minimal trusted Surface facade (`flow`, `github`,
 and `getFlowDefinition`) from six integrity-pinned private runtime files instead
 of the general helper runtime, checks
