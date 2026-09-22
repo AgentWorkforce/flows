@@ -107,6 +107,32 @@ describe('bounded plugin-store verification', () => {
     expect(poisonCalls).toBe(0);
   });
 
+  it('ignores inherited store test hooks when production omits them', async () => {
+    const stored = await fixture();
+    const names = ['beforeOpen', 'afterStat', 'beforeDirectoryStat'] as const;
+    const previous = names.map(name => Object.getOwnPropertyDescriptor(Object.prototype, name));
+    let poisonCalls = 0;
+    try {
+      for (const name of names) {
+        Object.defineProperty(Object.prototype, name, {
+          configurable: true,
+          value: async () => {
+            poisonCalls += 1;
+            throw new Error(`inherited ${name} must not run`);
+          },
+        });
+      }
+      await expect(verifyStoredPlugin(stored.directory, stored.digest)).resolves.toBeUndefined();
+    } finally {
+      for (let index = 0; index < names.length; index += 1) {
+        const descriptor = previous[index];
+        if (descriptor === undefined) delete (Object.prototype as Record<string, unknown>)[names[index]!];
+        else Object.defineProperty(Object.prototype, names[index]!, descriptor);
+      }
+    }
+    expect(poisonCalls).toBe(0);
+  });
+
   it('bounds a payload that grows after its admitted size was checked', async () => {
     const stored = await fixture();
     const raced = join(stored.directory, 'entry.ts');

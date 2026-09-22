@@ -40,7 +40,9 @@ const ARRAY_SORT = Function.prototype.call.bind(Array.prototype.sort) as <T>(
   array: T[],
   compare?: (left: T, right: T) => number,
 ) => T[];
+const OBJECT_CREATE = Object.create;
 const OBJECT_FREEZE = Object.freeze;
+const OBJECT_GET_OWN_PROPERTY_DESCRIPTOR = Object.getOwnPropertyDescriptor;
 const BIG_INT = BigInt;
 const BUFFER_ALLOC_UNSAFE = Buffer.allocUnsafe;
 const NUMBER = Number;
@@ -74,6 +76,10 @@ export interface HostedBaseSnapshotTestHooks {
   readonly beforeOpen?: (path: string) => Promise<void>;
   readonly afterStat?: (path: string) => Promise<void>;
 }
+
+const EMPTY_HOSTED_BASE_HOOKS = OBJECT_FREEZE(
+  OBJECT_CREATE(null),
+) as HostedBaseSnapshotTestHooks;
 
 export interface HostedBaseSourceRoot {
   readonly root: string;
@@ -147,7 +153,7 @@ export async function createHostedBaseSnapshot(
 
 export async function hostedBaseSourceDigest(
   sources: readonly HostedBaseSourceRoot[],
-  hooks: HostedBaseSnapshotTestHooks = {},
+  hooks: HostedBaseSnapshotTestHooks = EMPTY_HOSTED_BASE_HOOKS,
 ): Promise<string> {
   return sourceDigest(await readAuthorityFiles(sources, hooks));
 }
@@ -158,7 +164,7 @@ export async function removeHostedBaseSnapshot(snapshot: HostedBaseSnapshot): Pr
 
 async function readAuthorityFiles(
   sources: readonly HostedBaseSourceRoot[],
-  hooks: HostedBaseSnapshotTestHooks = {},
+  hooks: HostedBaseSnapshotTestHooks = EMPTY_HOSTED_BASE_HOOKS,
 ): Promise<readonly SourceFile[]> {
   const budget: SourceBudget = { entries: 0, bytes: 0 };
   const files: SourceFile[] = [];
@@ -233,7 +239,7 @@ async function readTree(
         if (budget.entries > MAX_ENTRIES) throw tooLarge();
         const relativePath = relativeDirectory === '' ? entry.name : PATH_JOIN(relativeDirectory, entry.name);
         const absolutePath = PATH_JOIN(root, relativePath);
-        await hooks.beforeOpen?.(absolutePath);
+        await ownHook(hooks, 'beforeOpen')?.(absolutePath);
         const descriptor = await openDescriptor(`/proc/self/fd/${directory}/${entry.name}`, READ_FLAGS);
         try {
           const before = await statDescriptor(descriptor, { bigint: true });
@@ -242,7 +248,7 @@ async function readTree(
           } else if (descriptorIsFile(before)) {
             if (before.size < 0n || before.size > BIG_INT(MAX_BYTES - budget.bytes)) throw tooLarge();
             const expectedBytes = NUMBER(before.size);
-            await hooks.afterStat?.(absolutePath);
+            await ownHook(hooks, 'afterStat')?.(absolutePath);
             const bytes = await readBounded(descriptor, expectedBytes, relativePath);
             const after = await statDescriptor(descriptor, { bigint: true });
             if (after.size !== before.size || after.mtimeNs !== before.mtimeNs || after.ctimeNs !== before.ctimeNs) {
@@ -283,6 +289,16 @@ async function readTree(
     throw invalid('Hosted base source or trusted dependency is unreadable.');
   }
   return OBJECT_FREEZE(files);
+}
+
+function ownHook(
+  hooks: HostedBaseSnapshotTestHooks,
+  name: keyof HostedBaseSnapshotTestHooks,
+): ((path: string) => Promise<void>) | undefined {
+  const descriptor = OBJECT_GET_OWN_PROPERTY_DESCRIPTOR(hooks, name);
+  return descriptor !== undefined && 'value' in descriptor && typeof descriptor.value === 'function'
+    ? descriptor.value as (path: string) => Promise<void>
+    : undefined;
 }
 
 async function readBounded(descriptor: number, expectedBytes: number, relativePath: string): Promise<Buffer> {

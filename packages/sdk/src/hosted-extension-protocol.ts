@@ -158,7 +158,10 @@ export async function exchangeHostedExtension(
           if (typeof parsed !== 'object' || parsed === null || ARRAY_IS_ARRAY(parsed)) {
             return refuse('Hosted extension emitted a non-object protocol frame.');
           }
-          message = parsed as Record<string, unknown>;
+          message = boundedJsonSnapshot(
+            parsed,
+            'hosted extension protocol frame',
+          ) as Record<string, unknown>;
         } catch { return refuse('Hosted extension emitted malformed protocol data.'); }
 
         if (message.type === 'capability') {

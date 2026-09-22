@@ -50,7 +50,9 @@ const BUFFER_TO_STRING = Function.prototype.call.bind(Buffer.prototype.toString)
 const JSON_PARSE = JSON.parse;
 const NUMBER = Number;
 const NUMBER_IS_SAFE_INTEGER = Number.isSafeInteger;
+const OBJECT_CREATE = Object.create;
 const OBJECT_FREEZE = Object.freeze;
+const OBJECT_GET_OWN_PROPERTY_DESCRIPTOR = Object.getOwnPropertyDescriptor;
 const REGEXP_TEST = Function.prototype.call.bind(RegExp.prototype.test) as (pattern: RegExp, value: string) => boolean;
 const SET = Set;
 const SET_ADD = Function.prototype.call.bind(Set.prototype.add) as <T>(set: Set<T>, value: T) => Set<T>;
@@ -84,6 +86,10 @@ export interface StoredPluginReadTestHooks {
   readonly afterStat?: (path: string) => Promise<void>;
   readonly beforeDirectoryStat?: () => Promise<void>;
 }
+
+const EMPTY_STORED_PLUGIN_HOOKS = OBJECT_FREEZE(
+  OBJECT_CREATE(null),
+) as StoredPluginReadTestHooks;
 
 /** Write the files atomically; an existing directory is verified instead of overwritten. */
 export async function materializePlugin(
@@ -139,7 +145,7 @@ async function regularFile(
   path: string,
   maxBytes: number,
   expectedBytes?: number,
-  hooks: StoredPluginReadTestHooks = {},
+  hooks: StoredPluginReadTestHooks = EMPTY_STORED_PLUGIN_HOOKS,
 ): Promise<Buffer> {
   const absolute = PATH_JOIN(root, path);
   const handle = await openStoredFile(root, path, hooks);
@@ -153,7 +159,7 @@ async function regularFile(
     ) {
       throw new PluginError('plugin_source_drift', `${path}: expected a bounded regular file.`);
     }
-    await hooks.afterStat?.(absolute);
+    await ownHook(hooks, 'afterStat')?.(absolute);
     const size = NUMBER(before.size);
     const bytes = BUFFER_ALLOC_UNSAFE(size);
     let offset = 0;
@@ -188,7 +194,7 @@ async function openStoredFile(root: string, path: string, hooks: StoredPluginRea
         throw new PluginError('plugin_source_drift', `${path}: expected a regular file, without symlinks.`);
       }
     }
-    await hooks.beforeOpen?.(PATH_JOIN(root, path));
+    await ownHook(hooks, 'beforeOpen')?.(PATH_JOIN(root, path));
     return await openDescriptor(PATH_JOIN(root, path), READ_FLAGS);
   }
   let directory = await openDescriptor(PATH_RESOLVE(root), READ_FLAGS);
@@ -201,7 +207,7 @@ async function openStoredFile(root: string, path: string, hooks: StoredPluginRea
       const child = await openDescriptor(`/proc/self/fd/${directory}/${part}`, READ_FLAGS);
       let adopted = false;
       try {
-        await hooks.beforeDirectoryStat?.();
+        await ownHook(hooks, 'beforeDirectoryStat')?.();
         if (!descriptorIsDirectory(await statDescriptor(child, { bigint: true }))) {
           throw new PluginError('plugin_source_drift', `${path}: expected a regular file, without symlinks.`);
         }
@@ -212,7 +218,7 @@ async function openStoredFile(root: string, path: string, hooks: StoredPluginRea
         if (!adopted) await closeDescriptor(child);
       }
     }
-    await hooks.beforeOpen?.(PATH_JOIN(root, path));
+    await ownHook(hooks, 'beforeOpen')?.(PATH_JOIN(root, path));
     return await openDescriptor(`/proc/self/fd/${directory}/${parts[parts.length - 1]!}`, READ_FLAGS);
   } finally {
     await closeDescriptor(directory);
@@ -223,7 +229,7 @@ async function openStoredFile(root: string, path: string, hooks: StoredPluginRea
 export async function verifyStoredPlugin(
   directory: string,
   expectedDigest: string,
-  hooks: StoredPluginReadTestHooks = {},
+  hooks: StoredPluginReadTestHooks = EMPTY_STORED_PLUGIN_HOOKS,
 ): Promise<void> {
   await readVerifiedStoredPluginFiles(directory, expectedDigest, hooks);
 }
@@ -294,9 +300,19 @@ async function readVerifiedStoredPluginFiles(
 export async function readStoredPluginFiles(
   directory: string,
   expectedDigest: string,
-  hooks: StoredPluginReadTestHooks = {},
+  hooks: StoredPluginReadTestHooks = EMPTY_STORED_PLUGIN_HOOKS,
 ): Promise<readonly { path: string; data: Buffer }[]> {
   return await readVerifiedStoredPluginFiles(directory, expectedDigest, hooks);
+}
+
+function ownHook(
+  hooks: StoredPluginReadTestHooks,
+  name: keyof StoredPluginReadTestHooks,
+): ((...args: unknown[]) => Promise<void>) | undefined {
+  const descriptor = OBJECT_GET_OWN_PROPERTY_DESCRIPTOR(hooks, name);
+  return descriptor !== undefined && 'value' in descriptor && typeof descriptor.value === 'function'
+    ? descriptor.value as (...args: unknown[]) => Promise<void>
+    : undefined;
 }
 
 /** Drop a materialized plugin directory. Missing is a no-op. */

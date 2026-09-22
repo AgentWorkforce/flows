@@ -934,3 +934,43 @@ $ ./node_modules/.bin/vitest run tests/plugin-store-bounds.test.ts tests/hosted-
       Tests  199 passed (199)
    Start at  14:31:40
    Duration  2.14s (transform 1.24s, setup 0ms, collect 5.98s, tests 3.50s, environment 2ms, prepare 588ms)
+
+$ cd packages/sdk
+$ git diff --check
+$ npm run typecheck
+
+> @relayflows/sdk@2.0.27 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+
+$ npm run build
+
+> @relayflows/sdk@2.0.27 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+$ npm run typecheck:tests
+
+> @relayflows/sdk@2.0.27 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+
+$ ./node_modules/.bin/vitest run tests/plugin-store-bounds.test.ts tests/hosted-base-snapshot.test.ts tests/hosted-extension-routing.test.ts tests/preflight.test.ts tests/babysitter-native-extension.test.ts tests/hosted-extension-protocol-intrinsics.test.ts tests/hosted-extension-protocol.test.ts tests/authored-flow.test.ts tests/hosted-extension-isolation.test.ts
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
+
+ ✓ tests/hosted-extension-protocol-intrinsics.test.ts (5 tests) 16ms
+ ✓ tests/plugin-store-bounds.test.ts (7 tests) 51ms
+ ✓ tests/hosted-base-snapshot.test.ts (13 tests) 569ms
+   ✓ hosted base private snapshot > stops streaming project entries at the shared count limit 513ms
+ ✓ tests/hosted-extension-routing.test.ts (4 tests) 7ms
+ ✓ tests/preflight.test.ts (59 tests) 93ms
+ ✓ tests/babysitter-native-extension.test.ts (40 tests) 463ms
+ ✓ tests/authored-flow.test.ts (34 tests) 742ms
+ ✓ tests/hosted-extension-protocol.test.ts (24 tests) 646ms
+ ✓ tests/hosted-extension-isolation.test.ts (16 tests) 968ms
+
+ Test Files  9 passed (9)
+      Tests  202 passed (202)
+   Start at  14:43:25
+   Duration  2.16s (transform 1.18s, setup 0ms, collect 5.87s, tests 3.55s, environment 1ms, prepare 609ms)

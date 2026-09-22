@@ -207,3 +207,40 @@ it('serializes protocol envelopes without inherited toJSON behavior', async () =
   }
   expect({ poisonCalls, adapterCalls }).toEqual({ poisonCalls: 0, adapterCalls: 1 });
 });
+
+it('rejects frames without consulting an inherited type discriminator', async () => {
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'type');
+  const protocol = new PassThrough();
+  const stdin = new PassThrough();
+  const stderr = new PassThrough();
+  const child = Object.assign(new EventEmitter(), {
+    exitCode: null,
+    signalCode: null,
+    kill: () => true,
+  }) as unknown as ChildProcess;
+  let poisonCalls = 0;
+  let adapterCalls = 0;
+  try {
+    Object.defineProperty(Object.prototype, 'type', {
+      configurable: true,
+      get: () => {
+        const caller = (new Error().stack ?? '').split('\n', 4)[3] ?? '';
+        if (caller.includes('/src/hosted-extension-protocol.')) poisonCalls += 1;
+        return 'capability';
+      },
+    });
+    const run = exchangeHostedExtension(
+      child, protocol, stdin, stderr, 10_000, { type: 'execute' },
+      async () => {
+        adapterCalls += 1;
+        return { receiptId: 'must-not-run', status: 'queued' };
+      },
+    );
+    protocol.write('{}\n');
+    await expect(run).rejects.toMatchObject({ code: 'plugin_unsupported' });
+  } finally {
+    if (previous === undefined) delete (Object.prototype as { type?: unknown }).type;
+    else Object.defineProperty(Object.prototype, 'type', previous);
+  }
+  expect({ poisonCalls, adapterCalls }).toEqual({ poisonCalls: 0, adapterCalls: 0 });
+});
