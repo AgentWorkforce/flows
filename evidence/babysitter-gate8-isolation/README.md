@@ -29,6 +29,13 @@ The enforced boundary is:
   timeouts, adapter rejection, incompatible bytes, route ambiguity, forged
   loader results, an unverified/composed base, and broader permissions.
 
+The parent validations are the security boundary. Child-side handler routing,
+the context proxy, its once-only counter, and `done('success')` are correctness
+checks only: hostile code may bypass all of them by writing descriptor 3. The
+parent therefore enforces the exact delivery, one-call limit, terminal ordering,
+and authoritative adapter outcome independently, including when a child emits
+an error immediately after its request.
+
 Cloud PR #3942 remains responsible for persisted dispatch context, live PR and
 label/head revalidation, authorized existing-session resolution, lineage-based
 deduplication, and Relay native-turn delivery. The broader per-step permission

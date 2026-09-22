@@ -140,10 +140,15 @@ export async function exchangeHostedExtension(
           if (!hasExactKeys(message, ['type', 'message']) || typeof message.message !== 'string') {
             return refuse('Hosted extension emitted a malformed error frame.');
           }
-          finish(capabilityError ?? new PluginError(
+          const error = new PluginError(
             'plugin_unsupported',
             `Hosted extension failed: ${message.message.slice(0, 8192)}`,
-          ));
+          );
+          if (capabilityState === 'pending') {
+            deferredProtocolError ??= error;
+            return;
+          }
+          finish(capabilityError ?? error);
         } else return refuse('Hosted extension emitted an unknown protocol message.');
       }
     });

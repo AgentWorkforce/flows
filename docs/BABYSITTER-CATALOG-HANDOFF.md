@@ -48,6 +48,13 @@ persisted dispatch context, re-read live PR/label/head state, and return only
 `{ receiptId, status: 'queued' | 'duplicate' }`. Refusal or in-doubt transport
 rejects once with no fallback.
 
+Only the parent validator is a security boundary. The isolated entry can write
+its inherited protocol descriptor directly and bypass child-side routing,
+context, call-count, and completion checks. Parent validation therefore treats
+every frame as hostile, permits at most the one exact delivery already bound to
+the branded dispatch, and waits for the adapter's authoritative outcome before
+settling any premature child terminal frame.
+
 Before replacing #549's refusal, the hosted caller must use
 obtain opaque base and installation authorities with
 `loadHostedExtensionBase` and `loadHostedExtensionArtifacts`, then call

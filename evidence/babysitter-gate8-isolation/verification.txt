@@ -19,15 +19,15 @@ $ cd packages/sdk && npm run typecheck && npm run build && npm run typecheck:tes
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
 
- ✓ tests/babysitter-native-extension.test.ts (35 tests) 173ms
- ✓ tests/hosted-extension-isolation.test.ts (12 tests) 648ms
- ✓ tests/preflight.test.ts (59 tests) 82ms
- ✓ tests/authored-flow.test.ts (34 tests) 742ms
+ ✓ tests/babysitter-native-extension.test.ts (35 tests) 179ms
+ ✓ tests/preflight.test.ts (59 tests) 54ms
+ ✓ tests/hosted-extension-isolation.test.ts (19 tests) 1062ms
+ ✓ tests/authored-flow.test.ts (34 tests) 737ms
 
  Test Files  4 passed (4)
-      Tests  140 passed (140)
-   Start at  05:24:48
-   Duration  1.74s (transform 900ms, setup 0ms, collect 2.82s, tests 1.64s, environment 1ms, prepare 204ms)
+      Tests  147 passed (147)
+   Start at  05:40:59
+   Duration  1.65s (transform 882ms, setup 0ms, collect 2.58s, tests 2.03s, environment 1ms, prepare 203ms)
 
 $ cd packages/surface && npm run typecheck && npm run typecheck:regressions && npm test
 
