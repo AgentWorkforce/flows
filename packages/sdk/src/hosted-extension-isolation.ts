@@ -15,6 +15,10 @@ import {
   type HostedExtensionInstallation,
 } from './hosted-extension-runtime.js';
 import { PluginError } from './plugin-manifest.js';
+import {
+  assertHostedPromiseSafety,
+  frozenHostedPromiseValue,
+} from './hosted-promise-safety.js';
 import { readStoredPluginFiles } from './plugin-store.js';
 import {
   boundedJsonSnapshot,
@@ -115,6 +119,7 @@ export type HostedExtensionResult = HostedExtensionProtocolResult;
 export async function runHostedCapabilityExtension(
   options: RunHostedExtensionOptions,
 ): Promise<HostedExtensionResult> {
+  assertHostedPromiseSafety('plugin_unsupported');
   const identity = hostedExtensionDispatchIdentity(options.dispatch);
   await assertHostedRuntimeAuthority(options.installation, options.base);
   const { artifact, manifest } = await selectHostedExtensionForRuntime(
@@ -149,6 +154,7 @@ interface RunVerifiedNativeExtensionOptions {
 export async function runVerifiedNativeExtensionSandbox(
   options: RunVerifiedNativeExtensionOptions,
 ): Promise<HostedExtensionResult> {
+  assertHostedPromiseSafety('plugin_unsupported');
   assertCapabilityOnlyManifest(options.manifest);
   const identity = hostedExtensionDispatchIdentity(options.dispatch);
   assertManifestRoutes(options.manifest, identity);
@@ -190,6 +196,7 @@ export async function selectHostedExtensionForRuntime(
   identity: { readonly provider: string; readonly event: string; readonly action?: string },
   versions: Readonly<{ sdk: string; surface: string }>,
 ): Promise<{ artifact: HostedExtensionArtifact; manifest: FlowExtensionManifest }> {
+  assertHostedPromiseSafety('plugin_source_invalid');
   assertHostedInstallationAuthority(value);
   if (typeof base !== 'object' || base === null || typeof base.name !== 'string'
     || (base.version !== undefined && typeof base.version !== 'string')) {
@@ -215,7 +222,7 @@ export async function selectHostedExtensionForRuntime(
   }
   await assertPinnedBabysitter(selected.artifact);
   assertCapabilityOnlyManifest(selected.manifest);
-  return selected;
+  return frozenHostedPromiseValue(selected);
 }
 
 async function verifiedManifest(artifact: HostedExtensionArtifact): Promise<FlowExtensionManifest> {

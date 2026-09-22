@@ -17,6 +17,11 @@ import {
   statDescriptor,
 } from './fs-descriptor.js';
 import { findHostedProject } from './hosted-project.js';
+import {
+  assertHostedPromiseSafety,
+  frozenHostedPromiseValue,
+  hostedPromiseValue,
+} from './hosted-promise-safety.js';
 import { PluginError } from './plugin-manifest.js';
 
 const EXCLUDED_DIRECTORIES = new Set(['.flows', '.git', 'node_modules']);
@@ -103,6 +108,7 @@ export async function createHostedBaseSnapshot(
   flowPath: string,
   projectRootOverride?: string,
 ): Promise<HostedBaseSnapshot> {
+  assertHostedPromiseSafety('plugin_source_invalid');
   const origin = await REALPATH(PATH_RESOLVE(flowPath));
   const discovered = projectRootOverride ?? findHostedProject(PATH_DIRNAME(origin)) ?? PATH_DIRNAME(origin);
   const projectRoot = await REALPATH(discovered);
@@ -115,7 +121,7 @@ export async function createHostedBaseSnapshot(
   ) {
     throw invalid('Hosted base flow must be a file inside its project root.');
   }
-  const liveSources = OBJECT_FREEZE([OBJECT_FREEZE({ root: projectRoot, prefix: '' })]);
+  const liveSources = frozenHostedPromiseValue([OBJECT_FREEZE({ root: projectRoot, prefix: '' })]);
   const files = await readAuthorityFiles(liveSources);
   const liveDigest = sourceDigest(files);
   const liveFlow = sourceFileAt(files, flowRelative);
@@ -138,7 +144,7 @@ export async function createHostedBaseSnapshot(
     if (snapshotFlow === undefined || snapshotFlow.sha256 !== liveFlow.sha256) {
       throw invalid('Hosted base private snapshot does not contain its buffered flow source.');
     }
-    return OBJECT_FREEZE({
+    return frozenHostedPromiseValue({
       liveSources,
       liveDigest,
       snapshotRoot,
@@ -155,6 +161,7 @@ export async function hostedBaseSourceDigest(
   sources: readonly HostedBaseSourceRoot[],
   hooks: HostedBaseSnapshotTestHooks = EMPTY_HOSTED_BASE_HOOKS,
 ): Promise<string> {
+  assertHostedPromiseSafety('plugin_source_invalid');
   return sourceDigest(await readAuthorityFiles(sources, hooks));
 }
 
@@ -176,7 +183,7 @@ async function readAuthorityFiles(
     }
   }
   ARRAY_SORT(files, (left, right) => STRING_LOCALE_COMPARE(left.path, right.path));
-  return OBJECT_FREEZE(files);
+  return frozenHostedPromiseValue(files);
 }
 
 async function readSnapshotTree(root: string): Promise<readonly SourceFile[]> {
@@ -214,7 +221,7 @@ async function readSnapshotTree(root: string): Promise<readonly SourceFile[]> {
   }
   await visit(root, '');
   ARRAY_SORT(files, (left, right) => STRING_LOCALE_COMPARE(left.path, right.path));
-  return OBJECT_FREEZE(files);
+  return frozenHostedPromiseValue(files);
 }
 
 async function readTree(
@@ -288,7 +295,7 @@ async function readTree(
     if (error instanceof PluginError) throw error;
     throw invalid('Hosted base source or trusted dependency is unreadable.');
   }
-  return OBJECT_FREEZE(files);
+  return frozenHostedPromiseValue(files);
 }
 
 function ownHook(
@@ -315,7 +322,7 @@ async function readBounded(descriptor: number, expectedBytes: number, relativePa
   if ((await readDescriptor(descriptor, extra, 0, 1, expectedBytes)) !== 0) {
     throw invalid(`Hosted base source changed while reading "${relativePath}".`);
   }
-  return bytes;
+  return hostedPromiseValue(bytes);
 }
 
 function tooLarge(): PluginError {

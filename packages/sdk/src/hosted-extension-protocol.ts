@@ -4,6 +4,10 @@ import { Readable, Writable } from 'node:stream';
 import { clearTimeout as nodeClearTimeout, setTimeout as nodeSetTimeout } from 'node:timers';
 import { snapshotJsonValue } from './json-value.js';
 import { PluginError } from './plugin-manifest.js';
+import {
+  assertHostedPromiseSafety,
+  frozenHostedPromiseValue,
+} from './hosted-promise-safety.js';
 
 const HOSTED_WRITE = 'cloud:babysitter-turn';
 const MAX_FRAME_BYTES = 256 * 1024;
@@ -94,6 +98,7 @@ export async function exchangeHostedExtension(
   request: unknown,
   invoke: (request: unknown) => Promise<unknown>,
 ): Promise<HostedExtensionProtocolResult> {
+  assertHostedPromiseSafety('plugin_unsupported');
   const requestSnapshot = boundedJsonSnapshot(request, 'hosted extension request');
   let buffer = '';
   let stderrText = '';
@@ -202,7 +207,7 @@ export async function exchangeHostedExtension(
             || message.completionReason !== 'success' || message.capabilityCalls !== 1) {
             return refuse('Hosted extension reported a completion without exactly one capability call.');
           }
-          finish(undefined, OBJECT_FREEZE({ completionReason: 'success', capabilityCalls: 1 }));
+          finish(undefined, frozenHostedPromiseValue({ completionReason: 'success', capabilityCalls: 1 }));
         } else if (message.type === 'error') {
           if (!hasExactKeys(message, ['type', 'message']) || typeof message.message !== 'string') {
             return refuse('Hosted extension emitted a malformed error frame.');

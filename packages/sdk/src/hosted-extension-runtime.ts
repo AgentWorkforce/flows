@@ -11,6 +11,10 @@ import {
   type HostedBaseSourceRoot,
 } from './hosted-base-snapshot.js';
 import { findHostedProject } from './hosted-project.js';
+import {
+  assertHostedPromiseSafety,
+  frozenHostedPromiseValue,
+} from './hosted-promise-safety.js';
 import { snapshotJsonValue } from './json-value.js';
 import { PluginError } from './plugin-manifest.js';
 import { PLUGIN_LOCK_FILE, PLUGIN_LOCK_VERSION, type PluginLockEntry } from './plugin-lock.js';
@@ -116,6 +120,7 @@ export interface HostedExtensionRuntime {
 
 /** Load one base/installation generation that cannot be paired across redeploys. */
 export async function loadHostedExtensionRuntime(flowPath: string): Promise<HostedExtensionRuntime> {
+  assertHostedPromiseSafety('plugin_source_invalid');
   const origin = await REALPATH(PATH_RESOLVE(flowPath));
   const generation = newGeneration(origin);
   const loaded = await installationAt(origin, generation);
@@ -129,11 +134,12 @@ export async function loadHostedExtensionRuntime(flowPath: string): Promise<Host
   }
   await assertCurrentGeneration(generation);
   OBJECT_FREEZE(generation);
-  return OBJECT_FREEZE({ installation: loaded.installation, base });
+  return frozenHostedPromiseValue({ installation: loaded.installation, base });
 }
 
 /** @internal Metadata-only test seam; public hosted callers use the combined loader. */
 export async function loadHostedExtensionArtifacts(flowPath: string): Promise<HostedExtensionInstallation> {
+  assertHostedPromiseSafety('plugin_source_invalid');
   const origin = await REALPATH(PATH_RESOLVE(flowPath));
   const generation = newGeneration(origin);
   const loaded = await installationAt(origin, generation);
@@ -143,6 +149,7 @@ export async function loadHostedExtensionArtifacts(flowPath: string): Promise<Ho
 
 /** @internal Base-only test seam; public hosted callers use the combined loader. */
 export async function loadHostedExtensionBase(flowPath: string): Promise<HostedExtensionBase> {
+  assertHostedPromiseSafety('plugin_source_invalid');
   const origin = await REALPATH(PATH_RESOLVE(flowPath));
   const generation = newGeneration(origin);
   generation.declarations = declaredExtensions(generation).signature;
@@ -201,10 +208,10 @@ async function installationAt(
 }> {
   const root = generation.projectRoot;
   if (root === undefined)
-    return {
+    return frozenHostedPromiseValue({
       installation: installation([], generation),
       declarations: canonicalize([]),
-    };
+    });
   const artifacts: HostedExtensionArtifact[] = [];
   const declared = hostedDeclaredExtensions(root);
   for (let index = 0; index < declared.length; index += 1) {
@@ -220,10 +227,10 @@ async function installationAt(
       manifestSha256: entry.manifestSha256,
     });
   }
-  return {
+  return frozenHostedPromiseValue({
     installation: installation(artifacts, generation),
     declarations: declarationSignature(declared),
-  };
+  });
 }
 
 function declaredExtensions(generation: RuntimeGeneration): { readonly signature: string } {
@@ -478,7 +485,7 @@ async function baseAt(origin: string, generation: RuntimeGeneration): Promise<Ho
         'Hosted capability isolation accepts only the reviewed Software Factory base source.',
       );
     }
-    const value = OBJECT_FREEZE({
+    const value = frozenHostedPromiseValue({
       name: 'software-factory',
       version: '2.0.22',
     });
@@ -496,7 +503,7 @@ function installation(
 ): HostedExtensionInstallation {
   const artifactCopy: HostedExtensionArtifact[] = [];
   for (let index = 0; index < artifacts.length; index += 1) artifactCopy[index] = artifacts[index]!;
-  const value = OBJECT_FREEZE({ artifacts: OBJECT_FREEZE(artifactCopy) });
+  const value = frozenHostedPromiseValue({ artifacts: frozenHostedPromiseValue(artifactCopy) });
   WEAK_SET_ADD(INSTALLATION_AUTHORITY, value);
   WEAK_MAP_SET(INSTALLATION_GENERATION, value, generation);
   return value;

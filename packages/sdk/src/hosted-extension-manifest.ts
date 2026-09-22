@@ -6,6 +6,7 @@ import type {
   FlowExtensionTrigger,
 } from './flow-extension-manifest.js';
 import { snapshotJsonValue } from './json-value.js';
+import { frozenHostedPromiseValue } from './hosted-promise-safety.js';
 import { PluginError } from './plugin-manifest.js';
 
 const ARRAY_IS_ARRAY = Array.isArray;
@@ -95,7 +96,7 @@ export function validateHostedFlowExtensionManifest(input: unknown): FlowExtensi
   output.triggers = triggerShapes(value.triggers ?? []);
   output.permissions = permissionsShape(value.permissions);
   output.preflight = preflight;
-  return OBJECT_FREEZE(output) as unknown as FlowExtensionManifest;
+  return frozenHostedPromiseValue(output) as unknown as FlowExtensionManifest;
 }
 
 function extensionShape(value: unknown): FlowExtensionManifest['extends'] {

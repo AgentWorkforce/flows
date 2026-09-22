@@ -7,6 +7,7 @@ import { Writable, type Readable } from 'node:stream';
 import { payloadManifest, sha256 } from './bundle.js';
 import { descriptorIsFile } from './fs-descriptor.js';
 import { PluginError } from './plugin-manifest.js';
+import { assertHostedPromiseSafety } from './hosted-promise-safety.js';
 import { HOSTED_EXTENSION_SANDBOX_SOURCE } from './hosted-extension-sandbox-source.js';
 import {
   exchangeHostedExtension,
@@ -105,6 +106,7 @@ export interface RunHostedExtensionSandboxOptions {
 export async function runHostedExtensionSandbox(
   options: RunHostedExtensionSandboxOptions,
 ): Promise<HostedExtensionProtocolResult> {
+  assertHostedPromiseSafety('plugin_unsupported');
   if (PROCESS_PLATFORM !== 'linux') return unsupported('hosted extension isolation requires Linux');
   const nodeOverride = ownOption<string>(options, 'nodePath');
   if (nodeOverride === undefined && !supportsHostedSandboxFlags(PROCESS_NODE_VERSION)) {

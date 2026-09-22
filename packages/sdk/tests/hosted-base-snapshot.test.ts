@@ -28,6 +28,38 @@ function fixture() {
 }
 
 describe('hosted base private snapshot', () => {
+  it('shadows inherited thenables on completed snapshot authority', async () => {
+    const { flowPath } = fixture();
+    const snapshot = await createHostedBaseSnapshot(flowPath);
+    try {
+      expect(Object.getOwnPropertyDescriptor(snapshot, 'then')).toMatchObject({ value: undefined });
+      expect(Object.getOwnPropertyDescriptor(snapshot.liveSources, 'then')).toMatchObject({ value: undefined });
+    } finally {
+      await removeHostedBaseSnapshot(snapshot);
+    }
+  });
+
+  it('refuses an inherited then hook before starting the snapshot boundary', async () => {
+    const { flowPath } = fixture();
+    const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'then');
+    const hasOwn = Object.hasOwn;
+    let poisonCalls = 0;
+    try {
+      Object.defineProperty(Object.prototype, 'then', {
+        configurable: true,
+        get(this: object) {
+          if (hasOwn(this, 'snapshotFlowSha256')) poisonCalls += 1;
+          return undefined;
+        },
+      });
+      await expect(createHostedBaseSnapshot(flowPath)).rejects.toMatchObject({ code: 'plugin_source_invalid' });
+    } finally {
+      if (previous === undefined) delete (Object.prototype as { then?: unknown }).then;
+      else Object.defineProperty(Object.prototype, 'then', previous);
+    }
+    expect(poisonCalls).toBe(0);
+  });
+
   it('keeps the buffered base bytes when the live source changes', async () => {
     const { flowPath, source } = fixture();
     const snapshot = await createHostedBaseSnapshot(flowPath);
