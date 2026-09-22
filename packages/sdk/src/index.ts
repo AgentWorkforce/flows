@@ -60,11 +60,11 @@ export { SPEC_SCHEMA_VERSION } from './spec.js';
 
 export {
   runHostedCapabilityExtension,
-  loadHostedExtensionArtifacts,
-  loadHostedExtensionBase,
+  loadHostedExtensionRuntime,
   type HostedExtensionArtifact,
   type HostedExtensionInstallation,
   type HostedExtensionBase,
+  type HostedExtensionRuntime,
   type HostedCapabilityAuthority,
   type HostedBabysitterCapability,
   type RunHostedExtensionOptions,

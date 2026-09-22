@@ -391,10 +391,11 @@ fail closed. This release also refuses a matching handler with
 ordinary JavaScript and their manifest permissions are not yet isolated by the
 runtime (gate 8 / #442). The SDK now contains a Linux-only, capability-only
 isolation primitive for the native Babysitter profile. Hosted callers must load
-the base with `loadHostedExtensionBase` (which internally sets
-`extensions: 'none'`), resolve extension bytes with
-`loadHostedExtensionArtifacts` (which does not import them), then pass both
-opaque loader results to `runHostedCapabilityExtension`. The runner verifies
+the base and complete installation together with
+`loadHostedExtensionRuntime` (which internally sets `extensions: 'none'` and
+does not import extension JavaScript), then pass its two opaque,
+same-generation results to `runHostedCapabilityExtension`. Every dispatch
+rechecks that generation before the runner verifies
 the complete lock-backed set, actual base compatibility, route uniqueness, and
 the exact reviewed Babysitter ref/digest/manifest before the artifact is imported inside a
 bubblewrap mount/PID/network/user namespace with an empty credential

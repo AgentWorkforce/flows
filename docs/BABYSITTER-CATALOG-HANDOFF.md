@@ -31,11 +31,11 @@ commit pinned below.
 
 The sandbox contract is deliberately narrower than #442. It re-verifies the
 complete lock-backed installation and every manifest, binds it to the actual
-base returned by `loadHostedExtensionBase` (which internally calls
-`loadAuthoredFlow(..., { extensions: 'none' })`), detects
+base returned in the same `loadHostedExtensionRuntime` generation (which
+internally calls `loadAuthoredFlow(..., { extensions: 'none' })`), detects
 cross-extension route ambiguity, accepts only the exact published Babysitter
-ref/digest/manifest and native permission profile,
-permission profile, imports the entry only inside Linux bubblewrap plus Node's
+ref/digest/manifest and native permission profile, imports the entry only
+inside Linux bubblewrap plus Node's
 permission model, mounts a minimal trusted Surface facade (`flow`, `github`,
 and `getFlowDefinition`) instead of the general helper runtime, checks
 normalized input against non-serializable verified dispatch authority, and
@@ -56,13 +56,13 @@ the branded dispatch, and waits for the adapter's authoritative outcome before
 settling any premature child terminal frame. An authoritative adapter rejection
 settles immediately with its original typed error even if the child hangs.
 
-Before replacing #549's refusal, the hosted caller must obtain opaque base and
-installation authorities for the same canonical flow path with
-`loadHostedExtensionBase` and `loadHostedExtensionArtifacts`, then call
-`runHostedCapabilityExtension` with both values;
+Before replacing #549's refusal, the hosted caller must obtain an opaque base
+and installation as one generation with `loadHostedExtensionRuntime`, then call
+`runHostedCapabilityExtension` with both values. Every dispatch rechecks the
+current extension declarations and imported base graph against that generation;
 using the ordinary compose loader would import extension top-level JavaScript
-in the host before the sandbox exists. Cross-project pairing and structural
-lookalikes fail before import. The selected store bytes are copied into a
+in the host before the sandbox exists. Cross-project, cross-redeploy, stale,
+and structural pairings fail before import. The selected store bytes are copied into a
 private snapshot whose digest is recomputed before bubblewrap mounts it, so a
 later live-store replacement cannot alter imported code. Independent review
 must prove this path at the exact release head. Broader per-agent-step

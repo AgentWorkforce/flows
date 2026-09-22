@@ -60,6 +60,8 @@ export interface LoadAuthoredFlowOptions {
   /** `compose` (default) verifies and appends the project's flow extensions; `none` loads the root alone. */
   readonly extensions?: 'compose' | 'none';
   readonly versions?: RuntimeVersions;
+  /** Internal cache-buster for a loader generation that must re-import source. */
+  readonly importNonce?: string;
 }
 
 export interface LoadedAuthoredFlowNode {
@@ -118,7 +120,10 @@ export async function loadAuthoredFlow(path: string, options: LoadAuthoredFlowOp
     if (cached !== undefined) return cached;
     visiting.add(absolutePath);
     try {
-      const { handle, getDefinition, surfaceAuthority } = await importAuthoredFlow(absolutePath);
+      const { handle, getDefinition, surfaceAuthority } = await importAuthoredFlow(
+        absolutePath,
+        options.importNonce,
+      );
       const dependencies: string[] = [];
       for (const entry of getDefinition(handle).header.use ?? []) {
         // Validate again at the SDK boundary: the author's surface package may
@@ -156,7 +161,7 @@ export async function loadAuthoredFlow(path: string, options: LoadAuthoredFlowOp
   // handle keeps the surface copy's own answer.
   const baseDefinition = root.getDefinition(root.handle);
   const extensions = await loadFlowExtensions(root.path, { definition: baseDefinition, surfaceAuthority: root.surfaceAuthority }, {
-    importFlow: importAuthoredFlow,
+    importFlow: path => importAuthoredFlow(path, options.importNonce),
     sameAuthority: (a, b) => canonicalize(a) === canonicalize(b),
     ...(options.versions === undefined ? {} : { versions: options.versions }),
   });
@@ -177,7 +182,10 @@ export async function loadAuthoredFlow(path: string, options: LoadAuthoredFlowOp
     surfaceAuthority: root.surfaceAuthority, graph: Object.freeze(graph), extensions });
 }
 
-async function importAuthoredFlow(path: string): Promise<ImportedFlow<SurfaceModuleAuthority>> {
+async function importAuthoredFlow(
+  path: string,
+  importNonce?: string,
+): Promise<ImportedFlow<SurfaceModuleAuthority>> {
   const absolutePath = resolve(path);
   try {
     accessSync(absolutePath, constants.R_OK);
@@ -187,7 +195,9 @@ async function importAuthoredFlow(path: string): Promise<ImportedFlow<SurfaceMod
 
   let authoredModule: Record<string, unknown>;
   try {
-    authoredModule = await import(/* @vite-ignore */ pathToFileURL(absolutePath).href) as Record<string, unknown>;
+    const moduleUrl = pathToFileURL(absolutePath);
+    if (importNonce !== undefined) moduleUrl.searchParams.set('relayflows_load', importNonce);
+    authoredModule = await import(/* @vite-ignore */ moduleUrl.href) as Record<string, unknown>;
   } catch (error) {
     throw new AuthoredFlowLoadError(
       `Flow "${path}" could not be imported: ${errorMessage(error)}`,

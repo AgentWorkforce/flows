@@ -1,35 +1,44 @@
 import { createHash } from 'node:crypto';
-import { readFile, realpath } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { canonicalize } from './canonical.js';
-import {
-  hostedExtensionBaseFromLoadedFlow,
-  loadAuthoredFlow,
-} from './authored-flow-loader.js';
 import { validateFlowExtensionManifest, type FlowExtensionManifest } from './flow-extension-manifest.js';
 import { assertBaseCompatible, assertCompatible, runtimeVersions } from './flow-extension-compat.js';
 import {
   hostedExtensionDispatchIdentity,
   type HostedExtensionDispatch,
 } from './flow-extension-loader.js';
+import {
+  assertHostedInstallationAuthority,
+  assertHostedRuntimeAuthority,
+  type HostedExtensionArtifact,
+  type HostedExtensionBase,
+  type HostedExtensionInstallation,
+} from './hosted-extension-runtime.js';
 import { PluginError } from './plugin-manifest.js';
-import { findPluginProject } from './plugin-loader.js';
-import { reconcileDeclaredExtensions } from './plugin-lock.js';
-import { pluginStoreDirectory, verifyStoredPlugin } from './plugin-store.js';
+import { verifyStoredPlugin } from './plugin-store.js';
 import {
   boundedJsonSnapshot,
   type HostedExtensionProtocolResult,
 } from './hosted-extension-protocol.js';
 import { runHostedExtensionSandbox } from './hosted-extension-sandbox.js';
 
+export {
+  loadHostedExtensionArtifacts,
+  loadHostedExtensionBase,
+  loadHostedExtensionRuntime,
+} from './hosted-extension-runtime.js';
+export type {
+  HostedExtensionArtifact,
+  HostedExtensionBase,
+  HostedExtensionInstallation,
+  HostedExtensionRuntime,
+} from './hosted-extension-runtime.js';
+
 const HOSTED_WRITE = 'cloud:babysitter-turn';
 const BABYSITTER_REF = 'github:AgentWorkforce/flows@d3ee3b55ae636518dd4ad562aca5bae9c99f1a05#extensions/babysitter';
 const BABYSITTER_DIGEST = 'bdf2187b9a242667d34bbc63e7a744753e146dc8cd6f4047047f2aed28f406ee';
 const BABYSITTER_MANIFEST_SHA256 = '5631a06bbdc8186f4ee0ff955610ead24d001c5197b59fb1fe81fe422c44f226';
-const HOSTED_INSTALLATION_AUTHORITY = new WeakSet<object>();
-const HOSTED_BASE_AUTHORITY = new WeakSet<object>();
-const HOSTED_INSTALLATION_ORIGIN = new WeakMap<object, string>();
-const HOSTED_BASE_ORIGIN = new WeakMap<object, string>();
 const DELIVERY_ID = /^[A-Za-z0-9_.:-]{1,200}$/;
 const RECEIPT_ID = /^[A-Za-z0-9_.:-]{1,200}$/;
 const OWNER = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
@@ -41,24 +50,6 @@ const NATIVE_TRIGGERS = [
   { provider: 'github', event: 'check_run', actions: ['completed'] },
   { provider: 'github', event: 'issue_comment', actions: ['created'] },
 ];
-
-export interface HostedExtensionArtifact {
-  readonly ref: string;
-  readonly name: string;
-  readonly version: string;
-  readonly directory: string;
-  readonly digest: string;
-  readonly manifestSha256: string;
-}
-
-export interface HostedExtensionInstallation {
-  readonly artifacts: readonly HostedExtensionArtifact[];
-}
-
-export interface HostedExtensionBase {
-  readonly name: string;
-  readonly version?: string;
-}
 
 export interface HostedCapabilityAuthority {
   readonly dispatch: HostedExtensionDispatch;
@@ -75,9 +66,9 @@ export interface HostedBabysitterCapability {
 }
 
 export interface RunHostedExtensionOptions {
-  /** Complete, lock-ordered set returned by loadHostedExtensionArtifacts. */
+  /** Complete, lock-ordered set returned by loadHostedExtensionRuntime. */
   readonly installation: HostedExtensionInstallation;
-  /** Identity read from the base loaded with extensions disabled. */
+  /** Same-generation base returned by loadHostedExtensionRuntime. */
   readonly base: HostedExtensionBase;
   readonly dispatch: HostedExtensionDispatch;
   /** Host-normalized delivery descriptor. Its event identity must equal dispatch. */
@@ -91,58 +82,6 @@ export interface RunHostedExtensionOptions {
 }
 
 export type HostedExtensionResult = HostedExtensionProtocolResult;
-
-/**
- * Resolve installed extension artifacts without importing their JavaScript.
- * Hosted callers pair this with `loadAuthoredFlow(..., { extensions: 'none' })`;
- * using the ordinary compose loader would execute extension top-level code in
- * the host before the sandbox exists.
- */
-export async function loadHostedExtensionArtifacts(
-  flowPath: string,
-): Promise<HostedExtensionInstallation> {
-  const origin = await realpath(resolve(flowPath));
-  const root = findPluginProject(dirname(origin));
-  if (root === undefined) return installation([], origin);
-  const artifacts: HostedExtensionArtifact[] = [];
-  for (const { ref, entry } of reconcileDeclaredExtensions(root)) {
-    const directory = pluginStoreDirectory(root, entry.name, entry.digest);
-    await verifyStoredPlugin(directory, entry.digest);
-    artifacts.push(Object.freeze({
-      ref,
-      name: entry.name,
-      version: entry.version,
-      directory,
-      digest: entry.digest,
-      manifestSha256: entry.manifestSha256,
-    }));
-  }
-  return installation(artifacts, origin);
-}
-
-/** Load and brand the actual base with extension importing explicitly disabled. */
-export async function loadHostedExtensionBase(flowPath: string): Promise<HostedExtensionBase> {
-  const origin = await realpath(resolve(flowPath));
-  const loaded = await loadAuthoredFlow(origin, { extensions: 'none' });
-  const identity = hostedExtensionBaseFromLoadedFlow(loaded);
-  const value = Object.freeze({
-    name: identity.name,
-    ...(identity.version === undefined ? {} : { version: identity.version }),
-  });
-  HOSTED_BASE_AUTHORITY.add(value);
-  HOSTED_BASE_ORIGIN.set(value, origin);
-  return value;
-}
-
-function installation(
-  artifacts: readonly HostedExtensionArtifact[],
-  origin: string,
-): HostedExtensionInstallation {
-  const value = Object.freeze({ artifacts: Object.freeze([...artifacts]) });
-  HOSTED_INSTALLATION_AUTHORITY.add(value);
-  HOSTED_INSTALLATION_ORIGIN.set(value, origin);
-  return value;
-}
 
 /**
  * Execute a capability-only hosted extension in a Linux mount/PID/network/user
@@ -159,26 +98,7 @@ export async function runHostedCapabilityExtension(
   options: RunHostedExtensionOptions,
 ): Promise<HostedExtensionResult> {
   const identity = hostedExtensionDispatchIdentity(options.dispatch);
-  if (typeof options.base !== 'object' || options.base === null
-    || !HOSTED_BASE_AUTHORITY.has(options.base)) {
-    throw new PluginError(
-      'plugin_incompatible',
-      'Hosted extension base authority is malformed; use loadHostedExtensionBase.',
-    );
-  }
-  if (typeof options.installation !== 'object' || options.installation === null
-    || !HOSTED_INSTALLATION_AUTHORITY.has(options.installation)) {
-    throw new PluginError(
-      'plugin_source_invalid',
-      'Hosted extension installation authority is malformed; use loadHostedExtensionArtifacts.',
-    );
-  }
-  if (HOSTED_BASE_ORIGIN.get(options.base) !== HOSTED_INSTALLATION_ORIGIN.get(options.installation)) {
-    throw new PluginError(
-      'plugin_source_invalid',
-      'Hosted extension base and installation must originate from the same flow.',
-    );
-  }
+  await assertHostedRuntimeAuthority(options.installation, options.base);
   const { artifact, manifest } = await selectHostedExtensionForRuntime(
     options.installation,
     options.base,
@@ -241,10 +161,7 @@ export async function selectHostedExtensionForRuntime(
   identity: { readonly provider: string; readonly event: string; readonly action?: string },
   versions: Readonly<{ sdk: string; surface: string }>,
 ): Promise<{ artifact: HostedExtensionArtifact; manifest: FlowExtensionManifest }> {
-  if (typeof value !== 'object' || value === null
-    || !HOSTED_INSTALLATION_AUTHORITY.has(value) || !Array.isArray(value.artifacts)) {
-    throw new PluginError('plugin_source_invalid', 'Hosted extension installation authority is malformed.');
-  }
+  assertHostedInstallationAuthority(value);
   if (typeof base !== 'object' || base === null || typeof base.name !== 'string'
     || (base.version !== undefined && typeof base.version !== 'string')) {
     throw new PluginError('plugin_incompatible', 'Hosted base identity is malformed.');
@@ -448,6 +365,6 @@ function optionalRecord(
   return object;
 }
 
-function sha256(value: Uint8Array): string {
+function sha256(value: Uint8Array | string): string {
   return createHash('sha256').update(value).digest('hex');
 }

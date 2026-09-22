@@ -11,7 +11,7 @@ import { hostedExtensionDispatchFromVerifiedDelivery } from '../src/flow-extensi
 import { resolveExtensionSubmission } from '../src/flow-extension-submit.js';
 import {
   loadHostedExtensionArtifacts,
-  loadHostedExtensionBase,
+  loadHostedExtensionRuntime,
   runHostedCapabilityExtension,
   selectHostedExtensionForRuntime,
 } from '../src/hosted-extension-isolation.js';
@@ -59,12 +59,12 @@ async function composed() {
   const flowPath = join(cwd, 'software-factory.flow.ts');
   const baseLoaded = await loadAuthoredFlow(flowPath, { extensions: 'none', versions });
   const baseDefinition = baseLoaded.getDefinition(baseLoaded.handle);
-  const hostedBase = await loadHostedExtensionBase(flowPath);
+  const hostedRuntime = await loadHostedExtensionRuntime(flowPath);
   return {
     cwd,
     flowPath,
     loaded,
-    hostedBase,
+    hostedRuntime,
     extension: loaded.extensions[0]!,
     base: { name: baseDefinition.name, version: baseDefinition.header.version },
   };
@@ -126,7 +126,7 @@ describe('native Babysitter extension', () => {
 
   it.skipIf(process.platform !== 'linux' || !existsSync('/usr/bin/bwrap'))(
     'runs the exact published 2.0.26 native bytes in the isolated capability path', async () => {
-    const installation = await loadHostedExtensionArtifacts(installed.flowPath);
+    const { installation, base } = installed.hostedRuntime;
     expect(installation.artifacts).toHaveLength(1);
     expect(installation.artifacts[0]).toMatchObject({ ref: REF, digest: DIGEST, manifestSha256: MANIFEST_SHA256 });
     const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
@@ -135,7 +135,7 @@ describe('native Babysitter extension', () => {
     const calls: unknown[] = [];
     await expect(runHostedCapabilityExtension({
       installation,
-      base: installed.hostedBase,
+      base,
       dispatch,
       input: descriptor('pull_request.labeled'),
       babysitterTurn: { queue: async (request, authority) => {
@@ -154,7 +154,7 @@ describe('native Babysitter extension', () => {
   });
 
   it('refuses the real bytes on 2.0.25 before execution and admits them on 2.0.26', async () => {
-    const installation = await loadHostedExtensionArtifacts(installed.flowPath);
+    const installation = installed.hostedRuntime.installation;
     await expect(selectHostedExtensionForRuntime(
       installation, installed.base,
       { provider: 'github', event: 'pull_request', action: 'labeled' },
@@ -199,7 +199,7 @@ describe('native Babysitter extension', () => {
 
     await expect(runHostedCapabilityExtension({
       installation: { artifacts: installation.artifacts } as never,
-      base: installed.hostedBase,
+      base: installed.hostedRuntime.base,
       dispatch,
       input: descriptor('pull_request.labeled'),
       babysitterTurn: { queue: async () => {
@@ -212,7 +212,7 @@ describe('native Babysitter extension', () => {
     const otherProject = await composed();
     await expect(runHostedCapabilityExtension({
       installation,
-      base: otherProject.hostedBase,
+      base: otherProject.hostedRuntime.base,
       dispatch,
       input: descriptor('pull_request.labeled'),
       babysitterTurn: { queue: async () => {
@@ -220,6 +220,55 @@ describe('native Babysitter extension', () => {
         return { receiptId: 'never', status: 'queued' };
       } },
     })).rejects.toMatchObject({ code: 'plugin_source_invalid' });
+    expect(calls).toBe(0);
+  });
+
+  it('refuses stale installation authority after the same flow path is redeployed', async () => {
+    const configPath = join(installed.cwd, 'flows.json');
+    const lockPath = join(installed.cwd, 'flows.lock.json');
+    const originalConfig = readFileSync(configPath, 'utf8');
+    const originalLock = readFileSync(lockPath, 'utf8');
+    const originalFlow = readFileSync(installed.flowPath, 'utf8');
+    const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
+      provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'gh-delivery-7',
+    });
+    let calls = 0;
+    const capability = { queue: async () => {
+      calls += 1;
+      return { receiptId: 'never', status: 'queued' };
+    } };
+    try {
+      const config = JSON.parse(originalConfig) as { plugins?: string[] };
+      config.plugins = [];
+      const lock = JSON.parse(originalLock) as { version: 2; plugins: unknown[] };
+      lock.plugins = [];
+      writeFileSync(configPath, JSON.stringify(config));
+      writeFileSync(lockPath, JSON.stringify(lock));
+      writeFileSync(installed.flowPath, `
+        import { flow } from '@relayflows/surface';
+        export default flow('software-factory-redeployed', async f => f.done('success'));
+      `);
+      const redeployed = await loadHostedExtensionRuntime(installed.flowPath);
+      expect(redeployed.base.name).toBe('software-factory-redeployed');
+      await expect(runHostedCapabilityExtension({
+        installation: installed.hostedRuntime.installation,
+        base: redeployed.base,
+        dispatch,
+        input: descriptor('pull_request.labeled'),
+        babysitterTurn: capability,
+      })).rejects.toMatchObject({ code: 'plugin_source_invalid' });
+      await expect(runHostedCapabilityExtension({
+        installation: installed.hostedRuntime.installation,
+        base: installed.hostedRuntime.base,
+        dispatch,
+        input: descriptor('pull_request.labeled'),
+        babysitterTurn: capability,
+      })).rejects.toMatchObject({ code: 'plugin_source_invalid' });
+    } finally {
+      writeFileSync(configPath, originalConfig);
+      writeFileSync(lockPath, originalLock);
+      writeFileSync(installed.flowPath, originalFlow);
+    }
     expect(calls).toBe(0);
   });
 

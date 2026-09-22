@@ -6,7 +6,7 @@ $ /usr/bin/bwrap --version && node --version && git diff --check
 bubblewrap 0.12.0
 v26.8.1
 
-$ cd packages/sdk && npm run typecheck && npm run build && npm run typecheck:tests && ./node_modules/.bin/vitest run tests/hosted-extension-isolation.test.ts tests/babysitter-native-extension.test.ts tests/authored-flow.test.ts tests/preflight.test.ts
+$ cd packages/sdk && npm run typecheck && npm run build && npm run typecheck:tests && ./node_modules/.bin/vitest run tests/hosted-extension-isolation.test.ts tests/hosted-extension-protocol.test.ts tests/babysitter-native-extension.test.ts tests/authored-flow.test.ts tests/preflight.test.ts
 
 > @relayflows/sdk@2.0.26 typecheck
 > tsc --noEmit && tsc -p tsconfig.type-tests.json
@@ -19,15 +19,16 @@ $ cd packages/sdk && npm run typecheck && npm run build && npm run typecheck:tes
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
 
- ✓ tests/preflight.test.ts (59 tests) 54ms
- ✓ tests/babysitter-native-extension.test.ts (35 tests) 246ms
- ✓ tests/authored-flow.test.ts (34 tests) 728ms
- ✓ tests/hosted-extension-isolation.test.ts (21 tests) 1120ms
+ ✓ tests/preflight.test.ts (59 tests) 82ms
+ ✓ tests/babysitter-native-extension.test.ts (36 tests) 271ms
+ ✓ tests/authored-flow.test.ts (34 tests) 753ms
+ ✓ tests/hosted-extension-protocol.test.ts (10 tests) 611ms
+ ✓ tests/hosted-extension-isolation.test.ts (12 tests) 634ms
 
- Test Files  4 passed (4)
-      Tests  149 passed (149)
-   Start at  06:06:51
-   Duration  2.15s (transform 808ms, setup 0ms, collect 3.01s, tests 2.15s, environment 1ms, prepare 214ms)
+ Test Files  5 passed (5)
+      Tests  151 passed (151)
+   Start at  06:29:13
+   Duration  1.70s (transform 995ms, setup 0ms, collect 3.95s, tests 2.35s, environment 1ms, prepare 242ms)
 
 $ cd packages/surface && npm run typecheck && npm run typecheck:regressions && npm test
 
