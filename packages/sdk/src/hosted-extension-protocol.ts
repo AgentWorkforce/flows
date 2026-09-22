@@ -13,6 +13,7 @@ const JSON_STRINGIFY = JSON.stringify;
 const OBJECT_HAS_OWN = Object.hasOwn;
 const OBJECT_KEYS = Object.keys;
 const OBJECT_FREEZE = Object.freeze;
+const PROMISE = Promise;
 const PROMISE_THEN = Function.prototype.call.bind(Promise.prototype.then) as (
   promise: Promise<unknown>,
   fulfilled: (value: unknown) => void,
@@ -74,7 +75,7 @@ export async function exchangeHostedExtension(
   });
   protocol.setEncoding('utf8');
 
-  return await new Promise<HostedExtensionProtocolResult>((resolvePromise, rejectPromise) => {
+  return await new PROMISE<HostedExtensionProtocolResult>((resolvePromise, rejectPromise) => {
     let settled = false;
     let capabilityState: 'none' | 'pending' | 'completed' | 'failed' = 'none';
     let capabilityError: Error | undefined;

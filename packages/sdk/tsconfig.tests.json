@@ -30,6 +30,7 @@
     "tests/hosted-extension-routing.test.ts",
     "tests/hosted-base-snapshot.test.ts",
     "tests/plugin-store-bounds.test.ts",
+    "tests/hosted-extension-protocol-intrinsics.test.ts",
     "tests/hosted-extension-protocol.test.ts",
     "tests/flow-executor-chain.test.ts",
     "tests/input-binding.test.ts",
