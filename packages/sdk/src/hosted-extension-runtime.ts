@@ -1,6 +1,7 @@
 import { constants, closeSync, existsSync, fstatSync, openSync, readSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
+import { safePath } from './bundle.js';
 import { canonicalize } from './canonical.js';
 import { descriptorIsFile } from './fs-descriptor.js';
 import {
@@ -10,9 +11,10 @@ import {
   type HostedBaseSourceRoot,
 } from './hosted-base-snapshot.js';
 import { findHostedProject } from './hosted-project.js';
+import { snapshotJsonValue } from './json-value.js';
 import { PluginError } from './plugin-manifest.js';
-import { PLUGIN_LOCK_FILE, PLUGIN_LOCK_VERSION, parsePluginLock, type PluginLockEntry } from './plugin-lock.js';
-import { canonicalPluginRef, isGithubPluginRef, type PluginSourceRef } from './plugin-source.js';
+import { PLUGIN_LOCK_FILE, PLUGIN_LOCK_VERSION, type PluginLockEntry } from './plugin-lock.js';
+import { canonicalPluginRef, type PluginSourceRef } from './plugin-source.js';
 import { pluginStoreDirectory, verifyStoredPlugin } from './plugin-store.js';
 
 const INSTALLATION_AUTHORITY = new WeakSet<object>();
@@ -39,8 +41,22 @@ const NUMBER = Number;
 const DECLARATION_READ_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0);
 const JSON_PARSE = JSON.parse;
 const ARRAY_IS_ARRAY = Array.isArray;
+const DATE_PARSE = Date.parse;
+const NUMBER_IS_NAN = Number.isNaN;
 const OBJECT_FREEZE = Object.freeze;
 const OBJECT_HAS_OWN = Object.hasOwn;
+const OBJECT_KEYS = Object.keys;
+const REGEXP_TEST = Function.prototype.call.bind(RegExp.prototype.test) as (
+  regexp: RegExp,
+  value: string,
+) => boolean;
+const SET = Set;
+const SET_ADD = Function.prototype.call.bind(Set.prototype.add) as <T>(set: Set<T>, value: T) => Set<T>;
+const SET_HAS = Function.prototype.call.bind(Set.prototype.has) as <T>(set: Set<T>, value: T) => boolean;
+const STRING_STARTS_WITH = Function.prototype.call.bind(String.prototype.startsWith) as (
+  value: string,
+  search: string,
+) => boolean;
 const WEAK_MAP_GET = Function.prototype.call.bind(WeakMap.prototype.get) as <K extends object, V>(
   map: WeakMap<K, V>,
   key: K,
@@ -58,6 +74,11 @@ const WEAK_SET_HAS = Function.prototype.call.bind(WeakSet.prototype.has) as <T e
   set: WeakSet<T>,
   value: T,
 ) => boolean;
+const LOCK_HEX64 = /^[0-9a-f]{64}$/;
+const LOCK_SHA = /^[0-9a-f]{40}$/;
+const LOCK_OWNER = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
+const LOCK_REPO = /^[A-Za-z0-9_.-]{1,100}$/;
+const HTTPS_GITHUB = /^https:\/\/github\.com\//;
 
 interface RuntimeGeneration {
   readonly origin: string;
@@ -262,10 +283,10 @@ function hostedDeclaredExtensions(
       if (typeof ref !== 'string') {
         throw new PluginError('plugin_manifest_invalid', 'flows.json plugins must be strings.');
       }
-      if (isGithubPluginRef(ref)) declared[declared.length] = ref;
+      if (isHostedGithubPluginRef(ref)) declared[declared.length] = ref;
     }
   }
-  let lock: ReturnType<typeof parsePluginLock> = OBJECT_FREEZE({
+  let lock: { readonly version: 2; readonly plugins: readonly PluginLockEntry[] } = OBJECT_FREEZE({
     version: PLUGIN_LOCK_VERSION,
     plugins: OBJECT_FREEZE([]),
   });
@@ -278,7 +299,7 @@ function hostedDeclaredExtensions(
       if (error instanceof PluginError) throw error;
       throw new PluginError('plugin_lock_invalid', `${PLUGIN_LOCK_FILE}: not valid or exceeds the hosted size limit.`);
     }
-    lock = parsePluginLock(value);
+    lock = parseHostedPluginLock(value);
   }
   if (declared.length !== lock.plugins.length) {
     throw new PluginError('plugin_lock_invalid', 'Hosted flows.json and flows.lock.json declarations differ.');
@@ -298,6 +319,89 @@ function hostedDeclaredExtensions(
     result[result.length] = OBJECT_FREEZE({ ref, entry, source });
   }
   return OBJECT_FREEZE(result);
+}
+
+function parseHostedPluginLock(input: unknown): {
+  readonly version: 2;
+  readonly plugins: readonly PluginLockEntry[];
+} {
+  let value: unknown;
+  try {
+    value = snapshotJsonValue(input, 'hosted plugin lock');
+  } catch {
+    return invalidHostedLock(`expected { version: ${PLUGIN_LOCK_VERSION}, plugins: [] }.`);
+  }
+  if (!hostedRecord(value) || value.version !== PLUGIN_LOCK_VERSION || !ARRAY_IS_ARRAY(value.plugins)
+    || !hostedHasOnlyKeys(value, ['version', 'plugins'])) {
+    return invalidHostedLock(`expected { version: ${PLUGIN_LOCK_VERSION}, plugins: [] }.`);
+  }
+  const names = new SET<string>();
+  const plugins: PluginLockEntry[] = [];
+  for (let index = 0; index < value.plugins.length; index += 1) {
+    const entry = value.plugins[index];
+    if (!hostedRecord(entry)
+      || !hostedHasOnlyKeys(entry, ['digest', 'kind', 'manifestSha256', 'name', 'order', 'resolvedAt', 'source', 'version'])
+      || entry.kind !== 'flow-extension' || typeof entry.name !== 'string' || typeof entry.version !== 'string'
+      || typeof entry.digest !== 'string' || !REGEXP_TEST(LOCK_HEX64, entry.digest)
+      || typeof entry.manifestSha256 !== 'string' || !REGEXP_TEST(LOCK_HEX64, entry.manifestSha256)
+      || entry.order !== index + 1 || typeof entry.resolvedAt !== 'string'
+      || NUMBER_IS_NAN(DATE_PARSE(entry.resolvedAt)) || !hostedRecord(entry.source)
+      || !hostedHasOnlyKeys(entry.source, ['host', 'owner', 'repo', 'sha', 'path'])
+      || entry.source.host !== 'github' || typeof entry.source.owner !== 'string'
+      || !REGEXP_TEST(LOCK_OWNER, entry.source.owner) || typeof entry.source.repo !== 'string'
+      || !REGEXP_TEST(LOCK_REPO, entry.source.repo) || entry.source.repo === '.' || entry.source.repo === '..'
+      || typeof entry.source.sha !== 'string' || !REGEXP_TEST(LOCK_SHA, entry.source.sha)
+      || typeof entry.source.path !== 'string'
+      || (entry.source.path !== '' && !safePath(entry.source.path))) {
+      return invalidHostedLock(`plugins[${index}] is malformed.`);
+    }
+    if (SET_HAS(names, entry.name)) return invalidHostedLock(`plugin ${entry.name} is listed twice.`);
+    SET_ADD(names, entry.name);
+    plugins[plugins.length] = OBJECT_FREEZE({
+      name: entry.name,
+      kind: 'flow-extension',
+      version: entry.version,
+      source: OBJECT_FREEZE({
+        host: 'github',
+        owner: entry.source.owner,
+        repo: entry.source.repo,
+        sha: entry.source.sha,
+        path: entry.source.path,
+      }),
+      digest: entry.digest,
+      manifestSha256: entry.manifestSha256,
+      order: entry.order,
+      resolvedAt: entry.resolvedAt,
+    });
+  }
+  return OBJECT_FREEZE({ version: PLUGIN_LOCK_VERSION, plugins: OBJECT_FREEZE(plugins) });
+}
+
+function isHostedGithubPluginRef(value: string): boolean {
+  return STRING_STARTS_WITH(value, 'github:') || REGEXP_TEST(HTTPS_GITHUB, value);
+}
+
+function hostedRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !ARRAY_IS_ARRAY(value);
+}
+
+function hostedHasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
+  const keys = OBJECT_KEYS(value);
+  for (let index = 0; index < keys.length; index += 1) {
+    let found = false;
+    for (let allowedIndex = 0; allowedIndex < allowed.length; allowedIndex += 1) {
+      if (keys[index] === allowed[allowedIndex]) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) return false;
+  }
+  return true;
+}
+
+function invalidHostedLock(message: string): never {
+  throw new PluginError('plugin_lock_invalid', `${PLUGIN_LOCK_FILE}: ${message}`);
 }
 
 function readBoundedDeclaration(path: string): Buffer {

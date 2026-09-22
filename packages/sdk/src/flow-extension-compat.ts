@@ -21,8 +21,18 @@ export function runtimeVersions(): RuntimeVersions {
 
 /** `compat.surface` / `compat.sdk` against the runtime: a miss is a refusal, never a warning. */
 export function assertCompatible(manifest: FlowExtensionManifest, versions: RuntimeVersions): void {
-  for (const [what, range, actual] of [['surface', manifest.compat.surface, versions.surface], ['sdk', manifest.compat.sdk, versions.sdk]] as const) {
-    if (!satisfiesRange(actual, range)) throw new PluginError('plugin_incompatible', `${manifest.name} requires ${what} ${range}; this runtime has ${actual}.`);
+  assertRuntimeRange(manifest, 'surface', manifest.compat.surface, versions.surface);
+  assertRuntimeRange(manifest, 'sdk', manifest.compat.sdk, versions.sdk);
+}
+
+function assertRuntimeRange(
+  manifest: FlowExtensionManifest,
+  what: 'surface' | 'sdk',
+  range: string,
+  actual: string,
+): void {
+  if (!satisfiesRange(actual, range)) {
+    throw new PluginError('plugin_incompatible', `${manifest.name} requires ${what} ${range}; this runtime has ${actual}.`);
   }
 }
 
@@ -31,9 +41,16 @@ export function assertCompatible(manifest: FlowExtensionManifest, versions: Runt
  * optional: a base without it matches only `"*"`.
  */
 export function assertBaseCompatible(manifest: FlowExtensionManifest, base: { readonly name: string; readonly version?: string }): void {
-  const entry = manifest.compat.base.find(b => b.name === base.name);
+  let entry: FlowExtensionManifest['compat']['base'][number] | undefined;
+  for (let index = 0; index < manifest.compat.base.length; index += 1) {
+    if (manifest.compat.base[index]!.name === base.name) entry = manifest.compat.base[index];
+  }
   if (entry === undefined) {
-    throw new PluginError('plugin_incompatible', `${manifest.name} extends ${manifest.compat.base.map(b => b.name).join(', ')}, not "${base.name}".`);
+    let names = '';
+    for (let index = 0; index < manifest.compat.base.length; index += 1) {
+      names += `${index === 0 ? '' : ', '}${manifest.compat.base[index]!.name}`;
+    }
+    throw new PluginError('plugin_incompatible', `${manifest.name} extends ${names}, not "${base.name}".`);
   }
   if (base.version === undefined) {
     if (entry.version !== '*') throw new PluginError('plugin_incompatible', `${manifest.name} requires ${base.name} ${entry.version}, but the base flow declares no version; only "*" can be satisfied.`);

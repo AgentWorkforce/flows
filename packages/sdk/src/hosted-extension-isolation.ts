@@ -1,6 +1,7 @@
 import { canonicalize } from './canonical.js';
 import { sha256 } from './bundle.js';
-import { validateFlowExtensionManifest, type FlowExtensionManifest } from './flow-extension-manifest.js';
+import type { FlowExtensionManifest } from './flow-extension-manifest.js';
+import { validateHostedFlowExtensionManifest } from './hosted-extension-manifest.js';
 import { assertBaseCompatible, assertCompatible, runtimeVersions } from './flow-extension-compat.js';
 import {
   hostedExtensionDispatchIdentity,
@@ -235,7 +236,7 @@ async function verifiedManifest(artifact: HostedExtensionArtifact): Promise<Flow
   let input: unknown;
   try { input = JSON_PARSE(BUFFER_TO_STRING(bytes, 'utf8')); }
   catch { throw new PluginError('plugin_manifest_invalid', `${artifact.ref}: flows-plugin.json is not valid JSON.`); }
-  const manifest = validateFlowExtensionManifest(input);
+  const manifest = validateHostedFlowExtensionManifest(input);
   if (manifest.name !== artifact.name || manifest.version !== artifact.version) {
     throw new PluginError(
       'plugin_source_drift',

@@ -18,6 +18,7 @@ import { hostedExtensionDispatchFromVerifiedDelivery } from '../src/index.js';
 import {
   loadHostedExtensionArtifacts,
   runVerifiedNativeExtensionSandbox,
+  selectHostedExtensionForRuntime,
   type HostedExtensionArtifact,
 } from '../src/hosted-extension-isolation.js';
 import { runtimeVersions } from '../src/flow-extension-compat.js';
@@ -156,6 +157,58 @@ describe('hosted extension capability isolation', () => {
     writeFileSync(flowPath, 'export default {};');
     expect((await loadHostedExtensionArtifacts(flowPath)).artifacts).toEqual([installed]);
     expect(() => readFileSync(marker)).toThrow();
+  });
+
+  it('parses hosted locks and manifests without ambient map or freeze methods', async () => {
+    const installed = await artifact();
+    const root = resolve(installed.directory, '../../..');
+    writeFileSync(join(root, 'flows.json'), JSON.stringify({ plugins: [installed.ref] }));
+    writeFileSync(join(root, 'flows.lock.json'), JSON.stringify({
+      version: 2,
+      plugins: [{
+        name: 'babysitter', kind: 'flow-extension', version: '0.2.0',
+        source: {
+          host: 'github', owner: 'AgentWorkforce', repo: 'flows',
+          sha: 'a'.repeat(40), path: 'extensions/babysitter',
+        },
+        digest: installed.digest, manifestSha256: installed.manifestSha256,
+        order: 1, resolvedAt: '2026-09-22T12:00:00.000Z',
+      }],
+    }));
+    const flowPath = join(root, 'software-factory.flow.ts');
+    writeFileSync(flowPath, 'export default {};');
+    const map = Array.prototype.map;
+    const freeze = Object.freeze;
+    let poisonCalls = 0;
+    try {
+      Array.prototype.map = function poisonedMap(this: unknown[], ...args: unknown[]) {
+        const caller = (new Error().stack ?? '').split('\n', 4)[3] ?? '';
+        if (caller.includes('/src/hosted-extension-') || caller.includes('/src/plugin-lock.')) {
+          poisonCalls += 1;
+          throw new Error('ambient map must not run');
+        }
+        return Reflect.apply(map, this, args as Parameters<typeof map>);
+      } as typeof Array.prototype.map;
+      Object.freeze = ((value: object) => {
+        const caller = (new Error().stack ?? '').split('\n', 4)[3] ?? '';
+        if (caller.includes('/src/hosted-extension-') || caller.includes('/src/flow-extension-manifest.')) {
+          poisonCalls += 1;
+          throw new Error('ambient freeze must not run');
+        }
+        return freeze(value);
+      }) as typeof Object.freeze;
+      const installation = await loadHostedExtensionArtifacts(flowPath);
+      await expect(selectHostedExtensionForRuntime(
+        installation,
+        { name: 'software-factory', version: '2.0.22' },
+        { provider: 'github', event: 'pull_request', action: 'labeled' },
+        runtimeVersions(),
+      )).rejects.toMatchObject({ code: 'plugin_event_unroutable' });
+    } finally {
+      Array.prototype.map = map;
+      Object.freeze = freeze;
+    }
+    expect(poisonCalls).toBe(0);
   });
 
   it.each(['queued', 'duplicate'] as const)('executes the exact capability-only handler for a %s receipt', async status => {
