@@ -39,24 +39,24 @@ describe('hosted base private snapshot', () => {
     }
   });
 
-  it('refuses an inherited then hook before starting the snapshot boundary', async () => {
+  it('locks the inherited then slot before authored code can schedule a replacement', async () => {
     const { flowPath } = fixture();
-    const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'then');
-    const hasOwn = Object.hasOwn;
     let poisonCalls = 0;
-    try {
+    const locked = Object.getOwnPropertyDescriptor(Object.prototype, 'then');
+    expect(locked).toMatchObject({ configurable: false, enumerable: false });
+    expect(typeof locked?.get).toBe('function');
+    expect(typeof locked?.set).toBe('function');
+    expect(() => {
       Object.defineProperty(Object.prototype, 'then', {
         configurable: true,
-        get(this: object) {
-          if (hasOwn(this, 'snapshotFlowSha256')) poisonCalls += 1;
+        get() {
+          poisonCalls += 1;
           return undefined;
         },
       });
-      await expect(createHostedBaseSnapshot(flowPath)).rejects.toMatchObject({ code: 'plugin_source_invalid' });
-    } finally {
-      if (previous === undefined) delete (Object.prototype as { then?: unknown }).then;
-      else Object.defineProperty(Object.prototype, 'then', previous);
-    }
+    }).toThrow(TypeError);
+    const snapshot = await createHostedBaseSnapshot(flowPath);
+    await removeHostedBaseSnapshot(snapshot);
     expect(poisonCalls).toBe(0);
   });
 
@@ -91,6 +91,29 @@ describe('hosted base private snapshot', () => {
     }
     expect(poisonCalls).toBe(0);
     expect(after).not.toBe(before);
+  });
+
+  it('uses the module-captured platform during source traversal', async () => {
+    const { project } = fixture();
+    const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    let poisonCalls = 0;
+    try {
+      Object.defineProperty(process, 'platform', {
+        configurable: descriptor.configurable,
+        get() {
+          const caller = (new Error().stack ?? '').split('\n', 3)[2] ?? '';
+          if (caller.includes('/src/hosted-base-snapshot.')) {
+            poisonCalls += 1;
+            throw new Error('ambient process.platform must not run');
+          }
+          return descriptor.value;
+        },
+      });
+      await expect(hostedBaseSourceDigest([{ root: project, prefix: '' }])).resolves.toMatch(/^[a-f0-9]{64}$/);
+    } finally {
+      Object.defineProperty(process, 'platform', descriptor);
+    }
+    expect(poisonCalls).toBe(0);
   });
 
   it('excludes project node_modules from the admitted generation', async () => {

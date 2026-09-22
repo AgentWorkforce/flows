@@ -18,6 +18,27 @@ describe('hosted extension routing policy', () => {
     expect(supportsHostedSandboxFlags('not-a-version')).toBe(false);
   });
 
+  it('parses the captured Node version without ambient regex or number hooks', () => {
+    const exec = RegExp.prototype.exec;
+    const number = Number;
+    let poisonCalls = 0;
+    try {
+      RegExp.prototype.exec = (() => {
+        poisonCalls += 1;
+        throw new Error('ambient RegExp.exec must not run');
+      }) as typeof RegExp.prototype.exec;
+      globalThis.Number = (() => {
+        poisonCalls += 1;
+        throw new Error('ambient Number must not run');
+      }) as unknown as NumberConstructor;
+      expect(supportsHostedSandboxFlags('24.0.0')).toBe(true);
+    } finally {
+      RegExp.prototype.exec = exec;
+      globalThis.Number = number;
+    }
+    expect(poisonCalls).toBe(0);
+  });
+
   it('constructs the pinned Surface mounts without ambient array methods', () => {
     const surfaceFiles = [
       'flow.js', 'helpers/providers.js', 'provider-trigger.js', 'schedule.js',

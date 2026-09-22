@@ -20,6 +20,10 @@ const CHILD_PROCESS_KILL = Function.prototype.call.bind(ChildProcess.prototype.k
 const EVENT_ON = Function.prototype.call.bind(EventEmitter.prototype.on) as (
   emitter: EventEmitter, event: string, listener: (...args: unknown[]) => void,
 ) => EventEmitter;
+const ERROR_IS_INSTANCE = Function.prototype.call.bind(
+  Function.prototype[Symbol.hasInstance],
+  Error,
+) as (value: unknown) => boolean;
 const JSON_PARSE = JSON.parse;
 const JSON_STRINGIFY = JSON.stringify;
 const OBJECT_CREATE = Object.create;
@@ -124,8 +128,8 @@ export async function exchangeHostedExtension(
       if (error !== undefined) rejectPromise(error);
       else resolvePromise(result!);
     };
-    const failure = (error: unknown): Error => error instanceof Error
-      ? error
+    const failure = (error: unknown): Error => ERROR_IS_INSTANCE(error)
+      ? error as Error
       : new PluginError('plugin_unsupported', 'Hosted capability rejected with a non-error value.');
     const refuse = (message: string) => {
       const error = new PluginError('plugin_unsupported', message);

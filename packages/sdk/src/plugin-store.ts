@@ -37,6 +37,7 @@ const WRITE_FILE = writeFile;
 const PATH_DIRNAME = dirname;
 const PATH_JOIN = join;
 const PATH_RESOLVE = resolve;
+const PROCESS_PLATFORM = process.platform;
 const ERROR = Error;
 const MAX_PLUGIN_MANIFEST_BYTES = 4_000_000;
 const MAX_PLUGIN_STORE_ENTRIES = 10_000;
@@ -186,7 +187,7 @@ async function regularFile(
 
 async function openStoredFile(root: string, path: string, hooks: StoredPluginReadTestHooks): Promise<number> {
   const parts = STRING_SPLIT(path, '/');
-  if (process.platform !== 'linux') {
+  if (PROCESS_PLATFORM !== 'linux') {
     for (let i = 1; i < parts.length; i++) {
       let parent = root;
       for (let index = 0; index < i; index += 1) parent = PATH_JOIN(parent, parts[index]!);

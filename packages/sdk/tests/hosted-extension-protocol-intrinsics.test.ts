@@ -56,6 +56,41 @@ it('constructs protocol completion with the captured Promise', async () => {
   expect(poisonCalls).toBe(0);
 });
 
+it('classifies adapter rejection with the captured Error brand', async () => {
+  const NativeError = Error;
+  const protocol = new PassThrough();
+  const stdin = new PassThrough();
+  const stderr = new PassThrough();
+  const child = Object.assign(new EventEmitter(), {
+    exitCode: null,
+    signalCode: null,
+    kill: () => true,
+  }) as unknown as ChildProcess;
+  const refusal = Object.assign(new NativeError('typed refusal'), { code: 'cloud_policy_refusal' });
+  let poisonCalls = 0;
+  class PoisonedError extends NativeError {
+    static [Symbol.hasInstance](_value: unknown) {
+      poisonCalls += 1;
+      throw new NativeError('ambient Error brand must not run');
+    }
+  }
+  let run!: ReturnType<typeof exchangeHostedExtension>;
+  try {
+    globalThis.Error = PoisonedError as ErrorConstructor;
+    run = exchangeHostedExtension(
+      child, protocol, stdin, stderr, 10_000, { type: 'run' },
+      async () => { throw refusal; },
+    );
+    protocol.write(`${JSON.stringify({
+      type: 'capability', id: 1, name: 'cloud:babysitter-turn', request: { delivery: 'exact' },
+    })}\n`);
+    await expect(run).rejects.toBe(refusal);
+  } finally {
+    globalThis.Error = NativeError;
+  }
+  expect(poisonCalls).toBe(0);
+});
+
 it('enforces the protocol deadline with captured timer operations', async () => {
   const nativeSetTimeout = globalThis.setTimeout;
   const nativeClearTimeout = globalThis.clearTimeout;

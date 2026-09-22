@@ -42,7 +42,11 @@ const JSON_PARSE = JSON.parse;
 const OBJECT_ENTRIES = Object.entries;
 const OBJECT_FREEZE = Object.freeze;
 const OBJECT_GET_OWN_PROPERTY_DESCRIPTOR = Object.getOwnPropertyDescriptor;
+const NUMBER = Number;
 const NUMBER_IS_SAFE_INTEGER = Number.isSafeInteger;
+const REGEXP_EXEC = Function.prototype.call.bind(RegExp.prototype.exec) as (
+  regexp: RegExp, value: string,
+) => RegExpExecArray | null;
 const SET = Set;
 const SET_ADD = Function.prototype.call.bind(Set.prototype.add) as <T>(set: Set<T>, value: T) => Set<T>;
 const SET_HAS = Function.prototype.call.bind(Set.prototype.has) as <T>(set: Set<T>, value: T) => boolean;
@@ -326,10 +330,10 @@ function ownOption<T>(options: object, name: string): T | undefined {
 }
 
 export function supportsHostedSandboxFlags(version: string): boolean {
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:-|$)/.exec(version);
+  const match = REGEXP_EXEC(/^(\d+)\.(\d+)\.(\d+)(?:-|$)/, version);
   if (match === null) return false;
-  const major = Number(match[1]);
-  const minor = Number(match[2]);
+  const major = NUMBER(match[1]);
+  const minor = NUMBER(match[2]);
   return major >= 24 || (major === 23 && minor >= 5) || (major === 22 && minor >= 13);
 }
 

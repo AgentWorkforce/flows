@@ -40,6 +40,7 @@ const PATH_JOIN = join;
 const PATH_RELATIVE = relative;
 const PATH_RESOLVE = resolve;
 const PATH_SEPARATOR = sep;
+const PROCESS_PLATFORM = process.platform;
 const ARRAY_PUSH = Function.prototype.call.bind(Array.prototype.push) as <T>(array: T[], value: T) => number;
 const ARRAY_SORT = Function.prototype.call.bind(Array.prototype.sort) as <T>(
   array: T[],
@@ -230,7 +231,7 @@ async function readTree(
   budget: SourceBudget,
   hooks: HostedBaseSnapshotTestHooks,
 ): Promise<readonly SourceFile[]> {
-  if (process.platform !== 'linux') {
+  if (PROCESS_PLATFORM !== 'linux') {
     throw invalid('Hosted base source snapshotting requires Linux.');
   }
   const files: SourceFile[] = [];

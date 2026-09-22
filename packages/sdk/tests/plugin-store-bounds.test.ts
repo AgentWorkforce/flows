@@ -131,6 +131,29 @@ describe('bounded plugin-store verification', () => {
     expect(poisonCalls).toBe(0);
   });
 
+  it('uses the module-captured platform while opening stored files', async () => {
+    const stored = await fixture();
+    const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    let poisonCalls = 0;
+    try {
+      Object.defineProperty(process, 'platform', {
+        configurable: descriptor.configurable,
+        get() {
+          const caller = (new Error().stack ?? '').split('\n', 3)[2] ?? '';
+          if (caller.includes('/src/plugin-store.')) {
+            poisonCalls += 1;
+            throw new Error('ambient process.platform must not run');
+          }
+          return descriptor.value;
+        },
+      });
+      await expect(verifyStoredPlugin(stored.directory, stored.digest)).resolves.toBeUndefined();
+    } finally {
+      Object.defineProperty(process, 'platform', descriptor);
+    }
+    expect(poisonCalls).toBe(0);
+  });
+
   it('ignores inherited store test hooks when production omits them', async () => {
     const stored = await fixture();
     const names = ['beforeOpen', 'afterStat', 'beforeDirectoryStat'] as const;
