@@ -361,6 +361,21 @@ f.llm(strings: TemplateStringsArray, ...values: unknown[]): Step<string>;
 
 Run with `flows run chain.flow.ts --input '{}' --local-agent`. This attaches
 both an agent worker and a workspace-free LLM worker for the authored body.
+
+Each worker holds 4 dispatches at once. Set a different number (1–32) with
+`--agent-capacity <n>`, which applies to `run` and `resume`. The agent and LLM
+workers are counted separately.
+
+A body that starts more concurrent `f.agent` or `f.llm` calls than the capacity
+does not fail: the extra calls wait in-process for a free slot. Without that
+wait, they would be submitted with no worker free, and the kernel would park
+them.
+
+Agents that share a working directory still run one at a time. This lets the
+worker attribute each file change to the step that made it. So today
+concurrent `f.agent` calls do not overlap, although they no longer park.
+Concurrent `f.llm` calls do overlap.
+
 The LLM step remains `type: llm` in the journal. It uses the same CLI resolution,
 authentication probes, and exact `flows.json` model allow-list as agent steps;
 a declared `model` must be in that project's `models` array. A template call

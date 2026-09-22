@@ -14,6 +14,7 @@ import { snapshotJsonValue } from './json-value.js';
 import { authoredChildAdmissionKey } from './authored-admission.js';
 import { alsoRecord, recordAuthoredChild } from './authored-step-index.js';
 import type { StepFailedDetails } from './failure-kinds.js';
+import { WorkerSlots } from './worker-slots.js';
 
 const WORKSPACE_PERMISSION_ANNOTATION = /:\s*(readonly|readwrite)\s*$/i;
 
@@ -22,8 +23,12 @@ export function authoredWorkerRunner(
   definition: { name: string }, journal: JournalClient, flowPath: string,
   journalSteps: AuthoredFlowJournalStep[], waitOptions: RunLifecycleOptions,
   localAgentStream?: string, budget?: AuthoredBudget, headerBudget?: unknown,
-  rootRunId?: string,
+  rootRunId?: string, workerCapacity?: number,
 ) {
+  // Sized to the attached local workers, so concurrent calls wait here for a
+  // slot instead of being admitted and parked for want of a free worker.
+  const slots = workerCapacity === undefined ? undefined
+    : { agent: new WorkerSlots(workerCapacity), llm: new WorkerSlots(workerCapacity) };
   const context: AuthoredStepContext = {
     ...(rootRunId === undefined ? {} : { rootRunId }),
     ...(waitOptions.dataDir === undefined ? {} : { dataDir: waitOptions.dataDir }),
@@ -113,9 +118,10 @@ export function authoredWorkerRunner(
     return readCompletedStepOutput(journal, outcome.run_id, id, journalSteps, context);
     };
     const admissionKey = authoredChildAdmissionKey(rootRunId, id);
-    return budget === undefined
+    const admit = async () => budget === undefined
       ? consume(await journal.runStart(spec, undefined, admissionKey))
       : budget.execute(journal, spec, consume, admissionKey);
+    return slots === undefined ? admit() : slots[step.type === 'llm' ? 'llm' : 'agent'].run(admit);
   }
 
   return {
