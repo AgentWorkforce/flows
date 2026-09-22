@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { flow } from '@relayflows/surface';
@@ -81,7 +81,8 @@ describe('authored steps under local workers with capacity', () => {
     expect(result.journalSteps.filter(step => step.id.startsWith('agent-'))).toHaveLength(3);
     // No overlap is asserted: agents sharing a working directory still take
     // turns for artifact attribution (worker-cli.ts serializedByDirectory).
-  });
+    // They share this package's directory, so each snapshot walks it: allow time.
+  }, 20_000);
 
   it('runs agents in distinct working directories side by side (the kernel carries cwd)', async () => {
     const { fixture, client, agent, readSpans } = await slowAgents(2);
@@ -96,6 +97,53 @@ describe('authored steps under local workers with capacity', () => {
     });
     expect(result.completionReason).toBe('success');
     expect(peakOverlap(readSpans())).toBe(2);
+  });
+
+  // A snapshot walks the whole tree, so a symlink alias of the same directory,
+  // or a directory nested inside another agent's, must still take turns.
+  it.each([
+    ['a symlink alias of the same directory', (tree: string, root: string) => {
+      const link = join(root, 'alias');
+      symlinkSync(tree, link);
+      return link;
+    }],
+    ['a directory nested inside the other', (tree: string) => {
+      const nested = join(tree, '.wt', 'inner');
+      mkdirSync(nested, { recursive: true });
+      return nested;
+    }],
+  ])('serializes agents whose cwd is %s', async (_case, second) => {
+    const { fixture, client, agent, readSpans } = await slowAgents(2);
+    const tree = join(fixture.root, 'trees', 'shared');
+    mkdirSync(tree, { recursive: true });
+    const trees = [tree, second(tree, fixture.root)];
+    const overlapping = flow('overlapping-trees', async f => {
+      await Promise.all(trees.map((cwd, index) => f.agent(`tree-${index}`, { task: 'work here', cwd })));
+      f.done('success');
+    });
+    const result = await executeAuthoredFlow(overlapping, client, undefined, {
+      flowPath: fixture.flowPath, localAgentStream: agent.stream, workerCapacity: 2,
+    });
+    expect(result.completionReason).toBe('success');
+    expect(peakOverlap(readSpans())).toBe(1);
+  });
+
+  it('never starts queued agents once the body has failed', async () => {
+    const { fixture, client, agent, readSpans } = await slowAgents(1);
+    const failing = flow('fails-while-queued', async f => {
+      await Promise.all([
+        ...['a', 'b', 'c'].map(lens => f.agent(`review-${lens}`, { task: `Review for ${lens}` })),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('body failed')), 100)),
+      ]);
+      f.done('success');
+    });
+    await expect(executeAuthoredFlow(failing, client, undefined, {
+      flowPath: fixture.flowPath, localAgentStream: agent.stream, workerCapacity: 1,
+    })).rejects.toThrow('body failed');
+    // Teardown waits for the one agent already holding the slot; the two
+    // queued behind it are refused, not admitted after the flow has failed.
+    await new Promise(done => setTimeout(done, 1_000));
+    expect(readSpans()).toHaveLength(1);
   });
 
   it('parks the overflow when the body is not told the capacity (the defect this closes)', async () => {

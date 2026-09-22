@@ -33,6 +33,22 @@ describe('WorkerSlots', () => {
     expect(peak).toBe(2);
   });
 
+  it('close refuses queued and later calls but lets the running one finish', async () => {
+    const slots = new WorkerSlots(1);
+    const gate = deferred();
+    const started: string[] = [];
+    const running = slots.run(async () => { started.push('a'); await gate.promise; return 'a'; });
+    const queued = slots.run(async () => { started.push('b'); return 'b'; });
+    await Promise.resolve();
+    const reason = new Error('body failed');
+    slots.close(reason);
+    await expect(queued).rejects.toBe(reason);
+    await expect(slots.run(async () => 'c')).rejects.toBe(reason);
+    gate.resolve();
+    expect(await running).toBe('a');
+    expect(started).toEqual(['a']);
+  });
+
   it('frees the slot when the work throws', async () => {
     const slots = new WorkerSlots(1);
     await expect(slots.run(async () => { throw new Error('boom'); })).rejects.toThrow('boom');

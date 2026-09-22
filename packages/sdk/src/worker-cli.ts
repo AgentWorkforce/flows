@@ -121,7 +121,7 @@ export async function runAgentCli(
   const artifactRoot = mode === 'agent' ? resolve(cwd ?? process.cwd()) : undefined;
   return artifactRoot === undefined
     ? execute()
-    : serializedByDirectory(artifactRoot, async () => {
+    : serializedByDirectory(realPath(artifactRoot)!, async () => {
       const before = await snapshotWorkspaceFiles(artifactRoot);
       const result = await execute();
       const kernelData = sidechannel === undefined ? undefined : realPath(resolve(sidechannel.dataDir));
@@ -220,14 +220,25 @@ function realPath(path: string | undefined): string | undefined {
   try { return realpathSync(path); } catch { return path; }
 }
 
-/** One agent at a time per canonical working directory, for the artifact interval. */
-const directoryQueues = new Map<string, Promise<unknown>>();
+/**
+ * One agent at a time per overlapping working tree, for the artifact interval.
+ *
+ * `directory` must be canonical (symlink-free): `/repo` and a `/tmp/link` to it
+ * are one tree. Two trees overlap when one contains the other, because the
+ * snapshot walks the whole subtree — an agent in `/repo` would otherwise be
+ * credited with files an agent in `/repo/.wt/api` wrote meanwhile. Disjoint
+ * trees (sibling worktrees) run side by side. Each run waits for every
+ * earlier-registered overlapping run, so order within an overlap is arrival.
+ */
+const directoryRuns = new Set<{ readonly directory: string; readonly settled: Promise<void> }>();
 function serializedByDirectory<T>(directory: string, task: () => Promise<T>): Promise<T> {
-  const previous = directoryQueues.get(directory) ?? Promise.resolve();
-  const run = previous.then(task, task);
-  const settled = run.then(() => undefined, () => undefined);
-  directoryQueues.set(directory, settled);
-  void settled.then(() => { if (directoryQueues.get(directory) === settled) directoryQueues.delete(directory); });
+  const blockers = [...directoryRuns]
+    .filter(other => under(other.directory, directory) || under(directory, other.directory))
+    .map(other => other.settled);
+  const run = Promise.all(blockers).then(task);
+  const entry = { directory, settled: run.then(() => undefined, () => undefined) };
+  directoryRuns.add(entry);
+  void entry.settled.then(() => { directoryRuns.delete(entry); });
   return run;
 }
 

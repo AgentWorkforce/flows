@@ -606,6 +606,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   }
   if (bodyFailed) {
     try {
+      worker.stop(bodyFailure);
       await stopAuthoredOperations(authoredSteps, bodyFailure);
     } finally {
       lifecycle.close();
@@ -632,6 +633,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       `flow "${definition.name}" returned without done()`,
     );
     try {
+      worker.stop(missingCompletion);
       await stopAuthoredOperations(authoredSteps, missingCompletion);
     } finally {
       lifecycle.close();

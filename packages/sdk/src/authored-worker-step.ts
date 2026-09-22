@@ -126,6 +126,11 @@ export function authoredWorkerRunner(
   }
 
   return {
+    /** Refuse every agent/LLM call still waiting for a worker slot (body teardown). */
+    stop(reason: unknown): void {
+      slots?.agent.close(reason);
+      slots?.llm.close(reason);
+    },
     async agent(id: string, options: AgentOptions, verification?: NamedGate): Promise<AgentResult> {
       if (options.workspace !== undefined && localAgentStream !== undefined) {
         throw new AuthoredFlowExecutionError('unsupported_workspace_permission',
