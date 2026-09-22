@@ -1,6 +1,7 @@
+import { formatStepExcerpt } from './cli/step-excerpt.js';
 import type { WorkerCliResult } from './worker-cli.js';
 import { MODEL_PRICING } from './model-pricing.js';
-import { FAILURE_EXCERPT_MAX_BYTES, buildTranscriptDigest, redactText, utf8Tail } from './agent-transcript.js';
+import { FAILURE_EXCERPT_MAX_BYTES, buildTranscriptDigest, redactText } from './agent-transcript.js';
 
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): value is RecordValue => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -14,7 +15,7 @@ const count = (value: unknown): value is number => typeof value === 'number' && 
 function invalid(result: WorkerCliResult, detail: string): WorkerCliResult {
   const stderr_tail = `${result.stderr_tail}\n${detail}`.trim();
   const transcript = result.transcript === undefined ? undefined : { ...result.transcript,
-    failure: { kind: 'stderr' as const, excerpt: utf8Tail(redactText(stderr_tail), FAILURE_EXCERPT_MAX_BYTES) } };
+    failure: { kind: 'stderr' as const, excerpt: formatStepExcerpt(redactText(stderr_tail), FAILURE_EXCERPT_MAX_BYTES) } };
   return { ...result, exit_code: null, stderr_tail, ...(transcript === undefined ? {} : { transcript }) };
 }
 

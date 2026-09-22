@@ -1,0 +1,10 @@
+
+> @relayflows/sdk@2.0.28 prepare
+> npm run build
+
+
+> @relayflows/sdk@2.0.28 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+changed 1 package in 5s

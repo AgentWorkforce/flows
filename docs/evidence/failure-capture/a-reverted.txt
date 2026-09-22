@@ -1,0 +1,409 @@
+$ cd packages/sdk && npx vitest run tests/failure-capture-digest.test.ts
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/failure-capture-digest.test.ts (7 tests | 7 failed) 29ms
+   × failure capture selection > keeps the early failure from result 17ms
+     → expected 'ok - passing case\nok - passing case\…' to contain 'not ok 3 - the early failure'
+   × failure capture selection > keeps the early failure from tool_result 3ms
+     → expected 'ok - passing case\nok - passing case\…' to contain 'not ok 3 - the early failure'
+   × failure capture selection > keeps the early failure from stderr 2ms
+     → expected 'g case\nok - passing case\nok - passi…' to contain 'not ok 3 - the early failure'
+   × failure capture selection > selects failure evidence on decoder refusal too 2ms
+     → expected ' - passing case\nok - passing case\no…' to contain 'not ok 3 - the early failure'
+   × failure capture selection > redacts before selecting result and sanitises control characters 2ms
+     → expected '\u001b[31mFAILED [redacted:TEST_SECRE…' not to contain '\u001b'
+   × failure capture selection > redacts before selecting tool_result and sanitises control characters 1ms
+     → expected '\u001b[31mFAILED [redacted:TEST_SECRE…' not to contain '\u001b'
+   × failure capture selection > redacts before selecting stderr and sanitises control characters 1ms
+     → expected 'g case\nok - passing case\nok - passi…' to contain '[redacted:TEST_SECRET]'
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/failure-capture-digest.test.ts > failure capture selection > keeps the early failure from result
+ FAIL  tests/failure-capture-digest.test.ts > failure capture selection > keeps the early failure from tool_result
+AssertionError: expected 'ok - passing case\nok - passing case\…' to contain 'not ok 3 - the early failure'
+
+- Expected
++ Received
+
+- not ok 3 - the early failure
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing cas…[43654 bytes truncated]
+
+ ❯ tests/failure-capture-digest.test.ts:16:29
+     14|     const failure = buildTranscriptDigest(frames, 'claude', { exit_cod…
+     15|     expect(failure.kind).toBe(kind);
+     16|     expect(failure.excerpt).toContain('not ok 3 - the early failure');
+       |                             ^
+     17|     expect(failure.excerpt).toContain('# fail 1');
+     18|     expect(failure.truncated).toBe(true);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  tests/failure-capture-digest.test.ts > failure capture selection > keeps the early failure from stderr
+AssertionError: expected 'g case\nok - passing case\nok - passi…' to contain 'not ok 3 - the early failure'
+
+- Expected
++ Received
+
+- not ok 3 - the early failure
++ g case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ # fail 1
++
+
+ ❯ tests/failure-capture-digest.test.ts:16:29
+     14|     const failure = buildTranscriptDigest(frames, 'claude', { exit_cod…
+     15|     expect(failure.kind).toBe(kind);
+     16|     expect(failure.excerpt).toContain('not ok 3 - the early failure');
+       |                             ^
+     17|     expect(failure.excerpt).toContain('# fail 1');
+     18|     expect(failure.truncated).toBe(true);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  tests/failure-capture-digest.test.ts > failure capture selection > selects failure evidence on decoder refusal too
+AssertionError: expected ' - passing case\nok - passing case\no…' to contain 'not ok 3 - the early failure'
+
+- Expected
++ Received
+
+- not ok 3 - the early failure
++  - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ # fail 1
++
++ Provider completion has invalid token usage.
+
+ ❯ tests/failure-capture-digest.test.ts:28:49
+     26|       stdout_tail: JSON.stringify({ protocol: 'relayflows-agent-cli-v1…
+     27|       transcript: {} as TranscriptDigest });
+     28|     expect(result.transcript!.failure!.excerpt).toContain('not ok 3 - …
+       |                                                 ^
+     29|     expect(Buffer.byteLength(result.transcript!.failure!.excerpt)).toB…
+     30|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  tests/failure-capture-digest.test.ts > failure capture selection > redacts before selecting result and sanitises control characters
+ FAIL  tests/failure-capture-digest.test.ts > failure capture selection > redacts before selecting tool_result and sanitises control characters
+AssertionError: expected '\u001b[31mFAILED [redacted:TEST_SECRE…' not to contain '\u001b'
+
+- Expected
++ Received
+
+- 
++ [31mFAILED [redacted:TEST_SECRET]
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case…[43689 bytes truncated]
+
+ ❯ tests/failure-capture-digest.test.ts:42:33
+     40|     expect(failure.excerpt).toContain('[redacted:TEST_SECRET]');
+     41|     expect(failure.excerpt).not.toContain(secret);
+     42|     expect(failure.excerpt).not.toContain('\u001b');
+       |                                 ^
+     43|   });
+     44| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  tests/failure-capture-digest.test.ts > failure capture selection > redacts before selecting stderr and sanitises control characters
+AssertionError: expected 'g case\nok - passing case\nok - passi…' to contain '[redacted:TEST_SECRET]'
+
+- Expected
++ Received
+
+- [redacted:TEST_SECRET]
++ g case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ ok - passing case
++ # fail 1
++
+
+ ❯ tests/failure-capture-digest.test.ts:40:29
+     38|       ] } }] : [];
+     39|     const failure = buildTranscriptDigest(frames, 'claude', { exit_cod…
+     40|     expect(failure.excerpt).toContain('[redacted:TEST_SECRET]');
+       |                             ^
+     41|     expect(failure.excerpt).not.toContain(secret);
+     42|     expect(failure.excerpt).not.toContain('\u001b');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ Test Files  1 failed (1)
+      Tests  7 failed (7)
+   Start at  23:56:18
+   Duration  289ms (transform 85ms, setup 0ms, collect 98ms, tests 29ms, environment 0ms, prepare 45ms)
+
+
+Exit code: 1

@@ -1,0 +1,13 @@
+$ cd packages/sdk && npx vitest run tests/failure-capture-digest.test.ts
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/failure-capture-digest.test.ts (7 tests) 24ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  23:56:19
+   Duration  301ms (transform 92ms, setup 0ms, collect 106ms, tests 24ms, environment 0ms, prepare 45ms)
+
+
+Exit code: 0

@@ -1,3 +1,4 @@
+import { formatStepExcerpt } from './cli/step-excerpt.js';
 import { constants as fsConstants } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { mkdir, open, unlink, type FileHandle } from 'node:fs/promises';
@@ -473,11 +474,11 @@ export function buildTranscriptDigest(
       const failedResult = terminal !== undefined
         && (terminal.is_error === true || (typeof terminal.subtype === 'string' && terminal.subtype !== 'success'));
       if (failedResult) {
-        digest.failure = failure('result', typeof terminal.result === 'string' ? terminal.result : JSON.stringify(terminal), bounded);
+        digest.failure = failure('result', typeof terminal.result === 'string' ? terminal.result : JSON.stringify(terminal), redact);
       } else if (lastToolError !== undefined) {
-        digest.failure = failure('tool_result', lastToolError, bounded);
+        digest.failure = failure('tool_result', lastToolError, redact);
       } else if (outcome.stderr_tail.length > 0) {
-        digest.failure = failure('stderr', stderrExcerpt(outcome.stderr_tail, redact), bounded);
+        digest.failure = failure('stderr', outcome.stderr_tail, redact);
       }
     }
     return digest;
@@ -519,19 +520,9 @@ export function buildTranscriptDigest(
     if (text.truncated) digest.final_text_truncated = true;
   }
   if (outcome.exit_code !== 0 && outcome.stderr_tail.length > 0) {
-    digest.failure = failure('stderr', stderrExcerpt(outcome.stderr_tail, redact), bounded);
+    digest.failure = failure('stderr', outcome.stderr_tail, redact);
   }
   return digest;
-}
-
-/**
- * Redact the whole stderr tail *before* cutting it. Cutting first splits a
- * secret that straddles the boundary, and neither `replaceAll` on a known
- * value nor a token-prefix pattern matches half a secret — so the fragment
- * reached the journal. The decoder-refusal path already ordered it this way.
- */
-function stderrExcerpt(stderrTail: string, redact: Redactor): string {
-  return utf8Tail(redact(stderrTail), FAILURE_EXCERPT_MAX_BYTES);
 }
 
 /**
@@ -547,10 +538,12 @@ function label(value: string | undefined): string | undefined {
 function failure(
   kind: 'result' | 'tool_result' | 'stderr',
   text: string,
-  bounded: (text: string, max: number) => { text: string; truncated: boolean },
+  redact: Redactor,
 ): NonNullable<TranscriptDigest['failure']> {
-  const excerpt = bounded(text, FAILURE_EXCERPT_MAX_BYTES);
-  return { kind, excerpt: excerpt.text, ...(excerpt.truncated ? { truncated: true } : {}) };
+  // Redact before selecting: a cut must never leave an unrecognisable secret fragment.
+  const redacted = redact(text);
+  const excerpt = formatStepExcerpt(redacted, FAILURE_EXCERPT_MAX_BYTES);
+  return { kind, excerpt, ...(Buffer.byteLength(redacted) > FAILURE_EXCERPT_MAX_BYTES ? { truncated: true } : {}) };
 }
 
 /** Serialized size of the digest as it will be journaled. */

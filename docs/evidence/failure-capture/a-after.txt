@@ -1,0 +1,114 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/failure-capture-digest.test.ts (7 tests) 25ms
+ ✓ tests/agent-transcript.test.ts (29 tests) 303ms
+ ❯ tests/agent-transcript-live.test.ts (4 tests | 4 failed) 2018ms
+   × the transcript digest through the built CLI, a real daemon and the local agent > preserves structured agent failure details and its completed root index 527ms
+     → REFUSED [relayflowd_not_found] RELAYFLOWD_BIN is set to "/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd", which is not an executable file. Point it at a relayflowd binary or unset it; it is not ignored.
+{"ok":false,"command":"run","resolutions":[],"diagnostics":[{"severity":"refusal","kind":"relayflowd_not_found","message":"RELAYFLOWD_BIN is set to \"/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd\", which is not an executable file. Point it at a relayflowd binary or unset it; it is not ignored."}],"path":"probe.flow.ts","socketPath":"/tmp/relayflowd-e0a8f170da7f.sock"}
+: expected 2 to be 1 // Object.is equality
+   × the transcript digest through the built CLI, a real daemon and the local agent > preserves structured llm failure details and its completed root index 503ms
+     → REFUSED [relayflowd_not_found] RELAYFLOWD_BIN is set to "/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd", which is not an executable file. Point it at a relayflowd binary or unset it; it is not ignored.
+{"ok":false,"command":"run","resolutions":[],"diagnostics":[{"severity":"refusal","kind":"relayflowd_not_found","message":"RELAYFLOWD_BIN is set to \"/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd\", which is not an executable file. Point it at a relayflowd binary or unset it; it is not ignored."}],"path":"probe.flow.ts","socketPath":"/tmp/relayflowd-72aeb166b1c1.sock"}
+: expected 2 to be 1 // Object.is equality
+   × the transcript digest through the built CLI, a real daemon and the local agent > journals the digest in trajectory_tail on a successful agent step and writes the file it points at 510ms
+     → REFUSED [relayflowd_not_found] RELAYFLOWD_BIN is set to "/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd", which is not an executable file. Point it at a relayflowd binary or unset it; it is not ignored.
+{"ok":false,"command":"run","resolutions":[],"diagnostics":[{"severity":"refusal","kind":"relayflowd_not_found","message":"RELAYFLOWD_BIN is set to \"/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd\", which is not an executable file. Point it at a relayflowd binary or unset it; it is not ignored."}],"path":"probe.flow.ts","socketPath":"/tmp/relayflowd-1d63b279e14f.sock"}
+: expected 2 to be +0 // Object.is equality
+   × the transcript digest through the built CLI, a real daemon and the local agent > on a failed agent step, names the failure and the transcript in the terminal diagnostic, redacted 477ms
+     → REFUSED [relayflowd_not_found] RELAYFLOWD_BIN is set to "/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd", which is not an executable file. Point it at a relayflowd binary or unset it; it is not ignored.
+{"ok":false,"command":"run","resolutions":[],"diagnostics":[{"severity":"refusal","kind":"relayflowd_not_found","message":"RELAYFLOWD_BIN is set to \"/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd\", which is not an executable file. Point it at a relayflowd binary or unset it; it is not ignored."}],"path":"probe.flow.ts","socketPath":"/tmp/relayflowd-9961dca2fe96.sock"}
+: expected 2 to be 1 // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/agent-transcript-live.test.ts > the transcript digest through the built CLI, a real daemon and the local agent > preserves structured agent failure details and its completed root index
+AssertionError: REFUSED [relayflowd_not_found] RELAYFLOWD_BIN is set to "/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd", which is not an executable file. Point it at a relayflowd binary or unset it; it is not ignored.
+{"ok":false,"command":"run","resolutions":[],"diagnostics":[{"severity":"refusal","kind":"relayflowd_not_found","message":"RELAYFLOWD_BIN is set to \"/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd\", which is not an executable file. Point it at a relayflowd binary or unset it; it is not ignored."}],"path":"probe.flow.ts","socketPath":"/tmp/relayflowd-e0a8f170da7f.sock"}
+: expected 2 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ tests/agent-transcript-live.test.ts:132:58
+    130|     const f = fixture(`await ${operation}; f.done('success');`, 'probe…
+    131|     const result = f.invoke();
+    132|     expect(result.status, result.stderr + result.stdout).toBe(1);
+       |                                                          ^
+    133|     const report = JSON.parse(result.stdout) as { runId: string; rootR…
+    134|     expect(report.rootRunId).toBeTruthy();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  tests/agent-transcript-live.test.ts > the transcript digest through the built CLI, a real daemon and the local agent > preserves structured llm failure details and its completed root index
+AssertionError: REFUSED [relayflowd_not_found] RELAYFLOWD_BIN is set to "/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd", which is not an executable file. Point it at a relayflowd binary or unset it; it is not ignored.
+{"ok":false,"command":"run","resolutions":[],"diagnostics":[{"severity":"refusal","kind":"relayflowd_not_found","message":"RELAYFLOWD_BIN is set to \"/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd\", which is not an executable file. Point it at a relayflowd binary or unset it; it is not ignored."}],"path":"probe.flow.ts","socketPath":"/tmp/relayflowd-72aeb166b1c1.sock"}
+: expected 2 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ tests/agent-transcript-live.test.ts:132:58
+    130|     const f = fixture(`await ${operation}; f.done('success');`, 'probe…
+    131|     const result = f.invoke();
+    132|     expect(result.status, result.stderr + result.stdout).toBe(1);
+       |                                                          ^
+    133|     const report = JSON.parse(result.stdout) as { runId: string; rootR…
+    134|     expect(report.rootRunId).toBeTruthy();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  tests/agent-transcript-live.test.ts > the transcript digest through the built CLI, a real daemon and the local agent > journals the digest in trajectory_tail on a successful agent step and writes the file it points at
+AssertionError: REFUSED [relayflowd_not_found] RELAYFLOWD_BIN is set to "/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd", which is not an executable file. Point it at a relayflowd binary or unset it; it is not ignored.
+{"ok":false,"command":"run","resolutions":[],"diagnostics":[{"severity":"refusal","kind":"relayflowd_not_found","message":"RELAYFLOWD_BIN is set to \"/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd\", which is not an executable file. Point it at a relayflowd binary or unset it; it is not ignored."}],"path":"probe.flow.ts","socketPath":"/tmp/relayflowd-1d63b279e14f.sock"}
+: expected 2 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 2
+
+ ❯ tests/agent-transcript-live.test.ts:159:58
+    157|   f.done('success');`, 'probed ok');
+    158|     const result = f.invoke();
+    159|     expect(result.status, result.stderr + result.stdout).toBe(0);
+       |                                                          ^
+    160|     const report = JSON.parse(result.stdout) as { runId: string; compl…
+    161|     expect(report.completionReason).toBe('success');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  tests/agent-transcript-live.test.ts > the transcript digest through the built CLI, a real daemon and the local agent > on a failed agent step, names the failure and the transcript in the terminal diagnostic, redacted
+AssertionError: REFUSED [relayflowd_not_found] RELAYFLOWD_BIN is set to "/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd", which is not an executable file. Point it at a relayflowd binary or unset it; it is not ignored.
+{"ok":false,"command":"run","resolutions":[],"diagnostics":[{"severity":"refusal","kind":"relayflowd_not_found","message":"RELAYFLOWD_BIN is set to \"/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd\", which is not an executable file. Point it at a relayflowd binary or unset it; it is not ignored."}],"path":"probe.flow.ts","socketPath":"/tmp/relayflowd-9961dca2fe96.sock"}
+: expected 2 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ tests/agent-transcript-live.test.ts:194:58
+    192|   f.done('success');`, `gave up: ${secret}`, 1, secret);
+    193|     const result = f.invoke();
+    194|     expect(result.status, result.stderr + result.stdout).toBe(1);
+       |                                                          ^
+    195|     const report = JSON.parse(result.stdout) as { runId: string; diagn…
+    196|     // An authored step's evidence reaches the root report as the chil…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  4 failed | 36 passed (40)
+   Start at  23:56:05
+   Duration  2.34s (transform 197ms, setup 0ms, collect 374ms, tests 2.35s, environment 0ms, prepare 145ms)
+

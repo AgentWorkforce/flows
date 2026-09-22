@@ -221,7 +221,7 @@ describe('transcript digest', () => {
     expect(digest.tools?.last_calls[0]).toMatchObject({ is_error: true });
 
     expect(buildTranscriptDigest(frames, 'claude', { exit_code: 1, stderr_tail: 'x'.repeat(3000) + 'last' }, {}).failure)
-      .toEqual({ kind: 'stderr', excerpt: 'x'.repeat(FAILURE_EXCERPT_MAX_BYTES - 4) + 'last' });
+      .toMatchObject({ kind: 'stderr', truncated: true, excerpt: expect.stringMatching(/bytes elided.*\n.*last$/su) });
     // A successful attempt has no failure to report, whatever the frames say.
     expect(buildTranscriptDigest(toolError, 'claude', ok, {}).failure).toBeUndefined();
   });
