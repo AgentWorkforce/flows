@@ -1,5 +1,4 @@
-import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { Ctx } from '@relayflows/surface';
@@ -10,13 +9,22 @@ import { exportBabysitterCatalogBundle } from '../src/babysitter-catalog-export.
 import { addExtensionPlugin } from '../src/cli/add-extension.js';
 import { hostedExtensionDispatchFromVerifiedDelivery } from '../src/flow-extension-loader.js';
 import { resolveExtensionSubmission } from '../src/flow-extension-submit.js';
-import { runHostedCapabilityExtension } from '../src/hosted-extension-isolation.js';
+import {
+  loadHostedExtensionArtifacts,
+  loadHostedExtensionBase,
+  runHostedCapabilityExtension,
+  selectHostedExtensionForRuntime,
+} from '../src/hosted-extension-isolation.js';
 import { JournalClient } from '../src/journal-client.js';
+import { materializePlugin } from '../src/plugin-store.js';
 import { preflightProviderTriggers } from '../src/provider-trigger-contract.js';
-import { SHA_A, entriesFromDirectory, fakeGithub } from './fake-github.js';
+import { entriesFromDirectory, fakeGithub } from './fake-github.js';
 
 const PATH = 'extensions/babysitter';
-const REF = `github:AgentWorkforce/flows@${SHA_A}#${PATH}`;
+const NATIVE_SHA = 'd3ee3b55ae636518dd4ad562aca5bae9c99f1a05';
+const REF = `github:AgentWorkforce/flows@${NATIVE_SHA}#${PATH}`;
+const DIGEST = 'bdf2187b9a242667d34bbc63e7a744753e146dc8cd6f4047047f2aed28f406ee';
+const MANIFEST_SHA256 = '5631a06bbdc8186f4ee0ff955610ead24d001c5197b59fb1fe81fe422c44f226';
 // pull_request.labeled, .unlabeled and .ready_for_review route only in the surface after 2.0.25.
 const versions = { sdk: '2.0.26', surface: '2.0.26' };
 const now = () => new Date('2026-09-22T12:00:00Z');
@@ -31,7 +39,7 @@ const dirs: string[] = [];
 afterAll(() => dirs.splice(0).forEach(p => rmSync(p, { recursive: true, force: true })));
 
 function github() {
-  return fakeGithub({ 'AgentWorkforce/flows': { refs: {}, commits: { [SHA_A]: { entries } } } });
+  return fakeGithub({ 'AgentWorkforce/flows': { refs: {}, commits: { [NATIVE_SHA]: { entries } } } });
 }
 
 /** Install the committed bytes the way an operator would, then load the composition. */
@@ -48,7 +56,18 @@ async function composed() {
   const io = { stdout: () => {}, stderr: (s: string) => { throw new Error(s); } };
   expect(await addExtensionPlugin(REF, io, { cwd, fetch: github().fetch, now, versions })).toBe(0);
   const loaded = await loadAuthoredFlow(join(cwd, 'software-factory.flow.ts'), { versions });
-  return { loaded, extension: loaded.extensions[0]! };
+  const flowPath = join(cwd, 'software-factory.flow.ts');
+  const baseLoaded = await loadAuthoredFlow(flowPath, { extensions: 'none', versions });
+  const baseDefinition = baseLoaded.getDefinition(baseLoaded.handle);
+  const hostedBase = await loadHostedExtensionBase(flowPath);
+  return {
+    cwd,
+    flowPath,
+    loaded,
+    hostedBase,
+    extension: loaded.extensions[0]!,
+    base: { name: baseDefinition.name, version: baseDefinition.header.version },
+  };
 }
 
 function subscriptionOf(trigger: unknown): string {
@@ -105,30 +124,130 @@ describe('native Babysitter extension', () => {
     })).rejects.toMatchObject({ code: 'plugin_unsupported' });
   });
 
-  it('keeps the committed handler refused until its declared runtime release exists', async () => {
-    const { extension } = installed;
+  it.skipIf(process.platform !== 'linux' || !existsSync('/usr/bin/bwrap'))(
+    'runs the exact published 2.0.26 native bytes in the isolated capability path', async () => {
+    const installation = await loadHostedExtensionArtifacts(installed.flowPath);
+    expect(installation.artifacts).toHaveLength(1);
+    expect(installation.artifacts[0]).toMatchObject({ ref: REF, digest: DIGEST, manifestSha256: MANIFEST_SHA256 });
+    const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
+      provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'gh-delivery-7',
+    });
+    const calls: unknown[] = [];
+    await expect(runHostedCapabilityExtension({
+      installation,
+      base: installed.hostedBase,
+      dispatch,
+      input: descriptor('pull_request.labeled'),
+      babysitterTurn: { queue: async (request, authority) => {
+        calls.push(request);
+        expect(authority.dispatch).toBe(dispatch);
+        expect(authority.extension).toEqual({
+          name: 'babysitter', version: '0.2.0', ref: REF, digest: DIGEST,
+        });
+        return { receiptId: `bst_${'a'.repeat(64)}`, status: 'queued' };
+      } },
+    })).resolves.toEqual({ completionReason: 'success', capabilityCalls: 1 });
+    expect(calls).toEqual([{ delivery: {
+      deliveryId: 'gh-delivery-7', provider: 'github', eventType: 'pull_request.labeled',
+      pullRequest: { owner: 'AgentWorkforce', repository: 'flows', number: 551 },
+    } }]);
+  });
+
+  it('refuses the real bytes on 2.0.25 before execution and admits them on 2.0.26', async () => {
+    const installation = await loadHostedExtensionArtifacts(installed.flowPath);
+    await expect(selectHostedExtensionForRuntime(
+      installation, installed.base,
+      { provider: 'github', event: 'pull_request', action: 'labeled' },
+      { sdk: '2.0.25', surface: '2.0.25' },
+    )).rejects.toMatchObject({ code: 'plugin_incompatible' });
+    await expect(selectHostedExtensionForRuntime(
+      installation, installed.base,
+      { provider: 'github', event: 'pull_request', action: 'labeled' },
+      versions,
+    )).resolves.toMatchObject({ artifact: { ref: REF, digest: DIGEST } });
+  });
+
+  it('binds the pinned artifact to the actual base and complete installed route set', async () => {
+    const installation = await loadHostedExtensionArtifacts(installed.flowPath);
     const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
       provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'gh-delivery-7',
     });
     let calls = 0;
     await expect(runHostedCapabilityExtension({
-      artifact: {
-        ref: extension.ref,
-        name: extension.name,
-        version: extension.version,
-        directory: extension.directory,
-        digest: extension.digest,
-        manifestSha256: createHash('sha256')
-          .update(readFileSync(join(extension.directory, 'flows-plugin.json'))).digest('hex'),
-      },
+      installation,
+      base: installed.loaded as never,
       dispatch,
       input: descriptor('pull_request.labeled'),
       babysitterTurn: { queue: async () => {
         calls += 1;
-        return { receiptId: 'receipt-1', status: 'queued' };
+        return { receiptId: 'never', status: 'queued' };
       } },
     })).rejects.toMatchObject({ code: 'plugin_incompatible' });
     expect(calls).toBe(0);
+
+    await expect(runHostedCapabilityExtension({
+      installation,
+      base: installed.base as never,
+      dispatch,
+      input: descriptor('pull_request.labeled'),
+      babysitterTurn: { queue: async () => {
+        calls += 1;
+        return { receiptId: 'never', status: 'queued' };
+      } },
+    })).rejects.toMatchObject({ code: 'plugin_incompatible' });
+    expect(calls).toBe(0);
+
+    await expect(runHostedCapabilityExtension({
+      installation: { artifacts: installation.artifacts } as never,
+      base: installed.hostedBase,
+      dispatch,
+      input: descriptor('pull_request.labeled'),
+      babysitterTurn: { queue: async () => {
+        calls += 1;
+        return { receiptId: 'never', status: 'queued' };
+      } },
+    })).rejects.toMatchObject({ code: 'plugin_source_invalid' });
+    expect(calls).toBe(0);
+  });
+
+  it('refuses a second installed extension that overlaps an action-specific route', async () => {
+    const overlapRef = `github:AgentWorkforce/other@${'b'.repeat(40)}#extensions/overlap`;
+    const overlapManifest = {
+      schema: 2, kind: 'flow-extension', name: 'overlap', version: '1.0.0',
+      compat: { surface: '^2.0.26', sdk: '^2.0.26', base: [{ name: 'software-factory', version: '*' }] },
+      entry: 'overlap.flow.ts', extends: { handlers: true, hooks: [] },
+      triggers: [{ provider: 'github', event: 'pull_request', actions: [] }],
+      permissions: { integrations: ['github'], harnesses: [], mcp: [], writes: [], budget: { dollars: 0.01, wallclock: '1m' } },
+      preflight: { credentials: [], servers: [] },
+    };
+    const manifestBytes = Buffer.from(JSON.stringify(overlapManifest));
+    const stored = await materializePlugin(installed.cwd, 'overlap', [
+      { path: 'flows-plugin.json', data: manifestBytes },
+      { path: 'overlap.flow.ts', data: Buffer.from('export default {};') },
+    ]);
+    const configPath = join(installed.cwd, 'flows.json');
+    const lockPath = join(installed.cwd, 'flows.lock.json');
+    const config = JSON.parse(readFileSync(configPath, 'utf8')) as { plugins: string[] };
+    const lock = JSON.parse(readFileSync(lockPath, 'utf8')) as { version: 2; plugins: Array<Record<string, unknown>> };
+    config.plugins.push(overlapRef);
+    lock.plugins.push({
+      name: 'overlap', kind: 'flow-extension', version: '1.0.0',
+      source: { host: 'github', owner: 'AgentWorkforce', repo: 'other', sha: 'b'.repeat(40), path: 'extensions/overlap' },
+      digest: stored.digest,
+      manifestSha256: createHash('sha256').update(manifestBytes).digest('hex'),
+      order: 2,
+      resolvedAt: '2026-09-22T12:00:00.000Z',
+    });
+    writeFileSync(configPath, JSON.stringify(config));
+    writeFileSync(lockPath, JSON.stringify(lock));
+
+    const installation = await loadHostedExtensionArtifacts(installed.flowPath);
+    await expect(selectHostedExtensionForRuntime(
+      installation,
+      installed.base,
+      { provider: 'github', event: 'pull_request', action: 'labeled' },
+      versions,
+    )).rejects.toMatchObject({ code: 'plugin_event_ambiguous' });
   });
 
   it('satisfies the #550 catalog exporter from the committed bytes, manifest unmodified', async () => {
@@ -225,3 +344,4 @@ describe('native Babysitter extension', () => {
     expect(c.done).toEqual(['declined']);
   });
 });
+import { createHash } from 'node:crypto';

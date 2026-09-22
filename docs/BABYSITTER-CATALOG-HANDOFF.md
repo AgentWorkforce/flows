@@ -19,18 +19,22 @@ exact live `babysit` label and the bound session/head. Permission declarations
 are not enforcement. Export success is byte verification, not execution approval.
 
 The native package source is `extensions/babysitter` (see its README for the
-turn contract). It is unreleased and cannot execute through the generic
-executor: #549 still refuses it. The SDK now has a separate Linux-only
+turn contract). Flows 2.0.26 is published, but the package cannot execute
+through the generic executor: #549 still refuses it. The SDK now has a separate Linux-only
 capability sandbox that injects exactly
 `capabilities.cloud.babysitterTurn.queue` without exposing the base context,
 workspace, environment credentials, network, helpers, MCP, or harnesses. It is
 not wired to hosted dispatch and must not be treated as enablement. The package's
-`compat` requires a surface release after 2.0.25 that routes `labeled`,
-`unlabeled`, and `ready_for_review`. Export it only from a reviewed, merged
-commit.
+`compat` requires the published 2.0.26 Surface/SDK release that routes
+`labeled`, `unlabeled`, and `ready_for_review`. Export it only from the reviewed
+commit pinned below.
 
 The sandbox contract is deliberately narrower than #442. It re-verifies the
-content-addressed artifact and manifest, accepts only the native Babysitter
+complete lock-backed installation and every manifest, binds it to the actual
+base returned by `loadHostedExtensionBase` (which internally calls
+`loadAuthoredFlow(..., { extensions: 'none' })`), detects
+cross-extension route ambiguity, accepts only the exact published Babysitter
+ref/digest/manifest and native permission profile,
 permission profile, imports the entry only inside Linux bubblewrap plus Node's
 permission model, mounts a minimal trusted Surface facade (`flow`, `github`,
 and `getFlowDefinition`) instead of the general helper runtime, checks
@@ -45,8 +49,9 @@ persisted dispatch context, re-read live PR/label/head state, and return only
 rejects once with no fallback.
 
 Before replacing #549's refusal, the hosted caller must use
-`loadAuthoredFlow(..., { extensions: 'none' })`, obtain raw verified artifacts
-with `loadHostedExtensionArtifacts`, and call `runHostedCapabilityExtension`;
+obtain opaque base and installation authorities with
+`loadHostedExtensionBase` and `loadHostedExtensionArtifacts`, then call
+`runHostedCapabilityExtension` with both values;
 using the ordinary compose loader would import extension top-level JavaScript
 in the host before the sandbox exists. Independent review must prove this path
 at the exact release head. Broader per-agent-step file/network/access-preset

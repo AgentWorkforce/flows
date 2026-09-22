@@ -391,14 +391,18 @@ fail closed. This release also refuses a matching handler with
 ordinary JavaScript and their manifest permissions are not yet isolated by the
 runtime (gate 8 / #442). The SDK now contains a Linux-only, capability-only
 isolation primitive for the native Babysitter profile. Hosted callers must load
-the base with `extensions: 'none'`, resolve extension bytes with
-`loadHostedExtensionArtifacts` (which does not import them), then use
-`runHostedCapabilityExtension`; the artifact is first imported inside a
+the base with `loadHostedExtensionBase` (which internally sets
+`extensions: 'none'`), resolve extension bytes with
+`loadHostedExtensionArtifacts` (which does not import them), then pass both
+opaque loader results to `runHostedCapabilityExtension`. The runner verifies
+the complete lock-backed set, actual base compatibility, route uniqueness, and
+the exact reviewed Babysitter ref/digest/manifest before the artifact is imported inside a
 bubblewrap mount/PID/network/user namespace with an empty credential
 environment and a context exposing only
 `capabilities.cloud.babysitterTurn.queue` plus `done`. This is a prerequisite,
 not enablement: the generic executor refusal remains until the Cloud adapter,
-artifact provenance, and independent security review are complete. A handler's
+Relay route, end-to-end canary, and independent security review are complete.
+A handler's
 trigger is therefore a requirement, but the handler cannot execute through the
 generic executor yet. The deploy body carries
 the same list as `requirements` for Cloud to cross-check, and a declared harness Cloud cannot run yet (`gemini`)

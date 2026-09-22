@@ -7,10 +7,11 @@ deployment.
 
 The enforced boundary is:
 
-- load the base flow with extensions disabled and resolve extension artifacts
-  without importing extension JavaScript;
-- reverify the content-addressed artifact, lock metadata, manifest hash, exact
-  immutable native source, runtime compatibility, and narrow permission profile;
+- load and retain the actual base flow with extensions disabled and resolve an
+  opaque complete installation without importing extension JavaScript;
+- reverify every content-addressed artifact, lock metadata, manifest hash,
+  base/runtime compatibility, and route uniqueness, then require the exact
+  immutable native ref/digest/manifest and narrow permission profile;
 - validate a symbol-branded verified dispatch and a closed normalized delivery
   descriptor before import;
 - import and execute the matching handler only inside a bubblewrap namespace
@@ -21,14 +22,19 @@ The enforced boundary is:
 - expose one `capabilities.cloud.babysitterTurn.queue({ delivery })` call and
   `done`, validate the exact request and `{ receiptId, status }` response in the
   parent, and pass the original non-serializable authority to the host adapter;
+- treat descriptor 3 as hostile transport: validate every frame and both
+  boundary payloads, so direct writes can consume only the same exact one-shot
+  delivery capability already granted and cannot claim premature success;
 - fail closed on unknown frames, repeated/omitted calls, premature completion,
-  timeouts, adapter rejection, incompatible bytes, and broader permissions.
+  timeouts, adapter rejection, incompatible bytes, route ambiguity, forged
+  loader results, an unverified/composed base, and broader permissions.
 
 Cloud PR #3942 remains responsible for persisted dispatch context, live PR and
 label/head revalidation, authorized existing-session resolution, lineage-based
 deduplication, and Relay native-turn delivery. The broader per-step permission
 enforcement requested by #442 is not implemented here and remains a separate
-gate. The committed extension declares SDK/Surface `^2.0.26`; current 2.0.25
-correctly refuses it before import.
+gate. The committed extension declares SDK/Surface `^2.0.26`; an injected
+2.0.25 runtime is refused before import, while the exact published 2.0.26 bytes
+are exercised inside the sandbox.
 
 See `verification.txt` for the final local verification record.

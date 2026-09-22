@@ -3,12 +3,19 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { hostedExtensionDispatchFromVerifiedDelivery } from '../src/flow-extension-loader.js';
+import { github } from '@relayflows/surface';
 import {
+  extensionHandlerForHostedDispatch,
+  hostedExtensionDispatchFromVerifiedDelivery,
+} from '../src/flow-extension-loader.js';
+import {
+  hostedManifestRoutes,
   loadHostedExtensionArtifacts,
-  runHostedCapabilityExtension,
+  runVerifiedNativeExtensionSandbox,
   type HostedExtensionArtifact,
 } from '../src/hosted-extension-isolation.js';
+import { validateFlowExtensionManifest } from '../src/flow-extension-manifest.js';
+import { supportsHostedSandboxFlags } from '../src/hosted-extension-sandbox.js';
 import { materializePlugin } from '../src/plugin-store.js';
 
 const roots: string[] = [];
@@ -97,7 +104,7 @@ describe('hosted extension capability isolation', () => {
         order: 1, resolvedAt: '2026-09-22T12:00:00.000Z',
       }],
     }));
-    expect(await loadHostedExtensionArtifacts(join(root, 'software-factory.flow.ts'))).toEqual([installed]);
+    expect((await loadHostedExtensionArtifacts(join(root, 'software-factory.flow.ts'))).artifacts).toEqual([installed]);
     expect(() => readFileSync(marker)).toThrow();
   });
 
@@ -107,8 +114,8 @@ describe('hosted extension capability isolation', () => {
       provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-1',
     });
     const calls: unknown[] = [];
-    const result = await runHostedCapabilityExtension({
-      artifact: installed, dispatch, input: descriptor(),
+    const result = await runVerifiedNativeExtensionSandbox({
+      artifact: installed, manifest: validateFlowExtensionManifest(manifest()), dispatch, input: descriptor(),
       babysitterTurn: {
         queue: async (request, authority) => {
           calls.push(request);
@@ -123,6 +130,32 @@ describe('hosted extension capability isolation', () => {
       deliveryId: 'delivery-1', provider: 'github', eventType: 'pull_request.labeled',
       pullRequest: { owner: 'AgentWorkforce', repository: 'flows', number: 551 },
     } }]);
+  });
+
+  it('preserves a typed host refusal while disclosing only a fixed marker to the child', async () => {
+    const source = `
+      import { flow, github } from '@relayflows/surface';
+      export default flow('babysitter', async f => f.done('declined'))
+        .on(github.pull_request('labeled'), async (f, input) => {
+          try {
+            await f.capabilities.cloud.babysitterTurn.queue({ delivery: {
+              deliveryId: input.event.deliveryId, provider: input.event.provider, eventType: input.event.eventType,
+              pullRequest: { owner: input.pullRequest.owner, repository: input.pullRequest.repo, number: input.pullRequest.number },
+            } });
+          } catch (error) {
+            if (error?.message !== 'hosted capability refused') throw new Error('host refusal leaked into child');
+            throw error;
+          }
+        });
+    `;
+    const refusal = Object.assign(new Error('private Cloud policy detail'), { code: 'cloud_policy_refusal' });
+    const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
+      provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-1',
+    });
+    await expect(runVerifiedNativeExtensionSandbox({
+      artifact: await artifact(source), manifest: validateFlowExtensionManifest(manifest()), dispatch, input: descriptor(),
+      babysitterTurn: { queue: async () => { throw refusal; } },
+    })).rejects.toBe(refusal);
   });
 
   it('denies ambient credentials, host files, writes, network, subprocesses, and undeclared context verbs', async () => {
@@ -169,8 +202,8 @@ export default flow('babysitter', async f => f.done('declined'))
     const original = process.env.HOSTED_EXTENSION_TEST_SECRET;
     process.env.HOSTED_EXTENSION_TEST_SECRET = 'host-secret-env';
     try {
-      await runHostedCapabilityExtension({
-        artifact: installed, dispatch, input: descriptor(),
+      await runVerifiedNativeExtensionSandbox({
+        artifact: installed, manifest: validateFlowExtensionManifest(manifest()), dispatch, input: descriptor(),
         babysitterTurn: { queue: async () => ({ receiptId: 'receipt-1', status: 'queued' }) },
       });
     } finally {
@@ -193,14 +226,14 @@ export default flow('babysitter', async f => f.done('declined'))
       provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-1',
     });
     let calls = 0;
-    await expect(runHostedCapabilityExtension({
-      artifact: await artifact(source), dispatch, input: descriptor(),
+    await expect(runVerifiedNativeExtensionSandbox({
+      artifact: await artifact(source), manifest: validateFlowExtensionManifest(manifest()), dispatch, input: descriptor(),
       babysitterTurn: { queue: async () => { calls += 1; return { receiptId: 'r', status: 'queued' }; } },
-    })).rejects.toMatchObject({ code: 'plugin_unsupported' });
+    })).rejects.toMatchObject({ code: 'plugin_event_unroutable' });
     expect(calls).toBe(0);
 
-    await expect(runHostedCapabilityExtension({
-      artifact: await artifact(), dispatch, input: descriptor(),
+    await expect(runVerifiedNativeExtensionSandbox({
+      artifact: await artifact(), manifest: validateFlowExtensionManifest(manifest()), dispatch, input: descriptor(),
       babysitterTurn: { queue: async () => ({ receiptId: 'r', status: 'queued', sessionId: 'host-leak' }) },
     })).rejects.toMatchObject({ code: 'plugin_unsupported' });
   });
@@ -209,8 +242,8 @@ export default flow('babysitter', async f => f.done('declined'))
     const installed = await artifact();
     let calls = 0;
     const capability = { queue: async () => { calls += 1; return { receiptId: 'r', status: 'queued' }; } };
-    await expect(runHostedCapabilityExtension({
-      artifact: installed,
+    await expect(runVerifiedNativeExtensionSandbox({
+      artifact: installed, manifest: validateFlowExtensionManifest(manifest()),
       dispatch: { provenance: 'integration-watch', provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-1' } as never,
       input: descriptor(), babysitterTurn: capability,
     })).rejects.toMatchObject({ code: 'plugin_event_unroutable' });
@@ -218,11 +251,11 @@ export default flow('babysitter', async f => f.done('declined'))
     const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
       provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-1',
     });
-    await expect(runHostedCapabilityExtension({
-      artifact: installed, dispatch, input: descriptor('attacker-delivery'), babysitterTurn: capability,
+    await expect(runVerifiedNativeExtensionSandbox({
+      artifact: installed, manifest: validateFlowExtensionManifest(manifest()), dispatch, input: descriptor('attacker-delivery'), babysitterTurn: capability,
     })).rejects.toMatchObject({ code: 'plugin_event_unroutable' });
-    await expect(runHostedCapabilityExtension({
-      artifact: installed, dispatch,
+    await expect(runVerifiedNativeExtensionSandbox({
+      artifact: installed, manifest: validateFlowExtensionManifest(manifest()), dispatch,
       input: { ...descriptor(), rawWebhook: { installationToken: 'must-not-enter-child' } },
       babysitterTurn: capability,
     })).rejects.toMatchObject({ code: 'plugin_event_unroutable' });
@@ -239,8 +272,8 @@ export default flow('babysitter', async f => f.done('declined'))
     const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
       provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-1',
     });
-    await expect(runHostedCapabilityExtension({
-      artifact: installed, dispatch, input: descriptor(),
+    await expect(runVerifiedNativeExtensionSandbox({
+      artifact: installed, manifest: validateFlowExtensionManifest(manifest(['cloud:babysitter-turn', 'github:pull_request'])), dispatch, input: descriptor(),
       babysitterTurn: { queue: async () => ({ receiptId: 'r', status: 'queued' }) },
     })).rejects.toMatchObject({ code: 'plugin_unsupported' });
     expect(() => readFileSync(marker)).toThrow();
@@ -249,7 +282,14 @@ export default flow('babysitter', async f => f.done('declined'))
   it('fails closed when the handler omits or repeats the single capability call', async () => {
     for (const body of [
       `f.done('success')`,
-      `await f.capabilities.cloud.babysitterTurn.queue({ delivery: input }); await f.capabilities.cloud.babysitterTurn.queue({ delivery: input }); f.done('success')`,
+      `await f.capabilities.cloud.babysitterTurn.queue({ delivery: {
+        deliveryId: input.event.deliveryId, provider: input.event.provider, eventType: input.event.eventType,
+        pullRequest: { owner: input.pullRequest.owner, repository: input.pullRequest.repo, number: input.pullRequest.number },
+      } })`,
+      `const request = { delivery: {
+        deliveryId: input.event.deliveryId, provider: input.event.provider, eventType: input.event.eventType,
+        pullRequest: { owner: input.pullRequest.owner, repository: input.pullRequest.repo, number: input.pullRequest.number },
+      } }; await f.capabilities.cloud.babysitterTurn.queue(request); await f.capabilities.cloud.babysitterTurn.queue(request); f.done('success')`,
     ]) {
       const installed = await artifact(`
         import { flow, github } from '@relayflows/surface';
@@ -259,8 +299,8 @@ export default flow('babysitter', async f => f.done('declined'))
       const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
         provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-1',
       });
-      await expect(runHostedCapabilityExtension({
-        artifact: installed, dispatch, input: descriptor(),
+      await expect(runVerifiedNativeExtensionSandbox({
+        artifact: installed, manifest: validateFlowExtensionManifest(manifest()), dispatch, input: descriptor(),
         babysitterTurn: { queue: async () => ({ receiptId: 'r', status: 'queued' }) },
       })).rejects.toMatchObject({ code: 'plugin_unsupported' });
     }
@@ -285,11 +325,20 @@ export default flow('babysitter', async f => f.done('declined'))
     });
     let resolveAdapter!: (value: unknown) => void;
     const adapter = new Promise(resolve => { resolveAdapter = resolve; });
-    await expect(runHostedCapabilityExtension({
-      artifact: await artifact(source), dispatch, input: descriptor(),
-      babysitterTurn: { queue: async () => await adapter },
+    let directFrameCalls = 0;
+    setTimeout(() => resolveAdapter({ receiptId: 'settled-after-refusal', status: 'queued' }), 20);
+    await expect(runVerifiedNativeExtensionSandbox({
+      artifact: await artifact(source), manifest: validateFlowExtensionManifest(manifest()), dispatch, input: descriptor(),
+      timeoutMs: 1_000,
+      babysitterTurn: { queue: async () => {
+        directFrameCalls += 1;
+        return await adapter;
+      } },
     })).rejects.toMatchObject({ code: 'plugin_unsupported' });
-    resolveAdapter({ receiptId: 'too-late', status: 'queued' });
+    // Descriptor 3 is hostile transport, not extra authority: an exact direct
+    // frame can consume the already-granted call once, but cannot forge a
+    // second call or claim success before the host outcome settles.
+    expect(directFrameCalls).toBe(1);
 
     const nonObject = `
       import { writeSync } from 'node:fs';
@@ -298,9 +347,53 @@ export default flow('babysitter', async f => f.done('declined'))
       export default flow('babysitter', async f => f.done('declined'))
         .on(github.pull_request('labeled'), async () => {});
     `;
-    await expect(runHostedCapabilityExtension({
-      artifact: await artifact(nonObject), dispatch, input: descriptor(),
-      babysitterTurn: { queue: async () => ({ receiptId: 'never', status: 'queued' }) },
+    let invalidFrameCalls = 0;
+    await expect(runVerifiedNativeExtensionSandbox({
+      artifact: await artifact(nonObject), manifest: validateFlowExtensionManifest(manifest()), dispatch, input: descriptor(),
+      babysitterTurn: { queue: async () => {
+        invalidFrameCalls += 1;
+        return { receiptId: 'never', status: 'queued' };
+      } },
     })).rejects.toMatchObject({ code: 'plugin_unsupported' });
+    expect(invalidFrameCalls).toBe(0);
+  });
+
+  it('accepts only Node releases that implement every sandbox flag', () => {
+    expect(supportsHostedSandboxFlags('22.12.0')).toBe(false);
+    expect(supportsHostedSandboxFlags('22.13.0')).toBe(true);
+    expect(supportsHostedSandboxFlags('23.4.0')).toBe(false);
+    expect(supportsHostedSandboxFlags('23.5.0')).toBe(true);
+    expect(supportsHostedSandboxFlags('24.0.0')).toBe(true);
+    expect(supportsHostedSandboxFlags('not-a-version')).toBe(false);
+  });
+
+  it('matches the SDK router for exact, absent, duplicate, and generic-overlap routes', () => {
+    const body = async () => {};
+    const specific = { name: 'specific', handlers: [{ trigger: github.pull_request('labeled'), body }] };
+    const duplicate = { name: 'duplicate', handlers: [{ trigger: github.pull_request('labeled'), body }] };
+    const generic = { name: 'generic', handlers: [{ trigger: github.pull_request(), body }] };
+    const labeled = hostedExtensionDispatchFromVerifiedDelivery({
+      provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-1',
+    });
+    const edited = hostedExtensionDispatchFromVerifiedDelivery({
+      provider: 'github', eventType: 'pull_request.edited', deliveryId: 'delivery-2',
+    });
+    expect(extensionHandlerForHostedDispatch(labeled, [specific])?.extension.name).toBe('specific');
+    expect(hostedManifestRoutes(
+      { triggers: [{ provider: 'github', event: 'pull_request', actions: ['labeled'] }] },
+      { provider: 'github', event: 'pull_request', action: 'labeled' },
+    )).toBe(true);
+    expect(extensionHandlerForHostedDispatch(edited, [specific])).toBeUndefined();
+    expect(hostedManifestRoutes(
+      { triggers: [{ provider: 'github', event: 'pull_request', actions: ['labeled'] }] },
+      { provider: 'github', event: 'pull_request', action: 'edited' },
+    )).toBe(false);
+    expect(() => extensionHandlerForHostedDispatch(labeled, [specific, duplicate]))
+      .toThrow(expect.objectContaining({ code: 'plugin_event_ambiguous' }));
+    expect(() => extensionHandlerForHostedDispatch(labeled, [specific, generic]))
+      .toThrow(expect.objectContaining({ code: 'plugin_event_ambiguous' }));
+    expect(() => extensionHandlerForHostedDispatch({
+      provenance: 'integration-watch', provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-1',
+    }, [specific])).toThrow(expect.objectContaining({ code: 'plugin_event_unroutable' }));
   });
 });

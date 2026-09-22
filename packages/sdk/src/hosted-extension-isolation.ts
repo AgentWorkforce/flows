@@ -1,14 +1,13 @@
 import { createHash } from 'node:crypto';
-import { createRequire } from 'node:module';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
-import { dirname, join, parse, resolve } from 'node:path';
-import { tmpdir } from 'node:os';
-import { spawn } from 'node:child_process';
-import type { Readable, Writable } from 'node:stream';
+import { readFile } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
 import { canonicalize } from './canonical.js';
+import {
+  hostedExtensionBaseFromLoadedFlow,
+  loadAuthoredFlow,
+} from './authored-flow-loader.js';
 import { validateFlowExtensionManifest, type FlowExtensionManifest } from './flow-extension-manifest.js';
-import { assertCompatible, runtimeVersions } from './flow-extension-compat.js';
+import { assertBaseCompatible, assertCompatible, runtimeVersions } from './flow-extension-compat.js';
 import {
   hostedExtensionDispatchIdentity,
   type HostedExtensionDispatch,
@@ -17,13 +16,18 @@ import { PluginError } from './plugin-manifest.js';
 import { findPluginProject } from './plugin-loader.js';
 import { reconcileDeclaredExtensions } from './plugin-lock.js';
 import { pluginStoreDirectory, verifyStoredPlugin } from './plugin-store.js';
-import { HOSTED_EXTENSION_SANDBOX_SOURCE } from './hosted-extension-sandbox-source.js';
+import {
+  boundedJsonSnapshot,
+  type HostedExtensionProtocolResult,
+} from './hosted-extension-protocol.js';
+import { runHostedExtensionSandbox } from './hosted-extension-sandbox.js';
 
 const HOSTED_WRITE = 'cloud:babysitter-turn';
-const MAX_FRAME_BYTES = 256 * 1024;
-const MAX_STDERR_BYTES = 16 * 1024;
-const DEFAULT_TIMEOUT_MS = 10_000;
-const BABYSITTER_REF = /^github:AgentWorkforce\/flows@[a-f0-9]{40}#extensions\/babysitter$/;
+const BABYSITTER_REF = 'github:AgentWorkforce/flows@d3ee3b55ae636518dd4ad562aca5bae9c99f1a05#extensions/babysitter';
+const BABYSITTER_DIGEST = 'bdf2187b9a242667d34bbc63e7a744753e146dc8cd6f4047047f2aed28f406ee';
+const BABYSITTER_MANIFEST_SHA256 = '5631a06bbdc8186f4ee0ff955610ead24d001c5197b59fb1fe81fe422c44f226';
+const HOSTED_INSTALLATION_AUTHORITY = new WeakSet<object>();
+const HOSTED_BASE_AUTHORITY = new WeakSet<object>();
 const DELIVERY_ID = /^[A-Za-z0-9_.:-]{1,200}$/;
 const RECEIPT_ID = /^[A-Za-z0-9_.:-]{1,200}$/;
 const OWNER = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
@@ -45,6 +49,15 @@ export interface HostedExtensionArtifact {
   readonly manifestSha256: string;
 }
 
+export interface HostedExtensionInstallation {
+  readonly artifacts: readonly HostedExtensionArtifact[];
+}
+
+export interface HostedExtensionBase {
+  readonly name: string;
+  readonly version?: string;
+}
+
 export interface HostedCapabilityAuthority {
   readonly dispatch: HostedExtensionDispatch;
   readonly extension: Readonly<{
@@ -60,7 +73,10 @@ export interface HostedBabysitterCapability {
 }
 
 export interface RunHostedExtensionOptions {
-  readonly artifact: HostedExtensionArtifact;
+  /** Complete, lock-ordered set returned by loadHostedExtensionArtifacts. */
+  readonly installation: HostedExtensionInstallation;
+  /** Identity read from the base loaded with extensions disabled. */
+  readonly base: HostedExtensionBase;
   readonly dispatch: HostedExtensionDispatch;
   /** Host-normalized delivery descriptor. Its event identity must equal dispatch. */
   readonly input: unknown;
@@ -72,10 +88,7 @@ export interface RunHostedExtensionOptions {
   readonly nodePath?: string;
 }
 
-export interface HostedExtensionResult {
-  readonly completionReason: 'success';
-  readonly capabilityCalls: 1;
-}
+export type HostedExtensionResult = HostedExtensionProtocolResult;
 
 /**
  * Resolve installed extension artifacts without importing their JavaScript.
@@ -85,9 +98,9 @@ export interface HostedExtensionResult {
  */
 export async function loadHostedExtensionArtifacts(
   flowPath: string,
-): Promise<readonly HostedExtensionArtifact[]> {
+): Promise<HostedExtensionInstallation> {
   const root = findPluginProject(dirname(resolve(flowPath)));
-  if (root === undefined) return Object.freeze([]);
+  if (root === undefined) return installation([]);
   const artifacts: HostedExtensionArtifact[] = [];
   for (const { ref, entry } of reconcileDeclaredExtensions(root)) {
     const directory = pluginStoreDirectory(root, entry.name, entry.digest);
@@ -101,7 +114,25 @@ export async function loadHostedExtensionArtifacts(
       manifestSha256: entry.manifestSha256,
     }));
   }
-  return Object.freeze(artifacts);
+  return installation(artifacts);
+}
+
+/** Load and brand the actual base with extension importing explicitly disabled. */
+export async function loadHostedExtensionBase(flowPath: string): Promise<HostedExtensionBase> {
+  const loaded = await loadAuthoredFlow(flowPath, { extensions: 'none' });
+  const identity = hostedExtensionBaseFromLoadedFlow(loaded);
+  const value = Object.freeze({
+    name: identity.name,
+    ...(identity.version === undefined ? {} : { version: identity.version }),
+  });
+  HOSTED_BASE_AUTHORITY.add(value);
+  return value;
+}
+
+function installation(artifacts: readonly HostedExtensionArtifact[]): HostedExtensionInstallation {
+  const value = Object.freeze({ artifacts: Object.freeze([...artifacts]) });
+  HOSTED_INSTALLATION_AUTHORITY.add(value);
+  return value;
 }
 
 /**
@@ -118,80 +149,110 @@ export async function loadHostedExtensionArtifacts(
 export async function runHostedCapabilityExtension(
   options: RunHostedExtensionOptions,
 ): Promise<HostedExtensionResult> {
-  if (process.platform !== 'linux') return unsupported('hosted extension isolation requires Linux');
-  const bwrap = executable(options.bubblewrapPath ?? '/usr/bin/bwrap', 'bubblewrap');
-  const node = executable(options.nodePath ?? process.execPath, 'Node');
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) {
-    return unsupported('hosted extension timeout must be an integer from 1 to 60000ms');
-  }
-
-  const manifest = await verifiedManifest(options.artifact);
-  assertCapabilityOnlyManifest(manifest);
-  const versions = runtimeVersions();
-  assertCompatible(manifest, versions);
   const identity = hostedExtensionDispatchIdentity(options.dispatch);
-  assertManifestRoutes(manifest, identity);
-  const normalizedInput = babysitterInput(options.input, options.dispatch);
-  const entryPath = resolve(options.artifact.directory, manifest.entry);
-  if (!entryPath.startsWith(`${resolve(options.artifact.directory)}/`)) {
-    throw new PluginError('plugin_path_invalid', `${manifest.entry}: hosted extension entry escapes its artifact.`);
+  if (typeof options.base !== 'object' || options.base === null
+    || !HOSTED_BASE_AUTHORITY.has(options.base)) {
+    throw new PluginError(
+      'plugin_incompatible',
+      'Hosted extension base authority is malformed; use loadHostedExtensionBase.',
+    );
   }
-  const surfaceRoot = resolveSurfaceRoot(versions.surface);
+  const { artifact, manifest } = await selectHostedExtensionForRuntime(
+    options.installation,
+    options.base,
+    identity,
+    runtimeVersions(),
+  );
+  return await runVerifiedNativeExtensionSandbox({ ...options, artifact, manifest });
+}
 
-  const runtimeDirectory = await mkdtemp(join(tmpdir(), 'flows-hosted-extension-'));
-  const runner = join(runtimeDirectory, 'runner.mjs');
-  const surfaceFacade = join(runtimeDirectory, 'surface');
-  try {
-    await writeFile(runner, HOSTED_EXTENSION_SANDBOX_SOURCE, { mode: 0o400, flag: 'wx' });
-    await writeSurfaceFacade(surfaceFacade);
-    const args = sandboxArguments({
-      node, runner, extension: realpathSync(options.artifact.directory), surfaceFacade, surfaceRoot,
-    });
-    const child = spawn(bwrap, args, {
-      cwd: '/', env: {},
-      stdio: ['pipe', 'ignore', 'pipe', 'pipe'],
-    });
-    const protocol = child.stdio[3] as Readable;
-    const stdin = child.stdin as Writable;
-    const stderr = child.stderr as Readable;
-    const authority: HostedCapabilityAuthority = Object.freeze({
-      dispatch: options.dispatch,
-      extension: Object.freeze({
-        name: manifest.name,
-        version: manifest.version,
-        ref: options.artifact.ref,
-        digest: options.artifact.digest,
-      }),
-    });
-    return await exchange(child, protocol, stdin, stderr, timeoutMs, {
-      type: 'execute',
-      entry: `/extension/src/${manifest.entry}`,
-      surfaceRuntime: '/extension/node_modules/@relayflows/surface/runtime.js',
-      capability: HOSTED_WRITE,
-      identity,
-      input: normalizedInput,
-    }, async request => babysitterReceipt(await options.babysitterTurn.queue(
+interface RunVerifiedNativeExtensionOptions {
+  readonly artifact: HostedExtensionArtifact;
+  readonly manifest: FlowExtensionManifest;
+  readonly dispatch: HostedExtensionDispatch;
+  readonly input: unknown;
+  readonly babysitterTurn: HostedBabysitterCapability;
+  readonly timeoutMs?: number;
+  readonly bubblewrapPath?: string;
+  readonly nodePath?: string;
+}
+
+/** @internal Security-harness seam; not exported from the SDK package root. */
+export async function runVerifiedNativeExtensionSandbox(
+  options: RunVerifiedNativeExtensionOptions,
+): Promise<HostedExtensionResult> {
+  assertCapabilityOnlyManifest(options.manifest);
+  const identity = hostedExtensionDispatchIdentity(options.dispatch);
+  assertManifestRoutes(options.manifest, identity);
+  const normalizedInput = babysitterInput(options.input, options.dispatch);
+  const versions = runtimeVersions();
+  const authority: HostedCapabilityAuthority = Object.freeze({
+    dispatch: options.dispatch,
+    extension: Object.freeze({
+      name: options.manifest.name,
+      version: options.manifest.version,
+      ref: options.artifact.ref,
+      digest: options.artifact.digest,
+    }),
+  });
+  return await runHostedExtensionSandbox({
+    artifactDirectory: options.artifact.directory,
+    entry: options.manifest.entry,
+    surfaceVersion: versions.surface,
+    identity,
+    input: normalizedInput,
+    timeoutMs: options.timeoutMs,
+    bubblewrapPath: options.bubblewrapPath,
+    nodePath: options.nodePath,
+    invoke: async request => babysitterReceipt(await options.babysitterTurn.queue(
       babysitterRequest(request, normalizedInput, options.dispatch),
       authority,
-    )));
-  } finally {
-    await rm(runtimeDirectory, { recursive: true, force: true });
+    )),
+  });
+}
+
+/** @internal Selection seam used by compatibility/security regression tests. */
+export async function selectHostedExtensionForRuntime(
+  value: HostedExtensionInstallation,
+  base: HostedExtensionBase,
+  identity: { readonly provider: string; readonly event: string; readonly action?: string },
+  versions: Readonly<{ sdk: string; surface: string }>,
+): Promise<{ artifact: HostedExtensionArtifact; manifest: FlowExtensionManifest }> {
+  if (typeof value !== 'object' || value === null
+    || !HOSTED_INSTALLATION_AUTHORITY.has(value) || !Array.isArray(value.artifacts)) {
+    throw new PluginError('plugin_source_invalid', 'Hosted extension installation authority is malformed.');
   }
+  if (typeof base !== 'object' || base === null || typeof base.name !== 'string'
+    || (base.version !== undefined && typeof base.version !== 'string')) {
+    throw new PluginError('plugin_incompatible', 'Hosted base identity is malformed.');
+  }
+  const matches: Array<{ artifact: HostedExtensionArtifact; manifest: FlowExtensionManifest }> = [];
+  for (const artifact of value.artifacts) {
+    const manifest = await verifiedManifest(artifact);
+    assertCompatible(manifest, versions);
+    assertBaseCompatible(manifest, base);
+    if (hostedManifestRoutes(manifest, identity)) matches.push({ artifact, manifest });
+  }
+  if (matches.length > 1) {
+    throw new PluginError(
+      'plugin_event_ambiguous',
+      `Hosted event matches multiple extension manifests (${matches.map(match => match.manifest.name).join(', ')}).`,
+    );
+  }
+  const selected = matches[0];
+  if (selected === undefined || selected.artifact.ref !== BABYSITTER_REF) {
+    throw new PluginError('plugin_event_unroutable', 'Hosted event does not route to the pinned native Babysitter extension.');
+  }
+  await assertPinnedBabysitter(selected.artifact);
+  assertCapabilityOnlyManifest(selected.manifest);
+  return selected;
 }
 
 async function verifiedManifest(artifact: HostedExtensionArtifact): Promise<FlowExtensionManifest> {
-  if (!BABYSITTER_REF.test(artifact.ref)) {
-    throw new PluginError('plugin_source_invalid', `${artifact.ref}: hosted capability isolation accepts only the immutable native Babysitter source.`);
-  }
   if (!/^[a-f0-9]{64}$/.test(artifact.digest) || !/^[a-f0-9]{64}$/.test(artifact.manifestSha256)) {
     throw new PluginError('plugin_source_drift', `${artifact.ref}: hosted extension digests are malformed.`);
   }
   await verifyStoredPlugin(artifact.directory, artifact.digest);
-  const payload = JSON.parse((await readFile(join(artifact.directory, 'manifest.json'))).toString('utf8')) as Array<{ path?: unknown }>;
-  if (payload.some(file => typeof file.path === 'string' && (file.path === 'node_modules' || file.path.startsWith('node_modules/')))) {
-    throw new PluginError('plugin_source_drift', `${artifact.ref}: hosted extensions cannot carry node_modules.`);
-  }
   const bytes = await readFile(join(artifact.directory, 'flows-plugin.json'));
   if (sha256(bytes) !== artifact.manifestSha256) {
     throw new PluginError('plugin_source_drift', `${artifact.ref}: flows-plugin.json differs from the lockfile's manifest hash.`);
@@ -207,6 +268,23 @@ async function verifiedManifest(artifact: HostedExtensionArtifact): Promise<Flow
     );
   }
   return manifest;
+}
+
+async function assertPinnedBabysitter(artifact: HostedExtensionArtifact): Promise<void> {
+  if (artifact.ref !== BABYSITTER_REF || artifact.name !== 'babysitter' || artifact.version !== '0.2.0'
+    || artifact.digest !== BABYSITTER_DIGEST || artifact.manifestSha256 !== BABYSITTER_MANIFEST_SHA256) {
+    throw new PluginError(
+      'plugin_source_invalid',
+      'Hosted capability isolation accepts only the reviewed native Babysitter artifact.',
+    );
+  }
+  const payload = JSON.parse(
+    (await readFile(join(artifact.directory, 'manifest.json'))).toString('utf8'),
+  ) as Array<{ path?: unknown }>;
+  if (payload.some(file => typeof file.path === 'string'
+    && (file.path === 'node_modules' || file.path.startsWith('node_modules/')))) {
+    throw new PluginError('plugin_source_drift', `${artifact.ref}: hosted extensions cannot carry node_modules.`);
+  }
 }
 
 function assertCapabilityOnlyManifest(manifest: FlowExtensionManifest): void {
@@ -241,12 +319,20 @@ function assertManifestRoutes(
   manifest: FlowExtensionManifest,
   identity: { readonly provider: string; readonly event: string; readonly action?: string },
 ): void {
-  const matches = manifest.triggers.filter(trigger => trigger.provider === identity.provider
-    && trigger.event === identity.event
-    && (trigger.actions.length === 0 ? identity.action === undefined : identity.action !== undefined && trigger.actions.includes(identity.action)));
-  if (matches.length !== 1) {
+  if (!hostedManifestRoutes(manifest, identity)) {
     throw new PluginError('plugin_event_unroutable', `${manifest.name}: hosted event is not declared exactly once.`);
   }
+}
+
+/** Generic handlers overlap action-specific deliveries, matching the SDK handler router. */
+export function hostedManifestRoutes(
+  manifest: Pick<FlowExtensionManifest, 'triggers'>,
+  identity: { readonly provider: string; readonly event: string; readonly action?: string },
+): boolean {
+  return manifest.triggers.some(trigger => trigger.provider === identity.provider
+    && trigger.event === identity.event
+    && (trigger.actions.length === 0
+      || (identity.action !== undefined && trigger.actions.includes(identity.action))));
 }
 
 function babysitterInput(input: unknown, dispatch: HostedExtensionDispatch): unknown {
@@ -270,28 +356,7 @@ function babysitterInput(input: unknown, dispatch: HostedExtensionDispatch): unk
       && (typeof pullRequest.headSha !== 'string' || !HEAD_SHA.test(pullRequest.headSha)))) {
     throw new PluginError('plugin_event_unroutable', 'Hosted extension input does not match the verified GitHub delivery.');
   }
-  return jsonSnapshot(input, 'hosted extension input');
-}
-
-function resolveSurfaceRoot(expectedVersion: string): string {
-  let resolved: string;
-  try { resolved = realpathSync(createRequire(import.meta.url).resolve('@relayflows/surface')); }
-  catch { return unsupported('hosted extension cannot resolve @relayflows/surface'); }
-  let directory = dirname(resolved);
-  const root = parse(directory).root;
-  while (directory !== root) {
-    const packageJson = join(directory, 'package.json');
-    if (existsSync(packageJson)) {
-      try {
-        const manifest = JSON.parse(readFileSync(packageJson, 'utf8')) as { name?: unknown; version?: unknown };
-        if (manifest.name === '@relayflows/surface' && manifest.version === expectedVersion) {
-          return realpathSync(directory);
-        }
-      } catch { /* keep walking */ }
-    }
-    directory = dirname(directory);
-  }
-  return unsupported('hosted extension resolved an invalid @relayflows/surface package');
+  return boundedJsonSnapshot(input, 'hosted extension input');
 }
 
 function babysitterRequest(value: unknown, input: unknown, dispatch: HostedExtensionDispatch): unknown {
@@ -311,12 +376,17 @@ function babysitterRequest(value: unknown, input: unknown, dispatch: HostedExten
     || pullRequest.number !== inputPullRequest.number) {
     throw new PluginError('plugin_event_unroutable', 'Babysitter capability request does not match verified delivery input.');
   }
-  return jsonSnapshot(value, 'Babysitter capability request');
+  return boundedJsonSnapshot(value, 'Babysitter capability request');
 }
 
 function babysitterReceipt(value: unknown): unknown {
-  const receipt = exactRecord(value, 'Babysitter capability receipt', ['receiptId', 'status']);
-  if (typeof receipt.receiptId !== 'string' || !RECEIPT_ID.test(receipt.receiptId)
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new PluginError('plugin_unsupported', 'Babysitter capability returned an invalid receipt.');
+  }
+  const receipt = value as Record<string, unknown>;
+  const keys = Object.keys(receipt).sort();
+  if (keys.length !== 2 || keys[0] !== 'receiptId' || keys[1] !== 'status'
+    || typeof receipt.receiptId !== 'string' || !RECEIPT_ID.test(receipt.receiptId)
     || (receipt.status !== 'queued' && receipt.status !== 'duplicate')) {
     throw new PluginError('plugin_unsupported', 'Babysitter capability returned an invalid receipt.');
   }
@@ -355,210 +425,6 @@ function optionalRecord(
   return object;
 }
 
-async function writeSurfaceFacade(directory: string): Promise<void> {
-  await mkdir(directory);
-  await Promise.all([
-    writeFile(join(directory, 'package.json'), JSON.stringify({
-      name: '@relayflows/surface',
-      type: 'module',
-      exports: { '.': './index.js', './runtime': './runtime.js' },
-    }), { mode: 0o400, flag: 'wx' }),
-    writeFile(
-      join(directory, 'index.js'),
-      "export { flow } from './dist/flow.js';\nexport { github } from './dist/triggers/github.js';\n",
-      { mode: 0o400, flag: 'wx' },
-    ),
-    writeFile(
-      join(directory, 'runtime.js'),
-      "export { getFlowDefinition } from './dist/flow.js';\n",
-      { mode: 0o400, flag: 'wx' },
-    ),
-  ]);
-}
-
-function sandboxArguments(input: {
-  node: string;
-  runner: string;
-  extension: string;
-  surfaceFacade: string;
-  surfaceRoot: string;
-}): string[] {
-  const args = [
-    '--unshare-all', '--die-with-parent', '--new-session', '--clearenv', '--cap-drop', 'ALL',
-    '--dir', '/usr',
-  ];
-  // Bind only dynamic-library roots, not all of /usr (which commonly includes
-  // compilers, shells, package managers, and occasionally source worktrees).
-  for (const path of ['/usr/lib', '/usr/lib64', '/lib', '/lib64']) {
-    if (!existsSync(path)) continue;
-    args.push('--ro-bind', realpathSync(path), path);
-  }
-  args.push(
-    '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp',
-    '--dir', '/runtime', '--ro-bind', input.node, '/runtime/node', '--ro-bind', input.runner, '/runtime/runner.mjs',
-    '--dir', '/extension', '--dir', '/extension/node_modules', '--dir', '/extension/node_modules/@relayflows',
-    '--dir', '/extension/node_modules/@relayflows/surface',
-    '--ro-bind', join(input.surfaceFacade, 'package.json'), '/extension/node_modules/@relayflows/surface/package.json',
-    '--ro-bind', join(input.surfaceFacade, 'index.js'), '/extension/node_modules/@relayflows/surface/index.js',
-    '--ro-bind', join(input.surfaceFacade, 'runtime.js'), '/extension/node_modules/@relayflows/surface/runtime.js',
-    '--dir', '/extension/node_modules/@relayflows/surface/dist',
-    '--dir', '/extension/node_modules/@relayflows/surface/dist/helpers',
-    '--dir', '/extension/node_modules/@relayflows/surface/dist/triggers',
-    ...surfaceRuntimeMounts(input.surfaceRoot),
-    '--ro-bind', input.extension, '/extension/src',
-    '--chdir', '/extension/src',
-    '--setenv', 'HOME', '/tmp', '--setenv', 'TMPDIR', '/tmp', '--setenv', 'PATH', '/runtime',
-    '/runtime/node', '--permission', '--experimental-strip-types', '--max-old-space-size=64',
-    '--allow-fs-read=/runtime', '--allow-fs-read=/extension', '/runtime/runner.mjs',
-  );
-  return args;
-}
-
-function surfaceRuntimeMounts(surfaceRoot: string): string[] {
-  const files = [
-    'flow.js',
-    'helpers/providers.js',
-    'provider-trigger.js',
-    'schedule.js',
-    'triggers.js',
-    'triggers/github.js',
-  ];
-  return files.flatMap(file => {
-    const source = realpathSync(join(surfaceRoot, 'dist', file));
-    return ['--ro-bind', source, `/extension/node_modules/@relayflows/surface/dist/${file}`];
-  });
-}
-
-function executable(path: string, name: string): string {
-  let real: string;
-  try { real = realpathSync(path); }
-  catch { return unsupported(`${name} is unavailable`); }
-  if (!lstatSync(real).isFile()) return unsupported(`${name} is not a regular file`);
-  return real;
-}
-
-async function exchange(
-  child: ReturnType<typeof spawn>,
-  protocol: Readable,
-  stdin: Writable,
-  stderr: Readable,
-  timeoutMs: number,
-  request: unknown,
-  invoke: (request: unknown) => Promise<unknown>,
-): Promise<HostedExtensionResult> {
-  let buffer = '';
-  let stderrText = '';
-  let calls = 0;
-  stderr.setEncoding('utf8');
-  stderr.on('data', chunk => { stderrText = (stderrText + String(chunk)).slice(-MAX_STDERR_BYTES); });
-  protocol.setEncoding('utf8');
-  const timeout = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
-  timeout.unref();
-  return await new Promise<HostedExtensionResult>((resolvePromise, rejectPromise) => {
-    let settled = false;
-    let capabilityState: 'none' | 'pending' | 'completed' | 'failed' = 'none';
-    const finish = (error?: Error, result?: HostedExtensionResult) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      stdin.end();
-      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-      if (error !== undefined) rejectPromise(error);
-      else resolvePromise(result!);
-    };
-    const refuse = (message: string) => {
-      child.kill('SIGKILL');
-      finish(new PluginError('plugin_unsupported', message));
-    };
-    stdin.on('error', () => finish(new PluginError('plugin_unsupported', 'Hosted extension capability channel closed.')));
-    protocol.on('error', () => finish(new PluginError('plugin_unsupported', 'Hosted extension protocol channel failed.')));
-    protocol.on('data', chunk => {
-      buffer += String(chunk);
-      if (Buffer.byteLength(buffer) > MAX_FRAME_BYTES) return refuse('Hosted extension protocol exceeded its size limit.');
-      for (;;) {
-        const end = buffer.indexOf('\n');
-        if (end < 0) break;
-        const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
-        let message: Record<string, unknown>;
-        try {
-          const parsed = JSON.parse(line) as unknown;
-          if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-            return refuse('Hosted extension emitted a non-object protocol frame.');
-          }
-          message = parsed as Record<string, unknown>;
-        }
-        catch { return refuse('Hosted extension emitted malformed protocol data.'); }
-        if (message.type === 'capability') {
-          if (!hasExactKeys(message, ['type', 'id', 'name', 'request'])) {
-            return refuse('Hosted extension emitted a malformed capability frame.');
-          }
-          calls += 1;
-          if (calls !== 1 || capabilityState !== 'none' || message.name !== HOSTED_WRITE || message.id !== 1) {
-            return refuse('Hosted extension requested an undeclared or repeated capability.');
-          }
-          capabilityState = 'pending';
-          void invoke(message.request).then(
-            value => {
-              if (settled) return;
-              try {
-                const snapshot = jsonSnapshot(value, 'hosted capability result');
-                capabilityState = 'completed';
-                stdin.write(`${JSON.stringify({ type: 'capability-result', id: 1, ok: true, value: snapshot })}\n`);
-              } catch (error) {
-                capabilityState = 'failed';
-                stdin.write(`${JSON.stringify({ type: 'capability-result', id: 1, ok: false, error: error instanceof Error ? error.message : String(error) })}\n`);
-              }
-            },
-            error => {
-              if (settled) return;
-              capabilityState = 'failed';
-              stdin.write(`${JSON.stringify({ type: 'capability-result', id: 1, ok: false, error: error instanceof Error ? error.message : String(error) })}\n`);
-            },
-          );
-        } else if (message.type === 'result') {
-          if (!hasExactKeys(message, ['type', 'completionReason', 'capabilityCalls'])
-            || calls !== 1 || capabilityState !== 'completed'
-            || message.completionReason !== 'success' || message.capabilityCalls !== 1) {
-            return refuse('Hosted extension reported a completion without exactly one capability call.');
-          }
-          finish(undefined, Object.freeze({ completionReason: 'success', capabilityCalls: 1 }));
-        } else if (message.type === 'error') {
-          if (!hasExactKeys(message, ['type', 'message']) || typeof message.message !== 'string') {
-            return refuse('Hosted extension emitted a malformed error frame.');
-          }
-          finish(new PluginError('plugin_unsupported', `Hosted extension failed: ${String(message.message).slice(0, 8192)}`));
-        } else return refuse('Hosted extension emitted an unknown protocol message.');
-      }
-    });
-    child.once('error', () => finish(new PluginError('plugin_unsupported', 'Hosted extension sandbox could not start.')));
-    child.once('close', code => {
-      if (!settled) finish(new PluginError(
-        'plugin_unsupported',
-        `Hosted extension sandbox exited without a valid completion (exit ${code ?? 'signal'})${stderrText === '' ? '' : `: ${stderrText}`}`,
-      ));
-    });
-    stdin.write(`${JSON.stringify(request)}\n`);
-  });
-}
-
-function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
-  const actual = Object.keys(value).sort();
-  const expected = [...keys].sort();
-  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
-}
-
-function jsonSnapshot(value: unknown, what: string): unknown {
-  const encoded = JSON.stringify(value);
-  if (encoded === undefined || Buffer.byteLength(encoded) > MAX_FRAME_BYTES) {
-    throw new PluginError('plugin_unsupported', `${what} is not bounded JSON data.`);
-  }
-  return JSON.parse(encoded) as unknown;
-}
-
 function sha256(value: Uint8Array): string {
   return createHash('sha256').update(value).digest('hex');
-}
-
-function unsupported(message: string): never {
-  throw new PluginError('plugin_unsupported', message);
 }

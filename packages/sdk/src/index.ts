@@ -61,12 +61,20 @@ export { SPEC_SCHEMA_VERSION } from './spec.js';
 export {
   runHostedCapabilityExtension,
   loadHostedExtensionArtifacts,
+  loadHostedExtensionBase,
   type HostedExtensionArtifact,
+  type HostedExtensionInstallation,
+  type HostedExtensionBase,
   type HostedCapabilityAuthority,
   type HostedBabysitterCapability,
   type RunHostedExtensionOptions,
   type HostedExtensionResult,
 } from './hosted-extension-isolation.js';
+export {
+  hostedExtensionDispatchFromVerifiedDelivery,
+  type HostedExtensionDispatch,
+  type HostedEventIdentity,
+} from './flow-extension-loader.js';
 
 export { CloudFlowError, type CloudConnectionOptions, type CloudConfigurationReason } from './cloud-http.js';
 export {

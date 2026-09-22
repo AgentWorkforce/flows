@@ -12,6 +12,9 @@ import {
 import { canonicalize } from './canonical.js';
 import { composeDefinition, loadFlowExtensions, parseHooksExport, type ImportedFlow, type LoadedFlowExtension } from './flow-extension-loader.js';
 import type { RuntimeVersions } from './flow-extension-compat.js';
+import { PluginError } from './plugin-manifest.js';
+
+const HOSTED_BASE_AUTHORITY = new WeakSet<object>();
 
 export class AuthoredFlowLoadError extends Error {
   constructor(message: string, readonly kind: 'invalid_spec' | 'use_not_found' | 'use_invalid' | 'use_cycle' = 'invalid_spec') {
@@ -67,6 +70,35 @@ export interface LoadedAuthoredFlowNode {
   readonly use: readonly string[];
 }
 
+/**
+ * Project the actual base identity only from a flow this loader imported with
+ * extensions disabled. Structural lookalikes and composed flows are refused.
+ */
+export function hostedExtensionBaseFromLoadedFlow(
+  value: unknown,
+): Readonly<{ name: string; version?: string }> {
+  if (typeof value !== 'object' || value === null || !HOSTED_BASE_AUTHORITY.has(value)
+    || !Array.isArray((value as Partial<LoadedAuthoredFlow>).extensions)
+    || (value as LoadedAuthoredFlow).extensions.length !== 0) {
+    throw new PluginError(
+      'plugin_incompatible',
+      'Hosted extension base must be the result of loadAuthoredFlow(..., { extensions: \'none\' }).',
+    );
+  }
+  const loaded = value as LoadedAuthoredFlow;
+  const definition = loaded.getDefinition(loaded.handle);
+  return Object.freeze({
+    name: definition.name,
+    ...(definition.header.version === undefined ? {} : { version: definition.header.version }),
+  });
+}
+
+function authorizedLoadedFlow(value: LoadedAuthoredFlow): LoadedAuthoredFlow {
+  const frozen = Object.freeze(value);
+  HOSTED_BASE_AUTHORITY.add(frozen);
+  return frozen;
+}
+
 /** Import and validate a direct-run module without executing its authored body. */
 export async function loadAuthoredFlow(path: string, options: LoadAuthoredFlowOptions = {}): Promise<LoadedAuthoredFlow> {
   const loaded = new Map<string, LoadedAuthoredFlowNode>();
@@ -115,7 +147,7 @@ export async function loadAuthoredFlow(path: string, options: LoadAuthoredFlowOp
   const root = await visit(resolve(path), true);
   const graph = [...loaded.values()];
   if (options.extensions === 'none') {
-    return Object.freeze({ sourcePath: root.path, handle: root.handle, getDefinition: root.getDefinition,
+    return authorizedLoadedFlow({ sourcePath: root.path, handle: root.handle, getDefinition: root.getDefinition,
       surfaceAuthority: root.surfaceAuthority, graph: Object.freeze(graph), extensions: Object.freeze([]) });
   }
   // Extensions are verified (lock, digest, manifest hash, compat) before their
