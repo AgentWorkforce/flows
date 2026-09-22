@@ -125,7 +125,9 @@ describe('hosted extension capability isolation', () => {
         order: 1, resolvedAt: '2026-09-22T12:00:00.000Z',
       }],
     }));
-    expect((await loadHostedExtensionArtifacts(join(root, 'software-factory.flow.ts'))).artifacts).toEqual([installed]);
+    const flowPath = join(root, 'software-factory.flow.ts');
+    writeFileSync(flowPath, 'export default {};');
+    expect((await loadHostedExtensionArtifacts(flowPath)).artifacts).toEqual([installed]);
     expect(() => readFileSync(marker)).toThrow();
   });
 

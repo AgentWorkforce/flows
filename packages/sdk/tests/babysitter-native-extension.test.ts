@@ -208,6 +208,19 @@ describe('native Babysitter extension', () => {
       } },
     })).rejects.toMatchObject({ code: 'plugin_source_invalid' });
     expect(calls).toBe(0);
+
+    const otherProject = await composed();
+    await expect(runHostedCapabilityExtension({
+      installation,
+      base: otherProject.hostedBase,
+      dispatch,
+      input: descriptor('pull_request.labeled'),
+      babysitterTurn: { queue: async () => {
+        calls += 1;
+        return { receiptId: 'never', status: 'queued' };
+      } },
+    })).rejects.toMatchObject({ code: 'plugin_source_invalid' });
+    expect(calls).toBe(0);
   });
 
   it('refuses a second installed extension that overlaps an action-specific route', async () => {

@@ -55,14 +55,15 @@ every frame as hostile, permits at most the one exact delivery already bound to
 the branded dispatch, and waits for the adapter's authoritative outcome before
 settling any premature child terminal frame.
 
-Before replacing #549's refusal, the hosted caller must use
-obtain opaque base and installation authorities with
+Before replacing #549's refusal, the hosted caller must obtain opaque base and
+installation authorities for the same canonical flow path with
 `loadHostedExtensionBase` and `loadHostedExtensionArtifacts`, then call
 `runHostedCapabilityExtension` with both values;
 using the ordinary compose loader would import extension top-level JavaScript
-in the host before the sandbox exists. Independent review must prove this path
-at the exact release head. Broader per-agent-step file/network/access-preset
-enforcement remains open in #442 and is not claimed by this slice.
+in the host before the sandbox exists. Cross-project pairing and structural
+lookalikes fail before import. Independent review must prove this path at the
+exact release head. Broader per-agent-step file/network/access-preset enforcement
+remains open in #442 and is not claimed by this slice.
 
 ## Export reviewed bytes
 

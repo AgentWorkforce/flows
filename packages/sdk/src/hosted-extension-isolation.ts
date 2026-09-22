@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { canonicalize } from './canonical.js';
 import {
@@ -28,6 +28,8 @@ const BABYSITTER_DIGEST = 'bdf2187b9a242667d34bbc63e7a744753e146dc8cd6f4047047f2
 const BABYSITTER_MANIFEST_SHA256 = '5631a06bbdc8186f4ee0ff955610ead24d001c5197b59fb1fe81fe422c44f226';
 const HOSTED_INSTALLATION_AUTHORITY = new WeakSet<object>();
 const HOSTED_BASE_AUTHORITY = new WeakSet<object>();
+const HOSTED_INSTALLATION_ORIGIN = new WeakMap<object, string>();
+const HOSTED_BASE_ORIGIN = new WeakMap<object, string>();
 const DELIVERY_ID = /^[A-Za-z0-9_.:-]{1,200}$/;
 const RECEIPT_ID = /^[A-Za-z0-9_.:-]{1,200}$/;
 const OWNER = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
@@ -99,8 +101,9 @@ export type HostedExtensionResult = HostedExtensionProtocolResult;
 export async function loadHostedExtensionArtifacts(
   flowPath: string,
 ): Promise<HostedExtensionInstallation> {
-  const root = findPluginProject(dirname(resolve(flowPath)));
-  if (root === undefined) return installation([]);
+  const origin = await realpath(resolve(flowPath));
+  const root = findPluginProject(dirname(origin));
+  if (root === undefined) return installation([], origin);
   const artifacts: HostedExtensionArtifact[] = [];
   for (const { ref, entry } of reconcileDeclaredExtensions(root)) {
     const directory = pluginStoreDirectory(root, entry.name, entry.digest);
@@ -114,24 +117,30 @@ export async function loadHostedExtensionArtifacts(
       manifestSha256: entry.manifestSha256,
     }));
   }
-  return installation(artifacts);
+  return installation(artifacts, origin);
 }
 
 /** Load and brand the actual base with extension importing explicitly disabled. */
 export async function loadHostedExtensionBase(flowPath: string): Promise<HostedExtensionBase> {
-  const loaded = await loadAuthoredFlow(flowPath, { extensions: 'none' });
+  const origin = await realpath(resolve(flowPath));
+  const loaded = await loadAuthoredFlow(origin, { extensions: 'none' });
   const identity = hostedExtensionBaseFromLoadedFlow(loaded);
   const value = Object.freeze({
     name: identity.name,
     ...(identity.version === undefined ? {} : { version: identity.version }),
   });
   HOSTED_BASE_AUTHORITY.add(value);
+  HOSTED_BASE_ORIGIN.set(value, origin);
   return value;
 }
 
-function installation(artifacts: readonly HostedExtensionArtifact[]): HostedExtensionInstallation {
+function installation(
+  artifacts: readonly HostedExtensionArtifact[],
+  origin: string,
+): HostedExtensionInstallation {
   const value = Object.freeze({ artifacts: Object.freeze([...artifacts]) });
   HOSTED_INSTALLATION_AUTHORITY.add(value);
+  HOSTED_INSTALLATION_ORIGIN.set(value, origin);
   return value;
 }
 
@@ -155,6 +164,19 @@ export async function runHostedCapabilityExtension(
     throw new PluginError(
       'plugin_incompatible',
       'Hosted extension base authority is malformed; use loadHostedExtensionBase.',
+    );
+  }
+  if (typeof options.installation !== 'object' || options.installation === null
+    || !HOSTED_INSTALLATION_AUTHORITY.has(options.installation)) {
+    throw new PluginError(
+      'plugin_source_invalid',
+      'Hosted extension installation authority is malformed; use loadHostedExtensionArtifacts.',
+    );
+  }
+  if (HOSTED_BASE_ORIGIN.get(options.base) !== HOSTED_INSTALLATION_ORIGIN.get(options.installation)) {
+    throw new PluginError(
+      'plugin_source_invalid',
+      'Hosted extension base and installation must originate from the same flow.',
     );
   }
   const { artifact, manifest } = await selectHostedExtensionForRuntime(

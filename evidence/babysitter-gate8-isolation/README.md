@@ -8,7 +8,8 @@ deployment.
 The enforced boundary is:
 
 - load and retain the actual base flow with extensions disabled and resolve an
-  opaque complete installation without importing extension JavaScript;
+  opaque complete installation for the same canonical flow path without
+  importing extension JavaScript; cross-project authority pairing refuses;
 - reverify every content-addressed artifact, lock metadata, manifest hash,
   base/runtime compatibility, and route uniqueness, then require the exact
   immutable native ref/digest/manifest and narrow permission profile;
