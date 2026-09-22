@@ -35,10 +35,15 @@ export type {
 
 const HOSTED_WRITE = 'cloud:babysitter-turn';
 const ARRAY_IS_ARRAY = Array.isArray;
+const BUFFER_TO_STRING = Function.prototype.call.bind(Buffer.prototype.toString) as (
+  value: Buffer,
+  encoding: BufferEncoding,
+) => string;
 const JSON_PARSE = JSON.parse;
 const NUMBER_IS_SAFE_INTEGER = Number.isSafeInteger;
 const OBJECT_HAS_OWN = Object.hasOwn;
 const OBJECT_FREEZE = Object.freeze;
+const OBJECT_GET_OWN_PROPERTY_DESCRIPTOR = Object.getOwnPropertyDescriptor;
 const OBJECT_KEYS = Object.keys;
 const REGEXP_TEST = Function.prototype.call.bind(RegExp.prototype.test) as (
   regexp: RegExp, value: string,
@@ -164,12 +169,12 @@ export async function runVerifiedNativeExtensionSandbox(
     surfaceVersion: versions.surface,
     identity,
     input: normalizedInput,
-    timeoutMs: options.timeoutMs,
-    bubblewrapPath: options.bubblewrapPath,
-    nodePath: options.nodePath,
-    prlimitPath: options.prlimitPath,
-    surfaceRoot: options.surfaceRoot,
-    beforeLaunch: options.beforeLaunch,
+    timeoutMs: ownOption<number>(options, 'timeoutMs'),
+    bubblewrapPath: ownOption<string>(options, 'bubblewrapPath'),
+    nodePath: ownOption<string>(options, 'nodePath'),
+    prlimitPath: ownOption<string>(options, 'prlimitPath'),
+    surfaceRoot: ownOption<string>(options, 'surfaceRoot'),
+    beforeLaunch: ownOption<() => Promise<void>>(options, 'beforeLaunch'),
     invoke: async request => babysitterReceipt(await options.babysitterTurn.queue(
       babysitterRequest(request, normalizedInput, options.dispatch),
       authority,
@@ -228,7 +233,7 @@ async function verifiedManifest(artifact: HostedExtensionArtifact): Promise<Flow
     throw new PluginError('plugin_source_drift', `${artifact.ref}: flows-plugin.json differs from the lockfile's manifest hash.`);
   }
   let input: unknown;
-  try { input = JSON_PARSE(bytes.toString('utf8')); }
+  try { input = JSON_PARSE(BUFFER_TO_STRING(bytes, 'utf8')); }
   catch { throw new PluginError('plugin_manifest_invalid', `${artifact.ref}: flows-plugin.json is not valid JSON.`); }
   const manifest = validateFlowExtensionManifest(input);
   if (manifest.name !== artifact.name || manifest.version !== artifact.version) {
@@ -374,6 +379,11 @@ function babysitterReceipt(value: unknown): unknown {
 
 function matches(pattern: RegExp, value: string): boolean {
   return REGEXP_TEST(pattern, value);
+}
+
+function ownOption<T>(options: object, name: string): T | undefined {
+  const descriptor = OBJECT_GET_OWN_PROPERTY_DESCRIPTOR(options, name);
+  return descriptor !== undefined && 'value' in descriptor ? descriptor.value as T : undefined;
 }
 
 function record(value: unknown, what: string): Record<string, unknown> {

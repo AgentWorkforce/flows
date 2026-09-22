@@ -1,7 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { github } from '@relayflows/surface';
 import {
   extensionHandlerForHostedDispatch,
@@ -10,9 +7,6 @@ import {
 import { hostedExtensionDispatchFromVerifiedDelivery } from '../src/index.js';
 import { hostedManifestRoutes } from '../src/hosted-extension-isolation.js';
 import { sandboxArguments, supportsHostedSandboxFlags } from '../src/hosted-extension-sandbox.js';
-
-const roots: string[] = [];
-afterEach(() => roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })));
 
 describe('hosted extension routing policy', () => {
   it('accepts only Node releases that implement every sandbox flag', () => {
@@ -25,15 +19,13 @@ describe('hosted extension routing policy', () => {
   });
 
   it('constructs the pinned Surface mounts without ambient array methods', () => {
-    const root = mkdtempSync(join(tmpdir(), 'hosted-sandbox-arguments-'));
-    roots.push(root);
-    const facade = join(root, 'surface');
-    for (const file of [
+    const surfaceFiles = [
       'flow.js', 'helpers/providers.js', 'provider-trigger.js', 'schedule.js',
       'triggers.js', 'triggers/github.js',
-    ]) {
-      mkdirSync(join(facade, 'dist', file, '..'), { recursive: true });
-      writeFileSync(join(facade, 'dist', file), file);
+    ];
+    const dataDestinations = ['/runtime/runner.mjs', '/extension/src/babysitter.flow.ts'];
+    for (let index = 0; index < surfaceFiles.length; index += 1) {
+      dataDestinations[dataDestinations.length] = `/extension/node_modules/@relayflows/surface/dist/${surfaceFiles[index]!}`;
     }
     const flatMap = Array.prototype.flatMap;
     const push = Array.prototype.push;
@@ -59,7 +51,7 @@ describe('hosted extension routing policy', () => {
         return Reflect.apply(push, this, values);
       } as typeof Array.prototype.push;
       args = sandboxArguments({
-        node: '/trusted/node', runner: '/trusted/runner', extension: '/trusted/extension', surfaceFacade: facade,
+        node: '/trusted/node', dataDestinations,
       });
     } finally {
       Array.prototype.flatMap = flatMap;
@@ -67,12 +59,11 @@ describe('hosted extension routing policy', () => {
     }
     expect(calls).toBe(0);
     expect(args).not.toContain('/attacker');
-    for (const file of [
-      'flow.js', 'helpers/providers.js', 'provider-trigger.js', 'schedule.js',
-      'triggers.js', 'triggers/github.js',
-    ]) {
+    for (const file of surfaceFiles) {
       expect(args).toContain(`/extension/node_modules/@relayflows/surface/dist/${file}`);
     }
+    expect(args).toContain('--ro-bind-data');
+    expect(args).not.toContain('/trusted/extension');
   });
 
   it('matches the SDK router for exact, absent, duplicate, and generic-overlap routes', () => {

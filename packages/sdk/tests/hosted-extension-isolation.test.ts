@@ -4,6 +4,7 @@ import {
   copyFileSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -215,21 +216,85 @@ describe('hosted extension capability isolation', () => {
     },
   );
 
-  it('mounts the verified snapshot when the live store is atomically replaced before bwrap', async () => {
+  it.runIf(process.platform === 'linux')(
+    'ignores inherited launcher overrides and decodes manifests with the captured Buffer intrinsic',
+    async () => {
+      const installed = await artifact();
+      const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
+        provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-options',
+      });
+      const optionNames = [
+        'bubblewrapPath', 'nodePath', 'prlimitPath', 'surfaceRoot', 'timeoutMs', 'beforeLaunch',
+      ] as const;
+      const previousOptions = optionNames.map(name => Object.getOwnPropertyDescriptor(Object.prototype, name));
+      const bufferToString = Buffer.prototype.toString;
+      let poisonCalls = 0;
+      try {
+        for (const name of optionNames) {
+          Object.defineProperty(Object.prototype, name, {
+            configurable: true,
+            value: name === 'beforeLaunch'
+              ? async () => { poisonCalls += 1; throw new Error('inherited beforeLaunch must not run'); }
+              : name === 'timeoutMs' ? 1 : `/attacker/${name}`,
+          });
+        }
+        Buffer.prototype.toString = function poisonedToString(this: Buffer, ...args: unknown[]) {
+          const caller = (new Error().stack ?? '').split('\n', 3)[2] ?? '';
+          if (caller.includes('/src/hosted-extension-isolation.')) {
+            poisonCalls += 1;
+            throw new Error('ambient Buffer.toString must not run');
+          }
+          return Reflect.apply(bufferToString, this, args as [BufferEncoding?]);
+        } as typeof Buffer.prototype.toString;
+        await expect(runVerifiedNativeExtensionSandbox({
+          artifact: installed,
+          manifest: validateFlowExtensionManifest(manifest()),
+          dispatch,
+          input: descriptor('delivery-options'),
+          babysitterTurn: { queue: async () => ({ receiptId: 'receipt-options', status: 'queued' }) },
+        })).resolves.toEqual({ completionReason: 'success', capabilityCalls: 1 });
+      } finally {
+        Buffer.prototype.toString = bufferToString;
+        for (let index = 0; index < optionNames.length; index += 1) {
+          const descriptor = previousOptions[index];
+          if (descriptor === undefined) {
+            delete (Object.prototype as Record<string, unknown>)[optionNames[index]!];
+          } else Object.defineProperty(Object.prototype, optionNames[index]!, descriptor);
+        }
+      }
+      expect(poisonCalls).toBe(0);
+    },
+  );
+
+  it('streams verified bytes when the live store is replaced and no writable staging path exists', async () => {
     const installed = await artifact();
     const wrapperRoot = mkdtempSync(join(tmpdir(), 'hosted-bwrap-wrapper-'));
     roots.push(wrapperRoot);
     const wrapper = join(wrapperRoot, 'bwrap-wrapper');
     const replaced = `${installed.directory}.replaced`;
     const replacementSource = hostileImport([{ type: 'error', message: 'replacement executed' }]);
+    const existingStaging = new Set(
+      readdirSync(tmpdir()).filter(name => name.startsWith('flows-hosted-extension-')),
+    );
     writeFileSync(wrapper, `#!${process.execPath}
-const { mkdirSync, renameSync, writeFileSync } = require('node:fs');
+const { mkdirSync, readdirSync, renameSync, writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { spawnSync } = require('node:child_process');
+const existingStaging = new Set(${JSON.stringify([...existingStaging])});
+if (readdirSync(${JSON.stringify(tmpdir())}).some(name => name.startsWith('flows-hosted-extension-') && !existingStaging.has(name))) {
+  process.exit(91);
+}
 renameSync(${JSON.stringify(installed.directory)}, ${JSON.stringify(replaced)});
 mkdirSync(${JSON.stringify(installed.directory)}, { recursive: true });
 writeFileSync(join(${JSON.stringify(installed.directory)}, 'babysitter.flow.ts'), ${JSON.stringify(replacementSource)});
-const child = spawnSync('/usr/bin/bwrap', process.argv.slice(2), { stdio: [0, 1, 2, 3] });
+const args = process.argv.slice(2);
+let highestFd = 3;
+for (let index = 0; index < args.length - 1; index += 1) {
+  if (args[index] === '--ro-bind-data') highestFd = Math.max(highestFd, Number(args[index + 1]));
+}
+const stdio = [0, 1, 2, 3];
+for (let fd = 4; fd <= highestFd; fd += 1) stdio[fd] = fd;
+const child = spawnSync('/usr/bin/bwrap', args, { stdio });
 if (child.error) throw child.error;
 process.exit(child.status ?? 1);
 `);
