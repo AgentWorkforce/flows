@@ -38,37 +38,53 @@ $ mise exec node@22 -- node --version
 v22.23.2
 $ mise exec node@22 -- ./node_modules/.bin/vitest run tests/hosted-extension-isolation.test.ts
 
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
+
  ✓ tests/hosted-extension-isolation.test.ts (13 tests) 788ms
 
  Test Files  1 passed (1)
       Tests  13 passed (13)
+   Start at  08:41:32
+   Duration  2.38s (transform 879ms, setup 0ms, collect 1.30s, tests 788ms, environment 0ms, prepare 103ms)
 
 $ mise exec node@23 -- node --version
 v23.11.1
 $ mise exec node@23 -- ./node_modules/.bin/vitest run tests/hosted-extension-isolation.test.ts
 
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
+
  ✓ tests/hosted-extension-isolation.test.ts (13 tests) 953ms
 
  Test Files  1 passed (1)
       Tests  13 passed (13)
+   Start at  08:41:32
+   Duration  2.56s (transform 661ms, setup 0ms, collect 1.16s, tests 953ms, environment 0ms, prepare 121ms)
 
 $ mise exec node@24 -- node --version
 v24.21.0
 $ mise exec node@24 -- ./node_modules/.bin/vitest run tests/hosted-extension-isolation.test.ts
 
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
+
  ✓ tests/hosted-extension-isolation.test.ts (13 tests) 694ms
 
  Test Files  1 passed (1)
       Tests  13 passed (13)
+   Start at  08:41:32
+   Duration  2.36s (transform 762ms, setup 0ms, collect 1.27s, tests 694ms, environment 0ms, prepare 76ms)
 
 $ node --version
 v26.8.1
 $ ./node_modules/.bin/vitest run tests/hosted-extension-isolation.test.ts
 
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
+
  ✓ tests/hosted-extension-isolation.test.ts (13 tests) 632ms
 
  Test Files  1 passed (1)
       Tests  13 passed (13)
+   Start at  08:41:35
+   Duration  1.91s (transform 728ms, setup 0ms, collect 1.12s, tests 632ms, environment 0ms, prepare 59ms)
 
 $ cd packages/surface && npm run typecheck && npm run typecheck:regressions && npm test && sha256sum dist/flow.js dist/helpers/providers.js dist/provider-trigger.js dist/schedule.js dist/triggers.js dist/triggers/github.js
 
