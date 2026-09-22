@@ -1,16 +1,15 @@
+import packageManifest from '../package.json' with { type: 'json' };
 import type { FlowExtensionManifest } from './flow-extension-manifest.js';
 import { PluginError } from './plugin-manifest.js';
 import { satisfiesRange } from './semver-range.js';
 
 const OBJECT_FREEZE = Object.freeze;
-// These are release pins, not runtime discovery. Reading package.json here
-// would both consult mutable filesystem intrinsics after authored code and
-// break a compiled Bun executable, where import.meta.url names the virtual
-// executable rather than the installed SDK directory. A regression compares
-// both literals with the package manifests so a version bump cannot drift.
+// This static import is resolved before module evaluation and embedded by the
+// standalone Bun build. It neither consults mutable fs exports after authored
+// code nor depends on import.meta.url naming a real package directory.
 const RUNTIME_VERSIONS = OBJECT_FREEZE({
-  sdk: '2.0.28',
-  surface: '2.0.28',
+  sdk: packageManifest.version,
+  surface: packageManifest.dependencies['@relayflows/surface']!,
 });
 
 export interface RuntimeVersions { readonly sdk: string; readonly surface: string }
