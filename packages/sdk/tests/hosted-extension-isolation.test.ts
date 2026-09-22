@@ -86,10 +86,13 @@ async function artifact(source = ordinaryExtension, value = manifest()): Promise
 
 function surfaceFixture(): string {
   const sourceRoot = resolve('../surface');
+  const sourceManifest = JSON.parse(readFileSync(join(sourceRoot, 'package.json'), 'utf8')) as {
+    version: string;
+  };
   const surfaceRoot = mkdtempSync(join(tmpdir(), 'hosted-surface-test-'));
   roots.push(surfaceRoot);
   writeFileSync(join(surfaceRoot, 'package.json'), JSON.stringify({
-    name: '@relayflows/surface', version: '2.0.26', type: 'module',
+    name: '@relayflows/surface', version: sourceManifest.version, type: 'module',
   }));
   for (const file of [
     'flow.js', 'helpers/providers.js', 'provider-trigger.js',
