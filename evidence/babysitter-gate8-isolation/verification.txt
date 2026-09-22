@@ -1369,3 +1369,59 @@ authored-node.mjs  3.1 MB  (entry point)
 $ /tmp/flows-pr552-standalone.t9SSsQ/flows --help >/dev/null
 $ printf 'standalone-smoke-pass %s\n' /tmp/flows-pr552-standalone.t9SSsQ/flows
 standalone-smoke-pass /tmp/flows-pr552-standalone.t9SSsQ/flows
+
+$ git cherry-pick d125e673f19918ad339559602ff29183d93cbf2b
+[feat/babysitter-gate8-isolation 7cf156fc] fix(sdk): embed hosted runtime versions
+
+$ git rev-parse HEAD
+7cf156fcccc20ed51f3d75be6ec6c311b7061c96
+
+$ git rev-parse origin/main
+5546c4b3029938ed9d9eb1f9bfdbed81c88b9224
+
+$ cd packages/sdk
+$ git diff --check
+$ npm run typecheck
+
+> @relayflows/sdk@2.0.28 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+$ npm run build
+
+> @relayflows/sdk@2.0.28 build
+> tsc && node scripts/make-cli-executable.mjs
+
+$ npm run typecheck:tests
+
+> @relayflows/sdk@2.0.28 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+$ ./node_modules/.bin/vitest run tests/plugin-store-bounds.test.ts tests/hosted-base-snapshot.test.ts tests/hosted-extension-routing.test.ts tests/preflight.test.ts tests/babysitter-native-extension.test.ts tests/hosted-extension-protocol-intrinsics.test.ts tests/hosted-extension-protocol.test.ts tests/authored-flow.test.ts tests/hosted-extension-isolation.test.ts
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
+
+ ✓ tests/hosted-extension-protocol-intrinsics.test.ts (5 tests) 15ms
+ ✓ tests/plugin-store-bounds.test.ts (8 tests) 47ms
+ ✓ tests/hosted-base-snapshot.test.ts (13 tests) 580ms
+   ✓ hosted base private snapshot > stops streaming project entries at the shared count limit 527ms
+ ✓ tests/hosted-extension-routing.test.ts (4 tests) 7ms
+ ✓ tests/preflight.test.ts (67 tests) 103ms
+ ✓ tests/babysitter-native-extension.test.ts (40 tests) 485ms
+ ✓ tests/authored-flow.test.ts (34 tests) 748ms
+ ✓ tests/hosted-extension-protocol.test.ts (24 tests) 619ms
+ ✓ tests/hosted-extension-isolation.test.ts (19 tests) 973ms
+
+ Test Files  9 passed (9)
+      Tests  214 passed (214)
+   Start at  15:37:57
+   Duration  2.61s (transform 1.70s, setup 0ms, collect 8.57s, tests 3.58s, environment 2ms, prepare 614ms)
+
+$ node scripts/build-standalone-cli.mjs bun-linux-x64 /tmp/flows-pr552-standalone.tPG8GP/flows
+Bundled 780 modules in 47ms
+authored-node.mjs  3.1 MB  (entry point)
+[81ms] bundle 713 modules
+[134ms] compile /tmp/flows-pr552-standalone.tPG8GP/flows
+
+$ /tmp/flows-pr552-standalone.tPG8GP/flows --help >/dev/null
+$ printf 'standalone-static-json-pass %s\n' /tmp/flows-pr552-standalone.tPG8GP/flows
+standalone-static-json-pass /tmp/flows-pr552-standalone.tPG8GP/flows
