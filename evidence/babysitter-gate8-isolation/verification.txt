@@ -1589,3 +1589,40 @@ authored-node.mjs  3.1 MB  (entry point)
 $ /tmp/flows-pr552-standalone.s5kEqR/flows --help >/dev/null
 $ printf 'standalone-hosted-invariants-pass %s\n' /tmp/flows-pr552-standalone.s5kEqR/flows
 standalone-hosted-invariants-pass /tmp/flows-pr552-standalone.s5kEqR/flows
+
+$ git rev-parse HEAD
+ebf2f280
+
+$ cd packages/sdk
+$ git diff --check
+$ npm run typecheck
+
+> @relayflows/sdk@2.0.28 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+$ npm run build
+
+> @relayflows/sdk@2.0.28 build
+> tsc && node scripts/make-cli-executable.mjs
+
+$ npm run typecheck:tests
+
+> @relayflows/sdk@2.0.28 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+$ ./node_modules/.bin/vitest run tests/fs-descriptor.test.ts tests/plugin-store-bounds.test.ts tests/hosted-base-snapshot.test.ts tests/hosted-extension-routing.test.ts tests/preflight.test.ts tests/babysitter-native-extension.test.ts tests/hosted-extension-protocol-intrinsics.test.ts tests/hosted-extension-protocol.test.ts tests/authored-flow.test.ts tests/hosted-extension-isolation.test.ts
+
+ Test Files  10 passed (10)
+      Tests  225 passed (225)
+   Start at  16:58:18
+   Duration  2.54s
+
+$ node scripts/build-standalone-cli.mjs bun-linux-x64 /tmp/flows-pr552-standalone.yoEPLj/flows
+Bundled 781 modules in 27ms
+authored-node.mjs  3.1 MB  (entry point)
+[58ms] bundle 714 modules
+[101ms] compile /tmp/flows-pr552-standalone.yoEPLj/flows
+
+$ /tmp/flows-pr552-standalone.yoEPLj/flows --help >/dev/null
+$ printf 'standalone-native-promise-pass %s\n' /tmp/flows-pr552-standalone.yoEPLj/flows
+standalone-native-promise-pass /tmp/flows-pr552-standalone.yoEPLj/flows
