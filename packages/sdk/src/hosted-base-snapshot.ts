@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
-import { chmod, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, open, opendir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { canonicalize } from './canonical.js';
@@ -8,8 +8,10 @@ import { findPluginProject } from './plugin-loader.js';
 import { PluginError } from './plugin-manifest.js';
 
 const EXCLUDED_DIRECTORIES = new Set(['.flows', '.git', 'node_modules']);
-const MAX_FILES = 10_000;
+const MAX_ENTRIES = 10_000;
 const MAX_BYTES = 64 * 1024 * 1024;
+const MAX_DEPTH = 64;
+const READ_FLAGS = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
 
 interface SourceFile {
   readonly path: string;
@@ -18,8 +20,14 @@ interface SourceFile {
 }
 
 interface SourceBudget {
-  files: number;
+  entries: number;
   bytes: number;
+}
+
+/** @internal Deterministic race seams for this security boundary's tests. */
+export interface HostedBaseSnapshotTestHooks {
+  readonly beforeOpen?: (path: string) => Promise<void>;
+  readonly afterStat?: (path: string) => Promise<void>;
 }
 
 export interface HostedBaseSourceRoot {
@@ -80,18 +88,22 @@ export async function createHostedBaseSnapshot(flowPath: string): Promise<Hosted
 
 export async function hostedBaseSourceDigest(
   sources: readonly HostedBaseSourceRoot[],
+  hooks: HostedBaseSnapshotTestHooks = {},
 ): Promise<string> {
-  return sourceDigest(await readAuthorityFiles(sources));
+  return sourceDigest(await readAuthorityFiles(sources, hooks));
 }
 
 export async function removeHostedBaseSnapshot(snapshot: HostedBaseSnapshot): Promise<void> {
   await rm(snapshot.snapshotRoot, { recursive: true, force: true });
 }
 
-async function readAuthorityFiles(sources: readonly HostedBaseSourceRoot[]): Promise<readonly SourceFile[]> {
-  const budget: SourceBudget = { files: 0, bytes: 0 };
+async function readAuthorityFiles(
+  sources: readonly HostedBaseSourceRoot[],
+  hooks: HostedBaseSnapshotTestHooks = {},
+): Promise<readonly SourceFile[]> {
+  const budget: SourceBudget = { entries: 0, bytes: 0 };
   const files: SourceFile[] = [];
-  for (const source of sources) files.push(...await readTree(source.root, source.prefix, budget));
+  for (const source of sources) files.push(...await readTree(source.root, source.prefix, budget, hooks));
   files.sort((left, right) => left.path.localeCompare(right.path));
   return Object.freeze(files);
 }
@@ -120,52 +132,94 @@ async function readTree(
   root: string,
   prefix: string,
   budget: SourceBudget,
+  hooks: HostedBaseSnapshotTestHooks,
 ): Promise<readonly SourceFile[]> {
+  if (process.platform !== 'linux') {
+    throw invalid('Hosted base source snapshotting requires Linux.');
+  }
   const files: SourceFile[] = [];
-  async function visit(directory: string, relativeDirectory: string): Promise<void> {
-    const entries = await readdir(directory, { withFileTypes: true });
-    entries.sort((left, right) => left.name.localeCompare(right.name));
-    for (const entry of entries) {
+  async function visit(
+    directory: Awaited<ReturnType<typeof open>>,
+    relativeDirectory: string,
+    depth: number,
+  ): Promise<void> {
+    if (depth > MAX_DEPTH) throw tooLarge();
+    const entries = await opendir(`/proc/self/fd/${directory.fd}`);
+    for await (const entry of entries) {
       if (EXCLUDED_DIRECTORIES.has(entry.name)) continue;
+      budget.entries += 1;
+      if (budget.entries > MAX_ENTRIES) throw tooLarge();
       const relativePath = relativeDirectory === '' ? entry.name : join(relativeDirectory, entry.name);
-      const absolutePath = join(directory, entry.name);
-      if (entry.isDirectory()) await visit(absolutePath, relativePath);
-      else if (entry.isFile()) {
-        budget.files += 1;
-        if (budget.files > MAX_FILES) throw tooLarge();
-        const handle = await open(absolutePath, constants.O_RDONLY | constants.O_NOFOLLOW);
-        try {
-          const before = await handle.stat({ bigint: true });
-          if (!before.isFile() || before.size < 0n
-            || before.size > BigInt(MAX_BYTES - budget.bytes)) throw tooLarge();
-          budget.bytes += Number(before.size);
-          const bytes = await handle.readFile();
+      const absolutePath = join(root, relativePath);
+      await hooks.beforeOpen?.(absolutePath);
+      const handle = await open(`/proc/self/fd/${directory.fd}/${entry.name}`, READ_FLAGS);
+      try {
+        const before = await handle.stat({ bigint: true });
+        if (before.isDirectory()) {
+          await visit(handle, relativePath, depth + 1);
+        } else if (before.isFile()) {
+          if (before.size < 0n || before.size > BigInt(MAX_BYTES - budget.bytes)) throw tooLarge();
+          await hooks.afterStat?.(absolutePath);
+          const bytes = await readBounded(handle, Number(before.size), relativePath);
           const after = await handle.stat({ bigint: true });
-          if (bytes.byteLength !== Number(before.size) || after.size !== before.size
-            || after.mtimeNs !== before.mtimeNs || after.ctimeNs !== before.ctimeNs) {
+          if (after.size !== before.size || after.mtimeNs !== before.mtimeNs
+            || after.ctimeNs !== before.ctimeNs) {
             throw invalid(`Hosted base source changed while reading "${relativePath}".`);
           }
+          budget.bytes += bytes.byteLength;
           files.push(Object.freeze({
             path: prefix === '' ? relativePath : join(prefix, relativePath),
             bytes,
             sha256: sha256(bytes),
           }));
-        } finally {
-          await handle.close();
+        } else {
+          throw invalid(`Hosted base authority contains unsupported entry "${relativePath}".`);
         }
-      } else throw invalid(`Hosted base authority contains unsupported entry "${relativePath}".`);
+      } finally {
+        await handle.close();
+      }
     }
   }
-  try { await visit(root, ''); }
-  catch (error) {
+  try {
+    const rootHandle = await open(root, READ_FLAGS);
+    try {
+      if (!(await rootHandle.stat()).isDirectory()) {
+        throw invalid('Hosted base source root is not a directory.');
+      }
+      await visit(rootHandle, '', 0);
+    } finally {
+      await rootHandle.close();
+    }
+  } catch (error) {
     if (error instanceof PluginError) throw error;
     throw invalid('Hosted base source or trusted dependency is unreadable.');
   }
   return Object.freeze(files);
 }
 
+async function readBounded(
+  handle: Awaited<ReturnType<typeof open>>,
+  expectedBytes: number,
+  relativePath: string,
+): Promise<Buffer> {
+  const bytes = Buffer.allocUnsafe(expectedBytes);
+  let offset = 0;
+  while (offset < expectedBytes) {
+    const result = await handle.read(bytes, offset, expectedBytes - offset, offset);
+    if (result.bytesRead === 0) {
+      throw invalid(`Hosted base source changed while reading "${relativePath}".`);
+    }
+    offset += result.bytesRead;
+  }
+  const extra = Buffer.allocUnsafe(1);
+  if ((await handle.read(extra, 0, 1, expectedBytes)).bytesRead !== 0) {
+    throw invalid(`Hosted base source changed while reading "${relativePath}".`);
+  }
+  return bytes;
+}
+
 function tooLarge(): PluginError {
-  return invalid('Hosted base source exceeds the snapshot file or byte limit.');
+  return invalid('Hosted base source exceeds the snapshot entry or byte limit.');
 }
 
 function sourceDigest(files: readonly SourceFile[]): string {

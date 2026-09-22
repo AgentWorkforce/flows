@@ -14,8 +14,9 @@ The enforced boundary is:
   every dispatch rechecks the current declarations plus complete project
   source; base stdout, globals, process termination, relative/package imports,
   and an earlier module cache cannot forge the parent-pinned identity; source
-  file-count and byte limits are enforced from no-follow file metadata before
-  contents are buffered;
+  directory entries are streamed beneath a shared entry bound; nonblocking
+  no-follow descriptors and explicitly bounded reads enforce the byte limit
+  before contents are buffered;
 - reverify every content-addressed artifact, lock metadata, manifest hash,
   base/runtime compatibility, and route uniqueness, then require the exact
   immutable native ref/digest/manifest and narrow permission profile; copy the

@@ -64,8 +64,9 @@ Before replacing #549's refusal, the hosted caller must obtain an opaque base
 and installation as one generation with `loadHostedExtensionRuntime`, then call
 `runHostedCapabilityExtension` with both values. Every dispatch rechecks the
 current extension declarations and complete project source tree against that
-generation. File-count and cumulative-byte bounds are enforced from no-follow
-file metadata before source contents are buffered. The loader never imports
+generation. Directory entries are streamed beneath a shared entry bound;
+nonblocking no-follow descriptors and explicitly bounded reads enforce the
+cumulative-byte limit before source contents are buffered. The loader never imports
 tenant base code to derive authority. It
 requires the exact reviewed Software Factory flow-file SHA-256 and assigns its
 pinned name/version in the parent; project `node_modules`, relative imports,

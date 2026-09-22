@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -60,7 +61,62 @@ describe('hosted base private snapshot', () => {
     truncateSync(oversized, 64 * 1024 * 1024 + 1);
     await expect(createHostedBaseSnapshot(flowPath)).rejects.toMatchObject({
       code: 'plugin_source_invalid',
-      message: expect.stringContaining('snapshot file or byte limit'),
+      message: expect.stringContaining('snapshot entry or byte limit'),
+    });
+  });
+
+  it('bounds a file that grows after its admitted size was checked', async () => {
+    const { project } = fixture();
+    const raced = join(project, 'raced.bin');
+    writeFileSync(raced, 'small');
+    await expect(hostedBaseSourceDigest([{ root: project, prefix: '' }], {
+      afterStat: async path => {
+        if (path === raced) truncateSync(raced, 64 * 1024 * 1024 + 1);
+      },
+    })).rejects.toMatchObject({
+      code: 'plugin_source_invalid',
+      message: expect.stringContaining('changed while reading "raced.bin"'),
+    });
+  });
+
+  it.runIf(process.platform === 'linux' && existsSync('/usr/bin/mkfifo'))(
+    'opens a substituted FIFO without blocking before rejecting it',
+    async () => {
+      const { project } = fixture();
+      const raced = join(project, 'raced.txt');
+      writeFileSync(raced, 'regular');
+      let release: ReturnType<typeof setTimeout> | undefined;
+      const started = Date.now();
+      try {
+        await expect(hostedBaseSourceDigest([{ root: project, prefix: '' }], {
+          beforeOpen: async path => {
+            if (path !== raced) return;
+            rmSync(raced);
+            const result = spawnSync('/usr/bin/mkfifo', [raced]);
+            if (result.status !== 0) throw new Error(result.stderr.toString());
+            // If O_NONBLOCK is removed, release the read-only open so the test
+            // fails on elapsed time instead of hanging the test process.
+            release = setTimeout(() => writeFileSync(raced, 'release'), 1_000);
+          },
+        })).rejects.toMatchObject({
+          code: 'plugin_source_invalid',
+          message: expect.stringContaining('unsupported entry "raced.txt"'),
+        });
+        expect(Date.now() - started).toBeLessThan(500);
+      } finally {
+        if (release !== undefined) clearTimeout(release);
+      }
+    },
+  );
+
+  it('stops streaming project entries at the shared count limit', async () => {
+    const { project, flowPath } = fixture();
+    for (let index = 0; index < 10_001; index += 1) {
+      writeFileSync(join(project, `empty-${index}.txt`), '');
+    }
+    await expect(createHostedBaseSnapshot(flowPath)).rejects.toMatchObject({
+      code: 'plugin_source_invalid',
+      message: expect.stringContaining('snapshot entry or byte limit'),
     });
   });
 });

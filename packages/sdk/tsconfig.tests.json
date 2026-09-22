@@ -27,6 +27,7 @@
     "tests/authored-flow.test.ts",
     "tests/authored-agent-permissions.test.ts",
     "tests/hosted-extension-isolation.test.ts",
+    "tests/hosted-extension-routing.test.ts",
     "tests/hosted-base-snapshot.test.ts",
     "tests/hosted-extension-protocol.test.ts",
     "tests/flow-executor-chain.test.ts",

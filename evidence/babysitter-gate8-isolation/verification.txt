@@ -7,7 +7,7 @@ bubblewrap 0.12.0
 prlimit from util-linux 2.42.3
 v26.8.1
 
-$ cd packages/sdk && npm run typecheck && npm run build && npm run typecheck:tests && ./node_modules/.bin/vitest run tests/hosted-base-snapshot.test.ts tests/hosted-extension-isolation.test.ts tests/hosted-extension-protocol.test.ts tests/babysitter-native-extension.test.ts tests/authored-flow.test.ts tests/preflight.test.ts
+$ cd packages/sdk && npm run typecheck && npm run build && npm run typecheck:tests && ./node_modules/.bin/vitest run tests/hosted-base-snapshot.test.ts tests/hosted-extension-isolation.test.ts tests/hosted-extension-routing.test.ts tests/hosted-extension-protocol.test.ts tests/babysitter-native-extension.test.ts tests/authored-flow.test.ts tests/preflight.test.ts
 
 > @relayflows/sdk@2.0.26 typecheck
 > tsc --noEmit && tsc -p tsconfig.type-tests.json
@@ -20,53 +20,55 @@ $ cd packages/sdk && npm run typecheck && npm run build && npm run typecheck:tes
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
 
- ✓ tests/hosted-base-snapshot.test.ts (3 tests) 16ms
- ✓ tests/preflight.test.ts (59 tests) 55ms
- ✓ tests/babysitter-native-extension.test.ts (38 tests) 310ms
- ✓ tests/hosted-extension-protocol.test.ts (10 tests) 557ms
- ✓ tests/authored-flow.test.ts (34 tests) 749ms
- ✓ tests/hosted-extension-isolation.test.ts (15 tests) 734ms
+ ✓ tests/hosted-base-snapshot.test.ts (6 tests) 604ms
+   ✓ hosted base private snapshot > stops streaming project entries at the shared count limit 577ms
+ ✓ tests/hosted-extension-routing.test.ts (2 tests) 4ms
+ ✓ tests/preflight.test.ts (59 tests) 59ms
+ ✓ tests/babysitter-native-extension.test.ts (38 tests) 393ms
+ ✓ tests/hosted-extension-protocol.test.ts (10 tests) 559ms
+ ✓ tests/authored-flow.test.ts (34 tests) 740ms
+ ✓ tests/hosted-extension-isolation.test.ts (13 tests) 742ms
 
- Test Files  6 passed (6)
-      Tests  159 passed (159)
-   Start at  08:26:17
-   Duration  1.77s (transform 933ms, setup 0ms, collect 3.92s, tests 2.42s, environment 1ms, prepare 325ms)
+ Test Files  7 passed (7)
+      Tests  162 passed (162)
+   Start at  08:41:19
+   Duration  1.87s (transform 1.04s, setup 0ms, collect 5.24s, tests 3.10s, environment 1ms, prepare 432ms)
 
 $ mise exec node@22 -- node --version
 v22.23.2
 $ mise exec node@22 -- ./node_modules/.bin/vitest run tests/hosted-extension-isolation.test.ts
 
- ✓ tests/hosted-extension-isolation.test.ts (15 tests) 775ms
+ ✓ tests/hosted-extension-isolation.test.ts (13 tests) 788ms
 
  Test Files  1 passed (1)
-      Tests  15 passed (15)
+      Tests  13 passed (13)
 
 $ mise exec node@23 -- node --version
 v23.11.1
 $ mise exec node@23 -- ./node_modules/.bin/vitest run tests/hosted-extension-isolation.test.ts
 
- ✓ tests/hosted-extension-isolation.test.ts (15 tests) 910ms
+ ✓ tests/hosted-extension-isolation.test.ts (13 tests) 953ms
 
  Test Files  1 passed (1)
-      Tests  15 passed (15)
+      Tests  13 passed (13)
 
 $ mise exec node@24 -- node --version
 v24.21.0
 $ mise exec node@24 -- ./node_modules/.bin/vitest run tests/hosted-extension-isolation.test.ts
 
- ✓ tests/hosted-extension-isolation.test.ts (15 tests) 681ms
+ ✓ tests/hosted-extension-isolation.test.ts (13 tests) 694ms
 
  Test Files  1 passed (1)
-      Tests  15 passed (15)
+      Tests  13 passed (13)
 
 $ node --version
 v26.8.1
 $ ./node_modules/.bin/vitest run tests/hosted-extension-isolation.test.ts
 
- ✓ tests/hosted-extension-isolation.test.ts (15 tests) 737ms
+ ✓ tests/hosted-extension-isolation.test.ts (13 tests) 632ms
 
  Test Files  1 passed (1)
-      Tests  15 passed (15)
+      Tests  13 passed (13)
 
 $ cd packages/surface && npm run typecheck && npm run typecheck:regressions && npm test && sha256sum dist/flow.js dist/helpers/providers.js dist/provider-trigger.js dist/schedule.js dist/triggers.js dist/triggers/github.js
 
