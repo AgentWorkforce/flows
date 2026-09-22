@@ -18,6 +18,7 @@ import {
 } from './fs-descriptor.js';
 import { frozenHostedPromiseValue, hostedPromiseValue } from './hosted-promise-safety.js';
 import { MAX_PLUGIN_FILE_BYTES, MAX_PLUGIN_FILES, MAX_PLUGIN_TOTAL_BYTES } from './plugin-github.js';
+import { frozenHostedPromiseValue } from './hosted-promise-safety.js';
 import { PluginError } from './plugin-manifest.js';
 
 /**
@@ -76,7 +77,6 @@ const READ_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants
 export function pluginStoreDirectory(root: string, name: string, digest: string): string {
   return PATH_JOIN(PATH_RESOLVE(root), PLUGIN_STORE, `${name}@sha256:${digest}`);
 }
-
 export interface StoredPluginFile {
   readonly path: string;
   readonly data: Uint8Array;

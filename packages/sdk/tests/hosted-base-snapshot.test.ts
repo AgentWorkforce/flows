@@ -39,7 +39,7 @@ describe('hosted base private snapshot', () => {
     }
   });
 
-  it('locks the inherited then slot before authored code can schedule a replacement', async () => {
+  it('locks every hosted promise-result prototype before authored code can schedule a replacement', async () => {
     const { flowPath } = fixture();
     let poisonCalls = 0;
     const locked = Object.getOwnPropertyDescriptor(Object.prototype, 'then');
@@ -48,6 +48,19 @@ describe('hosted base private snapshot', () => {
     expect(typeof locked?.set).toBe('function');
     expect(() => {
       Object.defineProperty(Object.prototype, 'then', {
+        configurable: true,
+        get() {
+          poisonCalls += 1;
+          return undefined;
+        },
+      });
+    }).toThrow(TypeError);
+    expect(Object.getOwnPropertyDescriptor(Array.prototype, 'then')).toMatchObject({
+      configurable: false,
+      enumerable: false,
+    });
+    expect(() => {
+      Object.defineProperty(Array.prototype, 'then', {
         configurable: true,
         get() {
           poisonCalls += 1;

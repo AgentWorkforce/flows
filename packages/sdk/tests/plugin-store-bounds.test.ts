@@ -20,6 +20,12 @@ async function fixture() {
 }
 
 describe('bounded plugin-store verification', () => {
+  it('shadows inherited thenables on the verified stored-file array', async () => {
+    const stored = await fixture();
+    const files = await readStoredPluginFiles(stored.directory, stored.digest);
+    expect(Object.getOwnPropertyDescriptor(files, 'then')).toMatchObject({ value: undefined });
+  });
+
   it('hashes the exact supplied buffers without ambient sort or map', () => {
     const sort = Array.prototype.sort;
     const map = Array.prototype.map;
