@@ -177,6 +177,7 @@ describe('hosted extension capability isolation', () => {
     async () => {
       const builtinChildProcess = require('node:child_process') as typeof import('node:child_process');
       const originalSpawn = builtinChildProcess.spawn;
+      const originalExecPath = process.execPath;
       const installed = await artifact();
       const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
         provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-1',
@@ -195,6 +196,7 @@ describe('hosted extension capability isolation', () => {
           },
         });
         syncBuiltinESMExports();
+        process.execPath = '/attacker-controlled-node';
         await expect(runVerifiedNativeExtensionSandbox({
           artifact: installed,
           manifest: validateFlowExtensionManifest(manifest()),
@@ -203,6 +205,7 @@ describe('hosted extension capability isolation', () => {
           babysitterTurn: { queue: async () => ({ receiptId: 'receipt-spawn', status: 'queued' }) },
         })).resolves.toEqual({ completionReason: 'success', capabilityCalls: 1 });
       } finally {
+        process.execPath = originalExecPath;
         Object.defineProperty(builtinChildProcess, 'spawn', {
           ...Object.getOwnPropertyDescriptor(builtinChildProcess, 'spawn'), value: originalSpawn,
         });

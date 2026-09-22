@@ -82,6 +82,7 @@ export interface StoredPluginFile {
 export interface StoredPluginReadTestHooks {
   readonly beforeOpen?: (path: string) => Promise<void>;
   readonly afterStat?: (path: string) => Promise<void>;
+  readonly beforeDirectoryStat?: () => Promise<void>;
 }
 
 /** Write the files atomically; an existing directory is verified instead of overwritten. */
@@ -198,12 +199,18 @@ async function openStoredFile(root: string, path: string, hooks: StoredPluginRea
     for (let index = 0; index < parts.length - 1; index += 1) {
       const part = parts[index]!;
       const child = await openDescriptor(`/proc/self/fd/${directory}/${part}`, READ_FLAGS);
-      if (!descriptorIsDirectory(await statDescriptor(child, { bigint: true }))) {
-        await closeDescriptor(child);
-        throw new PluginError('plugin_source_drift', `${path}: expected a regular file, without symlinks.`);
+      let adopted = false;
+      try {
+        await hooks.beforeDirectoryStat?.();
+        if (!descriptorIsDirectory(await statDescriptor(child, { bigint: true }))) {
+          throw new PluginError('plugin_source_drift', `${path}: expected a regular file, without symlinks.`);
+        }
+        await closeDescriptor(directory);
+        directory = child;
+        adopted = true;
+      } finally {
+        if (!adopted) await closeDescriptor(child);
       }
-      await closeDescriptor(directory);
-      directory = child;
     }
     await hooks.beforeOpen?.(PATH_JOIN(root, path));
     return await openDescriptor(`/proc/self/fd/${directory}/${parts[parts.length - 1]!}`, READ_FLAGS);

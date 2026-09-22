@@ -31,6 +31,9 @@ const PATH_JOIN = join;
 const PATH_PARSE = parse;
 const PATH_RESOLVE = resolve;
 const SPAWN = spawn;
+const PROCESS_EXEC_PATH = process.execPath;
+const PROCESS_NODE_VERSION = process.versions.node;
+const PROCESS_PLATFORM = process.platform;
 const PROMISE = Promise;
 const EVENT_ON = Function.prototype.call.bind(EventEmitter.prototype.on) as (
   emitter: EventEmitter, event: string, listener: (...args: unknown[]) => void,
@@ -86,13 +89,13 @@ export interface RunHostedExtensionSandboxOptions {
 export async function runHostedExtensionSandbox(
   options: RunHostedExtensionSandboxOptions,
 ): Promise<HostedExtensionProtocolResult> {
-  if (process.platform !== 'linux') return unsupported('hosted extension isolation requires Linux');
-  if (options.nodePath === undefined && !supportsHostedSandboxFlags(process.versions.node)) {
-    return unsupported(`hosted extension isolation does not support Node ${process.versions.node}`);
+  if (PROCESS_PLATFORM !== 'linux') return unsupported('hosted extension isolation requires Linux');
+  if (options.nodePath === undefined && !supportsHostedSandboxFlags(PROCESS_NODE_VERSION)) {
+    return unsupported(`hosted extension isolation does not support Node ${PROCESS_NODE_VERSION}`);
   }
   const bwrap = executable(options.bubblewrapPath ?? '/usr/bin/bwrap', 'bubblewrap');
   const prlimit = executable(options.prlimitPath ?? '/usr/bin/prlimit', 'prlimit');
-  const node = executable(options.nodePath ?? process.execPath, 'Node');
+  const node = executable(options.nodePath ?? PROCESS_EXEC_PATH, 'Node');
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) {
     return unsupported('hosted extension timeout must be an integer from 1 to 60000ms');

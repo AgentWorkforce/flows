@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -14,6 +14,7 @@ async function fixture() {
   const stored = await materializePlugin(root, 'bounded', [
     { path: 'flows-plugin.json', data: Buffer.from('{"name":"bounded"}') },
     { path: 'entry.ts', data: Buffer.from('export default {};') },
+    { path: 'nested/value.ts', data: Buffer.from('export const value = 1;') },
   ]);
   return stored;
 }
@@ -121,5 +122,19 @@ describe('bounded plugin-store verification', () => {
       code: 'plugin_source_drift',
       message: expect.stringContaining('changed while reading'),
     });
+  });
+
+  it.runIf(process.platform === 'linux')('closes a child descriptor when directory stat fails', async () => {
+    const stored = await fixture();
+    const before = readdirSync('/proc/self/fd').length;
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      await expect(readStoredPluginFiles(stored.directory, stored.digest, {
+        beforeDirectoryStat: async () => { throw new Error('injected directory stat failure'); },
+      })).rejects.toMatchObject({
+        code: 'plugin_source_drift',
+        message: expect.stringContaining('nested/value.ts is missing'),
+      });
+    }
+    expect(readdirSync('/proc/self/fd').length).toBeLessThanOrEqual(before + 2);
   });
 });
