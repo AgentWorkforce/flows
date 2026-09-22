@@ -649,11 +649,9 @@ execute nowhere (#301); what composition changes today is the declared
 trigger set that `flows check`, requirements, and future dispatch read.
 
 GitHub `pull_request.ready_for_review`, `pull_request.labeled`, and
-`pull_request.unlabeled` are **not** in the surface registry. The registry is
-generated from the pinned relayfile adapter mappings (`scripts/generate-triggers.mjs`);
-this repo cannot add those actions without an adapter-package change. A
-Babysitter manifest that declares them is refused `plugin_event_unroutable`
-until that upstream catalog grows.
+`pull_request.unlabeled` are in the generated surface registry through the
+pinned relayfile adapter catalog. Babysitter declares all three and installs
+without narrowing its eleven-subscription contract.
 
 ## 4. Build: the immutable bundle
 

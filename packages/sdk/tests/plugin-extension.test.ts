@@ -92,7 +92,7 @@ describe('flows add <github ref>', () => {
     expect(existsSync(join(store, 'babysitter.flow.ts'))).toBe(true);
     expect(existsSync(join(store, 'manifest.json'))).toBe(true);
     expect(p.text()).toContain(`Added babysitter@0.1.0 (flow-extension) from ${REF}`);
-    expect(p.text()).toContain('events: github pull_request[opened,synchronize,reopened,closed]; github pull_request_review[submitted,dismissed]; github check_run[completed]; github issue_comment[created]');
+    expect(p.text()).toContain('events: github pull_request[opened,synchronize,reopened,ready_for_review,closed,labeled,unlabeled]; github pull_request_review[submitted,dismissed]; github check_run[completed]; github issue_comment[created]');
     expect(p.text()).toContain('writes (declared, unenforced): github:pull_request:comment');
     expect(p.text()).toContain('recorded in flows.json and flows.lock.json');
     expect(gh.calls.some(url => url.includes('/commits/feat%2Fbabysitter-v2'))).toBe(true);
@@ -209,11 +209,14 @@ describe('schema-2 manifest validation', () => {
     const m = validateFlowExtensionManifest(manifestJson);
     expect(m).toMatchObject({ schema: 2, kind: 'flow-extension', name: 'babysitter', entry: 'babysitter.flow.ts', extends: { handlers: true, hooks: [] } });
     expect(m.triggers).toHaveLength(4);
+    expect(m.triggers[0]).toMatchObject({
+      provider: 'github', event: 'pull_request',
+      actions: ['opened', 'synchronize', 'reopened', 'ready_for_review', 'closed', 'labeled', 'unlabeled'],
+    });
     expect(Object.isFrozen(m) && Object.isFrozen(m.permissions) && Object.isFrozen(m.triggers)).toBe(true);
   });
   it.each([
-    ['an event the surface registry cannot lower', (m: Record<string, unknown>) => ({ ...m, triggers: [{ provider: 'github', event: 'pull_request', actions: ['ready_for_review'] }] }), 'plugin_event_unroutable'],
-    ['labeled/unlabeled, which the registry lacks', (m: Record<string, unknown>) => ({ ...m, triggers: [{ provider: 'github', event: 'pull_request', actions: ['labeled', 'unlabeled'] }] }), 'plugin_event_unroutable'],
+    ['an event the surface registry cannot lower', (m: Record<string, unknown>) => ({ ...m, triggers: [{ provider: 'github', event: 'pull_request', actions: ['future_action'] }] }), 'plugin_event_unroutable'],
     ['an unknown provider', (m: Record<string, unknown>) => ({ ...m, triggers: [{ provider: 'nope', event: 'x', actions: [] }] }), 'plugin_event_unroutable'],
     ['an unknown kind', (m: Record<string, unknown>) => ({ ...m, kind: 'banana' }), 'plugin_kind_invalid'],
     ['schema 1 with the extension kind', (m: Record<string, unknown>) => ({ ...m, schema: 1 }), 'plugin_manifest_invalid'],

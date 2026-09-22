@@ -22,7 +22,7 @@ describe('catalog/plugins.json', () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
-  it('records a fail-closed babysitter entry with a pinned sha and digest', () => {
+  it('records the full Babysitter contract with a pinned sha and digest', () => {
     const babysitter = catalog.plugins.find(p => p.name === 'babysitter');
     expect(babysitter).toMatchObject({
       source: { owner: 'AgentWorkforce', repo: 'flows', path: 'examples/babysitter' },
@@ -31,7 +31,8 @@ describe('catalog/plugins.json', () => {
     });
     expect(babysitter!.ref).toMatch(SHA);
     expect(babysitter!.digest).toMatch(HEX64);
-    expect(String(babysitter!.description)).toContain('plugin_event_unroutable');
+    expect(String(babysitter!.description)).toContain('eleven-event subscription contract');
+    expect(String(babysitter!.description)).not.toContain('plugin_event_unroutable');
     expect(TIERS.has(String(babysitter!.tier))).toBe(true);
   });
 });

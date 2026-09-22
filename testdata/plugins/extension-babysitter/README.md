@@ -11,9 +11,8 @@ because this fixture does not declare a hook; declared hooks are composed when
 the base flow names them. The `merge-gate` hook from the design is not included
 in this fixture.
 
-Babysitter's own subscription contract (branch `feat/babysitter-v2`) names
-eleven GitHub subscriptions. Three of them — `pull_request.ready_for_review`,
-`pull_request.labeled`, `pull_request.unlabeled` — are not in the surface
-event registry (`providerEventTypes`), so a manifest declaring them is refused
-with `plugin_event_unroutable`; this fixture lists only the eight the registry
-can lower. Extending the registry is a separate change and is not claimed here.
+Babysitter's subscription contract names eleven GitHub subscriptions. The
+fixture declares and composes all eleven, including
+`pull_request.ready_for_review`, `pull_request.labeled`, and
+`pull_request.unlabeled`, so the install and composition tests exercise the
+same event set as the installable example.
