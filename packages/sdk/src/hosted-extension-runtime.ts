@@ -1,11 +1,15 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { readFile, realpath } from 'node:fs/promises';
+import { realpath } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import {
   hostedExtensionBaseFromLoadedFlow,
   loadAuthoredFlow,
 } from './authored-flow-loader.js';
 import { canonicalize } from './canonical.js';
+import {
+  createHostedBaseSnapshot,
+  hostedBaseSourceDigest,
+  removeHostedBaseSnapshot,
+} from './hosted-base-snapshot.js';
 import { PluginError } from './plugin-manifest.js';
 import { findPluginProject } from './plugin-loader.js';
 import { reconcileDeclaredExtensions } from './plugin-lock.js';
@@ -17,9 +21,8 @@ const BASE_AUTHORITY = new WeakSet<object>();
 interface RuntimeGeneration {
   readonly origin: string;
   declarations: string;
-  graphPaths: readonly string[];
-  graphSha256: string;
-  readonly importNonce: string;
+  sourceRoot: string;
+  sourceSha256: string;
 }
 
 const INSTALLATION_GENERATION = new WeakMap<object, RuntimeGeneration>();
@@ -61,6 +64,7 @@ export async function loadHostedExtensionRuntime(flowPath: string): Promise<Host
       'Hosted extension declarations changed while their runtime generation was loaded.',
     );
   }
+  await assertCurrentGeneration(generation);
   Object.freeze(generation);
   return Object.freeze({ installation: loaded.installation, base });
 }
@@ -173,28 +177,19 @@ function newGeneration(origin: string): RuntimeGeneration {
   return {
     origin,
     declarations: canonicalize([]),
-    graphPaths: Object.freeze([]),
-    graphSha256: '',
-    importNonce: randomUUID(),
+    sourceRoot: '',
+    sourceSha256: '',
   };
 }
 
-async function graphSha256(paths: readonly string[]): Promise<string> {
-  const files = await Promise.all(paths.map(async path => ({
-    path,
-    sha256: sha256(await readFile(path)),
-  })));
-  return sha256(canonicalize(files));
-}
-
 async function assertCurrentGeneration(generation: RuntimeGeneration): Promise<void> {
-  let currentGraph: string;
-  try { currentGraph = await graphSha256(generation.graphPaths); }
+  let currentSource: string;
+  try { currentSource = await hostedBaseSourceDigest(generation.sourceRoot); }
   catch {
     throw new PluginError('plugin_source_invalid', 'Hosted extension runtime generation is no longer readable.');
   }
   if (declaredExtensions(generation.origin).signature !== generation.declarations
-    || currentGraph !== generation.graphSha256) {
+    || currentSource !== generation.sourceSha256) {
     throw new PluginError(
       'plugin_source_invalid',
       'Hosted extension runtime generation is stale; reload the base and installation together.',
@@ -206,20 +201,22 @@ async function baseAt(
   origin: string,
   generation: RuntimeGeneration,
 ): Promise<HostedExtensionBase> {
-  const loaded = await loadAuthoredFlow(origin, {
-    extensions: 'none',
-    importNonce: generation.importNonce,
-  });
-  generation.graphPaths = Object.freeze(loaded.graph.map(node => node.path));
-  generation.graphSha256 = await graphSha256(generation.graphPaths);
-  const identity = hostedExtensionBaseFromLoadedFlow(loaded);
-  const value = Object.freeze({
-    name: identity.name,
-    ...(identity.version === undefined ? {} : { version: identity.version }),
-  });
-  BASE_AUTHORITY.add(value);
-  BASE_GENERATION.set(value, generation);
-  return value;
+  const snapshot = await createHostedBaseSnapshot(origin);
+  generation.sourceRoot = snapshot.liveRoot;
+  generation.sourceSha256 = snapshot.liveDigest;
+  try {
+    const loaded = await loadAuthoredFlow(snapshot.snapshotFlowPath, { extensions: 'none' });
+    const identity = hostedExtensionBaseFromLoadedFlow(loaded);
+    const value = Object.freeze({
+      name: identity.name,
+      ...(identity.version === undefined ? {} : { version: identity.version }),
+    });
+    BASE_AUTHORITY.add(value);
+    BASE_GENERATION.set(value, generation);
+    return value;
+  } finally {
+    await removeHostedBaseSnapshot(snapshot);
+  }
 }
 
 function installation(
@@ -230,8 +227,4 @@ function installation(
   INSTALLATION_AUTHORITY.add(value);
   INSTALLATION_GENERATION.set(value, generation);
   return value;
-}
-
-function sha256(value: Uint8Array | string): string {
-  return createHash('sha256').update(value).digest('hex');
 }

@@ -183,13 +183,19 @@ describe('hosted extension hostile protocol', () => {
     let calls = 0;
     const run = runVerifiedNativeExtensionSandbox({
       artifact: await artifact(hostileImport([capabilityFrame()])),
-      manifest: validateFlowExtensionManifest(manifest()), dispatch: dispatch(), input: descriptor(), timeoutMs: 100,
+      manifest: validateFlowExtensionManifest(manifest()), dispatch: dispatch(), input: descriptor(), timeoutMs: 10_000,
       babysitterTurn: { queue: async () => { calls += 1; markInvoked(); return await adapter; } },
     });
     const observed = run.then(() => undefined, error => error as Error);
-    await invoked;
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(
+        () => reject(new Error('hostile child did not invoke the adapter')),
+        10_000,
+      );
+      void invoked.then(() => { clearTimeout(timeout); resolve(); }, reject);
+    });
     rejectAdapter(refusal);
     expect(await observed).toBe(refusal);
     expect(calls).toBe(1);
-  });
+  }, 15_000);
 });

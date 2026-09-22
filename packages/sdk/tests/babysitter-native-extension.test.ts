@@ -49,9 +49,11 @@ async function composed() {
   symlinkSync(resolve('node_modules/@relayflows/surface'), join(cwd, 'node_modules/@relayflows/surface'));
   writeFileSync(join(cwd, 'package.json'), '{"type":"module"}');
   writeFileSync(join(cwd, 'flows.json'), JSON.stringify({ cli: 'codex', executors: ['github'] }));
+  writeFileSync(join(cwd, 'base-name.ts'), `export const baseName = 'software-factory';\n`);
   writeFileSync(join(cwd, 'software-factory.flow.ts'), `
     import { flow } from '@relayflows/surface';
-    export default flow('software-factory', { budget: { dollars: 10, wallclock: '1h' } }, async f => { f.done('success'); });
+    import { baseName } from './base-name.ts';
+    export default flow(baseName, { budget: { dollars: 10, wallclock: '1h' } }, async f => { f.done('success'); });
   `);
   const io = { stdout: () => {}, stderr: (s: string) => { throw new Error(s); } };
   expect(await addExtensionPlugin(REF, io, { cwd, fetch: github().fetch, now, versions })).toBe(0);
@@ -226,9 +228,10 @@ describe('native Babysitter extension', () => {
   it('refuses stale installation authority after the same flow path is redeployed', async () => {
     const configPath = join(installed.cwd, 'flows.json');
     const lockPath = join(installed.cwd, 'flows.lock.json');
+    const helperPath = join(installed.cwd, 'base-name.ts');
     const originalConfig = readFileSync(configPath, 'utf8');
     const originalLock = readFileSync(lockPath, 'utf8');
-    const originalFlow = readFileSync(installed.flowPath, 'utf8');
+    const originalHelper = readFileSync(helperPath, 'utf8');
     const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
       provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'gh-delivery-7',
     });
@@ -244,10 +247,7 @@ describe('native Babysitter extension', () => {
       lock.plugins = [];
       writeFileSync(configPath, JSON.stringify(config));
       writeFileSync(lockPath, JSON.stringify(lock));
-      writeFileSync(installed.flowPath, `
-        import { flow } from '@relayflows/surface';
-        export default flow('software-factory-redeployed', async f => f.done('success'));
-      `);
+      writeFileSync(helperPath, `export const baseName = 'software-factory-redeployed';\n`);
       const redeployed = await loadHostedExtensionRuntime(installed.flowPath);
       expect(redeployed.base.name).toBe('software-factory-redeployed');
       await expect(runHostedCapabilityExtension({
@@ -267,9 +267,24 @@ describe('native Babysitter extension', () => {
     } finally {
       writeFileSync(configPath, originalConfig);
       writeFileSync(lockPath, originalLock);
-      writeFileSync(installed.flowPath, originalFlow);
+      writeFileSync(helperPath, originalHelper);
     }
     expect(calls).toBe(0);
+  });
+
+  it('refuses when live project bytes change while its private base snapshot imports', async () => {
+    const racing = await composed();
+    const helperPath = join(racing.cwd, 'base-name.ts');
+    writeFileSync(racing.flowPath, `
+      import { writeFileSync } from 'node:fs';
+      import { flow } from '@relayflows/surface';
+      import { baseName } from './base-name.ts';
+      writeFileSync(${JSON.stringify(helperPath)}, "export const baseName = 'release-manager';\\n");
+      export default flow(baseName, async f => f.done('success'));
+    `);
+    await expect(loadHostedExtensionRuntime(racing.flowPath))
+      .rejects.toMatchObject({ code: 'plugin_source_invalid' });
+    expect(readFileSync(helperPath, 'utf8')).toContain('release-manager');
   });
 
   it('refuses a second installed extension that overlaps an action-specific route', async () => {

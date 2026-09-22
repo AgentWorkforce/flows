@@ -395,7 +395,9 @@ the base and complete installation together with
 `loadHostedExtensionRuntime` (which internally sets `extensions: 'none'` and
 does not import extension JavaScript), then pass its two opaque,
 same-generation results to `runHostedCapabilityExtension`. Every dispatch
-rechecks that generation before the runner verifies
+rechecks the current declarations and complete project source against that
+generation. The base and ordinary relative imports execute from a unique
+private snapshot before the runner verifies
 the complete lock-backed set, actual base compatibility, route uniqueness, and
 the exact reviewed Babysitter ref/digest/manifest before the artifact is imported inside a
 bubblewrap mount/PID/network/user namespace with an empty credential

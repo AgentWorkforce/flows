@@ -59,7 +59,10 @@ settles immediately with its original typed error even if the child hangs.
 Before replacing #549's refusal, the hosted caller must obtain an opaque base
 and installation as one generation with `loadHostedExtensionRuntime`, then call
 `runHostedCapabilityExtension` with both values. Every dispatch rechecks the
-current extension declarations and imported base graph against that generation;
+current extension declarations and complete project source tree against that
+generation. The base and its ordinary relative imports load from a unique
+private snapshot, so mutable paths and an earlier Node module cache cannot
+change or substitute the identity that was admitted;
 using the ordinary compose loader would import extension top-level JavaScript
 in the host before the sandbox exists. Cross-project, cross-redeploy, stale,
 and structural pairings fail before import. The selected store bytes are copied into a

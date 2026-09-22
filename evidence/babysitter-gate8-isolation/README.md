@@ -10,7 +10,9 @@ The enforced boundary is:
 - load the actual base flow with extensions disabled and resolve the complete
   installation as one opaque generation without importing extension
   JavaScript; cross-project and same-path cross-redeploy pairing refuse, and
-  every dispatch rechecks the current declarations plus imported base graph;
+  every dispatch rechecks the current declarations plus complete project
+  source; the base and ordinary relative imports load from one unique private
+  snapshot, never mutable deployment paths or an earlier module cache;
 - reverify every content-addressed artifact, lock metadata, manifest hash,
   base/runtime compatibility, and route uniqueness, then require the exact
   immutable native ref/digest/manifest and narrow permission profile; copy the
