@@ -1,9 +1,9 @@
-import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { chmod, mkdir, mkdtemp, open, opendir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { canonicalize } from './canonical.js';
+import { sha256 } from './bundle.js';
 import { findPluginProject } from './plugin-loader.js';
 import { PluginError } from './plugin-manifest.js';
 
@@ -243,10 +243,6 @@ function sourceDigest(files: readonly SourceFile[]): string {
     records[index] = { path: file.path, sha256: file.sha256 };
   }
   return sha256(canonicalize(records));
-}
-
-function sha256(value: Uint8Array | string): string {
-  return createHash('sha256').update(value).digest('hex');
 }
 
 function invalid(message: string): PluginError {

@@ -251,6 +251,31 @@ describe('native Babysitter extension', () => {
     expect(failure).toMatchObject({ code: 'plugin_incompatible' });
   });
 
+  it('checks the reviewed base pin with captured hash methods', async () => {
+    const racing = await composed();
+    writeFileSync(racing.flowPath, `export default {};\n`);
+    const prototype = Object.getPrototypeOf(createHash('sha256')) as {
+      update: typeof import('node:crypto').Hash.prototype.update;
+      digest: typeof import('node:crypto').Hash.prototype.digest;
+    };
+    const originalUpdate = prototype.update;
+    const originalDigest = prototype.digest;
+    let poisonCalls = 0;
+    try {
+      prototype.update = function poisonedUpdate() { poisonCalls += 1; return this; } as typeof prototype.update;
+      prototype.digest = (() => {
+        poisonCalls += 1;
+        return '49c993220b9c34fab2d4b0e51911656f62b8b657f534d988691960d45bb9d9b6';
+      }) as typeof prototype.digest;
+      await expect(loadHostedExtensionRuntime(racing.flowPath))
+        .rejects.toMatchObject({ code: 'plugin_source_invalid' });
+    } finally {
+      prototype.update = originalUpdate;
+      prototype.digest = originalDigest;
+    }
+    expect(poisonCalls).toBe(0);
+  });
+
   it('refuses stale installation authority after the same flow path is redeployed', async () => {
     const configPath = join(installed.cwd, 'flows.json');
     const lockPath = join(installed.cwd, 'flows.lock.json');

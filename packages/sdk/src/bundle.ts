@@ -3,6 +3,16 @@ import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 
 import { basename, dirname, join, resolve } from 'node:path';
 import { canonicalize } from './canonical.js';
 
+type Hash = ReturnType<typeof createHash>;
+const HASH_UPDATE = Function.prototype.call.bind(createHash('sha256').update) as (
+  hash: Hash,
+  data: Uint8Array | string,
+) => Hash;
+const HASH_DIGEST = Function.prototype.call.bind(createHash('sha256').digest) as (
+  hash: Hash,
+  encoding: 'hex',
+) => string;
+
 export interface BundleEntry { path: string; sha256: string; bytes: number }
 export interface BundleFile { path: string; data: Uint8Array | string; executable?: boolean }
 export interface BundleOptions {
@@ -15,7 +25,9 @@ export interface BundleOptions {
 }
 
 export function sha256(data: Uint8Array | string): string {
-  return createHash('sha256').update(data).digest('hex');
+  const hash = createHash('sha256');
+  HASH_UPDATE(hash, data);
+  return HASH_DIGEST(hash, 'hex');
 }
 
 /** A bundle-relative path: no empty, `.`, or `..` component, no backslash, NUL, or drive colon. */

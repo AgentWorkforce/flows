@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -6,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, parse, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import type { Readable, Writable } from 'node:stream';
+import { sha256 } from './bundle.js';
 import { PluginError } from './plugin-manifest.js';
 import { HOSTED_EXTENSION_SANDBOX_SOURCE } from './hosted-extension-sandbox-source.js';
 import {
@@ -229,9 +229,6 @@ function surfaceRuntimeMounts(surfaceFacade: string): string[] {
   ]);
 }
 
-function sha256(bytes: Uint8Array): string {
-  return createHash('sha256').update(bytes).digest('hex');
-}
 
 function executable(path: string, name: string): string {
   let real: string;

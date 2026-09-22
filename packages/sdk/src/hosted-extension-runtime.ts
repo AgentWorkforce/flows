@@ -1,8 +1,8 @@
-import { createHash } from 'node:crypto';
 import { constants, closeSync, existsSync, fstatSync, openSync, readSync } from 'node:fs';
 import { readFile, realpath } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { canonicalize } from './canonical.js';
+import { sha256 } from './bundle.js';
 import {
   createHostedBaseSnapshot,
   hostedBaseSourceDigest,
@@ -324,7 +324,7 @@ async function baseAt(
   generation.sourceSha256 = snapshot.liveDigest;
   try {
     const baseBytes = await readFile(snapshot.snapshotFlowPath);
-    if (createHash('sha256').update(baseBytes).digest('hex') !== SOFTWARE_FACTORY_SHA256) {
+    if (sha256(baseBytes) !== SOFTWARE_FACTORY_SHA256) {
       throw new PluginError(
         'plugin_source_invalid',
         'Hosted capability isolation accepts only the reviewed Software Factory base source.',

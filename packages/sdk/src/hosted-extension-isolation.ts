@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 import { canonicalize } from './canonical.js';
+import { sha256 } from './bundle.js';
 import { validateFlowExtensionManifest, type FlowExtensionManifest } from './flow-extension-manifest.js';
 import { assertBaseCompatible, assertCompatible, runtimeVersions } from './flow-extension-compat.js';
 import {
@@ -431,8 +431,4 @@ function manifestNames(
     value += `${index === 0 ? '' : ', '}${matches[index]!.manifest.name}`;
   }
   return value;
-}
-
-function sha256(value: Uint8Array | string): string {
-  return createHash('sha256').update(value).digest('hex');
 }
