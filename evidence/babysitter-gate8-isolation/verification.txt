@@ -6,7 +6,7 @@ $ /usr/bin/bwrap --version && node --version && git diff --check
 bubblewrap 0.12.0
 v26.8.1
 
-$ cd packages/sdk && npm run typecheck && npm run build && npm run typecheck:tests && ./node_modules/.bin/vitest run tests/hosted-extension-isolation.test.ts tests/hosted-extension-protocol.test.ts tests/babysitter-native-extension.test.ts tests/authored-flow.test.ts tests/preflight.test.ts
+$ cd packages/sdk && npm run typecheck && npm run build && npm run typecheck:tests && ./node_modules/.bin/vitest run tests/hosted-base-snapshot.test.ts tests/hosted-extension-isolation.test.ts tests/hosted-extension-protocol.test.ts tests/babysitter-native-extension.test.ts tests/authored-flow.test.ts tests/preflight.test.ts
 
 > @relayflows/sdk@2.0.26 typecheck
 > tsc --noEmit && tsc -p tsconfig.type-tests.json
@@ -19,16 +19,18 @@ $ cd packages/sdk && npm run typecheck && npm run build && npm run typecheck:tes
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-gate8-isolation/packages/sdk
 
- ✓ tests/preflight.test.ts (59 tests) 92ms
- ✓ tests/babysitter-native-extension.test.ts (37 tests) 408ms
- ✓ tests/authored-flow.test.ts (34 tests) 710ms
- ✓ tests/hosted-extension-protocol.test.ts (10 tests) 632ms
- ✓ tests/hosted-extension-isolation.test.ts (12 tests) 653ms
+ ✓ tests/hosted-base-snapshot.test.ts (2 tests) 121ms
+ ✓ tests/preflight.test.ts (59 tests) 63ms
+ ✓ tests/authored-flow.test.ts (34 tests) 737ms
+ ✓ tests/hosted-extension-isolation.test.ts (12 tests) 591ms
+ ✓ tests/hosted-extension-protocol.test.ts (10 tests) 641ms
+ ✓ tests/babysitter-native-extension.test.ts (38 tests) 1279ms
+   ✓ native Babysitter extension > refuses project-owned package imports instead of following live node_modules 364ms
 
- Test Files  5 passed (5)
-      Tests  152 passed (152)
-   Start at  06:47:25
-   Duration  1.71s (transform 911ms, setup 0ms, collect 3.88s, tests 2.49s, environment 1ms, prepare 260ms)
+ Test Files  6 passed (6)
+      Tests  155 passed (155)
+   Start at  07:16:27
+   Duration  2.25s (transform 1.05s, setup 0ms, collect 4.30s, tests 3.43s, environment 1ms, prepare 363ms)
 
 $ cd packages/surface && npm run typecheck && npm run typecheck:regressions && npm test
 

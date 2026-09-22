@@ -1,14 +1,12 @@
 import { realpath } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import {
-  hostedExtensionBaseFromLoadedFlow,
-  loadAuthoredFlow,
-} from './authored-flow-loader.js';
 import { canonicalize } from './canonical.js';
 import {
   createHostedBaseSnapshot,
+  hostedBaseIdentityFromSnapshot,
   hostedBaseSourceDigest,
   removeHostedBaseSnapshot,
+  type HostedBaseSourceRoot,
 } from './hosted-base-snapshot.js';
 import { PluginError } from './plugin-manifest.js';
 import { findPluginProject } from './plugin-loader.js';
@@ -21,7 +19,7 @@ const BASE_AUTHORITY = new WeakSet<object>();
 interface RuntimeGeneration {
   readonly origin: string;
   declarations: string;
-  sourceRoot: string;
+  sourceRoots: readonly HostedBaseSourceRoot[];
   sourceSha256: string;
 }
 
@@ -177,14 +175,14 @@ function newGeneration(origin: string): RuntimeGeneration {
   return {
     origin,
     declarations: canonicalize([]),
-    sourceRoot: '',
+    sourceRoots: Object.freeze([]),
     sourceSha256: '',
   };
 }
 
 async function assertCurrentGeneration(generation: RuntimeGeneration): Promise<void> {
   let currentSource: string;
-  try { currentSource = await hostedBaseSourceDigest(generation.sourceRoot); }
+  try { currentSource = await hostedBaseSourceDigest(generation.sourceRoots); }
   catch {
     throw new PluginError('plugin_source_invalid', 'Hosted extension runtime generation is no longer readable.');
   }
@@ -202,11 +200,10 @@ async function baseAt(
   generation: RuntimeGeneration,
 ): Promise<HostedExtensionBase> {
   const snapshot = await createHostedBaseSnapshot(origin);
-  generation.sourceRoot = snapshot.liveRoot;
+  generation.sourceRoots = snapshot.liveSources;
   generation.sourceSha256 = snapshot.liveDigest;
   try {
-    const loaded = await loadAuthoredFlow(snapshot.snapshotFlowPath, { extensions: 'none' });
-    const identity = hostedExtensionBaseFromLoadedFlow(loaded);
+    const identity = await hostedBaseIdentityFromSnapshot(snapshot);
     const value = Object.freeze({
       name: identity.name,
       ...(identity.version === undefined ? {} : { version: identity.version }),

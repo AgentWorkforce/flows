@@ -31,8 +31,7 @@ commit pinned below.
 
 The sandbox contract is deliberately narrower than #442. It re-verifies the
 complete lock-backed installation and every manifest, binds it to the actual
-base returned in the same `loadHostedExtensionRuntime` generation (which
-internally calls `loadAuthoredFlow(..., { extensions: 'none' })`), detects
+base returned in the same `loadHostedExtensionRuntime` generation, detects
 cross-extension route ambiguity, accepts only the exact published Babysitter
 ref/digest/manifest and native permission profile, imports the entry only
 inside Linux bubblewrap plus Node's
@@ -60,9 +59,12 @@ Before replacing #549's refusal, the hosted caller must obtain an opaque base
 and installation as one generation with `loadHostedExtensionRuntime`, then call
 `runHostedCapabilityExtension` with both values. Every dispatch rechecks the
 current extension declarations and complete project source tree against that
-generation. The base and its ordinary relative imports load from a unique
-private snapshot, so mutable paths and an earlier Node module cache cannot
-change or substitute the identity that was admitted;
+generation. The base, its ordinary relative imports, and the exact host-owned
+Surface package load from one rehashed private snapshot under Node's read-only
+permission model. Project `node_modules` is neither copied nor linked, and any
+base import other than the attested Surface package or its own relative source
+fails resolution. Mutable dependency paths and an earlier Node module cache
+therefore cannot change or substitute the identity that was admitted;
 using the ordinary compose loader would import extension top-level JavaScript
 in the host before the sandbox exists. Cross-project, cross-redeploy, stale,
 and structural pairings fail before import. The selected store bytes are copied into a

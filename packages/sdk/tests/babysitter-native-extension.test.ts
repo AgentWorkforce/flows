@@ -272,7 +272,7 @@ describe('native Babysitter extension', () => {
     expect(calls).toBe(0);
   });
 
-  it('refuses when live project bytes change while its private base snapshot imports', async () => {
+  it('refuses a base that tries to mutate the live project while its private snapshot imports', async () => {
     const racing = await composed();
     const helperPath = join(racing.cwd, 'base-name.ts');
     writeFileSync(racing.flowPath, `
@@ -284,7 +284,27 @@ describe('native Babysitter extension', () => {
     `);
     await expect(loadHostedExtensionRuntime(racing.flowPath))
       .rejects.toMatchObject({ code: 'plugin_source_invalid' });
-    expect(readFileSync(helperPath, 'utf8')).toContain('release-manager');
+    expect(readFileSync(helperPath, 'utf8')).toContain('software-factory');
+  });
+
+  it('refuses project-owned package imports instead of following live node_modules', async () => {
+    const racing = await composed();
+    const packageRoot = join(racing.cwd, 'node_modules/local-identity');
+    mkdirSync(packageRoot, { recursive: true });
+    writeFileSync(join(packageRoot, 'package.json'), JSON.stringify({
+      name: 'local-identity', type: 'module', exports: './index.js',
+    }));
+    writeFileSync(join(packageRoot, 'index.js'), `export const baseName = 'software-factory';\n`);
+    writeFileSync(racing.flowPath, `
+      import { flow } from '@relayflows/surface';
+      import { baseName } from 'local-identity';
+      export default flow(baseName, async f => f.done('success'));
+    `);
+    await expect(loadHostedExtensionRuntime(racing.flowPath))
+      .rejects.toMatchObject({ code: 'plugin_source_invalid' });
+    writeFileSync(join(packageRoot, 'index.js'), `export const baseName = 'release-manager';\n`);
+    await expect(loadHostedExtensionRuntime(racing.flowPath))
+      .rejects.toMatchObject({ code: 'plugin_source_invalid' });
   });
 
   it('refuses a second installed extension that overlaps an action-specific route', async () => {
