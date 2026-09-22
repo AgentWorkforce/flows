@@ -66,8 +66,10 @@ sub-issues, and each sub-issue's relations. Then map them into the plan:
 - If a sub-issue has sub-issues of its own, flatten them into the plan. The
   child depends on whatever its parent depends on.
 
-**No sub-issues, or a written spec instead of Linear.** Omit `plan`
-entirely. A planner agent then reads the repository and writes the graph itself.
+**No sub-issues, or a written spec instead of Linear.** Write the plan yourself. Read the repository
+and split the task into subtasks that each fit one focused agent session. Always pass `plan`, so the
+user approves the real graph in step 3. If you leave `plan` out, the flow's own planner writes the graph
+and it starts running with nobody approving it. That is only for hands-off mode, below.
 
 Rules. The flow refuses a plan that breaks any of these, so check them before submitting:
 

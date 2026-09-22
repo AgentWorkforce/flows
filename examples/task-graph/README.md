@@ -69,5 +69,6 @@ flows run task-graph.flow.ts --local-agent --input example-plan.json
   cloud#3945 ship, the Cloud run page shows `agent-4`, `run-7`, and so on, with no edges. With them, it shows
   each subtask's name and the edges between subtasks, but only once the run finishes. While the run is going,
   nodes show live status without names or edges.
-- **Resume is untested.** With subtasks running concurrently, the order of step calls depends on timing.
-  Resuming this flow after a runner crash has not been tested.
+- **Don't resume; rerun.** Authored step ids come from call order, and with subtasks finishing
+  concurrently that order differs between runs. So `flows resume` can pair a step with another step's
+  journal. After a crashed runner, start a new run. Setup clears the previous run's worktrees and branches.

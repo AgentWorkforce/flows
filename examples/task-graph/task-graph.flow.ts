@@ -88,7 +88,9 @@ export default flow<Input>("task-graph", async (f, input) => {
   // Flow bookkeeping and worktrees live under an excluded dir so no merge or `git add -A` picks them up.
   await f.run(
     `rm -rf ${shellWord(work)} && git worktree prune && mkdir -p ${shellWord(`${work}/results`)} && ` +
-      `{ grep -qxF '.relayflow/' .git/info/exclude 2>/dev/null || echo '.relayflow/' >> .git/info/exclude; } && ` +
+      // --git-path, not .git/info/exclude: in a linked worktree .git is a file, not a directory.
+      `exclude="$(git rev-parse --git-path info/exclude)" && mkdir -p "$(dirname "$exclude")" && ` +
+      `{ grep -qxF '.relayflow/' "$exclude" 2>/dev/null || echo '.relayflow/' >> "$exclude"; } && ` +
       `git for-each-ref --format='%(refname:short)' ${shellWord(`refs/heads/${branchPrefix}/`)} | ` +
       `while read -r b; do git branch -D -q "$b"; done`,
   );
@@ -103,7 +105,12 @@ export default flow<Input>("task-graph", async (f, input) => {
         `fit one focused agent session. Make dependsOn honest: only list a dependency when the subtask ` +
         `really needs that code merged first — everything else runs in parallel. Do not write code.\n` +
         `Write ONLY this JSON to ${work}/plan.json:\n${PLAN_SHAPE}\n\nTask:\n${brief}`,
-    }).gate({ type: "subprocess_gate", command: `node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' ${shellWord(`${work}/plan.json`)}` });
+    // The planner must only plan: a parseable plan AND an untouched working tree (.relayflow/ is excluded).
+    }).gate({
+      type: "subprocess_gate",
+      command: `node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' ${shellWord(`${work}/plan.json`)} && ` +
+        `test -z "$(git status --porcelain)"`,
+    });
     subtasks = (JSON.parse(await f.run(`cat ${shellWord(`${work}/plan.json`)}`)) as { subtasks: Subtask[] }).subtasks;
   }
   const invalid = Array.isArray(subtasks) ? planError(subtasks, new Set()) : "plan.subtasks is not a list";
