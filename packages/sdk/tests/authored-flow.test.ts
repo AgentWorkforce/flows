@@ -4,8 +4,12 @@ import { flow, github, type Ctx, type FlowHeader } from '@relayflows/surface';
 import { getFlowDefinition } from '@relayflows/surface/runtime';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
+import type { FlowExtensionManifest } from '../src/flow-extension-manifest.js';
 import { JournalClient } from '../src/journal-client.js';
-import type { LoadedFlowExtension } from '../src/flow-extension-loader.js';
+import {
+  hostedExtensionDispatchFromVerifiedDelivery,
+  type LoadedFlowExtension,
+} from '../src/flow-extension-loader.js';
 import {
   kernelDialectError,
   sendOk,
@@ -564,22 +568,19 @@ describe('authored flow journal executor', () => {
     }
   });
 
-  it('runs the matching extension handler for a normalized hosted event instead of the base body', async () => {
+  it('does not let direct-run input impersonate an integration delivery', async () => {
     const base = flow<{ event: { provider: string; eventType: string } }>('software-factory', async (f) => {
       await f.run('printf base-body');
       f.done('success');
     });
+    let extensionRuns = 0;
     const extensionHandle = flow('babysitter', async (f) => f.done('declined'))
       .on(github.pull_request('labeled'), async (f) => {
+        extensionRuns += 1;
         await f.run('printf extension-body');
         f.done('success');
       });
-    const extension = {
-      name: 'babysitter',
-      handlers: getFlowDefinition(extensionHandle).handlers,
-      hooks: Object.freeze({}),
-      manifest: undefined,
-    } as unknown as LoadedFlowExtension;
+    const extension = loadedExtension('babysitter', extensionHandle);
     const client = await connectedClient('authored-extension-handler-test');
     const before = startedSpecs.length;
     try {
@@ -589,26 +590,87 @@ describe('authored flow journal executor', () => {
     } finally {
       client.close();
     }
-    expect(commandsSince(before)).toEqual(['printf extension-body', ':']);
+    expect(commandsSince(before)).toEqual(['printf base-body', ':']);
+    expect(extensionRuns).toBe(0);
   });
 
-  it('fails closed when a hosted event matches more than one extension handler', async () => {
-    const handler = getFlowDefinition(
-      flow('one', async (f) => f.done('declined'))
-        .on(github.pull_request('labeled'), async (f) => f.done('success')),
-    ).handlers[0]!;
-    const extension = (name: string) => ({
-      name,
-      handlers: [handler],
-      hooks: Object.freeze({}),
-      manifest: undefined,
-    }) as unknown as LoadedFlowExtension;
+  it('refuses an authenticated matching handler before base or extension authority can run', async () => {
+    let baseRuns = 0;
+    let extensionRuns = 0;
+    const base = flow('software-factory', async (f) => {
+      baseRuns += 1;
+      await f.run('printf base-body');
+      f.done('success');
+    });
+    const extension = loadedExtension('babysitter', flow('babysitter', async (f) => f.done('declined'))
+      .on(github.pull_request('labeled'), async (f) => {
+        extensionRuns += 1;
+        await f.run('printf extension-body');
+        f.done('success');
+      }));
+
+    await expect(executeAuthoredFlow(base, new JournalClient('/unused'), undefined, {
+      extensions: [extension],
+      extensionDispatch: integrationDispatch('pull_request.labeled'),
+    })).rejects.toMatchObject({ code: 'plugin_unsupported' });
+    expect(baseRuns).toBe(0);
+    expect(extensionRuns).toBe(0);
+  });
+
+  it('fails closed when one event matches identical extension subscriptions', async () => {
+    const extension = (name: string) => loadedExtension(name,
+      flow(name, async (f) => f.done('declined'))
+        .on(github.pull_request('labeled'), async (f) => f.done('success')));
     await expect(executeAuthoredFlow(
       flow('software-factory', async (f) => f.done('success')),
       new JournalClient('/unused'),
-      { event: { provider: 'github', eventType: 'pull_request.labeled' } },
-      { extensions: [extension('one'), extension('two')] },
+      undefined,
+      {
+        extensions: [extension('one'), extension('two')],
+        extensionDispatch: integrationDispatch('pull_request.labeled'),
+      },
     )).rejects.toMatchObject({ code: 'plugin_event_ambiguous' });
+  });
+
+  it('fails closed when a generic subscription overlaps an action subscription', async () => {
+    const generic = loadedExtension('generic', flow('generic', async (f) => f.done('declined'))
+      .on(github.pull_request(), async (f) => f.done('success')));
+    const action = loadedExtension('action', flow('action', async (f) => f.done('declined'))
+      .on(github.pull_request('labeled'), async (f) => f.done('success')));
+
+    await expect(executeAuthoredFlow(
+      flow('software-factory', async (f) => f.done('success')),
+      new JournalClient('/unused'),
+      undefined,
+      {
+        extensions: [generic, action],
+        extensionDispatch: integrationDispatch('pull_request.labeled'),
+      },
+    )).rejects.toMatchObject({ code: 'plugin_event_ambiguous' });
+  });
+
+  it.each([
+    ['an extra event segment', { provenance: 'integration-watch', provider: 'github', eventType: 'pull_request.labeled.extra', deliveryId: 'delivery-1' }],
+    ['an invalid provider', { provenance: 'integration-watch', provider: 'GitHub', eventType: 'pull_request.labeled', deliveryId: 'delivery-1' }],
+    ['a missing delivery id', { provenance: 'integration-watch', provider: 'github', eventType: 'pull_request.labeled' }],
+    ['a caller-asserted provenance kind', { provenance: 'direct-run', provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-1' }],
+  ])('refuses malformed hosted dispatch authority: %s', async (_case, extensionDispatch) => {
+    await expect(executeAuthoredFlow(
+      flow('software-factory', async (f) => f.done('success')),
+      new JournalClient('/unused'),
+      undefined,
+      { extensionDispatch: extensionDispatch as never },
+    )).rejects.toMatchObject({ code: 'plugin_event_unroutable' });
+  });
+
+  it('refuses a serialized copy of verified dispatch metadata', async () => {
+    const serialized = JSON.parse(JSON.stringify(integrationDispatch('pull_request.labeled')));
+    await expect(executeAuthoredFlow(
+      flow('software-factory', async (f) => f.done('success')),
+      new JournalClient('/unused'),
+      undefined,
+      { extensionDispatch: serialized as never },
+    )).rejects.toMatchObject({ code: 'plugin_event_unroutable' });
   });
 
   async function connectedClient(name: string): Promise<JournalClient> {
@@ -625,6 +687,43 @@ describe('authored flow journal executor', () => {
     });
   }
 });
+
+function integrationDispatch(eventType: string) {
+  return hostedExtensionDispatchFromVerifiedDelivery({ provider: 'github', eventType, deliveryId: 'delivery-1' });
+}
+
+function loadedExtension(name: string, handle: ReturnType<typeof flow>): LoadedFlowExtension {
+  const manifest: FlowExtensionManifest = {
+    schema: 2,
+    kind: 'flow-extension',
+    name,
+    version: '1.0.0',
+    compat: { surface: '*', sdk: '*', base: [{ name: 'software-factory', version: '*' }] },
+    entry: `${name}.flow.ts`,
+    extends: { handlers: true, hooks: [] },
+    triggers: [{ provider: 'github', event: 'pull_request', actions: ['labeled'] }],
+    permissions: {
+      integrations: ['github'],
+      harnesses: [],
+      mcp: [],
+      writes: ['github:pull_request'],
+    },
+    preflight: { credentials: [], servers: [] },
+  };
+  return {
+    name,
+    version: '1.0.0',
+    ref: `github:AgentWorkforce/flows@${'a'.repeat(40)}#${name}`,
+    digest: 'b'.repeat(64),
+    directory: `/extensions/${name}`,
+    entryPath: `/extensions/${name}/${name}.flow.ts`,
+    manifest,
+    handle,
+    getDefinition: getFlowDefinition,
+    handlers: getFlowDefinition(handle).handlers,
+    hooks: Object.freeze({}),
+  };
+}
 
 function outputFor(command: string): string {
   if (command.startsWith('emit:')) return command.slice('emit:'.length);

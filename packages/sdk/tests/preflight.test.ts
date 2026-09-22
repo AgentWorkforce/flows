@@ -3,7 +3,10 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { addPlugin } from '../src/cli/add.js';
 import { runPluginCommand } from '../src/cli/plugin.js';
-import { extensionHandlerForHostedInput } from '../src/flow-extension-loader.js';
+import {
+  extensionHandlerForHostedDispatch,
+  hostedExtensionDispatchFromVerifiedDelivery,
+} from '../src/flow-extension-loader.js';
 import { SHA_A, fakeGithub, type FakeEntry } from './fake-github.js';
 import type { PreflightFailureKind } from '../src/failure-kinds.js';
 import { PluginError } from '../src/plugin-manifest.js';
@@ -706,8 +709,8 @@ describe('preflight: CLI resolution and refusal predicates', () => {
         body: async () => {},
       };
       try {
-        extensionHandlerForHostedInput(
-          { event: { provider: 'github', eventType: 'pull_request.labeled' } },
+        extensionHandlerForHostedDispatch(
+          hostedExtensionDispatchFromVerifiedDelivery({ provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-1' }),
           [{ name: 'one', handlers: [handler] }, { name: 'two', handlers: [handler] }] as never,
         );
         throw new Error('expected ambiguous extension dispatch to refuse');
