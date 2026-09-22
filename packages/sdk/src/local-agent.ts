@@ -28,7 +28,8 @@ export async function attachLocalAgent(
     pins: { workspace: [], streams: [{ stream, read_offset: 0 }] },
   });
   let failure: unknown;
-  worker.on('error', error => { failure = error; client.close(); });
+  // The cause travels with the close, so the flow's next request names it.
+  worker.on('error', error => { failure = error; client.close(error); });
   await worker.attach();
   return {
     stream,

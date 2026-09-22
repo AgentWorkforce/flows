@@ -858,6 +858,15 @@ child. Helper-provider, MCP and plugin-effect children are not yet included
 in this index. Once appended, the index survives process exit and is readable from
 the journal on disk, including after a cooperative nonzero exit.
 
+Each record, and the matching root `journalSteps` entry, may also carry the
+step's place in the run's DAG. `after` lists the step ids it causally waited
+for, transitively reduced and capped at 32. `afterTruncated: true` means that
+list is incomplete. `label` is the author-chosen `f.agent` or `f.hook` name,
+kept whole or omitted when it is over 256 characters, because a cut label
+could end partway through a secret. `f.run` has no label, because a command
+can carry literal tokens and URLs. The fields are optional; a step with none
+writes the original record shape.
+
 An authored step-failure JSON report keeps the child in `runId` and adds
 `rootRunId` for the durable authored root. Consumers must use `rootRunId` for
 the resume pointer and root index, and `runId` for the failing child's evidence.

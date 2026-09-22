@@ -43,6 +43,7 @@ import {
   verifyAuthoredOperations,
 } from './authored-flow-operation.js';
 import { AuthoredFlowLifecycle } from './authored-flow-lifecycle.js';
+import { displayLabel, type AuthoredStepEdges } from './authored-step-index.js';
 import { JournalClient } from './journal-client.js';
 import { PluginError } from './plugin-manifest.js';
 import { createHookEvaluator } from './authored-hooks.js';
@@ -77,7 +78,7 @@ type EveryRunCompletionReasonIsAcceptedByDone = Assert<
 
 export { AuthoredFlowExecutionError, type AuthoredFlowExecutionErrorCode };
 
-export interface AuthoredFlowJournalStep {
+export interface AuthoredFlowJournalStep extends AuthoredStepEdges {
   readonly id: string;
   readonly runId: string;
   readonly completionReason: ProtocolCompletionReason;
@@ -239,6 +240,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   const journalSteps: AuthoredFlowJournalStep[] = [];
   const authoredSteps: AuthoredFlowOperation<unknown>[] = [];
   const lifecycle = new AuthoredFlowLifecycle();
+  const stepEdges = (step: string): AuthoredStepEdges | undefined => lifecycle.stepEdges(step);
   let nextStep = 1;
   let requestedCompletion: LoweredCompletionReason | undefined;
 
@@ -246,12 +248,13 @@ export async function executeAuthoredFlow<Input = undefined>(
     definition.name, journal, journalSteps, budget, {
       ...(options.rootRunId === undefined ? {} : { rootRunId: options.rootRunId }),
       ...(options.dataDir === undefined ? {} : { dataDir: options.dataDir }),
+      stepEdges,
     },
   );
 
   const worker = authoredWorkerRunner(
     definition, journal, flowPath, journalSteps, waitOptions,
-    localAgentStream, budget, definition.header.budget, options.rootRunId, options.workerCapacity,
+    localAgentStream, budget, definition.header.budget, options.rootRunId, options.workerCapacity, stepEdges,
   );
 
   /**
@@ -365,6 +368,7 @@ export async function executeAuthoredFlow<Input = undefined>(
         return worker.llm(id, text, undefined, llmOp.namedGate);
       }, onProgress),
       lifecycle,
+      {},
     );
     return trackStep(authoredSteps, llmOp);
   }
@@ -442,13 +446,17 @@ export async function executeAuthoredFlow<Input = undefined>(
         () => assertOperationAllowed('run', definition.name, requestedCompletion),
         () => observeStep(id, 'deterministic', () => lowerDeterministic(id, command, false, leaseMs, runOp.namedGate), options.onProgress),
         lifecycle,
+        // No label: a command is not a display name. It carries literal
+        // tokens and URLs, and no prefix of it is safe to show (displayLabel).
+        {},
       );
       return trackStep(authoredSteps, runOp);
     },
     llm: llmOperation,
     agent(name, options) {
       assertOperationAllowed('agent', definition.name, requestedCompletion);
-      void name; // Authored headers do not yet declare reusable named agents.
+      // Authored headers do not yet declare reusable named agents, so the name
+      // identifies nothing to the kernel; it is the step's label in the DAG.
       const id = `agent-${nextStep++}`;
       let agentOp!: AuthoredFlowOperation<AgentResult>;
       agentOp = new AuthoredFlowOperation<AgentResult>(
@@ -457,6 +465,7 @@ export async function executeAuthoredFlow<Input = undefined>(
         () => assertOperationAllowed('agent', definition.name, requestedCompletion),
         () => observeStep(id, 'agent', () => worker.agent(id, options, agentOp.namedGate), onProgress),
         lifecycle,
+        displayLabel(typeof name === 'string' ? name : undefined),
       );
       return trackStep(authoredSteps, agentOp);
     },
@@ -518,6 +527,7 @@ export async function executeAuthoredFlow<Input = undefined>(
           return recorded.answer;
         }, options.onProgress),
         lifecycle,
+        {},
       );
       return trackStep(authoredSteps, humanOp);
     },
@@ -540,6 +550,7 @@ export async function executeAuthoredFlow<Input = undefined>(
           return verdict;
         },
         lifecycle,
+        displayLabel(typeof name === 'string' ? name : undefined),
       ));
     },
     done(reason) {
