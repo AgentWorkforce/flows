@@ -116,6 +116,35 @@ describe('hosted base private snapshot', () => {
     expect(poisonCalls).toBe(0);
   });
 
+  it('shadows native directory arrays before promise resolution can substitute them', async () => {
+    const { flowPath } = fixture();
+    const previous = Object.getOwnPropertyDescriptor(Array.prototype, 'then');
+    const empty: unknown[] = [];
+    Object.defineProperty(empty, 'then', { value: undefined });
+    let poisonCalls = 0;
+    let snapshot: Awaited<ReturnType<typeof createHostedBaseSnapshot>> | undefined;
+    try {
+      Object.defineProperty(Array.prototype, 'then', {
+        configurable: true,
+        get(this: unknown[]) {
+          const first = this[0] as { name?: unknown; isFile?: unknown } | undefined;
+          if (typeof first?.name === 'string' && typeof first.isFile === 'function') {
+            poisonCalls += 1;
+            return (resolvePromise: (value: unknown) => void) => resolvePromise(empty);
+          }
+          return undefined;
+        },
+      });
+      snapshot = await createHostedBaseSnapshot(flowPath);
+      expect(readFileSync(snapshot.snapshotFlowPath, 'utf8')).toContain('tenant base must not execute');
+    } finally {
+      if (snapshot !== undefined) await removeHostedBaseSnapshot(snapshot);
+      if (previous === undefined) delete (Array.prototype as { then?: unknown }).then;
+      else Object.defineProperty(Array.prototype, 'then', previous);
+    }
+    expect(poisonCalls).toBe(0);
+  });
+
   it('excludes project node_modules from the admitted generation', async () => {
     const { project, flowPath } = fixture();
     const dependency = join(project, 'node_modules/local-identity');

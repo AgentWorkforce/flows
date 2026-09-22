@@ -131,6 +131,35 @@ describe('bounded plugin-store verification', () => {
     expect(poisonCalls).toBe(0);
   });
 
+  it('shadows stored buffers and arrays before async return assimilation', async () => {
+    const stored = await fixture();
+    const prototypes = [Buffer.prototype, Array.prototype];
+    const previous = prototypes.map(prototype => Object.getOwnPropertyDescriptor(prototype, 'then'));
+    let poisonCalls = 0;
+    try {
+      for (const prototype of prototypes) {
+        Object.defineProperty(prototype, 'then', {
+          configurable: true,
+          get() {
+            poisonCalls += 1;
+            return undefined;
+          },
+        });
+      }
+      const files = await readStoredPluginFiles(stored.directory, stored.digest);
+      expect(files.map(file => file.path)).toEqual([
+        'manifest.json', 'entry.ts', 'flows-plugin.json', 'nested/value.ts',
+      ]);
+    } finally {
+      for (let index = 0; index < prototypes.length; index += 1) {
+        const descriptor = previous[index];
+        if (descriptor === undefined) delete (prototypes[index]! as { then?: unknown }).then;
+        else Object.defineProperty(prototypes[index]!, 'then', descriptor);
+      }
+    }
+    expect(poisonCalls).toBe(0);
+  });
+
   it('uses the module-captured platform while opening stored files', async () => {
     const stored = await fixture();
     const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;

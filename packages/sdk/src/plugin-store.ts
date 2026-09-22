@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { lstat, mkdir, mkdtemp, opendir, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { payloadManifest, safePath, sha256 } from './bundle.js';
 import {
@@ -9,11 +9,14 @@ import {
   descriptorIsFile,
   directoryEntryIsDirectory,
   directoryEntryIsFile,
+  lstatPath,
+  openDirectory,
   openDescriptor,
   readDescriptor,
   readDirectoryEntry,
   statDescriptor,
 } from './fs-descriptor.js';
+import { frozenHostedPromiseValue, hostedPromiseValue } from './hosted-promise-safety.js';
 import { MAX_PLUGIN_FILE_BYTES, MAX_PLUGIN_FILES, MAX_PLUGIN_TOTAL_BYTES } from './plugin-github.js';
 import { PluginError } from './plugin-manifest.js';
 
@@ -27,10 +30,8 @@ import { PluginError } from './plugin-manifest.js';
  * refusal, not a surprise.
  */
 export const PLUGIN_STORE = '.flows/plugins';
-const LSTAT = lstat;
 const MKDIR = mkdir;
 const MKDTEMP = mkdtemp;
-const OPENDIR = opendir;
 const RENAME = rename;
 const RM = rm;
 const WRITE_FILE = writeFile;
@@ -103,14 +104,14 @@ export async function materializePlugin(
   const directory = pluginStoreDirectory(root, name, digest);
   let exists = false;
   try {
-    await LSTAT(directory);
+    await lstatPath(directory);
     exists = true;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
   if (exists) {
     await verifyStoredPlugin(directory, digest);
-    return { directory, digest };
+    return frozenHostedPromiseValue({ directory, digest });
   }
   const parent = PATH_DIRNAME(directory);
   await MKDIR(parent, { recursive: true });
@@ -138,7 +139,7 @@ export async function materializePlugin(
   } finally {
     await RM(staging, { recursive: true, force: true });
   }
-  return { directory, digest };
+  return frozenHostedPromiseValue({ directory, digest });
 }
 
 async function regularFile(
@@ -179,7 +180,7 @@ async function regularFile(
     if (after.size !== before.size || after.mtimeNs !== before.mtimeNs || after.ctimeNs !== before.ctimeNs) {
       throw new PluginError('plugin_source_drift', `${path}: changed while reading.`);
     }
-    return bytes;
+    return hostedPromiseValue(bytes);
   } finally {
     await closeDescriptor(handle);
   }
@@ -191,7 +192,7 @@ async function openStoredFile(root: string, path: string, hooks: StoredPluginRea
     for (let i = 1; i < parts.length; i++) {
       let parent = root;
       for (let index = 0; index < i; index += 1) parent = PATH_JOIN(parent, parts[index]!);
-      if (!descriptorIsDirectory(await LSTAT(parent))) {
+      if (!descriptorIsDirectory(await lstatPath(parent))) {
         throw new PluginError('plugin_source_drift', `${path}: expected a regular file, without symlinks.`);
       }
     }
@@ -245,7 +246,7 @@ async function readVerifiedStoredPluginFiles(
   };
   let manifest: Buffer;
   try {
-    if (!descriptorIsDirectory(await LSTAT(directory))) return drift('not a directory');
+    if (!descriptorIsDirectory(await lstatPath(directory))) return drift('not a directory');
     manifest = await regularFile(directory, 'manifest.json', MAX_PLUGIN_MANIFEST_BYTES, undefined, hooks);
   } catch (error) {
     return drift(error instanceof PluginError ? error.message : 'manifest.json is missing');
@@ -294,7 +295,7 @@ async function readVerifiedStoredPluginFiles(
   for (let index = 0; index < files.length; index += 1) {
     frozen[index] = OBJECT_FREEZE(files[index]!);
   }
-  return OBJECT_FREEZE(frozen);
+  return frozenHostedPromiseValue(frozen);
 }
 
 /** Re-verify, then return every stored file including the payload `manifest.json`. */
@@ -329,7 +330,7 @@ async function rejectExtras(
 ): Promise<void> {
   let entries = 0;
   async function visit(currentPrefix: string): Promise<void> {
-    const directory = await OPENDIR(PATH_JOIN(root, currentPrefix));
+    const directory = await openDirectory(PATH_JOIN(root, currentPrefix));
     try {
       for (;;) {
         const entry = await readDirectoryEntry(directory);

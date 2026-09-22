@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { chmod, mkdir, mkdtemp, opendir, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { canonicalize } from './canonical.js';
@@ -11,8 +11,10 @@ import {
   descriptorIsFile,
   directoryEntryIsDirectory,
   directoryEntryIsFile,
+  openDirectory,
   openDescriptor,
   readDescriptor,
+  readDirectory,
   readDirectoryEntry,
   statDescriptor,
 } from './fs-descriptor.js';
@@ -28,8 +30,6 @@ const EXCLUDED_DIRECTORIES = new Set(['.flows', '.git', 'node_modules']);
 const CHMOD = chmod;
 const MKDIR = mkdir;
 const MKDTEMP = mkdtemp;
-const OPENDIR = opendir;
-const READDIR = readdir;
 const REALPATH = realpath;
 const RM = rm;
 const WRITE_FILE = writeFile;
@@ -191,7 +191,7 @@ async function readSnapshotTree(root: string): Promise<readonly SourceFile[]> {
   const files: SourceFile[] = [];
   const budget: SourceBudget = { entries: 0, bytes: 0 };
   async function visit(directory: string, prefix: string): Promise<void> {
-    const entries = await READDIR(directory, { withFileTypes: true });
+    const entries = await readDirectory(directory);
     ARRAY_SORT(entries, (left, right) => STRING_LOCALE_COMPARE(left.name, right.name));
     for (let index = 0; index < entries.length; index += 1) {
       const entry = entries[index]!;
@@ -237,7 +237,7 @@ async function readTree(
   const files: SourceFile[] = [];
   async function visit(directory: number, relativeDirectory: string, depth: number): Promise<void> {
     if (depth > MAX_DEPTH) throw tooLarge();
-    const entries = await OPENDIR(`/proc/self/fd/${directory}`);
+    const entries = await openDirectory(`/proc/self/fd/${directory}`);
     try {
       for (;;) {
         const entry = await readDirectoryEntry(entries);
