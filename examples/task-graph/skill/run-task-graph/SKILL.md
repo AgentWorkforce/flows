@@ -44,6 +44,7 @@ The input shape is:
   "task": { "title": "…", "body": "…", "url": "…" },
   "maxParallel": 4,
   "maxFollowups": 3,
+  "testCommand": "npm ci && npm test",
   "plan": { "subtasks": [
     { "id": "schema", "title": "…", "detail": "what done means", "dependsOn": [] },
     { "id": "api",    "title": "…", "detail": "…", "dependsOn": ["schema"] }
@@ -76,6 +77,9 @@ Rules. The flow refuses a plan that breaks any of these, so check them before su
 - There are at most 20 subtasks.
 - `maxParallel` is between 1 and 8.
 - `maxFollowups` is between 0 and 10. Use 0 when the user wants exactly the plan and nothing more.
+- Set `testCommand` to the command that tests this repository. You can leave it out only when
+  `package.json` has a `test` script. Without either, the flow stops before testing and doesn't
+  pass by default.
 
 Only list a dependency when a subtask needs the other's **code merged**
 first. Every dependency you add removes some parallelism.

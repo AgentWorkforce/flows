@@ -13,6 +13,10 @@ week. This flow takes a plan in which each subtask lists the subtasks it depends
   mid-run, up to `maxFollowups` (default 3, `0` turns them off). Follow-ups can't spawn follow-ups of their
   own. Without these limits, agents keep filing polish and docs follow-ups: a 4-subtask test run grew to 20.
 - Once everything has merged, the repository's tests run once, outside any agent, on the combined result.
+  The command is `testCommand`, or `npm ci && npm test` when there's an npm test script. With neither, the
+  run stops as `needs_human` rather than passing untested.
+- Subtask branches are named `task-graph/<base-commit>/<id>`, so the flow never overwrites a branch your
+  repository already has.
 
 A subtask counts as done only when it has **a commit on its branch and a result file**. An agent saying
 "done" isn't enough.

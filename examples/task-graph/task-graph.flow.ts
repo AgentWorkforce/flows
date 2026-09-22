@@ -29,6 +29,8 @@ type Input = {
   maxParallel?: number;
   /** Follow-up subtasks agents may add mid-run. Default 3; 0 turns them off. */
   maxFollowups?: number;
+  /** Command that tests the integrated result. Default: `npm ci && npm test` when package.json has a test script. */
+  testCommand?: string;
 };
 
 const MAX_SUBTASKS = 20;
@@ -80,10 +82,15 @@ export default flow<Input>("task-graph", async (f, input) => {
 
   const root = (await f.run("pwd")).trim();
   const work = `${root}/.relayflow`;
+  // Subtask branches live under a namespace for this base commit, so they never reuse a branch the repo
+  // already has. A rerun from the same commit clears only this namespace, which only this flow writes.
+  const branchPrefix = `task-graph/${(await f.run("git rev-parse --short=10 HEAD")).trim()}`;
   // Flow bookkeeping and worktrees live under an excluded dir so no merge or `git add -A` picks them up.
   await f.run(
     `rm -rf ${shellWord(work)} && git worktree prune && mkdir -p ${shellWord(`${work}/results`)} && ` +
-      `{ grep -qxF '.relayflow/' .git/info/exclude 2>/dev/null || echo '.relayflow/' >> .git/info/exclude; }`,
+      `{ grep -qxF '.relayflow/' .git/info/exclude 2>/dev/null || echo '.relayflow/' >> .git/info/exclude; } && ` +
+      `git for-each-ref --format='%(refname:short)' ${shellWord(`refs/heads/${branchPrefix}/`)} | ` +
+      `while read -r b; do git branch -D -q "$b"; done`,
   );
 
   // 1. The plan: given, or written by a planner agent.
@@ -128,15 +135,19 @@ export default flow<Input>("task-graph", async (f, input) => {
   };
 
   const runSubtask = async (s: Subtask, parent?: string): Promise<void> => {
-    await Promise.all((s.dependsOn ?? []).map((d) => merged.get(d)));
-    if (parent) await merged.get(parent);
+    // Yield before reading dependencies: the scheduling loop registers every subtask first, so a plan
+    // need not list dependencies before dependents (a Linear-built plan does not).
+    await Promise.resolve();
+    const deps = [...(s.dependsOn ?? []), ...(parent === undefined ? [] : [parent])].map((d) => merged.get(d));
+    if (deps.some((d) => d === undefined)) throw new Error(`subtask ${s.id} depends on a subtask that was never scheduled`);
+    await Promise.all(deps);
     await acquireSlot();
     try {
       const tree = `${work}/wt/${s.id}`;
-      const branch = `task-graph/${s.id}`;
+      const branch = `${branchPrefix}/${s.id}`;
       // Branched from the run's branch as it is NOW, so every dependency's code is already in it.
       const base = (await onRunBranch(() => f.run(
-        `git worktree add -q -B ${shellWord(branch)} ${shellWord(tree)} HEAD && git rev-parse HEAD`,
+        `git worktree add -q -b ${shellWord(branch)} ${shellWord(tree)} HEAD && git rev-parse HEAD`,
       ))).trim();
       const result = `${work}/results/${s.id}.json`;
       const others = all.filter((o) => o.id !== s.id).map((o) => `- ${o.id}: ${o.title}`).join("\n");
@@ -158,8 +169,12 @@ export default flow<Input>("task-graph", async (f, input) => {
               `Finally write ${result} as JSON: {"summary":"what you did","followups":[${SUBTASK_SHAPE}]} ` +
               `(followups is usually empty; ids must be new).`
             : `Finally write ${result} as JSON: {"summary":"what you did"}.`),
-      // Done means a result file AND at least one commit on the branch — not the agent saying so.
-      }).gate({ type: "subprocess_gate", command: `test -s ${shellWord(result)} && test "$(git -C ${shellWord(tree)} rev-list --count ${base}..HEAD)" -gt 0` });
+      // Done means a parseable result file AND at least one commit on the branch — not the agent saying so.
+      }).gate({
+        type: "subprocess_gate",
+        command: `node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' ${shellWord(result)} && ` +
+          `test "$(git -C ${shellWord(tree)} rev-list --count ${base}..HEAD)" -gt 0`,
+      });
 
       // 3. Merge back. A conflict goes to an agent that must leave the branch merged.
       const outcome = (await onRunBranch(() => f.run(
@@ -172,7 +187,7 @@ export default flow<Input>("task-graph", async (f, input) => {
             `Run the affected tests, then commit the merge.`,
         }).gate({ type: "subprocess_gate", command: `git merge-base --is-ancestor ${shellWord(branch)} HEAD` }));
       }
-      await f.run(`git worktree remove --force ${shellWord(tree)}`);
+      await onRunBranch(() => f.run(`git worktree remove --force ${shellWord(tree)}`));
 
       // 4. Follow-ups join the graph. They run after this subtask, plus whatever they declare.
       const report = JSON.parse(await f.run(`cat ${shellWord(result)}`)) as { summary?: string; followups?: Subtask[] };
@@ -206,12 +221,17 @@ export default flow<Input>("task-graph", async (f, input) => {
     await Promise.all(merged.values());
   }
 
-  // 5. The whole graph is merged: one integrated test run, outside any agent.
-  await f.run(
-    'if [ -f package.json ] && node -e \'p=require("./package.json");process.exit(p.scripts&&p.scripts.test?0:1)\'; ' +
-      'then npm ci --no-audit --no-fund && npm test; else echo "no test script; skipping"; fi',
-    { timeout: "15m" },
-  );
+  // 5. The whole graph is merged: one integrated test run, outside any agent. No test command is a stop,
+  // never a silent pass — the merged work is still on the run's branch for a human to test.
+  const hasNpmTest = (await f.run(
+    'if [ -f package.json ] && node -e \'p=require("./package.json");process.exit(p.scripts&&p.scripts.test?0:1)\'; then echo yes; else echo no; fi',
+  )).trim() === "yes";
+  const testCommand = input.testCommand ?? (hasNpmTest ? "npm ci --no-audit --no-fund && npm test" : undefined);
+  if (testCommand === undefined) {
+    await f.run("echo 'Stopped before testing: no npm test script. Pass testCommand for this repository.' >&2");
+    return f.done("needs_human");
+  }
+  await f.run(testCommand, { timeout: "15m" });
 
   // Triggered from a ticket: open one PR for the whole graph. A `flows run` leaves it to `flows sync`.
   if (input.issue) {
