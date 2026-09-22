@@ -1478,3 +1478,40 @@ authored-node.mjs  3.1 MB  (entry point)
 $ /tmp/flows-pr552-standalone.UflORW/flows --help >/dev/null
 $ printf 'standalone-hosted-parser-pass %s\n' /tmp/flows-pr552-standalone.UflORW/flows
 standalone-hosted-parser-pass /tmp/flows-pr552-standalone.UflORW/flows
+
+$ git rev-parse HEAD
+70295e43
+
+$ cd packages/sdk
+$ git diff --check
+$ npm run typecheck
+
+> @relayflows/sdk@2.0.28 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+$ npm run build
+
+> @relayflows/sdk@2.0.28 build
+> tsc && node scripts/make-cli-executable.mjs
+
+$ npm run typecheck:tests
+
+> @relayflows/sdk@2.0.28 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+$ ./node_modules/.bin/vitest run tests/plugin-store-bounds.test.ts tests/hosted-base-snapshot.test.ts tests/hosted-extension-routing.test.ts tests/preflight.test.ts tests/babysitter-native-extension.test.ts tests/hosted-extension-protocol-intrinsics.test.ts tests/hosted-extension-protocol.test.ts tests/authored-flow.test.ts tests/hosted-extension-isolation.test.ts
+
+ Test Files  9 passed (9)
+      Tests  216 passed (216)
+   Start at  15:54:51
+   Duration  2.63s
+
+$ node scripts/build-standalone-cli.mjs bun-linux-x64 /tmp/flows-pr552-standalone.0rAzuk/flows
+Bundled 780 modules in 30ms
+authored-node.mjs  3.1 MB  (entry point)
+[50ms] bundle 713 modules
+[88ms] compile /tmp/flows-pr552-standalone.0rAzuk/flows
+
+$ /tmp/flows-pr552-standalone.0rAzuk/flows --help >/dev/null
+$ printf 'standalone-hash-factory-pass %s\n' /tmp/flows-pr552-standalone.0rAzuk/flows
+standalone-hash-factory-pass /tmp/flows-pr552-standalone.0rAzuk/flows
