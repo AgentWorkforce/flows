@@ -1,0 +1,123 @@
+   Compiling relayflowd v0.1.0 (/home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.92s
+     Running unittests src/lib.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/relayflowd-f043db0bb3534a16)
+
+running 7 tests
+test exec_det::tests::captures_deterministic_output ... ok
+test exec_det::tests::failed_command_evidence_survives_completion ... ok
+test exec_det::tests::exec_det_keeps_early_failure_in_both_large_streams ... ok
+test exec_det::tests::timeout_has_an_explicit_completion_reason ... ok
+test exec_det::tests::exec_det_bounds_duplicate_trajectory_evidence_including_json_escaping ... ok
+test exec_det::tests::lease_override_bounds_execution_and_preserves_command_timeout ... ok
+test exec_det::tests::timeout_kills_the_whole_process_group ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 53 filtered out; finished in 0.26s
+
+     Running unittests src/main.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/relayflowd-6e3681176306c99e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/budget_gate.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/budget_gate-9607ae7c2db11b74)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
+
+     Running tests/crash_resume.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/crash_resume-d2d102ec3e89b705)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 40 filtered out; finished in 0.00s
+
+     Running tests/daemon_lifecycle.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/daemon_lifecycle-b705da9761b2a254)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+     Running tests/event_wake.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/event_wake-b98778c1ad4de872)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/hn_monitor_integration.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/hn_monitor_integration-059c38eb4828898f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/input_binding.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/input_binding-4f132e6302508de8)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/invalid_schema_preflight.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/invalid_schema_preflight-9c08869ea58d283f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/memoization.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/memoization-e5537edfeea8b814)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/memory.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/memory-fe5dbc6738ee15ff)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/memory_epoch.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/memory_epoch-627e50d1c86c39e4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/parallel_driver.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/parallel_driver-7a554ae88aa529f9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/placement_pins.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/placement_pins-839e136752b4e5af)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/placement_routing.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/placement_routing-9cb694324a7d7bf1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/routing_diagnostics.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/routing_diagnostics-7807262e1a1167ec)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/spec_review_routing.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/spec_review_routing-032df51688a72750)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/subscription_liveness.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/subscription_liveness-c3bbfd58dcafb336)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/trigger_watcher.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/trigger_watcher-0504d7ed791030e6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+

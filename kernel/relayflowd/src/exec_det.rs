@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 use wait_timeout::ChildExt;
 
 const OUTPUT_TAIL_BYTES: usize = 64 * 1024;
+const TRAJECTORY_TAIL_BYTES: usize = 16 * 1024;
 
 pub fn execute(step: &StepSpec) -> AttemptResult {
     execute_with_memory(step, None)
@@ -118,10 +119,18 @@ pub(crate) fn execute_placed_with_input(
         "stdout_tail": crate::output_capture::capture(&stdout, OUTPUT_TAIL_BYTES),
         "stderr_tail": crate::output_capture::capture(&stderr, OUTPUT_TAIL_BYTES),
     });
-    // Failed completions deliberately null their reusable output. Preserve
-    // command evidence in the existing diagnostic field before that happens.
-    let trajectory_tail = (output["exit_code"] != 0)
-        .then(|| json!({ "exit_code": output["exit_code"], "stderr_tail": output["stderr_tail"] }));
+    // Deterministic output survives failure; trajectory evidence is a duplicate.
+    // Bound that duplicate, including the JSON envelope and escaped controls.
+    let trajectory_tail = (output["exit_code"] != 0).then(|| {
+        let mut evidence = json!({ "exit_code": output["exit_code"], "stderr_tail": "" });
+        let budget = TRAJECTORY_TAIL_BYTES - evidence.to_string().len();
+        evidence["stderr_tail"] = crate::output_capture::capture(&stderr, budget).into();
+        if evidence.to_string().len() > TRAJECTORY_TAIL_BYTES {
+            // A source byte can expand to at most six JSON bytes (\u0000).
+            evidence["stderr_tail"] = crate::output_capture::capture(&stderr, budget / 6).into();
+        }
+        evidence
+    });
     AttemptResult {
         human_intervention: false,
         output,
@@ -231,6 +240,24 @@ mod tests {
             assert!(text.contains("not ok 3 - early failure"));
             assert!(text.contains("bytes elided at capture"));
             assert!(text.len() <= OUTPUT_TAIL_BYTES);
+        }
+    }
+
+    #[test]
+    fn exec_det_bounds_duplicate_trajectory_evidence_including_json_escaping() {
+        for script in [
+            "head -c 90000 /dev/zero | tr '\\000' x >&2; exit 1",
+            "head -c 90000 /dev/zero >&2; exit 1",
+        ] {
+            let step: StepSpec = serde_json::from_value(json!({
+                "id": "large-stderr", "type": "deterministic", "command": script
+            })).unwrap();
+            let result = execute(&step);
+            let trajectory = result.trajectory_tail.unwrap();
+            assert!(serde_json::to_vec(&trajectory).unwrap().len() <= 16 * 1024);
+            assert!(result.output["stderr_tail"].as_str().unwrap().len() > 16 * 1024);
+            assert_eq!(trajectory["exit_code"], 1);
+            assert!(trajectory["stderr_tail"].as_str().unwrap().contains("bytes elided at capture"));
         }
     }
 

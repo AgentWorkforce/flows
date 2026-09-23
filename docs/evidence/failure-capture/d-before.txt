@@ -1,0 +1,28 @@
+   Compiling relayflowd v0.1.0 (/home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.99s
+     Running unittests src/lib.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/relayflowd-f043db0bb3534a16)
+
+running 7 tests
+test exec_det::tests::captures_deterministic_output ... ok
+test exec_det::tests::failed_command_evidence_survives_completion ... ok
+test exec_det::tests::exec_det_keeps_early_failure_in_both_large_streams ... ok
+test exec_det::tests::exec_det_bounds_duplicate_trajectory_evidence_including_json_escaping ... FAILED
+test exec_det::tests::timeout_has_an_explicit_completion_reason ... ok
+test exec_det::tests::lease_override_bounds_execution_and_preserves_command_timeout ... ok
+test exec_det::tests::timeout_kills_the_whole_process_group ... ok
+
+failures:
+
+---- exec_det::tests::exec_det_bounds_duplicate_trajectory_evidence_including_json_escaping stdout ----
+
+thread 'exec_det::tests::exec_det_bounds_duplicate_trajectory_evidence_including_json_escaping' (23625) panicked at relayflowd/src/exec_det.rs:248:13:
+assertion failed: serde_json::to_vec(&trajectory).unwrap().len() <= 16 * 1024
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    exec_det::tests::exec_det_bounds_duplicate_trajectory_evidence_including_json_escaping
+
+test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 53 filtered out; finished in 0.25s
+
+error: test failed, to rerun pass `-p relayflowd --lib`
