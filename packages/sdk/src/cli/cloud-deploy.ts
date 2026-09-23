@@ -19,6 +19,7 @@ export interface CloudDeployArgs {
   /** Refuse a missing integration instead of offering to connect it. */
   noConnect: boolean;
   json: boolean;
+  plugins: string[];
 }
 
 /**
@@ -39,6 +40,7 @@ export function parseCloudDeployArgs(args: readonly string[]): CloudDeployArgs |
   let noConnect = false;
   let json = false;
   const on: string[] = [];
+  const plugins: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === '--json') {
@@ -63,6 +65,13 @@ export function parseCloudDeployArgs(args: readonly string[]): CloudDeployArgs |
       i += 1;
       continue;
     }
+    if (arg === '--plugin') {
+      const next = args[i + 1];
+      if (next === undefined || next.startsWith('-')) return undefined;
+      plugins.push(next);
+      i += 1;
+      continue;
+    }
     if (arg === '--repo' || arg === '--approver' || arg === '--name' || arg === '--on') {
       const next = args[i + 1];
       if (next === undefined || next.startsWith('-')) return undefined;
@@ -78,7 +87,7 @@ export function parseCloudDeployArgs(args: readonly string[]): CloudDeployArgs |
     value = arg;
   }
   if (value === undefined || repo === undefined || on.length === 0) return undefined;
-  return { command: 'cloud-deploy', value, repo, on, approver, name, agents, draft, noConnect, json };
+  return { command: 'cloud-deploy', value, repo, on, approver, name, agents, draft, noConnect, json, plugins };
 }
 
 function describeSource(source: FlowTriggerSource): string {
@@ -109,6 +118,7 @@ export async function runCloudDeployCli(args: CloudDeployArgs, io: CliIo): Promi
       ...(args.name === undefined ? {} : { name: args.name }),
       ...(agents === undefined ? {} : { agents }),
       ...(connect === undefined ? {} : { connect }),
+      ...(args.plugins.length === 0 ? {} : { plugins: args.plugins }),
     });
     if (args.json) {
       io.stdout(JSON.stringify({ ok: true, ...deployment }));

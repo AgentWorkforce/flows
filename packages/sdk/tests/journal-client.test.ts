@@ -445,3 +445,19 @@ describe('JournalClient: an effect election is atomic with its provider call', (
     }
   });
 });
+
+describe('a request after the connection ended', () => {
+  it('names the cause the caller closed it with', async () => {
+    const c = new JournalClient('/nonexistent/relayflowd.sock');
+    const boom = new Error('agent worker: stepComplete rejected');
+    c.close(boom);
+    const error = await c.runGet('run-1').then(() => undefined, (e: unknown) => e as Error);
+    expect(error?.message).toBe('journal client: not connected (run.get): journal client: closed after agent worker: stepComplete rejected');
+    expect((error?.cause as Error | undefined)?.cause).toBe(boom);
+  });
+
+  it('keeps the bare message when nothing ended it', async () => {
+    const c = new JournalClient('/nonexistent/relayflowd.sock');
+    await expect(c.runGet('run-1')).rejects.toThrow(/^journal client: not connected \(run\.get\)$/);
+  });
+});

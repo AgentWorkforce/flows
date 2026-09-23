@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runCli } from '../src/cli.js';
 import { classifyOutcome, emptyReport, type RunDiagnostic, type RunReport } from '../src/cli/run.js';
+import { EXCERPT_BYTES } from '../src/cli/step-excerpt.js';
 import { socketPathFor } from '../src/daemon-connection.js';
 import * as daemonLifecycle from '../src/daemon-lifecycle.js';
 import { JournalClient } from '../src/journal-client.js';
@@ -39,6 +40,18 @@ function stub(pages: unknown[][], type: 'deterministic' | 'agent' | 'llm' = 'det
 
 async function classify(client: JournalClient, outcome = failure) {
   return classifyOutcome(client, 'run', outcome, emptyReport('run'), '/tmp/diagnostic.sock', {});
+}
+
+/** A TAP run whose failing case is at `failing` and whose totals come last. */
+function tapRun(cases: number, failing: number): string {
+  const lines = ['TAP version 13'];
+  for (let index = 1; index <= cases; index++) {
+    lines.push(index === failing
+      ? `not ok ${index} - pty-exit: child reaped twice`
+      : `ok ${index} - pty: a passing case with a realistically long name`);
+  }
+  lines.push(`1..${cases}`, `# tests ${cases}`, `# pass ${cases - 1}`, '# fail 1');
+  return lines.join('\n') + '\n';
 }
 
 async function diagnosticFor(stderr: string) {
@@ -98,17 +111,78 @@ describe('step failure diagnostic', () => {
     }
   });
 
-  it('keeps the last 1,024 bytes, not the prefix', async () => {
-    const diagnostic = await diagnosticFor('discarded-prefix' + 'x'.repeat(2_000) + 'last error');
-    expect(diagnostic.stderrTail).toBe('x'.repeat(1_014) + 'last error');
-    expect(Buffer.byteLength(diagnostic.stderrTail!)).toBe(1_024);
-    expect(diagnostic.message).not.toContain('discarded-prefix');
+  it.each([false, true])('exposes the middle failure through the CLI itself (json=%s)', async json => {
+    // The unit above proves the renderer; this proves the whole CLI path,
+    // human and machine-readable, carries the failing case to the operator.
+    const dir = mkdtempSync(join(tmpdir(), 'flows-failure-'));
+    directories.push(dir);
+    writeFileSync(join(dir, 'flows.json'), '{}');
+    const path = join(dir, 'tap-run.yaml');
+    writeFileSync(path, 'version: "0.1.0"\nname: tap-run\nsteps:\n  - id: fail-command\n    type: deterministic\n    command: \'node --test\'\n');
+    const stream = tapRun(400, 200);
+    vi.spyOn(daemonLifecycle, 'ensureDaemon').mockResolvedValue({
+      kind: 'attached', socketPath: socketPathFor(dir), connection: null,
+    });
+    vi.spyOn(JournalClient.prototype, 'connect').mockResolvedValue(undefined);
+    vi.spyOn(JournalClient.prototype, 'hello').mockResolvedValue({ protocol: PROTOCOL_VERSION, server: 'relayflowd-test' });
+    vi.spyOn(JournalClient.prototype, 'runStart').mockResolvedValue(failure);
+    vi.spyOn(JournalClient.prototype, 'runGet').mockResolvedValue({
+      run_id: failure.run_id, status: 'failed', budget: { tokens_in: 0, tokens_out: 0, dollars: '0' },
+      steps: { 'fail-command': { type: 'deterministic', state: 'done' } },
+    });
+    vi.spyOn(JournalClient.prototype, 'journalRead').mockImplementation(async (_runId, fromSeq) => ({
+      entries: fromSeq === 1 ? [completion(1, stream, 1)] : [],
+    }));
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const code = await runCli(['run', '--no-spawn', '--data-dir', dir, ...(json ? ['--json'] : []), path], {
+      stdout: line => stdout.push(line), stderr: line => stderr.push(line),
+    });
+    expect(code).toBe(1);
+    const output = json ? stdout.join('\n') : stderr.join('\n');
+    expect(output).toContain('not ok 200 - pty-exit: child reaped twice');
+    if (json) {
+      const report = JSON.parse(output) as RunReport;
+      const diagnostic = report.diagnostics.at(-1) as RunDiagnostic;
+      expect(diagnostic.stderrTail).toContain('not ok 200 - pty-exit: child reaped twice');
+      expect(Buffer.byteLength(diagnostic.stderrTail!)).toBeLessThanOrEqual(EXCERPT_BYTES);
+    }
+  });
+
+  it('keeps the head the last-1,024-bytes render discarded outright', async () => {
+    // This assertion is the inverse of the one it replaces, and the inversion
+    // is the bug: `discarded-prefix` is the head of the stream, and a render
+    // that could only ever show its last kilobyte threw it away.
+    const diagnostic = await diagnosticFor('discarded-prefix\n' + 'x\n'.repeat(4_000) + 'last error\n');
+    expect(diagnostic.stderrTail).toContain('discarded-prefix');
+    expect(diagnostic.stderrTail).toContain('last error');
+    expect(diagnostic.stderrTail).toMatch(/… [\d,]+ bytes elided …/u);
+    expect(diagnostic.message).toContain('discarded-prefix');
+    expect(Buffer.byteLength(diagnostic.stderrTail!)).toBeLessThanOrEqual(EXCERPT_BYTES);
+  });
+
+  it('names the failing case from the middle of a streamed test run', async () => {
+    // The reported case. A runner that streams results and prints its totals
+    // last puts `ok` lines and a summary in the final kilobyte by
+    // construction, so the one `not ok` was exactly the part that got cut.
+    const diagnostic = await diagnosticFor(tapRun(400, 200));
+    expect(diagnostic.message).toContain('Stderr (captured excerpt):');
+    expect(diagnostic.message).toContain('not ok 200 - pty-exit: child reaped twice');
+    expect(diagnostic.message).toContain('# fail 1');
+    expect(diagnostic.message).toContain('TAP version 13');
+  });
+
+  it('returns a stream that fits whole, so no marker means no elision', async () => {
+    const stream = tapRun(14, 5);
+    expect(Buffer.byteLength(stream)).toBeLessThan(EXCERPT_BYTES);
+    const diagnostic = await diagnosticFor(stream);
+    expect(diagnostic.stderrTail).toBe(stream);
+    expect(diagnostic.stderrTail).not.toContain('elided');
   });
 
   it('truncates at UTF-8 boundaries without splitting multibyte characters', async () => {
-    const diagnostic = await diagnosticFor('🙂'.repeat(400) + 'é');
-    expect(diagnostic.stderrTail).toBe('🙂'.repeat(255) + 'é');
-    expect(Buffer.byteLength(diagnostic.stderrTail!)).toBeLessThanOrEqual(1_024);
+    const diagnostic = await diagnosticFor('🙂'.repeat(2_000) + 'é');
+    expect(Buffer.byteLength(diagnostic.stderrTail!)).toBeLessThanOrEqual(EXCERPT_BYTES);
     expect(diagnostic.stderrTail).not.toContain('\ufffd');
   });
 
@@ -117,7 +191,7 @@ describe('step failure diagnostic', () => {
     const diagnostic = await diagnosticFor(binary.repeat(1_000) + '\u009b31m\u202eEND\n\t');
     expect(diagnostic.stderrTail).toMatch(/END\n\t$/);
     expect(diagnostic.stderrTail).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f-\x9f\p{Cf}]/u);
-    expect(Buffer.byteLength(diagnostic.stderrTail!)).toBeLessThanOrEqual(1_024);
+    expect(Buffer.byteLength(diagnostic.stderrTail!)).toBeLessThanOrEqual(EXCERPT_BYTES);
   });
 
   it('includes an empty stderr field for a silent nonzero exit', async () => {

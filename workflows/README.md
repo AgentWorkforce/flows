@@ -1,3 +1,5 @@
+> PR review migration: `pr-review.flow.ts` now delegates to [Babysitter](../examples/babysitter/README.md). The shared flow fails closed on documented platform dependencies. Older deployment instructions below describe the archived reviewer.
+
 # Running the workflows
 
 There are two engines here, plus one authored `.flow.ts` (`pr-review.flow.ts`) that Cloud runs as a listener. `flows` (this repository's SDK + `relayflowd`)

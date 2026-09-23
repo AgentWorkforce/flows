@@ -25,6 +25,16 @@ upload — and it cannot be contained lexically, so allowing it would just move
 the late refusal somewhere else. The ticket's own phrase, "still inside the
 run's tree", is the rule this implements.
 
+Main shipped the same `cwd` field first with the opposite contract (#554:
+absolute, carried unverified, for authored parallel-agent directory
+attribution). The merge keeps this contract — relative and contained — and
+reconciles callers at the authored edge: an absolute `f.agent options.cwd`
+naming a directory inside the run root lowers to the equivalent relative
+declaration, one that escapes is refused, so the spec never carries an
+absolute path and in-tree callers from #554 keep working. Out-of-tree
+absolute paths, which #554 accepted unverified, are now refused — that is
+the containment the ticket asked for.
+
 The contract is split in two, because they are two different facts:
 
 - **The declaration** is lexical and filesystem-free, so `flows check`, the

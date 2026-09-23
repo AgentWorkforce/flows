@@ -1,6 +1,6 @@
 import type { Helpers } from "./helpers/index.js";
 import type { MemoryHelper } from "./memory.js";
-import type { CloudHelper } from "./cloud.js";
+import type { CloudCapabilities, CloudHelper } from "./cloud.js";
 import type { FlowCompletionReason } from "./completion.js";
 import type { Step } from "./step.js";
 
@@ -39,8 +39,10 @@ export interface AgentOptions {
    * path must be relative and free of `.`, `..` and empty components, and
    * must name an existing directory inside the run root at dispatch;
    * anything else refuses the step instead of running it somewhere else.
-   * `artifacts` are reported relative to this directory. It is a declaration
-   * of where to start, not a sandbox. Not supported with
+   * An absolute path is accepted when it names a directory inside the run
+   * root — it lowers to the same relative declaration — and refused when it
+   * escapes. `artifacts` are reported relative to this directory. It is a
+   * declaration of where to start, not a sandbox. Not supported with
    * `transport: 'relay'`. See docs/SURFACE.md.
    */
   cwd?: string;
@@ -66,6 +68,8 @@ export interface LlmOptions {
  * context or execute a step, so all effects remain behind the journal client.
  */
 export interface Ctx extends Helpers {
+  /** Host-verified ports. Absent from direct/local runs and ordinary authored execution. */
+  readonly capabilities?: { readonly cloud?: CloudCapabilities };
   readonly mcp: Readonly<Record<string, Readonly<Record<string, (args: unknown) => Step<unknown>>>>>;
   /** Command lease: milliseconds or a duration such as "5m"; default 30s, maximum 15m. */
   run(command: string, options?: { timeout?: string | number }): Step<string>;
@@ -82,6 +86,12 @@ export interface Ctx extends Helpers {
    */
   human(question: string, options: { to: string }): Step<boolean>;
   dispatch<T>(flow: string, input: unknown): Promise<T>;
+  /**
+   * Run every installed implementation of a named hook in lock order and
+   * AND-compose the booleans. With no implementations this is a journaled
+   * no-op that returns true. A name must appear in the flow header's `hooks`.
+   */
+  hook(name: string, input: unknown): Step<boolean>;
   done(reason: FlowCompletionReason): void;
   cloud: CloudHelper;
   memory: MemoryHelper;

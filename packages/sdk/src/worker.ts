@@ -139,7 +139,7 @@ export class AgentWorker extends EventEmitter {
           ? runAgentCli(spec.cli, workerInstruction(spec.instruction, dispatch), dispatch.wake_context, effectiveModel, undefined, signal, 'agent', this.options.dataDir === undefined ? undefined : {
             dataDir: this.options.dataDir, runId: dispatch.run_id, stepId: dispatch.step_id, attempt: dispatch.attempt,
             onReady: this.options.onPtyReady, onDrive: () => { humanIntervention = true; },
-          }, cwd.directory,
+          }, cwd.directory ?? this.options.runRoot,
             spec.transport === 'relay' ? 'relay' : 'direct',
             { runId: dispatch.run_id, stepId: dispatch.step_id, idempotencyKey: dispatch.idempotency_key,
               dataDir: this.options.dataDir, resultSchema: spec.verification?.json_schema })
