@@ -80,6 +80,9 @@ export async function runEngine(f: Ctx, promptText: string, ask: Ask, patients: 
 
 export interface Plan { coverage: { questionId: string; patientIds: string[] }[]; gaps: { questionId: string; brief: string }[] }
 
+/** One queued gap per question × visit type: a re-run's planner keeps the brief already waiting. */
+export const gapId = (questionId: string, visitType: string): string => `gap-${questionId}-${visitType}`;
+
 /** Test QA, deterministic: every question exactly once, covered by real shelf patients or a gap brief. */
 export function planError(plan: Plan, questionIds: readonly string[], shelf: readonly Patient[]): string | null {
   const onShelf = new Set(shelf.map((p) => p.id));

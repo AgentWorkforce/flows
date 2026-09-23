@@ -27,14 +27,19 @@ Each job file is its brief diagram, line by line:
 | First pass persists as targets / gold | `store.ts record`, fed only from the grid you reviewed. AI output never writes gold directly |
 | Iterator: rewrite-only | [`prompts.ts`](prompts.ts) `iterate`. Input is the changeset, patients, brief and existing prompt; output is new prompt text |
 | Prompt QA: the brief plus shared guidelines | `promptQa`, looping with the iterator. Capped at 3 tries, then the run parks as `needs_human` |
-| Done = live | `store.ts publish` sets `livePromptId`. There is no promote step. A shared question warns which agencies it will change |
+| Done = live | `store.ts publish` sets `livePromptId`. There is no promote step. A shared question warns which agencies it will change, and the re-run scores the new prompt on **every distinct menu** it is asked with ([`lib/piles.ts`](lib/piles.ts) `distinctMenus`), because done changes it for all of them |
 | Shared frozen at config level | a changed shared or mismatch row becomes a `config-send` issue that carries its targets and a proposed rewrite |
-| Test planner: never invents a patient | picks shelf ids (checked deterministically); each hole becomes a gap brief |
+| Test planner: never invents a patient | picks shelf patients of the run's visit type (checked deterministically); each hole becomes one gap brief per question × visit type |
 | You do not approve the chart | the only patient gate is *kick generate*. Patient QA, plus a deterministic identifier check ([`lib/phi.ts`](lib/phi.ts)), locks it |
 
 Every read and write of the lab is a journaled `f.run` step. Every store verb
 is idempotent, so a retried step lands the lab in the same state. `write-new`
-never overwrites an edit you made.
+never overwrites an edit you made. Mutating verbs take an exclusive lab lock,
+so two runs at once never lose each other's update.
+
+A first-pass prompt is offered for commit only after it has run on a shelf
+patient and you have reviewed its rows. A prompt whose question is a gap waits
+as a draft until a patient covers it.
 
 **Not built:** anything the brief lists under "Not at the start". Also not
 built:
@@ -51,7 +56,7 @@ The flow is the job graph that sits under those screens.
 
 ```sh
 npm install
-npm test                                    # 16 unit tests over the deterministic parts
+npm test                                    # 20 unit tests over the deterministic parts and the store
 node --experimental-strip-types store.ts ./my-lab seed fixtures
 npx flows run prompt-lab.flow.ts --local-agent --input \
   '{"job":"new-agency","reviewer":"<who answers the gates>","lab":"./my-lab","agency":"sunrise","visitType":"soc"}'
@@ -86,24 +91,33 @@ diff. It captures every command with its output and exit code in
 ./prove.sh evidence/run
 ```
 
-The captured run (Claude Code 2.1.280, the adapter's default model):
+The captured run (Claude Code 2.1.280, the adapter's default model). `prove.sh`
+stops on the first exit it didn't expect, so reaching the final state means
+every step below exited as shown:
 
 | Run | Result | What happened |
 | --- | --- | --- |
-| Job 1 · `sunrise` / `soc` ([01](evidence/run/01-job1-run.txt), [04](evidence/run/04-resume.txt), [07](evidence/run/07-resume.txt)) | 29 steps, `success` | Piles came out as shared / mismatch / agency-specific. Both agency-specific questions got first-pass prompts that passed Prompt QA. The planner covered 3 questions and queued `gap-ostomy-supplies`. Gate 1: the reviewer rewrote Pat's wound explanation and added a note ([02](evidence/run/02-reviewer-edit.diff)). That shared row went to the question manager with its target. Gate 2: committed all except `ostomy-supplies`, which no patient has exercised yet ([05](evidence/run/05-reviewer-edit.diff)). `living-situation` went live. |
-| Patient · `gap-ostomy-supplies` ([08](evidence/run/08-patient-run.txt), [10](evidence/run/10-resume.txt)) | 9 steps, `success` | Plan, then kick generate. The chart passed Patient QA on its first try and `marguerite` locked onto the shelf. The brief is marked `locked`. |
-| Job 2 · the config-send issue ([11](evidence/run/11-job2-run.txt), [13](evidence/run/13-resume.txt), [15](evidence/run/15-resume.txt)) | 24 steps, `success` | Four shelf patients, including the new one. Gold came prefilled, with Pat's config target carried over. The iterator's rewrite passed Prompt QA. Re-run scored 4 of 4 golded patients worked (100%), and the gate warned it would change harbor, maple and sunrise. Done made the new prompt live and closed the issue. |
+| Job 1 · `sunrise` / `soc` ([01](evidence/run/01-job1-run.txt), [04](evidence/run/04-resume.txt), [06](evidence/run/06-resume.txt)) | 29 steps, `success` | Piles came out as shared / mismatch / agency-specific. Both agency-specific questions got first-pass prompts that passed Prompt QA. The planner covered 3 questions from the `soc` shelf and queued `gap-ostomy-supplies-soc`. Gate 1: 9 rows, 7 highlighted. The reviewer raised Pat's wound confidence to High, rewrote the explanation and added a note ([02](evidence/run/02-reviewer-edit.diff)). That shared row went to the question manager with its target. Gate 2 offered only `living-situation`, and it went live. `ostomy-supplies` had no shelf patient, so it was held as a draft. |
+| Patient · `gap-ostomy-supplies-soc` ([07](evidence/run/07-patient-run.txt), [09](evidence/run/09-resume.txt)) | 9 steps, `success` | Plan, then kick generate. The chart passed Patient QA on its first try, and `verna` locked onto the shelf. The brief is marked `locked`. |
+| Job 2 · the config-send issue ([10](evidence/run/10-job2-run.txt), [12](evidence/run/12-resume.txt), [14](evidence/run/14-resume.txt)) | 22 steps, `success` | Three shelf patients. Gold came prefilled, with Pat's config target carried over. The iterator's rewrite passed Prompt QA. The re-run scored 3 of 3 golded patients worked (100%), and the gate warned it would change harbor, maple and sunrise. Done made the new prompt live and closed the issue. |
 
-Final state: [16-lab-state.txt](evidence/run/16-lab-state.txt), with the whole lab in `evidence/run/lab/`.
+Final state: [15-lab-state.txt](evidence/run/15-lab-state.txt), with the whole lab in `evidence/run/lab/`.
 
-**What this run does not show:** an answer flipping from wrong to right. Here
-the model answered Pat "Ongoing" even under the flawed wound prompt, so Job 2
-iterated on the explanation and on source priority, not on the answer. The
-brief's exact failure, "Healed / High" for Pat, did occur in an earlier
+**What this run does not show:**
+
+- **A wrong answer being fixed.** The model answered Pat "Ongoing / Medium"
+  even under the flawed wound prompt. So Job 2 iterated on confidence, the
+  explanation and source priority, not on the answer.
+- **Re-running on several menus.** `wound-status` has one menu across its
+  agencies, so the per-menu re-run ran with one. The multi-menu case, a
+  mismatch question like `mood`, is covered by the `distinctMenus` unit test
+  only.
+- **A clinician's judgment.** The reviewer at every gate is `prove.sh`,
+  applying fixed edits.
+
+The brief's exact failure, "Healed / High" for Pat, did occur in an earlier
 `claude-sonnet-5` run of the same prompt. Its engine step's journal is in
 [00-sonnet-run-pat-healed-high.txt](evidence/runtime-findings/00-sonnet-run-pat-healed-high.txt).
-The reviewer at every gate is `prove.sh`, applying fixed edits. It is not a
-clinician's judgment.
 
 ## Runtime findings (relayflows 2.0.29)
 

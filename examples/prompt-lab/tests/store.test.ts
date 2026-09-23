@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -68,4 +68,37 @@ test("enqueue is keyed by id; lock-patient freezes a chart and closes its brief"
   const s = store("snapshot").out;
   assert.equal(s.shelf.find((x: { id: string }) => x.id === "sam").locked, true);
   assert.equal(s.patientBriefs[0].status, "locked");
+});
+
+test("concurrent store processes never lose an update (the lab lock serializes read-modify-write)", async () => {
+  const { lab, store } = seeded();
+  const run = (...args: string[]) => new Promise<number | null>((resolve) => {
+    spawn("node", ["--no-warnings", "--experimental-strip-types", STORE, lab, ...args]).on("close", resolve);
+  });
+  const texts = Array.from({ length: 8 }, (_, i) => `prompt text number ${i}`);
+  const codes = await Promise.all([
+    ...texts.map((t) => run("draft", "mood", b64(t))),
+    ...texts.map((_, i) => run("enqueue", "issues", b64({ id: `i-${i}` }))),
+  ]);
+  assert.deepEqual(codes, Array(16).fill(0));
+  const s = store("snapshot").out;
+  for (const t of texts) assert.ok(Object.values(s.bank.prompts).includes(t), `lost draft: ${t}`);
+  assert.equal(s.issues.length, 8);
+  assert.equal(existsSync(join(lab, ".lock")), false);
+});
+
+test("a failing mutating verb releases the lock", () => {
+  const { lab, store } = seeded();
+  assert.equal(store("publish", "mood", "p-nope").status, 1);
+  assert.equal(existsSync(join(lab, ".lock")), false);
+  assert.equal(store("draft", "mood", b64("still writable")).status, 0);
+});
+
+test("the output limit counts UTF-8 bytes, not characters", () => {
+  const { store } = seeded();
+  // 25k characters (é is 2 bytes, 中 is 3): about 62.5 KB of UTF-8, under the limit in UTF-16 units.
+  assert.equal(store("write-new", "work/big.json", b64("é中".repeat(12_500))).status, 0);
+  const r = store("read", "work/big.json");
+  assert.equal(r.status, 1);
+  assert.match(r.err, /bytes, over the 61440-byte journal tail/);
 });

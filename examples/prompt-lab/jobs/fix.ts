@@ -11,12 +11,12 @@
 import { changed, gridError, highlights, rowKey, type Row } from "../lib/grid.ts";
 import { hash8 } from "../lib/hash.ts";
 import { shellWord } from "../lib/lab.ts";
-import { agenciesUsing } from "../lib/piles.ts";
-import { score, scoreTable } from "../lib/score.ts";
+import { agenciesUsing, distinctMenus } from "../lib/piles.ts";
+import { score, scoreTable, type Score } from "../lib/score.ts";
 import type { Output, PatientBrief } from "../lib/types.ts";
 import { iterate, promptQa, type Ask } from "../prompts.ts";
 import type { Job } from "./job.ts";
-import { MAX_ATTEMPTS, planCoverage, runEngine, untilQaPasses } from "./shared.ts";
+import { gapId, MAX_ATTEMPTS, planCoverage, runEngine, untilQaPasses } from "./shared.ts";
 
 export interface FixInput { questionId?: string; issueId?: string; agency?: string }
 
@@ -33,9 +33,14 @@ export async function fix(job: Job, input: FixInput): Promise<void> {
 
   const using = agenciesUsing(snap.agencies, qid);
   const agency = input.agency ?? issue?.agency ?? using[0]!;
-  const menu = Object.values(snap.agencies[agency]?.visitTypes ?? {}).flat().find((q) => q.questionId === qid)?.options;
-  if (!menu) throw new Error(`agency ${agency} does not ask ${qid}`);
+  const asked = Object.entries(snap.agencies[agency]?.visitTypes ?? {})
+    .flatMap(([visitType, qs]) => qs.filter((q) => q.questionId === qid).map((q) => ({ visitType, options: q.options })))[0];
+  if (!asked) throw new Error(`agency ${agency} does not ask ${qid}`);
+  const menu = asked.options;
   const ask: Ask = { question: question.text, options: menu };
+  // A prompt is global: done changes it on every agency's menu, so the re-run
+  // checks every distinct menu, not only the one gold was set on.
+  const menus = distinctMenus(snap.agencies, using, qid);
   const pile = using.length > 1 ? "shared" : "agency-specific";
   const brief = snap.briefs[qid];
 
@@ -43,7 +48,7 @@ export async function fix(job: Job, input: FixInput): Promise<void> {
   const plan = await planCoverage(f, [{ id: qid, ...ask }], snap.shelf);
   const ids = new Set([...(plan.coverage[0]?.patientIds ?? []), ...Object.keys(issue?.targets ?? {})]);
   if (plan.gaps[0]) {
-    const gap: PatientBrief = { id: `gap-${qid}`, questionId: qid, brief: plan.gaps[0].brief, from: "planner", status: "queued" };
+    const gap: PatientBrief = { id: gapId(qid, asked.visitType), questionId: qid, visitType: asked.visitType, brief: plan.gaps[0].brief, from: "planner", status: "queued" };
     await lab.enqueue("patient-briefs", gap);
   }
   if (ids.size === 0) return f.done("needs_human"); // nothing on the shelf can show it yet; the gap brief is queued
@@ -87,13 +92,18 @@ export async function fix(job: Job, input: FixInput): Promise<void> {
   const { promptId } = await lab.draft(qid, rewrite.value.prompt);
 
   // Re-run and score: required before done. Worked = new answer matches persisted gold.
-  const rerun = await runEngine(f, rewrite.value.prompt, ask, patients);
-  const result = score(qid, rerun, { ...snap.gold, ...gold });
-  await lab.writeNew(`${work}/score.json`, { promptId, ...result, outputs: rerun });
+  const allGold = { ...snap.gold, ...gold };
+  const results: { agencies: string[]; options: string[]; score: Score; outputs: Record<string, Output> }[] = [];
+  for (const m of menus) { // sequential: see runEngine
+    const outputs = await runEngine(f, rewrite.value.prompt, { question: question.text, options: m.options }, patients);
+    results.push({ ...m, score: score(qid, outputs, allGold), outputs });
+  }
+  await lab.writeNew(`${work}/score.json`, { promptId, menus: results });
+  const table = results.map((r) => (results.length > 1 ? `Menu of ${r.agencies.join(", ")} (${r.options.join(" / ")}):\n` : "") + scoreTable(r.score)).join("\n");
 
   const shared = using.length > 1 ? `\nSHARED: marking done changes this prompt for every agency that uses it: ${using.join(", ")}.` : "";
   const done = await f.human(
-    `Re-run and score · ${qid}, new prompt ${promptId}:\n${scoreTable(result)}${shared}\n` +
+    `Re-run and score · ${qid}, new prompt ${promptId}:\n${table}${shared}\n` +
     `Read the new prompt in ${job.labDir}/bank.json and the outputs in ${job.labDir}/${work}/score.json.\n` +
     `yes = mark done (live in Apricot now, no promote step); no = keep it as a draft and iterate again in a new run.`,
     { to: reviewer });

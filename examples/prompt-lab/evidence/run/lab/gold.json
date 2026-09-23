@@ -2,12 +2,7 @@
   "wound-status|jordan": {
     "answer": "No wound",
     "confidence": "High",
-    "explanation": "The referral packet's intake form documents \"No wounds documented. Skin intact,\" and today's SOC visit note confirms \"Skin intact, no wounds\" — there is no primary wound to stage, and no discharge summary states a wound was closed or healed."
-  },
-  "wound-status|marguerite": {
-    "answer": "Ongoing",
-    "confidence": "Medium",
-    "explanation": "The referral packet never states the wound is closed or healed — it only records peristomal skin intact at discharge — so the visit notes govern, and today's assessment documents erythematous, moist, weepy denudement about 2 cm wide along the 4-to-8 o'clock peristomal aspect with patient-reported burning and stinging. Confidence is Medium rather than High because the status comes from the visit note, not a referral statement."
+    "explanation": "The referral packet's intake form documents \"No wounds documented. Skin intact,\" and today's SOC visit notes confirm \"Skin intact, no wounds.\""
   },
   "wound-status|pat": {
     "answer": "Ongoing",
@@ -17,6 +12,6 @@
   "wound-status|riley": {
     "answer": "No wound",
     "confidence": "High",
-    "explanation": "The referral packet states 'No wounds' and today's SOC visit note confirms 'No wounds; skin intact around cast,' so there is no primary wound to track."
+    "explanation": "The referral packet states 'No wounds' alongside the right wrist fracture with cast, and today's SOC visit notes confirm 'No wounds; skin intact around cast.'"
   }
 }

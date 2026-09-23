@@ -1,9 +1,11 @@
-# reviewer edit: evidence/run/lab/work/sunrise-soc/62c71a0f/grid.json
-@@ -144,9 +144,9 @@
+# reviewer edit: evidence/run/lab/work/sunrise-soc/8b7996f3/grid.json
+@@ -128,10 +128,10 @@
+     },
      "target": {
        "answer": "Ongoing",
-       "confidence": "High",
--      "explanation": "Today's SOC visit documents an open left heel wound measuring 2.0 x 1.5 cm with moderate serous drainage and yellow slough, dressed with foam per protocol, so the discharge summary's \"wound closed\" note is outdated and the current assessment governs."
+-      "confidence": "Medium",
+-      "explanation": "The referral discharge summary states the left heel wound was closed, but today's SOC visit notes document an open left heel area 2.0 x 1.5 cm with moderate serous drainage and yellow slough, so the wound is not healed."
++      "confidence": "High",
 +      "explanation": "Today's visit notes describe an open 2.0 x 1.5 cm left heel wound with serous drainage and slough; the discharge summary's closed status is outdated."
      },
 -    "notes": ""

@@ -17,23 +17,41 @@
 //   node store.ts <lab> close-issue <issueId>
 //   node store.ts <lab> lock-patient <b64 patient> [briefId]
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Bank, Issue, Patient, PatientBrief, Snapshot } from "./lib/types.ts";
 
 const OUTPUT_LIMIT = 60 * 1024; // the kernel journals a 64 KiB stdout tail; never let a read be cut.
 
-const [lab, verb, ...args] = process.argv.slice(2);
-if (!lab || !verb) fail("usage: store.ts <lab> <verb> [args]");
+const LOCK_WAIT_MS = 10_000;
+/** Verbs that read-modify-write: serialized across processes, so concurrent runs never lose an update. */
+const MUTATING = new Set(["write-new", "record", "draft", "publish", "enqueue", "close-issue", "lock-patient"]);
 
+const [lab, verb, ...args] = process.argv.slice(2) as [string, string, ...string[]];
+
+class StoreError extends Error {}
+/** Throws, never exits: the lock is released on the way out. */
 function fail(message: string): never {
-  process.stderr.write(`store: ${message}\n`);
-  process.exit(1);
+  throw new StoreError(message);
 }
 function print(value: unknown): void {
   const text = JSON.stringify(value);
-  if (text.length > OUTPUT_LIMIT) fail(`output is ${text.length} bytes, over the ${OUTPUT_LIMIT}-byte journal tail`);
+  const bytes = Buffer.byteLength(text, "utf8");
+  if (bytes > OUTPUT_LIMIT) fail(`output is ${bytes} bytes, over the ${OUTPUT_LIMIT}-byte journal tail`);
   process.stdout.write(`${text}\n`);
+}
+/** An exclusive lab lock: mkdir is atomic, so one process holds it at a time. */
+function withLock(work: () => void): void {
+  const lock = join(lab, ".lock");
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  for (;;) {
+    try { mkdirSync(lock); break; } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (Date.now() > deadline) fail(`lab is locked (${lock}); remove it if no store process is running`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+    }
+  }
+  try { work(); } finally { rmSync(lock, { recursive: true, force: true }); }
 }
 const path = (rel: string): string => {
   if (rel.startsWith("/") || rel.split("/").includes("..")) fail(`path escapes the lab: ${rel}`);
@@ -54,6 +72,7 @@ function writeJson(rel: string, value: unknown): void {
 }
 const listDir = (rel: string): string[] => (existsSync(path(rel)) ? readdirSync(path(rel)).sort() : []);
 
+function run(): void {
 switch (verb) {
   case "seed": {
     if (existsSync(join(lab, "bank.json"))) fail(`${lab} is already a lab; refusing to overwrite it`);
@@ -154,4 +173,13 @@ switch (verb) {
   }
   default:
     fail(`unknown verb ${verb}`);
+}
+}
+
+try {
+  if (!lab || !verb) fail("usage: store.ts <lab> <verb> [args]");
+  if (MUTATING.has(verb)) withLock(run); else run();
+} catch (error) {
+  process.stderr.write(`store: ${error instanceof Error ? error.message : String(error)}\n`);
+  process.exitCode = 1;
 }

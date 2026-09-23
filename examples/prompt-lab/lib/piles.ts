@@ -37,3 +37,19 @@ export function agenciesUsing(agencies: Record<string, Agency>, questionId: stri
     .filter(([, a]) => Object.values(a.visitTypes).some((qs) => qs.some((q) => q.questionId === questionId)))
     .map(([id]) => id).sort();
 }
+
+/** The distinct answer menus `questionId` is asked with, each with the agencies that use it. */
+export function distinctMenus(agencies: Record<string, Agency>, using: readonly string[], questionId: string): { options: string[]; agencies: string[] }[] {
+  const menus: { options: string[]; agencies: string[] }[] = [];
+  for (const id of using) {
+    for (const qs of Object.values(agencies[id]!.visitTypes)) {
+      for (const q of qs) {
+        if (q.questionId !== questionId) continue;
+        const same = menus.find((m) => sameList(m.options, q.options));
+        if (!same) menus.push({ options: q.options, agencies: [id] });
+        else if (!same.agencies.includes(id)) same.agencies.push(id);
+      }
+    }
+  }
+  return menus;
+}

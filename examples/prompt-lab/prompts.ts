@@ -134,7 +134,7 @@ Return JSON { "plan": "<the plan>" }.`,
 }
 
 /** Test patient creator, step 2: generate the chart from brief + plan. */
-export function patientChart(brief: string, plan: string, findings: readonly string[]): Call {
+export function patientChart(brief: string, plan: string, visitType: string, findings: readonly string[]): Call {
   return {
     prompt: `Generate the invented home-health test patient described by this plan, in the shelf's chart shape.
 
@@ -145,8 +145,8 @@ PATIENT PLAN:
 ${plan}
 ${findings.length ? `\nPatient QA rejected the previous chart for:\n- ${findings.join("\n- ")}\nFix every point.` : ""}
 Rules: a first-name label only; no surnames, dates, MRNs, phone numbers or addresses. id is the lowercase label.
-Return JSON { "id", "label", "ageBand", "visitType": "soc", "referral", "notes" }.`,
-    output: obj({ id: { type: "string", pattern: "^[a-z][a-z0-9-]{1,30}$" }, label: str, ageBand: str, visitType: { const: "soc" }, referral: { type: "string", minLength: 60 }, notes: { type: "string", minLength: 80 } }),
+Return JSON { "id", "label", "ageBand", "visitType": "${visitType}", "referral", "notes" }.`,
+    output: obj({ id: { type: "string", pattern: "^[a-z][a-z0-9-]{1,30}$" }, label: str, ageBand: str, visitType: { const: visitType }, referral: { type: "string", minLength: 60 }, notes: { type: "string", minLength: 80 } }),
   };
 }
 

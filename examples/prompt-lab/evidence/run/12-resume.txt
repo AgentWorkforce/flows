@@ -1,0 +1,68 @@
+$ npx flows resume --no-observer-link --data-dir /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/prove2-data --local-agent 01M36BVTCK80EV8P4FWA8WZZHK
+○ run-1 (deterministic) 0.00s
+✓ run-1 (deterministic) 0.01s completionReason: success
+○ llm-2 (llm) 0.00s
+✓ llm-2 (llm) 3.82s completionReason: success
+○ llm-3 (llm) 0.00s
+✓ llm-3 (llm) 4.13s completionReason: success
+○ llm-4 (llm) 0.00s
+✓ llm-4 (llm) 3.87s completionReason: success
+○ llm-5 (llm) 0.00s
+✓ llm-5 (llm) 4.40s completionReason: success
+○ run-6 (deterministic) 0.00s
+✓ run-6 (deterministic) 0.01s completionReason: success
+○ human-7 (deterministic) 0.00s
+✓ human-7 (deterministic) 0.01s completionReason: success
+○ run-8 (deterministic) 0.00s
+✓ run-8 (deterministic) 0.06s completionReason: success
+○ run-9 (deterministic) 0.00s
+✓ run-9 (deterministic) 0.07s completionReason: success
+○ llm-10 (llm) 0.00s
+WAITING [worker_lease] Run "01M36BXT4CQ15K7D7BGKN0WT5G" step "llm-10" (llm) is running under a worker lease until 1790141488575.
+↻ llm-10 (llm) 3.83s
+WAITING [worker_lease] Run "01M36BXT4CQ15K7D7BGKN0WT5G" step "llm-10" (llm) is running under a worker lease until 1790141498577.
+↻ llm-10 (llm) 13.87s
+✓ llm-10 (llm) 19.22s completionReason: success
+○ llm-11 (llm) 0.00s
+WAITING [worker_lease] Run "01M36BYEV7RNQ0ZRM8NPD94ZS6" step "llm-11" (llm) is running under a worker lease until 1790141509788.
+↻ llm-11 (llm) 5.83s
+WAITING [worker_lease] Run "01M36BYEV7RNQ0ZRM8NPD94ZS6" step "llm-11" (llm) is running under a worker lease until 1790141519790.
+↻ llm-11 (llm) 15.85s
+✓ llm-11 (llm) 22.17s completionReason: success
+○ llm-12 (llm) 0.00s
+WAITING [worker_lease] Run "01M36BZ2JR3WBGG3FETBMR66FX" step "llm-12" (llm) is running under a worker lease until 1790141530006.
+↻ llm-12 (llm) 3.88s
+WAITING [worker_lease] Run "01M36BZ2JR3WBGG3FETBMR66FX" step "llm-12" (llm) is running under a worker lease until 1790141540009.
+↻ llm-12 (llm) 13.91s
+WAITING [worker_lease] Run "01M36BZ2JR3WBGG3FETBMR66FX" step "llm-12" (llm) is running under a worker lease until 1790141550011.
+↻ llm-12 (llm) 23.92s
+✓ llm-12 (llm) 31.46s completionReason: success
+○ llm-13 (llm) 0.00s
+WAITING [worker_lease] Run "01M36C01XRV3F9DKHN4JWCV3XW" step "llm-13" (llm) is running under a worker lease until 1790141562091.
+↻ llm-13 (llm) 4.50s
+WAITING [worker_lease] Run "01M36C01XRV3F9DKHN4JWCV3XW" step "llm-13" (llm) is running under a worker lease until 1790141572092.
+↻ llm-13 (llm) 14.51s
+✓ llm-13 (llm) 15.14s completionReason: success
+○ run-14 (deterministic) 0.00s
+✓ run-14 (deterministic) 0.06s completionReason: success
+○ llm-15 (llm) 0.00s
+WAITING [worker_lease] Run "01M36C0GPZTJGQTMD14Y6TV9WG" step "llm-15" (llm) is running under a worker lease until 1790141577235.
+↻ llm-15 (llm) 4.44s
+✓ llm-15 (llm) 8.57s completionReason: success
+○ llm-16 (llm) 0.00s
+WAITING [worker_lease] Run "01M36C0RKC7NK9XXY5AGQ74TYH" step "llm-16" (llm) is running under a worker lease until 1790141585311.
+↻ llm-16 (llm) 3.95s
+✓ llm-16 (llm) 8.04s completionReason: success
+○ llm-17 (llm) 0.00s
+WAITING [worker_lease] Run "01M36C108ACT174RZXCWBQCGR5" step "llm-17" (llm) is running under a worker lease until 1790141593150.
+↻ llm-17 (llm) 3.74s
+✓ llm-17 (llm) 8.03s completionReason: success
+○ run-18 (deterministic) 0.00s
+✓ run-18 (deterministic) 0.07s completionReason: success
+○ human-19 (deterministic) 0.00s
+⏸ human-19 (human) 0.00s
+PARKED [run_parked] Run "01M36BVTCK80EV8P4FWA8WZZHK" is waiting for prompt-lab-reviewer to answer human-19: "Re-run and score · wound-status, new prompt p-wound-status-f1305d28:\n3 of 3 golded patients worked (100%)\n  jordan: gold No wound · new run No wound · worked\n  pat: gold Ongoing · new run Ongoing · worked\n  riley: gold No wound · new run No wound · worked\nSHARED: marking done changes this prompt for every agency that uses it: harbor, maple, sunrise.\nRead the new prompt in evidence/run/lab/bank.json and the outputs in evidence/run/lab/work/q-wound-status/cd33704e/score.json.\nyes = mark done (live in Apricot now, no promote step); no = keep it as a draft and iterate again in a new run."
+Answer with: flows answer --data-dir /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/prove2-data 01M36BVTCK80EV8P4FWA8WZZHK human-19 yes|no
+Then continue with: flows resume --data-dir /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/prove2-data --local-agent 01M36BVTCK80EV8P4FWA8WZZHK
+RUN 01M36BVTCK80EV8P4FWA8WZZHK parked
+exit=3

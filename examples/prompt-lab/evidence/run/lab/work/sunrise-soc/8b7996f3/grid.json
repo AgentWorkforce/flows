@@ -1,0 +1,170 @@
+[
+  {
+    "questionId": "living-situation",
+    "patientId": "jordan",
+    "pile": "agency-specific",
+    "highlight": [
+      "first-pass prompt, never reviewed"
+    ],
+    "ai": {
+      "answer": "Lives with spouse",
+      "confidence": "High",
+      "explanation": "Today's skilled nursing SOC visit notes state directly that the patient and their spouse share the home, with the spouse present throughout the visit and setting up the pill organizer each morning. The intake form's 'lives alone' entry is older supporting evidence and is treated as stale under today's direct observation."
+    },
+    "target": {
+      "answer": "Lives with spouse",
+      "confidence": "High",
+      "explanation": "Today's skilled nursing SOC visit notes state directly that the patient and their spouse share the home, with the spouse present throughout the visit and setting up the pill organizer each morning. The intake form's 'lives alone' entry is older supporting evidence and is treated as stale under today's direct observation."
+    },
+    "notes": ""
+  },
+  {
+    "questionId": "living-situation",
+    "patientId": "pat",
+    "pile": "agency-specific",
+    "highlight": [
+      "first-pass prompt, never reviewed"
+    ],
+    "ai": {
+      "answer": "Lives alone",
+      "confidence": "High",
+      "explanation": "Today's skilled nursing SOC visit note states directly that the patient lives alone in a one-story home, with a neighbor who checks in daily; an intermittent visitor does not count as a cohabitant. This is consistent with the referral packet's intake form, but the current visit note is the direct basis."
+    },
+    "target": {
+      "answer": "Lives alone",
+      "confidence": "High",
+      "explanation": "Today's skilled nursing SOC visit note states directly that the patient lives alone in a one-story home, with a neighbor who checks in daily; an intermittent visitor does not count as a cohabitant. This is consistent with the referral packet's intake form, but the current visit note is the direct basis."
+    },
+    "notes": ""
+  },
+  {
+    "questionId": "living-situation",
+    "patientId": "riley",
+    "pile": "agency-specific",
+    "highlight": [
+      "first-pass prompt, never reviewed"
+    ],
+    "ai": {
+      "answer": "Lives with family",
+      "confidence": "High",
+      "explanation": "Today's visit notes state directly that the patient lives with her adult child, that child's spouse, and two grandchildren, which is a household of relatives other than a spouse. The referral packet agrees, but the visit note is the direct current statement; 'Lives alone' and the spouse option were rejected because multiple relatives reside in the home."
+    },
+    "target": {
+      "answer": "Lives with family",
+      "confidence": "High",
+      "explanation": "Today's visit notes state directly that the patient lives with her adult child, that child's spouse, and two grandchildren, which is a household of relatives other than a spouse. The referral packet agrees, but the visit note is the direct current statement; 'Lives alone' and the spouse option were rejected because multiple relatives reside in the home."
+    },
+    "notes": ""
+  },
+  {
+    "questionId": "mood",
+    "patientId": "jordan",
+    "pile": "mismatch",
+    "highlight": [
+      "medium confidence",
+      "shared prompt, this agency's menu or ancestry differs"
+    ],
+    "ai": {
+      "answer": "Calm",
+      "confidence": "Medium",
+      "explanation": "The visit notes describe the patient as \"relaxed and engaged\" and asking good questions about the diuretic, but the mood is inferred from the clinician's behavioral description rather than stated by the patient in their own words."
+    },
+    "target": {
+      "answer": "Calm",
+      "confidence": "Medium",
+      "explanation": "The visit notes describe the patient as \"relaxed and engaged\" and asking good questions about the diuretic, but the mood is inferred from the clinician's behavioral description rather than stated by the patient in their own words."
+    },
+    "notes": ""
+  },
+  {
+    "questionId": "mood",
+    "patientId": "pat",
+    "pile": "mismatch",
+    "highlight": [
+      "shared prompt, this agency's menu or ancestry differs"
+    ],
+    "ai": {
+      "answer": "Calm",
+      "confidence": "High",
+      "explanation": "The visit notes describe the patient as \"calm and pleasant, joking about hospital food,\" and she states in her own words that she is glad to be home."
+    },
+    "target": {
+      "answer": "Calm",
+      "confidence": "High",
+      "explanation": "The visit notes describe the patient as \"calm and pleasant, joking about hospital food,\" and she states in her own words that she is glad to be home."
+    },
+    "notes": ""
+  },
+  {
+    "questionId": "mood",
+    "patientId": "riley",
+    "pile": "mismatch",
+    "highlight": [
+      "shared prompt, this agency's menu or ancestry differs"
+    ],
+    "ai": {
+      "answer": "Anxious",
+      "confidence": "High",
+      "explanation": "The patient states in her own words, 'I can't stop thinking about falling again, I lie awake worrying about it,' and the clinician notes she wrings her hands during the medication review."
+    },
+    "target": {
+      "answer": "Anxious",
+      "confidence": "High",
+      "explanation": "The patient states in her own words, 'I can't stop thinking about falling again, I lie awake worrying about it,' and the clinician notes she wrings her hands during the medication review."
+    },
+    "notes": ""
+  },
+  {
+    "questionId": "wound-status",
+    "patientId": "pat",
+    "pile": "shared",
+    "highlight": [
+      "medium confidence"
+    ],
+    "ai": {
+      "answer": "Ongoing",
+      "confidence": "Medium",
+      "explanation": "The referral discharge summary states the left heel wound was closed, but today's SOC visit notes document an open left heel area 2.0 x 1.5 cm with moderate serous drainage and yellow slough, so the wound is not healed."
+    },
+    "target": {
+      "answer": "Ongoing",
+      "confidence": "High",
+      "explanation": "Today's visit notes describe an open 2.0 x 1.5 cm left heel wound with serous drainage and slough; the discharge summary's closed status is outdated."
+    },
+    "notes": "The prompt makes the referral win over what the nurse saw today. Today's notes must win (shared guideline 1)."
+  },
+  {
+    "questionId": "wound-status",
+    "patientId": "jordan",
+    "pile": "shared",
+    "highlight": [],
+    "ai": {
+      "answer": "No wound",
+      "confidence": "High",
+      "explanation": "The referral packet's intake form documents \"No wounds documented. Skin intact,\" and today's SOC visit notes confirm \"Skin intact, no wounds.\""
+    },
+    "target": {
+      "answer": "No wound",
+      "confidence": "High",
+      "explanation": "The referral packet's intake form documents \"No wounds documented. Skin intact,\" and today's SOC visit notes confirm \"Skin intact, no wounds.\""
+    },
+    "notes": ""
+  },
+  {
+    "questionId": "wound-status",
+    "patientId": "riley",
+    "pile": "shared",
+    "highlight": [],
+    "ai": {
+      "answer": "No wound",
+      "confidence": "High",
+      "explanation": "The referral packet states \"No wounds\" and today's SOC visit notes confirm \"No wounds; skin intact around cast,\" so there is no primary wound to status."
+    },
+    "target": {
+      "answer": "No wound",
+      "confidence": "High",
+      "explanation": "The referral packet states \"No wounds\" and today's SOC visit notes confirm \"No wounds; skin intact around cast,\" so there is no primary wound to status."
+    },
+    "notes": ""
+  }
+]

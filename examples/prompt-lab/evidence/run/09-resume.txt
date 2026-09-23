@@ -1,0 +1,33 @@
+$ npx flows resume --no-observer-link --data-dir /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/prove2-data --local-agent 01M36BPYVQFDCG2WEP7V7H04X4
+○ run-1 (deterministic) 0.00s
+✓ run-1 (deterministic) 0.01s completionReason: success
+○ llm-2 (llm) 0.00s
+✓ llm-2 (llm) 4.25s completionReason: success
+○ run-3 (deterministic) 0.00s
+✓ run-3 (deterministic) 0.01s completionReason: success
+○ human-4 (deterministic) 0.00s
+✓ human-4 (deterministic) 0.01s completionReason: success
+○ run-5 (deterministic) 0.00s
+✓ run-5 (deterministic) 0.06s completionReason: success
+○ llm-6 (llm) 0.00s
+WAITING [worker_lease] Run "01M36BSWPMV69TB4YAE3K4SA7V" step "llm-6" (llm) is running under a worker lease until 1790141360145.
+↻ llm-6 (llm) 4.23s
+WAITING [worker_lease] Run "01M36BSWPMV69TB4YAE3K4SA7V" step "llm-6" (llm) is running under a worker lease until 1790141370147.
+↻ llm-6 (llm) 14.27s
+WAITING [worker_lease] Run "01M36BSWPMV69TB4YAE3K4SA7V" step "llm-6" (llm) is running under a worker lease until 1790141380150.
+↻ llm-6 (llm) 24.24s
+WAITING [worker_lease] Run "01M36BSWPMV69TB4YAE3K4SA7V" step "llm-6" (llm) is running under a worker lease until 1790141390152.
+↻ llm-6 (llm) 34.24s
+✓ llm-6 (llm) 41.18s completionReason: success
+○ llm-7 (llm) 0.00s
+WAITING [worker_lease] Run "01M36BV4YJ8GEC3YTNNHH5QCQJ" step "llm-7" (llm) is running under a worker lease until 1790141401349.
+↻ llm-7 (llm) 4.25s
+WAITING [worker_lease] Run "01M36BV4YJ8GEC3YTNNHH5QCQJ" step "llm-7" (llm) is running under a worker lease until 1790141411351.
+↻ llm-7 (llm) 14.27s
+WAITING [worker_lease] Run "01M36BV4YJ8GEC3YTNNHH5QCQJ" step "llm-7" (llm) is running under a worker lease until 1790141421353.
+↻ llm-7 (llm) 24.28s
+✓ llm-7 (llm) 24.33s completionReason: success
+○ run-8 (deterministic) 0.00s
+✓ run-8 (deterministic) 0.07s completionReason: success
+RUN 01M36BPYVQFDCG2WEP7V7H04X4 completed (9 steps) completionReason: success
+exit=0

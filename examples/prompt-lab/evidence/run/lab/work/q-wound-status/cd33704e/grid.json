@@ -1,0 +1,55 @@
+[
+  {
+    "questionId": "wound-status",
+    "patientId": "jordan",
+    "pile": "shared",
+    "highlight": [],
+    "ai": {
+      "answer": "No wound",
+      "confidence": "High",
+      "explanation": "The referral packet's intake form documents \"No wounds documented. Skin intact,\" and today's SOC visit notes confirm \"Skin intact, no wounds.\""
+    },
+    "target": {
+      "answer": "No wound",
+      "confidence": "High",
+      "explanation": "The referral packet's intake form documents \"No wounds documented. Skin intact,\" and today's SOC visit notes confirm \"Skin intact, no wounds.\""
+    },
+    "notes": ""
+  },
+  {
+    "questionId": "wound-status",
+    "patientId": "pat",
+    "pile": "shared",
+    "highlight": [
+      "medium confidence"
+    ],
+    "ai": {
+      "answer": "Ongoing",
+      "confidence": "Medium",
+      "explanation": "Today's SOC visit documents an open left heel wound measuring 2.0 x 1.5 cm with moderate serous drainage and yellow slough, contradicting the discharge summary's statement that the wound was closed; the current clinical observation governs."
+    },
+    "target": {
+      "answer": "Ongoing",
+      "confidence": "High",
+      "explanation": "Today's visit notes describe an open 2.0 x 1.5 cm left heel wound with serous drainage and slough; the discharge summary's closed status is outdated."
+    },
+    "notes": ""
+  },
+  {
+    "questionId": "wound-status",
+    "patientId": "riley",
+    "pile": "shared",
+    "highlight": [],
+    "ai": {
+      "answer": "No wound",
+      "confidence": "High",
+      "explanation": "The referral packet states 'No wounds' alongside the right wrist fracture with cast, and today's SOC visit notes confirm 'No wounds; skin intact around cast.'"
+    },
+    "target": {
+      "answer": "No wound",
+      "confidence": "High",
+      "explanation": "The referral packet states 'No wounds' alongside the right wrist fracture with cast, and today's SOC visit notes confirm 'No wounds; skin intact around cast.'"
+    },
+    "notes": ""
+  }
+]

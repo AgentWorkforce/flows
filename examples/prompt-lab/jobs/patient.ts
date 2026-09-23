@@ -15,7 +15,7 @@ import { patientChart, patientPlan, patientQa } from "../prompts.ts";
 import type { Job } from "./job.ts";
 import { llm, MAX_ATTEMPTS, untilQaPasses } from "./shared.ts";
 
-export interface PatientInput { briefId?: string; brief?: string; questionId?: string }
+export interface PatientInput { briefId?: string; brief?: string; questionId?: string; visitType?: string }
 type Chart = Omit<Patient, "locked" | "source">;
 
 export async function createPatient(job: Job, input: PatientInput): Promise<void> {
@@ -25,14 +25,17 @@ export async function createPatient(job: Job, input: PatientInput): Promise<void
   if (input.briefId && !queued) throw new Error(`no queued patient brief ${input.briefId}`);
   const brief = queued?.brief ?? input.brief;
   const questionId = queued?.questionId ?? input.questionId;
-  if (!brief || !questionId || !snap.bank.questions[questionId]) throw new Error("pass briefId, or brief + questionId");
+  const visitType = queued?.visitType ?? input.visitType;
+  if (!brief || !questionId || !visitType || !snap.bank.questions[questionId]) throw new Error("pass briefId, or brief + questionId + visitType");
 
   const { plan } = await llm<{ plan: string }>(f, patientPlan(brief, snap.bank.questions[questionId].text));
-  const work = `work/patients/${queued?.id ?? `manual-${hash8(brief)}`}`;
+  // Keyed by the plan itself: a later run of the same brief gets its own file,
+  // never the one an earlier, declined run left behind.
+  const work = `work/patients/${queued?.id ?? `manual-${hash8(brief)}`}/${hash8(plan)}`;
   await lab.writeNew(`${work}/plan.json`, { brief, plan });
 
   const kick = await f.human(
-    `Test patient creator · ${queued?.id ?? "manual brief"} for ${questionId}.\nPlan:\n${plan}\n` +
+    `Test patient creator · ${queued?.id ?? "manual brief"} for ${questionId} (${visitType} visit).\nPlan:\n${plan}\n` +
     `You may edit "plan" in ${job.labDir}/${work}/plan.json first.\n` +
     `yes = kick generate (Patient QA then locks it onto the shelf; you do not approve the chart); no = leave it on the queue.`,
     { to: reviewer });
@@ -42,7 +45,7 @@ export async function createPatient(job: Job, input: PatientInput): Promise<void
 
   const taken = new Set(snap.shelf.map((p) => p.id));
   const made = await untilQaPasses<Chart>(f,
-    (findings) => patientChart(brief, final.plan, findings),
+    (findings) => patientChart(brief, final.plan, visitType, findings),
     (chart) => {
       // Deterministic floor first: identifiers and id collisions never reach model QA.
       const hard = identifiers(`${chart.label} ${chart.referral} ${chart.notes}`);

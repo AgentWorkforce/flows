@@ -31,7 +31,7 @@ export interface Patient {
 
 /** A gap brief: coverage the shelf does not have yet. Lives on the manager queue. */
 export interface PatientBrief {
-  id: string; questionId: string; brief: string; from: "planner" | "you" | "issue";
+  id: string; questionId: string; visitType: string; brief: string; from: "planner" | "you" | "issue";
   status: "queued" | "locked";
 }
 

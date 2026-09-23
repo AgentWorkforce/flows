@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { commitError, toCommit } from "../lib/commit.ts";
 import { changed, gridError, highlights, sortRows, type Row } from "../lib/grid.ts";
 import { identifiers } from "../lib/phi.ts";
-import { agenciesUsing, piles } from "../lib/piles.ts";
+import { agenciesUsing, distinctMenus, piles } from "../lib/piles.ts";
 import { score } from "../lib/score.ts";
 import type { Agency, Output, Patient } from "../lib/types.ts";
 import { planError } from "../jobs/shared.ts";
@@ -110,4 +110,14 @@ test("reply schema: the engine's answer enum is the agency menu", () => {
   const plan = planTests([], []).output;
   assert.match(schemaError(plan, { coverage: [{ questionId: "a", patientIds: [] }], gaps: [] })!, /needs at least 1/);
   assert.throws(() => schemaError({ type: "string", format: "date" }, "x"), /not supported/);
+});
+
+test("distinctMenus: a mismatch question is re-run on every menu it is asked with", () => {
+  assert.deepEqual(distinctMenus(agencies, agenciesUsing(agencies, "mood"), "mood"), [
+    { options: ["Calm", "Anxious", "Low"], agencies: ["harbor"] },
+    { options: ["Calm", "Anxious", "Low", "Agitated"], agencies: ["sunrise"] },
+  ]);
+  assert.deepEqual(distinctMenus(agencies, agenciesUsing(agencies, "wound-status"), "wound-status"), [
+    { options: ["Healed", "Ongoing", "No wound"], agencies: ["harbor", "maple", "sunrise"] },
+  ]);
 });

@@ -1,8 +1,9 @@
 [
   {
-    "id": "gap-ostomy-supplies",
+    "id": "gap-ostomy-supplies-soc",
     "questionId": "ostomy-supplies",
-    "brief": "No shelf patient has any ostomy documented, so every answer path for this question is unexercised. Add an older adult recently discharged after colorectal surgery with a new colostomy: referral packet lists the stoma, output character, and the supply list sent home; today's visit notes show peristomal skin irritation and a pouch seal failing early, with barrier rings on hand but skin prep wipes exhausted — so the chart supports a specific single supply need rather than a generic one. To exercise the remaining options, a second version of the chart (or a second such patient) should show an established, well-healed stoma with a full supply cupboard and no skin breakdown, supporting 'None'. Characteristics only: age band, ostomy type, stoma age, skin condition, current supply inventory — no names, dates, addresses, or record numbers.",
+    "visitType": "soc",
+    "brief": "No shelf patient has any ostomy documentation, so none of the supply answer paths can be exercised. The shelf needs a fabricated post-colostomy patient whose referral packet describes a recent colorectal surgery with a new stoma and a starter supply kit sent home, and whose visit notes document the stoma and peristomal skin in enough detail to force a choice among the supply options: peristomal skin excoriated and weeping with the pouch seal lifting after a few hours, a nearly empty box of pouches on the counter, and no barrier rings in the home. A second variant with a well-healed mature stoma, intact peristomal skin, and a full supply of everything would exercise the 'None' path.",
     "from": "planner",
     "status": "locked"
   }

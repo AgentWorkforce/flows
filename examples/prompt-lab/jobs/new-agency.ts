@@ -18,7 +18,7 @@ import type { Issue, Output, Patient, PatientBrief } from "../lib/types.ts";
 import { firstPass, iterate, promptQa, type Ask } from "../prompts.ts";
 import type { Job } from "./job.ts";
 import { shellWord } from "../lib/lab.ts";
-import { llm, MAX_ATTEMPTS, planCoverage, runEngine, untilQaPasses } from "./shared.ts";
+import { gapId, llm, MAX_ATTEMPTS, planCoverage, runEngine, untilQaPasses } from "./shared.ts";
 
 export interface NewAgencyInput { agency: string; visitType: string }
 
@@ -50,10 +50,12 @@ export async function newAgency(job: Job, input: NewAgencyInput): Promise<void> 
     prompts.set(q.questionId, { text: v0.value.prompt, firstPass: true });
   }
 
-  // Test planner: existing shelf only; holes become briefs on the manager queue.
-  const plan = await planCoverage(f, piled.map((q) => ({ id: q.questionId, ...ask(q) })), snap.shelf);
+  // Test planner: existing shelf patients of this visit type only; holes become
+  // briefs on the manager queue for that visit type.
+  const shelf = snap.shelf.filter((p) => p.visitType === input.visitType);
+  const plan = await planCoverage(f, piled.map((q) => ({ id: q.questionId, ...ask(q) })), shelf);
   for (const gap of plan.gaps) {
-    const brief: PatientBrief = { id: `gap-${gap.questionId}`, questionId: gap.questionId, brief: gap.brief, from: "planner", status: "queued" };
+    const brief: PatientBrief = { id: gapId(gap.questionId, input.visitType), questionId: gap.questionId, visitType: input.visitType, brief: gap.brief, from: "planner", status: "queued" };
     await lab.enqueue("patient-briefs", brief);
   }
 
@@ -109,7 +111,11 @@ export async function newAgency(job: Job, input: NewAgencyInput): Promise<void> 
     rewrites.push({ q, rows, prompt: r.value.prompt, passed: r.passed });
   }
 
-  const candidates = new Set(piled.filter((q) => q.pile === "agency-specific" && prompts.get(q.questionId)!.firstPass).map((q) => q.questionId));
+  // A first-pass prompt is a candidate only once it ran on a shelf patient and
+  // you reviewed the rows; a gap-only draft waits for a patient that covers it.
+  const covered = new Set(plan.coverage.map((c) => c.questionId));
+  const candidates = new Set(piled.filter((q) => q.pile === "agency-specific" && prompts.get(q.questionId)!.firstPass && covered.has(q.questionId)).map((q) => q.questionId));
+  const waiting = piled.filter((q) => prompts.get(q.questionId)!.firstPass && !covered.has(q.questionId)).map((q) => q.questionId);
   const sent: string[] = [];
   for (const r of rewrites) {
     if (r.q.pile === "agency-specific") {
@@ -134,6 +140,7 @@ export async function newAgency(job: Job, input: NewAgencyInput): Promise<void> 
   const commit = await f.human(
     `Commit output · ${input.agency}: agency-specific prompts ready to go live in Apricot: ${list.join(", ")}.\n` +
     `Sent to the question manager (frozen here): ${sent.length ? sent.join("; ") : "none"}.\n` +
+    (waiting.length ? `Held as drafts until a shelf patient covers them: ${waiting.join(", ")}.\n` : "") +
     `To commit only some, edit ${job.labDir}/${work}/commit.json: {"mode":"only"|"except","questions":[...]}.\n` +
     `yes = commit (Done = live, no promote step); no = leave them as drafts.`,
     { to: reviewer });
