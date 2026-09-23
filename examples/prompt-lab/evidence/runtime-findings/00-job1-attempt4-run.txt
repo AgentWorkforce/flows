@@ -1,0 +1,73 @@
+$ flows run --local-agent prompt-lab.flow.ts --input {"job":"new-agency","reviewer":"prompt-lab-reviewer","lab":"evidence/lab","agency":"sunrise","visitType":"soc"}
+○ run-1 (deterministic) 0.00s
+✓ run-1 (deterministic) 0.06s completionReason: success
+○ llm-2 (llm) 0.00s
+WAITING [worker_lease] Run "01M365CV7NKTC3HRY8QDGMC830" step "llm-2" (llm) is running under a worker lease until 1790134641216.
+↻ llm-2 (llm) 4.23s
+✓ llm-2 (llm) 11.49s completionReason: success
+○ llm-3 (llm) 0.00s
+WAITING [worker_lease] Run "01M365D6R9BJSFJCZAC4CYX1GN" step "llm-3" (llm) is running under a worker lease until 1790134652988.
+↻ llm-3 (llm) 4.51s
+✓ llm-3 (llm) 9.56s completionReason: success
+○ run-4 (deterministic) 0.00s
+✓ run-4 (deterministic) 0.06s completionReason: success
+○ llm-5 (llm) 0.00s
+WAITING [worker_lease] Run "01M365DFGHCMRNH3XX2QV0MYMP" step "llm-5" (llm) is running under a worker lease until 1790134661957.
+↻ llm-5 (llm) 3.85s
+✓ llm-5 (llm) 10.49s completionReason: success
+○ llm-6 (llm) 0.00s
+WAITING [worker_lease] Run "01M365DSE8X1P36VKZES2V0936" step "llm-6" (llm) is running under a worker lease until 1790134672122.
+↻ llm-6 (llm) 3.53s
+✓ llm-6 (llm) 9.62s completionReason: success
+○ run-7 (deterministic) 0.00s
+✓ run-7 (deterministic) 0.06s completionReason: success
+○ llm-8 (llm) 0.00s
+WAITING [worker_lease] Run "01M365E3HJHZ8ZPYMC5K3FERJ3" step "llm-8" (llm) is running under a worker lease until 1790134682470.
+↻ llm-8 (llm) 4.19s
+WAITING [worker_lease] Run "01M365E3HJHZ8ZPYMC5K3FERJ3" step "llm-8" (llm) is running under a worker lease until 1790134692475.
+↻ llm-8 (llm) 14.23s
+WAITING [worker_lease] Run "01M365E3HJHZ8ZPYMC5K3FERJ3" step "llm-8" (llm) is running under a worker lease until 1790134702478.
+↻ llm-8 (llm) 24.23s
+✓ llm-8 (llm) 24.61s completionReason: success
+○ llm-8.gate (deterministic) 0.00s
+✓ llm-8.gate (deterministic) 0.01s completionReason: success
+○ run-9 (deterministic) 0.00s
+✓ run-9 (deterministic) 0.06s completionReason: success
+○ llm-10 (llm) 0.00s
+WAITING [worker_lease] Run "01M365ETPDM24HMEFG6Y88TWXY" step "llm-10" (llm) is running under a worker lease until 1790134706175.
+↻ llm-10 (llm) 3.22s
+✓ llm-10 (llm) 7.01s completionReason: success
+○ llm-11 (llm) 0.00s
+WAITING [worker_lease] Run "01M365F2V7MJ7XKEA9T0BBKVEE" step "llm-11" (llm) is running under a worker lease until 1790134714523.
+↻ llm-11 (llm) 4.56s
+✓ llm-11 (llm) 9.08s completionReason: success
+○ llm-12 (llm) 0.00s
+WAITING [worker_lease] Run "01M365FAV0T6QKC547GFYXYNX4" step "llm-12" (llm) is running under a worker lease until 1790134722707.
+↻ llm-12 (llm) 3.66s
+✓ llm-12 (llm) 7.68s completionReason: success
+○ llm-13 (llm) 0.00s
+WAITING [worker_lease] Run "01M365FJ0FFHXGXHXPDEDHX9Q0" step "llm-13" (llm) is running under a worker lease until 1790134730050.
+↻ llm-13 (llm) 3.33s
+✓ llm-13 (llm) 7.32s completionReason: success
+○ llm-14 (llm) 0.00s
+WAITING [worker_lease] Run "01M365FSZH6A7WN1NJG538WR44" step "llm-14" (llm) is running under a worker lease until 1790134738212.
+↻ llm-14 (llm) 4.17s
+✓ llm-14 (llm) 7.85s completionReason: success
+○ llm-15 (llm) 0.00s
+WAITING [worker_lease] Run "01M365G1HX02X7JWXRRGPC75F0" step "llm-15" (llm) is running under a worker lease until 1790134745968.
+↻ llm-15 (llm) 4.07s
+✓ llm-15 (llm) 8.33s completionReason: success
+○ llm-16 (llm) 0.00s
+WAITING [worker_lease] Run "01M365G9BMSER9RRAWKF2SPRCH" step "llm-16" (llm) is running under a worker lease until 1790134753959.
+↻ llm-16 (llm) 3.73s
+✓ llm-16 (llm) 7.15s completionReason: success
+○ run-17 (deterministic) 0.00s
+✓ run-17 (deterministic) 0.06s completionReason: success
+○ human-18 (deterministic) 0.00s
+⏸ human-18 (human) 0.00s
+PARKED [run_parked] Run "01M365CQ2342WZDX3T21CN5905" is waiting for prompt-lab-reviewer to answer human-18: "Config workbench · sunrise soc: 7 rows on 3 questions (5 highlighted, listed first); 1 gap brief(s) queued for the test patient manager.\nEdit target answer / confidence / explanation / notes in evidence/lab/work/sunrise-soc/e4694a27/grid.json. Your first pass persists as the target for each question × patient.\nyes = persist targets and run iteration on every changed row; no = stop without persisting."
+Answer with: flows answer --data-dir /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/e2e-data 01M365CQ2342WZDX3T21CN5905 human-18 yes|no
+Then continue with: flows resume --data-dir /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/e2e-data --local-agent 01M365CQ2342WZDX3T21CN5905
+RUN 01M365CQ2342WZDX3T21CN5905 parked
+npx flows run --no-observer-link --data-dir $DD --local-agent  --input   40.46s user 12.06s system 43% cpu 2:01.92 total
+exit=3

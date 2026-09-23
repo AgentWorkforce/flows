@@ -1,0 +1,59 @@
+$ npx flows resume --no-observer-link --data-dir /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/prove-data --local-agent 01M3669253ED8QPNX7N7RE7PXF
+○ run-1 (deterministic) 0.00s
+✓ run-1 (deterministic) 0.01s completionReason: success
+○ llm-2 (llm) 0.00s
+✓ llm-2 (llm) 3.59s completionReason: success
+○ llm-3 (llm) 0.00s
+✓ llm-3 (llm) 4.20s completionReason: success
+○ run-4 (deterministic) 0.00s
+✓ run-4 (deterministic) 0.01s completionReason: success
+○ llm-5 (llm) 0.00s
+✓ llm-5 (llm) 3.79s completionReason: success
+○ llm-6 (llm) 0.00s
+✓ llm-6 (llm) 5.22s completionReason: success
+○ run-7 (deterministic) 0.00s
+✓ run-7 (deterministic) 0.01s completionReason: success
+○ llm-8 (llm) 0.00s
+✓ llm-8 (llm) 3.63s completionReason: success
+○ run-9 (deterministic) 0.00s
+✓ run-9 (deterministic) 0.01s completionReason: success
+○ llm-10 (llm) 0.00s
+✓ llm-10 (llm) 4.71s completionReason: success
+○ llm-11 (llm) 0.00s
+✓ llm-11 (llm) 5.29s completionReason: success
+○ llm-12 (llm) 0.00s
+✓ llm-12 (llm) 4.56s completionReason: success
+○ llm-13 (llm) 0.00s
+✓ llm-13 (llm) 3.49s completionReason: success
+○ llm-14 (llm) 0.00s
+✓ llm-14 (llm) 3.87s completionReason: success
+○ llm-15 (llm) 0.00s
+✓ llm-15 (llm) 3.79s completionReason: success
+○ llm-16 (llm) 0.00s
+✓ llm-16 (llm) 3.89s completionReason: success
+○ llm-17 (llm) 0.00s
+✓ llm-17 (llm) 3.67s completionReason: success
+○ llm-18 (llm) 0.00s
+✓ llm-18 (llm) 3.70s completionReason: success
+○ run-19 (deterministic) 0.00s
+✓ run-19 (deterministic) 0.01s completionReason: success
+○ human-20 (deterministic) 0.00s
+✓ human-20 (deterministic) 0.01s completionReason: success
+○ run-21 (deterministic) 0.00s
+✓ run-21 (deterministic) 0.01s completionReason: success
+○ run-22 (deterministic) 0.00s
+✓ run-22 (deterministic) 0.01s completionReason: success
+○ llm-23 (llm) 0.00s
+✓ llm-23 (llm) 3.93s completionReason: success
+○ run-24 (deterministic) 0.00s
+✓ run-24 (deterministic) 0.01s completionReason: success
+○ run-25 (deterministic) 0.00s
+✓ run-25 (deterministic) 0.01s completionReason: success
+○ human-26 (deterministic) 0.00s
+✓ human-26 (deterministic) 0.02s completionReason: success
+○ run-27 (deterministic) 0.00s
+✓ run-27 (deterministic) 0.07s completionReason: success
+○ run-28 (deterministic) 0.00s
+✓ run-28 (deterministic) 0.06s completionReason: success
+RUN 01M3669253ED8QPNX7N7RE7PXF completed (29 steps) completionReason: success
+exit=0

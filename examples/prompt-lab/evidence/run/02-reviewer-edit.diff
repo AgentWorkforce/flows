@@ -1,0 +1,13 @@
+# reviewer edit: evidence/run/lab/work/sunrise-soc/62c71a0f/grid.json
+@@ -144,9 +144,9 @@
+     "target": {
+       "answer": "Ongoing",
+       "confidence": "High",
+-      "explanation": "Today's SOC visit documents an open left heel wound measuring 2.0 x 1.5 cm with moderate serous drainage and yellow slough, dressed with foam per protocol, so the discharge summary's \"wound closed\" note is outdated and the current assessment governs."
++      "explanation": "Today's visit notes describe an open 2.0 x 1.5 cm left heel wound with serous drainage and slough; the discharge summary's closed status is outdated."
+     },
+-    "notes": ""
++    "notes": "The prompt makes the referral win over what the nurse saw today. Today's notes must win (shared guideline 1)."
+   },
+   {
+     "questionId": "wound-status",

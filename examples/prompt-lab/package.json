@@ -1,0 +1,13 @@
+{
+  "name": "@relayflows/prompt-lab-flow",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "typecheck": "../../packages/sdk/node_modules/.bin/tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@relayflows/surface": "2.0.29",
+    "relayflows": "2.0.29"
+  }
+}

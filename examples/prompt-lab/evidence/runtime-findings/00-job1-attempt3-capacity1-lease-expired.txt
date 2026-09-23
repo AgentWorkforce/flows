@@ -1,0 +1,56 @@
+$ flows run --local-agent --agent-capacity 1 prompt-lab.flow.ts --input {"job":"new-agency","reviewer":"prompt-lab-reviewer","lab":"evidence/lab","agency":"sunrise","visitType":"soc"}
+○ run-1 (deterministic) 0.00s
+✓ run-1 (deterministic) 0.06s completionReason: success
+○ llm-2 (llm) 0.00s
+WAITING [worker_lease] Run "01M364ZXSF8WWDDF7HACDTKEAY" step "llm-2" (llm) is running under a worker lease until 1790134217827.
+↻ llm-2 (llm) 3.74s
+✓ llm-2 (llm) 13.24s completionReason: success
+○ llm-3 (llm) 0.00s
+WAITING [worker_lease] Run "01M3650AKFSSWFVRKYH31PHK5R" step "llm-3" (llm) is running under a worker lease until 1790134230949.
+↻ llm-3 (llm) 3.62s
+✓ llm-3 (llm) 11.90s completionReason: success
+○ run-4 (deterministic) 0.00s
+✓ run-4 (deterministic) 0.08s completionReason: success
+○ llm-5 (llm) 0.00s
+WAITING [worker_lease] Run "01M3650Q6HKHGSG4B3WR7KJQ2V" step "llm-5" (llm) is running under a worker lease until 1790134243849.
+↻ llm-5 (llm) 4.54s
+✓ llm-5 (llm) 12.38s completionReason: success
+○ llm-6 (llm) 0.00s
+WAITING [worker_lease] Run "01M36513PZ24BGB93RC697G12H" step "llm-6" (llm) is running under a worker lease until 1790134256661.
+↻ llm-6 (llm) 4.98s
+✓ llm-6 (llm) 13.52s completionReason: success
+○ run-7 (deterministic) 0.00s
+✓ run-7 (deterministic) 0.08s completionReason: success
+○ llm-8 (llm) 0.00s
+WAITING [worker_lease] Run "01M3651HB59NEZDKEFVVF3YT5X" step "llm-8" (llm) is running under a worker lease until 1790134270620.
+↻ llm-8 (llm) 5.34s
+WAITING [worker_lease] Run "01M3651HB59NEZDKEFVVF3YT5X" step "llm-8" (llm) is running under a worker lease until 1790134280625.
+↻ llm-8 (llm) 15.33s
+WAITING [worker_lease] Run "01M3651HB59NEZDKEFVVF3YT5X" step "llm-8" (llm) is running under a worker lease until 1790134290628.
+↻ llm-8 (llm) 25.34s
+✓ llm-8 (llm) 33.09s completionReason: success
+○ llm-8.gate (deterministic) 0.00s
+✓ llm-8.gate (deterministic) 0.01s completionReason: success
+○ run-9 (deterministic) 0.00s
+✓ run-9 (deterministic) 0.06s completionReason: success
+○ llm-10 (llm) 0.00s
+○ llm-11 (llm) 0.00s
+○ llm-12 (llm) 0.00s
+○ llm-13 (llm) 0.00s
+○ llm-14 (llm) 0.00s
+○ llm-15 (llm) 0.00s
+○ llm-16 (llm) 0.00s
+○ llm-17 (llm) 0.00s
+○ llm-18 (llm) 0.00s
+✗ llm-10 (llm) 44.39s
+✗ llm-12 (llm) 37.05s
+✗ llm-13 (llm) 32.67s
+✗ llm-14 (llm) 26.26s
+✗ llm-15 (llm) 21.41s
+✗ llm-16 (llm) 16.72s
+✗ llm-17 (llm) 10.52s
+✗ llm-18 (llm) 4.64s
+✗ llm-11 (llm) 40.62s
+FAILED [protocol_error] relayflowd could not complete the run request: Agent lease is already expired for 01M3652G7G2N0YS360H4ZVVYK3/llm-10.
+npx flows run --no-observer-link --data-dir $DD --local-agent --agent-capacit  38.19s user 11.65s system 37% cpu 2:14.68 total
+exit=1

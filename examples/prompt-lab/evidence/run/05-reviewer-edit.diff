@@ -1,0 +1,10 @@
+# reviewer edit: evidence/run/lab/work/sunrise-soc/62c71a0f/commit.json
+@@ -1,4 +1,6 @@
+ {
+-  "mode": "all",
+-  "questions": []
++  "mode": "except",
++  "questions": [
++    "ostomy-supplies"
++  ]
+ }

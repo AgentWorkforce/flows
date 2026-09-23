@@ -1,0 +1,60 @@
+$ npx flows resume --no-observer-link --data-dir /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/prove-data --local-agent 01M3669253ED8QPNX7N7RE7PXF
+○ run-1 (deterministic) 0.00s
+✓ run-1 (deterministic) 0.01s completionReason: success
+○ llm-2 (llm) 0.00s
+✓ llm-2 (llm) 3.84s completionReason: success
+○ llm-3 (llm) 0.00s
+✓ llm-3 (llm) 3.87s completionReason: success
+○ run-4 (deterministic) 0.00s
+✓ run-4 (deterministic) 0.01s completionReason: success
+○ llm-5 (llm) 0.00s
+✓ llm-5 (llm) 3.80s completionReason: success
+○ llm-6 (llm) 0.00s
+✓ llm-6 (llm) 4.16s completionReason: success
+○ run-7 (deterministic) 0.00s
+✓ run-7 (deterministic) 0.01s completionReason: success
+○ llm-8 (llm) 0.00s
+✓ llm-8 (llm) 3.87s completionReason: success
+○ run-9 (deterministic) 0.00s
+✓ run-9 (deterministic) 0.01s completionReason: success
+○ llm-10 (llm) 0.00s
+✓ llm-10 (llm) 3.66s completionReason: success
+○ llm-11 (llm) 0.00s
+✓ llm-11 (llm) 3.85s completionReason: success
+○ llm-12 (llm) 0.00s
+✓ llm-12 (llm) 3.67s completionReason: success
+○ llm-13 (llm) 0.00s
+✓ llm-13 (llm) 3.68s completionReason: success
+○ llm-14 (llm) 0.00s
+✓ llm-14 (llm) 4.33s completionReason: success
+○ llm-15 (llm) 0.00s
+✓ llm-15 (llm) 4.92s completionReason: success
+○ llm-16 (llm) 0.00s
+✓ llm-16 (llm) 4.21s completionReason: success
+○ llm-17 (llm) 0.00s
+✓ llm-17 (llm) 3.86s completionReason: success
+○ llm-18 (llm) 0.00s
+✓ llm-18 (llm) 3.77s completionReason: success
+○ run-19 (deterministic) 0.00s
+✓ run-19 (deterministic) 0.01s completionReason: success
+○ human-20 (deterministic) 0.00s
+✓ human-20 (deterministic) 0.02s completionReason: success
+○ run-21 (deterministic) 0.00s
+✓ run-21 (deterministic) 0.06s completionReason: success
+○ run-22 (deterministic) 0.00s
+✓ run-22 (deterministic) 0.06s completionReason: success
+○ llm-23 (llm) 0.00s
+WAITING [worker_lease] Run "01M366GMPW32EQPWHW07KEQPC2" step "llm-23" (llm) is running under a worker lease until 1790135814160.
+↻ llm-23 (llm) 3.64s
+✓ llm-23 (llm) 13.20s completionReason: success
+○ run-24 (deterministic) 0.00s
+✓ run-24 (deterministic) 0.06s completionReason: success
+○ run-25 (deterministic) 0.00s
+✓ run-25 (deterministic) 0.06s completionReason: success
+○ human-26 (deterministic) 0.00s
+⏸ human-26 (human) 0.00s
+PARKED [run_parked] Run "01M3669253ED8QPNX7N7RE7PXF" is waiting for prompt-lab-reviewer to answer human-26: "Commit output · sunrise: agency-specific prompts ready to go live in Apricot: living-situation, ostomy-supplies.\nSent to the question manager (frozen here): wound-status → config-sunrise-wound-status-ce89aea7.\nTo commit only some, edit evidence/run/lab/work/sunrise-soc/62c71a0f/commit.json: {\"mode\":\"only\"|\"except\",\"questions\":[...]}.\nyes = commit (Done = live, no promote step); no = leave them as drafts."
+Answer with: flows answer --data-dir /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/prove-data 01M3669253ED8QPNX7N7RE7PXF human-26 yes|no
+Then continue with: flows resume --data-dir /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/prove-data --local-agent 01M3669253ED8QPNX7N7RE7PXF
+RUN 01M3669253ED8QPNX7N7RE7PXF parked
+exit=3

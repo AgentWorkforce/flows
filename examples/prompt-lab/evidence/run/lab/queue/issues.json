@@ -1,0 +1,20 @@
+[
+  {
+    "id": "config-sunrise-wound-status-ce89aea7",
+    "kind": "config-send",
+    "questionIds": [
+      "wound-status"
+    ],
+    "status": "done",
+    "agency": "sunrise",
+    "text": "sunrise soc first pass changed 1 row(s) on a shared question (shared with harbor, maple). The prompt makes the referral win over what the nurse saw today. Today's notes must win (shared guideline 1).",
+    "targets": {
+      "pat": {
+        "answer": "Ongoing",
+        "confidence": "High",
+        "explanation": "Today's visit notes describe an open 2.0 x 1.5 cm left heel wound with serous drainage and slough; the discharge summary's closed status is outdated."
+      }
+    },
+    "proposedPrompt": "Determine the status of the patient's primary wound.\n\nToday's visit notes govern. When the visit notes describe the wound, base the answer on what the clinician documented at today's visit, even if the referral packet or discharge summary says something different. A referral or discharge summary reflects the patient's condition at an earlier point in time; it can be outdated by the time of the visit, and a documented open wound today overrides an earlier \"closed\" or \"healed\" note.\n\n- Answer Ongoing when today's visit notes document an open or unhealed wound — for example an open area with measurements, drainage, slough, or an active dressing regimen.\n- Answer Healed when today's visit notes document the wound as closed, resurfaced, or fully healed. If the visit notes do not assess the wound at all, fall back to the referral packet: if the discharge summary states the wound is closed or healed, answer Healed.\n- Answer No wound only when neither the visit notes nor the referral packet document any wound, present or recently resolved.\n\nUse High confidence when today's visit notes directly document the wound's current state, including when they contradict the referral. Use High confidence when the referral states the status and the visit notes do not contradict it. Lower the confidence when the only source is an older referral and the visit notes are silent, or when the documentation within a single source conflicts with itself.\n\nIn the rationale, cite the specific findings from today's visit notes that drive the answer, and when the referral disagrees, say plainly that the earlier status is outdated. Keep the rationale to one or two sentences grounded in the documentation."
+  }
+]

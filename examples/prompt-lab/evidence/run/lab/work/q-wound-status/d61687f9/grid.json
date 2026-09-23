@@ -1,0 +1,72 @@
+[
+  {
+    "questionId": "wound-status",
+    "patientId": "jordan",
+    "pile": "shared",
+    "highlight": [],
+    "ai": {
+      "answer": "No wound",
+      "confidence": "High",
+      "explanation": "The referral packet's intake form documents \"No wounds documented. Skin intact,\" and today's SOC visit note confirms \"Skin intact, no wounds\" — there is no primary wound to stage, and no discharge summary states a wound was closed or healed."
+    },
+    "target": {
+      "answer": "No wound",
+      "confidence": "High",
+      "explanation": "The referral packet's intake form documents \"No wounds documented. Skin intact,\" and today's SOC visit note confirms \"Skin intact, no wounds\" — there is no primary wound to stage, and no discharge summary states a wound was closed or healed."
+    },
+    "notes": ""
+  },
+  {
+    "questionId": "wound-status",
+    "patientId": "marguerite",
+    "pile": "shared",
+    "highlight": [
+      "medium confidence"
+    ],
+    "ai": {
+      "answer": "Ongoing",
+      "confidence": "Medium",
+      "explanation": "The referral packet never states the wound is closed or healed — it only records peristomal skin intact at discharge — so the visit notes govern, and today's assessment documents erythematous, moist, weepy denudement about 2 cm wide along the 4-to-8 o'clock peristomal aspect with patient-reported burning and stinging. Confidence is Medium rather than High because the status comes from the visit note, not a referral statement."
+    },
+    "target": {
+      "answer": "Ongoing",
+      "confidence": "Medium",
+      "explanation": "The referral packet never states the wound is closed or healed — it only records peristomal skin intact at discharge — so the visit notes govern, and today's assessment documents erythematous, moist, weepy denudement about 2 cm wide along the 4-to-8 o'clock peristomal aspect with patient-reported burning and stinging. Confidence is Medium rather than High because the status comes from the visit note, not a referral statement."
+    },
+    "notes": ""
+  },
+  {
+    "questionId": "wound-status",
+    "patientId": "pat",
+    "pile": "shared",
+    "highlight": [],
+    "ai": {
+      "answer": "Ongoing",
+      "confidence": "High",
+      "explanation": "Today's SOC visit documents an open left heel wound measuring 2.0 x 1.5 cm with moderate serous drainage, pink wound bed and yellow slough, dressed with foam per protocol. The discharge summary's \"wound closed\" statement is contradicted by direct assessment at this visit, so the current status is Ongoing."
+    },
+    "target": {
+      "answer": "Ongoing",
+      "confidence": "High",
+      "explanation": "Today's visit notes describe an open 2.0 x 1.5 cm left heel wound with serous drainage and slough; the discharge summary's closed status is outdated."
+    },
+    "notes": ""
+  },
+  {
+    "questionId": "wound-status",
+    "patientId": "riley",
+    "pile": "shared",
+    "highlight": [],
+    "ai": {
+      "answer": "No wound",
+      "confidence": "High",
+      "explanation": "The referral packet states 'No wounds' and today's SOC visit note confirms 'No wounds; skin intact around cast,' so there is no primary wound to track."
+    },
+    "target": {
+      "answer": "No wound",
+      "confidence": "High",
+      "explanation": "The referral packet states 'No wounds' and today's SOC visit note confirms 'No wounds; skin intact around cast,' so there is no primary wound to track."
+    },
+    "notes": ""
+  }
+]

@@ -1,0 +1,12 @@
+{
+  "prompts": {
+    "p-wound-status-v1": "Determine the status of the patient's primary wound. Read the referral packet first; if the discharge summary states the wound is closed or healed, answer Healed. Otherwise use the visit notes. Use High confidence when the referral states the status.",
+    "p-mood-v1": "Describe the patient's mood today from the visit notes. Choose the single option that best matches what the patient says and how the clinician describes them. Use High confidence when the patient states their feelings in their own words, Medium when inferred from behavior, Low when the notes are silent."
+  },
+  "questions": {
+    "wound-status": { "text": "What is the current status of the patient's primary wound?", "type": "single", "livePromptId": "p-wound-status-v1" },
+    "mood": { "text": "How would you describe the patient's mood today?", "type": "single", "livePromptId": "p-mood-v1" },
+    "living-situation": { "text": "What is the patient's living situation?", "type": "single", "livePromptId": null },
+    "ostomy-supplies": { "text": "Which ostomy supply does the patient need most this visit?", "type": "single", "livePromptId": null }
+  }
+}
