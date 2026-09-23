@@ -113,10 +113,6 @@ export default flow<Input>("software-factory", {
 
   await f.agent("implementer", {
     cli: "claude",
-    // Continue from the journaled dirty workspace only for a classified
-    // transport loss; an ordinary nonzero CLI exit remains terminal.
-    transportRetries: 1,
-    recoveryMode: "inspect",
     task: `Implement this ticket in the current repository, on the current branch, with regression tests. Commit as you go.\n` +
       `Write a PR description to ${WORK}/summary.md (what changed, how it was verified). Do not touch ${WORK}/ otherwise.\n\nTicket:\n${ticket}`,
   }).gate({ type: "subprocess_gate", command: `test -s ${WORK}/summary.md` });
@@ -127,8 +123,6 @@ export default flow<Input>("software-factory", {
   // what it finds; it must end with an explicit verdict file, not prose.
   await f.agent("adversary", {
     cli: "claude",
-    transportRetries: 1,
-    recoveryMode: "inspect",
     task: `Review the diff against the base branch as an adversary: find bugs, missing tests, unsafe defaults, and scope creep. ` +
       `Fix what is mechanical and re-run the tests. Write ${WORK}/review.md with your findings, then write ${WORK}/review.passed ` +
       `ONLY if the change is ready for a human to merge; otherwise write ${WORK}/review.blocked with the blocking findings.`,
