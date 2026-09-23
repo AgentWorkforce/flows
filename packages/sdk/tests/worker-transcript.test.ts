@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { LLM_ERROR_MAX_BYTES, TRANSCRIPT_DIGEST_MAX_BYTES, type TranscriptDigest } from '../src/agent-transcript.js';
 import type { JournalClient } from '../src/journal-client.js';
-import { LlmWorker } from '../src/llm-worker.js';
+import { LlmWorker, unfenced } from '../src/llm-worker.js';
 import type { Pins } from '../src/protocol.js';
 import { AgentWorker } from '../src/worker.js';
 import { runAgentCli } from '../src/worker-cli.js';
@@ -184,5 +184,48 @@ describe('the llm worker bounds and redacts its error and journals the digest', 
     expect(transcript.failure?.excerpt).not.toContain(secret);
     expect(transcript.file).toBeUndefined();
     expect(Buffer.byteLength(JSON.stringify(payload.trajectory_tail), 'utf8')).toBeLessThan(16 * 1024);
+  });
+});
+
+describe('the llm worker judges the value inside one markdown fence', () => {
+  async function completeWith(result: string): Promise<unknown[]> {
+    const root = makeDirectory();
+    const lines = fixtureLines.map(line => {
+      const frame = JSON.parse(line) as Record<string, unknown>;
+      return frame.type === 'result' ? JSON.stringify({ ...frame, result }) : line;
+    });
+    const claude = fakeClaude(root, lines);
+    const { client, completions } = stubClient();
+    const worker = new LlmWorker(client, 'llm');
+    const errors: unknown[] = [];
+    worker.on('error', error => errors.push(error));
+    await worker.attach();
+    (client as unknown as EventEmitter).emit('step.dispatch', {
+      run_id: 'run-f', step_id: 'llm-1', attempt: 1, step_type: 'llm',
+      spec: { cli: claude, prompt: 'answer', verification: { json_schema: { type: 'object', required: ['x'], properties: { x: { type: 'number' } } } } },
+      pins, lease_id: 'lease', lease_deadline_ms: Date.now() + 30_000, idempotency_key: 'k',
+    });
+    await worker.close();
+    expect(errors).toEqual([]);
+    return completions[0]!;
+  }
+
+  it('accepts a fenced reply whose content matches the schema, and journals the parsed value', async () => {
+    const completion = await completeWith('```json\n{"x": 4}\n```');
+    expect(completion[4]).toBe('success');
+    expect((completion[5] as { output: unknown }).output).toEqual({ x: 4 });
+  });
+
+  it('still refuses prose around the JSON, and a fenced value that breaks the schema', async () => {
+    expect((await completeWith('Here it is: {"x": 4}'))[4]).toBe('verification_failed');
+    expect((await completeWith('```json\n{"y": 4}\n```'))[4]).toBe('verification_failed');
+  });
+
+  it('unfenced strips exactly one surrounding fence and nothing else', () => {
+    expect(unfenced('```json\n{"x":1}\n```')).toBe('{"x":1}');
+    expect(unfenced('  ```\n[1]\n```\n')).toBe('[1]');
+    expect(unfenced('{"x":1}')).toBe('{"x":1}');
+    // Two fenced values are not one value: whatever is left must still fail JSON.parse.
+    expect(() => JSON.parse(unfenced('```json\n{}\n```\n```json\n{}\n```'))).toThrow();
   });
 });

@@ -1,0 +1,5 @@
+# restored byte-for-byte (cmp exit 0)
+$ npx vitest run tests/worker-transcript.test.ts -t "fenced reply"
+ ✓ tests/worker-transcript.test.ts (8 tests | 7 skipped) 373ms
+   ✓ the llm worker judges the value inside one markdown fence > accepts a fenced reply whose content matches the schema, and journals the parsed value 373ms
+      Tests  1 passed | 7 skipped (8)

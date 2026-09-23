@@ -1,0 +1,4 @@
+# restored byte-for-byte (cmp exit 0)
+$ npx vitest run tests/authored-agent-artifacts.test.ts -t "sorted keys"
+ ✓ tests/authored-agent-artifacts.test.ts (5 tests | 4 skipped) 28ms
+      Tests  1 passed | 4 skipped (5)

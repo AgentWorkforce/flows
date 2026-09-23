@@ -399,7 +399,9 @@ authentication probes, and exact `flows.json` model allow-list as agent steps;
 a declared `model` must be in that project's `models` array. A template call
 such as ``await f.llm`Summarize ${text}` `` returns text. The structured overload
 parses JSON and checks `output` before submitting a successful completion;
-the kernel independently checks the schema before accepting the output.
+the kernel independently checks the schema before accepting the output. A
+reply that is exactly one markdown code fence around a value is judged by the
+value inside it; prose around the JSON, or two fenced values, is still invalid.
 Invalid JSON or a schema mismatch completes with `verification_failed` and
 prevents downstream work. Retry and lease handling use the existing kernel
 policies; this overload introduces no separate retry contract.

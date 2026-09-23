@@ -67,7 +67,7 @@ export class LlmWorker extends EventEmitter {
     let detail = result.stderr_tail;
     if (reason === 'success' && schema !== undefined) {
       try {
-        output = JSON.parse(result.stdout_tail);
+        output = JSON.parse(unfenced(result.stdout_tail));
         const invalid = jsonSchemaOutputError(schema, output);
         if (invalid !== undefined) {
           reason = 'verification_failed';
@@ -97,4 +97,15 @@ export class LlmWorker extends EventEmitter {
         ...(Object.keys(trajectoryTail).length === 0 ? {} : { trajectory_tail: trajectoryTail }),
       });
   }
+}
+
+/**
+ * A reply that is exactly one markdown code fence around a value, reduced to
+ * that value. Models add the fence despite the instruction not to; the schema
+ * still judges what is inside it. Anything else (prose around the JSON, two
+ * fences) is returned unchanged and fails the parse as before.
+ */
+export function unfenced(text: string): string {
+  const fence = /^\s*```[A-Za-z0-9_-]*[ \t]*\r?\n([\s\S]*?)\r?\n?```\s*$/.exec(text);
+  return fence === null ? text : fence[1]!;
 }

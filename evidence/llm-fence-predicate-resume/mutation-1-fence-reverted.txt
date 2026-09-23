@@ -1,0 +1,9 @@
+# mutation: llm-worker.ts parses result.stdout_tail without unfenced()
+$ npx vitest run tests/worker-transcript.test.ts -t "fenced reply"
+   × the llm worker judges the value inside one markdown fence > accepts a fenced reply whose content matches the schema, and journals the parsed value 403ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  tests/worker-transcript.test.ts > the llm worker judges the value inside one markdown fence > accepts a fenced reply whose content matches the schema, and journals the parsed value
+AssertionError: expected 'verification_failed' to be 'success' // Object.is equality
+Expected: "success"
+Received: "verification_failed"
+      Tests  1 failed | 7 skipped (8)
