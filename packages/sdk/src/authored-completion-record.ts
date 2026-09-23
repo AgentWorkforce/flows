@@ -45,9 +45,14 @@ export interface AuthoredVerdictRecord {
  *
  * Returns the verdict the marker must be built from — the recorded one when
  * the root holds it, this attempt's otherwise. With no root run there is
- * nothing durable to write to (the non-durable executor seam) and with no
- * detail there is nothing that can drift, so both pass straight through
- * without a round trip.
+ * nothing durable to write to (the non-durable executor seam), so that path
+ * passes straight through without a round trip. A root run is always read
+ * first: a committed record stays authoritative even for an attempt that has
+ * no detail of its own — an optional source can be present on the first
+ * execution and gone on the retry, and "this attempt has no detail" is not
+ * "this root never recorded one". Only when no record exists AND this attempt
+ * has no detail does it return without appending, preserving the no-detail
+ * marker, spec hash, and journal exactly as before.
  */
 export async function commitAuthoredVerdict(
   journal: JournalClient,
@@ -55,9 +60,10 @@ export async function commitAuthoredVerdict(
   step: string,
   verdict: AuthoredVerdictRecord,
 ): Promise<AuthoredVerdictRecord> {
-  if (rootRunId === undefined || verdict.detail === undefined) return verdict;
+  if (rootRunId === undefined) return verdict;
   const committed = await readAuthoredVerdict(journal, rootRunId, step);
   if (committed !== undefined) return committed;
+  if (verdict.detail === undefined) return verdict;
   await journal.streamAppend(rootRunId, AUTHORED_VERDICT_STREAM, {
     verdict: RECORD_KIND, step, reason: verdict.reason, detail: verdict.detail,
   });

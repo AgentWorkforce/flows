@@ -139,6 +139,86 @@ it('commits the verdict once, and a clean re-execution reads it back', async () 
   expect(page.messages).toHaveLength(1);
 }, 60_000);
 
+/** The env var that stands in for an optional detail source a retry can lose. */
+const OPTIONAL_DETAIL = 'RELAYFLOWS_RECOVERY_OPTIONAL_DETAIL';
+const OPTIONAL_TEXT = 'review found 1 P2: cleanup remains ambiguous';
+
+/** A body whose detail exists only while `OPTIONAL_DETAIL` is set. */
+function optionalDetailFlow() {
+  return flow('optional-detail', async (f) => {
+    f.done('step_failed', { detail: process.env[OPTIONAL_DETAIL] });
+  });
+}
+
+it('recovers a committed verdict when a no-detail retry follows a pre-marker loss', async () => {
+  const fixture = chainFixture();
+  cleanup.push(() => fixture.close());
+  const journal = await fixture.connect();
+  const rootRunId = await openRoot(journal);
+  const run = () => executeAuthoredFlow(optionalDetailFlow(), journal, undefined,
+    { rootRunId, dataDir: fixture.data });
+  const prior = process.env[OPTIONAL_DETAIL];
+
+  try {
+    process.env[OPTIONAL_DETAIL] = OPTIONAL_TEXT;
+    // Die BEFORE the marker is admitted: runStart never reaches the kernel.
+    const start = journal.runStart.bind(journal);
+    const client = journal as { runStart: JournalClient['runStart'] };
+    client.runStart = async () => { throw new Error('injected loss before the marker was admitted'); };
+    try {
+      await expect(run()).rejects.toThrow('injected loss before the marker was admitted');
+    } finally {
+      client.runStart = start;
+    }
+
+    // The verdict still reached the root stream first.
+    expect(await readAuthoredVerdict(journal, rootRunId, 'complete-1'))
+      .toEqual({ reason: 'step_failed', detail: OPTIONAL_TEXT });
+
+    // The retry's optional source is gone, so this attempt has no detail at
+    // all. The committed record must still be authoritative: "no detail this
+    // attempt" is not "no detail was ever recorded".
+    delete process.env[OPTIONAL_DETAIL];
+    const result = await run();
+    expect(result.completionReason).toBe('step_failed');
+    expect(result.completionDetail).toBe(OPTIONAL_TEXT);
+    // And no second verdict record was appended for the no-detail attempt.
+    const page = await journal.streamRead(rootRunId, 'authored-verdict', 0, 1000);
+    expect(page.messages).toHaveLength(1);
+  } finally {
+    if (prior === undefined) delete process.env[OPTIONAL_DETAIL];
+    else process.env[OPTIONAL_DETAIL] = prior;
+  }
+}, 60_000);
+
+it('reuses the admitted marker when a no-detail retry follows a post-marker loss', async () => {
+  const fixture = chainFixture();
+  cleanup.push(() => fixture.close());
+  const journal = await fixture.connect();
+  const rootRunId = await openRoot(journal);
+  const run = () => executeAuthoredFlow(optionalDetailFlow(), journal, undefined,
+    { rootRunId, dataDir: fixture.data });
+  const prior = process.env[OPTIONAL_DETAIL];
+
+  try {
+    process.env[OPTIONAL_DETAIL] = OPTIONAL_TEXT;
+    const admitted = await loseTheMarkerResponse(journal, run);
+
+    // Retry without the optional source: rebuilding the marker with no detail
+    // would drift the spec under the same admission key and the kernel would
+    // refuse it as `run_admission_conflict`. Recovering the committed record
+    // rebuilds the identical spec instead.
+    delete process.env[OPTIONAL_DETAIL];
+    const result = await run();
+    expect(result.completionReason).toBe('step_failed');
+    expect(result.completionDetail).toBe(OPTIONAL_TEXT);
+    expect(result.journalSteps.at(-1)!.runId).toBe(admitted);
+  } finally {
+    if (prior === undefined) delete process.env[OPTIONAL_DETAIL];
+    else process.env[OPTIONAL_DETAIL] = prior;
+  }
+}, 60_000);
+
 it('leaves a one-argument done() writing nothing to the verdict stream', async () => {
   const fixture = chainFixture();
   cleanup.push(() => fixture.close());
