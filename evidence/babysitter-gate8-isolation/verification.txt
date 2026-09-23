@@ -1730,3 +1730,30 @@ $ ./node_modules/.bin/vitest run tests/plugin-store-bounds.test.ts tests/hosted-
       Tests  227 passed (227)
    Start at  17:34:02
    Duration  2.74s
+
+$ git rev-parse HEAD
+37cdd771bb800d0b5cc111d66decb024e16cd202
+
+$ cd packages/sdk
+$ git diff --check
+$ npm run typecheck
+
+> @relayflows/sdk@2.0.28 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+$ npm run typecheck:tests
+
+> @relayflows/sdk@2.0.28 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+$ npm run build
+
+> @relayflows/sdk@2.0.28 build
+> tsc && node scripts/make-cli-executable.mjs
+
+$ ./node_modules/.bin/vitest run tests/hosted-extension-routing.test.ts
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  02:43:18
+   Duration  4.45s
