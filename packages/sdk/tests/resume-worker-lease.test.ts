@@ -22,7 +22,7 @@ it.each([false, true])('resume handles LLM errors with leaseLost=%s', async leas
   const close = vi.spyOn(JournalClient.prototype, 'close').mockReturnValue();
   const warning = vi.spyOn(process, 'emitWarning').mockImplementation(() => {});
   const error = leaseLost ? new JournalProtocolError('lease_conflict', 'lost') : new Error('cli exploded');
-  vi.spyOn(LlmWorker.prototype, 'attach').mockImplementation(async function () {
+  vi.spyOn(LlmWorker.prototype, 'attach').mockImplementation(async function (this: LlmWorker) {
     expect(this.listenerCount('error')).toBe(1);
     this.emit('error', error, { run_id: 'run', step_id: 'llm', attempt: 1 });
     expect(close).toHaveBeenCalledTimes(leaseLost ? 0 : 1);

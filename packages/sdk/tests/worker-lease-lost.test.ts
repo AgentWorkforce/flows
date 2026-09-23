@@ -25,7 +25,7 @@ function setup(type: 'agent' | 'llm') {
   const fatal = vi.fn((error: unknown) => client.close(error));
   worker.on('error', onWorkerFailure('test', fatal));
   const dispatch: StepDispatchEvent = {
-    type: 'step.dispatch', run_id: 'run', step_id: 'step', attempt: 1,
+    run_id: 'run', step_id: 'step', attempt: 1,
     step_type: type, spec: { cli: 'claude', instruction: 'hello', prompt: 'hello' },
     lease_id: 'lease', lease_deadline_ms: Date.now() + 30_000,
     idempotency_key: 'effect', pins: { workspace: [], streams: [] },
@@ -56,17 +56,14 @@ describe.each(['agent', 'llm'] as const)('%s stale lease subscriber', type => {
     ['stepHeartbeat', 'lease_conflict', 'step.heartbeat'],
     ['stepComplete', 'lease_conflict', 'step.complete'],
     ['stepComplete', 'run_terminal', 'step.complete'],
-  ] as const)('drops %s %s after journal success', async (method, code, verb) => {
+  ] as const)('drops %s %s for a released attempt', async (method, code, verb) => {
     const { client, worker, fatal, warning, dispatch } = setup(type);
     const error = new JournalProtocolError(code, 'attempt has no active worker lease');
     error.verb = verb;
-    // The kernel already owns the completed outcome when the straggler arrives.
-    const journal = { completionReason: 'success' };
     client[method].mockRejectedValueOnce(error);
     await worker.attach();
     client.emit('step.dispatch', dispatch);
     await worker.close();
-    expect(journal.completionReason).toBe('success');
     expect(client.close).not.toHaveBeenCalled();
     expect(fatal).not.toHaveBeenCalled();
     expect(warning).toHaveBeenCalledWith(expect.stringContaining(error.message), expect.anything());
@@ -100,7 +97,7 @@ it('preserves the heartbeat rejection through abort and finally', async () => {
 it.each(['step.heartbeat', 'step.complete', 'step.wait'])('tags %s refusals at the client wrapper', async verb => {
   const client = new JournalClient('/unused');
   const error = new JournalProtocolError('run_terminal', 'finished');
-  vi.spyOn(client, 'request').mockRejectedValueOnce(error);
+  vi.spyOn(client as unknown as { request: () => Promise<unknown> }, 'request').mockRejectedValueOnce(error);
   const request = verb === 'step.heartbeat' ? client.stepHeartbeat('r', 's', 1, 'lease')
     : verb === 'step.complete' ? client.stepComplete('r', 's', 1, 'key', 'success')
       : client.stepWait('r', 's', 1, 'key', { wait_id: 'w', prompt: '?', requested_of: 'human' });
