@@ -92,3 +92,20 @@ receipt. A callable adapter must first bind verified execution to the manifest,
 validate input before effects and validate the real result after execution.
 This module does not implement hosted auth/admission, permission enforcement,
 async events, cancellation, resume, idempotency, or business-result guarantees.
+
+## Acceptance for this SDK slice
+
+The contract is independently usable for authoring, catalog serialization and
+adapter metadata. Its acceptance path is: import the built public SDK, create
+an explicit manifest, serialize/reload it against a trusted digest, validate
+input/result fixtures and emit schema-equivalent native/MCP descriptors.
+`tests/flow-tool-public-api.test.ts` exercises that path in a separate Node
+process; `tests/flow-tool-manifest.test.ts` covers malformed schemas, tampering,
+resource limits and behavior-free snapshots. These are local contract tests,
+not a hosted end-to-end run or evidence of business-result correctness.
+
+The unchanged package and Linux kernel/SDK CI gates protect existing consumers.
+Passing them does not satisfy the RFC's live workload gates. Execution/admission
+and a real callable-flow journey remain separate implementation and acceptance
+work: they are prerequisites for shipping a callable adapter, not capabilities
+that this manifest-only module claims to deliver.

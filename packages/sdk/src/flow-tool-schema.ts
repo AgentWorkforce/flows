@@ -45,6 +45,8 @@ function inspect(schema: JsonValue, at: string): void {
 
 export function compileFlowToolSchema(schema: FlowToolObjectSchema) {
   // No coercion, defaults, removal of extras, network retrieval, or ignored formats.
+  // Deliberately revalidate each supplied manifest; no unbounded global schema cache.
+  // A future admitted catalog may own a bounded compiled-validator lifecycle.
   return new Ajv2020({ strict: true, strictRequired: true, allowUnionTypes: true, allErrors: false })
     .compile(schema);
 }
