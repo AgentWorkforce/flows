@@ -1,0 +1,58 @@
+$ cp src/llm-worker.ts /var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/tmp.oIUGoRyujb/llm-worker.ts
+exit=0
+$ sed -i.bak 's/JSON.parse(unfenced(result.stdout_tail))/JSON.parse(result.stdout_tail)/' src/llm-worker.ts && rm src/llm-worker.ts.bak
+exit=0
+$ git diff --stat -- src/llm-worker.ts
+ packages/sdk/src/llm-worker.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+exit=0
+$ npx vitest run tests/worker-transcript.test.ts -t 'fenced reply'
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/packages/sdk
+
+ ❯ tests/worker-transcript.test.ts (8 tests | 1 failed | 7 skipped) 205ms
+   × the llm worker judges the value inside one markdown fence > accepts a fenced reply whose content matches the schema, and journals the parsed value 205ms
+     → expected 'verification_failed' to be 'success' // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/worker-transcript.test.ts > the llm worker judges the value inside one markdown fence > accepts a fenced reply whose content matches the schema, and journals the parsed value
+AssertionError: expected 'verification_failed' to be 'success' // Object.is equality
+
+Expected: "success"
+Received: "verification_failed"
+
+ ❯ tests/worker-transcript.test.ts:215:27
+    213|   it('accepts a fenced reply whose content matches the schema, and jou…
+    214|     const completion = await completeWith('```json\n{"x": 4}\n```');
+    215|     expect(completion[4]).toBe('success');
+       |                           ^
+    216|     expect((completion[5] as { output: unknown }).output).toEqual({ x:…
+    217|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 7 skipped (8)
+   Start at  22:18:46
+   Duration  1.36s (transform 256ms, setup 0ms, collect 901ms, tests 205ms, environment 0ms, prepare 49ms)
+
+exit=1
+$ cp /var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/tmp.oIUGoRyujb/llm-worker.ts src/llm-worker.ts
+exit=0
+$ cmp src/llm-worker.ts /var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/tmp.oIUGoRyujb/llm-worker.ts
+exit=0
+$ git diff --stat -- src/llm-worker.ts
+exit=0
+$ npx vitest run tests/worker-transcript.test.ts -t 'fenced reply'
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/packages/sdk
+
+ ✓ tests/worker-transcript.test.ts (8 tests | 7 skipped) 195ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 7 skipped (8)
+   Start at  22:18:48
+   Duration  901ms (transform 206ms, setup 0ms, collect 461ms, tests 195ms, environment 0ms, prepare 43ms)
+
+exit=0

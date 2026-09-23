@@ -40,7 +40,7 @@ it('reports an authored step failure as step_failed with a known status, not pro
   vi.mocked(executeDurableAuthoredFlow).mockRejectedValueOnce(new AuthoredFlowExecutionError(
     'step_failed',
     'Run "child-run" failed with completionReason: step_failed. Step "agent-2" (agent) '
-      + 'completionReason: worker_error exit=1.\nStderr (last 1,024 bytes):\nno such model',
+      + 'completionReason: worker_error exit=1.\nStderr (captured excerpt):\nno such model',
     undefined,
     'child-run',
   ));

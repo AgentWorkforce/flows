@@ -1,3 +1,5 @@
+> PR review migration: use [Babysitter](../babysitter/README.md). The old entry point now delegates to the shared implementation. Deployment is blocked on the explicit safety dependencies documented there; older instructions below describe the archived baseline.
+
 # pr-reviewer
 
 The [wepost-no/agents `review/agent.ts`](https://github.com/wepost-no/agents/blob/main/review/agent.ts)

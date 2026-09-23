@@ -1,6 +1,6 @@
 {
   "name": "@relayflows/surface",
-  "version": "2.0.22",
+  "version": "2.0.30",
   "description": "TypeScript authoring surface for Relayflows.",
   "type": "module",
   "main": "./dist/index.js",
@@ -56,7 +56,7 @@
     "directory": "packages/surface"
   },
   "peerDependencies": {
-    "@relayfile/relay-helpers": "0.4.11"
+    "@relayfile/relay-helpers": "0.4.12"
   },
   "dependencies": {
     "ai-hist": "0.4.1"

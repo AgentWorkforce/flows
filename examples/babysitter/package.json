@@ -1,0 +1,10 @@
+{
+  "name": "@relayflows/babysitter-flow",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "node build.mjs"
+  }
+}

@@ -144,6 +144,8 @@ describe('the transcript digest through the built CLI, a real daemon and the loc
       expect(await readAuthoredStepIndex(journal, report.rootRunId)).toEqual([{
         index: 'relayflows.authored-step.v1', step: `${kind}-1`, runId: report.runId,
         state: 'completed', completionReason: failure!.completionReason,
+        // `f.agent`'s name is the step's label in the run's DAG; `f.llm` has none.
+        ...(kind === 'agent' ? { label: 'prober' } : {}),
       }]);
     } finally { journal.close(); }
   }, 120_000);

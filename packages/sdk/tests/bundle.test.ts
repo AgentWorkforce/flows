@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, readdir, writeFile, rm, mkdir, symlink, stat, chmod, rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -6,7 +7,10 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { canonicalize } from '../src/canonical.js';
 import { sealBundle, sha256, verifyBundle } from '../src/bundle.js';
+import { verifyBundlePluginLock } from '../src/bundle-extensions.js';
+import { addExtensionPlugin } from '../src/cli/add-extension.js';
 import { buildFlow } from '../src/cli/build.js';
+import { SHA_A, entriesFromDirectory, fakeGithub } from './fake-github.js';
 
 const sdk = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repo = resolve(sdk, '../..');
@@ -27,7 +31,8 @@ function invoke(args: string[], cwd = repo, env: NodeJS.ProcessEnv = {}) {
 async function seal(out: string, env: NodeJS.ProcessEnv = { FLOWS_BUILD_KEY: key }, warn = (_: string) => {}) {
   return sealBundle({ name: 'example', repo: out, out, env, warn, files: [
     { path: 'spec.canonical.json', data: canonicalize({ name: 'example' }) },
-    { path: 'preflight.json', data: '{}' }, { path: 'lockfile.json', data: '{}' },
+    { path: 'preflight.json', data: '{}' },
+    { path: 'lockfile.json', data: canonicalize({ version: 2, plugins: [] }) },
   ] });
 }
 afterEach(async () => { await Promise.all(temporary.splice(0).map(path => rm(path, { force: true, recursive: true }))); });
@@ -216,6 +221,54 @@ describe('immutable bundles', () => {
     expect(result.stdout).toBe('bundled asset\n');
     expect(JSON.parse(await readFile(join(bundle, 'metadata.json'), 'utf8')).executables).toEqual(['assets/run script.sh']);
     expect(await verifyBundle(bundle)).toBe(basename(bundle).split('@sha256:')[1]);
+  });
+
+  it('writes lockfile.json v2 with no plugins for a project that declares none', async () => {
+    const cwd = await temp();
+    await writeFile(join(cwd, 'hello.yaml'), await readFile(join(repo, 'testdata/hello-deterministic.flow.yaml')));
+    const bundle = await buildFlow(join(cwd, 'hello.yaml'), join(cwd, 'out'), () => {});
+    expect(JSON.parse(await readFile(join(bundle, 'lockfile.json'), 'utf8'))).toEqual({ plugins: [], version: 2 });
+    await verifyBundlePluginLock(bundle);
+  });
+
+  it('never accepts plugin payloads under a legacy npm lock', async () => {
+    const bundle = await temp();
+    await writeFile(join(bundle, 'lockfile.json'), JSON.stringify({ lockfileVersion: 3, packages: {} }));
+    await verifyBundlePluginLock(bundle);
+    await mkdir(join(bundle, 'plugins/example'), { recursive: true });
+    await writeFile(join(bundle, 'plugins/example/entry.js'), 'export default true;\n');
+    await expect(verifyBundlePluginLock(bundle)).rejects.toThrow('legacy locks cannot authenticate plugins/ payloads');
+  });
+
+  it('seals materialized flow-extension files under plugins/<name>/ and verifies them', async () => {
+    const cwd = await temp();
+    const fixture = join(repo, 'testdata/plugins/extension-babysitter');
+    const gh = fakeGithub({
+      'AgentWorkforce/flows': {
+        refs: { main: SHA_A },
+        commits: { [SHA_A]: { entries: entriesFromDirectory(fixture, 'examples/babysitter') } },
+      },
+    });
+    await writeFile(join(cwd, 'flows.json'), JSON.stringify({}));
+    const io = { stdout: () => {}, stderr: () => {} };
+    expect(await addExtensionPlugin(`github:AgentWorkforce/flows@${SHA_A}#examples/babysitter`, io, {
+      cwd, fetch: gh.fetch, now: () => new Date('2026-09-20T12:00:00Z'), versions: { sdk: '2.0.22', surface: '2.0.22' },
+    })).toBe(0);
+    await writeFile(join(cwd, 'hello.yaml'), await readFile(join(repo, 'testdata/hello-deterministic.flow.yaml')));
+    const bundle = await buildFlow(join(cwd, 'hello.yaml'), join(cwd, 'out'), () => {});
+    const lock = JSON.parse(await readFile(join(bundle, 'lockfile.json'), 'utf8'));
+    expect(lock.version).toBe(2);
+    expect(lock.plugins).toHaveLength(1);
+    expect(lock.plugins[0]).toMatchObject({ name: 'babysitter', kind: 'flow-extension', order: 1 });
+    expect(existsSync(join(bundle, 'plugins/babysitter/flows-plugin.json'))).toBe(true);
+    expect(existsSync(join(bundle, 'plugins/babysitter/babysitter.flow.ts'))).toBe(true);
+    expect(existsSync(join(bundle, 'plugins/babysitter/manifest.json'))).toBe(true);
+    expect(sha256(await readFile(join(bundle, 'plugins/babysitter/manifest.json')))).toBe(lock.plugins[0].digest);
+    expect(await verifyBundle(bundle)).toBe(basename(bundle).split('@sha256:')[1]);
+    await verifyBundlePluginLock(bundle);
+    const tampered = join(bundle, 'plugins/babysitter/babysitter.flow.ts');
+    await writeFile(tampered, `${await readFile(tampered, 'utf8')}\n// tampered\n`);
+    await expect(verifyBundle(bundle)).rejects.toThrow('babysitter.flow.ts');
   });
 
   it('refuses build-provable CLI resolution errors without environment probes', async () => {

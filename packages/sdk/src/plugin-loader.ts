@@ -5,6 +5,7 @@ import { Ajv } from 'ajv';
 import type { Step } from '@relayflows/surface';
 import { snapshotJsonValue } from './json-value.js';
 import { assertSupportedPlugin, PluginError, pluginPackageName, validatePluginManifest, type PluginManifest, type PluginVerb } from './plugin-manifest.js';
+import { isGithubPluginRef } from './plugin-source.js';
 
 export interface LoadedPlugin { readonly directory: string; readonly manifest: PluginManifest }
 export function findPluginProject(start: string): string | undefined {
@@ -47,8 +48,11 @@ export async function loadPlugins(start: string): Promise<readonly LoadedPlugin[
   if (config === null || typeof config !== 'object' || (config.plugins !== undefined && (!Array.isArray(config.plugins) || !config.plugins.every(p => typeof p === 'string')))) {
     throw new PluginError('plugin_manifest_invalid', 'flows.json plugins must be package names.');
   }
+  // Flow extensions (github:… entries) are not helpers: the authored flow
+  // loader verifies and composes them (flow-extension-loader.ts). Here they
+  // are simply not helper packages, so they are left out of the helper set.
   const scope = join(root, 'node_modules/@flows');
-  const names = new Set<string>((config.plugins as string[] | undefined)?.map(pluginPackageName));
+  const names = new Set<string>((config.plugins as string[] | undefined)?.filter(p => !isGithubPluginRef(p)).map(pluginPackageName));
   if (existsSync(scope)) for (const name of readdirSync(scope).sort()) {
     if (name.startsWith('helper-') && !names.has(`@flows/${name}`)) {
       throw new PluginError('plugin_unlisted', `@flows/${name} is installed but not declared in flows.json plugins. Run flows add ${name}.`);

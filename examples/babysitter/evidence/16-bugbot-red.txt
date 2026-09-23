@@ -1,0 +1,81 @@
+=== RED: the three Cursor Bugbot findings on 8825104b, captured before any fix ===
+
+$ node --experimental-strip-types --test examples/babysitter/tests/gates.test.ts examples/babysitter/tests/wake.test.ts
+✔ malformed external inputs fail before shell or API (4.1945ms)
+✔ live skip and author rules fail closed (0.9895ms)
+✔ READY rejects missing pending red conflicts stale heads and missing state (0.998583ms)
+✖ a later comment or pending review cannot hide a standing verdict (2.282959ms)
+✔ merge requires opt in org and configured independent approver at exact SHA (0.782125ms)
+✔ conflict command is explicit authorized and same repository only (0.682833ms)
+✔ edits fail closed for semantic changes, fork, protected paths, tests and unresolved conflicts (2.0335ms)
+✔ artifacts are nonempty schema validated exact head and reconcile deterministically (2.335542ms)
+✔ publication refuses stale post race newer verdict spoof and absent atomic capability (0.494834ms)
+✔ once per head keys and sticky CI attribution survive duplicate wake decisions (0.721916ms)
+✔ one bounded infra retry only for 137/143 (0.487667ms)
+✔ the declared subscription contract is exactly the required resident set (3.673375ms)
+✔ every declared subscription registers one handler bound to the one body (0.835583ms)
+✔ each trigger filters to its own provider, type and action (0.695709ms)
+✔ compatibility entry points still resolve to this one implementation (1.144958ms)
+✔ subscription preflight passes the declared contract and has teeth (0.907667ms)
+✔ preflight refuses an undeliverable subscription rather than deploying it (0.512708ms)
+✔ a delivery is accepted as a hint; only routing is enforced (3.449958ms)
+✖ a fork check_run with no PR attribution still wakes and rereads (0.628583ms)
+✖ repository routing compares owner and repository case-insensitively (1.370167ms)
+✔ a stale hinted head is recorded, never enforced, and never binds (1.360042ms)
+✔ an operator pin constrains the run; it never substitutes for live state (0.529583ms)
+✔ every wake rereads live state before it decides anything (3.095917ms)
+✔ a payload that disagrees with live state loses: closed hint, open PR (0.563ms)
+✔ a payload that disagrees with live state loses: open hint, closed PR (0.518958ms)
+✔ a label hint is re-read from live state in both directions (0.645417ms)
+✔ a review hint cannot assert an approval live state does not show (0.640584ms)
+✔ a check hint cannot assert a conclusion live state does not show (0.398875ms)
+✔ duplicate delivery repeats a decision instead of adding one (0.922625ms)
+✔ out-of-order delivery decides about the head that exists now (0.459084ms)
+✔ the decision key names the subscription and the live head, never the hint (0.337792ms)
+✔ each wake emits one deterministic observation line (0.405167ms)
+✔ the sweep separates a quiet subscription from a dead one (0.838375ms)
+✔ a young subscription is pending, an old silent one is never (0.492292ms)
+✔ the sweep refuses impossible windows and clock-faulted records (0.504417ms)
+✔ the sweep expects exactly the subscriptions the flow registers (0.174083ms)
+ℹ tests 36
+ℹ suites 0
+ℹ pass 33
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 554.587167
+
+✖ failing tests:
+
+test at examples/babysitter/tests/gates.test.ts:22:1
+✖ a later comment or pending review cannot hide a standing verdict (2.282959ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + undefined
+  - 'Changes requested'
+  
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: 'Changes requested',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/wake.test.ts:154:1
+✖ a fork check_run with no PR attribution still wakes and rereads (0.628583ms)
+  Error: Event does not identify the pinned PR
+
+test at examples/babysitter/tests/wake.test.ts:173:1
+✖ repository routing compares owner and repository case-insensitively (1.370167ms)
+  AssertionError [ERR_ASSERTION]: Got unwanted exception: AcMe/Widgets
+  Actual message: "Event repository differs from pinned repository"
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: Error: Event repository differs from pinned repository
+    expected: undefined,
+    operator: 'doesNotThrow',
+    diff: 'simple'
+  }

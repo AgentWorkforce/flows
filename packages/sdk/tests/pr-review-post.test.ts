@@ -84,8 +84,8 @@ const seed = (sha: string, opts: { login?: string | null; author?: string; text?
 const ours = () => fake.comments.filter((c) => c.body.startsWith('<!-- flows-pr-review'));
 
 describe('workflows/pr-review-post.cjs', () => {
-  it('is embedded verbatim in the flow', async () => {
-    const flow = readFileSync(join(ROOT, 'workflows/pr-review.flow.ts'), 'utf8');
+  it('is embedded verbatim in the archived baseline flow', async () => {
+    const flow = readFileSync(join(ROOT, 'examples/babysitter/legacy/pr-review.flow.ts'), 'utf8');
     const m = flow.match(/const POST_SCRIPT = `\n([\s\S]*?)`;/);
     expect(m).not.toBeNull();
     const embedded = m![1].replaceAll('\\`', '`').replaceAll('\\${', '${');

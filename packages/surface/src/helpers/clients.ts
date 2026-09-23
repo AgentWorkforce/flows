@@ -32,7 +32,7 @@ export const helperClients: Readonly<Record<string, HelperFactory>> = {
   "onedrive": upstream.onedriveClient,
   "pipedrive": upstream.pipedriveClient,
   "postgres": upstream.postgresClient,
-  "ramp": (options) => upstream.providerClient("ramp", options),
+  "ramp": upstream.rampClient,
   "recall": upstream.recallClient,
   "reddit": upstream.redditClient,
   "redis": upstream.redisClient,
