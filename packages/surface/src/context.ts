@@ -1,6 +1,6 @@
 import type { Helpers } from "./helpers/index.js";
 import type { MemoryHelper } from "./memory.js";
-import type { CloudHelper } from "./cloud.js";
+import type { CloudCapabilities, CloudHelper } from "./cloud.js";
 import type { FlowCompletionReason } from "./completion.js";
 import type { Step } from "./step.js";
 
@@ -96,6 +96,8 @@ export interface LlmOptions {
  * context or execute a step, so all effects remain behind the journal client.
  */
 export interface Ctx extends Helpers {
+  /** Host-verified ports. Absent from direct/local runs and ordinary authored execution. */
+  readonly capabilities?: { readonly cloud?: CloudCapabilities };
   readonly mcp: Readonly<Record<string, Readonly<Record<string, (args: unknown) => Step<unknown>>>>>;
   /**
    * Run a command. Resolves to its stdout tail, and a nonzero exit ends the
@@ -124,6 +126,12 @@ export interface Ctx extends Helpers {
    */
   human(question: string, options: { to: string }): Step<boolean>;
   dispatch<T>(flow: string, input: unknown): Promise<T>;
+  /**
+   * Run every installed implementation of a named hook in lock order and
+   * AND-compose the booleans. With no implementations this is a journaled
+   * no-op that returns true. A name must appear in the flow header's `hooks`.
+   */
+  hook(name: string, input: unknown): Step<boolean>;
   done(reason: FlowCompletionReason): void;
   cloud: CloudHelper;
   memory: MemoryHelper;

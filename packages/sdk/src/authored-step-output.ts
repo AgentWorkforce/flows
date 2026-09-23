@@ -5,7 +5,7 @@ import type { CompletionReason as ProtocolCompletionReason, RunCompletionReason 
 import type { AuthoredFlowJournalStep } from './authored-flow-executor.js';
 import type { StepFailedDetails } from './failure-kinds.js';
 import { inspectionHint, renderInspection, renderStepEvidence, stepFailureDetails } from './cli/step-failure.js';
-import { alsoRecord, recordAuthoredChild } from './authored-step-index.js';
+import { alsoRecord, recordAuthoredChild, type AuthoredStepEdges } from './authored-step-index.js';
 
 /**
  * What an authored operation needs in order to leave readable evidence:
@@ -17,6 +17,8 @@ import { alsoRecord, recordAuthoredChild } from './authored-step-index.js';
 export interface AuthoredStepContext {
   readonly rootRunId?: string;
   readonly dataDir?: string;
+  /** The step's label and causal predecessors, carried on every record about it. */
+  readonly stepEdges?: (step: string) => AuthoredStepEdges | undefined;
 }
 
 /**
@@ -62,9 +64,10 @@ export async function readCompletedStepOutput(
   }
 
   const reason = completed.payload.completionReason;
-  journalSteps.push(Object.freeze({ id: stepId, runId, completionReason: reason }));
+  const edges = context.stepEdges?.(stepId);
+  journalSteps.push(Object.freeze({ id: stepId, runId, completionReason: reason, ...edges }));
   if (reason !== 'success') {
-    throw await stepFailure(journal, runId, stepId, reason, context,
+    throw await stepFailure(journal, runId, stepId, reason, context, edges,
       `journal step "${stepId}" completed with ${reason}`);
   }
   // An authored operation does not always lower to ONE kernel step. A declared
@@ -75,11 +78,11 @@ export async function readCompletedStepOutput(
   // recording policy exists to remove, reappearing one layer up.
   const runReason = entries.map(runCompletionReason).find((value) => value !== undefined);
   if (runReason !== undefined && runReason !== 'success') {
-    throw await stepFailure(journal, runId, stepId, runReason, context,
+    throw await stepFailure(journal, runId, stepId, runReason, context, edges,
       `journal run for step "${stepId}" completed with ${runReason}`);
   }
   await recordAuthoredChild(journal, context.rootRunId, {
-    step: stepId, runId, state: 'completed', completionReason: reason,
+    step: stepId, runId, state: 'completed', completionReason: reason, ...edges,
   });
   return completed.payload.output;
 }
@@ -95,6 +98,7 @@ async function stepFailure(
   stepId: string,
   reason: ProtocolCompletionReason | ProtocolRunCompletionReason,
   context: AuthoredStepContext,
+  edges: ReturnType<NonNullable<AuthoredStepContext['stepEdges']>>,
   header: string,
 ): Promise<AuthoredFlowExecutionError> {
   let message = header;
@@ -114,6 +118,7 @@ async function stepFailure(
   message += await alsoRecord(journal, context.rootRunId, {
     step: stepId, runId, state: 'completed', completionReason: reason,
     ...(details?.stepId === undefined ? {} : { kernelStep: details.stepId }),
+    ...edges,
   });
   return new AuthoredFlowExecutionError('step_failed', message, reason, runId, { ...details, ...where });
 }

@@ -1,0 +1,22 @@
+$ node ../../packages/sdk/dist/cli.js check babysitter.flow.ts
+REQUIRES github (on github pull_request)
+CHECK PASSED babysitter.flow.ts
+exit=0
+
+=== the same check, with the github executor removed from flows.json ===
+$ cat flows.json
+{ "cli": "claude", "executors": [] }
+$ node ../../packages/sdk/dist/cli.js check babysitter.flow.ts
+REFUSED [no_executor] webhook trigger "github" is not registered in flows.json
+REQUIRES github (on github pull_request)
+exit=2
+
+=== restored ===
+$ cmp
+identical
+$ cat flows.json
+{ "cli": "claude", "executors": ["github"] }
+$ node ../../packages/sdk/dist/cli.js check babysitter.flow.ts
+REQUIRES github (on github pull_request)
+CHECK PASSED babysitter.flow.ts
+exit=0

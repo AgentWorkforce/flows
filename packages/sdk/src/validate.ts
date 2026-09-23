@@ -501,6 +501,13 @@ class Validator {
     }
     this.validateCli(st.cli, at);
     this.validateModel(st.model, at);
+    // The kernel refuses a relative cwd at run.start; refuse it here so `flows
+    // check` and the run agree. Not resolved against the checking directory:
+    // that would make the compiled spec (and its hash) depend on where the
+    // check ran. `f.agent` resolves before compiling, so it never lands here.
+    if (st.cwd !== undefined && (!isNonEmptyString(st.cwd) || !st.cwd.startsWith('/'))) {
+      this.fail(`${at}.cwd: expected an absolute path (got ${JSON.stringify(st.cwd)})`);
+    }
     if (st.surfaces !== undefined) this.validateSurfaces(st.surfaces, `${at}.surfaces`);
     if (st.permissions !== undefined) this.validatePermissions(st.permissions, `${at}.permissions`);
   }

@@ -6,6 +6,10 @@ export type {
   ScheduleState,
   WorkerSummary,
   CloudHelper,
+  CloudCapabilities,
+  CloudBabysitterTurnCapability,
+  CloudBabysitterTurnDelivery,
+  CloudBabysitterTurnReceipt,
 } from "./cloud.js";
 export type { AgentOptions, AgentResult, PermissionsSpec, LlmOptions, RunOptions, RunResult, Ctx } from "./context.js";
 export {

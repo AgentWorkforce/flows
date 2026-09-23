@@ -57,6 +57,40 @@ export interface AuthoredStepRecord {
    * `<step>` — saying which is the difference between an index and a guess.
    */
   readonly kernelStep?: string;
+  /**
+   * Human name for the step: the author-chosen `f.agent` or `f.hook` name,
+   * whole or not at all (`displayLabel`).
+   */
+  readonly label?: string;
+  /**
+   * The steps this one causally waited for, transitively reduced
+   * (`authored-step-graph.ts`). Absent means none were found, not unknown.
+   */
+  readonly after?: readonly string[];
+  /** Present when `after` is incomplete: the walk hit its limit or the list its cap. */
+  readonly afterTruncated?: true;
+}
+
+/** The graph fields one authored step carries on every record about it. */
+export type AuthoredStepEdges = Pick<AuthoredStepRecord, 'label' | 'after' | 'afterTruncated'>;
+
+/** Most predecessors one record lists; the rest are marked `afterTruncated`. */
+export const MAX_AFTER = 32;
+
+/** Longest label a record carries. A longer one is omitted, never cut. */
+export const MAX_LABEL = 256;
+
+/**
+ * A label, whole, or nothing.
+ *
+ * A label is displayed and persisted by Cloud after its redactor runs, and the
+ * redactor matches whole secret values: a label cut mid-secret would arrive as
+ * an unredactable prefix. So a label is never truncated — one over the bound
+ * is dropped — and only author-chosen names are labels at all. Commands are
+ * not: they carry literal tokens and URLs, so `f.run` has no label.
+ */
+export function displayLabel(label: string | undefined): { readonly label?: string } {
+  return label === undefined || label.trim() === '' || label.length > MAX_LABEL ? {} : { label };
 }
 
 /**
@@ -85,6 +119,10 @@ export async function recordAuthoredChild(
     ...(record.completionReason === undefined ? {} : { completionReason: bound(record.completionReason) }),
     ...(record.kernelStep === undefined || record.kernelStep === record.step
       ? {} : { kernelStep: bound(record.kernelStep) }),
+    ...displayLabel(record.label),
+    ...(record.after === undefined ? {} : { after: record.after.slice(0, MAX_AFTER).map(bound) }),
+    ...(record.afterTruncated === true || (record.after?.length ?? 0) > MAX_AFTER
+      ? { afterTruncated: true } : {}),
   });
 }
 
@@ -123,22 +161,56 @@ export async function readAuthoredStepIndex(
   let offset = 0;
   for (;;) {
     const page = await journal.streamRead(rootRunId, AUTHORED_STEP_STREAM, offset, 1000);
-    for (const message of page.messages) {
-      // `stream.read` returns either the envelope or the bare message,
-      // matching how the executor reads predicate verdicts.
-      const raw = (message as { message?: unknown }).message ?? message;
-      if (!isAuthoredStepRecord(raw)) continue;
-      const previous = index.get(raw.step);
-      // An `admitted` record arriving after a `completed` one (a resumed body
-      // re-admitting the same child under its stable admission key) must not
-      // un-complete it.
-      if (previous?.state === 'completed' && raw.state === 'admitted') continue;
-      index.set(raw.step, raw);
-    }
+    // `stream.read` returns either the envelope or the bare message,
+    // matching how the executor reads predicate verdicts.
+    foldAuthoredStepRecords(page.messages.map((message) => (message as { message?: unknown }).message ?? message), index);
     if (page.messages.length === 0 || page.next_offset <= offset) break;
     offset = page.next_offset;
   }
   return [...index.values()];
+}
+
+/**
+ * The fold itself, over messages already read from the stream in append
+ * order — by `readAuthoredStepIndex` through the daemon, or by `flows status`
+ * straight from the journal file, which must agree with it record for record.
+ */
+export function foldAuthoredStepRecords(
+  messages: Iterable<unknown>,
+  index: Map<string, AuthoredStepRecord> = new Map(),
+): Map<string, AuthoredStepRecord> {
+  for (const raw of messages) {
+    if (!isAuthoredStepRecord(raw)) continue;
+    const previous = index.get(raw.step);
+    if (previous === undefined) {
+      index.set(raw.step, raw);
+      continue;
+    }
+    // An `admitted` record arriving after a `completed` one (a resumed body
+    // re-admitting the same child under its stable admission key) must not
+    // un-complete it. Either way, graph fields one record lacks are taken from
+    // the other: a completion written without them (or a re-admission that
+    // adds them, over a root an older runtime began) must not erase them.
+    const keepPrevious = previous.state === 'completed' && raw.state === 'admitted';
+    index.set(raw.step, withGraphFrom(keepPrevious ? previous : raw, keepPrevious ? raw : previous));
+  }
+  return index;
+}
+
+/** `primary`, with any `label` / `after` it lacks taken from `fallback`. */
+function withGraphFrom(primary: AuthoredStepRecord, fallback: AuthoredStepRecord): AuthoredStepRecord {
+  const label = primary.label ?? fallback.label;
+  // `after` and `afterTruncated` travel together: a truncated walk that found
+  // no predecessor journals the flag alone, and it must survive the fold.
+  const hasEdges = (record: AuthoredStepRecord) => record.after !== undefined || record.afterTruncated === true;
+  const edges = hasEdges(primary) ? primary : fallback;
+  const { label: _label, after: _after, afterTruncated: _truncated, ...lifecycle } = primary;
+  return {
+    ...lifecycle,
+    ...(label === undefined ? {} : { label }),
+    ...(edges.after === undefined ? {} : { after: edges.after }),
+    ...(edges.afterTruncated === true ? { afterTruncated: true as const } : {}),
+  };
 }
 
 function isAuthoredStepRecord(value: unknown): value is AuthoredStepRecord {
@@ -149,7 +221,12 @@ function isAuthoredStepRecord(value: unknown): value is AuthoredStepRecord {
     && typeof record.runId === 'string' && record.runId.length > 0
     && (record.state === 'admitted' || record.state === 'completed')
     && (record.completionReason === undefined || typeof record.completionReason === 'string')
-    && (record.kernelStep === undefined || typeof record.kernelStep === 'string');
+    && (record.kernelStep === undefined || typeof record.kernelStep === 'string')
+    && (record.label === undefined || (typeof record.label === 'string' && record.label.length <= MAX_LABEL))
+    && (record.after === undefined || (Array.isArray(record.after)
+      && record.after.length <= MAX_AFTER
+      && record.after.every((step) => typeof step === 'string' && step.length > 0)))
+    && (record.afterTruncated === undefined || record.afterTruncated === true);
 }
 
 function bound(value: string): string {

@@ -1,0 +1,21 @@
+$ (cd packages/sdk && npm run build && npm run typecheck:tests && ./node_modules/.bin/vitest run tests/babysitter-catalog-export.test.ts)
+
+> @relayflows/sdk@2.0.25 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+> @relayflows/sdk@2.0.25 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/packages/sdk
+
+ ✓ tests/babysitter-catalog-export.test.ts (14 tests) 2030ms
+   ✓ Babysitter catalog artifact export > CLI refuses an existing output and leaves no file on validation failure 1689ms
+
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+   Start at  01:35:33
+   Duration  4.82s (transform 715ms, setup 0ms, collect 1.25s, tests 2.03s, environment 0ms, prepare 293ms)
+
+Exit: 0

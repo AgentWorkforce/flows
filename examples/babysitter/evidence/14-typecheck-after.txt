@@ -1,0 +1,37 @@
+$ packages/sdk/node_modules/.bin/tsc -p examples/babysitter/tsconfig.json
+exit=0
+
+$ npm run typecheck --prefix packages/surface
+
+> @relayflows/surface@2.0.22 typecheck
+> tsc --noEmit
+
+exit=0
+
+$ npm run typecheck --prefix packages/sdk
+
+> @relayflows/sdk@2.0.22 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+exit=0
+
+$ npm run typecheck:examples --prefix packages/surface
+
+> @relayflows/surface@2.0.22 typecheck:examples
+> tsc -p ../../examples/tsconfig.json
+
+../../workflows/stuck-run-triage.flow.ts(77,12): error TS2304: Cannot find name 'URL'.
+../../workflows/stuck-run-triage.flow.ts(79,15): error TS2552: Cannot find name 'URL'. Did you mean 'url'?
+exit=2
+
+NOTE: the two workflows/stuck-run-triage.flow.ts "Cannot find name URL" errors above
+are PRE-EXISTING on origin/main and are not touched by this branch. Verified by
+running the same command on a clean origin/main checkout:
+
+$ git checkout origin/main && (cd packages/surface && npx tsc -p ../../examples/tsconfig.json)
+../../workflows/stuck-run-triage.flow.ts(77,12): error TS2304: Cannot find name 'URL'.
+../../workflows/stuck-run-triage.flow.ts(79,15): error TS2552: Cannot find name 'URL'. Did you mean 'url'?
+
+The six examples/babysitter/github.ts errors that the same command produced at
+d9a4df4d (node globals under examples/tsconfig.json's deliberate `types: []`)
+were introduced by this branch and are fixed here; see github.ts.

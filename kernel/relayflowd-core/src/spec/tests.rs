@@ -415,3 +415,52 @@ fn the_default_policy_is_absent_from_the_serialized_boundary_spec() {
         json!("record")
     );
 }
+
+#[test]
+fn agent_cwd_is_carried_and_must_be_absolute() {
+    let with_cwd = RunSpec::parse(&json!({
+        "steps": [{"id": "a", "type": "agent", "instruction": "i", "cwd": "/repo/.wt/a"}]
+    }))
+    .unwrap();
+    assert!(with_cwd.validate().is_ok());
+    assert_eq!(
+        serde_json::to_value(&with_cwd.steps[0]).unwrap()["cwd"],
+        json!("/repo/.wt/a")
+    );
+
+    let relative = RunSpec::parse(&json!({
+        "steps": [{"id": "a", "type": "agent", "instruction": "i", "cwd": "wt/a"}]
+    }))
+    .unwrap();
+    assert_eq!(
+        relative.validate(),
+        Err(SpecError::RelativeStepCwd {
+            step: "a".to_owned(),
+            cwd: "wt/a".to_owned()
+        })
+    );
+
+    // `cwd` is agent-only: an llm step still refuses it as an unknown field.
+    assert!(matches!(
+        RunSpec::parse(&json!({
+            "steps": [{"id": "a", "type": "llm", "prompt": "p", "cwd": "/repo"}]
+        })),
+        Err(SpecError::UnknownField { .. })
+    ));
+}
+
+#[test]
+fn agent_without_cwd_hashes_as_before() {
+    let spec = RunSpec::parse(&json!({
+        "steps": [{"id": "a", "type": "agent", "instruction": "i", "cli": "claude"}]
+    }))
+    .unwrap();
+    let serialized = serde_json::to_value(&spec.steps[0]).unwrap();
+    assert!(serialized.get("cwd").is_none());
+    // Pinned to the value main computes: journals recorded before `cwd`
+    // existed must still memoize against this step.
+    assert_eq!(
+        crate::memoization::step_spec_hash(&spec.steps[0]),
+        "f5e8e24cd23fb3ee42ae0e8ddb7d68b0c869720fed13adce3bd5b23a8a06704f"
+    );
+}

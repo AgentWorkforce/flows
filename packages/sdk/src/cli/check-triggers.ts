@@ -1,10 +1,12 @@
 import { dirname, resolve } from 'node:path';
 import { loadAuthoredFlow, type LoadedAuthoredFlow } from '../authored-flow-loader.js';
+import { probeFlowExtension } from '../flow-extension-loader.js';
 import { preflightWebhookTriggers } from '../preflight.js';
 import { preflightProviderTriggers } from '../provider-trigger-contract.js';
 import { scheduleLowering } from '../schedule-trigger.js';
 import { checkSlackHelpers } from '../slack-preflight.js';
-import { flowRequirements } from '../flow-requirements.js';
+import { flowRequirements, mergeFlowExtensionRequirements } from '../flow-requirements.js';
+import { PluginError } from '../plugin-manifest.js';
 import { inputFailureReport, readProjectConfig, type CheckReport } from './check.js';
 
 /**
@@ -22,6 +24,7 @@ export async function checkAuthoredTriggers(path: string): Promise<{
     const loaded = await loadAuthoredFlow(path);
     const definition = loaded.getDefinition(loaded.handle);
     const config = readProjectConfig(dirname(resolve(path)));
+    for (const extension of loaded.extensions ?? []) await probeFlowExtension(extension.manifest);
     const triggers = (definition.handlers ?? []).map(handler => handler.trigger);
     const triggerDiagnostics = preflightWebhookTriggers(triggers, config.executors);
     // Registration answers "may this inbox run here"; the provider contract
@@ -40,6 +43,17 @@ export async function checkAuthoredTriggers(path: string): Promise<{
       const lowering = scheduleLowering(definition.name, trigger);
       return [{ handler, ...lowering }];
     });
+    // `?? []` tolerates the partial loader doubles the direct-run tests install.
+    const extensions = (loaded.extensions ?? []).map(extension => ({
+      name: extension.name, version: extension.version, ref: extension.ref, digest: extension.digest,
+      handlers: extension.handlers.length,
+      hooks: extension.manifest?.extends.hooks ?? [],
+    }));
+    const declaredHooks = definition.header?.hooks ?? [];
+    const implementations = (loaded.extensions ?? []).flatMap(extension =>
+      (extension.manifest?.extends.hooks ?? []).map(hook => ({ hook, plugin: extension.name })));
+    const hooks = declaredHooks.length > 0 || implementations.length > 0
+      ? { declared: declaredHooks, implementations } : undefined;
     return {
       loaded,
       report: {
@@ -47,11 +61,22 @@ export async function checkAuthoredTriggers(path: string): Promise<{
         ok: !diagnostics.some(diagnostic => diagnostic.severity === 'refusal'),
         path, gates: [], resolutions: [], diagnostics,
         ...(schedules.length === 0 ? {} : { schedules }),
-        requirements: flowRequirements(definition, { projectCli: config.cli }),
+        ...(extensions.length === 0 ? {} : { extensions }),
+        ...(hooks === undefined ? {} : { hooks }),
+        requirements: mergeFlowExtensionRequirements(
+          flowRequirements(definition, { projectCli: config.cli }),
+          (loaded.extensions ?? []).map(extension => ({
+            name: extension.name, permissions: extension.manifest.permissions,
+          })),
+        ),
         ...(config.path === undefined ? {} : { projectConfigPath: config.path }),
       },
     };
   } catch (error) {
+    // A flow-extension refusal keeps its own code (plugin_source_drift,
+    // plugin_incompatible, …): the operator needs to know which record
+    // disagreed, not that "the spec is invalid".
+    if (error instanceof PluginError) return { report: inputFailureReport({ kind: error.code, message: error.message }, path) };
     return { report: inputFailureReport({
       kind: typeof error === 'object' && error !== null && 'kind' in error && error.kind === 'config_invalid'
         ? 'config_invalid' : 'invalid_spec',

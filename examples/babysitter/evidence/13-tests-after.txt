@@ -1,0 +1,72 @@
+$ node --experimental-strip-types --test examples/babysitter/tests/*.test.ts
+✔ malformed input makes zero effects; missing live state declines before agents (8.121542ms)
+✔ duplicate delivery cannot bypass missing publication or agent-scope capability (2.115958ms)
+✔ live-head review/check wakes evaluate merge but do not simulate an unavailable receipt (2.221166ms)
+✔ authorized conflict wakes hand off unresolved semantic work; ordinary/unauthorized comments decline (1.482375ms)
+✔ merge transport sends the bound live SHA and fails if provider does not confirm (1.085208ms)
+⚠ live-head end-to-end review and merge acceptance remains RED (3.160041ms) # Requires enforced agent scopes and durable fenced publication; the passing merge transport unit test is not end-to-end acceptance
+✔ malformed external inputs fail before shell or API (3.180167ms)
+✔ live skip and author rules fail closed (0.925334ms)
+✔ READY rejects missing pending red conflicts stale heads and missing state (3.154041ms)
+✔ merge requires opt in org and configured independent approver at exact SHA (0.857792ms)
+✔ conflict command is explicit authorized and same repository only (1.56025ms)
+✔ edits fail closed for semantic changes, fork, protected paths, tests and unresolved conflicts (1.810375ms)
+✔ artifacts are nonempty schema validated exact head and reconcile deterministically (2.840833ms)
+✔ publication refuses stale post race newer verdict spoof and absent atomic capability (0.365041ms)
+✔ once per head keys and sticky CI attribution survive duplicate wake decisions (0.513625ms)
+✔ one bounded infra retry only for 137/143 (1.0065ms)
+⚠ atomicPrPublication (16.996042ms) # Provider per-PR serialization + head-guarded idempotent owned-comment upsert
+⚠ durableCrossRunNotification (0.603ms) # Durable per-head notification receipt and atomic delivery claim
+⚠ journaledCiObservation (0.54075ms) # Journal-backed script-memory write/recall across runs (memory.learn currently refuses)
+⚠ enforcedAgentWriteScope (0.352542ms) # Enforced readonly agent workspace and credential scopes (gate 8 / #442)
+⚠ selectiveAgentExitRetry (0.32875ms) # Typed agent exit-code/retry policy in authored Step; AgentResult only has summary/artifacts
+⚠ durableSubscriptionLiveness (0.2825ms) # Durable cross-run wake records for the liveness sweep; a subscription that stops firing is currently indistinguishable from a quiet one
+✔ the declared subscription contract is exactly the required resident set (3.642917ms)
+✔ every declared subscription registers one handler bound to the one body (0.733625ms)
+✔ each trigger filters to its own provider, type and action (0.582ms)
+✔ compatibility entry points still resolve to this one implementation (1.01275ms)
+✔ subscription preflight passes the declared contract and has teeth (0.896ms)
+✔ preflight refuses an undeliverable subscription rather than deploying it (0.441959ms)
+✔ a delivery is accepted as a hint; only routing is enforced (3.119917ms)
+✔ a stale hinted head is recorded, never enforced, and never binds (0.711959ms)
+✔ an operator pin constrains the run; it never substitutes for live state (0.476583ms)
+✔ every wake rereads live state before it decides anything (3.105208ms)
+✔ a payload that disagrees with live state loses: closed hint, open PR (0.503917ms)
+✔ a payload that disagrees with live state loses: open hint, closed PR (0.412875ms)
+✔ a label hint is re-read from live state in both directions (0.634ms)
+✔ a review hint cannot assert an approval live state does not show (0.551208ms)
+✔ a check hint cannot assert a conclusion live state does not show (0.294042ms)
+✔ duplicate delivery repeats a decision instead of adding one (0.887166ms)
+✔ out-of-order delivery decides about the head that exists now (0.443417ms)
+✔ the decision key names the subscription and the live head, never the hint (0.289125ms)
+✔ each wake emits one deterministic observation line (0.421792ms)
+✔ the sweep separates a quiet subscription from a dead one (0.830125ms)
+✔ a young subscription is pending, an old silent one is never (0.450917ms)
+✔ the sweep refuses impossible windows and clock-faulted records (0.482791ms)
+✔ the sweep expects exactly the subscriptions the flow registers (0.140333ms)
+ℹ tests 45
+ℹ suites 0
+ℹ pass 38
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 7
+ℹ duration_ms 748.496792
+✖ failing tests:
+⚠ live-head end-to-end review and merge acceptance remains RED (3.160041ms) # Requires enforced agent scopes and durable fenced publication; the passing merge transport unit test is not end-to-end acceptance
+⚠ atomicPrPublication (16.996042ms) # Provider per-PR serialization + head-guarded idempotent owned-comment upsert
+⚠ durableCrossRunNotification (0.603ms) # Durable per-head notification receipt and atomic delivery claim
+⚠ journaledCiObservation (0.54075ms) # Journal-backed script-memory write/recall across runs (memory.learn currently refuses)
+⚠ enforcedAgentWriteScope (0.352542ms) # Enforced readonly agent workspace and credential scopes (gate 8 / #442)
+⚠ selectiveAgentExitRetry (0.32875ms) # Typed agent exit-code/retry policy in authored Step; AgentResult only has summary/artifacts
+⚠ durableSubscriptionLiveness (0.2825ms) # Durable cross-run wake records for the liveness sweep; a subscription that stops firing is currently indistinguishable from a quiet one
+
+$ node --experimental-strip-types --test examples/pr-reviewer/tests/pr-state.test.ts
+ℹ tests 50
+ℹ suites 0
+ℹ pass 50
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 355.443083

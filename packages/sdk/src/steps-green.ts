@@ -131,7 +131,10 @@ export function lowerStepsGreenGates(steps: readonly StepSpec[]): StepSpec[] {
     const input = Object.fromEntries(gate.ids.map((id, index) => [String(index), { step: id }]));
     output.push({
       id: barriers.get(step.id)!, type: 'deterministic',
-      dependsOn: [...new Set([step.id, ...gate.ids])], input,
+      // A named source that is itself a gate host must have passed its own
+      // assertion too — depending on the source alone would read its command
+      // exit and let this barrier pass while the inner gate is still red.
+      dependsOn: [...new Set([step.id, ...gate.ids, ...gate.ids.flatMap(id => barriers.get(id) ?? [])])], input,
       command: greenCommand(gate.ids),
       verification: { type: 'exit_code' }, maxIterations: step.maxIterations ?? 1,
       ...(step.requirements === undefined ? {} : { requirements: step.requirements }),

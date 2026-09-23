@@ -6,7 +6,9 @@ import { getFlowDefinition } from '@relayflows/surface/runtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runCli } from '../src/cli.js';
 import { loadAuthoredFlow } from '../src/authored-flow-loader.js';
-import { describeFlowRequirements, flowRequirements, harnessFromCli } from '../src/flow-requirements.js';
+import {
+  describeFlowRequirements, flowRequirements, harnessFromCli, mergeFlowExtensionRequirements,
+} from '../src/flow-requirements.js';
 import { compileSpec } from '../src/compile.js';
 import type { FlowSpec } from '../src/spec.js';
 
@@ -86,6 +88,24 @@ describe('flowRequirements on an authored definition', () => {
     const definition = getFlowDefinition(flow('digest', { tools: { slack: true } }, async (f) => { await f.slack.post('#a', 'b'); }));
     expect(flowRequirements(definition, { sources: [{ provider: 'slack' }] }).integrations)
       .toEqual([{ provider: 'slack', from: 'tools', detail: 'tools.slack' }]);
+  });
+
+  it('merges manifest-only extension requirements in declaration order', () => {
+    const base = flowRequirements(getFlowDefinition(flow('base', { tools: { slack: true } }, async () => {})));
+    expect(mergeFlowExtensionRequirements(base, [{
+      name: 'babysitter',
+      permissions: {
+        integrations: ['slack', 'github'], harnesses: ['codex'], mcp: ['filesystem'],
+      },
+    }])).toEqual({
+      integrations: [
+        { provider: 'slack', from: 'tools', detail: 'tools.slack' },
+        { provider: 'github', from: 'extension', detail: 'plugin "babysitter"' },
+      ],
+      harnesses: ['codex'],
+      harnessUses: [{ harness: 'codex', detail: 'plugin "babysitter"' }],
+      mcp: ['filesystem'],
+    });
   });
 
   it('reads a compiled spec through its steps and named agents', () => {

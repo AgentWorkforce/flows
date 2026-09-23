@@ -3,7 +3,7 @@ import { DIAGNOSTICS, DIAGNOSTIC_SOURCE } from "../diagnostics";
 
 // Mirrors assertFlowHeader in surface/src/flow.ts. SDK parity fixtures pin
 // these three closed lists without importing or executing author code in tsserver.
-const HEADER_KEYS = ["identity", "memory", "budget", "tools", "workspace"];
+const HEADER_KEYS = ["identity", "memory", "budget", "tools", "workspace", "version", "hooks"];
 const NESTED_KEYS: Record<string, readonly string[]> = {
   memory: ["script", "agent"],
   tools: ["relayfile", "mcp", "slack"],

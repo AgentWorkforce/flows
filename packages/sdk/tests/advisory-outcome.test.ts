@@ -218,6 +218,18 @@ describe('steps_green lowering', () => {
       .toEqual(expect.arrayContaining(['gate', 'gate.green']));
   });
 
+  it('chains gates: the outer barrier waits for the inner barrier, not just the inner host', () => {
+    const steps = lowered([
+      recordingCheck,
+      { id: 'inner', type: 'deterministic', command: 'true', verification: { type: 'steps_green', ids: ['check'] } },
+      { id: 'outer', type: 'deterministic', command: 'true', verification: { type: 'steps_green', ids: ['inner'] } },
+    ]);
+    // `inner`'s recorded exit is its own command, not its assertion. Without
+    // `inner.green` here, dependents of `outer` run while `check` is red.
+    expect(steps.find((step) => step.id === 'outer.green')!.depends_on)
+      .toEqual(expect.arrayContaining(['outer', 'inner', 'inner.green']));
+  });
+
   it('picks a generated id that cannot collide with an authored one', () => {
     const steps = lowerStepsGreenGates([
       { id: 'check', type: 'deterministic', command: 'npm test', onNonZero: 'record' },
