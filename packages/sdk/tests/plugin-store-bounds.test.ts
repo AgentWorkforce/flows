@@ -2,7 +2,7 @@ import { mkdtempSync, readdirSync, rmSync, truncateSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { payloadManifest } from '../src/bundle.js';
+import { payloadManifest, sha256 } from '../src/bundle.js';
 import { materializePlugin, readStoredPluginFiles, verifyStoredPlugin } from '../src/plugin-store.js';
 
 const roots: string[] = [];
@@ -156,6 +156,44 @@ describe('bounded plugin-store verification', () => {
         if (descriptor === undefined) delete (prototypes[index]! as { then?: unknown }).then;
         else Object.defineProperty(prototypes[index]!, 'then', descriptor);
       }
+    }
+    expect(poisonCalls).toBe(0);
+  });
+
+  it('snapshots manifest entries before reading their fields', async () => {
+    const stored = await fixture();
+    const raw = '[{}]';
+    writeFileSync(join(stored.directory, 'manifest.json'), raw);
+    const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'path');
+    let poisonCalls = 0;
+    try {
+      Object.defineProperty(Object.prototype, 'path', {
+        configurable: true,
+        enumerable: true,
+        get() {
+          const caller = (new Error().stack ?? '').split('\n', 3)[2] ?? '';
+          if (caller.includes('/src/plugin-store.')) {
+            poisonCalls += 1;
+            throw new Error('inherited manifest field must not run');
+          }
+          return undefined;
+        },
+        set(this: object, value: unknown) {
+          Object.defineProperty(this, 'path', {
+            configurable: true,
+            enumerable: true,
+            value,
+            writable: true,
+          });
+        },
+      });
+      await expect(verifyStoredPlugin(stored.directory, sha256(raw))).rejects.toMatchObject({
+        code: 'plugin_source_drift',
+        message: expect.stringContaining('manifest.json lists an invalid file'),
+      });
+    } finally {
+      if (previous === undefined) delete (Object.prototype as { path?: unknown }).path;
+      else Object.defineProperty(Object.prototype, 'path', previous);
     }
     expect(poisonCalls).toBe(0);
   });

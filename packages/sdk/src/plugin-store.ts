@@ -18,6 +18,7 @@ import {
 } from './fs-descriptor.js';
 import { frozenHostedPromiseValue, hostedPromiseValue } from './hosted-promise-safety.js';
 import { appendIntrinsicArray } from './intrinsic-array.js';
+import { snapshotJsonValue, type JsonValue } from './json-value.js';
 import { MAX_PLUGIN_FILE_BYTES, MAX_PLUGIN_FILES, MAX_PLUGIN_TOTAL_BYTES } from './plugin-github.js';
 import { PluginError } from './plugin-manifest.js';
 
@@ -254,10 +255,15 @@ async function readVerifiedStoredPluginFiles(
   }
   const raw = BUFFER_TO_STRING(manifest, 'utf8');
   if (sha256(raw) !== expectedDigest) return drift('manifest.json digest differs from the lockfile');
-  let entries: { path: string; sha256: string; bytes: number }[];
+  let entries: JsonValue[];
   try {
-    entries = JSON_PARSE(raw);
-    if (!ARRAY_IS_ARRAY(entries)) throw new ERROR();
+    const value = snapshotJsonValue(JSON_PARSE(raw), 'stored plugin manifest', {
+      maxBytes: MAX_PLUGIN_MANIFEST_BYTES,
+      maxDepth: 3,
+      maxNodes: 1 + MAX_PLUGIN_FILES * 4,
+    });
+    if (!ARRAY_IS_ARRAY(value)) throw new ERROR();
+    entries = value;
   } catch {
     return drift('manifest.json is not a manifest');
   }
@@ -268,27 +274,37 @@ async function readVerifiedStoredPluginFiles(
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index]!;
     if (
-      typeof entry?.path !== 'string' ||
-      !safePath(entry.path) ||
-      typeof entry.sha256 !== 'string' ||
-      !REGEXP_TEST(/^[a-f0-9]{64}$/, entry.sha256) ||
-      !NUMBER_IS_SAFE_INTEGER(entry.bytes) ||
-      entry.bytes < 0 ||
-      entry.bytes > MAX_PLUGIN_FILE_BYTES ||
-      SET_HAS(paths, entry.path)
+      typeof entry !== 'object' ||
+      entry === null ||
+      ARRAY_IS_ARRAY(entry)
     )
       return drift('manifest.json lists an invalid file');
-    totalBytes += entry.bytes;
+    const path = entry.path;
+    const digest = entry.sha256;
+    const bytes = entry.bytes;
+    if (
+      typeof path !== 'string' ||
+      !safePath(path) ||
+      typeof digest !== 'string' ||
+      !REGEXP_TEST(/^[a-f0-9]{64}$/, digest) ||
+      typeof bytes !== 'number' ||
+      !NUMBER_IS_SAFE_INTEGER(bytes) ||
+      bytes < 0 ||
+      bytes > MAX_PLUGIN_FILE_BYTES ||
+      SET_HAS(paths, path)
+    )
+      return drift('manifest.json lists an invalid file');
+    totalBytes += bytes;
     if (totalBytes > MAX_PLUGIN_TOTAL_BYTES) return drift(`plugin exceeds ${MAX_PLUGIN_TOTAL_BYTES} bytes`);
     let data: Buffer;
     try {
-      data = await regularFile(directory, entry.path, MAX_PLUGIN_FILE_BYTES, entry.bytes, hooks);
+      data = await regularFile(directory, path, MAX_PLUGIN_FILE_BYTES, bytes, hooks);
     } catch (error) {
-      return drift(error instanceof PluginError ? error.message : `${entry.path} is missing`);
+      return drift(error instanceof PluginError ? error.message : `${path} is missing`);
     }
-    if (sha256(data) !== entry.sha256) return drift(`${entry.path} changed since installation`);
-    SET_ADD(paths, entry.path);
-    appendIntrinsicArray(files, { path: entry.path, data });
+    if (sha256(data) !== digest) return drift(`${path} changed since installation`);
+    SET_ADD(paths, path);
+    appendIntrinsicArray(files, { path, data });
   }
   SET_ADD(paths, 'manifest.json');
   await rejectExtras(directory, '', paths, drift);
