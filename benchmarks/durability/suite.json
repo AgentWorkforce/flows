@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "kind": "relayflows-eval",
+  "id": "relayflows-durability-v1",
+  "defaultRepetitions": 5,
+  "minimumPublishableRepetitions": 5,
+  "cases": [
+    {
+      "id": "deterministic-boundary-resume",
+      "claim": "A deterministic three-step flow survives a kill at every boundary without replaying a completed effect.",
+      "command": {
+        "file": "cargo",
+        "args": ["test", "-p", "relayflowd", "--test", "crash_resume", "sigkill_sweep_covers_every_hello_step_boundary", "--", "--exact", "--nocapture", "--test-threads=1"],
+        "cwd": "../../kernel",
+        "timeoutMs": 120000
+      }
+    },
+    {
+      "id": "llm-result-memoization",
+      "claim": "A completed llm result and its budget are reused after the server dies during the following step.",
+      "command": {
+        "file": "cargo",
+        "args": ["test", "-p", "relayflowd", "--test", "crash_resume", "llm::completed_llm_output_is_memoized_when_serve_dies_during_the_next_step", "--", "--exact", "--nocapture", "--test-threads=1"],
+        "cwd": "../../kernel",
+        "timeoutMs": 120000
+      }
+    },
+    {
+      "id": "agent-effect-exactly-once",
+      "claim": "A crash between effect election and provider invocation produces exactly one declared external effect.",
+      "command": {
+        "file": "cargo",
+        "args": ["test", "-p", "relayflowd", "--test", "crash_resume", "agent::rung_c_crash_between_effect_election_and_the_provider_call_performs_it_exactly_once", "--", "--exact", "--nocapture", "--test-threads=1"],
+        "cwd": "../../kernel",
+        "timeoutMs": 120000
+      }
+    },
+    {
+      "id": "durable-channel-redelivery",
+      "claim": "An unacknowledged channel message is redelivered after SIGKILL while its external effect remains exactly once.",
+      "command": {
+        "file": "cargo",
+        "args": ["test", "-p", "relayflowd", "--test", "crash_resume", "channels::channels_sigkill_resume_redelivers_unacked_messages_with_exactly_once_effects", "--", "--exact", "--nocapture", "--test-threads=1"],
+        "cwd": "../../kernel",
+        "timeoutMs": 120000
+      }
+    },
+    {
+      "id": "concurrent-resume-single-lease",
+      "claim": "Concurrent resume requests lease exactly one replacement attempt.",
+      "command": {
+        "file": "cargo",
+        "args": ["test", "-p", "relayflowd", "--test", "crash_resume", "concurrency::concurrent_resumes_lease_exactly_one_attempt", "--", "--exact", "--nocapture", "--test-threads=1"],
+        "cwd": "../../kernel",
+        "timeoutMs": 120000
+      }
+    },
+    {
+      "id": "memory-budget-once",
+      "claim": "A crash after memory injection reuses the journaled pack and charges its tokens exactly once.",
+      "command": {
+        "file": "cargo",
+        "args": ["test", "-p", "relayflowd", "--test", "crash_resume", "memory::memory_sigkill_after_injection_replays_pack_and_charges_it_once", "--", "--exact", "--nocapture", "--test-threads=1"],
+        "cwd": "../../kernel",
+        "timeoutMs": 120000
+      }
+    }
+  ]
+}
