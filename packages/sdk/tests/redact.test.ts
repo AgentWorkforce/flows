@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { openSecretStart, redact, redactRelayError } from '../src/redact.js';
+import { openCredentialStart, openSecretStart, redact, redactRelayError } from '../src/redact.js';
 
 const ENV: NodeJS.ProcessEnv = {
   GITHUB_TOKEN: 'ghp_abcdefghijklmnopqrstuvwxyz0123',
@@ -154,5 +154,56 @@ describe('openSecretStart', () => {
     const env = { A_TOKEN: 'abcdefgh-longer-one', B_TOKEN: 'gh-longer-one-still' };
     // `abcdefgh-` opens at 4; `gh-longer-one-still` would open at 11.
     expect(openSecretStart('tailabcdefgh-', env)).toBe(4);
+  });
+});
+
+describe('openCredentialStart', () => {
+  it('answers the length when no credential context is open', () => {
+    expect(openCredentialStart('plain log line\n')).toBe(15);
+    expect(openCredentialStart('')).toBe(0);
+    expect(openCredentialStart('authorization: Bearer tok\n')).toBe(26);
+    expect(openCredentialStart('x-callback-token: tok\n')).toBe(22);
+  });
+
+  it.each([
+    'x-callback-token:',
+    'x-callback-token:\n',
+    'x-callback-token:  \n',
+    'x-nightcto-evidence-token:\n',
+    'Bearer\n',
+    'Bearer  \n\n',
+    'authorization:',
+    'authorization:\n',
+    'authorization: Bearer\n',
+    'authorization:\nBearer\n',
+    'authorization: Bearer  \n',
+  ])('marks a trailing %j header as open at the name', (tail) => {
+    const text = `ok line\n${tail}`;
+    expect(openCredentialStart(text)).toBe(8);
+  });
+
+  it('does not hold a header whose value already landed on its line', () => {
+    // `authorization:Bearer` keeps `Bearer` held — a bare scheme word is an
+    // open context anywhere — which is conservative, not wrong: whole-log
+    // redaction would emit `authorization:[redacted]` either way.
+    expect(openCredentialStart('authorization:Bearer\n')).toBe(14);
+    expect(openCredentialStart('x-callback-token: opaque\n')).toBe(25);
+    expect(openCredentialStart('Bearer opaque\n')).toBe(14);
+    expect(openCredentialStart('authorization: Bearer opaque\nrest\n')).toBe(34);
+  });
+
+  it('marks an unterminated credential JSON field as open at the name', () => {
+    expect(openCredentialStart('posting {"authToken": "opa')).toBe(9);
+    expect(openCredentialStart('posting {"authToken":')).toBe(9);
+    expect(openCredentialStart('posting {"authToken"')).toBe(9);
+    expect(openCredentialStart('{"nested": {"password": "sec')).toBe(12);
+  });
+
+  it('does not hold closed, redacted, or non-credential JSON fields', () => {
+    expect(openCredentialStart('{"authToken": "opaque"}\n')).toBe(24);
+    expect(openCredentialStart('{"authToken": "[redacted]"}\n')).toBe(28);
+    expect(openCredentialStart('{"authToken": 12')).toBe(16);
+    expect(openCredentialStart('{"note": "unterminated')).toBe(22);
+    expect(openCredentialStart('{"monkey": "tail')).toBe(16);
   });
 });

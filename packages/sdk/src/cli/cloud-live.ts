@@ -27,7 +27,7 @@ import {
   type CloudRunDetail, type CloudRunLog, type CloudStep,
 } from '../cloud-read.js';
 import { isCloudRunActive, type CloudRunState } from '../cloud-run-record.js';
-import { openSecretStart, redact } from '../redact.js';
+import { openCredentialStart, openSecretStart, redact } from '../redact.js';
 import { thousands } from './cloud-format.js';
 import { fail, isTransientRead, refusalFor, RUN_ID_REQUIRED, type CloudReadOptions } from './cloud-refusal.js';
 import { renderCloudStatus, scrubRun, scrubSteps } from './cloud-status-view.js';
@@ -193,9 +193,13 @@ function lineBoundaryAtOrBefore(text: string, at: number): number {
 /**
  * Release every line the log has settled on, redacted as one block.
  *
- * Two things hold a line back. `openSecretStart` marks where a secret value
+ * Three things hold a line back. `openSecretStart` marks where a secret value
  * has begun and not ended, so nothing at or past it can be shown until the
- * next poll completes it. And a candidate block is released only when
+ * next poll completes it. `openCredentialStart` marks a trailing credential
+ * header — `authorization:`, `Bearer`, a callback-token name, or an
+ * unterminated credential JSON field — whose value may only arrive on a later
+ * poll; releasing the header first would leave the value without the context
+ * the redactor needs. And a candidate block is released only when
  * redacting it alone gives the same text as the front of the whole redacted
  * remainder: if the cut fell inside something the redactor would have caught —
  * the second line of a private key, a header whose value is on the next line —
@@ -208,7 +212,7 @@ function releaseLines(state: LogFollowState, io: CliIo, env: NodeJS.ProcessEnv):
   const raw = state.consumed;
   if (state.released >= raw.length) return;
   const remainder = redact(raw.slice(state.released), env);
-  let cut = lineBoundaryAtOrBefore(raw, openSecretStart(raw, env));
+  let cut = lineBoundaryAtOrBefore(raw, Math.min(openSecretStart(raw, env), openCredentialStart(raw)));
   while (cut > state.released) {
     const block = redact(raw.slice(state.released, cut), env);
     if (remainder.startsWith(block)) {

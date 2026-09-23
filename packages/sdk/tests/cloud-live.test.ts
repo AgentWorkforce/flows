@@ -515,6 +515,49 @@ describe('flows logs --follow', () => {
     expect(rendered).toContain('[redacted:CI_TOKEN]');
   });
 
+  it.each(['x-callback-token:', 'Bearer', 'authorization:'])(
+    'never lets a credential value arrive a poll after its %s header',
+    async (prefix) => {
+      stagedCloud([
+        { run: RUNNING, log: logBody(`${prefix}\n`) },
+        { run: COMPLETED, log: logBody(`${prefix}\nopaque-sensitive-value\n`, { done: true }) },
+      ]);
+      const out = io();
+      expect(await runCloudLogsFollow({ runId: RUN, step: undefined, json: false }, out.io, live())).toBe(0);
+      const rendered = out.stdout.join('\n');
+      expect(rendered).not.toContain('opaque-sensitive-value');
+      expect(rendered).toContain('[redacted]');
+    },
+  );
+
+  it('holds an authorization scheme word whose credential value is still coming', async () => {
+    stagedCloud([
+      { run: RUNNING, log: logBody('authorization: Bearer\n') },
+      { run: COMPLETED, log: logBody('authorization: Bearer\ntoken-material\n', { done: true }) },
+    ]);
+    const out = io();
+    expect(await runCloudLogsFollow({ runId: RUN, step: undefined, json: false }, out.io, live())).toBe(0);
+    const rendered = out.stdout.join('\n');
+    // The scheme name stays visible — whole-log redaction keeps it too — but
+    // the value that completed it on the second poll must never print.
+    expect(rendered).toContain('Bearer');
+    expect(rendered).not.toContain('token-material');
+    expect(rendered).toContain('[redacted]');
+  });
+
+  it('never lets a credential JSON field value arrive a poll after its name', async () => {
+    stagedCloud([
+      { run: RUNNING, log: logBody('posting {"authToken": "opa') },
+      { run: COMPLETED, log: logBody('posting {"authToken": "opaque-sensitive-value"}\n', { done: true }) },
+    ]);
+    const out = io();
+    expect(await runCloudLogsFollow({ runId: RUN, step: undefined, json: false }, out.io, live())).toBe(0);
+    const rendered = out.stdout.join('\n');
+    expect(rendered).not.toContain('opaque-sensitive-value');
+    expect(rendered).not.toContain('"opa');
+    expect(rendered).toContain('{"authToken": "[redacted]"}');
+  });
+
   // A PEM in the environment is the shape a line-at-a-time redactor cannot
   // catch: no single line of it equals the value, so every line of key
   // material goes straight to stdout. The value is fake.

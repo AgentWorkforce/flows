@@ -106,6 +106,71 @@ export function redactRelayError(message: string, env: NodeJS.ProcessEnv = proce
 }
 
 /**
+ * Credential heads whose value may continue past a line boundary.
+ *
+ * Every NAMED_VALUE pattern puts `\s` between the name and the value, and
+ * `\s` matches newlines: `authorization:` alone at the end of a poll is a
+ * complete, unredacted line, while the opaque value that lands on the next
+ * poll arrives with no recognizable credential context and would print
+ * verbatim. A trailing header — the colon plus only whitespace, or for
+ * `authorization` one scheme word — is therefore an open context. A header
+ * already followed by a non-space word has its value on that line and is not
+ * open. `Bearer` is the one bare scheme word the patterns treat as a name.
+ */
+const OPEN_HEADER_PATTERNS: readonly RegExp[] = [
+  /\bauthorization:(?:\s+\w+)?\s*$/i,
+  /\bx-callback-token:\s*$/i,
+  /\bx-nightcto-evidence-token:\s*$/i,
+  /\bBearer\s*$/,
+];
+
+/** A quoted JSON field name; the value side is inspected by the scanner. */
+const JSON_FIELD_HEAD = /"([A-Za-z0-9_.\-]{1,64})"/g;
+
+/**
+ * Where a named-credential context may still be half-arrived at the end of
+ * `text`.
+ *
+ * `openSecretStart` covers secret env *values*; this covers the credential
+ * *names* whose patterns can span a line break: a header released on one poll
+ * leaves its late-arriving value unrecognizable on the next, and a credential
+ * JSON field whose value string is not yet closed leaks its first fragment.
+ * Returns the earliest index at which such a context is open — the point past
+ * which nothing may be released until more of the stream arrives — or
+ * `text.length` when none is open. Holding back is line-granular upstream, so
+ * a false positive delays one line one poll rather than dropping it.
+ */
+export function openCredentialStart(text: string): number {
+  let hold = text.length;
+  for (const pattern of OPEN_HEADER_PATTERNS) {
+    const match = pattern.exec(text);
+    if (match && match.index < hold) hold = match.index;
+  }
+  JSON_FIELD_HEAD.lastIndex = 0;
+  let head: RegExpExecArray | null;
+  while ((head = JSON_FIELD_HEAD.exec(text)) !== null) {
+    if (!isCredentialName(head[1]!)) continue;
+    let i = head.index + head[0].length;
+    while (i < text.length && /\s/.test(text[i]!)) i++;
+    if (i >= text.length) { hold = Math.min(hold, head.index); continue; }
+    if (text[i] !== ':') continue;
+    i++;
+    while (i < text.length && /\s/.test(text[i]!)) i++;
+    if (i >= text.length) { hold = Math.min(hold, head.index); continue; }
+    if (text.startsWith('[redacted]', i) || text[i] !== '"') continue;
+    i++;
+    let closed = false;
+    while (i < text.length) {
+      if (text[i] === '\\') { i += 2; continue; }
+      if (text[i] === '"') { closed = true; break; }
+      i++;
+    }
+    if (!closed) hold = Math.min(hold, head.index);
+  }
+  return hold;
+}
+
+/**
  * Where a secret value may still be half-arrived at the end of `text`.
  *
  * A stream is redacted in pieces, and `redact` only replaces a secret it can
