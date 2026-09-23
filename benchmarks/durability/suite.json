@@ -7,11 +7,27 @@
   "environmentFailurePatterns": [
     "CARGO_NOT_FOUND",
     "CARGO_BOOTSTRAP_FAILED",
+    "BENCHMARK_ENVIRONMENT_FAILURE",
     "failed to download",
     "Could not resolve host",
     "No space left on device"
   ],
   "cases": [
+    {
+      "id": "black-box-cli-sigkill-resume",
+      "claim": "An external caller can SIGKILL the CLI after the first effect, resume from its opaque run receipt, and observe each dependent effect exactly once.",
+      "command": {
+        "file": "node",
+        "args": ["black-box-crash.mjs"],
+        "cwd": ".",
+        "timeoutMs": 150000
+      },
+      "successWitnesses": [
+        {"stream": "stdout", "contains": "BLACK_BOX_ASSERTIONS: 9/9"},
+        {"stream": "stdout", "contains": "\"completionReason\":\"success\""},
+        {"stream": "stdout", "contains": "\"effects\":[\"first\",\"second\",\"third\"]"}
+      ]
+    },
     {
       "id": "deterministic-boundary-resume",
       "claim": "A deterministic three-step flow survives a kill at every boundary without replaying a completed effect.",

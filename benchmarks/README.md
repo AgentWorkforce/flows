@@ -3,7 +3,8 @@
 This directory separates two claims that must not be blended:
 
 1. `durability/suite.json` is a product conformance eval. It repeatedly executes
-   real crash/resume tests and captures their literal output and provenance. It
+   one independent Node black-box SIGKILL/CLI-resume case plus real Rust
+   crash/resume tests, and captures their literal output and provenance. It
    shows which Relayflows invariants held for the tested commit and host.
 2. `workflow-reliability/protocol.json` is a vendor-neutral competitive protocol.
    It defines the same workloads and success predicates for Relayflows, a
@@ -36,7 +37,7 @@ the report records the suite hash, source commit, toolchain, and host class.
 
 ## Claim discipline
 
-- A passing durability artifact supports only its six named claims. It is not a
+- A passing durability artifact supports only its seven named claims. It is not a
   general proof that every execution path is deterministic.
 - A build-vs-buy claim requires both `relayflows` and `diy-reference` results.
 - A “best in class” claim requires all participants named by the protocol.
