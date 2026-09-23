@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { closeSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { github } from '@relayflows/surface';
 import {
   extensionHandlerForHostedDispatch,
@@ -6,7 +9,12 @@ import {
 } from '../src/flow-extension-loader.js';
 import { hostedExtensionDispatchFromVerifiedDelivery } from '../src/index.js';
 import { hostedManifestRoutes } from '../src/hosted-extension-isolation.js';
-import { sandboxArguments, supportsHostedSandboxFlags } from '../src/hosted-extension-sandbox.js';
+import {
+  captureExecutable,
+  readCapturedExecutable,
+  sandboxArguments,
+  supportsHostedSandboxFlags,
+} from '../src/hosted-extension-sandbox.js';
 
 describe('hosted extension routing policy', () => {
   it('accepts only Node releases that implement every sandbox flag', () => {
@@ -44,7 +52,7 @@ describe('hosted extension routing policy', () => {
       'flow.js', 'helpers/providers.js', 'provider-trigger.js', 'schedule.js',
       'triggers.js', 'triggers/github.js',
     ];
-    const dataDestinations = ['/runtime/runner.mjs', '/extension/src/babysitter.flow.ts'];
+    const dataDestinations = ['/runtime/node', '/runtime/runner.mjs', '/extension/src/babysitter.flow.ts'];
     for (let index = 0; index < surfaceFiles.length; index += 1) {
       dataDestinations[dataDestinations.length] = `/extension/node_modules/@relayflows/surface/dist/${surfaceFiles[index]!}`;
     }
@@ -71,9 +79,7 @@ describe('hosted extension routing policy', () => {
         }
         return Reflect.apply(push, this, values);
       } as typeof Array.prototype.push;
-      args = sandboxArguments({
-        node: '/trusted/node', dataDestinations,
-      });
+      args = sandboxArguments({ dataDestinations });
     } finally {
       Array.prototype.flatMap = flatMap;
       Array.prototype.push = push;
@@ -85,6 +91,27 @@ describe('hosted extension routing policy', () => {
     }
     expect(args).toContain('--ro-bind-data');
     expect(args).not.toContain('/trusted/extension');
+    const nodeIndex = args.indexOf('/runtime/node');
+    expect(args.slice(nodeIndex - 4, nodeIndex + 1)).toEqual([
+      '--perms', '0500', '--ro-bind-data', '4', '/runtime/node',
+    ]);
+  });
+
+  it('reads the executable inode captured before an atomic path replacement', () => {
+    const root = mkdtempSync(join(tmpdir(), 'hosted-node-pin-'));
+    const executable = join(root, 'node');
+    const replacement = join(root, 'replacement');
+    writeFileSync(executable, 'reviewed-node-bytes');
+    writeFileSync(replacement, 'attacker-node-bytes');
+    const capture = captureExecutable(executable, 'test Node');
+    try {
+      renameSync(replacement, executable);
+      expect(readCapturedExecutable(capture, 'test Node').toString('utf8'))
+        .toBe('reviewed-node-bytes');
+    } finally {
+      closeSync(capture.descriptor);
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('matches the SDK router for exact, absent, duplicate, and generic-overlap routes', () => {

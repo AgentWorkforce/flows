@@ -1875,3 +1875,40 @@ authored-node.mjs  3.1 MB  (entry point)
 $ /tmp/flows-pr552-standalone.0BB8Xx/flows --help >/dev/null
 $ printf 'standalone-surface-promise-pass %s\n' /tmp/flows-pr552-standalone.0BB8Xx/flows
 standalone-surface-promise-pass /tmp/flows-pr552-standalone.0BB8Xx/flows
+
+$ git rev-parse HEAD
+4858f6ce46ad14e3e52a6f3fdeb602b2ef64a805
+
+$ cd packages/sdk
+$ git diff --check
+$ npm run typecheck
+
+> @relayflows/sdk@2.0.29 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+$ npm run build
+
+> @relayflows/sdk@2.0.29 build
+> tsc && node scripts/make-cli-executable.mjs
+
+$ npm run typecheck:tests
+
+> @relayflows/sdk@2.0.29 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+$ ./node_modules/.bin/vitest run tests/fs-descriptor.test.ts tests/plugin-store-bounds.test.ts tests/hosted-base-snapshot.test.ts tests/hosted-extension-routing.test.ts tests/preflight.test.ts tests/babysitter-native-extension.test.ts tests/hosted-extension-protocol-intrinsics.test.ts tests/hosted-extension-protocol.test.ts tests/authored-flow.test.ts tests/hosted-extension-isolation.test.ts
+
+ Test Files  10 passed (10)
+      Tests  231 passed (231)
+   Start at  18:20:18
+   Duration  5.58s
+
+$ node scripts/build-standalone-cli.mjs bun-linux-x64 /tmp/flows-pr552-node-pin.YK9Mv1/flows
+Bundled 782 modules in 38ms
+authored-node.mjs  3.1 MB  (entry point)
+[59ms] bundle 715 modules
+[112ms] compile /tmp/flows-pr552-node-pin.YK9Mv1/flows
+
+$ /tmp/flows-pr552-node-pin.YK9Mv1/flows --help >/dev/null
+$ printf 'standalone-node-pin-pass %s\n' /tmp/flows-pr552-node-pin.YK9Mv1/flows
+standalone-node-pin-pass /tmp/flows-pr552-node-pin.YK9Mv1/flows

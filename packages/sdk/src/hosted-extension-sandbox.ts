@@ -1,5 +1,15 @@
 import { createRequire } from 'node:module';
-import { constants, existsSync, lstatSync, realpathSync } from 'node:fs';
+import {
+  closeSync,
+  constants,
+  existsSync,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readSync,
+  realpathSync,
+  type BigIntStats,
+} from 'node:fs';
 import { dirname, join, parse, resolve } from 'node:path';
 import { ChildProcess, spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
@@ -29,8 +39,12 @@ import { readStoredPluginFiles } from './plugin-store.js';
 
 const HOSTED_WRITE = 'cloud:babysitter-turn';
 const CREATE_REQUIRE = createRequire;
+const CLOSE_SYNC = closeSync;
 const EXISTS_SYNC = existsSync;
+const FSTAT_SYNC = fstatSync;
 const LSTAT_SYNC = lstatSync;
+const OPEN_SYNC = openSync;
+const READ_SYNC = readSync;
 const REALPATH_SYNC = realpathSync;
 const PATH_DIRNAME = dirname;
 const PATH_JOIN = join;
@@ -82,7 +96,9 @@ const WRITABLE_WRITE = Function.prototype.call.bind(Writable.prototype.write) as
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_SURFACE_PACKAGE_BYTES = 64 * 1024;
 const MAX_SURFACE_RUNTIME_BYTES = 512 * 1024;
+const MAX_NODE_EXECUTABLE_BYTES = 512 * 1024 * 1024;
 const SURFACE_READ_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0);
+const NODE_EXECUTABLE = captureNodeExecutable();
 // These hard limits are inherited across prlimit -> bubblewrap -> Node and its
 // descendants. RLIMIT_AS stays high enough for Node 22-26's large virtual V8
 // and Wasm reservations; RLIMIT_DATA is the tighter bound on anonymous/native
@@ -106,6 +122,12 @@ const SURFACE_RUNTIME = "export { getFlowDefinition } from './dist/flow.js';\n";
 interface SandboxDataFile {
   readonly destination: string;
   readonly bytes: Uint8Array;
+}
+
+export interface CapturedExecutable {
+  readonly descriptor: number;
+  readonly sha256: string;
+  readonly stat: BigIntStats;
 }
 
 export interface RunHostedExtensionSandboxOptions {
@@ -137,7 +159,13 @@ export async function runHostedExtensionSandbox(
   }
   const bwrap = executable(ownOption<string>(options, 'bubblewrapPath') ?? '/usr/bin/bwrap', 'bubblewrap');
   const prlimit = executable(ownOption<string>(options, 'prlimitPath') ?? '/usr/bin/prlimit', 'prlimit');
-  const node = executable(nodeOverride ?? PROCESS_EXEC_PATH, 'Node');
+  const nodeCapture = nodeOverride === undefined
+    ? NODE_EXECUTABLE
+    : captureExecutable(nodeOverride, 'Node');
+  if (nodeCapture === undefined) return unsupported('Node is unavailable');
+  let nodeBytes: Buffer;
+  try { nodeBytes = readCapturedExecutable(nodeCapture, 'Node'); }
+  finally { if (nodeOverride !== undefined) CLOSE_SYNC(nodeCapture.descriptor); }
   const timeoutMs = ownOption<number>(options, 'timeoutMs') ?? DEFAULT_TIMEOUT_MS;
   if (!NUMBER_IS_SAFE_INTEGER(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) {
     return unsupported('hosted extension timeout must be an integer from 1 to 60000ms');
@@ -162,10 +190,10 @@ export async function runHostedExtensionSandbox(
       'Hosted extension changed while its isolated snapshot was created.',
     );
   }
-  const dataFiles: SandboxDataFile[] = [{
-    destination: '/runtime/runner.mjs',
-    bytes: BUFFER_FROM(HOSTED_EXTENSION_SANDBOX_SOURCE),
-  }];
+  const dataFiles: SandboxDataFile[] = [
+    { destination: '/runtime/node', bytes: nodeBytes },
+    { destination: '/runtime/runner.mjs', bytes: BUFFER_FROM(HOSTED_EXTENSION_SANDBOX_SOURCE) },
+  ];
   const surfaceFiles = await readSurfaceFiles(surfaceRoot);
   for (let index = 0; index < surfaceFiles.length; index += 1) {
     appendIntrinsicArray(dataFiles, surfaceFiles[index]!);
@@ -181,7 +209,7 @@ export async function runHostedExtensionSandbox(
   for (let index = 0; index < dataFiles.length; index += 1) {
     appendIntrinsicArray(destinations, dataFiles[index]!.destination);
   }
-  const args = sandboxArguments({ node, dataDestinations: destinations });
+  const args = sandboxArguments({ dataDestinations: destinations });
   await ownOption<() => Promise<void>>(options, 'beforeLaunch')?.();
   const commandArgs = [`--as=${ADDRESS_SPACE_BYTES}`, `--data=${DATA_BYTES}`, '--', bwrap];
   for (let index = 0; index < args.length; index += 1) appendIntrinsicArray(commandArgs, args[index]!);
@@ -322,7 +350,7 @@ async function readBoundedSurfaceFile(path: string, maxBytes: number): Promise<B
 
 /** @internal Pure construction seam for hostile-intrinsic regressions. */
 export function sandboxArguments(input: {
-  node: string; dataDestinations: readonly string[];
+  dataDestinations: readonly string[];
 }): string[] {
   const args = [
     '--unshare-all', '--die-with-parent', '--new-session', '--clearenv', '--cap-drop', 'ALL', '--dir', '/usr',
@@ -334,7 +362,7 @@ export function sandboxArguments(input: {
   }
   appendIntrinsicArray(args,
     '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp',
-    '--dir', '/runtime', '--ro-bind', input.node, '/runtime/node',
+    '--dir', '/runtime',
     '--dir', '/extension', '--dir', '/extension/node_modules', '--dir', '/extension/node_modules/@relayflows',
     '--dir', '/extension/node_modules/@relayflows/surface',
     '--dir', '/extension/node_modules/@relayflows/surface/dist',
@@ -364,7 +392,12 @@ export function sandboxArguments(input: {
     }
   }
   for (let index = 0; index < input.dataDestinations.length; index += 1) {
-    appendIntrinsicArray(args, '--perms', '0400', '--ro-bind-data', STRING(index + 4), input.dataDestinations[index]!);
+    const destination = input.dataDestinations[index]!;
+    appendIntrinsicArray(
+      args,
+      '--perms', destination === '/runtime/node' ? '0500' : '0400',
+      '--ro-bind-data', STRING(index + 4), destination,
+    );
   }
   appendIntrinsicArray(args,
     '--chdir', '/extension/src',
@@ -373,6 +406,60 @@ export function sandboxArguments(input: {
     '--allow-fs-read=/runtime', '--allow-fs-read=/extension', '/runtime/runner.mjs',
   );
   return args;
+}
+
+function captureNodeExecutable(): CapturedExecutable | undefined {
+  try { return captureExecutable(PROCESS_EXEC_PATH, 'Node'); }
+  catch { return undefined; }
+}
+
+/** @internal Descriptor-pinning seam for the executable replacement regression. */
+export function captureExecutable(path: string, name: string): CapturedExecutable {
+  let real: string;
+  try { real = REALPATH_SYNC(path); }
+  catch { return unsupported(`${name} is unavailable`); }
+  let descriptor: number;
+  try { descriptor = OPEN_SYNC(real, SURFACE_READ_FLAGS); }
+  catch { return unsupported(`${name} is unavailable`); }
+  try {
+    const stat = FSTAT_SYNC(descriptor, { bigint: true });
+    if (!descriptorIsFile(stat) || stat.size < 1n || stat.size > BIG_INT(MAX_NODE_EXECUTABLE_BYTES)) {
+      return unsupported(`${name} is not a bounded regular file`);
+    }
+    const bytes = readExecutableDescriptor(descriptor, NUMBER(stat.size), name);
+    const after = FSTAT_SYNC(descriptor, { bigint: true });
+    if (after.dev !== stat.dev || after.ino !== stat.ino || after.size !== stat.size
+      || after.mtimeNs !== stat.mtimeNs || after.ctimeNs !== stat.ctimeNs) {
+      return unsupported(`${name} changed while being captured`);
+    }
+    return OBJECT_FREEZE({ descriptor, sha256: sha256(bytes), stat });
+  } catch (error) {
+    CLOSE_SYNC(descriptor);
+    throw error;
+  }
+}
+
+/** @internal Reads the inode captured before authored code could replace its path. */
+export function readCapturedExecutable(capture: CapturedExecutable, name: string): Buffer {
+  const size = NUMBER(capture.stat.size);
+  const bytes = readExecutableDescriptor(capture.descriptor, size, name);
+  const after = FSTAT_SYNC(capture.descriptor, { bigint: true });
+  if (after.dev !== capture.stat.dev || after.ino !== capture.stat.ino
+    || after.size !== capture.stat.size || sha256(bytes) !== capture.sha256) {
+    return unsupported(`${name} changed while reading`);
+  }
+  return bytes;
+}
+
+function readExecutableDescriptor(descriptor: number, size: number, name: string): Buffer {
+  const bytes = BUFFER_ALLOC_UNSAFE(size);
+  let offset = 0;
+  while (offset < size) {
+    const bytesRead = READ_SYNC(descriptor, bytes, offset, size - offset, offset);
+    if (bytesRead === 0) return unsupported(`${name} changed while reading`);
+    offset += bytesRead;
+  }
+  return bytes;
 }
 
 
