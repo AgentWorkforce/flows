@@ -1,0 +1,58 @@
+$ cp src/authored-flow-executor.ts /var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/tmp.oIUGoRyujb/authored-flow-executor.ts
+exit=0
+$ sed -i.bak 's/JSON.stringify(canonical)/JSON.stringify(record)/' src/authored-flow-executor.ts && rm src/authored-flow-executor.ts.bak
+exit=0
+$ git diff --stat -- src/authored-flow-executor.ts
+ packages/sdk/src/authored-flow-executor.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+exit=0
+$ npx vitest run tests/authored-agent-artifacts.test.ts -t 'sorted keys'
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/packages/sdk
+
+ ❯ tests/authored-agent-artifacts.test.ts (5 tests | 1 failed | 4 skipped) 42ms
+   × predicate verdicts recorded on the root run > a resumed verdict read back with sorted keys lowers the same gate command as the first run 41ms
+     → expected 'printf \'%s\' \'{"because":"plan cove…' to be 'printf \'%s\' \'{"gate":"predicate","…' // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-agent-artifacts.test.ts > predicate verdicts recorded on the root run > a resumed verdict read back with sorted keys lowers the same gate command as the first run
+AssertionError: expected 'printf \'%s\' \'{"because":"plan cove…' to be 'printf \'%s\' \'{"gate":"predicate","…' // Object.is equality
+
+Expected: "printf '%s' '{"gate":"predicate","step":"run-1","verdict":"pass","because":"plan covers every question"}'"
+Received: "printf '%s' '{"because":"plan covers every question","gate":"predicate","step":"run-1","verdict":"pass"}'"
+
+ ❯ tests/authored-agent-artifacts.test.ts:300:25
+    298|     expect(stream).toHaveLength(1);
+    299|     expect(commands).toHaveLength(2);
+    300|     expect(commands[1]).toBe(commands[0]);
+       |                         ^
+    301|     expect(commands[0]).toContain('{"gate":"predicate","step":"run-1",…
+    302|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 skipped (5)
+   Start at  22:18:50
+   Duration  1.56s (transform 573ms, setup 0ms, collect 1.26s, tests 42ms, environment 0ms, prepare 66ms)
+
+exit=1
+$ cp /var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/tmp.oIUGoRyujb/authored-flow-executor.ts src/authored-flow-executor.ts
+exit=0
+$ cmp src/authored-flow-executor.ts /var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/tmp.oIUGoRyujb/authored-flow-executor.ts
+exit=0
+$ git diff --stat -- src/authored-flow-executor.ts
+exit=0
+$ npx vitest run tests/authored-agent-artifacts.test.ts -t 'sorted keys'
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/packages/sdk
+
+ ✓ tests/authored-agent-artifacts.test.ts (5 tests | 4 skipped) 33ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 4 skipped (5)
+   Start at  22:18:52
+   Duration  982ms (transform 371ms, setup 0ms, collect 736ms, tests 33ms, environment 0ms, prepare 57ms)
+
+exit=0

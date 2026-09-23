@@ -31,3 +31,19 @@ export const FLOW_COMPLETION_REASONS = [
 ] as const;
 
 export type FlowCompletionReason = (typeof FLOW_COMPLETION_REASONS)[number];
+
+/**
+ * The bound on the optional `done()` detail, in Unicode code points of the
+ * FINAL normalized string — truncation suffix included.
+ *
+ * Stated in code points rather than `String.length` on purpose: `.length`
+ * counts UTF-16 code units, so an emoji-heavy detail measured that way is
+ * half the length a reader would call it. The number is the same order the
+ * kernel uses for a gate's free-text detail
+ * (`kernel/relayflowd/src/engine/remote.rs`), but it is not the same bound:
+ * that one takes 2,000 characters and then appends its suffix.
+ *
+ * The runtime enforces this; it is exported so an author can measure a detail
+ * before passing one.
+ */
+export const COMPLETION_DETAIL_MAX_CODE_POINTS = 2000;

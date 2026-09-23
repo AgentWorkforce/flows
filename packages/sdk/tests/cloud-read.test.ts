@@ -14,6 +14,7 @@ import {
   errorLines, parseLogsArgs, parseRunsArgs, runCloudLogsCli, runCloudRunsCli, runCloudStatusCli,
 } from '../src/cli/cloud-read.js';
 import { parseStatusArgs } from '../src/cli/status.js';
+import { authoredCompletion, type RunReport } from '../src/cli/run.js';
 
 const RUN = '20d04c99-3fa8-48c9-9286-92d364a5bc2e';
 const CONNECTION = { apiUrl: 'https://cloud-contract.example', token: 'test-scoped-cloud-token', env: {} };
@@ -479,6 +480,74 @@ describe('flows status --cloud', () => {
     expect(await runCloudStatusCli({ json: false }, out.io, CONNECTION)).toBe(2);
     expect(out.stderr[0]).toContain('REFUSED [run_unknown]');
     expect(out.stderr[0]).toContain('`flows runs` lists them');
+  });
+});
+
+/**
+ * Client contract only. These tests prove that a detail-bearing diagnostic
+ * message, once it is a run's `error`, reaches a reader through `flows status
+ * --cloud` in both renderings. They do NOT establish how the server derives
+ * `error` from the CLI's report — that projection lives in agentrelay.com, is
+ * not in this repo, and is not verified here.
+ */
+describe('flows status --cloud on a run whose error is an authored detail', () => {
+  const FINDING = 'One P2 remains: cleanup can report success while an ambiguous '
+    + 'allocation stays invisible through all three sweeps — `review.clean` was not created.';
+
+  /** The real report message, not a hand-written imitation of one. */
+  function diagnosticMessage(detail: string): string {
+    const base: RunReport = { ok: false, command: 'run', resolutions: [], diagnostics: [] };
+    const execution = authoredCompletion('run', base, '/sock', {
+      name: 'software-factory', completionReason: 'step_failed', completionDetail: detail, journalSteps: [{}],
+    }, RUN);
+    return execution.report.diagnostics.at(-1)!.message;
+  }
+
+  function failedRun(error: string) {
+    cloud((path) => {
+      if (path === `/api/v1/workflows/runs/${RUN}`) {
+        return { body: { ...RUN_DETAIL, status: 'failed', completionReason: 'step_failed', error } };
+      }
+      if (path === `/api/v1/workflows/runs/${RUN}/steps`) return { body: { steps: [] } };
+      return { status: 404, body: { error: 'Run not found' } };
+    });
+  }
+
+  it('prints the reviewer finding instead of the generic sentence', async () => {
+    const message = diagnosticMessage(FINDING);
+    expect(message).toContain(FINDING);
+    failedRun(message);
+    const out = io();
+    expect(await runCloudStatusCli({ runId: RUN, json: false }, out.io, { ...CONNECTION, now: () => 1 })).toBe(0);
+    const rendered = out.stdout.join('\n');
+    expect(rendered).toContain('error');
+    expect(rendered).toContain(FINDING);
+    expect(rendered).not.toContain('no step-level evidence to inspect');
+  });
+
+  it('keeps a finding in the MIDDLE of a long detail, because the message is one line', async () => {
+    // `errorLines` elides the middle of a multi-line error (HEAD 2, TAIL 12).
+    // A forty-line detail rendered as forty lines would lose exactly this.
+    const lines = Array.from({ length: 40 }, (_, index) => `P3-${index}: nothing to report here`);
+    lines[20] = FINDING;
+    const message = diagnosticMessage(lines.join('\n'));
+    failedRun(message);
+    const out = io();
+    await runCloudStatusCli({ runId: RUN, json: false }, out.io, { ...CONNECTION, now: () => 1 });
+    const rendered = out.stdout.join('\n');
+    expect(rendered).not.toContain('more lines (full text: --json)');
+    expect(rendered).toContain(FINDING);
+  });
+
+  it('carries the message through --json and redacts a token in it', async () => {
+    const message = diagnosticMessage(`${FINDING} see ot_live_abc123DEF456`);
+    failedRun(message);
+    const out = io();
+    await runCloudStatusCli({ runId: RUN, json: true }, out.io, { ...CONNECTION, now: () => 1 });
+    const payload = JSON.parse(out.stdout[0]!) as { run: { error: string } };
+    expect(payload.run.error).toContain(FINDING);
+    expect(payload.run.error).not.toContain('ot_live_abc123DEF456');
+    expect(payload.run.error).toContain('[redacted]');
   });
 });
 
