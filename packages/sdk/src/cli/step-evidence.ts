@@ -204,7 +204,10 @@ export function failureCause(
     recorded: exitCodes.length > 0 || accounts.some(account => account !== undefined),
     producerTruncated: (verificationDetail !== undefined
       && PRODUCER_TRUNCATED.test(verificationDetail))
-
+      // The transcript digest's own flag (`boundTranscriptDigest`,
+      // agent-transcript.ts): the worker already cut this excerpt, so equal
+      // survivors cannot establish identical failures either.
+      || failure?.['truncated'] === true,
   };
 }
 

@@ -287,6 +287,49 @@ describe('attempt history in a retried step failure', () => {
     expect(diagnostic.message).toContain('whether the causes differ is unknown');
   });
 
+  it('honors the transcript digest truncation flag before calling excerpts unchanged', async () => {
+    // `boundTranscriptDigest` (agent-transcript.ts) marks an excerpt it cut
+    // with `failure.truncated`. Two different tool errors reduced to the same
+    // surviving bytes are then evidence that cannot establish `unchanged` —
+    // the flag says so even when the daemon's own render shows no suffix.
+    const shared = 'shared diagnostic context '.repeat(30);
+    const transcript = {
+      transcript: { failure: { kind: 'tool_result', excerpt: shared, truncated: true } },
+    };
+    const { diagnostic } = await diagnose([[
+      completed({
+        seq: 1, attempt: 1, reason: 'worker_error', disposition: 'retry',
+        verification: render('x'), trajectory: transcript,
+      }),
+      completed({
+        seq: 2, attempt: 2, reason: 'worker_error',
+        verification: render('x'), trajectory: transcript,
+      }),
+    ]], AGENT);
+    expect(diagnostic.attemptEvidence).toBe('unknown');
+    expect(diagnostic.message).toContain('whether the causes differ is unknown');
+    expect(diagnostic.message).not.toContain('unchanged across them');
+  });
+
+  it('still calls surviving differences in truncated excerpts different', async () => {
+    // Truncation only hides what was cut; two excerpts that already disagree
+    // in the surviving bytes still prove the causes disagreed.
+    const transcript = (excerpt: string) => ({
+      transcript: { failure: { kind: 'tool_result', excerpt, truncated: true } },
+    });
+    const { diagnostic } = await diagnose([[
+      completed({
+        seq: 1, attempt: 1, reason: 'worker_error', disposition: 'retry',
+        verification: render('x'), trajectory: transcript('first tool error'),
+      }),
+      completed({
+        seq: 2, attempt: 2, reason: 'worker_error',
+        verification: render('x'), trajectory: transcript('second tool error'),
+      }),
+    ]], AGENT);
+    expect(diagnostic.attemptEvidence).toBe('differs');
+  });
+
   it('names the attempts it cannot account for instead of inventing evidence', async () => {
     const { diagnostic } = await diagnose([[
       completed({ seq: 1, reason: 'crashed', disposition: 'retry' }),
