@@ -27,6 +27,7 @@ const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.
 function record(value: JsonValue, fields: readonly string[], at: string): Record<string, JsonValue> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new TypeError(`${at}: expected an object`);
   if (Object.keys(value).some(key => !fields.includes(key)) || fields.some(key => !Object.hasOwn(value, key))) {
+    // Unknown field names may themselves be sensitive caller data; do not echo them.
     throw new TypeError(`${at}: missing or unknown fields`);
   }
   return value;
@@ -71,6 +72,7 @@ export function parseFlowToolManifest(value: unknown, expectedDigest?: FlowToolD
   if (data.manifestVersion !== 1 || data.schemaDialect !== FLOW_TOOL_SCHEMA_DIALECT) {
     throw new TypeError('flow tool manifest: unsupported manifest version or schema dialect');
   }
+  // Identity verification must never trim, case-fold or otherwise normalize metadata.
   const parsed = createFlowToolManifest(Object.fromEntries(FIELDS.map(key => [key, data[key]])) as unknown as FlowToolDeclarationV1);
   if (data.digest !== parsed.digest || (expectedDigest !== undefined && parsed.digest !== expectedDigest)) {
     throw new TypeError('flow tool manifest: digest mismatch');
@@ -86,7 +88,7 @@ function validate(value: unknown, schema: FlowToolObjectSchema, at: string): Rea
   const snapshot = snapshotJsonValue(value, at, FLOW_TOOL_LIMITS);
   const validator = compileFlowToolSchema(schema);
   if (!validator(snapshot)) {
-    // Report schema location, never data or the provider's raw response.
+    // Report only the keyword: instance paths can contain sensitive caller keys.
     throw new TypeError(`${at}: schema validation failed (${validator.errors?.[0]?.keyword ?? 'invalid'})`);
   }
   return snapshot as Readonly<Record<string, FlowToolJson>>;

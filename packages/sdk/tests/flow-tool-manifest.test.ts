@@ -16,6 +16,7 @@ function declaration(): FlowToolDeclarationV1 {
     resultSchema: { type: 'object', properties: { verdict: { enum: ['hold', 'pass'] } }, required: ['verdict'], additionalProperties: false },
   };
 }
+// Deliberately cross the static type boundary to exercise hostile runtime input.
 const unchecked = (value: unknown) => createFlowToolManifest(value as FlowToolDeclarationV1);
 
 describe('FlowToolManifestV1', () => {
