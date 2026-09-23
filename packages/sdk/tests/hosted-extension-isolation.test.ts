@@ -503,6 +503,40 @@ process.exit(child.status ?? 1);
     expect(calls).toBe(0);
   });
 
+  it('shields verified Surface files before async settlement', async () => {
+    const surfaceRoot = surfaceFixture();
+    const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
+      provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-surface-then',
+    });
+    const previous = Object.getOwnPropertyDescriptor(Array.prototype, 'then');
+    let poisonCalls = 0;
+    try {
+      Object.defineProperty(Array.prototype, 'then', {
+        configurable: true,
+        get(this: unknown[]) {
+          const first = this[0] as { destination?: unknown } | undefined;
+          if (this.length === 9
+            && first?.destination === '/extension/node_modules/@relayflows/surface/package.json') {
+            poisonCalls += 1;
+          }
+          return undefined;
+        },
+      });
+      await expect(runVerifiedNativeExtensionSandbox({
+        artifact: await artifact(),
+        manifest: validateFlowExtensionManifest(manifest()),
+        dispatch,
+        input: descriptor('delivery-surface-then'),
+        surfaceRoot,
+        babysitterTurn: { queue: async () => ({ receiptId: 'receipt-1', status: 'queued' }) },
+      })).resolves.toEqual({ completionReason: 'success', capabilityCalls: 1 });
+    } finally {
+      if (previous === undefined) delete (Array.prototype as { then?: unknown }).then;
+      else Object.defineProperty(Array.prototype, 'then', previous);
+    }
+    expect(poisonCalls).toBe(0);
+  });
+
   it('preserves a typed host refusal while disclosing only a fixed marker to the child', async () => {
     const source = `
       import { flow, github } from '@relayflows/surface';

@@ -14,7 +14,11 @@ import {
 } from './fs-descriptor.js';
 import { snapshotJsonValue } from './json-value.js';
 import { PluginError } from './plugin-manifest.js';
-import { assertHostedPromiseSafety, hostedPromiseValue } from './hosted-promise-safety.js';
+import {
+  assertHostedPromiseSafety,
+  frozenHostedPromiseValue,
+  hostedPromiseValue,
+} from './hosted-promise-safety.js';
 import { appendIntrinsicArray } from './intrinsic-array.js';
 import { HOSTED_EXTENSION_SANDBOX_SOURCE } from './hosted-extension-sandbox-source.js';
 import {
@@ -251,7 +255,7 @@ async function checkedSurfaceRoot(root: string, expectedVersion: string): Promis
   return unsupported('hosted extension resolved an invalid @relayflows/surface package');
 }
 
-async function readSurfaceFiles(surfaceRoot: string): Promise<SandboxDataFile[]> {
+async function readSurfaceFiles(surfaceRoot: string): Promise<readonly SandboxDataFile[]> {
   const entries = OBJECT_ENTRIES(SURFACE_RUNTIME_SHA256);
   const files: SandboxDataFile[] = [
     { destination: '/extension/node_modules/@relayflows/surface/package.json', bytes: BUFFER_FROM(SURFACE_PACKAGE_JSON) },
@@ -272,7 +276,7 @@ async function readSurfaceFiles(surfaceRoot: string): Promise<SandboxDataFile[]>
       bytes,
     });
   }
-  return files;
+  return frozenHostedPromiseValue(files);
 }
 
 function surfacePackageManifest(bytes: Buffer): { readonly name?: unknown; readonly version?: unknown } {
