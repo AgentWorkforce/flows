@@ -1,0 +1,18 @@
+{
+  "task": {
+    "title": "Team invitations",
+    "body": "Admins can invite teammates by email. The invitee gets an email with a link, accepts, and joins the team with the role the admin chose. Invitations expire after 7 days and can be revoked."
+  },
+  "maxParallel": 4,
+  "plan": {
+    "subtasks": [
+      { "id": "schema", "title": "Invitations table and model", "detail": "Migration + model: email, team_id, role, token (unique), expires_at, accepted_at, revoked_at." },
+      { "id": "email-template", "title": "Invitation email template and sender", "detail": "Template with inviter, team name and accept link; a send function with a test using the mail stub." },
+      { "id": "api-create", "title": "POST /teams/:id/invitations", "detail": "Admin-only. Creates an invitation and sends the email. Tests for auth, duplicate invite, bad email.", "dependsOn": ["schema", "email-template"] },
+      { "id": "api-accept", "title": "POST /invitations/:token/accept", "detail": "Validates token, expiry and revocation, adds the member with the invited role. Tests for every rejection path.", "dependsOn": ["schema"] },
+      { "id": "api-revoke", "title": "DELETE /teams/:id/invitations/:invitationId", "detail": "Admin-only revoke. Tests that a revoked token can no longer be accepted.", "dependsOn": ["api-accept"] },
+      { "id": "ui-invite", "title": "Invite modal on the team settings page", "detail": "Email + role picker, calls api-create, shows pending invitations with a revoke button.", "dependsOn": ["api-create", "api-revoke"] },
+      { "id": "ui-accept", "title": "Accept-invitation page", "detail": "Landing page for the email link: signed-out, expired and revoked states.", "dependsOn": ["api-accept"] }
+    ]
+  }
+}

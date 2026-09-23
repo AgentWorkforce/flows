@@ -77,6 +77,58 @@ describe('the durable child index on the root run', () => {
     ]);
   });
 
+  it('keeps graph fields across records, whichever record carried them', async () => {
+    const { journal } = streams();
+    // A completion without graph fields after an admission that had them.
+    await recordAuthoredChild(journal, 'root-1', {
+      step: 'agent-1', runId: 'child-a', state: 'admitted', label: 'plan', after: [],
+    });
+    await recordAuthoredChild(journal, 'root-1', {
+      step: 'agent-1', runId: 'child-a', state: 'completed', completionReason: 'success',
+    });
+    // A root an older runtime began: a bare completion, then a resumed body's
+    // re-admission that now carries the fields. It stays completed and gains them.
+    await recordAuthoredChild(journal, 'root-1', {
+      step: 'agent-2', runId: 'child-b', state: 'completed', completionReason: 'success',
+    });
+    await recordAuthoredChild(journal, 'root-1', {
+      step: 'agent-2', runId: 'child-b', state: 'admitted', label: 'writer', after: ['agent-1'], afterTruncated: true,
+    });
+    // A truncated walk that found no predecessor journals the flag alone.
+    await recordAuthoredChild(journal, 'root-1', {
+      step: 'agent-4', runId: 'child-d', state: 'admitted', afterTruncated: true,
+    });
+    await recordAuthoredChild(journal, 'root-1', {
+      step: 'agent-4', runId: 'child-d', state: 'completed', completionReason: 'success', afterTruncated: true,
+    });
+    // A record's own fields win over the other's.
+    await recordAuthoredChild(journal, 'root-1', {
+      step: 'agent-3', runId: 'child-c', state: 'admitted', label: 'old', after: ['agent-1'],
+    });
+    await recordAuthoredChild(journal, 'root-1', {
+      step: 'agent-3', runId: 'child-c', state: 'completed', completionReason: 'success', label: 'new', after: ['agent-2'],
+    });
+
+    expect(await readAuthoredStepIndex(journal, 'root-1')).toEqual([
+      {
+        index: 'relayflows.authored-step.v1', step: 'agent-1', runId: 'child-a', state: 'completed',
+        completionReason: 'success', label: 'plan', after: [],
+      },
+      {
+        index: 'relayflows.authored-step.v1', step: 'agent-2', runId: 'child-b', state: 'completed',
+        completionReason: 'success', label: 'writer', after: ['agent-1'], afterTruncated: true,
+      },
+      {
+        index: 'relayflows.authored-step.v1', step: 'agent-4', runId: 'child-d', state: 'completed',
+        completionReason: 'success', afterTruncated: true,
+      },
+      {
+        index: 'relayflows.authored-step.v1', step: 'agent-3', runId: 'child-c', state: 'completed',
+        completionReason: 'success', label: 'new', after: ['agent-2'],
+      },
+    ]);
+  });
+
   it('keeps the kernel step id only when it differs from the authored one', async () => {
     const { journal } = streams();
     await recordAuthoredChild(journal, 'root-1', {
@@ -188,5 +240,71 @@ describe('a failed index append', () => {
     expect(await alsoRecord(journal, 'root-1', {
       step: 'run-1', runId: 'a', state: 'completed', completionReason: 'success',
     })).toBe('');
+  });
+});
+
+describe('the DAG fields on an index record', () => {
+  it('round-trips a label and its predecessors on admitted and completed records', async () => {
+    const { journal, stored, key } = streams();
+    const edges = { label: 'writer', after: ['run-1', 'run-2'] };
+    await recordAuthoredChild(journal, 'root-1', { step: 'agent-3', runId: 'c', state: 'admitted', ...edges });
+    await recordAuthoredChild(journal, 'root-1', {
+      step: 'agent-3', runId: 'c', state: 'completed', completionReason: 'success', ...edges,
+    });
+
+    expect(stored.get(key('root-1', AUTHORED_STEP_STREAM))).toEqual([
+      { index: 'relayflows.authored-step.v1', step: 'agent-3', runId: 'c', state: 'admitted', ...edges },
+      {
+        index: 'relayflows.authored-step.v1', step: 'agent-3', runId: 'c', state: 'completed',
+        completionReason: 'success', ...edges,
+      },
+    ]);
+    expect(await readAuthoredStepIndex(journal, 'root-1')).toEqual([{
+      index: 'relayflows.authored-step.v1', step: 'agent-3', runId: 'c',
+      state: 'completed', completionReason: 'success', ...edges,
+    }]);
+  });
+
+  it('writes no DAG fields for a step that has none, so old readers see the old shape', async () => {
+    const { journal, stored, key } = streams();
+    await recordAuthoredChild(journal, 'root-1', { step: 'run-1', runId: 'a', state: 'admitted' });
+    expect(stored.get(key('root-1', AUTHORED_STEP_STREAM))).toEqual([{
+      index: 'relayflows.authored-step.v1', step: 'run-1', runId: 'a', state: 'admitted',
+    }]);
+  });
+
+  it('omits an oversized label rather than cutting it, and caps the predecessor list', async () => {
+    const { journal, stored, key } = streams();
+    const after = Array.from({ length: 40 }, (_, i) => `run-${i + 1}`);
+    await recordAuthoredChild(journal, 'root-1', {
+      step: 'agent-41', runId: 'x', state: 'admitted', label: 'l'.repeat(4000), after,
+    });
+
+    // A cut label could end mid-secret, where a whole-value redactor cannot
+    // match it; so no prefix of it is ever written.
+    expect(JSON.stringify(stored.get(key('root-1', AUTHORED_STEP_STREAM)))).not.toContain('lll');
+    const [record] = await readAuthoredStepIndex(journal, 'root-1');
+    expect(record).not.toHaveProperty('label');
+    expect(record!.after).toEqual(after.slice(0, 32));
+    expect(record!.afterTruncated).toBe(true);
+  });
+
+  it('skips a record whose DAG fields are malformed rather than trusting them', async () => {
+    const { journal } = streams();
+    const base = { index: 'relayflows.authored-step.v1', runId: 'a', state: 'admitted' };
+    await journal.streamAppend('root-1', AUTHORED_STEP_STREAM, { ...base, step: 'run-1', label: 7 });
+    await journal.streamAppend('root-1', AUTHORED_STEP_STREAM, { ...base, step: 'run-0', label: 'l'.repeat(257) });
+    await journal.streamAppend('root-1', AUTHORED_STEP_STREAM, { ...base, step: 'run-2', after: 'run-1' });
+    await journal.streamAppend('root-1', AUTHORED_STEP_STREAM, { ...base, step: 'run-3', after: [''] });
+    await journal.streamAppend('root-1', AUTHORED_STEP_STREAM, { ...base, step: 'run-4', afterTruncated: 'yes' });
+    // Longer than any writer produces: the list is bounded on read as on write.
+    await journal.streamAppend('root-1', AUTHORED_STEP_STREAM, {
+      ...base, step: 'run-5', after: Array.from({ length: 33 }, (_, i) => `run-${i}`),
+    });
+    await journal.streamAppend('root-1', AUTHORED_STEP_STREAM, {
+      ...base, step: 'run-6', after: Array.from({ length: 32 }, (_, i) => `run-${i}`),
+    });
+
+    expect((await readAuthoredStepIndex(journal, 'root-1')).map((record) => record.step)).toEqual(['run-6']);
   });
 });

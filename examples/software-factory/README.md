@@ -20,6 +20,10 @@ flows deployments
 or `slack:channel=#eng`. Each matching ticket launches one Cloud run in a fresh
 `relayflow/software-factory-<id>` branch of `--repo`; a passing review opens a
 PR, a blocked one opens a draft PR carrying the findings and ends `step_failed`.
+The pull-request title is the ticket title (whitespace-normalized and capped at
+240 Unicode code points). GitHub inputs must carry `identifier: "#<number>"`;
+the flow appends exactly one `Fixes #<number>` line and validates the final
+title and body before it pushes the branch or opens the pull request.
 
 Locally, from a checkout on a scratch branch:
 

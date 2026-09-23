@@ -24,3 +24,4 @@ dist/
 
 # workflows/pr-review.flow.ts scratch dir (findings, diff, publisher script)
 review/
+parity/

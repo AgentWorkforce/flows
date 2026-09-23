@@ -1,0 +1,111 @@
+$ node --experimental-strip-types --test examples/babysitter/tests/*.test.ts
+✔ malformed input makes zero effects; missing live state declines before agents (6.905416ms)
+✔ duplicate delivery cannot bypass missing publication or agent-scope capability (1.87775ms)
+✔ live-head review/check wakes evaluate merge but do not simulate an unavailable receipt (2.544541ms)
+✔ authorized conflict wakes hand off unresolved semantic work; ordinary/unauthorized comments decline (2.004209ms)
+✔ merge transport sends the bound live SHA and fails if provider does not confirm (1.375333ms)
+⚠ live-head end-to-end review and merge acceptance remains RED (3.372167ms) # Requires enforced agent scopes and durable fenced publication; the passing merge transport unit test is not end-to-end acceptance
+✔ malformed external inputs fail before shell or API (4.919958ms)
+✔ live skip and author rules fail closed (1.114667ms)
+✔ READY rejects missing pending red conflicts stale heads and missing state (1.19125ms)
+✔ a later comment or pending review cannot hide a standing verdict (0.918041ms)
+✔ merge requires opt in org and configured independent approver at exact SHA (0.54125ms)
+✔ conflict command is explicit authorized and same repository only (0.867375ms)
+✔ edits fail closed for semantic changes, fork, protected paths, tests and unresolved conflicts (4.684916ms)
+✔ artifacts are nonempty schema validated exact head and reconcile deterministically (3.31575ms)
+✔ publication refuses stale post race newer verdict spoof and absent atomic capability (0.533459ms)
+✔ once per head keys and sticky CI attribution survive duplicate wake decisions (0.641125ms)
+✔ one bounded infra retry only for 137/143 (1.53425ms)
+⚠ atomicPrPublication (3.859459ms) # Provider per-PR serialization + head-guarded idempotent owned-comment upsert
+⚠ durableCrossRunNotification (0.479917ms) # Durable per-head notification receipt and atomic delivery claim
+⚠ journaledCiObservation (1.18625ms) # Journal-backed script-memory write/recall across runs (memory.learn currently refuses)
+⚠ enforcedAgentWriteScope (0.391125ms) # Enforced readonly agent workspace and credential scopes (gate 8 / #442)
+⚠ selectiveAgentExitRetry (0.394125ms) # Typed agent exit-code/retry policy in authored Step; AgentResult only has summary/artifacts
+⚠ durableSubscriptionLiveness (0.279625ms) # Durable cross-run wake records for the liveness sweep; a subscription that stops firing is currently indistinguishable from a quiet one
+✔ the declared subscription contract is exactly the required resident set (3.654125ms)
+✔ every declared subscription registers one handler bound to the one body (0.888084ms)
+✔ each trigger filters to its own provider, type and action (0.610208ms)
+✔ compatibility entry points still resolve to this one implementation (0.996417ms)
+✔ subscription preflight passes the declared contract and has teeth (0.904292ms)
+✔ preflight refuses an undeliverable subscription rather than deploying it (0.444166ms)
+✔ a delivery is accepted as a hint; only routing is enforced (3.352041ms)
+✔ a fork check_run with no PR attribution still wakes and rereads (2.58ms)
+✔ repository routing compares owner and repository case-insensitively (0.699875ms)
+✔ a stale hinted head is recorded, never enforced, and never binds (0.529041ms)
+✔ an operator pin constrains the run; it never substitutes for live state (0.507416ms)
+✔ every wake rereads live state before it decides anything (1.79325ms)
+✔ a payload that disagrees with live state loses: closed hint, open PR (0.516084ms)
+✔ a payload that disagrees with live state loses: open hint, closed PR (0.427541ms)
+✔ a label hint is re-read from live state in both directions (0.494625ms)
+✔ a review hint cannot assert an approval live state does not show (0.493042ms)
+✔ a check hint cannot assert a conclusion live state does not show (0.299125ms)
+✔ duplicate delivery repeats a decision instead of adding one (0.96725ms)
+✔ out-of-order delivery decides about the head that exists now (0.470583ms)
+✔ the decision key names the subscription and the live head, never the hint (0.304209ms)
+✔ each wake emits one deterministic observation line (0.422541ms)
+✔ the sweep separates a quiet subscription from a dead one (0.809458ms)
+✔ a young subscription is pending, an old silent one is never (0.486333ms)
+✔ the sweep refuses impossible windows and clock-faulted records (0.49075ms)
+✔ the sweep expects exactly the subscriptions the flow registers (0.162458ms)
+ℹ tests 48
+ℹ suites 0
+ℹ pass 41
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 7
+ℹ duration_ms 701.012167
+✖ failing tests:
+⚠ live-head end-to-end review and merge acceptance remains RED (3.372167ms) # Requires enforced agent scopes and durable fenced publication; the passing merge transport unit test is not end-to-end acceptance
+⚠ atomicPrPublication (3.859459ms) # Provider per-PR serialization + head-guarded idempotent owned-comment upsert
+⚠ durableCrossRunNotification (0.479917ms) # Durable per-head notification receipt and atomic delivery claim
+⚠ journaledCiObservation (1.18625ms) # Journal-backed script-memory write/recall across runs (memory.learn currently refuses)
+⚠ enforcedAgentWriteScope (0.391125ms) # Enforced readonly agent workspace and credential scopes (gate 8 / #442)
+⚠ selectiveAgentExitRetry (0.394125ms) # Typed agent exit-code/retry policy in authored Step; AgentResult only has summary/artifacts
+⚠ durableSubscriptionLiveness (0.279625ms) # Durable cross-run wake records for the liveness sweep; a subscription that stops firing is currently indistinguishable from a quiet one
+
+$ node --experimental-strip-types --test examples/pr-reviewer/tests/pr-state.test.ts
+ℹ tests 50
+ℹ suites 0
+ℹ pass 50
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 357.420375
+
+$ packages/sdk/node_modules/.bin/tsc -p examples/babysitter/tsconfig.json
+exit=0
+
+$ npm run typecheck:examples --prefix packages/surface   (only pre-existing stuck-run-triage errors expected)
+> @relayflows/surface@2.0.22 typecheck:examples
+> tsc -p ../../examples/tsconfig.json
+
+../../workflows/stuck-run-triage.flow.ts(77,12): error TS2304: Cannot find name 'URL'.
+../../workflows/stuck-run-triage.flow.ts(79,15): error TS2552: Cannot find name 'URL'. Did you mean 'url'?
+
+$ cd examples/babysitter && node ../../packages/sdk/dist/cli.js check babysitter.flow.ts
+REQUIRES github (on github pull_request)
+CHECK PASSED babysitter.flow.ts
+exit=0
+
+$ cd examples/babysitter && node build.mjs
+Built examples/babysitter/dist/babysitter.flow.ts (generated, self-contained; platform effect blockers still apply).
+
+$ cd packages/surface && npx vitest run tests/triggers.test.ts tests/triggers-github-events.test.ts tests/provider-triggers.test.ts --maxWorkers=2 --minWorkers=1
+ ✓ tests/triggers.test.ts (4 tests) 18ms
+ ✓ tests/triggers-github-events.test.ts (1 test) 7ms
+
+ Test Files  3 passed (3)
+      Tests  8 passed (8)
+   Start at  16:18:57
+   Duration  2.18s (transform 760ms, setup 0ms, collect 1.92s, tests 40ms, environment 1ms, prepare 459ms)
+
+
+$ cd packages/sdk && npx vitest run tests/pr-review-post.test.ts tests/provider-trigger-contract.test.ts tests/authored-agent-permissions.test.ts --maxWorkers=2 --minWorkers=1
+
+ Test Files  3 passed (3)
+      Tests  54 passed (54)
+   Start at  16:19:01
+   Duration  14.10s (transform 1.95s, setup 0ms, collect 4.16s, tests 13.05s, environment 1ms, prepare 465ms)
+

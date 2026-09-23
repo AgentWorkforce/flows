@@ -61,6 +61,8 @@ export class JournalProtocolError extends Error {
 
 export class JournalClient extends EventEmitter {
   private socket: Socket | null = null;
+  /** Why the connection ended, so a later "not connected" names its cause rather than hiding it. */
+  private disconnectCause: Error | undefined;
   private buffer = '';
   private readonly pending = new Map<string, Pending>();
   private readonly requestTimeoutMs: number;
@@ -103,18 +105,31 @@ export class JournalClient extends EventEmitter {
       socket.once('connect', () => {
         clearTimeout(timer);
         socket.removeListener('error', onError);
-        socket.on('error', (err) => this.failAll(err));
+        socket.on('error', (err) => { this.disconnectCause ??= err; this.failAll(err); });
         socket.on('data', (chunk) => this.onData(chunk));
-        socket.on('close', () => this.failAll(new Error('journal client: connection closed')));
+        socket.on('close', () => {
+          const closed = new Error('journal client: connection closed');
+          this.disconnectCause ??= closed;
+          this.failAll(closed);
+        });
+        this.disconnectCause = undefined;
         this.socket = socket;
         resolve();
       });
     });
   }
 
-  /** Close the connection and reject any pending requests. */
-  close(): void {
-    this.failAll(new Error('journal client: closed by caller'));
+  /**
+   * Close the connection and reject any pending requests. A `cause` (for
+   * example the worker failure that forced the close) is carried into every
+   * later "not connected" rejection.
+   */
+  close(cause?: unknown): void {
+    const closed = cause === undefined
+      ? new Error('journal client: closed by caller')
+      : new Error(`journal client: closed after ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+    this.disconnectCause ??= closed;
+    this.failAll(closed);
     this.socket?.destroy();
     this.socket = null;
     this.buffer = '';
@@ -170,7 +185,11 @@ export class JournalClient extends EventEmitter {
   ): Promise<VerbContract[V]['result']> {
     return new Promise((resolve, reject) => {
       if (!this.socket || this.socket.destroyed) {
-        reject(new Error(`journal client: not connected (${verb})`));
+        const cause = this.disconnectCause;
+        reject(new Error(
+          `journal client: not connected (${verb})${cause === undefined ? '' : `: ${cause.message}`}`,
+          cause === undefined ? undefined : { cause },
+        ));
         return;
       }
       const id = randomUUID();

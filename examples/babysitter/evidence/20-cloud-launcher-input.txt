@@ -1,0 +1,13 @@
+Cloud source revision: 2044d864184d4dabc8b7460258f75c5f564583b5
+$ ./node_modules/.bin/vitest run packages/web/lib/flows/launch-flow-deployment.test.ts --maxWorkers=1
+
+ RUN  v4.1.5 /Users/khaliqgant/Projects/AgentWorkforce/cloud
+
+
+ Test Files  1 passed (1)
+      Tests  30 passed (30)
+   Start at  16:54:37
+   Duration  4.27s (transform 1.09s, setup 0ms, import 3.88s, tests 67ms, environment 0ms)
+
+
+The test "pins the pull request's head from GitHub and hands the flow the pull request, the ticket view and the event" asserts owner/repo in inputs.pullRequest and eventType=pull_request.opened in inputs.event. The submitted-review test covers pull_request_review.submitted. This is launcher unit evidence, not live webhook E2E.

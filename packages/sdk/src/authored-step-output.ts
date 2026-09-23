@@ -5,7 +5,7 @@ import type { CompletionReason as ProtocolCompletionReason, RunCompletionReason 
 import type { AuthoredFlowJournalStep } from './authored-flow-executor.js';
 import type { StepFailedDetails } from './failure-kinds.js';
 import { inspectionHint, renderInspection, renderStepEvidence, stepFailureDetails } from './cli/step-failure.js';
-import { alsoRecord, recordAuthoredChild } from './authored-step-index.js';
+import { alsoRecord, recordAuthoredChild, type AuthoredStepEdges } from './authored-step-index.js';
 
 /**
  * What an authored operation needs in order to leave readable evidence:
@@ -17,6 +17,8 @@ import { alsoRecord, recordAuthoredChild } from './authored-step-index.js';
 export interface AuthoredStepContext {
   readonly rootRunId?: string;
   readonly dataDir?: string;
+  /** The step's label and causal predecessors, carried on every record about it. */
+  readonly stepEdges?: (step: string) => AuthoredStepEdges | undefined;
 }
 
 /**
@@ -58,7 +60,8 @@ export async function readCompletedStepOutput(
   }
 
   const reason = completed.payload.completionReason;
-  journalSteps.push(Object.freeze({ id: stepId, runId, completionReason: reason }));
+  const edges = context.stepEdges?.(stepId);
+  journalSteps.push(Object.freeze({ id: stepId, runId, completionReason: reason, ...edges }));
   if (reason !== 'success') {
     let message = `journal step "${stepId}" completed with ${reason}`;
     let details: StepFailedDetails | undefined;
@@ -77,11 +80,12 @@ export async function readCompletedStepOutput(
     message += await alsoRecord(journal, context.rootRunId, {
       step: stepId, runId, state: 'completed', completionReason: reason,
       ...(details?.stepId === undefined ? {} : { kernelStep: details.stepId }),
+      ...edges,
     });
     throw new AuthoredFlowExecutionError('step_failed', message, reason, runId, { ...details, ...where });
   }
   await recordAuthoredChild(journal, context.rootRunId, {
-    step: stepId, runId, state: 'completed', completionReason: reason,
+    step: stepId, runId, state: 'completed', completionReason: reason, ...edges,
   });
   return completed.payload.output;
 }

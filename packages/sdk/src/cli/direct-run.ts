@@ -4,6 +4,7 @@ import { authoredLocalAgentStream } from '../authored-admission.js';
 import { McpPreflightError } from './check-typescript.js';
 import { attachLocalAgent } from '../local-agent.js';
 import { LlmWorker } from '../llm-worker.js';
+import { DEFAULT_LOCAL_AGENT_CAPACITY } from '../worker-slots.js';
 import {
   AuthoredFlowExecutionError,
 } from '../authored-flow-executor.js';
@@ -68,19 +69,20 @@ export async function runDirectFlow(
   let localLlm: LlmWorker | undefined;
   let llmClient: JournalClient | undefined;
   let llmFailure: unknown;
+  const workerCapacity = options.agentCapacity ?? DEFAULT_LOCAL_AGENT_CAPACITY;
   const admissionIdentity = options.authoredAdmissionKey
     ?? process.env['RELAYFLOW_AUTHORED_ADMISSION_KEY'] ?? randomUUID();
   try {
     if (options.localAgent) {
       localAgent = await attachLocalAgent(
-        client, dataDir, options.onPtyReady, authoredLocalAgentStream(admissionIdentity),
+        client, dataDir, options.onPtyReady, authoredLocalAgentStream(admissionIdentity), workerCapacity,
       );
       // A session owns one worker registration. Keep the workspace-free LLM
       // worker on its own connection so it cannot replace the agent worker.
       llmClient = new JournalClient(socketPath);
       await llmClient.connect();
       await llmClient.hello('flows-local-llm');
-      localLlm = new LlmWorker(llmClient, `${localAgent.stream}-llm`);
+      localLlm = new LlmWorker(llmClient, `${localAgent.stream}-llm`, workerCapacity);
       localLlm.on('error', error => { llmFailure = error; client.close(); });
       await localLlm.attach();
     }
@@ -90,6 +92,7 @@ export async function runDirectFlow(
         dataDir,
         admissionKey: admissionIdentity,
         localAgentStream: localAgent?.stream,
+        ...(localAgent === undefined ? {} : { workerCapacity }),
         lifecycle: {
           onProgress: options.onProgress,
           ...(options.signal !== undefined ? { signal: options.signal } : {}),

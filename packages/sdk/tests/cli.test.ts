@@ -1,5 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { once } from 'node:events';
+import { spawnSync } from 'node:child_process';
 import type { Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -24,6 +25,9 @@ import {
 } from './journal-client-loopback.js';
 
 const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'testdata');
+// `npm test` builds before vitest; the PATH-isolated child-process case below
+// needs the built entry, the same dependency tests/bin.test.ts already has.
+const BUILT_CLI = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'cli.js');
 const DIRECT_INPUT_FLOW = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'direct-input.flow.ts');
 const PREFLIGHT = join(TESTDATA, 'preflight');
 const LADDER = ['hello-deterministic', 'hello-llm', 'hello-agent'] as const;
@@ -345,6 +349,171 @@ steps:
     expect(refused.code).toBe(2);
     expect(refused.stderr.join('\n')).toContain('REFUSED [model_unknown]');
     expect(refused.stderr.join('\n')).toContain('project model registry');
+  });
+
+  it('runs a flow that declares no model against a flows.json that only names the cli', async () => {
+    // The reported case: agent step with `cli` and no `model`, a flows.json of
+    // `{"cli": ...}`, and no tracked-file edit. The adapter default resolves,
+    // is probed, and the RESOLVED line attributes it to the adapter — not to
+    // the step, which declared nothing.
+    const directory = temporaryProject('flows-default-model-');
+    const log = join(directory, 'claude.log');
+    const cli = executableFixture(directory, 'claude', `printf '%s\\n' "$*" >> ${JSON.stringify(log)}
+if [ "$1 $2" = "auth status" ]; then exit 0; fi
+if [ "$1 $2 $3" = "-p --model claude-opus-5" ]; then exit 0; fi
+exit 7`);
+    writeFileSync(join(directory, 'flows.json'), JSON.stringify({ cli }));
+    const path = join(directory, 'default-model.flow.yaml');
+    writeFileSync(path, `version: '0.1.0'
+steps:
+  - id: review-semantics
+    type: agent
+    cli: ${JSON.stringify(cli)}
+    instruction: Review the semantics.
+`);
+
+    const result = await run(path);
+    expect(result.code, result.stderr.join('\n')).toBe(0);
+    expect(result.stderr.join('\n')).not.toContain('model_unknown');
+    expect(result.stdout.join('\n')).toContain(
+      `RESOLVED step "review-semantics" cli "${cli}" from step model "claude-opus-5" from adapter default`,
+    );
+    expect(readFileSync(log, 'utf8')).toContain('-p --model claude-opus-5');
+  });
+
+  it('refuses an adapter default the project registry omits, naming the default and both remedies', async () => {
+    const directory = temporaryProject('flows-default-model-refused-');
+    const log = join(directory, 'claude.log');
+    const cli = executableFixture(directory, 'claude', `printf '%s\\n' "$*" >> ${JSON.stringify(log)}\nexit 0`);
+    const configPath = join(directory, 'flows.json');
+    writeFileSync(configPath, JSON.stringify({ cli, models: ['claude-sonnet-5'] }));
+    const path = join(directory, 'default-model.flow.yaml');
+    writeFileSync(path, `version: '0.1.0'
+steps:
+  - id: review-semantics
+    type: agent
+    cli: ${JSON.stringify(cli)}
+    instruction: Review the semantics.
+`);
+
+    const result = await run(path);
+    expect(result.code).toBe(2);
+    expect(result.stderr.join('\n')).toContain(
+      `REFUSED [model_unknown] Step "review-semantics" declares no model; the default for CLI "${cli}" is`
+      + ` "claude-opus-5", which is not listed in project model registry "${configPath}";`
+      + ` add the exact model to "models" in "${configPath}" only after verifying that project is allowed`
+      + ' to use it, or declare an allowed model on the step.',
+    );
+    expect(result.stderr.join('\n')).not.toContain('declares model "claude-opus-5"');
+    expect(existsSync(log)).toBe(false);
+  });
+
+  it('gives the CLI and the model their own sources in the RESOLVED line and the JSON report', async () => {
+    const directory = temporaryProject('flows-model-provenance-');
+    const cli = executableFixture(directory, 'claude', `if [ "$1 $2" = "auth status" ]; then exit 0; fi
+if [ "$1" = "-p" ]; then exit 0; fi
+exit 7`);
+    writeFileSync(join(directory, 'flows.json'), JSON.stringify({
+      models: ['claude-opus-5', 'step-model', 'named-model'],
+    }));
+    const path = join(directory, 'provenance.flow.yaml');
+    writeFileSync(path, `version: '0.1.0'
+agents:
+  reviewer:
+    cli: ${JSON.stringify(cli)}
+    model: named-model
+steps:
+  - id: defaulted
+    type: agent
+    cli: ${JSON.stringify(cli)}
+    instruction: Review.
+  - id: declared
+    type: agent
+    cli: ${JSON.stringify(cli)}
+    model: step-model
+    instruction: Review.
+  - id: named
+    type: agent
+    agent: reviewer
+    cli: ${JSON.stringify(cli)}
+    instruction: Review.
+`);
+
+    const result = await run(path);
+    expect(result.code, result.stderr.join('\n')).toBe(0);
+    expect(result.stdout.join('\n')).toContain(
+      `RESOLVED step "defaulted" cli "${cli}" from step model "claude-opus-5" from adapter default`,
+    );
+    expect(result.stdout.join('\n')).toContain(
+      `RESOLVED step "declared" cli "${cli}" from step model "step-model" from step`,
+    );
+    expect(result.stdout.join('\n')).toContain(
+      `RESOLVED step "named" cli "${cli}" from step model "named-model" from named agent`,
+    );
+
+    const json = await run(path, true);
+    const report = JSON.parse(json.stdout.join('\n')) as CheckReport;
+    expect(report.resolutions).toEqual([
+      { stepId: 'defaulted', cli, source: 'step', model: 'claude-opus-5', modelSource: 'adapter' },
+      { stepId: 'declared', cli, source: 'step', model: 'step-model', modelSource: 'step' },
+      { stepId: 'named', cli, source: 'step', model: 'named-model', modelSource: 'named' },
+    ]);
+  });
+
+  it('keeps the project config path with the CLI clause when the step declares the model', async () => {
+    const directory = temporaryProject('flows-project-model-');
+    const flowDirectory = join(directory, 'nested');
+    mkdirSync(flowDirectory);
+    executableFixture(directory, 'claude', `if [ "$1 $2" = "auth status" ]; then exit 0; fi
+if [ "$1" = "-p" ]; then exit 0; fi
+exit 7`);
+    const configPath = join(directory, 'flows.json');
+    writeFileSync(configPath, JSON.stringify({ cli: './claude', models: ['step-model'] }));
+    const path = join(flowDirectory, 'project-cli.flow.yaml');
+    writeFileSync(path, "version: '0.1.0'\nsteps:\n  - id: answer\n    type: llm\n    model: step-model\n    prompt: answer\n");
+
+    const result = await run(path);
+    expect(result.code, result.stderr.join('\n')).toBe(0);
+    expect(result.stdout.join('\n')).toContain(
+      `RESOLVED step "answer" cli "./claude" from project (${configPath}) model "step-model" from step`,
+    );
+  });
+
+  it('resolves a bare PATH-resolved claude with no declared model, in an isolated PATH', async () => {
+    // The ticket's literal fixture: `cli: claude` resolved through PATH. The
+    // built CLI runs in a child process, so this test cannot change PATH for
+    // anything else in the file, and the fixture directory comes first, so a
+    // host `claude` cannot answer the probe. The system directories stay on
+    // PATH because bare-name resolution shells out to `which`.
+    const directory = temporaryProject('flows-bare-claude-');
+    const log = join(directory, 'claude.log');
+    executableFixture(directory, 'claude', `printf '%s\\n' "$*" >> ${JSON.stringify(log)}
+if [ "$1 $2" = "auth status" ]; then exit 0; fi
+if [ "$1 $2 $3" = "-p --model claude-opus-5" ]; then exit 0; fi
+exit 7`);
+    writeFileSync(join(directory, 'flows.json'), JSON.stringify({ cli: 'claude' }));
+    const path = join(directory, 'bare-claude.flow.yaml');
+    writeFileSync(path, `version: '0.1.0'
+steps:
+  - id: review-semantics
+    type: agent
+    cli: claude
+    instruction: Review the semantics.
+`);
+
+    const result = spawnSync(process.execPath, [BUILT_CLI, 'check', path], {
+      cwd: directory,
+      encoding: 'utf8',
+      env: { PATH: `${directory}:/usr/bin:/bin`, HOME: directory },
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+    expect(result.stderr).not.toContain('model_unknown');
+    expect(result.stdout).toContain(
+      'RESOLVED step "review-semantics" cli "claude" from step model "claude-opus-5" from adapter default',
+    );
+    expect(readFileSync(log, 'utf8')).toContain('-p --model claude-opus-5');
   });
 
   it('distinguishes an allowlisted but inaccessible model from broken auth', async () => {

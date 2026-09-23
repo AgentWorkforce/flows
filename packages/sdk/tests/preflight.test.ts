@@ -2,7 +2,14 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { addPlugin } from '../src/cli/add.js';
+import { runPluginCommand } from '../src/cli/plugin.js';
+import {
+  extensionHandlerForHostedDispatch,
+  hostedExtensionDispatchFromVerifiedDelivery,
+} from '../src/flow-extension-loader.js';
+import { SHA_A, fakeGithub, type FakeEntry } from './fake-github.js';
 import type { PreflightFailureKind } from '../src/failure-kinds.js';
+import { PluginError } from '../src/plugin-manifest.js';
 import { preflightHelpers } from '../src/preflight.js';
 import { describe, expect, it } from 'vitest';
 import {
@@ -190,6 +197,39 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     expect(missing.diagnostics).toContainEqual(expect.objectContaining({ kind: 'cli_missing', stepId: 'missing-step', cli: 'absent' }));
     expect(unauthenticated.diagnostics).toContainEqual(expect.objectContaining({ kind: 'cli_unauthenticated', stepId: 'auth-step', cli: 'locked' }));
     expect(unauthenticated.diagnostics[0]?.message).toContain('"locked auth status" exited non-zero');
+  });
+
+  it('says WHY the auth probe failed, and redacts identity from what it quotes', () => {
+    // A refusal that names only the command cannot distinguish a transient
+    // provider rejection from a genuinely unauthenticated CLI, and that
+    // difference decides whether retrying is correct. In production this made
+    // 23 of 100 runs fail with a message that could not be acted on.
+    const detailed = preflight(
+      flow({ id: 'auth-step', type: 'agent', instruction: 'i', cli: 'locked' }),
+      {
+        probes: probes({
+          cli: () => ({
+            exists: true,
+            authenticated: false,
+            authExitCode: 7,
+            authFailureDetail: 'HTTP 429 rate limited for <redacted-email>',
+          }),
+        }),
+      },
+    );
+    const message = detailed.diagnostics[0]?.message ?? '';
+    expect(message).toContain('exit 7');
+    expect(message).toContain('HTTP 429 rate limited');
+  });
+
+  it('says so explicitly when the probe produced no output at all', () => {
+    // Silence is itself diagnostic: it means the reason is unavailable rather
+    // than that no reason exists, and the message must not imply the latter.
+    const silent = preflight(
+      flow({ id: 'auth-step', type: 'agent', instruction: 'i', cli: 'locked' }),
+      { probes: probes({ cli: () => ({ exists: true, authenticated: false }) }) },
+    );
+    expect(silent.diagnostics[0]?.message).toContain('produced no output');
   });
 
   it('probes a shared CLI once per preflight call', () => {
@@ -623,6 +663,69 @@ describe('preflight: CLI resolution and refusal predicates', () => {
         }
       } finally { rmSync(root, { recursive: true, force: true }); }
     }
+    // Flow-extension refusals (schema 2) exercise `flows add <github ref>` and
+    // `flows plugin verify` against an offline fake GitHub — the same public
+    // boundary a user hits, never a synthesized diagnostic.
+    {
+      const manifest = {
+        schema: 2, kind: 'flow-extension', name: 'ext', version: '0.1.0', entry: 'ext.flow.ts',
+        compat: { surface: '*', sdk: '*', base: [{ name: 'base', version: '*' }] },
+        extends: { handlers: true, hooks: [] }, triggers: [],
+        permissions: { integrations: [], harnesses: [], mcp: [], writes: [] },
+        preflight: { credentials: [], servers: [] },
+      };
+      const files = (m: unknown): FakeEntry[] => [
+        { path: 'ext/flows-plugin.json', data: Buffer.from(JSON.stringify(m)) },
+        { path: 'ext/ext.flow.ts', data: Buffer.from('export default 1;') },
+      ];
+      const repo = (entries: FakeEntry[]) => fakeGithub({ 'o/r': { refs: { main: SHA_A }, commits: { [SHA_A]: { entries } } } }).fetch;
+      const extensionCases: { ref: string; fetch: import('../src/plugin-github.js').FetchLike }[] = [
+        { ref: 'github:o/r@main#../x', fetch: repo(files(manifest)) },
+        { ref: 'github:o/r@nope#ext', fetch: repo(files(manifest)) },
+        { ref: 'github:o/r@main#ext', fetch: async () => { throw new Error('offline'); } },
+        { ref: 'github:o/r@main#ext', fetch: repo([...files(manifest), { path: 'ext/link', data: Buffer.from('x'), mode: '120000' }]) },
+        { ref: 'github:o/r@main#ext', fetch: repo([...files(manifest), { path: 'ext/big', data: Buffer.alloc(256_001) }]) },
+        { ref: 'github:o/r@main#ext', fetch: repo(files({ ...manifest, kind: 'banana' })) },
+        { ref: 'github:o/r@main#ext', fetch: repo(files({ ...manifest, triggers: [{ provider: 'github', event: 'pull_request', actions: ['future_action'] }] })) },
+        { ref: 'github:o/r@main#ext', fetch: repo(files({ ...manifest, compat: { ...manifest.compat, surface: '^1.0.0' } })) },
+        { ref: 'github:o/r@main#ext', fetch: repo(files({ ...manifest, source: { host: 'github', owner: 'someone', repo: 'else', path: 'ext' } })) },
+      ];
+      for (const { ref, fetch } of extensionCases) {
+        const root = mkdtempSync(join(tmpdir(), 'plugin-extension-taxonomy-'));
+        try {
+          writeFileSync(join(root, 'flows.json'), '{}');
+          const io = { stdout() {}, stderr(line: string) { refusalKinds.push(line.match(/\[([^\]]+)\]/)![1] as PreflightFailureKind); } };
+          expect(await addPlugin(ref, io, { cwd: root, extension: { fetch, versions: { sdk: '2.0.22', surface: '2.0.22' } } })).toBe(2);
+        } finally { rmSync(root, { recursive: true, force: true }); }
+      }
+      // `plugin_event_ambiguous`: two installed extensions claim the same
+      // normalized hosted event. The dispatcher must refuse instead of
+      // silently selecting lock order and suppressing one handler.
+      const handler = {
+        trigger: {
+          kind: 'webhook', name: 'github',
+          filter: { provider: 'github', type: 'pull_request', payload: { action: 'labeled' } },
+        },
+        body: async () => {},
+      };
+      try {
+        extensionHandlerForHostedDispatch(
+          hostedExtensionDispatchFromVerifiedDelivery({ provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-1' }),
+          [{ name: 'one', handlers: [handler] }, { name: 'two', handlers: [handler] }] as never,
+        );
+        throw new Error('expected ambiguous extension dispatch to refuse');
+      } catch (error) {
+        expect(error).toBeInstanceOf(PluginError);
+        refusalKinds.push((error as PluginError).code);
+      }
+      // `plugin_lock_invalid`: a declaration with no lockfile entry behind it.
+      const root = mkdtempSync(join(tmpdir(), 'plugin-lock-taxonomy-'));
+      try {
+        writeFileSync(join(root, 'flows.json'), JSON.stringify({ plugins: [`github:o/r@${SHA_A}#ext`] }));
+        const io = { stdout() {}, stderr(line: string) { refusalKinds.push(line.match(/\[([^\]]+)\]/)![1] as PreflightFailureKind); } };
+        expect(await runPluginCommand({ command: 'plugin', sub: 'verify', json: false, offline: true }, io, { cwd: root })).toBe(2);
+      } finally { rmSync(root, { recursive: true, force: true }); }
+    }
     // `plugin_unlisted` fires when a @flows/helper-* package is present in
     // node_modules but is missing from the declared plugins list — the loader
     // refuses to auto-load undeclared packages (plugin-loader.ts). Exercise it
@@ -870,5 +973,183 @@ describe('preflight: CLI resolution and refusal predicates', () => {
     expect(result.diagnostics).toEqual([
       expect.objectContaining({ kind: 'model_unknown', agent: 'drafter', model: 'claude-sonnet-5' }),
     ]);
+  });
+
+  it('refuses an adapter-defaulted model under a registry without claiming the step declared it', () => {
+    // The reported defect: the step has no `model:` key at all, so blaming it
+    // for "declaring" claude-opus-5 sends the author looking for a line that
+    // was never written. The refusal itself is correct — the default is the
+    // model that would run — so only its attribution and remedy change.
+    const calls: string[] = [];
+    const result = preflight(flow({
+      id: 'review-semantics',
+      type: 'agent',
+      cli: 'claude',
+      instruction: 'Review the semantics.',
+    }), {
+      models: ['claude-sonnet-5'],
+      modelRegistryPath: '/project/flows.json',
+      probes: {
+        cli: () => { calls.push('cli'); throw new Error('PROBE_CALLED'); },
+        command: () => { calls.push('command'); throw new Error('PROBE_CALLED'); },
+        executor: () => { calls.push('executor'); throw new Error('PROBE_CALLED'); },
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual([{
+      severity: 'refusal',
+      kind: 'model_unknown',
+      stepId: 'review-semantics',
+      cli: 'claude',
+      model: 'claude-opus-5',
+      message: 'Step "review-semantics" declares no model; the default for CLI "claude" is "claude-opus-5",'
+        + ' which is not listed in project model registry "/project/flows.json";'
+        + ' add the exact model to "models" in "/project/flows.json" only after verifying that project is'
+        + ' allowed to use it, or declare an allowed model on the step.',
+    }]);
+    expect((result.diagnostics[0] as { message: string }).message).not.toContain('declares model');
+    expect(calls).toEqual([]);
+  });
+
+  it('treats an explicit empty registry as policy for a defaulted model', () => {
+    // `models: []` is a real, empty allowlist; only a missing `models` key
+    // means "no policy". The default must not slip through the empty one.
+    const result = preflight(flow({
+      id: 'review-semantics',
+      type: 'agent',
+      cli: 'claude',
+      instruction: 'Review the semantics.',
+    }), {
+      models: [],
+      modelRegistryPath: '/project/flows.json',
+      probes: probes({ cli: () => { throw new Error('PROBE_CALLED'); } }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ kind: 'model_unknown', stepId: 'review-semantics', model: 'claude-opus-5' }),
+    ]);
+  });
+
+  it('probes an adapter default that the registry allows', () => {
+    const calls: Array<[string, string, string | undefined]> = [];
+    const result = preflight(flow({
+      id: 'review-semantics',
+      type: 'agent',
+      cli: 'claude',
+      instruction: 'Review the semantics.',
+    }), {
+      models: ['claude-opus-5'],
+      modelRegistryPath: '/project/flows.json',
+      probes: probes({
+        cli: (cli, source, model) => {
+          calls.push([cli, source, model]);
+          return { exists: true, authenticated: true, modelAvailable: true };
+        },
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics).toEqual([]);
+    expect(calls).toEqual([['claude', 'step', 'claude-opus-5']]);
+  });
+
+  it('resolves and probes an adapter default when no registry exists', () => {
+    // Exactly what check.ts sends for a flows.json with no `models` key: an
+    // empty list with no registry path. No governance policy exists, so a
+    // flow that declares no model must not need a tracked-file edit to run.
+    const calls: Array<[string, string, string | undefined]> = [];
+    const result = preflight(flow({
+      id: 'review-semantics',
+      type: 'agent',
+      cli: 'claude',
+      instruction: 'Review the semantics.',
+    }), {
+      models: [],
+      probes: probes({
+        cli: (cli, source, model) => {
+          calls.push([cli, source, model]);
+          return { exists: true, authenticated: true, modelAvailable: true };
+        },
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.resolutions).toEqual([{
+      stepId: 'review-semantics',
+      cli: 'claude',
+      source: 'step',
+      model: 'claude-opus-5',
+      modelSource: 'adapter',
+    }]);
+    expect(calls).toEqual([['claude', 'step', 'claude-opus-5']]);
+  });
+
+  it('keeps the declared-model refusal wording when the step declared the model', () => {
+    const result = preflight(flow({
+      id: 'review-semantics',
+      type: 'agent',
+      cli: 'claude',
+      model: 'claude-opus-4-7',
+      instruction: 'Review the semantics.',
+    }), {
+      models: ['claude-sonnet-5'],
+      modelRegistryPath: '/project/flows.json',
+      probes: probes({ cli: () => { throw new Error('PROBE_CALLED'); } }),
+    });
+
+    expect(result.diagnostics).toEqual([expect.objectContaining({
+      kind: 'model_unknown',
+      message: 'Step "review-semantics" declares model "claude-opus-4-7" for CLI "claude",'
+        + ' but it is not listed in project model registry "/project/flows.json";'
+        + ' add the exact model only after verifying that project is allowed to use it.',
+    })]);
+  });
+
+  it.each([
+    ['step', 'Step "review" declares model "allowed-model" for CLI "claude"'],
+    ['named', 'Step "review" uses model "allowed-model" from its named agent for CLI "claude"'],
+    ['adapter', 'Step "review" declares no model; the default for CLI "claude" is "claude-opus-5"'],
+  ] as const)('attributes an unavailable %s model to where the author put it', (source, prefix) => {
+    const model = source === 'adapter' ? 'claude-opus-5' : 'allowed-model';
+    const authored: FlowSpec = source === 'named'
+      ? {
+          version: '0.1.0',
+          agents: { reviewer: { cli: 'claude', model } },
+          steps: [{ id: 'review', type: 'agent', agent: 'reviewer', instruction: 'Review.' }],
+        }
+      : flow({
+          id: 'review',
+          type: 'agent',
+          cli: 'claude',
+          ...(source === 'step' ? { model } : {}),
+          instruction: 'Review.',
+        });
+
+    const result = preflight(authored, {
+      models: [model],
+      modelRegistryPath: '/project/flows.json',
+      probes: probes({
+        cli: () => ({
+          exists: true,
+          authenticated: true,
+          modelAvailable: false,
+          modelCommand: `claude -p --model ${model}`,
+        }),
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toEqual([{
+      severity: 'refusal',
+      kind: 'model_unavailable',
+      stepId: 'review',
+      cli: 'claude',
+      model,
+      message: `${prefix}, but its model-scoped "claude -p --model ${model}" probe exited non-zero;`
+        + " verify the model name and this credential's access.",
+    }]);
   });
 });

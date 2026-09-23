@@ -130,7 +130,8 @@ export async function runAuthoredInNode(
               clearTimeout(startupTimer);
               // Keep stdin open: EOF tells the child its lease-owning parent died.
               child.stdin!.write(JSON.stringify({ channelKey, metadata, socketPath, rootRunId,
-                dataDir: options.dataDir, localAgentStream: options.localAgentStream }) + '\n');
+                dataDir: options.dataDir, localAgentStream: options.localAgentStream,
+                workerCapacity: options.workerCapacity }) + '\n');
             } else if (!ready || result) throw new Error('unexpected authored runtime message');
             else if (message.type === 'progress') options.onProgress?.(message.event);
             else if (message.type === 'wait') options.onWait?.(message.event);

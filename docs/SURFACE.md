@@ -192,22 +192,47 @@ No process runs between events: the handler wakes, executes to its next await, p
 
    **Declared wrapper bounds.** A wrapper author writes against four bounds,
    all enforced by the reader so that no wrapper can defeat one by withholding
-   an event. Each is a refusal with `exit_code: null` and a diagnostic naming
-   the bound it exceeded, which the worker completes as `worker_error`.
+   an event. Exceeding an armed bound is a refusal with `exit_code: null` and a
+   diagnostic naming the bound, which the worker completes as `worker_error`.
+   Three are always armed; the execution deadline is off unless a caller sets a
+   positive one.
 
    | Bound | Default | Applies to | On exceeding |
    |---|---|---|---|
    | Handshake deadline | 10 s | From spawn until the wrapper has emitted both `relayflows-agent-cli-v1` and `relayflows-agent-cli-v1-execute` | Session refused: "did not identify as `relayflows-agent-cli-v1` within *N*ms" |
    | Handshake byte limit | 8192 bytes | Only the **un-terminated** residue of the handshake buffer — bytes not yet ended by a newline while the handshake is still open. Complete lines are drained first, so the execute token always ends the handshake before this is measured, and a result payload behind it is execution output governed by `maxOutputBytes`, not by this bound | Session refused: "exceeded the wrapper handshake limit of 8192 bytes before completing the `relayflows-agent-cli-v1` handshake" |
-   | Execution deadline | 300 s | From the execute token until the wrapper's output is complete | `SIGTERM`, then `SIGKILL` 1 s later; the reader settles on its own deadline whether or not the process closes its pipes. Refused: "execution timed out after *N*ms" |
+   | Execution deadline | **none** | From the execute token until the wrapper's output is complete. Off by default, so a wrapper-backed step gets the same duration a native `claude` or `codex` step gets, which is no constant of its own. A positive programmatic `executionTimeoutMs` arms it; `0` means no deadline and is not coerced back to a default | `SIGTERM`, then `SIGKILL` 1 s later; the reader settles on its own deadline whether or not the process closes its pipes. Refused: "execution timed out after *N*ms" |
    | `maxOutputBytes` | 1 MiB | Total captured stdout **plus** stderr after the execute token. Inclusive: exactly at the limit is accepted, one byte over is refused. Enforced on arrival, so an unbounded or newline-free flood is cut off by the reader rather than buffered | Session refused: "exceeded the captured output limit of *N* bytes" |
 
-   Because the deadlines are reader-owned, a wrapper that exits while leaving a
+   Because the bounds are reader-owned, a wrapper that exits while leaving a
    descendant holding an inherited stdio pipe — which withholds Node's `'close'`
-   event forever — is still bounded and still journals a `completionReason`. It
-   is bounded at the *execution deadline* rather than at the wrapper's own exit,
-   so a wrapper that leaks a pipe pays the full 300 s. Wrappers should not leave
-   descendants holding stdout or stderr.
+   event forever — is still bounded and still journals a `completionReason`.
+   With no execution deadline the bound is the wrapper's **own exit**, not a
+   constant: once the direct child has exited *and* the execute token has been
+   consumed, the reader drains for 250 ms, finalizes the output it has, stops
+   the wrapper's process group (`SIGTERM`, `SIGKILL` 1 s later) and settles on
+   its own deadline whether or not `'close'` ever arrives. That settlement is a
+   real result — the wrapper's own exit code and output, including a `null` code
+   for a signalled death — not a refusal, because the wrapper did finish. Bytes
+   arriving after settlement are discarded, and a protocol violation, an
+   exceeded output limit, or an aborted lease during that window still outranks
+   a successful exit. A descendant that had already detached into its own
+   process group is reparented when the wrapper dies and is out of reach: the
+   session is still bounded, but that process is not signalled and is not
+   reaped. Wrappers should not leave descendants holding stdout or stderr.
+
+   A positive programmatic `executionTimeoutMs` is unchanged by any of this: the
+   session is bounded at that deadline and refuses, and the post-exit drain does
+   not apply. The same session backs both `agent` and `llm` wrapper steps, so
+   neither carries a wrapper-specific duration cap.
+
+   What does bound a wrapper's duration is the same thing that bounds a native
+   `claude` or `codex` step. The step's worker lease is *renewable ownership*,
+   not a duration budget: a live worker keeps renewing it and never ages out of
+   one, while a worker that dies stops renewing and the lease expires. The run's
+   wallclock budget is separate and stops *new* work, draining whatever is
+   already running rather than cancelling a step mid-flight. A wrapper step and
+   a native step therefore get the same duration.
 
    `flows check` resolves the binary (a path is relative to the declaring flow
    or project config; a bare name resolves via `PATH`) and caches each resolved
@@ -220,19 +245,31 @@ No process runs between events: the handler wakes, executes to its next await, p
    error. Every subprocess starts with ambient `RELAYFLOW_MODEL` removed.
    Provider adapters pass only the declared flag; wrapper readiness receives
    only an allowlisted declared model, while worker instruction/model/wake
-   values travel only in the post-identification session request. Preflight
-   never invokes an undeclared model or guesses from host state.
+   values travel only in the post-identification session request. The model in
+   that probe is the *effective* one: the step's, else the selected named
+   agent's, else the adapter's own default. A default is probed because it is
+   what would run; preflight still never guesses a model from host state, and a
+   wrapper adapter has no default, so a wrapper step with no declared model is
+   probed without one. Each resolution reports the CLI's source and the model's
+   own source separately — `RESOLVED step "s" cli "claude" from step model
+   "claude-opus-5" from adapter default` — so a defaulted model is never
+   presented as one the step declared.
 
    **Deterministic model registry:** model existence is not inferred from a
    regex or provider prefix. The nearest `flows.json` owns an exact,
-   case-sensitive `models` allowlist. When that file exists, `flows check`
-   first refuses a declared model absent from that list as `model_unknown`,
-   without starting the CLI. When no `flows.json` exists anywhere in the flow
-   file's ancestry, inline named-agent declarations (`agents: { drafter:
-   { cli, model } }`) proceed to the real CLI/model probe without a registry.
-   A model declared directly on a step still requires the project allowlist.
-   An existing config with no `models` field or an empty list remains an
-   explicit policy and refuses unlisted models, including named agents.
+   case-sensitive `models` allowlist. When that file declares `models`,
+   `flows check` first refuses an effective model absent from that list as
+   `model_unknown`, without starting the CLI. The check governs the model that
+   would execute, so an adapter default is checked exactly like a declared one;
+   its refusal says the step declared no model and names the default, because
+   the author wrote no `model:` to correct. When no `flows.json` exists anywhere
+   in the flow file's ancestry, inline named-agent declarations (`agents: {
+   drafter: { cli, model } }`) proceed to the real CLI/model probe without a
+   registry. A config with no `models` field declares no model policy and
+   enforces none — the same state as no config at all, so a flow that declares
+   no model needs no edit to that tracked file to run. `models: []` is a
+   different thing: an explicit empty allowlist, which refuses every model,
+   including named agents.
    One pure first pass collects every model rejected by that policy and every
    unresolved step CLI
    before any CLI, command, executor, or daemon probe, independent of step
@@ -336,12 +373,37 @@ f.llm(strings: TemplateStringsArray, ...values: unknown[]): Step<string>;
 
 Run with `flows run chain.flow.ts --input '{}' --local-agent`. This attaches
 both an agent worker and a workspace-free LLM worker for the authored body.
+
+Each worker holds 4 dispatches at once. Set a different number (1–32) with
+`--agent-capacity <n>`, which applies to `run` and `resume`. The agent and LLM
+workers are counted separately.
+
+A body that starts more concurrent `f.agent` or `f.llm` calls than the capacity
+does not fail: the extra calls wait in-process for a free slot. Without that
+wait, they would be submitted with no worker free, and the kernel would park
+them.
+
+Agents that share a working directory still run one at a time. This lets the
+worker attribute each file change to the step that made it. To run agents side
+by side, give each its own directory with `cwd` (for example one git worktree
+per agent): `f.agent("api", { task, cwd: "/repo/.wt/api" })`. The kernel carries
+`cwd` on the agent step and the worker starts the CLI there. It must be
+absolute in the kernel spec; the TypeScript surface resolves a relative `cwd`
+against the runner's directory, while a relative `cwd` in YAML is refused.
+Setting `cwd` is part of the step's spec hash; omitting it hashes exactly as
+before. Concurrent `f.llm` calls have no directory lock. They overlap up to the
+configured capacity, and calls beyond it wait for a slot.
+
 The LLM step remains `type: llm` in the journal. It uses the same CLI resolution,
 authentication probes, and exact `flows.json` model allow-list as agent steps;
 a declared `model` must be in that project's `models` array. A template call
 such as ``await f.llm`Summarize ${text}` `` returns text. The structured overload
 parses JSON and checks `output` before submitting a successful completion;
-the kernel independently checks the schema before accepting the output.
+the kernel independently checks the schema before accepting the output. A
+reply that is exactly one markdown code fence around a value (three or more
+backticks or tildes, closed by a run of the same character at least as long)
+is judged by the value inside it; prose around the JSON, or two fenced values,
+is still invalid.
 Invalid JSON or a schema mismatch completes with `verification_failed` and
 prevents downstream work. Retry and lease handling use the existing kernel
 policies; this overload introduces no separate retry contract.
@@ -562,6 +624,72 @@ plugin code bundling/pinning, declarative-flow plugin preflight, and restart
 recovery of an interrupted plugin effect. Plugin effects currently inherit the
 internal authored executor's child-run lifecycle, not a resumable authored root.
 
+### Flow extensions: schema 2, `kind: "flow-extension"`
+
+The same `flows-plugin.json` file carries a second kind. A **helper** plugin
+(`kind` absent) extends `Ctx` with verbs and installs from npm as above. A
+**flow extension** (`"schema": 2, "kind": "flow-extension"`) is a directory in
+a public GitHub repository whose `entry` default-exports `flow()` and declares
+what it will contribute to a base flow — `extends.handlers` (its `.on()`
+pairs), `extends.hooks` (named points the base calls), `triggers` (validated
+against the surface event registry, refused with `plugin_event_unroutable`
+otherwise), `permissions` (integrations, harnesses, mcp, declared-but-unenforced
+`writes`, a budget ceiling), `compat` (semver ranges for surface and sdk, and
+the base flows it extends), and the same mandatory `preflight`. Validation is
+`packages/sdk/src/flow-extension-manifest.ts`; the worked Babysitter manifest is
+`testdata/plugins/extension-babysitter/flows-plugin.json`.
+
+```text
+flows add github:<owner>/<repo>@<ref>#<path>      # or https://github.com/<owner>/<repo>/tree/<ref>/<path>
+flows plugin list [--json]
+flows plugin verify [--json] [--offline]
+flows plugin remove [--json] <name>
+flows plugin update [--json] [--yes] [--to <ref>] [<name>]
+```
+
+`flows add` resolves the branch, tag, or commit to a 40-hex sha through
+unauthenticated public GitHub reads (a private repository answers 404 and is
+reported as `plugin_source_unresolved`), enumerates the tree at that commit —
+refusing symlinks, submodules, traversal, a truncated listing, files over
+256 KB, or plugins over 2 MB — downloads each blob pinned to the sha, checks
+byte counts, and computes the content digest as the sha256 of the same
+canonical `[{bytes,path,sha256}]` manifest a sealed bundle uses. The bytes are
+materialized under `.flows/plugins/<name>@sha256:<digest>/`; `flows.json.plugins`
+gains the canonical `github:<owner>/<repo>@<sha>#<path>` (a branch or tag is
+never persisted); and `flows.lock.json` (version 2) records name, version,
+source, digest, manifest hash, and the declaration order that will be the
+composition order. `flows plugin verify` re-hashes the store against the lock
+and, unless `--offline`, re-fetches the pinned commit; any difference is
+`plugin_source_drift`, exit 2.
+
+**Composition.** `loadAuthoredFlow` (the path under `flows check`, `flows run`,
+and the authored root) composes the project's extensions onto the base flow
+(`packages/sdk/src/flow-extension-loader.ts`), in this fixed order: the
+declaration and the lockfile must agree; the store is re-hashed against the
+lock's digest and the manifest bytes against its manifest hash — nothing under
+`.flows/plugins` is read as code before that passes; the manifest is validated
+and its `compat` checked against the runtime and the base flow (`FlowHeader.version`
+is matched when present; without it only `*` is satisfiable; a budget ceiling
+above the base is `plugin_incompatible`); only then is the entry imported, its
+handlers checked against the manifest's declared triggers (an entry cannot
+subscribe to more than it declared), and appended **after** the base's own
+handlers in lockfile order. Named `hooks` exports are matched to
+`extends.hooks` and to the base header's `hooks` list; `f.hook` AND-composes
+them in lock order. Nothing replaces, reorders, or widens a base handler, and
+the base's definition object is untouched. `flows check` prints one `EXTENSION`
+line per composed extension. Not composed by this release, and refused with
+`plugin_unsupported` rather than ignored: an entry `use:` header, schedule
+triggers, and gates; a generic `webhook(...)` handler is refused as
+undeclared. Cloud deploy and hosted runs send composed extensions in the request body
+(`extensions[]`, 2 MB cap, `--plugin` is send-only). Handler bodies still
+execute nowhere (#301); what composition changes today is the declared
+trigger set that `flows check`, requirements, and future dispatch read.
+
+GitHub `pull_request.ready_for_review`, `pull_request.labeled`, and
+`pull_request.unlabeled` are in the generated surface registry through the
+pinned relayfile adapter catalog. Babysitter declares all three and installs
+without narrowing its eleven-subscription contract.
+
 ## 4. Build: the immutable bundle
 
 `flows build` seals a flow into a content-addressed, immutable bundle: canonical spec JSON, compiled TS with pinned deps, helper/plugin lockfile, assets, preflight declaration, identity signature — `flow@sha256:…`, pushed to a bucket/registry. `flows deploy` points a trigger at a digest; `flows run flow@sha256:…` executes from the bucket on any cell, no checkout. Preflight runs at build time for everything build-provable and again at deploy time for environment facts (credentials, workers, MCP servers). The working tree is for authoring; **production only ever runs digests.**
@@ -703,14 +831,43 @@ uses the opening shown here; an authored child failure opens with
 FAILED [step_failed] Run "<run-id>" failed with completionReason: step_failed.
  Step "<step-id>" (<type>) completionReason: <reason> attempt=<n>/<budget> exit=<code>.
 Detail: <the worker's own account, when it left one>
-Stdout (last 1,024 bytes):
-<tail>
-Stderr (last 1,024 bytes):
-<tail>
+Stdout (captured excerpt):
+<excerpt>
+Stderr (captured excerpt):
+<excerpt>
 Transcript: <path>
 Inspect: flows replay <run-id> --at <step-id>
 Journal: <data-dir>/runs/<run-id>.sqlite3
 ```
+
+An excerpt is at most 4,096 UTF-8 bytes of the stream the journal carried. A
+stream that fits is printed whole and carries no marker; one that does not is
+printed as a head, the lines from the elided middle that match a built-in
+failure marker (TAP `not ok`, `FAIL`/`FAILED`, a vitest or jest failure glyph,
+cargo's `... FAILED` and `---- <case> stdout ----` headings, and Rust's
+`panicked at`), and a tail — with the elision stated in band:
+
+```text
+Stdout (captured excerpt):
+TAP version 13
+ok 1 - pty: spawns
+… 61,204 bytes elided; 2 lines matched a failure marker …
+not ok 5 - pty-exit: child reaped twice
+not ok 9 - pty-exit: fd leak
+… end of elided region …
+1..14
+# tests 14
+# fail 2
+```
+
+The markers are hints, not a parser: an unrecognised format still gets head and
+tail context, and prose can match one. Two limits bound what any excerpt can
+show. The absence of an elision marker means the field the journal carried fit
+whole, not that the command printed nothing more: a deterministic step's
+capture is itself the last 64 KiB of each stream, and an `agent` or `llm`
+step's evidence survives only as the daemon's bounded render in
+`verification.detail`. A failure printed before those windows is not in the
+journal to be excerpted.
 
 Each clause is present only when the journal holds the fact behind it; nothing
 is defaulted. The same fields appear as named keys on the `--json` diagnostic
@@ -745,6 +902,15 @@ before the `run.start` response or index append can still leave an unindexed
 child. Helper-provider, MCP and plugin-effect children are not yet included
 in this index. Once appended, the index survives process exit and is readable from
 the journal on disk, including after a cooperative nonzero exit.
+
+Each record, and the matching root `journalSteps` entry, may also carry the
+step's place in the run's DAG. `after` lists the step ids it causally waited
+for, transitively reduced and capped at 32. `afterTruncated: true` means that
+list is incomplete. `label` is the author-chosen `f.agent` or `f.hook` name,
+kept whole or omitted when it is over 256 characters, because a cut label
+could end partway through a secret. `f.run` has no label, because a command
+can carry literal tokens and URLs. The fields are optional; a step with none
+writes the original record shape.
 
 An authored step-failure JSON report keeps the child in `runId` and adds
 `rootRunId` for the durable authored root. Consumers must use `rootRunId` for
@@ -802,6 +968,18 @@ step instructions, input bindings, output bodies, wake contexts, pins or
 effect refs, so their absence is structural. `LEASE OVERDUE by <t>` in the
 text view is computed from the journaled lease deadline and the wall clock
 alone — a local dead-man that needs no daemon.
+
+For an authored root, `--json` also carries `authored_steps`: the root's
+`authored-steps` index (see *Authored bodies* above), folded exactly as
+`readAuthoredStepIndex` folds it, one entry per authored step in admission
+order — `step`, `run_id` (the child journal whose own `flows status` view holds
+that step id), `state` (`admitted` | `completed`), and when present
+`completion_reason`, `kernel_step`, `label`, `after` and `after_truncated`.
+Because the admission record already carries `label` and `after`, a reader
+polling the root sees each step's name and predecessors as soon as it is
+admitted, not only once the run finishes. `label` is redacted like any other
+free text; ids are printed as-is. The field is additive and absent for every
+run that journals no index, so the existing shape is unchanged.
 
 `--tail <n>` renders the last *n* lines of this attempt's stdout and stderr
 after redaction. Every direct agent attempt with a data dir tees its
@@ -1172,32 +1350,55 @@ whose final message is a JSON object owns its output shape and journals no
 artifacts; gate such a step on a deterministic check instead. The relay
 transport journals none, because the agent ran on another host.
 
+What the scan reports is every **regular file** under the working directory
+that is new, or whose content changed, between the two snapshots — content
+(size + sha256), not mtime, so a rewrite inside the filesystem's timestamp
+resolution still counts. Symlinks are not followed. Three entry names are
+skipped, matched **exactly**, at any depth, before the entry's type is
+consulted: `.git` (a directory, or the regular file a linked worktree has),
+`.relayflowd` (the default data dir) and `node_modules`. Exact names, not
+prefixes — `.github`, `.relayflowd-notes` and every other author-chosen name
+that merely starts the same way is scanned normally.
+
+**Dot-directories are artifacts.** `.workflow-artifacts/` is the conventional
+place a flow tells its agents to write, so
+`.gate({ type: 'artifact_exists', path: '.workflow-artifacts/x/y.md' })` is an
+ordinary gate and the path appears verbatim in `output.artifacts`. An earlier
+scanner skipped every entry whose name began with a dot; that made a whole
+class of author-chosen paths invisible to the journal, and a gate naming one
+could never pass — it failed on a file that was sitting on disk, with nothing
+in the completion to say why (flows#512).
+
 The diff is of the working directory, not of what the agent did, so anything
 written under it during the attempt is an artifact by default — including files
-the runtime itself writes. The worker's own per-attempt evidence lives under
+the runtime itself writes, and writes by any unrelated process that happens to
+touch the tree. A content hash proves a change during the interval; it does not
+prove the agent made it. The worker's own per-attempt evidence lives under
 `<data-dir>/runs/<run-id>/steps/<step-id>/` (the transcript file, the
 `attempt-<n>.<stream>.tail` files and the `.tmp` each tail is staged as), and a
-local `--data-dir` inside the project puts all of it inside the scanned tree.
-Every one of those paths is excluded from the diff by name in
-`packages/sdk/src/worker-cli.ts`'s `ownEvidencePaths`, derived from the attempt
-identity — the same input that decides where each file is written, so the
-exclusion cannot drift from the files. Deriving it from anything the run
-*produces* is a mistake worth naming: an earlier version read the transcript's
-path off `result.transcript.file`, which `finish` omits when the close outruns
-its deadline or the attempt aborts, so the exclusion lapsed on exactly the paths
-where the file is slowest to finish and most likely to still be sitting there.
+local `--data-dir` inside the project puts all of it inside the scanned tree —
+under any name the caller chose, which is usually not one of the three skipped
+above. So `packages/sdk/src/worker-cli.ts` drops the **entire configured data
+directory subtree** from the diff, comparing symlink-resolved paths against the
+data dir the step was dispatched with. That is the attempt's own identity, the
+same input that decides where each file is written, so the exclusion cannot
+drift from the files. Deriving it from anything the run *produces* is a mistake
+worth naming: an earlier version listed each runtime-written file by name and
+read the transcript's path off `result.transcript.file`, which `finish` omits
+when the close outruns its deadline or the attempt aborts, so the exclusion
+lapsed on exactly the paths where the file is slowest to finish and most likely
+to still be sitting there. A subtree exclusion has nothing to enumerate and so
+nothing to forget.
 
-Anyone adding a new runtime-written file under the run's data dir has to add it
-to `ownEvidencePaths` in the same change. **Missing one is silent by default.**
-`step.complete` bounds `trajectory_tail` and passes `output` through verbatim
-(`kernel/relayflowd/src/server.rs`), so the kernel accepts the polluted list and
-the run succeeds with the worker's own bookkeeping journaled as the agent's
+Pollution of that list is silent by default. `step.complete` bounds
+`trajectory_tail` and passes `output` through verbatim
+(`kernel/relayflowd/src/server.rs`), so the kernel accepts whatever list the
+worker sends and the run succeeds with it journaled as the agent's
 `output.artifacts`. It only becomes loud where something reads that list: an
 `artifact_exists` gate on a path that is now crowded, or a flow body that
-asserts on `AgentResult.artifacts` — which is how this was caught at all, by
-`packages/sdk/tests/agent-transcript-live.test.ts` failing its own
-`artifacts.length !== 0` check. Dotfiles and dotdirs are skipped by the walk, so
-`.relayflowd` is already invisible; a data dir under any other name is not.
+asserts on `AgentResult.artifacts` — which is how the data-dir case was caught
+at all, by `packages/sdk/tests/agent-transcript-live.test.ts` failing its own
+`artifacts.length !== 0` check.
 
 - Are YAML helper verbs (`slack:`, `mcp:`) core spec vocabulary or compile-time expansion into `run`/effect steps? Leaning: expansion — the kernel spec stays seven words; helpers stay a surface concern.
 - Helper generation cadence: generated from relayfile adapter manifests at build time vs published per-adapter packages. Leaning: generated, with hand-tuned verb names for the top providers.

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { stepFailedFrame, verifyAuthoredNodeResult } from '../src/authored-node-runner.js';
 import { parseAuthoredParentPid } from '../src/authored-runtime-capability.js';
+import { EXCERPT_BYTES, formatStepExcerpt } from '../src/cli/step-excerpt.js';
 import type { AuthoredFlowExecutionResult } from '../src/authored-flow-executor.js';
 import type { AuthoredRootMetadata } from '../src/authored-root.js';
 
@@ -161,6 +162,27 @@ describe('step evidence crossing the authored IPC boundary', () => {
     // `undefined` and `{}` are different claims downstream: `...error.details`
     // of `{}` still marks the diagnostic as carrying evidence it does not have.
     expect(stepFailedFrame(frame)).toBeUndefined();
+  });
+  it('carries a rendered excerpt across the bridge byte for byte', () => {
+    // The live `executeAuthoredFlow` fixture never crosses the Bun-to-Node IPC
+    // hop, and this is where a second, silent truncation would happen: the
+    // frame reader re-cuts every string field at 8,192 code units. A 4,096
+    // UTF-8-byte excerpt is at most 4,096 code units, so it must survive
+    // whole — a cut here would land mid-marker and say nothing about it.
+    const lines = ['TAP version 13'];
+    for (let index = 1; index <= 400; index++) {
+      lines.push(index === 200 ? `not ok ${index} - the one that matters`
+        : `ok ${index} - pty: a passing case with a realistically long name`);
+    }
+    lines.push('1..400', '# fail 1');
+    const stdoutTail = formatStepExcerpt(lines.join('\n') + '\n');
+    expect(Buffer.byteLength(stdoutTail)).toBeGreaterThan(1_024);
+    expect(Buffer.byteLength(stdoutTail)).toBeLessThanOrEqual(EXCERPT_BYTES);
+    expect(stdoutTail).toContain('not ok 200 - the one that matters');
+
+    const details = stepFailedFrame({ stepId: 'run-1', stdoutTail, stderrTail: stdoutTail });
+    expect(details?.stdoutTail).toBe(stdoutTail);
+    expect(details?.stderrTail).toBe(stdoutTail);
   });
   it('bounds a tail the child did not bound', () => {
     const details = stepFailedFrame({ stderrTail: 'x'.repeat(20_000) });

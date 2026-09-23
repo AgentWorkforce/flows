@@ -1,4 +1,5 @@
 import { workerSpend } from './worker-spend.js';
+import { DEFAULT_LOCAL_AGENT_CAPACITY } from './worker-slots.js';
 import type { WorkerCliResult } from './worker-cli.js';
 import { EventEmitter } from 'node:events';
 import type { JournalClient } from './journal-client.js';
@@ -17,7 +18,11 @@ export class LlmWorker extends EventEmitter {
   private closing = false;
   private readonly inFlight = new Set<Promise<void>>();
 
-  constructor(private readonly client: JournalClient, private readonly workerId: string) {
+  constructor(
+    private readonly client: JournalClient,
+    private readonly workerId: string,
+    private readonly capacity: number = DEFAULT_LOCAL_AGENT_CAPACITY,
+  ) {
     super();
   }
 
@@ -25,7 +30,7 @@ export class LlmWorker extends EventEmitter {
     if (this.attached || this.closing) throw new Error('llm worker: cannot attach twice or after close');
     this.client.on('step.dispatch', this.onDispatch);
     try {
-      await this.client.workerAttach(this.workerId, ['llm'], { workspace: [], streams: [] }, 1);
+      await this.client.workerAttach(this.workerId, ['llm'], { workspace: [], streams: [] }, this.capacity);
       this.attached = true;
     } catch (error) {
       this.client.off('step.dispatch', this.onDispatch);
@@ -62,7 +67,7 @@ export class LlmWorker extends EventEmitter {
     let detail = result.stderr_tail;
     if (reason === 'success' && schema !== undefined) {
       try {
-        output = JSON.parse(result.stdout_tail);
+        output = JSON.parse(unfenced(result.stdout_tail));
         const invalid = jsonSchemaOutputError(schema, output);
         if (invalid !== undefined) {
           reason = 'verification_failed';
@@ -92,4 +97,18 @@ export class LlmWorker extends EventEmitter {
         ...(Object.keys(trajectoryTail).length === 0 ? {} : { trajectory_tail: trajectoryTail }),
       });
   }
+}
+
+/**
+ * A reply that is exactly one markdown code fence around a value, reduced to
+ * that value. Models add the fence despite the instruction not to; the schema
+ * still judges what is inside it. A fence opens with three or more backticks
+ * or tildes and closes with a run of the same character at least as long.
+ * Anything else (prose around the JSON, two fences) is returned unchanged and
+ * fails the parse as before.
+ */
+export function unfenced(text: string): string {
+  const fence = /^\s*(?:(`{3,})[^`\n]*\n([\s\S]*?)\n?\1`*|(~{3,})[^\n]*\n([\s\S]*?)\n?\3~*)\s*$/.exec(text);
+  if (fence === null) return text;
+  return fence[2] ?? fence[4]!;
 }

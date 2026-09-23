@@ -1,13 +1,16 @@
 // Rendering an agent step's transcript JSONL for a terminal.
 //
-// The frames are what the harness wrote (Claude Code's `stream-json`), wrapped
-// by the `relayflow.attempt` markers the v2 executor interleaves when it
-// assembles one log out of several attempts. The frame vocabulary read here is
-// the one Cloud's dashboard renderer reads (cloud#3847,
-// `packages/web/lib/workflows/agent-transcript.ts`) -- the same shapes, so the
-// CLI and the dashboard agree about what a run did. The implementation is not
-// shared: this package cannot import from the Cloud app, and a CLI that had to
-// be deployed in step with a dashboard would be worse than one that does not.
+// The frames are what the harness wrote -- Claude Code's `stream-json`, or
+// `codex exec --json` -- wrapped by the `relayflow.attempt` markers the v2
+// executor interleaves when it assembles one log out of several attempts.
+// The Claude frame vocabulary read here is the one Cloud's dashboard renderer
+// reads (cloud#3847, `packages/web/lib/workflows/agent-transcript.ts`) -- the
+// same shapes, so the CLI and the dashboard agree about what a run did. The
+// implementation is not shared: this package cannot import from the Cloud app,
+// and a CLI that had to be deployed in step with a dashboard would be worse
+// than one that does not. The Codex vocabulary lives in
+// `cloud-transcript-codex.ts`; dispatch is per frame, not per provider, so a
+// log that mixes them stays honest rather than being forced into a guess.
 //
 // Two rules the shapes do not give you:
 //
@@ -19,98 +22,21 @@
 //    the redactor `flows status` uses. Transcript text is whatever the agent
 //    printed, including anything it read out of its own environment.
 
+import {
+  CODEX_FRAME_TYPES, codexFrame, indexCodexItems, renderCodexEntry, type CodexState,
+} from './cloud-transcript-codex.js';
+import {
+  TARGET_MAX_CHARS, isRecord, num, oneLine, safe, separator, str, thousands,
+  type ParsedTranscript, type TranscriptEntry,
+} from './cloud-transcript-types.js';
 import { redact } from './redact.js';
 
-export interface TranscriptAttempt {
-  kind: 'attempt';
-  attempt: number | null;
-  bytes: number | null;
-  truncated: boolean;
-}
-
-export interface TranscriptAttemptOmitted {
-  kind: 'attempt_omitted';
-  attempt: number | null;
-  bytes: number | null;
-}
-
-export interface TranscriptInit {
-  kind: 'init';
-  model: string | null;
-  version: string | null;
-  permission_mode: string | null;
-  tools: number | null;
-  mcp_servers: number | null;
-  session_id: string | null;
-}
-
-export interface TranscriptMessage {
-  kind: 'message';
-  role: 'assistant' | 'user';
-  text: string;
-  /** A frame carrying `parent_tool_use_id`: a subagent's turn, not the main one. */
-  nested: boolean;
-}
-
-export interface TranscriptThinking {
-  kind: 'thinking';
-  /** The count only. A thinking block's text and signature never reach the page. */
-  chars: number;
-  nested: boolean;
-}
-
-export interface TranscriptTool {
-  kind: 'tool';
-  name: string;
-  /** What the call was aimed at: a path, a command, a pattern. Null when the input had no string. */
-  target: string | null;
-  /** Null when no `tool_result` answered it -- not the same fact as a zero-byte result. */
-  result_chars: number | null;
-  is_error: boolean;
-  nested: boolean;
-}
-
-export interface TranscriptResult {
-  kind: 'result';
-  is_error: boolean;
-  subtype: string | null;
-  duration_ms: number | null;
-  num_turns: number | null;
-  total_cost_usd: number | null;
-  tokens_in: number | null;
-  tokens_out: number | null;
-  cache_read: number | null;
-  cache_creation: number | null;
-}
-
-export interface TranscriptUnknown {
-  kind: 'unknown';
-  type: string;
-  chars: number;
-}
-
-export interface TranscriptUnparsed {
-  kind: 'unparsed';
-  text: string;
-}
-
-export type TranscriptEntry =
-  | TranscriptAttempt | TranscriptAttemptOmitted | TranscriptInit | TranscriptMessage
-  | TranscriptThinking | TranscriptTool | TranscriptResult | TranscriptUnknown | TranscriptUnparsed;
-
-export interface ParsedTranscript {
-  entries: TranscriptEntry[];
-  /** How many attempts said their head was cut to fit the log cap. */
-  truncated_attempts: number;
-  /** How many attempts were dropped whole to fit the log cap. */
-  omitted_attempts: number;
-  /**
-   * False when the log carried no frame this vocabulary knows -- a v1
-   * plain-terminal sandbox log, say. The caller prints it raw rather than
-   * claiming an empty transcript.
-   */
-  stream_json: boolean;
-}
+export type {
+  ParsedTranscript, TranscriptEntry, TranscriptAttempt, TranscriptAttemptOmitted, TranscriptError,
+  TranscriptFileChange, TranscriptInit, TranscriptMessage, TranscriptResult, TranscriptThinking,
+  TranscriptThread, TranscriptTool, TranscriptToolCodex, TranscriptTurn, TranscriptUnknown,
+  TranscriptUnparsed,
+} from './cloud-transcript-types.js';
 
 /**
  * Which input field names a tool call. Order matters: the first present
@@ -121,26 +47,6 @@ const TARGET_KEYS = [
   'file_path', 'notebook_path', 'path', 'command', 'pattern', 'url', 'query',
   'prompt', 'description', 'subagent_type',
 ] as const;
-
-const TARGET_MAX_CHARS = 160;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function str(value: unknown): string | null {
-  return typeof value === 'string' && value.length > 0 ? value : null;
-}
-
-function num(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
-/** Collapse to one line and bound it; a tool input can be a whole file body. */
-function oneLine(text: string, limit = TARGET_MAX_CHARS): string {
-  const flat = text.replace(/\s+/gu, ' ').trim();
-  return flat.length <= limit ? flat : `${flat.slice(0, limit)}…`;
-}
 
 /**
  * `clean` runs before `oneLine`, not after, and the order is load-bearing.
@@ -154,12 +60,12 @@ function toolTarget(input: unknown, clean: (text: string) => string): string | n
   if (!isRecord(input)) return null;
   for (const key of TARGET_KEYS) {
     const value = str(input[key]);
-    if (value !== null) return oneLine(clean(value));
+    if (value !== null) return oneLine(clean(value), TARGET_MAX_CHARS);
   }
   // An unfamiliar tool still shows something rather than nothing.
   for (const value of Object.values(input)) {
     const text = str(value);
-    if (text !== null) return oneLine(clean(text));
+    if (text !== null) return oneLine(clean(text), TARGET_MAX_CHARS);
   }
   return null;
 }
@@ -219,13 +125,15 @@ export function parseAgentTranscript(content: string, env: NodeJS.ProcessEnv = p
     }
   }
   const results = indexToolResults(frames);
+  const codexIndex = indexCodexItems(raw);
+  const codexState: CodexState = { seq: 0 };
   const entries: TranscriptEntry[] = [];
   let truncatedAttempts = 0;
   let omittedAttempts = 0;
   let streamJson = false;
   const clean = (text: string): string => redact(text, env);
 
-  for (const { frame, line } of raw) {
+  for (const [index, { frame, line }] of raw.entries()) {
     if (frame === undefined || !isRecord(frame)) {
       entries.push({ kind: 'unparsed', text: clean(line) });
       continue;
@@ -233,6 +141,8 @@ export function parseAgentTranscript(content: string, env: NodeJS.ProcessEnv = p
     const type = str(frame['type']);
     if (type === 'relayflow.attempt') {
       streamJson = true;
+      // Calls are numbered within an attempt, so a second attempt starts over.
+      codexState.seq = 0;
       const truncated = frame['truncated'] === true;
       if (truncated) truncatedAttempts += 1;
       entries.push({ kind: 'attempt', attempt: num(frame['attempt']), bytes: num(frame['bytes']), truncated });
@@ -240,8 +150,14 @@ export function parseAgentTranscript(content: string, env: NodeJS.ProcessEnv = p
     }
     if (type === 'relayflow.attempt.omitted') {
       streamJson = true;
+      codexState.seq = 0;
       omittedAttempts += 1;
       entries.push({ kind: 'attempt_omitted', attempt: num(frame['attempt']), bytes: num(frame['bytes']) });
+      continue;
+    }
+    if (type !== null && CODEX_FRAME_TYPES.has(type)) {
+      streamJson = true;
+      entries.push(...(codexFrame(frame, type, index, codexIndex, codexState, clean, line) ?? []));
       continue;
     }
     if (type === 'system' && frame['subtype'] === 'init') {
@@ -327,26 +243,12 @@ export function parseAgentTranscript(content: string, env: NodeJS.ProcessEnv = p
   return { entries, truncated_attempts: truncatedAttempts, omitted_attempts: omittedAttempts, stream_json: streamJson };
 }
 
-function thousands(value: number): string {
-  return String(value).replace(/\B(?=(\d{3})+(?!\d))/gu, ',');
-}
-
 function seconds(ms: number): string {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
-/** Terminal control characters never reach the page, wherever the text came from. */
-function safe(text: string): string {
-  return text.replace(/[\u0000-\u0009\u000B-\u001F\u007F-\u009F]/gu, '?');
-}
-
 function dollars(value: number): string {
   return `$${value.toFixed(6).replace(/0+$/u, '').replace(/\.$/u, '')}`;
-}
-
-/** One rule with a label, the way an attempt boundary reads. */
-function separator(label: string): string {
-  return `── ${label} ${'─'.repeat(Math.max(2, 68 - label.length))}`;
 }
 
 /**
@@ -359,6 +261,11 @@ function separator(label: string): string {
 export function renderAgentTranscript(parsed: ParsedTranscript): string[] {
   const lines: string[] = [];
   for (const entry of parsed.entries) {
+    // A Codex tool call carries its exit code, its status and its result size
+    // on one line, which the Claude shape below has no room for; everything
+    // the Codex vocabulary owns is rendered there.
+    const codex = renderCodexEntry(entry);
+    if (codex !== undefined) { lines.push(...codex); continue; }
     switch (entry.kind) {
       case 'attempt': {
         const size = entry.bytes === null ? '' : ` · ${thousands(entry.bytes)} bytes`;
@@ -380,7 +287,8 @@ export function renderAgentTranscript(parsed: ParsedTranscript): string[] {
         break;
       }
       case 'message': {
-        const who = `${entry.role}${entry.nested ? ' (subagent)' : ''}`;
+        const state = entry.complete === false ? ' (incomplete)' : '';
+        const who = `${entry.role}${entry.nested ? ' (subagent)' : ''}${state}`;
         const body = entry.text.split('\n');
         lines.push(`${who}:`);
         for (const line of body) lines.push(`  ${safe(line)}`);

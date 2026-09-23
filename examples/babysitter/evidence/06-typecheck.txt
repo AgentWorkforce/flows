@@ -1,0 +1,13 @@
+$ npm run typecheck --prefix packages/sdk && npm run typecheck --prefix packages/surface && npm run typecheck:examples --prefix packages/surface && packages/sdk/node_modules/.bin/tsc -p examples/babysitter/tsconfig.json
+
+> @relayflows/sdk@2.0.22 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+
+> @relayflows/surface@2.0.22 typecheck
+> tsc --noEmit
+
+
+> @relayflows/surface@2.0.22 typecheck:examples
+> tsc -p ../../examples/tsconfig.json
+
