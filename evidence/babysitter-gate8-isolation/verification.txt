@@ -1757,3 +1757,42 @@ $ ./node_modules/.bin/vitest run tests/hosted-extension-routing.test.ts
       Tests  6 passed (6)
    Start at  02:43:18
    Duration  4.45s
+
+$ git rev-parse HEAD
+f4f9ff42
+
+$ git diff origin/main..HEAD -- .github/workflows/cloud-runtime-artifact.yml
+
+$ cd packages/sdk
+$ git diff --check
+$ npm run typecheck
+
+> @relayflows/sdk@2.0.28 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+$ npm run build
+
+> @relayflows/sdk@2.0.28 build
+> tsc && node scripts/make-cli-executable.mjs
+
+$ npm run typecheck:tests
+
+> @relayflows/sdk@2.0.28 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+$ ./node_modules/.bin/vitest run tests/fs-descriptor.test.ts tests/plugin-store-bounds.test.ts tests/hosted-base-snapshot.test.ts tests/hosted-extension-routing.test.ts tests/preflight.test.ts tests/babysitter-native-extension.test.ts tests/hosted-extension-protocol-intrinsics.test.ts tests/hosted-extension-protocol.test.ts tests/authored-flow.test.ts tests/hosted-extension-isolation.test.ts
+
+ Test Files  10 passed (10)
+      Tests  229 passed (229)
+   Start at  17:45:33
+   Duration  2.60s
+
+$ node scripts/build-standalone-cli.mjs bun-linux-x64 /tmp/flows-pr552-standalone.Txn3LL/flows
+Bundled 782 modules in 29ms
+authored-node.mjs  3.1 MB  (entry point)
+[51ms] bundle 715 modules
+[100ms] compile /tmp/flows-pr552-standalone.Txn3LL/flows
+
+$ /tmp/flows-pr552-standalone.Txn3LL/flows --help >/dev/null
+$ printf 'standalone-bounded-surface-pass %s\n' /tmp/flows-pr552-standalone.Txn3LL/flows
+standalone-bounded-surface-pass /tmp/flows-pr552-standalone.Txn3LL/flows
