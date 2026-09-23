@@ -1626,3 +1626,40 @@ authored-node.mjs  3.1 MB  (entry point)
 $ /tmp/flows-pr552-standalone.yoEPLj/flows --help >/dev/null
 $ printf 'standalone-native-promise-pass %s\n' /tmp/flows-pr552-standalone.yoEPLj/flows
 standalone-native-promise-pass /tmp/flows-pr552-standalone.yoEPLj/flows
+
+$ git rev-parse HEAD
+e209de64
+
+$ cd packages/sdk
+$ git diff --check
+$ npm run typecheck
+
+> @relayflows/sdk@2.0.28 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+$ npm run build
+
+> @relayflows/sdk@2.0.28 build
+> tsc && node scripts/make-cli-executable.mjs
+
+$ npm run typecheck:tests
+
+> @relayflows/sdk@2.0.28 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+$ ./node_modules/.bin/vitest run tests/fs-descriptor.test.ts tests/plugin-store-bounds.test.ts tests/hosted-base-snapshot.test.ts tests/hosted-extension-routing.test.ts tests/preflight.test.ts tests/babysitter-native-extension.test.ts tests/hosted-extension-protocol-intrinsics.test.ts tests/hosted-extension-protocol.test.ts tests/authored-flow.test.ts tests/hosted-extension-isolation.test.ts
+
+ Test Files  10 passed (10)
+      Tests  226 passed (226)
+   Start at  17:20:40
+   Duration  2.43s
+
+$ node scripts/build-standalone-cli.mjs bun-linux-x64 /tmp/flows-pr552-standalone.Zkkb5P/flows
+Bundled 782 modules in 34ms
+authored-node.mjs  3.1 MB  (entry point)
+[49ms] bundle 715 modules
+[86ms] compile /tmp/flows-pr552-standalone.Zkkb5P/flows
+
+$ /tmp/flows-pr552-standalone.Zkkb5P/flows --help >/dev/null
+$ printf 'standalone-array-setter-pass %s\n' /tmp/flows-pr552-standalone.Zkkb5P/flows
+standalone-array-setter-pass /tmp/flows-pr552-standalone.Zkkb5P/flows
