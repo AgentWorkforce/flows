@@ -315,7 +315,7 @@ import type { JournalClient } from "../src/journal-client.js";
 import type { StepDispatchEvent } from "../src/protocol.js";
 import { AgentWorker } from "../src/worker.js";
 
-async function workerFixture(f: Awaited<ReturnType<typeof fixture>>) {
+async function workerFixture(f: Awaited<ReturnType<typeof fixture>>, runRoot?: string) {
   vi.stubEnv("RELAY_AGENT_TOKEN", "fixture-agent-token");
   vi.stubEnv("RELAY_BASE_URL", "https://cast.agentrelay.com");
   vi.stubGlobal("fetch", f.fetchMock);
@@ -330,6 +330,7 @@ async function workerFixture(f: Awaited<ReturnType<typeof fixture>>) {
     workerId: "fixture-worker",
     pins: {},
     dataDir: f.request.dataDir,
+    ...(runRoot === undefined ? {} : { runRoot }),
   });
   const errors: unknown[] = [];
   worker.on("error", (error) => errors.push(error));
@@ -389,6 +390,18 @@ describe("Relay completion at the journal boundary", () => {
     expect(input.task).toContain("Wake context (journaled)");
     expect(input.task).toContain("final=true");
     expect(input.result_schema).toEqual({ type: "array" });
+  });
+  it("does not forward the local run root as worker_cwd to a remote relay worker", async () => {
+    const f = await fixture();
+    const runRoot = await mkdtemp(join(tmpdir(), "flows-relay-runroot-"));
+    directories.push(runRoot);
+    const w = await workerFixture(f, runRoot);
+    w.client.emit("step.dispatch", w.dispatch);
+    await vi.waitFor(() => expect(f.posts()).toHaveLength(1));
+    await w.worker.close();
+    expect(w.errors).toEqual([]);
+    const input = JSON.parse(String(f.posts()[0]!.init!.body)).input;
+    expect(input.worker_cwd).toBeUndefined();
   });
   it("journals terminal task failure as worker_error with its explicit reason", async () => {
     const f = await fixture();
