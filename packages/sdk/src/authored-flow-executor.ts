@@ -325,7 +325,16 @@ export async function executeAuthoredFlow<Input = undefined>(
         (await recordedVerdicts)?.set(id, record);
       }
     }
-    const literal = `'${JSON.stringify(record).replaceAll("'", "'\\''")}'`;
+    // Fixed field order, never the record as it came back: the journal stores
+    // stream messages with sorted keys, so JSON.stringify of a resumed record
+    // would lower a different command than the first run did, and the gate
+    // run's admission key would refuse it as bound to a different spec.
+    const canonical: PredicateRecord = {
+      gate: 'predicate', step: record.step, verdict: record.verdict,
+      ...(record.because === undefined ? {} : { because: record.because }),
+      ...(record.threw === undefined ? {} : { threw: record.threw }),
+    };
+    const literal = `'${JSON.stringify(canonical).replaceAll("'", "'\\''")}'`;
     const command = record.verdict === 'pass' ? `printf '%s' ${literal}` : `printf '%s' ${literal} >&2; exit 1`;
     try {
       await observeStep(`${id}.gate`, 'deterministic', () => lowerDeterministic(`${id}.gate`, command, false), options.onProgress);
