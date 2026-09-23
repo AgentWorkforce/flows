@@ -22,15 +22,17 @@ From the repository root:
 ```bash
 node scripts/run-evals.mjs \
   --suite benchmarks/durability/suite.json \
-  --output evidence/relayflows-durability-v1.json
+  --output /tmp/relayflows-durability-v1.json
 ```
 
-The runner refuses a dirty tree by default. `--allow-dirty` exists for local
-development, but permanently marks the artifact `publicationStatus: ineligible`.
-A publishable result also requires the suite's minimum repetition count and zero
-failed trials. Every trial records its argv, working directory, duration, exit
-code, stdout, and stderr; the report records the suite hash, source commit,
-toolchain, and host class.
+The runner refuses a dirty tree by default and requires report output to live
+outside the source tree, so one result cannot silently dirty the next run.
+`--allow-dirty` exists for local development, but permanently marks the artifact
+`publicationStatus: ineligible` and exits nonzero. A publishable result also
+requires the suite's minimum repetition count, zero failed trials, and explicit
+output witnesses proving each selected test actually ran. Every trial records
+its argv, working directory, duration, outcome, exit code, stdout, and stderr;
+the report records the suite hash, source commit, toolchain, and host class.
 
 ## Claim discipline
 

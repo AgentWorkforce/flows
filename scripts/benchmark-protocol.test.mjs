@@ -25,6 +25,12 @@ test('every workload has multiple implementation-neutral success predicates', ()
     assert.match(scenario.id, /^[a-z0-9]+(?:-[a-z0-9]+)*$/u);
     assert.ok(scenario.workload.length > 20, scenario.id);
     assert.ok(scenario.successPredicates.length >= 3, scenario.id);
+    assert.ok(
+      scenario.successPredicates.every(
+        (predicate) => typeof predicate === 'string' && predicate.length > 0,
+      ),
+      scenario.id,
+    );
   }
 });
 
