@@ -12,6 +12,7 @@ import { canonicalize } from "./canonical.js";
 import { descriptorIsFile } from "./fs-descriptor.js";
 import { snapshotJsonValue } from "./json-value.js";
 import { PluginError } from "./plugin-manifest.js";
+import { appendIntrinsicArray } from "./intrinsic-array.js";
 import {
   PLUGIN_LOCK_FILE,
   PLUGIN_LOCK_VERSION,
@@ -88,13 +89,13 @@ export function declarationSignature(
   }> = [];
   for (let index = 0; index < declared.length; index += 1) {
     const { ref, entry } = declared[index]!;
-    records[index] = {
+    appendIntrinsicArray(records, {
       ref,
       name: entry.name,
       version: entry.version,
       digest: entry.digest,
       manifestSha256: entry.manifestSha256,
-    };
+    });
   }
   return canonicalize(records);
 }
@@ -151,7 +152,7 @@ export function hostedDeclaredExtensions(
           "flows.json plugins must be strings.",
         );
       }
-      if (isHostedGithubPluginRef(ref)) declared[declared.length] = ref;
+      if (isHostedGithubPluginRef(ref)) appendIntrinsicArray(declared, ref);
     }
   }
   let lock: {
@@ -194,7 +195,7 @@ export function hostedDeclaredExtensions(
         "Hosted flows.lock.json order differs from flows.json.plugins.",
       );
     }
-    result[result.length] = OBJECT_FREEZE({ ref, entry, source });
+    appendIntrinsicArray(result, OBJECT_FREEZE({ ref, entry, source }));
   }
   return OBJECT_FREEZE(result);
 }
@@ -272,7 +273,7 @@ function parseHostedPluginLock(input: unknown): {
     if (SET_HAS(names, entry.name))
       return invalidHostedLock(`plugin ${entry.name} is listed twice.`);
     SET_ADD(names, entry.name);
-    plugins[plugins.length] = OBJECT_FREEZE({
+    appendIntrinsicArray(plugins, OBJECT_FREEZE({
       name: entry.name,
       kind: "flow-extension",
       version: entry.version,
@@ -287,7 +288,7 @@ function parseHostedPluginLock(input: unknown): {
       manifestSha256: entry.manifestSha256,
       order: entry.order,
       resolvedAt: entry.resolvedAt,
-    });
+    }));
   }
   return OBJECT_FREEZE({
     version: PLUGIN_LOCK_VERSION,

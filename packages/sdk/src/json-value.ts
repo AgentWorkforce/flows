@@ -1,7 +1,7 @@
 import { isProxy } from 'node:util/types';
+import { appendIntrinsicArray } from './intrinsic-array.js';
 
 const ARRAY_IS_ARRAY = Array.isArray;
-const ARRAY_PUSH = Function.prototype.call.bind(Array.prototype.push) as <T>(array: T[], value: T) => number;
 const ARRAY_PROTOTYPE = Array.prototype;
 const ERROR = Error;
 const IS_PROXY = isProxy;
@@ -133,7 +133,7 @@ function snapshotArray(
     if (index > 0) consumeBytes(budget, 1, at);
     const descriptor = OBJECT_GET_OWN_PROPERTY_DESCRIPTOR(value, STRING(index));
     if (descriptor === undefined) throw nonJson(`${at}[${index}]`, 'array holes are not allowed');
-    ARRAY_PUSH(out, snapshotDescriptor(descriptor, `${at}[${index}]`, ancestors, budget, depth + 1));
+    appendIntrinsicArray(out, snapshotDescriptor(descriptor, `${at}[${index}]`, ancestors, budget, depth + 1));
   }
   // JSON.stringify consults `toJSON` before applying array semantics. Shadow
   // any poisoned Array.prototype hook with inert, non-JSON-visible data while

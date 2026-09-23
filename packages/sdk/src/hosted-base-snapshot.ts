@@ -19,6 +19,7 @@ import {
   statDescriptor,
 } from './fs-descriptor.js';
 import { findHostedProject } from './hosted-project.js';
+import { appendIntrinsicArray } from './intrinsic-array.js';
 import {
   assertHostedPromiseSafety,
   frozenHostedPromiseValue,
@@ -41,7 +42,6 @@ const PATH_RELATIVE = relative;
 const PATH_RESOLVE = resolve;
 const PATH_SEPARATOR = sep;
 const PROCESS_PLATFORM = process.platform;
-const ARRAY_PUSH = Function.prototype.call.bind(Array.prototype.push) as <T>(array: T[], value: T) => number;
 const ARRAY_SORT = Function.prototype.call.bind(Array.prototype.sort) as <T>(
   array: T[],
   compare?: (left: T, right: T) => number,
@@ -180,7 +180,7 @@ async function readAuthorityFiles(
     const source = sources[sourceIndex]!;
     const sourceFiles = await readTree(source.root, source.prefix, budget, hooks);
     for (let fileIndex = 0; fileIndex < sourceFiles.length; fileIndex += 1) {
-      ARRAY_PUSH(files, sourceFiles[fileIndex]!);
+      appendIntrinsicArray(files, sourceFiles[fileIndex]!);
     }
   }
   ARRAY_SORT(files, (left, right) => STRING_LOCALE_COMPARE(left.path, right.path));
@@ -213,7 +213,7 @@ async function readSnapshotTree(root: string): Promise<readonly SourceFile[]> {
             throw invalid(`Hosted base snapshot changed while reading "${path}".`);
           }
           budget.bytes += expectedBytes;
-          ARRAY_PUSH(files, OBJECT_FREEZE({ path, bytes, sha256: sha256(bytes) }));
+          appendIntrinsicArray(files, OBJECT_FREEZE({ path, bytes, sha256: sha256(bytes) }));
         } finally {
           await closeDescriptor(descriptor);
         }
@@ -263,7 +263,7 @@ async function readTree(
               throw invalid(`Hosted base source changed while reading "${relativePath}".`);
             }
             budget.bytes += expectedBytes;
-            ARRAY_PUSH(
+            appendIntrinsicArray(
               files,
               OBJECT_FREEZE({
                 path: prefix === '' ? relativePath : PATH_JOIN(prefix, relativePath),
@@ -334,7 +334,7 @@ function sourceDigest(files: readonly SourceFile[]): string {
   const records: Array<{ path: string; sha256: string }> = [];
   for (let index = 0; index < files.length; index += 1) {
     const file = files[index]!;
-    records[index] = { path: file.path, sha256: file.sha256 };
+    appendIntrinsicArray(records, { path: file.path, sha256: file.sha256 });
   }
   return sha256(canonicalize(records));
 }

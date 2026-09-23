@@ -93,6 +93,36 @@ describe('hosted base private snapshot', () => {
     expect(after).not.toBe(before);
   });
 
+  it('defines source entries without consulting inherited numeric setters', async () => {
+    const { project } = fixture();
+    writeFileSync(join(project, 'helper.ts'), `export const identity = 'authentic';\n`);
+    const previous = Object.getOwnPropertyDescriptor(Array.prototype, '0');
+    let poisonCalls = 0;
+    try {
+      Object.defineProperty(Array.prototype, '0', {
+        configurable: true,
+        set(this: unknown[], value: unknown) {
+          const caller = (new Error().stack ?? '').split('\n', 3)[2] ?? '';
+          if (caller.includes('/src/hosted-')) {
+            poisonCalls += 1;
+            throw new Error('inherited array setter must not run');
+          }
+          Object.defineProperty(this, '0', {
+            configurable: true,
+            enumerable: true,
+            value,
+            writable: true,
+          });
+        },
+      });
+      await expect(hostedBaseSourceDigest([{ root: project, prefix: '' }])).resolves.toMatch(/^[a-f0-9]{64}$/);
+    } finally {
+      if (previous === undefined) delete (Array.prototype as unknown as Record<string, unknown>)['0'];
+      else Object.defineProperty(Array.prototype, '0', previous);
+    }
+    expect(poisonCalls).toBe(0);
+  });
+
   it('uses the module-captured platform during source traversal', async () => {
     const { project } = fixture();
     const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;

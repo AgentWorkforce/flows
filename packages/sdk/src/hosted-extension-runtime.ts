@@ -7,6 +7,7 @@ import {
   removeHostedBaseSnapshot,
   type HostedBaseSourceRoot,
 } from './hosted-base-snapshot.js';
+import { appendIntrinsicArray } from './intrinsic-array.js';
 import {
   declarationSignature,
   hostedDeclaredExtensions,
@@ -179,14 +180,14 @@ async function installationAt(
     const { ref, entry } = declared[index]!;
     const directory = pluginStoreDirectory(root, entry.name, entry.digest);
     await verifyStoredPlugin(directory, entry.digest);
-    artifacts[artifacts.length] = OBJECT_FREEZE({
+    appendIntrinsicArray(artifacts, OBJECT_FREEZE({
       ref,
       name: entry.name,
       version: entry.version,
       directory,
       digest: entry.digest,
       manifestSha256: entry.manifestSha256,
-    });
+    }));
   }
   return frozenHostedPromiseValue({
     installation: installation(artifacts, generation),
@@ -257,7 +258,7 @@ function installation(
   generation: RuntimeGeneration,
 ): HostedExtensionInstallation {
   const artifactCopy: HostedExtensionArtifact[] = [];
-  for (let index = 0; index < artifacts.length; index += 1) artifactCopy[index] = artifacts[index]!;
+  for (let index = 0; index < artifacts.length; index += 1) appendIntrinsicArray(artifactCopy, artifacts[index]!);
   const value = frozenHostedPromiseValue({ artifacts: frozenHostedPromiseValue(artifactCopy) });
   WEAK_SET_ADD(INSTALLATION_AUTHORITY, value);
   WEAK_MAP_SET(INSTALLATION_GENERATION, value, generation);

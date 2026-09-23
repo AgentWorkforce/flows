@@ -2,6 +2,7 @@ import { createHash, createPrivateKey, createPublicKey, randomBytes, sign, verif
 import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { canonicalize } from './canonical.js';
+import { appendIntrinsicArray } from './intrinsic-array.js';
 
 type Hash = ReturnType<typeof createHash>;
 const CREATE_HASH = createHash;
@@ -59,7 +60,7 @@ export function safePath(path: string): boolean {
  */
 export function payloadManifest(files: readonly { path: string; data: Uint8Array }[]): string {
   const sorted: { path: string; data: Uint8Array }[] = [];
-  for (let index = 0; index < files.length; index += 1) sorted[index] = files[index]!;
+  for (let index = 0; index < files.length; index += 1) appendIntrinsicArray(sorted, files[index]!);
   // Do not consult mutable Array prototype methods here. Authored base code
   // executes in this process before hosted artifact staging, so a live
   // sort/map lookup would let it substitute bytes or manifest records.
@@ -75,7 +76,7 @@ export function payloadManifest(files: readonly { path: string; data: Uint8Array
   const entries: { path: string; sha256: string; bytes: number }[] = [];
   for (let index = 0; index < sorted.length; index += 1) {
     const file = sorted[index]!;
-    entries[index] = { path: file.path, sha256: sha256(file.data), bytes: TYPED_ARRAY_LENGTH(file.data) };
+    appendIntrinsicArray(entries, { path: file.path, sha256: sha256(file.data), bytes: TYPED_ARRAY_LENGTH(file.data) });
   }
   return canonicalize(entries);
 }

@@ -8,6 +8,7 @@ import { payloadManifest, sha256 } from './bundle.js';
 import { descriptorIsFile } from './fs-descriptor.js';
 import { PluginError } from './plugin-manifest.js';
 import { assertHostedPromiseSafety } from './hosted-promise-safety.js';
+import { appendIntrinsicArray } from './intrinsic-array.js';
 import { HOSTED_EXTENSION_SANDBOX_SOURCE } from './hosted-extension-sandbox-source.js';
 import {
   exchangeHostedExtension,
@@ -36,7 +37,6 @@ const EVENT_ON = Function.prototype.call.bind(EventEmitter.prototype.on) as (
 const CHILD_PROCESS_KILL = Function.prototype.call.bind(ChildProcess.prototype.kill) as (
   child: ChildProcess, signal?: NodeJS.Signals | number,
 ) => boolean;
-const ARRAY_PUSH = Function.prototype.call.bind(Array.prototype.push) as <T>(array: T[], ...values: T[]) => number;
 const BUFFER_FROM = Buffer.from;
 const JSON_PARSE = JSON.parse;
 const OBJECT_ENTRIES = Object.entries;
@@ -135,7 +135,7 @@ export async function runHostedExtensionSandbox(
   const payloadFiles: { path: string; data: Buffer }[] = [];
   for (let index = 0; index < storedFiles.length; index += 1) {
     const file = storedFiles[index]!;
-    if (file.path !== 'manifest.json') payloadFiles[payloadFiles.length] = file;
+    if (file.path !== 'manifest.json') appendIntrinsicArray(payloadFiles, file);
   }
   if (sha256(payloadManifest(payloadFiles)) !== options.artifactDigest) {
     throw new PluginError(
@@ -149,25 +149,25 @@ export async function runHostedExtensionSandbox(
   }];
   const surfaceFiles = readSurfaceFiles(surfaceRoot);
   for (let index = 0; index < surfaceFiles.length; index += 1) {
-    dataFiles[dataFiles.length] = surfaceFiles[index]!;
+    appendIntrinsicArray(dataFiles, surfaceFiles[index]!);
   }
   for (let index = 0; index < payloadFiles.length; index += 1) {
     const file = payloadFiles[index]!;
-    dataFiles[dataFiles.length] = {
+    appendIntrinsicArray(dataFiles, {
       destination: `/extension/src/${file.path}`,
       bytes: file.data,
-    };
+    });
   }
   const destinations: string[] = [];
   for (let index = 0; index < dataFiles.length; index += 1) {
-    destinations[index] = dataFiles[index]!.destination;
+    appendIntrinsicArray(destinations, dataFiles[index]!.destination);
   }
   const args = sandboxArguments({ node, dataDestinations: destinations });
   await ownOption<() => Promise<void>>(options, 'beforeLaunch')?.();
   const commandArgs = [`--as=${ADDRESS_SPACE_BYTES}`, `--data=${DATA_BYTES}`, '--', bwrap];
-  for (let index = 0; index < args.length; index += 1) commandArgs[commandArgs.length] = args[index]!;
+  for (let index = 0; index < args.length; index += 1) appendIntrinsicArray(commandArgs, args[index]!);
   const stdio: Array<'pipe' | 'ignore'> = ['pipe', 'ignore', 'pipe', 'pipe'];
-  for (let index = 0; index < dataFiles.length; index += 1) stdio[stdio.length] = 'pipe';
+  for (let index = 0; index < dataFiles.length; index += 1) appendIntrinsicArray(stdio, 'pipe');
   const child = SPAWN(prlimit, commandArgs, { cwd: '/', env: {}, stdio });
   for (let index = 0; index < dataFiles.length; index += 1) {
     const feed = child.stdio[index + 4] as Writable;
@@ -252,10 +252,10 @@ function readSurfaceFiles(surfaceRoot: string): SandboxDataFile[] {
     if (sha256(bytes) !== expected) {
       return unsupported(`hosted extension Surface runtime ${file} differs from the reviewed bytes`);
     }
-    files[files.length] = {
+    appendIntrinsicArray(files, {
       destination: `/extension/node_modules/@relayflows/surface/dist/${file}`,
       bytes,
-    };
+    });
   }
   return files;
 }
@@ -270,9 +270,9 @@ export function sandboxArguments(input: {
   const libraryPaths = ['/usr/lib', '/usr/lib64', '/lib', '/lib64'];
   for (let index = 0; index < libraryPaths.length; index += 1) {
     const path = libraryPaths[index]!;
-    if (EXISTS_SYNC(path)) ARRAY_PUSH(args, '--ro-bind', REALPATH_SYNC(path), path);
+    if (EXISTS_SYNC(path)) appendIntrinsicArray(args, '--ro-bind', REALPATH_SYNC(path), path);
   }
-  ARRAY_PUSH(args,
+  appendIntrinsicArray(args,
     '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp',
     '--dir', '/runtime', '--ro-bind', input.node, '/runtime/node',
     '--dir', '/extension', '--dir', '/extension/node_modules', '--dir', '/extension/node_modules/@relayflows',
@@ -299,14 +299,14 @@ export function sandboxArguments(input: {
       directory += `/${parts[partIndex]!}`;
       if (!SET_HAS(directories, directory)) {
         SET_ADD(directories, directory);
-        ARRAY_PUSH(args, '--dir', directory);
+        appendIntrinsicArray(args, '--dir', directory);
       }
     }
   }
   for (let index = 0; index < input.dataDestinations.length; index += 1) {
-    ARRAY_PUSH(args, '--perms', '0400', '--ro-bind-data', STRING(index + 4), input.dataDestinations[index]!);
+    appendIntrinsicArray(args, '--perms', '0400', '--ro-bind-data', STRING(index + 4), input.dataDestinations[index]!);
   }
-  ARRAY_PUSH(args,
+  appendIntrinsicArray(args,
     '--chdir', '/extension/src',
     '--setenv', 'HOME', '/tmp', '--setenv', 'TMPDIR', '/tmp', '--setenv', 'PATH', '/runtime',
     '/runtime/node', '--permission', '--experimental-strip-types', '--max-old-space-size=64',

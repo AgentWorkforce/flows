@@ -9,12 +9,12 @@
 
 import { createHash } from 'node:crypto';
 import { snapshotJsonValue, type JsonValue } from './json-value.js';
+import { appendIntrinsicArray } from './intrinsic-array.js';
 
 const ARRAY_IS_ARRAY = Array.isArray;
 const ARRAY_JOIN = Function.prototype.call.bind(Array.prototype.join) as (
   array: readonly string[], separator?: string,
 ) => string;
-const ARRAY_PUSH = Function.prototype.call.bind(Array.prototype.push) as <T>(array: T[], value: T) => number;
 const ARRAY_SORT = Function.prototype.call.bind(Array.prototype.sort) as <T>(array: T[]) => T[];
 const JSON_STRINGIFY = JSON.stringify;
 const OBJECT_KEYS = Object.keys;
@@ -55,7 +55,7 @@ function serialize(value: JsonValue): string {
   }
   if (ARRAY_IS_ARRAY(value)) {
     const items: string[] = [];
-    for (let index = 0; index < value.length; index += 1) items[index] = serialize(value[index]!);
+    for (let index = 0; index < value.length; index += 1) appendIntrinsicArray(items, serialize(value[index]!));
     return '[' + ARRAY_JOIN(items, ',') + ']';
   }
   const parts: string[] = [];
@@ -65,7 +65,7 @@ function serialize(value: JsonValue): string {
     const key = keys[index]!;
     const child = value[key];
     if (child === undefined) continue;
-    ARRAY_PUSH(parts, JSON_STRINGIFY(key) + ':' + serialize(child));
+    appendIntrinsicArray(parts, JSON_STRINGIFY(key) + ':' + serialize(child));
   }
   return '{' + ARRAY_JOIN(parts, ',') + '}';
 }

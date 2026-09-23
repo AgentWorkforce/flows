@@ -17,6 +17,7 @@ import {
   statDescriptor,
 } from './fs-descriptor.js';
 import { frozenHostedPromiseValue, hostedPromiseValue } from './hosted-promise-safety.js';
+import { appendIntrinsicArray } from './intrinsic-array.js';
 import { MAX_PLUGIN_FILE_BYTES, MAX_PLUGIN_FILES, MAX_PLUGIN_TOTAL_BYTES } from './plugin-github.js';
 import { PluginError } from './plugin-manifest.js';
 
@@ -287,13 +288,13 @@ async function readVerifiedStoredPluginFiles(
     }
     if (sha256(data) !== entry.sha256) return drift(`${entry.path} changed since installation`);
     SET_ADD(paths, entry.path);
-    files[files.length] = { path: entry.path, data };
+    appendIntrinsicArray(files, { path: entry.path, data });
   }
   SET_ADD(paths, 'manifest.json');
   await rejectExtras(directory, '', paths, drift);
   const frozen: Readonly<{ path: string; data: Buffer }>[] = [];
   for (let index = 0; index < files.length; index += 1) {
-    frozen[index] = OBJECT_FREEZE(files[index]!);
+    appendIntrinsicArray(frozen, OBJECT_FREEZE(files[index]!));
   }
   return frozenHostedPromiseValue(frozen);
 }

@@ -19,6 +19,7 @@ import {
   assertHostedPromiseSafety,
   frozenHostedPromiseValue,
 } from './hosted-promise-safety.js';
+import { appendIntrinsicArray } from './intrinsic-array.js';
 import { readStoredPluginFiles } from './plugin-store.js';
 import {
   boundedJsonSnapshot,
@@ -208,7 +209,7 @@ export async function selectHostedExtensionForRuntime(
     const manifest = await verifiedManifest(artifact);
     assertCompatible(manifest, versions);
     assertBaseCompatible(manifest, base);
-    if (hostedManifestRoutes(manifest, identity)) matches[matches.length] = { artifact, manifest };
+    if (hostedManifestRoutes(manifest, identity)) appendIntrinsicArray(matches, { artifact, manifest });
   }
   if (matches.length > 1) {
     throw new PluginError(

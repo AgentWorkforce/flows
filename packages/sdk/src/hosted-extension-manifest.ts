@@ -7,6 +7,7 @@ import type {
 } from './flow-extension-manifest.js';
 import { snapshotJsonValue } from './json-value.js';
 import { frozenHostedPromiseValue } from './hosted-promise-safety.js';
+import { appendIntrinsicArray } from './intrinsic-array.js';
 import { PluginError } from './plugin-manifest.js';
 
 const ARRAY_IS_ARRAY = Array.isArray;
@@ -132,7 +133,7 @@ function compatShape(value: unknown): FlowExtensionCompat {
     for (let prior = 0; prior < base.length; prior += 1) {
       if (base[prior]!.name === entry.name) return invalid('compat.base names a base flow twice.');
     }
-    base[base.length] = OBJECT_FREEZE({ name: entry.name, version: entry.version });
+    appendIntrinsicArray(base, OBJECT_FREEZE({ name: entry.name, version: entry.version }));
   }
   return OBJECT_FREEZE({ surface: value.surface, sdk: value.sdk, base: OBJECT_FREEZE(base) });
 }
@@ -152,11 +153,11 @@ function triggerShapes(value: unknown): readonly FlowExtensionTrigger[] {
         return invalid(`Trigger ${entry.provider}:${entry.event} is declared twice.`);
       }
     }
-    output[output.length] = OBJECT_FREEZE({
+    appendIntrinsicArray(output, OBJECT_FREEZE({
       provider: entry.provider,
       event: entry.event,
       actions: stringList(entry.actions, `triggers ${entry.provider}.${entry.event} actions`, IDENTIFIER),
-    });
+    }));
   }
   return OBJECT_FREEZE(output);
 }
@@ -215,7 +216,7 @@ function stringList(value: unknown, what: string, pattern: RegExp): readonly str
     for (let prior = 0; prior < output.length; prior += 1) {
       if (output[prior] === entry) return invalid(`${what} lists ${entry} twice.`);
     }
-    output[output.length] = entry;
+    appendIntrinsicArray(output, entry);
   }
   return OBJECT_FREEZE(output);
 }
