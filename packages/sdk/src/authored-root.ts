@@ -4,7 +4,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { canonicalize } from './canonical.js';
 import { compileSpec, toKernelSpec } from './compile.js';
-import { executeAuthoredFlow, isLoweredCompletion, type AuthoredFlowExecutionResult } from './authored-flow-executor.js';
+import { executeAuthoredFlow, type AuthoredFlowExecutionResult } from './authored-flow-executor.js';
+import { isDurableCompletionDetail, isLoweredCompletion } from './authored-completion.js';
+import { AUTHORED_ROOT_KIND } from './authored-verdict.js';
 import {
   loadAuthoredFlow,
   type LoadedAuthoredFlow,
@@ -19,7 +21,12 @@ import { AuthoredFlowExecutionError, AuthoredHumanParked } from './authored-flow
 import { readOpenHumanWaits } from './authored-human.js';
 import { isSurfaceCompletionReason } from './authored-step-output.js';
 
-const ROOT_KIND = 'relayflows.authored-root.v1';
+/**
+ * Taken from the projection module rather than spelled twice: `flows status`
+ * has to recognise the same root this file writes, and it must not import the
+ * executor to do it.
+ */
+const ROOT_KIND = AUTHORED_ROOT_KIND;
 
 export interface AuthoredRootExtension {
   readonly name: string;
@@ -230,6 +237,7 @@ async function driveRoot(
       dispatch.run_id, dispatch.step_id, dispatch.attempt,
       dispatch.idempotency_key, 'success', {
         output: { name: result.name, completionReason: result.completionReason,
+          ...(result.completionDetail === undefined ? {} : { completionDetail: result.completionDetail }),
           journalSteps: result.journalSteps,
           ...(result.executionRuntime === undefined ? {} : { executionRuntime: result.executionRuntime }) },
         started_pins: dispatch.pins, end_pins: dispatch.pins,
@@ -372,9 +380,13 @@ async function completedRootResult(
   if (!isCompletedRootOutput(output)) {
     throw new Error('completed authored root has no durable result');
   }
+  // The stored detail, never a freshly computed one: redaction reads the
+  // CURRENT environment, so recomputing here would let a completed run report
+  // something its journal does not hold.
   return Object.freeze({
     name: output.name,
     completionReason: output.completionReason,
+    ...(output.completionDetail === undefined ? {} : { completionDetail: output.completionDetail }),
     journalSteps: Object.freeze(output.journalSteps.map(step => Object.freeze({ ...step }))),
     rootRunId,
   });
@@ -385,6 +397,10 @@ function isCompletedRootOutput(value: unknown): value is Omit<AuthoredFlowExecut
   const output = value as Partial<AuthoredFlowExecutionResult>;
   return typeof output.name === 'string'
     && isLoweredCompletion(output.completionReason)
+    // A malformed detail fails the whole readback rather than being dropped:
+    // silently discarding it would report the verdict without the evidence
+    // the journal says it was recorded with.
+    && (output.completionDetail === undefined || isDurableCompletionDetail(output.completionDetail))
     && Array.isArray(output.journalSteps)
     && output.journalSteps.every(step => typeof step === 'object' && step !== null
       && typeof step.id === 'string' && typeof step.runId === 'string'
