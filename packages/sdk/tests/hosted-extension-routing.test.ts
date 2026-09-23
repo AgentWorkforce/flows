@@ -117,6 +117,45 @@ describe('hosted extension routing policy', () => {
     }, [specific])).toThrow(expect.objectContaining({ code: 'plugin_event_unroutable' }));
   });
 
+  it('keeps the refusal match when Array.prototype has an inherited numeric setter', () => {
+    const body = async () => {};
+    const handler = { trigger: github.pull_request('labeled'), body };
+    const extension = { name: 'specific', handlers: [handler] };
+    const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
+      provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-setter',
+    });
+    const defineProperty = Object.defineProperty;
+    const previous = Object.getOwnPropertyDescriptor(Array.prototype, '0');
+    let poisonCalls = 0;
+    let selected: ReturnType<typeof extensionHandlerForHostedDispatch>;
+    try {
+      defineProperty(Array.prototype, '0', {
+        configurable: true,
+        set(this: unknown[], value: unknown) {
+          const match = value as { extension?: unknown; handler?: unknown } | null;
+          if (match !== null && typeof match === 'object'
+            && match.extension === extension && match.handler === handler) {
+            poisonCalls += 1;
+            return;
+          }
+          defineProperty(this, '0', {
+            configurable: true,
+            enumerable: true,
+            value,
+            writable: true,
+          });
+        },
+      });
+      selected = extensionHandlerForHostedDispatch(dispatch, [extension]);
+    } finally {
+      if (previous === undefined) Reflect.deleteProperty(Array.prototype, '0');
+      else defineProperty(Array.prototype, '0', previous);
+    }
+    expect(poisonCalls).toBe(0);
+    expect(selected?.extension).toBe(extension);
+    expect(selected?.handler).toBe(handler);
+  });
+
   it('parses and routes dispatch authority with captured intrinsics', () => {
     const body = async () => {};
     const extension = { name: 'specific', handlers: [{ trigger: github.pull_request('labeled'), body }] };

@@ -8,6 +8,7 @@ import { findPluginProject } from './plugin-loader.js';
 import { reconcileDeclaredExtensions, type PluginLockEntry } from './plugin-lock.js';
 import { PluginError } from './plugin-manifest.js';
 import { pluginStoreDirectory, readStoredPluginFiles } from './plugin-store.js';
+import { appendIntrinsicArray } from './intrinsic-array.js';
 
 const JSON_PARSE = JSON.parse;
 const ARRAY_IS_ARRAY = Array.isArray;
@@ -203,7 +204,7 @@ export function extensionHandlerForHostedDispatch(
       if (subscription === undefined || subscription.provider !== identity.provider
         || subscription.event !== identity.event) continue;
       if (subscription.action !== undefined && subscription.action !== identity.action) continue;
-      matches[matches.length] = { extension, handler };
+      appendIntrinsicArray(matches, { extension, handler });
     }
   }
   if (matches.length > 1) {
