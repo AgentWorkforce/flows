@@ -171,6 +171,25 @@ export function openCredentialStart(text: string): number {
 }
 
 /**
+ * Does `text` end on a bare credential header — a named credential line whose
+ * value, if it has one, begins on the NEXT line?
+ *
+ * The stream releaser needs this apart from `openCredentialStart`: that check
+ * sees only a header at the very end of the consumed text, but the danger is
+ * wider — a released block that *ends* on `x-callback-token:` prints the
+ * header now and its value, arriving on the next line in some later poll,
+ * without the context `redact` needs. `redact` folds the header's newline into
+ * its own named-pattern match, so the releaser's block-prefix check cannot
+ * detect the dependency on its own. Trailing whitespace-only lines after the
+ * header count as part of it — the value is still to come.
+ */
+export function endsWithOpenCredentialHeader(text: string): boolean {
+  const stripped = text.replace(/\s+$/, '');
+  const lastLine = stripped.slice(stripped.lastIndexOf('\n') + 1);
+  return OPEN_HEADER_PATTERNS.some((pattern) => pattern.test(lastLine));
+}
+
+/**
  * Where a secret value may still be half-arrived at the end of `text`.
  *
  * A stream is redacted in pieces, and `redact` only replaces a secret it can

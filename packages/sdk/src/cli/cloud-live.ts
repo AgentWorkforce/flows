@@ -27,7 +27,7 @@ import {
   type CloudRunDetail, type CloudRunLog, type CloudStep,
 } from '../cloud-read.js';
 import { isCloudRunActive, type CloudRunState } from '../cloud-run-record.js';
-import { openCredentialStart, openSecretStart, redact } from '../redact.js';
+import { endsWithOpenCredentialHeader, openCredentialStart, openSecretStart, redact } from '../redact.js';
 import { thousands } from './cloud-format.js';
 import { fail, isTransientRead, refusalFor, RUN_ID_REQUIRED, type CloudReadOptions } from './cloud-refusal.js';
 import { renderCloudStatus, scrubRun, scrubSteps } from './cloud-status-view.js';
@@ -193,17 +193,20 @@ function lineBoundaryAtOrBefore(text: string, at: number): number {
 /**
  * Release every line the log has settled on, redacted as one block.
  *
- * Three things hold a line back. `openSecretStart` marks where a secret value
+ * Four things hold a line back. `openSecretStart` marks where a secret value
  * has begun and not ended, so nothing at or past it can be shown until the
  * next poll completes it. `openCredentialStart` marks a trailing credential
  * header — `authorization:`, `Bearer`, a callback-token name, or an
  * unterminated credential JSON field — whose value may only arrive on a later
  * poll; releasing the header first would leave the value without the context
- * the redactor needs. And a candidate block is released only when
+ * the redactor needs. A block is never ended on a bare credential header even
+ * when more text follows, because the redactor folds the header's newline
+ * into its own match — the block-prefix check cannot see that the header's
+ * value lives on the next line. And a candidate block is released only when
  * redacting it alone gives the same text as the front of the whole redacted
  * remainder: if the cut fell inside something the redactor would have caught —
- * the second line of a private key, a header whose value is on the next line —
- * the two disagree, and the cut moves back a line and is tried again.
+ * the second line of a private key — the two disagree, and the cut moves back
+ * a line and is tried again.
  *
  * A poll that can release nothing prints nothing; the bytes are not lost, they
  * are held until a later poll or the drain flush can redact them whole.
@@ -214,6 +217,19 @@ function releaseLines(state: LogFollowState, io: CliIo, env: NodeJS.ProcessEnv):
   const remainder = redact(raw.slice(state.released), env);
   let cut = lineBoundaryAtOrBefore(raw, Math.min(openSecretStart(raw, env), openCredentialStart(raw)));
   while (cut > state.released) {
+    if (endsWithOpenCredentialHeader(raw.slice(state.released, cut))) {
+      // A bare credential header as the released block's last line strands
+      // the value that starts on the next line — redact needs them together.
+      // Take the next line into the block when it is complete; when it is
+      // not, the header waits with it and the lines before it still release.
+      const next = raw.indexOf('\n', cut);
+      if (next === -1) {
+        cut = lineBoundaryAtOrBefore(raw, cut - 1);
+        continue;
+      }
+      cut = next + 1;
+      continue;
+    }
     const block = redact(raw.slice(state.released, cut), env);
     if (remainder.startsWith(block)) {
       writeLines(block, state, io);
@@ -280,6 +296,13 @@ export async function runCloudLogsFollow(
   const state: LogFollowState = { consumed: '', released: 0, emitted: false };
   let header = false;
   let failures = 0;
+  // A snapshot that satisfies every drain fact can still predate terminality:
+  // `done` can describe an upload finished while the run kept writing, and the
+  // log route can keep serving that snapshot past the terminal transition.
+  // The read that ends the follow has to postdate the terminal observation —
+  // which on the first sighting it cannot — so a terminal run always gets one
+  // more poll before its log counts as drained.
+  let terminalObserved = false;
   for (;;) {
     if (isAborted(signal)) return aborted('following', runId, args.json, io);
     let outcome: CloudRunState;
@@ -312,7 +335,8 @@ export async function runCloudLogsFollow(
     }
     state.consumed = log.content;
     const terminal = !isCloudRunActive(outcome.status);
-    const drained = logDrained(log, terminal, log.content);
+    const drained = terminalObserved && logDrained(log, terminal, log.content);
+    terminalObserved ||= terminal;
 
     if (!args.json) {
       if (!header) {

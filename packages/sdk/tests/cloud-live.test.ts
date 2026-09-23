@@ -411,9 +411,12 @@ describe('flows logs --follow', () => {
       `/api/v1/workflows/runs/${RUN}`, `/api/v1/workflows/runs/${RUN}/logs`,
       `/api/v1/workflows/runs/${RUN}`, `/api/v1/workflows/runs/${RUN}/logs`,
       `/api/v1/workflows/runs/${RUN}`, `/api/v1/workflows/runs/${RUN}/logs`,
+      // The first terminal sighting cannot prove the snapshot postdates the
+      // transition; the drained read is always one poll later.
+      `/api/v1/workflows/runs/${RUN}`, `/api/v1/workflows/runs/${RUN}/logs`,
     ]);
     // The runner log is followed whole; no offset is guessed at.
-    expect(server.requests.map((request) => request.query)).toEqual(['', '', '', '', '', '']);
+    expect(server.requests.map((request) => request.query)).toEqual(['', '', '', '', '', '', '', '']);
   });
 
   it('preserves blank lines and repeats, and prints nothing for a poll that added nothing', async () => {
@@ -478,6 +481,21 @@ describe('flows logs --follow', () => {
     expect(server.requests).toHaveLength(4);
   });
 
+  it('waits for a post-terminal log snapshot before trusting a done upload', async () => {
+    // `done: true` on the active poll covered an upload, not the run's last
+    // bytes; the first terminal read still serves that stale snapshot, and
+    // draining on it would drop the tail published a poll later.
+    const server = stagedCloud([
+      { run: RUNNING, log: logBody('a\n', { done: true }) },
+      { run: COMPLETED, log: logBody('a\n', { done: true }) },
+      { run: COMPLETED, log: logBody('a\nb\n', { done: true }) },
+    ]);
+    const out = io();
+    expect(await runCloudLogsFollow({ runId: RUN, step: undefined, json: false }, out.io, live())).toBe(0);
+    expect(out.stdout.slice(1, -1)).toEqual(['a', 'b']);
+    expect(server.requests).toHaveLength(6);
+  });
+
   it('keeps following a done log while the run is still going, and a live log after it ends', async () => {
     const server = stagedCloud([
       // `done` with an active run: the log upload finished, the run did not.
@@ -529,6 +547,25 @@ describe('flows logs --follow', () => {
       expect(rendered).toContain('[redacted]');
     },
   );
+
+  it('never releases a credential header line before the line carrying its value completes', async () => {
+    // Poll two serves the value as an unterminated fragment: releasing the
+    // header line there leaves the completed value with no context on poll
+    // three, where it would print verbatim. The header must wait for the
+    // line that carries its value.
+    stagedCloud([
+      { run: RUNNING, log: logBody('x-callback-token:\n') },
+      { run: RUNNING, log: logBody('x-callback-token:\nopaque-sensitive-value') },
+      { run: RUNNING, log: logBody('x-callback-token:\nopaque-sensitive-value\n') },
+      { run: COMPLETED, log: logBody('x-callback-token:\nopaque-sensitive-value\n', { done: true }) },
+    ]);
+    const out = io();
+    expect(await runCloudLogsFollow({ runId: RUN, step: undefined, json: false }, out.io, live())).toBe(0);
+    const rendered = out.stdout.join('\n');
+    expect(rendered).not.toContain('opaque-sensitive-value');
+    expect(rendered).toContain('x-callback-token:');
+    expect(rendered).toContain('[redacted]');
+  });
 
   it('holds an authorization scheme word whose credential value is still coming', async () => {
     stagedCloud([
