@@ -1,20 +1,38 @@
-import { readFileSync } from 'node:fs';
+import packageManifest from '../package.json' with { type: 'json' };
 import type { FlowExtensionManifest } from './flow-extension-manifest.js';
 import { PluginError } from './plugin-manifest.js';
 import { satisfiesRange } from './semver-range.js';
+
+const OBJECT_FREEZE = Object.freeze;
+// This static import is resolved before module evaluation and embedded by the
+// standalone Bun build. It neither consults mutable fs exports after authored
+// code nor depends on import.meta.url naming a real package directory.
+const RUNTIME_VERSIONS = OBJECT_FREEZE({
+  sdk: packageManifest.version,
+  surface: packageManifest.dependencies['@relayflows/surface']!,
+});
 
 export interface RuntimeVersions { readonly sdk: string; readonly surface: string }
 
 /** The versions a plugin's `compat` is checked against: this SDK and the surface it pins. */
 export function runtimeVersions(): RuntimeVersions {
-  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string; dependencies: Record<string, string> };
-  return { sdk: pkg.version, surface: pkg.dependencies['@relayflows/surface']! };
+  return RUNTIME_VERSIONS;
 }
 
 /** `compat.surface` / `compat.sdk` against the runtime: a miss is a refusal, never a warning. */
 export function assertCompatible(manifest: FlowExtensionManifest, versions: RuntimeVersions): void {
-  for (const [what, range, actual] of [['surface', manifest.compat.surface, versions.surface], ['sdk', manifest.compat.sdk, versions.sdk]] as const) {
-    if (!satisfiesRange(actual, range)) throw new PluginError('plugin_incompatible', `${manifest.name} requires ${what} ${range}; this runtime has ${actual}.`);
+  assertRuntimeRange(manifest, 'surface', manifest.compat.surface, versions.surface);
+  assertRuntimeRange(manifest, 'sdk', manifest.compat.sdk, versions.sdk);
+}
+
+function assertRuntimeRange(
+  manifest: FlowExtensionManifest,
+  what: 'surface' | 'sdk',
+  range: string,
+  actual: string,
+): void {
+  if (!satisfiesRange(actual, range)) {
+    throw new PluginError('plugin_incompatible', `${manifest.name} requires ${what} ${range}; this runtime has ${actual}.`);
   }
 }
 
@@ -23,9 +41,16 @@ export function assertCompatible(manifest: FlowExtensionManifest, versions: Runt
  * optional: a base without it matches only `"*"`.
  */
 export function assertBaseCompatible(manifest: FlowExtensionManifest, base: { readonly name: string; readonly version?: string }): void {
-  const entry = manifest.compat.base.find(b => b.name === base.name);
+  let entry: FlowExtensionManifest['compat']['base'][number] | undefined;
+  for (let index = 0; index < manifest.compat.base.length; index += 1) {
+    if (manifest.compat.base[index]!.name === base.name) entry = manifest.compat.base[index];
+  }
   if (entry === undefined) {
-    throw new PluginError('plugin_incompatible', `${manifest.name} extends ${manifest.compat.base.map(b => b.name).join(', ')}, not "${base.name}".`);
+    let names = '';
+    for (let index = 0; index < manifest.compat.base.length; index += 1) {
+      names += `${index === 0 ? '' : ', '}${manifest.compat.base[index]!.name}`;
+    }
+    throw new PluginError('plugin_incompatible', `${manifest.name} extends ${names}, not "${base.name}".`);
   }
   if (base.version === undefined) {
     if (entry.version !== '*') throw new PluginError('plugin_incompatible', `${manifest.name} requires ${base.name} ${entry.version}, but the base flow declares no version; only "*" can be satisfied.`);

@@ -2,6 +2,27 @@ import { createHash, createPrivateKey, createPublicKey, randomBytes, sign, verif
 import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { canonicalize } from './canonical.js';
+import { appendIntrinsicArray } from './intrinsic-array.js';
+
+type Hash = ReturnType<typeof createHash>;
+const CREATE_HASH = createHash;
+const HASH_UPDATE = Function.prototype.call.bind(CREATE_HASH('sha256').update) as (
+  hash: Hash,
+  data: Uint8Array | string,
+) => Hash;
+const HASH_DIGEST = Function.prototype.call.bind(CREATE_HASH('sha256').digest) as (
+  hash: Hash,
+  encoding: 'hex',
+) => string;
+const STRING_INCLUDES = Function.prototype.call.bind(String.prototype.includes) as (
+  value: string, search: string,
+) => boolean;
+const STRING_SPLIT = Function.prototype.call.bind(String.prototype.split) as (
+  value: string, separator: string,
+) => string[];
+const TYPED_ARRAY_LENGTH = Function.prototype.call.bind(
+  Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype) as object, 'length')!.get!,
+) as (value: Uint8Array) => number;
 
 export interface BundleEntry { path: string; sha256: string; bytes: number }
 export interface BundleFile { path: string; data: Uint8Array | string; executable?: boolean }
@@ -15,14 +36,21 @@ export interface BundleOptions {
 }
 
 export function sha256(data: Uint8Array | string): string {
-  return createHash('sha256').update(data).digest('hex');
+  const hash = CREATE_HASH('sha256');
+  HASH_UPDATE(hash, data);
+  return HASH_DIGEST(hash, 'hex');
 }
 
 /** A bundle-relative path: no empty, `.`, or `..` component, no backslash, NUL, or drive colon. */
 export function safePath(path: string): boolean {
-  return path.length > 0 && !path.includes('\\') && !path.includes('\0')
-    && path.split('/').every(part => part !== '' && part !== '.' && part !== '..')
-    && !path.includes(':');
+  if (path.length === 0 || STRING_INCLUDES(path, '\\') || STRING_INCLUDES(path, '\0')
+    || STRING_INCLUDES(path, ':')) return false;
+  const parts = STRING_SPLIT(path, '/');
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index]!;
+    if (part === '' || part === '.' || part === '..') return false;
+  }
+  return true;
 }
 
 /**
@@ -31,9 +59,26 @@ export function safePath(path: string): boolean {
  * thing everywhere: the digest of `[{bytes,path,sha256}]`, sorted by path.
  */
 export function payloadManifest(files: readonly { path: string; data: Uint8Array }[]): string {
-  return canonicalize([...files]
-    .sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
-    .map(file => ({ path: file.path, sha256: sha256(file.data), bytes: file.data.length })));
+  const sorted: { path: string; data: Uint8Array }[] = [];
+  for (let index = 0; index < files.length; index += 1) appendIntrinsicArray(sorted, files[index]!);
+  // Do not consult mutable Array prototype methods here. Authored base code
+  // executes in this process before hosted artifact staging, so a live
+  // sort/map lookup would let it substitute bytes or manifest records.
+  for (let index = 1; index < sorted.length; index += 1) {
+    const current = sorted[index]!;
+    let position = index;
+    while (position > 0 && sorted[position - 1]!.path > current.path) {
+      sorted[position] = sorted[position - 1]!;
+      position -= 1;
+    }
+    sorted[position] = current;
+  }
+  const entries: { path: string; sha256: string; bytes: number }[] = [];
+  for (let index = 0; index < sorted.length; index += 1) {
+    const file = sorted[index]!;
+    appendIntrinsicArray(entries, { path: file.path, sha256: sha256(file.data), bytes: TYPED_ARRAY_LENGTH(file.data) });
+  }
+  return canonicalize(entries);
 }
 
 /** Manifest and identity are envelopes, excluded to avoid circular hashing. */

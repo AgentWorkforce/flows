@@ -1,0 +1,472 @@
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
+import { open as openFileHandle } from 'node:fs/promises';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+  createHostedBaseSnapshot,
+  hostedBaseSourceDigest,
+  removeHostedBaseSnapshot,
+} from '../src/hosted-base-snapshot.js';
+import { loadHostedExtensionRuntime } from '../src/hosted-extension-runtime.js';
+
+const roots: string[] = [];
+const require = createRequire(import.meta.url);
+afterEach(() => roots.splice(0).forEach(root => rmSync(root, { recursive: true, force: true })));
+
+function fixture() {
+  const project = mkdtempSync(join(tmpdir(), 'hosted-base-snapshot-test-'));
+  roots.push(project);
+  writeFileSync(join(project, 'package.json'), '{"type":"module"}');
+  writeFileSync(join(project, 'flows.json'), '{}');
+  const flowPath = join(project, 'software-factory.flow.ts');
+  const source = `throw new Error('tenant base must not execute');\n`;
+  writeFileSync(flowPath, source);
+  return { project, flowPath, source };
+}
+
+describe('hosted base private snapshot', () => {
+  it('shadows inherited thenables on completed snapshot authority', async () => {
+    const { flowPath } = fixture();
+    const snapshot = await createHostedBaseSnapshot(flowPath);
+    try {
+      expect(Object.getOwnPropertyDescriptor(snapshot, 'then')).toMatchObject({ value: undefined });
+      expect(Object.getOwnPropertyDescriptor(snapshot.liveSources, 'then')).toMatchObject({ value: undefined });
+    } finally {
+      await removeHostedBaseSnapshot(snapshot);
+    }
+  });
+
+  it('locks the inherited then slot before authored code can schedule a replacement', async () => {
+    const { flowPath } = fixture();
+    let poisonCalls = 0;
+    const locked = Object.getOwnPropertyDescriptor(Object.prototype, 'then');
+    expect(locked).toMatchObject({ configurable: false, enumerable: false });
+    expect(typeof locked?.get).toBe('function');
+    expect(typeof locked?.set).toBe('function');
+    expect(() => {
+      Object.defineProperty(Object.prototype, 'then', {
+        configurable: true,
+        get() {
+          poisonCalls += 1;
+          return undefined;
+        },
+      });
+    }).toThrow(TypeError);
+    const snapshot = await createHostedBaseSnapshot(flowPath);
+    await removeHostedBaseSnapshot(snapshot);
+    expect(poisonCalls).toBe(0);
+  });
+
+  it('keeps the buffered base bytes when the live source changes', async () => {
+    const { flowPath, source } = fixture();
+    const snapshot = await createHostedBaseSnapshot(flowPath);
+    try {
+      writeFileSync(flowPath, `throw new Error('live replacement');\n`);
+      expect(readFileSync(snapshot.snapshotFlowPath, 'utf8')).toBe(source);
+      expect(await hostedBaseSourceDigest(snapshot.liveSources)).not.toBe(snapshot.liveDigest);
+    } finally {
+      await removeHostedBaseSnapshot(snapshot);
+    }
+  });
+
+  it('keeps source digests sensitive when ambient Array.map is poisoned', async () => {
+    const { project } = fixture();
+    const sources = [{ root: project, prefix: '' }];
+    const before = await hostedBaseSourceDigest(sources);
+    writeFileSync(join(project, 'helper.ts'), `export const identity = 'changed';\n`);
+    const originalMap = Array.prototype.map;
+    let poisonCalls = 0;
+    let after: string | undefined;
+    try {
+      Array.prototype.map = function poisonedMap() {
+        poisonCalls += 1;
+        return [];
+      } as typeof Array.prototype.map;
+      after = await hostedBaseSourceDigest(sources);
+    } finally {
+      Array.prototype.map = originalMap;
+    }
+    expect(poisonCalls).toBe(0);
+    expect(after).not.toBe(before);
+  });
+
+  it('defines source entries without consulting inherited numeric setters', async () => {
+    const { project } = fixture();
+    writeFileSync(join(project, 'helper.ts'), `export const identity = 'authentic';\n`);
+    const previous = Object.getOwnPropertyDescriptor(Array.prototype, '0');
+    let poisonCalls = 0;
+    try {
+      Object.defineProperty(Array.prototype, '0', {
+        configurable: true,
+        set(this: unknown[], value: unknown) {
+          const caller = (new Error().stack ?? '').split('\n', 3)[2] ?? '';
+          if (caller.includes('/src/hosted-')) {
+            poisonCalls += 1;
+            throw new Error('inherited array setter must not run');
+          }
+          Object.defineProperty(this, '0', {
+            configurable: true,
+            enumerable: true,
+            value,
+            writable: true,
+          });
+        },
+      });
+      await expect(hostedBaseSourceDigest([{ root: project, prefix: '' }])).resolves.toMatch(/^[a-f0-9]{64}$/);
+    } finally {
+      if (previous === undefined) delete (Array.prototype as unknown as Record<string, unknown>)['0'];
+      else Object.defineProperty(Array.prototype, '0', previous);
+    }
+    expect(poisonCalls).toBe(0);
+  });
+
+  it('uses the module-captured platform during source traversal', async () => {
+    const { project } = fixture();
+    const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    let poisonCalls = 0;
+    try {
+      Object.defineProperty(process, 'platform', {
+        configurable: descriptor.configurable,
+        get() {
+          const caller = (new Error().stack ?? '').split('\n', 3)[2] ?? '';
+          if (caller.includes('/src/hosted-base-snapshot.')) {
+            poisonCalls += 1;
+            throw new Error('ambient process.platform must not run');
+          }
+          return descriptor.value;
+        },
+      });
+      await expect(hostedBaseSourceDigest([{ root: project, prefix: '' }])).resolves.toMatch(/^[a-f0-9]{64}$/);
+    } finally {
+      Object.defineProperty(process, 'platform', descriptor);
+    }
+    expect(poisonCalls).toBe(0);
+  });
+
+  it('shadows native directory arrays before promise resolution can substitute them', async () => {
+    const { flowPath } = fixture();
+    const previous = Object.getOwnPropertyDescriptor(Array.prototype, 'then');
+    const empty: unknown[] = [];
+    Object.defineProperty(empty, 'then', { value: undefined });
+    let poisonCalls = 0;
+    let snapshot: Awaited<ReturnType<typeof createHostedBaseSnapshot>> | undefined;
+    try {
+      Object.defineProperty(Array.prototype, 'then', {
+        configurable: true,
+        get(this: unknown[]) {
+          const first = this[0] as { name?: unknown; isFile?: unknown } | undefined;
+          if (typeof first?.name === 'string' && typeof first.isFile === 'function') {
+            poisonCalls += 1;
+            return (resolvePromise: (value: unknown) => void) => resolvePromise(empty);
+          }
+          return undefined;
+        },
+      });
+      snapshot = await createHostedBaseSnapshot(flowPath);
+      expect(readFileSync(snapshot.snapshotFlowPath, 'utf8')).toContain('tenant base must not execute');
+    } finally {
+      if (snapshot !== undefined) await removeHostedBaseSnapshot(snapshot);
+      if (previous === undefined) delete (Array.prototype as { then?: unknown }).then;
+      else Object.defineProperty(Array.prototype, 'then', previous);
+    }
+    expect(poisonCalls).toBe(0);
+  });
+
+  it('excludes project node_modules from the admitted generation', async () => {
+    const { project, flowPath } = fixture();
+    const dependency = join(project, 'node_modules/local-identity');
+    mkdirSync(dependency, { recursive: true });
+    writeFileSync(join(dependency, 'package.json'), '{"name":"local-identity"}');
+    writeFileSync(join(dependency, 'index.js'), `throw new Error('must not execute');\n`);
+    const snapshot = await createHostedBaseSnapshot(flowPath);
+    try {
+      expect(() => readFileSync(join(snapshot.snapshotRoot, 'node_modules/local-identity/index.js'))).toThrow();
+      const before = await hostedBaseSourceDigest(snapshot.liveSources);
+      writeFileSync(join(dependency, 'index.js'), `throw new Error('replacement');\n`);
+      expect(await hostedBaseSourceDigest(snapshot.liveSources)).toBe(before);
+    } finally {
+      await removeHostedBaseSnapshot(snapshot);
+    }
+  });
+
+  it('refuses an oversized source file before buffering its contents', async () => {
+    const { project, flowPath } = fixture();
+    const oversized = join(project, 'oversized.bin');
+    writeFileSync(oversized, '');
+    truncateSync(oversized, 64 * 1024 * 1024 + 1);
+    await expect(createHostedBaseSnapshot(flowPath)).rejects.toMatchObject({
+      code: 'plugin_source_invalid',
+      message: expect.stringContaining('snapshot entry or byte limit'),
+    });
+  });
+
+  it.each(['flows.json', 'flows.lock.json'])('refuses oversized sparse %s before parsing it', async declaration => {
+    const { project, flowPath } = fixture();
+    const path = join(project, declaration);
+    if (!existsSync(path)) writeFileSync(path, '');
+    truncateSync(path, 1024 * 1024 + 1);
+    await expect(loadHostedExtensionRuntime(flowPath)).rejects.toMatchObject({
+      code: 'plugin_source_invalid',
+      message: expect.stringContaining('bounded regular file'),
+    });
+  });
+
+  it('captures conversion and allocation across declarations and source snapshots', async () => {
+    const { flowPath } = fixture();
+    const number = Number;
+    const allocUnsafe = Buffer.allocUnsafe;
+    let poisonCalls = 0;
+    try {
+      globalThis.Number = ((value?: unknown) => {
+        const stack = new Error().stack ?? '';
+        const directCaller = stack.split('\n', 3)[2] ?? '';
+        if (
+          directCaller.includes('/src/hosted-base-snapshot.') ||
+          directCaller.includes('/src/hosted-extension-runtime.')
+        ) {
+          poisonCalls += 1;
+          throw new Error('ambient Number must not run');
+        }
+        return number(value);
+      }) as unknown as NumberConstructor;
+      Buffer.allocUnsafe = ((size: number) => {
+        const stack = new Error().stack ?? '';
+        const directCaller = stack.split('\n', 3)[2] ?? '';
+        if (
+          directCaller.includes('/src/hosted-base-snapshot.') ||
+          directCaller.includes('/src/hosted-extension-runtime.')
+        ) {
+          poisonCalls += 1;
+          throw new Error('ambient Buffer.allocUnsafe must not run');
+        }
+        return allocUnsafe(size);
+      }) as typeof Buffer.allocUnsafe;
+      await expect(loadHostedExtensionRuntime(flowPath)).rejects.toMatchObject({
+        code: 'plugin_source_invalid',
+        message: expect.stringContaining('reviewed Software Factory base source'),
+      });
+    } finally {
+      globalThis.Number = number;
+      Buffer.allocUnsafe = allocUnsafe;
+    }
+    expect(poisonCalls).toBe(0);
+  });
+
+  it('keeps declaration and reviewed-base reads bound after builtin export synchronization', async () => {
+    const { flowPath } = fixture();
+    const builtinFs = require('node:fs') as typeof import('node:fs');
+    const builtinPath = require('node:path') as typeof import('node:path');
+    const originalOpenSync = builtinFs.openSync;
+    const originalReadFile = builtinFs.promises.readFile;
+    const originalExistsSync = builtinFs.existsSync;
+    const originalResolve = builtinPath.resolve;
+    const originalJoin = builtinPath.join;
+    const originalDirname = builtinPath.dirname;
+    let poisonCalls = 0;
+    const directProductionCaller = (): boolean => {
+      const directCaller = (new Error().stack ?? '').split('\n', 4)[3] ?? '';
+      return directCaller.includes('/src/hosted-extension-runtime.');
+    };
+    try {
+      Object.defineProperty(builtinFs, 'openSync', {
+        ...Object.getOwnPropertyDescriptor(builtinFs, 'openSync'),
+        value: (...args: unknown[]) => {
+          if (directProductionCaller()) {
+            poisonCalls += 1;
+            throw new Error('ambient openSync must not run');
+          }
+          return Reflect.apply(originalOpenSync, builtinFs, args);
+        },
+      });
+      Object.defineProperty(builtinFs.promises, 'readFile', {
+        ...Object.getOwnPropertyDescriptor(builtinFs.promises, 'readFile'),
+        value: async (...args: unknown[]) => {
+          if (directProductionCaller()) {
+            poisonCalls += 1;
+            throw new Error('ambient readFile must not run');
+          }
+          return await Reflect.apply(originalReadFile, builtinFs.promises, args);
+        },
+      });
+      Object.defineProperty(builtinFs, 'existsSync', {
+        ...Object.getOwnPropertyDescriptor(builtinFs, 'existsSync'),
+        value: (...args: unknown[]) => {
+          const caller = (new Error().stack ?? '').split('\n', 4)[3] ?? '';
+          if (caller.includes('/src/hosted-project.')) {
+            poisonCalls += 1;
+            throw new Error('ambient existsSync must not run');
+          }
+          return Reflect.apply(originalExistsSync, builtinFs, args);
+        },
+      });
+      for (const [name, original] of [
+        ['resolve', originalResolve], ['join', originalJoin], ['dirname', originalDirname],
+      ] as const) {
+        Object.defineProperty(builtinPath, name, {
+          ...Object.getOwnPropertyDescriptor(builtinPath, name),
+          value: (...args: unknown[]) => {
+            const caller = (new Error().stack ?? '').split('\n', 4)[3] ?? '';
+            if (caller.includes('/src/hosted-project.')) {
+              poisonCalls += 1;
+              throw new Error(`ambient path.${name} must not run`);
+            }
+            return Reflect.apply(original, builtinPath, args);
+          },
+        });
+      }
+      syncBuiltinESMExports();
+      await expect(loadHostedExtensionRuntime(flowPath)).rejects.toMatchObject({
+        code: 'plugin_source_invalid',
+        message: expect.stringContaining('reviewed Software Factory base source'),
+      });
+    } finally {
+      Object.defineProperty(builtinFs, 'openSync', {
+        ...Object.getOwnPropertyDescriptor(builtinFs, 'openSync'),
+        value: originalOpenSync,
+      });
+      Object.defineProperty(builtinFs.promises, 'readFile', {
+        ...Object.getOwnPropertyDescriptor(builtinFs.promises, 'readFile'),
+        value: originalReadFile,
+      });
+      Object.defineProperty(builtinFs, 'existsSync', {
+        ...Object.getOwnPropertyDescriptor(builtinFs, 'existsSync'),
+        value: originalExistsSync,
+      });
+      Object.defineProperty(builtinPath, 'resolve', {
+        ...Object.getOwnPropertyDescriptor(builtinPath, 'resolve'), value: originalResolve,
+      });
+      Object.defineProperty(builtinPath, 'join', {
+        ...Object.getOwnPropertyDescriptor(builtinPath, 'join'), value: originalJoin,
+      });
+      Object.defineProperty(builtinPath, 'dirname', {
+        ...Object.getOwnPropertyDescriptor(builtinPath, 'dirname'), value: originalDirname,
+      });
+      syncBuiltinESMExports();
+    }
+    expect(poisonCalls).toBe(0);
+  });
+
+  it('reads through captured descriptors and charges admitted descriptor sizes', async () => {
+    const { project, flowPath } = fixture();
+    const sample = await openFileHandle(flowPath, 'r');
+    const fileHandlePrototype = Object.getPrototypeOf(sample) as {
+      read: (...args: unknown[]) => unknown;
+    };
+    const fileHandleRead = fileHandlePrototype.read;
+    await sample.close();
+    const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype) as object;
+    const byteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, 'byteLength')!;
+    let poisonCalls = 0;
+    try {
+      fileHandlePrototype.read = function poisonedRead(this: unknown, ...args: unknown[]) {
+        poisonCalls += 1;
+        return Reflect.apply(fileHandleRead, this, args);
+      };
+      Object.defineProperty(typedArrayPrototype, 'byteLength', {
+        ...byteLength,
+        get(this: Uint8Array) {
+          const stack = new Error().stack ?? '';
+          const directCaller = stack.split('\n', 3)[2] ?? '';
+          if (directCaller.includes('hosted-base-snapshot.')) {
+            poisonCalls += 1;
+            return 0;
+          }
+          return Reflect.apply(byteLength.get!, this, []);
+        },
+      });
+      await expect(hostedBaseSourceDigest([{ root: project, prefix: '' }])).resolves.toMatch(/^[a-f0-9]{64}$/);
+    } finally {
+      fileHandlePrototype.read = fileHandleRead;
+      Object.defineProperty(typedArrayPrototype, 'byteLength', byteLength);
+    }
+    expect(poisonCalls).toBe(0);
+  });
+
+  it('ignores inherited snapshot test hooks when production omits them', async () => {
+    const { project } = fixture();
+    const names = ['beforeOpen', 'afterStat'] as const;
+    const previous = names.map(name => Object.getOwnPropertyDescriptor(Object.prototype, name));
+    let poisonCalls = 0;
+    try {
+      for (const name of names) {
+        Object.defineProperty(Object.prototype, name, {
+          configurable: true,
+          value: async () => {
+            poisonCalls += 1;
+            throw new Error(`inherited ${name} must not run`);
+          },
+        });
+      }
+      await expect(hostedBaseSourceDigest([{ root: project, prefix: '' }])).resolves.toMatch(/^[a-f0-9]{64}$/);
+    } finally {
+      for (let index = 0; index < names.length; index += 1) {
+        const descriptor = previous[index];
+        if (descriptor === undefined) delete (Object.prototype as Record<string, unknown>)[names[index]!];
+        else Object.defineProperty(Object.prototype, names[index]!, descriptor);
+      }
+    }
+    expect(poisonCalls).toBe(0);
+  });
+
+  it('bounds a file that grows after its admitted size was checked', async () => {
+    const { project } = fixture();
+    const raced = join(project, 'raced.bin');
+    writeFileSync(raced, 'small');
+    await expect(
+      hostedBaseSourceDigest([{ root: project, prefix: '' }], {
+        afterStat: async path => {
+          if (path === raced) truncateSync(raced, 64 * 1024 * 1024 + 1);
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: 'plugin_source_invalid',
+      message: expect.stringContaining('changed while reading "raced.bin"'),
+    });
+  });
+
+  it.runIf(process.platform === 'linux' && existsSync('/usr/bin/mkfifo'))(
+    'opens a substituted FIFO without blocking before rejecting it',
+    async () => {
+      const { project } = fixture();
+      const raced = join(project, 'raced.txt');
+      writeFileSync(raced, 'regular');
+      let release: ReturnType<typeof setTimeout> | undefined;
+      const started = Date.now();
+      try {
+        await expect(
+          hostedBaseSourceDigest([{ root: project, prefix: '' }], {
+            beforeOpen: async path => {
+              if (path !== raced) return;
+              rmSync(raced);
+              const result = spawnSync('/usr/bin/mkfifo', [raced]);
+              if (result.status !== 0) throw new Error(result.stderr.toString());
+              // If O_NONBLOCK is removed, release the read-only open so the test
+              // fails on elapsed time instead of hanging the test process.
+              release = setTimeout(() => writeFileSync(raced, 'release'), 1_000);
+            },
+          }),
+        ).rejects.toMatchObject({
+          code: 'plugin_source_invalid',
+          message: expect.stringContaining('unsupported entry "raced.txt"'),
+        });
+        expect(Date.now() - started).toBeLessThan(500);
+      } finally {
+        if (release !== undefined) clearTimeout(release);
+      }
+    },
+  );
+
+  it('stops streaming project entries at the shared count limit', async () => {
+    const { project, flowPath } = fixture();
+    for (let index = 0; index < 10_001; index += 1) {
+      writeFileSync(join(project, `empty-${index}.txt`), '');
+    }
+    await expect(createHostedBaseSnapshot(flowPath)).rejects.toMatchObject({
+      code: 'plugin_source_invalid',
+      message: expect.stringContaining('snapshot entry or byte limit'),
+    });
+  });
+});

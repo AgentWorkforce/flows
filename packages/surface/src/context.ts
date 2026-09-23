@@ -1,6 +1,6 @@
 import type { Helpers } from "./helpers/index.js";
 import type { MemoryHelper } from "./memory.js";
-import type { CloudHelper } from "./cloud.js";
+import type { CloudCapabilities, CloudHelper } from "./cloud.js";
 import type { FlowCompletionReason } from "./completion.js";
 import type { Step } from "./step.js";
 
@@ -56,6 +56,8 @@ export interface LlmOptions {
  * context or execute a step, so all effects remain behind the journal client.
  */
 export interface Ctx extends Helpers {
+  /** Host-verified ports. Absent from direct/local runs and ordinary authored execution. */
+  readonly capabilities?: { readonly cloud?: CloudCapabilities };
   readonly mcp: Readonly<Record<string, Readonly<Record<string, (args: unknown) => Step<unknown>>>>>;
   /** Command lease: milliseconds or a duration such as "5m"; default 30s, maximum 15m. */
   run(command: string, options?: { timeout?: string | number }): Step<string>;

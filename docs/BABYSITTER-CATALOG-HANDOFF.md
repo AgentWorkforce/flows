@@ -19,11 +19,75 @@ exact live `babysit` label and the bound session/head. Permission declarations
 are not enforcement. Export success is byte verification, not execution approval.
 
 The native package source is `extensions/babysitter` (see its README for the
-turn contract). It is unreleased and cannot execute: #549 still refuses it,
-the SDK context has no `capabilities.cloud.babysitterTurn`, and its
-`compat` requires a surface release after 2.0.25 that routes `labeled`,
-`unlabeled`, and `ready_for_review`. Export it only from a reviewed, merged
-commit.
+turn contract). Flows 2.0.26 is published, but the package cannot execute
+through the generic executor: #549 still refuses it. The SDK now has a separate Linux-only
+capability sandbox that injects exactly
+`capabilities.cloud.babysitterTurn.queue` without exposing the base context,
+workspace, environment credentials, network, helpers, MCP, or harnesses. It is
+not wired to hosted dispatch and must not be treated as enablement. The package's
+`compat` requires the published 2.0.26 Surface/SDK release that routes
+`labeled`, `unlabeled`, and `ready_for_review`. Export it only from the reviewed
+release commit pinned below. The Software Factory flow's own independently
+versioned header remains `2.0.22`; a regression requires the hosted identity to
+equal the identity obtained from that exact reviewed source.
+
+The sandbox contract is deliberately narrower than #442. It re-verifies the
+complete lock-backed installation and every manifest, binds it to the exact
+reviewed Software Factory source in the same `loadHostedExtensionRuntime` generation, detects
+cross-extension route ambiguity, accepts only the exact published Babysitter
+ref/digest/manifest and native permission profile, imports the entry only
+inside Linux bubblewrap plus Node's
+permission model under inherited 16 GiB address-space and 3 GiB
+data/anonymous-memory hard limits, mounts a
+minimal trusted Surface facade (`flow`, `github`,
+and `getFlowDefinition`) from six integrity-pinned private runtime files instead
+of the general helper runtime, checks
+normalized input against non-serializable verified dispatch authority, and
+permits one queue call. The parent capability adapter
+receives that original authority plus immutable extension provenance; the
+capability request never carries workspace, activation, listener, session,
+lineage, label, head, prompt, merge, route, or config authority. Cloud PR #3942 owns the
+lineage/authority core and must inject workspace, activation, and listener from
+persisted dispatch context, re-read live PR/label/head state, and return only
+`{ receiptId, status: 'queued' | 'duplicate' }`. Refusal or in-doubt transport
+rejects once with no fallback.
+
+Only the parent validator is a security boundary. The isolated entry can write
+its inherited protocol descriptor directly and bypass child-side routing,
+context, call-count, and completion checks. Parent validation therefore treats
+every frame as hostile, permits at most the one exact delivery already bound to
+the branded dispatch, and waits for the adapter's authoritative outcome before
+settling any premature child terminal frame. An authoritative adapter rejection
+settles immediately with its original typed error even if the child hangs.
+
+Before replacing #549's refusal, the hosted caller must obtain an opaque base
+and installation as one generation with `loadHostedExtensionRuntime`, then call
+`runHostedCapabilityExtension` with both values. Every dispatch rechecks the
+current extension declarations and complete project source tree against that
+generation. Directory entries are streamed beneath a shared entry bound;
+nonblocking no-follow descriptors and explicitly bounded reads enforce the
+cumulative-byte limit before source contents are buffered. The loader never imports
+tenant base code to derive authority. It
+requires the exact reviewed Software Factory flow-file SHA-256 and assigns its
+pinned name/version in the parent; project `node_modules`, relative imports,
+stdout, process termination, globals, and module caches therefore cannot forge
+that identity. The sandbox separately requires exact SHA-256 pins for every
+Surface runtime file it needs, copies those bytes into its private runtime, and
+mounts only the copies. A final generation check runs after both private
+snapshots exist and immediately before launch;
+using the ordinary compose loader would import extension top-level JavaScript
+in the host before the sandbox exists. Cross-project, cross-redeploy, stale,
+and structural pairings fail before import. The selected store bytes are copied into a
+private snapshot whose digest is recomputed before bubblewrap mounts it, so a
+later live-store replacement cannot alter imported code. Independent review
+must prove this path at the exact release head. Broader per-agent-step
+file/network/access-preset enforcement remains open in #442 and is not claimed
+by this slice.
+
+The reviewed native source ref is
+`github:AgentWorkforce/flows@8b33ebab8347514f80d9da5a81206a087f641714#extensions/babysitter`,
+the commit included in the published 2.0.26 install. The earlier byte-identical
+pre-release commit is not accepted as authority.
 
 ## Export reviewed bytes
 
