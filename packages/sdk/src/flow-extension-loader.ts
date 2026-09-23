@@ -9,7 +9,6 @@ import { appendIntrinsicArray } from './intrinsic-array.js';
 import { reconcileDeclaredExtensions, type PluginLockEntry } from './plugin-lock.js';
 import { PluginError } from './plugin-manifest.js';
 import { pluginStoreDirectory, readStoredPluginFiles } from './plugin-store.js';
-import { appendIntrinsicArray } from './intrinsic-array.js';
 
 const JSON_PARSE = JSON.parse;
 const ARRAY_IS_ARRAY = Array.isArray;
