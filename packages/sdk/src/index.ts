@@ -119,6 +119,16 @@ export { parseHumanTo, parseHumanRecipient, humanRecipientProvider, type HumanRe
 
 export { canonicalize, specHash } from './canonical.js';
 export {
+  createFlowToolManifest, parseFlowToolManifest, canonicalFlowToolManifest,
+  validateFlowToolInput, validateFlowToolResult,
+  type FlowToolDeclarationV1, type FlowToolManifestV1, type FlowToolDigest,
+} from './flow-tool-manifest.js';
+export { FLOW_TOOL_SCHEMA_DIALECT, type FlowToolJson, type FlowToolObjectSchema } from './flow-tool-schema.js';
+export {
+  flowToolFunctionDefinition, flowToolMcpDefinition,
+  type FlowToolFunctionDefinition, type FlowToolMcpDefinition,
+} from './flow-tool-definitions.js';
+export {
   compileAndHash,
   compileSpec,
   compileYaml,
