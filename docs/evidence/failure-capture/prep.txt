@@ -1,3 +1,4 @@
+$ npm install --prefix packages/sdk --no-audit --no-fund
 
 > @relayflows/sdk@2.0.28 prepare
 > npm run build

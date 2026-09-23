@@ -1,0 +1,20 @@
+$ cd packages/sdk && npx vitest run tests/step-failure-excerpt.test.ts tests/agent-transcript.test.ts tests/agent-transcript-live.test.ts tests/step-failure-diagnostic.test.ts tests/authored-node-result.test.ts tests/failure-capture-digest.test.ts
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/step-failure-excerpt.test.ts (49 tests) 346ms
+ ✓ tests/agent-transcript.test.ts (29 tests) 323ms
+ ✓ tests/authored-node-result.test.ts (39 tests) 16ms
+ ✓ tests/step-failure-diagnostic.test.ts (25 tests) 68ms
+ ✓ tests/failure-capture-digest.test.ts (7 tests) 80ms
+ ✓ tests/agent-transcript-live.test.ts (4 tests) 43210ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > preserves structured agent failure details and its completed root index 13673ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > preserves structured llm failure details and its completed root index 15308ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > journals the digest in trajectory_tail on a successful agent step and writes the file it points at 991ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > on a failed agent step, names the failure and the transcript in the terminal diagnostic, redacted 13238ms
+
+ Test Files  6 passed (6)
+      Tests  153 passed (153)
+   Start at  00:00:08
+   Duration  44.18s (transform 1.03s, setup 0ms, collect 2.30s, tests 44.04s, environment 1ms, prepare 319ms)
+

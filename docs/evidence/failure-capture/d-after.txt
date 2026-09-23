@@ -1,3 +1,4 @@
+$ cd kernel && sh ../ops/cargo.sh test -p relayflowd exec_det
    Compiling relayflowd v0.1.0 (/home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/relayflowd)
     Finished `test` profile [unoptimized + debuginfo] target(s) in 7.92s
      Running unittests src/lib.rs (/home/daytona/.relayflows-toolchain/target/2962130851/debug/deps/relayflowd-f043db0bb3534a16)

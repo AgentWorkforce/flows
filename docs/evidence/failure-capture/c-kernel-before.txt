@@ -1,3 +1,4 @@
+$ cd kernel && sh ../ops/cargo.sh test -p relayflowd exec_det
  Downloading crates ...
   Downloaded fastrand v2.5.0
   Downloaded getrandom v0.4.3

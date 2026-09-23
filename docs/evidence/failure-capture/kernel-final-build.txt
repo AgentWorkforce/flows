@@ -1,0 +1,3 @@
+$ cd kernel && sh ../ops/cargo.sh build -p relayflowd
+   Compiling relayflowd v0.1.0 (/home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/relayflowd)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.92s

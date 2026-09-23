@@ -1,0 +1,2 @@
+$ rg -n 'last 1,024|last 1024' packages/sdk/src kernel --glob '*.ts' --glob '*.rs'
+packages/sdk/src/cli/step-excerpt.ts:5: * The render this replaces kept the last 1,024 bytes. For any runner that

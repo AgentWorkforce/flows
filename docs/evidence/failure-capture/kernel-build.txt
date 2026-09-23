@@ -1,3 +1,4 @@
+$ cd kernel && sh ../ops/cargo.sh build -p relayflowd
  Downloading crates ...
   Downloaded ahash v0.8.12
   Downloaded anyhow v1.0.104

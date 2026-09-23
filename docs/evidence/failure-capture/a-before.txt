@@ -1,3 +1,4 @@
+$ cd packages/sdk && npx vitest run tests/failure-capture-digest.test.ts
 
  RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
 

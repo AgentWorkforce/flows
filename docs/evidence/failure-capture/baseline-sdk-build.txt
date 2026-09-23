@@ -1,0 +1,5 @@
+$ cd /tmp/relayflow-capture-baseline/packages/sdk && npm run build
+
+> @relayflows/sdk@2.0.28 build
+> tsc && node scripts/make-cli-executable.mjs
+
