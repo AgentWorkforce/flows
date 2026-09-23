@@ -885,6 +885,66 @@ fn an_entry_appended_during_watch_registration_is_delivered_exactly_once() {
     );
 }
 
+/// `run.start` with `watch` streams the new run's entries on the starting
+/// connection from `run.spawned` on, each exactly once, before the result —
+/// the only moment a client that does not yet know the run id can observe it.
+#[test]
+fn run_start_with_watch_streams_every_entry_once_before_the_result() {
+    let directory = tempdir().unwrap();
+    let data_dir = directory.path();
+    let hub = Arc::new(ProtocolHub::default());
+    let (writer, peer) = shared_writer();
+    let spec = json!({"steps": [
+        {"id": "a", "type": "deterministic", "command": ["/bin/sh", "-c", "printf a"]},
+        {"id": "b", "type": "deterministic", "command": ["/bin/sh", "-c", "printf b"], "depends_on": ["a"]}
+    ]});
+    let line = json!({"id": "start", "verb": "run.start", "params": {"spec": spec, "watch": true}})
+        .to_string();
+    let started = request(data_dir, &hub, 1, &writer, &line);
+    assert!(started.ok, "run.start failed: {:?}", started.error);
+    let run_id = started.result.unwrap()["run_id"].as_str().unwrap().to_owned();
+
+    let expected = Engine::new(data_dir)
+        .journal_entries(&run_id, 1, usize::MAX)
+        .unwrap();
+    assert_eq!(expected.first().unwrap().entry_type, EntryType::RunSpawned);
+    assert_eq!(expected.last().unwrap().entry_type, EntryType::RunCompleted);
+    peer.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+    let mut reader = BufReader::new(peer);
+    let seen = (0..expected.len())
+        .map(|_| {
+            let frame = read_frame(&mut reader);
+            assert_eq!(frame["event"], "entry");
+            assert_eq!(frame["data"]["run_id"], run_id.as_str());
+            frame["data"]["seq"].as_i64().unwrap()
+        })
+        .collect::<Vec<_>>();
+    let mut leftover = String::new();
+    assert!(
+        reader.read_line(&mut leftover).is_err(),
+        "watcher received a duplicate frame: {leftover}"
+    );
+    assert_eq!(seen, expected.iter().map(|entry| entry.seq).collect::<Vec<_>>());
+}
+
+/// Without `watch`, `run.start` pushes nothing: the flag is opt-in.
+#[test]
+fn run_start_without_watch_pushes_no_entries() {
+    let directory = tempdir().unwrap();
+    let data_dir = directory.path();
+    let hub = Arc::new(ProtocolHub::default());
+    let (writer, peer) = shared_writer();
+    let spec = json!({"steps": [{"id": "a", "type": "deterministic", "command": ["/bin/sh", "-c", "printf a"]}]});
+    let line = json!({"id": "start", "verb": "run.start", "params": {"spec": spec}}).to_string();
+    assert!(request(data_dir, &hub, 1, &writer, &line).ok);
+    peer.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
+    let mut leftover = String::new();
+    assert!(
+        BufReader::new(peer).read_line(&mut leftover).is_err(),
+        "an unwatched start pushed a frame: {leftover}"
+    );
+}
+
 /// Finding 5: when the journal append for a disconnect's crashed completion
 /// fails, the abandonment is surfaced and retained for the reconciler — never
 /// silently dropped — and the reconciler journals it once the journal heals.

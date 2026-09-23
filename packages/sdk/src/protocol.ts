@@ -96,6 +96,8 @@ export type StepUsage =
 export interface RunStartParams {
   /** Caller-owned retry identity. Reuse with a different spec is refused. */
   admission_key?: string;
+  /** Push the new run's entries to this connection from `run.spawned` on, as `run.watch` does. */
+  watch?: boolean;
   reuse_from_run_id?: string;
   /**
    * The kernel spec dialect — the ONE boundary shape `RunSpec::parse`

@@ -10,6 +10,7 @@ import { AuthoredFlowExecutionError, AuthoredHumanParked, type AuthoredHumanWait
 import { answerCommand, resumeCommand } from '../authored-human.js';
 import { join, resolve } from 'node:path';
 import type { ProgressEvent } from '../progress.js';
+import type { JournalEvent } from '../journal-reader.js';
 import { toKernelSpec } from '../compile.js';
 import { socketPathFor } from '../daemon-connection.js';
 import { ensureDaemon, type EnsureDaemonOptions } from '../daemon-lifecycle.js';
@@ -102,6 +103,10 @@ export interface RunLifecycleOptions {
   onPtyReady?: (path: string) => void;
   reuseFromRunId?: string;
   onProgress?: (event: ProgressEvent) => void;
+  /** Stream the run's journal entries while it runs (YAML runs, via `run.start {watch}` / `run.watch`). */
+  onJournalEntry?: (entry: JournalEvent) => void;
+  /** An authored root was admitted: its id is known before its body runs. */
+  onRunStarted?: (run: { runId: string; flow: string; resumed?: boolean }) => void;
   localAgent?: boolean;
   /** `--agent-capacity`: the local workers' concurrency; the default is `DEFAULT_LOCAL_AGENT_CAPACITY`. */
   agentCapacity?: number;
@@ -169,7 +174,7 @@ async function executeCheckedFlow(
       const { attachCommunicationWorkers } = await import('../communication/local.js');
       communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir);
     }
-    const outcome = await client.runStart(spec, options.reuseFromRunId);
+    const outcome = await startWatched(client, spec, options);
     const execution = await classifyOutcome(client, 'run', outcome, base, socketPath, { ...options, dataDir });
     if (options.reuseFromRunId !== undefined) {
       execution.report.reuse = await reuseSummary(client, outcome.run_id, options.reuseFromRunId);
@@ -190,6 +195,31 @@ async function executeCheckedFlow(
     return protocolFailure('run', base, socketPath, communicationWorkers?.failure ?? localAgent?.failure ?? error);
   } finally {
     try { await communicationWorkers?.close(); } finally { try { await localAgent?.close(); } finally { client.close(); } }
+  }
+}
+
+/**
+ * `run.start`, streaming the run's entries to `onJournalEntry` when one is
+ * given. A daemon that predates `watch` refuses the field while decoding,
+ * before any run exists, so starting again without it is the same request
+ * minus the observation — never a second run.
+ */
+async function startWatched(
+  client: JournalClient,
+  spec: ReturnType<typeof toKernelSpec>,
+  options: RunLifecycleOptions,
+): Promise<RunOutcome> {
+  const onEntry = options.onJournalEntry;
+  if (onEntry === undefined) return client.runStart(spec, options.reuseFromRunId);
+  client.on('entry', onEntry);
+  try {
+    return await client.runStart(spec, options.reuseFromRunId, undefined, true);
+  } catch (error) {
+    if (!(error instanceof JournalProtocolError) || error.code !== 'bad_request'
+      || !/unknown field `watch`/.test(error.message)) throw error;
+    return await client.runStart(spec, options.reuseFromRunId);
+  } finally {
+    client.off('entry', onEntry);
   }
 }
 
@@ -255,10 +285,18 @@ export async function resumeFlow(
         communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir);
       }
     }
+    const onEntry = options.onJournalEntry;
+    if (onEntry !== undefined) {
+      client.on('entry', onEntry);
+      // Observation never decides a resume: a watch the daemon refuses leaves
+      // the run unprojected, and the resume below reports the run's own fate.
+      await client.runWatch(runId).catch(() => client.off('entry', onEntry));
+    }
     let outcome = await client.runResume(runId, options.allowHumanInfluenced);
     if (await resumeHelperEffect(client, runId, dataDir)) {
       outcome = await client.runResume(runId, options.allowHumanInfluenced);
     }
+    if (onEntry !== undefined) client.off('entry', onEntry);
     return await classifyOutcome(client, 'resume', outcome, base, socketPath, { ...options, dataDir });
   } catch (error) {
     if (error instanceof CommunicationEnvironmentError) return { exitCode: 2, report: { ...base, runId, socketPath,

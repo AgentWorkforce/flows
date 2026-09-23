@@ -170,14 +170,23 @@ fn handle_request(
                 .map_err(|error| ("invalid_spec", error.to_string()))?;
             spec.validate()
                 .map_err(|error| ("invalid_spec", error.to_string()))?;
+            // Registered before the first append, so there is nothing to
+            // replay: the watcher goes live and receives every entry once.
+            let watch = |run_id: &str| {
+                if params.watch {
+                    hub.watch(connection_id, run_id.to_owned(), writer.clone());
+                    hub.watch_ready(connection_id, run_id, 0);
+                }
+            };
             to_value(
                 engine
-                    .start_with_admission(
+                    .start_observed(
                         spec,
                         "protocol-v0",
                         crate::DriveOptions::default(),
                         params.reuse_from_run_id.as_deref(),
                         params.admission_key.as_deref(),
+                        &watch,
                     )
                     .map_err(run_start_error)?,
             )

@@ -540,6 +540,79 @@ describe('flows run: observer link integration', () => {
     expect(fetch).toHaveBeenCalledOnce();
   });
 
+  it('streams the run into wf-<runId> and scopes the link to that channel', async () => {
+    const dataDir = temporaryProject();
+    const runId = '01RUNOBSERVED';
+    const entry = (seq: number, entry_type: string, step_id: string | null, payload: unknown = {}) => ({
+      event: 'entry',
+      data: { seq, segment_id: 1, entry_type, run_id: runId, step_id, attempt: step_id === null ? null : 1, at_ms: 1_000 + seq, payload },
+    });
+    let watched: unknown;
+    await startCliLoopback(dataDir, {
+      hello: sendOk,
+      'run.start': (ctx, params) => {
+        watched = params['watch'];
+        ctx.send(entry(1, 'run.spawned', null, { spec: { name: 'hello-deterministic', steps: [
+          { id: 'greet', type: 'deterministic', depends_on: [] },
+        ] } }));
+        ctx.send(entry(2, 'step.attempt.started', 'greet'));
+        ctx.send(entry(3, 'step.completed', 'greet', { completionReason: 'success', disposition: 'step_done' }));
+        ctx.send(entry(4, 'run.completed', null, { completionReason: 'success' }));
+        sendResult(ctx, { run_id: runId, status: 'completed', completion_reason: 'success', completed_steps: 1 });
+      },
+    });
+    const requests: Array<{ path: string; body: Record<string, unknown> }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: { body?: string }) => {
+      const path = new URL(url).pathname;
+      requests.push({ path, body: init.body === undefined ? {} : JSON.parse(init.body) as Record<string, unknown> });
+      if (path === '/v1/observer-tokens') return jsonResponse(200, { data: { token: 'ot_live_scoped' } });
+      if (path === '/v1/agents') return jsonResponse(201, { data: { token: 'at_live_pub' } });
+      return jsonResponse(200, { data: {} });
+    }));
+    vi.stubEnv('RELAYCAST_WORKSPACE_KEY', 'rk_live_operator');
+    vi.stubEnv('FLOWS_NO_OBSERVER', '');
+
+    const output = capture();
+    expect(await runCli(RUN_ARGS(dataDir), output.io)).toBe(0);
+
+    expect(watched).toBe(true);
+    const link = 'Observer: https://agentrelay.com/observer?key=ot_live_scoped';
+    expect(output.stderr).toContain(link);
+    expect(output.stdout).toContain(link);
+    const mint = requests.find(request => request.path === '/v1/observer-tokens');
+    expect(mint?.body['filters']).toEqual({ channel_names: [`wf-${runId.toLowerCase()}`], include_dms: false });
+    const posts = requests.filter(request => request.path === `/v1/channels/wf-${runId.toLowerCase()}/messages`);
+    expect(posts.map(post => (post.body['data'] as { relayflow: { event: string } }).relayflow.event))
+      .toEqual(['run.started', 'step.started', 'step.completed', 'run.completed']);
+  });
+
+  it('starts again without watch when the daemon predates it, and says the run was not projected', async () => {
+    const dataDir = temporaryProject();
+    const starts: unknown[] = [];
+    await startCliLoopback(dataDir, {
+      hello: sendOk,
+      'run.start': (ctx, params) => {
+        starts.push(params['watch']);
+        if (params['watch'] === true) {
+          ctx.send({ id: ctx.id, ok: false, error: { code: 'bad_request',
+            message: 'unknown field `watch`, expected one of `spec`, `reuse_from_run_id`, `admission_key`' } });
+          return;
+        }
+        sendResult(ctx, { run_id: 'run-old-daemon', status: 'completed', completion_reason: 'success', completed_steps: 2 });
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(200, { data: { token: 'ot_live_old' } })));
+    vi.stubEnv('RELAYCAST_WORKSPACE_KEY', 'rk_live_operator');
+    vi.stubEnv('FLOWS_NO_OBSERVER', '');
+
+    const output = capture();
+    expect(await runCli(RUN_ARGS(dataDir), output.io)).toBe(0);
+
+    expect(starts).toEqual([true, undefined]);
+    expect(output.stdout.some(line => line.startsWith('RUN run-old-daemon completed'))).toBe(true);
+    expect(output.stderr.some(line => line.includes('this run was not projected'))).toBe(true);
+  });
+
   it('emits no observer line and no fetch when no workspace key is set', async () => {
     const dataDir = temporaryProject();
     await startCliLoopback(dataDir, {
