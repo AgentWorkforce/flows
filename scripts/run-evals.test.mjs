@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -104,6 +111,7 @@ test('captures literal command output and marks an allowed dirty run ineligible'
     assert.equal(report.cases[0].trials[0].stdout, 'executed resume\nliteral stdout\n');
     assert.equal(report.cases[0].trials[0].stderr, 'literal stderr\n');
     assert.equal(report.cases[0].trials[0].command.cwd, '../..');
+    assert.equal(report.cases[0].trials[0].command.resolvedCwd, realpathSync(root));
   });
 });
 
@@ -185,6 +193,36 @@ test('a timed-out command is a product failure blocker, not an environment failu
   });
 });
 
+test('a command launch error is inconclusive, not a product failure', () => {
+  withSuite(suite({ defaultRepetitions: 1, minimumPublishableRepetitions: 1 }), ({ root, path }) => {
+    const error = Object.assign(new Error('spawnSync missing ENOENT'), { code: 'ENOENT' });
+    const report = runEvalSuite({
+      rootDir: root,
+      suitePath: path,
+      provenance: provenance(root, false),
+      execute: () => ({ status: null, signal: null, stdout: '', stderr: '', error }),
+    });
+    assert.equal(report.cases[0].trials[0].outcome, 'inconclusive');
+    assert.equal(report.summary.failedTrials, 0);
+    assert.deepEqual(report.summary.blockers, ['environment_failures']);
+  });
+});
+
+test('missing toolchain provenance blocks publication', () => {
+  withSuite(suite({ defaultRepetitions: 1, minimumPublishableRepetitions: 1 }), ({ root, path }) => {
+    const incomplete = provenance(root, false);
+    incomplete.runtime.rustc = null;
+    const report = runEvalSuite({
+      rootDir: root,
+      suitePath: path,
+      provenance: incomplete,
+      execute: () => ({ status: 0, signal: null, stdout: 'executed resume\n', stderr: '' }),
+    });
+    assert.equal(report.summary.publicationStatus, 'ineligible');
+    assert.deepEqual(report.summary.blockers, ['toolchain_provenance_unavailable']);
+  });
+});
+
 test('trial environments are allowlisted and recorded without ambient secrets', () => {
   const environment = trialEnvironment(
     {
@@ -240,7 +278,7 @@ test('case cwd resolves relative to the suite and cannot escape the provenance r
         return { status: 0, signal: null, stdout: 'executed resume\n', stderr: '' };
       },
     });
-    assert.deepEqual(observed, [root, root]);
+    assert.deepEqual(observed, [realpathSync(root), realpathSync(root)]);
 
     const escaping = suite();
     escaping.cases[0].command.cwd = '../../..';
@@ -256,6 +294,29 @@ test('case cwd resolves relative to the suite and cannot escape the provenance r
       /command cwd escapes the provenance root/u,
     );
   });
+});
+
+test('case cwd cannot escape the provenance root through a symlink', () => {
+  const external = mkdtempSync(join(tmpdir(), 'relayflows-eval-external-'));
+  try {
+    const value = suite({ defaultRepetitions: 1, minimumPublishableRepetitions: 1 });
+    value.cases[0].command.cwd = 'escape';
+    withSuite(value, ({ root, path }) => {
+      symlinkSync(external, join(root, 'benchmarks', 'fixture', 'escape'), 'dir');
+      assert.throws(
+        () =>
+          runEvalSuite({
+            rootDir: root,
+            suitePath: path,
+            provenance: provenance(root, false),
+            execute: () => ({ status: 0, stdout: 'executed resume\n', stderr: '' }),
+          }),
+        /command cwd escapes the provenance root/u,
+      );
+    });
+  } finally {
+    rmSync(external, { recursive: true, force: true });
+  }
 });
 
 test('collectProvenance exercises clean, dirty, and unavailable git state', () => {
@@ -293,6 +354,10 @@ test('CLI parsing and exit policy fail closed for nonpublishable evidence', () =
     repetitions: 30,
   });
   assert.throws(() => parseArgs(['--unknown']), /unknown option/u);
+  assert.throws(
+    () => parseArgs(['--suite', 'suite.json', '--implementation', '']),
+    /missing value for --implementation/u,
+  );
   assert.throws(() => parseArgs(['--suite', 'suite.json', '--repeat', '0']), /--repeat must be a positive integer/u);
   assert.equal(reportExitCode({ summary: { publicationStatus: 'eligible' } }), 0);
   assert.equal(reportExitCode({ summary: { publicationStatus: 'ineligible' } }), 1);

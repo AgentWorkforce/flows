@@ -18,7 +18,7 @@ export function parseArgs(argv) {
       throw new Error(`unknown option: ${arg}`);
     }
     const value = argv[index + 1];
-    if (value === undefined) throw new Error(`missing value for ${arg}`);
+    if (value === undefined || value.length === 0) throw new Error(`missing value for ${arg}`);
     index += 1;
     if (arg === '--suite') options.suitePath = value;
     if (arg === '--output') options.output = value;

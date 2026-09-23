@@ -41,13 +41,15 @@ or inconclusive trials, and explicit output witnesses proving each selected
 test actually ran. Every trial records
 its argv, working directory, duration, outcome, exit code, stdout, and stderr;
 the report records the suite hash, source commit, toolchain, and host class.
+Missing Rust or Cargo version provenance blocks publication.
 
 Trial processes receive and record a small allowlist of ambient variables
 (`HOME`, locale, `PATH`, temporary-directory variables, shell, and Relayflows
 toolchain controls), plus any explicit per-case environment. Credentials and
-unrelated ambient state are neither inherited nor written to the report. A
-command timeout is a product failure blocker (`trial_timeouts`), not an
-environmental excuse.
+unrelated ambient state are not inherited from the runner. Explicit per-case
+environment values are recorded verbatim for reproducibility and therefore
+must never contain credentials or other secrets. A command timeout is a product
+failure blocker (`trial_timeouts`), not an environmental excuse.
 
 The black-box crash case stays on the supported CLI boundary. It obtains an
 opaque run receipt from `run --stop-after 1`, resumes that run, kills the

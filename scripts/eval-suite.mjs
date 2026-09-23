@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { dirname, relative, resolve } from 'node:path';
+import { readFileSync, realpathSync } from 'node:fs';
+import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 
 import { collectProvenance } from './eval-provenance.mjs';
@@ -95,8 +95,11 @@ function validateCommandEnv(env, caseIndex) {
 }
 
 export function runEvalSuite(options) {
-  const rootDir = resolve(options.rootDir ?? process.cwd());
-  const suitePath = resolve(rootDir, options.suitePath);
+  const rootDir = realpathSync(resolve(options.rootDir ?? process.cwd()));
+  const suitePath = realpathSync(resolve(rootDir, options.suitePath));
+  if (!isWithin(rootDir, suitePath)) {
+    throw new Error('eval suite path escapes the provenance root');
+  }
   const suiteBytes = readFileSync(suitePath);
   const suite = validateEvalSuite(JSON.parse(suiteBytes.toString('utf8')));
   const repetitions = options.repetitions ?? suite.defaultRepetitions;
@@ -116,7 +119,7 @@ export function runEvalSuite(options) {
 }
 
 function validateProvenance(provenance, rootDir, allowDirty) {
-  if (resolve(provenance.source.root) !== rootDir) {
+  if (realpathSync(resolve(provenance.source.root)) !== rootDir) {
     throw new Error(
       `provenance root ${provenance.source.root} does not match requested root ${rootDir}`,
     );
@@ -129,7 +132,7 @@ function validateProvenance(provenance, rootDir, allowDirty) {
 }
 
 function runCase({ testCase, suite, suitePath, rootDir, repetitions, execute, environment }) {
-  const commandCwd = resolve(dirname(suitePath), testCase.command.cwd);
+  const commandCwd = realpathSync(resolve(dirname(suitePath), testCase.command.cwd));
   if (!isWithin(rootDir, commandCwd)) {
     throw new Error(`case ${testCase.id} command cwd escapes the provenance root`);
   }
@@ -187,6 +190,7 @@ function runTrial({
       file: testCase.command.file,
       args: testCase.command.args,
       cwd: testCase.command.cwd,
+      resolvedCwd: commandCwd,
       environment,
     },
     stdout,
@@ -199,6 +203,7 @@ function runTrial({
 function classifyTrial({ result, stdout, stderr, missingWitnesses, environmentFailurePatterns }) {
   if (result.status === 0) return missingWitnesses.length === 0 ? 'passed' : 'invalid';
   if (result.error?.code === 'ETIMEDOUT') return 'timed_out';
+  if (result.error) return 'inconclusive';
   const combined = `${stdout}\n${stderr}\n${result.error?.message ?? ''}`;
   if (
     result.status === 127 ||
@@ -272,6 +277,9 @@ function publicationBlockers(summary) {
   if (summary.repetitions < summary.suite.minimumPublishableRepetitions) {
     blockers.push('insufficient_repetitions');
   }
+  if (!summary.provenance.runtime.rustc || !summary.provenance.runtime.cargo) {
+    blockers.push('toolchain_provenance_unavailable');
+  }
   if (summary.failedTrials > 0) blockers.push('trial_failures');
   if (summary.timedOutTrials > 0) blockers.push('trial_timeouts');
   if (summary.invalidTrials > 0) blockers.push('execution_witness_missing');
@@ -295,7 +303,7 @@ function percentile(values, quantile) {
 
 export function isWithin(parent, child) {
   const path = relative(parent, child);
-  return path === '' || (!path.startsWith('..') && !path.startsWith('/'));
+  return path === '' || (!path.startsWith('..') && !isAbsolute(path));
 }
 
 function requireNonEmptyString(value, field) {
