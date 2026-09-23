@@ -1,0 +1,12 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/authored-preflight.test.ts (3 tests) 120ms
+ ✓ tests/cli-probe.test.ts (6 tests) 866ms
+ ✓ tests/preflight.test.ts (67 tests) 108ms
+
+ Test Files  3 passed (3)
+      Tests  76 passed (76)
+   Start at  05:46:01
+   Duration  1.68s (transform 1.10s, setup 0ms, collect 2.60s, tests 1.09s, environment 0ms, prepare 141ms)
+

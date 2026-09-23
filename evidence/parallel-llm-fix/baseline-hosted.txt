@@ -1,0 +1,413 @@
+
+ RUN  v2.1.9 /tmp/flows-lease-baseline/packages/sdk
+
+ ❯ tests/hosted-extension-isolation.test.ts (22 tests | 15 failed) 286ms
+   × hosted extension capability isolation > executes the exact capability-only handler for a queued receipt 8ms
+     → bubblewrap is unavailable
+   × hosted extension capability isolation > executes the exact capability-only handler for a duplicate receipt 2ms
+     → bubblewrap is unavailable
+   × hosted extension capability isolation > launches through the captured process primitive after builtin export synchronization 4ms
+     → promise rejected "Error: bubblewrap is unavailable { code: '…' }" instead of resolving
+   × hosted extension capability isolation > ignores inherited launcher overrides and decodes manifests with the captured Buffer intrinsic 3ms
+     → promise rejected "Error: bubblewrap is unavailable { code: '…' }" instead of resolving
+   × hosted extension capability isolation > streams verified bytes when the live store is replaced and no writable staging path exists 207ms
+     → promise rejected "Error: Hosted extension sandbox exited wi… { code: '…' }" instead of resolving
+   × hosted extension capability isolation > mounts pinned private Surface bytes when the live package changes before launch 1ms
+     → ENOENT: no such file or directory, copyfile '/tmp/flows-lease-baseline/packages/surface/dist/flow.js' -> '/tmp/hosted-surface-test-Mim52z/dist/flow.js'
+   × hosted extension capability isolation > refuses Surface runtime bytes that differ from the reviewed pin before launch 1ms
+     → ENOENT: no such file or directory, copyfile '/tmp/flows-lease-baseline/packages/surface/dist/flow.js' -> '/tmp/hosted-surface-test-6b3BQt/dist/flow.js'
+   × hosted extension capability isolation > refuses oversized Surface files through the bounded descriptor reader 1ms
+     → ENOENT: no such file or directory, copyfile '/tmp/flows-lease-baseline/packages/surface/dist/flow.js' -> '/tmp/hosted-surface-test-IqCOBL/dist/flow.js'
+   × hosted extension capability isolation > shields verified Surface files before async settlement 2ms
+     → ENOENT: no such file or directory, copyfile '/tmp/flows-lease-baseline/packages/surface/dist/flow.js' -> '/tmp/hosted-surface-test-7aruFD/dist/flow.js'
+   × hosted extension capability isolation > preserves a typed host refusal while disclosing only a fixed marker to the child 5ms
+     → expected Error: bubblewrap is unavailable { code: '…' } to be Error: private Cloud policy detail { code: '…' } // Object.is equality
+   × hosted extension capability isolation > denies ambient credentials, host files, writes, network, subprocesses, and undeclared context verbs 7ms
+     → bubblewrap is unavailable
+   × hosted extension capability isolation > enforces OS address-space and data bounds on native Buffer allocation 8ms
+     → expected Error: bubblewrap is unavailable { code: '…' } to match object { code: 'plugin_unsupported', …(1) }
+   × hosted extension capability isolation > blocks extra handler fields and authority-bearing receipt fields at the parent port 3ms
+     → expected Error: bubblewrap is unavailable { code: '…' } to match object { code: 'plugin_event_unroutable' }
+   × hosted extension capability isolation > constructs adapter authority with the captured freeze intrinsic 3ms
+     → bubblewrap is unavailable
+   × hosted extension capability isolation > writes the Surface manifest and protocol without inherited toJSON behavior 3ms
+     → promise rejected "Error: bubblewrap is unavailable { code: '…' }" instead of resolving
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 15 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > executes the exact capability-only handler for a queued receipt
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > executes the exact capability-only handler for a duplicate receipt
+Error: bubblewrap is unavailable
+ ❯ unsupported src/hosted-extension-sandbox.ts:488:9
+    486| 
+    487| function unsupported(message: string): never {
+    488|   throw new PluginError('plugin_unsupported', message);
+       |         ^
+    489| }
+    490| 
+ ❯ executable src/hosted-extension-sandbox.ts:469:18
+ ❯ Module.runHostedExtensionSandbox src/hosted-extension-sandbox.ts:160:17
+ ❯ Module.runVerifiedNativeExtensionSandbox src/hosted-extension-isolation.ts:173:16
+ ❯ tests/hosted-extension-isolation.test.ts:221:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/15]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > launches through the captured process primitive after builtin export synchronization
+AssertionError: promise rejected "Error: bubblewrap is unavailable { code: '…' }" instead of resolving
+ ❯ tests/hosted-extension-isolation.test.ts:283:11
+    281|           input: descriptor(),
+    282|           babysitterTurn: { queue: async () => ({ receiptId: 'receipt-…
+    283|         })).resolves.toEqual({ completionReason: 'success', capability…
+       |           ^
+    284|       } finally {
+    285|         process.execPath = originalExecPath;
+
+Caused by: Error: bubblewrap is unavailable
+ ❯ unsupported src/hosted-extension-sandbox.ts:488:9
+ ❯ executable src/hosted-extension-sandbox.ts:469:18
+ ❯ Module.runHostedExtensionSandbox src/hosted-extension-sandbox.ts:160:17
+ ❯ Module.runVerifiedNativeExtensionSandbox src/hosted-extension-isolation.ts:173:16
+ ❯ tests/hosted-extension-isolation.test.ts:277:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/15]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > ignores inherited launcher overrides and decodes manifests with the captured Buffer intrinsic
+AssertionError: promise rejected "Error: bubblewrap is unavailable { code: '…' }" instead of resolving
+ ❯ tests/hosted-extension-isolation.test.ts:373:11
+    371|           input: descriptor('delivery-options'),
+    372|           babysitterTurn: { queue: async () => ({ receiptId: 'receipt-…
+    373|         })).resolves.toEqual({ completionReason: 'success', capability…
+       |           ^
+    374|       } finally {
+    375|         Buffer.prototype.toString = bufferToString;
+
+Caused by: Error: bubblewrap is unavailable
+ ❯ unsupported src/hosted-extension-sandbox.ts:488:9
+ ❯ executable src/hosted-extension-sandbox.ts:469:18
+ ❯ Module.runHostedExtensionSandbox src/hosted-extension-sandbox.ts:160:17
+ ❯ Module.runVerifiedNativeExtensionSandbox src/hosted-extension-isolation.ts:173:16
+ ❯ tests/hosted-extension-isolation.test.ts:367:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/15]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > streams verified bytes when the live store is replaced and no writable staging path exists
+AssertionError: promise rejected "Error: Hosted extension sandbox exited wi… { code: '…' }" instead of resolving
+ ❯ tests/hosted-extension-isolation.test.ts:431:7
+    429|         return { receiptId: 'receipt-1', status: 'queued' };
+    430|       } },
+    431|     })).resolves.toEqual({ completionReason: 'success', capabilityCall…
+       |       ^
+    432|     expect(calls).toBe(1);
+    433|     expect(readFileSync(join(installed.directory, 'babysitter.flow.ts'…
+
+Caused by: Error: Hosted extension sandbox exited without a valid completion (exit 1): /tmp/hosted-bwrap-wrapper-o4PuPs/bwrap-wrapper:20
+if (child.error) throw child.error;
+                 ^
+
+Error: spawnSync /usr/bin/bwrap ENOENT
+    at Object.spawnSync (node:internal/child_process:1103:20)
+    at spawnSync (node:child_process:911:24)
+    at Object.<anonymous> (/tmp/hosted-bwrap-wrapper-o4PuPs/bwrap-wrapper:19:15)
+    at Module._compile (node:internal/modules/cjs/loader:1809:14)
+    at Object..js (node:internal/modules/cjs/loader:1940:10)
+    at Module.load (node:internal/modules/cjs/loader:1530:32)
+    at Module._load (node:internal/modules/cjs/loader:1332:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47 {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'spawnSync /usr/bin/bwrap',
+  path: '/usr/bin/bwrap',
+  spawnargs: [
+    '--unshare-all',
+    '--die-with-parent',
+    '--new-session',
+    '--clearenv',
+    '--cap-drop',
+    'ALL',
+    '--dir',
+    '/usr',
+    '--ro-bind',
+    '/usr/lib',
+    '/usr/lib',
+    '--ro-bind',
+    '/usr/lib64',
+    '/usr/lib64',
+    '--ro-bind',
+    '/usr/lib',
+    '/lib',
+    '--ro-bind',
+    '/usr/lib64',
+    '/lib64',
+    '--proc',
+    '/proc',
+    '--dev',
+    '/dev',
+    '--tmpfs',
+    '/tmp',
+    '--dir',
+    '/runtime',
+    '--dir',
+    '/extension',
+    '--dir',
+    '/extension/node_modules',
+    '--dir',
+    '/extension/node_modules/@relayflows',
+    '--dir',
+    '/extension/node_modules/@relayflows/surface',
+    '--dir',
+    '/extension/node_modules/@relayflows/surface/dist',
+    '--dir',
+    '/extension/node_modules/@relayflows/surface/dist/helpers',
+    '--dir',
+    '/extension/node_modules/@relayflows/surface/dist/triggers',
+    '--dir',
+    '/extension/src',
+    '--perms',
+    '0500',
+    '--ro-bind-data',
+    '4',
+    '/runtime/node',
+    '--perms',
+    '0400',
+    '--ro-bind-data',
+    '5',
+    '/runtime/runner.mjs',
+    '--perms',
+    '0400',
+    '--ro-bind-data',
+    '6',
+    '/extension/node_modules/@relayflows/surface/package.json',
+    '--perms',
+    '0400',
+    '--ro-bind-data',
+    '7',
+    '/extension/node_modules/@relayflows/surface/index.js',
+    '--perms',
+    '0400',
+    '--ro-bind-data',
+    '8',
+    '/extension/node_modules/@relayflows/surface/runtime.js',
+    '--perms',
+    '0400',
+    '--ro-bind-data',
+    '9',
+    '/extension/node_modules/@relayflows/surface/dist/flow.js',
+    '--perms',
+    '0400',
+    '--ro-bind-data',
+    '10',
+    '/extension/node_modules/@relayflows/surface/dist/helpers/providers.js',
+    '--perms',
+    '0400',
+    '--ro-bind-data',
+    '11',
+    '/extension/node_modules/@relayflows/surface/dist/provider-trigger.js',
+    '--perms',
+    '0400',
+    '--ro-bind-data',
+    '12',
+    '/extension/node_modules/@relayflows/surface/dist/schedule.js',
+    '--perms',
+    '0400',
+    '--ro-bind-data',
+    '13',
+    '/extension/node_modules/@relayflows/surface/dist/triggers.js',
+    '--perms',
+    '0400',
+    '--ro-bind-data',
+    '14',
+    '/extension/node_modules/@relayflows/surface/dist/triggers/github.js',
+    '--perms',
+    ... 27 more items
+  ]
+}
+
+Node.js v25.6.0
+
+ ❯ Object.<anonymous> ../../../hosted-bwrap-wrapper-o4PuPs/bwrap-wrapper:19:15
+ ❯ refuse src/hosted-extension-protocol.ts:135:21
+ ❯ ChildProcess.<anonymous> src/hosted-extension-protocol.ts:234:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/15]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > mounts pinned private Surface bytes when the live package changes before launch
+Error: ENOENT: no such file or directory, copyfile '/tmp/flows-lease-baseline/packages/surface/dist/flow.js' -> '/tmp/hosted-surface-test-Mim52z/dist/flow.js'
+ ❯ surfaceFixture tests/hosted-extension-isolation.test.ts:109:5
+    107|     const target = join(surfaceRoot, 'dist', file);
+    108|     mkdirSync(resolve(target, '..'), { recursive: true });
+    109|     copyFileSync(join(sourceRoot, 'dist', file), target);
+       |     ^
+    110|   }
+    111|   return surfaceRoot;
+ ❯ tests/hosted-extension-isolation.test.ts:437:25
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/15]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > refuses Surface runtime bytes that differ from the reviewed pin before launch
+Error: ENOENT: no such file or directory, copyfile '/tmp/flows-lease-baseline/packages/surface/dist/flow.js' -> '/tmp/hosted-surface-test-6b3BQt/dist/flow.js'
+ ❯ surfaceFixture tests/hosted-extension-isolation.test.ts:109:5
+    107|     const target = join(surfaceRoot, 'dist', file);
+    108|     mkdirSync(resolve(target, '..'), { recursive: true });
+    109|     copyFileSync(join(sourceRoot, 'dist', file), target);
+       |     ^
+    110|   }
+    111|   return surfaceRoot;
+ ❯ tests/hosted-extension-isolation.test.ts:462:25
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/15]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > refuses oversized Surface files through the bounded descriptor reader
+Error: ENOENT: no such file or directory, copyfile '/tmp/flows-lease-baseline/packages/surface/dist/flow.js' -> '/tmp/hosted-surface-test-IqCOBL/dist/flow.js'
+ ❯ surfaceFixture tests/hosted-extension-isolation.test.ts:109:5
+    107|     const target = join(surfaceRoot, 'dist', file);
+    108|     mkdirSync(resolve(target, '..'), { recursive: true });
+    109|     copyFileSync(join(sourceRoot, 'dist', file), target);
+       |     ^
+    110|   }
+    111|   return surfaceRoot;
+ ❯ tests/hosted-extension-isolation.test.ts:483:25
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/15]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > shields verified Surface files before async settlement
+Error: ENOENT: no such file or directory, copyfile '/tmp/flows-lease-baseline/packages/surface/dist/flow.js' -> '/tmp/hosted-surface-test-7aruFD/dist/flow.js'
+ ❯ surfaceFixture tests/hosted-extension-isolation.test.ts:109:5
+    107|     const target = join(surfaceRoot, 'dist', file);
+    108|     mkdirSync(resolve(target, '..'), { recursive: true });
+    109|     copyFileSync(join(sourceRoot, 'dist', file), target);
+       |     ^
+    110|   }
+    111|   return surfaceRoot;
+ ❯ tests/hosted-extension-isolation.test.ts:507:25
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/15]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > preserves a typed host refusal while disclosing only a fixed marker to the child
+AssertionError: expected Error: bubblewrap is unavailable { code: '…' } to be Error: private Cloud policy detail { code: '…' } // Object.is equality
+
+- Expected
++ Received
+
+- [Error: private Cloud policy detail]
++ [Error: bubblewrap is unavailable]
+
+ ❯ tests/hosted-extension-isolation.test.ts:560:5
+    558|       provider: 'github', eventType: 'pull_request.labeled', deliveryI…
+    559|     });
+    560|     await expect(runVerifiedNativeExtensionSandbox({
+       |     ^
+    561|       artifact: await artifact(source), manifest: validateFlowExtensio…
+    562|       babysitterTurn: { queue: async () => { throw refusal; } },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/15]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > denies ambient credentials, host files, writes, network, subprocesses, and undeclared context verbs
+Error: bubblewrap is unavailable
+ ❯ unsupported src/hosted-extension-sandbox.ts:488:9
+    486| 
+    487| function unsupported(message: string): never {
+    488|   throw new PluginError('plugin_unsupported', message);
+       |         ^
+    489| }
+    490| 
+ ❯ executable src/hosted-extension-sandbox.ts:469:18
+ ❯ Module.runHostedExtensionSandbox src/hosted-extension-sandbox.ts:160:17
+ ❯ Module.runVerifiedNativeExtensionSandbox src/hosted-extension-isolation.ts:173:16
+ ❯ tests/hosted-extension-isolation.test.ts:624:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/15]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > enforces OS address-space and data bounds on native Buffer allocation
+AssertionError: expected Error: bubblewrap is unavailable { code: '…' } to match object { code: 'plugin_unsupported', …(1) }
+
+- Expected
++ Received
+
+- Object {
++ PluginError {
+    "code": "plugin_unsupported",
+-   "message": StringMatching /(?:Failed to allocate memory|Array buffer allocation failed)/u,
+  }
+
+ ❯ tests/hosted-extension-isolation.test.ts:646:5
+    644|     });
+    645|     let calls = 0;
+    646|     await expect(runVerifiedNativeExtensionSandbox({
+       |     ^
+    647|       artifact: installed,
+    648|       manifest: validateFlowExtensionManifest(manifest()),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/15]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > blocks extra handler fields and authority-bearing receipt fields at the parent port
+AssertionError: expected Error: bubblewrap is unavailable { code: '…' } to match object { code: 'plugin_event_unroutable' }
+
+- Expected
++ Received
+
+- Object {
+-   "code": "plugin_event_unroutable",
++ PluginError {
++   "code": "plugin_unsupported",
+  }
+
+ ❯ tests/hosted-extension-isolation.test.ts:675:5
+    673|     });
+    674|     let calls = 0;
+    675|     await expect(runVerifiedNativeExtensionSandbox({
+       |     ^
+    676|       artifact: await artifact(source), manifest: validateFlowExtensio…
+    677|       babysitterTurn: { queue: async () => { calls += 1; return { rece…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/15]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > constructs adapter authority with the captured freeze intrinsic
+Error: bubblewrap is unavailable
+ ❯ unsupported src/hosted-extension-sandbox.ts:488:9
+    486| 
+    487| function unsupported(message: string): never {
+    488|   throw new PluginError('plugin_unsupported', message);
+       |         ^
+    489| }
+    490| 
+ ❯ executable src/hosted-extension-sandbox.ts:469:18
+ ❯ Module.runHostedExtensionSandbox src/hosted-extension-sandbox.ts:160:17
+ ❯ Module.runVerifiedNativeExtensionSandbox src/hosted-extension-isolation.ts:173:16
+ ❯ tests/hosted-extension-isolation.test.ts:745:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/15]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > writes the Surface manifest and protocol without inherited toJSON behavior
+AssertionError: promise rejected "Error: bubblewrap is unavailable { code: '…' }" instead of resolving
+ ❯ tests/hosted-extension-isolation.test.ts:788:11
+    786|           babysitterTurn: { queue: async () => ({ receiptId: 'receipt-…
+    787|           timeoutMs: 3_000,
+    788|         })).resolves.toEqual({ completionReason: 'success', capability…
+       |           ^
+    789|       } finally {
+    790|         if (previous === undefined) delete (Object.prototype as { toJS…
+
+Caused by: Error: bubblewrap is unavailable
+ ❯ unsupported src/hosted-extension-sandbox.ts:488:9
+ ❯ executable src/hosted-extension-sandbox.ts:469:18
+ ❯ Module.runHostedExtensionSandbox src/hosted-extension-sandbox.ts:160:17
+ ❯ Module.runVerifiedNativeExtensionSandbox src/hosted-extension-isolation.ts:173:16
+ ❯ tests/hosted-extension-isolation.test.ts:781:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/15]⎯
+
+ Test Files  1 failed (1)
+      Tests  15 failed | 7 passed (22)
+   Start at  05:47:28
+   Duration  2.51s (transform 1.11s, setup 0ms, collect 2.01s, tests 286ms, environment 0ms, prepare 76ms)
+

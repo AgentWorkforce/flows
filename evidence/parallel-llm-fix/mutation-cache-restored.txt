@@ -1,0 +1,18 @@
+cwd: packages/sdk
+command: ['npx', 'vitest', 'run', 'tests/authored-parallel-llm.test.ts', '-t', 'deduplicates|completes nine']
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/authored-parallel-llm.test.ts (6 tests | 2 skipped) 20071ms
+   ✓ parallel llm capacity 1 > deduplicates concurrent preflight probes 2799ms
+   ✓ parallel llm capacity 1 > completes nine calls without expired child leases during slow preflight 8690ms
+   ✓ parallel llm capacity 4 > deduplicates concurrent preflight probes 1311ms
+   ✓ parallel llm capacity 4 > completes nine calls without expired child leases during slow preflight 7270ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed | 2 skipped (6)
+   Start at  05:53:37
+   Duration  21.25s (transform 569ms, setup 0ms, collect 1.01s, tests 20.07s, environment 0ms, prepare 49ms)
+
+
+exit: 0

@@ -1,0 +1,26 @@
+$ SCRATCH_PROBE_MS=0 SCRATCH_N=9 SCRATCH_CAP=1 npx vitest run tests/zz-scratch-repro.test.ts
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+stdout | tests/zz-scratch-repro.test.ts > scratch: repeated per-call preflight probes > runs 9 concurrent f.llm at capacity 1
+{
+  "elapsedMs": 1182,
+  "probeCount": 27,
+  "byKind": {
+    "identify": 18,
+    "auth": 9
+  },
+  "completionReason": "success"
+}
+
+stdout | tests/zz-scratch-repro.test.ts > scratch: repeated per-call preflight probes > runs 9 concurrent f.llm at capacity 1
+lease_expired attempts: []
+
+ ✓ tests/zz-scratch-repro.test.ts (1 test) 1253ms
+   ✓ scratch: repeated per-call preflight probes > runs 9 concurrent f.llm at capacity 1 1253ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  05:21:53
+   Duration  2.40s (transform 547ms, setup 0ms, collect 976ms, tests 1.25s, environment 0ms, prepare 50ms)
+

@@ -1,0 +1,16 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/authored-parallel-llm.test.ts (6 tests) 114270ms
+   ✓ parallel llm capacity 1 > deduplicates concurrent preflight probes 3122ms
+   ✓ parallel llm capacity 1 > completes nine calls without expired child leases during slow preflight 8803ms
+   ✓ parallel llm capacity 1 > keeps the durable root lease alive across two cold models 47739ms
+   ✓ parallel llm capacity 4 > deduplicates concurrent preflight probes 1178ms
+   ✓ parallel llm capacity 4 > completes nine calls without expired child leases during slow preflight 7141ms
+   ✓ parallel llm capacity 4 > keeps the durable root lease alive across two cold models 46286ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  05:40:14
+   Duration  115.45s (transform 576ms, setup 0ms, collect 1.00s, tests 114.27s, environment 0ms, prepare 50ms)
+

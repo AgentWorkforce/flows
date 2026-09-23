@@ -1,0 +1,71 @@
+diff --git a/examples/prompt-lab/jobs/new-agency.ts b/examples/prompt-lab/jobs/new-agency.ts
+index 75801b8..ee2bc65 100644
+--- a/examples/prompt-lab/jobs/new-agency.ts
++++ b/examples/prompt-lab/jobs/new-agency.ts
+@@ -60,12 +60,11 @@ export async function newAgency(job: Job, input: NewAgencyInput): Promise<void>
+   }
+ 
+   // Run on fake visits — the background job; the grid fills when it finishes.
+-  const ran: { q: PiledQuestion; outputs: Record<string, Output> }[] = [];
+-  for (const c of plan.coverage) { // sequential: see runEngine
++  const ran = await Promise.all(plan.coverage.map(async c => {
+     const q = byId.get(c.questionId)!;
+     const shelf = c.patientIds.map((id) => patient.get(id)!);
+-    ran.push({ q, outputs: await runEngine(f, prompts.get(q.questionId)!.text, ask(q), shelf) });
+-  }
++    return { q, outputs: await runEngine(f, prompts.get(q.questionId)!.text, ask(q), shelf) };
++  }));
+   const rows = sortRows(ran.flatMap(({ q, outputs }) => Object.entries(outputs).map(([patientId, ai]): Row => ({
+     questionId: q.questionId, patientId, pile: q.pile,
+     highlight: highlights(ai, q.pile, prompts.get(q.questionId)!.firstPass),
+@@ -92,8 +91,7 @@ export async function newAgency(job: Job, input: NewAgencyInput): Promise<void>
+   // are commit candidates (Prompt QA'd); shared/mismatch get a proposed rewrite only.
+   const changes = changed(edited);
+   const changedQs = [...new Set(changes.map((r) => r.questionId))].sort();
+-  const rewrites: { q: PiledQuestion; rows: Row[]; prompt: string; passed: boolean }[] = [];
+-  for (const qid of changedQs) { // sequential: see runEngine
++  const rewrites = await Promise.all(changedQs.map(async qid => {
+     const q = byId.get(qid)!;
+     const rowsFor = changes.filter((r) => r.questionId === qid)
+       .map((r) => ({ patient: patient.get(r.patientId)! as Patient, ai: r.ai, target: r.target, notes: r.notes }));
+@@ -102,14 +100,13 @@ export async function newAgency(job: Job, input: NewAgencyInput): Promise<void>
+     const rows = changes.filter((r) => r.questionId === qid);
+     if (q.pile !== "agency-specific") {
+       const { prompt } = await llm<{ prompt: string }>(f, iterate(ask(q), existing, brief, rowsFor, []));
+-      rewrites.push({ q, rows, prompt, passed: true });
+-      continue;
++      return { q, rows, prompt, passed: true };
+     }
+     const r = await untilQaPasses<{ prompt: string }>(f,
+       (findings) => iterate(ask(q), existing, brief, rowsFor, findings),
+       (w) => promptQa(w.prompt, ask(q), snap.guidelines, brief));
+-    rewrites.push({ q, rows, prompt: r.value.prompt, passed: r.passed });
+-  }
++    return { q, rows, prompt: r.value.prompt, passed: r.passed };
++  }));
+ 
+   // A first-pass prompt is a candidate only once it ran on a shelf patient and
+   // you reviewed the rows; a gap-only draft waits for a patient that covers it.
+diff --git a/examples/prompt-lab/jobs/shared.ts b/examples/prompt-lab/jobs/shared.ts
+index 732b0f5..165d23f 100644
+--- a/examples/prompt-lab/jobs/shared.ts
++++ b/examples/prompt-lab/jobs/shared.ts
+@@ -66,16 +66,10 @@ export async function untilQaPasses<T>(
+ /**
+  * Run one prompt on fake visits: the same engine nurses use. One llm step per patient.
+  *
+- * Sequential on purpose. Every model call in this flow is independent and was
+- * written as Promise.all, but relayflows 2.0.29 loses the run when concurrent
+- * f.llm calls queue past their 30s lease (a stale completion becomes a fatal
+- * protocol_error): see evidence/runtime-findings/runtime-parallel-llm-repro.txt. Restore
+- * Promise.all here and in jobs/new-agency.ts when flows#561 and flows#560 ship.
+  */
+ export async function runEngine(f: Ctx, promptText: string, ask: Ask, patients: readonly Patient[]): Promise<Record<string, Output>> {
+-  const outputs: Record<string, Output> = {};
+-  for (const p of patients) outputs[p.id] = await llm<Output>(f, engine(promptText, ask, p));
+-  return outputs;
++  return Object.fromEntries(await Promise.all(patients.map(async p =>
++    [p.id, await llm<Output>(f, engine(promptText, ask, p))] as const)));
+ }
+ 
+ export interface Plan { coverage: { questionId: string; patientIds: string[] }[]; gaps: { questionId: string; brief: string }[] }

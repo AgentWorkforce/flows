@@ -1,0 +1,32 @@
+cwd: packages/sdk
+command: ['npx', 'vitest', 'run', 'tests/authored-parallel-llm.test.ts', '-t', 'parallel llm capacity 1.*keeps the durable']
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/authored-parallel-llm.test.ts (6 tests | 1 failed | 5 skipped) 91068ms
+   × parallel llm capacity 1 > keeps the durable root lease alive across two cold models 91067ms
+     → lease_conflict: attempt has no active worker lease
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-parallel-llm.test.ts > parallel llm capacity 1 > keeps the durable root lease alive across two cold models
+JournalProtocolError: lease_conflict: attempt has no active worker lease
+ ❯ JournalClient.onLine src/journal-client.ts:165:27
+    163|       if (pending.timer !== undefined) clearTimeout(pending.timer);
+    164|       if (res.ok) pending.resolve(res.result);
+    165|       else pending.reject(new JournalProtocolError(res.error.code, res…
+       |                           ^
+    166|     } else {
+    167|       const ev = msg as ServerEvent;
+ ❯ JournalClient.onData src/journal-client.ts:144:33
+ ❯ Socket.<anonymous> src/journal-client.ts:109:43
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 skipped (6)
+   Start at  05:53:59
+   Duration  92.22s (transform 560ms, setup 0ms, collect 978ms, tests 91.07s, environment 0ms, prepare 46ms)
+
+
+exit: 1

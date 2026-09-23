@@ -1,0 +1,62 @@
+$ node /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/dist/cli.js resume --no-observer-link --data-dir /tmp/flows-prompt-lab-data --local-agent 01M36CGX2HC59PAVGKV0SCFW6S
+○ run-1 (deterministic) 0.00s
+✓ run-1 (deterministic) 0.01s completionReason: success
+○ llm-2 (llm) 0.00s
+✓ llm-2 (llm) 1.84s completionReason: success
+○ llm-3 (llm) 0.00s
+✓ llm-3 (llm) 0.01s completionReason: success
+○ run-4 (deterministic) 0.00s
+✓ run-4 (deterministic) 0.01s completionReason: success
+○ llm-5 (llm) 0.00s
+✓ llm-5 (llm) 0.01s completionReason: success
+○ llm-6 (llm) 0.00s
+✓ llm-6 (llm) 0.01s completionReason: success
+○ run-7 (deterministic) 0.00s
+✓ run-7 (deterministic) 0.01s completionReason: success
+○ llm-8 (llm) 0.00s
+✓ llm-8 (llm) 0.01s completionReason: success
+○ run-9 (deterministic) 0.00s
+✓ run-9 (deterministic) 0.01s completionReason: success
+○ llm-10 (llm) 0.00s
+○ llm-11 (llm) 0.00s
+○ llm-12 (llm) 0.00s
+○ llm-13 (llm) 0.00s
+○ llm-14 (llm) 0.00s
+○ llm-15 (llm) 0.00s
+○ llm-16 (llm) 0.00s
+○ llm-17 (llm) 0.00s
+○ llm-18 (llm) 0.00s
+✓ llm-10 (llm) 0.04s completionReason: success
+✓ llm-11 (llm) 0.04s completionReason: success
+✓ llm-12 (llm) 0.05s completionReason: success
+✓ llm-13 (llm) 0.05s completionReason: success
+✓ llm-14 (llm) 0.09s completionReason: success
+✓ llm-15 (llm) 0.09s completionReason: success
+✓ llm-16 (llm) 0.10s completionReason: success
+✓ llm-17 (llm) 0.10s completionReason: success
+✓ llm-18 (llm) 0.11s completionReason: success
+○ run-19 (deterministic) 0.00s
+✓ run-19 (deterministic) 0.02s completionReason: success
+○ human-20 (deterministic) 0.00s
+✓ human-20 (deterministic) 0.03s completionReason: success
+○ run-21 (deterministic) 0.00s
+✓ run-21 (deterministic) 0.09s completionReason: success
+○ run-22 (deterministic) 0.00s
+✓ run-22 (deterministic) 0.09s completionReason: success
+○ llm-23 (llm) 0.00s
+WAITING [worker_lease] Run "01M36CM1MRES6V92VT42Q0RZ7H" step "llm-23" (llm) is running under a worker lease until 1790142217166.
+↻ llm-23 (llm) 0.02s
+WAITING [worker_lease] Run "01M36CM1MRES6V92VT42Q0RZ7H" step "llm-23" (llm) is running under a worker lease until 1790142227169.
+↻ llm-23 (llm) 10.05s
+✓ llm-23 (llm) 10.37s completionReason: success
+○ run-24 (deterministic) 0.00s
+✓ run-24 (deterministic) 0.10s completionReason: success
+○ run-25 (deterministic) 0.00s
+✓ run-25 (deterministic) 0.10s completionReason: success
+○ human-26 (deterministic) 0.00s
+⏸ human-26 (human) 0.01s
+PARKED [run_parked] Run "01M36CGX2HC59PAVGKV0SCFW6S" is waiting for prompt-lab-reviewer to answer human-26: "Commit output · sunrise: agency-specific prompts ready to go live in Apricot: living-situation.\nSent to the question manager (frozen here): wound-status → config-sunrise-wound-status-7309e97c.\nHeld as drafts until a shelf patient covers them: ostomy-supplies.\nTo commit only some, edit /tmp/flows-prompt-lab-proof/lab/work/sunrise-soc/e4a1ccb3/commit.json: {\"mode\":\"only\"|\"except\",\"questions\":[...]}.\nyes = commit (Done = live, no promote step); no = leave them as drafts."
+Answer with: flows answer --data-dir /tmp/flows-prompt-lab-data 01M36CGX2HC59PAVGKV0SCFW6S human-26 yes|no
+Then continue with: flows resume --data-dir /tmp/flows-prompt-lab-data --local-agent 01M36CGX2HC59PAVGKV0SCFW6S
+RUN 01M36CGX2HC59PAVGKV0SCFW6S parked
+exit=3

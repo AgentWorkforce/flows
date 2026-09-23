@@ -1,0 +1,66 @@
+cwd: packages/sdk
+command: ['npx', 'vitest', 'run', 'tests/authored-parallel-llm.test.ts', '-t', 'deduplicates|completes nine']
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/authored-parallel-llm.test.ts (6 tests | 4 failed | 2 skipped) 22493ms
+   × parallel llm capacity 1 > deduplicates concurrent preflight probes 3643ms
+     → expected [ 'test-model', 'test-model', …(7) ] to have a length of 1 but got 9
+   × parallel llm capacity 1 > completes nine calls without expired child leases during slow preflight 10266ms
+     → expected [ 'test-model', 'test-model', …(7) ] to have a length of 1 but got 9
+   × parallel llm capacity 4 > deduplicates concurrent preflight probes 1273ms
+     → expected [ 'test-model', 'test-model', …(7) ] to have a length of 1 but got 9
+   × parallel llm capacity 4 > completes nine calls without expired child leases during slow preflight 7311ms
+     → expected [ 'test-model', 'test-model', …(7) ] to have a length of 1 but got 9
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-parallel-llm.test.ts > parallel llm capacity 1 > deduplicates concurrent preflight probes
+ FAIL  tests/authored-parallel-llm.test.ts > parallel llm capacity 4 > deduplicates concurrent preflight probes
+AssertionError: expected [ 'test-model', 'test-model', …(7) ] to have a length of 1 but got 9
+
+- Expected
++ Received
+
+- 1
++ 9
+
+ ❯ Object.assertProbes tests/authored-parallel-llm.test.ts:61:27
+     59|   }
+     60|   return { fixture, client, assertJournals, assertProbes(count: number…
+     61|     expect(lines(probes)).toHaveLength(count);
+       |                           ^
+     62|   }, assertCapacity() {
+     63|     const intervals = lines(spans) as Array<{ start: number; end: numb…
+ ❯ tests/authored-parallel-llm.test.ts:86:10
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  tests/authored-parallel-llm.test.ts > parallel llm capacity 1 > completes nine calls without expired child leases during slow preflight
+ FAIL  tests/authored-parallel-llm.test.ts > parallel llm capacity 4 > completes nine calls without expired child leases during slow preflight
+AssertionError: expected [ 'test-model', 'test-model', …(7) ] to have a length of 1 but got 9
+
+- Expected
++ Received
+
+- 1
++ 9
+
+ ❯ Object.assertProbes tests/authored-parallel-llm.test.ts:61:27
+     59|   }
+     60|   return { fixture, client, assertJournals, assertProbes(count: number…
+     61|     expect(lines(probes)).toHaveLength(count);
+       |                           ^
+     62|   }, assertCapacity() {
+     63|     const intervals = lines(spans) as Array<{ start: number; end: numb…
+ ❯ tests/authored-parallel-llm.test.ts:99:10
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 2 skipped (6)
+   Start at  05:53:12
+   Duration  23.80s (transform 596ms, setup 0ms, collect 1.13s, tests 22.49s, environment 0ms, prepare 42ms)
+
+
+exit: 1

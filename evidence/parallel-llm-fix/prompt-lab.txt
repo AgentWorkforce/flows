@@ -1,0 +1,23 @@
+{"seeded":"/tmp/flows-prompt-lab-proof/lab"}
+== Job 1: new agency sunrise / soc
+Answer with: flows answer --data-dir /tmp/flows-prompt-lab-data 01M36CGX2HC59PAVGKV0SCFW6S human-20 yes|no
+Then continue with: flows resume --data-dir /tmp/flows-prompt-lab-data --local-agent 01M36CGX2HC59PAVGKV0SCFW6S
+RUN 01M36CGX2HC59PAVGKV0SCFW6S parked
+exit=3
+$ node /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/dist/cli.js answer --data-dir /tmp/flows-prompt-lab-data 01M36CGX2HC59PAVGKV0SCFW6S human-20 yes --by prompt-lab-reviewer
+ANSWERED 01M36CGX2HC59PAVGKV0SCFW6S human-20 yes
+Continue with: flows resume --data-dir /tmp/flows-prompt-lab-data --local-agent 01M36CGX2HC59PAVGKV0SCFW6S
+exit=0
+Answer with: flows answer --data-dir /tmp/flows-prompt-lab-data 01M36CGX2HC59PAVGKV0SCFW6S human-26 yes|no
+Then continue with: flows resume --data-dir /tmp/flows-prompt-lab-data --local-agent 01M36CGX2HC59PAVGKV0SCFW6S
+RUN 01M36CGX2HC59PAVGKV0SCFW6S parked
+exit=3
+$ node /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/dist/cli.js answer --data-dir /tmp/flows-prompt-lab-data 01M36CGX2HC59PAVGKV0SCFW6S human-26 yes --by prompt-lab-reviewer
+ANSWERED 01M36CGX2HC59PAVGKV0SCFW6S human-26 yes
+Continue with: flows resume --data-dir /tmp/flows-prompt-lab-data --local-agent 01M36CGX2HC59PAVGKV0SCFW6S
+exit=0
+✓ run-28 (deterministic) 0.10s completionReason: success
+FAILED [protocol_error] relayflowd could not complete the resume request: unawaited_step: flow "prompt-lab" returned with unawaited steps: llm-10 (f.llm), llm-11 (f.llm), llm-13 (f.llm), llm-14 (f.llm)
+RUN 01M36CGX2HC59PAVGKV0SCFW6S unknown
+exit=1
+prove: /tmp/flows-prompt-lab-proof/06-resume.txt exited 1, expected 0

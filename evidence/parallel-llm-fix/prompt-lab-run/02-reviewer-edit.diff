@@ -1,0 +1,13 @@
+# reviewer edit: /tmp/flows-prompt-lab-proof/lab/work/sunrise-soc/e4a1ccb3/grid.json
+@@ -144,9 +144,9 @@
+     "target": {
+       "answer": "Ongoing",
+       "confidence": "High",
+-      "explanation": "Today's SOC visit documents the left heel as an open area 2.0 x 1.5 cm with moderate serous drainage and a pink wound bed with yellow slough, so the wound is not healed despite the discharge summary stating it was closed. The current direct assessment supersedes the stale referral statement."
++      "explanation": "Today's visit notes describe an open 2.0 x 1.5 cm left heel wound with serous drainage and slough; the discharge summary's closed status is outdated."
+     },
+-    "notes": ""
++    "notes": "The prompt makes the referral win over what the nurse saw today. Today's notes must win (shared guideline 1)."
+   },
+   {
+     "questionId": "wound-status",

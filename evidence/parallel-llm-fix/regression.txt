@@ -1,0 +1,87 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/authored-parallel-llm.test.ts (6 tests | 6 failed) 113509ms
+   × parallel llm capacity 1 > deduplicates concurrent preflight probes 2515ms
+     → expected [ …(10) ] to have a length of 9 but got 10
+   × parallel llm capacity 1 > completes nine calls without expired child leases during slow preflight 8547ms
+     → expected [ …(10) ] to have a length of 9 but got 10
+   × parallel llm capacity 1 > keeps the durable root lease alive across two cold models 47711ms
+     → expected [ …(11) ] to have a length of 10 but got 11
+   × parallel llm capacity 4 > deduplicates concurrent preflight probes 1189ms
+     → expected [ …(10) ] to have a length of 9 but got 10
+   × parallel llm capacity 4 > completes nine calls without expired child leases during slow preflight 7166ms
+     → expected [ …(10) ] to have a length of 9 but got 10
+   × parallel llm capacity 4 > keeps the durable root lease alive across two cold models 46380ms
+     → expected [ …(11) ] to have a length of 10 but got 11
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-parallel-llm.test.ts > parallel llm capacity 1 > deduplicates concurrent preflight probes
+ FAIL  tests/authored-parallel-llm.test.ts > parallel llm capacity 4 > deduplicates concurrent preflight probes
+AssertionError: expected [ …(10) ] to have a length of 9 but got 10
+
+- Expected
++ Received
+
+- 9
++ 10
+
+ ❯ Object.assertJournals tests/authored-parallel-llm.test.ts:51:17
+     49|   async function assertJournals(expected: number) {
+     50|     const ids = readdirSync(join(fixture.data, 'runs')).filter(name =>…
+     51|     expect(ids).toHaveLength(expected);
+       |                 ^
+     52|     const expired: unknown[] = [];
+     53|     for (const name of ids) {
+ ❯ tests/authored-parallel-llm.test.ts:88:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  tests/authored-parallel-llm.test.ts > parallel llm capacity 1 > completes nine calls without expired child leases during slow preflight
+ FAIL  tests/authored-parallel-llm.test.ts > parallel llm capacity 4 > completes nine calls without expired child leases during slow preflight
+AssertionError: expected [ …(10) ] to have a length of 9 but got 10
+
+- Expected
++ Received
+
+- 9
++ 10
+
+ ❯ Object.assertJournals tests/authored-parallel-llm.test.ts:51:17
+     49|   async function assertJournals(expected: number) {
+     50|     const ids = readdirSync(join(fixture.data, 'runs')).filter(name =>…
+     51|     expect(ids).toHaveLength(expected);
+       |                 ^
+     52|     const expired: unknown[] = [];
+     53|     for (const name of ids) {
+ ❯ tests/authored-parallel-llm.test.ts:97:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  tests/authored-parallel-llm.test.ts > parallel llm capacity 1 > keeps the durable root lease alive across two cold models
+ FAIL  tests/authored-parallel-llm.test.ts > parallel llm capacity 4 > keeps the durable root lease alive across two cold models
+AssertionError: expected [ …(11) ] to have a length of 10 but got 11
+
+- Expected
++ Received
+
+- 10
++ 11
+
+ ❯ Object.assertJournals tests/authored-parallel-llm.test.ts:51:17
+     49|   async function assertJournals(expected: number) {
+     50|     const ids = readdirSync(join(fixture.data, 'runs')).filter(name =>…
+     51|     expect(ids).toHaveLength(expected);
+       |                 ^
+     52|     const expired: unknown[] = [];
+     53|     for (const name of ids) {
+ ❯ tests/authored-parallel-llm.test.ts:119:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ Test Files  1 failed (1)
+      Tests  6 failed (6)
+   Start at  05:37:50
+   Duration  114.67s (transform 568ms, setup 0ms, collect 985ms, tests 113.51s, environment 0ms, prepare 50ms)
+

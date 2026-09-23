@@ -1,0 +1,50 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/preflight.test.ts (67 tests) 104ms
+ ❯ tests/cli-probe.test.ts (6 tests | 1 failed) 812ms
+   × reports signal termination in both drivers 101ms
+     → expected Error: CLI probe failed { detail: 's…' } to match object { detail: 'signal:SIGTERM' }
+ ✓ tests/communication-environment-preflight.test.ts (6 tests) 5ms
+ ✓ tests/cli.test.ts (70 tests) 1710ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 330ms
+   ✓ flows check CLI > resolves a bare PATH-resolved claude with no declared model, in an isolated PATH 389ms
+ ✓ tests/authored-parallel-agents.test.ts (8 tests) 11090ms
+   ✓ authored steps under local workers with capacity > runs more concurrent f.llm calls than the worker holds side by side, never more than its capacity 1130ms
+   ✓ authored steps under local workers with capacity > completes more concurrent f.agent calls than the worker holds: the overflow waits for a slot instead of parking 2560ms
+   ✓ authored steps under local workers with capacity > runs agents in distinct working directories side by side (the kernel carries cwd) 626ms
+   ✓ authored steps under local workers with capacity > serializes agents whose cwd is a symlink alias of the same directory 1038ms
+   ✓ authored steps under local workers with capacity > serializes agents whose cwd is a directory nested inside the other 1033ms
+   ✓ authored steps under local workers with capacity > never starts queued agents once the body has failed 1914ms
+   ✓ authored steps under local workers with capacity > never starts a queued agent when the agent holding the only slot fails 1915ms
+   ✓ authored steps under local workers with capacity > parks the overflow when the body is not told the capacity (the defect this closes) 872ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/cli-probe.test.ts > reports signal termination in both drivers
+AssertionError: expected Error: CLI probe failed { detail: 's…' } to match object { detail: 'signal:SIGTERM' }
+
+- Expected
++ Received
+
+- Object {
+-   "detail": "signal:SIGTERM",
++ CliProbeError {
++   "detail": "spawn_failed",
+  }
+
+ ❯ tests/cli-probe.test.ts:61:3
+     59|   const { path, directory } = wrapper(identify + "process.kill(process…
+     60|   expect(() => probeCli(path, directory, 'test-model')).toThrow(expect…
+     61|   await expect(probeCliAsync(path, directory, 'test-model')).rejects.t…
+       |   ^
+     62| });
+     63| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed | 4 passed (5)
+      Tests  1 failed | 156 passed (157)
+   Start at  05:39:17
+   Duration  12.24s (transform 1.21s, setup 0ms, collect 3.62s, tests 13.72s, environment 1ms, prepare 202ms)
+

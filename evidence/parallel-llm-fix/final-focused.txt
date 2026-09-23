@@ -1,0 +1,35 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/preflight.test.ts (67 tests) 148ms
+ ✓ tests/cli.test.ts (70 tests) 2801ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 726ms
+   ✓ flows check CLI > resolves a bare PATH-resolved claude with no declared model, in an isolated PATH 532ms
+ ✓ tests/cli-probe.test.ts (6 tests) 861ms
+ ✓ tests/bundle-preflight.test.ts (4 tests) 1443ms
+   ✓ bundle execution preflight > ignores surrounding cache configuration on a verified cache hit 626ms
+   ✓ bundle execution preflight > uses the built alias for a nameless flow even in a digest-only cache directory 786ms
+ ✓ tests/communication-preflight.test.ts (13 tests) 42ms
+ ✓ tests/authored-preflight.test.ts (3 tests) 98ms
+ ✓ tests/authored-parallel-agents.test.ts (8 tests) 15720ms
+   ✓ authored steps under local workers with capacity > runs more concurrent f.llm calls than the worker holds side by side, never more than its capacity 2201ms
+   ✓ authored steps under local workers with capacity > completes more concurrent f.agent calls than the worker holds: the overflow waits for a slot instead of parking 3688ms
+   ✓ authored steps under local workers with capacity > runs agents in distinct working directories side by side (the kernel carries cwd) 831ms
+   ✓ authored steps under local workers with capacity > serializes agents whose cwd is a symlink alias of the same directory 2110ms
+   ✓ authored steps under local workers with capacity > serializes agents whose cwd is a directory nested inside the other 1920ms
+   ✓ authored steps under local workers with capacity > never starts queued agents once the body has failed 1990ms
+   ✓ authored steps under local workers with capacity > never starts a queued agent when the agent holding the only slot fails 2053ms
+   ✓ authored steps under local workers with capacity > parks the overflow when the body is not told the capacity (the defect this closes) 927ms
+ ✓ tests/authored-parallel-llm.test.ts (6 tests) 119261ms
+   ✓ parallel llm capacity 1 > deduplicates concurrent preflight probes 5453ms
+   ✓ parallel llm capacity 1 > completes nine calls without expired child leases during slow preflight 8940ms
+   ✓ parallel llm capacity 1 > keeps the durable root lease alive across two cold models 47791ms
+   ✓ parallel llm capacity 4 > deduplicates concurrent preflight probes 3310ms
+   ✓ parallel llm capacity 4 > completes nine calls without expired child leases during slow preflight 7300ms
+   ✓ parallel llm capacity 4 > keeps the durable root lease alive across two cold models 46466ms
+
+ Test Files  8 passed (8)
+      Tests  177 passed (177)
+   Start at  05:50:30
+   Duration  123.32s (transform 2.98s, setup 0ms, collect 10.31s, tests 140.37s, environment 1ms, prepare 555ms)
+

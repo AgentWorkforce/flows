@@ -1,0 +1,2 @@
+{"directory": "/tmp/flows-repro-capacity1", "journals": 13, "lease_expired": []}
+{"directory": "/tmp/flows-repro-capacity4", "journals": 13, "lease_expired": []}

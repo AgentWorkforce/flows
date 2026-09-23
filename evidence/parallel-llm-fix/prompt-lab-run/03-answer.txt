@@ -1,0 +1,4 @@
+$ node /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/dist/cli.js answer --data-dir /tmp/flows-prompt-lab-data 01M36CGX2HC59PAVGKV0SCFW6S human-20 yes --by prompt-lab-reviewer
+ANSWERED 01M36CGX2HC59PAVGKV0SCFW6S human-20 yes
+Continue with: flows resume --data-dir /tmp/flows-prompt-lab-data --local-agent 01M36CGX2HC59PAVGKV0SCFW6S
+exit=0

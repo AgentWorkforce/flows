@@ -1,0 +1,6 @@
+Bundled 759 modules in 51ms
+
+  authored-node.mjs  3.0 MB  (entry point)
+
+  [72ms]  bundle  692 modules
+   [3ms] compile  /tmp/flows-parallel-fixed

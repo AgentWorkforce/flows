@@ -1,0 +1,25 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+stdout | tests/zz-scratch-repro.test.ts > scratch: repeated per-call preflight probes > runs 9 concurrent f.llm at capacity 1
+{
+  "elapsedMs": 4716,
+  "probeCount": 11,
+  "byKind": {
+    "identify": 10,
+    "auth": 1
+  },
+  "completionReason": "success"
+}
+
+stdout | tests/zz-scratch-repro.test.ts > scratch: repeated per-call preflight probes > runs 9 concurrent f.llm at capacity 1
+lease_expired attempts: []
+
+ ✓ tests/zz-scratch-repro.test.ts (1 test) 4792ms
+   ✓ scratch: repeated per-call preflight probes > runs 9 concurrent f.llm at capacity 1 4792ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  05:46:03
+   Duration  5.97s (transform 576ms, setup 0ms, collect 1.01s, tests 4.79s, environment 0ms, prepare 46ms)
+

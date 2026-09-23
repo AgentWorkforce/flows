@@ -1,0 +1,24 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/preflight.test.ts (67 tests) 117ms
+ ✓ tests/cli-probe.test.ts (6 tests) 858ms
+ ✓ tests/communication-environment-preflight.test.ts (6 tests) 4ms
+ ✓ tests/cli.test.ts (70 tests) 1884ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 440ms
+   ✓ flows check CLI > resolves a bare PATH-resolved claude with no declared model, in an isolated PATH 420ms
+ ✓ tests/authored-parallel-agents.test.ts (8 tests) 12632ms
+   ✓ authored steps under local workers with capacity > runs more concurrent f.llm calls than the worker holds side by side, never more than its capacity 1195ms
+   ✓ authored steps under local workers with capacity > completes more concurrent f.agent calls than the worker holds: the overflow waits for a slot instead of parking 2956ms
+   ✓ authored steps under local workers with capacity > runs agents in distinct working directories side by side (the kernel carries cwd) 637ms
+   ✓ authored steps under local workers with capacity > serializes agents whose cwd is a symlink alias of the same directory 1926ms
+   ✓ authored steps under local workers with capacity > serializes agents whose cwd is a directory nested inside the other 1046ms
+   ✓ authored steps under local workers with capacity > never starts queued agents once the body has failed 1915ms
+   ✓ authored steps under local workers with capacity > never starts a queued agent when the agent holding the only slot fails 1974ms
+   ✓ authored steps under local workers with capacity > parks the overflow when the body is not told the capacity (the defect this closes) 982ms
+
+ Test Files  5 passed (5)
+      Tests  157 passed (157)
+   Start at  05:39:44
+   Duration  13.97s (transform 1.47s, setup 0ms, collect 4.15s, tests 15.49s, environment 1ms, prepare 254ms)
+

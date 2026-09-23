@@ -1,0 +1,55 @@
+$ SCRATCH_PROBE_MS=4000 SCRATCH_N=9 SCRATCH_CAP=1 npx vitest run tests/zz-scratch-repro.test.ts
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+stdout | tests/zz-scratch-repro.test.ts > scratch: repeated per-call preflight probes > runs 9 concurrent f.llm at capacity 1
+{
+  "elapsedMs": 36694,
+  "probeCount": 19,
+  "byKind": {
+    "identify": 10,
+    "auth": 9
+  },
+  "failure": "step_failed: journal step \"llm-1\" completed with lease_expired\nInspect: flows replay 01M36BDH5G5CAFP4YVVW6BZ2MY --at llm-1"
+}
+lease_expired attempts: []
+
+ ✓ tests/zz-scratch-repro.test.ts (1 test) 36750ms
+   ✓ scratch: repeated per-call preflight probes > runs 9 concurrent f.llm at capacity 1 36749ms
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+Error: Agent lease is already expired for 01M36BDH5G5CAFP4YVVW6BZ2MY/llm-1.
+ ❯ armExpiry src/worker-lease.ts:20:13
+     18|     const remaining = deadline - Date.now();
+     19|     if (!Number.isFinite(remaining) || remaining <= 0) {
+     20|       throw new Error(`Agent lease is already expired for ${dispatch.r…
+       |             ^
+     21|     }
+     22|     latestDeadline = deadline;
+ ❯ Module.withWorkerLease src/worker-lease.ts:47:5
+ ❯ LlmWorker.execute src/llm-worker.ts:60:46
+ ❯ JournalClient.onDispatch src/llm-worker.ts:49:26
+ ❯ JournalClient.emit node:events:508:20
+ ❯ JournalClient.onLine src/journal-client.ts:168:12
+ ❯ JournalClient.onData src/journal-client.ts:144:33
+ ❯ Socket.<anonymous> src/journal-client.ts:109:43
+ ❯ Socket.emit node:events:508:20
+ ❯ addChunk node:internal/streams/readable:564:12
+
+This error originated in "tests/zz-scratch-repro.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "runs 9 concurrent f.llm at capacity 1". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+     Errors  1 error
+   Start at  05:21:59
+   Duration  37.90s (transform 545ms, setup 0ms, collect 971ms, tests 36.75s, environment 0ms, prepare 44ms)
+

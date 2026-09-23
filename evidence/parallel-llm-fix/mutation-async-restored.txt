@@ -1,0 +1,15 @@
+cwd: packages/sdk
+command: ['npx', 'vitest', 'run', 'tests/authored-parallel-llm.test.ts', '-t', 'parallel llm capacity 1.*keeps the durable']
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/authored-parallel-llm.test.ts (6 tests | 5 skipped) 47947ms
+   ✓ parallel llm capacity 1 > keeps the durable root lease alive across two cold models 47946ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 5 skipped (6)
+   Start at  05:55:31
+   Duration  49.09s (transform 558ms, setup 0ms, collect 978ms, tests 47.95s, environment 0ms, prepare 43ms)
+
+
+exit: 0

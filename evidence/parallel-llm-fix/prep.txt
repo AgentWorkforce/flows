@@ -1,0 +1,5 @@
+
+> @relayflows/sdk@2.0.29 test:prep
+> ( cd ../../kernel && sh ../ops/cargo.sh build ) && ( [ ! -d ../../testdata/preflight ] || find ../../testdata/preflight -name '*-cli' -type f -exec chmod +x {} + )
+
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
