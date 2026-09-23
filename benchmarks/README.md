@@ -36,8 +36,9 @@ The runner refuses a dirty tree by default and requires report output to live
 outside the source tree, so one result cannot silently dirty the next run.
 `--allow-dirty` exists for local development, but permanently marks the artifact
 `publicationStatus: ineligible` and exits nonzero. A publishable result also
-requires the suite's minimum repetition count, zero failed trials, and explicit
-output witnesses proving each selected test actually ran. Every trial records
+requires the suite's minimum repetition count, zero failed, timed-out, invalid,
+or inconclusive trials, and explicit output witnesses proving each selected
+test actually ran. Every trial records
 its argv, working directory, duration, outcome, exit code, stdout, and stderr;
 the report records the suite hash, source commit, toolchain, and host class.
 

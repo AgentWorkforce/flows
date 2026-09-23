@@ -26,6 +26,8 @@ export async function runBlackBoxCrash(options = {}) {
   const stepPid = join(fixture, 'step.pid');
   const specPath = join(fixture, 'flow.json');
   const assertions = [];
+  let child = null;
+  let inFlightPid = null;
 
   try {
     writeFileSync(
@@ -56,7 +58,7 @@ export async function runBlackBoxCrash(options = {}) {
     );
     check(assertions, readLines(effects), ['first'], 'only step one completed before resume');
 
-    const child = spawn(
+    child = spawn(
       binary,
       ['--data-dir', dataDir, 'resume', receipt.run_id],
       { detached: true, stdio: ['ignore', 'pipe', 'pipe'] },
@@ -83,14 +85,17 @@ export async function runBlackBoxCrash(options = {}) {
       return readLines(attempts).join(',') === 'attempt' && readPid(stepPid) !== null;
     });
     check(assertions, readLines(attempts), ['attempt'], 'step two was in flight before SIGKILL');
+    inFlightPid = readPid(stepPid);
 
     const exited = once(child, 'exit');
     process.kill(-child.pid, 'SIGKILL');
     const [exitCode, signal] = await exited;
+    child = null;
     check(assertions, exitCode, null, 'killed resume process has no numeric exit code');
     check(assertions, signal, 'SIGKILL', 'resume process observed SIGKILL');
-    await killAndWait(readPid(stepPid));
-    check(assertions, isProcessAlive(readPid(stepPid)), false, 'in-flight step process was killed');
+    await killAndWait(inFlightPid);
+    check(assertions, isProcessAlive(inFlightPid), false, 'in-flight step process was killed');
+    inFlightPid = null;
     writeFileSync(gate, 'open\n');
 
     const resumed = spawnSync(binary, ['--data-dir', dataDir, 'resume', receipt.run_id], {
@@ -132,8 +137,29 @@ export async function runBlackBoxCrash(options = {}) {
       effects: readLines(effects),
     };
   } finally {
-    rmSync(fixture, { recursive: true, force: true });
+    try {
+      await cleanupExecution(child, inFlightPid ?? readPid(stepPid));
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
   }
+}
+
+export async function cleanupExecution(child, stepProcessId) {
+  await terminateProcessTree(child);
+  if (isProcessAlive(stepProcessId)) await killAndWait(stepProcessId);
+}
+
+export async function terminateProcessTree(child) {
+  if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
+  const exited = once(child, 'exit');
+  try {
+    process.kill(-child.pid, 'SIGKILL');
+  } catch (error) {
+    if (error.code === 'ESRCH') return;
+    throw error;
+  }
+  await exited;
 }
 
 export function parseOutcome(stdout) {

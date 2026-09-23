@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { parseOutcome } from '../benchmarks/durability/black-box-crash.mjs';
+import {
+  parseOutcome,
+  terminateProcessTree,
+} from '../benchmarks/durability/black-box-crash.mjs';
 import { collectProvenance } from './eval-provenance.mjs';
 import { runEvalSuite, trialEnvironment, validateEvalSuite } from './eval-suite.mjs';
 import { parseArgs, reportExitCode, validateOutputPath } from './run-evals.mjs';
@@ -191,10 +195,11 @@ test('trial environments are allowlisted and recorded without ambient secrets', 
       RUSTUP_TOOLCHAIN: 'stable',
       UNKNOWN: 'not-recorded',
     },
-    { FIXTURE_MODE: 'deterministic' },
+    { CARGO_TERM_COLOR: 'always', FIXTURE_MODE: 'deterministic' },
   );
   assert.deepEqual(environment, {
     CARGO_HOME: '/toolchain/cargo',
+    CARGO_TERM_COLOR: 'never',
     HOME: '/home/eval',
     PATH: '/bin',
     RUSTUP_TOOLCHAIN: 'stable',
@@ -213,7 +218,11 @@ test('trial environments are allowlisted and recorded without ambient secrets', 
         return { status: 0, signal: null, stdout: 'executed resume\n', stderr: '' };
       },
     });
-    assert.deepEqual(observedEnvironment, { HOME: '/home/eval', PATH: '/bin' });
+    assert.deepEqual(observedEnvironment, {
+      CARGO_TERM_COLOR: 'never',
+      HOME: '/home/eval',
+      PATH: '/bin',
+    });
     assert.deepEqual(report.cases[0].trials[0].command.environment, observedEnvironment);
     assert.equal('RELAY_API_KEY' in report.cases[0].trials[0].command.environment, false);
   });
@@ -301,3 +310,21 @@ test('black-box receipt parsing tolerates diagnostics but requires a public run 
   });
   assert.throws(() => parseOutcome('diagnostic only\n'), /did not contain a JSON run receipt/u);
 });
+
+test(
+  'black-box cleanup terminates a detached workflow process',
+  { skip: process.platform === 'win32' },
+  async () => {
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    await new Promise((resolvePromise, reject) => {
+      child.once('spawn', resolvePromise);
+      child.once('error', reject);
+    });
+    await terminateProcessTree(child);
+    assert.equal(child.exitCode, null);
+    assert.equal(child.signalCode, 'SIGKILL');
+  },
+);

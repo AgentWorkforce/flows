@@ -133,7 +133,7 @@ function runCase({ testCase, suite, suitePath, rootDir, repetitions, execute, en
   if (!isWithin(rootDir, commandCwd)) {
     throw new Error(`case ${testCase.id} command cwd escapes the provenance root`);
   }
-  const commandEnvironment = { ...environment, ...testCase.command.env };
+  const commandEnvironment = trialEnvironment(environment, testCase.command.env);
   const trials = Array.from({ length: repetitions }, (_, index) =>
     runTrial({
       testCase,
@@ -284,7 +284,7 @@ export function trialEnvironment(parentEnv, commandEnv = {}) {
   for (const key of INHERITED_ENV_KEYS) {
     if (parentEnv[key] !== undefined) environment[key] = String(parentEnv[key]);
   }
-  return { ...environment, ...commandEnv };
+  return { ...environment, ...commandEnv, CARGO_TERM_COLOR: 'never' };
 }
 
 function percentile(values, quantile) {
