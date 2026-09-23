@@ -333,3 +333,12 @@ describe('capture-layer elision', () => {
     expect(bytes(excerpt)).toBeLessThanOrEqual(EXCERPT_BYTES);
   });
 });
+
+
+it('does not cut a capture marker that straddles the head boundary', () => {
+  const marker = '… relayflow: 9000000 bytes elided at capture …';
+  const excerpt = formatStepExcerpt(marker + '\n' + 'ok - passing\n'.repeat(1000), 256);
+  expect(excerpt).toContain(marker);
+  expect(excerpt.split(marker)).toHaveLength(2);
+  expect(bytes(excerpt)).toBeLessThanOrEqual(256);
+});

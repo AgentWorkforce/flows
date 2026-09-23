@@ -109,6 +109,11 @@ export function formatStepExcerpt(value: string, budget: number = EXCERPT_BYTES)
   const highlightShare = content - tailShare - headShare;
 
   const head = headRange(source, lines, headShare);
+  // A small budget can end the head inside a leading capture marker. Move
+  // that entire marker into the reserved provenance range instead.
+  for (const item of provenance) {
+    if (item.range.start < head.end && item.range.end > head.end) head.end = item.range.start;
+  }
   // Provisional tail, which with the head defines the middle the highlights
   // are drawn from.
   const middleEnd = tailRange(source, tailShare, head.end).start;
@@ -146,7 +151,8 @@ export function formatStepExcerpt(value: string, budget: number = EXCERPT_BYTES)
   const parts: string[] = [];
   const terminated = (chunk: string): string => chunk.endsWith('\n') ? chunk : `${chunk}\n`;
   if (size(head) > 0) parts.push(terminated(text(source, head)));
-  parts.push(`${openMarker(elided, highlights.filter(item => matches.some(match => match.start === item.range.start)).length, omitted)}\n`);
+  const shownFailures = highlights.filter(item => matches.some(match => match.start === item.range.start)).length;
+  parts.push(`${openMarker(elided, shownFailures, omitted)}\n`);
   for (const highlight of highlights) {
     parts.push(terminated(text(source, highlight.range) + (highlight.truncated ? ` ${TRUNCATED_MARKER}` : '')));
   }

@@ -1,0 +1,38 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/step-failure-excerpt.test.ts (50 tests | 1 failed) 287ms
+   × does not cut a capture marker that straddles the head boundary 7ms
+     → expected '… relay\n… 13,014 bytes elided …\ng\n…' to contain '… relayflow: 9000000 bytes elided at …'
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/step-failure-excerpt.test.ts > does not cut a capture marker that straddles the head boundary
+AssertionError: expected '… relay\n… 13,014 bytes elided …\ng\n…' to contain '… relayflow: 9000000 bytes elided at …'
+
+- Expected
++ Received
+
+- … relayflow: 9000000 bytes elided at capture …
++ … relay
++ … 13,014 bytes elided …
++ g
++ ok - passing
++ ok - passing
++
+
+ ❯ tests/step-failure-excerpt.test.ts:341:19
+    339|   const marker = '… relayflow: 9000000 bytes elided at capture …';
+    340|   const excerpt = formatStepExcerpt(marker + '\n' + 'ok - passing\n'.r…
+    341|   expect(excerpt).toContain(marker);
+       |                   ^
+    342|   expect(excerpt.split(marker)).toHaveLength(2);
+    343|   expect(bytes(excerpt)).toBeLessThanOrEqual(256);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 49 passed (50)
+   Start at  00:03:24
+   Duration  545ms (transform 47ms, setup 0ms, collect 49ms, tests 287ms, environment 0ms, prepare 44ms)
+
