@@ -1,23 +1,13 @@
 import { communicationInstruction } from '../communication/spec.js';
 import { checkCommunicationEnvironment } from '../communication/preflight.js';
-import { agentEnvironment, brokerEnvironment } from '../communication/environment.js';
 import { accessSync, constants, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, parse as parsePath, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { parse as parseYaml } from 'yaml';
 import { CompileError, compileSpec, kernelToAuthoring } from '../compile.js';
 import { agentWorkerDiagnostics } from './check-worker-surface.js';
 import { helperReady } from '../yaml-helper-effect.js';
 import { flowRequirements, type FlowRequirements } from '../flow-requirements.js';
-import {
-  adapterIdentification,
-  authenticationProbe,
-  cliAdapterKind,
-  displayInvocation,
-  modelReadinessProbe,
-  type CliInvocation,
-} from '../cli-adapter.js';
-import { MODEL_ENV } from '../worker-cli.js';
+import { probeCli, resolveExecutable } from './cli-probe.js';
 import { modelNameError } from '../model-name.js';
 import type { FlowSpec } from '../spec.js';
 import type { McpServerConfig } from '../spec.js';
@@ -26,7 +16,6 @@ import type { StepGateInspection } from '../gate-contract.js';
 import type { CheckFailureKind, CheckWarningKind } from '../failure-kinds.js';
 import {
   preflight,
-  CliProbeError,
   type CliResolution,
   type CliProbeResult,
   type CliProbeOutcome,
@@ -480,155 +469,6 @@ function bindResolvedCliPaths(
 function canonicalCli(cli: string, directory: string): string {
   if (isAbsolute(cli) || (!cli.includes('/') && !cli.includes('\\'))) return cli;
   return resolve(directory, cli);
-}
-
-function probeCli(
-  cli: string,
-  directory: string,
-  model?: string,
-  execution?: 'managed',
-): CliProbeResult {
-  const executable = resolveExecutable(cli, directory);
-  if (executable === undefined) return { exists: false, authenticated: false };
-  const kind = cliAdapterKind(executable);
-  // Relay owns interactive CLI launch/injection. Its generic PTY path is not
-  // the headless wrapper protocol; do not demand that protocol from Gemini,
-  // Cursor, OpenCode, or other interactive tools. Never invent an auth pass.
-  if (execution === 'managed' && kind === 'relayflows-wrapper-v1') {
-    return { exists: true, supported: true, authenticated: 'unverified' };
-  }
-  const environment = execution === 'managed'
-    ? { ...brokerEnvironment(process.env), ...agentEnvironment(executable) } : process.env;
-  const probe = (invocation: CliInvocation) => runProbe(executable, directory, invocation, environment);
-  const identification = adapterIdentification(kind);
-  const identified = probe(identification.invocation);
-  if (
-    identified.status !== 0
-    || (identification.expectedStdout !== undefined
-      && identified.stdout.trim() !== identification.expectedStdout)
-  ) {
-    return { exists: true, supported: false, authenticated: false };
-  }
-  const auth = authenticationProbe(kind);
-  const authCommand = displayInvocation(cli, auth);
-  if (model === undefined) {
-    return {
-      exists: true,
-      supported: true,
-      authenticated: probe(auth).status === 0,
-      authCommand,
-    };
-  }
-
-  const scoped = modelReadinessProbe(kind, model);
-  const modelCommand = displayInvocation(cli, scoped);
-  // A successful real provider round trip (or identified wrapper probe)
-  // proves both auth and exact-model access. On failure, run the adapter's
-  // actual auth command solely to classify auth vs model access truthfully.
-  if (probe(scoped).status === 0) {
-    return {
-      exists: true,
-      supported: true,
-      authenticated: true,
-      modelAvailable: true,
-      authCommand,
-      modelCommand,
-    };
-  }
-  const authProbe = probe(auth);
-  const authenticated = authProbe.status === 0;
-  return {
-    exists: true,
-    supported: true,
-    authenticated,
-    modelAvailable: false,
-    authCommand,
-    modelCommand,
-    // Only on failure: on success there is nothing to explain, and the output
-    // is the most identity-bearing thing this function touches.
-    ...(authenticated
-      ? {}
-      : {
-        authExitCode: authProbe.status,
-        authFailureDetail: redactProbeOutput(
-          `${authProbe.stderr}${authProbe.stdout}`,
-        ).trim().slice(0, 500),
-      }),
-  };
-}
-
-/**
- * Redact anything that looks like a credential or an account identifier.
- *
- * `auth status` output is diagnostic, but it is also the one place an account
- * email, org id or token fragment can appear. The point of surfacing it is to
- * say WHY a probe failed, which survives redaction; leaking an identity into a
- * refusal message that gets pasted into issues does not.
- */
-function redactProbeOutput(text: string): string {
-  return text
-    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '<redacted-email>')
-    .replace(/\b(sk|pk|oat|rt)[-_][A-Za-z0-9._-]{8,}/gi, '<redacted-token>')
-    .replace(/\b[A-Fa-f0-9]{32,}\b/g, '<redacted-hex>');
-}
-
-function runProbe(
-  executable: string,
-  directory: string,
-  invocation: CliInvocation,
-  environment: NodeJS.ProcessEnv = process.env,
-): { status: number | null; stdout: string; stderr: string } {
-  const env = { ...environment };
-  delete env[MODEL_ENV];
-  if (invocation.modelEnv !== undefined) env[MODEL_ENV] = invocation.modelEnv;
-  const result = spawnSync(executable, invocation.args, {
-    cwd: directory,
-    encoding: 'utf8',
-    // stderr was 'ignore'. A failing `auth status` writes its reason there, so
-    // discarding it made every authentication refusal structurally
-    // undiagnosable: the refusal could say a probe exited non-zero and never
-    // what it said. Captured, then redacted at the point of use.
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: invocation.timeoutMs,
-    env,
-  });
-  const failure = classifySpawnFailure(result.error, result.signal, invocation.timeoutMs);
-  if (failure !== undefined) throw failure;
-  return {
-    status: result.status,
-    stdout: result.stdout,
-    stderr: result.stderr ?? '',
-  };
-}
-
-function resolveExecutable(command: string, directory: string): string | undefined {
-  if (command.includes('/') || isAbsolute(command)) {
-    const path = isAbsolute(command) ? command : resolve(directory, command);
-    try {
-      accessSync(path, constants.X_OK);
-      return path;
-    } catch {
-      return undefined;
-    }
-  }
-  const result = spawnSync('which', [command], { encoding: 'utf8', timeout: 5_000 });
-  const failure = classifySpawnFailure(result.error, result.signal, 5_000);
-  if (failure !== undefined) throw failure;
-  return result.status === 0 ? result.stdout.trim() : undefined;
-}
-
-function classifySpawnFailure(
-  error: Error | undefined,
-  signal: NodeJS.Signals | null,
-  timeoutMs: number,
-): CliProbeError | undefined {
-  if (error !== undefined) {
-    const detail = (error as NodeJS.ErrnoException).code === 'ETIMEDOUT'
-      ? `timeout:${timeoutMs}ms` as const
-      : 'spawn_failed' as const;
-    return new CliProbeError(detail);
-  }
-  return signal === null ? undefined : new CliProbeError(`signal:${signal}`);
 }
 
 function executableExists(command: string, directory: string): boolean {
