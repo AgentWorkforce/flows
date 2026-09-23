@@ -121,6 +121,14 @@ jobs:
             node_modules/@relayflows/surface
           node -e "console.log(require.resolve('@relayflows/surface'))"
 
+      - name: Provision hosted extension sandbox
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends bubblewrap
+          /usr/bin/bwrap --version
+          /usr/bin/bwrap --unshare-all --die-with-parent --new-session \
+            --ro-bind / / /bin/true
+
       - name: Test SDK and type-level authoring contracts
         working-directory: packages/sdk
         env:
