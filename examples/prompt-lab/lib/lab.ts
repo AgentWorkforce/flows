@@ -17,6 +17,7 @@ const b64 = (value: unknown): string => Buffer.from(JSON.stringify(value), "utf8
  * keys re-ordered, the lowered `<step>.gate` spec no longer matches, and the
  * resume is refused as run_admission_conflict
  * (evidence/runtime-findings/00-job1-attempt4-predicate-gate-resume-conflict.txt).
+ * Fixed in flows#558; return to `.gate()` once a release carries it.
  */
 export async function failStep(f: Ctx, reason: string): Promise<never> {
   await f.run(`echo ${shellWord(reason)} >&2; exit 1`);

@@ -118,7 +118,7 @@ where it lives, and each has captured evidence in
    calls passed and nine failed, with `--agent-capacity` 4 or 1.
    [`runtime-parallel-llm-repro.flow.ts`](evidence/runtime-findings/runtime-parallel-llm-repro.flow.ts)
    reproduces it with no Prompt Lab code. **Workaround:** model calls run
-   sequentially.
+   sequentially. Tracked in [#561](https://github.com/AgentWorkforce/flows/issues/561) and [#560](https://github.com/AgentWorkforce/flows/issues/560).
 2. **A predicate `.gate(fn)` before an `f.human` can't be resumed.** The
    verdict is read back from the `predicate-gates` stream with its keys
    re-ordered. The lowered `<step>.gate` command no longer matches, and the
@@ -126,14 +126,14 @@ where it lives, and each has captured evidence in
    `packages/sdk/src/authored-flow-executor.ts` `applyPredicateGate`: build the
    literal from fixed fields, not from `JSON.stringify(record)`.
    **Workaround:** the checks run in the body and fail through a journaled
-   failing step (`failStep`).
+   failing step (`failStep`). **Fixed in [#558](https://github.com/AgentWorkforce/flows/pull/558).**
 3. **`f.llm(prompt, { output })` fails when the reply is fenced JSON.** The
    worker validates the raw reply. Sonnet sometimes wraps valid JSON in
    ```` ```json ```` anyway, and a failed run can't be resumed.
    **Workaround:** text-form `f.llm`, then
    [`lib/reply.ts`](lib/reply.ts) strips one fence and validates the schema,
    with one bounded re-ask. The text form takes no `model`, so calls use the
-   Claude adapter's default model.
+   Claude adapter's default model. **Fixed in [#558](https://github.com/AgentWorkforce/flows/pull/558).**
 
 4. **A lease renewal that races a completion kills the run.** A step whose
    child run journaled `success` was reported as
@@ -141,7 +141,7 @@ where it lives, and each has captured evidence in
    fatal `protocol_error`
    ([00-prove-attempt1-lease-conflict-after-success.txt](evidence/runtime-findings/00-prove-attempt1-lease-conflict-after-success.txt)).
    It's intermittent: it happened once in about 50 sequential calls. There's
-   no workaround in the flow, so rerun.
+   no workaround in the flow, so rerun. Tracked in [#560](https://github.com/AgentWorkforce/flows/issues/560).
 
 Findings 1 and 4 are the same class of problem: late lease traffic becomes
 fatal to the whole run instead of being ignored.

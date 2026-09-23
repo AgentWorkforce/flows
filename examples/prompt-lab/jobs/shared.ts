@@ -20,6 +20,7 @@ export const REPLY_ATTEMPTS = 2;
  * model that wraps valid JSON in a markdown fence fails the step, and a failed
  * run cannot be resumed (evidence/runtime-findings/00-job1-attempt1-fenced-json.txt, evidence/runtime-findings/00-patient-attempt1-fenced-json.txt).
  * The text form takes no model option, so calls use the CLI adapter's default.
+ * Return to f.llm(prompt, { output, model }) once flows#558 ships.
  */
 export async function llm<T>(f: Ctx, call: Call): Promise<T> {
   let problem = "";
@@ -69,7 +70,7 @@ export async function untilQaPasses<T>(
  * written as Promise.all, but relayflows 2.0.29 loses the run when concurrent
  * f.llm calls queue past their 30s lease (a stale completion becomes a fatal
  * protocol_error): see evidence/runtime-findings/runtime-parallel-llm-repro.txt. Restore
- * Promise.all here and in jobs/new-agency.ts when that is fixed.
+ * Promise.all here and in jobs/new-agency.ts when flows#561 and flows#560 ship.
  */
 export async function runEngine(f: Ctx, promptText: string, ask: Ask, patients: readonly Patient[]): Promise<Record<string, Output>> {
   const outputs: Record<string, Output> = {};
