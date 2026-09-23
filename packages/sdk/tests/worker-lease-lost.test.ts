@@ -115,3 +115,12 @@ it('does not classify messages, causes, or unrelated terminal refusals as lease 
     new JournalProtocolError('journal_error', 'disk full'),
   ]) expect(isLeaseLost(error)).toBe(false);
 });
+
+it('keeps an invalid lease deadline fatal', async () => {
+  const { client, worker, fatal, dispatch } = setup('llm');
+  await worker.attach();
+  client.emit('step.dispatch', { ...dispatch, lease_deadline_ms: NaN });
+  await worker.close();
+  expect(fatal).toHaveBeenCalledTimes(1);
+  expect(client.close).toHaveBeenCalledTimes(1);
+});

@@ -1,7 +1,6 @@
 import { JournalProtocolError, type JournalClient } from './journal-client.js';
 import type { StepDispatchEvent } from './protocol.js';
 
-
 export class WorkerLeaseLostError extends Error {
   constructor(readonly reason: 'already_expired' | 'renewal_expired' | 'completion_expired', message: string) {
     super(message);
@@ -43,7 +42,10 @@ export async function withWorkerLease<T>(
   const fail = (error: unknown): void => { controller.abort(error); };
   const armExpiry = (deadline: number): number => {
     const remaining = deadline - Date.now();
-    if (!Number.isFinite(remaining) || remaining <= 0) {
+    if (!Number.isFinite(remaining)) {
+      throw new Error(`Agent lease is already expired for ${dispatch.run_id}/${dispatch.step_id}.`);
+    }
+    if (remaining <= 0) {
       throw new WorkerLeaseLostError('already_expired', `Agent lease is already expired for ${dispatch.run_id}/${dispatch.step_id}.`);
     }
     latestDeadline = deadline;
