@@ -1,0 +1,40 @@
+$ (cd . && npm run build --prefix packages/surface)
+
+> @relayflows/surface@2.0.25 build
+> tsc
+
+Exit: 0
+
+$ (cd packages/sdk && npm run typecheck)
+
+> @relayflows/sdk@2.0.25 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+Exit: 0
+
+$ (cd packages/sdk && npm run typecheck:tests)
+
+> @relayflows/sdk@2.0.25 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+Exit: 0
+
+$ (cd packages/sdk && npm run build)
+
+> @relayflows/sdk@2.0.25 build
+> tsc && node scripts/make-cli-executable.mjs
+
+Exit: 0
+
+$ (cd packages/sdk && ./node_modules/.bin/vitest run tests/babysitter-catalog-export.test.ts)
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/packages/sdk
+
+ ✓ tests/babysitter-catalog-export.test.ts (13 tests) 358ms
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  01:22:27
+   Duration  3.14s (transform 759ms, setup 0ms, collect 1.37s, tests 358ms, environment 0ms, prepare 226ms)
+
+Exit: 0

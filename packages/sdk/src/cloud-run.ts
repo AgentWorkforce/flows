@@ -9,6 +9,7 @@ import { CompileError, compileSpec, kernelToAuthoring, toKernelSpec } from './co
 import type { FlowSpec } from './spec.js';
 import { snapshotJsonValue, type JsonValue } from './json-value.js';
 import { loadAuthoredFlow, type SurfaceModuleAuthority } from './authored-flow-loader.js';
+import { assertNoUseDependencies, collectExtensionSubmissions, type FlowExtensionSubmission } from './flow-extension-submit.js';
 import {
   CloudFlowError, cloudConnection, cloudFetch, cloudRequest, cloudRunId, isCloudRecord,
   type CloudConnectionOptions,
@@ -61,6 +62,7 @@ export function cloudSubmissionBody(submission: CloudSubmission): Record<string,
     relayflowVersion: 'v2',
     ...(submission.authoredAuthority === undefined ? {} : { authoredAuthority: submission.authoredAuthority }),
     ...(submission.inputPresent ? { inputs: submission.inputs } : {}),
+    ...(submission.extensions === undefined || submission.extensions.length === 0 ? {} : { extensions: submission.extensions }),
   };
 }
 
@@ -90,6 +92,7 @@ export interface CloudSubmission {
   readonly name: string;
   /** Authored `schedule.*` handlers, for `flows schedule` to pick up. */
   readonly schedules: readonly ScheduleTriggerSource[];
+  readonly extensions?: readonly FlowExtensionSubmission[];
 }
 
 export async function prepareCloudSubmission(
@@ -97,7 +100,7 @@ export async function prepareCloudSubmission(
   options: { input?: JsonValue; signal?: AbortSignal } = {},
 ): Promise<CloudSubmission> {
   let spec: FlowSpec | undefined;
-  let authored: { source: string; authority: CloudAuthoredAuthority; name: string; schedules: ScheduleTriggerSource[] } | undefined;
+  let authored: { source: string; authority: CloudAuthoredAuthority; name: string; schedules: ScheduleTriggerSource[]; extensions: readonly FlowExtensionSubmission[] } | undefined;
   const inputPresent = Object.prototype.hasOwnProperty.call(options, 'input');
   let authoredInput: JsonValue | undefined;
   try {
@@ -122,14 +125,13 @@ export async function prepareCloudSubmission(
             `${flow.path} is not a loadable authored flow: ${error instanceof Error ? error.message : String(error)}. `
             + 'Run `flows check` on it from the same directory.');
         }
-        if (loaded.graph.length !== 1) {
-          throw new CloudFlowError('unsupported_source',
-            'Cloud authored submission currently accepts one self-contained .flow.ts source without use dependencies.');
-        }
+        assertNoUseDependencies(loaded);
+        const extensions = await collectExtensionSubmissions(loaded);
         authored = {
           source,
           name: definition.name,
           schedules: definition.handlers.flatMap(h => h.trigger.kind === 'schedule' ? [h.trigger] : []),
+          extensions,
           authority: Object.freeze({
             schemaVersion: 1,
             sourceSha256: createHash('sha256').update(bytes).digest('hex'),
@@ -182,7 +184,15 @@ export async function prepareCloudSubmission(
   return {
     workflow: authored.source, fileType: 'ts', authoredAuthority: authored.authority,
     inputs: authoredInput, inputPresent: true, name: authored.name, schedules: authored.schedules,
-    specHash: createHash('sha256').update(canonicalize({ authority: authored.authority, input: authoredInput })).digest('hex'),
+    ...(authored.extensions.length === 0 ? {} : { extensions: authored.extensions }),
+    specHash: createHash('sha256').update(canonicalize({
+      authority: authored.authority, input: authoredInput,
+      ...(authored.extensions.length === 0 ? {} : {
+        extensions: authored.extensions.map(extension => ({
+          name: extension.name, digest: extension.digest, ref: extension.ref,
+        })),
+      }),
+    })).digest('hex'),
   };
 }
 

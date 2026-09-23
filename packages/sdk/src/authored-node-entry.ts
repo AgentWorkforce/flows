@@ -6,6 +6,7 @@ import { executeAuthoredFlow } from './authored-flow-executor.js';
 import { loadPinnedAuthoredSource } from './authored-source-authority.js';
 import { assertAuthoredNodeVersion, parseAuthoredParentPid } from './authored-runtime-capability.js';
 import { AuthoredFlowExecutionError, AuthoredHumanParked } from './authored-flow-error.js';
+import { isAgentCapacity } from './worker-slots.js';
 import type { AuthoredRootMetadata } from './authored-root.js';
 
 let channelKey: string | undefined, sequence = 0;
@@ -48,7 +49,7 @@ try {
   send({ type: 'ready', runtime: { kind: 'node', version: process.versions.node,
     executableSha256: hash(process.execPath), payloadSha256: hash(process.argv[1]!) } });
   const request = await new Promise<{ channelKey: string; metadata: AuthoredRootMetadata; socketPath: string;
-    rootRunId: string; dataDir: string; localAgentStream?: string }>((resolve, reject) => {
+    rootRunId: string; dataDir: string; localAgentStream?: string; workerCapacity?: number }>((resolve, reject) => {
     let buffer = '';
     process.stdin.setEncoding('utf8');
     const onData = (chunk: string): void => {
@@ -66,13 +67,16 @@ try {
   controller.signal.throwIfAborted();
   const loaded = await loadPinnedAuthoredSource(request.metadata, true);
   if (request.localAgentStream !== request.metadata.localAgentStream) throw new Error('authored root local agent surface mismatch');
+  if (request.workerCapacity !== undefined && !isAgentCapacity(request.workerCapacity)) throw new Error('invalid authored worker capacity');
   client = new JournalClient(request.socketPath);
   await client.connect(); await client.hello('flows-authored-node');
   const result = await executeAuthoredFlow(loaded.handle, client,
     request.metadata.inputPresent ? request.metadata.input : undefined, {
       getDefinition: loaded.getDefinition, dataDir: request.dataDir,
       flowPath: request.metadata.flowPath, rootRunId: request.rootRunId,
+      extensions: loaded.extensions,
       localAgentStream: request.localAgentStream, signal: controller.signal,
+      ...(request.workerCapacity === undefined ? {} : { workerCapacity: request.workerCapacity }),
       onProgress: event => send({ type: 'progress', event }),
       onWait: event => send({ type: 'wait', event }),
     });

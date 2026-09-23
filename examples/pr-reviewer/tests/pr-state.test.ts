@@ -34,7 +34,7 @@ import {
   rollupFromCheckSummary,
   shouldSkipReview,
   shellWord,
-} from "../pr-reviewer.flow.ts";
+} from "../../babysitter/legacy/pr-reviewer.flow.ts";
 import { getFlowDefinition } from "@relayflows/surface/runtime";
 
 test('reviewAuthorAllowlistDecision lets configured authors through', () => {

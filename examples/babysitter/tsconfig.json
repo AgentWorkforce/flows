@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "ESNext", "moduleResolution": "Bundler",
+    "strict": true, "noUncheckedIndexedAccess": true, "noEmit": true,
+    "allowImportingTsExtensions": true, "skipLibCheck": true,
+    // No `baseUrl`: TypeScript 7 removed it, and `paths` has resolved relative
+    // to this file since 4.1. Keeping it made `npm run typecheck` fail on a
+    // modern toolchain with TS5102 — a red that says nothing about this code.
+    "paths": { "@relayflows/surface": ["../../packages/surface/src/index.ts"] },
+    "typeRoots": ["../../packages/sdk/node_modules/@types"], "types": ["node"]
+  },
+  "include": ["*.ts", "tests/*.ts"]
+}

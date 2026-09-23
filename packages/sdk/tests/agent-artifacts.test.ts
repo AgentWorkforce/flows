@@ -41,13 +41,59 @@ describe('snapshotWorkspaceFiles / diffWorkspaceFiles', () => {
     expect(diffWorkspaceFiles(before, after)).toEqual([]);
   });
 
-  it('skips dotdirs and node_modules', async () => {
+  it('reports a file the agent wrote under a dot-directory', async () => {
+    // `.workflow-artifacts/` is the conventional artifact directory; a blanket
+    // dot-prefix skip made every file written there invisible to the journal,
+    // so an `artifact_exists` gate naming one could never pass.
+    const dir = tempDir();
+    mkdirSync(join(dir, '.workflow-artifacts/reviews'), { recursive: true });
+    writeFileSync(join(dir, '.workflow-artifacts/reviews/edited.md'), 'aaaa');
+    writeFileSync(join(dir, '.workflow-artifacts/untouched.md'), 'same');
+    const before = await snapshotWorkspaceFiles(dir);
+    mkdirSync(join(dir, '.workflow-artifacts/x'), { recursive: true });
+    writeFileSync(join(dir, '.workflow-artifacts/x/y.md'), 'findings');
+    writeFileSync(join(dir, '.workflow-artifacts/reviews/edited.md'), 'bbbb');
+    const after = await snapshotWorkspaceFiles(dir);
+    expect(diffWorkspaceFiles(before, after))
+      .toEqual(['.workflow-artifacts/reviews/edited.md', '.workflow-artifacts/x/y.md']);
+  });
+
+  it('keeps ordinary dotfiles and author dot-directories eligible, including names that merely resemble exclusions', async () => {
     const dir = tempDir();
     const before = await snapshotWorkspaceFiles(dir);
-    mkdirSync(join(dir, '.relayflowd'));
-    writeFileSync(join(dir, '.relayflowd', 'kernel.log'), 'noise');
-    mkdirSync(join(dir, 'node_modules'));
-    writeFileSync(join(dir, 'node_modules', 'pkg.js'), 'noise');
+    writeFileSync(join(dir, '.env.example'), 'KEY=');
+    mkdirSync(join(dir, '.github/workflows'), { recursive: true });
+    writeFileSync(join(dir, '.github/workflows/ci.yml'), 'on: push');
+    mkdirSync(join(dir, '.relayflowd-notes'));
+    writeFileSync(join(dir, '.relayflowd-notes/todo.md'), 'later');
+    mkdirSync(join(dir, 'evidence/.nested/.deeper'), { recursive: true });
+    writeFileSync(join(dir, 'evidence/.nested/.deeper/proof.md'), 'proof');
+    const after = await snapshotWorkspaceFiles(dir);
+    expect(diffWorkspaceFiles(before, after)).toEqual([
+      '.env.example',
+      '.github/workflows/ci.yml',
+      '.relayflowd-notes/todo.md',
+      'evidence/.nested/.deeper/proof.md',
+    ]);
+  });
+
+  it('skips exactly .git, .relayflowd and node_modules, at the root and nested', async () => {
+    const dir = tempDir();
+    const before = await snapshotWorkspaceFiles(dir);
+    for (const name of ['.git', '.relayflowd', 'node_modules']) {
+      mkdirSync(join(dir, name));
+      writeFileSync(join(dir, name, 'noise.txt'), 'noise');
+      mkdirSync(join(dir, 'sub', name), { recursive: true });
+      writeFileSync(join(dir, 'sub', name, 'noise.txt'), 'noise');
+    }
+    const after = await snapshotWorkspaceFiles(dir);
+    expect(diffWorkspaceFiles(before, after)).toEqual([]);
+  });
+
+  it('skips a regular .git file, as a linked worktree has', async () => {
+    const dir = tempDir();
+    const before = await snapshotWorkspaceFiles(dir);
+    writeFileSync(join(dir, '.git'), 'gitdir: /elsewhere/.git/worktrees/w\n');
     const after = await snapshotWorkspaceFiles(dir);
     expect(diffWorkspaceFiles(before, after)).toEqual([]);
   });

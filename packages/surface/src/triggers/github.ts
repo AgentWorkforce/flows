@@ -76,10 +76,19 @@ export const github = Object.freeze({
   pull_request_closed(filter?: WebhookFilter) {
     return providerTrigger("github", "pull_request.closed", filter);
   },
+  pull_request_labeled(filter?: WebhookFilter) {
+    return providerTrigger("github", "pull_request.labeled", filter);
+  },
   pull_request_opened(filter?: WebhookFilter) {
     return providerTrigger("github", "pull_request.opened", filter);
   },
+  pull_request_ready_for_review(filter?: WebhookFilter) {
+    return providerTrigger("github", "pull_request.ready_for_review", filter);
+  },
   pull_request_synchronize(filter?: WebhookFilter) {
     return providerTrigger("github", "pull_request.synchronize", filter);
+  },
+  pull_request_unlabeled(filter?: WebhookFilter) {
+    return providerTrigger("github", "pull_request.unlabeled", filter);
   },
 });

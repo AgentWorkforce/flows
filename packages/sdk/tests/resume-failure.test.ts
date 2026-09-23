@@ -12,7 +12,7 @@ import { PROTOCOL_VERSION } from '../src/protocol.js';
 const RUN_ID = '01M2NDS2RYK3MH6YBSB1CHA9SE';
 const EVIDENCE = `Run "${RUN_ID}" failed with completionReason: step_failed.`
   + ' Step "agent-2" (agent) completionReason: worker_error exit=1.'
-  + '\nStderr (last 1,024 bytes):\nclaude: permission denied: /work/out'
+  + '\nStderr (captured excerpt):\nclaude: permission denied: /work/out'
   + `\nInspect: flows replay ${RUN_ID} --at agent-2`;
 
 const directories: string[] = [];

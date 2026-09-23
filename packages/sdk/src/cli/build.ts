@@ -2,6 +2,7 @@ import { readFile, lstat } from 'node:fs/promises';
 import { dirname, extname, join, resolve } from 'node:path';
 import { parse } from 'yaml';
 import { sealBundle, verifyBundle, type BundleFile } from '../bundle.js';
+import { collectBundleExtensions, verifyBundlePluginLock } from '../bundle-extensions.js';
 import { canonicalize } from '../canonical.js';
 import { compileSpec, toKernelSpec } from '../compile.js';
 import { preflight } from '../preflight.js';
@@ -60,6 +61,7 @@ export async function runBuild(args: BuildArgs, io: CliIo): Promise<0 | 2> {
   try {
     if (args.verify) {
       const digest = `sha256:${await verifyBundle(args.value)}`;
+      await verifyBundlePluginLock(args.value);
       // `--json` is declared on the verb, not on one of its forms: a verify
       // under it emits the same single object a `--json` consumer parses.
       if (args.json) io.stdout(JSON.stringify({ ok: true, verified: true, bundle: args.value, digest }));
@@ -107,7 +109,7 @@ export async function buildFlow(path: string, out: string, warn: (line: string) 
     files.push(...result.files);
   } else if (['.yaml', '.yml'].includes(extname(input))) {
     authoring = compileSpec(parse(await readFile(input, 'utf8')));
-    files.push({ path: 'lockfile.json', data: canonicalize({ version: 1, adapters: [] }) });
+    files.push({ path: 'lockfile.json', data: canonicalize({ version: 2, plugins: [] }) });
   } else throw new Error('build expects a .yaml, .yml, or .ts flow');
 
   // The current preflight API reports uncollected environment facts as
@@ -148,7 +150,10 @@ export async function buildFlow(path: string, out: string, warn: (line: string) 
         ...(authored ? { dynamicSteps: 'exported spec declaration checked; body was not executed during build' } : {}) },
     }) },
   );
-  return sealBundle({ name: authoring.name ?? 'flow', out, files,
+  const extensions = await collectBundleExtensions(input);
+  const bundled = files.filter(file => file.path !== 'lockfile.json');
+  bundled.push({ path: 'lockfile.json', data: canonicalize(extensions.lock) }, ...extensions.files);
+  return sealBundle({ name: authoring.name ?? 'flow', out, files: bundled,
     repo: await repositoryRoot(directory), warn });
 }
 

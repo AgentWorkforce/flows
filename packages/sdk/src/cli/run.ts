@@ -28,6 +28,7 @@ import type {
   SubscriptionSnapshot,
 } from '../protocol.js';
 import type { StepType } from '../spec.js';
+import { DEFAULT_LOCAL_AGENT_CAPACITY } from '../worker-slots.js';
 import type { LoweredCompletionReason } from '../authored-flow-executor.js';
 import {
   checkFlow,
@@ -117,6 +118,8 @@ export interface RunLifecycleOptions {
   reuseFromRunId?: string;
   onProgress?: (event: ProgressEvent) => void;
   localAgent?: boolean;
+  /** `--agent-capacity`: the local workers' concurrency; the default is `DEFAULT_LOCAL_AGENT_CAPACITY`. */
+  agentCapacity?: number;
   signal?: AbortSignal;
   onWait?: (progress: RunProgress) => void;
   /**
@@ -174,9 +177,11 @@ async function executeCheckedFlow(
     const spec = toKernelSpec(checked.flow!);
     // Use the checked CLI/model and declared surfaces unchanged. The worker
     // advertises its existing pins; the daemon still owns surface matching.
-    if (options.localAgent) localAgent = await attachLocalAgent(
-      client, dataDir, options.onPtyReady, undefined, declaredLocalAgentStreams(spec),
-    );
+    if (options.localAgent) {
+      localAgent = await attachLocalAgent(
+        client, dataDir, options.onPtyReady, undefined, options.agentCapacity, declaredLocalAgentStreams(spec),
+      );
+    }
     if (options.localAgent && spec.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
       const { attachCommunicationWorkers } = await import('../communication/local.js');
       communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir);
@@ -220,6 +225,7 @@ export async function resumeFlow(
   let authoredAgent: Awaited<ReturnType<typeof attachLocalAgent>> | undefined;
   let authoredLlm: LlmWorker | undefined;
   let authoredLlmClient: JournalClient | undefined;
+  const workerCapacity = options.agentCapacity ?? DEFAULT_LOCAL_AGENT_CAPACITY;
   try {
     const authoredRoot = await readAuthoredRootMetadata(client, runId);
     if (authoredRoot !== undefined) {
@@ -232,17 +238,18 @@ export async function resumeFlow(
       }
       if (options.localAgent) {
         authoredAgent = await attachLocalAgent(
-          client, dataDir, options.onPtyReady, authoredRoot.localAgentStream,
+          client, dataDir, options.onPtyReady, authoredRoot.localAgentStream, workerCapacity,
         );
         authoredLlmClient = new JournalClient(socketPath);
         await authoredLlmClient.connect();
         await authoredLlmClient.hello('flows-authored-resume-llm');
-        authoredLlm = new LlmWorker(authoredLlmClient, `${authoredAgent.stream}-llm`);
+        authoredLlm = new LlmWorker(authoredLlmClient, `${authoredAgent.stream}-llm`, workerCapacity);
         await authoredLlm.attach();
       }
       const result = await resumeDurableAuthoredFlow(runId, client, {
         dataDir,
         localAgentStream: authoredAgent?.stream,
+        ...(authoredAgent === undefined ? {} : { workerCapacity }),
         lifecycle: options,
       });
       if (result === undefined) throw new Error('authored root disappeared during resume');
@@ -260,7 +267,7 @@ export async function resumeFlow(
       const spec = entries.find(entry => entry.entry_type === 'run.spawned')?.payload?.spec;
       if (!spec) throw new Error('Cannot attach a local worker: the journaled run spec is missing');
       authoredAgent = await attachLocalAgent(
-        client, dataDir, options.onPtyReady, undefined, declaredLocalAgentStreams(spec),
+        client, dataDir, options.onPtyReady, undefined, options.agentCapacity, declaredLocalAgentStreams(spec),
       );
       if (spec?.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
         const { attachCommunicationWorkers } = await import('../communication/local.js');

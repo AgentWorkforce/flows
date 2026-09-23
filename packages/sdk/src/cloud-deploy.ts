@@ -6,8 +6,11 @@ import { ensureIntegrationsConnected, type ConnectPrompt } from './cloud-connect
 import {
   CloudFlowError, cloudFetch, cloudRequest, isCloudRecord, type CloudConnectionOptions,
 } from './cloud-http.js';
-import { flowRequirements, type FlowRequirements } from './flow-requirements.js';
+import {
+  flowRequirements, mergeFlowExtensionRequirements, type FlowRequirements,
+} from './flow-requirements.js';
 import { readProjectConfig } from './cli/check.js';
+import { assertNoUseDependencies, collectExtensionSubmissions } from './flow-extension-submit.js';
 
 /**
  * Hosted listener deployment: the CLI form of the agentrelay.com onboarding's
@@ -67,6 +70,11 @@ export interface DeployToCloudInput {
   connect?: ConnectPrompt;
   /** Skip the pre-submission integration check entirely (Cloud still checks on activation). */
   checkConnections?: boolean;
+  /**
+   * Extra GitHub plugin refs resolved send-only (same path as `flows add`,
+   * without writing flows.json). Project-declared extensions are always sent.
+   */
+  plugins?: readonly string[];
 }
 
 export const FLOW_AGENT_HARNESSES = ['claude', 'codex'] as const;
@@ -170,10 +178,8 @@ export async function deployToCloud(
     throw new CloudFlowError('unsupported_source',
       `${input.path} is not a loadable authored flow: ${error instanceof Error ? error.message : String(error)}`);
   }
-  if (loaded.graph.length !== 1) {
-    throw new CloudFlowError('unsupported_source',
-      'Cloud deploys one self-contained .flow.ts source without use dependencies.');
-  }
+  assertNoUseDependencies(loaded);
+  const extensions = await collectExtensionSubmissions(loaded, input.plugins ?? []);
   let projectCli: string | undefined;
   try {
     projectCli = readProjectConfig(dirname(resolve(input.path))).cli;
@@ -204,9 +210,12 @@ export async function deployToCloud(
   }
   // Every launched run lands in the deployment's repository, so GitHub is
   // required even when no GitHub source wakes it.
-  const requirements = flowRequirements(definition, {
-    sources, repository: input.repository, ...(projectCli === undefined ? {} : { projectCli }),
-  });
+  const requirements = mergeFlowExtensionRequirements(
+    flowRequirements(definition, {
+      sources, repository: input.repository, ...(projectCli === undefined ? {} : { projectCli }),
+    }),
+    extensions.map(extension => ({ name: extension.name, permissions: extension.manifest.permissions })),
+  );
   // The declared harnesses become `inputs.agents`; one Cloud cannot run is
   // refused here rather than silently replaced by Claude, which activation
   // would then check while the deployed runs still call the declared CLI.
@@ -237,6 +246,7 @@ export async function deployToCloud(
     inputs: { approver, agents },
     repository: input.repository,
     sources,
+    ...(extensions.length === 0 ? {} : { extensions }),
     requirements: {
       integrations: requirements.integrations.map(i => i.provider),
       harnesses: requirements.harnesses,

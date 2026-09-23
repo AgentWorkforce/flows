@@ -1,0 +1,157 @@
+$ node --experimental-strip-types --test examples/babysitter/tests/*.test.ts
+✔ seven real wake handlers and both compatibility entries use one implementation (0.934496ms)
+✔ malformed input makes zero effects; missing live state declines before agents (1.21023ms)
+✔ duplicate delivery cannot bypass missing publication or agent-scope capability (0.393966ms)
+✔ exact-head review/check wakes evaluate merge but do not simulate an unavailable receipt (0.511676ms)
+✔ authorized conflict wakes hand off unresolved semantic work; ordinary/unauthorized comments decline (0.476951ms)
+✔ merge transport sends exact SHA and fails if provider does not confirm (0.392273ms)
+⚠ exact-head end-to-end review and merge acceptance remains RED (1.008183ms) # Requires enforced agent scopes and durable fenced publication; the passing merge transport unit test is not end-to-end acceptance
+✔ malformed external inputs fail before shell or API (1.268811ms)
+✔ live skip and author rules fail closed (0.203611ms)
+✔ READY rejects missing pending red conflicts stale heads and missing state (0.21951ms)
+✔ merge requires opt in org and configured independent approver at exact SHA (0.203851ms)
+✔ conflict command is explicit authorized and same repository only (0.19238ms)
+✔ edits fail closed for semantic changes, fork, protected paths, tests and unresolved conflicts (0.467443ms)
+✔ artifacts are nonempty schema validated exact head and reconcile deterministically (0.574483ms)
+✔ publication refuses stale post race newer verdict spoof and absent atomic capability (0.090679ms)
+✔ once per head keys and sticky CI attribution survive duplicate wake decisions (0.119142ms)
+✔ one bounded infra retry only for 137/143 (0.164878ms)
+⚠ atomicPrPublication (1.278407ms) # Provider per-PR serialization + head-guarded idempotent owned-comment upsert
+⚠ durableCrossRunNotification (0.235961ms) # Durable per-head notification receipt and atomic delivery claim
+⚠ journaledCiObservation (0.116348ms) # Journal-backed script-memory write/recall across runs (memory.learn currently refuses)
+⚠ enforcedAgentWriteScope (0.09613ms) # Enforced readonly agent workspace and credential scopes (gate 8 / #442)
+⚠ selectiveAgentExitRetry (0.0962ms) # Typed agent exit-code/retry policy in authored Step; AgentResult only has summary/artifacts
+ℹ tests 22
+ℹ suites 0
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 6
+ℹ duration_ms 117.694306
+
+✖ failing tests:
+
+test at examples/babysitter/tests/flow.test.ts:55:1
+⚠ exact-head end-to-end review and merge acceptance remains RED (1.008183ms) # Requires enforced agent scopes and durable fenced publication; the passing merge transport unit test is not end-to-end acceptance
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   'needs_human'
+  -   'success'
+    ]
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-babysitter-v2/examples/babysitter/tests/flow.test.ts:57:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'needs_human' ],
+    expected: [ 'success' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/platform.test.ts:13:3
+⚠ atomicPrPublication (1.278407ms) # Provider per-PR serialization + head-guarded idempotent owned-comment upsert
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-babysitter-v2/examples/babysitter/tests/platform.test.ts:13:49)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/platform.test.ts:13:3
+⚠ durableCrossRunNotification (0.235961ms) # Durable per-head notification receipt and atomic delivery claim
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-babysitter-v2/examples/babysitter/tests/platform.test.ts:13:49)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/platform.test.ts:13:3
+⚠ journaledCiObservation (0.116348ms) # Journal-backed script-memory write/recall across runs (memory.learn currently refuses)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-babysitter-v2/examples/babysitter/tests/platform.test.ts:13:49)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/platform.test.ts:13:3
+⚠ enforcedAgentWriteScope (0.09613ms) # Enforced readonly agent workspace and credential scopes (gate 8 / #442)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-babysitter-v2/examples/babysitter/tests/platform.test.ts:13:49)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/platform.test.ts:13:3
+⚠ selectiveAgentExitRetry (0.0962ms) # Typed agent exit-code/retry policy in authored Step; AgentResult only has summary/artifacts
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-babysitter-v2/examples/babysitter/tests/platform.test.ts:13:49)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
