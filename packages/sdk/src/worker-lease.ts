@@ -16,8 +16,9 @@ export function isLeaseLost(error: unknown): boolean {
 }
 
 export function onWorkerFailure(label: string, fatal: (error: unknown) => void) {
-  return (error: unknown, dispatch: StepDispatchEvent): void => {
-    if (!isLeaseLost(error)) { fatal(error); return; }
+  return (error: unknown, dispatch?: StepDispatchEvent): void => {
+    // Without the dispatch there is no attempt to hand back to the kernel: fail closed.
+    if (!isLeaseLost(error) || dispatch === undefined) { fatal(error); return; }
     // The kernel owns this attempt's fate; its journal supplies the run outcome.
     // stderr keeps this diagnostic out of structured reports on stdout.
     process.emitWarning(
