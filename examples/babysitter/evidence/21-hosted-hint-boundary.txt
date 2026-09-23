@@ -1,0 +1,48 @@
+Recovery round: hosted-binding boundary tests + reproducible typecheck
+Repo head before this commit: 98f24d57628dddec61f97ffd00dfc451fed7a8c9
+Date: 2026-09-21T00:26:57Z
+
+================================================================
+1. $ cd examples/babysitter && npm test
+================================================================
+✔ Cloud's enriched pull request is a hint, not state: draft, labels, author and review cannot decide (1.359625ms)
+✔ a delivered approved review cannot open the merge gate (0.936458ms)
+ℹ tests 56
+ℹ suites 0
+ℹ pass 49
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 7
+ℹ duration_ms 843.587875
+npm test exit: 0
+
+================================================================
+2. Typecheck, both toolchains (the tsconfig change is why #2b works)
+================================================================
+2a. $ ./packages/sdk/node_modules/.bin/tsc -p examples/babysitter/tsconfig.json
+Version 5.9.3
+exit=0
+
+2b. $ cd examples/babysitter && npm run typecheck   # resolves the machine tsc
+Version 7.0.2
+
+> typecheck
+> tsc -p tsconfig.json
+
+exit=0
+
+2c. Before the tsconfig change, 2b was red on TypeScript 7:
+    tsconfig.json(6,5): error TS5102: Option 'baseUrl' has been removed. Please remove it from your configuration.
+      Use '"paths": {"*": ["./*"]}' instead.
+
+================================================================
+3. $ node examples/babysitter/build-hosted.mjs <operator-policy.json>
+   $ node packages/sdk/dist/cli.js check examples/babysitter/dist/babysitter-hosted.flow.ts
+================================================================
+{ "owner": "AgentWorkforce", "repo": "flows", "number": 526, "testCommand": "npm test",
+  "botLogin": "agentrelaybot", "merge": false, "skipLabels": ["no-agent-relay-review"] }
+Built examples/babysitter/dist/babysitter-hosted.flow.ts. Run flows check before deployment.
+REQUIRES github (on github pull_request)
+CHECK PASSED examples/babysitter/dist/babysitter-hosted.flow.ts
+exit=0

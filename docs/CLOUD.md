@@ -43,6 +43,17 @@ An authored `.flow.ts` takes `--input` exactly as a local direct run does (an
 existing JSON file, otherwise inline JSON), and travels as one self-contained
 source with its pinned Surface authority.
 
+Flow-extension plugins declared in `flows.json` (and extra `--plugin <github
+ref>` on `flows deploy`) travel in the deploy/run body as `extensions[]`:
+name, version, canonical ref, digest, manifest, and the plugin files (UTF-8
+or base64). The extensions field is capped at 2 MB separately from the 256 KB
+source cap. Cloud must materialize them at `.flows/plugins/<name>@sha256:<digest>/`
+before the hosted CLI loads the source; until that Cloud slice lands, a
+deployment that includes plugins is accepted by this CLI but not yet executed
+as a composed graph on the hosted runner. Private repositories are
+unsupported. `permissions.writes` is a reviewed declaration, unenforced
+until gate 8.
+
 ## Code sync
 
 ```sh
@@ -176,6 +187,47 @@ assistant:
 ── result success · 6.2s · 2 turns · $0.108098 · 4 in / 248 out · 25,402 cache read · 25,638 cache write ──
 ```
 
+Both harness vocabularies render. A Codex step writes `codex exec --json`,
+and its frames are read too: `thread.started` as the session header,
+`turn.started`/`turn.completed` as separators with the turn's usage,
+`agent_message` as prose — **in full**, because the last one is the step's
+answer — `reasoning` as a character count and never its text, and
+`command_execution` and `mcp_tool_call` as **numbered** call lines carrying the
+result size, the exit code (zero included), the item's status, and a bounded
+excerpt of the output: ten lines or a thousand characters, whichever comes
+first, with the full size still on the call line and the whole of it under
+`--raw`. An `apply_patch` is file activity rather than a call, so it is listed
+by path and change kind and takes no number. A `turn.failed`, a top-level
+`error` frame and an `error` item print their message rather than anything that
+reads like success. Dispatch is per frame, so a log that mixes vocabularies
+renders each in its own shape, and an item type this vocabulary does not read —
+`web_search`, `todo_list`, anything newer — still gets the placeholder line
+naming it.
+
+```text
+LOG f92bf832-0d26-4f17-9c50-2b4b2e2f77d5  step agent-17  1,967 bytes  complete
+session  codex · thread 01a0c600-0000-7a10-a68c-000000000000
+── turn ────────────────────────────────────────────────────────────────
+assistant:
+  I’ll perform the requested review steps in order.
+  tool 1  command_execution  /bin/bash -lc 'cat src/pricing.ts'  → 110 chars · exit 0 · completed
+      export function total(cents: number, taxRate: number): number {
+        return Math.round(cents * (1 + taxRate));
+      }
+  tool 2  mcp_tool_call  demo/echo_shout {"text":"p2","options":{"mode":"loud"}}  → 29 chars · completed
+  files  1 change · completed
+      add  /project/review.md
+assistant:
+  Verdict: changes_requested
+
+  The rounding in `total` truncates before the tax is applied, so a
+  0.5-cent remainder is lost on every line item.
+
+  One P2 remains and the gate artifact `review.clean` was not created.
+── turn complete · 72,669 in / 244 out · 69,376 cache read · 0 cache write · 0 reasoning out ──
+```
+
+
 `--raw` prints the JSONL unrendered. It does **not** print it unredacted:
 every string that reaches the terminal — rendered, raw, or `--json` — goes
 through `redact.ts`, the redactor the local `flows status` uses. That is a
@@ -300,10 +352,14 @@ scoped to `--repo`. `events` is `issues` (the default: `issues.opened` and
 `issues.labeled`) or `pull_request`, which wakes on a pull request being
 opened, receiving commits, being reopened, or being reviewed; a
 pull-request run checks out the pull request's own head and receives
-`input.pullRequest` (`number`, `title`, `body`, `headRef`, `headSha`,
+`input.pullRequest` (`owner`, `repo`, `number`, `action`, `title`, `body`, `headRef`, `headSha`,
 `baseRef`, `author`, `draft`, `labels`, `url`, and `review` for a submitted
 review) beside `input.issue` and `input.event`. Comment and check-run
-events are not wake sources yet.
+events additionally require Cloud's expanded change-request routing release.
+`input.event` is a normalized descriptor, not the raw webhook: it carries
+`provider`, dotted `eventType` (for example `pull_request.synchronize` or
+`pull_request_review.submitted`), `paths`, and `deliveryId`. The repository
+coordinates also appear in `issue.repository`; they are not exclusive to it.
 
 Each matching ticket launches one run of the stored source. Cloud clones
 `--repo` at its default branch onto a fresh `relayflow/<name>-<id>` branch,
@@ -336,10 +392,35 @@ SDK; the same function reads a compiled YAML spec, where a helper step such as
 (`.on(github.issues())`), the `--on` sources and the deploy target (every
 launched run lands in `--repo`, so GitHub is always required), the `cli:` of
 each `f.agent`/`f.llm` call in the default body (else the nearest `flows.json`
-`cli`, else `claude`), and `tools.mcp`. Handler bodies are not scanned: hosted
-dispatch runs the default body (flows #301), so only a handler's trigger is a
-requirement. The deploy body carries the same list as `requirements` for
-Cloud to cross-check, and a declared harness Cloud cannot run yet (`gemini`)
+`cli`, else `claude`), and `tools.mcp`. Handler bodies are not statically
+scanned for requirements. Authored input never selects an extension handler:
+only server-authenticated integration delivery metadata passed out of band may
+match one. Direct runs and authenticated deliveries that match no extension
+handler keep the base flow's default body; overlapping or malformed matches
+fail closed. This release also refuses a matching handler with
+`plugin_unsupported` before either body starts because schema-2 entries are
+ordinary JavaScript and their manifest permissions are not yet isolated by the
+runtime (gate 8 / #442). The SDK now contains a Linux-only, capability-only
+isolation primitive for the native Babysitter profile. Hosted callers must load
+the base and complete installation together with
+`loadHostedExtensionRuntime` (which internally sets `extensions: 'none'` and
+does not import extension JavaScript), then pass its two opaque,
+same-generation results to `runHostedCapabilityExtension`. Every dispatch
+rechecks the current declarations and complete project source against that
+generation. The hosted loader never executes tenant base code to establish
+authority: it hashes a private snapshot and accepts only the exact reviewed,
+host-pinned Software Factory source and identity. The runner then verifies the
+complete lock-backed set, actual base compatibility, route uniqueness, and
+the exact reviewed Babysitter ref/digest/manifest before the artifact is imported inside a
+bubblewrap mount/PID/network/user namespace with an empty credential
+environment and a context exposing only
+`capabilities.cloud.babysitterTurn.queue` plus `done`. This is a prerequisite,
+not enablement: the generic executor refusal remains until the Cloud adapter,
+Relay route, end-to-end canary, and independent security review are complete.
+A handler's
+trigger is therefore a requirement, but the handler cannot execute through the
+generic executor yet. The deploy body carries
+the same list as `requirements` for Cloud to cross-check, and a declared harness Cloud cannot run yet (`gemini`)
 refuses the deploy unless `--agents` overrides it.
 
 Before `flows deploy`, `flows schedule` and `flows run --cloud` submit anything,
@@ -454,6 +535,13 @@ declaration and its `flows.tick` lowering either way.
   cannot learn from disk is Cloud's alone and is not guessed: its Cloud run id
   (a UUID Cloud may export separately), its sandbox, and which listener
   launched it.
+- Cloud's live step view comes from polling `flows status --json` for every
+  journal under the run's data dir. For an authored run the root journal's
+  view also carries `authored_steps` (SURFACE.md §5): each step's `label` and
+  `after`, from the moment the step is admitted. A Cloud reporter that reads it
+  can name and connect the run graph's nodes while the run is in flight; one
+  that does not ignores the extra field, so this runtime is safe to pin under
+  either.
 - From outside the sandbox, step state *is* readable — see
   [Reading a hosted run](#reading-a-hosted-run). `GET /runs/<id>/steps`
   answers per-step rows carrying state, attempts, timing, gate verdicts, spend

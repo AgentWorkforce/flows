@@ -1,12 +1,10 @@
 import { redact } from '../redact.js';
+import { formatStepExcerpt } from './step-excerpt.js';
 import type {
   AttemptEvidenceComparison,
   StepAttemptFailure,
   StepFailedDetails,
 } from '../failure-kinds.js';
-
-/** The terminal attempt's bound, unchanged: it is the primary account. */
-export const TAIL_BYTES = 1_024;
 
 /** Per-attempt history is context beside that account, not a second copy of it. */
 export const ATTEMPT_TAIL_BYTES = 256;
@@ -114,14 +112,14 @@ function duplicates(
   return typeof exitCode === 'number' && detail === `exit code was ${exitCode}`;
 }
 
-/** The `StepFailedDetails` scalars for one completion, at the terminal bound. */
+/** The `StepFailedDetails` scalars for one completion, as a failure excerpt. */
 export function terminalEvidence(payload: Record<string, unknown>): Partial<StepFailedDetails> {
   const selected = selectEvidence(payload);
   return {
     ...(selected.exitCode === undefined ? {} : { exitCode: selected.exitCode }),
-    ...(selected.stdoutTail === undefined ? {} : { stdoutTail: tail(selected.stdoutTail) }),
-    ...(selected.stderrTail === undefined ? {} : { stderrTail: tail(selected.stderrTail) }),
-    ...(selected.detail === undefined ? {} : { detail: tail(selected.detail) }),
+    ...(selected.stdoutTail === undefined ? {} : { stdoutTail: formatStepExcerpt(selected.stdoutTail) }),
+    ...(selected.stderrTail === undefined ? {} : { stderrTail: formatStepExcerpt(selected.stderrTail) }),
+    ...(selected.detail === undefined ? {} : { detail: formatStepExcerpt(selected.detail) }),
     ...(selected.transcriptPath === undefined ? {} : { transcriptPath: selected.transcriptPath }),
   };
 }
@@ -204,8 +202,9 @@ export function failureCause(
     // An attempt that journaled nothing about itself cannot agree with
     // another one; it can only fail to disagree.
     recorded: exitCodes.length > 0 || accounts.some(account => account !== undefined),
-    producerTruncated: verificationDetail !== undefined
-      && PRODUCER_TRUNCATED.test(verificationDetail),
+    producerTruncated: (verificationDetail !== undefined
+      && PRODUCER_TRUNCATED.test(verificationDetail))
+
   };
 }
 
@@ -296,7 +295,7 @@ export function record(value: unknown): Record<string, unknown> | undefined {
     ? value as Record<string, unknown> : undefined;
 }
 
-export function tail(value: string, limit = TAIL_BYTES): string {
+export function tail(value: string, limit: number): string {
   const bytes = Buffer.from(value, 'utf8');
   let start = Math.max(0, bytes.length - limit);
   // Drop a partial leading code point, avoiding replacement-byte expansion.

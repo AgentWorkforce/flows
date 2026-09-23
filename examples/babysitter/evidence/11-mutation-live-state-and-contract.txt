@@ -1,0 +1,46 @@
+=== M2: trust the payload — let a `closed` hint decide without live state ===
+$ node --experimental-strip-types --test tests/wake.test.ts
+✖ a payload that disagrees with live state loses: closed hint, open PR (2.702208ms)
+ℹ tests 23
+ℹ pass 22
+ℹ fail 1
+✖ failing tests:
+✖ a payload that disagrees with live state loses: closed hint, open PR (2.702208ms)
+(restored byte-for-byte)
+$ node --experimental-strip-types --test tests/wake.test.ts   # after restore
+ℹ tests 23
+ℹ pass 23
+ℹ fail 0
+
+=== M3a: drop pull_request.closed from the declared contract ===
+$ node --experimental-strip-types --test tests/wake.test.ts
+✖ the declared subscription contract is exactly the required resident set (5.517541ms)
+✖ a delivery is accepted as a hint; only routing is enforced (1.53675ms)
+✖ every wake rereads live state before it decides anything (1.874041ms)
+✖ a payload that disagrees with live state loses: closed hint, open PR (0.551959ms)
+✖ a young subscription is pending, an old silent one is never (0.700875ms)
+ℹ tests 23
+ℹ pass 18
+ℹ fail 5
+✖ failing tests:
+✖ the declared subscription contract is exactly the required resident set (5.517541ms)
+✖ a delivery is accepted as a hint; only routing is enforced (1.53675ms)
+✖ every wake rereads live state before it decides anything (1.874041ms)
+✖ a payload that disagrees with live state loses: closed hint, open PR (0.551959ms)
+✖ a young subscription is pending, an old silent one is never (0.700875ms)
+
+=== M3b: declare an event type GitHub does not publish ===
+$ node --experimental-strip-types --test tests/wake.test.ts
+✖ each trigger filters to its own provider, type and action (2.832375ms)
+✖ subscription preflight passes the declared contract and has teeth (1.37175ms)
+ℹ tests 23
+ℹ pass 21
+ℹ fail 2
+✖ failing tests:
+✖ each trigger filters to its own provider, type and action (2.832375ms)
+✖ subscription preflight passes the declared contract and has teeth (1.37175ms)
+(restored byte-for-byte)
+$ node --experimental-strip-types --test tests/wake.test.ts   # after restore
+ℹ tests 23
+ℹ pass 23
+ℹ fail 0

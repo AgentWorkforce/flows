@@ -413,7 +413,7 @@ describe('attempt history in a retried step failure', () => {
     expect(diagnostic).not.toHaveProperty('attempts');
     expect(diagnostic).not.toHaveProperty('attemptEvidence');
     expect(diagnostic.message).not.toContain('Attempts:');
-    expect(diagnostic.message).toContain('Stderr (last 1,024 bytes):\nonly error');
+    expect(diagnostic.message).toContain('Stderr (captured excerpt):\nonly error');
   });
 });
 

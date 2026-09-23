@@ -101,6 +101,64 @@ ${tail}
   return { wrapper, wrapperPid, grandchildPid };
 }
 
+/** Long enough that the settle is unmistakably earlier than the loop draining. */
+const ESCAPEE_HOLD_MS = 4_000;
+
+/**
+ * A conforming wrapper that answers and then really EXITS, leaving descendants
+ * holding the stdio they inherited.
+ *
+ * {@link writeLeakyWrapper} cannot do this: its `tail` keeps the wrapper's own
+ * loop alive, and its grandchild is referenced, so the wrapper stays up until
+ * something stops it. That is the right shape for a stop, and the wrong shape
+ * for the post-exit drain, which is keyed on the wrapper's own `'exit'`.
+ *
+ * `escapee` adds a detached holder as well. It leads a group of its own and is
+ * reparented the moment the wrapper dies, so it is not traceable to this spawn
+ * and no stop reaches it — `'close'` is withheld for as long as it lives, which
+ * is what forces the reader to own its own settle. The test cleans it up.
+ */
+function writeExitingWrapper(
+  directory: string,
+  name: string,
+  { deaf = false, escapee = false }: { deaf?: boolean; escapee?: boolean } = {},
+): { wrapper: string; grandchildPid: string; escapeePid: string } {
+  const wrapper = join(directory, name);
+  const grandchildPid = join(directory, `${name}.grandchild-pid`);
+  const escapeePid = join(directory, `${name}.escapee-pid`);
+  const holder = (pidFile: string, options: { ignoresTerm?: boolean; holdMs?: number }): string =>
+    `${options.ignoresTerm === true ? 'process.on(\'SIGTERM\', () => {}); ' : ''}`
+    + `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); `
+    // Indefinite for a holder a stop is expected to reach. An escaped one has
+    // to release the pipe on its own, or the run process could never drain and
+    // the test would be asserting a hang rather than a bound.
+    + (options.holdMs === undefined ? 'setInterval(() => {}, 1000);' : `setTimeout(() => {}, ${options.holdMs});`);
+  writeFileSync(wrapper, `#!/usr/bin/env node
+import { existsSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { receiveWrapperRequest } from ${JSON.stringify(WRAPPER_HELPER)};
+await receiveWrapperRequest();
+process.stdout.write('{"ok":"exited"}\\n');
+// Both inherit this process's stdio, so neither lets \`'close'\` arrive.
+spawn(process.execPath, ['-e', ${JSON.stringify(holder(grandchildPid, { ignoresTerm: deaf }))}], { stdio: 'inherit' }).unref();
+${escapee ? `spawn(process.execPath, ['-e', ${JSON.stringify(holder(escapeePid, { holdMs: ESCAPEE_HOLD_MS }))}], { stdio: 'inherit', detached: true }).unref();` : ''}
+const idle = new Int32Array(new SharedArrayBuffer(4));
+for (let waited = 0; waited < 5_000 && !(existsSync(${JSON.stringify(grandchildPid)})${escapee ? ` && existsSync(${JSON.stringify(escapeePid)})` : ''}); waited += 10) {
+  Atomics.wait(idle, 0, 0, 10);
+}
+// Flushed and announced; from here the session has only the wrapper's exit to
+// go on, because every pipe it would otherwise wait on is held by a survivor.
+process.exit(0);
+`);
+  chmodSync(wrapper, 0o755);
+  return { wrapper, grandchildPid, escapeePid };
+}
+
+function killPid(pidFile: string): void {
+  if (!existsSync(pidFile)) return;
+  try { process.kill(Number(readFileSync(pidFile, 'utf8')), 'SIGKILL'); } catch { /* already gone */ }
+}
+
 /**
  * Drive one wrapper session to a stop inside a real node process, exactly the
  * way `flows run` does, and report how long that process took to exit. Nothing
@@ -110,7 +168,21 @@ async function runUntilExit(
   directory: string,
   wrapper: string,
   executionTimeoutMs: number,
-): Promise<{ exitedWithinMs: number; code: number | null; stderrTail: string }> {
+): Promise<{
+  exitedWithinMs: number;
+  code: number | null;
+  stderrTail: string;
+  /**
+   * How long the step Promise itself took, reported by the harness. A settled
+   * Promise and a drained event loop are different facts, and a session with
+   * no execution deadline can have one well before the other when something
+   * outside its reach still holds a pipe — so they are measured apart rather
+   * than one inferred from the other.
+   */
+  settledWithinMs: number;
+  exitCode: number | null;
+  stdoutTail: string;
+}> {
   expect(
     existsSync(BUILT_WORKER_CLI),
     `${BUILT_WORKER_CLI} is missing; run \`npm run build\` (\`npm test\` does) before this test`,
@@ -121,6 +193,7 @@ import { runAgentCli } from ${JSON.stringify(BUILT_WORKER_CLI)};
 // A never-aborted signal is what a lease-bound run holds for its whole life;
 // it is also what asks the spawn for a process group of its own.
 const controller = new AbortController();
+const startedAt = Date.now();
 const result = await runAgentCli(
   ${JSON.stringify(wrapper)},
   'instruction',
@@ -129,7 +202,10 @@ const result = await runAgentCli(
   { handshakeTimeoutMs: 5_000, executionTimeoutMs: ${executionTimeoutMs}, maxOutputBytes: 100_000 },
   controller.signal,
 );
-process.stdout.write(JSON.stringify({ stderr_tail: result.stderr_tail }) + '\\n');
+process.stdout.write(JSON.stringify({
+  stderr_tail: result.stderr_tail, stdout_tail: result.stdout_tail,
+  exit_code: result.exit_code, settled_ms: Date.now() - startedAt,
+}) + '\\n');
 `);
   const started = Date.now();
   const child = spawn(process.execPath, [harness], { stdio: ['ignore', 'pipe', 'inherit'] });
@@ -144,11 +220,17 @@ process.stdout.write(JSON.stringify({ stderr_tail: result.stderr_tail }) + '\\n'
     child.once('error', rejectExit);
     child.once('exit', exitCode => { clearTimeout(bound); resolveExit(exitCode); });
   });
-  const settled: unknown = JSON.parse(stdout.trim() === '' ? '{}' : stdout.trim());
+  const settled = JSON.parse(stdout.trim() === '' ? '{}' : stdout.trim()) as {
+    stderr_tail?: unknown; stdout_tail?: unknown; exit_code?: unknown; settled_ms?: unknown;
+  };
   return {
     exitedWithinMs: Date.now() - started,
     code,
-    stderrTail: String((settled as { stderr_tail?: unknown }).stderr_tail ?? ''),
+    stderrTail: String(settled.stderr_tail ?? ''),
+    stdoutTail: String(settled.stdout_tail ?? ''),
+    exitCode: typeof settled.exit_code === 'number' ? settled.exit_code : null,
+    // A harness that never printed never settled, which must not read as zero.
+    settledWithinMs: typeof settled.settled_ms === 'number' ? settled.settled_ms : Number.POSITIVE_INFINITY,
   };
 }
 
@@ -328,4 +410,78 @@ setInterval(() => {}, 1000);
       stop.kill();
     }
   }, 30_000);
+});
+
+/**
+ * The same reach, on the path that has no stop to trigger: a session with NO
+ * execution deadline whose wrapper simply exits. There is no timeout and no
+ * protocol violation here — the wrapper did everything right — so the only
+ * fact available is its own `'exit'`, and `'close'` is held back by whatever
+ * it left behind.
+ */
+describe('a wrapper that exits with no execution deadline still drains', () => {
+  it('reports the wrapper result and reaps a grandchild holding its pipes', async () => {
+    const directory = makeDirectory();
+    const exiting = writeExitingWrapper(directory, 'exiting-wrapper.mjs');
+
+    const run = await runUntilExit(directory, exiting.wrapper, 0);
+
+    expect(run.stderrTail).toBe('');
+    expect(run.exitCode).toBe(0);
+    expect(run.stdoutTail).toBe('{"ok":"exited"}\n');
+    expect(run.code).toBe(0);
+    expect(run.exitedWithinMs).toBeLessThan(10_000);
+    await expectReaped(exiting.grandchildPid);
+  }, 40_000);
+
+  it('reaps a SIGTERM-deaf grandchild holding its pipes', async () => {
+    const directory = makeDirectory();
+    const exiting = writeExitingWrapper(directory, 'exiting-deaf-wrapper.mjs', { deaf: true });
+
+    const run = await runUntilExit(directory, exiting.wrapper, 0);
+
+    // Deaf AND holding stdio: the drain's `SIGTERM` is ignored, so only the
+    // escalation a second later ends it, and nothing may settle in between on
+    // the strength of a child-level event.
+    expect(run.stderrTail).toBe('');
+    expect(run.exitCode).toBe(0);
+    expect(run.stdoutTail).toBe('{"ok":"exited"}\n');
+    expect(run.code).toBe(0);
+    expect(run.exitedWithinMs).toBeLessThan(10_000);
+    await expectReaped(exiting.grandchildPid);
+  }, 40_000);
+
+  /**
+   * Settlement and process exit, measured apart. A deaf grandchild inside the
+   * group is reaped by the escalation; a holder that escaped into its own
+   * group before the wrapper died is not traceable to this spawn and is NOT
+   * claimed to be reaped here — it goes on holding the pipe, so `'close'` never
+   * arrives and the reader has to settle on a deadline of its own.
+   */
+  it('settles on its own deadline when an escaped holder withholds close', async () => {
+    const directory = makeDirectory();
+    const exiting = writeExitingWrapper(
+      directory, 'exiting-escapee-wrapper.mjs', { deaf: true, escapee: true },
+    );
+    try {
+      const run = await runUntilExit(directory, exiting.wrapper, 0);
+
+      expect(run.stderrTail).toBe('');
+      expect(run.exitCode).toBe(0);
+      expect(run.stdoutTail).toBe('{"ok":"exited"}\n');
+      // Drain grace, then the escalation's own force delay and settle grace.
+      // Bounded without `'close'`, which is the whole claim.
+      expect(run.settledWithinMs).toBeLessThan(ESCAPEE_HOLD_MS);
+      // And the loop was still referenced by the escaped holder's pipe well
+      // after that: the two facts are separate, and only the first is the
+      // SDK's to bound. No reaping of an escaped process is claimed — that one
+      // released the pipe by finishing its own hold.
+      expect(run.exitedWithinMs).toBeGreaterThanOrEqual(ESCAPEE_HOLD_MS);
+      expect(run.exitedWithinMs).toBeLessThan(10_000);
+      expect(run.code).toBe(0);
+      await expectReaped(exiting.grandchildPid);
+    } finally {
+      killPid(exiting.escapeePid);
+    }
+  }, 40_000);
 });

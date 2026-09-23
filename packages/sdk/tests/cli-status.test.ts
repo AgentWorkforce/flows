@@ -120,6 +120,8 @@ describe('flows status', () => {
       'last_attempt', 'lease', 'max_iterations', 'started_at_ms', 'state', 'tails', 'type', 'wait',
     ]);
     expect(view.steps[0].tails).toBeNull();
+    // A run that journals no authored-step index keeps its original shape.
+    expect(view).not.toHaveProperty('authored_steps');
     // Canonical: sorted keys, no whitespace, so two invocations diff clean.
     expect(output.stdout[0]).toBe(canonicalize(view));
     for (const forbidden of ['instruction', 'Print DONE', 'stdout_tail', 'VERIFIED', 'REPORTED', 'wake_context', 'input', 'pins', 'idempotency_key', 'surface_path']) {
@@ -189,6 +191,50 @@ describe('flows status', () => {
     const detail = JSON.parse(json.stdout[0]!).steps[0].last_attempt.verification.detail as string;
     expect(detail.startsWith('token=[redacted:GITHUB_TOKEN] header Authorization: Bearer [redacted] key [redacted] ')).toBe(true);
     expect(detail.length).toBe(1024);
+  });
+
+  it('--json carries the authored root\'s step index — label and after — from the first admission', async () => {
+    const secret = 'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123';
+    const last = EVENTS.at(-1)!;
+    let seq = last.seq;
+    const appended = (stream: string, message: unknown): JournalEvent => ({
+      ...last, seq: ++seq, entry_type: 'stream.appended', step_id: null, attempt: null,
+      payload: { stream, offset: seq, producer: 'sdk', message },
+    });
+    const record = (fields: Record<string, unknown>) => ({ index: 'relayflows.authored-step.v1', ...fields });
+    const events = [
+      ...EVENTS,
+      appended('authored-steps', record({ step: 'agent-1', runId: 'child-1', state: 'admitted', label: 'api-create', after: [] })),
+      appended('authored-steps', record({
+        step: 'agent-2', runId: 'child-2', state: 'admitted', label: `deploy ${secret}`, after: ['agent-1'],
+      })),
+      appended('authored-steps', record({
+        step: 'agent-1', runId: 'child-1', state: 'completed', completionReason: 'success', kernelStep: 'agent-1.verify',
+        label: 'api-create', after: [], afterTruncated: true,
+      })),
+      // A resumed body re-admitting a completed child must not un-complete it.
+      appended('authored-steps', record({ step: 'agent-1', runId: 'child-1', state: 'admitted', label: 'api-create' })),
+      // Not this index: another stream, another version, a malformed record.
+      appended('proof', record({ step: 'other', runId: 'child-9', state: 'admitted' })),
+      appended('authored-steps', { index: 'relayflows.authored-step.v2', step: 'future', runId: 'child-8', state: 'admitted' }),
+      appended('authored-steps', record({ step: 'bad', runId: 'child-7', state: 'admitted', after: 'agent-1' })),
+    ];
+    const { dataDir, writer } = fixture(events);
+    writer.close();
+    const output = await status(['--json', '--data-dir', dataDir, RUN_ID], { env: { GITHUB_TOKEN: secret } });
+    expect(output.code).toBe(0);
+    expect(output.stdout[0]).not.toContain(secret);
+    const view = JSON.parse(output.stdout[0]!);
+    expect(view.authored_steps).toEqual([
+      {
+        step: 'agent-1', run_id: 'child-1', state: 'completed', completion_reason: 'success',
+        kernel_step: 'agent-1.verify', label: 'api-create', after: [], after_truncated: true,
+      },
+      { step: 'agent-2', run_id: 'child-2', state: 'admitted', label: 'deploy [redacted:GITHUB_TOKEN]', after: ['agent-1'] },
+    ]);
+    // The per-step view is untouched: the index rides beside it.
+    expect(view.steps).toHaveLength(3);
+    expect(output.stdout[0]).toBe(canonicalize(view));
   });
 
   it('--tail says when no transcript is on disk for the attempt', async () => {

@@ -6,6 +6,10 @@ import { readCompletedStepOutput, readSuccessfulOutput } from '../src/authored-s
 import type { RunOutcome } from '../src/protocol.js';
 import type { JournalClient } from '../src/journal-client.js';
 import { chainFixture } from './flow-chain-fixture.js';
+import { EXCERPT_BYTES } from '../src/cli/step-excerpt.js';
+
+/** The one line the report has to name, and the one the old render always cut. */
+const MARKER = 'not ok 111 - pty-exit: child process exit is detected';
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0)) await close(); });
@@ -58,6 +62,68 @@ describe('a failing f.run through the live kernel', () => {
     // And the operator is told, in the message, how to read the rest.
     expect(message).toContain('Inspect: flows replay');
   });
+
+  it('names the failing case from the middle of a real test run', async () => {
+    // The reported bug, end to end: kernel capture -> journal ->
+    // `preserve_failure_output` -> SDK render. A runner that streams results
+    // and prints its totals last puts `ok` lines and a summary in the final
+    // kilobyte by construction, so the one `not ok` was exactly the part the
+    // old last-1,024-bytes render cut.
+    const passing = (index: number) => `ok ${index} - pty: a passing case with a realistically long name`;
+    const expected = [
+      ...Array.from({ length: 110 }, (_, index) => passing(index + 1)),
+      MARKER,
+      ...Array.from({ length: 110 }, (_, index) => passing(index + 112)),
+      '1..221', '# tests 221', '# pass 220', '# fail 1',
+    ].join('\n') + '\n';
+    const stream = Buffer.from(expected, 'utf8');
+    const at = Buffer.byteLength(expected.slice(0, expected.indexOf(MARKER)), 'utf8');
+    // The fixture is only evidence if the failure sits where the old render
+    // could not reach and where head-and-tail context alone would not either:
+    // past the first 4 KiB, before the last 4 KiB, and inside the 64 KiB the
+    // kernel captures (`OUTPUT_TAIL_BYTES`, relayflowd/src/exec_det.rs).
+    expect(at).toBeGreaterThan(4_096);
+    expect(stream.length - at).toBeGreaterThan(4_096);
+    expect(stream.length).toBeGreaterThan(12 * 1_024);
+    expect(stream.length).toBeLessThan(20 * 1_024);
+    expect(stream.subarray(-1_024).toString('utf8')).not.toContain(MARKER);
+
+    const fixture = chainFixture();
+    cleanup.push(() => fixture.close());
+    const journal = await fixture.connect();
+
+    const handle = flow('streamed-test-run', async (f) => {
+      await f.run(`i=1; while [ $i -le 110 ]; do printf 'ok %s - pty: a passing case with a realistically long name\\n' "$i"; i=$((i+1)); done
+printf '${MARKER}\\n'
+i=112; while [ $i -le 221 ]; do printf 'ok %s - pty: a passing case with a realistically long name\\n' "$i"; i=$((i+1)); done
+printf '1..221\\n# tests 221\\n# pass 220\\n# fail 1\\n'
+exit 1`);
+      f.done('success');
+    });
+
+    const failure = await executeAuthoredFlow(handle, journal, undefined, { dataDir: fixture.data })
+      .then(() => undefined, (error) => error as { message: string; details?: Record<string, unknown> });
+
+    // The journal is the record: check the failing line is in the completion
+    // the kernel wrote before asking what the renderer did with it.
+    const childRunId = /flows replay (\S+)/u.exec(String(failure?.details?.['hint']))?.[1];
+    expect(childRunId).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/u);
+    const entries = (await journal.journalRead(childRunId!, 1)).entries as Array<{
+      entry_type: string; payload?: { output?: { stdout_tail?: string } };
+    }>;
+    const journaled = entries.find(entry => entry.entry_type === 'step.completed')?.payload?.output?.stdout_tail;
+    expect(journaled).toBe(expected);
+
+    // And the render names it, inside its own byte bound, with the head and
+    // the summary still beside it.
+    const excerpt = String(failure?.details?.['stdoutTail']);
+    expect(excerpt).toContain(MARKER);
+    expect(excerpt).toContain('ok 1 - pty: a passing case with a realistically long name');
+    expect(excerpt).toContain('# fail 1');
+    expect(Buffer.byteLength(excerpt, 'utf8')).toBeLessThanOrEqual(EXCERPT_BYTES);
+    expect(failure?.message).toContain('Stdout (captured excerpt):');
+    expect(failure?.message).toContain(MARKER);
+  }, 30_000);
 
   it('carries the same facts structurally, not only rendered into the message', async () => {
     const fixture = chainFixture();

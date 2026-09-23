@@ -1,0 +1,30 @@
+=== B1: revert the verdict fix — rank reviews by id alone again ===
+✖ a later comment or pending review cannot hide a standing verdict (2.25425ms)
+ℹ tests 36
+ℹ pass 35
+ℹ fail 1
+✖ a later comment or pending review cannot hide a standing verdict (2.25425ms)
+(restored byte-for-byte)
+--- after restore ---
+ℹ tests 36
+ℹ pass 36
+ℹ fail 0
+
+=== B2: revert the fork check_run fix — require PR attribution again ===
+✖ a fork check_run with no PR attribution still wakes and rereads (0.599083ms)
+ℹ tests 36
+ℹ pass 35
+ℹ fail 1
+✖ a fork check_run with no PR attribution still wakes and rereads (0.599083ms)
+
+=== B3: revert the case-insensitive routing fix ===
+✖ repository routing compares owner and repository case-insensitively (1.485291ms)
+ℹ tests 36
+ℹ pass 35
+ℹ fail 1
+✖ repository routing compares owner and repository case-insensitively (1.485291ms)
+(restored byte-for-byte)
+--- after restore ---
+ℹ tests 36
+ℹ pass 36
+ℹ fail 0
