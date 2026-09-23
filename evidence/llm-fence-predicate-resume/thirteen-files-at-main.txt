@@ -1,0 +1,1209 @@
+$ cp src/llm-worker.ts src/authored-flow-executor.ts /var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/tmp.oIUGoRyujb/
+exit=0
+$ git show main:packages/sdk/src/llm-worker.ts > src/llm-worker.ts
+exit=0
+$ git show main:packages/sdk/src/authored-flow-executor.ts > src/authored-flow-executor.ts
+exit=0
+$ git diff --stat main -- src/llm-worker.ts src/authored-flow-executor.ts
+exit=0
+$ npx vitest run tests/authored-node-runtime.test.ts tests/babysitter-native-extension.test.ts tests/bundle.test.ts tests/canonical-software-factory.test.ts tests/cli-watch.test.ts tests/communication-mixed-resume.test.ts tests/hosted-base-snapshot.test.ts tests/hosted-extension-isolation.test.ts tests/hosted-extension-protocol.test.ts tests/mcp.test.ts tests/stop-process-group.test.ts tests/stuck-run-triage.test.ts tests/worker-cli.test.ts
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/packages/sdk
+
+ ❯ tests/hosted-extension-isolation.test.ts (22 tests | 12 failed | 3 skipped) 237ms
+   × hosted extension capability isolation > resolves locked artifacts without importing extension top-level code 25ms
+     → expected [ { …(6) } ] to deeply equal [ { …(6) } ]
+   × hosted extension capability isolation > executes the exact capability-only handler for a queued receipt 8ms
+     → hosted extension isolation requires Linux
+   × hosted extension capability isolation > executes the exact capability-only handler for a duplicate receipt 8ms
+     → hosted extension isolation requires Linux
+   × hosted extension capability isolation > streams verified bytes when the live store is replaced and no writable staging path exists 72ms
+     → promise rejected "Error: hosted extension isolation require… { code: '…' }" instead of resolving
+   × hosted extension capability isolation > mounts pinned private Surface bytes when the live package changes before launch 18ms
+     → promise rejected "Error: hosted extension isolation require… { code: '…' }" instead of resolving
+   × hosted extension capability isolation > refuses oversized Surface files through the bounded descriptor reader 9ms
+     → expected Error: hosted extension isolation require… { code: '…' } to match object { code: 'plugin_unsupported', …(1) }
+   × hosted extension capability isolation > shields verified Surface files before async settlement 7ms
+     → promise rejected "Error: hosted extension isolation require… { code: '…' }" instead of resolving
+   × hosted extension capability isolation > preserves a typed host refusal while disclosing only a fixed marker to the child 11ms
+     → expected Error: hosted extension isolation require… { code: '…' } to be Error: private Cloud policy detail { code: '…' } // Object.is equality
+   × hosted extension capability isolation > denies ambient credentials, host files, writes, network, subprocesses, and undeclared context verbs 8ms
+     → hosted extension isolation requires Linux
+   × hosted extension capability isolation > enforces OS address-space and data bounds on native Buffer allocation 11ms
+     → expected Error: hosted extension isolation require… { code: '…' } to match object { code: 'plugin_unsupported', …(1) }
+   × hosted extension capability isolation > blocks extra handler fields and authority-bearing receipt fields at the parent port 4ms
+     → expected Error: hosted extension isolation require… { code: '…' } to match object { code: 'plugin_event_unroutable' }
+   × hosted extension capability isolation > constructs adapter authority with the captured freeze intrinsic 3ms
+     → hosted extension isolation requires Linux
+ ❯ tests/hosted-base-snapshot.test.ts (18 tests | 15 failed | 1 skipped) 1345ms
+   × hosted base private snapshot > shadows inherited thenables on completed snapshot authority 14ms
+     → Hosted base source snapshotting requires Linux.
+   × hosted base private snapshot > locks the inherited then slot before authored code can schedule a replacement 4ms
+     → Hosted base source snapshotting requires Linux.
+   × hosted base private snapshot > keeps the buffered base bytes when the live source changes 3ms
+     → Hosted base source snapshotting requires Linux.
+   × hosted base private snapshot > keeps source digests sensitive when ambient Array.map is poisoned 1ms
+     → Hosted base source snapshotting requires Linux.
+   × hosted base private snapshot > defines source entries without consulting inherited numeric setters 8ms
+     → promise rejected "Error: Hosted base source snapshotting re… { code: '…' }" instead of resolving
+   × hosted base private snapshot > uses the module-captured platform during source traversal 2ms
+     → promise rejected "Error: Hosted base source snapshotting re… { code: '…' }" instead of resolving
+   × hosted base private snapshot > shadows native directory arrays before promise resolution can substitute them 2ms
+     → Hosted base source snapshotting requires Linux.
+   × hosted base private snapshot > excludes project node_modules from the admitted generation 2ms
+     → Hosted base source snapshotting requires Linux.
+   × hosted base private snapshot > refuses an oversized source file before buffering its contents 4ms
+     → expected Error: Hosted base source snapshotting re… { code: '…' } to match object { code: 'plugin_source_invalid', …(1) }
+   × hosted base private snapshot > captures conversion and allocation across declarations and source snapshots 4ms
+     → expected Error: Hosted base source snapshotting re… { code: '…' } to match object { code: 'plugin_source_invalid', …(1) }
+   × hosted base private snapshot > keeps declaration and reviewed-base reads bound after builtin export synchronization 4ms
+     → expected Error: Hosted base source snapshotting re… { code: '…' } to match object { code: 'plugin_source_invalid', …(1) }
+   × hosted base private snapshot > reads through captured descriptors and charges admitted descriptor sizes 3ms
+     → promise rejected "Error: Hosted base source snapshotting re… { code: '…' }" instead of resolving
+   × hosted base private snapshot > ignores inherited snapshot test hooks when production omits them 2ms
+     → promise rejected "Error: Hosted base source snapshotting re… { code: '…' }" instead of resolving
+   × hosted base private snapshot > bounds a file that grows after its admitted size was checked 1ms
+     → expected Error: Hosted base source snapshotting re… { code: '…' } to match object { code: 'plugin_source_invalid', …(1) }
+   × hosted base private snapshot > stops streaming project entries at the shared count limit 1288ms
+     → expected Error: Hosted base source snapshotting re… { code: '…' } to match object { code: 'plugin_source_invalid', …(1) }
+ ❯ tests/babysitter-native-extension.test.ts (41 tests | 41 skipped) 740ms
+ ❯ tests/authored-node-runtime.test.ts (14 tests | 14 skipped) 63ms
+ ❯ tests/stuck-run-triage.test.ts (22 tests | 22 failed) 168ms
+   × stuck-run-triage input validation > refuses an 8-character run-id prefix: Cloud has no prefix lookup 5ms
+     → expected [Function] to throw error matching /not full Cloud run ids: c649fe14/ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage input validation > refuses the whole batch when any id is invalid, rather than dropping it 1ms
+     → expected [Function] to throw error matching /not full Cloud run ids: nope!/ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage input validation > refuses an empty batch 0ms
+     → expected [Function] to throw error matching /needs runIds/ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage input validation > refuses a batch too large for the edge step lease 0ms
+     → expected [Function] to throw error matching /exceeds the 8 that fit/ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage input validation > accepts eight ids — the incident batch is inside the bound 3ms
+     → promise rejected "TypeError: expected an @relayflows/surfac…" instead of resolving
+   × stuck-run-triage apiUrl > refuses to send the Cloud bearer token to an unapproved origin 0ms
+     → expected [Function] to throw error matching /refusing to send the Cloud bearer to…/\ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage apiUrl > refuses a non-URL apiUrl 0ms
+     → expected [Function] to throw error matching /is not a URL/ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage apiUrl > allows an approved origin and uses it in the curl 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage apiUrl > defaults to production Cloud 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage apiUrl > never publishes a run record the fetch did not produce 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage edge collection > names the Worker on every wrangler invocation 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage edge collection > accepts caller-supplied Workers and rejects option-shaped ones 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage edge collection > falls back when GNU timeout is absent, as it is on macOS 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage edge collection > runs the tails concurrently so wall time does not scale with the batch 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage edge collection > records wrangler's own exit status rather than head's 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage shell text > parses under both sh and bash 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage shell text > collects tails with no GNU timeout on PATH, as on a stock macOS 154ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage agents > declares read-only permissions on every agent 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage agents > tells the forensics agents their evidence is untrusted 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage fan-out > refuses a duplicate run id: two tails would share one evidence file 0ms
+     → expected [Function] to throw error matching /duplicate runIds: c649fe14-0c2e-4e51-…/ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage fan-out > refuses a duplicate Worker name for the same reason 0ms
+     → expected [Function] to throw error matching /duplicate workers: w-one/ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage fan-out > bounds ids x workers, not just ids 0ms
+     → expected [Function] to throw error matching /24 concurrent tails, over the 16/ but got 'expected an @relayflows/surface flow …'
+ ❯ tests/canonical-software-factory.test.ts (3 tests | 3 failed) 66ms
+   × canonical software-factory metadata contract > opens the actual catalog flow with the ticket title and exactly one GitHub closing line 41ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory metadata contract > normalizes whitespace and caps the title at 240 Unicode code points 24ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory metadata contract > fails closed before push when GitHub identity is missing or the final body duplicates its closing line 1ms
+     → expected an @relayflows/surface flow handle
+ ❯ tests/communication-mixed-resume.test.ts (1 test | 1 failed) 90ms
+   × resumes mixed ordinary and linked agents through the real daemon without stealing peer capacity 90ms
+     → {"ok":false,"command":"resume","resolutions":[],"diagnostics":[{"severity":"failure","kind":"protocol_error","message":"relayflowd could not complete the resume request: bad_request: unknown field `required_streams`, expected one of `worker_id`, `step_types`, `capacity`, `pins`"}],"runId":"01M36B7SMVPW00H67FE03NC6XS","socketPath":"/var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/relayflowd-c074cf92d10f.sock"}: expected { ok: false, command: 'resume', …(4) } to match object { status: 'completed', …(2) }
+(6 matching properties omitted from actual)
+ ✓ tests/bundle.test.ts (26 tests) 7669ms
+   ✓ immutable bundles > returns exit 2 naming a byte-flipped payload and refuses to reuse corruption 364ms
+   ✓ immutable bundles > verifies with --verify in any position and answers --json with one object 690ms
+   ✓ immutable bundles > refuses --out with --verify rather than ignoring the destination 323ms
+   ✓ immutable bundles > builds and verifies the canonical YAML fixture through the compiled CLI 757ms
+   ✓ immutable bundles > emits the ephemeral warning on CLI stderr and uses the default output directory 495ms
+   ✓ immutable bundles > builds a standalone TS fixture twice with identical executable hashes 2896ms
+ ❯ tests/mcp.test.ts (30 tests | 4 skipped) 9774ms
+   ✓ MCP preflight and transports > flows check refuses an undeclared server with exit 2 and no daemon 848ms
+   ✓ MCP preflight and transports > flows check reports a refusing server and leaves no PID 773ms
+   ✓ MCP preflight and transports > kills a SIGTERM-resistant silent child after a parent-owned handshake deadline 1331ms
+   ✓ MCP preflight and transports > reaps a SIGTERM-resistant descendant with inherit stdio before cleanup finishes 1142ms
+   ✓ MCP preflight and transports > reaps a SIGTERM-resistant descendant with ignore stdio before cleanup finishes 2074ms
+   ✓ MCP preflight and transports > reports malformed connection configuration as config_invalid 429ms
+ ✓ tests/cli-watch.test.ts (10 tests) 12241ms
+   ✓ flows check --watch > rechecks syntax errors, clears once, and returns the last refusal on Ctrl-C 1168ms
+   ✓ flows check --watch > streams JSON lines without ANSI, recovers after atomic saves, and exits zero after repair 1351ms
+   ✓ flows check --watch > coalesces 20 concurrent saves into at most two rechecks 1476ms
+   ✓ flows check --watch > watches transitive relative use imports, cycles, and nearest config changes 1827ms
+   ✓ flows check --watch > refreshes the import graph and notices missing imports being created 1818ms
+   ✓ flows check --watch > reloads authored TypeScript instead of reusing the first imported definition 1034ms
+   ✓ flows check --watch > detects a nearer config appearing and falls back after it is deleted 1317ms
+   ✓ flows check --watch > keeps watching after the target is deleted and recreated 1481ms
+   ✓ flows check --watch > queues changes during a slow check without overlapping checks 767ms
+ ✓ tests/stop-process-group.test.ts (9 tests) 15421ms
+   ✓ every stop reaches the process group, not just the direct child > exits the run after an execution-timeout stop 2203ms
+   ✓ every stop reaches the process group, not just the direct child > exits the run after a protocol terminate stop 668ms
+   ✓ every stop reaches the process group, not just the direct child > kills a SIGTERM-deaf grandchild after a protocol terminate stop 1837ms
+   ✓ every stop reaches the process group, not just the direct child > kills a SIGTERM-deaf grandchild after an execution-timeout stop 2389ms
+   ✓ every stop reaches the process group, not just the direct child > holds the loop open long enough for the escalation to run 1107ms
+   ✓ a wrapper that exits with no execution deadline still drains > reports the wrapper result and reaps a grandchild holding its pipes 811ms
+   ✓ a wrapper that exits with no execution deadline still drains > reaps a SIGTERM-deaf grandchild holding its pipes 1742ms
+   ✓ a wrapper that exits with no execution deadline still drains > settles on its own deadline when an escaped holder withholds close 4381ms
+ ✓ tests/worker-cli.test.ts (18 tests) 25934ms
+   ✓ registered CLI model defaults > passes the same priced Claude default to the real provider invocation 835ms
+   ✓ step discovery environment > names the run, step, attempt and an absolute data dir for a direct agent spawn 591ms
+   ✓ step discovery environment > exports none of the four without a data dir, even when the worker inherited them 503ms
+   ✓ wrapper discovery environment > sets the four names from the dispatch and still refuses ambient values and other secrets 549ms
+   ✓ wrapper discovery environment > exports none of the four to a wrapper without a data dir, even when the worker inherited them 378ms
+   ✓ custom wrapper execution identity > passes an explicit safe environment at identification and execution 392ms
+   ✓ custom wrapper execution identity > refuses a wrapper symlink retarget before delivering private values 369ms
+   ✓ custom wrapper execution identity > bounds wrapper execution after acknowledgement 405ms
+   ✓ custom wrapper execution identity > bounds captured wrapper output 435ms
+   ✓ custom wrapper execution identity > refuses a duplicate execute protocol frame 425ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a conforming wrapper leaks a stdio pipe to a background helper 1928ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when the leaked helper inherits stderr only 1956ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a wrapper leaks a stdio pipe and exits before identifying 3432ms
+   ✓ custom wrapper execution bounds are reader-owned > journals a completionReason at the default bound when a wrapper leaks a stdio pipe 11479ms
+   ✓ custom wrapper execution bounds are reader-owned > accepts an execute token and an over-8KiB payload flushed in one write 351ms
+   ✓ custom wrapper execution bounds are reader-owned > accepts the same over-8KiB payload whether or not it coalesces with the execute token 1194ms
+   ✓ custom wrapper execution bounds are reader-owned > still bounds an un-terminated handshake buffer and names the bound 357ms
+   ✓ delivers the journaled memory pack to the real wrapper and excludes its charge from completion usage 355ms
+ ❯ tests/hosted-extension-protocol.test.ts (24 tests | 7 failed | 1 skipped) 40154ms
+   × hosted extension hostile protocol > rejects an import-time different PR frame with zero adapter calls 14ms
+     → expected Error: hosted extension isolation require… { code: '…' } to match object { code: 'plugin_event_unroutable' }
+   × hosted extension hostile protocol > rejects an import-time different delivery frame with zero adapter calls 10ms
+     → expected Error: hosted extension isolation require… { code: '…' } to match object { code: 'plugin_event_unroutable' }
+   × hosted extension hostile protocol > rejects an import-time different event frame with zero adapter calls 17ms
+     → expected Error: hosted extension isolation require… { code: '…' } to match object { code: 'plugin_event_unroutable' }
+   × hosted extension hostile protocol > rejects two forged calls after the authoritative first outcome settles 10008ms
+     → hostile child did not invoke the adapter
+   × hosted extension hostile protocol > waits for a pending adapter to reject after a forged child error 10004ms
+     → hostile child did not invoke the adapter
+   × hosted extension hostile protocol > waits for a pending adapter to resolve after a forged child error 10005ms
+     → hostile child did not invoke the adapter
+   × hosted extension hostile protocol > returns a typed adapter rejection even when the hostile child hangs 10009ms
+     → hostile child did not invoke the adapter
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-node-runtime.test.ts [ tests/authored-node-runtime.test.ts ]
+AssertionError: expected '1.3.14' to be '1.4.0' // Object.is equality
+
+Expected: "1.4.0"
+Received: "1.3.14"
+
+ ❯ tests/authored-node-runtime.test.ts:18:77
+     16| 
+     17| beforeAll(() => {
+     18|   expect(spawnSync(bun, ['--version'], { encoding: 'utf8' }).stdout.tr…
+       |                                                                             ^
+     19|   expect(existsSync(daemon), 'build the current kernel or set RELAYFLO…
+     20|   stage = mkdtempSync(join(tmpdir(), 'authored-standalone-build-'));
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/63]⎯
+
+ FAIL  tests/babysitter-native-extension.test.ts [ tests/babysitter-native-extension.test.ts ]
+Error: Hosted base source snapshotting requires Linux.
+ ❯ invalid src/hosted-base-snapshot.ts:350:10
+    348| 
+    349| function invalid(message: string): PluginError {
+    350|   return new PluginError('plugin_source_invalid', message);
+       |          ^
+    351| }
+    352| 
+ ❯ readTree src/hosted-base-snapshot.ts:235:11
+ ❯ readAuthorityFiles src/hosted-base-snapshot.ts:181:31
+ ❯ Module.createHostedBaseSnapshot src/hosted-base-snapshot.ts:126:23
+ ❯ baseAt src/hosted-extension-runtime.ts:234:20
+ ❯ Module.loadHostedExtensionRuntime src/hosted-extension-runtime.ts:90:16
+ ❯ composed tests/babysitter-native-extension.test.ts:64:25
+ ❯ tests/babysitter-native-extension.test.ts:100:37
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/63]⎯
+
+ FAIL  tests/mcp.test.ts > authored MCP effects against the real kernel
+Error: journal client: connect failed: connect ENOENT /var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/relayflowd-34682962b0a5.sock
+ ❯ Socket.onError src/journal-client.ts:102:16
+    100|         socket.removeAllListeners();
+    101|         this.failAll(err);
+    102|         reject(new Error(`journal client: connect failed: ${err.messag…
+       |                ^
+    103|       };
+    104|       socket.once('error', onError);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/63]⎯
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 60 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory metadata contract > opens the actual catalog flow with the ticket title and exactly one GitHub closing line
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:149:11
+ ❯ runCanonical tests/canonical-software-factory.test.ts:69:22
+     67|   };
+     68| 
+     69|   const definition = getFlowDefinition(softwareFactory);
+       |                      ^
+     70|   return definition.body(context as never, { issue, approver: 'khaliq'…
+     71|     root,
+ ❯ tests/canonical-software-factory.test.ts:82:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/63]⎯
+
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory metadata contract > normalizes whitespace and caps the title at 240 Unicode code points
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:149:11
+ ❯ runCanonical tests/canonical-software-factory.test.ts:69:22
+     67|   };
+     68| 
+     69|   const definition = getFlowDefinition(softwareFactory);
+       |                      ^
+     70|   return definition.body(context as never, { issue, approver: 'khaliq'…
+     71|     root,
+ ❯ tests/canonical-software-factory.test.ts:99:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/63]⎯
+
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory metadata contract > fails closed before push when GitHub identity is missing or the final body duplicates its closing line
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:149:11
+ ❯ tests/canonical-software-factory.test.ts:108:24
+    106| 
+    107|   it('fails closed before push when GitHub identity is missing or the …
+    108|     const definition = getFlowDefinition(softwareFactory);
+       |                        ^
+    109|     const commands: string[] = [];
+    110|     let completionReason = '';
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/63]⎯
+
+ FAIL  tests/communication-mixed-resume.test.ts > resumes mixed ordinary and linked agents through the real daemon without stealing peer capacity
+AssertionError: {"ok":false,"command":"resume","resolutions":[],"diagnostics":[{"severity":"failure","kind":"protocol_error","message":"relayflowd could not complete the resume request: bad_request: unknown field `required_streams`, expected one of `worker_id`, `step_types`, `capacity`, `pins`"}],"runId":"01M36B7SMVPW00H67FE03NC6XS","socketPath":"/var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/relayflowd-c074cf92d10f.sock"}: expected { ok: false, command: 'resume', …(4) } to match object { status: 'completed', …(2) }
+(6 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "completedSteps": 4,
+-   "completionReason": "success",
+-   "status": "completed",
++   "command": "resume",
++   "diagnostics": Array [
++     Object {
++       "kind": "protocol_error",
++       "message": "relayflowd could not complete the resume request: bad_request: unknown field `required_streams`, expected one of `worker_id`, `step_types`, `capacity`, `pins`",
++       "severity": "failure",
++     },
++   ],
++   "ok": false,
++   "resolutions": Array [],
++   "runId": "01M36B7SMVPW00H67FE03NC6XS",
++   "socketPath": "/var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/relayflowd-c074cf92d10f.sock",
+  }
+
+ ❯ tests/communication-mixed-resume.test.ts:48:60
+     46|     expect(parked.status).toBe('parked');
+     47|     const resumed = await resumeFlow(parked.run_id, dataDir, { localAg…
+     48|     expect(resumed.report, JSON.stringify(resumed.report)).toMatchObje…
+       |                                                            ^
+     49|     expect(state.started).toEqual(new Set(['a', 'b']));
+     50|     const entries = (await client.journalRead(parked.run_id, 1)).entri…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/63]⎯
+
+ FAIL  tests/hosted-base-snapshot.test.ts > hosted base private snapshot > shadows inherited thenables on completed snapshot authority
+Error: Hosted base source snapshotting requires Linux.
+ ❯ invalid src/hosted-base-snapshot.ts:350:10
+    348| 
+    349| function invalid(message: string): PluginError {
+    350|   return new PluginError('plugin_source_invalid', message);
+       |          ^
+    351| }
+    352| 
+ ❯ readTree src/hosted-base-snapshot.ts:235:11
+ ❯ readAuthorityFiles src/hosted-base-snapshot.ts:181:31
+ ❯ Module.createHostedBaseSnapshot src/hosted-base-snapshot.ts:126:23
+ ❯ tests/hosted-base-snapshot.test.ts:33:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/63]⎯
+
+ FAIL  tests/hosted-base-snapshot.test.ts > hosted base private snapshot > locks the inherited then slot before authored code can schedule a replacement
+Error: Hosted base source snapshotting requires Linux.
+ ❯ invalid src/hosted-base-snapshot.ts:350:10
+    348| 
+    349| function invalid(message: string): PluginError {
+    350|   return new PluginError('plugin_source_invalid', message);
+       |          ^
+    351| }
+    352| 
+ ❯ readTree src/hosted-base-snapshot.ts:235:11
+ ❯ readAuthorityFiles src/hosted-base-snapshot.ts:181:31
+ ❯ Module.createHostedBaseSnapshot src/hosted-base-snapshot.ts:126:23
+ ❯ tests/hosted-base-snapshot.test.ts:58:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/63]⎯
+
+ FAIL  tests/hosted-base-snapshot.test.ts > hosted base private snapshot > keeps the buffered base bytes when the live source changes
+Error: Hosted base source snapshotting requires Linux.
+ ❯ invalid src/hosted-base-snapshot.ts:350:10
+    348| 
+    349| function invalid(message: string): PluginError {
+    350|   return new PluginError('plugin_source_invalid', message);
+       |          ^
+    351| }
+    352| 
+ ❯ readTree src/hosted-base-snapshot.ts:235:11
+ ❯ readAuthorityFiles src/hosted-base-snapshot.ts:181:31
+ ❯ Module.createHostedBaseSnapshot src/hosted-base-snapshot.ts:126:23
+ ❯ tests/hosted-base-snapshot.test.ts:65:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/63]⎯
+
+ FAIL  tests/hosted-base-snapshot.test.ts > hosted base private snapshot > keeps source digests sensitive when ambient Array.map is poisoned
+Error: Hosted base source snapshotting requires Linux.
+ ❯ invalid src/hosted-base-snapshot.ts:350:10
+    348| 
+    349| function invalid(message: string): PluginError {
+    350|   return new PluginError('plugin_source_invalid', message);
+       |          ^
+    351| }
+    352| 
+ ❯ readTree src/hosted-base-snapshot.ts:235:11
+ ❯ readAuthorityFiles src/hosted-base-snapshot.ts:181:31
+ ❯ Module.hostedBaseSourceDigest src/hosted-base-snapshot.ts:166:29
+ ❯ tests/hosted-base-snapshot.test.ts:78:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/63]⎯
+
+ FAIL  tests/hosted-base-snapshot.test.ts > hosted base private snapshot > defines source entries without consulting inherited numeric setters
+AssertionError: promise rejected "Error: Hosted base source snapshotting re… { code: '…' }" instead of resolving
+ ❯ tests/hosted-base-snapshot.test.ts:118:75
+    116|         },
+    117|       });
+    118|       await expect(hostedBaseSourceDigest([{ root: project, prefix: ''…
+       |                                                                           ^
+    119|     } finally {
+    120|       if (previous === undefined) delete (Array.prototype as unknown a…
+
+Caused by: Error: Hosted base source snapshotting requires Linux.
+ ❯ invalid src/hosted-base-snapshot.ts:350:10
+ ❯ readTree src/hosted-base-snapshot.ts:235:11
+ ❯ readAuthorityFiles src/hosted-base-snapshot.ts:181:31
+ ❯ Module.hostedBaseSourceDigest src/hosted-base-snapshot.ts:166:29
+ ❯ tests/hosted-base-snapshot.test.ts:118:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_source_invalid' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/63]⎯
+
+ FAIL  tests/hosted-base-snapshot.test.ts > hosted base private snapshot > uses the module-captured platform during source traversal
+AssertionError: promise rejected "Error: Hosted base source snapshotting re… { code: '…' }" instead of resolving
+ ❯ tests/hosted-base-snapshot.test.ts:142:75
+    140|         },
+    141|       });
+    142|       await expect(hostedBaseSourceDigest([{ root: project, prefix: ''…
+       |                                                                           ^
+    143|     } finally {
+    144|       Object.defineProperty(process, 'platform', descriptor);
+
+Caused by: Error: Hosted base source snapshotting requires Linux.
+ ❯ invalid src/hosted-base-snapshot.ts:350:10
+ ❯ readTree src/hosted-base-snapshot.ts:235:11
+ ❯ readAuthorityFiles src/hosted-base-snapshot.ts:181:31
+ ❯ Module.hostedBaseSourceDigest src/hosted-base-snapshot.ts:166:29
+ ❯ tests/hosted-base-snapshot.test.ts:142:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_source_invalid' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/63]⎯
+
+ FAIL  tests/hosted-base-snapshot.test.ts > hosted base private snapshot > shadows native directory arrays before promise resolution can substitute them
+Error: Hosted base source snapshotting requires Linux.
+ ❯ invalid src/hosted-base-snapshot.ts:350:10
+    348| 
+    349| function invalid(message: string): PluginError {
+    350|   return new PluginError('plugin_source_invalid', message);
+       |          ^
+    351| }
+    352| 
+ ❯ readTree src/hosted-base-snapshot.ts:235:11
+ ❯ readAuthorityFiles src/hosted-base-snapshot.ts:181:31
+ ❯ Module.createHostedBaseSnapshot src/hosted-base-snapshot.ts:126:23
+ ❯ tests/hosted-base-snapshot.test.ts:168:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/63]⎯
+
+ FAIL  tests/hosted-base-snapshot.test.ts > hosted base private snapshot > excludes project node_modules from the admitted generation
+Error: Hosted base source snapshotting requires Linux.
+ ❯ invalid src/hosted-base-snapshot.ts:350:10
+    348| 
+    349| function invalid(message: string): PluginError {
+    350|   return new PluginError('plugin_source_invalid', message);
+       |          ^
+    351| }
+    352| 
+ ❯ readTree src/hosted-base-snapshot.ts:235:11
+ ❯ readAuthorityFiles src/hosted-base-snapshot.ts:181:31
+ ❯ Module.createHostedBaseSnapshot src/hosted-base-snapshot.ts:126:23
+ ❯ tests/hosted-base-snapshot.test.ts:184:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/63]⎯
+
+ FAIL  tests/hosted-base-snapshot.test.ts > hosted base private snapshot > refuses an oversized source file before buffering its contents
+AssertionError: expected Error: Hosted base source snapshotting re… { code: '…' } to match object { code: 'plugin_source_invalid', …(1) }
+
+- Expected
++ Received
+
+- Object {
++ PluginError {
+    "code": "plugin_source_invalid",
+-   "message": StringContaining "snapshot entry or byte limit",
+  }
+
+ ❯ tests/hosted-base-snapshot.test.ts:200:5
+    198|     writeFileSync(oversized, '');
+    199|     truncateSync(oversized, 64 * 1024 * 1024 + 1);
+    200|     await expect(createHostedBaseSnapshot(flowPath)).rejects.toMatchOb…
+       |     ^
+    201|       code: 'plugin_source_invalid',
+    202|       message: expect.stringContaining('snapshot entry or byte limit'),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/63]⎯
+
+ FAIL  tests/hosted-base-snapshot.test.ts > hosted base private snapshot > captures conversion and allocation across declarations and source snapshots
+AssertionError: expected Error: Hosted base source snapshotting re… { code: '…' } to match object { code: 'plugin_source_invalid', …(1) }
+
+- Expected
++ Received
+
+- Object {
++ PluginError {
+    "code": "plugin_source_invalid",
+-   "message": StringContaining "reviewed Software Factory base source",
+  }
+
+ ❯ tests/hosted-base-snapshot.test.ts:247:7
+    245|         return allocUnsafe(size);
+    246|       }) as typeof Buffer.allocUnsafe;
+    247|       await expect(loadHostedExtensionRuntime(flowPath)).rejects.toMat…
+       |       ^
+    248|         code: 'plugin_source_invalid',
+    249|         message: expect.stringContaining('reviewed Software Factory ba…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/63]⎯
+
+ FAIL  tests/hosted-base-snapshot.test.ts > hosted base private snapshot > keeps declaration and reviewed-base reads bound after builtin export synchronization
+AssertionError: expected Error: Hosted base source snapshotting re… { code: '…' } to match object { code: 'plugin_source_invalid', …(1) }
+
+- Expected
++ Received
+
+- Object {
++ PluginError {
+    "code": "plugin_source_invalid",
+-   "message": StringContaining "reviewed Software Factory base source",
+  }
+
+ ❯ tests/hosted-base-snapshot.test.ts:321:7
+    319|       }
+    320|       syncBuiltinESMExports();
+    321|       await expect(loadHostedExtensionRuntime(flowPath)).rejects.toMat…
+       |       ^
+    322|         code: 'plugin_source_invalid',
+    323|         message: expect.stringContaining('reviewed Software Factory ba…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/63]⎯
+
+ FAIL  tests/hosted-base-snapshot.test.ts > hosted base private snapshot > reads through captured descriptors and charges admitted descriptor sizes
+AssertionError: promise rejected "Error: Hosted base source snapshotting re… { code: '…' }" instead of resolving
+ ❯ tests/hosted-base-snapshot.test.ts:380:75
+    378|         },
+    379|       });
+    380|       await expect(hostedBaseSourceDigest([{ root: project, prefix: ''…
+       |                                                                           ^
+    381|     } finally {
+    382|       fileHandlePrototype.read = fileHandleRead;
+
+Caused by: Error: Hosted base source snapshotting requires Linux.
+ ❯ invalid src/hosted-base-snapshot.ts:350:10
+ ❯ readTree src/hosted-base-snapshot.ts:235:11
+ ❯ readAuthorityFiles src/hosted-base-snapshot.ts:181:31
+ ❯ Module.hostedBaseSourceDigest src/hosted-base-snapshot.ts:166:29
+ ❯ tests/hosted-base-snapshot.test.ts:380:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_source_invalid' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/63]⎯
+
+ FAIL  tests/hosted-base-snapshot.test.ts > hosted base private snapshot > ignores inherited snapshot test hooks when production omits them
+AssertionError: promise rejected "Error: Hosted base source snapshotting re… { code: '…' }" instead of resolving
+ ❯ tests/hosted-base-snapshot.test.ts:403:75
+    401|         });
+    402|       }
+    403|       await expect(hostedBaseSourceDigest([{ root: project, prefix: ''…
+       |                                                                           ^
+    404|     } finally {
+    405|       for (let index = 0; index < names.length; index += 1) {
+
+Caused by: Error: Hosted base source snapshotting requires Linux.
+ ❯ invalid src/hosted-base-snapshot.ts:350:10
+ ❯ readTree src/hosted-base-snapshot.ts:235:11
+ ❯ readAuthorityFiles src/hosted-base-snapshot.ts:181:31
+ ❯ Module.hostedBaseSourceDigest src/hosted-base-snapshot.ts:166:29
+ ❯ tests/hosted-base-snapshot.test.ts:403:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_source_invalid' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/63]⎯
+
+ FAIL  tests/hosted-base-snapshot.test.ts > hosted base private snapshot > bounds a file that grows after its admitted size was checked
+AssertionError: expected Error: Hosted base source snapshotting re… { code: '…' } to match object { code: 'plugin_source_invalid', …(1) }
+
+- Expected
++ Received
+
+- Object {
++ PluginError {
+    "code": "plugin_source_invalid",
+-   "message": StringContaining "changed while reading \"raced.bin\"",
+  }
+
+ ❯ tests/hosted-base-snapshot.test.ts:418:5
+    416|     const raced = join(project, 'raced.bin');
+    417|     writeFileSync(raced, 'small');
+    418|     await expect(
+       |     ^
+    419|       hostedBaseSourceDigest([{ root: project, prefix: '' }], {
+    420|         afterStat: async path => {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/63]⎯
+
+ FAIL  tests/hosted-base-snapshot.test.ts > hosted base private snapshot > stops streaming project entries at the shared count limit
+AssertionError: expected Error: Hosted base source snapshotting re… { code: '…' } to match object { code: 'plugin_source_invalid', …(1) }
+
+- Expected
++ Received
+
+- Object {
++ PluginError {
+    "code": "plugin_source_invalid",
+-   "message": StringContaining "snapshot entry or byte limit",
+  }
+
+ ❯ tests/hosted-base-snapshot.test.ts:467:5
+    465|       writeFileSync(join(project, `empty-${index}.txt`), '');
+    466|     }
+    467|     await expect(createHostedBaseSnapshot(flowPath)).rejects.toMatchOb…
+       |     ^
+    468|       code: 'plugin_source_invalid',
+    469|       message: expect.stringContaining('snapshot entry or byte limit'),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/63]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > resolves locked artifacts without importing extension top-level code
+AssertionError: expected [ { …(6) } ] to deeply equal [ { …(6) } ]
+
+- Expected
++ Received
+
+  Array [
+    Object {
+      "digest": "ff644144d69775d9ccc63954eea7bedff16571a45c8ac01f2f4c8d23a5ecdc9a",
+-     "directory": "/var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/hosted-extension-test-LRLpYP/.flows/plugins/babysitter@sha256:ff644144d69775d9ccc63954eea7bedff16571a45c8ac01f2f4c8d23a5ecdc9a",
++     "directory": "/private/var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/hosted-extension-test-LRLpYP/.flows/plugins/babysitter@sha256:ff644144d69775d9ccc63954eea7bedff16571a45c8ac01f2f4c8d23a5ecdc9a",
+      "manifestSha256": "5681622ac4930a1b9c7eda1736b52111e7ae8711c0a29eed0db00bb639fc7375",
+      "name": "babysitter",
+      "ref": "github:AgentWorkforce/flows@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa#extensions/babysitter",
+      "version": "0.2.0",
+    },
+  ]
+
+ ❯ tests/hosted-extension-isolation.test.ts:159:70
+    157|     const flowPath = join(root, 'software-factory.flow.ts');
+    158|     writeFileSync(flowPath, 'export default {};');
+    159|     expect((await loadHostedExtensionArtifacts(flowPath)).artifacts).t…
+       |                                                                      ^
+    160|     expect(() => readFileSync(marker)).toThrow();
+    161|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/63]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > executes the exact capability-only handler for a queued receipt
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > executes the exact capability-only handler for a duplicate receipt
+Error: hosted extension isolation requires Linux
+ ❯ unsupported src/hosted-extension-sandbox.ts:488:9
+    486| 
+    487| function unsupported(message: string): never {
+    488|   throw new PluginError('plugin_unsupported', message);
+       |         ^
+    489| }
+    490| 
+ ❯ Module.runHostedExtensionSandbox src/hosted-extension-sandbox.ts:155:44
+ ❯ Module.runVerifiedNativeExtensionSandbox src/hosted-extension-isolation.ts:173:16
+ ❯ tests/hosted-extension-isolation.test.ts:221:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/63]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > streams verified bytes when the live store is replaced and no writable staging path exists
+AssertionError: promise rejected "Error: hosted extension isolation require… { code: '…' }" instead of resolving
+ ❯ tests/hosted-extension-isolation.test.ts:431:7
+    429|         return { receiptId: 'receipt-1', status: 'queued' };
+    430|       } },
+    431|     })).resolves.toEqual({ completionReason: 'success', capabilityCall…
+       |       ^
+    432|     expect(calls).toBe(1);
+    433|     expect(readFileSync(join(installed.directory, 'babysitter.flow.ts'…
+
+Caused by: Error: hosted extension isolation requires Linux
+ ❯ unsupported src/hosted-extension-sandbox.ts:488:9
+ ❯ Module.runHostedExtensionSandbox src/hosted-extension-sandbox.ts:155:44
+ ❯ Module.runVerifiedNativeExtensionSandbox src/hosted-extension-isolation.ts:173:16
+ ❯ tests/hosted-extension-isolation.test.ts:424:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/63]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > mounts pinned private Surface bytes when the live package changes before launch
+AssertionError: promise rejected "Error: hosted extension isolation require… { code: '…' }" instead of resolving
+ ❯ tests/hosted-extension-isolation.test.ts:456:7
+    454|         return { receiptId: 'receipt-1', status: 'queued' };
+    455|       } },
+    456|     })).resolves.toEqual({ completionReason: 'success', capabilityCall…
+       |       ^
+    457|     expect(calls).toBe(1);
+    458|     expect(readFileSync(join(surfaceRoot, 'dist/flow.js'), 'utf8')).to…
+
+Caused by: Error: hosted extension isolation requires Linux
+ ❯ unsupported src/hosted-extension-sandbox.ts:488:9
+ ❯ Module.runHostedExtensionSandbox src/hosted-extension-sandbox.ts:155:44
+ ❯ Module.runVerifiedNativeExtensionSandbox src/hosted-extension-isolation.ts:173:16
+ ❯ tests/hosted-extension-isolation.test.ts:443:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/63]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > refuses oversized Surface files through the bounded descriptor reader
+AssertionError: expected Error: hosted extension isolation require… { code: '…' } to match object { code: 'plugin_unsupported', …(1) }
+
+- Expected
++ Received
+
+- Object {
++ PluginError {
+    "code": "plugin_unsupported",
+-   "message": StringContaining "cannot read pinned Surface runtime flow.js",
+  }
+
+ ❯ tests/hosted-extension-isolation.test.ts:489:5
+    487|     });
+    488|     let calls = 0;
+    489|     await expect(runVerifiedNativeExtensionSandbox({
+       |     ^
+    490|       artifact: await artifact(),
+    491|       manifest: validateFlowExtensionManifest(manifest()),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[27/63]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > shields verified Surface files before async settlement
+AssertionError: promise rejected "Error: hosted extension isolation require… { code: '…' }" instead of resolving
+ ❯ tests/hosted-extension-isolation.test.ts:532:9
+    530|         surfaceRoot,
+    531|         babysitterTurn: { queue: async () => ({ receiptId: 'receipt-1'…
+    532|       })).resolves.toEqual({ completionReason: 'success', capabilityCa…
+       |         ^
+    533|     } finally {
+    534|       if (previous === undefined) delete (Array.prototype as { then?: …
+
+Caused by: Error: hosted extension isolation requires Linux
+ ❯ unsupported src/hosted-extension-sandbox.ts:488:9
+ ❯ Module.runHostedExtensionSandbox src/hosted-extension-sandbox.ts:155:44
+ ❯ Module.runVerifiedNativeExtensionSandbox src/hosted-extension-isolation.ts:173:16
+ ❯ tests/hosted-extension-isolation.test.ts:525:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[28/63]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > preserves a typed host refusal while disclosing only a fixed marker to the child
+AssertionError: expected Error: hosted extension isolation require… { code: '…' } to be Error: private Cloud policy detail { code: '…' } // Object.is equality
+
+- Expected
++ Received
+
+- [Error: private Cloud policy detail]
++ [Error: hosted extension isolation requires Linux]
+
+ ❯ tests/hosted-extension-isolation.test.ts:560:5
+    558|       provider: 'github', eventType: 'pull_request.labeled', deliveryI…
+    559|     });
+    560|     await expect(runVerifiedNativeExtensionSandbox({
+       |     ^
+    561|       artifact: await artifact(source), manifest: validateFlowExtensio…
+    562|       babysitterTurn: { queue: async () => { throw refusal; } },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[29/63]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > denies ambient credentials, host files, writes, network, subprocesses, and undeclared context verbs
+Error: hosted extension isolation requires Linux
+ ❯ unsupported src/hosted-extension-sandbox.ts:488:9
+    486| 
+    487| function unsupported(message: string): never {
+    488|   throw new PluginError('plugin_unsupported', message);
+       |         ^
+    489| }
+    490| 
+ ❯ Module.runHostedExtensionSandbox src/hosted-extension-sandbox.ts:155:44
+ ❯ Module.runVerifiedNativeExtensionSandbox src/hosted-extension-isolation.ts:173:16
+ ❯ tests/hosted-extension-isolation.test.ts:624:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[30/63]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > enforces OS address-space and data bounds on native Buffer allocation
+AssertionError: expected Error: hosted extension isolation require… { code: '…' } to match object { code: 'plugin_unsupported', …(1) }
+
+- Expected
++ Received
+
+- Object {
++ PluginError {
+    "code": "plugin_unsupported",
+-   "message": StringMatching /(?:Failed to allocate memory|Array buffer allocation failed)/u,
+  }
+
+ ❯ tests/hosted-extension-isolation.test.ts:646:5
+    644|     });
+    645|     let calls = 0;
+    646|     await expect(runVerifiedNativeExtensionSandbox({
+       |     ^
+    647|       artifact: installed,
+    648|       manifest: validateFlowExtensionManifest(manifest()),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[31/63]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > blocks extra handler fields and authority-bearing receipt fields at the parent port
+AssertionError: expected Error: hosted extension isolation require… { code: '…' } to match object { code: 'plugin_event_unroutable' }
+
+- Expected
++ Received
+
+- Object {
+-   "code": "plugin_event_unroutable",
++ PluginError {
++   "code": "plugin_unsupported",
+  }
+
+ ❯ tests/hosted-extension-isolation.test.ts:675:5
+    673|     });
+    674|     let calls = 0;
+    675|     await expect(runVerifiedNativeExtensionSandbox({
+       |     ^
+    676|       artifact: await artifact(source), manifest: validateFlowExtensio…
+    677|       babysitterTurn: { queue: async () => { calls += 1; return { rece…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[32/63]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > constructs adapter authority with the captured freeze intrinsic
+Error: hosted extension isolation requires Linux
+ ❯ unsupported src/hosted-extension-sandbox.ts:488:9
+    486| 
+    487| function unsupported(message: string): never {
+    488|   throw new PluginError('plugin_unsupported', message);
+       |         ^
+    489| }
+    490| 
+ ❯ Module.runHostedExtensionSandbox src/hosted-extension-sandbox.ts:155:44
+ ❯ Module.runVerifiedNativeExtensionSandbox src/hosted-extension-isolation.ts:173:16
+ ❯ tests/hosted-extension-isolation.test.ts:745:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[33/63]⎯
+
+ FAIL  tests/hosted-extension-protocol.test.ts > hosted extension hostile protocol > rejects an import-time different PR frame with zero adapter calls
+ FAIL  tests/hosted-extension-protocol.test.ts > hosted extension hostile protocol > rejects an import-time different delivery frame with zero adapter calls
+ FAIL  tests/hosted-extension-protocol.test.ts > hosted extension hostile protocol > rejects an import-time different event frame with zero adapter calls
+AssertionError: expected Error: hosted extension isolation require… { code: '…' } to match object { code: 'plugin_event_unroutable' }
+
+- Expected
++ Received
+
+- Object {
+-   "code": "plugin_event_unroutable",
++ PluginError {
++   "code": "plugin_unsupported",
+  }
+
+ ❯ tests/hosted-extension-protocol.test.ts:430:5
+    428|   ])('rejects an import-time %s frame with zero adapter calls', async …
+    429|     let calls = 0;
+    430|     await expect(runVerifiedNativeExtensionSandbox({
+       |     ^
+    431|       artifact: await artifact(hostileImport([frame, { type: 'error', …
+    432|       manifest: validateFlowExtensionManifest(manifest()), dispatch: d…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[34/63]⎯
+
+ FAIL  tests/hosted-extension-protocol.test.ts > hosted extension hostile protocol > rejects two forged calls after the authoritative first outcome settles
+ FAIL  tests/hosted-extension-protocol.test.ts > hosted extension hostile protocol > waits for a pending adapter to reject after a forged child error
+ FAIL  tests/hosted-extension-protocol.test.ts > hosted extension hostile protocol > waits for a pending adapter to resolve after a forged child error
+ FAIL  tests/hosted-extension-protocol.test.ts > hosted extension hostile protocol > returns a typed adapter rejection even when the hostile child hangs
+Error: hostile child did not invoke the adapter
+ ❯ Timeout._onTimeout tests/hosted-extension-protocol.test.ts:118:45
+    116| async function waitForInvocation(invoked: Promise<void>): Promise<void…
+    117|   await new Promise<void>((resolve, reject) => {
+    118|     const timeout = setTimeout(() => reject(new Error('hostile child d…
+       |                                             ^
+    119|     void invoked.then(() => { clearTimeout(timeout); resolve(); }, rej…
+    120|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[35/63]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage input validation > refuses an 8-character run-id prefix: Cloud has no prefix lookup
+AssertionError: expected [Function] to throw error matching /not full Cloud run ids: c649fe14/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/not full Cloud run ids: c649fe14/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[36/63]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage input validation > refuses the whole batch when any id is invalid, rather than dropping it
+AssertionError: expected [Function] to throw error matching /not full Cloud run ids: nope!/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/not full Cloud run ids: nope!/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[37/63]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage input validation > refuses an empty batch
+AssertionError: expected [Function] to throw error matching /needs runIds/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/needs runIds/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[38/63]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage input validation > refuses a batch too large for the edge step lease
+AssertionError: expected [Function] to throw error matching /exceeds the 8 that fit/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/exceeds the 8 that fit/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[39/63]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage input validation > accepts eight ids — the incident batch is inside the bound
+AssertionError: promise rejected "TypeError: expected an @relayflows/surfac…" instead of resolving
+ ❯ tests/stuck-run-triage.test.ts:62:40
+     60|   it('accepts eight ids — the incident batch is inside the bound', asy…
+     61|     const ids = Array.from({ length: 8 }, (_, i) => `${ID_A.slice(0, -…
+     62|     await expect(drive({ runIds: ids })).resolves.toBeDefined();
+       |                                        ^
+     63|   });
+     64| });
+
+Caused by: TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:149:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+ ❯ tests/stuck-run-triage.test.ts:62:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[40/63]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage apiUrl > refuses to send the Cloud bearer token to an unapproved origin
+AssertionError: expected [Function] to throw error matching /refusing to send the Cloud bearer to…/\ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/refusing to send the Cloud bearer token to https:\/\/evil\.example/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[41/63]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage apiUrl > refuses a non-URL apiUrl
+AssertionError: expected [Function] to throw error matching /is not a URL/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/is not a URL/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[42/63]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage apiUrl > allows an approved origin and uses it in the curl
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:149:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:77:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[43/63]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage apiUrl > defaults to production Cloud
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:149:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:82:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[44/63]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage apiUrl > never publishes a run record the fetch did not produce
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:149:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:89:34
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[45/63]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage edge collection > names the Worker on every wrangler invocation
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:149:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:98:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[46/63]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage edge collection > accepts caller-supplied Workers and rejects option-shaped ones
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:149:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:107:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[47/63]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage edge collection > falls back when GNU timeout is absent, as it is on macOS
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:149:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:115:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[48/63]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage edge collection > runs the tails concurrently so wall time does not scale with the batch
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:149:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:123:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[49/63]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage edge collection > records wrangler's own exit status rather than head's
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:149:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:129:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[50/63]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage shell text > parses under both sh and bash
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:149:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:137:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[51/63]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage shell text > collects tails with no GNU timeout on PATH, as on a stock macOS
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:149:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:157:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[52/63]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage agents > declares read-only permissions on every agent
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:149:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:176:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[53/63]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage agents > tells the forensics agents their evidence is untrusted
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:149:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:182:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[54/63]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage fan-out > refuses a duplicate run id: two tails would share one evidence file
+AssertionError: expected [Function] to throw error matching /duplicate runIds: c649fe14-0c2e-4e51-…/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/duplicate runIds: c649fe14-0c2e-4e51-9a6a-4f0d1b0f77aa/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[55/63]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage fan-out > refuses a duplicate Worker name for the same reason
+AssertionError: expected [Function] to throw error matching /duplicate workers: w-one/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/duplicate workers: w-one/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[56/63]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage fan-out > bounds ids x workers, not just ids
+AssertionError: expected [Function] to throw error matching /24 concurrent tails, over the 16/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/24 concurrent tails, over the 16/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[57/63]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 2 unhandled errors during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+Error: hosted extension isolation requires Linux
+ ❯ unsupported src/hosted-extension-sandbox.ts:488:9
+    486| 
+    487| function unsupported(message: string): never {
+    488|   throw new PluginError('plugin_unsupported', message);
+       |         ^
+    489| }
+    490| 
+ ❯ Module.runHostedExtensionSandbox src/hosted-extension-sandbox.ts:155:44
+ ❯ Module.runVerifiedNativeExtensionSandbox src/hosted-extension-isolation.ts:173:16
+ ❯ tests/hosted-extension-protocol.test.ts:454:17
+ ❯ node_modules/@vitest/runner/dist/index.js:533:5
+ ❯ runTest node_modules/@vitest/runner/dist/index.js:1056:11
+ ❯ runSuite node_modules/@vitest/runner/dist/index.js:1205:15
+ ❯ runSuite node_modules/@vitest/runner/dist/index.js:1205:15
+ ❯ runFiles node_modules/@vitest/runner/dist/index.js:1262:5
+ ❯ startTests node_modules/@vitest/runner/dist/index.js:1271:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+This error originated in "tests/hosted-extension-protocol.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "rejects two forged calls after the authoritative first outcome settles". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯⎯ Uncaught Exception ⎯⎯⎯⎯⎯
+Error: spawn /Users/khaliqgant/Projects/AgentWorkforce/flows/kernel/target/release/relayflowd ENOENT
+ ❯ Process.ChildProcess._handle.onexit node:internal/child_process:285:19
+ ❯ onErrorNT node:internal/child_process:483:16
+ ❯ processTicksAndRejections node:internal/process/task_queues:89:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { errno: -2, code: 'ENOENT', syscall: 'spawn /Users/khaliqgant/Projects/AgentWorkforce/flows/kernel/target/release/relayflowd', path: '/Users/khaliqgant/Projects/AgentWorkforce/flows/kernel/target/release/relayflowd', spawnargs: [ '--data-dir', '/var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/flows-mcp-daemon-GLuXGX', 'serve' ] }
+This error originated in "tests/mcp.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "authored MCP effects against the real kernel". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ Test Files  9 failed | 4 passed (13)
+      Tests  60 failed | 114 passed | 64 skipped (238)
+     Errors  2 errors
+   Start at  22:18:53
+   Duration  41.74s (transform 1.54s, setup 0ms, collect 7.80s, tests 113.90s, environment 16ms, prepare 649ms)
+
+exit=1
+$ cp /var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/tmp.oIUGoRyujb/llm-worker.ts /var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/tmp.oIUGoRyujb/authored-flow-executor.ts src/
+exit=0
+$ cmp src/llm-worker.ts /var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/tmp.oIUGoRyujb/llm-worker.ts && cmp src/authored-flow-executor.ts /var/folders/6d/0x5fkt8d01gfmmjdzkxqzwnh0000gn/T/tmp.oIUGoRyujb/authored-flow-executor.ts
+exit=0

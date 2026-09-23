@@ -399,7 +399,11 @@ authentication probes, and exact `flows.json` model allow-list as agent steps;
 a declared `model` must be in that project's `models` array. A template call
 such as ``await f.llm`Summarize ${text}` `` returns text. The structured overload
 parses JSON and checks `output` before submitting a successful completion;
-the kernel independently checks the schema before accepting the output.
+the kernel independently checks the schema before accepting the output. A
+reply that is exactly one markdown code fence around a value (three or more
+backticks or tildes, closed by a run of the same character at least as long)
+is judged by the value inside it; prose around the JSON, or two fenced values,
+is still invalid.
 Invalid JSON or a schema mismatch completes with `verification_failed` and
 prevents downstream work. Retry and lease handling use the existing kernel
 policies; this overload introduces no separate retry contract.
@@ -1134,6 +1138,79 @@ terminal markers are steps that SUCCEED: `done("step_failed")` is the body's
 verdict, not a step that failed, so the terminal marker does not fabricate a
 failing step. Actual step failures still take precedence over authored verdicts.
 
+### Saying why: `done(reason, { detail })`
+
+`done()` takes an optional second argument, `{ detail }`, and it is what a
+reader gets instead of a generic sentence. A flow that knows "one P2 remains:
+`review.clean` was not created" should say so; without it the run record has
+only "its own checks did not pass".
+
+```ts
+f.done("step_failed", { detail: "review found 1 P2: `review.clean` was not created" });
+```
+
+The detail is normalized once, at `done()`, before anything durable is written:
+
+- **Redacted** with the SDK's existing redactor — known token shapes, named
+  credential fields, and the values of secret-looking environment variables.
+  That is a policy, not a promise to recognise every possible secret.
+- **Bounded** to 2,000 Unicode code points *including* the fixed
+  `… (truncated)` suffix, exported as `COMPLETION_DETAIL_MAX_CODE_POINTS`.
+  Over-long details are truncated with that visible marker rather than
+  refused: killing a twenty-step run at its last line because its explanation
+  ran long destroys more evidence than it preserves. Redaction runs BEFORE
+  truncation, because truncating first can split a token so no pattern matches
+  it any more — a truncation that *causes* a leak.
+- **Normalized to absence** when it is empty or whitespace-only. No options,
+  `{}`, `{ detail: undefined }` and `{ detail: "  " }` all mean the same thing
+  as the one-argument call, down to a byte-identical marker command.
+- **Made well-formed**: every lone UTF-16 surrogate becomes U+FFFD. A JS
+  string is code units, not text, and `(prose + "\u{1F642}").slice(0, -1)` —
+  ordinary trimming of an agent's output — leaves a high surrogate with no
+  partner. The journal protocol's JSON decoder refuses such a value, and the
+  refusal carries no request id to answer, so the call never returns. One code
+  unit is substituted for one, so the bound still counts what a reader counts.
+
+A `detail` that is present and not a string, or options that are not an
+object, are refused with `unsupported_completion`. The refusal names the type
+it received and never the value.
+
+With a detail, the marker's stdout is
+`{"completionReason":"<reason>","detail":"<detail>"}`; with none it is exactly
+the `{"completionReason":"<reason>"}` it has always been, so a flow that does
+not opt in keeps its `spec_hash`. The detail is journaled on the authored
+root's output, returned by `flows run --json` as `completionDetail` and on the
+`step_failed` diagnostic's `detail`, and printed by `flows status` as a
+labelled line beside the kernel's own account:
+
+```text
+RUN 9e1a0f2c-…   software-factory   completed   started 20.0s ago   finished success   spend …
+authored done("step_failed"): review found 1 P2: `review.clean` was not created
+steps 1: 1 done
+```
+
+A verdict that carries a detail is **committed before the marker run is
+opened**, on a stream of the flow's own root, exactly as a predicate gate's
+verdict is. That is what makes it survive a resume: redaction reads the
+process environment, so a credential rotated while the process was down would
+otherwise re-normalize the same authored sentence into a different marker
+command — and the marker's admission key is stable, so the kernel would refuse
+the drifted spec as `run_admission_conflict` and the run would lose the
+explanation it had already journaled. A resumed body reuses the committed
+verdict instead of recomputing one. A `done()` with no detail commits nothing:
+its marker command is a function of the reason alone, so there is nothing that
+can drift and nothing to recover.
+
+The kernel facts on the first line do not move: an authored `step_failed` run
+completes with a root step that succeeded, and that stays true and stays
+printed. In the diagnostic *message* — the string a Cloud run's `error` is
+expected to carry — the detail is folded onto one line, with `\n`, `\r`, `\t`
+and `\uXXXX` standing in for control characters, because Cloud's error view
+elides the middle of a long multi-line error. (That projection is the
+server's; see docs/CLOUD.md for what this repository does and does not
+establish about it.) The unescaped text is in `completionDetail` and in the
+diagnostic's `detail` beside it.
+
 `canceled` and `budget_exceeded` are in the type but are refused with
 `unsupported_completion`. They are kernel outcomes, not authored verdicts: the
 kernel records them when it cancels a run or exhausts its budget, and a body
@@ -1161,7 +1238,7 @@ The exit codes are part of the surface contract:
 | Exit | Outcome |
 |---:|---|
 | `0` | The run completed with `completionReason: success`; deliberate declination also carries a `run_declined` diagnostic locally. |
-| `1` | The run failed with a declared `completionReason`, or a transport, runtime, or daemon protocol error left the outcome unknown. A `step_failed` run names the failing step and its per-step `completionReason`, plus the exit code and output tails the journal recorded for it. An authored `done("step_failed")` exits `1` as well, and says so without naming a step, because no step failed — the body declared the verdict. |
+| `1` | The run failed with a declared `completionReason`, or a transport, runtime, or daemon protocol error left the outcome unknown. A `step_failed` run names the failing step and its per-step `completionReason`, plus the exit code and output tails the journal recorded for it. An authored `done("step_failed")` exits `1` as well, and says so without naming a step, because no step failed — the body declared the verdict. With a `detail`, that detail replaces the generic sentence and is reported as `completionDetail`. |
 | `2` | The command was refused before a journal write: invalid input, failed preflight, unreachable daemon, or a `run_not_found` resume target. |
 | `3` | The run parked. `PARKED [run_parked]` names the step and its `llm` or `agent` type, and distinguishes an unavailable worker from a `needs_human` recovery wait. An authored body parked on `f.human` reports the question, who it is for, and the `flows answer` invocation that records the decision (see *Human gates* below). |
 

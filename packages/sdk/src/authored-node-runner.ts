@@ -8,7 +8,7 @@ import { isAbsolute, join } from 'node:path';
 import type { Readable } from 'node:stream';
 import type { AuthoredRootMetadata } from './authored-root.js';
 import type { AuthoredExecutionRuntime, AuthoredFlowExecutionResult, ExecuteAuthoredFlowOptions } from './authored-flow-executor.js';
-import { completionMarker, isLoweredCompletion } from './authored-flow-executor.js';
+import { completionMarker, isDurableCompletionDetail, isLoweredCompletion } from './authored-completion.js';
 import {
   AuthoredFlowExecutionError, AuthoredHumanParked,
   type AuthoredFlowExecutionErrorCode, type AuthoredHumanWait,
@@ -262,6 +262,9 @@ export async function verifyAuthoredNodeResult(
   const invalid = (why = ''): never => { throw new Error(`authored runtime result has no matching durable completion${process.env['FLOWS_VERIFIER_DEBUG'] && why ? ` (${why})` : ''}`); };
   if (result.rootRunId !== rootRunId || result.name !== metadata.flowName
     || !isLoweredCompletion(result.completionReason)
+    // Type- and bound-check the claimed detail here, so the marker comparison
+    // below compares two values this process would itself have produced.
+    || (result.completionDetail !== undefined && !isDurableCompletionDetail(result.completionDetail))
     || !Array.isArray(result.journalSteps) || result.journalSteps.length === 0) invalid('frame');
   const terminal = result.journalSteps.at(-1)!;
   if (!terminal || !/^complete-[1-9][0-9]*$/.test(terminal.id)) invalid('terminal');
@@ -338,8 +341,11 @@ export async function verifyAuthoredNodeResult(
         // rejected a frame whose reason is not lowerable at all — that one is
         // the runtime validation of untrusted IPC, and it is why nothing has
         // to be re-asserted here just to satisfy the type.
+        // The detail is inside the marker, so this one comparison also
+        // attests it: a frame cannot claim a detail the journal does not
+        // hold, drop one it does, or alter a character of it.
         if (step?.type !== 'deterministic'
-          || step.command !== completionMarker(result.completionReason)) invalid('marker');
+          || step.command !== completionMarker(result.completionReason, result.completionDetail)) invalid('marker');
       }
     }
   } finally { journal.close(); }
