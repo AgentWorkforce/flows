@@ -965,6 +965,18 @@ effect refs, so their absence is structural. `LEASE OVERDUE by <t>` in the
 text view is computed from the journaled lease deadline and the wall clock
 alone — a local dead-man that needs no daemon.
 
+For an authored root, `--json` also carries `authored_steps`: the root's
+`authored-steps` index (see *Authored bodies* above), folded exactly as
+`readAuthoredStepIndex` folds it, one entry per authored step in admission
+order — `step`, `run_id` (the child journal whose own `flows status` view holds
+that step id), `state` (`admitted` | `completed`), and when present
+`completion_reason`, `kernel_step`, `label`, `after` and `after_truncated`.
+Because the admission record already carries `label` and `after`, a reader
+polling the root sees each step's name and predecessors as soon as it is
+admitted, not only once the run finishes. `label` is redacted like any other
+free text; ids are printed as-is. The field is additive and absent for every
+run that journals no index, so the existing shape is unchanged.
+
 `--tail <n>` renders the last *n* lines of this attempt's stdout and stderr
 after redaction. Every direct agent attempt with a data dir tees its
 transcript into `runs/<run-id>/steps/<step-id>/attempt-<n>.{stdout,stderr}.tail`:
