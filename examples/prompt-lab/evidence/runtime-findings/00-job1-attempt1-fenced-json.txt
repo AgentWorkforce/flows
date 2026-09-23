@@ -1,0 +1,57 @@
+$ flows run --local-agent --agent-capacity 4 prompt-lab.flow.ts --input {"job":"new-agency","reviewer":"prompt-lab-reviewer","lab":"evidence/lab","agency":"sunrise","visitType":"soc"}
+○ run-1 (deterministic) 0.00s
+✓ run-1 (deterministic) 0.23s completionReason: success
+○ llm-2 (llm) 0.00s
+WAITING [worker_lease] Run "01M364PGHQH88R6M3WYD3ZK1WV" step "llm-2" (llm) is running under a worker lease until 1790133909384.
+↻ llm-2 (llm) 4.84s
+✓ llm-2 (llm) 14.87s completionReason: success
+○ llm-3 (llm) 0.00s
+WAITING [worker_lease] Run "01M364PZJZAX3BYGEH3QPG0646" step "llm-3" (llm) is running under a worker lease until 1790133924794.
+↻ llm-3 (llm) 5.41s
+WAITING [worker_lease] Run "01M364PZJZAX3BYGEH3QPG0646" step "llm-3" (llm) is running under a worker lease until 1790133934901.
+↻ llm-3 (llm) 15.48s
+✓ llm-3 (llm) 17.42s completionReason: success
+○ run-4 (deterministic) 0.00s
+✓ run-4 (deterministic) 0.29s completionReason: success
+○ llm-5 (llm) 0.00s
+WAITING [worker_lease] Run "01M364QG9AW260TM3DTTFPHA32" step "llm-5" (llm) is running under a worker lease until 1790133941942.
+↻ llm-5 (llm) 4.98s
+WAITING [worker_lease] Run "01M364QG9AW260TM3DTTFPHA32" step "llm-5" (llm) is running under a worker lease until 1790133951954.
+↻ llm-5 (llm) 14.84s
+✓ llm-5 (llm) 15.38s completionReason: success
+○ llm-6 (llm) 0.00s
+WAITING [worker_lease] Run "01M364QYTJ1K4P7YJFR4RJ2AGB" step "llm-6" (llm) is running under a worker lease until 1790133956822.
+↻ llm-6 (llm) 4.38s
+WAITING [worker_lease] Run "01M364QYTJ1K4P7YJFR4RJ2AGB" step "llm-6" (llm) is running under a worker lease until 1790133966890.
+↻ llm-6 (llm) 14.44s
+✓ llm-6 (llm) 20.39s completionReason: success
+○ run-7 (deterministic) 0.00s
+✓ run-7 (deterministic) 0.15s completionReason: success
+○ llm-8 (llm) 0.00s
+WAITING [worker_lease] Run "01M364RKM12W308QV9MJF1GJTK" step "llm-8" (llm) is running under a worker lease until 1790133978095.
+↻ llm-8 (llm) 5.08s
+WAITING [worker_lease] Run "01M364RKM12W308QV9MJF1GJTK" step "llm-8" (llm) is running under a worker lease until 1790133988117.
+↻ llm-8 (llm) 15.07s
+WAITING [worker_lease] Run "01M364RKM12W308QV9MJF1GJTK" step "llm-8" (llm) is running under a worker lease until 1790133998128.
+↻ llm-8 (llm) 25.14s
+WAITING [worker_lease] Run "01M364RKM12W308QV9MJF1GJTK" step "llm-8" (llm) is running under a worker lease until 1790134008171.
+↻ llm-8 (llm) 35.08s
+✗ llm-8 (llm) 36.20s
+FAILED [step_failed] Run "01M364RKM12W308QV9MJF1GJTK" failed with completionReason: step_failed. Step "llm-8" (llm) completionReason: verification_failed attempt=1/1.
+Detail: ```json
+{
+  "coverage": [
+    { "questionId": "wound-status", "patientIds": ["jordan", "pat", "riley"] },
+    { "questionId": "mood", "patientIds": ["jordan", "pat", "riley"] },
+    { "questionId": "living-situation", "patientIds": ["jordan", "pat", "riley"] }
+  ],
+  "gaps": [
+    { "questionId": "ostomy-supplies", "brief": "No shelf chart mentions an ostomy at all. Needs a patient with a documented colostomy/ileostomy in the referral packet, whose today's visit note specifies the actual supply used or needed at this visit (e.g., pouch change due to leakage, barrier ring reapplied, or skin prep wipe used during appliance change) so each option has real evidence." }
+  ]
+}
+```
+Inspect: flows replay 01M364RKM12W308QV9MJF1GJTK --at llm-8 --data-dir '/private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/e2e-data'
+Journal: /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/e2e-data/runs/01M364RKM12W308QV9MJF1GJTK.sqlite3
+RUN 01M364RKM12W308QV9MJF1GJTK failed completionReason: step_failed
+npx flows run --no-observer-link --data-dir $DD --local-agent --agent-capacit  18.02s user 5.31s system 19% cpu 1:58.98 total
+exit=1

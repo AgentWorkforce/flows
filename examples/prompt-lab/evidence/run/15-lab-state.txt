@@ -1,0 +1,16 @@
+$ node -e 
+const b=require('./evidence/run/lab/bank.json');
+for (const [q,v] of Object.entries(b.questions)) console.log(q.padEnd(17),'live',String(v.livePromptId).padEnd(30),'draft',v.draftPromptId??'-');
+console.log('shelf', require('fs').readdirSync('evidence/run/lab/shelf').join(' '));
+console.log('issues', JSON.stringify(require('./evidence/run/lab/queue/issues.json').map(i=>[i.id,i.status])));
+console.log('patient briefs', JSON.stringify(require('./evidence/run/lab/queue/patient-briefs.json').map(i=>[i.id,i.status])));
+console.log('gold', Object.keys(require('./evidence/run/lab/gold.json')).join(' '));
+wound-status      live p-wound-status-003f262d        draft -
+mood              live p-mood-v1                      draft -
+living-situation  live p-living-situation-90bc4192    draft -
+ostomy-supplies   live null                           draft p-ostomy-supplies-1d74ae8f
+shelf jordan.json pat.json riley.json roderick.json
+issues [["config-sunrise-wound-status-9c1634e2","done"]]
+patient briefs [["gap-ostomy-supplies-soc","locked"]]
+gold wound-status|jordan wound-status|pat wound-status|riley wound-status|roderick
+exit=0
