@@ -19,6 +19,7 @@ import type {
 import { SPEC_SCHEMA_VERSION } from './spec.js';
 import { validateOutputDeclaration } from './output-schema.js';
 import { modelNameError } from './model-name.js';
+import { agentCwdDeclarationError, agentCwdTransportError } from './agent-cwd.js';
 import { unknownKeyErrors } from './unknown-keys.js';
 import { stepDependencyErrors } from './step-dependencies.js';
 import { inputBindingErrors } from './input-binding.js';
@@ -501,13 +502,7 @@ class Validator {
     }
     this.validateCli(st.cli, at);
     this.validateModel(st.model, at);
-    // The kernel refuses a relative cwd at run.start; refuse it here so `flows
-    // check` and the run agree. Not resolved against the checking directory:
-    // that would make the compiled spec (and its hash) depend on where the
-    // check ran. `f.agent` resolves before compiling, so it never lands here.
-    if (st.cwd !== undefined && (!isNonEmptyString(st.cwd) || !st.cwd.startsWith('/'))) {
-      this.fail(`${at}.cwd: expected an absolute path (got ${JSON.stringify(st.cwd)})`);
-    }
+    this.validateCwd(st, at);
     if (st.surfaces !== undefined) this.validateSurfaces(st.surfaces, `${at}.surfaces`);
     if (st.permissions !== undefined) this.validatePermissions(st.permissions, `${at}.permissions`);
   }
@@ -516,6 +511,23 @@ class Validator {
     if (cli !== undefined && !isNonEmptyString(cli)) {
       this.fail(`${at}.cli: expected a non-empty string`);
     }
+  }
+
+  /**
+   * The declaration half of `cwd`: lexical, so an author sees the refusal from
+   * `flows check` rather than from a dispatch. Whether the directory exists and
+   * lies inside the run root is the worker's question (`agent-cwd.ts`), asked on
+   * the host that shares the agent's filesystem.
+   */
+  private validateCwd(st: AgentStepSpec, at: string): void {
+    if (st.cwd === undefined) return;
+    const problem = agentCwdDeclarationError(st.cwd);
+    if (problem !== undefined) {
+      this.fail(`${at}.cwd: ${problem}`);
+      return;
+    }
+    const unsupported = agentCwdTransportError(st.cwd, st.transport);
+    if (unsupported !== undefined) this.fail(`${at}.${unsupported}`);
   }
 
   private validateModel(model: unknown, at: string, required = false): void {

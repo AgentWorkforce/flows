@@ -32,7 +32,19 @@ export interface AgentOptions {
   permissions?: PermissionsSpec;
   cli?: string;
   model?: string;
-  /** Working directory for the CLI subprocess; defaults to the flow-runner's cwd. */
+  /**
+   * Directory this agent's CLI is spawned in, relative to the run root — the
+   * flow-runner's working directory, and where the CLI runs when this is
+   * absent. One flow can therefore drive agents in sibling checkouts. The
+   * path must be relative and free of `.`, `..` and empty components, and
+   * must name an existing directory inside the run root at dispatch;
+   * anything else refuses the step instead of running it somewhere else.
+   * An absolute path is accepted when it names a directory inside the run
+   * root — it lowers to the same relative declaration — and refused when it
+   * escapes. `artifacts` are reported relative to this directory. It is a
+   * declaration of where to start, not a sandbox. Not supported with
+   * `transport: 'relay'`. See docs/SURFACE.md.
+   */
   cwd?: string;
   /**
    * Dispatch transport (flows#385). `'direct'` (default) spawns the CLI as a

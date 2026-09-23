@@ -417,33 +417,33 @@ fn the_default_policy_is_absent_from_the_serialized_boundary_spec() {
 }
 
 #[test]
-fn agent_cwd_is_carried_and_must_be_absolute() {
+fn agent_cwd_is_carried_and_must_be_run_root_relative() {
     let with_cwd = RunSpec::parse(&json!({
-        "steps": [{"id": "a", "type": "agent", "instruction": "i", "cwd": "/repo/.wt/a"}]
+        "steps": [{"id": "a", "type": "agent", "instruction": "i", "cwd": ".wt/a"}]
     }))
     .unwrap();
     assert!(with_cwd.validate().is_ok());
     assert_eq!(
         serde_json::to_value(&with_cwd.steps[0]).unwrap()["cwd"],
-        json!("/repo/.wt/a")
+        json!(".wt/a")
     );
 
-    let relative = RunSpec::parse(&json!({
-        "steps": [{"id": "a", "type": "agent", "instruction": "i", "cwd": "wt/a"}]
+    let absolute = RunSpec::parse(&json!({
+        "steps": [{"id": "a", "type": "agent", "instruction": "i", "cwd": "/repo/.wt/a"}]
     }))
     .unwrap();
     assert_eq!(
-        relative.validate(),
-        Err(SpecError::RelativeStepCwd {
+        absolute.validate(),
+        Err(SpecError::InvalidAgentCwd {
             step: "a".to_owned(),
-            cwd: "wt/a".to_owned()
+            cwd: "/repo/.wt/a".to_owned()
         })
     );
 
     // `cwd` is agent-only: an llm step still refuses it as an unknown field.
     assert!(matches!(
         RunSpec::parse(&json!({
-            "steps": [{"id": "a", "type": "llm", "prompt": "p", "cwd": "/repo"}]
+            "steps": [{"id": "a", "type": "llm", "prompt": "p", "cwd": "repo"}]
         })),
         Err(SpecError::UnknownField { .. })
     ));

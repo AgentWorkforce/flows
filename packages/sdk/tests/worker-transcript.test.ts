@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -92,13 +92,15 @@ describe('the agent worker journals the digest in trajectory_tail on every compl
     // The data dir is outside the agent's cwd, as it is in Cloud's sandbox
     // (`join(stateDir, "journal")`): the transcript file is not an artifact.
     mkdirSync(join(root, 'workspace'));
-    const worker = new AgentWorker(client, { workerId: 'w', pins, dataDir: join(root, 'data') });
+    // `cwd` is run-root-relative (flows#357), so the root the worker measures
+    // it against is named here rather than being this process's directory.
+    const worker = new AgentWorker(client, { workerId: 'w', pins, dataDir: join(root, 'data'), runRoot: root });
     const errors: unknown[] = [];
     worker.on('error', error => errors.push(error));
     await worker.attach();
     (client as unknown as EventEmitter).emit('step.dispatch', {
       run_id: 'run-a', step_id: 'agent-1', attempt, step_type: 'agent',
-      spec: { cli: claude, instruction: 'probe', cwd: join(root, 'workspace') }, pins,
+      spec: { cli: claude, instruction: 'probe', cwd: 'workspace' }, pins,
       lease_id: 'lease', lease_deadline_ms: Date.now() + 30_000, idempotency_key: 'k',
     });
     await worker.close();
@@ -126,6 +128,34 @@ describe('the agent worker journals the digest in trajectory_tail on every compl
     // The wrapper output keeps its shape; the digest is evidence, not output.
     expect(payload.output).toMatchObject({ exit_code: 0, stdout_tail: 'wrote the file', artifacts: [] });
     expect(payload.output).not.toHaveProperty('transcript');
+  });
+
+  it('a step with no declared cwd spawns in the run root, not the worker process cwd', async () => {
+    const root = makeDirectory();
+    const marker = join(root, 'spawned-in');
+    const claude = join(root, 'claude');
+    writeFileSync(claude, `#!/usr/bin/env node
+require('node:fs').writeFileSync(${JSON.stringify(marker)}, process.cwd());
+process.stdout.write('done');
+`);
+    chmodSync(claude, 0o755);
+    const { client, completions } = stubClient();
+    const worker = new AgentWorker(client, { workerId: 'w', pins, dataDir: join(root, 'data'), runRoot: root });
+    const errors: unknown[] = [];
+    worker.on('error', error => errors.push(error));
+    await worker.attach();
+    (client as unknown as EventEmitter).emit('step.dispatch', {
+      run_id: 'run-r', step_id: 'agent-1', attempt: 1, step_type: 'agent',
+      spec: { cli: claude, instruction: 'probe' }, pins,
+      lease_id: 'lease', lease_deadline_ms: Date.now() + 30_000, idempotency_key: 'k',
+    });
+    await worker.close();
+    expect(errors).toEqual([]);
+    expect(completions).toHaveLength(1);
+    // The communication worker already substitutes runRoot for an absent cwd;
+    // the CLI path must agree or the two workers run the same step in
+    // different directories (cursor review on #512).
+    expect(readFileSync(marker, 'utf8')).toBe(realpathSync(root));
   });
 
   it('on failure: the failure excerpt names the result frame, and the digest still rides', async () => {
