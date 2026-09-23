@@ -982,7 +982,9 @@ function emitCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
     // A gate that accepts every output is legal, but it must not read like a
     // gate that judges something.
     const vacuous = gate.acceptsAnyOutput === true ? ' [json_schema accepts any output]' : '';
-    io.stdout(`GATE step "${gate.stepId}" ${gate.checks.join('+')} from data (kernel, journal-replayable)${vacuous}`);
+    // Red-but-complete is a declared shape, so it is a visible one.
+    const recorded = gate.recordsNonZeroExit === true ? ' [onNonZero: record]' : '';
+    io.stdout(`GATE step "${gate.stepId}" ${gate.checks.join('+')} from data (kernel, journal-replayable)${vacuous}${recorded}`);
   }
   for (const schedule of report.schedules ?? []) {
     const declared = schedule.cron !== undefined
