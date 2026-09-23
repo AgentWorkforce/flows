@@ -1,0 +1,204 @@
+$ cd packages/sdk && npx vitest run tests/worker-lease-lost.test.ts
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/worker-lease-lost.test.ts (16 tests | 8 failed) 17ms
+   × agent stale lease subscriber > drops an expired dispatch and completes the kernel retry 7ms
+     → expected "spy" to not be called at all, but actually been called 1 times
+
+Received: 
+
+  1st spy call:
+
+    Array [
+      [WorkerLeaseLostError: Agent lease is already expired for run/step.],
+    ]
+
+
+Number of calls: 1
+
+   × agent stale lease subscriber > drops stepHeartbeat lease_conflict for a released attempt 1ms
+     → expected "spy" to not be called at all, but actually been called 1 times
+
+Received: 
+
+  1st spy call:
+
+    Array [
+      [JournalProtocolError: lease_conflict: attempt has no active worker lease],
+    ]
+
+
+Number of calls: 1
+
+   × agent stale lease subscriber > drops stepComplete lease_conflict for a released attempt 1ms
+     → expected "spy" to not be called at all, but actually been called 1 times
+
+Received: 
+
+  1st spy call:
+
+    Array [
+      [JournalProtocolError: lease_conflict: attempt has no active worker lease],
+    ]
+
+
+Number of calls: 1
+
+   × agent stale lease subscriber > drops stepComplete run_terminal for a released attempt 1ms
+     → expected "spy" to not be called at all, but actually been called 1 times
+
+Received: 
+
+  1st spy call:
+
+    Array [
+      [JournalProtocolError: run_terminal: attempt has no active worker lease],
+    ]
+
+
+Number of calls: 1
+
+   × llm stale lease subscriber > drops an expired dispatch and completes the kernel retry 1ms
+     → expected "spy" to not be called at all, but actually been called 1 times
+
+Received: 
+
+  1st spy call:
+
+    Array [
+      [WorkerLeaseLostError: Agent lease is already expired for run/step.],
+    ]
+
+
+Number of calls: 1
+
+   × llm stale lease subscriber > drops stepHeartbeat lease_conflict for a released attempt 1ms
+     → expected "spy" to not be called at all, but actually been called 1 times
+
+Received: 
+
+  1st spy call:
+
+    Array [
+      [JournalProtocolError: lease_conflict: attempt has no active worker lease],
+    ]
+
+
+Number of calls: 1
+
+   × llm stale lease subscriber > drops stepComplete lease_conflict for a released attempt 1ms
+     → expected "spy" to not be called at all, but actually been called 1 times
+
+Received: 
+
+  1st spy call:
+
+    Array [
+      [JournalProtocolError: lease_conflict: attempt has no active worker lease],
+    ]
+
+
+Number of calls: 1
+
+   × llm stale lease subscriber > drops stepComplete run_terminal for a released attempt 1ms
+     → expected "spy" to not be called at all, but actually been called 1 times
+
+Received: 
+
+  1st spy call:
+
+    Array [
+      [JournalProtocolError: run_terminal: attempt has no active worker lease],
+    ]
+
+
+Number of calls: 1
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/worker-lease-lost.test.ts > agent stale lease subscriber > drops an expired dispatch and completes the kernel retry
+ FAIL  tests/worker-lease-lost.test.ts > llm stale lease subscriber > drops an expired dispatch and completes the kernel retry
+AssertionError: expected "spy" to not be called at all, but actually been called 1 times
+
+Received: 
+
+  1st spy call:
+
+    Array [
+      [WorkerLeaseLostError: Agent lease is already expired for run/step.],
+    ]
+
+
+Number of calls: 1
+
+ ❯ tests/worker-lease-lost.test.ts:45:30
+     43|     expect(runAgentCli).not.toHaveBeenCalled();
+     44|     expect(client.stepComplete).not.toHaveBeenCalled();
+     45|     expect(client.close).not.toHaveBeenCalled();
+       |                              ^
+     46|     expect(fatal).not.toHaveBeenCalled();
+     47|     expect(warning).toHaveBeenCalledWith(expect.stringContaining('run_…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  tests/worker-lease-lost.test.ts > agent stale lease subscriber > drops stepHeartbeat lease_conflict for a released attempt
+ FAIL  tests/worker-lease-lost.test.ts > agent stale lease subscriber > drops stepComplete lease_conflict for a released attempt
+ FAIL  tests/worker-lease-lost.test.ts > llm stale lease subscriber > drops stepHeartbeat lease_conflict for a released attempt
+ FAIL  tests/worker-lease-lost.test.ts > llm stale lease subscriber > drops stepComplete lease_conflict for a released attempt
+AssertionError: expected "spy" to not be called at all, but actually been called 1 times
+
+Received: 
+
+  1st spy call:
+
+    Array [
+      [JournalProtocolError: lease_conflict: attempt has no active worker lease],
+    ]
+
+
+Number of calls: 1
+
+ ❯ tests/worker-lease-lost.test.ts:67:30
+     65|     client.emit('step.dispatch', dispatch);
+     66|     await worker.close();
+     67|     expect(client.close).not.toHaveBeenCalled();
+       |                              ^
+     68|     expect(fatal).not.toHaveBeenCalled();
+     69|     expect(warning).toHaveBeenCalledWith(expect.stringContaining(error…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  tests/worker-lease-lost.test.ts > agent stale lease subscriber > drops stepComplete run_terminal for a released attempt
+ FAIL  tests/worker-lease-lost.test.ts > llm stale lease subscriber > drops stepComplete run_terminal for a released attempt
+AssertionError: expected "spy" to not be called at all, but actually been called 1 times
+
+Received: 
+
+  1st spy call:
+
+    Array [
+      [JournalProtocolError: run_terminal: attempt has no active worker lease],
+    ]
+
+
+Number of calls: 1
+
+ ❯ tests/worker-lease-lost.test.ts:67:30
+     65|     client.emit('step.dispatch', dispatch);
+     66|     await worker.close();
+     67|     expect(client.close).not.toHaveBeenCalled();
+       |                              ^
+     68|     expect(fatal).not.toHaveBeenCalled();
+     69|     expect(warning).toHaveBeenCalledWith(expect.stringContaining(error…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ Test Files  1 failed (1)
+      Tests  8 failed | 8 passed (16)
+   Start at  05:42:19
+   Duration  870ms (transform 338ms, setup 0ms, collect 694ms, tests 17ms, environment 0ms, prepare 44ms)
+
+
+Exit code: 1

@@ -1,0 +1,13 @@
+$ cd packages/sdk && npx vitest run tests/worker-lease-lost.test.ts
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/worker-lease-lost.test.ts (16 tests) 15ms
+
+ Test Files  1 passed (1)
+      Tests  16 passed (16)
+   Start at  05:42:21
+   Duration  904ms (transform 356ms, setup 0ms, collect 733ms, tests 15ms, environment 0ms, prepare 43ms)
+
+
+Exit code: 0

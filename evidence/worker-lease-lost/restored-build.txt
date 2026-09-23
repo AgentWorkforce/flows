@@ -1,0 +1,7 @@
+$ cd packages/sdk && npm run build
+
+> @relayflows/sdk@2.0.29 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+Exit code: 0

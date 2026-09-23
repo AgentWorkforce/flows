@@ -1,0 +1,13 @@
+$ cd packages/sdk && npx vitest run tests/worker-lease-sweep.test.ts
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/worker-lease-sweep.test.ts (2 tests) 7ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  05:42:35
+   Duration  1.38s (transform 685ms, setup 0ms, collect 1.21s, tests 7ms, environment 0ms, prepare 45ms)
+
+
+Exit code: 0

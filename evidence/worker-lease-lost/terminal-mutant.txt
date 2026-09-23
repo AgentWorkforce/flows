@@ -1,0 +1,68 @@
+$ cd packages/sdk && npx vitest run tests/worker-lease-lost.test.ts -t run_terminal
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/worker-lease-lost.test.ts (16 tests | 2 failed | 14 skipped) 9ms
+   × agent stale lease subscriber > drops stepComplete run_terminal for a released attempt 7ms
+     → expected "spy" to not be called at all, but actually been called 1 times
+
+Received: 
+
+  1st spy call:
+
+    Array [
+      [JournalProtocolError: run_terminal: attempt has no active worker lease],
+    ]
+
+
+Number of calls: 1
+
+   × llm stale lease subscriber > drops stepComplete run_terminal for a released attempt 1ms
+     → expected "spy" to not be called at all, but actually been called 1 times
+
+Received: 
+
+  1st spy call:
+
+    Array [
+      [JournalProtocolError: run_terminal: attempt has no active worker lease],
+    ]
+
+
+Number of calls: 1
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/worker-lease-lost.test.ts > agent stale lease subscriber > drops stepComplete run_terminal for a released attempt
+ FAIL  tests/worker-lease-lost.test.ts > llm stale lease subscriber > drops stepComplete run_terminal for a released attempt
+AssertionError: expected "spy" to not be called at all, but actually been called 1 times
+
+Received: 
+
+  1st spy call:
+
+    Array [
+      [JournalProtocolError: run_terminal: attempt has no active worker lease],
+    ]
+
+
+Number of calls: 1
+
+ ❯ tests/worker-lease-lost.test.ts:67:30
+     65|     client.emit('step.dispatch', dispatch);
+     66|     await worker.close();
+     67|     expect(client.close).not.toHaveBeenCalled();
+       |                              ^
+     68|     expect(fatal).not.toHaveBeenCalled();
+     69|     expect(warning).toHaveBeenCalledWith(expect.stringContaining(error…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 14 skipped (16)
+   Start at  05:42:22
+   Duration  895ms (transform 359ms, setup 0ms, collect 714ms, tests 9ms, environment 0ms, prepare 52ms)
+
+
+Exit code: 1

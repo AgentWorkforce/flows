@@ -1,0 +1,33 @@
+$ cd packages/sdk && npx vitest run tests/direct-run-worker-lease.test.ts
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/direct-run-worker-lease.test.ts (2 tests | 1 failed) 13ms
+   × direct run handles LLM errors with leaseLost=true 8ms
+     → expected '{"ok":false,"command":"run","resoluti…' to contain 'connection closed'
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/direct-run-worker-lease.test.ts > direct run handles LLM errors with leaseLost=true
+AssertionError: expected '{"ok":false,"command":"run","resoluti…' to contain 'connection closed'
+
+Expected: "connection closed"
+Received: "{"ok":false,"command":"run","resolutions":[],"diagnostics":[{"severity":"failure","kind":"protocol_error","message":"relayflowd could not complete the run request: lease_conflict: lost"}],"path":"flow.ts","socketPath":"/tmp/relayflowd-4d1d0e012c91.sock"}"
+
+ ❯ tests/direct-run-worker-lease.test.ts:33:41
+     31|   const result = await runDirectFlow('flow.ts', '{}', '/unused', { loc…
+     32|   expect(result.exitCode).toBe(1);
+     33|   expect(JSON.stringify(result.report)).toContain(leaseLost ? 'connect…
+       |                                         ^
+     34| });
+     35| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  05:42:37
+   Duration  1.33s (transform 677ms, setup 0ms, collect 1.15s, tests 13ms, environment 0ms, prepare 47ms)
+
+
+Exit code: 1

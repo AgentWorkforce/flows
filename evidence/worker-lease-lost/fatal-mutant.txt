@@ -1,0 +1,53 @@
+$ cd packages/sdk && npx vitest run tests/worker-lease-lost.test.ts -t 'non-lease worker error'
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/worker-lease-lost.test.ts (16 tests | 2 failed | 14 skipped) 9ms
+   × agent stale lease subscriber > keeps a non-lease worker error fatal with its original identity 7ms
+     → expected "spy" to be called with arguments: [ Error: cli exploded ]
+
+Received: 
+
+
+
+Number of calls: 0
+
+   × llm stale lease subscriber > keeps a non-lease worker error fatal with its original identity 1ms
+     → expected "spy" to be called with arguments: [ Error: cli exploded ]
+
+Received: 
+
+
+
+Number of calls: 0
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/worker-lease-lost.test.ts > agent stale lease subscriber > keeps a non-lease worker error fatal with its original identity
+ FAIL  tests/worker-lease-lost.test.ts > llm stale lease subscriber > keeps a non-lease worker error fatal with its original identity
+AssertionError: expected "spy" to be called with arguments: [ Error: cli exploded ]
+
+Received: 
+
+
+
+Number of calls: 0
+
+ ❯ tests/worker-lease-lost.test.ts:79:19
+     77|     client.emit('step.dispatch', dispatch);
+     78|     await worker.close();
+     79|     expect(fatal).toHaveBeenCalledWith(error);
+       |                   ^
+     80|     expect(client.close).toHaveBeenCalledWith(error);
+     81|     expect(warning).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 14 skipped (16)
+   Start at  05:42:25
+   Duration  890ms (transform 351ms, setup 0ms, collect 716ms, tests 9ms, environment 0ms, prepare 48ms)
+
+
+Exit code: 1

@@ -1,0 +1,3 @@
+$ cd packages/sdk && npx tsc -p ../../evidence/worker-lease-lost/tsconfig.tests.json
+
+Exit code: 0
