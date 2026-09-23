@@ -220,14 +220,9 @@ function releaseLines(state: LogFollowState, io: CliIo, env: NodeJS.ProcessEnv):
     if (endsWithOpenCredentialHeader(raw.slice(state.released, cut))) {
       // A bare credential header as the released block's last line strands
       // the value that starts on the next line — redact needs them together.
-      // Take the next line into the block when it is complete; when it is
-      // not, the header waits with it and the lines before it still release.
-      const next = raw.indexOf('\n', cut);
-      if (next === -1) {
-        cut = lineBoundaryAtOrBefore(raw, cut - 1);
-        continue;
-      }
-      cut = next + 1;
+      // Shrink until the header is inside the held remainder; it releases
+      // with its value line once that line is complete.
+      cut = lineBoundaryAtOrBefore(raw, cut - 1);
       continue;
     }
     const block = redact(raw.slice(state.released, cut), env);

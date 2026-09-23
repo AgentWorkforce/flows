@@ -567,6 +567,39 @@ describe('flows logs --follow', () => {
     expect(rendered).toContain('[redacted]');
   });
 
+  it('does not spin when a held credential header precedes an unterminated tail', async () => {
+    // `authorization:` + a bare `Bearer` line + a still-arriving tail made
+    // the release cut grow onto `Bearer\n`, see the header again, and shrink
+    // — forever, inside one poll. The follow must terminate and hold the
+    // incomplete context instead.
+    stagedCloud([
+      { run: RUNNING, log: logBody('authorization:\nBearer\npartial-tail') },
+      { run: COMPLETED, log: logBody('authorization:\nBearer\npartial-tail\n', { done: true }) },
+    ]);
+    const out = io();
+    expect(await runCloudLogsFollow({ runId: RUN, step: undefined, json: false }, out.io, live())).toBe(0);
+    const rendered = out.stdout.join('\n');
+    expect(rendered).not.toContain('partial-tail');
+    expect(rendered).toContain('[redacted]');
+  });
+
+  it('holds a credential header that precedes a still-arriving multiline env secret', async () => {
+    const env = { SERVICE_TOKEN: 'alpha\nbeta\ngamma' };
+    stagedCloud([
+      { run: RUNNING, log: logBody('x-callback-token:\nalpha\n') },
+      { run: COMPLETED, log: logBody('x-callback-token:\nalpha\nbeta\ngamma\n', { done: true }) },
+    ]);
+    const out = io();
+    expect(await runCloudLogsFollow({ runId: RUN, step: undefined, json: false }, out.io, live({ env }))).toBe(0);
+    const rendered = out.stdout.join('\n');
+    // Releasing the header with `alpha` leaves `beta\ngamma` without the
+    // whole value the redactor needs — every fragment must stay held.
+    expect(rendered).not.toContain('alpha');
+    expect(rendered).not.toContain('beta');
+    expect(rendered).not.toContain('gamma');
+    expect(rendered).toContain('[redacted:SERVICE_TOKEN]');
+  });
+
   it('holds an authorization scheme word whose credential value is still coming', async () => {
     stagedCloud([
       { run: RUNNING, log: logBody('authorization: Bearer\n') },
