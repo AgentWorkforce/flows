@@ -1,0 +1,80 @@
+Root cause of the live-kernel failures in npm-test-final.txt and
+baseline-live-kernel.txt: this machine, not the branch.
+
+testdata/preflight's agent-CLI fixtures are extensionless files containing an
+ESM `import`. Node runs them only because module-syntax detection applies when
+no package.json governs the file. This machine has /home/daytona/package.json
+declaring "type": "commonjs" ABOVE the checkout, which turns detection off.
+
+$ cat /home/daytona/package.json | grep '"type"'
+  "type": "commonjs",
+
+$ ls /home/daytona/.relayflow-v2-supervisor/durable/repository/package.json
+ls: cannot access '/home/daytona/.relayflow-v2-supervisor/durable/repository/package.json': No such file or directory
+
+Minimal reproduction: the same extensionless ESM script under each "type".
+$ mkdir -p /tmp/cjstest && printf 'export const x=5;\n' > /tmp/cjstest/zz-mod.mjs
+$ printf '#!/usr/bin/env node\nimport {x} from "./zz-mod.mjs";\nprocess.stderr.write("RAN "+x+"\\n");\n' > /tmp/cjstest/zz2
+
+$ printf '{"name":"x","type":"commonjs"}\n' > /tmp/cjstest/package.json && node /tmp/cjstest/zz2; echo "exit=$?"
+exit=0
+  (no output: the module body never runs, and the process exits 0)
+
+$ printf '{"name":"x","type":"module"}\n' > /tmp/cjstest/package.json && node /tmp/cjstest/zz2; echo "exit=$?"
+RAN 5
+exit=0
+
+Same shape for the real fixture: exit 0, zero bytes, so every agent step it
+drives fails its execution gate with output null.
+$ printf '{"protocol":"relayflows-agent-cli-v1","instruction":"hi"}' | ./testdata/preflight/analyze-story-stub-cli --relayflows-adapter-v1 | od -c
+0000000
+
+Declaring the fixture directory ESM restores the CI condition, and the whole
+live-kernel suite passes on this branch unchanged.
+$ printf '{"type":"module"}\n' > testdata/preflight/package.json
+$ cd packages/sdk && RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 RELAYFLOWD_BIN=<repo>/kernel/target/release/relayflowd npx vitest run tests/live-kernel.test.ts
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/target/release/relayflowd
+LIVE_KERNEL flows=/home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/dist/cli.js
+
+stderr | tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI
+LIVE_ANALYZER_UNAVAILABLE: "/home/daytona/.relayflow-v2-supervisor/durable/repository/testdata/preflight/analyze-story-claude-cli auth status" exited 1: analyze-story-claude-cli: "claude -p --model claude-haiku-4-5-20251001" exited 1: Ignoring 1 permissions.allow entry from .claude/settings.json: this workspace has not been trusted. Run Claude Code interactively here once and accept the trust dialog, or set projects["/home/daytona/.relayflow-v2-supervisor/durable/repository"].hasTrustDialogAccepted: true in /home/daytona/.claude.json. — SKIPPING. This skip is diagnostics, not gate-2 acceptance evidence.
+
+stdout | tests/live-kernel.test.ts > surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once
+LIVE_KERNEL kill -9 pid=96106 run=01M36E3SCANHX97HGGW2WK0KNW while step=two state=Running
+
+ ✓ tests/live-kernel.test.ts (31 tests | 1 skipped) 52437ms
+   ✓ built flows CLI against live relayflowd > twenty-six-step reuses 25 durable completions after editing the failed final step 1775ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 2588ms
+   ✓ built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 32471ms
+   ✓ built flows CLI against live relayflowd > follows a live worker dispatch through flows run 557ms
+   ✓ built flows CLI against live relayflowd > runs an agent CLI end to end through the SDK worker 354ms
+   ✓ built flows CLI against live relayflowd > f.agent lowers to a real agent step and dispatches through a live worker 521ms
+   ✓ built flows CLI against live relayflowd > can always get a parked run to a late-attaching worker 5551ms
+   ✓ built flows CLI against live relayflowd > reports a real manual-recovery NeedsHuman state as parked 439ms
+   ✓ built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo) 456ms
+   ✓ built flows CLI against live relayflowd > hn-monitor analyze-story FAILS verification when the CLI omits required schema fields 471ms
+   ✓ built flows CLI against live relayflowd > agent step preserves the CliResult wrapper as output when the CLI emits non-JSON text 448ms
+   ✓ built flows CLI against live relayflowd > AgentWorker exposes wake_context to the CLI via RELAYFLOW_WAKE_CONTEXT env var (real analyzer prerequisite) 435ms
+   ✓ built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_WAKE_CONTEXT UNSET when the run has no wake_context (undefined-vs-null pin) 416ms
+   ✓ built flows CLI against live relayflowd > AgentWorker passes a declared model to an identified wrapper as RELAYFLOW_MODEL 456ms
+   ✓ built flows CLI against live relayflowd > AgentWorker refuses a nonconforming journal-submitted wrapper before exposing RELAYFLOW_MODEL 403ms
+   ✓ built flows CLI against live relayflowd > AgentWorker executes the raw claude adapter with its real model flag 357ms
+   ✓ built flows CLI against live relayflowd > AgentWorker executes the raw codex adapter with its real model flag 398ms
+   ✓ built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_MODEL UNSET when the step declares no model 424ms
+   ✓ built flows CLI against live relayflowd > preflights before journaling and names an unreachable socket 846ms
+   ✓ built flows CLI against live relayflowd > starts exactly one daemon when two runs race for one empty data dir 467ms
+   ✓ surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once 994ms
+   ✓ a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant 394ms
+
+ Test Files  1 passed (1)
+      Tests  30 passed | 1 skipped (31)
+   Start at  06:08:18
+   Duration  53.86s (transform 748ms, setup 0ms, collect 1.26s, tests 52.44s, environment 0ms, prepare 42ms)
+
+
+Exit code: 0
+$ rm -f testdata/preflight/package.json   # left out of the commit

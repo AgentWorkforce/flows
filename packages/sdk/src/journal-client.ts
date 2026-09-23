@@ -51,6 +51,7 @@ interface Pending {
 /** A structured rejection returned by relayflowd over the journal protocol. */
 export class JournalProtocolError extends Error {
   readonly code: string;
+  verb?: string;
 
   constructor(code: string, message: string) {
     super(`${code}: ${message}`);
@@ -370,6 +371,9 @@ export class JournalClient extends EventEmitter {
       step_id: stepId,
       attempt,
       lease_id: leaseId,
+    }).catch(error => {
+      if (error instanceof JournalProtocolError) error.verb = 'step.heartbeat';
+      throw error;
     });
   }
 
@@ -401,7 +405,10 @@ export class JournalClient extends EventEmitter {
       idempotency_key: idempotencyKey,
       completionReason,
       ...extra,
-    }, null);
+    }, null).catch(error => {
+      if (error instanceof JournalProtocolError) error.verb = 'step.complete';
+      throw error;
+    });
   }
 
   /** Satisfy `wait.event`; a human response arrives here too. */
@@ -422,6 +429,9 @@ export class JournalClient extends EventEmitter {
       attempt,
       idempotency_key: idempotencyKey,
       ...wait,
+    }).catch(error => {
+      if (error instanceof JournalProtocolError) error.verb = 'step.wait';
+      throw error;
     });
   }
 

@@ -95,7 +95,7 @@ export class AgentWorker extends EventEmitter {
     if (this.closing) return;
     if (dispatch.step_type !== 'agent') return;
     const running: Promise<void> = this.execute(dispatch).catch((error: unknown) => {
-      this.emit('error', error);
+      this.emit('error', error, dispatch);
     });
     this.inFlight.add(running);
     void running.finally(() => { this.inFlight.delete(running); });

@@ -57,7 +57,12 @@
     "tests/agent-transcript.test.ts",
     "tests/agent-transcript-live.test.ts",
     "tests/worker-transcript.test.ts",
-    "tests/step-failure-diagnostic.test.ts"
+    "tests/step-failure-diagnostic.test.ts",
+    "tests/worker-lease-lost.test.ts",
+    "tests/worker-lease-lost-live.test.ts",
+    "tests/worker-lease-sweep.test.ts",
+    "tests/resume-worker-lease.test.ts",
+    "tests/direct-run-worker-lease.test.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }
