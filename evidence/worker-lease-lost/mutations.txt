@@ -1,36 +1,36 @@
 filter
 File: packages/sdk/src/worker-lease.ts
-Replace: 'if (!isLeaseLost(error))'
+Replace: 'if (!isLeaseLost(error) || dispatch === undefined)'
 With: 'if (true)'
-Restored SHA256: 4738712912b3d44be73d33469bd7b1e9eab0e8bae5a853bbd4a3f9235fd1440e
+Restored SHA256: c8d0c19879d2e4eae4c4bb1cea4946700d86c5c2395ef2bcbc63940c5e7d2afb
 Mutant exit: 1; restored exit: 0
 
 terminal
 File: packages/sdk/src/worker-lease.ts
 Replace: "error.code === 'run_terminal'"
 With: "error.code === 'never_drop_terminal'"
-Restored SHA256: 4738712912b3d44be73d33469bd7b1e9eab0e8bae5a853bbd4a3f9235fd1440e
+Restored SHA256: c8d0c19879d2e4eae4c4bb1cea4946700d86c5c2395ef2bcbc63940c5e7d2afb
 Mutant exit: 1; restored exit: 0
 
 fatal
 File: packages/sdk/src/worker-lease.ts
-Replace: 'if (!isLeaseLost(error)) { fatal(error); return; }'
-With: 'if (!isLeaseLost(error)) { return; }'
-Restored SHA256: 4738712912b3d44be73d33469bd7b1e9eab0e8bae5a853bbd4a3f9235fd1440e
+Replace: 'if (!isLeaseLost(error) || dispatch === undefined) { fatal(error); return; }'
+With: 'if (!isLeaseLost(error) || dispatch === undefined) { return; }'
+Restored SHA256: c8d0c19879d2e4eae4c4bb1cea4946700d86c5c2395ef2bcbc63940c5e7d2afb
 Mutant exit: 1; restored exit: 0
 
 live
 File: packages/sdk/src/worker-lease.ts
-Replace: 'if (!isLeaseLost(error))'
+Replace: 'if (!isLeaseLost(error) || dispatch === undefined)'
 With: 'if (true)'
-Restored SHA256: 4738712912b3d44be73d33469bd7b1e9eab0e8bae5a853bbd4a3f9235fd1440e
+Restored SHA256: c8d0c19879d2e4eae4c4bb1cea4946700d86c5c2395ef2bcbc63940c5e7d2afb
 Mutant exit: 1; restored exit: 0
 
 sweep
 File: packages/sdk/src/cli/run.ts
 Replace: 'leaseDeadlineMs + LEASE_SWEEP_GRACE_MS - Date.now()'
 With: 'leaseDeadlineMs - Date.now()'
-Restored SHA256: b12b6991b1d3d6850e3fdcb0d711438e23f2219fdc08ac46ea1048ea6861584c
+Restored SHA256: 4190bc2dfdf2ba162498e438ae508e9a4b9dd408909c6c711e393a381009d3e6
 Mutant exit: 1; restored exit: 0
 
 direct
@@ -44,6 +44,6 @@ resume
 File: packages/sdk/src/cli/run.ts
 Replace: "        authoredLlm.on('error', onWorkerFailure('resume-llm', error => {\n          llmFailure = error;\n          client.close();\n        }));\n"
 With: ''
-Restored SHA256: b12b6991b1d3d6850e3fdcb0d711438e23f2219fdc08ac46ea1048ea6861584c
+Restored SHA256: 4190bc2dfdf2ba162498e438ae508e9a4b9dd408909c6c711e393a381009d3e6
 Mutant exit: 1; restored exit: 0
 

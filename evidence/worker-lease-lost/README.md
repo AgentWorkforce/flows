@@ -52,29 +52,26 @@ whole-filter reversion.
   variants before adding the real-kernel heartbeat case. The restored live
   transcript above includes all three.
 
-## Baseline comparison for live-kernel failures
+## Baseline comparison for the live-kernel suite
 
-`python3 evidence/worker-lease-lost/baseline.py` replaces only changed SDK source
-files with their original bytes from `f6ece41`, rebuilds, and runs the unchanged
-live-kernel suite. It restores the implementation byte-for-byte in `finally`,
-asserts equality, and rebuilds it. The script uses the same PATH and
-RELAYFLOWD_BIN as the final full suite.
+`python3 evidence/worker-lease-lost/baseline.py` replaces only the SDK source
+files this change touches with their bytes at the **rebased parent**
+(`git merge-base HEAD origin/main`; `BASE=<rev>` overrides), rebuilds, and
+runs the unchanged live-kernel suite. It restores the implementation
+byte-for-byte in `finally`, asserts equality, and rebuilds it. Each transcript
+records the base it used.
 
-- [Baseline build](baseline-build.txt)
-- [Baseline live-kernel command and full output](baseline-live-kernel.txt)
-- [Matching failed test names](baseline-comparison.txt)
-- [Restored implementation build](restored-build.txt)
+Rerun after the rebase onto `2e2043f` (macOS, with `packages/sdk` built against
+the workspace `@relayflows/surface`, as CI does):
 
-The same eight live-kernel tests failed on the original SDK source.
-This comparison is limited to that suite; it is not a baseline full-suite run.
+- [Baseline build](baseline-build.txt): exit 0.
+- [Baseline live-kernel](baseline-live-kernel.txt): `Tests 31 passed (31)` at
+  base `2e2043f`.
+- [Live-kernel at this head](live-kernel-head.txt): `Tests 31 passed (31)`.
+- [Restored implementation build](restored-build.txt): exit 0.
 
-Those failures have since been traced to the machine rather than to either
-source revision: `/home/daytona/package.json` sits ABOVE the checkout and
-declares `"type": "commonjs"`, which turns off Node's module-syntax detection
-for `testdata/preflight`'s extensionless ESM agent-CLI fixtures. Each fixture
-then exits 0 having written nothing, and every agent step it drives fails its
-execution gate with `output: null`. Declaring that one directory ESM restores
-the condition a GitHub runner has, and the whole live-kernel suite passes on
-this branch unchanged.
-
-- [Root cause, minimal reproduction and the passing suite](live-kernel-module-type.txt)
+The eight live-kernel failures the factory first reported came from its
+sandbox, not from either revision. `/home/daytona/package.json` sits above the
+checkout and declares `"type": "commonjs"`, which breaks
+`testdata/preflight`'s extensionless ESM fixtures. On a clean machine the
+suite passes before and after this change.

@@ -3,7 +3,7 @@ import subprocess, hashlib, os
 root=Path.cwd()
 sdk=root/'packages/sdk'
 evidence=root/'evidence/worker-lease-lost'
-env={**os.environ, 'PATH':'/home/daytona/.cargo/bin:'+os.environ['PATH']}
+env={**os.environ, 'PATH':os.path.expanduser('~/.cargo/bin')+':'+os.environ['PATH']}
 def run(name,command):
     result=subprocess.run(command,cwd=sdk,env=env,shell=True,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
     (evidence/(name+'.txt')).write_text('$ cd packages/sdk && '+command+'\n'+result.stdout+'\nExit code: '+str(result.returncode)+'\n')
@@ -24,17 +24,17 @@ def mutation(name,path,old,new,command):
     assert failed != 0 and passed == 0,(name,failed,passed)
 (evidence/'mutations.txt').write_text('')
 mutation('filter','packages/sdk/src/worker-lease.ts',
-    'if (!isLeaseLost(error))', 'if (true)',
+    'if (!isLeaseLost(error) || dispatch === undefined)', 'if (true)',
     'npx vitest run tests/worker-lease-lost.test.ts')
 mutation('terminal','packages/sdk/src/worker-lease.ts',
     "error.code === 'run_terminal'", "error.code === 'never_drop_terminal'",
     "npx vitest run tests/worker-lease-lost.test.ts -t run_terminal")
 mutation('fatal','packages/sdk/src/worker-lease.ts',
-    'if (!isLeaseLost(error)) { fatal(error); return; }',
-    'if (!isLeaseLost(error)) { return; }',
+    'if (!isLeaseLost(error) || dispatch === undefined) { fatal(error); return; }',
+    'if (!isLeaseLost(error) || dispatch === undefined) { return; }',
     "npx vitest run tests/worker-lease-lost.test.ts -t 'non-lease worker error'")
 mutation('live','packages/sdk/src/worker-lease.ts',
-    'if (!isLeaseLost(error))', 'if (true)',
+    'if (!isLeaseLost(error) || dispatch === undefined)', 'if (true)',
     'npx vitest run tests/worker-lease-lost-live.test.ts')
 mutation('sweep','packages/sdk/src/cli/run.ts',
     'leaseDeadlineMs + LEASE_SWEEP_GRACE_MS - Date.now()', 'leaseDeadlineMs - Date.now()',

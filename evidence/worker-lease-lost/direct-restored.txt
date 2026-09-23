@@ -1,13 +1,13 @@
 $ cd packages/sdk && npx vitest run tests/direct-run-worker-lease.test.ts
 
- RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/packages/sdk
 
- ✓ tests/direct-run-worker-lease.test.ts (2 tests) 6ms
+ ✓ tests/direct-run-worker-lease.test.ts (2 tests) 4ms
 
  Test Files  1 passed (1)
       Tests  2 passed (2)
-   Start at  05:42:39
-   Duration  1.29s (transform 646ms, setup 0ms, collect 1.12s, tests 6ms, environment 0ms, prepare 50ms)
+   Start at  00:14:33
+   Duration  793ms (transform 282ms, setup 0ms, collect 599ms, tests 4ms, environment 0ms, prepare 26ms)
 
 
 Exit code: 0

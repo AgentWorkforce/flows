@@ -1,13 +1,13 @@
 $ cd packages/sdk && npx vitest run tests/resume-worker-lease.test.ts
 
- RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/packages/sdk
 
- ✓ tests/resume-worker-lease.test.ts (2 tests) 4ms
+ ✓ tests/resume-worker-lease.test.ts (2 tests) 2ms
 
  Test Files  1 passed (1)
       Tests  2 passed (2)
-   Start at  05:42:42
-   Duration  1.13s (transform 532ms, setup 0ms, collect 961ms, tests 4ms, environment 0ms, prepare 42ms)
+   Start at  00:14:35
+   Duration  604ms (transform 214ms, setup 0ms, collect 428ms, tests 2ms, environment 0ms, prepare 38ms)
 
 
 Exit code: 0

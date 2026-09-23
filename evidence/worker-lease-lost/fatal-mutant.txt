@@ -1,9 +1,9 @@
 $ cd packages/sdk && npx vitest run tests/worker-lease-lost.test.ts -t 'non-lease worker error'
 
- RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/packages/sdk
 
- ❯ tests/worker-lease-lost.test.ts (16 tests | 2 failed | 14 skipped) 9ms
-   × agent stale lease subscriber > keeps a non-lease worker error fatal with its original identity 7ms
+ ❯ tests/worker-lease-lost.test.ts (16 tests | 2 failed | 14 skipped) 6ms
+   × agent stale lease subscriber > keeps a non-lease worker error fatal with its original identity 5ms
      → expected "spy" to be called with arguments: [ Error: cli exploded ]
 
 Received: 
@@ -46,8 +46,8 @@ Number of calls: 0
 
  Test Files  1 failed (1)
       Tests  2 failed | 14 skipped (16)
-   Start at  05:42:25
-   Duration  890ms (transform 351ms, setup 0ms, collect 716ms, tests 9ms, environment 0ms, prepare 48ms)
+   Start at  00:14:22
+   Duration  529ms (transform 150ms, setup 0ms, collect 334ms, tests 6ms, environment 0ms, prepare 43ms)
 
 
 Exit code: 1

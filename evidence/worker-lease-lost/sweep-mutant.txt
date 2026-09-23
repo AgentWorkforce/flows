@@ -1,9 +1,9 @@
 $ cd packages/sdk && npx vitest run tests/worker-lease-sweep.test.ts
 
- RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/packages/sdk
 
- ❯ tests/worker-lease-sweep.test.ts (2 tests | 1 failed) 9ms
-   × waits through an expired snapshot until the kernel retries and completes 7ms
+ ❯ tests/worker-lease-sweep.test.ts (2 tests | 1 failed) 7ms
+   × waits through an expired snapshot until the kernel retries and completes 5ms
      → promise rejected "Error: worker lease for step "answer" exp…" instead of resolving
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
@@ -18,17 +18,17 @@ AssertionError: promise rejected "Error: worker lease for step "answer" exp…" 
      34|   await Promise.all([assertion, vi.advanceTimersByTimeAsync(100)]);
      35|   expect(client.runResume).toHaveBeenCalledTimes(2);
 
-Caused by: Error: worker lease for step "answer" expired at 1790142154876 without completion
- ❯ waitForRunningStep src/cli/run.ts:776:13
- ❯ Module.classifyOutcome src/cli/run.ts:584:13
+Caused by: Error: worker lease for step "answer" expired at 1790147670919 without completion
+ ❯ waitForRunningStep src/cli/run.ts:812:13
+ ❯ Module.classifyOutcome src/cli/run.ts:620:13
  ❯ tests/worker-lease-sweep.test.ts:34:3
 
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
 
  Test Files  1 failed (1)
       Tests  1 failed | 1 passed (2)
-   Start at  05:42:33
-   Duration  1.29s (transform 656ms, setup 0ms, collect 1.12s, tests 9ms, environment 0ms, prepare 44ms)
+   Start at  00:14:30
+   Duration  767ms (transform 305ms, setup 0ms, collect 559ms, tests 7ms, environment 0ms, prepare 43ms)
 
 
 Exit code: 1

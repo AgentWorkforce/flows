@@ -1,9 +1,9 @@
 $ cd packages/sdk && npx vitest run tests/worker-lease-lost.test.ts
 
- RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/packages/sdk
 
- ❯ tests/worker-lease-lost.test.ts (16 tests | 8 failed) 17ms
-   × agent stale lease subscriber > drops an expired dispatch and completes the kernel retry 7ms
+ ❯ tests/worker-lease-lost.test.ts (16 tests | 8 failed) 15ms
+   × agent stale lease subscriber > drops an expired dispatch and completes the kernel retry 5ms
      → expected "spy" to not be called at all, but actually been called 1 times
 
 Received: 
@@ -73,7 +73,7 @@ Received:
 
 Number of calls: 1
 
-   × llm stale lease subscriber > drops stepHeartbeat lease_conflict for a released attempt 1ms
+   × llm stale lease subscriber > drops stepHeartbeat lease_conflict for a released attempt 0ms
      → expected "spy" to not be called at all, but actually been called 1 times
 
 Received: 
@@ -87,7 +87,7 @@ Received:
 
 Number of calls: 1
 
-   × llm stale lease subscriber > drops stepComplete lease_conflict for a released attempt 1ms
+   × llm stale lease subscriber > drops stepComplete lease_conflict for a released attempt 0ms
      → expected "spy" to not be called at all, but actually been called 1 times
 
 Received: 
@@ -197,8 +197,8 @@ Number of calls: 1
 
  Test Files  1 failed (1)
       Tests  8 failed | 8 passed (16)
-   Start at  05:42:19
-   Duration  870ms (transform 338ms, setup 0ms, collect 694ms, tests 17ms, environment 0ms, prepare 44ms)
+   Start at  00:14:19
+   Duration  584ms (transform 158ms, setup 0ms, collect 365ms, tests 15ms, environment 0ms, prepare 48ms)
 
 
 Exit code: 1

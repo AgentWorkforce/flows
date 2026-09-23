@@ -1,13 +1,13 @@
 $ cd packages/sdk && npx vitest run tests/worker-lease-lost.test.ts -t 'non-lease worker error'
 
- RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/packages/sdk
 
- ✓ tests/worker-lease-lost.test.ts (16 tests | 14 skipped) 6ms
+ ✓ tests/worker-lease-lost.test.ts (16 tests | 14 skipped) 4ms
 
  Test Files  1 passed (1)
       Tests  2 passed | 14 skipped (16)
-   Start at  05:42:26
-   Duration  888ms (transform 346ms, setup 0ms, collect 713ms, tests 6ms, environment 0ms, prepare 47ms)
+   Start at  00:14:23
+   Duration  545ms (transform 159ms, setup 0ms, collect 358ms, tests 4ms, environment 0ms, prepare 58ms)
 
 
 Exit code: 0

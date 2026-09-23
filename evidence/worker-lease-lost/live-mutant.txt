@@ -1,28 +1,39 @@
 $ cd packages/sdk && npx vitest run tests/worker-lease-lost-live.test.ts
 
- RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/packages/sdk
 
- ❯ tests/worker-lease-lost-live.test.ts (3 tests | 3 failed) 811ms
-   × reports journal success after completion rejects with lease_conflict 273ms
-     → journal client: closed after lease_conflict: attempt has no active worker lease
-   × reports journal success after completion rejects with run_terminal 244ms
+ ❯ tests/worker-lease-lost-live.test.ts (3 tests | 3 failed) 1839ms
+   × reports journal success after completion rejects with lease_conflict 810ms
+     → journal client: not connected (run.get): journal client: closed after lease_conflict: attempt has no active worker lease
+   × reports journal success after completion rejects with run_terminal 542ms
      → journal client: not connected (run.get): journal client: closed after run_terminal: attempt has no active worker lease
-   × reports journal success when a renewal rejects after completion landed 293ms
+   × reports journal success when a renewal rejects after completion landed 487ms
      → journal client: closed after lease_conflict: attempt has no active worker lease
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
 
  FAIL  tests/worker-lease-lost-live.test.ts > reports journal success after completion rejects with lease_conflict
-Error: journal client: closed after lease_conflict: attempt has no active worker lease
+Error: journal client: not connected (run.get): journal client: closed after lease_conflict: attempt has no active worker lease
+ ❯ src/journal-client.ts:190:16
+    188|       if (!this.socket || this.socket.destroyed) {
+    189|         const cause = this.disconnectCause;
+    190|         reject(new Error(
+       |                ^
+    191|           `journal client: not connected (${verb})${cause === undefine…
+    192|           cause === undefined ? undefined : { cause },
+ ❯ JournalClient.request src/journal-client.ts:187:12
+ ❯ JournalClient.runGet src/journal-client.ts:248:17
+ ❯ waitForRunningStep src/cli/run.ts:817:35
+ ❯ Module.classifyOutcome src/cli/run.ts:620:7
+ ❯ consume src/authored-worker-step.ts:77:23
+ ❯ Object.llm src/authored-worker-step.ts:212:22
+ ❯ Module.observeStep src/progress.ts:48:20
+ ❯ AuthoredFlowOperation.begin src/authored-flow-operation.ts:174:23
+
+Caused by: Error: journal client: closed after lease_conflict: attempt has no active worker lease
  ❯ JournalClient.close src/journal-client.ts:131:9
-    129|     const closed = cause === undefined
-    130|       ? new Error('journal client: closed by caller')
-    131|       : new Error(`journal client: closed after ${cause instanceof Err…
-       |         ^
-    132|     this.disconnectCause ??= closed;
-    133|     this.failAll(closed);
  ❯ tests/worker-lease-lost-live.test.ts:17:50
- ❯ LlmWorker.<anonymous> src/worker-lease.ts:20:17
+ ❯ LlmWorker.<anonymous> src/worker-lease.ts:21:17
  ❯ src/llm-worker.ts:49:66
 
 Caused by: JournalProtocolError: lease_conflict: attempt has no active worker lease
@@ -43,8 +54,8 @@ Error: journal client: not connected (run.get): journal client: closed after run
     192|           cause === undefined ? undefined : { cause },
  ❯ JournalClient.request src/journal-client.ts:187:12
  ❯ JournalClient.runGet src/journal-client.ts:248:17
- ❯ waitForRunningStep src/cli/run.ts:781:35
- ❯ Module.classifyOutcome src/cli/run.ts:584:7
+ ❯ waitForRunningStep src/cli/run.ts:817:35
+ ❯ Module.classifyOutcome src/cli/run.ts:620:7
  ❯ consume src/authored-worker-step.ts:77:23
  ❯ Object.llm src/authored-worker-step.ts:212:22
  ❯ Module.observeStep src/progress.ts:48:20
@@ -53,7 +64,7 @@ Error: journal client: not connected (run.get): journal client: closed after run
 Caused by: Error: journal client: closed after run_terminal: attempt has no active worker lease
  ❯ JournalClient.close src/journal-client.ts:131:9
  ❯ tests/worker-lease-lost-live.test.ts:17:50
- ❯ LlmWorker.<anonymous> src/worker-lease.ts:20:17
+ ❯ LlmWorker.<anonymous> src/worker-lease.ts:21:17
  ❯ src/llm-worker.ts:49:66
 
 Caused by: JournalProtocolError: run_terminal: attempt has no active worker lease
@@ -73,7 +84,7 @@ Error: journal client: closed after lease_conflict: attempt has no active worker
     132|     this.disconnectCause ??= closed;
     133|     this.failAll(closed);
  ❯ tests/worker-lease-lost-live.test.ts:61:50
- ❯ LlmWorker.<anonymous> src/worker-lease.ts:20:17
+ ❯ LlmWorker.<anonymous> src/worker-lease.ts:21:17
  ❯ src/llm-worker.ts:49:66
 
 Caused by: JournalProtocolError: lease_conflict: attempt has no active worker lease
@@ -85,8 +96,8 @@ Serialized Error: { code: 'lease_conflict', verb: 'step.heartbeat' }
 
  Test Files  1 failed (1)
       Tests  3 failed (3)
-   Start at  05:42:28
-   Duration  2.13s (transform 672ms, setup 0ms, collect 1.15s, tests 811ms, environment 0ms, prepare 46ms)
+   Start at  00:14:24
+   Duration  2.60s (transform 289ms, setup 0ms, collect 561ms, tests 1.84s, environment 0ms, prepare 39ms)
 
 
 Exit code: 1

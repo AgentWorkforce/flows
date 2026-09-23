@@ -1,9 +1,9 @@
 $ cd packages/sdk && npx vitest run tests/worker-lease-lost.test.ts -t run_terminal
 
- RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/packages/sdk
 
- ❯ tests/worker-lease-lost.test.ts (16 tests | 2 failed | 14 skipped) 9ms
-   × agent stale lease subscriber > drops stepComplete run_terminal for a released attempt 7ms
+ ❯ tests/worker-lease-lost.test.ts (16 tests | 2 failed | 14 skipped) 6ms
+   × agent stale lease subscriber > drops stepComplete run_terminal for a released attempt 5ms
      → expected "spy" to not be called at all, but actually been called 1 times
 
 Received: 
@@ -61,8 +61,8 @@ Number of calls: 1
 
  Test Files  1 failed (1)
       Tests  2 failed | 14 skipped (16)
-   Start at  05:42:22
-   Duration  895ms (transform 359ms, setup 0ms, collect 714ms, tests 9ms, environment 0ms, prepare 52ms)
+   Start at  00:14:21
+   Duration  586ms (transform 163ms, setup 0ms, collect 372ms, tests 6ms, environment 0ms, prepare 35ms)
 
 
 Exit code: 1

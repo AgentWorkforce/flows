@@ -1,9 +1,9 @@
 $ cd packages/sdk && npx vitest run tests/resume-worker-lease.test.ts
 
- RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/packages/sdk
 
- ❯ tests/resume-worker-lease.test.ts (2 tests | 2 failed) 9ms
-   × resume handles LLM errors with leaseLost=false 7ms
+ ❯ tests/resume-worker-lease.test.ts (2 tests | 2 failed) 5ms
+   × resume handles LLM errors with leaseLost=false 4ms
      → expected "spy" to be called at least once
    × resume handles LLM errors with leaseLost=true 1ms
      → expected "spy" to be called at least once
@@ -25,8 +25,8 @@ AssertionError: expected "spy" to be called at least once
 
  Test Files  1 failed (1)
       Tests  2 failed (2)
-   Start at  05:42:40
-   Duration  1.16s (transform 542ms, setup 0ms, collect 985ms, tests 9ms, environment 0ms, prepare 45ms)
+   Start at  00:14:34
+   Duration  614ms (transform 213ms, setup 0ms, collect 417ms, tests 5ms, environment 0ms, prepare 26ms)
 
 
 Exit code: 1
