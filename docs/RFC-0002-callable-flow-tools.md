@@ -237,7 +237,8 @@ Native function-call definition generated from the catalog item:
     "properties": {
       "repository": {"type":"string"},
       "pull_request": {"type":"integer","minimum":1},
-      "mode": {"type":"string","enum":["review","repair_then_review"]}
+      "mode": {"type":"string","enum":["review","repair_then_review"]},
+      "head_sha": {"type":"string","pattern":"^[0-9a-f]{40}$"}
     }
   }
 }
@@ -591,7 +592,9 @@ much of this: implementer, deterministic tests, adversarial reviewer, artifact
 gates, PR metadata validation, draft-on-block behavior, and human-controlled
 merge. The Flow Tool work supplies the external schema, durable invocation
 semantics, deployment scope, and evidence envelope; it should not rewrite the
-use-case flow to a single prompt.
+use-case flow to a single prompt. Because it creates pull requests, this tool is
+a Phase 2 candidate after write controls pass; it is not part of the read-only
+pilot.
 
 ### 3. Non-code business workflow: evidence-backed campaign approval
 
@@ -654,13 +657,13 @@ scopes, effect fencing, and explicit approval; the pilot is read-only. “Will
 this lock us into one model?” No: the canonical interface sits above model
 adapters and the flow declares its verified harness/model policy.
 
-**Recommended pilot.** A four-week, one-repository pilot with a limited
-catalog: `github_pr_babysit` in read-only mode and `deliver_ticket` that opens
-draft PRs only. Success is not “the agent merged code.” Success is that a team
-can invoke the tools from its existing agent, inspect every terminal verdict,
-replay the evidence, observe zero duplicate invocations/effects under retries,
-and measure fewer manual follow-ups. Make write/merge authority a post-pilot
-decision based on those artifacts.
+**Recommended pilot.** A four-week, one-repository pilot with one catalog tool:
+`github_pr_babysit` in read-only mode. Success is not “the agent merged code.”
+Success is that a team can invoke the tool from its existing agent, inspect
+every terminal verdict, replay the evidence, observe zero duplicate invocations
+under retries, and measure fewer manual follow-ups. Keep `deliver_ticket` and
+all other write-capable tools in Phase 2; make write/merge authority a
+post-pilot decision based on the read-only pilot's artifacts.
 
 ## Open product decisions and recommendations
 
@@ -677,7 +680,7 @@ decision based on those artifacts.
 | When can write tools launch? | After enforced scopes, provider effect fencing, evidence ACLs, and crash/idempotency E2E pass. | Current permissions are declarations, not a security boundary. |
 | Can flows call flows? | Static, attenuated, depth-limited composition in Phase 3 only. | Prevents recursive budget/authority escape and unclear provenance. |
 | What evidence is visible to the agent? | Redacted summaries and scoped references by default; privileged viewers can retrieve more. | Evidence must help decisions without becoming a secret exfiltration channel. |
-| How broad is the first catalog? | Two coded workflows plus one prepare-only business workflow for one allowlisted customer. | A narrow catalog makes policy, support, and proof tractable. |
+| How broad is the first catalog? | One read-only `github_pr_babysit` tool for one allowlisted customer. | A single no-write operation makes policy, support, and proof tractable. |
 
 ## Recommendation
 
