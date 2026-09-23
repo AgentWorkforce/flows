@@ -128,6 +128,26 @@ it('declines to judge a body that binds the context parameter name again', () =>
   expect(refusal(fromSource('(f) => f.gitlab.issues'))[0]?.message).toBe(unavailable);
 });
 
+it('declines to judge destructured declarations and method parameters too', () => {
+  satisfied();
+  // `const { f } = …` and `read(f) { … }` bind the name without a form the
+  // simple-declaration or keyword-parameter rules can see. Both bodies here
+  // return 42 without touching a GitLab helper, so refusing either would be
+  // the scanner deciding admission on a renamed local — the finding this
+  // test pins closed.
+  for (const source of [
+    '(f) => { { const { f } = { f: { gitlab: { issues: 42 } } }; return f.gitlab.issues; } }',
+    '(f) => { { const [f] = [{ gitlab: { issues: 42 } }]; return f.gitlab.issues; } }',
+    '(f) => ({ read(f) { return f.gitlab.issues; } }).read({ gitlab: { issues: 42 } })',
+    '(f) => new class { read(f) { return f.gitlab.issues; } }().read({ gitlab: { issues: 42 } })',
+    '(f) => ({ read({ f }) { return f.gitlab.issues; } }).read({ f: { gitlab: { issues: 42 } } })',
+  ]) expect(refusal(fromSource(source)), source).toEqual([]);
+  // A control clause is not a parameter list: `if (f) {` binds nothing, so a
+  // plain access under it still refuses.
+  expect(refusal(fromSource('(f) => { if (f) { return f.gitlab.issues; } }'))[0]?.message)
+    .toBe(unavailable);
+});
+
 it('does not read a comment or a string literal as an access', () => {
   satisfied();
   // The body is read from `toString`, never executed; text that looks like an

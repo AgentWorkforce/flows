@@ -165,8 +165,37 @@ export function rebindsIdentifier(code: string, name: string, from: number): boo
   if (new RegExp(`${word}\\s*=(?![=>])`, 'u').test(after)) return true;
   const bound = new RegExp(`${word}(?:[^\\w$]|$)`, 'u');
   for (const parameters of parameterLists(code, from)) if (bound.test(parameters)) return true;
+  // A destructured declaration binds the name without writing it as the
+  // declaration's own identifier: `const { f } = …` shadows `f` exactly as
+  // `const f = …` does, so the simple-declaration rule above cannot see it.
+  for (const declaration of code.matchAll(/(?:^|[^\w$.])(?:const|let|var)\s*[[{]/gu)) {
+    const open = declaration.index + declaration[0].length - 1;
+    const close = matchingClose(code, open);
+    if (close !== -1 && bound.test(code.slice(open + 1, close))) return true;
+  }
+  // An object or class method binds its parameters the way `function` does,
+  // but carries no keyword for the parameterLists walker to key on:
+  // `read(f) { … }`. The `(` must open a parameter list — i.e. close directly
+  // ahead of a `{` — and the head must not be a control keyword (`if (f) {`
+  // binds nothing). Anything else `ident(…){` can only be a method.
+  for (const head of code.matchAll(/(?:^|[^\w$.])([A-Za-z_$][\w$]*)\s*\(/gu)) {
+    if (CONTROL_HEADS.has(head[1]!)) continue;
+    const open = head.index + head[0].length - 1;
+    if (open < from) continue;
+    const close = matchingClose(code, open);
+    if (close === -1 || !/^\s*\{/.test(code.slice(close + 1))) continue;
+    if (bound.test(code.slice(open + 1, close))) return true;
+  }
   return false;
 }
+
+/** Keywords whose `name (…) {` is a control clause, not a parameter list. */
+const CONTROL_HEADS: ReadonlySet<string> = new Set([
+  'if', 'else', 'for', 'while', 'do', 'switch', 'catch', 'with', 'try', 'finally',
+  'function', 'return', 'throw', 'typeof', 'new', 'delete', 'void', 'in', 'of',
+  'instanceof', 'await', 'yield', 'case', 'const', 'let', 'var', 'class',
+  'extends', 'import', 'export', 'default',
+]);
 
 /** The text inside each `(…)` that binds names after `from`: arrow, `function` and `catch` parameters. */
 function* parameterLists(code: string, from: number): Generator<string> {

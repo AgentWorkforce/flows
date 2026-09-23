@@ -14,8 +14,18 @@ export function preflightHelpers(
   /** End of the body's own parameter declaration, which is not a rebinding of itself. */
   const declared = parameter?.[0].length ?? 0;
   const diagnostics: PreflightDiagnostic[] = [];
-  for (const provider of helperProviders) {
+  for (const catalogEntry of helperProviders) {
+    // This SDK compiles against a PUBLISHED surface whose catalog predates
+    // 'partial': its `supported` is boolean and it carries no `resources` or
+    // `note`. Read the row structurally so the same source typechecks against
+    // both catalog shapes; on the published one `resources` is simply absent.
+    const provider = catalogEntry as {
+      provider: string; namespace: string;
+      supported: boolean | 'partial';
+      resources?: readonly string[]; note?: string;
+    };
     const { namespace, supported } = provider;
+    const resources = provider.resources ?? [];
     const used = definition.header?.tools?.[namespace] === true
       || (root !== undefined && new RegExp(`(?:^|[^\\w$.])${root}\\s*(?:\\.\\s*${namespace}\\b|\\[\\s*['"]${namespace}['"]\\s*\\])`).test(body));
     if (!used) continue;
@@ -27,14 +37,13 @@ export function preflightHelpers(
     // writeback route that no client carries, and a body that would die on
     // `undefined is not a function` should say so with the names that do work.
     const missing = supported === 'partial'
-      ? unavailableMembers(root, declared, namespace, provider.resources, body) : [];
+      ? unavailableMembers(root, declared, namespace, resources, body) : [];
     if (!supported) {
       diagnostics.push({ severity: 'refusal', kind: 'helper_provider.unsupported',
         message: `f.${namespace} has no upstream relayfile writeback client.` });
     } else if (missing.length > 0) {
       diagnostics.push({ severity: 'refusal', kind: 'helper_provider.unsupported',
-        message: unavailableMessage(namespace, missing[0]!, provider.resources,
-          'note' in provider ? provider.note : undefined) });
+        message: unavailableMessage(namespace, missing[0]!, resources, provider.note) });
     } else if (!fact.mock && !fact.mount) {
       diagnostics.push({ severity: 'refusal',
         kind: provider.provider === 'slack' ? (fact.token?.trim() ? 'helper_slack.mount_required' : 'helper_slack.credential_missing') : 'helper_provider.mount_required',
