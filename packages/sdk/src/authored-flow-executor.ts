@@ -406,6 +406,9 @@ export async function executeAuthoredFlow<Input = undefined>(
         () => observeStep(id, 'deterministic',
           () => lowerDeterministic.recording(id, command, leaseMs, recordOp.namedGate), options.onProgress),
         lifecycle,
+        // No label: a command is not a display name. It carries literal
+        // tokens and URLs, and no prefix of it is safe to show (displayLabel).
+        {},
       );
       return trackStep(authoredSteps, recordOp);
     }
@@ -415,6 +418,9 @@ export async function executeAuthoredFlow<Input = undefined>(
       () => assertOperationAllowed('run', definition.name, requestedCompletion),
       () => observeStep(id, 'deterministic', () => lowerDeterministic(id, command, false, leaseMs, runOp.namedGate), options.onProgress),
       lifecycle,
+      // No label: a command is not a display name. It carries literal
+      // tokens and URLs, and no prefix of it is safe to show (displayLabel).
+      {},
     );
     return trackStep(authoredSteps, runOp);
   }
