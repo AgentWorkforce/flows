@@ -64,7 +64,7 @@ export class CliProbeError extends Error {
   }
 }
 
-type CliProbeOutcome =
+export type CliProbeOutcome =
   | { result: CliProbeResult }
   | { failure: CliProbeFailureDetail | null };
 
@@ -98,6 +98,7 @@ export interface PreflightOptions {
   /** Exact, project-owned model allowlist from the nearest flows.json. */
   models?: readonly string[];
   modelRegistryPath?: string;
+  probeCache?: Map<string, CliProbeOutcome>;
   probes: PreflightProbes;
 }
 
@@ -193,7 +194,12 @@ async function probeMcp(result: PreflightResult, options: PreflightOptions): Pro
   return { ...result, ok: !result.diagnostics.some(d => d.severity === 'refusal'), mcpTools: Object.freeze(inventory) };
 }
 
-function preflightSync(flow: unknown, options: PreflightOptions): PreflightResult {
+type ResolutionOptions = Omit<PreflightOptions, 'probes' | 'probeCache'>;
+
+/** Resolve static declarations before any CLI, model, command or trigger probe. */
+export function resolvePreflight(flow: unknown, options: ResolutionOptions): PreflightResult & {
+  compiled?: import('./compile.js').CompiledFlowSpec;
+} {
   // Compile before touching any environment fact. `compileSpec` snapshots raw
   // input into inert data, validates it against the closed authoring schema,
   // and lowers `output` sugar into its json_schema gate — so the gate plan
@@ -234,7 +240,6 @@ function preflightSync(flow: unknown, options: PreflightOptions): PreflightResul
   const cliResolutionDiagnostics: PreflightDiagnostic[] = [];
   const resolutions: CliResolution[] = [];
   const resolutionByStep = new Map<string, CliResolution>();
-  const cliProbeResults = new Map<string, CliProbeOutcome>();
 
   // A pure fact about the compiled snapshot, collected before anything that
   // can return early. An unresolved CLI, an unknown model or a bad scope all
@@ -282,6 +287,16 @@ function preflightSync(flow: unknown, options: PreflightOptions): PreflightResul
     return { ok: false, gates: compiled.steps.map(inspectStepGate), resolutions, diagnostics };
   }
 
+  return { ok: true, gates: compiled.steps.map(inspectStepGate), resolutions, diagnostics, compiled };
+}
+
+function preflightSync(flow: unknown, options: PreflightOptions): PreflightResult {
+  const { compiled, ...result } = resolvePreflight(flow, options);
+  if (!result.ok || compiled === undefined) return result;
+  const { diagnostics, resolutions } = result;
+  const resolutionByStep = new Map(resolutions.map(resolution => [resolution.stepId, resolution]));
+  const cliProbeResults = options.probeCache ?? new Map<string, CliProbeOutcome>();
+
   for (const step of compiled.steps) {
     probeNamedGate(step, options.probes, diagnostics);
     warnOnVacuousGate(step, diagnostics);
@@ -326,7 +341,7 @@ function preflightSync(flow: unknown, options: PreflightOptions): PreflightResul
  * fact about the filesystem. Missing manifest means no known mounts — a grant
  * still parses but refuses as `mount_unknown` in that case.
  */
-function scopeDiagnostics(flow: FlowSpec, options: PreflightOptions): PreflightRefusal[] {
+function scopeDiagnostics(flow: FlowSpec, options: ResolutionOptions): PreflightRefusal[] {
   const workspace = flow.workspace;
   const toolsFs = flow.tools?.fs;
   if (workspace === undefined && toolsFs === undefined) return [];
@@ -350,7 +365,7 @@ function scopeDiagnostics(flow: FlowSpec, options: PreflightOptions): PreflightR
 /** Pure authoring validation: no executable, command, trigger, or daemon probe. */
 function unknownModelDiagnostics(
   flow: FlowSpec,
-  options: PreflightOptions,
+  options: ResolutionOptions,
   resolutionByStep: ReadonlyMap<string, CliResolution> = new Map(),
 ): PreflightRefusal[] {
   const diagnostics: PreflightRefusal[] = [];
@@ -464,7 +479,7 @@ function unknownModelMessage(
   return `Step "${stepId}" declares model "${model}"${cliContext}, but it is not listed in ${source}; add the exact model only after verifying that project is allowed to use it.`;
 }
 
-function unresolvedCliMessage(stepId: string, options: PreflightOptions): string {
+function unresolvedCliMessage(stepId: string, options: ResolutionOptions): string {
   const context = options.projectConfigPath !== undefined
     ? ` Nearest project config "${options.projectConfigPath}" declares no cli; outer configs are shadowed.`
     : options.projectSearchStart !== undefined
@@ -494,6 +509,10 @@ function resolveCli(
   return undefined;
 }
 
+export function cliProbeKey(resolution: CliResolution, managed = false): string {
+  return JSON.stringify([resolution.cli, resolution.source, resolution.model ?? null, managed]);
+}
+
 function probeResolvedCli(
   resolution: CliResolution,
   probes: PreflightProbes,
@@ -507,7 +526,7 @@ function probeResolvedCli(
   // Model is part of the key: the same CLI probed with two different models
   // is two different questions, and caching on the CLI alone would let a
   // model that the CLI cannot resolve inherit an earlier model's pass.
-  const cacheKey = JSON.stringify([resolution.cli, resolution.source, resolution.model ?? null, managed]);
+  const cacheKey = cliProbeKey(resolution, managed);
   let outcome = cache.get(cacheKey);
   if (outcome === undefined) {
     try {

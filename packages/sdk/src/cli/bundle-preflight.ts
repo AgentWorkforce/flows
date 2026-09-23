@@ -23,6 +23,6 @@ export async function checkRunnableBundle(directory: string, name: string): Prom
   // This deterministic-only slice declares no project models or executors.
   // Never discover flows.json in the deployment/cache tree or its ancestors.
   return checkAuthoredFlow(flow, join(directory, 'spec.canonical.json'), {
-    directory, models: [], executors: [],
+    projectConfig: { directory, models: [], executors: [] },
   });
 }
