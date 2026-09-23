@@ -35,9 +35,9 @@ whole-filter reversion.
 
 - [Final npm test](npm-test-final.txt): final source, Rust on PATH, explicit
   RELAYFLOWD_BIN pointing at this checkout's build. Full captured output.
-- [New test typecheck](new-test-types.txt): `npx tsc -p ../../evidence/worker-lease-lost/tsconfig.tests.json`
-  from packages/sdk. The supplemental config includes every new regression file;
-  the repository's existing test typecheck only enumerates selected files.
+- [New test typecheck](new-test-types.txt): `npm run typecheck:tests` from
+  packages/sdk. That config enumerates its files by name rather than globbing,
+  so every new regression file is listed in it; the gate covers them.
 - [Sandbox probe](sandbox-probe.txt): direct OS isolation probe.
 
 ## Development transcripts
@@ -67,3 +67,14 @@ RELAYFLOWD_BIN as the final full suite.
 
 The same eight live-kernel tests failed on the original SDK source.
 This comparison is limited to that suite; it is not a baseline full-suite run.
+
+Those failures have since been traced to the machine rather than to either
+source revision: `/home/daytona/package.json` sits ABOVE the checkout and
+declares `"type": "commonjs"`, which turns off Node's module-syntax detection
+for `testdata/preflight`'s extensionless ESM agent-CLI fixtures. Each fixture
+then exits 0 having written nothing, and every agent step it drives fails its
+execution gate with `output: null`. Declaring that one directory ESM restores
+the condition a GitHub runner has, and the whole live-kernel suite passes on
+this branch unchanged.
+
+- [Root cause, minimal reproduction and the passing suite](live-kernel-module-type.txt)

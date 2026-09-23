@@ -1,3 +1,8 @@
-$ cd packages/sdk && npx tsc -p ../../evidence/worker-lease-lost/tsconfig.tests.json
+$ cd packages/sdk && npm run typecheck:tests
+
+
+> @relayflows/sdk@2.0.29 typecheck:tests
+> tsc -p tsconfig.tests.json
+
 
 Exit code: 0
