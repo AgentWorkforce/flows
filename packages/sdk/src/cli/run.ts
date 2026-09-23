@@ -786,6 +786,9 @@ async function inspectOutOfBandStep(
   };
 }
 
+// Match kernel/relayflowd/src/server/client.rs: allow the lease sweep to dispatch a retry.
+const LEASE_SWEEP_GRACE_MS = 5_000;
+
 async function waitForRunningStep(
   client: JournalClient,
   runId: string,
@@ -804,7 +807,7 @@ async function waitForRunningStep(
   });
   while (true) {
     throwIfCanceled(options.signal, runningStep.id);
-    const remainingMs = leaseDeadlineMs - Date.now();
+    const remainingMs = leaseDeadlineMs + LEASE_SWEEP_GRACE_MS - Date.now();
     if (remainingMs <= 0) {
       throw new Error(
         `worker lease for step "${runningStep.id}" expired at ${leaseDeadlineMs} without completion`,
