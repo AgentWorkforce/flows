@@ -1,40 +1,40 @@
-$ npx flows resume --no-observer-link --data-dir /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/prove2-data --local-agent 01M36BDEBD2DKTZTX8GTB28DW7
+$ npx flows resume --no-observer-link --data-dir /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/prove4-data --local-agent 01M36DXZJ9142JCT8RPDZA59W7
 ○ run-1 (deterministic) 0.00s
 ✓ run-1 (deterministic) 0.01s completionReason: success
 ○ llm-2 (llm) 0.00s
-✓ llm-2 (llm) 5.30s completionReason: success
+✓ llm-2 (llm) 3.92s completionReason: success
 ○ llm-3 (llm) 0.00s
-✓ llm-3 (llm) 4.16s completionReason: success
+✓ llm-3 (llm) 3.59s completionReason: success
 ○ run-4 (deterministic) 0.00s
-✓ run-4 (deterministic) 0.01s completionReason: success
+✓ run-4 (deterministic) 0.03s completionReason: success
 ○ llm-5 (llm) 0.00s
-✓ llm-5 (llm) 3.85s completionReason: success
+✓ llm-5 (llm) 3.57s completionReason: success
 ○ llm-6 (llm) 0.00s
-✓ llm-6 (llm) 3.74s completionReason: success
+✓ llm-6 (llm) 3.84s completionReason: success
 ○ run-7 (deterministic) 0.00s
 ✓ run-7 (deterministic) 0.01s completionReason: success
 ○ llm-8 (llm) 0.00s
-✓ llm-8 (llm) 3.36s completionReason: success
+✓ llm-8 (llm) 3.86s completionReason: success
 ○ run-9 (deterministic) 0.00s
 ✓ run-9 (deterministic) 0.01s completionReason: success
 ○ llm-10 (llm) 0.00s
-✓ llm-10 (llm) 3.65s completionReason: success
+✓ llm-10 (llm) 3.48s completionReason: success
 ○ llm-11 (llm) 0.00s
-✓ llm-11 (llm) 3.82s completionReason: success
+✓ llm-11 (llm) 6.14s completionReason: success
 ○ llm-12 (llm) 0.00s
-✓ llm-12 (llm) 3.74s completionReason: success
+✓ llm-12 (llm) 3.59s completionReason: success
 ○ llm-13 (llm) 0.00s
-✓ llm-13 (llm) 5.21s completionReason: success
+✓ llm-13 (llm) 3.70s completionReason: success
 ○ llm-14 (llm) 0.00s
-✓ llm-14 (llm) 4.68s completionReason: success
+✓ llm-14 (llm) 3.46s completionReason: success
 ○ llm-15 (llm) 0.00s
-✓ llm-15 (llm) 3.81s completionReason: success
+✓ llm-15 (llm) 3.63s completionReason: success
 ○ llm-16 (llm) 0.00s
-✓ llm-16 (llm) 3.57s completionReason: success
+✓ llm-16 (llm) 3.62s completionReason: success
 ○ llm-17 (llm) 0.00s
-✓ llm-17 (llm) 3.89s completionReason: success
+✓ llm-17 (llm) 3.29s completionReason: success
 ○ llm-18 (llm) 0.00s
-✓ llm-18 (llm) 3.58s completionReason: success
+✓ llm-18 (llm) 3.63s completionReason: success
 ○ run-19 (deterministic) 0.00s
 ✓ run-19 (deterministic) 0.01s completionReason: success
 ○ human-20 (deterministic) 0.00s
@@ -43,17 +43,15 @@ $ npx flows resume --no-observer-link --data-dir /private/tmp/claude-501/-Users-
 ✓ run-21 (deterministic) 0.01s completionReason: success
 ○ run-22 (deterministic) 0.00s
 ✓ run-22 (deterministic) 0.01s completionReason: success
-○ llm-23 (llm) 0.00s
-✓ llm-23 (llm) 3.76s completionReason: success
+○ run-23 (deterministic) 0.00s
+✓ run-23 (deterministic) 0.01s completionReason: success
 ○ run-24 (deterministic) 0.00s
 ✓ run-24 (deterministic) 0.01s completionReason: success
-○ run-25 (deterministic) 0.00s
-✓ run-25 (deterministic) 0.01s completionReason: success
-○ human-26 (deterministic) 0.00s
-✓ human-26 (deterministic) 0.01s completionReason: success
+○ human-25 (deterministic) 0.00s
+✓ human-25 (deterministic) 0.03s completionReason: success
+○ run-26 (deterministic) 0.00s
+✓ run-26 (deterministic) 0.08s completionReason: success
 ○ run-27 (deterministic) 0.00s
 ✓ run-27 (deterministic) 0.07s completionReason: success
-○ run-28 (deterministic) 0.00s
-✓ run-28 (deterministic) 0.07s completionReason: success
-RUN 01M36BDEBD2DKTZTX8GTB28DW7 completed (29 steps) completionReason: success
+RUN 01M36DXZJ9142JCT8RPDZA59W7 completed (28 steps) completionReason: success
 exit=0

@@ -1,6 +1,6 @@
 [
   {
-    "id": "config-sunrise-wound-status-8a366995",
+    "id": "config-sunrise-wound-status-9c1634e2",
     "kind": "config-send",
     "questionIds": [
       "wound-status"
@@ -14,7 +14,6 @@
         "confidence": "High",
         "explanation": "Today's visit notes describe an open 2.0 x 1.5 cm left heel wound with serous drainage and slough; the discharge summary's closed status is outdated."
       }
-    },
-    "proposedPrompt": "Determine the status of the patient's primary wound.\n\nToday's visit notes are the most current record of the wound and outrank the referral packet whenever the two disagree. A referral packet or discharge summary describes the wound as of discharge; it can be out of date by the time of the visit.\n\n1. Read today's visit notes first. If they describe the wound — an open area, measurements, drainage, slough or other wound bed findings, or a dressing change — decide from those findings alone. Any wound that is still open, draining, or being dressed is Ongoing, even if the referral packet or discharge summary says the wound is closed or healed. Answer Healed only when today's notes state the wound is closed, resolved, or intact.\n2. Use the referral packet only when today's notes say nothing about the wound. Then follow it: a discharge summary stating the wound is closed or healed means Healed.\n3. Answer No wound only when neither today's notes nor the referral packet documents any wound.\n\nConfidence: use High when the source you relied on states the status directly — including when today's visit notes document the wound firsthand. A conflict with an older referral does not lower confidence; today's notes settle it. Use Medium when the status must be inferred from indirect or incomplete findings, and Low when no source addresses the wound clearly.\n\nIn the rationale, cite the specific findings you relied on, and when they contradict the referral packet, say so and note that the referral's status is outdated."
+    }
   }
 ]

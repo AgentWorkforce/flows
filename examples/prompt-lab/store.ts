@@ -12,12 +12,13 @@
 //   node store.ts <lab> write-new <rel> <b64>        (never clobbers a reviewer's edit)
 //   node store.ts <lab> record <targets|gold> <b64 {key: Output}>
 //   node store.ts <lab> draft <questionId> <b64 text>
-//   node store.ts <lab> publish <questionId> <promptId>
+//   node store.ts <lab> publish <questionId> <promptId> <expected-live|->
 //   node store.ts <lab> enqueue <issues|patient-briefs> <b64 item>
 //   node store.ts <lab> close-issue <issueId>
 //   node store.ts <lab> lock-patient <b64 patient> [briefId]
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { dirname, join } from "node:path";
 import type { Bank, Issue, Patient, PatientBrief, Snapshot } from "./lib/types.ts";
 
@@ -40,18 +41,20 @@ function print(value: unknown): void {
   if (bytes > OUTPUT_LIMIT) fail(`output is ${bytes} bytes, over the ${OUTPUT_LIMIT}-byte journal tail`);
   process.stdout.write(`${text}\n`);
 }
-/** An exclusive lab lock: mkdir is atomic, so one process holds it at a time. */
+/**
+ * An exclusive lab lock: a SQLite EXCLUSIVE transaction on <lab>/.lock.db.
+ * The lock is the kernel's file lock, so it is released when its process
+ * exits for any reason, a SIGKILL included: a crash never wedges the lab for
+ * the resumed step. Waiters block for LOCK_WAIT_MS, then fail.
+ */
 function withLock(work: () => void): void {
-  const lock = join(lab, ".lock");
-  const deadline = Date.now() + LOCK_WAIT_MS;
-  for (;;) {
-    try { mkdirSync(lock); break; } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      if (Date.now() > deadline) fail(`lab is locked (${lock}); remove it if no store process is running`);
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
-    }
+  const db = new DatabaseSync(join(lab, ".lock.db"), { timeout: LOCK_WAIT_MS });
+  try {
+    try { db.exec("BEGIN EXCLUSIVE"); } catch { fail(`lab is locked by another store process for over ${LOCK_WAIT_MS} ms`); }
+    try { work(); } finally { db.exec("COMMIT"); }
+  } finally {
+    db.close();
   }
-  try { work(); } finally { rmSync(lock, { recursive: true, force: true }); }
 }
 const path = (rel: string): string => {
   if (rel.startsWith("/") || rel.split("/").includes("..")) fail(`path escapes the lab: ${rel}`);
@@ -126,15 +129,21 @@ switch (verb) {
     break;
   }
   case "publish": {
-    const [questionId, promptId] = args;
+    const [questionId, promptId, expectedArg] = args;
+    const expected = expectedArg === "-" ? null : expectedArg;
+    if (expectedArg === undefined) fail("publish needs the live prompt the caller saw (or -)");
     const bank = readJson<Bank>("bank.json", { prompts: {}, questions: {} });
     const question = bank.questions[questionId ?? ""] ?? fail(`no question ${questionId}`);
     if (!promptId || !bank.prompts[promptId]) fail(`no prompt ${promptId}`);
     const previous = question.livePromptId;
+    // Compare-and-swap: a retried publish is a no-op once it landed, and it
+    // never rolls back a prompt someone else published since the caller looked.
+    if (previous === promptId) { print({ questionId, livePromptId: promptId, previous: expected }); break; }
+    if (previous !== expected) fail(`${questionId} is live on ${previous} now, not ${expected}: published since this run read it`);
     question.livePromptId = promptId;
     if (question.draftPromptId === promptId) question.draftPromptId = null;
     writeJson("bank.json", bank);
-    print({ questionId, livePromptId: promptId, previous: previous === promptId ? null : previous });
+    print({ questionId, livePromptId: promptId, previous });
     break;
   }
   case "enqueue": {

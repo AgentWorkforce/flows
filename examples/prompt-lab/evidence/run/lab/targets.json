@@ -2,32 +2,32 @@
   "sunrise|living-situation|jordan": {
     "answer": "Lives with spouse",
     "confidence": "High",
-    "explanation": "Today's skilled nursing SOC visit notes state directly that the patient and their spouse share the home, with the spouse present throughout the visit and setting up the pill organizer each morning. The intake form's 'lives alone' entry is older supporting evidence and is treated as stale under today's direct observation."
+    "explanation": "Today's visit note states the patient and spouse share the home and the spouse sets up the pill organizer each morning, which directly establishes co-residence with a spouse; this outranks the intake form's referral-era \"lives alone\" entry, since today's visit notes take precedence over prior documentation."
   },
   "sunrise|living-situation|pat": {
     "answer": "Lives alone",
     "confidence": "High",
-    "explanation": "Today's skilled nursing SOC visit note states directly that the patient lives alone in a one-story home, with a neighbor who checks in daily; an intermittent visitor does not count as a cohabitant. This is consistent with the referral packet's intake form, but the current visit note is the direct basis."
+    "explanation": "Today's visit note's home environment section states the patient \"lives alone in a one-story home; neighbor checks in daily,\" which directly names the living situation and outranks the referral-era intake form. The neighbor's daily check-ins are visits rather than co-residence."
   },
   "sunrise|living-situation|riley": {
     "answer": "Lives with family",
     "confidence": "High",
-    "explanation": "Today's visit notes state directly that the patient lives with her adult child, that child's spouse, and two grandchildren, which is a household of relatives other than a spouse. The referral packet agrees, but the visit note is the direct current statement; 'Lives alone' and the spouse option were rejected because multiple relatives reside in the home."
+    "explanation": "Today's visit note states the patient lives with her daughter, son-in-law and two grandchildren, which maps directly to the family option; the referral packet's co-resident statement agrees and no spouse is documented in the home."
   },
   "sunrise|mood|jordan": {
     "answer": "Calm",
     "confidence": "Medium",
-    "explanation": "The visit notes describe the patient as \"relaxed and engaged\" and asking good questions about the diuretic, but the mood is inferred from the clinician's behavioral description rather than stated by the patient in their own words."
+    "explanation": "The visit notes describe the patient as \"relaxed and engaged, asks good questions about the diuretic,\" which is the clinician's observation of behavior rather than the patient stating their feelings in their own words."
   },
   "sunrise|mood|pat": {
     "answer": "Calm",
     "confidence": "High",
-    "explanation": "The visit notes describe the patient as \"calm and pleasant, joking about hospital food,\" and she states in her own words that she is glad to be home."
+    "explanation": "Visit notes describe the patient as \"calm and pleasant, joking about hospital food,\" and she states in her own words that she is glad to be home."
   },
   "sunrise|mood|riley": {
     "answer": "Anxious",
     "confidence": "High",
-    "explanation": "The patient states in her own words, 'I can't stop thinking about falling again, I lie awake worrying about it,' and the clinician notes she wrings her hands during the medication review."
+    "explanation": "The patient states in her own words, 'I can't stop thinking about falling again, I lie awake worrying about it,' and the nurse notes she wrings her hands during the medication review."
   },
   "sunrise|wound-status|pat": {
     "answer": "Ongoing",
@@ -37,11 +37,11 @@
   "sunrise|wound-status|jordan": {
     "answer": "No wound",
     "confidence": "High",
-    "explanation": "The referral packet's intake form documents \"No wounds documented. Skin intact,\" and today's SOC visit notes confirm \"Skin intact, no wounds.\""
+    "explanation": "The referral packet's intake form documents no wounds and intact skin, and today's SOC visit note confirms 'Skin intact, no wounds.'"
   },
   "sunrise|wound-status|riley": {
     "answer": "No wound",
     "confidence": "High",
-    "explanation": "The referral packet states \"No wounds\" and today's SOC visit notes confirm \"No wounds; skin intact around cast,\" so there is no primary wound to status."
+    "explanation": "The referral packet states 'No wounds' with the presenting problem being a right wrist fracture in a cast, and today's SOC visit notes confirm 'No wounds; skin intact around cast.'"
   }
 }

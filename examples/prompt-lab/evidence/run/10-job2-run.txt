@@ -1,30 +1,34 @@
-$ npx flows run --no-observer-link --data-dir /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/prove2-data --local-agent prompt-lab.flow.ts --input {"job":"fix","reviewer":"prompt-lab-reviewer","lab":"evidence/run/lab","issueId":"config-sunrise-wound-status-8a366995"}
+$ npx flows run --no-observer-link --data-dir /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/prove4-data --local-agent prompt-lab.flow.ts --input {"job":"fix","reviewer":"prompt-lab-reviewer","lab":"evidence/run/lab","issueId":"config-sunrise-wound-status-9c1634e2"}
 ○ run-1 (deterministic) 0.00s
 ✓ run-1 (deterministic) 0.07s completionReason: success
 ○ llm-2 (llm) 0.00s
-WAITING [worker_lease] Run "01M36BVY7T3HKS7YM1DWYCC9XT" step "llm-2" (llm) is running under a worker lease until 1790141427245.
-↻ llm-2 (llm) 3.87s
-WAITING [worker_lease] Run "01M36BVY7T3HKS7YM1DWYCC9XT" step "llm-2" (llm) is running under a worker lease until 1790141437248.
-↻ llm-2 (llm) 13.90s
-✓ llm-2 (llm) 16.01s completionReason: success
+WAITING [worker_lease] Run "01M36EFZAQF4SWX7HCDMQ113RE" step "llm-2" (llm) is running under a worker lease until 1790144180876.
+↻ llm-2 (llm) 3.55s
+✓ llm-2 (llm) 13.49s completionReason: success
 ○ llm-3 (llm) 0.00s
-WAITING [worker_lease] Run "01M36BWGDVRNR4NGN1GREEXR2H" step "llm-3" (llm) is running under a worker lease until 1790141445870.
-↻ llm-3 (llm) 6.49s
-✓ llm-3 (llm) 10.72s completionReason: success
+WAITING [worker_lease] Run "01M36EGCV91FTX5RDAJ2S9YZHG" step "llm-3" (llm) is running under a worker lease until 1790144194718.
+↻ llm-3 (llm) 3.90s
+✓ llm-3 (llm) 8.10s completionReason: success
 ○ llm-4 (llm) 0.00s
-WAITING [worker_lease] Run "01M36BWR19D9GP7XWB2HX39F20" step "llm-4" (llm) is running under a worker lease until 1790141453661.
-↻ llm-4 (llm) 3.56s
-✓ llm-4 (llm) 7.99s completionReason: success
+WAITING [worker_lease] Run "01M36EGMD3382FZYMNTDR1XJKF" step "llm-4" (llm) is running under a worker lease until 1790144202456.
+↻ llm-4 (llm) 3.54s
+WAITING [worker_lease] Run "01M36EGMD3382FZYMNTDR1XJKF" step "llm-4" (llm) is running under a worker lease until 1790144212459.
+↻ llm-4 (llm) 13.55s
+✓ llm-4 (llm) 22.55s completionReason: success
 ○ llm-5 (llm) 0.00s
-WAITING [worker_lease] Run "01M36BX06ZZAG345PMZD9TT43T" step "llm-5" (llm) is running under a worker lease until 1790141462034.
-↻ llm-5 (llm) 3.94s
-✓ llm-5 (llm) 8.27s completionReason: success
-○ run-6 (deterministic) 0.00s
-✓ run-6 (deterministic) 0.06s completionReason: success
-○ human-7 (deterministic) 0.00s
-⏸ human-7 (human) 0.00s
-PARKED [run_parked] Run "01M36BVTCK80EV8P4FWA8WZZHK" is waiting for prompt-lab-reviewer to answer human-7: "Question workbench · wound-status (issue config-sunrise-wound-status-8a366995): current-prompt outputs on 3 shelf patient(s) — jordan: No wound/High, pat: Ongoing/Medium, riley: No wound/High.\nSet gold in evidence/run/lab/work/q-wound-status/cd33704e/grid.json (\"target\" per row; prefilled from persisted gold or the config-level target). Your review persists as gold; later AI runs never overwrite it.\nyes = persist gold and run the iterator; no = stop."
-Answer with: flows answer --data-dir /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/prove2-data 01M36BVTCK80EV8P4FWA8WZZHK human-7 yes|no
-Then continue with: flows resume --data-dir /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/prove2-data --local-agent 01M36BVTCK80EV8P4FWA8WZZHK
-RUN 01M36BVTCK80EV8P4FWA8WZZHK parked
+WAITING [worker_lease] Run "01M36EHBNNT2JRNR13FEWP01SX" step "llm-5" (llm) is running under a worker lease until 1790144226280.
+↻ llm-5 (llm) 4.82s
+✓ llm-5 (llm) 8.92s completionReason: success
+○ llm-6 (llm) 0.00s
+WAITING [worker_lease] Run "01M36EHKRJYVZS7ZGF7NRGA76Z" step "llm-6" (llm) is running under a worker lease until 1790144234566.
+↻ llm-6 (llm) 4.19s
+✓ llm-6 (llm) 10.60s completionReason: success
+○ run-7 (deterministic) 0.00s
+✓ run-7 (deterministic) 0.07s completionReason: success
+○ human-8 (deterministic) 0.00s
+⏸ human-8 (human) 0.00s
+PARKED [run_parked] Run "01M36EFVSGDSQA4R3BG4G02RMM" is waiting for prompt-lab-reviewer to answer human-8: "Question workbench · wound-status (issue config-sunrise-wound-status-9c1634e2): current-prompt outputs on 4 shelf patient(s) — jordan: No wound/High, pat: Healed/High, riley: No wound/High, roderick: Ongoing/Medium.\nSet gold in evidence/run/lab/work/q-wound-status/205c23a4/grid.json (\"target\" per row; prefilled from persisted gold or the config-level target). Your review persists as gold; later AI runs never overwrite it.\nyes = persist gold and run the iterator; no = stop."
+Answer with: flows answer --data-dir /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/prove4-data 01M36EFVSGDSQA4R3BG4G02RMM human-8 yes|no
+Then continue with: flows resume --data-dir /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/prove4-data --local-agent 01M36EFVSGDSQA4R3BG4G02RMM
+RUN 01M36EFVSGDSQA4R3BG4G02RMM parked
 exit=3

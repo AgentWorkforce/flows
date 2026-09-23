@@ -30,7 +30,8 @@ export interface Lab {
   writeNew(rel: string, value: unknown): Promise<{ written: boolean }>;
   record(store: "targets" | "gold", entries: Record<string, unknown>): Promise<unknown>;
   draft(questionId: string, prompt: string): Promise<{ promptId: string }>;
-  publish(questionId: string, promptId: string): Promise<{ previous: string | null }>;
+  /** Compare-and-swap on the live prompt the caller read (null: none). */
+  publish(questionId: string, promptId: string, expectedLive: string | null): Promise<{ previous: string | null }>;
   enqueue(queue: "issues" | "patient-briefs", item: { id: string }): Promise<{ added: boolean }>;
   closeIssue(id: string): Promise<unknown>;
   lockPatient(patient: unknown, briefId?: string): Promise<{ shelfPath: string }>;
@@ -51,7 +52,7 @@ export function lab(f: Ctx, dir: string): Lab {
     writeNew: (rel, value) => store("write-new", rel, b64(value)),
     record: (s, entries) => store("record", s, b64(entries)),
     draft: (q, prompt) => store("draft", q, b64(prompt)),
-    publish: (q, id) => store("publish", q, id),
+    publish: (q, id, expected) => store("publish", q, id, expected ?? "-"),
     enqueue: (queue, item) => store("enqueue", queue, b64(item)),
     closeIssue: (id) => store("close-issue", id),
     lockPatient: (patient, briefId) => store("lock-patient", b64(patient), ...(briefId ? [briefId] : [])),

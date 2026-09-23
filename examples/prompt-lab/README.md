@@ -27,15 +27,17 @@ Each job file is its brief diagram, line by line:
 | First pass persists as targets / gold | `store.ts record`, fed only from the grid you reviewed. AI output never writes gold directly |
 | Iterator: rewrite-only | [`prompts.ts`](prompts.ts) `iterate`. Input is the changeset, patients, brief and existing prompt; output is new prompt text |
 | Prompt QA: the brief plus shared guidelines | `promptQa`, looping with the iterator. Capped at 3 tries, then the run parks as `needs_human` |
-| Done = live | `store.ts publish` sets `livePromptId`. There is no promote step. A shared question warns which agencies it will change, and the re-run scores the new prompt on **every distinct menu** it is asked with ([`lib/piles.ts`](lib/piles.ts) `distinctMenus`), because done changes it for all of them |
-| Shared frozen at config level | a changed shared or mismatch row becomes a `config-send` issue that carries its targets and a proposed rewrite |
+| Done = live | `store.ts publish` sets `livePromptId`, as a compare-and-swap on the live prompt the run read: a retried publish is a no-op, and it never rolls back one published since. There is no promote step. A shared question warns which agencies it will change, and the re-run scores the new prompt on **every distinct menu** it is asked with ([`lib/piles.ts`](lib/piles.ts) `distinctMenus`), because done changes it for all of them |
+| Shared frozen at config level | a changed shared or mismatch row becomes a `config-send` issue that carries its targets. It gets no rewrite at config level: Job 2 iterates from the live prompt with the full changeset |
 | Test planner: never invents a patient | picks shelf patients of the run's visit type (checked deterministically); each hole becomes one gap brief per question × visit type |
 | You do not approve the chart | the only patient gate is *kick generate*. Patient QA, plus a deterministic identifier check ([`lib/phi.ts`](lib/phi.ts)), locks it |
 
 Every read and write of the lab is a journaled `f.run` step. Every store verb
 is idempotent, so a retried step lands the lab in the same state. `write-new`
 never overwrites an edit you made. Mutating verbs take an exclusive lab lock,
-so two runs at once never lose each other's update.
+so two runs at once never lose each other's update. The lock is a SQLite
+`BEGIN EXCLUSIVE` on `<lab>/.lock.db`. That's a kernel file lock, so the OS
+releases it when its process dies, even from a SIGKILL.
 
 A first-pass prompt is offered for commit only after it has run on a shelf
 patient and you have reviewed its rows. A prompt whose question is a gap waits
@@ -56,7 +58,7 @@ The flow is the job graph that sits under those screens.
 
 ```sh
 npm install
-npm test                                    # 20 unit tests over the deterministic parts and the store
+npm test                                    # 23 unit tests over the deterministic parts and the store
 node --experimental-strip-types store.ts ./my-lab seed fixtures
 npx flows run prompt-lab.flow.ts --local-agent --input \
   '{"job":"new-agency","reviewer":"<who answers the gates>","lab":"./my-lab","agency":"sunrise","visitType":"soc"}'
@@ -97,27 +99,22 @@ every step below exited as shown:
 
 | Run | Result | What happened |
 | --- | --- | --- |
-| Job 1 · `sunrise` / `soc` ([01](evidence/run/01-job1-run.txt), [04](evidence/run/04-resume.txt), [06](evidence/run/06-resume.txt)) | 29 steps, `success` | Piles came out as shared / mismatch / agency-specific. Both agency-specific questions got first-pass prompts that passed Prompt QA. The planner covered 3 questions from the `soc` shelf and queued `gap-ostomy-supplies-soc`. Gate 1: 9 rows, 7 highlighted. The reviewer raised Pat's wound confidence to High, rewrote the explanation and added a note ([02](evidence/run/02-reviewer-edit.diff)). That shared row went to the question manager with its target. Gate 2 offered only `living-situation`, and it went live. `ostomy-supplies` had no shelf patient, so it was held as a draft. |
-| Patient · `gap-ostomy-supplies-soc` ([07](evidence/run/07-patient-run.txt), [09](evidence/run/09-resume.txt)) | 9 steps, `success` | Plan, then kick generate. The chart passed Patient QA on its first try, and `verna` locked onto the shelf. The brief is marked `locked`. |
-| Job 2 · the config-send issue ([10](evidence/run/10-job2-run.txt), [12](evidence/run/12-resume.txt), [14](evidence/run/14-resume.txt)) | 22 steps, `success` | Three shelf patients. Gold came prefilled, with Pat's config target carried over. The iterator's rewrite passed Prompt QA. The re-run scored 3 of 3 golded patients worked (100%), and the gate warned it would change harbor, maple and sunrise. Done made the new prompt live and closed the issue. |
+| Job 1 · `sunrise` / `soc` ([01](evidence/run/01-job1-run.txt), [04](evidence/run/04-resume.txt), [06](evidence/run/06-resume.txt)) | 28 steps, `success` | Piles came out as shared / mismatch / agency-specific. Both agency-specific questions got first-pass prompts that passed Prompt QA. The planner covered 3 questions from the `soc` shelf and queued `gap-ostomy-supplies-soc`. Gate 1: 9 rows, 7 highlighted. The reviewer raised Pat's wound confidence to High, rewrote the explanation and added a note ([02](evidence/run/02-reviewer-edit.diff)). That shared row went to the question manager with its target, and got no rewrite at config level. Gate 2 offered only `living-situation`, and it went live. `ostomy-supplies` had no shelf patient, so it was held as a draft. |
+| Patient · `gap-ostomy-supplies-soc` ([07](evidence/run/07-patient-run.txt), [09](evidence/run/09-resume.txt)) | 14 steps, `success` | Plan, then kick generate. Patient QA sent the chart back before one passed (`llm-6` … `llm-12`). `roderick` locked onto the shelf, and the brief is marked `locked`. |
+| Job 2 · the config-send issue ([10](evidence/run/10-job2-run.txt), [12](evidence/run/12-resume.txt), [14](evidence/run/14-resume.txt)) | 24 steps, `success` | Four shelf patients, including `roderick`. **The live prompt answered Pat "Healed / High", which is the brief's failure.** Gold came prefilled, with Pat's config target "Ongoing" carried over. The iterator's rewrite passed Prompt QA. The re-run scored **3 of 4 golded patients worked (75%)**: Pat is now "Ongoing" and worked; `roderick` did not (gold "Ongoing", new run "No wound"). The gate warned it would change harbor, maple and sunrise. Done made the new prompt live and closed the issue. |
 
 Final state: [15-lab-state.txt](evidence/run/15-lab-state.txt), with the whole lab in `evidence/run/lab/`.
 
-**What this run does not show:**
+**Read the 75% with care.** `prove.sh` answers `yes` at every gate, so it
+marked done at 75%. A reviewer would look at `roderick` first. His gold was the
+old prompt's answer, accepted without review, and an ostomy patient's
+peristomal skin damage may or may not be a "primary wound". That's exactly the
+clinical call this gate exists for. The reviewer here is a script, not a
+clinician.
 
-- **A wrong answer being fixed.** The model answered Pat "Ongoing / Medium"
-  even under the flawed wound prompt. So Job 2 iterated on confidence, the
-  explanation and source priority, not on the answer.
-- **Re-running on several menus.** `wound-status` has one menu across its
-  agencies, so the per-menu re-run ran with one. The multi-menu case, a
-  mismatch question like `mood`, is covered by the `distinctMenus` unit test
-  only.
-- **A clinician's judgment.** The reviewer at every gate is `prove.sh`,
-  applying fixed edits.
-
-The brief's exact failure, "Healed / High" for Pat, did occur in an earlier
-`claude-sonnet-5` run of the same prompt. Its engine step's journal is in
-[00-sonnet-run-pat-healed-high.txt](evidence/runtime-findings/00-sonnet-run-pat-healed-high.txt).
+`wound-status` has one menu across its agencies, so the per-menu re-run ran
+with one menu. The multi-menu case, a mismatch question like `mood`, is covered
+by the `distinctMenus` unit test only.
 
 ## Runtime findings (relayflows 2.0.29)
 
@@ -154,7 +151,7 @@ where it lives, and each has captured evidence in
    `lease_conflict: attempt has no active worker lease`. The CLI made that a
    fatal `protocol_error`
    ([00-prove-attempt1-lease-conflict-after-success.txt](evidence/runtime-findings/00-prove-attempt1-lease-conflict-after-success.txt)).
-   It's intermittent: it happened once in about 50 sequential calls. There's
+   It's intermittent: it happened twice in about 100 sequential calls ([second](evidence/runtime-findings/00-prove-attempt3-lease-conflict.txt)). There's
    no workaround in the flow, so rerun. Tracked in [#560](https://github.com/AgentWorkforce/flows/issues/560).
 
 Findings 1 and 4 are the same class of problem: late lease traffic becomes

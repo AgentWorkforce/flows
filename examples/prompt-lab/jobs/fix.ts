@@ -108,7 +108,7 @@ export async function fix(job: Job, input: FixInput): Promise<void> {
     `yes = mark done (live in Apricot now, no promote step); no = keep it as a draft and iterate again in a new run.`,
     { to: reviewer });
   if (!done) return f.done("declined");
-  await lab.publish(qid, promptId);
+  await lab.publish(qid, promptId, question.livePromptId);
   if (issue) await lab.closeIssue(issue.id);
   return f.done("success");
 }

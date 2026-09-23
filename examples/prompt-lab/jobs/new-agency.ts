@@ -6,7 +6,7 @@
 //   System  run on fake visits → edit grid, computer-highlighted rows first
 //   You     edit each row on the first QA pass
 //   Outcome targets persist for question × patient
-//   System  run iteration on every changed question
+//   System  run iteration on every changed agency-specific question
 //   System  shared rows → question-level queue with their targets (frozen here)
 //   You     commit all / only / all except
 //   Outcome committed agency-specific prompts are live in Apricot
@@ -18,7 +18,7 @@ import type { Issue, Output, Patient, PatientBrief } from "../lib/types.ts";
 import { firstPass, iterate, promptQa, type Ask } from "../prompts.ts";
 import type { Job } from "./job.ts";
 import { shellWord } from "../lib/lab.ts";
-import { gapId, llm, MAX_ATTEMPTS, planCoverage, runEngine, untilQaPasses } from "./shared.ts";
+import { gapId, MAX_ATTEMPTS, planCoverage, runEngine, untilQaPasses } from "./shared.ts";
 
 export interface NewAgencyInput { agency: string; visitType: string }
 
@@ -88,23 +88,21 @@ export async function newAgency(job: Job, input: NewAgencyInput): Promise<void> 
     gridError(g, menus) ?? (g.map(rowKey).sort().join(",") === expected ? null : "rows were added or removed; edit values only"));
   await lab.record("targets", Object.fromEntries(edited.map((r) => [`${input.agency}|${rowKey(r)}`, r.target])));
 
-  // Run iteration on every question with a changed row. Agency-specific rewrites
-  // are commit candidates (Prompt QA'd); shared/mismatch get a proposed rewrite only.
+  // Run iteration on every agency-specific question with a changed row; each
+  // rewrite is Prompt QA'd and becomes a commit candidate. Shared and mismatch
+  // prompts are frozen here: their rows travel to the question manager, where
+  // Job 2 iterates from the live prompt with the full changeset.
   const changes = changed(edited);
   const changedQs = [...new Set(changes.map((r) => r.questionId))].sort();
   const rewrites: { q: PiledQuestion; rows: Row[]; prompt: string; passed: boolean }[] = [];
+  const sends: { q: PiledQuestion; rows: Row[] }[] = [];
   for (const qid of changedQs) { // sequential: see runEngine
     const q = byId.get(qid)!;
-    const rowsFor = changes.filter((r) => r.questionId === qid)
-      .map((r) => ({ patient: patient.get(r.patientId)! as Patient, ai: r.ai, target: r.target, notes: r.notes }));
+    const rows = changes.filter((r) => r.questionId === qid);
+    if (q.pile !== "agency-specific") { sends.push({ q, rows }); continue; }
+    const rowsFor = rows.map((r) => ({ patient: patient.get(r.patientId)! as Patient, ai: r.ai, target: r.target, notes: r.notes }));
     const brief = snap.briefs[qid];
     const existing = prompts.get(qid)!.text;
-    const rows = changes.filter((r) => r.questionId === qid);
-    if (q.pile !== "agency-specific") {
-      const { prompt } = await llm<{ prompt: string }>(f, iterate(ask(q), existing, brief, rowsFor, []));
-      rewrites.push({ q, rows, prompt, passed: true });
-      continue;
-    }
     const r = await untilQaPasses<{ prompt: string }>(f,
       (findings) => iterate(ask(q), existing, brief, rowsFor, findings),
       (w) => promptQa(w.prompt, ask(q), snap.guidelines, brief));
@@ -118,17 +116,16 @@ export async function newAgency(job: Job, input: NewAgencyInput): Promise<void> 
   const waiting = piled.filter((q) => prompts.get(q.questionId)!.firstPass && !covered.has(q.questionId)).map((q) => q.questionId);
   const sent: string[] = [];
   for (const r of rewrites) {
-    if (r.q.pile === "agency-specific") {
-      if (!r.passed) { candidates.delete(r.q.questionId); continue; } // an uncompliant rewrite never becomes a candidate
-      drafts.set(r.q.questionId, (await lab.draft(r.q.questionId, r.prompt)).promptId);
-      candidates.add(r.q.questionId);
-      continue;
-    }
-    // Frozen here: the rows travel to question-level with their targets and the proposal.
+    if (!r.passed) { candidates.delete(r.q.questionId); continue; } // an uncompliant rewrite never becomes a candidate
+    drafts.set(r.q.questionId, (await lab.draft(r.q.questionId, r.prompt)).promptId);
+    candidates.add(r.q.questionId);
+  }
+  for (const r of sends) {
+    // Frozen here: the rows travel to question-level with their targets.
     const issue: Issue = {
       id: `config-${input.agency}-${r.q.questionId}-${hash8(r.rows)}`, kind: "config-send", questionIds: [r.q.questionId], status: "open", agency: input.agency,
       text: `${input.agency} ${input.visitType} first pass changed ${r.rows.length} row(s) on a ${r.q.pile} question (shared with ${r.q.sharedWith.join(", ")}). ${r.rows.map((x) => x.notes).filter(Boolean).join(" ")}`.trim(),
-      targets: Object.fromEntries(r.rows.map((x) => [x.patientId, x.target])), proposedPrompt: r.prompt,
+      targets: Object.fromEntries(r.rows.map((x) => [x.patientId, x.target])),
     };
     await lab.enqueue("issues", issue);
     sent.push(`${r.q.questionId} → ${issue.id}`);
@@ -146,6 +143,6 @@ export async function newAgency(job: Job, input: NewAgencyInput): Promise<void> 
     { to: reviewer });
   if (!commit) return f.done("declined");
   const choice = await lab.read<CommitChoice>(`${work}/commit.json`, commitError);
-  for (const qid of toCommit(list, choice)) await lab.publish(qid, drafts.get(qid)!);
+  for (const qid of toCommit(list, choice)) await lab.publish(qid, drafts.get(qid)!, snap.bank.questions[qid]!.livePromptId);
   return f.done("success");
 }

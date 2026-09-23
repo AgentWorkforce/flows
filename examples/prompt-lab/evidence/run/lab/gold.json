@@ -2,7 +2,7 @@
   "wound-status|jordan": {
     "answer": "No wound",
     "confidence": "High",
-    "explanation": "The referral packet's intake form documents \"No wounds documented. Skin intact,\" and today's SOC visit notes confirm \"Skin intact, no wounds.\""
+    "explanation": "The referral packet's intake form states 'No wounds documented. Skin intact,' and today's SOC visit note confirms 'Skin intact, no wounds.'"
   },
   "wound-status|pat": {
     "answer": "Ongoing",
@@ -12,6 +12,11 @@
   "wound-status|riley": {
     "answer": "No wound",
     "confidence": "High",
-    "explanation": "The referral packet states 'No wounds' alongside the right wrist fracture with cast, and today's SOC visit notes confirm 'No wounds; skin intact around cast.'"
+    "explanation": "The referral packet states 'No wounds' alongside the right wrist fracture, and today's SOC visit notes confirm 'No wounds; skin intact around cast.'"
+  },
+  "wound-status|roderick": {
+    "answer": "Ongoing",
+    "confidence": "Medium",
+    "explanation": "The referral packet documents no wound status (peristomal skin intact at discharge, no statement of closure or healing), so the visit notes govern: today's assessment finds a well-demarcated area of erythema with superficial moist denudation at the 5-to-7 o'clock peristomal margin, approximately 2 cm at its widest and tender to touch. Confidence is Medium rather than High because the referral does not state the status."
   }
 }

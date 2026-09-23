@@ -1,0 +1,70 @@
+{
+  "promptId": "p-wound-status-003f262d",
+  "menus": [
+    {
+      "options": [
+        "Healed",
+        "Ongoing",
+        "No wound"
+      ],
+      "agencies": [
+        "harbor",
+        "maple",
+        "sunrise"
+      ],
+      "score": {
+        "rows": [
+          {
+            "patientId": "jordan",
+            "gold": "No wound",
+            "rerun": "No wound",
+            "result": "worked"
+          },
+          {
+            "patientId": "pat",
+            "gold": "Ongoing",
+            "rerun": "Ongoing",
+            "result": "worked"
+          },
+          {
+            "patientId": "riley",
+            "gold": "No wound",
+            "rerun": "No wound",
+            "result": "worked"
+          },
+          {
+            "patientId": "roderick",
+            "gold": "Ongoing",
+            "rerun": "No wound",
+            "result": "did not"
+          }
+        ],
+        "golded": 4,
+        "worked": 3,
+        "percent": 75
+      },
+      "outputs": {
+        "jordan": {
+          "answer": "No wound",
+          "confidence": "High",
+          "explanation": "Today's visit notes from the skilled nursing SOC visit document \"Skin intact, no wounds,\" and the intake form in the referral packet agrees that no wounds were documented and skin was intact."
+        },
+        "pat": {
+          "answer": "Ongoing",
+          "confidence": "High",
+          "explanation": "Today's skilled nursing SOC visit notes document an open left heel area measuring 2.0 x 1.5 cm with moderate serous drainage, a pink wound bed with yellow slough, and a foam dressing change per protocol. The hospital discharge summary's statement that the wound was closed is outdated and superseded by today's assessment."
+        },
+        "riley": {
+          "answer": "No wound",
+          "confidence": "High",
+          "explanation": "Today's skilled nursing SOC visit notes document 'No wounds; skin intact around cast,' affirmatively stating the patient has no wound. The referral packet agrees, also noting 'No wounds.'"
+        },
+        "roderick": {
+          "answer": "No wound",
+          "confidence": "High",
+          "explanation": "Today's start of care visit note documents no wound: the surgical incision is clean and dry with staples intact, and the peristomal finding is erythema with superficial moist denudation assessed as irritant contact dermatitis from effluent tracking under the wafer, not a wound. The referral packet likewise documents no wound, describing peristomal skin intact at discharge."
+        }
+      }
+    }
+  ]
+}

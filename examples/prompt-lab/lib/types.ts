@@ -43,7 +43,6 @@ export interface Issue {
   agency?: string;
   /** Config-level targets travel with a row sent to question-level. */
   targets?: Record<string, Output>;
-  proposedPrompt?: string;
 }
 
 export type Pile = "agency-specific" | "shared" | "mismatch";
