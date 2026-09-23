@@ -1,13 +1,20 @@
 import { createRequire } from 'node:module';
-import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
+import { constants, existsSync, lstatSync, realpathSync } from 'node:fs';
 import { dirname, join, parse, resolve } from 'node:path';
 import { ChildProcess, spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { Writable, type Readable } from 'node:stream';
 import { payloadManifest, sha256 } from './bundle.js';
-import { descriptorIsFile } from './fs-descriptor.js';
+import {
+  closeDescriptor,
+  descriptorIsFile,
+  openDescriptor,
+  readDescriptor,
+  statDescriptor,
+} from './fs-descriptor.js';
+import { snapshotJsonValue } from './json-value.js';
 import { PluginError } from './plugin-manifest.js';
-import { assertHostedPromiseSafety } from './hosted-promise-safety.js';
+import { assertHostedPromiseSafety, hostedPromiseValue } from './hosted-promise-safety.js';
 import { appendIntrinsicArray } from './intrinsic-array.js';
 import { HOSTED_EXTENSION_SANDBOX_SOURCE } from './hosted-extension-sandbox-source.js';
 import {
@@ -20,7 +27,6 @@ const HOSTED_WRITE = 'cloud:babysitter-turn';
 const CREATE_REQUIRE = createRequire;
 const EXISTS_SYNC = existsSync;
 const LSTAT_SYNC = lstatSync;
-const READ_FILE_SYNC = readFileSync;
 const REALPATH_SYNC = realpathSync;
 const PATH_DIRNAME = dirname;
 const PATH_JOIN = join;
@@ -37,7 +43,13 @@ const EVENT_ON = Function.prototype.call.bind(EventEmitter.prototype.on) as (
 const CHILD_PROCESS_KILL = Function.prototype.call.bind(ChildProcess.prototype.kill) as (
   child: ChildProcess, signal?: NodeJS.Signals | number,
 ) => boolean;
+const ARRAY_IS_ARRAY = Array.isArray;
 const BUFFER_FROM = Buffer.from;
+const BUFFER_ALLOC_UNSAFE = Buffer.allocUnsafe;
+const BUFFER_TO_STRING = Function.prototype.call.bind(Buffer.prototype.toString) as (
+  value: Buffer, encoding: BufferEncoding,
+) => string;
+const BIG_INT = BigInt;
 const JSON_PARSE = JSON.parse;
 const OBJECT_ENTRIES = Object.entries;
 const OBJECT_FREEZE = Object.freeze;
@@ -64,6 +76,9 @@ const WRITABLE_WRITE = Function.prototype.call.bind(Writable.prototype.write) as
   stream: Writable, chunk: string | Uint8Array,
 ) => boolean;
 const DEFAULT_TIMEOUT_MS = 10_000;
+const MAX_SURFACE_PACKAGE_BYTES = 64 * 1024;
+const MAX_SURFACE_RUNTIME_BYTES = 512 * 1024;
+const SURFACE_READ_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0);
 // These hard limits are inherited across prlimit -> bubblewrap -> Node and its
 // descendants. RLIMIT_AS stays high enough for Node 22-26's large virtual V8
 // and Wasm reservations; RLIMIT_DATA is the tighter bound on anonymous/native
@@ -127,7 +142,7 @@ export async function runHostedExtensionSandbox(
   if (!STRING_STARTS_WITH(entryPath, `${PATH_RESOLVE(options.artifactDirectory)}/`)) {
     throw new PluginError('plugin_path_invalid', `${options.entry}: hosted extension entry escapes its artifact.`);
   }
-  const surfaceRoot = resolveSurfaceRoot(
+  const surfaceRoot = await resolveSurfaceRoot(
     options.surfaceVersion,
     ownOption<string>(options, 'surfaceRoot'),
   );
@@ -147,7 +162,7 @@ export async function runHostedExtensionSandbox(
     destination: '/runtime/runner.mjs',
     bytes: BUFFER_FROM(HOSTED_EXTENSION_SANDBOX_SOURCE),
   }];
-  const surfaceFiles = readSurfaceFiles(surfaceRoot);
+  const surfaceFiles = await readSurfaceFiles(surfaceRoot);
   for (let index = 0; index < surfaceFiles.length; index += 1) {
     appendIntrinsicArray(dataFiles, surfaceFiles[index]!);
   }
@@ -201,8 +216,8 @@ export async function runHostedExtensionSandbox(
   }
 }
 
-function resolveSurfaceRoot(expectedVersion: string, override?: string): string {
-  if (override !== undefined) return checkedSurfaceRoot(override, expectedVersion);
+async function resolveSurfaceRoot(expectedVersion: string, override?: string): Promise<string> {
+  if (override !== undefined) return await checkedSurfaceRoot(override, expectedVersion);
   let resolved: string;
   try { resolved = REALPATH_SYNC(CREATE_REQUIRE(import.meta.url).resolve('@relayflows/surface')); }
   catch { return unsupported('hosted extension cannot resolve @relayflows/surface'); }
@@ -212,7 +227,7 @@ function resolveSurfaceRoot(expectedVersion: string, override?: string): string 
     const packageJson = PATH_JOIN(directory, 'package.json');
     if (EXISTS_SYNC(packageJson)) {
       try {
-        const manifest = JSON_PARSE(READ_FILE_SYNC(packageJson, 'utf8')) as { name?: unknown; version?: unknown };
+        const manifest = surfacePackageManifest(await readBoundedSurfaceFile(packageJson, MAX_SURFACE_PACKAGE_BYTES));
         if (manifest.name === '@relayflows/surface' && manifest.version === expectedVersion) {
           return REALPATH_SYNC(directory);
         }
@@ -223,20 +238,20 @@ function resolveSurfaceRoot(expectedVersion: string, override?: string): string 
   return unsupported('hosted extension resolved an invalid @relayflows/surface package');
 }
 
-function checkedSurfaceRoot(root: string, expectedVersion: string): string {
+async function checkedSurfaceRoot(root: string, expectedVersion: string): Promise<string> {
   let real: string;
   try { real = REALPATH_SYNC(root); }
   catch { return unsupported('hosted extension cannot resolve @relayflows/surface'); }
   try {
-    const manifest = JSON_PARSE(READ_FILE_SYNC(PATH_JOIN(real, 'package.json'), 'utf8')) as {
-      name?: unknown; version?: unknown;
-    };
+    const manifest = surfacePackageManifest(
+      await readBoundedSurfaceFile(PATH_JOIN(real, 'package.json'), MAX_SURFACE_PACKAGE_BYTES),
+    );
     if (manifest.name === '@relayflows/surface' && manifest.version === expectedVersion) return real;
   } catch { /* fall through */ }
   return unsupported('hosted extension resolved an invalid @relayflows/surface package');
 }
 
-function readSurfaceFiles(surfaceRoot: string): SandboxDataFile[] {
+async function readSurfaceFiles(surfaceRoot: string): Promise<SandboxDataFile[]> {
   const entries = OBJECT_ENTRIES(SURFACE_RUNTIME_SHA256);
   const files: SandboxDataFile[] = [
     { destination: '/extension/node_modules/@relayflows/surface/package.json', bytes: BUFFER_FROM(SURFACE_PACKAGE_JSON) },
@@ -247,7 +262,7 @@ function readSurfaceFiles(surfaceRoot: string): SandboxDataFile[] {
     const file = entries[index]![0];
     const expected = entries[index]![1];
     let bytes: Buffer;
-    try { bytes = READ_FILE_SYNC(PATH_JOIN(surfaceRoot, 'dist', file)); }
+    try { bytes = await readBoundedSurfaceFile(PATH_JOIN(surfaceRoot, 'dist', file), MAX_SURFACE_RUNTIME_BYTES); }
     catch { return unsupported(`hosted extension cannot read pinned Surface runtime ${file}`); }
     if (sha256(bytes) !== expected) {
       return unsupported(`hosted extension Surface runtime ${file} differs from the reviewed bytes`);
@@ -258,6 +273,47 @@ function readSurfaceFiles(surfaceRoot: string): SandboxDataFile[] {
     });
   }
   return files;
+}
+
+function surfacePackageManifest(bytes: Buffer): { readonly name?: unknown; readonly version?: unknown } {
+  const value = snapshotJsonValue(JSON_PARSE(BUFFER_TO_STRING(bytes, 'utf8')), 'Surface package manifest', {
+    maxBytes: MAX_SURFACE_PACKAGE_BYTES,
+    maxDepth: 3,
+    maxNodes: 64,
+  });
+  if (typeof value !== 'object' || value === null || ARRAY_IS_ARRAY(value)) {
+    return unsupported('hosted extension resolved an invalid @relayflows/surface package');
+  }
+  return value as { readonly name?: unknown; readonly version?: unknown };
+}
+
+async function readBoundedSurfaceFile(path: string, maxBytes: number): Promise<Buffer> {
+  const descriptor = await openDescriptor(path, SURFACE_READ_FLAGS);
+  try {
+    const before = await statDescriptor(descriptor, { bigint: true });
+    if (!descriptorIsFile(before) || before.size < 0n || before.size > BIG_INT(maxBytes)) {
+      return unsupported(`hosted extension cannot read bounded Surface file ${path}`);
+    }
+    const size = NUMBER(before.size);
+    const bytes = BUFFER_ALLOC_UNSAFE(size);
+    let offset = 0;
+    while (offset < size) {
+      const bytesRead = await readDescriptor(descriptor, bytes, offset, size - offset, offset);
+      if (bytesRead === 0) return unsupported(`hosted extension Surface file ${path} changed while reading`);
+      offset += bytesRead;
+    }
+    const extra = BUFFER_ALLOC_UNSAFE(1);
+    if ((await readDescriptor(descriptor, extra, 0, 1, size)) !== 0) {
+      return unsupported(`hosted extension Surface file ${path} changed while reading`);
+    }
+    const after = await statDescriptor(descriptor, { bigint: true });
+    if (after.size !== before.size || after.mtimeNs !== before.mtimeNs || after.ctimeNs !== before.ctimeNs) {
+      return unsupported(`hosted extension Surface file ${path} changed while reading`);
+    }
+    return hostedPromiseValue(bytes);
+  } finally {
+    await closeDescriptor(descriptor);
+  }
 }
 
 /** @internal Pure construction seam for hostile-intrinsic regressions. */

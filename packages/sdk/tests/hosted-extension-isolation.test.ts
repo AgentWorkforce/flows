@@ -7,6 +7,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  truncateSync,
   writeFileSync,
 } from 'node:fs';
 import { createServer } from 'node:http';
@@ -475,6 +476,30 @@ process.exit(child.status ?? 1);
         return { receiptId: 'receipt-1', status: 'queued' };
       } },
     })).rejects.toMatchObject({ code: 'plugin_unsupported' });
+    expect(calls).toBe(0);
+  });
+
+  it('refuses oversized Surface files through the bounded descriptor reader', async () => {
+    const surfaceRoot = surfaceFixture();
+    truncateSync(join(surfaceRoot, 'dist/flow.js'), 512 * 1024 + 1);
+    const dispatch = hostedExtensionDispatchFromVerifiedDelivery({
+      provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-surface-size',
+    });
+    let calls = 0;
+    await expect(runVerifiedNativeExtensionSandbox({
+      artifact: await artifact(),
+      manifest: validateFlowExtensionManifest(manifest()),
+      dispatch,
+      input: descriptor('delivery-surface-size'),
+      surfaceRoot,
+      babysitterTurn: { queue: async () => {
+        calls += 1;
+        return { receiptId: 'receipt-1', status: 'queued' };
+      } },
+    })).rejects.toMatchObject({
+      code: 'plugin_unsupported',
+      message: expect.stringContaining('cannot read pinned Surface runtime flow.js'),
+    });
     expect(calls).toBe(0);
   });
 

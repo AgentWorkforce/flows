@@ -5,6 +5,7 @@ import { sha256 } from './bundle.js';
 import { assertBaseCompatible, assertCompatible, runtimeVersions, type RuntimeVersions } from './flow-extension-compat.js';
 import { validateFlowExtensionManifest, type FlowExtensionManifest } from './flow-extension-manifest.js';
 import { findPluginProject } from './plugin-loader.js';
+import { appendIntrinsicArray } from './intrinsic-array.js';
 import { reconcileDeclaredExtensions, type PluginLockEntry } from './plugin-lock.js';
 import { PluginError } from './plugin-manifest.js';
 import { pluginStoreDirectory, readStoredPluginFiles } from './plugin-store.js';
