@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
+import { spawn, spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const EXPECTED_ASSERTIONS = 16;
 
 class EnvironmentError extends Error {}
 
@@ -30,9 +32,33 @@ export async function runBlackBoxCrash(options = {}) {
       specPath,
       `${JSON.stringify(flowSpec({ effects, attempts, gate, stepPid }), null, 2)}\n`,
     );
+    const initial = spawnSync(
+      binary,
+      ['--data-dir', dataDir, 'run', specPath, '--stop-after', '1'],
+      { encoding: 'utf8', timeout: 30000 },
+    );
+    if (initial.error) throw new EnvironmentError(initial.error.message);
+    check(assertions, initial.status, 0, `initial run exited zero: ${initial.stderr}`);
+    const receipt = parseOutcome(initial.stdout);
+    check(assertions, receipt.status, 'interrupted', 'public run receipt reports interruption');
+    check(
+      assertions,
+      receipt.completion_reason,
+      null,
+      'interrupted receipt has no completion reason',
+    );
+    check(assertions, receipt.completed_steps, 1, 'public run receipt reports one completed step');
+    check(
+      assertions,
+      typeof receipt.run_id === 'string' && receipt.run_id.length > 0,
+      true,
+      'public run receipt includes a run id',
+    );
+    check(assertions, readLines(effects), ['first'], 'only step one completed before resume');
+
     const child = spawn(
       binary,
-      ['--data-dir', dataDir, 'run', specPath],
+      ['--data-dir', dataDir, 'resume', receipt.run_id],
       { detached: true, stdio: ['ignore', 'pipe', 'pipe'] },
     );
     let stdout = '';
@@ -49,41 +75,38 @@ export async function runBlackBoxCrash(options = {}) {
       stderr += String(error);
     });
 
-    await waitUntil('completed first step and blocked second attempt', () => {
+    await waitUntil('the resumed second step to be in flight', () => {
       if (spawnError) throw new EnvironmentError(spawnError.message);
       if (child.exitCode !== null) {
         throw new Error(`relayflowd exited before the kill boundary: ${stdout}${stderr}`);
       }
-      return (
-        readLines(effects).join(',') === 'first' &&
-        readLines(attempts).join(',') === 'attempt' &&
-        readPid(stepPid) !== null &&
-        runIds(dataDir).length === 1
-      );
+      return readLines(attempts).join(',') === 'attempt' && readPid(stepPid) !== null;
     });
-    check(assertions, readLines(effects), ['first'], 'only step one completed before SIGKILL');
     check(assertions, readLines(attempts), ['attempt'], 'step two was in flight before SIGKILL');
-    const ids = runIds(dataDir);
-    check(assertions, ids.length, 1, 'one opaque run receipt exists');
 
     const exited = once(child, 'exit');
     process.kill(-child.pid, 'SIGKILL');
     const [exitCode, signal] = await exited;
-    check(assertions, exitCode, null, 'killed process has no numeric exit code');
-    check(assertions, signal, 'SIGKILL', 'workflow process observed SIGKILL');
+    check(assertions, exitCode, null, 'killed resume process has no numeric exit code');
+    check(assertions, signal, 'SIGKILL', 'resume process observed SIGKILL');
     await killAndWait(readPid(stepPid));
     check(assertions, isProcessAlive(readPid(stepPid)), false, 'in-flight step process was killed');
     writeFileSync(gate, 'open\n');
 
-    const resumed = spawnSync(binary, ['--data-dir', dataDir, 'resume', ids[0]], {
+    const resumed = spawnSync(binary, ['--data-dir', dataDir, 'resume', receipt.run_id], {
       encoding: 'utf8',
       timeout: 30000,
     });
     if (resumed.error) throw new EnvironmentError(resumed.error.message);
-    check(assertions, resumed.status, 0, `resume exited zero: ${resumed.stderr}`);
-    const outcome = JSON.parse(resumed.stdout);
-    check(assertions, outcome.status, 'completed', 'resume completed the run');
-    check(assertions, outcome.completion_reason, 'success', 'completion reason is declared success');
+    check(assertions, resumed.status, 0, `final resume exited zero: ${resumed.stderr}`);
+    const outcome = parseOutcome(resumed.stdout);
+    check(assertions, outcome.status, 'completed', 'final resume completed the run');
+    check(
+      assertions,
+      outcome.completion_reason,
+      'success',
+      'completion reason is declared success',
+    );
     check(assertions, outcome.completed_steps, 3, 'all three steps completed');
     check(
       assertions,
@@ -97,9 +120,12 @@ export async function runBlackBoxCrash(options = {}) {
       ['first', 'second', 'third'],
       'the completed step was not replayed and final effects occurred once in dependency order',
     );
+    assert.equal(assertions.length, EXPECTED_ASSERTIONS, 'harness assertion count changed');
 
     return {
-      assertions: assertions.length,
+      assertionsPassed: assertions.length,
+      assertionsExpected: EXPECTED_ASSERTIONS,
+      assertionNames: assertions,
       runStatus: outcome.status,
       completionReason: outcome.completion_reason,
       attempts: readLines(attempts).length,
@@ -108,6 +134,21 @@ export async function runBlackBoxCrash(options = {}) {
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }
+}
+
+export function parseOutcome(stdout) {
+  const lines = String(stdout).split('\n').map((line) => line.trim()).filter(Boolean).reverse();
+  for (const line of lines) {
+    try {
+      const outcome = JSON.parse(line);
+      if (outcome && typeof outcome === 'object' && typeof outcome.run_id === 'string') {
+        return outcome;
+      }
+    } catch {
+      // Non-JSON CLI diagnostics are allowed; the last valid receipt is authoritative.
+    }
+  }
+  throw new Error(`relayflowd stdout did not contain a JSON run receipt: ${stdout}`);
 }
 
 function resolveRelayflowd(repoRoot) {
@@ -147,7 +188,7 @@ function flowSpec({ effects, attempts, gate, stepPid }) {
     [
       "const fs=require('node:fs')",
       "fs.appendFileSync(process.argv[3], 'attempt\\n')",
-      "fs.writeFileSync(process.argv[4], String(process.pid))",
+      'fs.writeFileSync(process.argv[4], String(process.pid))',
       'const wait=new Int32Array(new SharedArrayBuffer(4))',
       'while(!fs.existsSync(process.argv[2])) Atomics.wait(wait,0,0,20)',
       "fs.appendFileSync(process.argv[1], 'second\\n')",
@@ -165,16 +206,6 @@ function flowSpec({ effects, attempts, gate, stepPid }) {
       step('third', 'third', 'second'),
     ],
   };
-}
-
-function runIds(dataDir) {
-  try {
-    return readdirSync(join(dataDir, 'runs'))
-      .filter((name) => name.endsWith('.sqlite3'))
-      .map((name) => name.slice(0, -'.sqlite3'.length));
-  } catch {
-    return [];
-  }
 }
 
 function readLines(path) {
@@ -232,7 +263,9 @@ function check(assertions, actual, expected, description) {
 async function main() {
   try {
     const result = await runBlackBoxCrash();
-    process.stdout.write(`BLACK_BOX_ASSERTIONS: ${result.assertions}/${result.assertions}\n`);
+    process.stdout.write(
+      `BLACK_BOX_ASSERTIONS: ${result.assertionsPassed}/${result.assertionsExpected}\n`,
+    );
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } catch (error) {
     const environment = error instanceof EnvironmentError;

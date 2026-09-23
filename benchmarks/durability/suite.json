@@ -23,7 +23,7 @@
         "timeoutMs": 150000
       },
       "successWitnesses": [
-        {"stream": "stdout", "contains": "BLACK_BOX_ASSERTIONS: 12/12"},
+        {"stream": "stdout", "contains": "BLACK_BOX_ASSERTIONS: 16/16"},
         {"stream": "stdout", "contains": "\"completionReason\":\"success\""},
         {"stream": "stdout", "contains": "\"attempts\":2"},
         {"stream": "stdout", "contains": "\"effects\":[\"first\",\"second\",\"third\"]"}

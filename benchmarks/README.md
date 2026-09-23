@@ -41,6 +41,20 @@ output witnesses proving each selected test actually ran. Every trial records
 its argv, working directory, duration, outcome, exit code, stdout, and stderr;
 the report records the suite hash, source commit, toolchain, and host class.
 
+Trial processes receive and record a small allowlist of ambient variables
+(`HOME`, locale, `PATH`, temporary-directory variables, shell, and Relayflows
+toolchain controls), plus any explicit per-case environment. Credentials and
+unrelated ambient state are neither inherited nor written to the report. A
+command timeout is a product failure blocker (`trial_timeouts`), not an
+environmental excuse.
+
+The black-box crash case stays on the supported CLI boundary. It obtains an
+opaque run receipt from `run --stop-after 1`, resumes that run, kills the
+workflow while the next step is in flight, then resumes again using the receipt.
+It does not inspect journal files or storage layout. Its fixed, named assertion
+set is emitted in the report, so the witness cannot pass by merely agreeing
+with its own dynamic count.
+
 ## Claim discipline
 
 - A passing durability artifact supports only its seven named claims. It is not a

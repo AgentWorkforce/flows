@@ -4,14 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import {
-  collectProvenance,
-  parseArgs,
-  reportExitCode,
-  runEvalSuite,
-  validateEvalSuite,
-  validateOutputPath,
-} from './run-evals.mjs';
+import { parseOutcome } from '../benchmarks/durability/black-box-crash.mjs';
+import { collectProvenance } from './eval-provenance.mjs';
+import { runEvalSuite, trialEnvironment, validateEvalSuite } from './eval-suite.mjs';
+import { parseArgs, reportExitCode, validateOutputPath } from './run-evals.mjs';
 
 function suite(overrides = {}) {
   return {
@@ -170,6 +166,59 @@ test('a recognized toolchain failure is inconclusive rather than a product failu
   });
 });
 
+test('a timed-out command is a product failure blocker, not an environment failure', () => {
+  withSuite(suite({ defaultRepetitions: 1, minimumPublishableRepetitions: 1 }), ({ root, path }) => {
+    const error = Object.assign(new Error('spawnSync fixture ETIMEDOUT'), { code: 'ETIMEDOUT' });
+    const report = runEvalSuite({
+      rootDir: root,
+      suitePath: path,
+      provenance: provenance(root, false),
+      execute: () => ({ status: null, signal: 'SIGTERM', stdout: '', stderr: '', error }),
+    });
+    assert.equal(report.cases[0].trials[0].outcome, 'timed_out');
+    assert.equal(report.summary.timedOutTrials, 1);
+    assert.deepEqual(report.summary.blockers, ['trial_timeouts']);
+  });
+});
+
+test('trial environments are allowlisted and recorded without ambient secrets', () => {
+  const environment = trialEnvironment(
+    {
+      CARGO_HOME: '/toolchain/cargo',
+      HOME: '/home/eval',
+      PATH: '/bin',
+      RELAY_API_KEY: 'secret',
+      RUSTUP_TOOLCHAIN: 'stable',
+      UNKNOWN: 'not-recorded',
+    },
+    { FIXTURE_MODE: 'deterministic' },
+  );
+  assert.deepEqual(environment, {
+    CARGO_HOME: '/toolchain/cargo',
+    HOME: '/home/eval',
+    PATH: '/bin',
+    RUSTUP_TOOLCHAIN: 'stable',
+    FIXTURE_MODE: 'deterministic',
+  });
+
+  withSuite(suite({ defaultRepetitions: 1, minimumPublishableRepetitions: 1 }), ({ root, path }) => {
+    let observedEnvironment;
+    const report = runEvalSuite({
+      rootDir: root,
+      suitePath: path,
+      provenance: provenance(root, false),
+      parentEnv: { HOME: '/home/eval', PATH: '/bin', RELAY_API_KEY: 'secret' },
+      execute: (_file, _args, options) => {
+        observedEnvironment = options.env;
+        return { status: 0, signal: null, stdout: 'executed resume\n', stderr: '' };
+      },
+    });
+    assert.deepEqual(observedEnvironment, { HOME: '/home/eval', PATH: '/bin' });
+    assert.deepEqual(report.cases[0].trials[0].command.environment, observedEnvironment);
+    assert.equal('RELAY_API_KEY' in report.cases[0].trials[0].command.environment, false);
+  });
+});
+
 test('case cwd resolves relative to the suite and cannot escape the provenance root', () => {
   withSuite(suite(), ({ root, path }) => {
     const observed = [];
@@ -235,6 +284,7 @@ test('CLI parsing and exit policy fail closed for nonpublishable evidence', () =
     repetitions: 30,
   });
   assert.throws(() => parseArgs(['--unknown']), /unknown option/u);
+  assert.throws(() => parseArgs(['--suite', 'suite.json', '--repeat', '0']), /--repeat must be a positive integer/u);
   assert.equal(reportExitCode({ summary: { publicationStatus: 'eligible' } }), 0);
   assert.equal(reportExitCode({ summary: { publicationStatus: 'ineligible' } }), 1);
   assert.throws(
@@ -242,4 +292,12 @@ test('CLI parsing and exit policy fail closed for nonpublishable evidence', () =
     /output must be outside the source tree/u,
   );
   assert.doesNotThrow(() => validateOutputPath('/work/repo', '/tmp/result.json'));
+});
+
+test('black-box receipt parsing tolerates diagnostics but requires a public run receipt', () => {
+  assert.deepEqual(parseOutcome('diagnostic\n{"run_id":"run-1","status":"completed"}\n'), {
+    run_id: 'run-1',
+    status: 'completed',
+  });
+  assert.throws(() => parseOutcome('diagnostic only\n'), /did not contain a JSON run receipt/u);
 });
