@@ -190,3 +190,15 @@ at the definition site.
 
 The underlying bugs (#511, #513) are not fixed, and the spec is not
 round-tripped past the daemon's validator (#502).
+
+## Merge with origin/main (conflict resolution note)
+
+Main deliberately broadened the artifact scan so dot-directories like
+`.workflow-artifacts/` are journaled and gate-able; only exact names `.git`,
+`.relayflowd` and `node_modules` are skipped, at any depth. This branch's
+shared `artifact-scan-policy.ts` predicate now encodes THAT set (not the older
+dot-prefix rule), so `gate_path_unscanned` warns only on paths the merged scan
+can never record — `node_modules/**`, `.git/**`, `.relayflowd/**` — and the
+`.workflow-artifacts/` gates main enabled produce no warning. `cli.ts` keeps
+both the `agent_worker_unresolved` deferral and main's model-provenance
+helper; `agent-artifacts.ts` keeps the shared-predicate import.

@@ -60,7 +60,7 @@ process.stdout.write(JSON.stringify({ spec, authored }));
       '--no-compile-autoload-bunfig', '--outfile', executable, input], directory);
     const files: BundleFile[] = [
       { path: 'flow', data: await readFile(executable) },
-      { path: 'lockfile.json', data: canonicalize(lock) },
+      { path: 'package-lock.json', data: canonicalize(lock) },
     ];
     return { spec, authored: inspected.authored === true, compiler, files };
   } finally { await rm(staging, { recursive: true, force: true }); }

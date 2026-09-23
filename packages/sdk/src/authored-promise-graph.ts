@@ -1,4 +1,5 @@
 import { createHook, executionAsyncId, type AsyncHook } from 'node:async_hooks';
+import { reachableTargets } from './promise-ancestry.js';
 
 /**
  * The promise graph an authored flow body actually creates.
@@ -35,7 +36,9 @@ export class AuthoredPromiseGraph {
   private readonly attributedRoots = new Map<number, number>();
   private readonly roots = new Set<number>();
   private readonly pending = new Set<number>();
-  private dependencyCache: { readonly start: number; readonly found: ReadonlySet<number> } | undefined;
+  private dependencyCache: { readonly start: number; readonly found: ReadonlySet<number>; readonly version: number } | undefined;
+  /** Bumped by every graph change, so derived answers can be cached between changes. */
+  private changes = 0;
 
   constructor(
     private readonly inScope: () => boolean,
@@ -45,6 +48,7 @@ export class AuthoredPromiseGraph {
       init: (asyncId, type, triggerAsyncId, resource) => {
         if (type !== 'PROMISE' || typeof resource !== 'object' || resource === null) return;
         if (!this.inScope()) return;
+        this.changes++;
         this.triggers.set(asyncId, triggerAsyncId);
         this.creationContexts.set(asyncId, executionAsyncId());
         this.promiseIds.set(resource, asyncId);
@@ -59,6 +63,7 @@ export class AuthoredPromiseGraph {
       promiseResolve: (asyncId) => {
         this.onPromiseResolve(asyncId);
         if (!this.triggers.has(asyncId)) return;
+        this.changes++;
         const cause = executionAsyncId();
         if (cause !== asyncId) this.resolutionCauses.set(asyncId, cause);
         this.pending.delete(asyncId);
@@ -98,6 +103,7 @@ export class AuthoredPromiseGraph {
   /** Mark a promise whose descendants belong to an authored operation. */
   registerRoot(asyncId: number): void {
     if (asyncId <= 0 || this.roots.has(asyncId)) return;
+    this.changes++;
     this.roots.add(asyncId);
     const parked = this.unattributedChildren.get(asyncId);
     if (parked === undefined) return;
@@ -105,29 +111,56 @@ export class AuthoredPromiseGraph {
     for (const child of parked) this.attribute(child, asyncId);
   }
 
-  /** Promises derived from `roots` that have not settled. */
-  inFlightFrom(roots: ReadonlySet<number>): number[] {
-    const found: number[] = [];
+  /** The roots that still have derived promises in flight. One pass over `pending`. */
+  rootsInFlight(): Set<number> {
+    const found = new Set<number>();
     for (const asyncId of this.pending) {
       const root = this.attributedRoots.get(asyncId);
-      if (root !== undefined && roots.has(root)) found.push(asyncId);
+      if (root !== undefined) found.add(root);
     }
     return found;
   }
 
-  /** Settled promises derived from `roots`, with their handles. */
-  settledFrom(roots: ReadonlySet<number>): Promise<unknown>[] {
-    const found: Promise<unknown>[] = [];
+  /** Every settled derived promise with its root, in attribution order. One pass. */
+  settledWithRoots(): Array<{ readonly root: number; readonly handle: Promise<unknown> }> {
+    const found: Array<{ root: number; handle: Promise<unknown> }> = [];
     for (const [asyncId, root] of this.attributedRoots) {
-      if (!roots.has(root) || this.pending.has(asyncId)) continue;
+      if (this.pending.has(asyncId)) continue;
       const handle = this.handles.get(asyncId);
-      if (handle !== undefined) found.push(handle);
+      if (handle !== undefined) found.push({ root, handle });
     }
     return found;
+  }
+
+  /** The three recorded edges out of one promise, for walks that stop early. */
+  causesOf(asyncId: number): number[] {
+    const causes: number[] = [];
+    for (const edge of [
+      this.triggers.get(asyncId),
+      this.resolutionCauses.get(asyncId),
+      this.creationContexts.get(asyncId),
+    ]) {
+      if (edge !== undefined && edge !== asyncId) causes.push(edge);
+    }
+    return causes;
   }
 
   dependsOn(descendant: number, ancestor: number): boolean {
     return this.dependenciesOf(descendant).has(ancestor);
+  }
+
+  /** A counter that changes whenever the graph does; equal values mean equal answers. */
+  get version(): number {
+    return this.changes;
+  }
+
+  /**
+   * `dependsOn(start, target)` for every pair at once: for each start, the
+   * targets it depends on. One pass over the shared ancestry instead of one
+   * walk per pair (see promise-ancestry.ts).
+   */
+  dependenciesAmong(starts: readonly number[], targets: readonly number[]): Map<number, ReadonlySet<number>> {
+    return reachableTargets(starts, targets, (node) => this.causesOf(node));
   }
 
   clear(): void {
@@ -175,22 +208,16 @@ export class AuthoredPromiseGraph {
    */
   private dependenciesOf(start: number): ReadonlySet<number> {
     const cached = this.dependencyCache;
-    if (cached !== undefined && cached.start === start) return cached.found;
+    if (cached !== undefined && cached.start === start && cached.version === this.changes) return cached.found;
     const found = new Set<number>();
     const stack = [start];
     while (stack.length > 0) {
       const current = stack.pop()!;
       if (found.has(current)) continue;
       found.add(current);
-      for (const edge of [
-        this.triggers.get(current),
-        this.resolutionCauses.get(current),
-        this.creationContexts.get(current),
-      ]) {
-        if (edge !== undefined && edge !== current) stack.push(edge);
-      }
+      for (const edge of this.causesOf(current)) stack.push(edge);
     }
-    this.dependencyCache = { start, found };
+    this.dependencyCache = { start, found, version: this.changes };
     return found;
   }
 }

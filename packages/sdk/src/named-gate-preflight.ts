@@ -38,8 +38,8 @@ export function namedGateScanCoverageDiagnostics(step: StepSpec): PreflightWarni
     kind: 'gate_path_unscanned',
     stepId: step.id,
     message: `Step "${step.id}" gates on artifact_exists path "${gate.path}", but the bundled agent worker's `
-      + `artifact scan records nothing under "${prefix}": it skips entries whose name starts with "." and `
-      + 'entries named "node_modules". The gate reads the journaled output.artifacts and never the disk, so '
+      + `artifact scan records nothing under "${prefix}": it skips entries named `
+      + '".git", ".relayflowd" and "node_modules". The gate reads the journaled output.artifacts and never the disk, so '
       + 'writing the file is not enough: the step has to report the path itself — as object-shaped JSON stdout '
       + 'carrying its own "artifacts" array, as a completed Relay task output, or from a custom worker. If the '
       + 'gate is meant to rest on the scan, write the artifact to a path the scan records.',

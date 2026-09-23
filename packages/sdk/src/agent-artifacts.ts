@@ -13,17 +13,24 @@ function isEnoent(error: unknown): boolean {
  * Content, not mtime: a fast rewrite inside the filesystem's timestamp
  * resolution must still count as a change — the same rule
  * `examples/research/shims/agent-cli.ts`'s `snapshot()` uses for the same
- * "did the agent actually write something" question. Dotfiles/dotdirs
- * (`.git`, a default `.relayflowd` data dir, editor swap files, ...) are never
- * agent-authored content and are skipped, as is `node_modules`. A data dir the
- * caller named explicitly is not a dotdir and so is not covered here; the
- * caller excludes it from the diff instead (`worker-cli.ts`).
- * A missing `dir` (an agent step whose cwd does not exist yet) yields an
- * empty snapshot rather than throwing. Only a vanished path (`ENOENT`) is
- * ever swallowed this way; any other filesystem error (permissions,
- * `ENOTDIR`, `EISDIR`, ...) propagates, because a step whose artifact scan
- * silently dropped files it could not read must not report a successful,
- * incomplete `artifacts` list as if it were the truth.
+ * "did the agent actually write something" question.
+ *
+ * Dotfiles and dot-directories ARE eligible. `.workflow-artifacts/` is the
+ * conventional place a flow tells its agents to write, and a blanket dot-prefix
+ * skip made every review, report and evidence file written there invisible to
+ * the journal — and so to an `artifact_exists` gate naming one, which could
+ * then never pass. Only the three names in `SKIPPED_ENTRY_NAMES` are excluded:
+ * `.git`, the default `.relayflowd` data dir, and `node_modules`. A data dir
+ * the caller named explicitly is not one of those; the caller drops that whole
+ * subtree from the diff instead (`worker-cli.ts`).
+ *
+ * Only regular files are signed; symlinks are not followed and directories are
+ * descended, not recorded. A missing `dir` (an agent step whose cwd does not
+ * exist yet) yields an empty snapshot rather than throwing. Only a vanished
+ * path (`ENOENT`) is ever swallowed this way; any other filesystem error
+ * (permissions, `ENOTDIR`, `EISDIR`, ...) propagates, because a step whose
+ * artifact scan silently dropped files it could not read must not report a
+ * successful, incomplete `artifacts` list as if it were the truth.
  */
 export async function snapshotWorkspaceFiles(dir: string): Promise<Map<string, string>> {
   const out = new Map<string, string>();

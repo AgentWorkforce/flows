@@ -196,9 +196,17 @@ export interface StepFailedDetails {
    */
   maxIterations?: number;
   exitCode?: number;
-  /** Terminal-safe UTF-8 excerpt, at most 1,024 bytes. */
+  /**
+   * Terminal-safe UTF-8 excerpt of the captured stdout, at most
+   * `EXCERPT_BYTES` (cli/step-excerpt.ts). The field name is kept for
+   * compatibility; it is no longer a plain tail. When the captured field did
+   * not fit, the excerpt keeps a head, the lines from the elided middle that
+   * match a failure marker, and a tail, and states the elision in band. The
+   * absence of an elision marker means the field the journal carried fit
+   * whole — not that the command printed no more than this.
+   */
   stdoutTail?: string;
-  /** Terminal-safe UTF-8 excerpt, at most 1,024 bytes. */
+  /** Terminal-safe UTF-8 excerpt of the captured stderr; see `stdoutTail`. */
   stderrTail?: string;
   /**
    * The daemon's own account when it was not a render of the fields above, or

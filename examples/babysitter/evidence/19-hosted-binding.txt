@@ -1,0 +1,253 @@
+$ node --experimental-strip-types --test examples/babysitter/tests/hosted.test.ts (before implementation; missing-module RED, not mutation evidence)
+node:internal/modules/esm/resolve:241
+    throw new ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/Users/khaliqgant/Projects/AgentWorkforce/flows/examples/babysitter/hosted.ts' imported from /Users/khaliqgant/Projects/AgentWorkforce/flows/examples/babysitter/tests/hosted.test.ts
+    at finalizeResolution (node:internal/modules/esm/resolve:241:11)
+    at moduleResolve (node:internal/modules/esm/resolve:846:10)
+    at defaultResolve (node:internal/modules/esm/resolve:973:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:708:20)
+    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:728:38)
+    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:766:56)
+    at #resolve (node:internal/modules/esm/loader:690:17)
+    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:610:35)
+    at ModuleJob.syncLink (node:internal/modules/esm/module_job:277:33)
+    at ModuleJob.link (node:internal/modules/esm/module_job:389:17) {
+  code: 'ERR_MODULE_NOT_FOUND',
+  url: 'file:///Users/khaliqgant/Projects/AgentWorkforce/flows/examples/babysitter/hosted.ts'
+}
+
+Node.js v26.9.0
+✖ examples/babysitter/tests/hosted.test.ts (714.115292ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 779.304833
+
+✖ failing tests:
+
+test at examples/babysitter/tests/hosted.test.ts:1:1
+✖ examples/babysitter/tests/hosted.test.ts (714.115292ms)
+  'test failed'
+
+$ node --experimental-strip-types --test examples/babysitter/tests/*.test.ts
+✔ malformed input makes zero effects; missing live state declines before agents (16.341666ms)
+✔ duplicate delivery cannot bypass missing publication or agent-scope capability (5.184958ms)
+✔ live-head review/check wakes evaluate merge but do not simulate an unavailable receipt (11.872625ms)
+✔ authorized conflict wakes hand off unresolved semantic work; ordinary/unauthorized comments decline (9.137209ms)
+✔ merge transport sends the bound live SHA and fails if provider does not confirm (1.118625ms)
+⚠ live-head end-to-end review and merge acceptance remains RED (9.716208ms) # Requires enforced agent scopes and durable fenced publication; the passing merge transport unit test is not end-to-end acceptance
+✔ malformed external inputs fail before shell or API (11.333125ms)
+✔ live skip and author rules fail closed (1.046125ms)
+✔ READY rejects missing pending red conflicts stale heads and missing state (4.233458ms)
+✔ a later comment or pending review cannot hide a standing verdict (4.034ms)
+✔ merge requires opt in org and configured independent approver at exact SHA (0.689792ms)
+✔ conflict command is explicit authorized and same repository only (6.351625ms)
+✔ edits fail closed for semantic changes, fork, protected paths, tests and unresolved conflicts (7.383875ms)
+✔ artifacts are nonempty schema validated exact head and reconcile deterministically (15.281333ms)
+✔ publication refuses stale post race newer verdict spoof and absent atomic capability (0.57675ms)
+✔ once per head keys and sticky CI attribution survive duplicate wake decisions (7.227833ms)
+✔ one bounded infra retry only for 137/143 (0.808708ms)
+✔ every hosted subscription reaches the same authoritative reread with pinned coordinates (12.999375ms)
+✔ hosted delivery fields cannot redirect policy, coordinates or live-head binding (4.615125ms)
+✔ wrong repository, PR, host, provider or subscription refuse before the live read (3.06825ms)
+✔ case-insensitive Cloud coordinates work and policy is snapshotted at construction (1.897542ms)
+✔ normalized comment wake rereads then holds for missing original repair directive (1.789209ms)
+✔ invalid operator policy is refused when the hosted source loads (1.746792ms)
+⚠ atomicPrPublication (17.877ms) # Provider per-PR serialization + head-guarded idempotent owned-comment upsert
+⚠ durableCrossRunNotification (0.621042ms) # Durable per-head notification receipt and atomic delivery claim
+⚠ journaledCiObservation (12.299583ms) # Journal-backed script-memory write/recall across runs (memory.learn currently refuses)
+⚠ enforcedAgentWriteScope (0.487083ms) # Enforced readonly agent workspace and credential scopes (gate 8 / #442)
+⚠ selectiveAgentExitRetry (0.3375ms) # Typed agent exit-code/retry policy in authored Step; AgentResult only has summary/artifacts
+⚠ durableSubscriptionLiveness (0.273709ms) # Durable cross-run wake records for the liveness sweep; a subscription that stops firing is currently indistinguishable from a quiet one
+✔ the declared subscription contract is exactly the required resident set (12.259041ms)
+✔ every declared subscription registers one handler bound to the one body (1.006125ms)
+✔ each trigger filters to its own provider, type and action (0.948959ms)
+✔ compatibility entry points still resolve to this one implementation (1.842916ms)
+✔ subscription preflight passes the declared contract and has teeth (2.312084ms)
+✔ preflight refuses an undeliverable subscription rather than deploying it (0.723167ms)
+✔ a delivery is accepted as a hint; only routing is enforced (8.209792ms)
+✔ a fork check_run with no PR attribution still wakes and rereads (8.728208ms)
+✔ repository routing compares owner and repository case-insensitively (2.866333ms)
+✔ a stale hinted head is recorded, never enforced, and never binds (3.66775ms)
+✔ an operator pin constrains the run; it never substitutes for live state (1.623958ms)
+✔ every wake rereads live state before it decides anything (13.100833ms)
+✔ a payload that disagrees with live state loses: closed hint, open PR (5.831166ms)
+✔ a payload that disagrees with live state loses: open hint, closed PR (1.971416ms)
+✔ a label hint is re-read from live state in both directions (3.301708ms)
+✔ a review hint cannot assert an approval live state does not show (1.198666ms)
+✔ a check hint cannot assert a conclusion live state does not show (0.880209ms)
+✔ duplicate delivery repeats a decision instead of adding one (1.503584ms)
+✔ out-of-order delivery decides about the head that exists now (3.871375ms)
+✔ the decision key names the subscription and the live head, never the hint (0.560792ms)
+✔ each wake emits one deterministic observation line (0.551292ms)
+✔ the sweep separates a quiet subscription from a dead one (1.924208ms)
+✔ a young subscription is pending, an old silent one is never (0.734542ms)
+✔ the sweep refuses impossible windows and clock-faulted records (0.844833ms)
+✔ the sweep expects exactly the subscriptions the flow registers (0.164042ms)
+ℹ tests 54
+ℹ suites 0
+ℹ pass 47
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 7
+ℹ duration_ms 2635.348417
+
+✖ failing tests:
+
+test at examples/babysitter/tests/flow.test.ts:47:1
+⚠ live-head end-to-end review and merge acceptance remains RED (9.716208ms) # Requires enforced agent scopes and durable fenced publication; the passing merge transport unit test is not end-to-end acceptance
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   'needs_human'
+  -   'success'
+    ]
+  
+      at TestContext.<anonymous> (file:///Users/khaliqgant/Projects/AgentWorkforce/flows/examples/babysitter/tests/flow.test.ts:49:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'needs_human' ],
+    expected: [ 'success' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/platform.test.ts:14:3
+⚠ atomicPrPublication (17.877ms) # Provider per-PR serialization + head-guarded idempotent owned-comment upsert
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///Users/khaliqgant/Projects/AgentWorkforce/flows/examples/babysitter/tests/platform.test.ts:14:49)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/platform.test.ts:14:3
+⚠ durableCrossRunNotification (0.621042ms) # Durable per-head notification receipt and atomic delivery claim
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///Users/khaliqgant/Projects/AgentWorkforce/flows/examples/babysitter/tests/platform.test.ts:14:49)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/platform.test.ts:14:3
+⚠ journaledCiObservation (12.299583ms) # Journal-backed script-memory write/recall across runs (memory.learn currently refuses)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///Users/khaliqgant/Projects/AgentWorkforce/flows/examples/babysitter/tests/platform.test.ts:14:49)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/platform.test.ts:14:3
+⚠ enforcedAgentWriteScope (0.487083ms) # Enforced readonly agent workspace and credential scopes (gate 8 / #442)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///Users/khaliqgant/Projects/AgentWorkforce/flows/examples/babysitter/tests/platform.test.ts:14:49)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/platform.test.ts:14:3
+⚠ selectiveAgentExitRetry (0.3375ms) # Typed agent exit-code/retry policy in authored Step; AgentResult only has summary/artifacts
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///Users/khaliqgant/Projects/AgentWorkforce/flows/examples/babysitter/tests/platform.test.ts:14:49)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/platform.test.ts:14:3
+⚠ durableSubscriptionLiveness (0.273709ms) # Durable cross-run wake records for the liveness sweep; a subscription that stops firing is currently indistinguishable from a quiet one
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///Users/khaliqgant/Projects/AgentWorkforce/flows/examples/babysitter/tests/platform.test.ts:14:49)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+$ ./packages/sdk/node_modules/.bin/tsc -p examples/babysitter/tsconfig.json (exit 0)
+
+$ node packages/sdk/dist/cli.js check examples/babysitter/dist/babysitter-hosted.flow.ts (built with operator policy)
+REQUIRES github (on github pull_request)
+CHECK PASSED examples/babysitter/dist/babysitter-hosted.flow.ts

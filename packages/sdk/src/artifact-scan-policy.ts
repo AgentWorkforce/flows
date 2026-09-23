@@ -2,12 +2,13 @@
  * The bundled agent worker's artifact-scan policy, as a pure predicate.
  *
  * `agent-artifacts.ts` walks an agent step's cwd and records every regular
- * file it finds, except entries whose name starts with `.` and entries named
- * exactly `node_modules` — files as well as directories, in both cases. What
- * that walk records is one source of the journaled `output.artifacts` list,
- * which is the only thing an `artifact_exists` gate reads
- * (`named-gate-lowering.ts` tests exact membership in that list and never
- * touches disk).
+ * file it finds, except entries named exactly `.git`, `.relayflowd` or
+ * `node_modules` — files as well as directories, in both cases. Dotfiles and
+ * dot-directories ARE eligible: `.workflow-artifacts/` is the conventional
+ * place a flow tells its agents to write. What that walk records is one
+ * source of the journaled `output.artifacts` list, which is the only thing an
+ * `artifact_exists` gate reads (`named-gate-lowering.ts` tests exact
+ * membership in that list and never touches disk).
  *
  * Static analysis needs the same rule without importing filesystem traversal,
  * so the rule lives here and both consume it. It bounds the *scan*, not the
@@ -19,11 +20,17 @@
  * reason).
  */
 
-/** Entry names the walk never descends into or records. */
-const SKIPPED_ENTRY_NAMES = new Set(['node_modules']);
+/**
+ * Entry names the walk never descends into or records, matched exactly, at
+ * any depth, before the entry's type is consulted — so a `.git` *file* (a
+ * worktree's gitdir pointer) is skipped as surely as a `.git` directory.
+ * Exact names, not prefixes: `.github`, `.relayflowd-notes` and every other
+ * author-chosen name that merely starts the same way stays eligible.
+ */
+const SKIPPED_ENTRY_NAMES = new Set(['.git', '.relayflowd', 'node_modules']);
 
 export function isUnscannedEntryName(name: string): boolean {
-  return name.startsWith('.') || SKIPPED_ENTRY_NAMES.has(name);
+  return SKIPPED_ENTRY_NAMES.has(name);
 }
 
 /**

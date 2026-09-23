@@ -54,7 +54,7 @@ afterEach(() => { onSpawn = undefined; claudeResult = 'done'; for (const d of di
 function tempDir(): string { const d = mkdtempSync(join(tmpdir(), 'artifact-gates-')); dirs.push(d); return d; }
 
 describe('worker-side artifacts', () => {
-  it('journals the files the CLI created or changed in its cwd, content-hashed, dotdirs and node_modules excluded', async () => {
+  it('journals the files the CLI created or changed in its cwd, content-hashed, including dot-directories, with .git and node_modules excluded', async () => {
     const cwd = tempDir();
     mkdirSync(join(cwd, 'review'));
     writeFileSync(join(cwd, 'review/existing.md'), 'v1');
@@ -63,14 +63,16 @@ describe('worker-side artifacts', () => {
       mkdirSync(join(dir!, 'review'), { recursive: true });
       writeFileSync(join(dir!, 'review/security.md'), 'findings');
       writeFileSync(join(dir!, 'review/existing.md'), 'v2');
-      mkdirSync(join(dir!, '.cache'), { recursive: true });
-      writeFileSync(join(dir!, '.cache/tmp'), 'x');
+      mkdirSync(join(dir!, '.workflow-artifacts/x'), { recursive: true });
+      writeFileSync(join(dir!, '.workflow-artifacts/x/y.md'), 'evidence');
+      mkdirSync(join(dir!, '.git/objects'), { recursive: true });
+      writeFileSync(join(dir!, '.git/objects/abc'), 'x');
       mkdirSync(join(dir!, 'node_modules/dep'), { recursive: true });
       writeFileSync(join(dir!, 'node_modules/dep/index.js'), 'x');
     };
     const result = await runAgentCli('claude', 'review', undefined, 'claude-opus-5', undefined, undefined, 'agent', undefined, cwd);
     expect(result.exit_code, result.stderr_tail).toBe(0);
-    expect(result.artifacts).toEqual(['review/existing.md', 'review/security.md']);
+    expect(result.artifacts).toEqual(['.workflow-artifacts/x/y.md', 'review/existing.md', 'review/security.md']);
   });
 
   it('reports an empty list when nothing changed, and none at all for llm mode', async () => {
@@ -105,6 +107,9 @@ describe('worker-side artifacts: concurrency', () => {
 describe('artifact_exists named gate', () => {
   it('validates a relative POSIX path and refuses escapes, absolute paths and NUL', () => {
     expect(namedGateErrors({ type: 'artifact_exists', path: 'review/security.md' }, undefined, 'g')).toEqual([]);
+    // The conventional artifact directory is a dot-directory; it is a legal
+    // gate path, and the scanner journals what an agent writes there.
+    expect(namedGateErrors({ type: 'artifact_exists', path: '.workflow-artifacts/x/y.md' }, undefined, 'g')).toEqual([]);
     for (const path of ['', '  ', '/etc/passwd', '../x', 'a/../b', './x', 'a//b', 'a\0b', 42]) {
       const errors = namedGateErrors({ type: 'artifact_exists', path }, undefined, 'g');
       expect(errors, String(path)).toHaveLength(1);
@@ -144,6 +149,26 @@ describe('artifact_exists named gate', () => {
     expect(() => run({ message: 'a JSON-speaking agent owns its output' })).toThrow();
   });
 
+  it('judges a dot-directory path by the journal alone: present in input passes with no such file, absent fails with one on disk', () => {
+    const spec = compileSpec({ version: '0.1.0', name: 'x', steps: [
+      { id: 'shadow-rust', type: 'agent', instruction: 'i', cli: 'c',
+        verification: { type: 'artifact_exists', path: '.workflow-artifacts/reviews/shadow-rust.md' } },
+    ] });
+    const command = (lowerNamedGates(spec.steps)[1] as { command: string }).command;
+    const cwd = tempDir();
+    const run = (artifacts: unknown) => execFileSync('sh', ['-c', command], {
+      cwd, env: { ...process.env, FLOWS_INPUT: JSON.stringify({ output: { exit_code: 0, stdout_tail: '', artifacts } }) }, stdio: 'pipe',
+    });
+    // Journaled, never written here: the gate passes anyway.
+    expect(() => run(['.workflow-artifacts/reviews/shadow-rust.md'])).not.toThrow();
+    // On disk, absent from the journal: the gate still fails. This is the
+    // shape the ticket reported, and it stays correct — the fix is that the
+    // scanner now journals the path, not that the gate consults the disk.
+    mkdirSync(join(cwd, '.workflow-artifacts/reviews'), { recursive: true });
+    writeFileSync(join(cwd, '.workflow-artifacts/reviews/shadow-rust.md'), 'findings');
+    expect(() => run([])).toThrow();
+  });
+
   it('is preflightable: flows check prints it as a kernel exit_code gate', () => {
     const dir = tempDir();
     writeFileSync(join(dir, 'flows.json'), JSON.stringify({ cli: 'true' }));
@@ -171,14 +196,13 @@ describe('artifact_exists named gate: static scan coverage', () => {
   });
 
   it.each([
-    ['.workflow-artifacts/rust/review.md', '.workflow-artifacts'],
-    ['.hidden.md', '.hidden.md'],
+    ['.git/config', '.git'],
+    ['.relayflowd/runs/journal.md', '.relayflowd'],
     ['node_modules/pkg/out.md', 'node_modules'],
-    ['reports/.drafts/review.md', 'reports/.drafts'],
     ['reports/node_modules/out.md', 'reports/node_modules'],
     // The whole prefix, not the offending segment alone: that prefix is the
     // directory the author has to move the artifact out of.
-    ['a/b/.c/d/e.md', 'a/b/.c'],
+    ['a/b/.git/hooks/x.md', 'a/b/.git'],
   ])('warns on %s and names the excluded prefix %s, without refusing', (path, prefix) => {
     const result = preflight(gated(path) as never, { probes: probes() });
     const warning = result.diagnostics.find(d => d.kind === 'gate_path_unscanned');
@@ -190,9 +214,16 @@ describe('artifact_exists named gate: static scan coverage', () => {
 
   it.each([
     'review/security.md',
+    // Dotfiles and dot-directories are scanned: `.workflow-artifacts/` is the
+    // conventional place a flow tells its agents to write.
+    '.workflow-artifacts/rust/review.md',
+    '.hidden.md',
+    'reports/.drafts/review.md',
+    'a/b/.c/d/e.md',
     // Exact segment comparison, so a similar name is not an exclusion.
     'node_modules-copy/out.md',
     'reports/node_modules.md',
+    '.relayflowd-notes/out.md',
     // A dot inside a segment is not a dot-named entry.
     'review.md',
     'reports/v1.2/review.md',
@@ -208,8 +239,10 @@ describe('artifact_exists named gate: static scan coverage', () => {
   it('agrees with what the real scan records, for every case above', async () => {
     const cwd = tempDir();
     const paths = [
-      '.workflow-artifacts/rust/review.md', '.hidden.md', 'node_modules/pkg/out.md',
-      'reports/.drafts/review.md', 'reports/node_modules/out.md', 'a/b/.c/d/e.md',
+      '.git/config', '.relayflowd/runs/journal.md', 'node_modules/pkg/out.md',
+      'reports/node_modules/out.md', 'a/b/.git/hooks/x.md',
+      '.workflow-artifacts/rust/review.md', '.hidden.md', 'reports/.drafts/review.md',
+      'a/b/.c/d/e.md', '.relayflowd-notes/out.md',
       'review/security.md', 'node_modules-copy/out.md', 'reports/node_modules.md',
       'review.md', 'reports/v1.2/review.md', String.raw`dir\.hidden.md`,
     ];
@@ -234,7 +267,7 @@ describe('artifact_exists named gate: static scan coverage', () => {
     const result = preflight({
       version: '0.1.0', name: 'x',
       steps: [{ id: 'review', type: 'agent', instruction: 'i',
-        verification: { type: 'artifact_exists', path: '.out/review.md' } }],
+        verification: { type: 'artifact_exists', path: 'node_modules/out/review.md' } }],
     } as never, { probes: probes() });
 
     expect(result.diagnostics.map(d => d.kind)).toEqual(['gate_path_unscanned', 'cli_unresolved']);
@@ -245,7 +278,7 @@ describe('artifact_exists named gate: static scan coverage', () => {
     writeFileSync(join(dir, 'flows.json'), JSON.stringify({ cli: 'true' }));
     writeFileSync(join(dir, 'flow.yaml'), JSON.stringify({ version: '0.1.0', name: 'gated', steps: [
       { id: 'review', type: 'agent', instruction: 'i', cli: 'true',
-        verification: { type: 'artifact_exists', path: '.workflow-artifacts/rust/review.md' } },
+        verification: { type: 'artifact_exists', path: 'node_modules/out/review.md' } },
     ] }));
 
     const report = checkFlow(join(dir, 'flow.yaml')).report;
@@ -269,10 +302,10 @@ describe('artifact_exists named gate: static scan coverage', () => {
    */
   it('does not refuse a gate the bundled worker itself can satisfy through JSON output', async () => {
     const cwd = tempDir();
-    const path = '.workflow-artifacts/review.md';
+    const path = 'node_modules/review.md';
     onSpawn = (dir) => {
-      mkdirSync(join(dir!, '.workflow-artifacts'), { recursive: true });
-      writeFileSync(join(dir!, '.workflow-artifacts/review.md'), 'findings');
+      mkdirSync(join(dir!, 'node_modules'), { recursive: true });
+      writeFileSync(join(dir!, 'node_modules/review.md'), 'findings');
     };
     claudeResult = JSON.stringify({ artifacts: [path] });
     const authored = { version: '0.1.0', name: 'x', steps: [{ id: 'review', type: 'agent', instruction: 'i',
