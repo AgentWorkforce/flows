@@ -51,6 +51,7 @@ describe('authored event activities', () => {
         entry_type: 'step.completed', step_id: 'complete-1',
         payload: { completionReason: 'success', disposition: 'step_done', output: { exit_code: 0, stdout_tail: '', stderr_tail: '' } },
       }] }),
+      'stream.read': (ctx, params) => sendResult(ctx, { messages: [], next_offset: params.from_offset }),
     });
   });
 
