@@ -1,5 +1,5 @@
 import { realpathSync } from 'node:fs';
-import { resolve, sep } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { diffWorkspaceFiles, snapshotWorkspaceFiles } from './agent-artifacts.js';
 import { claudeResultOutcome, decodeProviderResult, decodeWrapperResult, requirePricedUsage } from './worker-usage.js';
 import { openSidechannel, type SidechannelContext } from './pty-sidechannel.js';
@@ -129,7 +129,7 @@ export async function runAgentCli(
   const artifactRoot = mode === 'agent' ? resolve(cwd ?? process.cwd()) : undefined;
   return artifactRoot === undefined
     ? execute()
-    : serializedByDirectory(artifactRoot, async () => {
+    : serializedByDirectory(canonicalTree(artifactRoot), async () => {
       const before = await snapshotWorkspaceFiles(artifactRoot);
       const result = await execute();
       const kernelData = sidechannel === undefined ? undefined : realPath(resolve(sidechannel.dataDir));
@@ -224,20 +224,52 @@ function under(path: string | undefined, directory: string | undefined): boolean
   return path === directory || path.startsWith(directory.endsWith(sep) ? directory : directory + sep);
 }
 
+/**
+ * Symlink-free form of an absolute path that may not exist yet: the deepest
+ * existing ancestor is resolved and the missing tail is kept. A plain
+ * `realPath` fallback would leave `/link/new` unresolved while `/link`
+ * resolves, and the overlap check would then treat them as disjoint trees.
+ */
+export function canonicalTree(path: string): string {
+  const missing: string[] = [];
+  let current = path;
+  for (;;) {
+    try {
+      return join(realpathSync(current), ...missing.reverse());
+    } catch {
+      const parent = dirname(current);
+      if (parent === current) return path;
+      missing.push(basename(current));
+      current = parent;
+    }
+  }
+}
+
 /** Symlink-free form of a path, or the path itself when it cannot be resolved. */
 function realPath(path: string | undefined): string | undefined {
   if (path === undefined) return undefined;
   try { return realpathSync(path); } catch { return path; }
 }
 
-/** One agent at a time per canonical working directory, for the artifact interval. */
-const directoryQueues = new Map<string, Promise<unknown>>();
+/**
+ * One agent at a time per overlapping working tree, for the artifact interval.
+ *
+ * `directory` must be canonical (symlink-free): `/repo` and a `/tmp/link` to it
+ * are one tree. Two trees overlap when one contains the other, because the
+ * snapshot walks the whole subtree — an agent in `/repo` would otherwise be
+ * credited with files an agent in `/repo/.wt/api` wrote meanwhile. Disjoint
+ * trees (sibling worktrees) run side by side. Each run waits for every
+ * earlier-registered overlapping run, so order within an overlap is arrival.
+ */
+const directoryRuns = new Set<{ readonly directory: string; readonly settled: Promise<void> }>();
 function serializedByDirectory<T>(directory: string, task: () => Promise<T>): Promise<T> {
-  const previous = directoryQueues.get(directory) ?? Promise.resolve();
-  const run = previous.then(task, task);
-  const settled = run.then(() => undefined, () => undefined);
-  directoryQueues.set(directory, settled);
-  void settled.then(() => { if (directoryQueues.get(directory) === settled) directoryQueues.delete(directory); });
+  const blockers = [...directoryRuns]
+    .filter(other => under(other.directory, directory) || under(directory, other.directory))
+    .map(other => other.settled);
+  const run = Promise.all(blockers).then(task);
+  const entry = { directory, settled: run.then(() => undefined, () => undefined) };
+  directoryRuns.add(entry);
+  void entry.settled.then(() => { directoryRuns.delete(entry); });
   return run;
 }
 

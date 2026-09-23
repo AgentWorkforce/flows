@@ -157,7 +157,26 @@ describe('durable authored root', () => {
       flowPath: loaded.sourcePath, input: { topic: 'relay' }, surface,
     });
     expect(metadata.sourceSha256).toMatch(/^[a-f0-9]{64}$/u);
+    expect(metadata.extensions).toEqual([]);
     expect(journal.peer.completions).toEqual([{ attempt: 1, reason: 'success' }]);
+  });
+
+  it('journals plugin digests from composed extensions', async () => {
+    const loaded = await fixture();
+    const extension = {
+      name: 'babysitter',
+      digest: 'c'.repeat(64),
+      ref: `github:AgentWorkforce/flows@${'a'.repeat(40)}#examples/babysitter`,
+    };
+    const journal = new RootJournal();
+    await executeDurableAuthoredFlow(
+      { ...loaded, extensions: [extension as LoadedAuthoredFlow['extensions'][number]] },
+      journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'with-plugin' },
+    );
+    const step = (journal.starts[0]!.spec as { steps: Array<{ instruction: string }> }).steps[0]!;
+    const metadata = JSON.parse(step.instruction) as AuthoredRootMetadata;
+    expect(metadata.extensions).toEqual([extension]);
   });
 
   it('reconciles a lost start acknowledgement from the durable root result', async () => {
@@ -360,6 +379,7 @@ async function fixture(
   return {
     sourcePath, handle, getDefinition, surfaceAuthority: surface,
     graph: [{ path: sourcePath, handle, getDefinition, surfaceAuthority: surface, use: [] }],
+    extensions: [],
   };
 }
 
@@ -390,6 +410,7 @@ function spawnedEntry(loaded: LoadedAuthoredFlow): Record<string, unknown> {
       sourceSha256: '76fd521c5bda4f37b3c69a6ae3c5a97f0a2ba53d3d8b09d9cc9709f809f5a5a2',
       surface,
     }],
+    extensions: [],
     inputPresent: false,
   };
   return {

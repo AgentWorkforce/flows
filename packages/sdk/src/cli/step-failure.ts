@@ -2,8 +2,7 @@ import { join } from 'node:path';
 import { DEFAULT_DATA_DIR } from '../daemon-connection.js';
 import type { StepFailedDetails } from '../failure-kinds.js';
 import type { JournalClient } from '../journal-client.js';
-
-const TAIL_BYTES = 1_024;
+import { formatStepExcerpt } from './step-excerpt.js';
 
 /**
  * Read what a failed step left in the journal — for any step type.
@@ -130,8 +129,8 @@ export function renderStepEvidence(details: StepFailedDetails): string {
     + (details.retryableTransport === undefined ? '' : ` retryable=${details.retryableTransport}`)
     + '.'
     + (details.detail === undefined ? '' : `\nDetail: ${details.detail}`)
-    + (details.stdoutTail ? `\nStdout (last 1,024 bytes):\n${details.stdoutTail}` : '')
-    + (details.stderrTail ? `\nStderr (last 1,024 bytes):\n${details.stderrTail}` : '')
+    + (details.stdoutTail ? `\nStdout (captured excerpt):\n${details.stdoutTail}` : '')
+    + (details.stderrTail ? `\nStderr (captured excerpt):\n${details.stderrTail}` : '')
     + (details.transcriptPath === undefined ? '' : `\nTranscript: ${details.transcriptPath}`);
 }
 
@@ -209,27 +208,27 @@ function evidence(payload: Record<string, unknown>): Partial<StepFailedDetails> 
   const structuredShape = structured !== undefined && processShaped(structured);
   const transcript = record(record(payload['trajectory_tail'])?.['transcript']);
   const failure = record(transcript?.['failure']);
-  const excerpt = failure?.['excerpt'];
+  const failureExcerpt = failure?.['excerpt'];
   const transcriptPath = record(transcript?.['file'])?.['path'];
   // The excerpt is the worker's own pick of the failure; a `stderr` excerpt
   // is the same bytes as `stderrTail`, so it is not printed twice.
-  const excerptDetail = typeof excerpt === 'string' && excerpt.length > 0
+  const excerptDetail = typeof failureExcerpt === 'string' && failureExcerpt.length > 0
     && !(failure?.['kind'] === 'stderr' && typeof stderr === 'string')
-    ? tail(excerpt) : undefined;
+    ? formatStepExcerpt(failureExcerpt) : undefined;
   return {
     ...(typeof exitCode === 'number' && Number.isSafeInteger(exitCode) ? { exitCode } : {}),
-    ...(typeof transport?.['phase'] === 'string' ? { transportPhase: tail(transport['phase']) } : {}),
-    ...(typeof transport?.['cause'] === 'string' ? { transportCause: tail(transport['cause']) } : {}),
-    ...(typeof transport?.['signal'] === 'string' ? { signal: tail(transport['signal']) } : {}),
-    ...(typeof transport?.['error_code'] === 'string' ? { errorCode: tail(transport['error_code']) } : {}),
+    ...(typeof transport?.['phase'] === 'string' ? { transportPhase: formatStepExcerpt(transport['phase']) } : {}),
+    ...(typeof transport?.['cause'] === 'string' ? { transportCause: formatStepExcerpt(transport['cause']) } : {}),
+    ...(typeof transport?.['signal'] === 'string' ? { signal: formatStepExcerpt(transport['signal']) } : {}),
+    ...(typeof transport?.['error_code'] === 'string' ? { errorCode: formatStepExcerpt(transport['error_code']) } : {}),
     ...(typeof transport?.['retryable'] === 'boolean' ? { retryableTransport: transport['retryable'] } : {}),
-    ...(typeof stdout === 'string' && stdout.length > 0 ? { stdoutTail: tail(stdout) } : {}),
-    ...(typeof stderr === 'string' ? { stderrTail: tail(stderr) } : {}),
+    ...(typeof stdout === 'string' && stdout.length > 0 ? { stdoutTail: formatStepExcerpt(stdout) } : {}),
+    ...(typeof stderr === 'string' ? { stderrTail: formatStepExcerpt(stderr) } : {}),
     // Keep the daemon's account only when it was NOT just a render of the
     // fields above — otherwise the same bytes print twice.
     ...(excerptDetail !== undefined ? { detail: excerptDetail }
       : typeof detail === 'string' && detail.length > 0 && !structuredShape
-        ? { detail: tail(detail) } : {}),
+        ? { detail: formatStepExcerpt(detail) } : {}),
     ...(typeof transcriptPath === 'string' && transcriptPath.length > 0 ? { transcriptPath } : {}),
   };
 }
@@ -252,16 +251,6 @@ function record(value: unknown): Record<string, unknown> | undefined {
     ? value as Record<string, unknown> : undefined;
 }
 
-function tail(value: string): string {
-  const bytes = Buffer.from(value, 'utf8');
-  let start = Math.max(0, bytes.length - TAIL_BYTES);
-  // Drop a partial leading code point, avoiding replacement-byte expansion.
-  while (start < bytes.length && (bytes[start]! & 0xc0) === 0x80) start += 1;
-  // Preserve tabs/newlines; replace binary controls (including ESC and CR),
-  // C1 controls and Unicode formatting controls without growing the excerpt.
-  return bytes.subarray(start).toString('utf8')
-    .replace(/[\p{Cc}\p{Cf}]/gu, character => character === '\n' || character === '\t' ? character : '?');
-}
 
 function shellQuote(value: string): string {
   return /^[A-Za-z0-9_-]+$/.test(value) && !value.startsWith('-')

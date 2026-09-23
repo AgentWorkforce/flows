@@ -9,6 +9,15 @@
 
 import { createHash } from 'node:crypto';
 import { snapshotJsonValue, type JsonValue } from './json-value.js';
+import { appendIntrinsicArray } from './intrinsic-array.js';
+
+const ARRAY_IS_ARRAY = Array.isArray;
+const ARRAY_JOIN = Function.prototype.call.bind(Array.prototype.join) as (
+  array: readonly string[], separator?: string,
+) => string;
+const ARRAY_SORT = Function.prototype.call.bind(Array.prototype.sort) as <T>(array: T[]) => T[];
+const JSON_STRINGIFY = JSON.stringify;
+const OBJECT_KEYS = Object.keys;
 
 /**
  * Serialize a value as canonical JSON: object keys sorted recursively,
@@ -42,16 +51,21 @@ export function specHash(spec: unknown): string {
  */
 function serialize(value: JsonValue): string {
   if (value === null || typeof value !== 'object') {
-    return JSON.stringify(value);
+    return JSON_STRINGIFY(value);
   }
-  if (Array.isArray(value)) {
-    return '[' + value.map(serialize).join(',') + ']';
+  if (ARRAY_IS_ARRAY(value)) {
+    const items: string[] = [];
+    for (let index = 0; index < value.length; index += 1) appendIntrinsicArray(items, serialize(value[index]!));
+    return '[' + ARRAY_JOIN(items, ',') + ']';
   }
   const parts: string[] = [];
-  for (const key of Object.keys(value).sort()) {
+  const keys = OBJECT_KEYS(value);
+  ARRAY_SORT(keys);
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index]!;
     const child = value[key];
     if (child === undefined) continue;
-    parts.push(JSON.stringify(key) + ':' + serialize(child));
+    appendIntrinsicArray(parts, JSON_STRINGIFY(key) + ':' + serialize(child));
   }
-  return '{' + parts.join(',') + '}';
+  return '{' + ARRAY_JOIN(parts, ',') + '}';
 }

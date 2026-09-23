@@ -163,6 +163,14 @@ impl RunSpec {
             if cli.as_ref().is_some_and(|value| value.trim().is_empty()) {
                 return Err(SpecError::EmptyStepCli(step.id.clone()));
             }
+            if let StepKind::Agent { cwd: Some(cwd), .. } = &step.kind
+                && !cwd.starts_with('/')
+            {
+                return Err(SpecError::RelativeStepCwd {
+                    step: step.id.clone(),
+                    cwd: cwd.clone(),
+                });
+            }
             if let StepKind::Agent { surfaces, .. } = &step.kind {
                 for workspace in &surfaces.workspace {
                     if path_surface_identity(&workspace.surface).is_none() {
@@ -314,6 +322,7 @@ const STEP_AGENT_FIELDS: &[&str] = &[
     "cli",
     "model",
     "transport",
+    "cwd",
     "recovery_mode",
     "surfaces",
     "permissions",
@@ -429,6 +438,11 @@ pub enum StepKind {
         /// choice so the worker can honor it deterministically.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         transport: Option<AgentTransport>,
+        /// Absolute working directory the worker starts the CLI in. Carried
+        /// and dispatched like `model`: the kernel never enters it, and
+        /// omitting it serializes the step exactly as before.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cwd: Option<String>,
         #[serde(default)]
         recovery_mode: RecoveryMode,
         /// Declared mutable surfaces (RFC Appendix A rule 1) — names only.
@@ -756,6 +770,8 @@ pub enum SpecError {
     EmptyStepId,
     #[error("step {0} cli cannot be empty")]
     EmptyStepCli(String),
+    #[error("agent step {step} cwd must be an absolute path, got {cwd:?}")]
+    RelativeStepCwd { step: String, cwd: String },
     #[error("agent step {step} declares non-canonical external surface {path:?}")]
     InvalidExternalSurface { step: String, path: String },
     #[error("agent step {step} declares non-canonical workspace surface {surface:?}")]

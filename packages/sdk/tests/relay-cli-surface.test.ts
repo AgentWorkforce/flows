@@ -52,6 +52,7 @@ const RUN_ID = '01JABCDEFGHJKMNPQRSTVWXYZ0';
  */
 const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: ParsedArgs['command'] }[] = [
   { verb: 'add', argv: ['add', 'my-helper'], variant: 'add' },
+  { verb: 'add', argv: ['add', 'github:AgentWorkforce/flows@main#examples/babysitter'], variant: 'add' },
   { verb: 'answer', argv: ['answer', RUN_ID, 'human-1', 'yes'], variant: 'answer' },
   {
     verb: 'answer',
@@ -78,7 +79,7 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
     verb: 'deploy',
     argv: ['deploy', 'review.flow.ts', '--repo', 'owner/name', '--on', 'github:label=review',
       '--approver', 'someone', '--name', 'review-listener', '--agents', 'claude,codex', '--draft',
-      '--no-connect', '--json'],
+      '--plugin', 'github:o/r@main#path', '--no-connect', '--json'],
     variant: 'cloud-deploy',
   },
   { verb: 'deployments', argv: ['deployments', '--json'], variant: 'deployments' },
@@ -104,14 +105,14 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
   { verb: 'resume', argv: ['resume', RUN_ID], variant: 'resume' },
   {
     verb: 'resume',
-    argv: ['resume', '--json', '--data-dir', '.relayflowd', '--local-agent', '--no-spawn',
+    argv: ['resume', '--json', '--data-dir', '.relayflowd', '--local-agent', '--agent-capacity', '8', '--no-spawn',
       '--no-observer-link', '--allow-human-influenced', RUN_ID],
     variant: 'resume',
   },
   { verb: 'run', argv: ['run', 'flow.yaml'], variant: 'run' },
   {
     verb: 'run',
-    argv: ['run', '--json', '--data-dir', '.relayflowd', '--local-agent', '--no-spawn',
+    argv: ['run', '--json', '--data-dir', '.relayflowd', '--local-agent', '--agent-capacity', '8', '--no-spawn',
       '--no-observer-link', '--allow-human-influenced', '--input', '{"a":1}', 'review.flow.ts'],
     variant: 'run',
   },
@@ -163,6 +164,18 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
       '--interval-ms', '60000', '--epoch-ms', '0', '--max-catch-up', '3',
       '--poll-interval-ms', '1000', 'spec.json'],
     variant: 'tick',
+  },
+  { verb: 'plugin', argv: ['plugin', 'list'], variant: 'plugin' },
+  { verb: 'plugin', argv: ['plugin', 'list', '--json'], variant: 'plugin' },
+  { verb: 'plugin', argv: ['plugin', 'verify'], variant: 'plugin' },
+  { verb: 'plugin', argv: ['plugin', 'verify', '--json', '--offline'], variant: 'plugin' },
+  { verb: 'plugin', argv: ['plugin', 'remove', 'babysitter'], variant: 'plugin' },
+  { verb: 'plugin', argv: ['plugin', 'remove', '--json', 'babysitter'], variant: 'plugin' },
+  { verb: 'plugin', argv: ['plugin', 'update', '--yes'], variant: 'plugin' },
+  {
+    verb: 'plugin',
+    argv: ['plugin', 'update', 'babysitter', '--to', 'github:o/r@main#path', '--yes', '--json'],
+    variant: 'plugin',
   },
   { verb: 'undeploy', argv: ['undeploy', 'dep_123'], variant: 'undeploy' },
   { verb: 'undeploy', argv: ['undeploy', '--json', 'dep_123'], variant: 'undeploy' },

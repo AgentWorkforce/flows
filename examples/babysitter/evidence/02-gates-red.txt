@@ -1,0 +1,212 @@
+$ node --experimental-strip-types --test examples/babysitter/tests/gates.test.ts
+✖ malformed external inputs fail before shell or API (1.169757ms)
+✖ live skip and author rules fail closed (0.267971ms)
+✖ READY rejects missing pending red conflicts stale heads and missing state (0.158376ms)
+✖ merge requires opt in org and configured independent approver at exact SHA (3.437177ms)
+✖ conflict command is explicit authorized and same repository only (0.43328ms)
+✖ edits fail closed for semantic changes, fork, protected paths, tests and unresolved conflicts (0.343553ms)
+✖ artifacts are nonempty schema validated exact head and reconcile deterministically (0.221404ms)
+✖ publication refuses stale post race newer verdict spoof and absent atomic capability (0.457315ms)
+✖ once per head keys and sticky CI attribution survive duplicate wake decisions (0.198952ms)
+✖ one bounded infra retry only for 137/143 (0.34745ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 0
+ℹ fail 10
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 76.629465
+
+✖ failing tests:
+
+test at examples/babysitter/tests/gates.test.ts:7:1
+✖ malformed external inputs fail before shell or API (1.169757ms)
+  AssertionError [ERR_ASSERTION]: Missing expected exception: null
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-babysitter-v2/examples/babysitter/tests/gates.test.ts:8:338)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'throws',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/gates.test.ts:11:1
+✖ live skip and author rules fail closed (0.267971ms)
+  AssertionError [ERR_ASSERTION]: {}
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-babysitter-v2/examples/babysitter/tests/gates.test.ts:13:247)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/gates.test.ts:15:1
+✖ READY rejects missing pending red conflicts stale heads and missing state (0.158376ms)
+  AssertionError [ERR_ASSERTION]: {"checks":[]}
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-babysitter-v2/examples/babysitter/tests/gates.test.ts:17:548)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/gates.test.ts:19:1
+✖ merge requires opt in org and configured independent approver at exact SHA (3.437177ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(mergeAllowed(state(), c, sha))
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-babysitter-v2/examples/babysitter/tests/gates.test.ts:21:162)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/gates.test.ts:24:1
+✖ conflict command is explicit authorized and same repository only (0.43328ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(conflictAllowed(body, login, s, config))
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-babysitter-v2/examples/babysitter/tests/gates.test.ts:26:263)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/gates.test.ts:28:1
+✖ edits fail closed for semantic changes, fork, protected paths, tests and unresolved conflicts (0.343553ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(editAllowed({ ...edit, ...change }, state(), config, sha))
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-babysitter-v2/examples/babysitter/tests/gates.test.ts:31:276)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/gates.test.ts:35:1
+✖ artifacts are nonempty schema validated exact head and reconcile deterministically (0.221404ms)
+  AssertionError [ERR_ASSERTION]: Missing expected exception.
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-babysitter-v2/examples/babysitter/tests/gates.test.ts:38:187)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'throws',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/gates.test.ts:44:1
+✖ publication refuses stale post race newer verdict spoof and absent atomic capability (0.457315ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'update'
+  - 'unchanged'
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-babysitter-v2/examples/babysitter/tests/gates.test.ts:46:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'update',
+    expected: 'unchanged',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/gates.test.ts:53:1
+✖ once per head keys and sticky CI attribution survive duplicate wake decisions (0.198952ms)
+  AssertionError [ERR_ASSERTION]: Expected "actual" to be strictly unequal to: ''
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-babysitter-v2/examples/babysitter/tests/gates.test.ts:55:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: '',
+    operator: 'notStrictEqual',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/gates.test.ts:61:1
+✖ one bounded infra retry only for 137/143 (0.34745ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  1 !== 2
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-babysitter-v2/examples/babysitter/tests/gates.test.ts:62:135)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 2,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
