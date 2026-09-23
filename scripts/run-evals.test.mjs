@@ -296,13 +296,21 @@ test('case cwd resolves relative to the suite and cannot escape the provenance r
   });
 });
 
-test('case cwd cannot escape the provenance root through a symlink', () => {
+test('case cwd cannot escape the provenance root through a symlink', (testContext) => {
   const external = mkdtempSync(join(tmpdir(), 'relayflows-eval-external-'));
   try {
     const value = suite({ defaultRepetitions: 1, minimumPublishableRepetitions: 1 });
     value.cases[0].command.cwd = 'escape';
     withSuite(value, ({ root, path }) => {
-      symlinkSync(external, join(root, 'benchmarks', 'fixture', 'escape'), 'dir');
+      try {
+        symlinkSync(external, join(root, 'benchmarks', 'fixture', 'escape'), 'dir');
+      } catch (error) {
+        if (['EACCES', 'EPERM'].includes(error.code)) {
+          testContext.skip(`host denied directory symlink creation: ${error.code}`);
+          return;
+        }
+        throw error;
+      }
       assert.throws(
         () =>
           runEvalSuite({
