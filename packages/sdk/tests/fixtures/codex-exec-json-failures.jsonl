@@ -1,0 +1,10 @@
+{"type":"thread.started","thread_id":"01a0c5ff-0000-7800-9fce-000000000000"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"reasoning","text":"**Reviewing notes**"}}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"/bin/bash -lc 'cat no-such-file.txt'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"/bin/bash -lc 'cat no-such-file.txt'","aggregated_output":"cat: no-such-file.txt: No such file or directory\n","exit_code":1,"status":"failed"}}
+{"type":"item.started","item":{"id":"item_2","type":"mcp_tool_call","server":"demo","tool":"echo_shout","arguments":{"text":"boom"},"result":null,"error":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_2","type":"mcp_tool_call","server":"demo","tool":"echo_shout","arguments":{"text":"boom"},"result":null,"error":{"message":"tool call error: tool call failed for `demo/echo_shout`\n\nCaused by:\n    Mcp error: -32000: echo_shout refused: boom is not allowed"},"status":"failed"}}
+{"type":"item.completed","item":{"id":"item_3","type":"error","message":"Model metadata for `no-such-model-xyz` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."}}
+{"type":"error","message":"{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'no-such-model-xyz' model is not supported when using Codex with a ChatGPT account.\"}}"}
+{"type":"turn.failed","error":{"message":"{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'no-such-model-xyz' model is not supported when using Codex with a ChatGPT account.\"}}"}}

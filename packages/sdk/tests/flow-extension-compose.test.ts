@@ -70,10 +70,11 @@ describe('composing flow extensions onto a base flow', () => {
     const p = project();
     await install(p);
     const loaded = await loadAuthoredFlow(p.flow, { versions });
-    expect(loaded.extensions.map(e => ({ name: e.name, ref: e.ref, handlers: e.handlers.length }))).toEqual([{ name: 'babysitter', ref: REF, handlers: 8 }]);
+    expect(loaded.extensions.map(e => ({ name: e.name, ref: e.ref, handlers: e.handlers.length }))).toEqual([{ name: 'babysitter', ref: REF, handlers: 11 }]);
     expect(subscriptions(loaded)).toEqual([
       'issues.opened',
-      'pull_request.opened', 'pull_request.synchronize', 'pull_request.reopened', 'pull_request.closed',
+      'pull_request.opened', 'pull_request.synchronize', 'pull_request.reopened', 'pull_request.ready_for_review',
+      'pull_request.closed', 'pull_request.labeled', 'pull_request.unlabeled',
       'pull_request_review.submitted', 'pull_request_review.dismissed', 'check_run.completed', 'issue_comment.created',
     ]);
     const composed = loaded.getDefinition(loaded.handle);
@@ -89,12 +90,12 @@ describe('composing flow extensions onto a base flow', () => {
     // Every composed subscription is one the surface registry can lower.
     expect(preflightProviderTriggers(composed.handlers.map(h => h.trigger))).toEqual([]);
     // The extension's own handle is not the root: asking for its definition goes to the surface, not the composition.
-    expect(loaded.getDefinition(loaded.extensions[0]!.handle).handlers).toHaveLength(8);
+    expect(loaded.getDefinition(loaded.extensions[0]!.handle).handlers).toHaveLength(11);
     // Its graph node resolves through the accessor its own entry import returned, not the root's.
     const node = loaded.graph[1]!;
     expect(node.getDefinition).toBe(loaded.extensions[0]!.getDefinition);
     expect(node.getDefinition(node.handle).name).toBe('babysitter');
-    expect(node.getDefinition(node.handle).handlers).toHaveLength(8);
+    expect(node.getDefinition(node.handle).handlers).toHaveLength(11);
   });
   it('loads the root alone with extensions: none, and helper loading ignores extension entries', async () => {
     const p = project();
@@ -129,12 +130,12 @@ describe('composing flow extensions onto a base flow', () => {
     await install(p);
     const { report } = await checkAuthoredTriggers(p.flow);
     expect(report.ok).toBe(true);
-    expect(report.extensions).toEqual([{ name: 'babysitter', version: '0.1.0', ref: REF, digest: expect.stringMatching(/^[0-9a-f]{64}$/), handlers: 8, hooks: [] }]);
+    expect(report.extensions).toEqual([{ name: 'babysitter', version: '0.1.0', ref: REF, digest: expect.stringMatching(/^[0-9a-f]{64}$/), handlers: 11, hooks: [] }]);
     expect(report.requirements?.integrations.map(i => i.provider)).toContain('github');
     expect(report.requirements?.harnessUses).toContainEqual({ harness: 'claude', detail: 'plugin "babysitter"' });
     expect(await runCli(['check', p.flow], p.io)).toBe(0);
     expect(p.text()).toContain(`EXTENSION babysitter@0.1.0 ${REF} sha256:`);
-    expect(p.text()).toContain('8 handler(s) composed after the base flow');
+    expect(p.text()).toContain('11 handler(s) composed after the base flow');
     const loaded = await loadAuthoredFlow(p.flow, { versions });
     const submissions = await collectExtensionSubmissions(loaded);
     expect(submissions).toHaveLength(1);
@@ -271,8 +272,8 @@ describe('composition fails closed', () => {
   });
   it.each([
     ['an entry subscribing beyond its manifest', undefined,
-      "import { flow, github } from '@relayflows/surface';\nexport default flow('babysitter', async f => { f.done('success'); }).on(github.pull_request('opened'), async f => { f.done('success'); }).on(github.pull_request('labeled'), async f => { f.done('success'); });\n",
-      'plugin_manifest_invalid', 'subscribes to github pull_request.labeled'],
+      "import { flow, github } from '@relayflows/surface';\nexport default flow('babysitter', async f => { f.done('success'); }).on(github.pull_request('opened'), async f => { f.done('success'); }).on(github.pull_request('edited'), async f => { f.done('success'); });\n",
+      'plugin_manifest_invalid', 'subscribes to github pull_request.edited'],
     ['an entry with a schedule handler', undefined,
       "import { flow, schedule } from '@relayflows/surface';\nexport default flow('babysitter', async f => { f.done('success'); }).on(schedule.every('1h'), async f => { f.done('success'); });\n",
       'plugin_unsupported', 'schedule trigger'],
@@ -292,12 +293,5 @@ describe('composition fails closed', () => {
     const p = project();
     await install(p, variant(m => m, entry));
     await expect(loadAuthoredFlow(p.flow, { versions })).rejects.toMatchObject({ code, message: expect.stringContaining(message) });
-  });
-  it('never composes an event the surface registry cannot lower, even if an entry asks for it', async () => {
-    // The manifest gate refuses ready_for_review at install; an entry alone cannot smuggle it past the manifest.
-    const p = project();
-    const entries = variant(m => m, "import { flow, github } from '@relayflows/surface';\nexport default flow('babysitter', async f => { f.done('success'); }).on(github.pull_request('ready_for_review'), async f => { f.done('success'); });\n");
-    await install(p, entries);
-    await expect(loadAuthoredFlow(p.flow, { versions })).rejects.toMatchObject({ code: 'plugin_manifest_invalid', message: expect.stringContaining('pull_request.ready_for_review') });
   });
 });

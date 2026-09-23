@@ -58,6 +58,8 @@ export interface DurableAuthoredOptions {
   readonly dataDir: string;
   readonly admissionKey?: string;
   readonly localAgentStream?: string;
+  /** Concurrency of the attached local workers; see `ExecuteAuthoredFlowOptions.workerCapacity`. */
+  readonly workerCapacity?: number;
   readonly lifecycle?: RunLifecycleOptions;
 }
 
@@ -208,6 +210,7 @@ async function driveRoot(
       if (process.versions['bun'] !== undefined) {
         return runAuthoredInNode(metadata, journal.socketPath, dispatch.run_id, {
           dataDir: options.dataDir, localAgentStream: options.localAgentStream,
+          ...(options.workerCapacity === undefined ? {} : { workerCapacity: options.workerCapacity }),
           ...options.lifecycle, signal,
         });
       }
@@ -220,6 +223,7 @@ async function driveRoot(
           dataDir: options.dataDir,
           flowPath: metadata.flowPath,
           localAgentStream: options.localAgentStream,
+          ...(options.workerCapacity === undefined ? {} : { workerCapacity: options.workerCapacity }),
           rootRunId: dispatch.run_id,
           extensions: loaded.extensions,
           ...options.lifecycle,

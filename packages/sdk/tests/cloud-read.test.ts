@@ -5,7 +5,7 @@
 // step is an agent with a seven-frame transcript. Anything these tests assert
 // about a field name is a field name the real routes emit.
 
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -331,6 +331,43 @@ describe('flows logs', () => {
       expect(out.stdout.join('\n')).not.toContain('rk_live_NOTAREALSECRET1234');
       expect(out.stdout.join('\n')).toContain('[redacted]');
     }
+  });
+
+  // The reviewer steps of the software-factory preset run on Codex, so the
+  // verdict that matters most in a run arrives in this vocabulary. A parser
+  // unit test does not prove that `flows logs --step` reaches the renderer.
+  const CODEX = readFileSync(join(import.meta.dirname, 'fixtures/codex-exec-json.jsonl'), 'utf8');
+
+  it('renders a Codex step’s transcript, verdict and all', async () => {
+    wholeCloud({ transcript: CODEX });
+    const out = io();
+    expect(await runCloudLogsCli(parseLogsArgs([RUN, '--step', 'agent-2'])!, out.io, CONNECTION)).toBe(0);
+    const rendered = out.stdout.join('\n');
+    expect(rendered).toContain('session  codex · thread 01a0c600-0000-7a10-a68c-000000000000');
+    expect(rendered).toContain("  tool 1  command_execution  /bin/bash -lc 'cat src/pricing.ts'"
+      + '  → 110 chars · exit 0 · completed');
+    expect(rendered).toContain('      add  /project/review.md');
+    expect(rendered).toContain('  One P2 remains and the gate artifact `review.clean` was not created.');
+    expect(rendered).toContain('── turn complete · 72,669 in / 244 out · 69,376 cache read');
+    // The old behaviour: every frame a placeholder and the verdict unreadable.
+    expect(rendered).not.toContain('not rendered here — see --raw');
+  });
+
+  it('gives a Codex step’s entries to --json, and the JSONL to --raw', async () => {
+    for (const argv of [[RUN, '--step', 'agent-2', '--json'], [RUN, '--step', 'agent-2', '--raw'],
+      [RUN, '--step', 'agent-2', '--raw', '--json']]) {
+      wholeCloud({ transcript: CODEX });
+      const out = io();
+      expect(await runCloudLogsCli(parseLogsArgs(argv)!, out.io, CONNECTION)).toBe(0);
+      expect(out.stdout.join('\n')).toContain('review.clean');
+    }
+    wholeCloud({ transcript: CODEX });
+    const json = io();
+    expect(await runCloudLogsCli(parseLogsArgs([RUN, '--step', 'agent-2', '--json'])!, json.io, CONNECTION)).toBe(0);
+    const body = JSON.parse(json.stdout[0]!) as { entries: Array<Record<string, unknown>> };
+    expect(body.entries[0]).toEqual({ kind: 'thread', thread_id: '01a0c600-0000-7a10-a68c-000000000000' });
+    const call = body.entries.find((entry) => entry['kind'] === 'tool')!;
+    expect(call['codex']).toMatchObject({ seq: 1, status: 'completed', exit_code: 0, complete: true });
   });
 
   it('propagates a step-list failure instead of calling it a missing transcript', async () => {

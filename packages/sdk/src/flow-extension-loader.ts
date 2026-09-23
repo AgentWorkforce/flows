@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { Ctx } from '@relayflows/surface';
 import type { AuthoredFlowDefinition, FlowHandle } from './authored-flow.js';
@@ -6,9 +5,22 @@ import { sha256 } from './bundle.js';
 import { assertBaseCompatible, assertCompatible, runtimeVersions, type RuntimeVersions } from './flow-extension-compat.js';
 import { validateFlowExtensionManifest, type FlowExtensionManifest } from './flow-extension-manifest.js';
 import { findPluginProject } from './plugin-loader.js';
+import { appendIntrinsicArray } from './intrinsic-array.js';
 import { reconcileDeclaredExtensions, type PluginLockEntry } from './plugin-lock.js';
 import { PluginError } from './plugin-manifest.js';
-import { pluginStoreDirectory, verifyStoredPlugin } from './plugin-store.js';
+import { pluginStoreDirectory, readStoredPluginFiles } from './plugin-store.js';
+
+const JSON_PARSE = JSON.parse;
+const ARRAY_IS_ARRAY = Array.isArray;
+const JSON_STRINGIFY = JSON.stringify;
+const OBJECT_FREEZE = Object.freeze;
+const REGEXP_TEST = Function.prototype.call.bind(RegExp.prototype.test) as (
+  regexp: RegExp, value: string,
+) => boolean;
+const STRING_SPLIT = Function.prototype.call.bind(String.prototype.split) as (
+  value: string,
+  separator: string | RegExp,
+) => string[];
 
 /**
  * Compose schema-2 flow extensions onto a base authored flow.
@@ -94,9 +106,118 @@ function subscriptionOf(handler: TriggerHandler): { provider: string; event: str
   if (trigger.kind !== 'webhook' || trigger.filter === undefined) return undefined;
   const { provider, type, payload } = trigger.filter as { provider?: unknown; type?: unknown; payload?: unknown };
   if (typeof provider !== 'string' || provider !== trigger.name || typeof type !== 'string') return undefined;
-  const action = typeof payload === 'object' && payload !== null && !Array.isArray(payload) ? (payload as { action?: unknown }).action : undefined;
+  const action = typeof payload === 'object' && payload !== null && !ARRAY_IS_ARRAY(payload) ? (payload as { action?: unknown }).action : undefined;
   if (action !== undefined && typeof action !== 'string') return undefined;
   return action === undefined ? { provider, event: type } : { provider, event: type, action };
+}
+
+/**
+ * Server-authenticated integration delivery metadata. This is executor
+ * authority, not authored input: a caller must derive it from its verified
+ * delivery record and pass it out of band. User-controlled `input.event`
+ * objects never become this value.
+ */
+const HOSTED_EXTENSION_DISPATCH_AUTHORITY = Symbol('hosted-extension-dispatch-authority');
+
+export type HostedExtensionDispatch = {
+  readonly [HOSTED_EXTENSION_DISPATCH_AUTHORITY]: true;
+  readonly provenance: 'integration-watch';
+  readonly provider: string;
+  readonly eventType: string;
+  readonly deliveryId: string;
+};
+
+export type HostedEventIdentity = { readonly provider: string; readonly event: string; readonly action?: string };
+const DISPATCH_PROVIDER = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const DISPATCH_EVENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const DISPATCH_DELIVERY = /^[A-Za-z0-9_.:-]{1,200}$/;
+
+function hostedEventIdentity(dispatch: unknown): HostedEventIdentity {
+  if (typeof dispatch !== 'object' || dispatch === null || ARRAY_IS_ARRAY(dispatch)) {
+    throw new PluginError('plugin_event_unroutable', 'Hosted extension dispatch authority is malformed.');
+  }
+  const { provenance, provider, eventType, deliveryId } = dispatch as Partial<HostedExtensionDispatch>;
+  if ((dispatch as Partial<HostedExtensionDispatch>)[HOSTED_EXTENSION_DISPATCH_AUTHORITY] !== true
+    || provenance !== 'integration-watch'
+    || typeof provider !== 'string' || !REGEXP_TEST(DISPATCH_PROVIDER, provider)
+    || typeof deliveryId !== 'string' || !REGEXP_TEST(DISPATCH_DELIVERY, deliveryId)
+    || typeof eventType !== 'string') {
+    throw new PluginError('plugin_event_unroutable', 'Hosted extension dispatch authority is malformed.');
+  }
+  const parts = STRING_SPLIT(eventType, '.');
+  let valid = parts.length === 1 || parts.length === 2;
+  for (let index = 0; valid && index < parts.length; index += 1) {
+    valid = REGEXP_TEST(DISPATCH_EVENT, parts[index]!);
+  }
+  if (!valid) {
+    throw new PluginError('plugin_event_unroutable', `Hosted extension event ${JSON_STRINGIFY(eventType)} is malformed.`);
+  }
+  return parts.length === 1
+    ? { provider, event: parts[0]! }
+    : { provider, event: parts[0]!, action: parts[1]! };
+}
+
+/** Validate and project branded host authority without making it serializable. */
+export function hostedExtensionDispatchIdentity(dispatch: unknown): HostedEventIdentity {
+  return OBJECT_FREEZE(hostedEventIdentity(dispatch));
+}
+
+/**
+ * Brand metadata only after the host has authenticated the integration
+ * delivery. The symbol is deliberately not serializable, so copying a direct
+ * run's JSON into executor options cannot mint dispatch authority.
+ */
+export function hostedExtensionDispatchFromVerifiedDelivery(
+  delivery: Omit<HostedExtensionDispatch, typeof HOSTED_EXTENSION_DISPATCH_AUTHORITY | 'provenance'>,
+): HostedExtensionDispatch {
+  const dispatch = OBJECT_FREEZE({
+    [HOSTED_EXTENSION_DISPATCH_AUTHORITY]: true as const,
+    provenance: 'integration-watch' as const,
+    ...delivery,
+  });
+  hostedEventIdentity(dispatch);
+  return dispatch;
+}
+
+/**
+ * Resolve a server-authenticated delivery to one extension handler. Authored
+ * input is deliberately absent from this API: direct runs may contain any
+ * JSON shape and cannot opt themselves into extension execution. Overlapping
+ * subscriptions fail closed, including a generic event handler overlapping
+ * an action-specific handler.
+ */
+export function extensionHandlerForHostedDispatch(
+  dispatch: unknown,
+  extensions: readonly Pick<LoadedFlowExtension, 'name' | 'handlers'>[],
+): { readonly extension: Pick<LoadedFlowExtension, 'name' | 'handlers'>; readonly handler: TriggerHandler } | undefined {
+  if (dispatch === undefined) return undefined;
+  const identity = hostedEventIdentity(dispatch);
+  const matches: Array<{
+    extension: Pick<LoadedFlowExtension, 'name' | 'handlers'>;
+    handler: TriggerHandler;
+  }> = [];
+  for (let extensionIndex = 0; extensionIndex < extensions.length; extensionIndex += 1) {
+    const extension = extensions[extensionIndex]!;
+    for (let handlerIndex = 0; handlerIndex < extension.handlers.length; handlerIndex += 1) {
+      const handler = extension.handlers[handlerIndex]!;
+      const subscription = subscriptionOf(handler);
+      if (subscription === undefined || subscription.provider !== identity.provider
+        || subscription.event !== identity.event) continue;
+      if (subscription.action !== undefined && subscription.action !== identity.action) continue;
+      appendIntrinsicArray(matches, { extension, handler });
+    }
+  }
+  if (matches.length > 1) {
+    let matchingNames = '';
+    for (let index = 0; index < matches.length; index += 1) {
+      matchingNames += `${index === 0 ? '' : ', '}${matches[index]!.extension.name}`;
+    }
+    throw new PluginError(
+      'plugin_event_ambiguous',
+      `Hosted event ${identity.provider}.${identity.event}${identity.action === undefined ? '' : `.${identity.action}`} matches multiple extension handlers (${matchingNames}).`,
+    );
+  }
+  return matches[0];
 }
 
 function assertDeclaredSubscription(name: string, manifest: FlowExtensionManifest, handler: TriggerHandler, index: number): void {
@@ -119,11 +240,12 @@ async function loadOne<Authority>(
   options: LoadFlowExtensionsOptions<Authority>,
 ): Promise<LoadedFlowExtension> {
   const directory = pluginStoreDirectory(root, lock.name, lock.digest);
-  await verifyStoredPlugin(directory, lock.digest);
-  const manifestBytes = readFileSync(join(directory, 'flows-plugin.json'));
+  const stored = await readStoredPluginFiles(directory, lock.digest);
+  const manifestBytes = stored.find(file => file.path === 'flows-plugin.json')?.data;
+  if (manifestBytes === undefined) throw new PluginError('plugin_source_drift', `${ref}: flows-plugin.json is missing.`);
   if (sha256(manifestBytes) !== lock.manifestSha256) throw new PluginError('plugin_source_drift', `${ref}: flows-plugin.json differs from the lockfile's manifest hash.`);
   let input: unknown;
-  try { input = JSON.parse(manifestBytes.toString('utf8')); }
+  try { input = JSON_PARSE(manifestBytes.toString('utf8')); }
   catch { throw new PluginError('plugin_manifest_invalid', `${ref}: flows-plugin.json is not valid JSON.`); }
   const manifest = validateFlowExtensionManifest(input);
   if (manifest.name !== lock.name || manifest.version !== lock.version) throw new PluginError('plugin_source_drift', `${ref}: manifest names ${manifest.name}@${manifest.version}, lockfile has ${lock.name}@${lock.version}.`);

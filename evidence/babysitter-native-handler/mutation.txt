@@ -1,0 +1,35 @@
+# Mutation 1: delete the event/subscription binding check in extensions/babysitter/turn.ts
+$ diff original mutated
+75d74
+<   if (event.eventType !== subscription) refuse(`event ${JSON.stringify(event.eventType)} was delivered to the ${subscription} handler.`);
+$ npx vitest run tests/babysitter-native-extension.test.ts -t 'another subscription'
+   × native Babysitter extension > refuses an event for another subscription before requesting a turn 17ms
+     → promise resolved "undefined" instead of rejecting
+      Tests  1 failed | 30 skipped (31)
+$ shasum -a 256 original restored
+a5189b3b4db9cb7f4812e480f29dc33dfb5b392ff284952cefac9b5f8a18f781
+a5189b3b4db9cb7f4812e480f29dc33dfb5b392ff284952cefac9b5f8a18f781
+$ npx vitest run tests/babysitter-native-extension.test.ts -t 'another subscription'
+ ✓ tests/babysitter-native-extension.test.ts (31 tests | 30 skipped) 323ms
+      Tests  1 passed | 30 skipped (31)
+
+# Mutation 2: delete the fail-closed capability guard in extensions/babysitter/babysitter.flow.ts
+$ diff original mutated
+22,24d21
+<   if (typeof port !== 'object' || port === null || typeof (port as Partial<TurnQueue>).queue !== 'function') {
+<     throw new Error('babysitter: this runtime does not provide the cloud:babysitter-turn write.');
+<   }
+$ npx vitest run tests/babysitter-native-extension.test.ts -t 'fails closed on'
+   × native Babysitter extension > fails closed on no capabilities (today's SDK context) 23ms
+   × native Babysitter extension > fails closed on no cloud capability 3ms
+   × native Babysitter extension > fails closed on a queue that is not a function 2ms
+Received: "Cannot read properties of undefined (reading 'queue')"
+Received: "turnQueue(...).queue is not a function"
+      Tests  3 failed | 28 skipped (31)
+$ shasum -a 256 original restored
+e1e8e9690334360612a6f6e749746e6a322eefea922f61342479c3bac18490b6
+e1e8e9690334360612a6f6e749746e6a322eefea922f61342479c3bac18490b6
+$ npx vitest run tests/babysitter-native-extension.test.ts -t 'fails closed on'
+ ✓ tests/babysitter-native-extension.test.ts (31 tests | 28 skipped) 308ms
+      Tests  3 passed | 28 skipped (31)
+Note: without the guard the run still fails, as a raw TypeError; the guard pins a clear, specific refusal.

@@ -5,7 +5,7 @@ import { safePath, sha256 } from './bundle.js';
 import { findPluginProject } from './plugin-loader.js';
 import { parsePluginLock, readPluginLock, reconcileDeclaredExtensions, type PluginLock } from './plugin-lock.js';
 import { PluginError } from './plugin-manifest.js';
-import { pluginStoreDirectory, readStoredPluginFiles, verifyStoredPlugin } from './plugin-store.js';
+import { pluginStoreDirectory, readStoredPluginFiles } from './plugin-store.js';
 
 const EMPTY_LOCK: PluginLock = Object.freeze({ version: 2, plugins: Object.freeze([]) });
 
@@ -50,10 +50,11 @@ export async function verifyBundlePluginLock(bundle: string): Promise<void> {
       throw new Error(`lockfile.json: plugin name ${entry.name} is not a safe path component`);
     }
     const directory = join(bundle, 'plugins', entry.name);
-    await verifyStoredPlugin(directory, entry.digest);
-    let pluginManifest: Buffer;
-    try { pluginManifest = await readFile(join(directory, 'flows-plugin.json')); }
-    catch { throw new Error(`lockfile.json: plugin ${entry.name} is missing plugins/${entry.name}/flows-plugin.json`); }
+    const stored = await readStoredPluginFiles(directory, entry.digest);
+    const pluginManifest = stored.find(file => file.path === 'flows-plugin.json')?.data;
+    if (pluginManifest === undefined) {
+      throw new Error(`lockfile.json: plugin ${entry.name} is missing plugins/${entry.name}/flows-plugin.json`);
+    }
     if (sha256(pluginManifest) !== entry.manifestSha256) {
       throw new Error(`lockfile.json: plugin ${entry.name} flows-plugin.json does not match the lockfile manifest hash`);
     }

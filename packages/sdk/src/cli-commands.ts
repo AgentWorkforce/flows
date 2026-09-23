@@ -1,5 +1,6 @@
 import { DEFAULT_DATA_DIR } from './daemon-connection.js';
 import { DEFAULT_RUN_LIMIT } from './cli/cloud-read.js';
+import { DEFAULT_LOCAL_AGENT_CAPACITY, MAX_LOCAL_AGENT_CAPACITY } from './worker-slots.js';
 import type { ParsedArgs } from './cli.js';
 
 /**
@@ -88,6 +89,11 @@ const LOCAL_EXECUTION_OPTIONS = [
   JSON_OPTION,
   DATA_DIR_OPTION,
   { flags: '--local-agent', description: 'Run agent steps in this process instead of a worker' },
+  {
+    flags: '--agent-capacity <n>',
+    description: `With --local-agent, how many agent steps (and, separately, LLM steps) run at once (1-${MAX_LOCAL_AGENT_CAPACITY})`,
+    defaultValue: String(DEFAULT_LOCAL_AGENT_CAPACITY),
+  },
   { flags: '--no-spawn', description: 'Require a running relayflowd rather than starting one' },
   { flags: '--no-observer-link', description: 'Do not mint an observer link for this run' },
   {

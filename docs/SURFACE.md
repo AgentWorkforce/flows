@@ -245,19 +245,31 @@ No process runs between events: the handler wakes, executes to its next await, p
    error. Every subprocess starts with ambient `RELAYFLOW_MODEL` removed.
    Provider adapters pass only the declared flag; wrapper readiness receives
    only an allowlisted declared model, while worker instruction/model/wake
-   values travel only in the post-identification session request. Preflight
-   never invokes an undeclared model or guesses from host state.
+   values travel only in the post-identification session request. The model in
+   that probe is the *effective* one: the step's, else the selected named
+   agent's, else the adapter's own default. A default is probed because it is
+   what would run; preflight still never guesses a model from host state, and a
+   wrapper adapter has no default, so a wrapper step with no declared model is
+   probed without one. Each resolution reports the CLI's source and the model's
+   own source separately — `RESOLVED step "s" cli "claude" from step model
+   "claude-opus-5" from adapter default` — so a defaulted model is never
+   presented as one the step declared.
 
    **Deterministic model registry:** model existence is not inferred from a
    regex or provider prefix. The nearest `flows.json` owns an exact,
-   case-sensitive `models` allowlist. When that file exists, `flows check`
-   first refuses a declared model absent from that list as `model_unknown`,
-   without starting the CLI. When no `flows.json` exists anywhere in the flow
-   file's ancestry, inline named-agent declarations (`agents: { drafter:
-   { cli, model } }`) proceed to the real CLI/model probe without a registry.
-   A model declared directly on a step still requires the project allowlist.
-   An existing config with no `models` field or an empty list remains an
-   explicit policy and refuses unlisted models, including named agents.
+   case-sensitive `models` allowlist. When that file declares `models`,
+   `flows check` first refuses an effective model absent from that list as
+   `model_unknown`, without starting the CLI. The check governs the model that
+   would execute, so an adapter default is checked exactly like a declared one;
+   its refusal says the step declared no model and names the default, because
+   the author wrote no `model:` to correct. When no `flows.json` exists anywhere
+   in the flow file's ancestry, inline named-agent declarations (`agents: {
+   drafter: { cli, model } }`) proceed to the real CLI/model probe without a
+   registry. A config with no `models` field declares no model policy and
+   enforces none — the same state as no config at all, so a flow that declares
+   no model needs no edit to that tracked file to run. `models: []` is a
+   different thing: an explicit empty allowlist, which refuses every model,
+   including named agents.
    One pure first pass collects every model rejected by that policy and every
    unresolved step CLI
    before any CLI, command, executor, or daemon probe, independent of step
@@ -361,6 +373,27 @@ f.llm(strings: TemplateStringsArray, ...values: unknown[]): Step<string>;
 
 Run with `flows run chain.flow.ts --input '{}' --local-agent`. This attaches
 both an agent worker and a workspace-free LLM worker for the authored body.
+
+Each worker holds 4 dispatches at once. Set a different number (1–32) with
+`--agent-capacity <n>`, which applies to `run` and `resume`. The agent and LLM
+workers are counted separately.
+
+A body that starts more concurrent `f.agent` or `f.llm` calls than the capacity
+does not fail: the extra calls wait in-process for a free slot. Without that
+wait, they would be submitted with no worker free, and the kernel would park
+them.
+
+Agents that share a working directory still run one at a time. This lets the
+worker attribute each file change to the step that made it. To run agents side
+by side, give each its own directory with `cwd` (for example one git worktree
+per agent): `f.agent("api", { task, cwd: "/repo/.wt/api" })`. The kernel carries
+`cwd` on the agent step and the worker starts the CLI there. It must be
+absolute in the kernel spec; the TypeScript surface resolves a relative `cwd`
+against the runner's directory, while a relative `cwd` in YAML is refused.
+Setting `cwd` is part of the step's spec hash; omitting it hashes exactly as
+before. Concurrent `f.llm` calls have no directory lock. They overlap up to the
+configured capacity, and calls beyond it wait for a slot.
+
 The LLM step remains `type: llm` in the journal. It uses the same CLI resolution,
 authentication probes, and exact `flows.json` model allow-list as agent steps;
 a declared `model` must be in that project's `models` array. A template call
@@ -649,11 +682,9 @@ execute nowhere (#301); what composition changes today is the declared
 trigger set that `flows check`, requirements, and future dispatch read.
 
 GitHub `pull_request.ready_for_review`, `pull_request.labeled`, and
-`pull_request.unlabeled` are **not** in the surface registry. The registry is
-generated from the pinned relayfile adapter mappings (`scripts/generate-triggers.mjs`);
-this repo cannot add those actions without an adapter-package change. A
-Babysitter manifest that declares them is refused `plugin_event_unroutable`
-until that upstream catalog grows.
+`pull_request.unlabeled` are in the generated surface registry through the
+pinned relayfile adapter catalog. Babysitter declares all three and installs
+without narrowing its eleven-subscription contract.
 
 ## 4. Build: the immutable bundle
 
@@ -796,14 +827,43 @@ uses the opening shown here; an authored child failure opens with
 FAILED [step_failed] Run "<run-id>" failed with completionReason: step_failed.
  Step "<step-id>" (<type>) completionReason: <reason> attempt=<n>/<budget> exit=<code>.
 Detail: <the worker's own account, when it left one>
-Stdout (last 1,024 bytes):
-<tail>
-Stderr (last 1,024 bytes):
-<tail>
+Stdout (captured excerpt):
+<excerpt>
+Stderr (captured excerpt):
+<excerpt>
 Transcript: <path>
 Inspect: flows replay <run-id> --at <step-id>
 Journal: <data-dir>/runs/<run-id>.sqlite3
 ```
+
+An excerpt is at most 4,096 UTF-8 bytes of the stream the journal carried. A
+stream that fits is printed whole and carries no marker; one that does not is
+printed as a head, the lines from the elided middle that match a built-in
+failure marker (TAP `not ok`, `FAIL`/`FAILED`, a vitest or jest failure glyph,
+cargo's `... FAILED` and `---- <case> stdout ----` headings, and Rust's
+`panicked at`), and a tail — with the elision stated in band:
+
+```text
+Stdout (captured excerpt):
+TAP version 13
+ok 1 - pty: spawns
+… 61,204 bytes elided; 2 lines matched a failure marker …
+not ok 5 - pty-exit: child reaped twice
+not ok 9 - pty-exit: fd leak
+… end of elided region …
+1..14
+# tests 14
+# fail 2
+```
+
+The markers are hints, not a parser: an unrecognised format still gets head and
+tail context, and prose can match one. Two limits bound what any excerpt can
+show. The absence of an elision marker means the field the journal carried fit
+whole, not that the command printed nothing more: a deterministic step's
+capture is itself the last 64 KiB of each stream, and an `agent` or `llm`
+step's evidence survives only as the daemon's bounded render in
+`verification.detail`. A failure printed before those windows is not in the
+journal to be excerpted.
 
 Each clause is present only when the journal holds the fact behind it; nothing
 is defaulted. The same fields appear as named keys on the `--json` diagnostic
@@ -838,6 +898,15 @@ before the `run.start` response or index append can still leave an unindexed
 child. Helper-provider, MCP and plugin-effect children are not yet included
 in this index. Once appended, the index survives process exit and is readable from
 the journal on disk, including after a cooperative nonzero exit.
+
+Each record, and the matching root `journalSteps` entry, may also carry the
+step's place in the run's DAG. `after` lists the step ids it causally waited
+for, transitively reduced and capped at 32. `afterTruncated: true` means that
+list is incomplete. `label` is the author-chosen `f.agent` or `f.hook` name,
+kept whole or omitted when it is over 256 characters, because a cut label
+could end partway through a secret. `f.run` has no label, because a command
+can carry literal tokens and URLs. The fields are optional; a step with none
+writes the original record shape.
 
 An authored step-failure JSON report keeps the child in `runId` and adds
 `rootRunId` for the durable authored root. Consumers must use `rootRunId` for
@@ -895,6 +964,18 @@ step instructions, input bindings, output bodies, wake contexts, pins or
 effect refs, so their absence is structural. `LEASE OVERDUE by <t>` in the
 text view is computed from the journaled lease deadline and the wall clock
 alone — a local dead-man that needs no daemon.
+
+For an authored root, `--json` also carries `authored_steps`: the root's
+`authored-steps` index (see *Authored bodies* above), folded exactly as
+`readAuthoredStepIndex` folds it, one entry per authored step in admission
+order — `step`, `run_id` (the child journal whose own `flows status` view holds
+that step id), `state` (`admitted` | `completed`), and when present
+`completion_reason`, `kernel_step`, `label`, `after` and `after_truncated`.
+Because the admission record already carries `label` and `after`, a reader
+polling the root sees each step's name and predecessors as soon as it is
+admitted, not only once the run finishes. `label` is redacted like any other
+free text; ids are printed as-is. The field is additive and absent for every
+run that journals no index, so the existing shape is unchanged.
 
 `--tail <n>` renders the last *n* lines of this attempt's stdout and stderr
 after redaction. Every direct agent attempt with a data dir tees its
