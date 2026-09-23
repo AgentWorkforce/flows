@@ -1,0 +1,4 @@
+$ npx flows answer --data-dir /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/prove4-data 01M36EFVSGDSQA4R3BG4G02RMM human-8 yes --by prompt-lab-reviewer
+ANSWERED 01M36EFVSGDSQA4R3BG4G02RMM human-8 yes
+Continue with: flows resume --data-dir /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/prove4-data --local-agent 01M36EFVSGDSQA4R3BG4G02RMM
+exit=0

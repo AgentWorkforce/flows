@@ -13,6 +13,8 @@ import { AUTHORED_STEP_STREAM, foldAuthoredStepRecords, type AuthoredStepRecord 
 import { canonicalize } from '../canonical.js';
 import { DEFAULT_DATA_DIR } from '../daemon-connection.js';
 import { JournalReadError, walkJournal, type JournalEvent } from '../journal-client.js';
+import { singleLineCompletionDetail } from '../authored-completion.js';
+import { authoredVerdictOf, type AuthoredVerdict } from '../authored-verdict.js';
 import { redact } from '../redact.js';
 import { foldRunState, RunStateError, type RunView, type StepView } from '../run-state.js';
 import { DATA_DIR_ENV, RUN_ID_ENV, STEP_ID_ENV } from '../step-env.js';
@@ -32,11 +34,25 @@ export interface StatusArgs {
    * module keeps its property of opening one file and no socket.
    */
   cloud?: true;
+  /**
+   * `--watch`: redraw the hosted page until the run is terminal.
+   *
+   * Only with `--cloud`. A local `flows status` reads one journal file and
+   * returns; there is no loop for it to hang in, so `--watch` without
+   * `--cloud` is a contradiction rather than a narrower request, and is
+   * refused with the rest of the invocation. Handled in `cli/cloud-live.ts`.
+   */
+  watch?: true;
 }
 
 export const DEFAULT_TAIL_LINES = 20;
 /** A gate's `detail` may be 2,000 chars (engine/remote.rs); the view shows the head. */
 const DETAIL_LIMIT = 1024;
+// An authored completion detail is NOT held to `DETAIL_LIMIT`. That bound is
+// the head of a gate render the journal holds in full; this text is already
+// bounded to 2,000 code points at `done()`, it is the whole of what the flow
+// said about its own verdict, and cutting it at 1,024 would drop the finding
+// as often as not.
 const BUSY_RETRIES = 5;
 const BUSY_RETRY_DELAY_MS = 50;
 
@@ -64,6 +80,7 @@ export interface StatusOptions {
 export function parseStatusArgs(args: readonly string[]): StatusArgs | undefined {
   let json = false;
   let cloud = false;
+  let watch = false;
   let dataDir: string | undefined;
   let tail: number | undefined;
   const positionals: string[] = [];
@@ -75,6 +92,9 @@ export function parseStatusArgs(args: readonly string[]): StatusArgs | undefined
     } else if (argument === '--cloud') {
       if (cloud) return undefined;
       cloud = true;
+    } else if (argument === '--watch') {
+      if (watch) return undefined;
+      watch = true;
     } else if (argument === '--data-dir' || argument === '--tail') {
       const value = args[++index];
       if (value === undefined || value.length === 0 || value.startsWith('-')) return undefined;
@@ -98,9 +118,11 @@ export function parseStatusArgs(args: readonly string[]): StatusArgs | undefined
   // but a contradiction, and is refused as an invocation rather than silently
   // ignored. A hosted run id is mandatory: there is no ambient one.
   if (cloud && (dataDir !== undefined || tail !== undefined || positionals.length === 0)) return undefined;
+  if (watch && !cloud) return undefined;
   return {
     command: 'status', json,
     ...(cloud ? { cloud: true as const } : {}),
+    ...(watch ? { watch: true as const } : {}),
     ...(dataDir === undefined ? {} : { dataDir }),
     ...(tail === undefined ? {} : { tail }),
     ...(positionals[0] === undefined ? {} : { runId: positionals[0] }),
@@ -178,7 +200,7 @@ export async function runStatus(args: StatusArgs, io: CliIo, options: StatusOpti
     }
   }
 
-  const presented = present(view, thisStep, tails, env);
+  const presented = present(view, thisStep, tails, env, authoredVerdictOf(taken.events));
   if (args.json) {
     const authored = authoredSteps(taken.events, env);
     io.stdout(canonicalize({
@@ -237,13 +259,41 @@ function authoredSteps(events: readonly JournalEvent[], env: NodeJS.ProcessEnv):
 }
 
 type PresentedStep = StepView & { tails: StepTails };
-type Presented = Omit<RunView, 'steps'> & { this_step: string | null; steps: PresentedStep[] };
+type Presented = Omit<RunView, 'steps'> & {
+  this_step: string | null;
+  steps: PresentedStep[];
+  /**
+   * The verdict the BODY declared, beside — never instead of — the kernel
+   * facts above. `status`, `completion_reason` and every step stay exactly
+   * what the journal recorded, because they are true: an authored
+   * `step_failed` run completes with a root step that succeeded.
+   *
+   * Present only when the body actually said why. A one-argument `done()`
+   * adds nothing a reader could not already see from `completion_reason`, and
+   * emitting a null here for every legacy and non-authored run would change a
+   * shape that nobody asked to change.
+   */
+  authored_completion?: { reason: string; detail: string };
+};
 
 /** Apply the redaction and size bounds the on-disk model does not have. */
-function present(view: RunView, thisStep: string | null, tails: Map<string, StepTails>, env: NodeJS.ProcessEnv): Presented {
+function present(
+  view: RunView,
+  thisStep: string | null,
+  tails: Map<string, StepTails>,
+  env: NodeJS.ProcessEnv,
+  authored: AuthoredVerdict | null,
+): Presented {
   return {
     ...view,
     this_step: thisStep,
+    ...(authored?.detail === undefined ? {} : {
+      // Redacted again on the way out. It was redacted before it was
+      // journaled, by this same redactor against a different environment;
+      // doing it here too costs nothing and keeps this module the one place
+      // that decides what reaches an agent-facing page.
+      authored_completion: { reason: authored.reason, detail: redact(authored.detail, env) },
+    }),
     steps: view.steps.map((step) => ({
       ...step,
       // An agent names the files it writes, and it inherits this process's
@@ -307,6 +357,12 @@ function renderText(view: Presented, partial: string[], wantTails: boolean): str
     + (view.spend.dollars_unmetered ? ' (unmetered)' : '');
   const finished = view.completion_reason === null ? '' : `   finished ${view.completion_reason}`;
   lines.push(`RUN ${view.run_id}   ${safe(view.name)}   ${view.status}   started ${formatDuration(view.now_ms - view.spawned_at_ms)} ago${finished}   spend ${spend}`);
+  // Labelled, so nobody reads a failure explanation as a claim that the run's
+  // kernel status is anything other than the line above says it is.
+  if (view.authored_completion !== undefined) {
+    lines.push(`authored done("${safe(view.authored_completion.reason)}"): `
+      + safe(singleLineCompletionDetail(view.authored_completion.detail)));
+  }
   const counts = (['done', 'running', 'pending', 'backoff', 'waiting', 'needs_human'] as const)
     .filter((key) => view.counts[key] > 0).map((key) => `${view.counts[key]} ${key}`);
   // The denominator is always printed, even for zero steps, so a reader can

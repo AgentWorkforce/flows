@@ -25,6 +25,10 @@
     "tests/authored-flow-lifecycle-executor.test.ts",
     "tests/authored-flow-operation.test.ts",
     "tests/authored-flow.test.ts",
+    "tests/authored-completion-detail.test.ts",
+    "tests/authored-status-detail.test.ts",
+    "tests/authored-detail-live.test.ts",
+    "tests/authored-completion-recovery.test.ts",
     "tests/authored-agent-permissions.test.ts",
     "tests/hosted-extension-isolation.test.ts",
     "tests/hosted-extension-routing.test.ts",
@@ -53,7 +57,12 @@
     "tests/agent-transcript.test.ts",
     "tests/agent-transcript-live.test.ts",
     "tests/worker-transcript.test.ts",
-    "tests/step-failure-diagnostic.test.ts"
+    "tests/step-failure-diagnostic.test.ts",
+    "tests/worker-lease-lost.test.ts",
+    "tests/worker-lease-lost-live.test.ts",
+    "tests/worker-lease-sweep.test.ts",
+    "tests/resume-worker-lease.test.ts",
+    "tests/direct-run-worker-lease.test.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

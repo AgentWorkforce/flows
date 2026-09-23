@@ -1,0 +1,19 @@
+[
+  {
+    "id": "config-sunrise-wound-status-9c1634e2",
+    "kind": "config-send",
+    "questionIds": [
+      "wound-status"
+    ],
+    "status": "done",
+    "agency": "sunrise",
+    "text": "sunrise soc first pass changed 1 row(s) on a shared question (shared with harbor, maple). The prompt makes the referral win over what the nurse saw today. Today's notes must win (shared guideline 1).",
+    "targets": {
+      "pat": {
+        "answer": "Ongoing",
+        "confidence": "High",
+        "explanation": "Today's visit notes describe an open 2.0 x 1.5 cm left heel wound with serous drainage and slough; the discharge summary's closed status is outdated."
+      }
+    }
+  }
+]

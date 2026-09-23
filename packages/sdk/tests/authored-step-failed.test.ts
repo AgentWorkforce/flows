@@ -2,11 +2,8 @@ import { rmSync } from 'node:fs';
 import type { Server } from 'node:net';
 import { flow } from '@relayflows/surface';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import {
-  completionMarker,
-  executeAuthoredFlow,
-  isLoweredCompletion,
-} from '../src/authored-flow-executor.js';
+import { completionMarker, isLoweredCompletion } from '../src/authored-completion.js';
+import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
 import { authoredCompletion, type RunReport } from '../src/cli/run.js';
 import { JournalClient } from '../src/journal-client.js';
 import {

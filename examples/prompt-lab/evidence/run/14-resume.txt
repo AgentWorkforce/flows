@@ -1,0 +1,49 @@
+$ npx flows resume --no-observer-link --data-dir /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/prove4-data --local-agent 01M36EFVSGDSQA4R3BG4G02RMM
+○ run-1 (deterministic) 0.00s
+✓ run-1 (deterministic) 0.01s completionReason: success
+○ llm-2 (llm) 0.00s
+✓ llm-2 (llm) 4.01s completionReason: success
+○ llm-3 (llm) 0.00s
+✓ llm-3 (llm) 4.23s completionReason: success
+○ llm-4 (llm) 0.00s
+✓ llm-4 (llm) 4.20s completionReason: success
+○ llm-5 (llm) 0.00s
+✓ llm-5 (llm) 3.83s completionReason: success
+○ llm-6 (llm) 0.00s
+✓ llm-6 (llm) 6.89s completionReason: success
+○ run-7 (deterministic) 0.00s
+✓ run-7 (deterministic) 0.01s completionReason: success
+○ human-8 (deterministic) 0.00s
+✓ human-8 (deterministic) 0.01s completionReason: success
+○ run-9 (deterministic) 0.00s
+✓ run-9 (deterministic) 0.01s completionReason: success
+○ run-10 (deterministic) 0.00s
+✓ run-10 (deterministic) 0.01s completionReason: success
+○ llm-11 (llm) 0.00s
+✓ llm-11 (llm) 4.21s completionReason: success
+○ llm-12 (llm) 0.00s
+✓ llm-12 (llm) 3.82s completionReason: success
+○ llm-13 (llm) 0.00s
+✓ llm-13 (llm) 3.98s completionReason: success
+○ llm-14 (llm) 0.00s
+✓ llm-14 (llm) 3.68s completionReason: success
+○ run-15 (deterministic) 0.00s
+✓ run-15 (deterministic) 0.01s completionReason: success
+○ llm-16 (llm) 0.00s
+✓ llm-16 (llm) 4.37s completionReason: success
+○ llm-17 (llm) 0.00s
+✓ llm-17 (llm) 3.44s completionReason: success
+○ llm-18 (llm) 0.00s
+✓ llm-18 (llm) 4.06s completionReason: success
+○ llm-19 (llm) 0.00s
+✓ llm-19 (llm) 4.12s completionReason: success
+○ run-20 (deterministic) 0.00s
+✓ run-20 (deterministic) 0.01s completionReason: success
+○ human-21 (deterministic) 0.00s
+✓ human-21 (deterministic) 0.02s completionReason: success
+○ run-22 (deterministic) 0.00s
+✓ run-22 (deterministic) 0.07s completionReason: success
+○ run-23 (deterministic) 0.00s
+✓ run-23 (deterministic) 0.07s completionReason: success
+RUN 01M36EFVSGDSQA4R3BG4G02RMM completed (24 steps) completionReason: success
+exit=0

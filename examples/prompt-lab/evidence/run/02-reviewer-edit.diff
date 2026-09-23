@@ -1,0 +1,15 @@
+# reviewer edit: evidence/run/lab/work/sunrise-soc/35966ab5/grid.json
+@@ -128,10 +128,10 @@
+     },
+     "target": {
+       "answer": "Ongoing",
+-      "confidence": "Medium",
+-      "explanation": "The referral packet's discharge summary states the left heel pressure injury was closed, but today's SOC visit notes document an open left heel area 2.0 x 1.5 cm with moderate serous drainage and yellow slough, so the wound is currently ongoing."
++      "confidence": "High",
++      "explanation": "Today's visit notes describe an open 2.0 x 1.5 cm left heel wound with serous drainage and slough; the discharge summary's closed status is outdated."
+     },
+-    "notes": ""
++    "notes": "The prompt makes the referral win over what the nurse saw today. Today's notes must win (shared guideline 1)."
+   },
+   {
+     "questionId": "wound-status",

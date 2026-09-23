@@ -1,0 +1,27 @@
+$ flows answer 01M365CQ2342WZDX3T21CN5905 human-18 yes --by prompt-lab-reviewer
+ANSWERED 01M365CQ2342WZDX3T21CN5905 human-18 yes
+Continue with: flows resume --data-dir /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/e2e-data --local-agent 01M365CQ2342WZDX3T21CN5905
+exit=0
+$ flows resume --local-agent 01M365CQ2342WZDX3T21CN5905
+○ run-1 (deterministic) 0.00s
+✓ run-1 (deterministic) 0.01s completionReason: success
+○ llm-2 (llm) 0.00s
+✓ llm-2 (llm) 3.20s completionReason: success
+○ llm-3 (llm) 0.00s
+✓ llm-3 (llm) 4.19s completionReason: success
+○ run-4 (deterministic) 0.00s
+✓ run-4 (deterministic) 0.01s completionReason: success
+○ llm-5 (llm) 0.00s
+✓ llm-5 (llm) 3.36s completionReason: success
+○ llm-6 (llm) 0.00s
+✓ llm-6 (llm) 3.63s completionReason: success
+○ run-7 (deterministic) 0.00s
+✓ run-7 (deterministic) 0.01s completionReason: success
+○ llm-8 (llm) 0.00s
+✓ llm-8 (llm) 6.40s completionReason: success
+○ llm-8.gate (deterministic) 0.00s
+✗ llm-8.gate (deterministic) 0.00s
+FAILED [protocol_error] relayflowd could not complete the resume request: run_admission_conflict: run admission key "authored-child:080c430bb5c4847d0ed3da903df8518e818d16e860cb1e5f16269ca8a2544aba" is already bound to a different spec
+RUN 01M365CQ2342WZDX3T21CN5905 unknown
+npx flows resume --no-observer-link --data-dir $DD --local-agent $R  8.79s user 2.61s system 23% cpu 47.952 total
+exit=1

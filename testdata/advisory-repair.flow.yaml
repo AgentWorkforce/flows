@@ -1,0 +1,36 @@
+# Advisory deterministic outcomes (docs/SURFACE.md §2, "Repair before failure").
+# `check` is allowed to be red; its recorded envelope is what `report` reads,
+# and the run's verdict comes from `steps_green` over the POST-repair `recheck`
+# step, never from the immutable red outcome that started the repair.
+version: '0.1.0'
+name: advisory-repair
+description: A recorded nonzero exit, read by a later step, gated on fresh evidence.
+steps:
+  - id: check
+    type: deterministic
+    command: "node -e 'process.stderr.write(\"two tests failed\"); process.exit(1)'"
+    onNonZero: record
+    # Declaring the envelope schema is what makes the recorded outcome bindable.
+    verification:
+      type: json_schema
+      schema:
+        type: object
+        properties:
+          exit_code: { type: integer }
+          stdout_tail: { type: string }
+          stderr_tail: { type: string }
+  - id: report
+    type: deterministic
+    input:
+      failure: { step: check }
+    command: printf '%s' "$FLOWS_INPUT"
+  - id: recheck
+    type: deterministic
+    dependsOn: [report]
+    command: "node -e 'process.exit(0)'"
+  - id: green
+    type: deterministic
+    command: "true"
+    verification:
+      type: steps_green
+      ids: [recheck]

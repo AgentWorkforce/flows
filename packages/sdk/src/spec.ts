@@ -15,6 +15,13 @@ export type { JsonOutputSchema } from './output-schema.js';
 /** The three rungs of the ladder (RFC §1; AGENTS.md rule 7). */
 export type StepType = 'deterministic' | 'llm' | 'agent';
 
+/**
+ * A deterministic step's exit-code policy. `'fail'` is the kernel's implicit
+ * gate; `'record'` completes the step with its exit code journaled so a later
+ * step can read the outcome instead of re-running the command.
+ */
+export type OnNonZero = 'fail' | 'record';
+
 /** Project-owned MCP connections. env contains names, never secret values. */
 export type McpServerConfig =
   | { command: string; args?: string[]; env?: string[] }
@@ -93,9 +100,24 @@ export interface ArtifactExistsGate {
   path: string;
 }
 
+/**
+ * Asserts that every named step recorded a zero exit code, reading the
+ * journaled outcome instead of re-running the command. This is the read side
+ * of `onNonZero: 'record'`: red work is allowed to exist, and this gate is
+ * where a flow declares that it stops being allowed.
+ *
+ * Deterministic hosts only — a worker step has no recorded exit code to read —
+ * and the ids it names must be deterministic steps that precede it.
+ */
+export interface StepsGreenGate {
+  type: 'steps_green';
+  /** Earlier deterministic step ids whose recorded exit codes must all be zero. */
+  ids: string[];
+}
+
 export type NamedDataGate = ReferencesInputGate | SubprocessGate | WordCountBoundsGate | RegexMatchGate | ArtifactExistsGate;
 export type OutputVerificationSpec = OutputContainsGate | JsonSchemaGate | NamedDataGate;
-export type VerificationSpec = ExitCodeGate | OutputVerificationSpec;
+export type VerificationSpec = ExitCodeGate | StepsGreenGate | OutputVerificationSpec;
 
 /**
  * Agent-step recovery modes (RFC Appendix A rule 4). Default is `reset`.
@@ -226,6 +248,15 @@ export interface DeterministicStepSpec extends BaseStepSpec {
   timeoutMs?: number;
   /** Per-invocation deterministic lease in milliseconds (maximum 15 minutes). */
   lease_ms?: number;
+  /**
+   * What a nonzero exit means. `'fail'` (the default) is the implicit
+   * `exit_code == 0` gate. `'record'` journals the exit code and output tails
+   * as the step's outcome, completes the step red, and lets dependents run —
+   * the repair-before-failure shape, without discarding the exit code the way
+   * `<command> || true` does. Declared content and schema gates, timeouts and
+   * worker errors keep their existing fatal semantics.
+   */
+  onNonZero?: OnNonZero;
   /** Omit to get the implicit `exit_code` gate. */
   verification?: VerificationSpec;
 }
@@ -450,6 +481,12 @@ export interface KernelDeterministicStep extends KernelStepCommon {
   command: string;
   timeout_ms?: number;
   lease_ms?: number;
+  /**
+   * Omitted for the default `'fail'`, exactly as the kernel skips serializing
+   * it: a step that does not declare the policy keeps the canonical bytes —
+   * and therefore the step hash — it had before this field existed.
+   */
+  on_non_zero?: OnNonZero;
 }
 
 export interface KernelLlmStep extends KernelStepCommon {

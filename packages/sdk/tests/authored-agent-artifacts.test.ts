@@ -247,4 +247,57 @@ describe('predicate verdicts recorded on the root run', () => {
     expect(gateSpecs).toHaveLength(2);
     for (const spec of gateSpecs) expect(spec).toContain('"verdict":"pass"');
   });
+  it('a resumed verdict read back with sorted keys lowers the same gate command as the first run', async () => {
+    path = sockPath();
+    // The kernel returns stream messages with their keys sorted; the first run
+    // appended them in authoring order. Both runs must lower one command, or
+    // the gate run's admission key refuses the resume.
+    const stream: Record<string, unknown>[] = [];
+    const commands: string[] = [];
+    let nextRun = 1;
+    const specs = new Map<string, string>();
+    server = startLoopback(path, {
+      hello: ctx => sendOk(ctx),
+      'stream.read': (ctx, params) => {
+        const from = params.from_offset as number;
+        const page = params.stream === 'predicate-gates' ? stream.slice(from) : [];
+        const sorted = page.map(m => Object.fromEntries(Object.entries(m).sort(([a], [b]) => a.localeCompare(b))));
+        sendResult(ctx, { messages: sorted.map(message => ({ message })), next_offset: from + page.length });
+      },
+      'stream.append': (ctx, params) => {
+        if (params.stream === 'predicate-gates') stream.push(params.message as Record<string, unknown>);
+        sendResult(ctx, { offset: stream.length });
+      },
+      'run.start': (ctx, params) => {
+        const step = (params.spec as { steps: Array<{ id: string; command?: string }> }).steps[0]!;
+        if (step.id.endsWith('.gate')) commands.push(step.command!);
+        const runId = `sorted-run-${nextRun++}`;
+        specs.set(runId, step.id);
+        sendResult(ctx, { run_id: runId, status: 'completed', completion_reason: 'success', completed_steps: 1 });
+      },
+      'journal.read': (ctx, params) => {
+        sendResult(ctx, { entries: [{ entry_type: 'step.completed', step_id: specs.get(params.run_id as string), payload: {
+          completionReason: 'success', disposition: 'step_done', output: { exit_code: 0, stdout_tail: 'x', stderr_tail: '' } } }] });
+      },
+    });
+    const client = new JournalClient(path, { requestTimeoutMs: 2000 });
+    await client.connect();
+    await client.hello('predicate-sorted-test');
+    try {
+      const handle = flow('predicate-sorted', async (f) => {
+        await f.run('echo a').gate(() => true, 'plan covers every question');
+        f.done('success');
+      });
+      for (let run = 0; run < 2; run++) {
+        const result = await executeAuthoredFlow(handle, client, undefined, { rootRunId: 'root-sorted' });
+        expect(result.completionReason).toBe('success');
+      }
+    } finally {
+      client.close();
+    }
+    expect(stream).toHaveLength(1);
+    expect(commands).toHaveLength(2);
+    expect(commands[1]).toBe(commands[0]);
+    expect(commands[0]).toContain('{"gate":"predicate","step":"run-1","verdict":"pass","because":"plan covers every question"}');
+  });
 });

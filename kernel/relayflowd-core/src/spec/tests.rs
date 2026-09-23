@@ -330,6 +330,92 @@ fn preflight_data_is_fail_closed() {
     );
 }
 
+/// `on_non_zero` is a declared policy, so it parses fail-closed like every
+/// other spec field: an unrecognized value is a refusal, never a silent
+/// fallback to the fatal default.
+#[test]
+fn on_non_zero_parses_the_two_declared_policies_and_refuses_anything_else() {
+    let recorded = RunSpec::parse(&json!({
+        "steps": [{
+            "id": "tests", "type": "deterministic", "command": "npm test",
+            "on_non_zero": "record"
+        }]
+    }))
+    .unwrap();
+    assert!(matches!(
+        recorded.steps[0].kind,
+        StepKind::Deterministic {
+            on_non_zero: OnNonZero::Record,
+            ..
+        }
+    ));
+    assert_eq!(recorded.validate(), Ok(()));
+
+    let explicit_fail = RunSpec::parse(&json!({
+        "steps": [{
+            "id": "tests", "type": "deterministic", "command": "npm test",
+            "on_non_zero": "fail"
+        }]
+    }))
+    .unwrap();
+    assert!(matches!(
+        explicit_fail.steps[0].kind,
+        StepKind::Deterministic {
+            on_non_zero: OnNonZero::Fail,
+            ..
+        }
+    ));
+
+    assert!(matches!(
+        RunSpec::parse(&json!({
+            "steps": [{
+                "id": "tests", "type": "deterministic", "command": "npm test",
+                "on_non_zero": "ignore"
+            }]
+        })),
+        Err(SpecError::Malformed(_))
+    ));
+
+    // The policy belongs to the deterministic rung only; a worker step that
+    // declares it is an unknown field, not an inert decoration.
+    assert!(matches!(
+        RunSpec::parse(&json!({
+            "steps": [{
+                "id": "ask", "type": "llm", "prompt": "p", "on_non_zero": "record"
+            }]
+        })),
+        Err(SpecError::UnknownField { field, .. }) if field == "on_non_zero"
+    ));
+}
+
+/// The boundary artifact is hashed. A step that does not declare the policy
+/// must serialize to the exact bytes it did before the field existed, or every
+/// committed canonical fixture and every memoized step hash moves at once.
+#[test]
+fn the_default_policy_is_absent_from_the_serialized_boundary_spec() {
+    let spec = RunSpec::parse(&json!({
+        "steps": [{"id": "a", "type": "deterministic", "command": "true"}]
+    }))
+    .unwrap();
+    let serialized = serde_json::to_value(&spec).unwrap();
+    assert!(
+        serialized["steps"][0].get("on_non_zero").is_none(),
+        "{serialized}"
+    );
+
+    let recorded = RunSpec::parse(&json!({
+        "steps": [{
+            "id": "a", "type": "deterministic", "command": "true",
+            "on_non_zero": "record"
+        }]
+    }))
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(&recorded).unwrap()["steps"][0]["on_non_zero"],
+        json!("record")
+    );
+}
+
 #[test]
 fn agent_cwd_is_carried_and_must_be_run_root_relative() {
     let with_cwd = RunSpec::parse(&json!({

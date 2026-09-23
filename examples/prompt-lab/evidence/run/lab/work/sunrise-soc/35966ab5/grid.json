@@ -1,0 +1,170 @@
+[
+  {
+    "questionId": "living-situation",
+    "patientId": "jordan",
+    "pile": "agency-specific",
+    "highlight": [
+      "first-pass prompt, never reviewed"
+    ],
+    "ai": {
+      "answer": "Lives with spouse",
+      "confidence": "High",
+      "explanation": "Today's visit note states the patient and spouse share the home and the spouse sets up the pill organizer each morning, which directly establishes co-residence with a spouse; this outranks the intake form's referral-era \"lives alone\" entry, since today's visit notes take precedence over prior documentation."
+    },
+    "target": {
+      "answer": "Lives with spouse",
+      "confidence": "High",
+      "explanation": "Today's visit note states the patient and spouse share the home and the spouse sets up the pill organizer each morning, which directly establishes co-residence with a spouse; this outranks the intake form's referral-era \"lives alone\" entry, since today's visit notes take precedence over prior documentation."
+    },
+    "notes": ""
+  },
+  {
+    "questionId": "living-situation",
+    "patientId": "pat",
+    "pile": "agency-specific",
+    "highlight": [
+      "first-pass prompt, never reviewed"
+    ],
+    "ai": {
+      "answer": "Lives alone",
+      "confidence": "High",
+      "explanation": "Today's visit note's home environment section states the patient \"lives alone in a one-story home; neighbor checks in daily,\" which directly names the living situation and outranks the referral-era intake form. The neighbor's daily check-ins are visits rather than co-residence."
+    },
+    "target": {
+      "answer": "Lives alone",
+      "confidence": "High",
+      "explanation": "Today's visit note's home environment section states the patient \"lives alone in a one-story home; neighbor checks in daily,\" which directly names the living situation and outranks the referral-era intake form. The neighbor's daily check-ins are visits rather than co-residence."
+    },
+    "notes": ""
+  },
+  {
+    "questionId": "living-situation",
+    "patientId": "riley",
+    "pile": "agency-specific",
+    "highlight": [
+      "first-pass prompt, never reviewed"
+    ],
+    "ai": {
+      "answer": "Lives with family",
+      "confidence": "High",
+      "explanation": "Today's visit note states the patient lives with her daughter, son-in-law and two grandchildren, which maps directly to the family option; the referral packet's co-resident statement agrees and no spouse is documented in the home."
+    },
+    "target": {
+      "answer": "Lives with family",
+      "confidence": "High",
+      "explanation": "Today's visit note states the patient lives with her daughter, son-in-law and two grandchildren, which maps directly to the family option; the referral packet's co-resident statement agrees and no spouse is documented in the home."
+    },
+    "notes": ""
+  },
+  {
+    "questionId": "mood",
+    "patientId": "jordan",
+    "pile": "mismatch",
+    "highlight": [
+      "medium confidence",
+      "shared prompt, this agency's menu or ancestry differs"
+    ],
+    "ai": {
+      "answer": "Calm",
+      "confidence": "Medium",
+      "explanation": "The visit notes describe the patient as \"relaxed and engaged, asks good questions about the diuretic,\" which is the clinician's observation of behavior rather than the patient stating their feelings in their own words."
+    },
+    "target": {
+      "answer": "Calm",
+      "confidence": "Medium",
+      "explanation": "The visit notes describe the patient as \"relaxed and engaged, asks good questions about the diuretic,\" which is the clinician's observation of behavior rather than the patient stating their feelings in their own words."
+    },
+    "notes": ""
+  },
+  {
+    "questionId": "mood",
+    "patientId": "pat",
+    "pile": "mismatch",
+    "highlight": [
+      "shared prompt, this agency's menu or ancestry differs"
+    ],
+    "ai": {
+      "answer": "Calm",
+      "confidence": "High",
+      "explanation": "Visit notes describe the patient as \"calm and pleasant, joking about hospital food,\" and she states in her own words that she is glad to be home."
+    },
+    "target": {
+      "answer": "Calm",
+      "confidence": "High",
+      "explanation": "Visit notes describe the patient as \"calm and pleasant, joking about hospital food,\" and she states in her own words that she is glad to be home."
+    },
+    "notes": ""
+  },
+  {
+    "questionId": "mood",
+    "patientId": "riley",
+    "pile": "mismatch",
+    "highlight": [
+      "shared prompt, this agency's menu or ancestry differs"
+    ],
+    "ai": {
+      "answer": "Anxious",
+      "confidence": "High",
+      "explanation": "The patient states in her own words, 'I can't stop thinking about falling again, I lie awake worrying about it,' and the nurse notes she wrings her hands during the medication review."
+    },
+    "target": {
+      "answer": "Anxious",
+      "confidence": "High",
+      "explanation": "The patient states in her own words, 'I can't stop thinking about falling again, I lie awake worrying about it,' and the nurse notes she wrings her hands during the medication review."
+    },
+    "notes": ""
+  },
+  {
+    "questionId": "wound-status",
+    "patientId": "pat",
+    "pile": "shared",
+    "highlight": [
+      "medium confidence"
+    ],
+    "ai": {
+      "answer": "Ongoing",
+      "confidence": "Medium",
+      "explanation": "The referral packet's discharge summary states the left heel pressure injury was closed, but today's SOC visit notes document an open left heel area 2.0 x 1.5 cm with moderate serous drainage and yellow slough, so the wound is currently ongoing."
+    },
+    "target": {
+      "answer": "Ongoing",
+      "confidence": "High",
+      "explanation": "Today's visit notes describe an open 2.0 x 1.5 cm left heel wound with serous drainage and slough; the discharge summary's closed status is outdated."
+    },
+    "notes": "The prompt makes the referral win over what the nurse saw today. Today's notes must win (shared guideline 1)."
+  },
+  {
+    "questionId": "wound-status",
+    "patientId": "jordan",
+    "pile": "shared",
+    "highlight": [],
+    "ai": {
+      "answer": "No wound",
+      "confidence": "High",
+      "explanation": "The referral packet's intake form documents no wounds and intact skin, and today's SOC visit note confirms 'Skin intact, no wounds.'"
+    },
+    "target": {
+      "answer": "No wound",
+      "confidence": "High",
+      "explanation": "The referral packet's intake form documents no wounds and intact skin, and today's SOC visit note confirms 'Skin intact, no wounds.'"
+    },
+    "notes": ""
+  },
+  {
+    "questionId": "wound-status",
+    "patientId": "riley",
+    "pile": "shared",
+    "highlight": [],
+    "ai": {
+      "answer": "No wound",
+      "confidence": "High",
+      "explanation": "The referral packet states 'No wounds' with the presenting problem being a right wrist fracture in a cast, and today's SOC visit notes confirm 'No wounds; skin intact around cast.'"
+    },
+    "target": {
+      "answer": "No wound",
+      "confidence": "High",
+      "explanation": "The referral packet states 'No wounds' with the presenting problem being a right wrist fracture in a cast, and today's SOC visit notes confirm 'No wounds; skin intact around cast.'"
+    },
+    "notes": ""
+  }
+]

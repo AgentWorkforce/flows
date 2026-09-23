@@ -1,3 +1,4 @@
+import { onWorkerFailure } from '../worker-lease.js';
 import { communicationInstruction } from '../communication/spec.js';
 import { checkCommunicationEnvironment, CommunicationEnvironmentError } from '../communication/preflight.js';
 import { parseHumanRecipient } from '../human-to.js';
@@ -26,8 +27,11 @@ import type {
   RunStatus,
 } from '../protocol.js';
 import type { StepType } from '../spec.js';
+import {
+  singleLineCompletionDetail,
+  type LoweredCompletionReason,
+} from '../authored-completion.js';
 import { DEFAULT_LOCAL_AGENT_CAPACITY } from '../worker-slots.js';
-import type { LoweredCompletionReason } from '../authored-flow-executor.js';
 import {
   checkFlow,
   type CheckReport,
@@ -57,6 +61,13 @@ export interface RunReport {
   socketPath?: string;
   status?: RunStatus;
   completionReason?: RunCompletionReason;
+  /**
+   * What the body passed to `done(reason, { detail })`, normalized: redacted,
+   * trimmed, and bounded to 2,000 code points. Absent for every one-argument
+   * call, so an existing report keeps its exact shape — and absent on the
+   * paths where no authored body declared the outcome at all.
+   */
+  completionDetail?: string;
   completedSteps?: number;
   reuse?: { fromRunId: string; reusedSteps: number; executedSteps: number };
   parkedStep?: ParkedStep;
@@ -196,6 +207,7 @@ export async function resumeFlow(
   let communicationWorkers: Awaited<ReturnType<typeof import('../communication/local.js').attachCommunicationWorkers>> | undefined;
   let authoredAgent: Awaited<ReturnType<typeof attachLocalAgent>> | undefined;
   let authoredLlm: LlmWorker | undefined;
+  let llmFailure: unknown;
   let authoredLlmClient: JournalClient | undefined;
   const workerCapacity = options.agentCapacity ?? DEFAULT_LOCAL_AGENT_CAPACITY;
   try {
@@ -215,6 +227,10 @@ export async function resumeFlow(
         await authoredLlmClient.connect();
         await authoredLlmClient.hello('flows-authored-resume-llm');
         authoredLlm = new LlmWorker(authoredLlmClient, `${authoredAgent.stream}-llm`, workerCapacity);
+        authoredLlm.on('error', onWorkerFailure('resume-llm', error => {
+          llmFailure = error;
+          client.close();
+        }));
         await authoredLlm.attach();
       }
       const result = await resumeDurableAuthoredFlow(runId, client, {
@@ -273,7 +289,9 @@ export async function resumeFlow(
       return authoredHumanParked('resume', base, socketPath, error, { dataDir, localAgent: options.localAgent === true });
     }
     if (!(error instanceof JournalProtocolError) || error.code !== 'run_not_found') {
-      return protocolFailure('resume', base, socketPath, error, runId);
+      const cause = error instanceof AuthoredFlowExecutionError
+        ? error : llmFailure ?? authoredAgent?.failure ?? error;
+      return protocolFailure('resume', base, socketPath, cause, runId);
     }
     return {
       exitCode: 2,
@@ -405,15 +423,30 @@ export function authoredCompletion(
   command: RunCommand,
   base: RunReport,
   socketPath: string,
-  result: { name: string; completionReason: LoweredCompletionReason; journalSteps: readonly unknown[] },
+  result: {
+    name: string;
+    completionReason: LoweredCompletionReason;
+    completionDetail?: string;
+    journalSteps: readonly unknown[];
+  },
   runId: string | undefined,
 ): RunExecution {
   const common: RunReport = {
     ...fromBase(command, base),
     ...(runId === undefined ? {} : { runId }),
     socketPath,
+    ...(result.completionDetail === undefined ? {} : { completionDetail: result.completionDetail }),
     completedSteps: result.journalSteps.length,
   };
+  // Two spellings of the same fact, on purpose. `detail` is the structured
+  // one — the `StepFailedDetails` key the diagnostic already declares, here
+  // describing the AUTHOR's verdict rather than the daemon's account of a
+  // failing step — and keeps the body's own line breaks. `said` is the same
+  // text folded onto one line for the message, because Cloud renders a run's
+  // `error` through a view that elides the middle of a long one.
+  const detail = result.completionDetail;
+  const evidence = detail === undefined ? {} : { detail };
+  const said = detail === undefined ? '' : singleLineCompletionDetail(detail);
   switch (result.completionReason) {
     case 'success':
       return {
@@ -427,7 +460,9 @@ export function authoredCompletion(
           ...common, ok: true, status: 'completed', completionReason: 'success',
           diagnostics: [...base.diagnostics, {
             severity: 'declined', kind: 'run_declined',
-            message: 'Flow deliberately chose not to act on this input.',
+            ...evidence,
+            message: 'Flow deliberately chose not to act on this input.'
+              + (detail === undefined ? '' : ` ${said}`),
           }],
         },
       };
@@ -438,7 +473,9 @@ export function authoredCompletion(
           ...common, ok: false, status: 'parked',
           diagnostics: [...base.diagnostics, {
             severity: 'parked', kind: 'run_parked',
-            message: `Flow "${result.name}" needs_human; see the journal for accumulated blockers.`,
+            ...evidence,
+            message: `Flow "${result.name}" needs_human; see the journal for accumulated blockers.`
+              + (detail === undefined ? '' : ` ${said}`),
           }],
         },
       };
@@ -454,9 +491,16 @@ export function authoredCompletion(
           ...common, ok: false, status: 'failed', completionReason: 'step_failed',
           diagnostics: [...base.diagnostics, {
             severity: 'failure', kind: 'step_failed',
-            message: `Flow "${result.name}" declared done("step_failed"): its own checks did not pass. `
-              + 'No step failed, so there is no step-level evidence to inspect; the journal holds '
-              + 'every step the flow ran before it decided.',
+            ...evidence,
+            // With a detail, the flow's own account REPLACES the generic
+            // sentence: "no step-level evidence to inspect" is the only thing
+            // there is to say when the body said nothing, and saying it
+            // beside a real explanation would bury the explanation.
+            message: detail === undefined
+              ? `Flow "${result.name}" declared done("step_failed"): its own checks did not pass. `
+                + 'No step failed, so there is no step-level evidence to inspect; the journal holds '
+                + 'every step the flow ran before it decided.'
+              : `Flow "${result.name}" declared done("step_failed"): ${said}`,
           }],
         },
       };
@@ -742,6 +786,9 @@ async function inspectOutOfBandStep(
   };
 }
 
+// Match kernel/relayflowd/src/server/client.rs: allow the lease sweep to dispatch a retry.
+const LEASE_SWEEP_GRACE_MS = 5_000;
+
 async function waitForRunningStep(
   client: JournalClient,
   runId: string,
@@ -760,7 +807,7 @@ async function waitForRunningStep(
   });
   while (true) {
     throwIfCanceled(options.signal, runningStep.id);
-    const remainingMs = leaseDeadlineMs - Date.now();
+    const remainingMs = leaseDeadlineMs + LEASE_SWEEP_GRACE_MS - Date.now();
     if (remainingMs <= 0) {
       throw new Error(
         `worker lease for step "${runningStep.id}" expired at ${leaseDeadlineMs} without completion`,

@@ -24,6 +24,13 @@ export interface StepGateInspection extends DataGateClassification {
    * identically to a gate that judges something.
    */
   acceptsAnyOutput?: true;
+  /**
+   * Present when the step declares `onNonZero: 'record'`. The `exit_code`
+   * check is still applied and still journaled, but a positive code satisfies
+   * it instead of failing the step. Without this a recording step reads
+   * exactly like a gated one — the `|| true` ambiguity, moved into the report.
+   */
+  recordsNonZeroExit?: true;
 }
 
 /** Annotation-only keywords: present, they still constrain no instance. */
@@ -55,11 +62,15 @@ export function acceptsAnyOutput(schema: unknown): boolean {
 /** Describe the exact named checks the existing kernel applies to a step. */
 export function inspectStepGate(step: StepSpec): StepGateInspection {
   const checks: JournalGateCheck[] = [];
+  // A policy for the step's own exit code, not a gate of its own: it never
+  // adds or removes a check, it changes what a positive code means to one.
+  const recording = step.type === 'deterministic' && step.onNonZero === 'record'
+    ? { recordsNonZeroExit: true as const } : {};
   if (isNamedGate(step.verification)) {
     checks.push('exit_code');
     if (step.verification.type === 'references_input') checks.push('output_contains');
     if (step.verification.type === 'word_count_bounds') checks.push('json_schema');
-    return { stepId: step.id, kind: 'data', checks, evaluator: 'kernel', preflightable: true, replayable: true };
+    return { stepId: step.id, kind: 'data', checks, evaluator: 'kernel', preflightable: true, replayable: true, ...recording };
   }
   if (step.type === 'deterministic') checks.push('exit_code');
   if (step.verification?.type === 'output_contains') checks.push('output_contains');
@@ -75,5 +86,6 @@ export function inspectStepGate(step: StepSpec): StepGateInspection {
     preflightable: true,
     replayable: true,
     ...(vacuous ? { acceptsAnyOutput: true as const } : {}),
+    ...recording,
   };
 }

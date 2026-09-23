@@ -1,0 +1,25 @@
+$ npx flows run --no-observer-link --data-dir /private/tmp/claude-501/-Users-khaliqgant-Projects-AgentWorkforce-flows/df229951-f0e4-4753-990e-0f66533486d1/scratchpad/prove3-data --local-agent prompt-lab.flow.ts --input {"job":"fix","reviewer":"prompt-lab-reviewer","lab":"evidence/run/lab","issueId":"config-sunrise-wound-status-8beb8d42"}
+○ run-1 (deterministic) 0.00s
+✓ run-1 (deterministic) 0.08s completionReason: success
+○ llm-2 (llm) 0.00s
+WAITING [worker_lease] Run "01M36DMH97CEWZR6E8A4827QSQ" step "llm-2" (llm) is running under a worker lease until 1790143281757.
+↻ llm-2 (llm) 9.16s
+WAITING [worker_lease] Run "01M36DMH97CEWZR6E8A4827QSQ" step "llm-2" (llm) is running under a worker lease until 1790143291760.
+↻ llm-2 (llm) 19.20s
+✓ llm-2 (llm) 23.74s completionReason: success
+○ llm-3 (llm) 0.00s
+WAITING [worker_lease] Run "01M36DN4T1HR6D7M784QA9VZR4" step "llm-3" (llm) is running under a worker lease until 1790143301750.
+↻ llm-3 (llm) 5.41s
+✓ llm-3 (llm) 11.57s completionReason: success
+○ llm-4 (llm) 0.00s
+WAITING [worker_lease] Run "01M36DNH2JGN308JVHF92J3JT2" step "llm-4" (llm) is running under a worker lease until 1790143314315.
+↻ llm-4 (llm) 6.42s
+WAITING [worker_lease] Run "01M36DNH2JGN308JVHF92J3JT2" step "llm-4" (llm) is running under a worker lease until 1790143332374.
+↻ llm-4 (llm) 27.06s
+✓ llm-4 (llm) 38.59s completionReason: success
+○ llm-5 (llm) 0.00s
+WAITING [worker_lease] Run "01M36DQVNP1QDVAF92D1STJX01" step "llm-5" (llm) is running under a worker lease until 1790143392918.
+↻ llm-5 (llm) 46.42s
+✗ llm-5 (llm) 46.42s
+FAILED [protocol_error] relayflowd could not complete the run request: lease_conflict: attempt has no active worker lease
+exit=1

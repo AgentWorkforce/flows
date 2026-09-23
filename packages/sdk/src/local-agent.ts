@@ -1,3 +1,4 @@
+import { onWorkerFailure } from './worker-lease.js';
 import { randomUUID } from 'node:crypto';
 import type { JournalClient } from './journal-client.js';
 import { AgentWorker } from './worker.js';
@@ -30,7 +31,7 @@ export async function attachLocalAgent(
   });
   let failure: unknown;
   // The cause travels with the close, so the flow's next request names it.
-  worker.on('error', error => { failure = error; client.close(error); });
+  worker.on('error', onWorkerFailure('local-agent', error => { failure = error; client.close(error); }));
   await worker.attach();
   return {
     stream,

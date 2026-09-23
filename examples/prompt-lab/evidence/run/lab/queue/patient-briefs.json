@@ -1,0 +1,10 @@
+[
+  {
+    "id": "gap-ostomy-supplies-soc",
+    "questionId": "ostomy-supplies",
+    "visitType": "soc",
+    "brief": "No shelf patient has an ostomy of any kind — no stoma, no pouching system, no peristomal skin documentation anywhere in the referral packets or visit notes, so every answer option is unsupported including 'None'. The shelf needs an older adult recently discharged after colorectal surgery with a new colostomy, whose referral packet lists the pouching system and wafer size supplied at discharge, and whose SOC visit note documents peristomal skin condition, current pouch wear time and any leakage, remaining supply counts on hand at home, and the caregiver or self-care arrangement for pouch changes — enough detail that a reader must choose between a supply the patient is short of and an adequately stocked 'None'.",
+    "from": "planner",
+    "status": "locked"
+  }
+]

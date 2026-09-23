@@ -1,0 +1,49 @@
+filter
+File: packages/sdk/src/worker-lease.ts
+Replace: 'if (!isLeaseLost(error) || dispatch === undefined)'
+With: 'if (true)'
+Restored SHA256: c8d0c19879d2e4eae4c4bb1cea4946700d86c5c2395ef2bcbc63940c5e7d2afb
+Mutant exit: 1; restored exit: 0
+
+terminal
+File: packages/sdk/src/worker-lease.ts
+Replace: "error.code === 'run_terminal'"
+With: "error.code === 'never_drop_terminal'"
+Restored SHA256: c8d0c19879d2e4eae4c4bb1cea4946700d86c5c2395ef2bcbc63940c5e7d2afb
+Mutant exit: 1; restored exit: 0
+
+fatal
+File: packages/sdk/src/worker-lease.ts
+Replace: 'if (!isLeaseLost(error) || dispatch === undefined) { fatal(error); return; }'
+With: 'if (!isLeaseLost(error) || dispatch === undefined) { return; }'
+Restored SHA256: c8d0c19879d2e4eae4c4bb1cea4946700d86c5c2395ef2bcbc63940c5e7d2afb
+Mutant exit: 1; restored exit: 0
+
+live
+File: packages/sdk/src/worker-lease.ts
+Replace: 'if (!isLeaseLost(error) || dispatch === undefined)'
+With: 'if (true)'
+Restored SHA256: c8d0c19879d2e4eae4c4bb1cea4946700d86c5c2395ef2bcbc63940c5e7d2afb
+Mutant exit: 1; restored exit: 0
+
+sweep
+File: packages/sdk/src/cli/run.ts
+Replace: 'leaseDeadlineMs + LEASE_SWEEP_GRACE_MS - Date.now()'
+With: 'leaseDeadlineMs - Date.now()'
+Restored SHA256: 4190bc2dfdf2ba162498e438ae508e9a4b9dd408909c6c711e393a381009d3e6
+Mutant exit: 1; restored exit: 0
+
+direct
+File: packages/sdk/src/cli/direct-run.ts
+Replace: "localLlm.on('error', onWorkerFailure('local-llm', error => { llmFailure = error; client.close(); }));"
+With: "localLlm.on('error', error => { llmFailure = error; client.close(); });"
+Restored SHA256: 4c28be2f845789047c8ae39eca2003d2d7b0c1c572e92d0aee88edb3cda81341
+Mutant exit: 1; restored exit: 0
+
+resume
+File: packages/sdk/src/cli/run.ts
+Replace: "        authoredLlm.on('error', onWorkerFailure('resume-llm', error => {\n          llmFailure = error;\n          client.close();\n        }));\n"
+With: ''
+Restored SHA256: 4190bc2dfdf2ba162498e438ae508e9a4b9dd408909c6c711e393a381009d3e6
+Mutant exit: 1; restored exit: 0
+

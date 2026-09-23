@@ -1,0 +1,32 @@
+$ cd packages/sdk && npx vitest run tests/resume-worker-lease.test.ts
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/packages/sdk
+
+ ❯ tests/resume-worker-lease.test.ts (2 tests | 2 failed) 5ms
+   × resume handles LLM errors with leaseLost=false 4ms
+     → expected "spy" to be called at least once
+   × resume handles LLM errors with leaseLost=true 1ms
+     → expected "spy" to be called at least once
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/resume-worker-lease.test.ts > resume handles LLM errors with leaseLost=false
+ FAIL  tests/resume-worker-lease.test.ts > resume handles LLM errors with leaseLost=true
+AssertionError: expected "spy" to be called at least once
+ ❯ tests/resume-worker-lease.test.ts:32:37
+     30|   const result = await resumeFlow('run', '/unused', { localAgent: true…
+     31|   expect(readAuthoredRootMetadata).toHaveBeenCalled();
+     32|   expect(resumeDurableAuthoredFlow).toHaveBeenCalled();
+       |                                     ^
+     33|   expect(result.exitCode).toBe(1);
+     34|   expect(JSON.stringify(result.report)).toContain(leaseLost ? 'connect…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  00:14:34
+   Duration  614ms (transform 213ms, setup 0ms, collect 417ms, tests 5ms, environment 0ms, prepare 26ms)
+
+
+Exit code: 1

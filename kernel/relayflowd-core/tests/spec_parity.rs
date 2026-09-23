@@ -116,6 +116,24 @@ fn the_kernel_parses_the_event_triggered_spec_and_stamps_the_same_hash() {
     );
 }
 
+/// The advisory-outcome dialect: a `on_non_zero: "record"` step, a binding that
+/// reads its recorded envelope, and the deterministic gate step the SDK lowers
+/// `steps_green` into. The SDK spelling of that gate never reaches the kernel,
+/// so this proves the kernel parses what the SDK actually emits for it.
+#[test]
+fn the_kernel_parses_the_advisory_repair_spec_and_stamps_the_same_hash() {
+    assert_parity(
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testdata/advisory-repair.spec.canonical.json"
+        )),
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testdata/advisory-repair.spec.sha256"
+        )),
+    );
+}
+
 fn assert_parity(canonical_fixture: &str, expected_hash: &str) {
     let value: Value = serde_json::from_str(canonical_fixture.trim()).unwrap();
     let spec = RunSpec::parse(&value).expect("kernel must parse the SDK's compiled spec");
