@@ -51,8 +51,8 @@ export async function fix(job: Job, input: FixInput): Promise<void> {
     const gap: PatientBrief = { id: gapId(qid, asked.visitType), questionId: qid, visitType: asked.visitType, brief: plan.gaps[0].brief, from: "planner", status: "queued" };
     await lab.enqueue("patient-briefs", gap);
   }
-  if (ids.size === 0) return f.done("needs_human"); // nothing on the shelf can show it yet; the gap brief is queued
   const patients = snap.shelf.filter((p) => ids.has(p.id));
+  if (patients.length === 0) return f.done("needs_human"); // nothing on the shelf can show it yet; the gap brief is queued
 
   const current = await runEngine(f, live, ask, patients);
   const rows: Row[] = patients.map((p) => {
@@ -79,7 +79,11 @@ export async function fix(job: Job, input: FixInput): Promise<void> {
   await lab.record("gold", gold);
 
   const changes = changed(edited);
-  if (changes.length === 0) return f.done("declined"); // the live prompt already matches gold: nothing to iterate
+  if (changes.length === 0) {
+    // The live prompt already matches gold: the issue is resolved, nothing to iterate.
+    if (issue) await lab.closeIssue(issue.id);
+    return f.done("success");
+  }
   const byId = new Map(patients.map((p) => [p.id, p]));
   const changeset = changes.map((r) => ({ patient: byId.get(r.patientId)!, ai: r.ai, target: r.target, notes: r.notes }));
   const rewrite = await untilQaPasses<{ prompt: string }>(f,
