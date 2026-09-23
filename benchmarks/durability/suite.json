@@ -15,7 +15,7 @@
   "cases": [
     {
       "id": "black-box-cli-sigkill-resume",
-      "claim": "An external caller can SIGKILL the CLI after the first effect, resume from its opaque run receipt, and observe each dependent effect exactly once.",
+      "claim": "An external caller can SIGKILL the CLI after one completed step while the next is in flight, then resume without replaying completed work while replacing the unfinished attempt.",
       "command": {
         "file": "node",
         "args": ["black-box-crash.mjs"],
@@ -23,8 +23,9 @@
         "timeoutMs": 150000
       },
       "successWitnesses": [
-        {"stream": "stdout", "contains": "BLACK_BOX_ASSERTIONS: 9/9"},
+        {"stream": "stdout", "contains": "BLACK_BOX_ASSERTIONS: 12/12"},
         {"stream": "stdout", "contains": "\"completionReason\":\"success\""},
+        {"stream": "stdout", "contains": "\"attempts\":2"},
         {"stream": "stdout", "contains": "\"effects\":[\"first\",\"second\",\"third\"]"}
       ]
     },

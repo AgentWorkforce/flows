@@ -16,6 +16,12 @@ exactly-once declared effects under the tested faults. It does not mean an LLM
 will emit identical text twice. Quality is measured separately by deterministic
 gates and task-specific evals, matching RFC-0001 settled decision 11.
 
+The black-box case models loss of an execution environment by killing both the
+daemon and its in-flight child process before resume. Killing only the daemon
+while deliberately leaving its child alive is not environment loss: the old
+attempt can continue beside its replacement, so that is a different workload
+with different ownership requirements.
+
 ## Run the durability eval
 
 From the repository root:

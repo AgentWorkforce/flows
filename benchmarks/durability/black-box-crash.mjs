@@ -19,21 +19,20 @@ export async function runBlackBoxCrash(options = {}) {
   const fixture = mkdtempSync(join(tmpdir(), 'relayflows-black-box-'));
   const dataDir = join(fixture, 'data');
   const effects = join(fixture, 'effects.txt');
+  const attempts = join(fixture, 'attempts.txt');
+  const gate = join(fixture, 'gate');
+  const stepPid = join(fixture, 'step.pid');
   const specPath = join(fixture, 'flow.json');
   const assertions = [];
 
   try {
-    writeFileSync(specPath, `${JSON.stringify(flowSpec(effects), null, 2)}\n`);
+    writeFileSync(
+      specPath,
+      `${JSON.stringify(flowSpec({ effects, attempts, gate, stepPid }), null, 2)}\n`,
+    );
     const child = spawn(
       binary,
-      [
-        '--data-dir',
-        dataDir,
-        'run',
-        specPath,
-        '--pause-before-step',
-        'second',
-      ],
+      ['--data-dir', dataDir, 'run', specPath],
       { detached: true, stdio: ['ignore', 'pipe', 'pipe'] },
     );
     let stdout = '';
@@ -50,14 +49,20 @@ export async function runBlackBoxCrash(options = {}) {
       stderr += String(error);
     });
 
-    await waitUntil('first effect and durable run receipt', () => {
+    await waitUntil('completed first step and blocked second attempt', () => {
       if (spawnError) throw new EnvironmentError(spawnError.message);
       if (child.exitCode !== null) {
         throw new Error(`relayflowd exited before the kill boundary: ${stdout}${stderr}`);
       }
-      return readEffects(effects).join(',') === 'first' && runIds(dataDir).length === 1;
+      return (
+        readLines(effects).join(',') === 'first' &&
+        readLines(attempts).join(',') === 'attempt' &&
+        readPid(stepPid) !== null &&
+        runIds(dataDir).length === 1
+      );
     });
-    check(assertions, readEffects(effects), ['first'], 'only step one completed before SIGKILL');
+    check(assertions, readLines(effects), ['first'], 'only step one completed before SIGKILL');
+    check(assertions, readLines(attempts), ['attempt'], 'step two was in flight before SIGKILL');
     const ids = runIds(dataDir);
     check(assertions, ids.length, 1, 'one opaque run receipt exists');
 
@@ -66,6 +71,9 @@ export async function runBlackBoxCrash(options = {}) {
     const [exitCode, signal] = await exited;
     check(assertions, exitCode, null, 'killed process has no numeric exit code');
     check(assertions, signal, 'SIGKILL', 'workflow process observed SIGKILL');
+    await killAndWait(readPid(stepPid));
+    check(assertions, isProcessAlive(readPid(stepPid)), false, 'in-flight step process was killed');
+    writeFileSync(gate, 'open\n');
 
     const resumed = spawnSync(binary, ['--data-dir', dataDir, 'resume', ids[0]], {
       encoding: 'utf8',
@@ -79,16 +87,23 @@ export async function runBlackBoxCrash(options = {}) {
     check(assertions, outcome.completed_steps, 3, 'all three steps completed');
     check(
       assertions,
-      readEffects(effects),
+      readLines(attempts),
+      ['attempt', 'attempt'],
+      'the interrupted unfinished step executed a replacement attempt',
+    );
+    check(
+      assertions,
+      readLines(effects),
       ['first', 'second', 'third'],
-      'every external effect occurred exactly once and in dependency order',
+      'the completed step was not replayed and final effects occurred once in dependency order',
     );
 
     return {
       assertions: assertions.length,
       runStatus: outcome.status,
       completionReason: outcome.completion_reason,
-      effects: readEffects(effects),
+      attempts: readLines(attempts).length,
+      effects: readLines(effects),
     };
   } finally {
     rmSync(fixture, { recursive: true, force: true });
@@ -118,7 +133,7 @@ function runEnvironmentCommand(file, args, cwd) {
   return result;
 }
 
-function flowSpec(effects) {
+function flowSpec({ effects, attempts, gate, stepPid }) {
   const append = "require('node:fs').appendFileSync(process.argv[1], process.argv[2])";
   const step = (id, value, dependsOn) => ({
     id,
@@ -126,9 +141,29 @@ function flowSpec(effects) {
     ...(dependsOn ? { depends_on: [dependsOn] } : {}),
     command: [process.execPath, '-e', append, effects, `${value}\n`],
   });
+  const blockingSecond = [
+    process.execPath,
+    '-e',
+    [
+      "const fs=require('node:fs')",
+      "fs.appendFileSync(process.argv[3], 'attempt\\n')",
+      "fs.writeFileSync(process.argv[4], String(process.pid))",
+      'const wait=new Int32Array(new SharedArrayBuffer(4))',
+      'while(!fs.existsSync(process.argv[2])) Atomics.wait(wait,0,0,20)',
+      "fs.appendFileSync(process.argv[1], 'second\\n')",
+    ].join(';'),
+    effects,
+    gate,
+    attempts,
+    stepPid,
+  ];
   return {
     name: 'black-box-crash-resume',
-    steps: [step('first', 'first'), step('second', 'second', 'first'), step('third', 'third', 'second')],
+    steps: [
+      step('first', 'first'),
+      { id: 'second', type: 'deterministic', depends_on: ['first'], command: blockingSecond },
+      step('third', 'third', 'second'),
+    ],
   };
 }
 
@@ -142,11 +177,41 @@ function runIds(dataDir) {
   }
 }
 
-function readEffects(path) {
+function readLines(path) {
   try {
     return readFileSync(path, 'utf8').trimEnd().split('\n').filter(Boolean);
   } catch {
     return [];
+  }
+}
+
+function readPid(path) {
+  try {
+    const pid = Number(readFileSync(path, 'utf8'));
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+async function killAndWait(pid) {
+  if (!pid) throw new Error('in-flight step PID is missing');
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch (error) {
+    if (error.code !== 'ESRCH') throw error;
+  }
+  await waitUntil('in-flight step process exit', () => !isProcessAlive(pid));
+}
+
+function isProcessAlive(pid) {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error.code === 'ESRCH') return false;
+    throw error;
   }
 }
 
