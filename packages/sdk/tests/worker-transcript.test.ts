@@ -225,6 +225,11 @@ describe('the llm worker judges the value inside one markdown fence', () => {
     expect(unfenced('```json\n{"x":1}\n```')).toBe('{"x":1}');
     expect(unfenced('  ```\n[1]\n```\n')).toBe('[1]');
     expect(unfenced('{"x":1}')).toBe('{"x":1}');
+    expect(unfenced('~~~json\n{"x":1}\n~~~')).toBe('{"x":1}');
+    expect(unfenced('````json\n{"x":1}\n`````')).toBe('{"x":1}');
+    // A closing run shorter than the opener, or of the other character, closes nothing.
+    expect(unfenced('````json\n{"x":1}\n```')).toBe('````json\n{"x":1}\n```');
+    expect(unfenced('```json\n{"x":1}\n~~~')).toBe('```json\n{"x":1}\n~~~');
     // Two fenced values are not one value: whatever is left must still fail JSON.parse.
     expect(() => JSON.parse(unfenced('```json\n{}\n```\n```json\n{}\n```'))).toThrow();
   });
