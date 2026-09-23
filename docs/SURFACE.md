@@ -769,9 +769,14 @@ journal. They are documented in [CLOUD.md](CLOUD.md#reading-a-hosted-run):
 
 ```text
 flows runs [--limit <n>] [--json]
-flows logs [--step <name>] [--raw] [--json] <run-id>
-flows status --cloud [--json] <run-id>
+flows logs [--step <name>] [--raw] [--json] [--follow] <run-id>
+flows status --cloud [--json] [--watch] <run-id>
 ```
+
+`--watch` and `--follow` keep reading until the hosted run is terminal and
+exit with *its* outcome rather than the read's, using `flows run --cloud
+--wait`'s mapping; Ctrl-C ends the observation, not the run. `--watch` needs
+`--cloud`, and `--follow` does not take `--step`.
 
 ### Agent sidechannel (initial byte-stream slice)
 

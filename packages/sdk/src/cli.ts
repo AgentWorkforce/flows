@@ -31,6 +31,7 @@ import {
   parseLogsArgs, parseRunsArgs, runCloudLogsCli, runCloudRunsCli, runCloudStatusCli,
   type LogsArgs, type RunsArgs,
 } from './cli/cloud-read.js';
+import { runCloudLogsFollow, runCloudStatusWatch } from './cli/cloud-live.js';
 import { transcriptTailSource } from './transcript-tail.js';
 import { checkTypeScriptFlow } from './cli/check-typescript.js';
 import { runCloudCli } from './cli/cloud-run.js';
@@ -57,6 +58,16 @@ export type { CheckInputDiagnostic, CheckReport } from './cli/check.js';
 export interface CliIo {
   stdout(line: string): void;
   stderr(line: string): void;
+  /**
+   * True when stdout is an interactive terminal.
+   *
+   * Only the live views read it, and only to decide whether a redraw may use
+   * ANSI control sequences: `flows status --cloud --watch` clears the screen
+   * for a terminal and appends whole pages when its output is redirected or
+   * mounted in a host that renders text. Absent means "not a terminal", so an
+   * embedder that says nothing gets the safe form.
+   */
+  tty?: boolean;
 }
 
 type CliExitCode = 0 | 1 | 2 | 3;
@@ -123,9 +134,9 @@ const USAGE = [
   'flows answer [--json] [--no-spawn] [--data-dir <dir>] [--note <text>] [--by <identity>] <run-id> <wait-id> <yes|no>',
   'flows replay [--allow-human-influenced] [--json] [--data-dir <dir>] <run-id> [--at <step-id>]',
   'flows status [--json] [--data-dir <dir>] [--tail <n>] [<run-id>]',
-  'flows status --cloud [--json] <run-id>',
+  'flows status --cloud [--json] [--watch] <run-id>',
   'flows runs [--limit <n>] [--json]',
-  'flows logs [--step <name>] [--raw] [--json] <run-id>',
+  'flows logs [--step <name>] [--raw] [--json] [--follow] <run-id>',
   'flows observer [--data-dir <dir>]',
   'flows hn-monitor start [--data-dir <dir>] [--poll-interval-ms <n>] <spec.json>',
 ].join('\n');
@@ -143,6 +154,7 @@ function spawnAllowedByEnv(env: NodeJS.ProcessEnv = process.env): boolean {
 const PROCESS_IO: CliIo = {
   stdout: (line) => process.stdout.write(`${line}\n`),
   stderr: (line) => process.stderr.write(`${line}\n`),
+  tty: process.stdout.isTTY === true,
 };
 
 /** Optional knobs for an embedded caller. `bin/flows.js` passes none. */
@@ -222,13 +234,21 @@ export async function runCli(
   // works inside a step of a run whose daemon is gone (kernel/DAEMON-LIFECYCLE.md §4).
   if (parsed.command === 'status') {
     // One verb, two sources. `--cloud` never reaches `runStatus`, so the
-    // offline reader stays offline (cli/status.ts).
-    return parsed.cloud === true
-      ? runCloudStatusCli(parsed, io)
-      : runStatus(parsed, io, { tails: transcriptTailSource() });
+    // offline reader stays offline (cli/status.ts). Only `--watch` blocks, so
+    // only `--watch` takes a signal: a one-shot read keeps installing none.
+    if (parsed.cloud !== true) return runStatus(parsed, io, { tails: transcriptTailSource() });
+    const cloudStatus = parsed;
+    return cloudStatus.watch === true
+      ? withInterrupt(options.signal, (signal) => runCloudStatusWatch(cloudStatus, io, { signal }))
+      : runCloudStatusCli(cloudStatus, io);
   }
   if (parsed.command === 'runs') return runCloudRunsCli(parsed, io);
-  if (parsed.command === 'logs') return runCloudLogsCli(parsed, io);
+  if (parsed.command === 'logs') {
+    const logs = parsed;
+    return logs.follow
+      ? withInterrupt(options.signal, (signal) => runCloudLogsFollow(logs, io, { signal }))
+      : runCloudLogsCli(logs, io);
+  }
   if (parsed.command === 'answer') {
     const execution = await answerFlow(parsed.runId, parsed.waitId, parsed.answer, parsed.dataDir, {
       ...(parsed.note === undefined ? {} : { note: parsed.note }),
