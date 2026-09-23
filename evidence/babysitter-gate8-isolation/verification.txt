@@ -1663,3 +1663,40 @@ authored-node.mjs  3.1 MB  (entry point)
 $ /tmp/flows-pr552-standalone.Zkkb5P/flows --help >/dev/null
 $ printf 'standalone-array-setter-pass %s\n' /tmp/flows-pr552-standalone.Zkkb5P/flows
 standalone-array-setter-pass /tmp/flows-pr552-standalone.Zkkb5P/flows
+
+$ git rev-parse HEAD
+ce108703
+
+$ cd packages/sdk
+$ git diff --check
+$ npm run typecheck
+
+> @relayflows/sdk@2.0.28 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+$ npm run build
+
+> @relayflows/sdk@2.0.28 build
+> tsc && node scripts/make-cli-executable.mjs
+
+$ npm run typecheck:tests
+
+> @relayflows/sdk@2.0.28 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+$ ./node_modules/.bin/vitest run tests/plugin-store-bounds.test.ts tests/hosted-base-snapshot.test.ts tests/hosted-extension-routing.test.ts tests/preflight.test.ts tests/babysitter-native-extension.test.ts tests/hosted-extension-protocol-intrinsics.test.ts tests/hosted-extension-protocol.test.ts tests/authored-flow.test.ts tests/hosted-extension-isolation.test.ts tests/fs-descriptor.test.ts
+
+ Test Files  10 passed (10)
+      Tests  227 passed (227)
+   Start at  17:32:35
+   Duration  2.82s
+
+$ node scripts/build-standalone-cli.mjs bun-linux-x64 /tmp/flows-pr552-standalone.olHfJA/flows
+Bundled 782 modules in 28ms
+authored-node.mjs  3.1 MB  (entry point)
+[52ms] bundle 715 modules
+[87ms] compile /tmp/flows-pr552-standalone.olHfJA/flows
+
+$ /tmp/flows-pr552-standalone.olHfJA/flows --help >/dev/null
+$ printf 'standalone-manifest-snapshot-pass %s\n' /tmp/flows-pr552-standalone.olHfJA/flows
+standalone-manifest-snapshot-pass /tmp/flows-pr552-standalone.olHfJA/flows
