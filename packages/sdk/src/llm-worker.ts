@@ -1,4 +1,5 @@
 import { workerSpend } from './worker-spend.js';
+import { DEFAULT_LOCAL_AGENT_CAPACITY } from './worker-slots.js';
 import type { WorkerCliResult } from './worker-cli.js';
 import { EventEmitter } from 'node:events';
 import type { JournalClient } from './journal-client.js';
@@ -17,7 +18,11 @@ export class LlmWorker extends EventEmitter {
   private closing = false;
   private readonly inFlight = new Set<Promise<void>>();
 
-  constructor(private readonly client: JournalClient, private readonly workerId: string) {
+  constructor(
+    private readonly client: JournalClient,
+    private readonly workerId: string,
+    private readonly capacity: number = DEFAULT_LOCAL_AGENT_CAPACITY,
+  ) {
     super();
   }
 
@@ -25,7 +30,7 @@ export class LlmWorker extends EventEmitter {
     if (this.attached || this.closing) throw new Error('llm worker: cannot attach twice or after close');
     this.client.on('step.dispatch', this.onDispatch);
     try {
-      await this.client.workerAttach(this.workerId, ['llm'], { workspace: [], streams: [] }, 1);
+      await this.client.workerAttach(this.workerId, ['llm'], { workspace: [], streams: [] }, this.capacity);
       this.attached = true;
     } catch (error) {
       this.client.off('step.dispatch', this.onDispatch);

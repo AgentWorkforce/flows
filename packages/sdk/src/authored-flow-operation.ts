@@ -5,6 +5,7 @@ import {
   AuthoredFlowLifecycle,
   type AuthoredOperationInvocation,
 } from './authored-flow-lifecycle.js';
+import type { AuthoredStepEdges } from './authored-step-index.js';
 
 /** Slice-P kinds the surface `.gate(config)` accepts and the SDK lowers. */
 const NAMED_GATE_KINDS = new Set([
@@ -39,6 +40,11 @@ export class AuthoredFlowOperation<T> {
    * function itself is never serialized. `flows check` cannot prove it.
    */
   predicateGate: { predicate: (value: T) => boolean; because?: string } | undefined = undefined;
+  /**
+   * This step's label and causal predecessors in the run's DAG, captured when
+   * it was invoked. Undefined for an operation the step index does not draw.
+   */
+  readonly edges: AuthoredStepEdges | undefined;
   private state: OperationState = 'created';
   private thenInvoked = false;
   private rootFailureRecorded = false;
@@ -55,6 +61,7 @@ export class AuthoredFlowOperation<T> {
     private readonly assertCanStart: () => void,
     private readonly start: () => Promise<T>,
     private readonly scope: AuthoredFlowLifecycle,
+    node?: { readonly label?: string },
   ) {
     let resolve!: (value: T | PromiseLike<T>) => void;
     let reject!: (reason?: unknown) => void;
@@ -64,6 +71,9 @@ export class AuthoredFlowOperation<T> {
     });
     this.resolve = resolve;
     this.reject = reject;
+    this.edges = scope.registerOperation(
+      this, this.promise, node === undefined ? undefined : { step: id, ...node },
+    );
 
     observeRejection(this.promise, (error) => this.recordRootFailure(error));
     const operation = this;

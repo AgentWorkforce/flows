@@ -74,3 +74,30 @@ export interface CloudHelper {
     journal(input: { runId: string; as: string }): Step<RunJournal>;
   };
 }
+
+/** Delivery-only request accepted by the host-owned native Babysitter adapter. */
+export interface CloudBabysitterTurnDelivery {
+  readonly deliveryId: string;
+  readonly provider: 'github';
+  readonly eventType: string;
+  readonly pullRequest: {
+    readonly owner: string;
+    readonly repository: string;
+    readonly number: number;
+  };
+}
+
+/** The only successful native-turn outcomes; refusals reject the call. */
+export interface CloudBabysitterTurnReceipt {
+  readonly receiptId: string;
+  readonly status: 'queued' | 'duplicate';
+}
+
+export interface CloudBabysitterTurnCapability {
+  queue(request: { readonly delivery: CloudBabysitterTurnDelivery }): PromiseLike<CloudBabysitterTurnReceipt>;
+}
+
+/** Capability ports are injected by a host runtime, never constructed by authored input. */
+export interface CloudCapabilities {
+  readonly babysitterTurn?: CloudBabysitterTurnCapability;
+}

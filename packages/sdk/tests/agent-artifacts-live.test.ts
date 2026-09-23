@@ -118,16 +118,19 @@ function reportedRunIds(report: { runId?: string; diagnostics: Array<{ message: 
 }
 
 describe('agent artifacts and gates through the built CLI, a real daemon and the local agent', () => {
-  it('journals the files the agent wrote, and both artifact gates pass on that journal', async () => {
+  it('journals the files the agent wrote, including under a dot-directory, and every artifact gate passes on that journal', async () => {
     const f = fixture(`
   const security = await f.agent('security-reviewer', { task: 'review write:review/security.md' })
     .gate({ type: 'artifact_exists', path: 'review/security.md' });
+  const evidence = await f.agent('evidence-writer', { task: 'review write:.workflow-artifacts/x/y.md' })
+    .gate({ type: 'artifact_exists', path: '.workflow-artifacts/x/y.md' });
   const correctness = await f.agent('correctness-reviewer', { task: 'review write:review/correctness.md' })
     .gate(r => r.artifacts.includes('review/correctness.md'), 'the reviewer must write its findings');
-  const both = await f.run('ls review');
+  const both = await f.run('ls review .workflow-artifacts/x');
   if (!security.artifacts.includes('review/security.md')) throw new Error('security artifacts missing');
+  if (!evidence.artifacts.includes('.workflow-artifacts/x/y.md')) throw new Error('evidence artifacts missing');
   if (!correctness.artifacts.includes('review/correctness.md')) throw new Error('correctness artifacts missing');
-  if (!both.includes('security.md') || !both.includes('correctness.md')) throw new Error('files not on disk');
+  if (!both.includes('security.md') || !both.includes('correctness.md') || !both.includes('y.md')) throw new Error('files not on disk');
   f.done('success');`);
     const result = f.invoke();
     expect(result.status, result.stderr + result.stdout).toBe(0);
@@ -138,22 +141,28 @@ describe('agent artifacts and gates through the built CLI, a real daemon and the
     // The named gate is lowered INTO the agent's own kernel run (`agent-1` +
     // `agent-1.gate` in one spec); the predicate gate is its own lowered run;
     // then the ls and the terminal marker. Every one is a journaled kernel step.
-    expect(journalSteps.map(s => s.id)).toEqual(['agent-1', 'agent-2', 'agent-2.gate', 'run-3', 'complete-4']);
+    expect(journalSteps.map(s => s.id)).toEqual(['agent-1', 'agent-2', 'agent-3', 'agent-3.gate', 'run-4', 'complete-5']);
     expect(completed.has('agent-1.gate')).toBe(true);
 
     // The worker journaled the artifacts in the step output — the fact the gates read.
     const agent1 = completed.get('agent-1')!.payload.output as { artifacts?: string[]; stdout_tail?: string };
     expect(agent1.artifacts).toEqual(['review/security.md']);
     expect(agent1.stdout_tail).toContain('reviewed');
-    expect((completed.get('agent-2')!.payload.output as { artifacts?: string[] }).artifacts).toEqual(['review/correctness.md']);
+    // A dot-directory artifact reaches the journal under its exact relative
+    // POSIX path. It used to be dropped by the scanner, so an
+    // `artifact_exists` gate naming one could never pass.
+    expect((completed.get('agent-2')!.payload.output as { artifacts?: string[] }).artifacts)
+      .toEqual(['.workflow-artifacts/x/y.md']);
+    expect(completed.get('agent-2.gate')!.payload.completionReason).toBe('success');
+    expect((completed.get('agent-3')!.payload.output as { artifacts?: string[] }).artifacts).toEqual(['review/correctness.md']);
 
     // Named gate: a deterministic step reading FLOWS_INPUT, passed.
     expect(completed.get('agent-1.gate')!.payload.completionReason).toBe('success');
     // Predicate gate: the recorded verdict, with the author's reason.
-    const predicate = completed.get('agent-2.gate')!.payload;
+    const predicate = completed.get('agent-3.gate')!.payload;
     expect(predicate.completionReason).toBe('success');
     expect((predicate.output as { stdout_tail: string }).stdout_tail)
-      .toBe(JSON.stringify({ gate: 'predicate', step: 'agent-2', verdict: 'pass', because: 'the reviewer must write its findings' }));
+      .toBe(JSON.stringify({ gate: 'predicate', step: 'agent-3', verdict: 'pass', because: 'the reviewer must write its findings' }));
   }, 120_000);
 
   it('fails the run when the artifact_exists gate names a file the agent did not write', async () => {

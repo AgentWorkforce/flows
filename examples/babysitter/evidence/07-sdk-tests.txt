@@ -1,0 +1,20 @@
+$ cd packages/sdk && npx vitest run tests/pr-review-post.test.ts tests/authored-agent-permissions.test.ts tests/preflight-permissions-unenforced.test.ts tests/f-memory.test.ts tests/provider-trigger-contract.test.ts tests/worker-cli-result-exit.test.ts --maxWorkers=2 --minWorkers=1
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-babysitter-v2/packages/sdk
+
+ ✓ tests/preflight-permissions-unenforced.test.ts (17 tests) 92ms
+ ✓ tests/pr-review-post.test.ts (21 tests) 1813ms
+ ✓ tests/provider-trigger-contract.test.ts (7 tests) 145ms
+ ✓ tests/authored-agent-permissions.test.ts (26 tests) 589ms
+ ✓ tests/worker-cli-result-exit.test.ts (5 tests) 32882ms
+   ✓ a Claude agent step completes on its result, not only on process exit > settles a hung, successful run within the grace and stops its whole tree 31610ms
+   ✓ a Claude agent step completes on its result, not only on process exit > maps an error result on a hung run to a failed exit 31610ms
+   ✓ a Claude agent step completes on its result, not only on process exit > leaves a hang before any result to the existing stops 32019ms
+   ✓ an agent tree does not outlive the process that spawned it > kills the agent group when the run process is terminated by SIGTERM 783ms
+ ✓ tests/f-memory.test.ts (7 tests) 692ms
+
+ Test Files  6 passed (6)
+      Tests  83 passed (83)
+   Start at  13:50:46
+   Duration  35.35s (transform 659ms, setup 0ms, collect 1.89s, tests 36.21s, environment 1ms, prepare 230ms)
+

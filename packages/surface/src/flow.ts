@@ -9,6 +9,10 @@ import { schedule } from "./schedule.js";
 export interface FlowHeader {
   /** Relative paths to reusable authored flows composed by this body. */
   use?: string[];
+  /** Semver of this flow; plugins' `compat.base` ranges match against it. */
+  version?: string;
+  /** Named hook points this body calls via `f.hook`; plugins may implement them. */
+  hooks?: string[];
   identity?: string;
   memory?: { script?: boolean; agent?: boolean };
   budget?: string | { tokens?: number; dollars?: number; wallclock?: string };
@@ -20,6 +24,8 @@ export type FlowBody<Input = unknown> = (f: Ctx, input: Input) => Promise<void>;
 
 export interface ReadonlyFlowHeader {
   readonly use?: readonly string[];
+  readonly version?: string;
+  readonly hooks?: readonly string[];
   readonly identity?: string;
   readonly memory?: Readonly<{ script?: boolean; agent?: boolean }>;
   readonly budget?: string | Readonly<{ tokens?: number; dollars?: number; wallclock?: string }>;
@@ -163,15 +169,19 @@ function isStoredDefinition(
     && Object.isFrozen(value);
 }
 
+const HEADER_FIELDS = [
+  "use",
+  "version",
+  "hooks",
+  "identity",
+  "memory",
+  "budget",
+  "tools",
+  "workspace",
+] as const;
+
 function freezeHeader(header: FlowHeader): ReadonlyFlowHeader {
-  const unknownFields = Object.keys(header).filter((field) => ![
-    "use",
-    "identity",
-    "memory",
-    "budget",
-    "tools",
-    "workspace",
-  ].includes(field));
+  const unknownFields = Object.keys(header).filter((field) => !(HEADER_FIELDS as readonly string[]).includes(field));
   if (unknownFields.length > 0) {
     throw new TypeError(`flow header has unknown fields: ${unknownFields.join(", ")}`);
   }
@@ -192,6 +202,8 @@ function freezeHeader(header: FlowHeader): ReadonlyFlowHeader {
       });
   return Object.freeze({
     ...(header.use === undefined ? {} : { use: Object.freeze([...header.use]) }),
+    ...(header.version === undefined ? {} : { version: header.version }),
+    ...(header.hooks === undefined ? {} : { hooks: Object.freeze([...header.hooks]) }),
     ...(header.identity === undefined ? {} : { identity: header.identity }),
     ...(memory === undefined ? {} : { memory }),
     ...(header.budget === undefined ? {} : { budget: typeof header.budget === "string" ? header.budget : Object.freeze({ ...header.budget }) }),
@@ -205,10 +217,14 @@ function assertFlowHeader(value: unknown, flowName: string): asserts value is Fl
   assertHeaderObject(value, at);
   assertKnownKeys(
     value,
-    ["use", "identity", "memory", "budget", "tools", "workspace"],
+    HEADER_FIELDS,
     at,
   );
   assertOptionalString(value, "identity", at);
+  assertOptionalString(value, "version", at);
+  if (value.version !== undefined && (value.version as string).trim().length === 0) {
+    throw new TypeError(`${at}.version: expected a nonempty version string`);
+  }
   if (value.budget !== undefined && typeof value.budget !== "string") {
     assertHeaderObject(value.budget, `${at}.budget`);
     assertKnownKeys(value.budget, ["tokens", "dollars", "wallclock"], `${at}.budget`);
@@ -219,6 +235,18 @@ function assertFlowHeader(value: unknown, flowName: string): asserts value is Fl
   }
   assertOptionalString(value, "workspace", at);
   assertOptionalStringArray(value, "use", at);
+  assertOptionalStringArray(value, "hooks", at);
+  if (value.hooks !== undefined) {
+    const hooks = value.hooks as string[];
+    if (hooks.some((item) => item.trim().length === 0) || new Set(hooks).size !== hooks.length) {
+      throw new TypeError(`${at}.hooks: expected unique nonempty names`);
+    }
+    for (const hook of hooks) {
+      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(hook)) {
+        throw new TypeError(`${at}.hooks: expected kebab-case names`);
+      }
+    }
+  }
   if (value.use !== undefined) {
     for (const path of value.use as string[]) {
       if (!/^(?:\.\/|\.\.\/).+\.flow\.ts$/.test(path) || /[?#\\\\]/.test(path)) {

@@ -118,6 +118,7 @@ describe('deployToCloud', () => {
     });
     expect(body.handoffId).toMatch(/^flows-cli-[a-f0-9]{16}$/u);
     expect(body.source).toContain("flow<{ issue: { title: string }; approver: string }>('issue-triage'");
+    expect(body.extensions).toBeUndefined();
     expect(deployment).toMatchObject({ agentId: 'agent-1', status: 'listening', name: 'issue-triage', connected: [] });
     expect(deployment.requirements.integrations.map(i => `${i.provider} (${i.detail})`)).toEqual(['github (--on github)', 'slack (--on slack)']);
     expect(deployment.sourceSha256).toMatch(/^[a-f0-9]{64}$/u);
