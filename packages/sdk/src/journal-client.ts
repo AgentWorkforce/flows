@@ -224,12 +224,19 @@ export class JournalClient extends EventEmitter {
    * Validate a compiled kernel-dialect spec (zero-agent flows legal), create
    * the run file, and append `run.spawned`. Authoring specs must be compiled
    * with `toKernelSpec` before crossing this journal-protocol boundary.
+   * `watch` streams the run's entries as `'entry'` events while it runs.
    */
-  runStart(spec: KernelRunSpec, reuseFromRunId?: string, admissionKey?: string): Promise<VerbContract['run.start']['result']> {
+  runStart(
+    spec: KernelRunSpec,
+    reuseFromRunId?: string,
+    admissionKey?: string,
+    watch = false,
+  ): Promise<VerbContract['run.start']['result']> {
     return this.request('run.start', {
       spec,
       ...(reuseFromRunId === undefined ? {} : { reuse_from_run_id: reuseFromRunId }),
       ...(admissionKey === undefined ? {} : { admission_key: admissionKey }),
+      ...(watch ? { watch: true } : {}),
     }, null);
   }
 

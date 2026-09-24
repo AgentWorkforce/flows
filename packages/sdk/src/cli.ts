@@ -7,6 +7,8 @@ import { describeFlowRequirements } from './flow-requirements.js';
 import type { CliModelSource } from './cli-adapter.js';
 
 import { renderProgress, type ProgressEvent } from './progress.js';
+import type { JournalEvent } from './journal-reader.js';
+import { createObserverSession } from './cli/observer-session.js';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import {
@@ -312,9 +314,11 @@ export async function runCli(
   // not here. Hoisting it above the dispatch would start a daemon as a side
   // effect of an invocation that is about to be refused for bad input.
   const startedSteps = new Map<string, number>();
+  const observer = parsed.noObserverLink ? undefined : createObserverSession(parsed.command, io);
   const showProgress = (event: ProgressEvent): void => {
     if (event.type === 'step.started') startedSteps.set(event.stepId, performance.now());
     if (!parsed.json) for (const line of renderProgress([event])) io.stderr(line);
+    observer?.onProgress(event);
   };
   const lifecycle = {
     ...(parsed.command === 'run' ? { bucket: parsed.bucket } : {}),
@@ -324,6 +328,10 @@ export async function runCli(
     localAgent: parsed.localAgent,
     ...(parsed.agentCapacity === undefined ? {} : { agentCapacity: parsed.agentCapacity }),
     onProgress: showProgress,
+    ...(observer === undefined ? {} : {
+      onJournalEntry: (entry: JournalEvent) => observer.onJournalEntry(entry),
+      onRunStarted: (run: { runId: string; flow: string; resumed?: boolean }) => observer.onRunStarted(run),
+    }),
     onWait: (progress: RunProgress) => {
       emitWait(progress, io);
       const now = performance.now();
@@ -333,16 +341,15 @@ export async function runCli(
     },
     daemon: { spawn: parsed.spawn && spawnAllowedByEnv() },
   };
-  // Mint the observer token in parallel with the run so the mint round-trip
-  // never adds to the RUN summary latency. The outcome is only consulted at
-  // emit time; a rejected promise here can never fail the run (see
-  // `observerUrlFrom`, which swallows every failure into `warning`).
-  const observerMint = startObserverMint(parsed);
   const execution = parsed.command === 'run'
     ? isAuthoredFlowPath(parsed.value)
       ? await runDirectFlow(parsed.value, parsed.input, parsed.dataDir, lifecycle)
       : await runFlow(parsed.value, parsed.dataDir, lifecycle)
     : await resumeFlow(parsed.value, parsed.dataDir, lifecycle);
+  // The link is scoped to the run's channel, so it exists only once the run
+  // does. `finish` drains the projection and settles the mint, both bounded;
+  // it never rejects (see `createObserverSession`).
+  const observerMint = observer?.finish(execution.report);
   // In `--json` mode the report is a single machine-readable object that
   // MUST carry `observerUrl` when one is available, so a consumer sees one
   // authoritative signal. That justifies blocking up to `MINT_TIMEOUT_MS`
@@ -392,35 +399,6 @@ async function checkAuthoredFlowComposed(path: string): Promise<{ report: CheckR
       ok: helper.report.ok && mcp.report.ok && triggerOk,
     },
   };
-}
-
-/**
- * Start the observer-token mint if the environment says one should happen.
- * Returns `undefined` when no attempt should be made — no workspace key
- * configured, or `FLOWS_NO_OBSERVER=1` / `--no-observer-link` — which is the
- * silent-skip branch. The returned promise always resolves; a rejection here
- * would slip past `observerUrlFrom` and could fail the run, which the feature
- * expressly forbids.
- */
-function startObserverMint(
-  parsed: { command: 'run' | 'resume'; noObserverLink: boolean },
-  env: NodeJS.ProcessEnv = process.env,
-  mint: (options: MintObserverOptions) => Promise<{ observerUrl?: string; warning?: string }> = mintObserverUrl,
-): Promise<{ observerUrl?: string; warning?: string }> | undefined {
-  if (parsed.noObserverLink) return undefined;
-  // `resolveObserverLinkEnv` (not `readObserverLinkEnv`) falls back to the
-  // `agent-relay cloud login` workspace store (~/.agentworkforce/relay/
-  // workspaces.json) when RELAYCAST_WORKSPACE_KEY is unset. Env wins if set;
-  // FLOWS_NO_OBSERVER=1 still suppresses regardless of source.
-  const link = resolveObserverLinkEnv(env);
-  if (link.suppressed || link.workspaceKey === undefined) return undefined;
-  return mint({
-    workspaceKey: link.workspaceKey,
-    ...(link.baseUrl !== undefined ? { baseUrl: link.baseUrl } : {}),
-    ...(link.dashboardUrl !== undefined ? { dashboardUrl: link.dashboardUrl } : {}),
-  }).catch((error) => ({
-    warning: error instanceof Error ? error.message : 'unknown mint error',
-  }));
 }
 
 /**

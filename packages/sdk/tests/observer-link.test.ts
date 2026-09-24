@@ -15,6 +15,7 @@ import {
   type ObserverFetch,
 } from '../src/observer-link.js';
 import { socketPathFor } from '../src/daemon-connection.js';
+import { createObserverSession } from '../src/cli/observer-session.js';
 import { sendOk, sendResult, startLoopback, type LoopbackHandlers } from './journal-client-loopback.js';
 
 const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'testdata');
@@ -91,6 +92,15 @@ function jsonResponse(status: number, body: unknown): Awaited<ReturnType<Observe
 }
 
 describe('mintObserverUrl', () => {
+  it('keeps an authored root channel when the failure report names its child', async () => {
+    const mint = vi.fn(async (_options: import('../src/observer-link.js').MintObserverOptions) => ({ observerUrl: 'https://observer.test/root' }));
+    const fetch = vi.fn(async () => jsonResponse(200, { data: { token: 'at_live_test' } }));
+    const session = createObserverSession('run', capture().io, { RELAYCAST_WORKSPACE_KEY: 'rk_live_test' }, { mint, fetch })!;
+    session.onRunStarted({ runId: 'ROOT', flow: 'authored' });
+    await session.finish({ command: 'run', ok: false, runId: 'CHILD', status: 'failed', diagnostics: [], resolutions: [] });
+    expect(mint).toHaveBeenCalledOnce();
+    expect(mint.mock.calls[0]?.[0]).toMatchObject({ channel: 'wf-root' });
+  });
   it('mints an observer token and returns an /observer?key=<ot_live_...> URL', async () => {
     const fetch = vi.fn<ObserverFetch>().mockResolvedValue(
       jsonResponse(200, { data: { token: 'ot_live_abc123', id: 'ot_id_1' } }),
@@ -538,6 +548,123 @@ describe('flows run: observer link integration', () => {
       'Observer: https://agentrelay.com/observer?key=ot_live_integration_ok',
     );
     expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it('streams the run into wf-<runId> and scopes the link to that channel', async () => {
+    const dataDir = temporaryProject();
+    const runId = '01RUNOBSERVED';
+    const entry = (seq: number, entry_type: string, step_id: string | null, payload: unknown = {}) => ({
+      event: 'entry',
+      data: { seq, segment_id: 1, entry_type, run_id: runId, step_id, attempt: step_id === null ? null : 1, at_ms: 1_000 + seq, payload },
+    });
+    let watched: unknown;
+    await startCliLoopback(dataDir, {
+      hello: sendOk,
+      'run.start': (ctx, params) => {
+        watched = params['watch'];
+        ctx.send(entry(1, 'run.spawned', null, { spec: { name: 'hello-deterministic', steps: [
+          { id: 'greet', type: 'deterministic', depends_on: [] },
+        ] } }));
+        ctx.send(entry(2, 'step.attempt.started', 'greet'));
+        ctx.send(entry(3, 'step.completed', 'greet', { completionReason: 'success', disposition: 'step_done' }));
+        ctx.send(entry(4, 'run.completed', null, { completionReason: 'success' }));
+        sendResult(ctx, { run_id: runId, status: 'completed', completion_reason: 'success', completed_steps: 1 });
+      },
+    });
+    const requests: Array<{ path: string; body: Record<string, unknown> }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: { body?: string }) => {
+      const path = new URL(url).pathname;
+      requests.push({ path, body: init.body === undefined ? {} : JSON.parse(init.body) as Record<string, unknown> });
+      if (path === '/v1/observer-tokens') return jsonResponse(200, { data: { token: 'ot_live_scoped' } });
+      if (path === '/v1/agents') return jsonResponse(201, { data: { token: 'at_live_pub' } });
+      return jsonResponse(200, { data: {} });
+    }));
+    vi.stubEnv('RELAYCAST_WORKSPACE_KEY', 'rk_live_operator');
+    vi.stubEnv('FLOWS_NO_OBSERVER', '');
+
+    const output = capture();
+    expect(await runCli(RUN_ARGS(dataDir), output.io)).toBe(0);
+
+    expect(watched).toBe(true);
+    const link = 'Observer: https://agentrelay.com/observer?key=ot_live_scoped';
+    expect(output.stderr).toContain(link);
+    expect(output.stdout).toContain(link);
+    const mint = requests.find(request => request.path === '/v1/observer-tokens');
+    expect(mint?.body['filters']).toEqual({ channel_names: [`wf-${runId.toLowerCase()}`], include_dms: false });
+    const posts = requests.filter(request => request.path === `/v1/channels/wf-${runId.toLowerCase()}/messages`);
+    expect(posts.map(post => (post.body['data'] as { relayflow: { event: string } }).relayflow.event))
+      .toEqual(['run.started', 'step.started', 'step.completed', 'run.completed']);
+  });
+
+  it.each(['run', 'resume'] as const)('keeps %s projection listening after the initial parked response', async command => {
+    const dataDir = temporaryProject();
+    const runId = '01LATE';
+    const at = Date.now() + 1_000;
+    const entry = (seq: number, entry_type: string, step_id: string | null, payload: unknown = {}, replay = false) => ({
+      event: 'entry', data: { seq, segment_id: 1, entry_type, run_id: runId, step_id,
+        attempt: step_id === null ? null : 1, at_ms: (replay ? at - 60_000 : at) + seq, payload },
+    });
+    const beginning = (ctx: Parameters<typeof sendOk>[0]) => {
+      ctx.send(entry(1, 'run.spawned', null, { spec: { name: 'late', steps: [{ id: 'greet', type: 'llm' }] } }, command === 'resume'));
+      ctx.send(entry(2, 'step.attempt.started', 'greet', {}, command === 'resume'));
+    };
+    let resumes = 0;
+    await startCliLoopback(dataDir, {
+      hello: sendOk,
+      'journal.read': ctx => sendResult(ctx, { entries: [] }),
+      'run.watch': ctx => { beginning(ctx); sendResult(ctx, { watching: runId }); },
+      'run.start': ctx => { beginning(ctx); sendResult(ctx, { run_id: runId, status: 'parked', completion_reason: null, completed_steps: 0 }); },
+      'run.get': ctx => sendResult(ctx, { run_id: runId, status: 'completed', steps: {} }),
+      'run.resume': ctx => {
+        if (command === 'resume' && resumes++ === 0) {
+          sendResult(ctx, { run_id: runId, status: 'parked', completion_reason: null, completed_steps: 0 });
+          return;
+        }
+        ctx.send(entry(3, 'step.completed', 'greet', { completionReason: 'success', disposition: 'step_done' }));
+        ctx.send(entry(4, 'run.completed', null, { completionReason: 'success' }));
+        sendResult(ctx, { run_id: runId, status: 'completed', completion_reason: 'success', completed_steps: 1 });
+      },
+    });
+    const posted: Array<{ relayflow: { event: string; run: { steps: Array<{ state: string }> } } }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: { body?: string }) => {
+      const path = new URL(url).pathname;
+      if (path.endsWith('/messages')) posted.push(JSON.parse(init.body!)['data']);
+      return jsonResponse(200, { data: { token: path === '/v1/observer-tokens' ? 'ot_live_test' : 'at_live_test' } });
+    }));
+    vi.stubEnv('RELAYCAST_WORKSPACE_KEY', 'rk_live_test');
+    vi.stubEnv('FLOWS_NO_OBSERVER', '');
+    const args = command === 'run' ? RUN_ARGS(dataDir) : ['resume', runId, '--data-dir', dataDir];
+    expect(await runCli(args, capture().io)).toBe(0);
+    expect(posted.map(post => post.relayflow.event)).toContain('step.completed');
+    if (command === 'resume') expect(posted.map(post => post.relayflow.event)).not.toContain('step.started');
+    expect(posted.at(-1)?.relayflow.run.steps[0]?.state).toBe('completed');
+  });
+
+  it('starts again without watch when the daemon predates it, and says the run was not projected', async () => {
+    const dataDir = temporaryProject();
+    const starts: unknown[] = [];
+    await startCliLoopback(dataDir, {
+      hello: sendOk,
+      'run.start': (ctx, params) => {
+        starts.push(params['watch']);
+        if (params['watch'] === true) {
+          ctx.send({ id: ctx.id, ok: false, error: { code: 'bad_request',
+            message: 'unknown field `watch`, expected one of `spec`, `reuse_from_run_id`, `admission_key`' } });
+          return;
+        }
+        sendResult(ctx, { run_id: 'run-old-daemon', status: 'completed', completion_reason: 'success', completed_steps: 2 });
+      },
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(200, { data: { token: 'ot_live_old' } })));
+    vi.stubEnv('RELAYCAST_WORKSPACE_KEY', 'rk_live_operator');
+    vi.stubEnv('FLOWS_NO_OBSERVER', '');
+
+    const output = capture();
+    expect(await runCli(RUN_ARGS(dataDir), output.io)).toBe(0);
+
+    expect(starts).toEqual([true, undefined]);
+    expect(output.stdout.some(line => line.startsWith('RUN run-old-daemon completed'))).toBe(true);
+    expect(output.stderr.some(line => line.includes('this run was not projected'))).toBe(true);
   });
 
   it('emits no observer line and no fetch when no workspace key is set', async () => {
