@@ -35,7 +35,12 @@ function driveSync<T>(sequence: Generator<ProbeRequest, T, ProbeOutput>): T {
   let next = sequence.next();
   while (!next.done) {
     const request = next.value;
-    const result = spawnSync(request.executable, request.invocation.args, probeOptions(request));
+    const result = spawnSync(request.executable, request.invocation.args, {
+      ...probeOptions(request),
+      // Preserve the old synchronous probe contract: provider CLIs must not
+      // inherit a readable stdin that can block auth/identify probes.
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
     const failure = classifySpawnFailure(result.error, result.signal, request.invocation.timeoutMs);
     if (failure !== undefined) throw failure;
     next = sequence.next({ status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' });

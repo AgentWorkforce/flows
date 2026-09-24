@@ -108,6 +108,15 @@ export interface CheckExecution {
   flow?: FlowSpec;
 }
 
+/** Compatibility options accepted by older authored callers. */
+export interface AuthoredCheckOptions {
+  projectConfig?: ProjectConfig;
+  probeCache?: CliProbeOutcomeMap;
+  communicationChecked?: boolean;
+}
+
+type CliProbeOutcomeMap = Map<string, CliProbeOutcome>;
+
 /**
  * Facts about the *caller*, not about the spec, that change which diagnostics
  * apply. Preflight stays a pure function of the spec plus environment probes;
@@ -176,16 +185,21 @@ function safeRequirements(authoring: FlowSpec, projectCli: string | undefined): 
 export function checkAuthoredFlow(
   authoring: FlowSpec,
   path: string,
-  projectConfig?: ProjectConfig,
+  projectConfigOrOptions?: ProjectConfig | AuthoredCheckOptions,
   invocation: CheckInvocation = {},
   cliProbeCache?: Map<string, CliProbeOutcome>,
 ): CheckExecution {
   const absolutePath = resolve(path);
   try {
+    const options = projectConfigOrOptions !== undefined && 'projectConfig' in projectConfigOrOptions
+      ? projectConfigOrOptions
+      : undefined;
+    const projectConfig = options?.projectConfig ?? (projectConfigOrOptions as ProjectConfig | undefined);
+    const effectiveProbeCache = cliProbeCache ?? options?.probeCache;
     const config = projectConfig ?? readProjectConfig(dirname(absolutePath));
     const probes = systemProbes(dirname(absolutePath), config);
     const result = preflight(authoring, {
-      ...(cliProbeCache === undefined ? {} : { cliProbeCache }),
+      ...(effectiveProbeCache === undefined ? {} : { cliProbeCache: effectiveProbeCache }),
       projectCli: config.cli,
       projectConfigPath: config.path,
       projectSearchStart: dirname(absolutePath),
@@ -202,7 +216,7 @@ export function checkAuthoredFlow(
         )
       : undefined;
     if (flow?.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
-      try { checkCommunicationEnvironment(flow); }
+      try { if (options?.communicationChecked !== true) checkCommunicationEnvironment(flow); }
       catch (error) {
         result.ok = false;
         result.diagnostics.push({ severity: 'refusal', kind: 'probe_failed',
