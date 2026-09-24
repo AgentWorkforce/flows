@@ -1,0 +1,2 @@
+examples/prompt-lab/jobs/shared.ts: absent
+examples/prompt-lab/jobs/new-agency.ts: absent

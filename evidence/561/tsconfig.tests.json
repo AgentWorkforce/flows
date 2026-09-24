@@ -1,0 +1,14 @@
+{
+  "extends": "../../packages/sdk/tsconfig.tests.json",
+  "include": [
+    "../../packages/sdk/src/**/*.ts",
+    "../../packages/sdk/tests/authored-probe-cache.test.ts",
+    "../../packages/sdk/tests/preflight-run-cache.test.ts"
+  ],
+  "compilerOptions": {
+    "typeRoots": [
+      "../../packages/sdk/node_modules/@types",
+      "../../packages/sdk/node_modules"
+    ]
+  }
+}
