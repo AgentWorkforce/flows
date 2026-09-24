@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // A fake `claude` whose "work" is whatever the test's `onSpawn` hook writes
@@ -52,6 +52,17 @@ import { execFileSync } from 'node:child_process';
 const dirs: string[] = [];
 afterEach(() => { onSpawn = undefined; claudeResult = 'done'; for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
 function tempDir(): string { const d = mkdtempSync(join(tmpdir(), 'artifact-gates-')); dirs.push(d); return d; }
+/**
+ * A temp directory INSIDE the run root, returned with the run-root-relative
+ * name a spec may declare. A `cwd` in a spec is run-root-relative by contract
+ * (`agent-cwd.ts`), so a `tempDir()` under `os.tmpdir()` cannot be named by
+ * one; only tests that hand the worker a directory directly can use that.
+ */
+function runRootDir(): { directory: string; declared: string } {
+  const directory = mkdtempSync(join(process.cwd(), 'artifact-gates-'));
+  dirs.push(directory);
+  return { directory, declared: basename(directory) };
+}
 
 describe('worker-side artifacts', () => {
   it('journals the files the CLI created or changed in its cwd, content-hashed, including dot-directories, with .git and node_modules excluded', async () => {
@@ -301,7 +312,7 @@ describe('artifact_exists named gate: static scan coverage', () => {
    * submission.
    */
   it('does not refuse a gate the bundled worker itself can satisfy through JSON output', async () => {
-    const cwd = tempDir();
+    const { directory: cwd, declared } = runRootDir();
     const path = 'node_modules/review.md';
     onSpawn = (dir) => {
       mkdirSync(join(dir!, 'node_modules'), { recursive: true });
@@ -309,7 +320,7 @@ describe('artifact_exists named gate: static scan coverage', () => {
     };
     claudeResult = JSON.stringify({ artifacts: [path] });
     const authored = { version: '0.1.0', name: 'x', steps: [{ id: 'review', type: 'agent', instruction: 'i',
-      cli: 'claude', cwd, verification: { type: 'artifact_exists', path } }] };
+      cli: 'claude', cwd: declared, verification: { type: 'artifact_exists', path } }] };
 
     // `claude` carries a default model, so its probe has to answer the
     // model-scoped readiness question too; nothing else about it matters here.
