@@ -478,3 +478,80 @@ fn pause_before_second_independent_step_holds_the_driver_boundary() {
     );
     assert_eq!(fs::read_to_string(marker).unwrap(), "first\nsecond\n");
 }
+
+fn entry_of(entries: &[JournalEntry], entry_type: EntryType, step_id: &str) -> JournalEntry {
+    entries
+        .iter()
+        .find(|entry| entry.entry_type == entry_type && entry.step_id.as_deref() == Some(step_id))
+        .cloned()
+        .unwrap_or_else(|| panic!("no {entry_type:?} for {step_id}"))
+}
+
+/// An independent batch runs serially, so a start journaled after a slow
+/// deterministic peer is stamped when it is journaled, not when the batch was
+/// elected: its wall clock is its own, and its full lease is still ahead of it.
+#[test]
+fn a_start_after_a_slow_deterministic_peer_is_stamped_when_journaled() {
+    let spec = RunSpec::parse(&json!({
+        "name": "late-start",
+        "steps": [
+            {"id": "slow", "type": "deterministic", "command": "sleep 0.4"},
+            {"id": "quick", "type": "deterministic", "command": "true"}
+        ]
+    }))
+    .unwrap();
+    let directory = tempdir().unwrap();
+    let engine = Engine::new(directory.path());
+    let outcome = engine.start(spec, "test", None).unwrap();
+    assert_eq!(outcome.status, RunStatus::Completed);
+    let entries = engine.journal_entries(&outcome.run_id, 1, usize::MAX).unwrap();
+
+    let slow_done = entry_of(&entries, EntryType::StepCompleted, "slow");
+    let quick_start = entry_of(&entries, EntryType::StepAttemptStarted, "quick");
+    let quick_done = entry_of(&entries, EntryType::StepCompleted, "quick");
+    assert!(
+        quick_start.at_ms >= slow_done.at_ms,
+        "quick started at {} before slow completed at {}",
+        quick_start.at_ms,
+        slow_done.at_ms
+    );
+    let wallclock = quick_done.payload["spend"]["wallclock_ms"].as_i64().unwrap();
+    assert!(wallclock < 300, "quick's wall clock includes slow's runtime: {wallclock}ms");
+    for step in ["slow", "quick"] {
+        let start = entry_of(&entries, EntryType::StepAttemptStarted, step);
+        assert_eq!(
+            start.payload["lease_deadline_ms"].as_i64().unwrap() - start.at_ms,
+            30_000,
+            "{step}'s lease must run from its own start"
+        );
+    }
+}
+
+/// The same delay moves the dispatched lease: a worker handed a step after a
+/// slow deterministic peer holds the deadline its start entry records.
+#[test]
+fn a_dispatch_after_a_slow_deterministic_peer_keeps_its_full_lease() {
+    let spec = RunSpec::parse(&json!({
+        "name": "late-dispatch",
+        "steps": [
+            {"id": "slow", "type": "deterministic", "command": "sleep 0.4"},
+            {"id": "model", "type": "llm", "prompt": "p", "model": "stub"}
+        ]
+    }))
+    .unwrap();
+    let directory = tempdir().unwrap();
+    let dispatcher = Arc::new(RecordingDispatcher::llm());
+    let observer = Arc::new(StartCrashObserver::default());
+    let engine = Engine::with_runtime(directory.path(), dispatcher.clone(), observer.clone());
+    engine.start(spec, "test", None).unwrap();
+    let entries = engine
+        .journal_entries(&observer.run_id(), 1, usize::MAX)
+        .unwrap();
+
+    let slow_done = entry_of(&entries, EntryType::StepCompleted, "slow");
+    let start = entry_of(&entries, EntryType::StepAttemptStarted, "model");
+    let dispatch = dispatcher.calls().into_iter().find(|call| call.step_id == "model").unwrap();
+    assert!(start.at_ms >= slow_done.at_ms);
+    assert_eq!(dispatch.lease_deadline_ms, start.payload["lease_deadline_ms"].as_i64().unwrap());
+    assert_eq!(dispatch.lease_deadline_ms - start.at_ms, 30_000);
+}
