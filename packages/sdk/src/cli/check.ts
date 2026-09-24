@@ -197,7 +197,9 @@ export function checkAuthoredFlow(
         || 'communicationChecked' in projectConfigOrOptions)
       ? projectConfigOrOptions
       : undefined;
-    const projectConfig = options?.projectConfig ?? (projectConfigOrOptions as ProjectConfig | undefined);
+    const projectConfig = options !== undefined
+      ? options.projectConfig
+      : projectConfigOrOptions as ProjectConfig | undefined;
     const effectiveProbeCache = cliProbeCache ?? options?.probeCache;
     const config = projectConfig ?? readProjectConfig(dirname(absolutePath));
     const probes = systemProbes(dirname(absolutePath), config);
