@@ -54,6 +54,7 @@ import {
   resolveObserverLinkEnv,
   type MintObserverOptions,
 } from './observer-link.js';
+import { packageVersion } from './package-version.js';
 
 export type { CheckInputDiagnostic, CheckReport } from './cli/check.js';
 
@@ -202,6 +203,10 @@ export async function runCli(
   io: CliIo = PROCESS_IO,
   options: RunCliOptions = {},
 ): Promise<CliExitCode> {
+  if (args.length === 1 && (args[0] === '--version' || args[0] === '-V')) {
+    io.stdout(packageVersion());
+    return 0;
+  }
   if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) {
     io.stdout(USAGE);
     return 0;

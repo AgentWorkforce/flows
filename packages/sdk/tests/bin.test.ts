@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const SDK = join(ROOT, 'packages', 'sdk');
 const BUILT_CLI = join(SDK, 'dist', 'cli.js');
+const SDK_VERSION = (JSON.parse(readFileSync(join(SDK, 'package.json'), 'utf8')) as { version: string }).version;
 const PREFLIGHT = join(ROOT, 'testdata', 'preflight');
 const temporaryDirectories: string[] = [];
 
@@ -55,6 +56,32 @@ function expectMissingCliRefusal(result: ReturnType<typeof invoke>): void {
 describe('built flows binary', () => {
   it('build produces an executable CLI artifact', () => {
     expect(statSync(BUILT_CLI).mode & 0o111).not.toBe(0);
+  });
+
+  it.each(['--version', '-V'])('prints the installed SDK version for %s', (flag) => {
+    const result = spawnSync(process.execPath, [BUILT_CLI, flag], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      env: process.env,
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe(`${SDK_VERSION}\n`);
+    expect(result.stderr).toBe('');
+  });
+
+  it('keeps version flags strict when extra arguments are supplied', () => {
+    const result = spawnSync(process.execPath, [BUILT_CLI, '--version', 'extra'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      env: process.env,
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('REFUSED [invalid_invocation]');
   });
 
   it('refuses through a symlink to the built artifact', () => {
