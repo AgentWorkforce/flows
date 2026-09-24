@@ -45,6 +45,38 @@ describe('helper references are read as syntax, not text', () => {
       .toContain('helper_provider.mount_required');
   });
 
+  // A template quasi is text; a `${…}` is live code. Blanking the whole
+  // template hid real helper calls — a flow deploying without its mount and
+  // failing at runtime, which is worse than the false refusal this fixes.
+  it('sees a helper called from a template interpolation', () => {
+    expect(refusals(async (f: any) => { await f.run(`echo ${await f.gitlab.issues.list({})}`); }))
+      .toContain('helper_provider.mount_required');
+  });
+
+  it('sees a helper called from a nested template interpolation', () => {
+    expect(refusals(async (f: any) => { await f.run(`a ${`b ${await f.gitlab.issues.list({})}`}`); }))
+      .toContain('helper_provider.mount_required');
+  });
+
+  it('does not demand a mount for a helper named in template TEXT', () => {
+    expect(refusals(async (f: any) => { await f.run(`echo f.gitlab now`); })).toEqual([]);
+  });
+
+  // A regex is not code: `/f.gitlab/` is a mention, and a quote inside one
+  // would otherwise open a phantom string and blank the rest of the body.
+  it('does not read a helper named inside a regex literal as use', () => {
+    expect(refusals(async (f: any) => { const p = /f.gitlab/; await f.run('true'); return p; })).toEqual([]);
+  });
+
+  it('still sees a real helper call after a regex containing a quote', () => {
+    expect(refusals(async (f: any) => { const a = /'/; await f.gitlab.issues.list({}); return a; }))
+      .toContain('helper_provider.mount_required');
+  });
+
+  it('does not mistake division for a regex', () => {
+    expect(refusals(async (f: any) => { const n = 10 / 2; await f.run('true'); return n; })).toEqual([]);
+  });
+
   it('does not declare a requirement from a mentioned helper', () => {
     const mentioned = getFlowDefinition(flow('mention', async (ctx: any) => {
       await ctx.run('echo f.gitlab');
