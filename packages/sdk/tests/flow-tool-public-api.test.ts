@@ -11,6 +11,7 @@ it('round-trips the manifest contract through the built public SDK without execu
       createFlowToolManifest, canonicalFlowToolManifest, parseFlowToolManifest,
       validateFlowToolInput, validateFlowToolResult,
       flowToolFunctionDefinition, flowToolMcpDefinition,
+      FlowToolClient, createFlowToolAdapters, flowToolRunLinks, flowToolInputDigest,
     } from ${JSON.stringify(sdkUrl)};
 
     const manifest = createFlowToolManifest({
@@ -54,6 +55,25 @@ it('round-trips the manifest contract through the built public SDK without execu
     });
     assert.equal('annotations' in mcp, false);
     assert.equal('strict' in native, false);
+    // A transport fixture exercises public client exports, not Cloud or a real run.
+    const selected = {
+      manifest: restored, deployment_id: 'test_deployment', read_only: true,
+      effects: [], requires_human: [], business_verdicts: ['hold', 'pass'],
+      budget: { max_tokens: 100, max_dollars: null, max_wallclock_ms: 1000 },
+    };
+    const receipt = {
+      api_version: 1, accepted: true, run_id: 'run_fixture', tool_name: restored.name,
+      deployment_id: selected.deployment_id, manifest_digest: restored.digest,
+      flow_digest: restored.flow.digest, input_digest: flowToolInputDigest({ pr: 42 }),
+      state: 'accepted', sequence: 1, terminal: null, ...flowToolRunLinks('run_fixture'),
+    };
+    const client = new FlowToolClient({ request: async () => receipt, async *events() {} });
+    const handlers = createFlowToolAdapters(client, selected);
+    const operation = { idempotencyKey: 'test-operation' };
+    const nativeRun = await handlers.native.call({ pr: 42 }, operation);
+    const mcpRun = await handlers.mcp.call({ pr: 42 }, operation);
+    assert.equal(JSON.stringify(nativeRun), JSON.stringify(mcpRun.structuredContent));
+    assert.equal(nativeRun.terminal, null);
     console.log('FLOW_TOOL_PUBLIC_CONTRACT_OK');
   `], { encoding: 'utf8', timeout: 15_000 });
   expect(output.trim()).toBe('FLOW_TOOL_PUBLIC_CONTRACT_OK');
