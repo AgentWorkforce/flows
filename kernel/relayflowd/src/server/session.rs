@@ -101,6 +101,17 @@ pub struct ProtocolHub {
 }
 
 impl ProtocolHub {
+    #[cfg(test)]
+    pub fn watcher_count(&self, connection_id: u64) -> usize {
+        self.sessions
+            .lock()
+            .expect("protocol sessions lock")
+            .watchers
+            .values()
+            .flat_map(|watchers| watchers.iter())
+            .filter(|watcher| watcher.connection_id == connection_id)
+            .count()
+    }
     pub fn run_lock(&self, run_id: &str) -> Arc<Mutex<()>> {
         self.run_locks
             .lock()

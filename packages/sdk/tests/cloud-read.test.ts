@@ -13,8 +13,10 @@ import { runCli } from '../src/cli.js';
 import {
   parseLogsArgs, parseRunsArgs, runCloudLogsCli, runCloudRunsCli, runCloudStatusCli,
 } from '../src/cli/cloud-read.js';
+import { renderStepEvidence, stepFailureDetails } from '../src/cli/step-failure.js';
 import { errorLines } from '../src/cli/cloud-format.js';
 import { parseStatusArgs } from '../src/cli/status.js';
+import type { JournalClient } from '../src/journal-client.js';
 import { authoredCompletion, type RunReport } from '../src/cli/run.js';
 
 const RUN = '20d04c99-3fa8-48c9-9286-92d364a5bc2e';
@@ -261,6 +263,72 @@ describe('flows logs', () => {
     expect(out.stdout[0]).toBe(`LOG ${RUN}  runner  ${RUNNER_LOG.length} bytes  complete`);
     expect(out.stdout[1]).toBe('[bootstrap] Starting workflow execution (per-step-sandbox)');
     expect(server.requests[0]!.query).toBe('');
+  });
+
+  it('prints every attempt of a retried step the runner log captured', async () => {
+    // `flows logs <run-id>` has no journal to read: Cloud keeps the runner's
+    // captured stderr and there is no journal-export endpoint. So every
+    // attempt reaches a hosted reader only if the CLI printed every attempt in
+    // the first place — which is why the log content here is built by the real
+    // producer, `renderStepEvidence`, rather than written out by hand.
+    const attempts = Array.from({ length: 7 }, (_unused, index) => ({
+      attempt: index + 1, completionReason: 'verification_failed', exitCode: 1,
+      stderrTail: `attempt ${index + 1} rejected by the pre-receive hook`,
+    }));
+    const diagnostic = renderStepEvidence({
+      stepId: 'commit-and-push', stepType: 'deterministic', completionReason: 'retries_exhausted',
+      attempt: 7, maxIterations: 7, exitCode: 1, attempts, attemptEvidence: 'differs',
+    });
+    const runner = `[bootstrap] Starting workflow execution (per-step-sandbox)\nFAILED [step_failed]${diagnostic}\n`;
+    wholeCloud({ runner });
+    const out = io();
+    expect(await runCloudLogsCli(parseLogsArgs([RUN])!, out.io, CONNECTION)).toBe(0);
+    const rendered = out.stdout.join('\n');
+    // Not one attempt elided: the runner log is printed line for line, so the
+    // first rejection is as readable here as the last.
+    for (let attempt = 1; attempt <= 7; attempt += 1) {
+      expect(rendered).toContain(`attempt ${attempt} rejected by the pre-receive hook`);
+    }
+    expect(rendered).toContain('An earlier attempt may have had side effects.');
+  });
+
+  it('carries a first attempt whose only account is a gate verdict', async () => {
+    // An attempt refused by a gate exits 0 with empty tails: the verdict is
+    // the whole account of it. Read here with the production reader and
+    // rendered with the production renderer, because a gate error dropped at
+    // extraction is a gate error no hosted log can recover — Cloud keeps the
+    // printed bytes and nothing else.
+    const completion = (seq: number, attempt: number, payload: unknown) => ({
+      seq, entry_type: 'step.completed', step_id: 'check', attempt, payload,
+    });
+    const entries = [
+      completion(1, 1, {
+        completionReason: 'verification_failed', disposition: 'retry',
+        output: { exit_code: 0, stdout_tail: '', stderr_tail: '' },
+        verification: {
+          gate: 'output_contains', verdict: 'fail', detail: 'output did not contain "READY"',
+        },
+      }),
+      completion(2, 2, {
+        completionReason: 'retries_exhausted', disposition: 'step_done',
+        output: { exit_code: 1, stdout_tail: '', stderr_tail: 'nothing staged in the declared scope' },
+        verification: { gate: 'exit_code', verdict: 'fail', detail: 'exit code was 1' },
+      }),
+    ];
+    const client = {
+      runGet: async () => ({ steps: { check: { type: 'deterministic', state: 'done' } } }),
+      journalRead: async (_run: string, from: number) => ({
+        entries: entries.filter(entry => entry.seq >= from),
+      }),
+    } as unknown as JournalClient;
+    const details = await stepFailureDetails(client, RUN);
+    const runner = `FAILED [step_failed]${renderStepEvidence(details!)}\n`;
+    wholeCloud({ runner });
+    const out = io();
+    expect(await runCloudLogsCli(parseLogsArgs([RUN])!, out.io, CONNECTION)).toBe(0);
+    const rendered = out.stdout.join('\n');
+    expect(rendered).toContain('output did not contain "READY"');
+    expect(rendered).toContain('nothing staged in the declared scope');
   });
 
   it('renders an agent step’s transcript: session header, prose, one line per tool call, footer', async () => {

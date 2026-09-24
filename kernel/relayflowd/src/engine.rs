@@ -257,6 +257,29 @@ impl<C: Clock> Engine<C> {
         reuse_from_run_id: Option<&str>,
         admission_key: Option<&str>,
     ) -> Result<RunOutcome> {
+        self.start_observed(
+            spec,
+            created_by,
+            options,
+            reuse_from_run_id,
+            admission_key,
+            &|_, _| {},
+        )
+    }
+
+    /// `start_with_admission`, calling `before_first_append` with the new
+    /// run's id before its journal exists. A watcher registered there sees
+    /// every entry the run appends, from `run.spawned` on. For an existing
+    /// admission, the second argument is true: replay and watch that run.
+    pub fn start_observed(
+        &self,
+        spec: RunSpec,
+        created_by: &str,
+        options: DriveOptions,
+        reuse_from_run_id: Option<&str>,
+        admission_key: Option<&str>,
+        before_first_append: &dyn Fn(&str, bool),
+    ) -> Result<RunOutcome> {
         spec.validate().context("invalid run spec")?;
         let reuse = reuse_from_run_id
             .map(|id| self.reuse_source(id, &spec))
@@ -270,9 +293,11 @@ impl<C: Clock> Engine<C> {
             validate_admission_key(key)?;
             match registry.claim_run_admission(key, &spec_hash, &run_id, self.boot_id())? {
                 RunAdmissionClaim::Existing(existing_run_id) => {
+                    before_first_append(&existing_run_id, true);
                     return self.current_outcome(&existing_run_id);
                 }
                 RunAdmissionClaim::Recover(existing_run_id) => {
+                    before_first_append(&existing_run_id, true);
                     return self.resume_with_options(&existing_run_id, options);
                 }
                 RunAdmissionClaim::Conflict => {
@@ -285,6 +310,7 @@ impl<C: Clock> Engine<C> {
             }
         }
 
+        before_first_append(&run_id, false);
         let path = self.run_path(&run_id);
         let now_ms = self.clock.now_ms();
         let started = (|| -> Result<RunOutcome> {

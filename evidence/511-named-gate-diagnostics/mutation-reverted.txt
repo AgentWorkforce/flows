@@ -1,0 +1,295 @@
+$ git hash-object src/named-gate-lowering.ts   # before revert
+8a4ac50391d95c95693eb20cdbc69869a5d02060
+$ git rev-parse HEAD:packages/sdk/src/named-gate-lowering.ts
+8a4ac50391d95c95693eb20cdbc69869a5d02060
+
+$ git checkout e21caad -- src/named-gate-lowering.ts   # revert production file to the parent revision
+$ git diff --stat HEAD -- src/named-gate-lowering.ts
+ packages/sdk/src/named-gate-lowering.ts | 40 +++++----------------------------
+ 1 file changed, 5 insertions(+), 35 deletions(-)
+$ git hash-object src/named-gate-lowering.ts   # after revert
+479136c28de4f97c5434800577999bbbb1eca59c
+$ git rev-parse e21caad:packages/sdk/src/named-gate-lowering.ts
+479136c28de4f97c5434800577999bbbb1eca59c
+
+$ RELAYFLOWD_BIN=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd npm run build && npx vitest run tests/named-gate-diagnostics.test.ts tests/named-gate-journal.test.ts
+
+> @relayflows/sdk@2.0.22 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/named-gate-diagnostics.test.ts (17 tests | 12 failed) 626ms
+   × a gate that fails before the command runs says so > names the selection that missed, and does not run the command 33ms
+     → expected '' to contain 'subprocess_gate'
+   × a gate that fails before the command runs says so > reports an index into an object and a key into an array as selection failures 23ms
+     → expected '' to contain 'from_output [0]'
+   × a gate that fails before the command runs says so > reports a selected value that is not text 34ms
+     → expected '' to contain 'could not be read as text'
+   × a gate that fails before the command runs says so > reports a NUL byte in the selected text 23ms
+     → expected '' to contain 'NUL byte'
+   × a gate that fails before the command runs says so > keeps the diagnostic to one line so it cannot be mistaken for command output 21ms
+     → expected '' to contain 'from_output'
+   × a gate command that never exits normally is not reported as a plain failure > names the signal that killed it 26ms
+     → expected '' to contain 'SIGKILL'
+   × a gate command that never exits normally is not reported as a plain failure > names the spawn error and the input size when the child cannot start 26ms
+     → expected '' to contain 'E2BIG'
+   × diagnostics never reach the stdout a gate verdict is read from > leaves references_input stdout empty when the selection misses 77ms
+     → expected '' to contain 'in_output_at ["missing"]'
+   × diagnostics never reach the stdout a gate verdict is read from > leaves regex_match stdout empty when the selection misses 50ms
+     → expected '' to contain 'regex_match'
+   × word_count_bounds reports why its own child failed > reports a nonzero exit with what wc said 45ms
+     → expected '' to contain 'exited 2'
+   × word_count_bounds reports why its own child failed > reports output that is not a count 40ms
+     → expected '' to contain 'not a number'
+   × word_count_bounds reports why its own child failed > reports a signal rather than an empty exit 1 29ms
+     → expected '' to contain 'SIGKILL'
+ ❯ tests/named-gate-journal.test.ts (5 tests | 1 failed) 1808ms
+   × a lowered subprocess_gate journals the gate command's streams > journals the diagnostic when the gate never reached the command 93ms
+     → expected '' to contain 'subprocess_gate: from_output ["review…'
+   ✓ a lowered subprocess_gate journals the gate command's streams > persists what the gate printed before a timeout killed it 823ms
+   ✓ a gate on an agent step > journals the command's streams and surfaces them in the authored failure 713ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 13 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/named-gate-diagnostics.test.ts > a gate that fails before the command runs says so > names the selection that missed, and does not run the command
+AssertionError: expected '' to contain 'subprocess_gate'
+
+- Expected
++ Received
+
+- subprocess_gate
+
+ ❯ tests/named-gate-diagnostics.test.ts:117:28
+    115|     expect(capture.status).toBe(1);
+    116|     expect(capture.stdout).not.toContain('THE-COMMAND-RAN');
+    117|     expect(capture.stderr).toContain('subprocess_gate');
+       |                            ^
+    118|     expect(capture.stderr).toContain('from_output ["review","verdict"]…
+    119|     expect(capture.stderr).toContain('"verdict"');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/13]⎯
+
+ FAIL  tests/named-gate-diagnostics.test.ts > a gate that fails before the command runs says so > reports an index into an object and a key into an array as selection failures
+AssertionError: expected '' to contain 'from_output [0]'
+
+- Expected
++ Received
+
+- from_output [0]
+
+ ❯ tests/named-gate-diagnostics.test.ts:124:74
+    122|   it('reports an index into an object and a key into an array as selec…
+    123|     const indexed = gateCommand({ type: 'subprocess_gate', command: se…
+    124|     expect(runGate(indexed, { output: { '0': 'not an array' } }).stder…
+       |                                                                          ^
+    125| 
+    126|     const keyed = gateCommand({ type: 'subprocess_gate', command: sent…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/13]⎯
+
+ FAIL  tests/named-gate-diagnostics.test.ts > a gate that fails before the command runs says so > reports a selected value that is not text
+AssertionError: expected '' to contain 'could not be read as text'
+
+- Expected
++ Received
+
+- could not be read as text
+
+ ❯ tests/named-gate-diagnostics.test.ts:138:28
+    136|     expect(capture.status).toBe(1);
+    137|     expect(capture.stdout).not.toContain('THE-COMMAND-RAN');
+    138|     expect(capture.stderr).toContain('could not be read as text');
+       |                            ^
+    139|   });
+    140| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/13]⎯
+
+ FAIL  tests/named-gate-diagnostics.test.ts > a gate that fails before the command runs says so > reports a NUL byte in the selected text
+AssertionError: expected '' to contain 'NUL byte'
+
+- Expected
++ Received
+
+- NUL byte
+
+ ❯ tests/named-gate-diagnostics.test.ts:147:28
+    145|     expect(capture.status).toBe(1);
+    146|     expect(capture.stdout).not.toContain('THE-COMMAND-RAN');
+    147|     expect(capture.stderr).toContain('NUL byte');
+       |                            ^
+    148|   });
+    149| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/13]⎯
+
+ FAIL  tests/named-gate-diagnostics.test.ts > a gate that fails before the command runs says so > keeps the diagnostic to one line so it cannot be mistaken for command output
+AssertionError: expected '' to contain 'from_output'
+
+- Expected
++ Received
+
+- from_output
+
+ ❯ tests/named-gate-diagnostics.test.ts:163:28
+    161|     const capture = runGate(command, { output: { other: 1 } });
+    162| 
+    163|     expect(capture.stderr).toContain('from_output');
+       |                            ^
+    164|     expect(capture.stderr.trim().split('\n')).toHaveLength(1);
+    165|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/13]⎯
+
+ FAIL  tests/named-gate-diagnostics.test.ts > a gate command that never exits normally is not reported as a plain failure > names the signal that killed it
+AssertionError: expected '' to contain 'SIGKILL'
+
+- Expected
++ Received
+
+- SIGKILL
+
+ ❯ tests/named-gate-diagnostics.test.ts:179:28
+    177|     // kernel's pipe; buffering them for a post-wait flush would lose …
+    178|     expect(capture.stdout).toContain('partial');
+    179|     expect(capture.stderr).toContain('SIGKILL');
+       |                            ^
+    180|   });
+    181| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/13]⎯
+
+ FAIL  tests/named-gate-diagnostics.test.ts > a gate command that never exits normally is not reported as a plain failure > names the spawn error and the input size when the child cannot start
+AssertionError: expected '' to contain 'E2BIG'
+
+- Expected
++ Received
+
+- E2BIG
+
+ ❯ tests/named-gate-diagnostics.test.ts:208:28
+    206| 
+    207|     expect(capture.status).toBe(1);
+    208|     expect(capture.stderr).toContain('E2BIG');
+       |                            ^
+    209|     expect(capture.stderr).toContain('10 bytes');
+    210|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/13]⎯
+
+ FAIL  tests/named-gate-diagnostics.test.ts > diagnostics never reach the stdout a gate verdict is read from > leaves references_input stdout empty when the selection misses
+AssertionError: expected '' to contain 'in_output_at ["missing"]'
+
+- Expected
++ Received
+
+- in_output_at ["missing"]
+
+ ❯ tests/named-gate-diagnostics.test.ts:220:28
+    218|     expect(capture.status).toBe(1);
+    219|     expect(capture.stdout).toBe('');
+    220|     expect(capture.stderr).toContain('in_output_at ["missing"]');
+       |                            ^
+    221|     // The receipt `output_contains` looks for must never be forgeable…
+    222|     // diagnostic that merely names the gate.
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/13]⎯
+
+ FAIL  tests/named-gate-diagnostics.test.ts > diagnostics never reach the stdout a gate verdict is read from > leaves regex_match stdout empty when the selection misses
+AssertionError: expected '' to contain 'regex_match'
+
+- Expected
++ Received
+
+- regex_match
+
+ ❯ tests/named-gate-diagnostics.test.ts:232:28
+    230|     expect(capture.status).toBe(1);
+    231|     expect(capture.stdout).toBe('');
+    232|     expect(capture.stderr).toContain('regex_match');
+       |                            ^
+    233|   });
+    234| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/13]⎯
+
+ FAIL  tests/named-gate-diagnostics.test.ts > word_count_bounds reports why its own child failed > reports a nonzero exit with what wc said
+AssertionError: expected '' to contain 'exited 2'
+
+- Expected
++ Received
+
+- exited 2
+
+ ❯ tests/named-gate-diagnostics.test.ts:262:28
+    260|     expect(capture.status).toBe(1);
+    261|     expect(capture.stdout).toBe('');
+    262|     expect(capture.stderr).toContain('exited 2');
+       |                            ^
+    263|     expect(capture.stderr).toContain('wc: read error');
+    264|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/13]⎯
+
+ FAIL  tests/named-gate-diagnostics.test.ts > word_count_bounds reports why its own child failed > reports output that is not a count
+AssertionError: expected '' to contain 'not a number'
+
+- Expected
++ Received
+
+- not a number
+
+ ❯ tests/named-gate-diagnostics.test.ts:272:28
+    270|     expect(capture.status).toBe(1);
+    271|     expect(capture.stdout).toBe('');
+    272|     expect(capture.stderr).toContain('not a number');
+       |                            ^
+    273|   });
+    274| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/13]⎯
+
+ FAIL  tests/named-gate-diagnostics.test.ts > word_count_bounds reports why its own child failed > reports a signal rather than an empty exit 1
+AssertionError: expected '' to contain 'SIGKILL'
+
+- Expected
++ Received
+
+- SIGKILL
+
+ ❯ tests/named-gate-diagnostics.test.ts:280:28
+    278| 
+    279|     expect(capture.status).toBe(1);
+    280|     expect(capture.stderr).toContain('SIGKILL');
+       |                            ^
+    281|   });
+    282| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/13]⎯
+
+ FAIL  tests/named-gate-journal.test.ts > a lowered subprocess_gate journals the gate command's streams > journals the diagnostic when the gate never reached the command
+AssertionError: expected '' to contain 'subprocess_gate: from_output ["review…'
+
+- Expected
++ Received
+
+- subprocess_gate: from_output ["review","verdict"]
+
+ ❯ tests/named-gate-journal.test.ts:103:38
+    101|     expect(gate.output?.exit_code).toBe(1);
+    102|     expect(gate.output?.stdout_tail).not.toContain('THE-COMMAND-RAN');
+    103|     expect(gate.output?.stderr_tail).toContain('subprocess_gate: from_…
+       |                                      ^
+    104|   }, 30_000);
+    105| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/13]⎯
+
+ Test Files  2 failed (2)
+      Tests  13 failed | 9 passed (22)
+   Start at  17:40:58
+   Duration  3.11s (transform 706ms, setup 0ms, collect 1.51s, tests 2.43s, environment 0ms, prepare 77ms)
+
+EXIT=1

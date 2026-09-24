@@ -41,6 +41,9 @@ pub(super) struct RunStartParams {
     pub spec: Value,
     pub reuse_from_run_id: Option<String>,
     pub admission_key: Option<String>,
+    /// Stream the new run's entries to this connection, as `run.watch` does.
+    #[serde(default)]
+    pub watch: bool,
 }
 
 #[derive(Deserialize)]
