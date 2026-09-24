@@ -191,7 +191,10 @@ export function checkAuthoredFlow(
 ): CheckExecution {
   const absolutePath = resolve(path);
   try {
-    const options = projectConfigOrOptions !== undefined && 'projectConfig' in projectConfigOrOptions
+    const options = projectConfigOrOptions !== undefined
+      && ('projectConfig' in projectConfigOrOptions
+        || 'probeCache' in projectConfigOrOptions
+        || 'communicationChecked' in projectConfigOrOptions)
       ? projectConfigOrOptions
       : undefined;
     const projectConfig = options?.projectConfig ?? (projectConfigOrOptions as ProjectConfig | undefined);
