@@ -38,6 +38,7 @@ import {
   type FinalStep, type SnapshotStep,
 } from './cloud-mirror-step.js';
 import { MirrorClient, type MirrorEvent } from './cloud-mirror-transport.js';
+import { redact } from './redact.js';
 
 /** How often the journals are re-read. The sandbox reporter's own cadence. */
 export const MIRROR_POLL_INTERVAL_MS = 10_000;
@@ -424,8 +425,11 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
         await scan(deadline);
         await publishSnapshot(deadline);
         if (outcome.log !== undefined && outcome.log.length > 0) {
-          const text = outcome.log.join('\n');
-          const bytes = Buffer.from(text, 'utf8');
+          // The CLI's own output, redacted on the way out. It is not a
+          // transcript the worker already scrubbed: it is whatever this
+          // invocation printed on a developer's machine, including diagnostics
+          // that can quote a command line or an environment value.
+          const bytes = Buffer.from(redact(outcome.log.join('\n'), env), 'utf8');
           await options.client.putObject('runner.log',
             bytes.length > MIRROR_RUNNER_LOG_MAX_BYTES
               ? bytes.subarray(bytes.length - MIRROR_RUNNER_LOG_MAX_BYTES)

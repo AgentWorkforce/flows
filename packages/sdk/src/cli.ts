@@ -318,10 +318,6 @@ export async function runCli(
   // effect of an invocation that is about to be refused for bad input.
   const startedSteps = new Map<string, number>();
   const observer = parsed.noObserverLink ? undefined : createObserverSession(parsed.command, io);
-  // What the run printed about itself, kept so the mirror can upload it as the
-  // run's `runner.log` — the object the dashboard's log pane reads. Bounded by
-  // the mirror before it is sent; kept whole here because the same lines are
-  // what a reader sees on stderr.
   const runnerLog: string[] = [];
   const mirror = parsed.noCloudMirror || !cloudMirrorEnabled(process.env)
     ? undefined
@@ -332,19 +328,26 @@ export async function runCli(
       dataDir: parsed.dataDir,
       log: () => runnerLog,
     }, io);
+  // Everything this invocation prints, kept in order, so the mirror can upload
+  // it as the run's `runner.log` — the object the dashboard's log pane reads,
+  // and the sandbox's own equivalent. A declarative run emits no progress
+  // events at all, so building the log out of those would have left the pane
+  // empty for exactly the runs that are easiest to follow.
+  const logged: CliIo = mirror === undefined ? io : {
+    ...io,
+    stdout: line => { runnerLog.push(line); io.stdout(line); },
+    stderr: line => { runnerLog.push(line); io.stderr(line); },
+  };
   const showProgress = (event: ProgressEvent): void => {
     if (event.type === 'step.started') startedSteps.set(event.stepId, performance.now());
-    for (const line of renderProgress([event])) {
-      runnerLog.push(line);
-      if (!parsed.json) io.stderr(line);
-    }
+    if (!parsed.json) for (const line of renderProgress([event])) logged.stderr(line);
     observer?.onProgress(event);
     mirror?.onProgress(event);
   };
   const lifecycle = {
     ...(parsed.command === 'run' ? { bucket: parsed.bucket } : {}),
     allowHumanInfluenced: parsed.allowHumanInfluenced,
-    onPtyReady: (path: string) => io.stderr(`PTY ${path}`),
+    onPtyReady: (path: string) => logged.stderr(`PTY ${path}`),
     ...(parsed.command === 'run' && parsed.reuseFromRunId !== undefined ? { reuseFromRunId: parsed.reuseFromRunId } : {}),
     localAgent: parsed.localAgent,
     ...(parsed.agentCapacity === undefined ? {} : { agentCapacity: parsed.agentCapacity }),
@@ -360,7 +363,7 @@ export async function runCli(
       },
     }),
     onWait: (progress: RunProgress) => {
-      emitWait(progress, io);
+      emitWait(progress, logged);
       const now = performance.now();
       if (!startedSteps.has(progress.stepId)) startedSteps.set(progress.stepId, now);
       showProgress({ type: 'step.running', stepId: progress.stepId, stepType: progress.stepType,
@@ -377,9 +380,6 @@ export async function runCli(
   // does. `finish` drains the projection and settles the mint, both bounded;
   // it never rejects (see `createObserverSession`).
   const observerMint = observer?.finish(execution.report);
-  // Bounded by the mirror itself, and it never rejects: a run's exit code has
-  // never waited on Cloud and does not start now.
-  await mirror?.finish(execution.report);
   // In `--json` mode the report is a single machine-readable object that
   // MUST carry `observerUrl` when one is available, so a consumer sees one
   // authoritative signal. That justifies blocking up to `MINT_TIMEOUT_MS`
@@ -391,12 +391,17 @@ export async function runCli(
   // preflight) is worse than printing `Observer:` on a later line, so we
   // emit the run report immediately and finalize the observer link after.
   if (parsed.json) {
-    const observerUrl = await observerUrlFrom(observerMint, io);
-    emitRunReport(execution, parsed.json, io, observerUrl);
+    const observerUrl = await observerUrlFrom(observerMint, logged);
+    emitRunReport(execution, parsed.json, logged, observerUrl);
+    // Last, and after the report: the run's own output is what the mirror
+    // uploads, and a run's exit code has never waited on Cloud. The mirror
+    // bounds itself and never rejects.
+    await mirror?.finish(execution.report);
     return execution.exitCode;
   }
-  emitRunReport(execution, parsed.json, io);
-  await finalizeObserverLine(observerMint, io);
+  emitRunReport(execution, parsed.json, logged);
+  await finalizeObserverLine(observerMint, logged);
+  await mirror?.finish(execution.report);
   return execution.exitCode;
 }
 
