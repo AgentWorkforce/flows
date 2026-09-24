@@ -452,11 +452,15 @@ listener's rules match them there. The digest form,
 decides which form is meant.
 
 `--on <provider>[:key=value,…]` takes `github` (`repository`, `labels`,
-`contains`, `events`), `slack` (`channel`, `contains`), `linear` (`team`,
-`contains`), `jira` (`project`, `contains`) or `shortcut` (`workspace`,
-`contains`), each at most once. A GitHub source without `repository` is
+`contains`, `events`, and the pull-request subscription opt-outs `reviews`,
+`checks`, `comments`), `gitlab` (`project`, `labels`, `contains`, `events`),
+`slack` (`channel`, `contains`), `linear` (`team`, `project`, `labels`,
+`contains`), `jira` (`project`, `labels`, `contains`) or `shortcut`
+(`workspace`, `team`, `labels`, `contains`), each at most once. A Linear
+`team` matches the team's name or its key. A GitHub source without
+`repository` is
 scoped to `--repo`. `events` is `issues` (the default: `issues.opened` and
-`issues.labeled`) or `pull_request`, which wakes on a pull request being
+`issues.labeled`) or `pull_request` — `merge_request` for `gitlab` — which wakes on a pull request being
 opened, receiving commits, being reopened, or being reviewed; a
 pull-request run checks out the pull request's own head and receives
 `input.pullRequest` (`owner`, `repo`, `number`, `action`, `title`, `body`, `headRef`, `headSha`,
