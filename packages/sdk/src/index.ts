@@ -292,6 +292,10 @@ export { parseFlowToolCatalog, canonicalFlowToolCatalog, parseFlowToolEntry, par
 export { FlowToolClient, type FlowToolTransport, type FlowToolRequest, type FlowToolInvocationOptions } from './flow-tool-client.js';
 export { createFlowToolHttpTransport, type FlowToolHttpOptions } from './flow-tool-http.js';
 export { createFlowToolAdapters } from './flow-tool-adapters.js';
+export {
+  createKernelFlowToolControlPlane, FLOW_TOOL_INPUT_PLACEHOLDER,
+  type KernelFlowToolDeployment, type KernelFlowToolControlPlaneOptions,
+} from './flow-tool-kernel.js';
 
 export { renderProgress, type ProgressEvent } from './progress.js';
 export { webhookTriggerSpec } from './trigger-executor.js';

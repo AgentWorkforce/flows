@@ -12,6 +12,7 @@ it('round-trips the manifest contract through the built public SDK without execu
       validateFlowToolInput, validateFlowToolResult,
       flowToolFunctionDefinition, flowToolMcpDefinition,
       FlowToolClient, createFlowToolAdapters, flowToolRunLinks, flowToolInputDigest,
+      createKernelFlowToolControlPlane, FLOW_TOOL_INPUT_PLACEHOLDER,
     } from ${JSON.stringify(sdkUrl)};
 
     const manifest = createFlowToolManifest({
@@ -55,6 +56,8 @@ it('round-trips the manifest contract through the built public SDK without execu
     });
     assert.equal('annotations' in mcp, false);
     assert.equal('strict' in native, false);
+    assert.equal(typeof createKernelFlowToolControlPlane, 'function');
+    assert.equal(FLOW_TOOL_INPUT_PLACEHOLDER, '__RELAYFLOWS_FLOW_TOOL_INPUT_V1__');
     // A transport fixture exercises public client exports, not Cloud or a real run.
     const selected = {
       manifest: restored, deployment_id: 'test_deployment', read_only: true,
