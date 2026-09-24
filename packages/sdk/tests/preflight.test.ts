@@ -558,6 +558,11 @@ describe('preflight: CLI resolution and refusal predicates', () => {
         } as never),
         { probes: probes() },
       ),
+      // An artifact_exists path the bundled worker's artifact scan never
+      // records. Another writer of `output.artifacts` may still produce it,
+      // so the gate is unproven rather than unsatisfiable: warn, never refuse.
+      preflight(flow({ id: 'a', type: 'agent', instruction: 'i', cli: 'x',
+        verification: { type: 'artifact_exists', path: 'node_modules/review.md' } }), { probes: probes() }),
     ];
     const warningKinds = scenarios.flatMap((result) => result.diagnostics)
       .filter((diagnostic) => diagnostic.severity === 'warning')

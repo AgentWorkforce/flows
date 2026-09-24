@@ -270,8 +270,13 @@ export async function runCli(
     // refuses `--data-dir` on `check`, so there is no data dir to attach to.
     // `flows check` keeps working with no daemon, no relayflowd binary and no
     // data directory at all -- a property worth keeping, not an omission.
+    // Only this invocation opts into `agent_worker_unresolved`: `flows check`
+    // attaches no worker and, being daemon-free, cannot see one attached
+    // elsewhere. The authored `.flow.ts` path checks header declarations
+    // without compiling steps, so it has no agent steps to count.
     const checked = /\.(?:[cm]?[jt]s)$/.test(parsed.value)
-      ? await checkAuthoredFlowComposed(parsed.value) : checkFlow(parsed.value);
+      ? await checkAuthoredFlowComposed(parsed.value)
+      : checkFlow(parsed.value, { warnUnresolvedAgentWorker: true });
     emitCheckReport(checked.report, parsed.json, io);
     return checked.report.ok ? 0 : 2;
   }
@@ -961,6 +966,18 @@ function parseTickArgs(rest: readonly string[]): ParsedArgs | undefined {
   };
 }
 
+/**
+ * `agent_worker_unresolved` reads as a footnote to `REQUIRES codex (step
+ * "implement"), …`: that line already names the steps that need an agent
+ * worker, and this says what has to be true for one to be attached. So the
+ * plain-text pass holds it back and emits it in that position, exactly once —
+ * the leading batch below skips it rather than printing it twice. JSON mode
+ * returns before any of this and keeps the single ordered diagnostics array.
+ */
+function isWorkerSurfaceWarning(diagnostic: CheckReport['diagnostics'][number]): boolean {
+  return diagnostic.kind === 'agent_worker_unresolved';
+}
+
 const MODEL_PROVENANCE: Readonly<Record<CliModelSource, string>> = {
   step: 'step',
   named: 'named agent',
@@ -973,11 +990,13 @@ function modelProvenance(source: CliModelSource | undefined): string {
 }
 
 function emitCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
-  emitDiagnostics(report.diagnostics, io);
   if (json) {
+    emitDiagnostics(report.diagnostics, io);
     io.stdout(JSON.stringify(report));
     return;
   }
+  const deferred = report.diagnostics.filter(isWorkerSurfaceWarning);
+  emitDiagnostics(report.diagnostics.filter((diagnostic) => !isWorkerSurfaceWarning(diagnostic)), io);
   for (const gate of report.gates) {
     // A gate that accepts every output is legal, but it must not read like a
     // gate that judges something.
@@ -1023,6 +1042,7 @@ function emitCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
   // the hosted verbs check the same list against Cloud before submitting.
   const requires = report.requirements === undefined ? '' : describeFlowRequirements(report.requirements);
   if (requires) io.stdout(`REQUIRES ${requires}`);
+  emitDiagnostics(deferred, io);
   if (report.ok) io.stdout(`CHECK PASSED ${report.path ?? ''}`.trimEnd());
 }
 

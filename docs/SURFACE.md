@@ -1212,6 +1212,19 @@ existing run from its journal. The data directory defaults to `.relayflowd`.
 `--json` writes one report-shaped object to stdout while diagnostics remain on
 stderr.
 
+`check`'s `REQUIRES` line names the harnesses a flow needs; a spec with `agent`
+steps also needs a *worker attached for step type `agent`*, and without one the
+run parks at the first such step rather than failing. `flows check` cannot see
+whether one is attached — it is daemon-free by construction — so it warns
+`agent_worker_unresolved` instead of guessing, naming the steps and pointing at
+`flows run --local-agent`. The warning is emitted in the `REQUIRES` position,
+because it is a footnote to that line. It never refuses, and it is scoped to
+`agent` steps: `--local-agent` attaches no `llm` worker, so naming it for an
+`llm` step would be false. Only `flows check` opts in. `run` knows the answer,
+`build` and `deploy` check a spec that will run elsewhere, and an authored
+`.flow.ts` is checked through its header without compiling step bodies, so it
+has no agent steps to count.
+
 `flows check --watch` checks once, then watches the target, its reachable
 relative `use:` imports, and the nearest `flows.json` walking up from the
 flow directory. Saves are debounced for 150 ms; a change during a check
@@ -1612,6 +1625,28 @@ worker sends and the run succeeds with it journaled as the agent's
 asserts on `AgentResult.artifacts` — which is how the data-dir case was caught
 at all, by `packages/sdk/tests/agent-transcript-live.test.ts` failing its own
 `artifacts.length !== 0` check.
+
+That exclusion cuts both ways. A gate reads the journaled list and nothing else,
+so an `artifact_exists` path inside a prefix the walk skips — a segment named
+exactly `.git`, `.relayflowd` or `node_modules` — is a path the
+scan can never contribute, however faithfully the agent writes the file.
+Preflight **warns** `gate_path_unscanned`, naming the excluded prefix. Segments
+are compared exactly: `node_modules-copy/out.md` and `reports/v1.2/review.md`
+are fine. The rule lives in `packages/sdk/src/artifact-scan-policy.ts` and the
+walk itself consumes it, so the warning cannot drift from the scan it
+describes, and it is collected before any environment probe can return early,
+so it is not hidden behind an unresolved CLI for a pass or two.
+
+It warns rather than refuses because the scan is not the only writer of that
+list, which makes such a gate unproven rather than unsatisfiable. The *bundled*
+worker journals object-shaped JSON stdout — and a completed Relay task's output
+— verbatim in place of the scanned wrapper, so an agent that answers with its
+own `{"artifacts": [...]}` puts exactly what it names in the list, an unscanned
+path included, and the gate passes. `step.complete` accepts any `output`, so a custom
+worker may do the same. Which route a step takes is a run-time fact, so
+preflight reports the scan's limitation and leaves the verdict to the run. The
+warning retires with the exclusion: when the scan stops skipping those prefixes,
+the kind and `packages/sdk/src/named-gate-preflight.ts` are deleted together.
 
 - Are YAML helper verbs (`slack:`, `mcp:`) core spec vocabulary or compile-time expansion into `run`/effect steps? Leaning: expansion — the kernel spec stays seven words; helpers stay a surface concern.
 - Helper generation cadence: generated from relayfile adapter manifests at build time vs published per-adapter packages. Leaning: generated, with hand-tuned verb names for the top providers.
