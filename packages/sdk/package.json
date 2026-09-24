@@ -80,10 +80,5 @@
     "@agent-relay/sdk": {
       "optional": true
     }
-  },
-  "overrides": {
-    "@relayflows/surface": {
-      "@relayfile/relay-helpers": "$@relayfile/relay-helpers"
-    }
   }
 }
