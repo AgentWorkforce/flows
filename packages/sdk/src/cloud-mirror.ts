@@ -301,6 +301,8 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
    */
   let inFlight: Promise<void> | undefined;
   let stopped = false;
+  /** Set immediately before the terminal callback; nothing may publish after it. */
+  let terminalReported = false;
   let sequence = 0;
   let acknowledged: string | undefined;
   let acknowledgedAt = now();
@@ -417,6 +419,15 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
   };
 
   const publishSnapshot = async (deadline: number): Promise<void> => {
+    // The invariant is narrow and exact: nothing publishes after the terminal
+    // callback, which revokes the credential and must be last. `finish` stops
+    // *waiting* for an in-flight poll once its deadline passes, so that poll can
+    // still be running when the callback goes out — and a view arriving then is
+    // worse than a missing one, because the final rows have already replaced it.
+    //
+    // Deliberately not gated on "finish has begun": finish takes its own last
+    // reading first, and that is the snapshot showing the run's final moments.
+    if (terminalReported) return;
     const view = ordered();
     if (view.length === 0) return;
     // `elapsedMs` moves every poll and is excluded from the comparison, or the
@@ -444,7 +455,8 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
     try {
       const deadline = now() + budgetMs;
       await scan(deadline);
-      await publishSnapshot(deadline);
+      // Finish takes its own reading; a poll racing it adds nothing.
+      if (!stopped) await publishSnapshot(deadline);
     } catch (error) {
       diagnostic(`poll failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
@@ -466,12 +478,30 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
    */
   const remaining = (deadline: number): number => Math.max(1, deadline - now());
 
+  /**
+   * The object name for one step's transcript, unique across journals.
+   *
+   * The caches here are keyed `<journal>/<step>` precisely because child
+   * journals can repeat a kernel step id — and then the object key and the
+   * row's `sandboxId` used only the step id, so two steps overwrote each
+   * other's log and the run page showed one step's transcript for both.
+   *
+   * Only a genuine collision is disambiguated. The common run has one journal
+   * per step, and keeping the bare step id there means a mirrored transcript is
+   * named exactly as a hosted one is.
+   */
+  const transcriptName = (journalRunId: string, stepName: string): string => {
+    const repeated = [...finals.keys()].filter(key => key.endsWith(`/${stepName}`)).length > 1;
+    return repeated ? `${journalRunId}.${stepName}` : stepName;
+  };
+
   const uploadTranscripts = async (deadline: number): Promise<void> => {
     let uploaded = 0;
     for (const [key, ref] of transcripts) {
       if (uploaded >= MIRROR_MAX_TRANSCRIPT_UPLOADS || now() > deadline) break;
       const entry = finals.get(key);
       if (entry === undefined) continue;
+      const objectName = transcriptName(entry.journalRunId, ref.stepName);
       let assembled;
       try {
         assembled = await assembleTranscript(ref.attempts, readTranscript);
@@ -482,9 +512,9 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
       if (assembled.bytes.length === 0) continue;
       // Name the row after the object only once the object is there, so no row
       // ever points at a transcript that was never written.
-      if (await options.client.putObject(`${ref.stepName}/agent.log`, assembled.bytes,
+      if (await options.client.putObject(`${objectName}/agent.log`, assembled.bytes,
         undefined, remaining(deadline))) {
-        finals.set(key, { ...entry, row: { ...entry.row, sandboxId: ref.stepName } });
+        finals.set(key, { ...entry, row: { ...entry.row, sandboxId: objectName } });
         uploaded += 1;
       }
     }
@@ -551,6 +581,7 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
         await publishFinal(deadline);
         // Last, always: this transition revokes the credential every call
         // above depends on.
+        terminalReported = true;
         await options.client.reportTerminal(
           outcome.status,
           redactJson(outcome.result, env) as Record<string, unknown>,

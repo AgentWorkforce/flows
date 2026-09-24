@@ -273,6 +273,33 @@ describe('createRunMirror', () => {
     expect(report.steps[0]!.sandboxId).toBe('');
   });
 
+  /**
+   * The terminal callback revokes the run's credential, so a snapshot after it
+   * is a push that can never land and a view the final rows have already
+   * replaced. `finish` stops *waiting* for an in-flight poll at its deadline,
+   * which is exactly when this can happen.
+   */
+  it('publishes no snapshot once the terminal status has gone out', async () => {
+    seq = 0;
+    const { client, calls } = cloud();
+    const mirror = createRunMirror({
+      client,
+      dataDir: '/data',
+      env: {},
+      readJournal: async () => childJournal('01RUN'),
+    });
+
+    mirror.start('01RUN');
+    await mirror.finish({ status: 'completed', result: { ok: true, status: 'completed' } });
+
+    const kinds = calls.map(call => call.kind);
+    expect(kinds).toContain('snapshot');
+    // Finish's own reading still goes out — it is the run's final moments —
+    // but nothing follows the callback.
+    expect(kinds.lastIndexOf('snapshot')).toBeLessThan(kinds.indexOf('terminal'));
+    expect(kinds.at(-1)).toBe('terminal');
+  });
+
   it('never throws out of finish, whatever Cloud answers', async () => {
     seq = 0;
     const { client } = cloud(() => false);
