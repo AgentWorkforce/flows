@@ -1,22 +1,26 @@
-// The Cloud half of `flows run` / `flows resume`: mirror this local run onto
-// the dashboard, so a run started in a terminal is as watchable as one Cloud
-// launched for you.
+// The Cloud half of `flows run` / `flows resume`: also put this local run on
+// the Cloud dashboard.
 //
-// On by default, and the default is conditional on exactly one thing: a Cloud
-// credential this CLI can already resolve. A machine that has never run
-// `agent-relay cloud login` has nothing to upload with, and refusing the run
-// over that would be absurd — a local run that joins no workspace is not a
-// defect (RFC-0001 settled decision 7; the journal is the record, and Cloud is
-// one view onto it). So a missing login prints one line saying the run is
-// local-only, and the run proceeds exactly as it always has.
+// Opt-in, and deliberately the only opt-in thing on this path.
 //
-// `--no-cloud-mirror` opts out, and `FLOWS_CLOUD_MIRROR=0` opts out for a
-// whole shell — a CI job, a machine running someone else's flows, a checkout
-// whose runs should not leave it.
+// A local run is already watchable by default: `observer-session.ts` beside
+// this one projects the run into its own channel and prints a read-only link,
+// off a workspace key, for free. That is the right default — it is a step
+// projection, it costs nothing, and a run that never joins a workspace is not
+// a defect (RFC-0001 settled decision 7).
 //
-// Best-effort throughout, like `observer-session.ts` beside it: registration
-// failure is one labeled stderr line, and nothing here can change a run's
-// exit code or its journal.
+// The dashboard is the richer, hosted view of the same run: the flow source,
+// every step's transcript, the run graph, the logs, and the run sitting in the
+// same history as the hosted ones. It is also the one that *stores* all of
+// that. So it is asked for — `--cloud-mirror`, or `FLOWS_CLOUD_MIRROR=1` for a
+// shell — and never turned on by a login happening to be present. Mirroring
+// someone's local runs because they once signed in is not a default anyone
+// consented to.
+//
+// Best-effort once it is on, like the observer: a registration failure is one
+// labeled stderr line, and nothing here can change a run's exit code or its
+// journal. But it is a *louder* line than it used to be, because the run asked
+// for this and did not get it.
 
 import { readFile } from 'node:fs/promises';
 import type { CliIo } from '../cli.js';
@@ -29,7 +33,7 @@ import { isAuthoredFlowPath, parseDirectInput } from '../direct-input.js';
 import type { ProgressEvent } from '../progress.js';
 import type { RunReport } from './run.js';
 
-/** `FLOWS_CLOUD_MIRROR=0|false|off` turns the mirror off for a whole shell. */
+/** `FLOWS_CLOUD_MIRROR=1|true|on` turns the mirror on for a whole shell. */
 export const MIRROR_ENV = 'FLOWS_CLOUD_MIRROR';
 
 /** What the mirror knows about this run on Cloud, once it is registered. */
@@ -76,12 +80,20 @@ export interface CloudMirrorRequest {
   dataDir: string;
   /** Lines the CLI has printed for this run, uploaded as the run's `runner.log`. */
   log: () => readonly string[];
+  /** How the dashboard was asked for, so a refusal can name the right switch. */
+  requested: 'flag' | 'env';
 }
 
-/** True unless the operator turned the mirror off for this shell. */
-export function cloudMirrorEnabled(env: NodeJS.ProcessEnv): boolean {
+/**
+ * Whether this shell asked for the dashboard.
+ *
+ * Only an affirmative turns it on. Anything else — unset, empty, `0`, or a
+ * value nobody meant as a switch — leaves the run local, because the cost of
+ * reading a stray value as consent is someone's runs being uploaded.
+ */
+export function cloudMirrorRequested(env: NodeJS.ProcessEnv): boolean {
   const value = env[MIRROR_ENV]?.trim().toLowerCase();
-  return value !== '0' && value !== 'false' && value !== 'off' && value !== 'no';
+  return value === '1' || value === 'true' || value === 'on' || value === 'yes';
 }
 
 /**
@@ -125,7 +137,7 @@ export function createCloudMirrorSession(
       return mirror;
     })
     .catch((error: unknown) => {
-      io.stderr(`[cloud] ${mirrorRefusal(error)}`);
+      io.stderr(`[cloud] ${mirrorRefusal(error, request.requested)}`);
       return undefined;
     });
 
@@ -276,23 +288,27 @@ function completionReport(report: RunReport): Record<string, unknown> {
 }
 
 /**
- * Why the mirror is not running, in one line a reader can act on.
+ * Why the dashboard is not getting this run, in one line a reader can act on.
  *
- * A missing login is the ordinary case and reads as a fact plus the command
- * that changes it — never as an error, because a local-only run is not one.
+ * Every one of these is a request that was not honoured — the run asked for
+ * the dashboard and is not on it — so none of them read as an aside. The
+ * missing-login case is the common one and names the two commands that fix
+ * it: sign in, or stop asking.
  */
-function mirrorRefusal(error: unknown): string {
+function mirrorRefusal(error: unknown, requested: 'flag' | 'env'): string {
+  const asked = requested === 'flag' ? '--cloud-mirror' : `${MIRROR_ENV}=1`;
   if (error instanceof CloudFlowError && error.code === 'configuration') {
     return error.reason === 'auth_missing'
-      ? 'no Cloud login, so this run stays local. `agent-relay cloud login` puts future runs on the dashboard; '
-        + `${MIRROR_ENV}=0 stops this line.`
-      : `this run stays local: ${error.message}`;
+      ? `${asked} asked for the Cloud dashboard, but there is no Cloud login, so this run stays local. `
+        + `Sign in with \`agent-relay cloud login\`, or drop ${asked}.`
+      : `${asked} asked for the Cloud dashboard, but this run stays local: ${error.message}`;
   }
   if (error instanceof CloudFlowError && error.status === 404) {
-    return 'this Cloud deployment does not accept local runs yet; the run is unaffected';
+    return `${asked} asked for the Cloud dashboard, but this deployment does not accept local runs; `
+      + 'the run itself is unaffected.';
   }
-  return `could not register this run with Cloud, so it stays local (${
-    error instanceof Error ? error.message : String(error)}); the run is unaffected`;
+  return `${asked} asked for the Cloud dashboard, but this run could not be registered (${
+    error instanceof Error ? error.message : String(error)}); the run itself is unaffected.`;
 }
 
 /** The run's own failure text, bounded by the mirror's transport, or nothing. */

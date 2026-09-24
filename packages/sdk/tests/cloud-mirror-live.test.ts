@@ -125,7 +125,7 @@ afterAll(async () => {
 describe('a local run on the Cloud dashboard', () => {
   it('registers, publishes its steps and its log, and reports terminal last', async () => {
     seen = [];
-    const run = await runCli(['run', '--no-observer-link', '--data-dir', join(work, 'data'), FLOW]);
+    const run = await runCli(['run', '--cloud-mirror', '--no-observer-link', '--data-dir', join(work, 'data'), FLOW]);
     expect(run.code).toBe(0);
     expect(run.stderr).toContain(`Dashboard: ${origin}/dashboard/workflow/live-cloud-run/runner`);
 
@@ -162,16 +162,26 @@ describe('a local run on the Cloud dashboard', () => {
     expect(terminal.body).toMatchObject({ status: 'completed', callbackToken: 'cb' });
   }, 120_000);
 
-  it('sends nothing at all under either opt-out', async () => {
+  it('sends nothing at all unless it is asked to', async () => {
     seen = [];
-    const flagged = await runCli(['run', '--no-cloud-mirror', '--no-observer-link', '--data-dir', join(work, 'data'), FLOW]);
-    const shell = await runCli(['run', '--no-observer-link', '--data-dir', join(work, 'data'), FLOW],
+    // The default: a local run is watchable through its observer link and
+    // never reaches the dashboard on its own.
+    const plain = await runCli(['run', '--no-observer-link', '--data-dir', join(work, 'data'), FLOW]);
+    // A value nobody meant as a switch is not consent either.
+    const vague = await runCli(['run', '--no-observer-link', '--data-dir', join(work, 'data'), FLOW],
       { FLOWS_CLOUD_MIRROR: '0' });
 
-    expect(flagged.code).toBe(0);
-    expect(shell.code).toBe(0);
+    expect(plain.code).toBe(0);
+    expect(vague.code).toBe(0);
     expect(seen).toEqual([]);
-    expect(flagged.stderr).not.toContain('Dashboard:');
-    expect(shell.stderr).not.toContain('Dashboard:');
-  }, 120_000);
+    expect(plain.stderr).not.toContain('Dashboard:');
+    expect(vague.stderr).not.toContain('Dashboard:');
+
+    // And the shell switch does turn it on.
+    const shell = await runCli(['run', '--no-observer-link', '--data-dir', join(work, 'data'), FLOW],
+      { FLOWS_CLOUD_MIRROR: '1' });
+    expect(shell.code).toBe(0);
+    expect(shell.stderr).toContain('Dashboard:');
+    expect(seen.some((call) => call.url === '/api/v1/workflows/local-run')).toBe(true);
+  }, 180_000);
 });

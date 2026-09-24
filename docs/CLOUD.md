@@ -134,43 +134,66 @@ webhook-triggered deployments keep cloning through the grant.
 
 ## Local runs on the dashboard
 
-A run started in a terminal mirrors itself onto the same dashboard page a
-hosted run gets, and does so by default:
+A local run is watchable by default through its **observer link** — free, off a
+workspace key, a step projection in its own channel, printed by every `flows
+run` unless `--no-observer-link`. That is the default way to follow a run you
+started in a terminal, and it is unchanged.
+
+`--cloud-mirror` additionally puts the run on the **Cloud dashboard**: the
+richer, hosted view of the same run.
 
 ```sh
-flows run review.flow.ts --input '{"pr":7}'
+flows run --cloud-mirror review.flow.ts --input '{"pr":7}'
 # Dashboard: https://…/dashboard/workflow/<run>/runner  ·  flows status --cloud --watch <run>
+
+FLOWS_CLOUD_MIRROR=1 flows run review.flow.ts     # for a whole shell
 ```
 
-The line names Cloud's run id as well as the page, because the report's own
-`runId` is the *journal's* and every hosted read verb (`flows status --cloud`,
-`flows logs`, `flows runs`) takes Cloud's. Under `--json` the same pair rides
-in the report as `cloudRunId` and `dashboardUrl`, beside `observerUrl`.
+Nothing about execution changes. The run executes locally, against the local
+daemon, under your own credentials; the journal is still the record. What is
+added is a reader beside it that polls this run's journals every ten seconds
+and pushes what it finds — the same live step view, the same final step rows,
+the same per-step transcripts and the same terminal status a sandboxed run
+reports. The run row is marked `dispatchType: "local"`, so the run page says it
+ran on your machine rather than promising a sandbox that is never coming.
 
-Nothing about the run changes. It executes locally, against the local daemon,
-under your own credentials; the journal is still the record. What is new is a
-reader beside it that polls this run's journals every ten seconds and pushes
-what it finds — the same live step view, the same final step rows, the same
-per-step transcripts and the same terminal status a sandbox reports. The run
-row is marked `dispatchType: "local"`, so the run page says it ran on your
-machine rather than promising a sandbox that is never coming.
+What the dashboard adds over the observer link: the flow source, every step's
+agent transcript, the run graph, the run's own log, and the run sitting in the
+same history as your hosted ones — readable afterwards through `flows runs`,
+`flows status --cloud` and `flows logs`, which until now only answered for runs
+Cloud had launched.
 
-Opting out:
+### Why it is opt-in
 
-```sh
-flows run --no-cloud-mirror flow.yaml   # this run only
-FLOWS_CLOUD_MIRROR=0 flows run flow.yaml # this shell: a CI job, a shared checkout
-```
+Because it is the richer view, it is also the one that *stores* all of that.
+The mirror sends the flow source, step metadata, agent transcripts and this
+invocation's own stderr. Transcripts are the sharp edge: they are whatever the
+agent printed, which includes file contents, command output, and anything it
+read out of its environment. Every string goes through the same redactor
+`flows status` uses — but redaction is pattern matching, and pattern matching
+has a false-negative rate.
 
-`--no-cloud-mirror` is refused with `--cloud` (which *is* the hosted run) and
-on `check` (which starts nothing), rather than being accepted and ignored.
+So the trigger is an explicit request, never the presence of a login. A
+developer who signed in once to run something hosted has not thereby agreed to
+publish every unrelated experiment in every checkout on that machine into their
+workspace, where anyone who can read the workspace can read it. `--cloud-mirror`
+is that agreement, per run; `FLOWS_CLOUD_MIRROR=1` is it for a shell.
 
-The mirror is on by default *when a Cloud credential resolves* — the same
-credential every other hosted verb uses (see [Credentials](#credentials)). A
-machine that has never signed in prints one line saying the run stays local
-and runs exactly as before. A local run that joins no workspace is not a
-defect: RFC-0001 settled decision 7 makes the projection a view, not an
-authority.
+Only an affirmative counts for the environment variable (`1`, `true`, `on`,
+`yes`). Anything else — unset, empty, `0`, or a value nobody meant as a switch
+— leaves the run local, because the cost of reading a stray value as consent is
+someone's runs being uploaded.
+
+The terminal line names Cloud's run id as well as the page, because the
+report's own `runId` is the *journal's* and every hosted read verb (`flows
+status --cloud`, `flows logs`, `flows runs`) takes Cloud's. Under `--json` the
+same pair rides in the report as `cloudRunId` and `dashboardUrl`, beside
+`observerUrl`.
+
+A run that asked for the dashboard and did not get it says so, once, on stderr
+— a missing login, a deployment that does not serve the route, a refused
+registration. It is a request that was not honoured, not an aside, and it never
+changes the run's outcome.
 
 What it does and does not do:
 
@@ -183,22 +206,19 @@ What it does and does not do:
   people's runs contributes nothing.
 - **Cannot fail a run.** Every push collapses to a boolean; each poll is
   bounded by its own deadline; the whole finish is bounded. A Cloud outage
-  costs a local run its dashboard page and nothing else.
-- **Publishes what a hosted run publishes, redacted the same way.** Free text
-  goes through `flows status`'s redactor before it is bounded, and identifier
-  fields are normalized into the shape Cloud's parser accepts.
+  costs a mirrored run its dashboard page and nothing else.
 - **Does not make Cloud the authority.** Cancel is refused for a local run:
   Cloud mirrors it and does not control it, and a cancel button that stopped
   the *reporting* while the flow kept running would be a cancellation that did
   not happen. Stop it where it is running.
 - **One dashboard row per invocation, and the rows are linked.** A mirrored run
   goes terminal on Cloud when the CLI exits, and Cloud refuses to move a
-  terminal run back to `running`, so `flows resume` registers its own row — the
-  same shape Cloud's own v2 resume already has. It carries `resumedFromRunId`,
-  so the run page says which attempt it continues and a reader of the earlier
-  "Needs review" row can find out how it ended. A resume mirrors the kernel
-  spec its journal recorded, since the flow file may have been edited or
-  deleted since.
+  terminal run back to `running`, so `flows resume --cloud-mirror` registers its
+  own row — the same shape Cloud's own v2 resume already has. It carries
+  `resumedFromRunId`, so the run page says which attempt it continues and a
+  reader of the earlier "Needs review" row can find out how it ended. A resume
+  mirrors the kernel spec its journal recorded, since the flow file may have
+  been edited or deleted since.
 
 No credential is written to disk between invocations: the run token lives only
 for the process that holds it. What *is* written, under

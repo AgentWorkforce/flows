@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  cloudMirrorEnabled, createCloudMirrorSession, mirrorSourceFromPath, MIRROR_ENV,
+  cloudMirrorRequested, createCloudMirrorSession, mirrorSourceFromPath, MIRROR_ENV,
 } from '../src/cli/cloud-mirror-session.js';
 import { CloudFlowError } from '../src/cloud-http.js';
 import type { RunReport } from '../src/cli/run.js';
@@ -26,12 +26,16 @@ function registration() {
   };
 }
 
-describe('cloudMirrorEnabled', () => {
-  it('is on unless the operator turned it off for this shell', () => {
-    expect(cloudMirrorEnabled({})).toBe(true);
-    expect(cloudMirrorEnabled({ [MIRROR_ENV]: '1' })).toBe(true);
-    for (const value of ['0', 'false', 'off', 'no', 'OFF']) {
-      expect(cloudMirrorEnabled({ [MIRROR_ENV]: value })).toBe(false);
+describe('cloudMirrorRequested', () => {
+  it('is off unless this shell actually asked for the dashboard', () => {
+    // Only an affirmative counts. Reading a stray value as consent would
+    // upload someone's runs on the strength of an unrelated variable.
+    for (const value of ['1', 'true', 'on', 'yes', 'TRUE']) {
+      expect(cloudMirrorRequested({ [MIRROR_ENV]: value })).toBe(true);
+    }
+    expect(cloudMirrorRequested({})).toBe(false);
+    for (const value of ['', '0', 'false', 'off', 'no', 'maybe', 'please']) {
+      expect(cloudMirrorRequested({ [MIRROR_ENV]: value })).toBe(false);
     }
   });
 });
@@ -45,6 +49,7 @@ describe('createCloudMirrorSession', () => {
       source: async () => ({ workflow: 'name: demo\n', fileType: 'yaml' }),
       dataDir: '/data',
       log: () => ['RUN 01RUN'],
+      requested: 'flag',
     }, cli, {}, { register, createMirror: vi.fn(() => mirror) });
 
     session.onRunStarted({ runId: '01RUN' });
@@ -64,6 +69,7 @@ describe('createCloudMirrorSession', () => {
       source: async () => ({ workflow: 'name: demo\n', fileType: 'yaml' }),
       dataDir: '/data',
       log: () => [],
+      requested: 'flag',
     }, cli, {}, { register, createMirror: vi.fn(() => mirror) });
 
     session.onJournalEntry({ run_id: '01RUN' });
@@ -82,6 +88,7 @@ describe('createCloudMirrorSession', () => {
       source: async () => ({ workflow: 'name: demo\n', fileType: 'yaml' }),
       dataDir: '/data',
       log: () => [],
+      requested: 'flag',
     }, cli, {}, { register: vi.fn(async () => registration()), createMirror: vi.fn(() => mirror) });
 
     // Nothing is known before the run starts, and asking does not start one.
@@ -104,12 +111,16 @@ describe('createCloudMirrorSession', () => {
       source: async () => ({ workflow: 'name: demo\n', fileType: 'yaml' }),
       dataDir: '/data',
       log: () => [],
+      requested: 'flag',
     }, cli, {}, { register: vi.fn(async () => { throw missing; }) });
 
     session.onRunStarted({ runId: '01RUN' });
     await expect(session.finish(okReport)).resolves.toBeUndefined();
 
     expect(err).toHaveLength(1);
+    // The run asked for the dashboard and did not get it: the line names what
+    // asked, and both ways to stop it being a surprise next time.
+    expect(err[0]).toContain('--cloud-mirror asked for the Cloud dashboard');
     expect(err[0]).toContain('no Cloud login, so this run stays local');
     expect(err[0]).toContain('agent-relay cloud login');
   });
@@ -120,6 +131,7 @@ describe('createCloudMirrorSession', () => {
       source: async () => ({ workflow: 'name: demo\n', fileType: 'yaml' }),
       dataDir: '/data',
       log: () => [],
+      requested: 'flag',
     }, cli, {}, {
       register: vi.fn(async () => { throw new CloudFlowError('http_error', 'HTTP 404', 404); }),
     });
@@ -127,8 +139,8 @@ describe('createCloudMirrorSession', () => {
     session.onRunStarted({ runId: '01RUN' });
     await session.finish(okReport);
 
-    expect(err[0]).toContain('does not accept local runs yet');
-    expect(err[0]).toContain('the run is unaffected');
+    expect(err[0]).toContain('does not accept local runs');
+    expect(err[0]).toContain('the run itself is unaffected');
   });
 
   it('never registers a run that was refused before it started', async () => {
@@ -138,6 +150,7 @@ describe('createCloudMirrorSession', () => {
       source: async () => ({ workflow: 'name: demo\n', fileType: 'yaml' }),
       dataDir: '/data',
       log: () => [],
+      requested: 'flag',
     }, cli, {}, { register });
 
     // No run id ever arrived: `flows run` refused the flow at check time.
@@ -160,6 +173,7 @@ describe('createCloudMirrorSession', () => {
       source: async () => ({ workflow: 'name: demo\n', fileType: 'yaml' }),
       dataDir: '/data',
       log: () => [],
+      requested: 'flag',
     }, cli, {}, { register: vi.fn(async () => registration()), createMirror: vi.fn(() => mirror) });
 
     session.onRunStarted({ runId: '01RUN' });
@@ -188,6 +202,7 @@ describe('createCloudMirrorSession', () => {
       source: async () => ({ workflow: 'name: demo\n', fileType: 'yaml' }),
       dataDir: '/data',
       log: () => [],
+      requested: 'flag',
     }, cli, {}, { register: vi.fn(async () => registration()), createMirror: vi.fn(() => mirror) });
 
     session.onRunStarted({ runId: '01RUN' });
@@ -218,6 +233,7 @@ describe('createCloudMirrorSession', () => {
       source: async () => ({ workflow: 'name: demo\n', fileType: 'yaml' }),
       dataDir: '/data',
       log: () => [],
+      requested: 'flag',
     }, cli, {}, { register: vi.fn(async () => registration()), createMirror: vi.fn(() => mirror) });
 
     session.onRunStarted({ runId: '01RUN' });

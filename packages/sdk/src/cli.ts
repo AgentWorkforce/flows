@@ -10,7 +10,7 @@ import { renderProgress, type ProgressEvent } from './progress.js';
 import type { JournalEvent } from './journal-reader.js';
 import { createObserverSession } from './cli/observer-session.js';
 import {
-  cloudMirrorEnabled, createCloudMirrorSession, mirrorSourceFromJournal, mirrorSourceFromPath,
+  cloudMirrorRequested, createCloudMirrorSession, mirrorSourceFromJournal, mirrorSourceFromPath,
   type CloudMirrorReceipt,
 } from './cli/cloud-mirror-session.js';
 import { realpathSync } from 'node:fs';
@@ -99,8 +99,8 @@ export type ParsedArgs =
   | { command: 'schedules'; json: boolean }
   | { command: 'unschedule'; scheduleId: string; json: boolean }
   | { command: 'check'; json: boolean; watch: boolean; value: string }
-  | { command: 'run'; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; noCloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
-  | { command: 'resume'; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; noCloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
+  | { command: 'run'; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; cloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
+  | { command: 'resume'; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; cloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
   | { command: 'answer'; dataDir: string; json: boolean; spawn: boolean; note: string | undefined; by: string | undefined; runId: string; waitId: string; answer: boolean }
   | RunsArgs
   | LogsArgs
@@ -130,13 +130,13 @@ const USAGE = [
   'flows run <flow>@sha256:<digest> [--bucket <file-bucket-uri>] [--data-dir <dir>] [--json]',
   'flows check [--watch] [--json] <flow.ts|flow.yaml|spec.json>',
   'flows serve-webhook --data-dir <dir> --port <p> [--allow <name>[,<name>]]',
-  'flows run [--json] [--no-spawn] [--no-observer-link] [--no-cloud-mirror] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] [--reuse-from <run-id>] <flow.yaml|spec.json>',
+  'flows run [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] [--reuse-from <run-id>] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] [--sync-code] [--no-connect] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] [--sync-code] [--no-connect] <flow.ts> --input <inline-json-or-file>',
   'flows sync [--json] [--dry-run] [--dir <path>] <run-id>',
-  'flows run [--json] [--no-spawn] [--no-observer-link] [--no-cloud-mirror] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <flow.ts> --input <inline-json-or-file>',
+  'flows run [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
-  'flows resume [--allow-human-influenced] [--json] [--no-spawn] [--no-observer-link] [--no-cloud-mirror] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <run-id>',
+  'flows resume [--allow-human-influenced] [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <run-id>',
   'flows answer [--json] [--no-spawn] [--data-dir <dir>] [--note <text>] [--by <identity>] <run-id> <wait-id> <yes|no>',
   'flows replay [--allow-human-influenced] [--json] [--data-dir <dir>] <run-id> [--at <step-id>]',
   'flows status [--json] [--data-dir <dir>] [--tail <n>] [<run-id>]',
@@ -320,7 +320,13 @@ export async function runCli(
   const startedSteps = new Map<string, number>();
   const observer = parsed.noObserverLink ? undefined : createObserverSession(parsed.command, io);
   const runnerLog: string[] = [];
-  const mirror = parsed.noCloudMirror || !cloudMirrorEnabled(process.env)
+  // Opt-in, unlike the observer link beside it. The observer is the default
+  // way to watch a local run: it is free, it needs only a workspace key, and
+  // it carries a step projection. The dashboard is the richer, hosted view —
+  // it stores the flow source, every step's transcript and this invocation's
+  // own output — so a local run joins it because someone asked, never because
+  // a login happened to be lying around.
+  const mirror = !(parsed.cloudMirror || cloudMirrorRequested(process.env))
     ? undefined
     : createCloudMirrorSession({
       source: parsed.command === 'run'
@@ -328,6 +334,7 @@ export async function runCli(
         : mirrorSourceFromJournal(parsed.dataDir),
       dataDir: parsed.dataDir,
       log: () => runnerLog,
+      requested: parsed.cloudMirror ? 'flag' : 'env',
     }, io);
   // Everything this invocation prints, kept in order, so the mirror can upload
   // it as the run's `runner.log` — the object the dashboard's log pane reads,
@@ -629,7 +636,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   let sawDataDir = false;
   let spawn = true;
   let noObserverLink = false;
-  let noCloudMirror = false;
+  let cloudMirror = false;
   let input: string | undefined;
   let sawInput = false;
   let reuseFromRunId: string | undefined;
@@ -688,12 +695,12 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
       noObserverLink = true;
       continue;
     }
-    if (argument === '--no-cloud-mirror') {
+    if (argument === '--cloud-mirror') {
       // Only meaningful where a local run exists to mirror. Refused on `check`
       // (which starts nothing) and, below, on `--cloud` (which IS the hosted
       // run), so the flag never silently no-ops.
-      if (command === 'check' || noCloudMirror) return undefined;
-      noCloudMirror = true;
+      if (command === 'check' || cloudMirror) return undefined;
+      cloudMirror = true;
       continue;
     }
     if (argument === '--data-dir') {
@@ -739,7 +746,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
     // observer-link opt-out -- describes nothing there and is refused rather
     // than ignored. `--input` is the authored body's argument and travels with
     // the source, so it is accepted exactly where a local run accepts it.
-    if (allowHumanInfluenced || sawDataDir || !spawn || localAgent || noObserverLink || noCloudMirror
+    if (allowHumanInfluenced || sawDataDir || !spawn || localAgent || noObserverLink || cloudMirror
       || reuseFromRunId !== undefined) return undefined;
     if (sawInput && !isAuthoredFlowPath(positionals[0]!)) return undefined;
     return { command: 'cloud-run', value: positionals[0]!, json, wait, input, syncCode, noConnect };
@@ -751,8 +758,8 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   return command === 'check'
     ? { command, json, watch, value: positionals[0]! }
     : command === 'run'
-      ? { command, bucket, reuseFromRunId, localAgent, agentCapacity, dataDir, input, json, spawn, noObserverLink, noCloudMirror, allowHumanInfluenced, value: positionals[0]! }
-      : { command, localAgent, agentCapacity, dataDir, json, spawn, noObserverLink, noCloudMirror, allowHumanInfluenced, value: positionals[0]! };
+      ? { command, bucket, reuseFromRunId, localAgent, agentCapacity, dataDir, input, json, spawn, noObserverLink, cloudMirror, allowHumanInfluenced, value: positionals[0]! }
+      : { command, localAgent, agentCapacity, dataDir, json, spawn, noObserverLink, cloudMirror, allowHumanInfluenced, value: positionals[0]! };
 }
 
 /**
