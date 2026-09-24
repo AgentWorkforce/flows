@@ -17,13 +17,22 @@ flows deployments
 ```
 
 `--on` also takes `github:labels=agent`, `jira:project=OPS`, `shortcut:workspace=…`
-or `slack:channel=#eng`. Each matching ticket launches one Cloud run in a fresh
+or `slack:channel=#eng`, and `linear` accepts `team`, `project`, `labels` and
+`contains` (`linear:team=TECH,labels=agent`); `team` matches the Linear team
+name or its key, so `team=Engineering` and `team=TECH` are the same filter. The
+deploy page shows every filter as an editable field — the badge's `team=ENG` is
+just the starting value.
+
+Each matching ticket launches one Cloud run in a fresh
 `relayflow/software-factory-<id>` branch of `--repo`; a passing review opens a
 PR, a blocked one opens a draft PR carrying the findings and ends `step_failed`.
 The pull-request title is the ticket title (whitespace-normalized and capped at
 240 Unicode code points). GitHub inputs must carry `identifier: "#<number>"`;
 the flow appends exactly one `Fixes #<number>` line and validates the final
-title and body before it pushes the branch or opens the pull request.
+title and body before it pushes the branch or opens the pull request. A Linear
+identifier (`TECH-42`) gets the same treatment — `Fixes TECH-42` is what
+Linear's GitHub integration reads to link the pull request to the issue and
+move it when the PR merges.
 
 Locally, from a checkout on a scratch branch:
 

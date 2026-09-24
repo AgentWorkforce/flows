@@ -95,6 +95,27 @@ describe('canonical software-factory metadata contract', () => {
     expect(push).toBeLessThan(open);
   });
 
+  it('writes a Linear closing reference that the GitHub integration links back', async () => {
+    const result = await runCanonical({
+      source: 'linear', title: 'Rate-limit the webhook queue', body: 'Per-connection 429 budget.', labels: ['agent'],
+      identifier: 'TECH-42', url: 'https://linear.app/wepost/issue/TECH-42',
+    });
+    expect(result.completionReason).toBe('success');
+    expect(result.body.split('\n').filter(line => line === 'Fixes TECH-42')).toHaveLength(1);
+  });
+
+  it('fails closed before push when the Linear closing reference is missing from the final body', async () => {
+    // The summary is written by the implementer; PREPARE_CHANGE_METADATA appends
+    // the reference only when absent, so a summary that already carries a
+    // different line for the same slot must stop the run.
+    const result = await runCanonical({
+      source: 'linear', title: 'Rate-limit the webhook queue', body: 'body', labels: [],
+      identifier: 'TECH-42',
+    }, '## Summary\n\nFixes TECH-42\n\nFixes TECH-42\n');
+    expect(result.completionReason).toBe('needs_human');
+    expect(result.commands.some(command => command.startsWith('git push') || command.startsWith('gh pr create'))).toBe(false);
+  });
+
   it('normalizes whitespace and caps the title at 240 Unicode code points', async () => {
     const result = await runCanonical({
       source: 'github', title: `  Repair   ${'修'.repeat(250)}  `, body: 'body', labels: [], identifier: '#7',

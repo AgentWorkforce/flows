@@ -29,12 +29,13 @@ export type FlowTriggerProvider = (typeof FLOW_TRIGGER_PROVIDERS)[number];
 /** Settings Cloud's launcher prefilter reads per provider (`flow-trigger-sources.ts`). */
 const PROVIDER_SETTINGS: Record<FlowTriggerProvider, readonly string[]> = {
   // `events`: `issues` (default) or `pull_request` — which GitHub records
-  // wake the listener (AgentWorkforce/cloud#3772).
-  github: ['repository', 'labels', 'contains', 'events'],
+  // wake the listener (AgentWorkforce/cloud#3772). `reviews`, `checks` and
+  // `comments` opt a pull_request source out of its extra subscriptions.
+  github: ['repository', 'labels', 'contains', 'events', 'reviews', 'checks', 'comments'],
   slack: ['channel', 'contains'],
-  linear: ['team', 'contains'],
-  jira: ['project', 'contains'],
-  shortcut: ['workspace', 'contains'],
+  linear: ['team', 'project', 'labels', 'contains'],
+  jira: ['project', 'labels', 'contains'],
+  shortcut: ['workspace', 'team', 'labels', 'contains'],
 };
 const MAX_SOURCE_BYTES = 256_000;
 const MAX_SETTING_LENGTH = 500;
@@ -139,6 +140,15 @@ export function parseTriggerSource(value: string): FlowTriggerSource {
           throw new CloudFlowError('invalid_input', `github events must be "issues" or "pull_request", got "${setting}".`);
         }
         settings[key] = events;
+        continue;
+      }
+      if (provider === 'github' && (key === 'reviews' || key === 'checks' || key === 'comments')) {
+        // Subscription opt-outs are boolean; Cloud refuses any other value.
+        const toggle = setting.toLowerCase();
+        if (!['true', 'false'].includes(toggle)) {
+          throw new CloudFlowError('invalid_input', `github ${key} must be "true" or "false", got "${setting}".`);
+        }
+        settings[key] = toggle;
         continue;
       }
       settings[key] = setting;

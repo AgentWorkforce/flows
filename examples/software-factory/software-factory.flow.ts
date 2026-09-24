@@ -41,6 +41,10 @@ const VALIDATE_CHANGE_METADATA = [
   "elif [ \"$(printf %s \"$title\" | tr \"[:upper:]\" \"[:lower:]\")\" = \"software factory change\" ] || [ \"$(printf %s \"$title\" | tr \"[:upper:]\" \"[:lower:]\")\" = \"replace with your ticket title\" ]; then echo placeholder-title",
   "elif [ \"$source\" = github ] && ! printf \"%s\\n\" \"$identifier\" | grep -Eq \"^#[1-9][0-9]*$\"; then echo malformed-github-identifier",
   `elif [ "$source" = github ]; then expected="Fixes $identifier"; count=$(grep -xcF "$expected" ${WORK}/pr-body.md || true); if [ "$count" -eq 0 ]; then echo missing-github-closing-reference; elif [ "$count" -ne 1 ]; then echo duplicate-github-closing-reference; else echo valid; fi`,
+  // A Linear identifier ("TECH-42") earns the same contract: "Fixes TECH-42"
+  // is what Linear's GitHub integration reads to link the pull request back
+  // to the issue and move it when the PR merges.
+  `elif [ "$source" = linear ] && printf "%s\\n" "$identifier" | grep -Eq "^[A-Za-z]+-[0-9]+$"; then expected="Fixes $identifier"; count=$(grep -xcF "$expected" ${WORK}/pr-body.md || true); if [ "$count" -eq 0 ]; then echo missing-linear-closing-reference; elif [ "$count" -ne 1 ]; then echo duplicate-linear-closing-reference; else echo valid; fi`,
   "else echo valid",
   "fi",
 ].join("; ");
@@ -77,15 +81,20 @@ export default flow<Input>("software-factory", {
     await f.run("echo 'Stopped: a GitHub ticket must carry its normalized identifier in #<number> form.' >&2");
     return f.done("needs_human");
   }
+  // A Linear identifier is the write-back hook: Linear's GitHub integration
+  // links the pull request to the issue and moves it on merge when the body
+  // carries `Fixes TECH-42`. A bare ticket URL does not link anything.
   const changeReference = issueSource === "github"
     ? `Fixes ${issueIdentifier}`
     : issueSource === "gitlab" && /^#[1-9]\d*$/.test(issueIdentifier)
       ? `Closes ${issueIdentifier}`
-      : issueUrl
-        ? `Ticket: ${issueUrl}`
-        : issueIdentifier
-          ? `Ticket: ${issueIdentifier}`
-          : "";
+      : issueSource === "linear" && /^[A-Za-z]+-[0-9]+$/.test(issueIdentifier)
+        ? `Fixes ${issueIdentifier}`
+        : issueUrl
+          ? `Ticket: ${issueUrl}`
+          : issueIdentifier
+            ? `Ticket: ${issueIdentifier}`
+            : "";
   const ticket = `${issue.title}\n\n${issue.body ?? ""}${issue.url ? `\n\n${issue.url}` : ""}`;
 
   const openPullRequest = async (bodyCommand: string, draft: boolean): Promise<boolean> => {
