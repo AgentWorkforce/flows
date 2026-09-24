@@ -163,6 +163,12 @@ const PROCESS_IO: CliIo = {
 /** Optional knobs for an embedded caller. `bin/flows.js` passes none. */
 export interface RunCliOptions {
   /**
+   * Version to print for a self-contained executable that cannot read the
+   * installed package manifest. Normal package entrypoints leave this unset.
+   */
+  version?: string;
+
+  /**
    * Cancellation for the long-running verbs (`run --cloud`, `check --watch`,
    * `serve-webhook`, `hn-monitor start`, `tick start`).
    *
@@ -204,7 +210,7 @@ export async function runCli(
   options: RunCliOptions = {},
 ): Promise<CliExitCode> {
   if (args.length === 1 && (args[0] === '--version' || args[0] === '-V')) {
-    io.stdout(packageVersion());
+    io.stdout(options.version ?? packageVersion());
     return 0;
   }
   if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) {
