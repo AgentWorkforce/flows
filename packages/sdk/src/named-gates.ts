@@ -3,6 +3,9 @@ import type { NamedDataGate, VerificationSpec } from './spec.js';
 
 export const NAMED_GATE_FAILURE_KINDS = [
   'unknown_gate_kind', 'gate_pattern_invalid', 'gate_command_missing', 'gate_bound_invalid', 'gate_path_invalid',
+  // steps_green refusals: the gate is declarative like the named gates above,
+  // so it reports through the same kind channel a caller already switches on.
+  'gate_host_unsupported', 'gate_ids_invalid', 'gate_source_unsupported',
 ] as const;
 export type NamedGateFailureKind = typeof NAMED_GATE_FAILURE_KINDS[number];
 

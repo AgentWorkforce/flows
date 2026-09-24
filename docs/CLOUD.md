@@ -140,7 +140,9 @@ agent holding its user's own Cloud credential does not have to hand-roll HTTP:
 ```sh
 flows runs [--limit <n>] [--json]                         # recent runs
 flows logs <run-id> [--step <name>] [--raw] [--json]      # runner log, or a step's transcript
+flows logs <run-id> --follow [--json]                     # ...and keep reading it until the run ends
 flows status --cloud [--json] <run-id>                    # the run's steps, as `flows status` renders a local one
+flows status --cloud --watch [--json] <run-id>            # ...and redraw it until the run ends
 ```
 
 They resolve their credential exactly the way every other hosted verb does
@@ -263,9 +265,91 @@ authority surface 2.0.22 · artifact 9c361a2cbb0a · commit b4dd665eb433
   ✓ complete-3  deterministic  completed    1 attempt  0.0s  success  gate: exit_code pass
 ```
 
+A step that is still going renders in the same grammar as a finished one, in
+the local view's vocabulary: `↻` for `running` and `backoff`, `⏸` for
+`waiting` and `needs_human`, the number of the attempt now running, and the
+time since its `startTime`.
+
+```text
+  ↻ agent-5  agent          running      attempt 1  6m50s
+```
+
+Only what the snapshot establishes is printed. Cloud's step rows carry no
+maximum-attempt budget, no wait id and no backoff deadline, so — unlike the
+local view — no `attempt 1/3`, no `awaiting human: ...` and no
+`backoff until ...` appears; those cells arrive if and when the step route
+carries the fields. A row with no `startTime` has not been dispatched, so it
+shows no attempt number rather than `attempt 1`, and a step that has ended
+keeps the duration Cloud reported instead of being advanced to now. A running
+run whose snapshot has no rows prints `steps 0` followed by
+`No step snapshot available yet.` — a fact about the snapshot, where a bare
+`steps 0` would be a claim about the run.
+
+### Following a run that is still going
+
+`flows status --cloud --watch` redraws the page every two seconds until the
+run reaches a terminal status, then leaves the final page up. `flows logs
+<run-id> --follow` appends new runner output on the same cadence until the run
+ends and Cloud marks the log complete, then prints the run's outcome:
+
+```text
+LOG 20d04c99-3fa8-48c9-9286-92d364a5bc2e  runner  following  1,204 bytes so far
+[relayflow] ▶ agent-5 (agent) started
+[relayflow] ✓ agent-1 … done in 5m16s · claude-opus-5 · 37 turns · $2.26 · wrote plan.md
+COMPLETED 20d04c99-3fa8-48c9-9286-92d364a5bc2e completionReason: success
+```
+
+Both differ from their one-shot forms in one visible way: **the exit code is
+the run's, not the read's.** They exit 0 only on a run Cloud attests as
+`completed` with `completionReason: success`, 1 on an attested failure or
+cancellation, and 1 with `cloud_invalid_response` on a terminal record that
+attests neither — the same validation `flows run --cloud --wait` blocks on, so
+the two cannot disagree. A plain `flows logs` on a failed run still exits 0,
+because there the exit code describes the read. Ctrl-C exits 1 with
+`observation_aborted`; the hosted run is **not** cancelled by it.
+
+Under `--json` both poll silently and print exactly one document at the end —
+the one their one-shot form would have printed, with `--follow` carrying the
+whole redacted log. That is deliberately unlike `flows check --watch`, which
+emits one JSON report per check: these two have a single result, and a script
+that wants it wants to block and then parse once. In that document `ok: true`
+means the read succeeded; the run's outcome is the exit code.
+
+A watched page is drawn in one write after the cancellation check, so an
+interrupt never leaves half a frame, and a failed poll leaves the previous page
+alone rather than clearing the screen to report it. Transient failures and
+HTTP 408/429/500/502/503/504 are retried with the same doubling delay, capped
+at 30 seconds, that the hosted waiter uses; every other failure refuses with
+the codes below. The page is two reads against two projections (the run record
+then the step rows), so a step row can lag the header above it by a poll; it is
+not an atomic snapshot and does not claim to be.
+
+`--follow` does not take `--step`. A step transcript is not an append-only
+stream: a retry replaces it, and the rendered form is built from the whole
+JSONL. The combination is refused with `invalid_invocation` before any request,
+naming both alternatives. Following the runner log re-reads it whole on every
+poll and prints only the part that is new — the route's `offset` is a byte
+count and the content is a string, and mixing the two silently loses text the
+moment a log contains a non-ASCII character, which the runner's own transition
+lines do. The cost is a full read per poll and the log held in memory; the
+benefit is that no line can be duplicated or skipped. If what was already
+printed is no longer a prefix of what Cloud serves, `--follow` refuses with
+`cloud_log_rewritten` rather than guessing which bytes are new.
+
+What has not been printed yet is redacted as one block, never a line at a
+time, and a line is held back while a secret env value has begun in it and not
+ended — whether the rest of that value is further down the same response or
+has not been served yet. A multi-line value, a PEM private key being the usual
+one, is therefore replaced whole by `[redacted:<NAME>]`: no line of it can
+reach stdout on its own, which is exactly what a line-at-a-time redactor can
+never prevent. The cost is that a line can appear one poll later than the byte
+that completed it.
+
 `--cloud` takes neither `--data-dir` nor `--tail`: both name things on this
 filesystem, which a hosted run has none of, so pairing them is refused as an
-invocation rather than quietly ignored. The spend total is summed from the
+invocation rather than quietly ignored. `--watch` is refused without `--cloud`
+for the same reason: the local `flows status` reads one journal file and
+returns, so there is no loop for it to hang in. The spend total is summed from the
 step rows because the run record carries no total, and Cloud stores each
 step's cost as a float — unlike the local view, which adds the journal's
 decimal strings exactly (`run-state.ts`).
@@ -301,6 +385,8 @@ Every refusal is one `REFUSED [code] message` line naming what to do next:
 | `cloud_forbidden` | 403: authenticated, but not allowed to read that run or log |
 | `cloud_run_not_found` | 404: no such run for this credential; points at `flows runs` |
 | `cloud_step_no_transcript` | `--step` named a step with no transcript, or no such step; names the ones that have one |
+| `cloud_log_rewritten` | `--follow` found the log no longer starts with what it printed; following it would skip or repeat output |
+| `observation_aborted` | Ctrl-C (or a caller's abort) during `--watch`/`--follow`; the hosted run continues |
 | `invalid_invocation` | the run id is not a run id (wrong characters, too long); refused before any request |
 | `cloud_invalid_response` | Cloud answered something this client cannot trust — a record for a different run, a list that is not a list, a row with no id, a pagination cursor that does not advance |
 | `cloud_unreachable` / `cloud_transport_failed` | the request never completed |

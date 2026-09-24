@@ -1,3 +1,4 @@
+import { onWorkerFailure } from '../worker-lease.js';
 import { McpStepError } from '../authored-mcp.js';
 import { randomUUID } from 'node:crypto';
 import { authoredLocalAgentStream } from '../authored-admission.js';
@@ -83,7 +84,7 @@ export async function runDirectFlow(
       await llmClient.connect();
       await llmClient.hello('flows-local-llm');
       localLlm = new LlmWorker(llmClient, `${localAgent.stream}-llm`, workerCapacity);
-      localLlm.on('error', error => { llmFailure = error; client.close(); });
+      localLlm.on('error', onWorkerFailure('local-llm', error => { llmFailure = error; client.close(); }));
       await localLlm.attach();
     }
     const result = await executeDurableAuthoredFlow(

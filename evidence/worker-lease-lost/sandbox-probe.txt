@@ -1,0 +1,4 @@
+$ /usr/bin/bwrap --unshare-all --ro-bind / / -- /bin/true
+bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+
+Exit code: 1

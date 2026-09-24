@@ -36,7 +36,9 @@ if (request) {
 }
 `);
   const client = await fixture.connect();
-  const agent = await attachLocalAgent(client, undefined, undefined, undefined, capacity);
+  // The fixture's root is the run root: agent cwds below are declared
+  // relative to it, which is the contract the kernel and worker share.
+  const agent = await attachLocalAgent(client, undefined, undefined, undefined, capacity, fixture.root);
   closes.push(() => agent.close());
   // One worker registration per session, so the LLM worker gets its own connection.
   const llmClient = new JournalClient(socketPathFor(fixture.data));
@@ -90,8 +92,8 @@ describe('authored steps under local workers with capacity', () => {
 
   it('runs agents in distinct working directories side by side (the kernel carries cwd)', async () => {
     const { fixture, client, agent, readSpans } = await slowAgents(2);
-    const trees = ['a', 'b'].map(name => join(fixture.root, 'trees', name));
-    for (const tree of trees) mkdirSync(tree, { recursive: true });
+    const trees = ['a', 'b'].map(name => join('trees', name));
+    for (const tree of trees) mkdirSync(join(fixture.root, tree), { recursive: true });
     const inTrees = flow('two-trees', async f => {
       await Promise.all(trees.map((cwd, index) => f.agent(`tree-${index}`, { task: 'work here', cwd })));
       f.done('success');
@@ -108,18 +110,18 @@ describe('authored steps under local workers with capacity', () => {
   it.each([
     ['a symlink alias of the same directory', (tree: string, root: string) => {
       const link = join(root, 'alias');
-      symlinkSync(tree, link);
-      return link;
+      symlinkSync(join(root, tree), link);
+      return 'alias';
     }],
-    ['a directory nested inside the other', (tree: string) => {
+    ['a directory nested inside the other', (tree: string, root: string) => {
       const nested = join(tree, '.wt', 'inner');
-      mkdirSync(nested, { recursive: true });
+      mkdirSync(join(root, nested), { recursive: true });
       return nested;
     }],
   ])('serializes agents whose cwd is %s', async (_case, second) => {
     const { fixture, client, agent, readSpans } = await slowAgents(2);
-    const tree = join(fixture.root, 'trees', 'shared');
-    mkdirSync(tree, { recursive: true });
+    const tree = join('trees', 'shared');
+    mkdirSync(join(fixture.root, tree), { recursive: true });
     const trees = [tree, second(tree, fixture.root)];
     const overlapping = flow('overlapping-trees', async f => {
       await Promise.all(trees.map((cwd, index) => f.agent(`tree-${index}`, { task: 'work here', cwd })));

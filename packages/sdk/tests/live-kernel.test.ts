@@ -1407,6 +1407,80 @@ steps:
   }, 60_000);
 });
 
+/**
+ * Pins a fact a diagnostic was almost written about.
+ *
+ * `subprocess_gate` lowers to a nested `<stepId>.gate` deterministic step, and
+ * the proposal here was for `flows check` to warn that a failing gate's stdout
+ * and stderr are lost. Against a live daemon they are not: the kernel journals
+ * them into the gate step's `step.completed` output, and the CLI renders both
+ * tails. A warning saying otherwise would have been false, so none was added
+ * and this stands in its place. If capture ever regresses, this fails and the
+ * warning becomes warranted — which is the only condition under which it
+ * should exist.
+ */
+describe('subprocess_gate output capture against live relayflowd', () => {
+  it('journals the gate command output and reports both tails', async () => {
+    const dataDir = temporaryDirectory('flows-gate-output-');
+    await startDaemon(dataDir);
+    const gated = (name: string, gate: string): string => {
+      const path = join(dataDir, `${name}.flow.yaml`);
+      writeFileSync(path, `version: '0.1.0'
+steps:
+  - id: emit
+    type: deterministic
+    command: "printf 'body\\n'"
+    verification:
+      type: subprocess_gate
+      command: ${JSON.stringify(gate)}
+`);
+      return path;
+    };
+
+    const noisy = invokeCli(['run', '--json', '--data-dir', dataDir,
+      gated('noisy', "printf 'GATE_STDOUT_MARKER\\n'; printf 'GATE_STDERR_MARKER\\n' 1>&2; exit 3")]);
+
+    expect(noisy.status, noisy.stderr).toBe(1);
+    const report = JSON.parse(noisy.stdout) as { runId: string; diagnostics: Array<Record<string, unknown>> };
+    const failure = report.diagnostics.find(diagnostic => diagnostic['kind'] === 'step_failed');
+    expect(failure, noisy.stdout).toMatchObject({
+      // The gate runs as its own journaled step, so the failure names it.
+      stepId: 'emit.gate',
+      stepType: 'deterministic',
+      stdoutTail: 'GATE_STDOUT_MARKER\n',
+      stderrTail: 'GATE_STDERR_MARKER\n',
+    });
+    // Rendered, not merely carried as structured fields: this is the text an
+    // author reads when a gate fails.
+    expect(failure!['message']).toContain('GATE_STDOUT_MARKER');
+    expect(failure!['message']).toContain('GATE_STDERR_MARKER');
+
+    // The journal is the durable record; the report above is one view of it.
+    const client = await connectClient(dataDir);
+    const { entries } = await client.journalRead(report.runId, 1, 1000);
+    const completed = (entries as Array<Record<string, unknown>>).find(entry =>
+      journalType(entry) === 'step.completed' && entry['step_id'] === 'emit.gate');
+    expect(completed).toMatchObject({
+      payload: {
+        completionReason: 'retries_exhausted',
+        output: { stdout_tail: 'GATE_STDOUT_MARKER\n', stderr_tail: 'GATE_STDERR_MARKER\n' },
+      },
+    });
+
+    // A control, so the assertions above cannot pass on a fixed string: a gate
+    // that fails silently reports empty tails rather than someone else's.
+    const silent = invokeCli(['run', '--json', '--data-dir', dataDir, gated('silent', 'false')]);
+    expect(silent.status, silent.stderr).toBe(1);
+    const quiet = (JSON.parse(silent.stdout) as { diagnostics: Array<Record<string, unknown>> })
+      .diagnostics.find(diagnostic => diagnostic['kind'] === 'step_failed');
+    // An empty stdout tail is omitted rather than reported as "" (step-failure.ts),
+    // so absent and empty both mean "the gate said nothing" here.
+    expect(quiet).toMatchObject({ stepId: 'emit.gate', stderrTail: '' });
+    expect(quiet!['stdoutTail'] ?? '').toBe('');
+    expect(JSON.stringify(quiet)).not.toContain('GATE_STDOUT_MARKER');
+  }, 30_000);
+});
+
 describe('JournalClient wire conformance against live relayflowd', () => {
   it('exercises every protocol-v0 verb with the real server', async () => {
     const dataDir = temporaryDirectory('flows-live-wire-');

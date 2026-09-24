@@ -1,3 +1,4 @@
+import { onWorkerFailure } from './worker-lease.js';
 import { randomUUID } from 'node:crypto';
 import type { JournalClient } from './journal-client.js';
 import { AgentWorker } from './worker.js';
@@ -10,6 +11,7 @@ export async function attachLocalAgent(
   onPtyReady?: (path: string) => void,
   requestedStream?: string,
   capacity: number = DEFAULT_LOCAL_AGENT_CAPACITY,
+  runRoot?: string,
 ): Promise<{
   stream: string;
   readonly failure: unknown;
@@ -24,12 +26,12 @@ export async function attachLocalAgent(
     // second parking behind the first. Authored bodies size their admission to
     // this same number (worker-slots.ts), so they never ask for more.
     capacity,
-    dataDir, onPtyReady,
+    dataDir, onPtyReady, runRoot,
     pins: { workspace: [], streams: [{ stream, read_offset: 0 }] },
   });
   let failure: unknown;
   // The cause travels with the close, so the flow's next request names it.
-  worker.on('error', error => { failure = error; client.close(error); });
+  worker.on('error', onWorkerFailure('local-agent', error => { failure = error; client.close(error); }));
   await worker.attach();
   return {
     stream,

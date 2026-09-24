@@ -74,6 +74,15 @@ export const CHECK_FAILURE_KINDS = [
  * (#442). Warning-only by design: the declaration stays legal and the flow
  * still runs, but an author who wrote one must not be left believing it
  * sandboxes the step.
+ *
+ * `gate_path_unscanned` names an `artifact_exists` path inside a prefix the
+ * bundled agent worker's artifact scan excludes, so the scan can never put it
+ * in the journaled `output.artifacts` the gate reads. It warns rather than
+ * refuses because the scan is not the only writer of that list — the same
+ * worker promotes JSON stdout and completed Relay task output verbatim, and a
+ * custom worker may journal anything — so such a gate is unproven, not
+ * unsatisfiable. Temporary: it describes #513, and retires with
+ * `named-gate-preflight.ts` when the scan stops excluding those paths.
  */
 export const PREFLIGHT_WARNING_KINDS = [
   'unprovable_effects',
@@ -83,6 +92,7 @@ export const PREFLIGHT_WARNING_KINDS = [
   'vacuous_gate',
   'budget_unmetered',
   'permissions_unenforced',
+  'gate_path_unscanned',
 ] as const;
 
 /**
@@ -144,8 +154,17 @@ export const RUN_WARNING_KINDS = [
   'connection_file_stale',
 ] as const;
 
-/** File-level editor hints emitted by flows check, outside pure preflight. */
-export const CHECK_WARNING_KINDS = ['editor_schema_missing'] as const;
+/**
+ * Warnings emitted by flows check, outside pure preflight.
+ *
+ * `editor_schema_missing` is a file-level editor hint. `agent_worker_unresolved`
+ * is a property of the *invocation*, not of the spec: a spec with `agent`
+ * steps needs a worker attached for step type `agent`, and only the caller
+ * knows whether it attaches one. `flows check` attaches none and, being
+ * daemon-free, can see none either — so it opts in, while `flows run`, `flows
+ * build` and SDK submissions do not (cli/check-worker-surface.ts).
+ */
+export const CHECK_WARNING_KINDS = ['editor_schema_missing', 'agent_worker_unresolved'] as const;
 export type CheckWarningKind = (typeof CHECK_WARNING_KINDS)[number];
 
 export type PreflightFailureKind = (typeof PREFLIGHT_FAILURE_KINDS)[number];
