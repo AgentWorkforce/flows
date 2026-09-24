@@ -1,6 +1,6 @@
 import { helperProviders } from '@relayflows/surface/runtime';
 import type { PreflightResult, PreflightDiagnostic } from './preflight.js';
-import { helperScanCopies, referencesHelper } from './helper-reference.js';
+import { helperNamespacesUsed } from './helper-reference.js';
 
 /** Static discovery never executes the body; dynamic aliases are checked at call time. */
 export function preflightHelpers(
@@ -12,12 +12,13 @@ export function preflightHelpers(
   const parameter = body.match(/^(?:async\s+)?(?:function(?:\s+[\w$]+)?\s*)?(?:\(\s*([\w$]+)|([\w$]+)\s*=>)/);
   const root = (parameter?.[1] ?? parameter?.[2])?.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const diagnostics: PreflightDiagnostic[] = [];
-  // Read as syntax, not text: a helper named inside a string or comment is not
-  // used, and refusing on one demands a mount the flow never touches.
-  const { code, withStrings } = helperScanCopies(body);
+  // Read from a parse, not from the text: a helper named inside a string,
+  // comment, template quasi or regex is not used, and refusing on one demands
+  // a mount the flow never touches.
+  const referenced = root === undefined ? new Set<string>() : helperNamespacesUsed(body, root);
   for (const { provider, namespace, supported } of helperProviders) {
     const used = definition.header?.tools?.[namespace] === true
-      || (root !== undefined && referencesHelper(root, namespace, code, withStrings));
+      || referenced.has(namespace);
     if (!used) continue;
     const fact = facts.providers?.[provider] ?? (provider === 'slack'
       ? { mount: facts.slackMount, mock: facts.slackMock, token: facts.slackToken }

@@ -77,6 +77,37 @@ describe('helper references are read as syntax, not text', () => {
     expect(refusals(async (f: any) => { const n = 10 / 2; await f.run('true'); return n; })).toEqual([]);
   });
 
+  // Shapes a lexer cannot settle. `/` is a regex or a division depending on
+  // whether the previous token ends an expression, which needs parse context;
+  // and the blanking version missed optional chaining outright, passing a
+  // flow that really used the helper.
+  it('sees a helper reached through optional chaining', () => {
+    expect(refusals(async (f: any) => { await f?.gitlab?.issues.list({}); }))
+      .toContain('helper_provider.mount_required');
+  });
+
+  it('sees a helper used inside a nested arrow', () => {
+    expect(refusals(async (f: any) => {
+      await Promise.all([1].map(async () => f.gitlab.issues.list({})));
+    })).toContain('helper_provider.mount_required');
+  });
+
+  it('reads a regex after a closing paren as a regex, not division', () => {
+    expect(refusals(async (f: any) => {
+      if (String(1).match(/f.gitlab/)) { await f.run('x'); }
+    })).toEqual([]);
+  });
+
+  it('reads division after a closing paren as division', () => {
+    expect(refusals(async (f: any) => {
+      const n = (1 + 2) / 2; await f.run('echo f.gitlab'); return n;
+    })).toEqual([]);
+  });
+
+  it('does not treat a matching object key as helper use', () => {
+    expect(refusals(async (f: any) => { const o = { gitlab: 1 }; await f.run('true'); return o; })).toEqual([]);
+  });
+
   it('does not declare a requirement from a mentioned helper', () => {
     const mentioned = getFlowDefinition(flow('mention', async (ctx: any) => {
       await ctx.run('echo f.gitlab');

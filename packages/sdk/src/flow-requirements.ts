@@ -4,7 +4,7 @@ import type { TriggerSource } from '@relayflows/surface';
 import { providerDeclaration } from './provider-trigger-contract.js';
 import type { FlowSpec } from './spec.js';
 import { helperCall } from './yaml-helpers.js';
-import { helperScanCopies, referencesHelper } from './helper-reference.js';
+import { helperNamespacesUsed } from './helper-reference.js';
 
 /**
  * What a flow needs from the workspace it deploys into, read from inert
@@ -158,9 +158,9 @@ export function flowRequirements(
     const text = typeof flow.body === 'function' ? Function.prototype.toString.call(flow.body) : '';
     const root = contextParameter(text);
     if (root !== undefined) {
-      const { code, withStrings } = helperScanCopies(text);
+      const referenced = helperNamespacesUsed(text, root);
       for (const { provider, namespace } of helperProviders) {
-        if (referencesHelper(root, namespace, code, withStrings)) declare({ provider, from: 'helper', detail: `f.${namespace}` });
+        if (referenced.has(namespace)) declare({ provider, from: 'helper', detail: `f.${namespace}` });
       }
       for (const use of workerCalls(root, text)) need(use.cli === undefined ? fallback : harnessFromCli(use.cli), use.detail);
       // `f.human(q, { to: "slack:#eng" })` is delivered by Cloud through that
