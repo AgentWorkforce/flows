@@ -102,7 +102,9 @@ describe('mirrorJournal', () => {
       // Summed across attempts, not taken from the last one.
       tokensInput: 30,
       tokensOutput: 12,
-      costUsd: 0.05,
+      // Summed across attempts, as the tokens are: the first attempt's $0.02
+      // used to vanish from the run's spend.
+      costUsd: 0.07,
       // Named after the transcript object only once one is uploaded.
       sandboxId: '',
     });

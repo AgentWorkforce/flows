@@ -30,7 +30,8 @@
 // final step rows have to land before it — otherwise the mirror would report
 // the run finished and then find itself unable to say what it did.
 
-import { readFile, stat } from 'node:fs/promises';
+import { open, readFile, stat } from 'node:fs/promises';
+import { isAbsolute, join, relative as relative_, resolve } from 'node:path';
 import { walkJournal, JournalReadError, type JournalEvent } from './journal-reader.js';
 import {
   fitSnapshot, mirrorJournal, withGraphHints,
@@ -159,15 +160,36 @@ export async function readJournalEvents(
   }
 }
 
+/**
+ * Where a transcript for `runId` is allowed to live: under this data
+ * directory's own tree for that run, and nowhere else.
+ *
+ * The path comes out of the journal, which the worker wrote — so it is not
+ * hostile input in the ordinary case. But a journal is a file on a developer's
+ * disk, this reader uploads whatever it is handed, and "reads only this run's
+ * journals" has to mean the files too. An unconfined path turns a crafted or
+ * corrupted journal into an arbitrary-file upload, which is a much worse
+ * failure than a missing transcript.
+ */
+export function transcriptRoot(dataDir: string, runId: string): string {
+  return join(resolve(dataDir), 'runs', runId);
+}
+
+/** True when `path` resolves inside `root` — a prefix test that `..` cannot pass. */
+export function withinRoot(root: string, path: string): boolean {
+  const relative = relative_(root, resolve(path));
+  return relative.length > 0 && !relative.startsWith('..') && !isAbsolute(relative);
+}
+
 async function defaultReadTranscript(path: string): Promise<{ bytes: Buffer; size: number }> {
   const info = await stat(path);
   if (!info.isFile()) throw new Error('transcript is not a regular file');
   // Bound the read, not just the result: materializing a huge file only to
-  // discard all but its tail can exhaust the CLI before it reports at all.
+  // discard all but the tail can exhaust the CLI before it reports at all.
   if (info.size <= MIRROR_TRANSCRIPT_MAX_BYTES) {
     return { bytes: await readFile(path), size: info.size };
   }
-  const handle = await (await import('node:fs/promises')).open(path, 'r');
+  const handle = await open(path, 'r');
   try {
     const buffer = Buffer.alloc(MIRROR_TRANSCRIPT_MAX_BYTES);
     const { bytesRead } = await handle.read(
@@ -270,7 +292,14 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
   /** Finished steps past the report cap, by identity. Counted, never sent. */
   const unreported = new Set<string>();
   let timer: ReturnType<typeof setInterval> | undefined;
-  let polling = false;
+  /**
+   * The poll currently running, if one is. `clearInterval` stops future polls
+   * but not one already in flight: that poll shares the step cache and the
+   * sequence counter with `finish`, and Cloud revokes the run token at the
+   * terminal callback — so a poll that outlived the finish could publish a
+   * stale view it can never repair, or none at all.
+   */
+  let inFlight: Promise<void> | undefined;
   let stopped = false;
   let sequence = 0;
   let acknowledged: string | undefined;
@@ -359,7 +388,16 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
       }
       for (const ref of folded.transcripts) {
         if (!finals.has(`${runId}/${ref.stepName}`)) continue;
-        transcripts.set(`${runId}/${ref.stepName}`, { stepName: ref.stepName, attempts: ref.attempts });
+        // Only files under this run's own tree. A journal names its transcript
+        // paths, and this reader uploads what it is handed, so the confinement
+        // belongs here rather than in the reader's caller.
+        const root = transcriptRoot(options.dataDir, runId);
+        const attempts = ref.attempts.filter(attempt => withinRoot(root, attempt.path));
+        if (attempts.length < ref.attempts.length) {
+          diagnostic(`ignored ${ref.attempts.length - attempts.length} transcript path(s) outside ${runId}'s own tree`);
+        }
+        if (attempts.length === 0) continue;
+        transcripts.set(`${runId}/${ref.stepName}`, { stepName: ref.stepName, attempts });
       }
       if (folded.terminal) finished.add(runId);
     }
@@ -400,8 +438,9 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
   };
 
   const poll = async (budgetMs: number): Promise<void> => {
-    if (polling || stopped) return;
-    polling = true;
+    if (inFlight !== undefined || stopped) return;
+    let settle = (): void => {};
+    inFlight = new Promise<void>(done => { settle = done; });
     try {
       const deadline = now() + budgetMs;
       await scan(deadline);
@@ -409,9 +448,23 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
     } catch (error) {
       diagnostic(`poll failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
-      polling = false;
+      const done = inFlight;
+      inFlight = undefined;
+      settle();
+      void done;
     }
   };
+
+  /**
+   * The budget left, as a per-request timeout.
+   *
+   * `finish` had a deadline it only checked *between* phases, while every
+   * request underneath carried its own 30-second timeout — so a stalled Cloud
+   * could hold a finished local run open for minutes, and the CLI awaits this
+   * before returning the run's exit code. Handing each request the remaining
+   * budget makes the deadline mean what it says.
+   */
+  const remaining = (deadline: number): number => Math.max(1, deadline - now());
 
   const uploadTranscripts = async (deadline: number): Promise<void> => {
     let uploaded = 0;
@@ -429,7 +482,8 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
       if (assembled.bytes.length === 0) continue;
       // Name the row after the object only once the object is there, so no row
       // ever points at a transcript that was never written.
-      if (await options.client.putObject(`${ref.stepName}/agent.log`, assembled.bytes)) {
+      if (await options.client.putObject(`${ref.stepName}/agent.log`, assembled.bytes,
+        undefined, remaining(deadline))) {
         finals.set(key, { ...entry, row: { ...entry.row, sandboxId: ref.stepName } });
         uploaded += 1;
       }
@@ -445,7 +499,7 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
     const withGraph = sent.map(entry =>
       withGraphHints(entry.row, hints, entry.journalRunId, DEPENDS_ON_MAX_ENTRIES, names));
     if (now() > deadline) return;
-    if (!await options.client.publishSteps(withGraph, omitted)) {
+    if (!await options.client.publishSteps(withGraph, omitted, undefined, remaining(deadline))) {
       diagnostic('Cloud did not accept the final step report; the run page keeps its live view');
     }
   };
@@ -467,6 +521,16 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
       if (timer !== undefined) { clearInterval(timer); timer = undefined; }
       const deadline = now() + MIRROR_FINISH_BUDGET_MS;
       try {
+        // Let an in-flight poll settle before touching the shared cache, and
+        // stop it publishing afterwards. Bounded by the same deadline as
+        // everything else here, so a wedged poll cannot hold the CLI open.
+        if (inFlight !== undefined) {
+          await Promise.race([
+            inFlight,
+            new Promise<void>(done => { setTimeout(done, remaining(deadline)).unref?.(); }),
+          ]);
+        }
+        stopped = true;
         // One last reading, so the page shows the run's actual last moments
         // rather than whatever the previous poll happened to catch.
         await scan(deadline);
@@ -480,7 +544,8 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
           await options.client.putObject('runner.log',
             bytes.length > MIRROR_RUNNER_LOG_MAX_BYTES
               ? bytes.subarray(bytes.length - MIRROR_RUNNER_LOG_MAX_BYTES)
-              : bytes);
+              : bytes,
+            undefined, remaining(deadline));
         }
         await uploadTranscripts(deadline);
         await publishFinal(deadline);
@@ -490,6 +555,8 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
           outcome.status,
           redactJson(outcome.result, env) as Record<string, unknown>,
           outcome.error,
+          undefined,
+          remaining(deadline),
         );
       } catch (error) {
         diagnostic(`could not finish the mirror: ${error instanceof Error ? error.message : String(error)}`);

@@ -258,7 +258,7 @@ describe('mirrorSourceFromPath', () => {
     const dir = await mkdtemp(join(tmpdir(), 'mirror-source-'));
     const path = join(dir, 'flow.yaml');
     await writeFile(path, 'name: demo\nsteps: []\n');
-    await expect(mirrorSourceFromPath(path, undefined)()).resolves.toEqual({
+    await expect(mirrorSourceFromPath(path, undefined, '/data')('01RUN')).resolves.toEqual({
       workflow: 'name: demo\nsteps: []\n', fileType: 'yaml',
     });
   });
@@ -267,7 +267,7 @@ describe('mirrorSourceFromPath', () => {
     const dir = await mkdtemp(join(tmpdir(), 'mirror-source-'));
     const path = join(dir, 'review.flow.ts');
     await writeFile(path, 'export default flow("review", () => {});\n');
-    await expect(mirrorSourceFromPath(path, '{"pr":7}')()).resolves.toEqual({
+    await expect(mirrorSourceFromPath(path, '{"pr":7}', '/data')('01RUN')).resolves.toEqual({
       workflow: 'export default flow("review", () => {});\n', fileType: 'ts', inputs: { pr: 7 },
     });
   });

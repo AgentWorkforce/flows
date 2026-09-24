@@ -330,7 +330,7 @@ export async function runCli(
     ? undefined
     : createCloudMirrorSession({
       source: parsed.command === 'run'
-        ? mirrorSourceFromPath(parsed.value, parsed.input)
+        ? mirrorSourceFromPath(parsed.value, parsed.input, parsed.dataDir)
         : mirrorSourceFromJournal(parsed.dataDir),
       dataDir: parsed.dataDir,
       log: () => runnerLog,

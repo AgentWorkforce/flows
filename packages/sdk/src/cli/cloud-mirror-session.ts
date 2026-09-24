@@ -29,6 +29,7 @@ import { cloudConnection, CloudFlowError } from '../cloud-http.js';
 import { recordMirroredRun, readMirroredRun } from '../cloud-mirror-ledger.js';
 import { createRunMirror, readJournalEvents, type RunMirror } from '../cloud-mirror.js';
 import { MirrorClient, registerLocalRun, type MirrorRunSource } from '../cloud-mirror-transport.js';
+import { parseDigestReference } from '../bundle-transport.js';
 import { isAuthoredFlowPath, parseDirectInput } from '../direct-input.js';
 import type { ProgressEvent } from '../progress.js';
 import type { RunReport } from './run.js';
@@ -192,8 +193,16 @@ export function createCloudMirrorSession(
 export function mirrorSourceFromPath(
   path: string,
   inputArgument: string | undefined,
-): () => Promise<MirrorRunSource> {
-  return async () => {
+  dataDir: string,
+): (runId: string) => Promise<MirrorRunSource> {
+  const fromJournal = mirrorSourceFromJournal(dataDir);
+  return async (runId) => {
+    // `flows run <flow>@sha256:<digest>` names a bundle, not a file on this
+    // disk: the runner fetches it before executing. Reading the argument as a
+    // path there refused the registration and left a perfectly good run off
+    // the dashboard, so fall back to what the journal recorded — the same
+    // source a resume mirrors.
+    if (parseDigestReference(path)) return fromJournal(runId);
     const workflow = await readFile(path, 'utf8');
     if (!isAuthoredFlowPath(path)) return { workflow, fileType: 'yaml' };
     return { workflow, fileType: 'ts', inputs: parseDirectInput(inputArgument) };

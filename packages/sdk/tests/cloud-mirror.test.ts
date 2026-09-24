@@ -134,7 +134,7 @@ describe('createRunMirror', () => {
       dataDir: '/data',
       env: {},
       readJournal: async (runId: string) =>
-        runId === '01ROOT' ? rootJournal('01ROOT', '01CHILD') : childJournal('01CHILD', '/tmp/attempt-1.jsonl'),
+        runId === '01ROOT' ? rootJournal('01ROOT', '01CHILD') : childJournal('01CHILD', '/data/runs/01CHILD/steps/write/attempt-1.transcript.jsonl'),
       readTranscript: async () => ({ bytes: Buffer.from('{"type":"result"}\n'), size: 18 }),
     });
 
@@ -166,7 +166,7 @@ describe('createRunMirror', () => {
       client,
       dataDir: '/data',
       env: {},
-      readJournal: async () => childJournal('01RUN', '/tmp/attempt-1.jsonl'),
+      readJournal: async () => childJournal('01RUN', '/data/runs/01RUN/steps/write/attempt-1.transcript.jsonl'),
       readTranscript: async () => ({ bytes: Buffer.from('{}\n'), size: 3 }),
     });
 
@@ -241,6 +241,36 @@ describe('createRunMirror', () => {
     expect(report.steps).toHaveLength(MIRROR_MAX_FINAL_STEPS);
     // The count is by identity, so re-reading the same journal cannot inflate it.
     expect(report.omitted).toBe(12);
+  });
+
+  /**
+   * The paths come out of a journal and this reader uploads whatever it is
+   * handed, so "reads only this run's journals" has to cover the files too. An
+   * unconfined path turns a crafted or corrupted journal into an
+   * arbitrary-file upload.
+   */
+  it('refuses a transcript path outside the run\'s own tree', async () => {
+    seq = 0;
+    const { client, calls } = cloud();
+    const diagnostic = vi.fn();
+    const mirror = createRunMirror({
+      client,
+      dataDir: '/data',
+      env: {},
+      diagnostic,
+      readJournal: async () => childJournal('01RUN', '/etc/passwd'),
+      readTranscript: async () => ({ bytes: Buffer.from('root:x:0:0\n'), size: 11 }),
+    });
+
+    mirror.start('01RUN');
+    await mirror.finish({ status: 'completed', result: { ok: true, status: 'completed' } });
+
+    expect(calls.some(call => call.kind === 'object'
+      && (call.body as { key: string }).key.endsWith('agent.log'))).toBe(false);
+    expect(diagnostic.mock.calls.flat().join(' ')).toContain('outside');
+    // The step row still lands; it just names no transcript.
+    const report = calls.find(call => call.kind === 'steps')!.body as { steps: Array<Record<string, unknown>> };
+    expect(report.steps[0]!.sandboxId).toBe('');
   });
 
   it('never throws out of finish, whatever Cloud answers', async () => {

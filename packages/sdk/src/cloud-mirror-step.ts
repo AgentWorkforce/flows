@@ -313,6 +313,7 @@ interface AttemptRecord {
   transcriptPath?: string;
   tokensIn?: number;
   tokensOut?: number;
+  costUsd?: number;
 }
 
 /**
@@ -330,6 +331,7 @@ function attemptsByStep(events: readonly JournalEvent[]): Map<string, AttemptRec
     const budget = record(payload['budget']) ?? {};
     const digest = record(record(payload['trajectory_tail'])?.['transcript']);
     const file = record(digest?.['file']);
+    const result = record(digest?.['result']);
     const entries = byStep.get(event.step_id) ?? [];
     entries.push({
       attempt: event.attempt ?? entries.length + 1,
@@ -341,6 +343,9 @@ function attemptsByStep(events: readonly JournalEvent[]): Map<string, AttemptRec
       ...(typeof file?.['path'] === 'string' ? { transcriptPath: file['path'] } : {}),
       ...(int32(budget['tokens_in']) === undefined ? {} : { tokensIn: int32(budget['tokens_in'])! }),
       ...(int32(budget['tokens_out']) === undefined ? {} : { tokensOut: int32(budget['tokens_out'])! }),
+      ...(typeof result?.['total_cost_usd'] === 'number' && Number.isFinite(result['total_cost_usd'])
+        && result['total_cost_usd'] >= 0
+        ? { costUsd: result['total_cost_usd'] as number } : {}),
     });
     byStep.set(event.step_id, entries);
   }
@@ -364,6 +369,11 @@ function finalStep(
   const tokensIn = attempts.reduce((total, entry) => total + (entry.tokensIn ?? 0), 0);
   const tokensOut = attempts.reduce((total, entry) => total + (entry.tokensOut ?? 0), 0);
   const failure = transcript?.failure ?? null;
+  // Summed across attempts, exactly as the tokens above are. Taking the last
+  // attempt's figure while summing its tokens was inconsistent in itself, and
+  // Cloud totals these rows for the run's spend — so a retried agent's earlier
+  // charges simply vanished from the run.
+  const spentUsd = attempts.reduce((total, entry) => total + (entry.costUsd ?? 0), 0);
   const detail = stepDetail(attempts, env);
   const verification = step.last_attempt?.verification ?? null;
   // What the step said about itself. A gate's verdict detail is the nearest
@@ -373,7 +383,6 @@ function finalStep(
   const summary = text(verification?.detail, env, OUTPUT_SUMMARY_MAX_CHARS)
     ?? `step ${succeeded ? 'completed' : 'ended'}: ${identifier(completionReason, env) ?? 'unknown'}`;
   const model = identifier(transcript?.model, env);
-  const cost = transcript?.total_cost_usd;
   const error = succeeded ? undefined : text(failure?.excerpt, env, ERROR_MAX_CHARS);
   return {
     stepName,
@@ -398,7 +407,7 @@ function finalStep(
     ...(model === undefined ? {} : { model }),
     ...(tokensIn > 0 ? { tokensInput: Math.min(tokensIn, MAX_INT32) } : {}),
     ...(tokensOut > 0 ? { tokensOutput: Math.min(tokensOut, MAX_INT32) } : {}),
-    ...(typeof cost === 'number' && Number.isFinite(cost) && cost >= 0 ? { costUsd: cost } : {}),
+    ...(spentUsd > 0 ? { costUsd: spentUsd } : {}),
     ...(error === undefined ? {} : { error }),
     ...(detail.detail === undefined ? {} : { detail: detail.detail }),
     ...(detail.truncated === undefined ? {} : { detailTruncated: detail.truncated }),
@@ -448,6 +457,15 @@ export function mirrorJournal(
     }
   }
   const index = authoredIndex(events, env);
+  // A declarative flow declares its edges in the spec, not in an authored-step
+  // stream — so a YAML run had no hints at all and drew every node
+  // unconnected. Read them from `run.spawned`, keyed the same way, and let the
+  // authored index win where both exist (an authored root's index is the
+  // richer record, and carries labels too).
+  const declared = declaredEdges(runId, events, env);
+  for (const [key, hint] of declared) {
+    if (!index.hints.has(key)) index.hints.set(key, hint);
+  }
   return {
     runId,
     status: view.status,
@@ -497,6 +515,39 @@ function authoredIndex(
     });
   }
   return { children, hints };
+}
+
+/**
+ * The `depends_on` a declarative spec declares, as graph hints.
+ *
+ * `foldRunState` reads these to decide readiness but does not surface them on
+ * `StepView`, and deliberately: `flows status --json` is a pinned shape. So
+ * they are read here, straight off the `run.spawned` payload this fold already
+ * has in hand, rather than by widening a view other readers depend on.
+ */
+function declaredEdges(
+  runId: string,
+  events: readonly JournalEvent[],
+  env: NodeJS.ProcessEnv,
+): Map<string, { after?: string[] }> {
+  const hints = new Map<string, { after?: string[] }>();
+  const spawned = events.find(event => event.entry_type === 'run.spawned');
+  const steps = record(spawned?.payload)?.['spec'];
+  const declared = record(steps)?.['steps'];
+  if (!Array.isArray(declared)) return hints;
+  for (const entry of declared) {
+    const step = record(entry);
+    const id = identifier(step?.['id'], env);
+    if (id === undefined) continue;
+    const raw = step?.['depends_on'] ?? step?.['dependsOn'];
+    if (!Array.isArray(raw)) continue;
+    const after = raw
+      .slice(0, DEPENDS_ON_MAX_ENTRIES)
+      .map(value => identifier(value, env))
+      .filter((value): value is string => value !== undefined);
+    hints.set(`${runId}/${id}`, { after });
+  }
+  return hints;
 }
 
 /**

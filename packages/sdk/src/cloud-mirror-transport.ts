@@ -189,11 +189,12 @@ export class MirrorClient {
     steps: readonly FinalStep[],
     omittedStepCount: number,
     signal?: AbortSignal,
+    timeoutMs?: number,
   ): Promise<boolean> {
     return this.post(
       `/api/v1/workflows/runs/${this.registration.runId}/steps`,
       JSON.stringify({ steps, ...(omittedStepCount > 0 ? { omittedStepCount } : {}) }),
-      { ...(signal === undefined ? {} : { signal }) },
+      { ...(signal === undefined ? {} : { signal }), ...(timeoutMs === undefined ? {} : { timeoutMs }) },
     );
   }
 
@@ -202,12 +203,21 @@ export class MirrorClient {
    * `/logs` route already reads: `runner.log` for the run, and
    * `<stepName>/agent.log` for a step's assembled transcript.
    */
-  async putObject(key: string, bytes: Uint8Array, signal?: AbortSignal): Promise<boolean> {
+  async putObject(
+    key: string,
+    bytes: Uint8Array,
+    signal?: AbortSignal,
+    timeoutMs?: number,
+  ): Promise<boolean> {
     if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,511}$/u.test(key) || key.includes('..')) return false;
     try {
       await cloudFetch(
         `/api/v1/workflows/runs/${this.registration.runId}/storage/${key}`,
-        { ...this.bound, ...(signal === undefined ? {} : { signal }) },
+        {
+          ...this.bound,
+          ...(signal === undefined ? {} : { signal }),
+          ...(timeoutMs === undefined ? {} : { requestTimeoutMs: timeoutMs }),
+        },
         { method: 'PUT', body: bytes, contentType: 'text/plain' },
       );
       return true;
@@ -226,11 +236,13 @@ export class MirrorClient {
     result: Record<string, unknown>,
     error?: string,
     signal?: AbortSignal,
+    timeoutMs?: number,
   ): Promise<boolean> {
     try {
       await cloudFetch('/api/v1/workflows/callback', {
         ...this.bound,
         ...(signal === undefined ? {} : { signal }),
+        ...(timeoutMs === undefined ? {} : { requestTimeoutMs: timeoutMs }),
       }, {
         method: 'POST',
         body: JSON.stringify({
