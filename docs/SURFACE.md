@@ -1016,7 +1016,10 @@ uses the opening shown here; an authored child failure opens with
 ```text
 FAILED [step_failed] Run "<run-id>" failed with completionReason: step_failed.
  Step "<step-id>" (<type>) completionReason: <reason> attempt=<n>/<budget> exit=<code>.
-Detail: <the worker's own account, when it left one>
+Attempts: <count> failed; <whether their recorded evidence agrees>
+  attempt 1: <reason> exit=<code> — stderr: <excerpt>
+  attempt 2: <reason> exit=<code> — stderr: <excerpt>
+Detail: <the gate's verdict, or the worker's own account>
 Stdout (captured excerpt):
 <excerpt>
 Stderr (captured excerpt):
@@ -1058,9 +1061,60 @@ journal to be excerpted.
 Each clause is present only when the journal holds the fact behind it; nothing
 is defaulted. The same fields appear as named keys on the `--json` diagnostic
 (`stepId`, `stepType`, `completionReason`, `attempt`, `maxIterations`,
-`exitCode`, `stdoutTail`, `stderrTail`, `detail`, `transcriptPath`, `hint`,
-`journalPath`), so the rendered line and the machine-readable record carry the
-same facts rather than the message being the only copy.
+`exitCode`, `stdoutTail`, `stderrTail`, `detail`, `transcriptPath`, `attempts`,
+`attemptEvidence`, `hint`, `journalPath`), so the rendered line and the
+machine-readable record carry the same facts rather than the message being the
+only copy.
+
+The scalar clauses always describe the **terminal** attempt. `Attempts:` is
+additive and appears only when the journal held more than one failed attempt of
+that step, so a step that failed once renders exactly as it did before. Every
+failed attempt is listed, oldest first, from its own `step.completed` entry —
+the kernel appends one per attempt, so a retry that failed differently from the
+first attempt is a journaled fact rather than something the last attempt's
+output has to be read for. Each entry carries the attempt's reason, its exit
+code when it had one, and up to 256 bytes of whichever of `detail`, `stderr`
+and `stdout` that attempt actually recorded; `(excerpt truncated)` marks an
+account that was cut, and an attempt that recorded nothing says so rather than
+printing empty fields. Attempt excerpts are redacted before they are bounded.
+The corresponding `attempts` entries in `--json` use the keys `attempt`,
+`completionReason`, `disposition`, `exitCode`, `stdoutTail`, `stderrTail`,
+`detail` and `truncated`.
+
+`detail` — on the terminal clause and on each attempt — is the verification
+record's account: the gate's verdict for a deterministic step (`output did not
+contain "READY"`), or what the worker reported for an agent or llm step. A gate
+can refuse output that a command produced happily, so an attempt can report
+exit 0, empty tails and a verdict that is the entire reason it failed. It is
+withheld only when it would repeat bytes already printed beside it: the
+daemon's `{exit_code, stdout_tail, stderr_tail}` render of a worker failure,
+and the `exit_code` gate's bare `exit code was <code>` next to the exit code
+it restates.
+
+`attemptEvidence` says whether the attempts failed for the same reason, and is
+one of:
+
+- `differs` — two attempts that each recorded evidence recorded different
+  evidence. A retry that fails differently usually means an earlier attempt
+  already had a side effect, so the message adds *An earlier attempt may have
+  had side effects.*
+- `unchanged` — every attempt recorded evidence and all of it agrees.
+- `unknown` — at least one attempt journaled nothing about why it failed, or
+  its evidence reached the journal already truncated by the daemon, so whether
+  the causes differ cannot be decided.
+
+Only attempts that recorded something are compared: an attempt that journaled
+no account of itself is unequal to every other one on paper while establishing
+nothing, and would otherwise put the side-effect warning on a crash that is
+evidence of nothing. A render the daemon truncated is compared, because
+truncation can only make two accounts look more alike than they were.
+
+The comparison runs on the journal record before any display bound, and reads
+the verification gate, verdict and detail as well as the exit codes and output
+tails, so two attempts whose visible excerpts are identical are still reported
+as differing when the records behind them are not. `verification_failed` on a
+retry and `retries_exhausted` at the budget limit are the kernel's label for
+the same fallback, so that pair alone is not counted as a changed cause.
 
 `attempt=<n>/<budget>` is read from the journal, not from the spec: `n` is the
 `step.attempt.started` envelope's attempt number and `budget` is the

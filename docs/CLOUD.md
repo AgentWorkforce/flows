@@ -240,6 +240,17 @@ frame this vocabulary has no opinion about is reported as one line naming its
 type and size, and a line that is not JSON is printed as written, so `--raw`
 is never the only way to find out that something ran.
 
+A retried step that failed differently each time shows every attempt's error
+here, because the runner log is the `flows` process's own captured output and
+the step-failure diagnostic it writes lists every failed attempt (see
+[Reading a failed step](SURFACE.md#reading-a-failed-step)). Nothing is elided
+on the way out: the runner log is printed line for line. The limit is that the
+log is a *recording* — there is no journal-export endpoint, so `flows logs`
+can only show what the `flows` binary that ran the workflow printed at the
+time. A run executed by a build predating this diagnostic carries only the
+terminal attempt in its log, and no later reader can recover the earlier ones
+from Cloud.
+
 `flows status --cloud <run-id>` is the local `flows status` view, sourced from
 the run record and the step list instead of a journal: the `RUN` header with
 status, completion reason and summed spend, a `steps N` count, and one

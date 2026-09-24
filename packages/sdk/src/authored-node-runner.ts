@@ -13,7 +13,9 @@ import {
   AuthoredFlowExecutionError, AuthoredHumanParked,
   type AuthoredFlowExecutionErrorCode, type AuthoredHumanWait,
 } from './authored-flow-error.js';
-import type { ParkCause, StepFailedDetails } from './failure-kinds.js';
+import type {
+  AttemptEvidenceComparison, ParkCause, StepAttemptFailure, StepFailedDetails,
+} from './failure-kinds.js';
 import { HUMAN_WAIT_ID } from './authored-human.js';
 import { assertAuthoredPromiseHooks } from './authored-runtime-capability.js';
 
@@ -200,24 +202,74 @@ export function parkCauseFrame(value: unknown): ParkCause | undefined {
  * evidence frame would replace the answer with a worse one.
  */
 export function stepFailedFrame(value: unknown): StepFailedDetails | undefined {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
-  const frame = value as Record<string, unknown>;
-  const text = (key: string): string | undefined =>
-    typeof frame[key] === 'string' ? (frame[key] as string).slice(0, 8192) : undefined;
-  const count = (key: string): number | undefined =>
-    typeof frame[key] === 'number' && Number.isSafeInteger(frame[key]) ? frame[key] as number : undefined;
+  const frame = frameRecord(value);
+  if (frame === undefined) return undefined;
   const details: StepFailedDetails = {};
   for (const [key, parsed] of [
-    ['stepId', text('stepId')], ['stepType', text('stepType')],
-    ['completionReason', text('completionReason')], ['attempt', count('attempt')],
-    ['maxIterations', count('maxIterations')], ['exitCode', count('exitCode')],
-    ['stdoutTail', text('stdoutTail')], ['stderrTail', text('stderrTail')],
-    ['detail', text('detail')], ['transcriptPath', text('transcriptPath')],
-    ['hint', text('hint')], ['journalPath', text('journalPath')],
+    ['stepId', frameText(frame, 'stepId')], ['stepType', frameText(frame, 'stepType')],
+    ['completionReason', frameText(frame, 'completionReason')], ['attempt', frameCount(frame, 'attempt')],
+    ['maxIterations', frameCount(frame, 'maxIterations')], ['exitCode', frameCount(frame, 'exitCode')],
+    ['stdoutTail', frameText(frame, 'stdoutTail')], ['stderrTail', frameText(frame, 'stderrTail')],
+    ['detail', frameText(frame, 'detail')], ['transcriptPath', frameText(frame, 'transcriptPath')],
+    ['attempts', attemptFrames(frame['attempts'])],
+    ['attemptEvidence', comparisonFrame(frame['attemptEvidence'])],
+    ['hint', frameText(frame, 'hint')], ['journalPath', frameText(frame, 'journalPath')],
   ] as const) {
     if (parsed !== undefined) (details as Record<string, unknown>)[key] = parsed;
   }
   return Object.keys(details).length === 0 ? undefined : details;
+}
+
+/**
+ * The attempt history, reduced element by element on the same terms as the
+ * frame that carries it. An element that is not an object contributes nothing
+ * rather than voiding the whole history: a report naming three of four
+ * attempts is still the first attempt's error, which is the fact the terminal
+ * scalars cannot supply.
+ */
+function attemptFrames(value: unknown): StepAttemptFailure[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const attempts: StepAttemptFailure[] = [];
+  for (const element of value) {
+    const source = frameRecord(element);
+    if (source === undefined) continue;
+    const attempt: StepAttemptFailure = {};
+    for (const [key, parsed] of [
+      ['attempt', frameCount(source, 'attempt')],
+      ['completionReason', frameText(source, 'completionReason')],
+      ['disposition', frameText(source, 'disposition')],
+      ['exitCode', frameCount(source, 'exitCode')],
+      ['stdoutTail', frameText(source, 'stdoutTail')],
+      ['stderrTail', frameText(source, 'stderrTail')],
+      ['detail', frameText(source, 'detail')],
+      // Only a literal `true` claims truncation; anything else leaves the
+      // excerpt unlabelled rather than labelling a complete one as cut.
+      ['truncated', source['truncated'] === true ? true : undefined],
+    ] as const) {
+      if (parsed !== undefined) (attempt as Record<string, unknown>)[key] = parsed;
+    }
+    if (Object.keys(attempt).length > 0) attempts.push(attempt);
+  }
+  return attempts.length === 0 ? undefined : attempts;
+}
+
+/** An unrecognised verdict is dropped, and rendering then says `unknown`. */
+function comparisonFrame(value: unknown): AttemptEvidenceComparison | undefined {
+  return value === 'differs' || value === 'unchanged' || value === 'unknown' ? value : undefined;
+}
+
+function frameRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown> : undefined;
+}
+
+function frameText(frame: Record<string, unknown>, key: string): string | undefined {
+  return typeof frame[key] === 'string' ? (frame[key] as string).slice(0, 8192) : undefined;
+}
+
+function frameCount(frame: Record<string, unknown>, key: string): number | undefined {
+  return typeof frame[key] === 'number' && Number.isSafeInteger(frame[key])
+    ? frame[key] as number : undefined;
 }
 
 /** The IPC frame is a claim, not a durable terminal fact or a sandbox boundary. */

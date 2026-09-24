@@ -174,6 +174,55 @@ export type RunFailureKind = (typeof RUN_FAILURE_KINDS)[number];
 export type RunWarningKind = (typeof RUN_WARNING_KINDS)[number];
 
 /**
+ * One failed attempt of a step, as the journal recorded it.
+ *
+ * The kernel appends a `step.completed` PER ATTEMPT (relayflowd-core/src/machine.rs
+ * `completion_actions`), so a step that was retried leaves an ordered account
+ * of every failure — not just the one that ran out of budget. Reporting only
+ * the last is how a push rejected by a pre-receive hook was reported as
+ * "nothing staged inside the declared scope": the retry failed for a different
+ * reason than the original attempt, and the original reason was the diagnosis.
+ *
+ * Excerpts here are bounded harder than the terminal attempt's (256 bytes
+ * rather than 1,024): this is history beside the primary account, not a
+ * replacement for it.
+ */
+export interface StepAttemptFailure {
+  /**
+   * The journal entry envelope's attempt number. Absent when the journal did
+   * not carry one; the position in the list is not a substitute, because a
+   * crashed attempt that consumed no iteration is still its own record.
+   */
+  attempt?: number;
+  /** The kernel's label for THIS attempt, e.g. `verification_failed`. */
+  completionReason?: string;
+  /** `retry`, `step_done` or `park`: what the kernel did next, not why it failed. */
+  disposition?: string;
+  exitCode?: number;
+  /** Redacted, terminal-safe UTF-8 excerpt, at most 256 bytes. */
+  stdoutTail?: string;
+  /** Redacted, terminal-safe UTF-8 excerpt, at most 256 bytes. */
+  stderrTail?: string;
+  /** This attempt's own account, from the same fields the terminal one reads. */
+  detail?: string;
+  /** Set when an excerpt above was cut to fit the per-attempt bound. */
+  truncated?: boolean;
+}
+
+/**
+ * What comparing the attempts' recorded evidence established — and no more.
+ *
+ * `differs` means the journal's own failure evidence is not the same across
+ * attempts, which usually means an earlier attempt had a side effect the retry
+ * then tripped over. `unchanged` is a statement about the RECORD, not a proof
+ * that the underlying causes were identical. `unknown` is the honest answer
+ * when an attempt journaled no account of itself, or when its account was
+ * already truncated by its producer: equal evidence that was never complete is
+ * not evidence of equality.
+ */
+export type AttemptEvidenceComparison = 'differs' | 'unchanged' | 'unknown';
+
+/**
  * Why a run parked, for the reporting side that has to name a remedy.
  *
  * `worker_unavailable` is a step nothing is attached to run — the one case
@@ -195,6 +244,9 @@ export type ParkCause = 'worker_unavailable' | 'needs_human';
  * agent or llm step leaves `completionReason` and whatever the daemon captured
  * into `detail` (see cli/step-failure.ts). Absent means "not journaled", never
  * "zero" — an exit code is only ever reported when one was actually recorded.
+ *
+ * The scalar evidence fields always describe the TERMINAL attempt. `attempts`
+ * is additive history and is present only when the step failed more than once.
  */
 export interface StepFailedDetails {
   stepId?: string;
@@ -238,6 +290,15 @@ export interface StepFailedDetails {
   detail?: string;
   /** The attempt's redacted `stream-json` transcript on disk, when the worker wrote one. */
   transcriptPath?: string;
+  /**
+   * Every failed attempt of the step this failure names, oldest first, present
+   * only when there was more than one. The last element is the same attempt the
+   * scalar fields above describe; the first is the one `retries_exhausted`
+   * alone used to hide.
+   */
+  attempts?: StepAttemptFailure[];
+  /** What comparing those attempts' recorded evidence established. */
+  attemptEvidence?: AttemptEvidenceComparison;
   /** A runnable `flows replay` invocation for this run. */
   hint?: string;
   /** The on-disk journal for this run, when the data dir is known. */
