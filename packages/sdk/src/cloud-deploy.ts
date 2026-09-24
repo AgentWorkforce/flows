@@ -23,7 +23,7 @@ import { assertNoUseDependencies, collectExtensionSubmissions } from './flow-ext
  * inside a fresh branch of the deployment's repository.
  */
 
-export const FLOW_TRIGGER_PROVIDERS = ['github', 'linear', 'jira', 'shortcut', 'slack'] as const;
+export const FLOW_TRIGGER_PROVIDERS = ['github', 'gitlab', 'linear', 'jira', 'shortcut', 'slack'] as const;
 export type FlowTriggerProvider = (typeof FLOW_TRIGGER_PROVIDERS)[number];
 
 /** Settings Cloud's launcher prefilter reads per provider (`flow-trigger-sources.ts`). */
@@ -32,6 +32,7 @@ const PROVIDER_SETTINGS: Record<FlowTriggerProvider, readonly string[]> = {
   // wake the listener (AgentWorkforce/cloud#3772). `reviews`, `checks` and
   // `comments` opt a pull_request source out of its extra subscriptions.
   github: ['repository', 'labels', 'contains', 'events', 'reviews', 'checks', 'comments'],
+  gitlab: ['project', 'labels', 'contains', 'events'],
   slack: ['channel', 'contains'],
   linear: ['team', 'project', 'labels', 'contains'],
   jira: ['project', 'labels', 'contains'],
@@ -136,8 +137,10 @@ export function parseTriggerSource(value: string): FlowTriggerSource {
       if (key === 'events') {
         // Cloud's enum is lowercase; send it that way whatever the shell typed.
         const events = setting.toLowerCase();
-        if (!['issues', 'pull_request'].includes(events)) {
-          throw new CloudFlowError('invalid_input', `github events must be "issues" or "pull_request", got "${setting}".`);
+        const valid = provider === 'gitlab' ? ['issues', 'merge_request'] : ['issues', 'pull_request'];
+        if (!valid.includes(events)) {
+          throw new CloudFlowError('invalid_input',
+            `${provider} events must be ${valid.map(v => `"${v}"`).join(' or ')}, got "${setting}".`);
         }
         settings[key] = events;
         continue;

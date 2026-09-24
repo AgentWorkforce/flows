@@ -66,6 +66,8 @@ describe('trigger source and repository parsing', () => {
     ['linear:team=Engineering,labels=agent,contains=urgent', { provider: 'linear', settings: { team: 'Engineering', labels: 'agent', contains: 'urgent' } }],
     ['jira:project=OPS,labels=agent', { provider: 'jira', settings: { project: 'OPS', labels: 'agent' } }],
     ['shortcut:workspace=acme,team=Platform', { provider: 'shortcut', settings: { workspace: 'acme', team: 'Platform' } }],
+    ['gitlab:project=acme/platform/web', { provider: 'gitlab', settings: { project: 'acme/platform/web' } }],
+    ['gitlab:events=merge_request,labels=agent', { provider: 'gitlab', settings: { events: 'merge_request', labels: 'agent' } }],
     ['github:events=pull_request,labels=agent', { provider: 'github', settings: { events: 'pull_request', labels: 'agent' } }],
     ['github:events=PULL_REQUEST', { provider: 'github', settings: { events: 'pull_request' } }],
     ['github:events=pull_request,reviews=False', { provider: 'github', settings: { events: 'pull_request', reviews: 'false' } }],
@@ -73,7 +75,7 @@ describe('trigger source and repository parsing', () => {
     expect(parseTriggerSource(value)).toEqual(expected);
   });
 
-  it.each(['gitlab', 'github:channel=x', 'github:labels=', 'github:labels=a,labels=b', 'slack:labels=x', 'github:events=releases', 'github:reviews=maybe', 'linear:events=issues'])
+  it.each(['github:channel=x', 'github:labels=', 'github:labels=a,labels=b', 'slack:labels=x', 'github:events=releases', 'gitlab:events=pull_request', 'gitlab:repository=acme/web', 'github:reviews=maybe', 'linear:events=issues'])
   ('refuses %s', (value) => {
     expect(() => parseTriggerSource(value)).toThrow(expect.objectContaining({ code: 'invalid_input' }));
   });

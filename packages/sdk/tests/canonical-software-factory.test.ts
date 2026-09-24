@@ -72,7 +72,9 @@ function runCanonical(issue: Issue, summary = '## Summary\n\nImplemented the tic
     commands,
     completionReason,
     ghArgs: existsSync(capture) ? readFileSync(capture, 'utf8').trim().split('\n') : [],
-    body: readFileSync(join(root, '.relayflow/pr-body.md'), 'utf8'),
+    body: existsSync(join(root, '.relayflow/pr-body.md'))
+      ? readFileSync(join(root, '.relayflow/pr-body.md'), 'utf8')
+      : '',
   }));
 }
 
@@ -104,7 +106,28 @@ describe('canonical software-factory metadata contract', () => {
     expect(result.body.split('\n').filter(line => line === 'Fixes TECH-42')).toHaveLength(1);
   });
 
-  it('fails closed before push when the Linear closing reference is missing from the final body', async () => {
+  it('accepts a Linear team key that carries digits', async () => {
+    const result = await runCanonical({
+      source: 'linear', title: 'Rate-limit the webhook queue', body: 'body', labels: [],
+      identifier: 'PLA4-42', url: 'https://linear.app/wepost/issue/PLA4-42',
+    });
+    expect(result.completionReason).toBe('success');
+    expect(result.body.split('\n').filter(line => line === 'Fixes PLA4-42')).toHaveLength(1);
+  });
+
+  it.each(['', 'not-an-issue'])(
+    'stops before push when a Linear ticket has no linkable identifier (%s)',
+    async (identifier) => {
+      const result = await runCanonical({
+        source: 'linear', title: 'Rate-limit the webhook queue', body: 'body', labels: [],
+        identifier, url: 'https://linear.app/wepost/issue/TECH-42',
+      });
+      expect(result.completionReason).toBe('needs_human');
+      expect(result.commands.some(command => command.startsWith('git push') || command.startsWith('gh pr create'))).toBe(false);
+    },
+  );
+
+  it('fails closed before push when the Linear closing reference is duplicated in the final body', async () => {
     // The summary is written by the implementer; PREPARE_CHANGE_METADATA appends
     // the reference only when absent, so a summary that already carries a
     // different line for the same slot must stop the run.
