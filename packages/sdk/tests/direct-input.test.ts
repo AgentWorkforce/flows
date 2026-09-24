@@ -161,6 +161,19 @@ describe('direct .flow.ts input through the built CLI and live runtime', () => {
     expect(file.stdout).toContain('completionReason: success');
     expect(readFileSync(fileOutput, 'utf8')).toBe('file value');
 
+    // Inline JSON longer than one path component (255 bytes on ext4). The
+    // parser `stat`s the argument before treating it as a document, and that
+    // `stat` fails ENAMETOOLONG rather than ENOENT; refusing it as
+    // `input_unreadable` rejected every inline input longer than a filename,
+    // the recovery commands this CLI prints for a parked run included.
+    const longOutput = join(directory, 'long.txt');
+    const longValue = 'x'.repeat(300);
+    const longInline = JSON.stringify({ output: longOutput, value: longValue });
+    expect(longInline.length).toBeGreaterThan(255);
+    const long = invokeCli(['run', FLOW, '--input', longInline, '--data-dir', dataDir]);
+    expect(long.status, long.stderr).toBe(0);
+    expect(readFileSync(longOutput, 'utf8')).toBe(longValue);
+
     const controlOutput = join(directory, 'control.txt');
     const control = invokeCli([
       'run', CONTROL_FLOW, '--input', JSON.stringify({ output: controlOutput }),

@@ -1438,7 +1438,7 @@ The exit codes are part of the surface contract:
 |---:|---|
 | `0` | The run completed with `completionReason: success`; deliberate declination also carries a `run_declined` diagnostic locally. |
 | `1` | The run failed with a declared `completionReason`, or a transport, runtime, or daemon protocol error left the outcome unknown. A `step_failed` run names the failing step and its per-step `completionReason`, plus the exit code and output tails the journal recorded for it. An authored `done("step_failed")` exits `1` as well, and says so without naming a step, because no step failed — the body declared the verdict. With a `detail`, that detail replaces the generic sentence and is reported as `completionDetail`. |
-| `2` | The command was refused before a journal write: invalid input, failed preflight, unreachable daemon, or a `run_not_found` resume target. |
+| `2` | The command was refused before a journal write: invalid input, failed preflight, unreachable daemon, a `run_not_found` resume target, or a `--local-agent` the named run cannot honour (`local_agent_unavailable`, below). |
 | `3` | The run parked. `PARKED [run_parked]` names the step and its `llm` or `agent` type, and distinguishes an unavailable worker from a `needs_human` recovery wait. An authored body parked on `f.human` reports the question, who it is for, and the `flows answer` invocation that records the decision (see *Human gates* below). |
 
 Without an attached worker, reaching an `llm` or `agent` step returns a durable
@@ -1458,6 +1458,52 @@ is live and prints `WAITING [worker_lease]` with the step and lease deadline.
 If the lease expires without a completion, the command fails closed instead of
 polling forever. A manual-recovery agent whose worker dies parks in
 `needs_human`; the same exit-3 report says it is waiting for human recovery.
+
+### Naming the worker a park is missing
+
+An exit-3 park for want of an agent worker names an invocation that supplies
+one. Which invocation depends on what parked, and each command is rendered
+shell-quoted with the `--data-dir` this invocation actually used, so it is
+runnable as printed:
+
+| Parked | Printed remedy |
+|---|---|
+| `flows run <spec>` | `flows run --local-agent '<spec-path>'` — a new run. |
+| `flows resume <run-id>` on a spec run | `flows resume --local-agent <run-id>` — *this* run, which is resumable. |
+| An authored `.flow.ts` | `flows run --local-agent '<flow-path>' --input '<input>'`, repeating the input the parked run was started with. |
+
+The authored line repeats `--input` because a directly run `.flow.ts` without
+one is refused (`input_missing`); when the journal recorded no input, the report
+states that requirement in prose rather than substituting `--input '{}'`, which
+would name a different invocation of the flow than the one that parked. Every
+line carries the standing caveat that declared workspace or stream surfaces
+require a worker holding their pins.
+
+A park reported by `flows run` repeats the `--input` word that invocation was
+given, so a run started from a file names that file. A resume has only the
+journal, which records the input document and not the word that carried it, so
+it renders the input inline — accepted, because an argument that cannot be a
+filename is read as inline JSON rather than as an unreadable path. A recorded
+input larger than one `execve` argument (`MAX_ARG_STRLEN`, 128KiB, against the
+1MiB `--input` ceiling) is stated in prose with its size, naming the input file
+to pass: a printed command that dies with `Argument list too long` is no
+better than the park it answers.
+
+Two parks print no remedy, on purpose. A `needs_human` recovery wait says
+nothing about workers, because attaching one does not clear it. And when
+`--local-agent` was already passed, the report says a worker is attached and
+none was eligible for the step — never "pass `--local-agent`" to someone who
+just did.
+
+For an authored root, `--local-agent` is admitted at run start: the worker
+stream is pinned into the root's metadata, so a resume can only reproduce the
+surface the run began with. `flows resume --local-agent` against an authored
+root started without one is refused before any worker attaches and before the
+resume touches the journal — exit 2, `REFUSED [local_agent_unavailable]`,
+naming the new run to start. A resume that drops the flag a root *was* pinned
+with is refused the same way, naming the resume that keeps it. On a declarative
+run the flag is honoured rather than refused: it attaches a worker and drives
+the parked step. The flag is never accepted and ignored.
 
 ### Human gates: `f.human`
 

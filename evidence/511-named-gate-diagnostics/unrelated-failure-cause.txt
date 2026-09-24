@@ -1,0 +1,13 @@
+# Why the 22 stuck-run-triage failures happen in this sandbox: two installed copies
+# of @relayflows/surface are reachable, so the test and the workflow under test get
+# different module instances and the WeakMap brand check in getFlowDefinition
+# (packages/surface/src/flow.ts:137-143) misses.
+
+$ node -e "const{createRequire}=require(\"node:module\");for(const from of [\"packages/sdk/tests/x.js\",\"workflows/x.js\"]){const r=createRequire(process.cwd()+\"/\"+from);console.log(from,\"->\",r.resolve(\"@relayflows/surface/runtime\"))}"
+packages/sdk/tests/x.js -> /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/node_modules/@relayflows/surface/dist/runtime.js
+workflows/x.js -> /home/daytona/.relayflow-v2-supervisor/durable/node_modules/@relayflows/surface/dist/runtime.js
+
+$ ls -d /home/daytona/.relayflow-v2-supervisor/durable/node_modules/@relayflows/*   # the ancestor install, outside the checkout
+/home/daytona/.relayflow-v2-supervisor/durable/node_modules/@relayflows/surface
+$ ls -d node_modules 2>&1   # the repository root has no node_modules of its own
+ls: cannot access 'node_modules': No such file or directory
