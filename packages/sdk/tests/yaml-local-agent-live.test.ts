@@ -48,12 +48,24 @@ function fixture(source: 'step' | 'named' | 'flow' | 'project' = 'step', instruc
     steps: [step],
   };
   writeFileSync(join(root, 'flows/hello.flow.yaml'), stringify(spec));
-  // Run from outside the flow directory to exercise checked relative CLI binding.
-  return { root, invoke: (localAgent = true) => spawnSync(process.execPath, [
-    cli, 'run', 'flows/hello.flow.yaml', '--json', '--no-observer-link',
-    '--data-dir', join(root, 'data'), ...(localAgent ? ['--local-agent'] : []),
+  const flows = (argv: string[]) => spawnSync(process.execPath, [
+    cli, ...argv, '--json', '--no-observer-link', '--data-dir', join(root, 'data'),
   ], { cwd: root, encoding: 'utf8', timeout: 30_000,
-    env: { ...process.env, RELAYFLOWD_BIN: relayflowd } }) };
+    env: { ...process.env, RELAYFLOWD_BIN: relayflowd } });
+  // Run from outside the flow directory to exercise checked relative CLI binding.
+  return {
+    root,
+    invoke: (localAgent = true) =>
+      flows(['run', 'flows/hello.flow.yaml', ...(localAgent ? ['--local-agent'] : [])]),
+    resume: (runId: string, localAgent = true) =>
+      flows(['resume', ...(localAgent ? ['--local-agent'] : []), runId]),
+  };
+}
+
+/** The `run_parked` diagnostic of a `--json` report, as the CLI rendered it. */
+function parkMessage(result: { stdout: string }): string {
+  const report = JSON.parse(result.stdout) as { diagnostics: Array<{ kind: string; message: string }> };
+  return report.diagnostics.find(diagnostic => diagnostic.kind === 'run_parked')!.message;
 }
 
 describe('YAML --local-agent through the built CLI and real daemon', () => {
@@ -84,6 +96,56 @@ describe('YAML --local-agent through the built CLI and real daemon', () => {
     expect(result.status, result.stderr + result.stdout).toBe(3);
     expect(JSON.parse(result.stdout)).toMatchObject({ status: 'parked', parkedStep: { id: 'greet', type: 'agent' } });
     expect(result.stderr).toContain("flows run --local-agent 'flows/hello.flow.yaml'");
+  });
+
+  /**
+   * The reported defect, end to end: `flows resume` advertises `[--local-agent]`
+   * (cli.ts usage), so on a declarative run the flag must MOVE the run — not be
+   * accepted and ignored, leaving a second park whose message is byte-identical
+   * to the first. The field report lost a cycle to exactly that.
+   *
+   * The `run` park keeps naming a NEW run, unchanged and pinned by the test
+   * above; resuming this one with the flag is the second documented route, and
+   * it is the one that had never been exercised end to end.
+   */
+  it('resumes a parked spec run with --local-agent instead of parking identically again', () => {
+    const f = fixture();
+    const parked = f.invoke(false);
+    expect(parked.status, parked.stderr + parked.stdout).toBe(3);
+    const { runId } = JSON.parse(parked.stdout);
+    const first = parkMessage(parked);
+
+    const resumed = f.resume(runId);
+
+    expect(resumed.status, resumed.stderr + resumed.stdout).toBe(0);
+    expect(JSON.parse(resumed.stdout)).toMatchObject({
+      ok: true, runId, status: 'completed', completionReason: 'success',
+    });
+    // The acceptance criterion, stated as itself: whatever happened, it was not
+    // the same park a second time.
+    expect(resumed.stdout).not.toContain(first);
+  });
+
+  /**
+   * And when the flag genuinely cannot help — the declared workspace surface no
+   * local worker holds — the second message must still differ from the first,
+   * because the honest report is that a worker WAS offered and none was
+   * eligible. "Pass --local-agent" to someone who just passed it is the failure
+   * mode this whole change exists to remove.
+   */
+  it('parks a second time with a different message when the attached worker is not eligible', () => {
+    const f = fixture('step', 'hello', true);
+    const parked = f.invoke(false);
+    expect(parked.status, parked.stderr + parked.stdout).toBe(3);
+    const { runId } = JSON.parse(parked.stdout);
+
+    const resumed = f.resume(runId);
+
+    expect(resumed.status, resumed.stderr + resumed.stdout).toBe(3);
+    const second = parkMessage(resumed);
+    expect(second).not.toBe(parkMessage(parked));
+    expect(second).toContain('no attached worker was eligible for this step');
+    expect(second).not.toMatch(/flows (run|resume)/);
   });
 
   it('reports the agent process failure', () => {

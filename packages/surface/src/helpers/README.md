@@ -39,21 +39,10 @@ Runtime dispatch is no longer Slack-only: every provider in `providers.ts` whose
 requires `owner` in addition to `repo`, `title`, and `body`). `path` stays a
 synchronous path builder and is never dispatched.
 
-`supported` answers one question only — how much of the namespace dispatches:
-
-- `true`: the upstream writeback client exists and every resource in
-  `resources` dispatches. It is **not** a claim that the whole vendor API is
-  reachable.
-- `'partial'`: usable, but known to omit workflows the namespace suggests.
-  `note` says which, and `resources` is the whole of what dispatches. Reaching
-  for anything else refuses at the call site naming what is available, rather
-  than failing as `undefined is not a function`.
-- `false`: no upstream writeback client at all.
-
-`f.gitlab` is the current `'partial'` entry: it carries `comments` and
-`discussions` only, so issue list/read/create and merge-request
-list/read/create are unavailable through it, while `f.github` carries issues,
-pull-requests, reviews, refs, merge, and close-pull-request. The note lives in
-`PARTIAL_SUPPORT` in `scripts/generate-helpers.mjs`; a later upstream release
-must revisit it deliberately, since a larger resource count is not by itself a
-promotion.
+`supported` answers whether the pinned upstream writeback client exists. The
+adjacent sorted `resources` list is the exact adapter catalog; bespoke aliases
+such as `stripe.createInvoice` remain outside it. The list is not a claim that
+the whole vendor API is reachable. Keeping both fields in the generated file
+makes catalog growth and regression reviewable as ordinary source diffs.
+GitLab currently exposes `issues`, `merge-requests`, `refs`, `merge`, and
+`close-merge-request` in addition to comments and discussions.

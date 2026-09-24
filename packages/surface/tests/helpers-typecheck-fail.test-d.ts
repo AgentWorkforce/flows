@@ -15,12 +15,4 @@ export function rejectedHelpers(f: Ctx): void {
   f.notarealprovider.anything();
   // @ts-expect-error resource clients do not have runtime dispatch yet.
   f.slack.messages.list();
-  // `f.gitlab.issues` is deliberately NOT here: the helper namespace is
-  // structural, so it typechecks, and the catalog refuses it at runtime with
-  // `f.gitlab.issues is unavailable; available resources: comments,
-  // discussions.` — covered by helper-support.test.ts and the SDK's
-  // helper-partial-support.test.ts across dot, bracket and aliased access.
-  // Asserting a type error here claimed a narrowing this design does not do.
-  // @ts-expect-error merge requests are not in gitlab's writeback catalog.
-  f.gitlab.mergeRequests.write({ projectPath: 'g/p' }, { title: 'x' });
 }

@@ -1,3 +1,4 @@
+import { onWorkerFailure } from '../worker-lease.js';
 import { randomUUID } from 'node:crypto';
 import { JournalClient } from '../journal-client.js';
 import { AgentWorker } from '../worker.js';
@@ -31,7 +32,7 @@ export async function attachCommunicationWorkers(spec: KernelRunSpec, socketPath
         requiredStreams: [channelName(step.id, '$receipts')],
         pins: { workspace: [], streams: step.surfaces?.streams?.map(({ stream }) => ({ stream, read_offset: 0 })) ?? [] } });
       workers.push({ client, worker });
-      worker.on('error', error => { failure = error; client.close(); });
+      worker.on('error', onWorkerFailure('communication', error => { failure = error; client.close(); }));
       await client.connect();
       await client.hello('flows-communication');
       await worker.attach();

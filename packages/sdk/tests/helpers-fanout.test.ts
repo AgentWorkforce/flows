@@ -29,17 +29,13 @@ for (const provider of helperProviders) {
     vi.stubEnv(provider.mockEnv, '');
     const definition = { header: { tools: { [provider.namespace]: true } } };
     expect(checkProviderHelpers(definition).ok).toBe(false);
-    // A partially supported provider passes the MOUNT question like any other:
-    // the resources it does carry dispatch, and the refusal for the ones it
-    // does not is driven by the body, which a tools-only header has none of.
-    const dispatches = provider.supported !== false;
     vi.stubEnv(provider.mockEnv, '1');
-    expect(checkProviderHelpers(definition).ok).toBe(dispatches);
+    expect(checkProviderHelpers(definition).ok).toBe(provider.supported);
     vi.stubEnv(provider.mockEnv, '');
     vi.stubEnv('WORKSPACE_ROOT', dir);
     mkdirSync(join(dir, provider.provider));
     expect(providerMount(provider.provider)).toBe(dir);
-    expect(checkProviderHelpers(definition).ok).toBe(dispatches);
+    expect(checkProviderHelpers(definition).ok).toBe(provider.supported);
   });
   if (!provider.supported || provider.provider === 'slack') continue;
   it(`${provider.provider}: consumes its upstream client through the mock transport`, async () => {

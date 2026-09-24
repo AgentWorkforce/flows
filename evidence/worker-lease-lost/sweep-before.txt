@@ -1,0 +1,70 @@
+$ cd packages/sdk && npx vitest run tests/worker-lease-sweep.test.ts
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+(node:12534) PromiseRejectionHandledWarning: Promise rejection was handled asynchronously (rejection id: 3)
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ tests/worker-lease-sweep.test.ts (2 tests | 1 failed) 10ms
+   × waits through an expired snapshot until the kernel retries and completes 8ms
+     → promise rejected "Error: worker lease for step "answer" exp…" instead of resolving
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/worker-lease-sweep.test.ts > waits through an expired snapshot until the kernel retries and completes
+AssertionError: promise rejected "Error: worker lease for step "answer" exp…" instead of resolving
+ ❯ tests/worker-lease-sweep.test.ts:33:37
+     31|     .mockResolvedValue({ run_id: 'run', status: 'completed', completio…
+     32|   const execution = run();
+     33|   const assertion = expect(execution).resolves.toMatchObject({ exitCod…
+       |                                     ^
+     34|   await vi.advanceTimersByTimeAsync(100);
+     35|   await assertion;
+
+Caused by: Error: worker lease for step "answer" expired at 1790141762175 without completion
+ ❯ waitForRunningStep src/cli/run.ts:773:13
+ ❯ Module.classifyOutcome src/cli/run.ts:584:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+AssertionError: promise rejected "Error: worker lease for step "answer" exp…" instead of resolving
+ ❯ _Assertion.__VITEST_RESOLVES__ node_modules/@vitest/expect/dist/index.js:1746:21
+ ❯ _Assertion.propertyGetter node_modules/chai/index.js:1557:27
+ ❯ Object.proxyGetter [as get] node_modules/chai/index.js:1645:22
+ ❯ tests/worker-lease-sweep.test.ts:33:37
+     31|     .mockResolvedValue({ run_id: 'run', status: 'completed', completio…
+     32|   const execution = run();
+     33|   const assertion = expect(execution).resolves.toMatchObject({ exitCod…
+       |                                     ^
+     34|   await vi.advanceTimersByTimeAsync(100);
+     35|   await assertion;
+ ❯ node_modules/@vitest/runner/dist/index.js:146:14
+ ❯ node_modules/@vitest/runner/dist/index.js:533:11
+ ❯ runWithTimeout node_modules/@vitest/runner/dist/index.js:39:7
+ ❯ runTest node_modules/@vitest/runner/dist/index.js:1056:17
+ ❯ processTicksAndRejections node:internal/process/task_queues:104:5
+
+This error originated in "tests/worker-lease-sweep.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "waits through an expired snapshot until the kernel retries and completes". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+Caused by: Error: worker lease for step "answer" expired at 1790141762175 without completion
+ ❯ waitForRunningStep src/cli/run.ts:773:13
+ ❯ Module.classifyOutcome src/cli/run.ts:584:13
+ ❯ processTicksAndRejections node:internal/process/task_queues:104:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+     Errors  1 error
+   Start at  05:36:00
+   Duration  1.28s (transform 652ms, setup 0ms, collect 1.11s, tests 10ms, environment 0ms, prepare 41ms)
+
+
+Exit code: 1

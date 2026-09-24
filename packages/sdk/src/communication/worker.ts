@@ -7,6 +7,7 @@ import type { KernelAgentStep } from '../spec.js';
 import { withWorkerLease } from '../worker-lease.js';
 import { workerInstruction } from '../worker-input.js';
 import { resolveCliModel } from '../cli-adapter.js';
+import { resolveAgentCwd } from '../agent-cwd.js';
 import { channelName, type CommunicationInstruction } from './spec.js';
 import { acquireRelayRuntime, type RelayHandle } from './relay.js';
 import { CommunicationSession } from './session.js';
@@ -17,13 +18,13 @@ export function requireCommunicationCli(cli: string | undefined): void {
   if (!cli?.trim()) throw new Error('Agent communication requires a declared CLI executable');
 }
 export async function completeCommunicationDispatch(client: JournalClient, dispatch: StepDispatchEvent,
-  instruction: CommunicationInstruction, dataDir: string): Promise<void> {
+  instruction: CommunicationInstruction, dataDir: string, runRoot?: string): Promise<void> {
   const spec = dispatch.spec as KernelAgentStep;
   requireCommunicationCli(spec.cli);
   let output: unknown;
   let completionReason: 'success' | 'worker_error' = 'success';
   try {
-    output = await withWorkerLease(client, dispatch, signal => run(client, dispatch, instruction, spec, dataDir, signal));
+    output = await withWorkerLease(client, dispatch, signal => run(client, dispatch, instruction, spec, dataDir, signal, runRoot));
   } catch (error) {
     completionReason = 'worker_error';
     output = { error: error instanceof Error ? error.message : String(error) };
@@ -33,7 +34,14 @@ export async function completeCommunicationDispatch(client: JournalClient, dispa
       started_pins: dispatch.pins, end_pins: dispatch.pins });
 }
 async function run(client: JournalClient, dispatch: StepDispatchEvent, instruction: CommunicationInstruction,
-  spec: KernelAgentStep, dataDir: string, lease: AbortSignal): Promise<unknown> {
+  spec: KernelAgentStep, dataDir: string, lease: AbortSignal, runRoot?: string): Promise<unknown> {
+  // Same contract as the CLI worker: a declared directory is resolved and held
+  // inside the same run root the CLI worker measures against, before anything
+  // is spawned. Thrown, not reported, because `completeCommunicationDispatch`
+  // already turns a throw here into a `worker_error` completion carrying the
+  // message.
+  const root = runRoot ?? process.cwd();
+  const directory = resolveAgentCwd(root, spec.cwd) ?? root;
   const controller = new AbortController();
   const signal = AbortSignal.any([lease, controller.signal, AbortSignal.timeout(instruction.timeoutMs)]);
   const relay = await acquireRelayRuntime(dataDir, dispatch.run_id);
@@ -70,9 +78,9 @@ async function run(client: JournalClient, dispatch: StepDispatchEvent, instructi
     });
     // Relay supplies each CLI's launch flags and injection behavior.
     handle = await relay.broker.spawnPty({ name, cli: basename(spec.cli!).replace(/\.exe$/i, ''), task: prompt, channels: [], skipRelayPrompt: true,
-      model: resolveCliModel(spec.cli!, spec.model), cwd: spec.cwd ?? process.cwd(),
+      model: resolveCliModel(spec.cli!, spec.model), cwd: directory,
       harnessConfig: { runtime: 'pty', command: quote(spec.cli!), args: [],
-        cwd: spec.cwd ?? process.cwd(), env: { ...agentEnvironment(spec.cli!),
+        cwd: directory, env: { ...agentEnvironment(spec.cli!),
           RELAYFLOW_COMMUNICATION_SOCKET: tools.path, RELAYFLOW_COMMUNICATION_TOKEN: tools.token },
         delivery: { mode: 'pty-injection', format: 'relay-block' } } });
     const ready = await handle.waitForReady(Math.min(instruction.timeoutMs, 90_000));

@@ -119,6 +119,132 @@ fn run_start_admission_key_recovers_the_same_run_and_refuses_spec_drift() {
     assert_eq!(drifted.error.unwrap().code, "run_admission_conflict");
 }
 
+/// flows#545: an authored `done("step_failed", { detail })` travels as JSON
+/// inside the terminal marker's deterministic command.
+///
+/// The SDK relies on three kernel properties for that to be durable evidence
+/// rather than a claim: the command is journaled verbatim and survives a
+/// reopen, re-admitting the identical spec under the same admission key
+/// returns the same run without spawning a second one, and a spec whose
+/// marker data changed is refused instead of quietly admitted. No kernel
+/// change was needed for the detail — it is opaque data in a shell string —
+/// so this test exists to keep it that way.
+#[test]
+fn deterministic_marker_carrying_json_survives_reopen_and_refuses_changed_detail() {
+    let directory = tempdir().unwrap();
+    let data_dir = directory.path();
+    let hub = Arc::new(ProtocolHub::default());
+    let (writer, _peer) = shared_writer();
+    let marker = |detail: &str| {
+        format!(
+            r#"printf '%s' '{{"completionReason":"step_failed","detail":"{detail}"}}'"#
+        )
+    };
+    let start = |id: &str, command: &str| {
+        json!({"id": id, "verb": "run.start", "params": {
+            "admission_key": "authored-child:complete-2",
+            "spec": {"name": "software-factory/complete-2", "steps": [{
+                "id": "complete-2", "type": "deterministic", "command": command,
+            }]}
+        }})
+        .to_string()
+    };
+
+    let detail = "review found 1 P2: review.clean was not created";
+    let first = request(data_dir, &hub, 1, &writer, &start("one", &marker(detail)));
+    assert!(first.ok, "first admission failed: {:?}", first.error);
+    let run_id = first.result.unwrap()["run_id"].as_str().unwrap().to_owned();
+
+    // Same spec, same key: the same run, not a second effect.
+    let retried = request(data_dir, &hub, 1, &writer, &start("two", &marker(detail)));
+    assert!(retried.ok, "idempotent retry failed: {:?}", retried.error);
+    assert_eq!(retried.result.unwrap()["run_id"], run_id);
+
+    // Reopened from disk by this request, the journal holds exactly one
+    // spawn, and the marker command came back character for character.
+    let read = request(
+        data_dir,
+        &hub,
+        1,
+        &writer,
+        &json!({"id":"read","verb":"journal.read","params":{"run_id": run_id}}).to_string(),
+    );
+    assert!(read.ok, "journal.read failed: {:?}", read.error);
+    let entries = read.result.unwrap();
+    let spawned: Vec<_> = entries["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|entry| entry["entry_type"] == "run.spawned")
+        .collect();
+    assert_eq!(spawned.len(), 1, "one admitted run, one spawn");
+    assert_eq!(
+        spawned[0]["payload"]["spec"]["steps"][0]["command"]
+            .as_str()
+            .unwrap(),
+        marker(detail),
+    );
+
+    // One character of the detail differs: a different spec under an identity
+    // that is already spoken for, and the kernel fails closed rather than
+    // letting a second verdict take the first one's place.
+    let drifted = request(
+        data_dir,
+        &hub,
+        1,
+        &writer,
+        &start("three", &marker("review found 2 P2s")),
+    );
+    assert!(!drifted.ok);
+    assert_eq!(drifted.error.unwrap().code, "run_admission_conflict");
+}
+
+/// flows#545: a lone UTF-16 surrogate is refused at the line, with no id.
+///
+/// This is the kernel property the SDK's detail normalization exists for. A
+/// JavaScript string is code units, not text, so trimming an agent's output —
+/// `(prose + "\u{1F642}").slice(0, -1)` — produces a `string` whose last half
+/// of a surrogate pair has no partner. `JSON.stringify` escapes it, so the
+/// frame is syntactically sendable; this decoder is where it stops. The
+/// refusal carries `"id": null`, because the id is inside the frame that did
+/// not parse — so it resolves no pending client request, and a caller that is
+/// waiting on one waits forever. Normalizing before the write
+/// (`packages/sdk/src/authored-completion.ts`) is the only place that can
+/// keep an authored explanation out of this.
+#[test]
+fn a_lone_surrogate_in_a_request_is_refused_with_no_request_id() {
+    let directory = tempdir().unwrap();
+    let hub = Arc::new(ProtocolHub::default());
+    let (writer, _peer) = shared_writer();
+
+    let refused = request(
+        directory.path(),
+        &hub,
+        1,
+        &writer,
+        r#"{"id":"probe","verb":"hello","params":{"protocol":0,"client":"review found 1 P2: \ud83d"}}"#,
+    );
+
+    assert!(!refused.ok);
+    assert_eq!(
+        refused.id,
+        Value::Null,
+        "a refusal no pending request can be matched to"
+    );
+    assert_eq!(refused.error.unwrap().code, "bad_request");
+
+    // The complete pair is ordinary text and is accepted, so what the decoder
+    // refuses above is the lone half, not the emoji.
+    let paired = request(
+        directory.path(),
+        &hub,
+        1,
+        &writer,
+        r#"{"id":"probe","verb":"hello","params":{"protocol":0,"client":"review found 1 P2: \ud83d\ude42"}}"#,
+    );
+    assert!(paired.ok, "a well-formed pair was refused: {:?}", paired.error);
+}
+
 #[test]
 fn run_start_refuses_invalid_admission_keys() {
     let directory = tempdir().unwrap();
@@ -757,6 +883,201 @@ fn an_entry_appended_during_watch_registration_is_delivered_exactly_once() {
         seen, expected_seqs,
         "every journal entry is delivered exactly once, in order"
     );
+}
+
+/// `run.start` with `watch` streams the new run's entries on the starting
+/// connection from `run.spawned` on, each exactly once, before the result —
+/// the only moment a client that does not yet know the run id can observe it.
+#[test]
+fn run_start_with_watch_streams_every_entry_once_before_the_result() {
+    let directory = tempdir().unwrap();
+    let data_dir = directory.path();
+    let hub = Arc::new(ProtocolHub::default());
+    let (writer, peer) = shared_writer();
+    let spec = json!({"steps": [
+        {"id": "a", "type": "deterministic", "command": ["/bin/sh", "-c", "printf a"]},
+        {"id": "b", "type": "deterministic", "command": ["/bin/sh", "-c", "printf b"], "depends_on": ["a"]}
+    ]});
+    let line = json!({"id": "start", "verb": "run.start", "params": {"spec": spec, "watch": true}})
+        .to_string();
+    let started = request(data_dir, &hub, 1, &writer, &line);
+    assert!(started.ok, "run.start failed: {:?}", started.error);
+    let run_id = started.result.unwrap()["run_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let expected = Engine::new(data_dir)
+        .journal_entries(&run_id, 1, usize::MAX)
+        .unwrap();
+    assert_eq!(expected.first().unwrap().entry_type, EntryType::RunSpawned);
+    assert_eq!(expected.last().unwrap().entry_type, EntryType::RunCompleted);
+    peer.set_read_timeout(Some(Duration::from_millis(500)))
+        .unwrap();
+    let mut reader = BufReader::new(peer);
+    let seen = (0..expected.len())
+        .map(|_| {
+            let frame = read_frame(&mut reader);
+            assert_eq!(frame["event"], "entry");
+            assert_eq!(frame["data"]["run_id"], run_id.as_str());
+            frame["data"]["seq"].as_i64().unwrap()
+        })
+        .collect::<Vec<_>>();
+    let mut leftover = String::new();
+    assert!(
+        reader.read_line(&mut leftover).is_err(),
+        "watcher received a duplicate frame: {leftover}"
+    );
+    assert_eq!(
+        seen,
+        expected.iter().map(|entry| entry.seq).collect::<Vec<_>>()
+    );
+}
+
+/// Without `watch`, `run.start` pushes nothing: the flag is opt-in.
+#[test]
+fn run_start_without_watch_pushes_no_entries() {
+    let directory = tempdir().unwrap();
+    let data_dir = directory.path();
+    let hub = Arc::new(ProtocolHub::default());
+    let (writer, peer) = shared_writer();
+    let spec = json!({"steps": [{"id": "a", "type": "deterministic", "command": ["/bin/sh", "-c", "printf a"]}]});
+    let line = json!({"id": "start", "verb": "run.start", "params": {"spec": spec}}).to_string();
+    assert!(request(data_dir, &hub, 1, &writer, &line).ok);
+    assert_eq!(hub.watcher_count(1), 0);
+    peer.set_nonblocking(true).unwrap();
+    let mut leftover = String::new();
+    assert!(
+        BufReader::new(peer).read_line(&mut leftover).is_err(),
+        "an unwatched start pushed a frame: {leftover}"
+    );
+}
+
+#[test]
+fn run_start_watch_replays_an_existing_admission() {
+    let directory = tempdir().unwrap();
+    let hub = Arc::new(ProtocolHub::default());
+    let (writer, peer) = shared_writer();
+    let params = json!({"admission_key":"watch-retry", "spec":{"steps":[]}});
+    let first = request(
+        directory.path(),
+        &hub,
+        1,
+        &writer,
+        &json!({"id":"first","verb":"run.start","params":params}).to_string(),
+    );
+    assert!(first.ok);
+    let run_id = first.result.unwrap()["run_id"].as_str().unwrap().to_owned();
+    let mut params = params;
+    params["watch"] = json!(true);
+    let retry = request(
+        directory.path(),
+        &hub,
+        1,
+        &writer,
+        &json!({"id":"retry","verb":"run.start","params":params}).to_string(),
+    );
+    assert!(retry.ok);
+    assert_eq!(retry.result.unwrap()["run_id"], run_id);
+    let expected = Engine::new(directory.path())
+        .journal_entries(&run_id, 1, usize::MAX)
+        .unwrap();
+    peer.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    let mut reader = BufReader::new(peer);
+    for entry in expected {
+        assert_eq!(read_frame(&mut reader)["data"]["seq"], entry.seq);
+    }
+    assert_eq!(hub.watcher_count(1), 1);
+    // A boot change takes the Recover branch rather than Existing.
+    rusqlite::Connection::open(directory.path().join("relayflowd.sqlite3"))
+        .unwrap()
+        .execute("UPDATE run_admissions SET boot_id = 'dead-boot'", [])
+        .unwrap();
+    let (writer2, peer2) = shared_writer();
+    let recovered = request(
+        directory.path(),
+        &hub,
+        2,
+        &writer2,
+        &json!({"id":"recover","verb":"run.start","params":params}).to_string(),
+    );
+    assert!(recovered.ok);
+    assert_eq!(recovered.result.unwrap()["run_id"], run_id);
+    peer2
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    assert_eq!(
+        read_frame(&mut BufReader::new(peer2))["data"]["entry_type"],
+        "run.spawned"
+    );
+    assert_eq!(hub.watcher_count(2), 1);
+}
+
+#[test]
+fn run_start_watch_rolls_back_after_journal_creation_failure() {
+    let directory = tempdir().unwrap();
+    // Registry creation succeeds, but creating the per-run journal cannot.
+    std::fs::write(directory.path().join("runs"), "not a directory").unwrap();
+    let hub = Arc::new(ProtocolHub::default());
+    let (writer, _peer) = shared_writer();
+    let response = request(
+        directory.path(),
+        &hub,
+        1,
+        &writer,
+        &json!({"id":"bad","verb":"run.start","params":{"watch":true,"spec":{"steps":[]}}})
+            .to_string(),
+    );
+    assert!(!response.ok);
+    assert_eq!(hub.watcher_count(1), 0);
+}
+
+#[test]
+fn run_start_watch_streams_while_the_step_is_still_blocked() {
+    let directory = tempdir().unwrap();
+    let release = directory.path().join("release-step");
+    let command = format!(
+        "while [ ! -f '{}' ]; do sleep 0.01; done",
+        release.display()
+    );
+    let hub = Arc::new(ProtocolHub::default());
+    let (writer, peer) = shared_writer();
+    let path = directory.path().to_owned();
+    let (tx, rx) = mpsc::channel();
+    let worker = thread::spawn(move || {
+        let response = request(
+            &path,
+            &hub,
+            1,
+            &writer,
+            &json!({"id":"live","verb":"run.start","params":{"watch":true,"spec":{"steps":[
+                {"id":"blocked","type":"deterministic","command":["/bin/sh","-c",command]}
+            ]}}})
+            .to_string(),
+        );
+        tx.send(response).unwrap();
+    });
+    peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut reader = BufReader::new(peer);
+    let first = read_frame(&mut reader);
+    assert_eq!(first["data"]["entry_type"], "run.spawned");
+    assert!(
+        rx.try_recv().is_err(),
+        "run completed before its step was released"
+    );
+    std::fs::write(&release, "go").unwrap();
+    let mut last = 1;
+    loop {
+        let frame = read_frame(&mut reader);
+        let seq = frame["data"]["seq"].as_i64().unwrap();
+        assert!(seq > last);
+        last = seq;
+        if frame["data"]["entry_type"] == "run.completed" {
+            break;
+        }
+    }
+    assert!(rx.recv_timeout(Duration::from_secs(5)).unwrap().ok);
+    worker.join().unwrap();
 }
 
 /// Finding 5: when the journal append for a disconnect's crashed completion

@@ -1,5 +1,4 @@
-import { RUN_COMPLETION_REASONS, type ScheduleTriggerSource } from '@relayflows/surface';
-import type { RunCompletionReason } from './protocol.js';
+import { type ScheduleTriggerSource } from '@relayflows/surface';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { setTimeout } from 'node:timers/promises';
@@ -14,6 +13,7 @@ import {
   CloudFlowError, cloudConnection, cloudFetch, cloudRequest, cloudRunId, isCloudRecord,
   type CloudConnectionOptions,
 } from './cloud-http.js';
+import { cloudRunState, isCloudRunActive, type CloudRunState } from './cloud-run-record.js';
 import { packWorkingTree, prepareCloudSync, uploadCloudCode } from './cloud-sync.js';
 
 export type CloudFlowSource = FlowSpec | { path: string };
@@ -66,9 +66,7 @@ export function cloudSubmissionBody(submission: CloudSubmission): Record<string,
   };
 }
 
-export type CloudRunState =
-  | { runId: string; status: 'pending' | 'launching' | 'running' }
-  | { runId: string; status: 'completed' | 'failed' | 'cancelled'; completionReason: RunCompletionReason };
+export type { CloudRunState };
 
 /**
  * Submit a declarative flow to Cloud's pinned v2 runtime. Compilation only
@@ -269,24 +267,7 @@ export async function getCloudFlowRun(
   options: CloudConnectionOptions = {},
 ): Promise<CloudRunState> {
   cloudRunId(runId);
-  const result = await cloudRequest(`/api/v1/workflows/runs/${runId}`, options);
-  if (!isCloudRecord(result) || result.runId !== runId || result.relayflowVersion !== 'v2'
-    || typeof result.status !== 'string'
-    || !['pending', 'launching', 'running', 'completed', 'failed', 'cancelled'].includes(result.status)) {
-    throw new CloudFlowError('invalid_response', 'Cloud returned an invalid v2 run record.');
-  }
-  if (result.status === 'pending' || result.status === 'launching' || result.status === 'running') {
-    return { runId, status: result.status };
-  }
-  const report = result.result;
-  const reason = isCloudRecord(report) ? report.completionReason : undefined;
-  if (typeof reason !== 'string' || !(RUN_COMPLETION_REASONS as readonly string[]).includes(reason)
-    || (result.status === 'completed' && (reason !== 'success' || !isCloudRecord(report) || report.ok !== true || report.status !== 'completed'))
-    || (result.status === 'failed' && !['step_failed', 'budget_exceeded'].includes(reason))
-    || (result.status === 'cancelled' && reason !== 'canceled')) {
-    throw new CloudFlowError('invalid_response', 'Cloud terminal record lacks a valid, consistent run completionReason; no execution outcome is attested.');
-  }
-  return { runId, status: result.status as 'completed' | 'failed' | 'cancelled', completionReason: reason as RunCompletionReason };
+  return cloudRunState(await cloudRequest(`/api/v1/workflows/runs/${runId}`, options), runId);
 }
 
 /** Wait without a fixed execution deadline. Abort stops observation, not the hosted run. */
@@ -304,7 +285,7 @@ export async function waitForCloudFlowRun(
     try {
       const run = await getCloudFlowRun(runId, options);
       failures = 0;
-      if (run.status !== 'pending' && run.status !== 'launching' && run.status !== 'running') return run;
+      if (!isCloudRunActive(run.status)) return run;
     } catch (error) {
       options.signal?.throwIfAborted();
       const transient = error instanceof CloudFlowError && (error.code === 'transient_error'

@@ -15,6 +15,7 @@
 // key is ignored, a route that drops one yields `null`, never a throw.
 
 import { CloudFlowError, cloudFetch, cloudRunId, isCloudRecord, type CloudConnectionOptions } from './cloud-http.js';
+import { cloudRunState, type CloudRunState } from './cloud-run-record.js';
 
 /** One row of `GET /api/v1/workflows/runs`. */
 export interface CloudRunSummary {
@@ -334,8 +335,31 @@ export async function getCloudRunDetail(
   options: CloudConnectionOptions = {},
 ): Promise<CloudRunDetail> {
   const asked = callerRunId(runId);
-  const body = record(await cloudFetch(`/api/v1/workflows/runs/${asked}`, options,
+  return runDetail(asked, await cloudFetch(`/api/v1/workflows/runs/${asked}`, options,
     { method: 'GET', detail: true }));
+}
+
+/**
+ * The run record twice over: what to render, and what it attests.
+ *
+ * `--watch` and `--follow` need both, from the same bytes. The rendered view
+ * is the permissive mapping below, which shows whatever Cloud said; the exit
+ * code comes from `cloudRunState`, the same validator `flows run --wait`
+ * blocks on, so a live read cannot exit 0 on a record the waiter refuses.
+ * One request, because a second GET per poll could observe a different run
+ * than the one that was drawn.
+ */
+export async function getCloudRunDetailLive(
+  runId: string,
+  options: CloudConnectionOptions = {},
+): Promise<{ detail: CloudRunDetail; state: CloudRunState }> {
+  const asked = callerRunId(runId);
+  const answered = await cloudFetch(`/api/v1/workflows/runs/${asked}`, options, { method: 'GET', detail: true });
+  return { detail: runDetail(asked, answered), state: cloudRunState(answered, asked) };
+}
+
+function runDetail(asked: string, answeredBody: unknown): CloudRunDetail {
+  const body = record(answeredBody);
   if (body === null) throw new CloudFlowError('invalid_response', 'Cloud returned no run record.');
   // The record has to be the record that was asked for, and it has to say what
   // the run is doing. `getCloudFlowRun` (cloud-run.ts) already refuses a

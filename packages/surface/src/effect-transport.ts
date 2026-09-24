@@ -1,5 +1,4 @@
 import type { RelayClientOptions, RelayTransport } from '@relayfile/relay-helpers/transport';
-import { guardHelperMembers, helperProviderEntry, UnsupportedHelperMemberError } from './helper-support.js';
 import type { Step } from './step.js';
 
 /** Promise-returning client verbs become lazy, journal-owned steps. */
@@ -29,12 +28,8 @@ export function bindHelper<T extends object>(provider: string, factory: (options
 export function bindHelper(provider: string, factory: undefined, dispatch: EffectDispatcher): UnavailableHelper;
 export function bindHelper(provider: string, factory: HelperFactory | undefined, dispatch: EffectDispatcher): object {
   if (!factory) return Object.freeze({ available: false });
-  // A partially supported provider guards member access: its namespace promises
-  // workflows its writeback catalog does not carry, so `f.gitlab.issues` must
-  // name what is available instead of reading `undefined`.
-  const partial = helperProviderEntry(provider)?.supported === 'partial';
   function wrap(client: object, prefix = ''): object {
-    const bound = Object.fromEntries(Object.entries(client).map(([key, value]) => {
+    return Object.fromEntries(Object.entries(client).map(([key, value]) => {
       const verb = `${prefix}${key}`;
       if (typeof value === 'function') return [key, key === 'path'
         ? value.bind(client)
@@ -44,46 +39,21 @@ export function bindHelper(provider: string, factory: HelperFactory | undefined,
         }];
       return [key, value && typeof value === 'object' ? wrap(value, `${verb}.`) : value];
     }));
-    return partial ? guardHelperMembers(provider, bound, prefix === '' ? undefined : prefix.slice(0, -1)) : bound;
   }
   return wrap(factory({ transport: unavailableTransport }));
-}
-
-/**
- * An authored envelope reaches `invokeHelper` without ever touching the bound
- * helper's properties, so the same refusal is repeated here. Non-partial
- * providers keep their existing generic diagnostics.
- */
-function unknownMember(
-  provider: string, member: string, container: unknown, resource: string | undefined, kind: 'resource' | 'verb',
-): Error {
-  if (helperProviderEntry(provider)?.supported !== 'partial') {
-    return new Error(kind === 'resource' ? 'Unknown helper resource' : 'Unknown helper verb');
-  }
-  // `path` builds a path synchronously and is never dispatchable, so naming it
-  // as an available verb would send the author at a call that cannot work.
-  const available = container !== null && typeof container === 'object'
-    ? Object.keys(container).filter(key => kind === 'resource' || key !== 'path') : [];
-  return new UnsupportedHelperMemberError(provider, member, available, resource);
 }
 
 /** Resolve only own, generated client methods; never arbitrary prototype members. */
 export async function invokeHelper(factory: HelperFactory, call: HelperCall, transport: RelayTransport): Promise<unknown> {
   let target: unknown = factory({ transport });
   const parts = call.verb.split('.');
-  let resource: string | undefined;
   for (const part of parts.slice(0, -1)) {
-    if (!target || typeof target !== 'object' || !Object.hasOwn(target, part)) {
-      throw unknownMember(call.provider, part, target, resource, 'resource');
-    }
+    if (!target || typeof target !== 'object' || !Object.hasOwn(target, part)) throw new Error('Unknown helper resource');
     target = (target as Record<string, unknown>)[part];
-    resource = resource === undefined ? part : `${resource}.${part}`;
   }
   const verb = parts.at(-1)!;
-  if (!target || typeof target !== 'object' || !Object.hasOwn(target, verb) || verb === 'path') {
-    throw unknownMember(call.provider, verb, target, resource, 'verb');
-  }
+  if (!target || typeof target !== 'object' || !Object.hasOwn(target, verb) || verb === 'path') throw new Error('Unknown helper verb');
   const method = (target as Record<string, unknown>)[verb];
-  if (typeof method !== 'function') throw unknownMember(call.provider, verb, target, resource, 'verb');
+  if (typeof method !== 'function') throw new Error('Unknown helper verb');
   return await method.apply(target, call.args) ?? null;
 }

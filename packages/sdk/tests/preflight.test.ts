@@ -558,6 +558,11 @@ describe('preflight: CLI resolution and refusal predicates', () => {
         } as never),
         { probes: probes() },
       ),
+      // An artifact_exists path the bundled worker's artifact scan never
+      // records. Another writer of `output.artifacts` may still produce it,
+      // so the gate is unproven rather than unsatisfiable: warn, never refuse.
+      preflight(flow({ id: 'a', type: 'agent', instruction: 'i', cli: 'x',
+        verification: { type: 'artifact_exists', path: 'node_modules/review.md' } }), { probes: probes() }),
     ];
     const warningKinds = scenarios.flatMap((result) => result.diagnostics)
       .filter((diagnostic) => diagnostic.severity === 'warning')
@@ -625,6 +630,19 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       // `scope_syntax_invalid`: grant string doesn't match "mount/path: mode".
       preflight({ ...flow({ id: 'a', type: 'deterministic', command: 'x' }),
         workspace: 'not-a-grant' } as FlowSpec, { probes: probes() }),
+      // steps_green refusal coverage. All three are compile-time, and all
+      // three exist because the gate reads a RECORDED exit code: a host that
+      // never produces one, an id list that names nothing readable, and a
+      // source whose outcome the gate cannot bind.
+      preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x',
+        verification: { type: 'steps_green', ids: ['a'] } } as never), { probes: probes() }),
+      preflight(flow({ id: 'a', type: 'deterministic', command: 'x',
+        verification: { type: 'steps_green', ids: [] } } as never), { probes: probes() }),
+      preflight({ version: '0.1.0', steps: [
+        { id: 'writer', type: 'agent', instruction: 'i', cli: 'x' },
+        { id: 'a', type: 'deterministic', command: 'x',
+          verification: { type: 'steps_green', ids: ['writer'] } },
+      ] } as never, { probes: probes() }),
     ];
     const refusalKinds = scenarios.flatMap((result) => result.diagnostics)
       .filter((diagnostic) => diagnostic.severity === 'refusal')

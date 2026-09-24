@@ -1,8 +1,22 @@
 import { join } from 'node:path';
 import { DEFAULT_DATA_DIR } from '../daemon-connection.js';
-import type { StepFailedDetails } from '../failure-kinds.js';
+import type { StepAttemptFailure, StepFailedDetails } from '../failure-kinds.js';
 import type { JournalClient } from '../journal-client.js';
-import { formatStepExcerpt } from './step-excerpt.js';
+import {
+  attemptFailure,
+  compareAttempts,
+  failureCause,
+  record,
+  renderAttemptHistory,
+  terminalEvidence,
+  type AttemptCause,
+} from './step-evidence.js';
+
+/** Every failed attempt of one step, in journal order, with its causes. */
+interface AttemptHistory {
+  records: StepAttemptFailure[];
+  causes: AttemptCause[];
+}
 
 /**
  * Read what a failed step left in the journal — for any step type.
@@ -21,10 +35,16 @@ import { formatStepExcerpt } from './step-excerpt.js';
  * agent or llm step the worker's `{exit_code, stdout_tail, stderr_tail}` is
  * nulled out of `output` and survives only as the bounded render the daemon
  * captured into `verification.detail` (`worker_failure_detail`,
- * relayflowd/src/engine/remote.rs). Both are read, in that order, and the
- * daemon's render is re-parsed when it carries that same shape: an exit code
- * the daemon stringified on its way into the journal is still an exit code,
- * and printing it as one is the difference between a diagnosis and a blob.
+ * relayflowd/src/engine/remote.rs). Both are read by `selectEvidence`, in that
+ * order, and the daemon's render is re-parsed when it carries that same shape.
+ *
+ * EVERY failed attempt is collected, not only the terminal one. The kernel
+ * appends a `step.completed` per attempt, so a retried step's first failure is
+ * in the journal — but `retries_exhausted` reported only the last attempt, and
+ * a retry that fails differently (because the first attempt already had a side
+ * effect) is exactly when the last attempt is the least informative record
+ * there is. The scalar fields still describe the terminal attempt; `attempts`
+ * is additive.
  */
 export async function stepFailureDetails(
   client: JournalClient,
@@ -40,6 +60,9 @@ export async function stepFailureDetails(
   // enforcing (relayflowd-core/src/entry.rs `AttemptStartedPayload`). They are
   // collected on the same walk and reported only when the journal held them.
   const budgets = new Map<string, number>();
+  // Keyed by step, so interleaved steps never pool their attempts and a page
+  // boundary never splits one step's history.
+  const histories = new Map<string, AttemptHistory>();
   while (true) {
     const { entries } = await client.journalRead(runId, fromSeq, 100);
     if (entries.length === 0) break;
@@ -63,15 +86,27 @@ export async function stepFailureDetails(
       // A later completion supersedes an earlier failed attempt.
       failures.delete(stepId);
       const payload = record(entry['payload']);
-      if (payload === undefined) continue;
-      const completionReason = payload['completionReason'];
+      const completionReason = payload?.['completionReason'];
+      // A success — or a completion this reader cannot read — ends the failure
+      // history too: what a step that eventually succeeded printed on the way
+      // is not the diagnosis of a later, different failure. The journal still
+      // holds every entry; only this diagnostic's candidate is cleared.
+      if (payload === undefined || typeof completionReason !== 'string' || completionReason === 'success') {
+        histories.delete(stepId);
+        continue;
+      }
+      const history = histories.get(stepId) ?? { records: [], causes: [] };
+      // Recorded for `retry` and `park` alike: the kernel's disposition says
+      // what it did next, not whether the attempt failed.
+      history.records.push(attemptFailure(entry['attempt'], completionReason, payload['disposition'], payload));
+      history.causes.push(failureCause(completionReason, payload));
+      histories.set(stepId, history);
       // A terminal completion that is not a success is the failure, whatever
       // its step type. The old predicate also demanded a non-zero `exit_code`,
       // which no agent completion carries and which a deterministic step that
       // exits 0 and then fails its gate does not carry either — both were
       // silently skipped.
-      if (payload['disposition'] !== 'step_done'
-        || typeof completionReason !== 'string' || completionReason === 'success') continue;
+      if (payload['disposition'] !== 'step_done') continue;
       const stepType = snapshot.steps[stepId]?.type;
       const attempt = entry['attempt'];
       const maxIterations = budgets.get(stepId);
@@ -81,7 +116,13 @@ export async function stepFailureDetails(
         ...(stepType === undefined ? {} : { stepType }),
         ...(typeof attempt === 'number' && Number.isSafeInteger(attempt) && attempt > 0 ? { attempt } : {}),
         ...(maxIterations === undefined ? {} : { maxIterations }),
-        ...evidence(payload),
+        ...terminalEvidence(payload),
+        // A single failed attempt is already fully described by the scalars
+        // above; repeating it as a one-element history would add a clause to
+        // every ordinary failure report without adding a fact.
+        ...(history.records.length > 1
+          ? { attempts: history.records, attemptEvidence: compareAttempts(history.causes) }
+          : {}),
       });
     }
   }
@@ -104,6 +145,10 @@ export async function stepFailureDetails(
  * stops it being misread. Unknown values are omitted rather than defaulted —
  * an absent budget must not be reported as one attempt.
  *
+ * The attempt history follows that line and precedes the terminal attempt's
+ * own clauses, so the first error is visible without scrolling past the last
+ * one's output tails.
+ *
  * Lives next to `StepFailedDetails`'s extractor rather than in `cli/run.ts` so
  * the authored `f.run` path can render the same grammar without importing the
  * run lifecycle (which would be a cycle).
@@ -115,6 +160,7 @@ export function renderStepEvidence(details: StepFailedDetails): string {
     + renderAttempt(details)
     + (details.exitCode === undefined ? '' : ` exit=${details.exitCode}`)
     + '.'
+    + renderAttemptHistory(details)
     + (details.detail === undefined ? '' : `\nDetail: ${details.detail}`)
     + (details.stdoutTail ? `\nStdout (captured excerpt):\n${details.stdoutTail}` : '')
     + (details.stderrTail ? `\nStderr (captured excerpt):\n${details.stderrTail}` : '')
@@ -162,76 +208,6 @@ export function inspectionHint(
     ...(dataDir === undefined ? {} : { journalPath: join(dataDir, 'runs', `${runId}.sqlite3`) }),
   };
 }
-
-/**
- * Pull the process-shaped fields out of whichever field carried them.
- *
- * `verification.detail` is last because it is the daemon's own render rather
- * than the worker's structured report — but for an agent step it is the only
- * thing that survives, so it is parsed when it parses and kept verbatim when
- * it does not. A truncated render (the daemon caps at 2,000 chars and appends
- * a truncation note) will not parse; that falls through to the raw string,
- * which is still the account of what went wrong.
- *
- * An agent or llm completion now also carries `trajectory_tail.transcript`
- * (agent-transcript.ts) on every attempt. That object is not process-shaped,
- * so it must not shadow the render that is: the first candidate that carries
- * an exit code or a tail wins. The digest contributes what only it has — the
- * failure excerpt the worker picked out of the provider's frames, and the
- * path of the transcript file.
- */
-function evidence(payload: Record<string, unknown>): Partial<StepFailedDetails> {
-  const detail = record(payload['verification'])?.['detail'];
-  const candidates = [
-    record(payload['output']),
-    record(payload['trajectory_tail']),
-    typeof detail === 'string' ? parsed(detail) : undefined,
-  ].filter((candidate): candidate is Record<string, unknown> => candidate !== undefined);
-  const structured = candidates.find(processShaped) ?? candidates[0];
-  const exitCode = structured?.['exit_code'];
-  const stdout = structured?.['stdout_tail'];
-  const stderr = structured?.['stderr_tail'];
-  const structuredShape = structured !== undefined && processShaped(structured);
-  const transcript = record(record(payload['trajectory_tail'])?.['transcript']);
-  const failure = record(transcript?.['failure']);
-  const failureExcerpt = failure?.['excerpt'];
-  const transcriptPath = record(transcript?.['file'])?.['path'];
-  // The excerpt is the worker's own pick of the failure; a `stderr` excerpt
-  // is the same bytes as `stderrTail`, so it is not printed twice.
-  const excerptDetail = typeof failureExcerpt === 'string' && failureExcerpt.length > 0
-    && !(failure?.['kind'] === 'stderr' && typeof stderr === 'string')
-    ? formatStepExcerpt(failureExcerpt) : undefined;
-  return {
-    ...(typeof exitCode === 'number' && Number.isSafeInteger(exitCode) ? { exitCode } : {}),
-    ...(typeof stdout === 'string' && stdout.length > 0 ? { stdoutTail: formatStepExcerpt(stdout) } : {}),
-    ...(typeof stderr === 'string' ? { stderrTail: formatStepExcerpt(stderr) } : {}),
-    // Keep the daemon's account only when it was NOT just a render of the
-    // fields above — otherwise the same bytes print twice.
-    ...(excerptDetail !== undefined ? { detail: excerptDetail }
-      : typeof detail === 'string' && detail.length > 0 && !structuredShape
-        ? { detail: formatStepExcerpt(detail) } : {}),
-    ...(typeof transcriptPath === 'string' && transcriptPath.length > 0 ? { transcriptPath } : {}),
-  };
-}
-
-function processShaped(value: Record<string, unknown>): boolean {
-  return typeof value['exit_code'] === 'number'
-    || typeof value['stdout_tail'] === 'string' || typeof value['stderr_tail'] === 'string';
-}
-
-function parsed(value: string): Record<string, unknown> | undefined {
-  try {
-    return record(JSON.parse(value));
-  } catch {
-    return undefined;
-  }
-}
-
-function record(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown> : undefined;
-}
-
 
 function shellQuote(value: string): string {
   return /^[A-Za-z0-9_-]+$/.test(value) && !value.startsWith('-')

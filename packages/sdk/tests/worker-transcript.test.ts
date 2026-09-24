@@ -1,12 +1,12 @@
 import { EventEmitter } from 'node:events';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { LLM_ERROR_MAX_BYTES, TRANSCRIPT_DIGEST_MAX_BYTES, type TranscriptDigest } from '../src/agent-transcript.js';
 import type { JournalClient } from '../src/journal-client.js';
-import { LlmWorker } from '../src/llm-worker.js';
+import { LlmWorker, unfenced } from '../src/llm-worker.js';
 import type { Pins } from '../src/protocol.js';
 import { AgentWorker } from '../src/worker.js';
 import { runAgentCli } from '../src/worker-cli.js';
@@ -92,13 +92,15 @@ describe('the agent worker journals the digest in trajectory_tail on every compl
     // The data dir is outside the agent's cwd, as it is in Cloud's sandbox
     // (`join(stateDir, "journal")`): the transcript file is not an artifact.
     mkdirSync(join(root, 'workspace'));
-    const worker = new AgentWorker(client, { workerId: 'w', pins, dataDir: join(root, 'data') });
+    // `cwd` is run-root-relative (flows#357), so the root the worker measures
+    // it against is named here rather than being this process's directory.
+    const worker = new AgentWorker(client, { workerId: 'w', pins, dataDir: join(root, 'data'), runRoot: root });
     const errors: unknown[] = [];
     worker.on('error', error => errors.push(error));
     await worker.attach();
     (client as unknown as EventEmitter).emit('step.dispatch', {
       run_id: 'run-a', step_id: 'agent-1', attempt, step_type: 'agent',
-      spec: { cli: claude, instruction: 'probe', cwd: join(root, 'workspace') }, pins,
+      spec: { cli: claude, instruction: 'probe', cwd: 'workspace' }, pins,
       lease_id: 'lease', lease_deadline_ms: Date.now() + 30_000, idempotency_key: 'k',
     });
     await worker.close();
@@ -126,6 +128,34 @@ describe('the agent worker journals the digest in trajectory_tail on every compl
     // The wrapper output keeps its shape; the digest is evidence, not output.
     expect(payload.output).toMatchObject({ exit_code: 0, stdout_tail: 'wrote the file', artifacts: [] });
     expect(payload.output).not.toHaveProperty('transcript');
+  });
+
+  it('a step with no declared cwd spawns in the run root, not the worker process cwd', async () => {
+    const root = makeDirectory();
+    const marker = join(root, 'spawned-in');
+    const claude = join(root, 'claude');
+    writeFileSync(claude, `#!/usr/bin/env node
+require('node:fs').writeFileSync(${JSON.stringify(marker)}, process.cwd());
+process.stdout.write('done');
+`);
+    chmodSync(claude, 0o755);
+    const { client, completions } = stubClient();
+    const worker = new AgentWorker(client, { workerId: 'w', pins, dataDir: join(root, 'data'), runRoot: root });
+    const errors: unknown[] = [];
+    worker.on('error', error => errors.push(error));
+    await worker.attach();
+    (client as unknown as EventEmitter).emit('step.dispatch', {
+      run_id: 'run-r', step_id: 'agent-1', attempt: 1, step_type: 'agent',
+      spec: { cli: claude, instruction: 'probe' }, pins,
+      lease_id: 'lease', lease_deadline_ms: Date.now() + 30_000, idempotency_key: 'k',
+    });
+    await worker.close();
+    expect(errors).toEqual([]);
+    expect(completions).toHaveLength(1);
+    // The communication worker already substitutes runRoot for an absent cwd;
+    // the CLI path must agree or the two workers run the same step in
+    // different directories (cursor review on #512).
+    expect(readFileSync(marker, 'utf8')).toBe(realpathSync(root));
   });
 
   it('on failure: the failure excerpt names the result frame, and the digest still rides', async () => {
@@ -184,5 +214,53 @@ describe('the llm worker bounds and redacts its error and journals the digest', 
     expect(transcript.failure?.excerpt).not.toContain(secret);
     expect(transcript.file).toBeUndefined();
     expect(Buffer.byteLength(JSON.stringify(payload.trajectory_tail), 'utf8')).toBeLessThan(16 * 1024);
+  });
+});
+
+describe('the llm worker judges the value inside one markdown fence', () => {
+  async function completeWith(result: string): Promise<unknown[]> {
+    const root = makeDirectory();
+    const lines = fixtureLines.map(line => {
+      const frame = JSON.parse(line) as Record<string, unknown>;
+      return frame.type === 'result' ? JSON.stringify({ ...frame, result }) : line;
+    });
+    const claude = fakeClaude(root, lines);
+    const { client, completions } = stubClient();
+    const worker = new LlmWorker(client, 'llm');
+    const errors: unknown[] = [];
+    worker.on('error', error => errors.push(error));
+    await worker.attach();
+    (client as unknown as EventEmitter).emit('step.dispatch', {
+      run_id: 'run-f', step_id: 'llm-1', attempt: 1, step_type: 'llm',
+      spec: { cli: claude, prompt: 'answer', verification: { json_schema: { type: 'object', required: ['x'], properties: { x: { type: 'number' } } } } },
+      pins, lease_id: 'lease', lease_deadline_ms: Date.now() + 30_000, idempotency_key: 'k',
+    });
+    await worker.close();
+    expect(errors).toEqual([]);
+    return completions[0]!;
+  }
+
+  it('accepts a fenced reply whose content matches the schema, and journals the parsed value', async () => {
+    const completion = await completeWith('```json\n{"x": 4}\n```');
+    expect(completion[4]).toBe('success');
+    expect((completion[5] as { output: unknown }).output).toEqual({ x: 4 });
+  });
+
+  it('still refuses prose around the JSON, and a fenced value that breaks the schema', async () => {
+    expect((await completeWith('Here it is: {"x": 4}'))[4]).toBe('verification_failed');
+    expect((await completeWith('```json\n{"y": 4}\n```'))[4]).toBe('verification_failed');
+  });
+
+  it('unfenced strips exactly one surrounding fence and nothing else', () => {
+    expect(unfenced('```json\n{"x":1}\n```')).toBe('{"x":1}');
+    expect(unfenced('  ```\n[1]\n```\n')).toBe('[1]');
+    expect(unfenced('{"x":1}')).toBe('{"x":1}');
+    expect(unfenced('~~~json\n{"x":1}\n~~~')).toBe('{"x":1}');
+    expect(unfenced('````json\n{"x":1}\n`````')).toBe('{"x":1}');
+    // A closing run shorter than the opener, or of the other character, closes nothing.
+    expect(unfenced('````json\n{"x":1}\n```')).toBe('````json\n{"x":1}\n```');
+    expect(unfenced('```json\n{"x":1}\n~~~')).toBe('```json\n{"x":1}\n~~~');
+    // Two fenced values are not one value: whatever is left must still fail JSON.parse.
+    expect(() => JSON.parse(unfenced('```json\n{}\n```\n```json\n{}\n```'))).toThrow();
   });
 });

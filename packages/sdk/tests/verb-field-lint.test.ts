@@ -82,6 +82,9 @@ const VERB_FIELD_VALUES: Record<string, unknown> = {
   output: { type: 'object' },
   cwd: '/tmp/foreign-cwd',
   transport: 'direct',
+  // Not `'fail'`: the default is normalized away on compile, so a default
+  // value could pass the YAML round trip on a step type that never allows it.
+  onNonZero: 'record',
 };
 
 /**
@@ -199,13 +202,14 @@ describe('closed per-verb step fields', () => {
       'requirements',
     ]);
     expect(STEP_FIELDS_BY_TYPE).toEqual({
-      deterministic: ['command', 'timeoutMs', 'lease_ms'],
+      deterministic: ['command', 'timeoutMs', 'lease_ms', 'onNonZero'],
       llm: ['prompt', 'model', 'cli', 'output'],
       agent: ['instruction', 'agent', 'cli', 'model', 'cwd', 'transport', 'surfaces', 'recoveryMode', 'permissions', 'output'],
     });
     expect(CROSS_VERB_STEP_FIELDS.map(({ label }) => label).sort()).toEqual([
       'agent foreign command',
       'agent foreign lease_ms',
+      'agent foreign onNonZero',
       'agent foreign prompt',
       'agent foreign timeoutMs',
       'deterministic foreign agent',
@@ -224,6 +228,7 @@ describe('closed per-verb step fields', () => {
       'llm foreign cwd',
       'llm foreign instruction',
       'llm foreign lease_ms',
+      'llm foreign onNonZero',
       'llm foreign permissions',
       'llm foreign recoveryMode',
       'llm foreign surfaces',

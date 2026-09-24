@@ -46,7 +46,7 @@ export class LlmWorker extends EventEmitter {
 
   private readonly onDispatch = (dispatch: StepDispatchEvent): void => {
     if (this.closing || dispatch.step_type !== 'llm') return;
-    const running = this.execute(dispatch).catch(error => { this.emit('error', error); });
+    const running = this.execute(dispatch).catch(error => { this.emit('error', error, dispatch); });
     this.inFlight.add(running);
     void running.finally(() => { this.inFlight.delete(running); });
   };
@@ -67,7 +67,7 @@ export class LlmWorker extends EventEmitter {
     let detail = result.stderr_tail;
     if (reason === 'success' && schema !== undefined) {
       try {
-        output = JSON.parse(result.stdout_tail);
+        output = JSON.parse(unfenced(result.stdout_tail));
         const invalid = jsonSchemaOutputError(schema, output);
         if (invalid !== undefined) {
           reason = 'verification_failed';
@@ -97,4 +97,18 @@ export class LlmWorker extends EventEmitter {
         ...(Object.keys(trajectoryTail).length === 0 ? {} : { trajectory_tail: trajectoryTail }),
       });
   }
+}
+
+/**
+ * A reply that is exactly one markdown code fence around a value, reduced to
+ * that value. Models add the fence despite the instruction not to; the schema
+ * still judges what is inside it. A fence opens with three or more backticks
+ * or tildes and closes with a run of the same character at least as long.
+ * Anything else (prose around the JSON, two fences) is returned unchanged and
+ * fails the parse as before.
+ */
+export function unfenced(text: string): string {
+  const fence = /^\s*(?:(`{3,})[^`\n]*\n([\s\S]*?)\n?\1`*|(~{3,})[^\n]*\n([\s\S]*?)\n?\3~*)\s*$/.exec(text);
+  if (fence === null) return text;
+  return fence[2] ?? fence[4]!;
 }

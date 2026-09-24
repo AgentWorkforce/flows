@@ -1,4 +1,4 @@
-import { resolve } from 'node:path';
+import { isAbsolute, relative, sep } from 'node:path';
 import type { AuthoredBudget } from './authored-budget.js';
 import { parseBudget } from './budget.js';
 import type { AgentOptions, AgentResult, LlmOptions, NamedGate } from '@relayflows/surface';
@@ -7,9 +7,10 @@ import { checkAuthoredFlow } from './cli/check.js';
 import { classifyOutcome, type RunLifecycleOptions, type RunReport } from './cli/run.js';
 import type { PreflightDiagnostic } from './preflight.js';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
+import { agentCwdDeclarationError, agentCwdTransportError } from './agent-cwd.js';
 import type { JournalClient } from './journal-client.js';
 import { SPEC_SCHEMA_VERSION, type FlowSpec, type PermissionsSpec, type StepSpec } from './spec.js';
-import { isSurfaceCompletionReason, readCompletedStepOutput, readSuccessfulOutput, type AuthoredStepContext } from './authored-step-output.js';
+import { isSurfaceCompletionReason, readCompletedStepOutput, readRecordedOutcome, readSuccessfulOutput, type AuthoredStepContext, type RecordedRunOutcome } from './authored-step-output.js';
 import type { AuthoredFlowJournalStep } from './authored-flow-executor.js';
 import { snapshotJsonValue } from './json-value.js';
 import { authoredChildAdmissionKey } from './authored-admission.js';
@@ -77,7 +78,7 @@ export function authoredWorkerRunner(
     const execution = await classifyOutcome(journal, 'run', outcome, report, '', waitOptions);
     if (execution.exitCode === 3) {
       const parked = execution.report.parkedStep;
-      throw new AuthoredFlowExecutionError(
+      const error = new AuthoredFlowExecutionError(
         step.type === 'llm' ? 'llm_parked' : 'agent_parked',
         execution.report.diagnostics.at(-1)?.message
           ?? `flow "${definition.name}" step "${id}" parked`
@@ -86,6 +87,14 @@ export function authoredWorkerRunner(
         undefined,
         outcome.run_id,
       );
+      // Both `agent_parked` and `llm_parked` cover two unrelated situations —
+      // nothing attached to run the step, and the kernel's `needs_human`
+      // recovery wait after a worker attempt failed — and only the first is
+      // fixed by attaching a worker. The child's classification already knows
+      // which; carry it so the CLI boundary can name a remedy without
+      // re-deriving one from this message's wording.
+      error.parkCause = execution.report.parkCause;
+      throw error;
     }
     if (execution.exitCode !== 0) {
       // `execution.report.completionReason` is the RUN's reason (normally
@@ -161,10 +170,27 @@ export function authoredWorkerRunner(
           `f.agent options.model must be a string when set (got ${typeof options.model}).`,
         );
       }
-      if (options.cwd !== undefined && typeof options.cwd !== 'string') {
+      // The same lexical rule the kernel and `flows check` apply, raised here
+      // so an authored body is refused before a run exists rather than at
+      // dispatch. Whether the directory is there is the worker's question.
+      // An absolute cwd is honored when it names a directory inside the run
+      // root — it lowers to the same relative declaration — and refused when
+      // it escapes, because a declaration this contract cannot contain is
+      // worse than none.
+      const declaredCwd = options.cwd === undefined || !isAbsolute(options.cwd) ? options.cwd
+        : relative(process.cwd(), options.cwd) || undefined;
+      if (options.cwd !== undefined && isAbsolute(options.cwd) && declaredCwd !== undefined
+        && (declaredCwd === '..' || declaredCwd.startsWith(`..${sep}`) || isAbsolute(declaredCwd))) {
         throw new AuthoredFlowExecutionError(
           'agent_cli_unresolved',
-          `f.agent options.cwd must be a string when set (got ${typeof options.cwd}).`,
+          `f.agent options.cwd must name a directory inside the run root ${JSON.stringify(process.cwd())} (got ${JSON.stringify(options.cwd)}).`,
+        );
+      }
+      const cwdProblem = declaredCwd === undefined ? undefined : agentCwdDeclarationError(declaredCwd);
+      if (cwdProblem !== undefined) {
+        throw new AuthoredFlowExecutionError(
+          'agent_cli_unresolved',
+          `f.agent options.cwd: ${cwdProblem}.`,
         );
       }
       if (options.transport !== undefined && options.transport !== 'direct' && options.transport !== 'relay') {
@@ -172,6 +198,10 @@ export function authoredWorkerRunner(
           'agent_cli_unresolved',
           `f.agent options.transport must be 'direct' or 'relay' (got ${JSON.stringify(options.transport)}).`,
         );
+      }
+      const cwdTransport = agentCwdTransportError(declaredCwd, options.transport);
+      if (cwdTransport !== undefined) {
+        throw new AuthoredFlowExecutionError('agent_cli_unresolved', `f.agent options.${cwdTransport}.`);
       }
       const permissions = options.permissions;
       const permissionsSnapshot = permissions === undefined ? undefined
@@ -183,8 +213,7 @@ export function authoredWorkerRunner(
         ...(options.workspace === undefined ? {} : { surfaces: { workspace: [{ surface: options.workspace }] } }),
         ...(options.cli === undefined ? {} : { cli: options.cli }),
         ...(options.model === undefined ? {} : { model: options.model }),
-        // The kernel takes only an absolute cwd; a relative one means the runner's own directory.
-        ...(options.cwd === undefined ? {} : { cwd: resolve(options.cwd) }),
+        ...(declaredCwd === undefined ? {} : { cwd: declaredCwd }),
         ...(options.transport === undefined ? {} : { transport: options.transport }),
         ...(verification === undefined ? {} : { verification }),
       });
@@ -234,26 +263,43 @@ export function authoredDeterministicRunner(
   context: AuthoredStepContext = {},
 ) {
   const rootRunId = context.rootRunId;
-  return async (id: string, command: string, terminal = false, leaseMs?: number, verification?: NamedGate): Promise<string> => {
+  // One lowering, two readers. `record` changes what the child run's verdict
+  // MEANS, so the reader changes with it; everything before the read — spec,
+  // admission key, budget, child index — is deliberately shared, because a
+  // recorded red command is still an ordinary child run.
+  function lower<T>(
+    id: string, command: string, terminal: boolean, leaseMs: number | undefined,
+    verification: NamedGate | undefined, onNonZero: 'record' | undefined,
+    read: (outcome: import('./protocol.js').RunOutcome) => Promise<T>,
+  ): Promise<T> {
     const spec = toKernelSpec(compileSpec({
       version: SPEC_SCHEMA_VERSION,
       name: `${name}/${id}`,
       steps: [{
         id, type: 'deterministic', command,
         ...(leaseMs === undefined ? {} : { lease_ms: leaseMs }),
+        ...(onNonZero === undefined ? {} : { onNonZero }),
         ...(verification === undefined ? {} : { verification }),
       }],
     }));
     const admissionKey = authoredChildAdmissionKey(rootRunId, id);
-    const consume = async (outcome: import('./protocol.js').RunOutcome): Promise<string> => {
+    const consume = async (outcome: import('./protocol.js').RunOutcome): Promise<T> => {
       await recordAuthoredChild(journal, rootRunId, {
         step: id, runId: outcome.run_id, state: 'admitted', ...context.stepEdges?.(id),
       });
-      return readSuccessfulOutput(journal, outcome, id, journalSteps, context);
+      return read(outcome);
     };
-    if (terminal) return consume(await journal.runStart(spec, undefined, admissionKey));
+    if (terminal) return journal.runStart(spec, undefined, admissionKey).then(consume);
     return budget.execute(journal, spec, consume, admissionKey);
-  };
+  }
+  const lowerRun = (id: string, command: string, terminal = false, leaseMs?: number, verification?: NamedGate): Promise<string> =>
+    lower(id, command, terminal, leaseMs, verification, undefined,
+      outcome => readSuccessfulOutput(journal, outcome, id, journalSteps, context));
+  /** `f.run(..., { onNonZero: 'record' })`: the exit code is the result, not a throw. */
+  lowerRun.recording = (id: string, command: string, leaseMs?: number, verification?: NamedGate): Promise<RecordedRunOutcome> =>
+    lower(id, command, false, leaseMs, verification, 'record',
+      outcome => readRecordedOutcome(journal, outcome, id, journalSteps, context));
+  return lowerRun;
 }
 
 /**
@@ -284,6 +330,8 @@ function stepDetails(
     ...(found.stderrTail === undefined ? {} : { stderrTail: found.stderrTail }),
     ...(found.detail === undefined ? {} : { detail: found.detail }),
     ...(found.transcriptPath === undefined ? {} : { transcriptPath: found.transcriptPath }),
+    ...(found.attempts === undefined ? {} : { attempts: found.attempts }),
+    ...(found.attemptEvidence === undefined ? {} : { attemptEvidence: found.attemptEvidence }),
     ...(found.hint === undefined ? {} : { hint: found.hint }),
     ...(found.journalPath === undefined ? {} : { journalPath: found.journalPath }),
   };

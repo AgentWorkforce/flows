@@ -14,6 +14,13 @@ import { assertMemoryReachable, authoredMemory, scriptMemoryScope } from './auth
 import { authoredDeterministicRunner, authoredWorkerRunner } from './authored-worker-step.js';
 import { isSurfaceFlowCompletionReason, isSurfaceRunCompletionReason } from './authored-step-output.js';
 import {
+  completionMarker,
+  isLoweredCompletion,
+  normalizeCompletionDetail,
+  type LoweredCompletionReason,
+} from './authored-completion.js';
+import { commitAuthoredVerdict } from './authored-completion-record.js';
+import {
   type AgentResult,
   type LlmOptions,
   type CloudHelper,
@@ -21,6 +28,8 @@ import {
   type Ctx,
   type FlowCompletionReason,
   type RunCompletionReason as SurfaceRunCompletionReason,
+  type RunOptions,
+  type RunResult,
   type Step,
 } from '@relayflows/surface';
 import { createHelpers, helperProviders, type HelperCall, type FlowHandle } from '@relayflows/surface/runtime';
@@ -96,6 +105,12 @@ export interface AuthoredFlowExecutionResult {
   readonly rootRunId?: string;
   readonly name: string;
   readonly completionReason: LoweredCompletionReason;
+  /**
+   * Why, when the body said. Normalized at `done()` — redacted, trimmed and
+   * bounded — and absent for every one-argument call, so the durable output,
+   * the IPC frame and the report keep the shapes they had.
+   */
+  readonly completionDetail?: string;
   readonly journalSteps: readonly AuthoredFlowJournalStep[];
 }
 
@@ -243,6 +258,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   const stepEdges = (step: string): AuthoredStepEdges | undefined => lifecycle.stepEdges(step);
   let nextStep = 1;
   let requestedCompletion: LoweredCompletionReason | undefined;
+  let requestedDetail: string | undefined;
 
   const lowerDeterministic = authoredDeterministicRunner(
     definition.name, journal, journalSteps, budget, {
@@ -325,7 +341,16 @@ export async function executeAuthoredFlow<Input = undefined>(
         (await recordedVerdicts)?.set(id, record);
       }
     }
-    const literal = `'${JSON.stringify(record).replaceAll("'", "'\\''")}'`;
+    // Fixed field order, never the record as it came back: the journal stores
+    // stream messages with sorted keys, so JSON.stringify of a resumed record
+    // would lower a different command than the first run did, and the gate
+    // run's admission key would refuse it as bound to a different spec.
+    const canonical: PredicateRecord = {
+      gate: 'predicate', step: record.step, verdict: record.verdict,
+      ...(record.because === undefined ? {} : { because: record.because }),
+      ...(record.threw === undefined ? {} : { threw: record.threw }),
+    };
+    const literal = `'${JSON.stringify(canonical).replaceAll("'", "'\\''")}'`;
     const command = record.verdict === 'pass' ? `printf '%s' ${literal}` : `printf '%s' ${literal} >&2; exit 1`;
     try {
       await observeStep(`${id}.gate`, 'deterministic', () => lowerDeterministic(`${id}.gate`, command, false), options.onProgress);
@@ -371,6 +396,56 @@ export async function executeAuthoredFlow<Input = undefined>(
       {},
     );
     return trackStep(authoredSteps, llmOp);
+  }
+
+  /**
+   * `f.run` (docs/SURFACE.md §1). Declared as overloads like `llmOperation`,
+   * because the exit-code policy decides the RESULT TYPE: the default keeps
+   * the stdout string every body is written against, and `'record'` widens it
+   * to the `RunResult` whose `ok` is the journaled exit code.
+   */
+  function runOperation(command: string, options?: RunOptions & { onNonZero?: 'fail' }): Step<string>;
+  function runOperation(command: string, options: RunOptions & { onNonZero: 'record' }): Step<RunResult>;
+  function runOperation(command: string, options: RunOptions): Step<string | RunResult>;
+  function runOperation(command: string, runOptions?: RunOptions): Step<string> | Step<RunResult> {
+    assertOperationAllowed('run', definition.name, requestedCompletion);
+    const leaseMs = runOptions?.timeout === undefined ? undefined : parseStepTimeout(runOptions.timeout);
+    // Refused before an ordinal is consumed or anything is journaled. A
+    // misspelled policy must not quietly fall back to the fatal default and
+    // take away the very branch the author wrote below this line.
+    const policy = runOptions?.onNonZero;
+    if (policy !== undefined && policy !== 'fail' && policy !== 'record') {
+      throw new AuthoredFlowExecutionError(
+        'unsupported_verb',
+        `f.run options.onNonZero must be 'fail' or 'record' (got ${JSON.stringify(policy)}).`,
+      );
+    }
+    const id = `run-${nextStep++}`;
+    if (policy === 'record') {
+      let recordOp!: AuthoredFlowOperation<RunResult>;
+      recordOp = new AuthoredFlowOperation<RunResult>(
+        id, 'run',
+        () => assertOperationAllowed('run', definition.name, requestedCompletion),
+        () => observeStep(id, 'deterministic',
+          () => lowerDeterministic.recording(id, command, leaseMs, recordOp.namedGate), options.onProgress),
+        lifecycle,
+        // No label: a command is not a display name. It carries literal
+        // tokens and URLs, and no prefix of it is safe to show (displayLabel).
+        {},
+      );
+      return trackStep(authoredSteps, recordOp);
+    }
+    let runOp!: AuthoredFlowOperation<string>;
+    runOp = new AuthoredFlowOperation<string>(
+      id, 'run',
+      () => assertOperationAllowed('run', definition.name, requestedCompletion),
+      () => observeStep(id, 'deterministic', () => lowerDeterministic(id, command, false, leaseMs, runOp.namedGate), options.onProgress),
+      lifecycle,
+      // No label: a command is not a display name. It carries literal
+      // tokens and URLs, and no prefix of it is safe to show (displayLabel).
+      {},
+    );
+    return trackStep(authoredSteps, runOp);
   }
 
   const slackRun = options.rootRunId ?? randomUUID();
@@ -435,23 +510,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       () => assertOperationAllowed('memory', definition.name, requestedCompletion),
       definition.header.memory?.script !== false,
     ),
-    run(command, runOptions) {
-      assertOperationAllowed('run', definition.name, requestedCompletion);
-      const leaseMs = runOptions?.timeout === undefined ? undefined : parseStepTimeout(runOptions.timeout);
-      const id = `run-${nextStep++}`;
-      let runOp!: AuthoredFlowOperation<string>;
-      runOp = new AuthoredFlowOperation<string>(
-        id,
-        'run',
-        () => assertOperationAllowed('run', definition.name, requestedCompletion),
-        () => observeStep(id, 'deterministic', () => lowerDeterministic(id, command, false, leaseMs, runOp.namedGate), options.onProgress),
-        lifecycle,
-        // No label: a command is not a display name. It carries literal
-        // tokens and URLs, and no prefix of it is safe to show (displayLabel).
-        {},
-      );
-      return trackStep(authoredSteps, runOp);
-    },
+    run: runOperation,
     llm: llmOperation,
     agent(name, options) {
       assertOperationAllowed('agent', definition.name, requestedCompletion);
@@ -553,7 +612,7 @@ export async function executeAuthoredFlow<Input = undefined>(
         displayLabel(typeof name === 'string' ? name : undefined),
       ));
     },
-    done(reason) {
+    done(reason, doneOptions) {
       if (!isSurfaceFlowCompletionReason(reason)) {
         throw new AuthoredFlowExecutionError(
           'unsupported_completion',
@@ -586,8 +645,13 @@ export async function executeAuthoredFlow<Input = undefined>(
           reason,
         );
       }
+      // Validated before the completion is marked, so a malformed `detail`
+      // leaves the flow exactly as any other refused `done()` does: not
+      // completed, and still able to report the real refusal.
+      const detail = normalizeCompletionDetail(doneOptions);
       lifecycle.markCompletion();
       requestedCompletion = reason;
+      requestedDetail = detail;
     },
     cloud: unsupportedCloud(
       () => assertOperationAllowed('cloud', definition.name, requestedCompletion),
@@ -613,19 +677,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     await bodyPromise;
   } catch (error) {
     bodyFailed = true;
-    // The surface refuses an absent helper resource structurally, naming the
-    // ones that dispatch. Carrying that out as a bare Error would report it as
-    // an unexplained body crash, so it is remapped onto the code preflight
-    // already uses for the same refusal — the message is the surface's, not a
-    // second wording. Every other failure is rethrown exactly as thrown.
-    //
-    // Recognised by `name`, not `instanceof`: an authored flow file resolves
-    // `@relayflows/surface` from its OWN node_modules, so the class that threw
-    // need not be the one this module imported — and a pinned surface older
-    // than the guard does not export the class at all.
-    bodyFailure = error instanceof Error && error.name === 'UnsupportedHelperMemberError'
-      ? new AuthoredFlowExecutionError('helper_provider.unsupported', error.message)
-      : error;
+    bodyFailure = error;
   }
   if (bodyFailed) {
     try {
@@ -673,12 +725,27 @@ export async function executeAuthoredFlow<Input = undefined>(
   // not as a fabricated kernel run.completed reason. The marker step reports
   // what the body decided; it is not itself a step that failed. The CLI turns
   // the verdict into the exit code (success/declined 0, needs_human 3, step_failed 1).
-  await lowerDeterministic(`complete-${nextStep}`,
-    completionMarker(requestedCompletion), true);
+  //
+  // The verdict is committed to the root BEFORE the marker run is opened, and
+  // a resumed body reuses what was committed rather than recomputing it
+  // (authored-completion-record.ts). A detail is redacted against
+  // `process.env`, so a credential rotated while this process was down would
+  // otherwise re-normalize the same authored sentence differently, retry the
+  // marker's stable admission key with a drifted spec, and lose the
+  // explanation the root had already journaled to `run_admission_conflict`.
+  // With no detail there is no environment in the command and nothing to
+  // commit, so that path is untouched.
+  const terminalId = `complete-${nextStep}`;
+  const verdict = await commitAuthoredVerdict(journal, options.rootRunId, terminalId, {
+    reason: requestedCompletion,
+    ...(requestedDetail === undefined ? {} : { detail: requestedDetail }),
+  });
+  await lowerDeterministic(terminalId, completionMarker(verdict.reason, verdict.detail), true);
   return Object.freeze({
     ...(options.rootRunId === undefined ? {} : { rootRunId: options.rootRunId }),
     name: definition.name,
-    completionReason: requestedCompletion,
+    completionReason: verdict.reason,
+    ...(verdict.detail === undefined ? {} : { completionDetail: verdict.detail }),
     journalSteps: Object.freeze([...journalSteps]),
   });
 }
@@ -696,43 +763,6 @@ function unsupportedVerb(verb: string): AuthoredFlowExecutionError {
     'unsupported_verb',
     `the initial authored executor does not lower f.${verb}`,
   );
-}
-
-/**
- * The completion reasons an authored body may declare and this executor lowers.
- *
- * `FlowCompletionReason` is wider than this on purpose — it is the journal's
- * run vocabulary plus authored verdicts — but the two sets drifting silently is
- * exactly what made a type-valid `done("step_failed")` die at runtime as
- * `unsupported_completion`. Every gate that asks "is this a completion this
- * runtime can lower?" now asks this one function, so a reason cannot be
- * accepted in one place and rejected in another.
- *
- * These three are internal cross-module helpers for the authored seam (the
- * executor, the durable root, the IPC verifier and the CLI report), NOT public
- * SDK surface. `src/index.ts` deliberately re-exports nothing from this module
- * — keep it that way, or the whole authored seam leaks with them.
- */
-export const LOWERED_COMPLETIONS = ['success', 'needs_human', 'step_failed', 'declined'] as const;
-export type LoweredCompletionReason = (typeof LOWERED_COMPLETIONS)[number];
-
-export function isLoweredCompletion(value: unknown): value is LoweredCompletionReason {
-  return typeof value === 'string' && (LOWERED_COMPLETIONS as readonly string[]).includes(value);
-}
-
-/**
- * The deterministic command that carries an authored verdict into the journal.
- *
- * `success` lowers to `:` because success needs no marker: the marker run's own
- * kernel `success` already IS that record. Every other lowered verdict is
- * something the kernel's completion vocabulary cannot express on a step that
- * *succeeded*, so it travels as data on stdout and is read back from
- * `step.completed`. It is deliberately not lowered as a failing command: no
- * step failed here, and a fabricated failure would put bogus evidence in the
- * journal for a flow whose steps all ran correctly.
- */
-export function completionMarker(reason: LoweredCompletionReason): string {
-  return reason === 'success' ? ':' : `printf '%s' '{"completionReason":"${reason}"}'`;
 }
 
 function assertOperationAllowed(

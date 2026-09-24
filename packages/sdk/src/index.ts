@@ -34,6 +34,8 @@ export type {
   LlmStepSpec,
   NamedAgentSpec,
   NamedDataGate,
+  OnNonZero,
+  StepsGreenGate,
   ReferencesInputGate,
   SubprocessGate,
   WordCountBoundsGate,

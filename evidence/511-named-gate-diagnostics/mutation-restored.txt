@@ -1,0 +1,28 @@
+$ git checkout HEAD -- src/named-gate-lowering.ts   # restore
+$ git hash-object src/named-gate-lowering.ts   # after restore
+8a4ac50391d95c95693eb20cdbc69869a5d02060
+$ git rev-parse HEAD:packages/sdk/src/named-gate-lowering.ts
+8a4ac50391d95c95693eb20cdbc69869a5d02060
+$ git status --porcelain -- src tests tsconfig.tests.json   # empty = worktree identical to HEAD
+(status exit 0)
+$ git diff --stat HEAD -- .
+
+$ RELAYFLOWD_BIN=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd npm run build && npx vitest run tests/named-gate-diagnostics.test.ts tests/named-gate-journal.test.ts
+
+> @relayflows/sdk@2.0.22 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/named-gate-diagnostics.test.ts (17 tests) 685ms
+ ✓ tests/named-gate-journal.test.ts (5 tests) 1929ms
+   ✓ a lowered subprocess_gate journals the gate command's streams > persists what the gate printed before a timeout killed it 832ms
+   ✓ a gate on an agent step > journals the command's streams and surfaces them in the authored failure 793ms
+
+ Test Files  2 passed (2)
+      Tests  22 passed (22)
+   Start at  17:41:12
+   Duration  3.34s (transform 768ms, setup 0ms, collect 1.65s, tests 2.61s, environment 0ms, prepare 75ms)
+
+EXIT=0

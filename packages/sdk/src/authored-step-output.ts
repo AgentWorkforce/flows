@@ -22,19 +22,23 @@ export interface AuthoredStepContext {
 }
 
 /**
- * Shared by every `f.*` verb that lowers to one kernel step run in isolation:
- * find its `step.completed` entry, record it, and refuse anything but a
+ * Shared by every `f.*` verb that lowers to its own kernel run: find the
+ * operation's `step.completed` entry, record it, and refuse anything but a
  * clean success before handing the raw `output` back for verb-specific
  * extraction (a plain string for `f.run`, an `AgentResult` for `f.agent`).
  *
- * Callers are responsible for having already established that the RUN
- * reached a terminal, successful state before calling this — `f.run`'s
- * caller relies on `runStart`'s own immediate response (the kernel drives a
- * deterministic step to completion inline, no race); `f.agent`'s caller
- * relies on `classifyOutcome` (cli/run.ts) having already polled to a true
- * terminal state. Given that, a single read from the start of this run's
- * (small, single-step) journal is enough — no polling here, and no run
- * outcome ever needs re-checking.
+ * Callers are responsible for having already waited for the run to reach a
+ * terminal state — `f.run`'s caller relies on `runStart`'s own immediate
+ * response (the kernel drives a deterministic step to completion inline, no
+ * race); `f.agent`'s caller relies on `classifyOutcome` (cli/run.ts) having
+ * already polled to one. Given that, a single read from the start of this
+ * run's small journal is enough, and no polling happens here.
+ *
+ * What is NOT delegated to the caller is the run's verdict. A child spec has
+ * more than one step whenever the author declared a `.gate()`, and that gate
+ * step runs after the producer, so the producer's own `success` is not the
+ * run's. Both are checked here, and the run-level check is what makes a failed
+ * gate reject the authored operation.
  *
  * A non-success completion used to throw `journal step "run-1" completed with
  * retries_exhausted` and stop there, discarding the evidence it was holding:
@@ -63,31 +67,60 @@ export async function readCompletedStepOutput(
   const edges = context.stepEdges?.(stepId);
   journalSteps.push(Object.freeze({ id: stepId, runId, completionReason: reason, ...edges }));
   if (reason !== 'success') {
-    let message = `journal step "${stepId}" completed with ${reason}`;
-    let details: StepFailedDetails | undefined;
-    try {
-      details = await stepFailureDetails(journal, runId);
-    } catch (error) {
-      // Inspection must not erase the already known step failure; the two
-      // failures stay separately visible, as in classifyOutcome.
-      message += ` Could not inspect the failed step: ${errorMessage(error)}`;
-    }
-    if (details !== undefined) message += renderStepEvidence(details);
-    // Appended whatever inspection found — including nothing. A failure shape
-    // this reader does not recognise must still end with somewhere to go.
-    const where = inspectionHint(runId, details?.stepId ?? stepId, context.dataDir);
-    message += renderInspection(where);
-    message += await alsoRecord(journal, context.rootRunId, {
-      step: stepId, runId, state: 'completed', completionReason: reason,
-      ...(details?.stepId === undefined ? {} : { kernelStep: details.stepId }),
-      ...edges,
-    });
-    throw new AuthoredFlowExecutionError('step_failed', message, reason, runId, { ...details, ...where });
+    throw await stepFailure(journal, runId, stepId, reason, context, edges,
+      `journal step "${stepId}" completed with ${reason}`);
+  }
+  // An authored operation does not always lower to ONE kernel step. A declared
+  // `.gate()` becomes its own barrier step that runs AFTER the producer
+  // (`lowerNamedGates`), so the producer's own success is not the run's
+  // verdict. Reading only the producer's entry let a failed gate resolve as
+  // though the command had passed — the `|| true` invisibility this module's
+  // recording policy exists to remove, reappearing one layer up.
+  const runReason = entries.map(runCompletionReason).find((value) => value !== undefined);
+  if (runReason !== undefined && runReason !== 'success') {
+    throw await stepFailure(journal, runId, stepId, runReason, context, edges,
+      `journal run for step "${stepId}" completed with ${runReason}`);
   }
   await recordAuthoredChild(journal, context.rootRunId, {
     step: stepId, runId, state: 'completed', completionReason: reason, ...edges,
   });
   return completed.payload.output;
+}
+
+/**
+ * The one `step_failed` grammar both the step-level and the run-level refusal
+ * report through: inspect the journal for the step that actually failed, render
+ * its evidence, name where to look, and index the child before throwing.
+ */
+async function stepFailure(
+  journal: JournalClient,
+  runId: string,
+  stepId: string,
+  reason: ProtocolCompletionReason | ProtocolRunCompletionReason,
+  context: AuthoredStepContext,
+  edges: ReturnType<NonNullable<AuthoredStepContext['stepEdges']>>,
+  header: string,
+): Promise<AuthoredFlowExecutionError> {
+  let message = header;
+  let details: StepFailedDetails | undefined;
+  try {
+    details = await stepFailureDetails(journal, runId);
+  } catch (error) {
+    // Inspection must not erase the already known step failure; the two
+    // failures stay separately visible, as in classifyOutcome.
+    message += ` Could not inspect the failed step: ${errorMessage(error)}`;
+  }
+  if (details !== undefined) message += renderStepEvidence(details);
+  // Appended whatever inspection found — including nothing. A failure shape
+  // this reader does not recognise must still end with somewhere to go.
+  const where = inspectionHint(runId, details?.stepId ?? stepId, context.dataDir);
+  message += renderInspection(where);
+  message += await alsoRecord(journal, context.rootRunId, {
+    step: stepId, runId, state: 'completed', completionReason: reason,
+    ...(details?.stepId === undefined ? {} : { kernelStep: details.stepId }),
+    ...edges,
+  });
+  return new AuthoredFlowExecutionError('step_failed', message, reason, runId, { ...details, ...where });
 }
 
 export async function readSuccessfulOutput(
@@ -98,22 +131,72 @@ export async function readSuccessfulOutput(
   context: AuthoredStepContext = {},
 ): Promise<string> {
   const output = await readCompletedStepOutput(journal, outcome.run_id, stepId, journalSteps, context)
-    .catch(error => {
-      if (error instanceof AuthoredFlowExecutionError
-        && (error.completionReason === 'timeout' || error.completionReason === 'lease_expired')) {
-        // A timeout is still a failed command, and the evidence extracted for
-        // it is the same evidence. Re-labelling the error must not delete it.
-        throw new AuthoredFlowExecutionError('lease_exceeded',
-          `f.run step "${stepId}" exceeded its command timeout.`
-            + ` ${error.message.slice(`${error.code}: `.length)}`,
-          error.completionReason, error.runId, error.details);
-      }
-      throw error;
-    });
+    .catch(relabelCommandTimeout(stepId));
   if (!isRecord(output) || typeof output['stdout_tail'] !== 'string') {
     throw protocolViolation(outcome.run_id, `step "${stepId}" has no string stdout_tail`);
   }
   return output['stdout_tail'];
+}
+
+/** What `f.run` resolves to under `onNonZero: 'record'` (surface `RunResult`). */
+export interface RecordedRunOutcome {
+  ok: boolean;
+  exitCode: number;
+  output: string;
+  stdout: string;
+  stderr: string;
+}
+
+/**
+ * The read side of `onNonZero: 'record'`.
+ *
+ * A recorded red exit is a SUCCESSFUL step, so this takes the same path as
+ * `readSuccessfulOutput` and every field comes from the journaled envelope —
+ * nothing is re-run and nothing is re-measured. What still throws is what the
+ * policy never covered: a timeout, a signal, a step that never ran, or a
+ * declared content or schema gate that failed. The `-1` the executor writes
+ * for "no exit status" is refused rather than handed back as a plausible
+ * code, mirroring the kernel's own rule, so a malformed envelope can never
+ * reach an author's `if (!result.ok)` as a real verdict.
+ */
+export async function readRecordedOutcome(
+  journal: JournalClient,
+  outcome: RunOutcome,
+  stepId: string,
+  journalSteps: AuthoredFlowJournalStep[],
+  context: AuthoredStepContext = {},
+): Promise<RecordedRunOutcome> {
+  const envelope = await readCompletedStepOutput(journal, outcome.run_id, stepId, journalSteps, context)
+    .catch(relabelCommandTimeout(stepId));
+  const exitCode = isRecord(envelope) ? envelope['exit_code'] : undefined;
+  if (!isRecord(envelope) || typeof envelope['stdout_tail'] !== 'string'
+    || typeof envelope['stderr_tail'] !== 'string'
+    || typeof exitCode !== 'number' || !Number.isInteger(exitCode) || exitCode < 0) {
+    throw protocolViolation(outcome.run_id,
+      `step "${stepId}" recorded no {exit_code, stdout_tail, stderr_tail} to report`);
+  }
+  const stdout = envelope['stdout_tail'];
+  const stderr = envelope['stderr_tail'];
+  return {
+    ok: exitCode === 0, exitCode, stdout, stderr,
+    // Concatenated, not interleaved: the two tails were captured separately,
+    // so joining them is a reading convenience and is documented as one.
+    output: stdout !== '' && stderr !== '' ? `${stdout}\n${stderr}` : stdout + stderr,
+  };
+}
+
+/** A timeout is still a failed command; re-labelling it must not delete its evidence. */
+function relabelCommandTimeout(stepId: string): (error: unknown) => never {
+  return (error) => {
+    if (error instanceof AuthoredFlowExecutionError
+      && (error.completionReason === 'timeout' || error.completionReason === 'lease_expired')) {
+      throw new AuthoredFlowExecutionError('lease_exceeded',
+        `f.run step "${stepId}" exceeded its command timeout.`
+          + ` ${error.message.slice(`${error.code}: `.length)}`,
+        error.completionReason, error.runId, error.details);
+    }
+    throw error;
+  };
 }
 
 interface StepCompletedEntry {
@@ -133,6 +216,20 @@ function isStepCompleted(value: unknown, stepId: string): value is StepCompleted
   return isRecord(payload)
     && isSurfaceCompletionReason(payload['completionReason'])
     && 'output' in payload;
+}
+
+/**
+ * The run's own terminal reason, when this entry is the one carrying it.
+ *
+ * Anything else — including a `run.completed` whose payload this reader does
+ * not recognise — yields `undefined` and leaves the step-level verdict
+ * untouched, so an unfamiliar journal shape cannot invent a failure.
+ */
+function runCompletionReason(entry: unknown): ProtocolRunCompletionReason | undefined {
+  if (!isRecord(entry) || entry['entry_type'] !== 'run.completed') return undefined;
+  const payload = entry['payload'];
+  const reason = isRecord(payload) ? payload['completionReason'] : undefined;
+  return isSurfaceRunCompletionReason(reason) ? reason : undefined;
 }
 
 export function isSurfaceCompletionReason(value: unknown): value is ProtocolCompletionReason {

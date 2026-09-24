@@ -1,0 +1,1370 @@
+$ cd packages/sdk && PATH=/home/daytona/.cargo/bin:$PATH npm test
+
+> @relayflows/sdk@2.0.29 test
+> sh scripts/test.sh
+
+
+> @relayflows/sdk@2.0.29 test:prep
+> ( cd ../../kernel && sh ../ops/cargo.sh build ) && ( [ ! -d ../../testdata/preflight ] || find ../../testdata/preflight -name '*-cli' -type f -exec chmod +x {} + )
+
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded clap_lex v1.1.0
+  Downloaded bit-set v0.8.0
+  Downloaded anstyle-parse v1.0.0
+  Downloaded anstyle-query v1.1.5
+  Downloaded autocfg v1.5.1
+  Downloaded ahash v0.8.12
+  Downloaded cfg-if v1.0.4
+  Downloaded colorchoice v1.0.5
+  Downloaded cpufeatures v0.2.17
+  Downloaded crypto-common v0.1.7
+  Downloaded heck v0.5.0
+  Downloaded block-buffer v0.10.4
+  Downloaded fallible-streaming-iterator v0.1.9
+  Downloaded generic-array v0.14.7
+  Downloaded is_terminal_polyfill v1.70.2
+  Downloaded anstream v1.0.0
+  Downloaded borrow-or-share v0.2.4
+  Downloaded num-cmp v0.1.0
+  Downloaded zerofrom-derive v0.1.7
+  Downloaded idna_adapter v1.2.2
+  Downloaded lazy_static v1.5.0
+  Downloaded bit-vec v0.8.0
+  Downloaded digest v0.10.7
+  Downloaded find-msvc-tools v0.1.11
+  Downloaded foldhash v0.1.5
+  Downloaded hashlink v0.10.0
+  Downloaded utf8parse v0.2.2
+  Downloaded thiserror-impl v2.0.20
+  Downloaded bytecount v0.6.9
+  Downloaded displaydoc v0.2.7
+  Downloaded fallible-iterator v0.3.0
+  Downloaded num-iter v0.1.46
+  Downloaded uuid v1.26.0
+  Downloaded zerofrom v0.1.8
+  Downloaded stable_deref_trait v1.2.1
+  Downloaded version_check v0.9.5
+  Downloaded wait-timeout v0.2.1
+  Downloaded yoke v0.8.3
+  Downloaded uuid-simd v0.8.0
+  Downloaded yoke-derive v0.8.2
+  Downloaded zmij v1.0.23
+  Downloaded vsimd v0.8.0
+  Downloaded zerovec-derive v0.11.6
+  Downloaded email_address v0.2.9
+  Downloaded fluent-uri v0.3.2
+  Downloaded itoa v1.0.18
+  Downloaded num-integer v0.1.47
+  Downloaded rand_core v0.9.5
+  Downloaded writeable v0.6.4
+  Downloaded anyhow v1.0.104
+  Downloaded lock_api v0.4.14
+  Downloaded percent-encoding v2.3.2
+  Downloaded potential_utf v0.1.6
+  Downloaded ref-cast v1.0.27
+  Downloaded zerotrie v0.2.5
+  Downloaded num v0.4.3
+  Downloaded outref v0.5.2
+  Downloaded strsim v0.11.1
+  Downloaded num-rational v0.4.2
+  Downloaded ref-cast-impl v1.0.27
+  Downloaded scopeguard v1.2.0
+  Downloaded sha2 v0.10.9
+  Downloaded synstructure v0.13.2
+  Downloaded tinystr v0.8.4
+  Downloaded utf8_iter v1.0.4
+  Downloaded zerovec v0.11.8
+  Downloaded base64 v0.22.1
+  Downloaded bitflags v2.13.1
+  Downloaded clap v4.6.6
+  Downloaded clap_derive v4.6.4
+  Downloaded icu_locale_core v2.3.0
+  Downloaded litemap v0.8.3
+  Downloaded num-complex v0.4.6
+  Downloaded once_cell v1.21.4
+  Downloaded parking_lot v0.12.5
+  Downloaded parking_lot_core v0.9.12
+  Downloaded pkg-config v0.3.34
+  Downloaded ppv-lite86 v0.2.21
+  Downloaded quote v1.0.47
+  Downloaded rand_chacha v0.9.0
+  Downloaded referencing v0.33.0
+  Downloaded shlex v2.0.1
+  Downloaded smallvec v1.15.2
+  Downloaded thiserror v2.0.20
+  Downloaded ulid v1.2.1
+  Downloaded getrandom v0.3.4
+  Downloaded icu_normalizer_data v2.3.0
+  Downloaded icu_provider v2.3.1
+  Downloaded num-traits v0.2.19
+  Downloaded serde_core v1.0.229
+  Downloaded serde_derive v1.0.229
+  Downloaded vcpkg v0.2.15
+  Downloaded cc v1.4.4
+  Downloaded icu_collections v2.3.0
+  Downloaded icu_properties v2.3.0
+  Downloaded memchr v2.8.3
+  Downloaded proc-macro2 v1.0.107
+  Downloaded serde v1.0.229
+  Downloaded unicode-ident v1.0.24
+  Downloaded fancy-regex v0.16.2
+  Downloaded fraction v0.15.4
+  Downloaded num-bigint v0.4.8
+  Downloaded idna v1.1.0
+  Downloaded rand v0.9.5
+  Downloaded typenum v1.20.1
+  Downloaded aho-corasick v1.1.5
+  Downloaded icu_properties_data v2.3.0
+  Downloaded serde_json v1.0.151
+  Downloaded clap_builder v4.6.6
+  Downloaded hashbrown v0.15.5
+  Downloaded jsonschema v0.33.0
+  Downloaded regex v1.13.1
+  Downloaded rusqlite v0.37.0
+  Downloaded zerocopy v0.8.56
+  Downloaded syn v2.0.119
+  Downloaded syn v3.0.4
+  Downloaded regex-syntax v0.8.11
+  Downloaded icu_normalizer v2.3.0
+  Downloaded regex-automata v0.4.18
+  Downloaded libc v0.2.189
+  Downloaded libsqlite3-sys v0.35.0
+  Downloaded anstyle v1.0.14
+  Downloaded ryu-js v1.0.3
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+   Compiling libc v0.2.189
+   Compiling stable_deref_trait v1.2.1
+   Compiling version_check v0.9.5
+   Compiling cfg-if v1.0.4
+   Compiling autocfg v1.5.1
+   Compiling serde_core v1.0.229
+   Compiling num-traits v0.2.19
+   Compiling getrandom v0.3.4
+   Compiling zerocopy v0.8.56
+   Compiling syn v3.0.4
+   Compiling syn v2.0.119
+   Compiling smallvec v1.15.2
+   Compiling serde v1.0.229
+   Compiling synstructure v0.13.2
+   Compiling zerofrom-derive v0.1.7
+   Compiling yoke-derive v0.8.2
+   Compiling zerofrom v0.1.8
+   Compiling writeable v0.6.4
+   Compiling yoke v0.8.3
+   Compiling memchr v2.8.3
+   Compiling litemap v0.8.3
+   Compiling num-integer v0.1.47
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling serde_derive v1.0.229
+   Compiling generic-array v0.14.7
+   Compiling utf8_iter v1.0.4
+   Compiling icu_normalizer_data v2.3.0
+   Compiling icu_properties_data v2.3.0
+   Compiling zerotrie v0.2.5
+   Compiling zmij v1.0.23
+   Compiling zerovec v0.11.8
+   Compiling ref-cast v1.0.27
+   Compiling typenum v1.20.1
+   Compiling parking_lot_core v0.9.12
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling icu_locale_core v2.3.0
+   Compiling icu_collections v2.3.0
+   Compiling aho-corasick v1.1.5
+   Compiling num-bigint v0.4.8
+   Compiling icu_provider v2.3.1
+   Compiling ref-cast-impl v1.0.27
+   Compiling ahash v0.8.12
+   Compiling scopeguard v1.2.0
+   Compiling find-msvc-tools v0.1.11
+   Compiling serde_json v1.0.151
+   Compiling regex-syntax v0.8.11
+   Compiling shlex v2.0.1
+   Compiling lock_api v0.4.14
+   Compiling cc v1.4.4
+   Compiling num-rational v0.4.2
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling regex-automata v0.4.18
+   Compiling ppv-lite86 v0.2.21
+   Compiling num-iter v0.1.46
+   Compiling rand_core v0.9.5
+   Compiling num-complex v0.4.6
+   Compiling bit-vec v0.8.0
+   Compiling pkg-config v0.3.34
+   Compiling once_cell v1.21.4
+   Compiling vcpkg v0.2.15
+   Compiling itoa v1.0.18
+   Compiling borrow-or-share v0.2.4
+   Compiling fluent-uri v0.3.2
+   Compiling libsqlite3-sys v0.35.0
+   Compiling num v0.4.3
+   Compiling bit-set v0.8.0
+   Compiling rand_chacha v0.9.0
+   Compiling idna_adapter v1.2.2
+   Compiling parking_lot v0.12.5
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling utf8parse v0.2.2
+   Compiling vsimd v0.8.0
+   Compiling thiserror v2.0.20
+   Compiling percent-encoding v2.3.2
+   Compiling uuid v1.26.0
+   Compiling lazy_static v1.5.0
+   Compiling foldhash v0.1.5
+   Compiling outref v0.5.2
+   Compiling hashbrown v0.15.5
+   Compiling uuid-simd v0.8.0
+   Compiling fraction v0.15.4
+   Compiling referencing v0.33.0
+   Compiling regex v1.13.1
+   Compiling fancy-regex v0.16.2
+   Compiling anstyle-parse v1.0.0
+   Compiling digest v0.10.7
+   Compiling rand v0.9.5
+   Compiling idna v1.1.0
+   Compiling email_address v0.2.9
+   Compiling thiserror-impl v2.0.20
+   Compiling anstyle-query v1.1.5
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anstyle v1.0.14
+   Compiling bytecount v0.6.9
+   Compiling cpufeatures v0.2.17
+   Compiling base64 v0.22.1
+   Compiling num-cmp v0.1.0
+   Compiling colorchoice v1.0.5
+   Compiling jsonschema v0.33.0
+   Compiling anstream v1.0.0
+   Compiling sha2 v0.10.9
+   Compiling ulid v1.2.1
+   Compiling hashlink v0.10.0
+   Compiling bitflags v2.13.1
+   Compiling anyhow v1.0.104
+   Compiling strsim v0.11.1
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling clap_lex v1.1.0
+   Compiling ryu-js v1.0.3
+   Compiling fallible-iterator v0.3.0
+   Compiling heck v0.5.0
+   Compiling clap_derive v4.6.4
+   Compiling clap_builder v4.6.6
+   Compiling relayflowd-core v0.1.0 (/home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/relayflowd-core)
+   Compiling clap v4.6.6
+   Compiling wait-timeout v0.2.1
+   Compiling rusqlite v0.37.0
+   Compiling relayflowd-journal v0.1.0 (/home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/relayflowd-journal)
+   Compiling relayflowd v0.1.0 (/home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/relayflowd)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 19.46s
+
+> @relayflows/sdk@2.0.29 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+
+> @relayflows/sdk@2.0.29 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+> @relayflows/sdk@2.0.29 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd
+LIVE_KERNEL flows=/home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/dist/cli.js
+
+ ✓ tests/preflight.test.ts (67 tests) 111ms
+ ✓ tests/cloud-read.test.ts (41 tests) 43ms
+ ❯ tests/cli.test.ts (70 tests | 1 failed) 1885ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 389ms
+   ✓ flows check CLI > resolves a bare PATH-resolved claude with no declared model, in an isolated PATH 434ms
+   × flows run/resume CLI over the journal protocol > bounds a worker wait by its lease and reports what it is waiting for 250ms
+     → expected +0 to be 1 // Object.is equality
+ ✓ tests/cloud-sync.test.ts (40 tests) 745ms
+ ✓ tests/plugin-extension.test.ts (90 tests) 490ms
+ ✓ tests/cloud-transcript-codex.test.ts (39 tests) 19ms
+ ❯ tests/hosted-extension-isolation.test.ts (22 tests | 13 failed) 3682ms
+   × hosted extension capability isolation > executes the exact capability-only handler for a queued receipt 199ms
+     → Hosted extension sandbox exited without a valid completion (exit 1): bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+
+   × hosted extension capability isolation > executes the exact capability-only handler for a duplicate receipt 206ms
+     → Hosted extension sandbox exited without a valid completion (exit 1): bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+
+   × hosted extension capability isolation > launches through the captured process primitive after builtin export synchronization 204ms
+     → promise rejected "Error: Hosted extension sandbox exited wi… { code: '…' }" instead of resolving
+   × hosted extension capability isolation > ignores inherited launcher overrides and decodes manifests with the captured Buffer intrinsic 201ms
+     → promise rejected "Error: Hosted extension sandbox exited wi… { code: '…' }" instead of resolving
+   × hosted extension capability isolation > streams verified bytes when the live store is replaced and no writable staging path exists 235ms
+     → promise rejected "Error: Hosted extension sandbox exited wi… { code: '…' }" instead of resolving
+   × hosted extension capability isolation > mounts pinned private Surface bytes when the live package changes before launch 197ms
+     → promise rejected "Error: Hosted extension sandbox exited wi… { code: '…' }" instead of resolving
+   × hosted extension capability isolation > shields verified Surface files before async settlement 208ms
+     → promise rejected "Error: Hosted extension sandbox exited wi… { code: '…' }" instead of resolving
+   × hosted extension capability isolation > preserves a typed host refusal while disclosing only a fixed marker to the child 213ms
+     → expected Error: Hosted extension sandbox exited wi… { code: '…' } to be Error: private Cloud policy detail { code: '…' } // Object.is equality
+   × hosted extension capability isolation > denies ambient credentials, host files, writes, network, subprocesses, and undeclared context verbs 216ms
+     → Hosted extension sandbox exited without a valid completion (exit 1): bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+
+   × hosted extension capability isolation > enforces OS address-space and data bounds on native Buffer allocation 215ms
+     → expected Error: Hosted extension sandbox exited wi… { code: '…' } to match object { code: 'plugin_unsupported', …(1) }
+   × hosted extension capability isolation > blocks extra handler fields and authority-bearing receipt fields at the parent port 211ms
+     → expected Error: Hosted extension sandbox exited wi… { code: '…' } to match object { code: 'plugin_event_unroutable' }
+   × hosted extension capability isolation > constructs adapter authority with the captured freeze intrinsic 209ms
+     → Hosted extension sandbox exited without a valid completion (exit 1): bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+
+   × hosted extension capability isolation > writes the Surface manifest and protocol without inherited toJSON behavior 256ms
+     → promise rejected "Error: Hosted extension sandbox exited wi… { code: '…' }" instead of resolving
+   ✓ hosted extension capability isolation > fails closed when the handler omits or repeats the single capability call 597ms
+ ✓ tests/observer-link.test.ts (39 tests) 136ms
+(node:17171) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/authored-flow.test.ts (34 tests) 774ms
+ ✓ tests/cli-status.test.ts (27 tests) 1010ms
+   ✓ flows status > resolves the run with no arguments from inside a worker-spawned agent 798ms
+ ✓ tests/agent-transcript.test.ts (29 tests) 257ms
+ ✓ tests/cloud-run.test.ts (58 tests) 589ms
+ ❯ tests/babysitter-native-extension.test.ts (41 tests | 1 failed) 1587ms
+   × native Babysitter extension > runs the exact published 2.0.26 native bytes in the isolated capability path 211ms
+     → promise rejected "Error: Hosted extension sandbox exited wi… { code: '…' }" instead of resolving
+ ✓ tests/relay-cli-surface.test.ts (75 tests) 38ms
+ ✓ tests/worker-cli.test.ts (18 tests) 24957ms
+   ✓ registered CLI model defaults > passes the same priced Claude default to the real provider invocation 342ms
+   ✓ step discovery environment > names the run, step, attempt and an absolute data dir for a direct agent spawn 365ms
+   ✓ step discovery environment > exports none of the four without a data dir, even when the worker inherited them 357ms
+   ✓ wrapper discovery environment > sets the four names from the dispatch and still refuses ambient values and other secrets 354ms
+   ✓ wrapper discovery environment > exports none of the four to a wrapper without a data dir, even when the worker inherited them 381ms
+   ✓ custom wrapper execution identity > passes an explicit safe environment at identification and execution 366ms
+   ✓ custom wrapper execution identity > refuses a wrapper symlink retarget before delivering private values 468ms
+   ✓ custom wrapper execution identity > bounds wrapper execution after acknowledgement 455ms
+   ✓ custom wrapper execution identity > bounds captured wrapper output 395ms
+   ✓ custom wrapper execution identity > refuses a duplicate execute protocol frame 404ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a conforming wrapper leaks a stdio pipe to a background helper 1915ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when the leaked helper inherits stderr only 1876ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a wrapper leaks a stdio pipe and exits before identifying 3564ms
+   ✓ custom wrapper execution bounds are reader-owned > journals a completionReason at the default bound when a wrapper leaks a stdio pipe 11590ms
+   ✓ custom wrapper execution bounds are reader-owned > accepts an execute token and an over-8KiB payload flushed in one write 458ms
+   ✓ custom wrapper execution bounds are reader-owned > accepts the same over-8KiB payload whether or not it coalesces with the execute token 1028ms
+   ✓ custom wrapper execution bounds are reader-owned > still bounds an un-terminated handshake buffer and names the bound 308ms
+   ✓ delivers the journaled memory pack to the real wrapper and excludes its charge from completion usage 329ms
+ ✓ tests/step-failure-diagnostic.test.ts (25 tests) 61ms
+ ✓ tests/daemon-lifecycle.test.ts (42 tests) 39ms
+ ✓ tests/stop-process-group.test.ts (9 tests) 12811ms
+   ✓ every stop reaches the process group, not just the direct child > exits the run after an execution-timeout stop 824ms
+   ✓ every stop reaches the process group, not just the direct child > exits the run after a protocol terminate stop 398ms
+   ✓ every stop reaches the process group, not just the direct child > kills a SIGTERM-deaf grandchild after a protocol terminate stop 1684ms
+   ✓ every stop reaches the process group, not just the direct child > kills a SIGTERM-deaf grandchild after an execution-timeout stop 1995ms
+   ✓ every stop reaches the process group, not just the direct child > holds the loop open long enough for the escalation to run 1087ms
+   ✓ a wrapper that exits with no execution deadline still drains > reports the wrapper result and reaps a grandchild holding its pipes 656ms
+   ✓ a wrapper that exits with no execution deadline still drains > reaps a SIGTERM-deaf grandchild holding its pipes 1659ms
+   ✓ a wrapper that exits with no execution deadline still drains > settles on its own deadline when an escaped holder withholds close 4241ms
+ ✓ tests/run-state.test.ts (21 tests) 12ms
+ ✓ tests/cloud-deploy.test.ts (40 tests) 909ms
+stdout | tests/live-kernel.test.ts > surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once
+LIVE_KERNEL kill -9 pid=18996 run=01M36CABNXG5QC8DQX88V2BTAQ while step=two state=Running
+
+ ✓ tests/hosted-base-snapshot.test.ts (18 tests) 1872ms
+   ✓ hosted base private snapshot > stops streaming project entries at the shared count limit 1795ms
+ ❯ tests/live-kernel.test.ts (31 tests | 8 failed) 52698ms
+   ✓ built flows CLI against live relayflowd > twenty-six-step reuses 25 durable completions after editing the failed final step 2203ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 2755ms
+   ✓ built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 32497ms
+   ✓ built flows CLI against live relayflowd > follows a live worker dispatch through flows run 627ms
+   ✓ built flows CLI against live relayflowd > runs an agent CLI end to end through the SDK worker 531ms
+   ✓ built flows CLI against live relayflowd > f.agent lowers to a real agent step and dispatches through a live worker 534ms
+   ✓ built flows CLI against live relayflowd > can always get a parked run to a late-attaching worker 5577ms
+   ✓ built flows CLI against live relayflowd > reports a real manual-recovery NeedsHuman state as parked 430ms
+   × built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo) 450ms
+     → expected { …(12) } to match object { output: { …(3) }, …(1) }
+(22 matching properties omitted from actual)
+   × built flows CLI against live relayflowd > hn-monitor analyze-story FAILS verification when the CLI omits required schema fields 447ms
+     → expected { …(12) } to match object { …(3) }
+(21 matching properties omitted from actual)
+   × built flows CLI against live relayflowd > agent step preserves the CliResult wrapper as output when the CLI emits non-JSON text 403ms
+     → expected null not to be null
+   × built flows CLI against live relayflowd > AgentWorker exposes wake_context to the CLI via RELAYFLOW_WAKE_CONTEXT env var (real analyzer prerequisite) 447ms
+     → Cannot read properties of null (reading 'story_title')
+   × built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_WAKE_CONTEXT UNSET when the run has no wake_context (undefined-vs-null pin) 402ms
+     → Cannot read properties of null (reading 'env_present')
+   ✓ built flows CLI against live relayflowd > AgentWorker passes a declared model to an identified wrapper as RELAYFLOW_MODEL 446ms
+   ✓ built flows CLI against live relayflowd > AgentWorker refuses a nonconforming journal-submitted wrapper before exposing RELAYFLOW_MODEL 402ms
+   ✓ built flows CLI against live relayflowd > AgentWorker executes the raw claude adapter with its real model flag 365ms
+   ✓ built flows CLI against live relayflowd > AgentWorker executes the raw codex adapter with its real model flag 359ms
+   × built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_MODEL UNSET when the step declares no model 401ms
+     → Cannot read properties of null (reading 'story_title')
+   × built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI 28ms
+     → LIVE_ANALYZER_UNAVAILABLE: "/home/daytona/.relayflow-v2-supervisor/durable/repository/testdata/preflight/analyze-story-claude-cli" does not identify as relayflows-agent-cli-v1 — failing because gate-2 acceptance requires the real analyzer to execute. Set RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 only if this run is not gate evidence.
+   ✓ built flows CLI against live relayflowd > preflights before journaling and names an unreachable socket 821ms
+   ✓ built flows CLI against live relayflowd > starts exactly one daemon when two runs race for one empty data dir 505ms
+   ✓ surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once 909ms
+   × a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant 448ms
+     → expected null to deeply equal { schedule_id: 'heartbeat-1m', …(3) }
+ ❯ tests/hosted-extension-protocol.test.ts (24 tests | 8 failed) 41933ms
+   × hosted extension hostile protocol > uses captured JSON intrinsics for the complete parent boundary 240ms
+     → Hosted extension sandbox exited without a valid completion (exit 1): bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+
+   × hosted extension hostile protocol > rejects an import-time different PR frame with zero adapter calls 216ms
+     → expected Error: Hosted extension sandbox exited wi… { code: '…' } to match object { code: 'plugin_event_unroutable' }
+   × hosted extension hostile protocol > rejects an import-time different delivery frame with zero adapter calls 217ms
+     → expected Error: Hosted extension sandbox exited wi… { code: '…' } to match object { code: 'plugin_event_unroutable' }
+   × hosted extension hostile protocol > rejects an import-time different event frame with zero adapter calls 223ms
+     → expected Error: Hosted extension sandbox exited wi… { code: '…' } to match object { code: 'plugin_event_unroutable' }
+   × hosted extension hostile protocol > rejects two forged calls after the authoritative first outcome settles 10145ms
+     → hostile child did not invoke the adapter
+   × hosted extension hostile protocol > waits for a pending adapter to reject after a forged child error 10145ms
+     → hostile child did not invoke the adapter
+   × hosted extension hostile protocol > waits for a pending adapter to resolve after a forged child error 10139ms
+     → hostile child did not invoke the adapter
+   × hosted extension hostile protocol > returns a typed adapter rejection even when the hostile child hangs 10134ms
+     → hostile child did not invoke the adapter
+ ✓ tests/journal-client.test.ts (17 tests) 81ms
+ ✓ tests/authored-root.test.ts (13 tests) 153ms
+ ✓ tests/flow-extension-compose.test.ts (22 tests) 3618ms
+   ✓ composing flow extensions onto a base flow > composes two extensions in declaration order, and the order is the lockfile order 385ms
+   ✓ composing flow extensions onto a base flow > flows check reports the composition and keeps the composed triggers deliverable 759ms
+ ✓ tests/cloud-connect.test.ts (24 tests) 2988ms
+   ✓ hosted verbs connect before they submit > flows run --cloud submits once the prompt connected the integration 2114ms
+ ❯ tests/authored-node-runtime.test.ts (14 tests | 14 skipped) 11ms
+ ✓ tests/close-pr-flow.test.ts (28 tests) 316ms
+ ✓ tests/validate.test.ts (68 tests) 26ms
+ ✓ tests/verb-field-lint.test.ts (96 tests) 304ms
+ ✓ tests/bundle.test.ts (26 tests) 8599ms
+   ✓ immutable bundles > returns exit 2 naming a byte-flipped payload and refuses to reuse corruption 383ms
+   ✓ immutable bundles > verifies with --verify in any position and answers --json with one object 756ms
+   ✓ immutable bundles > refuses --out with --verify rather than ignoring the destination 373ms
+   ✓ immutable bundles > builds and verifies the canonical YAML fixture through the compiled CLI 1151ms
+   ✓ immutable bundles > emits the ephemeral warning on CLI stderr and uses the default output directory 792ms
+   ✓ immutable bundles > refuses build-provable CLI resolution errors without environment probes 387ms
+   ✓ immutable bundles > builds a standalone TS fixture twice with identical executable hashes 2358ms
+   ✓ immutable bundles > refuses to label installed dependency drift with lockfile pins 379ms
+   ✓ immutable bundles > refuses invalid CLI arguments %j 375ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--out" 382ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--verify" 379ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--verify" 378ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--out" 383ms
+ ✓ tests/tick-source.test.ts (33 tests) 24ms
+ ✓ tests/authored-step-graph.test.ts (25 tests) 816ms
+   ✓ the authored step DAG > does not walk a long-running step's own polling chain to find its dependents' edges 305ms
+ ✓ tests/flow-executor-chain.test.ts (14 tests) 9698ms
+   ✓ flow executor LLM and output-binding chain > runs f.llm -> f.agent -> f.run with schema-verified journal output and the exact allowed model 817ms
+   ✓ flow executor LLM and output-binding chain > runs a dollar-budgeted authored Claude agent with the same default used by preflight 569ms
+   ✓ flow executor LLM and output-binding chain > fails invalid LLM output before the next step: {"message":7} 306ms
+   ✓ flow executor LLM and output-binding chain > runs the exact authored flagship f.llm -> f.agent -> f.run path through the durable CLI root 1488ms
+   ✓ flow executor LLM and output-binding chain > resumes an interrupted durable authored root without replaying completed flagship effects 3258ms
+   ✓ flow executor LLM and output-binding chain > passes a declarative verified value through an agent into a deterministic artifact 652ms
+   ✓ flow executor LLM and output-binding chain > flows run consumes YAML bindings and resume reuses the original journal output 1054ms
+ ✓ tests/agent-relay-transport.test.ts (16 tests) 2217ms
+   ✓ Relay completion at the journal boundary > does not complete at readiness and journals exact output, receipt, and priced accounting 1006ms
+   ✓ Relay completion at the journal boundary > aborts polling on rejected renewal and never writes a stale completion 1002ms
+ ✓ tests/authored-flow-lifecycle-executor.test.ts (27 tests) 577ms
+ ✓ tests/step-failure-excerpt.test.ts (42 tests) 206ms
+ ✓ tests/pr-review-post.test.ts (21 tests) 2028ms
+ ✓ tests/authored-flow-slack.test.ts (7 tests) 1632ms
+   ✓ authored Slack helper effects > replays after SIGKILL before confirm with the same token and one successful completion 524ms
+   ✓ authored Slack helper effects > replays after SIGKILL before complete with the same token and one successful completion 538ms
+ ✓ tests/tick-runner.test.ts (22 tests) 2279ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms fractional as an invocation error 375ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms exponent notation as an invocation error 366ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms hex as an invocation error 383ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms trailing text as an invocation error 383ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms empty as an invocation error 368ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > accepts an exact integer and proceeds past parsing 374ms
+ ✓ tests/mcp.test.ts (30 tests) 21472ms
+   ✓ MCP preflight and transports > flows check refuses an undeclared server with exit 2 and no daemon 568ms
+   ✓ MCP preflight and transports > flows check reports a refusing server and leaves no PID 594ms
+   ✓ MCP preflight and transports > kills a SIGTERM-resistant silent child after a parent-owned handshake deadline 1312ms
+   ✓ MCP preflight and transports > reaps a SIGTERM-resistant descendant with inherit stdio before cleanup finishes 1112ms
+   ✓ MCP preflight and transports > reaps a SIGTERM-resistant descendant with ignore stdio before cleanup finishes 2061ms
+   ✓ MCP preflight and transports > reports malformed connection configuration as config_invalid 579ms
+   ✓ authored MCP effects against the real kernel > reports a dropped tool connection as a failed CLI run 14069ms
+   ✓ authored MCP effects against the real kernel > journals drop/echo failure as worker_error with diagnostic mcp_disconnected 469ms
+ ✓ tests/authored-step-index.test.ts (17 tests) 18ms
+(node:21315) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/gate-contract.test.ts (20 tests) 138ms
+ ✓ tests/authored-node-result.test.ts (39 tests) 18ms
+ ✓ tests/cli-replay.test.ts (37 tests) 1144ms
+   ✓ flows replay > --json is byte-identical across two CLI invocations (diff) 774ms
+ ✓ tests/authored-human.test.ts (13 tests) 138ms
+ ✓ tests/wrapper-execution-duration.test.ts (7 tests) 10824ms
+   ✓ keeps the handshake deadline independent of the removed execution deadline 10058ms
+   ✓ still lets a lease abort stop an unlimited wrapper before it produces output 511ms
+ ✓ tests/direct-input.test.ts (6 tests) 5876ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > returns exit 3 for an authored human handoff and persists its outcome 755ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > returns exit 1 for an authored step_failed verdict and persists its outcome 708ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > executes inline and file JSON input through relayflowd 1893ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > refuses missing and malformed input before contacting relayflowd 1650ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > does not run the authored body before daemon availability 498ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > refuses oversized file input before contacting relayflowd 372ms
+ ✓ tests/authored-run-failure-evidence.test.ts (9 tests) 1112ms
+   ✓ the child index after the process that wrote it is gone > still names every child, with its own run id, after a daemon restart 638ms
+ ✓ tests/cloud-schedule.test.ts (17 tests) 5404ms
+   ✓ schedule lowering > marks a non-grid cron as Cloud-only rather than approximating it, with a silence budget from its own cadence 3222ms
+   ✓ flows check prints declared schedules > shows the lowering for a fixed interval and the Cloud-only note for a real cron 1789ms
+ ✓ tests/cli-hn-monitor.test.ts (16 tests) 94ms
+ ✓ tests/daemon-lifecycle-live.test.ts (9 tests) 6497ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > cold start spawns exactly one daemon, the run succeeds, and the daemon outlives the CLI 492ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > polls, bounded, for a daemon that holds the lock before it binds 1366ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > attaches to a serving daemon that has not published a connection file 461ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > a second run attaches to the daemon the first one started, spawning nothing 887ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > detects a stale connection file left by a hard kill and starts a fresh daemon 934ms
+   ✓ concurrent invocations against one empty data dir (§6 test 15) > ends with exactly one daemon owning the socket, and both runs succeed 1065ms
+   ✓ refusals from a spawn that cannot produce a daemon > names relayflowd_not_found rather than falling through to PATH 395ms
+   ✓ refusals from a spawn that cannot produce a daemon > names daemon_start_failed and quotes the daemon log when startup dies 446ms
+   ✓ refusals from a spawn that cannot produce a daemon > refuses a daemon speaking another protocol version instead of binding over it 450ms
+(node:22576) Warning: Transcript tail for run-9/analyze attempt 1 (stdout) could not be written; the step continues without it: EACCES: permission denied, mkdir '/tmp/transcript-tail-tdD5KP/runs/run-9/steps'
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/transcript-tail.test.ts (11 tests) 736ms
+   ✓ direct agent spawn > tees stdout and stderr into tail files that name the dispatch 304ms
+   ✓ direct agent spawn > completes the step when the tail directory cannot be created 347ms
+ ✓ tests/authored-agent-artifacts.test.ts (4 tests) 380ms
+ ✓ tests/authored-helpers.test.ts (6 tests) 2921ms
+   ✓ runs every available provider through the real kernel and resumes completed effects without a second write 1479ms
+   ✓ replays after SIGKILL before confirm with the same token and one successful completion 523ms
+   ✓ replays after SIGKILL before complete with the same token and one successful completion 504ms
+ ✓ tests/authored-flow-operation.test.ts (24 tests) 548ms
+ ✓ tests/flow-requirements.test.ts (14 tests) 530ms
+   ✓ flows check prints REQUIRES > names the helper, the harness and the mcp server of an authored flow 314ms
+ ✓ tests/backlog-picker.test.ts (14 tests) 45ms
+ ✓ tests/plugin-store-bounds.test.ts (11 tests) 87ms
+ ✓ tests/backlog-picker-flow.test.ts (6 tests) 260ms
+ ✓ tests/hosted-extension-protocol-intrinsics.test.ts (6 tests) 13ms
+ ✓ tests/preflight-permissions-unenforced.test.ts (17 tests) 234ms
+ ✓ tests/wrapper-exit-drain.test.ts (8 tests) 2607ms
+   ✓ reports a signalled wrapper death while a pipe is held, with its output intact 382ms
+   ✓ lets a lease abort outrank a successful exit still being drained 533ms
+ ✓ tests/stuck-run-triage.test.ts (22 tests) 3106ms
+   ✓ stuck-run-triage shell text > collects tails with no GNU timeout on PATH, as on a stock macOS 3068ms
+ ✓ tests/worker-transcript.test.ts (5 tests) 192ms
+ ✓ tests/hosted-extension-routing.test.ts (7 tests) 8ms
+ ✓ tests/artifact-gates.test.ts (7 tests) 181ms
+ ✓ tests/webhook.test.ts (9 tests) 452ms
+   ✓ webhook ingress > checks TS declarations against flows.json without invoking handlers 388ms
+ ✓ tests/agent-artifacts-live.test.ts (5 tests) 41830ms
+   ✓ agent artifacts and gates through the built CLI, a real daemon and the local agent > journals the files the agent wrote, including under a dot-directory, and every artifact gate passes on that journal 1260ms
+   ✓ agent artifacts and gates through the built CLI, a real daemon and the local agent > fails the run when the artifact_exists gate names a file the agent did not write 12089ms
+   ✓ agent artifacts and gates through the built CLI, a real daemon and the local agent > fails the run with the author reason when a predicate gate returns false, journaling the verdict 13615ms
+   ✓ review follow-ups > applies a predicate gate on a helper step too, and journals its verdict 14209ms
+   ✓ review follow-ups > records predicate verdicts on the root run so a resume reuses them instead of re-running the closure 656ms
+ ✓ tests/agent-transcript-live.test.ts (4 tests) 43604ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > preserves structured agent failure details and its completed root index 14553ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > preserves structured llm failure details and its completed root index 14292ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > journals the digest in trajectory_tail on a successful agent step and writes the file it points at 757ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > on a failed agent step, names the failure and the transcript in the terminal diagnostic, redacted 14002ms
+ ✓ tests/human-live.test.ts (3 tests) 6400ms
+   ✓ f.human against a real daemon > parks with the question, refuses wrong answers, records one, and resumes to success 3801ms
+   ✓ f.human against a real daemon > a "no" is a value the body branches on: declined, exit 0, no effect 1592ms
+   ✓ f.human against a real daemon > refuses to answer a run the daemon does not know 1007ms
+ ✓ tests/authored-step-failed.test.ts (10 tests) 36ms
+ ✓ tests/cli-watch.test.ts (10 tests) 16022ms
+   ✓ flows check --watch > rechecks syntax errors, clears once, and returns the last refusal on Ctrl-C 1338ms
+   ✓ flows check --watch > streams JSON lines without ANSI, recovers after atomic saves, and exits zero after repair 1882ms
+   ✓ flows check --watch > coalesces 20 concurrent saves into at most two rechecks 1852ms
+   ✓ flows check --watch > watches transitive relative use imports, cycles, and nearest config changes 2401ms
+   ✓ flows check --watch > refreshes the import graph and notices missing imports being created 2449ms
+   ✓ flows check --watch > reloads authored TypeScript instead of reusing the first imported definition 1556ms
+   ✓ flows check --watch > detects a nearer config appearing and falls back after it is deleted 1886ms
+   ✓ flows check --watch > keeps watching after the target is deleted and recreated 1883ms
+   ✓ flows check --watch > queues changes during a slow check without overlapping checks 773ms
+ ✓ tests/budget-preflight.test.ts (25 tests) 19ms
+ ✓ tests/authored-parallel-agents.test.ts (8 tests) 12199ms
+   ✓ authored steps under local workers with capacity > runs more concurrent f.llm calls than the worker holds side by side, never more than its capacity 1241ms
+   ✓ authored steps under local workers with capacity > completes more concurrent f.agent calls than the worker holds: the overflow waits for a slot instead of parking 2559ms
+   ✓ authored steps under local workers with capacity > runs agents in distinct working directories side by side (the kernel carries cwd) 701ms
+   ✓ authored steps under local workers with capacity > serializes agents whose cwd is a symlink alias of the same directory 1087ms
+   ✓ authored steps under local workers with capacity > serializes agents whose cwd is a directory nested inside the other 1100ms
+   ✓ authored steps under local workers with capacity > never starts queued agents once the body has failed 2032ms
+   ✓ authored steps under local workers with capacity > never starts a queued agent when the agent holding the only slot fails 2049ms
+   ✓ authored steps under local workers with capacity > parks the overflow when the body is not told the capacity (the defect this closes) 1429ms
+ ✓ tests/budget-unmetered-live.test.ts (3 tests) 1176ms
+   ✓ unmetered budget spend through the live kernel > runs an unpriced step under a dollar budget without tripping it, journaling unknown dollars 602ms
+   ✓ unmetered budget spend through the live kernel > still counts an unpriced step toward a token budget 309ms
+ ✓ tests/provider-trigger-contract.test.ts (7 tests) 461ms
+ ✓ tests/work-package-consumer.test.ts (13 tests) 111ms
+ ✓ tests/spec-parity.test.ts (31 tests) 358ms
+ ✓ tests/helpers-fanout.test.ts (96 tests) 202ms
+(node:25864) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/authored-step-graph-live.test.ts (1 test) 760ms
+   ✓ the authored step DAG through the live kernel > carries labels and predecessors on every index record and journal step, ids unchanged 759ms
+ ✓ tests/generate-triggers.test.ts (7 tests) 1063ms
+   ✓ discovers new adapters, preserves exact event names, and prefers adapter-local mappings 340ms
+ ✓ tests/worker-cli-result-exit.test.ts (5 tests) 32885ms
+   ✓ a Claude agent step completes on its result, not only on process exit > settles a hung, successful run within the grace and stops its whole tree 31628ms
+   ✓ a Claude agent step completes on its result, not only on process exit > maps an error result on a hung run to a failed exit 31627ms
+   ✓ a Claude agent step completes on its result, not only on process exit > leaves a hang before any result to the existing stops 32010ms
+   ✓ an agent tree does not outlive the process that spawned it > kills the agent group when the run process is terminated by SIGTERM 793ms
+ ✓ tests/webhook-hardening.test.ts (11 tests) 62ms
+ ✓ tests/human-to.test.ts (8 tests) 11ms
+ ✓ tests/pty-sidechannel.test.ts (11 tests) 6023ms
+   ✓ view attach preserves worker completion and marks only drive 771ms
+   ✓ drive attach preserves worker completion and marks only drive 342ms
+   ✓ passthrough attach preserves worker completion and marks only drive 801ms
+   ✓ none attach preserves worker completion and marks only drive 811ms
+   ✓ none subscriber lets an unattended CLI read EOF 451ms
+   ✓ view subscriber lets an unattended CLI read EOF 492ms
+   ✓ passthrough subscriber lets an unattended CLI read EOF 485ms
+   ✓ incomplete subscriber lets an unattended CLI read EOF 438ms
+   ✓ rejects drive after EOF without marking human intervention 757ms
+   ✓ delivers all drive bytes in order across child stdin backpressure 672ms
+ ✓ tests/plugin-loader.test.ts (9 tests) 232ms
+ ✓ tests/worker-lease.test.ts (7 tests) 13ms
+ ✓ tests/yaml-helpers.test.ts (33 tests) 78ms
+ ❯ tests/webhook-live.test.ts (6 tests | 6 failed) 62555ms
+   × executes and deduplicates 'app_mention' only for its provider and matching payload 10452ms
+     → webhook integration timed out: spawn /home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/target/debug/relayflowd ENOENT
+   × executes and deduplicates 'reaction_added' only for its provider and matching payload 10413ms
+     → webhook integration timed out: spawn /home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/target/debug/relayflowd ENOENT
+   × executes and deduplicates 'pull_request' only for its provider and matching payload 10456ms
+     → webhook integration timed out: spawn /home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/target/debug/relayflowd ENOENT
+   × flows serve-webhook writes JSON before the daemon starts, then journals and archives exactly once 10418ms
+     → webhook integration timed out: spawn /home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/target/debug/relayflowd ENOENT
+   × replays a dropped file after SIGKILL before spawn 10404ms
+     → webhook integration timed out: spawn /home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/target/debug/relayflowd ENOENT
+   × resumes the same journal after SIGKILL after spawn and before acknowledgement 10411ms
+     → webhook integration timed out: spawn /home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/target/debug/relayflowd ENOENT
+ ✓ tests/authored-agent-permissions.test.ts (26 tests) 779ms
+ ✓ tests/babysitter-catalog-export.test.ts (14 tests) 790ms
+   ✓ Babysitter catalog artifact export > CLI refuses an existing output and leaves no file on validation failure 659ms
+ ✓ tests/redact.test.ts (35 tests) 8ms
+ ✓ tests/communication.test.ts (10 tests) 16ms
+ ✓ tests/typed-output.test.ts (14 tests) 223ms
+ ❯ tests/worker-lease-lost.test.ts (16 tests | 1 failed) 19ms
+   × keeps an invalid lease deadline fatal 3ms
+     → expected "spy" to be called 1 times, but got 0 times
+ ✓ tests/canonical-software-factory.test.ts (3 tests) 100ms
+ ✓ tests/budget-attribution.test.ts (5 tests) 9ms
+ ✓ tests/deploy.test.ts (11 tests) 5250ms
+   ✓ flows deploy file buckets > publishes the full signed layout byte-for-byte and redeploys as a noop 829ms
+   ✓ flows deploy file buckets > answers --json with one object per outcome 791ms
+   ✓ flows deploy file buckets > reports a refusal as JSON under --json 380ms
+   ✓ flows deploy file buckets > refuses a missing local bundle before creating the bucket 373ms
+   ✓ flows deploy file buckets > refuses an unreachable bucket before copying 400ms
+   ✓ flows deploy file buckets > refuses an unwritable bucket 404ms
+   ✓ flows deploy file buckets > refuses local tampering of spec.canonical.json 430ms
+   ✓ flows deploy file buckets > refuses local tampering of identity.json 385ms
+   ✓ flows deploy file buckets > refuses asset bundles instead of using daemon-relative files 409ms
+   ✓ flows deploy file buckets > never labels a corrupt existing deployment as a noop 825ms
+ ✓ tests/json-schema-bound.test.ts (71 tests) 2359ms
+   ✓ JSON Schema termination bound > walks a deep schema with an explicit stack rather than recursion 1896ms
+ ✓ tests/effect-channel.test.ts (5 tests) 361ms
+ ✓ tests/model-selection.test.ts (10 tests) 17ms
+ ✓ tests/mcp-lifecycle.test.ts (4 tests) 13ms
+ ✓ tests/relayflowd-path.test.ts (10 tests) 5ms
+ ✓ tests/agent-artifacts.test.ts (9 tests) 18ms
+ ✓ tests/f-memory.test.ts (7 tests) 818ms
+ ✓ tests/authored-plugin-effect.test.ts (6 tests) 67ms
+ ✓ tests/yaml-local-agent-live.test.ts (7 tests) 4181ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked step CLI and model and journals done 623ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked named CLI and model and journals done 597ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked flow CLI and model and journals done 617ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked project CLI and model and journals done 627ms
+   ✓ YAML --local-agent through the built CLI and real daemon > still parks without --local-agent 559ms
+   ✓ YAML --local-agent through the built CLI and real daemon > reports the agent process failure 596ms
+   ✓ YAML --local-agent through the built CLI and real daemon > preserves declared workspace surfaces that the local worker cannot pin 562ms
+ ✓ tests/worker-slots.test.ts (7 tests) 6ms
+ ✓ tests/local-dev-ux.test.ts (8 tests) 16ms
+ ↓ tests/relay-cli-surface-live.test.ts (3 tests | 3 skipped)
+ ✓ tests/authored-declined.test.ts (13 tests) 72ms
+ ✓ tests/resume-failure.test.ts (2 tests) 6ms
+ ✓ tests/dependency-validation.test.ts (6 tests) 697ms
+   ✓ dependency validation > accepts a valid 10,000-step reverse chain through every direct public boundary 369ms
+ ✓ tests/authored-hooks.test.ts (5 tests) 5ms
+ ✓ tests/input-binding.test.ts (12 tests) 211ms
+ ✓ tests/communication-review.test.ts (5 tests) 319ms
+ ✓ tests/yaml-helper-effect.test.ts (4 tests) 74ms
+ ✓ tests/deterministic-llm.test.ts (5 tests) 49ms
+ ✓ tests/scope-preflight.test.ts (6 tests) 8ms
+ ✓ tests/bin.test.ts (7 tests) 2843ms
+   ✓ built flows binary > refuses through a symlink to the built artifact 385ms
+   ✓ built flows binary > refuses through a symlinked directory component 399ms
+   ✓ built flows binary > classifies a signal-terminated auth probe as probe_failed 873ms
+   ✓ built flows binary > classifies an unavailable PATH resolver as probe_failed 396ms
+   ✓ built flows binary > does not describe a present non-executable CLI as missing 392ms
+   ✓ built flows binary > runs one auth probe for three steps sharing a flow CLI 395ms
+ ✓ tests/build-gate.test.ts (3 tests) 1216ms
+   ✓ flows build gates on flows check green (#318) > refuses a flow with an unresolvable named-agent CLI and leaves no artifacts 374ms
+   ✓ flows build gates on flows check green (#318) > --json emits one CheckReport object on stdout on refusal, exits 2, no artifacts 418ms
+   ✓ flows build gates on flows check green (#318) > builds the bundle on success (regression: gate must not block valid flows) 423ms
+ ✓ tests/scope-compiler.test.ts (25 tests) 12ms
+ ✓ tests/run-from-digest.test.ts (6 tests) 4568ms
+   ✓ flows run digest input > submits the sealed canonical spec through the normal journal path without checkout 446ms
+   ✓ flows run digest input > uses a verified cache hit even after the bucket is removed 465ms
+   ✓ flows run digest input > resolves deploy.bucket from flows.json and honors explicit override 1225ms
+   ✓ flows run digest input > refuses an unconfigured bucket 781ms
+   ✓ flows run digest input > refuses tampered spec.canonical.json before creating run data 863ms
+   ✓ flows run digest input > refuses tampered identity.json before creating run data 788ms
+ ✓ tests/communication-worker.test.ts (15 tests) 1492ms
+ ✓ tests/hn-poller.test.ts (6 tests) 6ms
+ ✓ tests/plugin-add.test.ts (7 tests) 1291ms
+   ✓ installs a real offline npm fixture and includes declarations 343ms
+   ✓ typechecks the augmented verb and rejects unknown namespaces 930ms
+ ✓ tests/authored-step-failed-exit.test.ts (3 tests) 8ms
+ ✓ tests/direct-run-failure.test.ts (8 tests) 12ms
+ ✓ tests/dir-watcher-poller.test.ts (6 tests) 4ms
+ ✓ tests/model-pricing.test.ts (10 tests) 5ms
+ ✓ tests/yaml-helper-live.test.ts (1 test) 1041ms
+   ✓ runs compiled YAML helpers through the built CLI and kernel effect journal 1040ms
+ ❯ tests/provider-trigger-executor.test.ts (4 tests | 3 failed) 18ms
+   × the kernel executes compiled 'app_mention' subscriptions with provider isolation and durable dedupe 9ms
+     → spawnSync /home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/target/debug/relayflowd ENOENT
+   × the kernel executes compiled 'reaction_added' subscriptions with provider isolation and durable dedupe 3ms
+     → spawnSync /home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/target/debug/relayflowd ENOENT
+   × the kernel executes compiled 'pull_request' subscriptions with provider isolation and durable dedupe 3ms
+     → spawnSync /home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/target/debug/relayflowd ENOENT
+ ✓ tests/transcript-tail-close.test.ts (2 tests) 1016ms
+   ✓ a stalled transcript-tail close > does not hold the spawn open past its bounded window 475ms
+   ✓ a stalled tail close beside a transcript that finished > still journals the transcript pointer 540ms
+ ✓ tests/wrapper-artifacts-cwd.test.ts (2 tests) 75ms
+ ✓ tests/hello-deterministic.test.ts (5 tests) 17ms
+ ✓ tests/transcript-exclusion-timeout.test.ts (1 test) 188ms
+ ✓ tests/cli-adapter.test.ts (4 tests) 6ms
+ ✓ tests/communication-mixed-resume.test.ts (1 test) 165ms
+ ✓ tests/work-package-validator.test.ts (7 tests) 5ms
+ ✓ tests/authored-use-loader.test.ts (5 tests) 523ms
+ ✓ tests/authored-declined-live.test.ts (1 test) 1701ms
+   ✓ runs an input guard and resumes its completed declined root without repeated effects 1701ms
+ ✓ tests/cli-answer.test.ts (15 tests) 9ms
+ ✓ tests/bundle-preflight.test.ts (4 tests) 876ms
+   ✓ bundle execution preflight > ignores surrounding cache configuration on a verified cache hit 438ms
+   ✓ bundle execution preflight > uses the built alias for a nameless flow even in a digest-only cache directory 417ms
+ ✓ tests/agent-relay-hardening.test.ts (12 tests) 12ms
+ ✓ tests/classify-outcome.test.ts (2 tests) 2162ms
+   ✓ classifyOutcome > gives up and reports when a running run never becomes classifiable 2009ms
+ ✓ tests/communication-preflight.test.ts (13 tests) 30ms
+ ↓ tests/real-cli-adapters.test.ts (3 tests | 3 skipped)
+ ✓ tests/memoization.test.ts (57 tests) 58ms
+ ✓ tests/fs-descriptor.test.ts (1 test) 4ms
+ ✓ tests/parse-json-output.test.ts (7 tests) 3ms
+ ✓ tests/journal-client-completion.test.ts (4 tests) 100ms
+ ✓ tests/worker-cli-abort.test.ts (2 tests) 2535ms
+   ✓ stops claude and its process group when lease ownership is lost 1252ms
+   ✓ stops wrapper.mjs and its process group when lease ownership is lost 1282ms
+ ✓ tests/communication-environment-preflight.test.ts (6 tests) 4ms
+ ✓ tests/budget-authored-live.test.ts (2 tests) 202ms
+ ✓ tests/slack-writeback.test.ts (1 test) 262ms
+ ✓ tests/authored-surface-authority.test.ts (2 tests) 16ms
+ ✓ tests/adapters/claude.test.ts (7 tests) 4ms
+ ✓ tests/worker-cli-cwd.test.ts (2 tests) 296ms
+ ✓ tests/adapters/codex.test.ts (7 tests) 4ms
+ ✓ tests/worker-lease-lost-live.test.ts (2 tests) 586ms
+   ✓ reports journal success after completion rejects with lease_conflict 307ms
+ ✓ tests/slack-block-kit.test.ts (5 tests) 31ms
+ ✓ tests/worker-lease-sweep.test.ts (2 tests) 6ms
+ ✓ tests/communication-history.test.ts (1 test) 3ms
+ ✓ tests/adapters/registry.test.ts (4 tests) 4ms
+ ✓ tests/resume-worker-lease.test.ts (2 tests) 4ms
+ ✓ tests/authored-declined-report.test.ts (6 tests) 7ms
+ ✓ tests/promise-ancestry.test.ts (2 tests) 248ms
+ ✓ tests/communication-refusal.test.ts (1 test) 12ms
+ ✓ tests/agent-cwd-validation.test.ts (2 tests) 395ms
+   ✓ declarative agent cwd > is refused by `flows check` on a YAML flow before anything runs 392ms
+ ✓ tests/bundle-transport.test.ts (20 tests) 2555ms
+   ✓ digest references > accepts and deploys the build output for hello 446ms
+   ✓ digest references > accepts and deploys the build output for Hello 415ms
+   ✓ digest references > accepts and deploys the build output for hello.world 414ms
+   ✓ digest references > accepts and deploys the build output for hello_world 429ms
+   ✓ digest references > accepts and deploys the build output for 123 415ms
+   ✓ digest references > accepts and deploys the build output for A_b.c-1 433ms
+ ✓ tests/catalog-plugins.test.ts (2 tests) 3ms
+ ✓ tests/check-command-cwd.test.ts (1 test) 12ms
+ ✓ tests/communication-lazy.test.ts (1 test) 3ms
+ ✓ tests/cli-progress-wait.test.ts (2 tests) 3ms
+ ✓ tests/step-lease.test.ts (36 tests) 66639ms
+   ✓ f.run leases against the live kernel > enforces 10000 ms for 'sleep 5; printf ok' 5083ms
+   ✓ f.run leases against the live kernel > enforces 40000 ms for 'sleep 31; printf ok' 31231ms
+   ✓ f.run leases against the live kernel > enforces 30000 ms for 'sleep 31; printf ok' 30105ms
+ ↓ tests/run-digest-live.test.ts (1 test | 1 skipped)
+ ✓ tests/canonical-tree.test.ts (1 test) 2ms
+ ✓ tests/placement.test.ts (54 tests) 23ms
+ ✓ tests/communication-tools.test.ts (1 test) 71ms
+ ✓ tests/authored-admission.test.ts (2 tests) 3ms
+ ✓ tests/memory.test.ts (18 tests) 8ms
+ ✓ tests/worker-platform.test.ts (1 test) 3ms
+ ✓ tests/run-digest.test.ts (4 tests) 1615ms
+   ✓ digest run configuration refusals > reports config_invalid before fetching or starting a run for {invalid json 403ms
+   ✓ digest run configuration refusals > reports config_invalid before fetching or starting a run for {"deploy":{}} 396ms
+   ✓ digest run configuration refusals > reports config_invalid before fetching or starting a run for {"deploy":{"bucket":123}} 406ms
+   ✓ digest run configuration refusals > reports config_invalid before fetching or starting a run for {"deploy":{"bucket":""}} 410ms
+ ✓ tests/local-agent-live.test.ts (5 tests) 63796ms
+   ✓ built CLI local agent against a real daemon > dispatches through the wrapper and keeps --json stdout report-shaped 760ms
+   ✓ built CLI local agent against a real daemon > runs beyond the initial 30-second lease without a second invocation 35795ms
+   ✓ built CLI local agent against a real daemon > renders actual agent completion in text output 792ms
+   ✓ built CLI local agent against a real daemon > returns a failed run when the agent process fails 13531ms
+   ✓ built CLI local agent against a real daemon > refuses a workspace it cannot pin before invoking the agent 12917ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-node-runtime.test.ts [ tests/authored-node-runtime.test.ts ]
+AssertionError: expected '1.3.6' to be '1.4.0' // Object.is equality
+
+Expected: "1.4.0"
+Received: "1.3.6"
+
+ ❯ tests/authored-node-runtime.test.ts:18:77
+     16| 
+     17| beforeAll(() => {
+     18|   expect(spawnSync(bun, ['--version'], { encoding: 'utf8' }).stdout.tr…
+       |                                                                             ^
+     19|   expect(existsSync(daemon), 'build the current kernel or set RELAYFLO…
+     20|   stage = mkdtempSync(join(tmpdir(), 'authored-standalone-build-'));
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/42]⎯
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 41 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/babysitter-native-extension.test.ts > native Babysitter extension > runs the exact published 2.0.26 native bytes in the isolated capability path
+AssertionError: promise rejected "Error: Hosted extension sandbox exited wi… { code: '…' }" instead of resolving
+ ❯ tests/babysitter-native-extension.test.ts:153:7
+    151|         return { receiptId: `bst_${'a'.repeat(64)}`, status: 'queued' …
+    152|       } },
+    153|     })).resolves.toEqual({ completionReason: 'success', capabilityCall…
+       |       ^
+    154|     expect(calls).toEqual([{ delivery: {
+    155|       deliveryId: 'gh-delivery-7', provider: 'github', eventType: 'pul…
+
+Caused by: Error: Hosted extension sandbox exited without a valid completion (exit 1): bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+
+ ❯ refuse src/hosted-extension-protocol.ts:135:21
+ ❯ ChildProcess.<anonymous> src/hosted-extension-protocol.ts:234:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/42]⎯
+
+ FAIL  tests/cli.test.ts > flows run/resume CLI over the journal protocol > bounds a worker wait by its lease and reports what it is waiting for
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ tests/cli.test.ts:1089:18
+    1087|     ], output.io);
+    1088| 
+    1089|     expect(code).toBe(1);
+       |                  ^
+    1090|     expect(output.stderr.join('\n')).toContain('WAITING [worker_lease]…
+    1091|     expect(output.stderr.join('\n')).toContain(`until ${leaseDeadlineM…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/42]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > executes the exact capability-only handler for a queued receipt
+ FAIL  tests/hosted-extension-protocol.test.ts > hosted extension hostile protocol > uses captured JSON intrinsics for the complete parent boundary
+Error: Hosted extension sandbox exited without a valid completion (exit 1): bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+
+ ❯ refuse src/hosted-extension-protocol.ts:135:21
+    133|       : new PluginError('plugin_unsupported', 'Hosted capability rejec…
+    134|     const refuse = (message: string) => {
+    135|       const error = new PluginError('plugin_unsupported', message);
+       |                     ^
+    136|       CHILD_PROCESS_KILL(child, 'SIGKILL');
+    137|       if (capabilityState === 'pending') {
+ ❯ ChildProcess.<anonymous> src/hosted-extension-protocol.ts:234:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/42]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > executes the exact capability-only handler for a duplicate receipt
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > denies ambient credentials, host files, writes, network, subprocesses, and undeclared context verbs
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > constructs adapter authority with the captured freeze intrinsic
+Error: Hosted extension sandbox exited without a valid completion (exit 1): bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+
+ ❯ refuse src/hosted-extension-protocol.ts:135:21
+    133|       : new PluginError('plugin_unsupported', 'Hosted capability rejec…
+    134|     const refuse = (message: string) => {
+    135|       const error = new PluginError('plugin_unsupported', message);
+       |                     ^
+    136|       CHILD_PROCESS_KILL(child, 'SIGKILL');
+    137|       if (capabilityState === 'pending') {
+ ❯ ChildProcess.<anonymous> src/hosted-extension-protocol.ts:234:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/42]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > launches through the captured process primitive after builtin export synchronization
+AssertionError: promise rejected "Error: Hosted extension sandbox exited wi… { code: '…' }" instead of resolving
+ ❯ tests/hosted-extension-isolation.test.ts:283:11
+    281|           input: descriptor(),
+    282|           babysitterTurn: { queue: async () => ({ receiptId: 'receipt-…
+    283|         })).resolves.toEqual({ completionReason: 'success', capability…
+       |           ^
+    284|       } finally {
+    285|         process.execPath = originalExecPath;
+
+Caused by: Error: Hosted extension sandbox exited without a valid completion (exit 1): bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+
+ ❯ refuse src/hosted-extension-protocol.ts:135:21
+ ❯ ChildProcess.<anonymous> src/hosted-extension-protocol.ts:234:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/42]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > ignores inherited launcher overrides and decodes manifests with the captured Buffer intrinsic
+AssertionError: promise rejected "Error: Hosted extension sandbox exited wi… { code: '…' }" instead of resolving
+ ❯ tests/hosted-extension-isolation.test.ts:373:11
+    371|           input: descriptor('delivery-options'),
+    372|           babysitterTurn: { queue: async () => ({ receiptId: 'receipt-…
+    373|         })).resolves.toEqual({ completionReason: 'success', capability…
+       |           ^
+    374|       } finally {
+    375|         Buffer.prototype.toString = bufferToString;
+
+Caused by: Error: Hosted extension sandbox exited without a valid completion (exit 1): bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+
+ ❯ refuse src/hosted-extension-protocol.ts:135:21
+ ❯ ChildProcess.<anonymous> src/hosted-extension-protocol.ts:234:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/42]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > streams verified bytes when the live store is replaced and no writable staging path exists
+AssertionError: promise rejected "Error: Hosted extension sandbox exited wi… { code: '…' }" instead of resolving
+ ❯ tests/hosted-extension-isolation.test.ts:431:7
+    429|         return { receiptId: 'receipt-1', status: 'queued' };
+    430|       } },
+    431|     })).resolves.toEqual({ completionReason: 'success', capabilityCall…
+       |       ^
+    432|     expect(calls).toBe(1);
+    433|     expect(readFileSync(join(installed.directory, 'babysitter.flow.ts'…
+
+Caused by: Error: Hosted extension sandbox exited without a valid completion (exit 1): bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+
+ ❯ refuse src/hosted-extension-protocol.ts:135:21
+ ❯ ChildProcess.<anonymous> src/hosted-extension-protocol.ts:234:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/42]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > mounts pinned private Surface bytes when the live package changes before launch
+AssertionError: promise rejected "Error: Hosted extension sandbox exited wi… { code: '…' }" instead of resolving
+ ❯ tests/hosted-extension-isolation.test.ts:456:7
+    454|         return { receiptId: 'receipt-1', status: 'queued' };
+    455|       } },
+    456|     })).resolves.toEqual({ completionReason: 'success', capabilityCall…
+       |       ^
+    457|     expect(calls).toBe(1);
+    458|     expect(readFileSync(join(surfaceRoot, 'dist/flow.js'), 'utf8')).to…
+
+Caused by: Error: Hosted extension sandbox exited without a valid completion (exit 1): bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+
+ ❯ refuse src/hosted-extension-protocol.ts:135:21
+ ❯ ChildProcess.<anonymous> src/hosted-extension-protocol.ts:234:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/42]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > shields verified Surface files before async settlement
+AssertionError: promise rejected "Error: Hosted extension sandbox exited wi… { code: '…' }" instead of resolving
+ ❯ tests/hosted-extension-isolation.test.ts:532:9
+    530|         surfaceRoot,
+    531|         babysitterTurn: { queue: async () => ({ receiptId: 'receipt-1'…
+    532|       })).resolves.toEqual({ completionReason: 'success', capabilityCa…
+       |         ^
+    533|     } finally {
+    534|       if (previous === undefined) delete (Array.prototype as { then?: …
+
+Caused by: Error: Hosted extension sandbox exited without a valid completion (exit 1): bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+
+ ❯ refuse src/hosted-extension-protocol.ts:135:21
+ ❯ ChildProcess.<anonymous> src/hosted-extension-protocol.ts:234:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/42]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > preserves a typed host refusal while disclosing only a fixed marker to the child
+AssertionError: expected Error: Hosted extension sandbox exited wi… { code: '…' } to be Error: private Cloud policy detail { code: '…' } // Object.is equality
+
+- Expected
++ Received
+
+- [Error: private Cloud policy detail]
++ [Error: Hosted extension sandbox exited without a valid completion (exit 1): bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
++ ]
+
+ ❯ tests/hosted-extension-isolation.test.ts:560:5
+    558|       provider: 'github', eventType: 'pull_request.labeled', deliveryI…
+    559|     });
+    560|     await expect(runVerifiedNativeExtensionSandbox({
+       |     ^
+    561|       artifact: await artifact(source), manifest: validateFlowExtensio…
+    562|       babysitterTurn: { queue: async () => { throw refusal; } },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/42]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > enforces OS address-space and data bounds on native Buffer allocation
+AssertionError: expected Error: Hosted extension sandbox exited wi… { code: '…' } to match object { code: 'plugin_unsupported', …(1) }
+
+- Expected
++ Received
+
+- Object {
++ PluginError {
+    "code": "plugin_unsupported",
+-   "message": StringMatching /(?:Failed to allocate memory|Array buffer allocation failed)/u,
+  }
+
+ ❯ tests/hosted-extension-isolation.test.ts:646:5
+    644|     });
+    645|     let calls = 0;
+    646|     await expect(runVerifiedNativeExtensionSandbox({
+       |     ^
+    647|       artifact: installed,
+    648|       manifest: validateFlowExtensionManifest(manifest()),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/42]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > blocks extra handler fields and authority-bearing receipt fields at the parent port
+AssertionError: expected Error: Hosted extension sandbox exited wi… { code: '…' } to match object { code: 'plugin_event_unroutable' }
+
+- Expected
++ Received
+
+- Object {
+-   "code": "plugin_event_unroutable",
++ PluginError {
++   "code": "plugin_unsupported",
+  }
+
+ ❯ tests/hosted-extension-isolation.test.ts:675:5
+    673|     });
+    674|     let calls = 0;
+    675|     await expect(runVerifiedNativeExtensionSandbox({
+       |     ^
+    676|       artifact: await artifact(source), manifest: validateFlowExtensio…
+    677|       babysitterTurn: { queue: async () => { calls += 1; return { rece…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/42]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > writes the Surface manifest and protocol without inherited toJSON behavior
+AssertionError: promise rejected "Error: Hosted extension sandbox exited wi… { code: '…' }" instead of resolving
+ ❯ tests/hosted-extension-isolation.test.ts:788:11
+    786|           babysitterTurn: { queue: async () => ({ receiptId: 'receipt-…
+    787|           timeoutMs: 3_000,
+    788|         })).resolves.toEqual({ completionReason: 'success', capability…
+       |           ^
+    789|       } finally {
+    790|         if (previous === undefined) delete (Object.prototype as { toJS…
+
+Caused by: Error: Hosted extension sandbox exited without a valid completion (exit 1): bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+
+ ❯ refuse src/hosted-extension-protocol.ts:135:21
+ ❯ ChildProcess.<anonymous> src/hosted-extension-protocol.ts:234:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/42]⎯
+
+ FAIL  tests/hosted-extension-protocol.test.ts > hosted extension hostile protocol > rejects an import-time different PR frame with zero adapter calls
+ FAIL  tests/hosted-extension-protocol.test.ts > hosted extension hostile protocol > rejects an import-time different delivery frame with zero adapter calls
+ FAIL  tests/hosted-extension-protocol.test.ts > hosted extension hostile protocol > rejects an import-time different event frame with zero adapter calls
+AssertionError: expected Error: Hosted extension sandbox exited wi… { code: '…' } to match object { code: 'plugin_event_unroutable' }
+
+- Expected
++ Received
+
+- Object {
+-   "code": "plugin_event_unroutable",
++ PluginError {
++   "code": "plugin_unsupported",
+  }
+
+ ❯ tests/hosted-extension-protocol.test.ts:430:5
+    428|   ])('rejects an import-time %s frame with zero adapter calls', async …
+    429|     let calls = 0;
+    430|     await expect(runVerifiedNativeExtensionSandbox({
+       |     ^
+    431|       artifact: await artifact(hostileImport([frame, { type: 'error', …
+    432|       manifest: validateFlowExtensionManifest(manifest()), dispatch: d…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/42]⎯
+
+ FAIL  tests/hosted-extension-protocol.test.ts > hosted extension hostile protocol > rejects two forged calls after the authoritative first outcome settles
+ FAIL  tests/hosted-extension-protocol.test.ts > hosted extension hostile protocol > waits for a pending adapter to reject after a forged child error
+ FAIL  tests/hosted-extension-protocol.test.ts > hosted extension hostile protocol > waits for a pending adapter to resolve after a forged child error
+ FAIL  tests/hosted-extension-protocol.test.ts > hosted extension hostile protocol > returns a typed adapter rejection even when the hostile child hangs
+Error: hostile child did not invoke the adapter
+ ❯ Timeout._onTimeout tests/hosted-extension-protocol.test.ts:118:45
+    116| async function waitForInvocation(invoked: Promise<void>): Promise<void…
+    117|   await new Promise<void>((resolve, reject) => {
+    118|     const timeout = setTimeout(() => reject(new Error('hostile child d…
+       |                                             ^
+    119|     void invoked.then(() => { clearTimeout(timeout); resolve(); }, rej…
+    120|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/42]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo)
+AssertionError: expected { …(12) } to match object { output: { …(3) }, …(1) }
+(22 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "output": Object {
+-     "reasoning": "stub agent runtime — deterministic output for gate-2 clause-2 demo",
+-     "relevance_score": 5,
+-     "story_title": "stub",
+-   },
++   "output": null,
+    "verification": Object {
+-     "gate": "json_schema",
+-     "verdict": "pass",
++     "gate": "execution",
++     "verdict": "fail",
+    },
+  }
+
+ ❯ tests/live-kernel.test.ts:657:36
+    655|         && (entry as { step_id?: string }).step_id === 'analyze-story',
+    656|     ) as { payload: { output: unknown; verification: unknown } } | und…
+    657|     expect(stepCompleted?.payload).toMatchObject({
+       |                                    ^
+    658|       output: {
+    659|         story_title: 'stub',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/42]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story FAILS verification when the CLI omits required schema fields
+AssertionError: expected { …(12) } to match object { …(3) }
+(21 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "completionReason": "retries_exhausted",
++   "completionReason": "worker_error",
+    "output": null,
+    "verification": Object {
+-     "gate": "json_schema",
++     "gate": "execution",
+      "verdict": "fail",
+    },
+  }
+
+ ❯ tests/live-kernel.test.ts:752:36
+    750|     // its verification record names the json_schema rejection. The re…
+    751|     // parsed value is nulled before the completion is persisted.
+    752|     expect(stepCompleted?.payload).toMatchObject({
+       |                                    ^
+    753|       completionReason: 'retries_exhausted',
+    754|       output: null,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/42]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > agent step preserves the CliResult wrapper as output when the CLI emits non-JSON text
+AssertionError: expected null not to be null
+ ❯ tests/live-kernel.test.ts:823:24
+    821|     // here (parseJsonOutput returned null on non-JSON stdout) and
+    822|     // these assertions would all fail.
+    823|     expect(output).not.toBeNull();
+       |                        ^
+    824|     expect(output.exit_code).toBe(0);
+    825|     expect(output.stdout_tail).toContain('looked at the story');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/42]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker exposes wake_context to the CLI via RELAYFLOW_WAKE_CONTEXT env var (real analyzer prerequisite)
+TypeError: Cannot read properties of null (reading 'story_title')
+ ❯ tests/live-kernel.test.ts:891:42
+    889|     ) as { payload: { output: { story_title: string; reasoning: string…
+    890|     expect(stepCompleted).toBeDefined();
+    891|     expect(stepCompleted!.payload.output.story_title).toBe(`echoed:${s…
+       |                                          ^
+    892|     expect(stepCompleted!.payload.output.reasoning).toContain(String(s…
+    893| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/42]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_WAKE_CONTEXT UNSET when the run has no wake_context (undefined-vs-null pin)
+TypeError: Cannot read properties of null (reading 'env_present')
+ ❯ tests/live-kernel.test.ts:958:38
+    956|     ) as { payload: { output: { env_present: boolean } } } | undefined;
+    957|     expect(completed).toBeDefined();
+    958|     expect(completed!.payload.output.env_present).toBe(false);
+       |                                      ^
+    959| 
+    960|     delete process.env.RELAYFLOW_WAKE_CONTEXT;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/42]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_MODEL UNSET when the step declares no model
+TypeError: Cannot read properties of null (reading 'story_title')
+ ❯ tests/live-kernel.test.ts:1194:38
+    1192|     expect(completed).toBeDefined();
+    1193|     // UNSET, not EMPTY and not the leaked parent value.
+    1194|     expect(completed!.payload.output.story_title).toBe('model:UNSET');
+       |                                      ^
+    1195| 
+    1196|     delete process.env.RELAYFLOW_MODEL;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/42]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI
+Error: LIVE_ANALYZER_UNAVAILABLE: "/home/daytona/.relayflow-v2-supervisor/durable/repository/testdata/preflight/analyze-story-claude-cli" does not identify as relayflows-agent-cli-v1 — failing because gate-2 acceptance requires the real analyzer to execute. Set RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 only if this run is not gate evidence.
+ ❯ tests/live-kernel.test.ts:1223:15
+    1221|       const notice = `LIVE_ANALYZER_UNAVAILABLE: ${readiness.detail}`;
+    1222|       if (process.env['RELAYFLOWS_ALLOW_ANALYZER_SKIP'] !== '1') {
+    1223|         throw new Error(
+       |               ^
+    1224|           `${notice} — failing because gate-2 acceptance requires the …
+    1225|           + 'Set RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 only if this run is …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/42]⎯
+
+ FAIL  tests/live-kernel.test.ts > a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant
+AssertionError: expected null to deeply equal { schedule_id: 'heartbeat-1m', …(3) }
+
+- Expected: 
+Object {
+  "lag_ms": 43000,
+  "schedule_id": "heartbeat-1m",
+  "scheduled_for_ms": 1764000000000,
+  "slot": 29400000,
+}
+
++ Received: 
+null
+
+ ❯ tests/live-kernel.test.ts:1665:39
+    1663|     // The bound: the run reports the grid instant and its own lag, so…
+    1664|     // backfilled run can tell it is running for a slot from the past.
+    1665|     expect(completed!.payload.output).toEqual({
+       |                                       ^
+    1666|       schedule_id: 'heartbeat-1m',
+    1667|       slot: 29_400_000,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/42]⎯
+
+ FAIL  tests/provider-trigger-executor.test.ts > the kernel executes compiled 'app_mention' subscriptions with provider isolation and durable dedupe
+ FAIL  tests/provider-trigger-executor.test.ts > the kernel executes compiled 'reaction_added' subscriptions with provider isolation and durable dedupe
+ FAIL  tests/provider-trigger-executor.test.ts > the kernel executes compiled 'pull_request' subscriptions with provider isolation and durable dedupe
+Error: spawnSync /home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/target/debug/relayflowd ENOENT
+ ❯ submit tests/provider-trigger-executor.test.ts:43:89
+     41|     steps: [{ id: 'effect', type: 'deterministic', command: `printf ac…
+     42|   }))));
+     43|   const submit = (envelope: unknown, key: string, executor = source.na…
+       |                                                                                         ^
+     44|     '--data-dir', dir, 'run', spec, '--event', JSON.stringify({ type: …
+     45|   ], { encoding: 'utf8', stdio: 'pipe' })) as { matched: boolean; dedu…
+ ❯ tests/provider-trigger-executor.test.ts:50:12
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/42]⎯
+
+ FAIL  tests/webhook-live.test.ts > executes and deduplicates 'app_mention' only for its provider and matching payload
+ FAIL  tests/webhook-live.test.ts > executes and deduplicates 'reaction_added' only for its provider and matching payload
+ FAIL  tests/webhook-live.test.ts > executes and deduplicates 'pull_request' only for its provider and matching payload
+Error: webhook integration timed out: spawn /home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/target/debug/relayflowd ENOENT
+ ❯ until tests/webhook-live.test.ts:39:9
+     37|   const deadline = Date.now() + 10_000;
+     38|   while (Date.now() < deadline) { if (await predicate()) return; await…
+     39|   throw new Error(`webhook integration timed out: ${detail()}`);
+       |         ^
+     40| }
+     41| async function daemon(dir: string): Promise<ChildProcess> {
+ ❯ daemon tests/webhook-live.test.ts:43:3
+ ❯ tests/webhook-live.test.ts:100:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/42]⎯
+
+ FAIL  tests/webhook-live.test.ts > flows serve-webhook writes JSON before the daemon starts, then journals and archives exactly once
+Error: webhook integration timed out: spawn /home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/target/debug/relayflowd ENOENT
+ ❯ until tests/webhook-live.test.ts:39:9
+     37|   const deadline = Date.now() + 10_000;
+     38|   while (Date.now() < deadline) { if (await predicate()) return; await…
+     39|   throw new Error(`webhook integration timed out: ${detail()}`);
+       |         ^
+     40| }
+     41| async function daemon(dir: string): Promise<ChildProcess> {
+ ❯ daemon tests/webhook-live.test.ts:43:3
+ ❯ tests/webhook-live.test.ts:121:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[27/42]⎯
+
+ FAIL  tests/webhook-live.test.ts > replays a dropped file after SIGKILL before spawn
+Error: webhook integration timed out: spawn /home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/target/debug/relayflowd ENOENT
+ ❯ until tests/webhook-live.test.ts:39:9
+     37|   const deadline = Date.now() + 10_000;
+     38|   while (Date.now() < deadline) { if (await predicate()) return; await…
+     39|   throw new Error(`webhook integration timed out: ${detail()}`);
+       |         ^
+     40| }
+     41| async function daemon(dir: string): Promise<ChildProcess> {
+ ❯ daemon tests/webhook-live.test.ts:43:3
+ ❯ tests/webhook-live.test.ts:137:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[28/42]⎯
+
+ FAIL  tests/webhook-live.test.ts > resumes the same journal after SIGKILL after spawn and before acknowledgement
+Error: webhook integration timed out: spawn /home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/target/debug/relayflowd ENOENT
+ ❯ until tests/webhook-live.test.ts:39:9
+     37|   const deadline = Date.now() + 10_000;
+     38|   while (Date.now() < deadline) { if (await predicate()) return; await…
+     39|   throw new Error(`webhook integration timed out: ${detail()}`);
+       |         ^
+     40| }
+     41| async function daemon(dir: string): Promise<ChildProcess> {
+ ❯ daemon tests/webhook-live.test.ts:43:3
+ ❯ tests/webhook-live.test.ts:150:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[29/42]⎯
+
+ FAIL  tests/worker-lease-lost.test.ts > keeps an invalid lease deadline fatal
+AssertionError: expected "spy" to be called 1 times, but got 0 times
+ ❯ tests/worker-lease-lost.test.ts:124:17
+    122|   client.emit('step.dispatch', { ...dispatch, lease_deadline_ms: NaN }…
+    123|   await worker.close();
+    124|   expect(fatal).toHaveBeenCalledTimes(1);
+       |                 ^
+    125|   expect(client.close).toHaveBeenCalledTimes(1);
+    126| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[30/42]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+Error: Hosted extension sandbox exited without a valid completion (exit 1): bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+
+ ❯ refuse src/hosted-extension-protocol.ts:135:21
+    133|       : new PluginError('plugin_unsupported', 'Hosted capability rejec…
+    134|     const refuse = (message: string) => {
+    135|       const error = new PluginError('plugin_unsupported', message);
+       |                     ^
+    136|       CHILD_PROCESS_KILL(child, 'SIGKILL');
+    137|       if (capabilityState === 'pending') {
+ ❯ ChildProcess.<anonymous> src/hosted-extension-protocol.ts:234:21
+ ❯ ChildProcess.emit node:events:520:22
+ ❯ maybeClose node:internal/child_process:1084:16
+ ❯ Process.ChildProcess._handle.onexit node:internal/child_process:304:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+This error originated in "tests/hosted-extension-protocol.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "rejects two forged calls after the authoritative first outcome settles". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ Test Files  9 failed | 174 passed | 3 skipped (186)
+      Tests  41 failed | 2848 passed | 21 skipped (2910)
+     Errors  1 error
+   Start at  05:36:56
+   Duration  244.33s (transform 2.94s, setup 0ms, collect 48.79s, tests 648.69s, environment 24ms, prepare 7.59s)
+
+
+Exit code: 1
