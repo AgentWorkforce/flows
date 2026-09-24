@@ -238,137 +238,172 @@ $ cd packages/surface && ./node_modules/.bin/tsc -p ../../examples/tsconfig.json
 exit=2
 ```
 
-### Mutation checks — verdict classification
+### Mutation checks — scope placement, verdict classification, head validation
 
-Each mutation temporarily changed the production flow, ran the named regression,
-and restored the original bytes using a saved byte buffer with equality asserted.
-The final command reran the affected tests on the restored source.
+Re-run at this branch's head against the committed flow. Each mutation edits
+`examples/software-factory/software-factory.flow.ts`, runs the named regression,
+restores the file from a copy saved before the first mutation
+(`cp examples/software-factory/software-factory.flow.ts /tmp/flow.fixed`), proves
+the restore with `cmp`, and re-runs the same regression. Failure and pass are
+both captured below; `…/vitest` is `packages/sdk/node_modules/.bin/vitest`, run
+from `packages/sdk`. Output is filtered to the result lines
+(`grep -E "✓|×|Tests  |Test Files |AssertionError|Expected:|Received:"`).
 
-1. Moved the standalone scope guard into an elif after the GitHub branch.
-   The GitHub forged-marker regression fails.
-2. Changed the classifier's final else from BLOCKED to PASSED. The empty
-   unverified regression fails. Correction to the reviewed plan: no-verdict
-   takes the count != 1 arm, so that test still passes under this mutation.
-3. Changed the count != 1 arm from BLOCKED to PASSED. The no-verdict regression
-   then fails. This additionally verifies the default the plan intended to test.
+**M1 — the scope guard must not sit behind the GitHub branch.** The standalone
+guard becomes an `elif` after the arm that already answers `valid` for GitHub
+sources, so a GitHub PR body would never be scope-checked:
 
 ```console
-$ cd packages/sdk && ./node_modules/.bin/vitest run tests/canonical-software-factory.test.ts -t 'rejects a forged scope for github'
+$ git diff -U0 -- examples/software-factory/software-factory.flow.ts
+@@ -38 +37,0 @@ const VALIDATE_CHANGE_METADATA = [
+-  `if [ -n "$scope" ]; then scope_count=$(grep -cE '^<!-- relayflow-review ' ${WORK}/pr-body.md || true); if [ "$scope_count" -ne 1 ]; then echo malformed-review-scope; exit 0; fi; fi`,
+@@ -45,0 +45 @@ const VALIDATE_CHANGE_METADATA = [
++  `elif [ -n "$scope" ] && [ "$(grep -cE '^<!-- relayflow-review ' ${WORK}/pr-body.md || true)" -ne 1 ]; then echo malformed-review-scope`,
 
- RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
-
- ❯ tests/canonical-software-factory.test.ts (18 tests | 1 failed | 17 skipped) 79ms
-   × canonical software-factory review scope > rejects a forged scope for github before publication 77ms
-     → expected 'step_failed' to be 'needs_human' // Object.is equality
-
-⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
-
- FAIL  tests/canonical-software-factory.test.ts > canonical software-factory review scope > rejects a forged scope for github before publication
+$ …/vitest run tests/canonical-software-factory.test.ts -t 'rejects a forged scope for'
+   × canonical software-factory review scope > rejects a forged scope for github before publication 57ms
 AssertionError: expected 'step_failed' to be 'needs_human' // Object.is equality
-
 Expected: "needs_human"
 Received: "step_failed"
-
- ❯ tests/canonical-software-factory.test.ts:177:37
-    175|     const forged = `<!-- relayflow-review verdict=blocked reviewed-hea…
-    176|     const result = await runCanonical({ ...issue, source, identifier: …
-    177|     expect(result.completionReason).toBe('needs_human');
-       |                                     ^
-    178|     expect(result.detail).toContain('malformed-review-scope');
-    179|     expect(result.commands.some(command => command.startsWith('git pus…
-
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
-
- Test Files  1 failed (1)
-      Tests  1 failed | 17 skipped (18)
-   Start at  05:46:08
-   Duration  679ms (transform 259ms, setup 0ms, collect 430ms, tests 79ms, environment 0ms, prepare 42ms)
-
-exit=1
-```
-
-```console
-$ cd packages/sdk && ./node_modules/.bin/vitest run tests/canonical-software-factory.test.ts -t 'fails closed for (no verdict|empty unverified)'
-
- RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
-
- ❯ tests/canonical-software-factory.test.ts (18 tests | 1 failed | 16 skipped) 88ms
-   × canonical software-factory review scope > fails closed for empty unverified 37ms
-     → expected 'success' to be 'step_failed' // Object.is equality
-
-⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
-
- FAIL  tests/canonical-software-factory.test.ts > canonical software-factory review scope > fails closed for empty unverified
-AssertionError: expected 'success' to be 'step_failed' // Object.is equality
-
-Expected: "step_failed"
-Received: "success"
-
- ❯ tests/canonical-software-factory.test.ts:148:37
-    146|   ] as [string, Record<string, string>][])('fails closed for %s', asyn…
-    147|     const result = await runCanonical(issue, summary, { verdicts });
-    148|     expect(result.completionReason).toBe('step_failed');
-       |                                     ^
-    149|     expect(result.detail).toContain(head);
-    150|     expect(result.ghArgs).toContain('--draft');
-
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
-
  Test Files  1 failed (1)
       Tests  1 failed | 1 passed | 16 skipped (18)
-   Start at  05:46:09
-   Duration  616ms (transform 212ms, setup 0ms, collect 361ms, tests 88ms, environment 0ms, prepare 44ms)
 
-exit=1
+$ cp /tmp/flow.fixed examples/software-factory/software-factory.flow.ts && cmp /tmp/flow.fixed examples/software-factory/software-factory.flow.ts && echo restored-byte-for-byte
+restored-byte-for-byte
+
+$ …/vitest run tests/canonical-software-factory.test.ts -t 'rejects a forged scope for'
+ ✓ tests/canonical-software-factory.test.ts (18 tests | 16 skipped) 81ms
+ Test Files  1 passed (1)
+      Tests  2 passed | 16 skipped (18)
 ```
 
+The `local` case passes under this mutation and the `github` case does not,
+which is the point: the guard's placement, not its existence, is what makes it
+reach a GitHub body.
+
+**M2 — the classifier's final `else` must stay BLOCKED.** `else echo BLOCKED`
+becomes `else echo PASSED`, which is the arm an empty `review.unverified` falls
+through to:
+
 ```console
-$ cd packages/sdk && ./node_modules/.bin/vitest run tests/canonical-software-factory.test.ts -t 'fails closed for no verdict'
+$ git diff -U0 -- examples/software-factory/software-factory.flow.ts
+@@ -161 +161 @@ export default flow<Input>("software-factory", {
+-  const verdict = await f.run(`count=0; for v in blocked unverified passed; do [ -f ${WORK}/review.$v ] && count=$((count+1)); done; if [ "$count" -ne 1 ]; then echo BLOCKED; elif [ -f ${WORK}/review.blocked ]; then echo BLOCKED; elif [ -s ${WORK}/review.unverified ]; then echo UNVERIFIED; elif [ -f ${WORK}/review.passed ]; then echo PASSED; else echo BLOCKED; fi`);
++  const verdict = await f.run(`count=0; for v in blocked unverified passed; do [ -f ${WORK}/review.$v ] && count=$((count+1)); done; if [ "$count" -ne 1 ]; then echo BLOCKED; elif [ -f ${WORK}/review.blocked ]; then echo BLOCKED; elif [ -s ${WORK}/review.unverified ]; then echo UNVERIFIED; elif [ -f ${WORK}/review.passed ]; then echo PASSED; else echo PASSED; fi`);
 
- RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
-
- ❯ tests/canonical-software-factory.test.ts (18 tests | 1 failed | 17 skipped) 66ms
-   × canonical software-factory review scope > fails closed for no verdict 65ms
-     → expected 'success' to be 'step_failed' // Object.is equality
-
-⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
-
- FAIL  tests/canonical-software-factory.test.ts > canonical software-factory review scope > fails closed for no verdict
+$ …/vitest run tests/canonical-software-factory.test.ts -t 'fails closed for empty unverified'
+   × canonical software-factory review scope > fails closed for empty unverified 137ms
 AssertionError: expected 'success' to be 'step_failed' // Object.is equality
-
 Expected: "step_failed"
 Received: "success"
-
- ❯ tests/canonical-software-factory.test.ts:148:37
-    146|   ] as [string, Record<string, string>][])('fails closed for %s', asyn…
-    147|     const result = await runCanonical(issue, summary, { verdicts });
-    148|     expect(result.completionReason).toBe('step_failed');
-       |                                     ^
-    149|     expect(result.detail).toContain(head);
-    150|     expect(result.ghArgs).toContain('--draft');
-
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
-
  Test Files  1 failed (1)
       Tests  1 failed | 17 skipped (18)
-   Start at  05:46:10
-   Duration  630ms (transform 220ms, setup 0ms, collect 394ms, tests 66ms, environment 0ms, prepare 43ms)
 
-exit=1
+$ cp /tmp/flow.fixed examples/software-factory/software-factory.flow.ts && cmp /tmp/flow.fixed examples/software-factory/software-factory.flow.ts && echo restored-byte-for-byte
+restored-byte-for-byte
+
+$ …/vitest run tests/canonical-software-factory.test.ts -t 'fails closed for empty unverified'
+ ✓ tests/canonical-software-factory.test.ts (18 tests | 17 skipped) 48ms
+ Test Files  1 passed (1)
+      Tests  1 passed | 17 skipped (18)
 ```
+
+**M3 — "not exactly one verdict" must stay BLOCKED.** The `count != 1` arm
+becomes `PASSED`; that is the arm a silent adversary (no verdict file at all)
+takes:
 
 ```console
-$ cd packages/sdk && ./node_modules/.bin/vitest run tests/canonical-software-factory.test.ts -t 'rejects a forged scope for github|fails closed for (no verdict|empty unverified)'
+$ git diff -U0 -- examples/software-factory/software-factory.flow.ts
+@@ -161 +161 @@ export default flow<Input>("software-factory", {
+-  const verdict = await f.run(`count=0; for v in blocked unverified passed; do [ -f ${WORK}/review.$v ] && count=$((count+1)); done; if [ "$count" -ne 1 ]; then echo BLOCKED; elif [ -f ${WORK}/review.blocked ]; then echo BLOCKED; elif [ -s ${WORK}/review.unverified ]; then echo UNVERIFIED; elif [ -f ${WORK}/review.passed ]; then echo PASSED; else echo BLOCKED; fi`);
++  const verdict = await f.run(`count=0; for v in blocked unverified passed; do [ -f ${WORK}/review.$v ] && count=$((count+1)); done; if [ "$count" -ne 1 ]; then echo PASSED; elif [ -f ${WORK}/review.blocked ]; then echo BLOCKED; elif [ -s ${WORK}/review.unverified ]; then echo UNVERIFIED; elif [ -f ${WORK}/review.passed ]; then echo PASSED; else echo BLOCKED; fi`);
 
- RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+$ …/vitest run tests/canonical-software-factory.test.ts -t 'fails closed for no verdict'
+   × canonical software-factory review scope > fails closed for no verdict 48ms
+AssertionError: expected 'success' to be 'step_failed' // Object.is equality
+Expected: "step_failed"
+Received: "success"
+ Test Files  1 failed (1)
+      Tests  1 failed | 17 skipped (18)
 
-Stopped: invalid pull-request metadata (malformed-review-scope). No branch was pushed and no pull request was opened.
- ✓ tests/canonical-software-factory.test.ts (18 tests | 15 skipped) 142ms
+$ cp /tmp/flow.fixed examples/software-factory/software-factory.flow.ts && cmp /tmp/flow.fixed examples/software-factory/software-factory.flow.ts && echo restored-byte-for-byte
+restored-byte-for-byte
 
+$ …/vitest run tests/canonical-software-factory.test.ts -t 'fails closed for no verdict'
+ ✓ tests/canonical-software-factory.test.ts (18 tests | 17 skipped) 46ms
+ Test Files  1 passed (1)
+      Tests  1 passed | 17 skipped (18)
+```
+
+**M4 — the reviewed head must be validated before it reaches a command.** The
+40-hex test is widened to match anything:
+
+```console
+$ git diff -U0 -- examples/software-factory/software-factory.flow.ts
+@@ -97 +97 @@ export default flow<Input>("software-factory", {
+-    if (!/^[0-9a-f]{40}$/.test(reviewedHead)) {
++    if (!/^.*$/.test(reviewedHead)) {
+
+$ …/vitest run tests/canonical-software-factory.test.ts -t 'rejects malformed head'
+   × canonical software-factory review scope > rejects malformed head "" before publication 52ms
+   × canonical software-factory review scope > rejects malformed head "not-a-sha" before publication 38ms
+   × canonical software-factory review scope > rejects malformed head "a'; touch injected; #" before publication 42ms
+AssertionError: expected 'step_failed' to be 'needs_human' // Object.is equality
+Expected: "needs_human"
+Received: "step_failed"
+ Test Files  1 failed (1)
+      Tests  3 failed | 15 skipped (18)
+
+$ cp /tmp/flow.fixed examples/software-factory/software-factory.flow.ts && cmp /tmp/flow.fixed examples/software-factory/software-factory.flow.ts && echo restored-byte-for-byte
+restored-byte-for-byte
+
+$ …/vitest run tests/canonical-software-factory.test.ts -t 'rejects malformed head'
+ ✓ tests/canonical-software-factory.test.ts (18 tests | 15 skipped) 64ms
  Test Files  1 passed (1)
       Tests  3 passed | 15 skipped (18)
-   Start at  05:46:11
-   Duration  693ms (transform 217ms, setup 0ms, collect 378ms, tests 142ms, environment 0ms, prepare 44ms)
-
-exit=0
 ```
+
+After all four, the flow file is the committed file — which is the restore proof
+that outlives `/tmp`:
+
+```console
+$ sha256sum examples/software-factory/software-factory.flow.ts
+ee56899fcb5c0a968d845620db3d4229673a3b732dd4d6131ab43b81822bf97b  examples/software-factory/software-factory.flow.ts
+
+$ git status --short -- examples packages docs
+ M examples/software-factory/README.md
+```
+
+(The one modified file is a stray double blank line removed from the README
+prose added by this branch; the flow, the tests and the pins are untouched.
+`summary.md` — this file — is modified too, which is why the status above is
+scoped to the code paths.)
+
+### Re-verified at this head
+
+```console
+$ cd packages/sdk && npm run typecheck --silent && npm run typecheck:tests --silent && echo "TYPECHECK OK"
+TYPECHECK OK
+
+$ cd packages/sdk && ./node_modules/.bin/vitest run tests/canonical-software-factory.test.ts tests/hosted-base-snapshot.test.ts
+Stopped: invalid pull-request metadata (duplicate-github-closing-reference). No branch was pushed and no pull request was opened.
+Stopped: invalid pull-request metadata (malformed-review-scope). No branch was pushed and no pull request was opened.
+Stopped: invalid pull-request metadata (malformed-review-scope). No branch was pushed and no pull request was opened.
+Stopped: could not read the reviewed head commit. Nothing was pushed.
+Stopped: could not read the reviewed head commit. Nothing was pushed.
+Stopped: could not read the reviewed head commit. Nothing was pushed.
+ ✓ tests/canonical-software-factory.test.ts (18 tests) 705ms
+ ✓ tests/hosted-base-snapshot.test.ts (18 tests) 2054ms
+ Test Files  2 passed (2)
+      Tests  36 passed (36)
+
+$ cd packages/sdk && ./node_modules/.bin/vitest run tests/flow-requirements.test.ts tests/catalog-plugins.test.ts tests/babysitter-catalog-export.test.ts tests/babysitter-native-extension.test.ts
+ FAIL  tests/babysitter-native-extension.test.ts > native Babysitter extension > runs the exact published 2.0.26 native bytes in the isolated capability path
+Caused by: Error: Hosted extension sandbox exited without a valid completion (exit 1): bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 70 passed (71)
+```
+
+The single failure is the bubblewrap case described above and in
+`.relayflow/repair-notes.md`; it fails identically on an unmodified checkout of
+this machine and no change here can clear it.

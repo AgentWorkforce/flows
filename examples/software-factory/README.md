@@ -41,7 +41,6 @@ The intended first consumer is [the resident babysitter](../babysitter/README.md
 which is not yet ready for unattended deployment; a future shepherd can compare
 the marker with the current PR head before amending a superseded verdict.
 
-
 The pull-request title is the ticket title (whitespace-normalized and capped at
 240 Unicode code points). GitHub inputs must carry `identifier: "#<number>"`;
 the flow appends exactly one `Fixes #<number>` line and validates the final
