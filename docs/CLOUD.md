@@ -132,6 +132,69 @@ A synced run and a Cloud repository grant are mutually exclusive on the
 server: `--sync-code` is the local-driven development loop, and
 webhook-triggered deployments keep cloning through the grant.
 
+## Local runs on the dashboard
+
+A run started in a terminal mirrors itself onto the same dashboard page a
+hosted run gets, and does so by default:
+
+```sh
+flows run review.flow.ts --input '{"pr":7}'
+# Dashboard: https://agentrelay.com/cloud/dashboard/workflow/<run>/runner
+```
+
+Nothing about the run changes. It executes locally, against the local daemon,
+under your own credentials; the journal is still the record. What is new is a
+reader beside it that polls this run's journals every ten seconds and pushes
+what it finds — the same live step view, the same final step rows, the same
+per-step transcripts and the same terminal status a sandbox reports. The run
+row is marked `dispatchType: "local"`, so the run page says it ran on your
+machine rather than promising a sandbox that is never coming.
+
+Opting out:
+
+```sh
+flows run --no-cloud-mirror flow.yaml   # this run only
+FLOWS_CLOUD_MIRROR=0 flows run flow.yaml # this shell: a CI job, a shared checkout
+```
+
+`--no-cloud-mirror` is refused with `--cloud` (which *is* the hosted run) and
+on `check` (which starts nothing), rather than being accepted and ignored.
+
+The mirror is on by default *when a Cloud credential resolves* — the same
+credential every other hosted verb uses (see [Credentials](#credentials)). A
+machine that has never signed in prints one line saying the run stays local
+and runs exactly as before. A local run that joins no workspace is not a
+defect: RFC-0001 settled decision 7 makes the projection a view, not an
+authority.
+
+What it does and does not do:
+
+- **Registers before it reports.** `POST /api/v1/workflows/local-run` creates
+  the run row and returns a credential scoped to that one run. Registration
+  happens once the run id exists, so a flow `flows run` refuses at check time
+  never reaches Cloud at all.
+- **Reads only this run's journals.** The root, plus the child journals the
+  root's own authored-step index names. A shared `~/.relayflowd` holding other
+  people's runs contributes nothing.
+- **Cannot fail a run.** Every push collapses to a boolean; each poll is
+  bounded by its own deadline; the whole finish is bounded. A Cloud outage
+  costs a local run its dashboard page and nothing else.
+- **Publishes what a hosted run publishes, redacted the same way.** Free text
+  goes through `flows status`'s redactor before it is bounded, and identifier
+  fields are normalized into the shape Cloud's parser accepts.
+- **Does not make Cloud the authority.** Cancel is refused for a local run:
+  Cloud mirrors it and does not control it, and a cancel button that stopped
+  the *reporting* while the flow kept running would be a cancellation that did
+  not happen. Stop it where it is running.
+- **One dashboard row per invocation.** A mirrored run goes terminal on Cloud
+  when the CLI exits, and Cloud refuses to move a terminal run back to
+  `running`, so `flows resume` registers its own row — the same shape Cloud's
+  own v2 resume already has. A resume mirrors the kernel spec its journal
+  recorded, since the flow file may have been edited or deleted since.
+
+No credential is written to disk between invocations: the run token lives only
+for the process that holds it.
+
 ## Reading a hosted run
 
 Three read-only verbs answer "what did that run do" from the Cloud API, so an

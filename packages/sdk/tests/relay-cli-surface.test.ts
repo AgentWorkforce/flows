@@ -108,14 +108,14 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
   {
     verb: 'resume',
     argv: ['resume', '--json', '--data-dir', '.relayflowd', '--local-agent', '--agent-capacity', '8', '--no-spawn',
-      '--no-observer-link', '--allow-human-influenced', RUN_ID],
+      '--no-observer-link', '--no-cloud-mirror', '--allow-human-influenced', RUN_ID],
     variant: 'resume',
   },
   { verb: 'run', argv: ['run', 'flow.yaml'], variant: 'run' },
   {
     verb: 'run',
     argv: ['run', '--json', '--data-dir', '.relayflowd', '--local-agent', '--agent-capacity', '8', '--no-spawn',
-      '--no-observer-link', '--allow-human-influenced', '--input', '{"a":1}', 'review.flow.ts'],
+      '--no-observer-link', '--no-cloud-mirror', '--allow-human-influenced', '--input', '{"a":1}', 'review.flow.ts'],
     variant: 'run',
   },
   // `--input` is the authored body's argument and `--reuse-from` memoizes a
