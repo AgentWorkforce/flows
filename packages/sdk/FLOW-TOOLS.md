@@ -90,8 +90,10 @@ The authored runtime currently returns a completion reason and journal-step
 references, not this flow-defined result object or a verified bundle-admission
 receipt. A callable adapter must first bind verified execution to the manifest,
 validate input before effects and validate the real result after execution.
-The new control-plane client below supplies transport and validation, not the
-hosted admission ledger, permission enforcement or execution implementation.
+The control-plane client below supplies transport and validation. The optional
+embedded conformance runtime supplies a deliberately restricted relayflowd
+execution path; it is not the hosted admission ledger or general permission
+enforcement.
 
 ## Acceptance for this SDK slice
 
@@ -106,9 +108,17 @@ not a hosted end-to-end run or evidence of business-result correctness.
 
 The unchanged package and Linux kernel/SDK CI gates protect existing consumers.
 Passing them does not satisfy the RFC's live workload gates. Execution/admission
-and a real callable-flow journey remain separate implementation and acceptance
-work: they are prerequisites for shipping an enabled callable product, not
-capabilities that this SDK's transport implementation claims to provide.
+for arbitrary authored/agent flows and a real callable-flow journey remain
+separate implementation and acceptance work.
+
+For an in-process control-plane conformance path, use
+`createKernelFlowToolControlPlane` with a connected `JournalClient`, an
+authenticated principal, explicit deployment grants, and a digest-pinned sealed
+bundle. It executes only the documented effect-free JSON echo template through
+relayflowd. The live test proves kernel admission dedupe, real argv execution,
+journal-derived result/evidence/events, input revalidation, and cross-principal
+denial. Any broader bundle shape fails before admission; this API must not be
+presented as general Flow-as-tool support.
 
 ## Canonical control-plane client and call adapters
 

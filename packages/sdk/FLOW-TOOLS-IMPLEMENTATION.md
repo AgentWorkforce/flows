@@ -9,20 +9,42 @@ The RFC is the target, not a claim that its hosted acceptance gates have passed.
 | --- | --- | --- | --- |
 | Explicit immutable schemas | FlowToolManifestV1, bounded snapshots, canonical digest | Keep backwards-compatible manifest APIs; validate catalog and lifecycle envelopes | Surface authoring headers and signed bundle publication binding |
 | Scoped discovery | No hosted tool registry | Validated canonical catalog; native/MCP/action views of the same selected revisions | Cloud must filter tenant/workspace/deployment/grants before response |
-| Digest-pinned invoke | Local bundle verification; source-based Cloud run is not admission | Mandatory manifest/deployment/flow binding and canonical input hash; no source fallback | Cloud verifies signer trust, sealed bundle and embedded manifest |
-| Durable idempotency | Kernel effect keys are not API admission keys | Caller-owned key preserved by every adapter; explicit conflict/ambiguous transport outcomes | Cloud atomic unique scope/key + input-hash ledger and durable launch reconciliation |
-| Async lifecycle | Journal protocol run/status/cancel/resume | Stable receipt, strict status/result, replay cursor, bounded observation request, human answer/cancel/resume contracts | Cloud journal projection, durable command authorization and execution |
+| Digest-pinned invoke | Local bundle verification; source-based Cloud run is not admission | Mandatory manifest/deployment/flow binding; embedded runtime verifies the exact sealed digest and admits only its closed no-effect template | Cloud verifies signer trust, embedded manifest and general deployed programs |
+| Durable idempotency | Kernel admission keys atomically bind a spec | Caller key is scoped by principal/deployment/digest and delegated to kernel admission; different canonical input conflicts | Cloud atomic tenant ledger and durable cross-process launch reconciliation |
+| Async lifecycle | Journal protocol run/status/cancel/resume | Stable receipt plus real kernel run/status/event/evidence projection for the conformance program | Cloud journal projection and durable command/human execution |
 | Terminal verdict/evidence | Run completion reason, journal, spend | Separate platform reason/business enum/result schema; closed redacted evidence references | Trusted result producer, evidence ACL/retention/redaction and journal-digest calculation |
 | Scope/budget enforcement | Declarations are not enforcement | No caller-selected identity, deployment authority or budget in model arguments; read-only catalog v1 only | Cloud gate-8 credentials/effects enforcement; deny write-enabled tools |
 | Adapter parity | Descriptor-only functions | Native, MCP and Relay-compatible action handlers call the same client | Actual authenticated server/session/action registration and provider-specific schemas |
-| Restart/crash proof | Kernel crash suite | Contract transport conformance with persisted test fixture and client reconstruction | Real admission/process/worker/effect crash tests; live pilot proof |
+| Restart/crash proof | Kernel crash suite | Live relayflowd admission, execution, journal replay and principal-bound reconstruction tests | Hosted process/worker/effect crash tests; live pilot proof |
 
 Dependency order: (1) strict shared wire contract and schema/binding validators;
 (2) explicit authenticated transport and canonical client; (3) adapters with
 host-owned idempotency metadata; (4) negative/parity/replay conformance tests;
 (5) Cloud admission and projection implementation; (6) non-production read-only
 pilot plus RFC acceptance gates. PR remains draft until its declared acceptance
-is satisfied. Unit/fixture tests do not complete the hosted RFC.
+is satisfied. The narrow embedded runtime and fixture tests do not complete the
+hosted RFC.
+
+## Embedded kernel conformance runtime
+
+`createKernelFlowToolControlPlane` is an actual `FlowToolTransport` over a
+connected `JournalClient`, not a manifest adapter or in-memory run ledger. It
+verifies the pinned sealed bundle, requires a successful bundled preflight,
+reauthorizes discovery/invoke/read operations from server-bound grants, and
+uses relayflowd's atomic admission key for durable deduplication. Status,
+events, spend, terminal result, and evidence digest are projected from the
+journal. Principal identity is hashed into the journaled run binding, allowing
+a reconstructed transport to reauthorize old runs without a process-local map.
+
+The accepted executable contract is deliberately tiny and fail-closed: one
+effect-free deterministic step, direct `/usr/bin/printf` or `/bin/printf` argv,
+an exact JSON-input placeholder, no shell interpolation, no plugins, agents,
+LLMs, triggers, human waits, or effect claims. The runtime substitutes only the
+canonical schema-validated JSON argv element and validates stdout against the
+manifest result schema. This is a real admission/execution/result path useful
+for control-plane conformance; it is not the Babysitter pilot or general Flow
+execution. Cancel/resume/human commands are unsupported for this synchronous
+one-step program, and the hosted Cloud control plane remains unimplemented.
 
 ## Cloud implementation contract (not implemented by this SDK)
 
@@ -46,14 +68,12 @@ Supported HTTP mappings: 400/422 invalid_contract, 401/403 not_authorized,
 unavailable. Transport failure is separately ambiguous. Run `state:cancelled`
 maps to terminal reason `canceled`, matching the existing SDK/kernel reason.
 
-The current bundle executor does not admit authored/agent/LLM bundles. The
+The general bundle executor does not admit authored/agent/LLM bundles. The
 build probe rejects nonempty authored headers and the local digest runner only
 supports declarative deterministic specs without assets/requirements/triggers.
-An exact-spec Cloud executor may support a tiny explicitly enforced no-effect
-command allowlist (for example literal `true`/`false`) as a control-plane smoke.
-That is not the RFC Babysitter pilot. A constant result mapping must be clearly
-declared and bound to immutable reviewed policy; completing `true` is not
-evidence of PR review or a computed business verdict. General authored artifacts,
+The SDK's embedded conformance runtime implements one such exact, no-effect
+allowlist while actually passing validated JSON through relayflowd and reading
+the result from its journal. That is not the RFC Babysitter pilot. General authored artifacts,
 surface headers, signed publication and journaled business-output binding remain
 real implementation dependencies, not capabilities provided by this client.
 
