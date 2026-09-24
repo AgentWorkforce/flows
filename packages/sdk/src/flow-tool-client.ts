@@ -41,7 +41,9 @@ export class FlowToolClient {
   async invoke(selected: FlowToolCatalogEntryV1, input: unknown, options: FlowToolInvocationOptions): Promise<FlowToolRunV1> {
     const entry = parseFlowToolEntry(selected);
     // Schema validation precedes ALL transport calls, including credential access.
-    const validated = validateFlowToolInput(entry.manifest, input);
+    let validated: ReturnType<typeof validateFlowToolInput>;
+    try { validated = validateFlowToolInput(entry.manifest, input); }
+    catch { throw new FlowToolError('invalid_contract'); }
     flowToolOperationKey(options.idempotencyKey);
     const mode = options.mode ?? 'async';
     const waitMs = options.waitMs ?? 0;
@@ -79,7 +81,10 @@ export class FlowToolClient {
 
   async evidence(selected: FlowToolCatalogEntryV1, receipt: FlowToolRunV1) {
     const run = parseFlowToolRun(receipt, parseFlowToolEntry(selected));
-    const raw = snapshotJsonValue(await this.transport.request({ method: 'GET', path: run.evidence_url }), 'flow tool evidence', FLOW_TOOL_LIMITS);
+    const response = await this.transport.request({ method: 'GET', path: run.evidence_url });
+    let raw: ReturnType<typeof snapshotJsonValue>;
+    try { raw = snapshotJsonValue(response, 'flow tool evidence', FLOW_TOOL_LIMITS); }
+    catch { throw new FlowToolError('invalid_contract'); }
     if (raw === null || typeof raw !== 'object' || Array.isArray(raw)
       || Object.keys(raw).sort().join(',') !== 'api_version,evidence,run_id'
       || raw.api_version !== 1 || raw.run_id !== run.run_id) throw new FlowToolError('invalid_contract');

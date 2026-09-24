@@ -155,6 +155,20 @@ describe('fail-closed public projections', () => {
     await expect(invoke(new FlowToolClient(transport))).rejects.toMatchObject({ code: 'invalid_contract' });
   });
 
+  it('does not echo sensitive property names from snapshot failures at the client boundary', async () => {
+    const { client } = fixture(), receipt = await invoke(client);
+    const invalid = client.invoke(entry, { 'secret-key-fixture': NaN }, { idempotencyKey: 'op' });
+    await expect(invalid).rejects.toMatchObject({ code: 'invalid_contract' });
+    try { await invalid; }
+    catch (error) { expect(String(error)).not.toContain('secret-key-fixture'); expect(error).toMatchObject({ code: 'invalid_contract' }); }
+    const transport: FlowToolTransport = {
+      request: async () => ({ 'secret-key-fixture': Infinity }), async *events() {},
+    };
+    await expect(new FlowToolClient(transport).evidence(entry, receipt)).rejects.toMatchObject({ code: 'invalid_contract' });
+    try { await new FlowToolClient(transport).evidence(entry, receipt); }
+    catch (error) { expect(String(error)).not.toContain('secret-key-fixture'); }
+  });
+
   it.each(['gate_failed', 'model_failed', 'agent_failed', 'budget_exceeded', 'human_rejected', 'human_timeout', 'execution_failed'])('preserves distinct failed terminal reason %s', async reason => {
     const { client, backend } = fixture(), receipt = await invoke(client); backend.complete(receipt.run_id);
     const raw = copy(await client.status(entry, receipt)) as any;
