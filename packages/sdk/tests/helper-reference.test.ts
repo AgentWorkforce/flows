@@ -132,6 +132,24 @@ describe('helper references are read as syntax, not text', () => {
     expect(refusals(holder.gen as never)).toContain('helper_provider.mount_required');
   });
 
+  // `flowRequirements` has its OWN parameter extraction, mirroring
+  // `preflightHelpers`. The shapes above are asserted through preflight, so
+  // without these the mirrored regex could be reverted with the suite green.
+  it('declares helpers for every body shape through flowRequirements too', () => {
+    const providersFor = (body: unknown): string[] =>
+      flowRequirements({ body } as never).integrations.map((i) => i.provider);
+    const holder = {
+      async asyncMethod(f: any) { return f.gitlab.issues.list({}); },
+      plain(f: any) { return f.gitlab.issues.list({}); },
+      *gen(f: any) { return f.gitlab.issues.list({}); },
+    };
+    expect(providersFor(holder.asyncMethod)).toContain('gitlab');
+    expect(providersFor(holder.plain)).toContain('gitlab');
+    expect(providersFor(holder.gen)).toContain('gitlab');
+    expect(providersFor(async (f$: any) => { await f$.gitlab.issues.list({}); })).toContain('gitlab');
+    expect(providersFor(async (f: any) => { await f.run('echo f.gitlab'); })).not.toContain('gitlab');
+  });
+
   it('does not declare a requirement from a mentioned helper', () => {
     const mentioned = getFlowDefinition(flow('mention', async (ctx: any) => {
       await ctx.run('echo f.gitlab');
