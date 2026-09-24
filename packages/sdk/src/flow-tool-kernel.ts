@@ -40,6 +40,11 @@ interface LoadedDeployment {
   businessVerdict: string;
 }
 
+// relayflowd's Rust boundary accepts an untagged shell-string | argv command.
+// The public authoring compiler deliberately remains shell-string-only; this
+// closed runtime constructs the narrower argv variant internally.
+type KernelArgvStep = Omit<KernelDeterministicStep, 'command'> & { command: string[] };
+
 interface RunBinding {
   kind: 'relayflows.flow-tool-run.v1';
   deployment_id: string;
@@ -277,10 +282,10 @@ export async function createKernelFlowToolControlPlane(
           manifest_digest: deployment.entry.manifest.digest, flow_digest: deployment.entry.manifest.flow.digest,
           input_digest: body.input_digest, principal_digest: principalDigest,
           catalog_digest: sha256(canonicalize(deployment.entry)), business_verdict: deployment.businessVerdict };
-        const step = deployment.template.steps[0]! as KernelDeterministicStep;
+        const step = deployment.template.steps[0]! as unknown as KernelArgvStep;
         const spec: KernelRunSpec = { ...deployment.template, description: bindingDescription(binding), steps: [{
-          ...step, command: [(step.command as string[])[0]!, '%s', encoded],
-        }] };
+          ...step, command: [step.command[0]!, '%s', encoded],
+        } as unknown as KernelDeterministicStep] };
         const admissionKey = `flow-tool:${sha256(canonicalize([principalDigest, deployment.entry.deployment_id,
           deployment.entry.manifest.flow.digest, deployment.entry.manifest.digest, request.idempotencyKey]))}`;
         let started: Awaited<ReturnType<JournalClient['runStart']>>;

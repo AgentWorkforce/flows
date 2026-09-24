@@ -478,8 +478,7 @@ export interface KernelStepCommon {
 
 export interface KernelDeterministicStep extends KernelStepCommon {
   type: 'deterministic';
-  /** Shell source, or argv executed directly without shell interpolation. */
-  command: string | string[];
+  command: string;
   timeout_ms?: number;
   lease_ms?: number;
   /**
