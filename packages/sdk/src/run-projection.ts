@@ -113,21 +113,21 @@ export function createRunProjection(
   // A per-session publisher: agent names are unique per workspace, and a
   // resumed run publishes from a fresh session into the same channel.
   const publisherName = `flow-${randomUUID()}`;
-  let registered = false;
   let cleanup: Promise<void> | undefined;
-  const removePublisher = (): Promise<void> => cleanup ??= (async () => {
-    if (!registered) return;
+  const removePublisher = (reportFailure = true): Promise<void> => cleanup ??= (async () => {
+    // The unique name is known before POST. A lost create response is not
+    // proof that creation failed: retire it even after an ambiguous outcome.
     try {
       await call(`/agents/${encodeURIComponent(publisherName)}`, options.workspaceKey, undefined, undefined, 'DELETE');
-    } catch {
-      options.diagnostic(`publisher cleanup for #${channel} failed; the run is unaffected`);
+    } catch (error) {
+      if (error instanceof RelaycastError && error.status === 404) return;
+      if (reportFailure) options.diagnostic(`publisher cleanup for #${channel} failed; the run is unaffected`);
     }
   })();
   const setup = (async (): Promise<string> => {
     const agent = await call('/agents', options.workspaceKey, {
       name: publisherName, type: 'agent', auto_join_general: false,
     }) as { token?: unknown } | undefined;
-    registered = true;
     if (typeof agent?.token !== 'string') throw new RelaycastError(0, 'agent_token_missing');
     const token = agent.token;
     try {
@@ -138,7 +138,7 @@ export function createRunProjection(
       await call(`/channels/${encodeURIComponent(channel)}/join`, token, {});
     }
     return token;
-  })().catch(async (error: unknown) => { await removePublisher(); throw error; });
+  })().catch(async (error: unknown) => { await removePublisher(false); throw error; });
 
   let queue: Promise<unknown> = setup;
   let failed = false;
@@ -218,7 +218,7 @@ export function createRunProjection(
     async close(timeoutMs) {
       if (!closed) {
         closed = true;
-        queue = queue.then(removePublisher, removePublisher);
+        queue = queue.then(() => removePublisher(), () => removePublisher());
       }
       let timer: NodeJS.Timeout | undefined;
       try {

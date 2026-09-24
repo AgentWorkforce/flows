@@ -600,13 +600,13 @@ describe('flows run: observer link integration', () => {
     const dataDir = temporaryProject();
     const runId = '01LATE';
     const at = Date.now() + 1_000;
-    const entry = (seq: number, entry_type: string, step_id: string | null, payload: unknown = {}) => ({
+    const entry = (seq: number, entry_type: string, step_id: string | null, payload: unknown = {}, replay = false) => ({
       event: 'entry', data: { seq, segment_id: 1, entry_type, run_id: runId, step_id,
-        attempt: step_id === null ? null : 1, at_ms: at + seq, payload },
+        attempt: step_id === null ? null : 1, at_ms: (replay ? at - 60_000 : at) + seq, payload },
     });
     const beginning = (ctx: Parameters<typeof sendOk>[0]) => {
-      ctx.send(entry(1, 'run.spawned', null, { spec: { name: 'late', steps: [{ id: 'greet', type: 'llm' }] } }));
-      ctx.send(entry(2, 'step.attempt.started', 'greet'));
+      ctx.send(entry(1, 'run.spawned', null, { spec: { name: 'late', steps: [{ id: 'greet', type: 'llm' }] } }, command === 'resume'));
+      ctx.send(entry(2, 'step.attempt.started', 'greet', {}, command === 'resume'));
     };
     let resumes = 0;
     await startCliLoopback(dataDir, {
@@ -636,6 +636,7 @@ describe('flows run: observer link integration', () => {
     const args = command === 'run' ? RUN_ARGS(dataDir) : ['resume', runId, '--data-dir', dataDir];
     expect(await runCli(args, capture().io)).toBe(0);
     expect(posted.map(post => post.relayflow.event)).toContain('step.completed');
+    if (command === 'resume') expect(posted.map(post => post.relayflow.event)).not.toContain('step.started');
     expect(posted.at(-1)?.relayflow.run.steps[0]?.state).toBe('completed');
   });
 

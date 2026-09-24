@@ -95,9 +95,27 @@ describe('createRunProjection', () => {
     projection.step({ type: 'step.started', stepId: 'greet', stepType: 'deterministic', elapsedMs: 0 });
     projection.finish({ status: 'completed' });
     await projection.drain(1_000);
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.method).toBe('DELETE');
     expect(diagnostic).toHaveBeenCalledOnce();
     expect(diagnostic.mock.calls[0]![0]).toContain('HTTP 401 unauthorized');
+  });
+
+  it.each([204, 404])('retires an uncertain publisher create and treats DELETE %s as settled', async status => {
+    const calls: Array<{ url: string; method: string; body?: string }> = [];
+    const fetch: ProjectionFetch = async (url, init) => {
+      calls.push({ url, method: init.method, body: init.body });
+      if (init.method === 'POST') throw new Error('create response lost');
+      return { ok: status === 204, status, json: async () => ({ error: { code: 'agent_not_found' } }) };
+    };
+    const diagnostic = vi.fn();
+    const projection = createRunProjection({ workspaceKey: 'rk_live_test', fetch, diagnostic }, run);
+    await projection.close(1_000);
+    const name = (JSON.parse(calls[0]!.body!) as { name: string }).name;
+    expect(calls[1]).toMatchObject({ method: 'DELETE', url: `https://cast.agentrelay.com/v1/agents/${name}` });
+    expect(calls).toHaveLength(2);
+    expect(diagnostic).toHaveBeenCalledOnce();
+    expect(diagnostic.mock.calls[0]![0]).toContain('create response lost');
   });
 });
 
