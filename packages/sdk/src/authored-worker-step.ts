@@ -1,9 +1,9 @@
-import { isAbsolute, relative, sep } from 'node:path';
+import { dirname, resolve, isAbsolute, relative, sep } from 'node:path';
 import type { AuthoredBudget } from './authored-budget.js';
 import { parseBudget } from './budget.js';
 import type { AgentOptions, AgentResult, LlmOptions, NamedGate } from '@relayflows/surface';
 import { compileSpec, toKernelSpec } from './compile.js';
-import { checkAuthoredFlow } from './cli/check.js';
+import { authoredPreflight } from './authored-preflight.js';
 import { classifyOutcome, type RunLifecycleOptions, type RunReport } from './cli/run.js';
 import type { PreflightDiagnostic } from './preflight.js';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
@@ -31,6 +31,7 @@ export function authoredWorkerRunner(
   // slot instead of being admitted and parked for want of a free worker.
   const slots = workerCapacity === undefined ? undefined
     : { agent: new WorkerSlots(workerCapacity), llm: new WorkerSlots(workerCapacity) };
+  const check = authoredPreflight(flowPath);
   const context: AuthoredStepContext = {
     ...(rootRunId === undefined ? {} : { rootRunId }),
     ...(waitOptions.dataDir === undefined ? {} : { dataDir: waitOptions.dataDir }),
@@ -44,7 +45,7 @@ export function authoredWorkerRunner(
     // (cli/check.ts), searching for the nearest flows.json from `flowPath`
     // and real-probing auth/model readiness. An authored agent step gets
     // nothing for free just because it was declared in TS instead of YAML.
-    const { report, flow: resolved } = checkAuthoredFlow(authoring, flowPath);
+    const { report, flow: resolved } = await check(authoring);
     if (!report.ok || resolved === undefined) {
       const refusal = report.diagnostics.find(
         (diagnostic): diagnostic is PreflightDiagnostic & { severity: 'refusal' } =>

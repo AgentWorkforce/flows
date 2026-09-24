@@ -1,0 +1,4 @@
+
+> @relayflows/sdk@2.0.30 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+

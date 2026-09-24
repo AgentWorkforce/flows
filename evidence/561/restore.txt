@@ -1,0 +1,5 @@
+$ git diff --exit-code -- packages/sdk/src/authored-worker-step.ts
+exit code: 0
+HEAD SHA256: b9cd463d9f1ee274175a0b659119262c0ba5b18f1afc11b866c3e0f7f34023b7
+Restored SHA256: b9cd463d9f1ee274175a0b659119262c0ba5b18f1afc11b866c3e0f7f34023b7
+byte-for-byte restore: identical

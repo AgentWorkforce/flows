@@ -1,0 +1,11 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/artifact-gates.test.ts (27 tests) 259ms
+
+ Test Files  1 passed (1)
+      Tests  27 passed (27)
+   Start at  06:37:46
+   Duration  1.89s (transform 840ms, setup 0ms, collect 1.46s, tests 259ms, environment 0ms, prepare 44ms)
+
+EXIT=0
