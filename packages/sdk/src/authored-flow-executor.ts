@@ -28,6 +28,8 @@ import {
   type Ctx,
   type FlowCompletionReason,
   type RunCompletionReason as SurfaceRunCompletionReason,
+  type RunOptions,
+  type RunResult,
   type Step,
 } from '@relayflows/surface';
 import { createHelpers, helperProviders, type HelperCall, type FlowHandle } from '@relayflows/surface/runtime';
@@ -408,6 +410,56 @@ export async function executeAuthoredFlow<Input = undefined>(
     return trackStep(authoredSteps, llmOp);
   }
 
+  /**
+   * `f.run` (docs/SURFACE.md §1). Declared as overloads like `llmOperation`,
+   * because the exit-code policy decides the RESULT TYPE: the default keeps
+   * the stdout string every body is written against, and `'record'` widens it
+   * to the `RunResult` whose `ok` is the journaled exit code.
+   */
+  function runOperation(command: string, options?: RunOptions & { onNonZero?: 'fail' }): Step<string>;
+  function runOperation(command: string, options: RunOptions & { onNonZero: 'record' }): Step<RunResult>;
+  function runOperation(command: string, options: RunOptions): Step<string | RunResult>;
+  function runOperation(command: string, runOptions?: RunOptions): Step<string> | Step<RunResult> {
+    assertOperationAllowed('run', definition.name, requestedCompletion);
+    const leaseMs = runOptions?.timeout === undefined ? undefined : parseStepTimeout(runOptions.timeout);
+    // Refused before an ordinal is consumed or anything is journaled. A
+    // misspelled policy must not quietly fall back to the fatal default and
+    // take away the very branch the author wrote below this line.
+    const policy = runOptions?.onNonZero;
+    if (policy !== undefined && policy !== 'fail' && policy !== 'record') {
+      throw new AuthoredFlowExecutionError(
+        'unsupported_verb',
+        `f.run options.onNonZero must be 'fail' or 'record' (got ${JSON.stringify(policy)}).`,
+      );
+    }
+    const id = `run-${nextStep++}`;
+    if (policy === 'record') {
+      let recordOp!: AuthoredFlowOperation<RunResult>;
+      recordOp = new AuthoredFlowOperation<RunResult>(
+        id, 'run',
+        () => assertOperationAllowed('run', definition.name, requestedCompletion),
+        () => observeStep(id, 'deterministic',
+          () => lowerDeterministic.recording(id, command, leaseMs, recordOp.namedGate), options.onProgress),
+        lifecycle,
+        // No label: a command is not a display name. It carries literal
+        // tokens and URLs, and no prefix of it is safe to show (displayLabel).
+        {},
+      );
+      return trackStep(authoredSteps, recordOp);
+    }
+    let runOp!: AuthoredFlowOperation<string>;
+    runOp = new AuthoredFlowOperation<string>(
+      id, 'run',
+      () => assertOperationAllowed('run', definition.name, requestedCompletion),
+      () => observeStep(id, 'deterministic', () => lowerDeterministic(id, command, false, leaseMs, runOp.namedGate), options.onProgress),
+      lifecycle,
+      // No label: a command is not a display name. It carries literal
+      // tokens and URLs, and no prefix of it is safe to show (displayLabel).
+      {},
+    );
+    return trackStep(authoredSteps, runOp);
+  }
+
   const slackRun = options.rootRunId ?? randomUUID();
   function slackOperation<T>(call: SlackCall): Step<T> {
     assertOperationAllowed(`slack.${call.verb}`, definition.name, requestedCompletion);
@@ -470,23 +522,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       () => assertOperationAllowed('memory', definition.name, requestedCompletion),
       definition.header.memory?.script !== false,
     ),
-    run(command, runOptions) {
-      assertOperationAllowed('run', definition.name, requestedCompletion);
-      const leaseMs = runOptions?.timeout === undefined ? undefined : parseStepTimeout(runOptions.timeout);
-      const id = `run-${nextStep++}`;
-      let runOp!: AuthoredFlowOperation<string>;
-      runOp = new AuthoredFlowOperation<string>(
-        id,
-        'run',
-        () => assertOperationAllowed('run', definition.name, requestedCompletion),
-        () => observeStep(id, 'deterministic', () => lowerDeterministic(id, command, false, leaseMs, runOp.namedGate), options.onProgress),
-        lifecycle,
-        // No label: a command is not a display name. It carries literal
-        // tokens and URLs, and no prefix of it is safe to show (displayLabel).
-        {},
-      );
-      return trackStep(authoredSteps, runOp);
-    },
+    run: runOperation,
     llm: llmOperation,
     agent(name, options) {
       assertOperationAllowed('agent', definition.name, requestedCompletion);

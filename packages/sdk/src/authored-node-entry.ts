@@ -88,9 +88,13 @@ try {
     // `details` is the failing child step's journal evidence. Without it the
     // parent can only re-render the message, and the machine-readable
     // diagnostic loses the command's exit code and output tails.
+    // `parkCause` travels for the same reason: it is the difference between
+    // "attach a worker" and "a human has to recover this", and this process is
+    // the only one that saw the child's classification.
     ...(error instanceof AuthoredFlowExecutionError ? { code: error.code,
       completionReason: error.completionReason, runId: error.runId,
       details: error.details,
+      parkCause: error.parkCause,
       ...(error.suspension === undefined ? {} : { suspension: error.suspension }) } : {}),
     ...(error instanceof AuthoredHumanParked ? { wait: error.wait } : {}) });
   process.exitCode = 1;

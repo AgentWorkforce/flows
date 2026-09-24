@@ -46,7 +46,7 @@ export class LlmWorker extends EventEmitter {
 
   private readonly onDispatch = (dispatch: StepDispatchEvent): void => {
     if (this.closing || dispatch.step_type !== 'llm') return;
-    const running = this.execute(dispatch).catch(error => { this.emit('error', error); });
+    const running = this.execute(dispatch).catch(error => { this.emit('error', error, dispatch); });
     this.inFlight.add(running);
     void running.finally(() => { this.inFlight.delete(running); });
   };

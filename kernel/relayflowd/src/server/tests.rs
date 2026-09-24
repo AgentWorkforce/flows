@@ -886,6 +886,201 @@ fn an_entry_appended_during_watch_registration_is_delivered_exactly_once() {
     );
 }
 
+/// `run.start` with `watch` streams the new run's entries on the starting
+/// connection from `run.spawned` on, each exactly once, before the result —
+/// the only moment a client that does not yet know the run id can observe it.
+#[test]
+fn run_start_with_watch_streams_every_entry_once_before_the_result() {
+    let directory = tempdir().unwrap();
+    let data_dir = directory.path();
+    let hub = Arc::new(ProtocolHub::default());
+    let (writer, peer) = shared_writer();
+    let spec = json!({"steps": [
+        {"id": "a", "type": "deterministic", "command": ["/bin/sh", "-c", "printf a"]},
+        {"id": "b", "type": "deterministic", "command": ["/bin/sh", "-c", "printf b"], "depends_on": ["a"]}
+    ]});
+    let line = json!({"id": "start", "verb": "run.start", "params": {"spec": spec, "watch": true}})
+        .to_string();
+    let started = request(data_dir, &hub, 1, &writer, &line);
+    assert!(started.ok, "run.start failed: {:?}", started.error);
+    let run_id = started.result.unwrap()["run_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let expected = Engine::new(data_dir)
+        .journal_entries(&run_id, 1, usize::MAX)
+        .unwrap();
+    assert_eq!(expected.first().unwrap().entry_type, EntryType::RunSpawned);
+    assert_eq!(expected.last().unwrap().entry_type, EntryType::RunCompleted);
+    peer.set_read_timeout(Some(Duration::from_millis(500)))
+        .unwrap();
+    let mut reader = BufReader::new(peer);
+    let seen = (0..expected.len())
+        .map(|_| {
+            let frame = read_frame(&mut reader);
+            assert_eq!(frame["event"], "entry");
+            assert_eq!(frame["data"]["run_id"], run_id.as_str());
+            frame["data"]["seq"].as_i64().unwrap()
+        })
+        .collect::<Vec<_>>();
+    let mut leftover = String::new();
+    assert!(
+        reader.read_line(&mut leftover).is_err(),
+        "watcher received a duplicate frame: {leftover}"
+    );
+    assert_eq!(
+        seen,
+        expected.iter().map(|entry| entry.seq).collect::<Vec<_>>()
+    );
+}
+
+/// Without `watch`, `run.start` pushes nothing: the flag is opt-in.
+#[test]
+fn run_start_without_watch_pushes_no_entries() {
+    let directory = tempdir().unwrap();
+    let data_dir = directory.path();
+    let hub = Arc::new(ProtocolHub::default());
+    let (writer, peer) = shared_writer();
+    let spec = json!({"steps": [{"id": "a", "type": "deterministic", "command": ["/bin/sh", "-c", "printf a"]}]});
+    let line = json!({"id": "start", "verb": "run.start", "params": {"spec": spec}}).to_string();
+    assert!(request(data_dir, &hub, 1, &writer, &line).ok);
+    assert_eq!(hub.watcher_count(1), 0);
+    peer.set_nonblocking(true).unwrap();
+    let mut leftover = String::new();
+    assert!(
+        BufReader::new(peer).read_line(&mut leftover).is_err(),
+        "an unwatched start pushed a frame: {leftover}"
+    );
+}
+
+#[test]
+fn run_start_watch_replays_an_existing_admission() {
+    let directory = tempdir().unwrap();
+    let hub = Arc::new(ProtocolHub::default());
+    let (writer, peer) = shared_writer();
+    let params = json!({"admission_key":"watch-retry", "spec":{"steps":[]}});
+    let first = request(
+        directory.path(),
+        &hub,
+        1,
+        &writer,
+        &json!({"id":"first","verb":"run.start","params":params}).to_string(),
+    );
+    assert!(first.ok);
+    let run_id = first.result.unwrap()["run_id"].as_str().unwrap().to_owned();
+    let mut params = params;
+    params["watch"] = json!(true);
+    let retry = request(
+        directory.path(),
+        &hub,
+        1,
+        &writer,
+        &json!({"id":"retry","verb":"run.start","params":params}).to_string(),
+    );
+    assert!(retry.ok);
+    assert_eq!(retry.result.unwrap()["run_id"], run_id);
+    let expected = Engine::new(directory.path())
+        .journal_entries(&run_id, 1, usize::MAX)
+        .unwrap();
+    peer.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    let mut reader = BufReader::new(peer);
+    for entry in expected {
+        assert_eq!(read_frame(&mut reader)["data"]["seq"], entry.seq);
+    }
+    assert_eq!(hub.watcher_count(1), 1);
+    // A boot change takes the Recover branch rather than Existing.
+    rusqlite::Connection::open(directory.path().join("relayflowd.sqlite3"))
+        .unwrap()
+        .execute("UPDATE run_admissions SET boot_id = 'dead-boot'", [])
+        .unwrap();
+    let (writer2, peer2) = shared_writer();
+    let recovered = request(
+        directory.path(),
+        &hub,
+        2,
+        &writer2,
+        &json!({"id":"recover","verb":"run.start","params":params}).to_string(),
+    );
+    assert!(recovered.ok);
+    assert_eq!(recovered.result.unwrap()["run_id"], run_id);
+    peer2
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    assert_eq!(
+        read_frame(&mut BufReader::new(peer2))["data"]["entry_type"],
+        "run.spawned"
+    );
+    assert_eq!(hub.watcher_count(2), 1);
+}
+
+#[test]
+fn run_start_watch_rolls_back_after_journal_creation_failure() {
+    let directory = tempdir().unwrap();
+    // Registry creation succeeds, but creating the per-run journal cannot.
+    std::fs::write(directory.path().join("runs"), "not a directory").unwrap();
+    let hub = Arc::new(ProtocolHub::default());
+    let (writer, _peer) = shared_writer();
+    let response = request(
+        directory.path(),
+        &hub,
+        1,
+        &writer,
+        &json!({"id":"bad","verb":"run.start","params":{"watch":true,"spec":{"steps":[]}}})
+            .to_string(),
+    );
+    assert!(!response.ok);
+    assert_eq!(hub.watcher_count(1), 0);
+}
+
+#[test]
+fn run_start_watch_streams_while_the_step_is_still_blocked() {
+    let directory = tempdir().unwrap();
+    let release = directory.path().join("release-step");
+    let command = format!(
+        "while [ ! -f '{}' ]; do sleep 0.01; done",
+        release.display()
+    );
+    let hub = Arc::new(ProtocolHub::default());
+    let (writer, peer) = shared_writer();
+    let path = directory.path().to_owned();
+    let (tx, rx) = mpsc::channel();
+    let worker = thread::spawn(move || {
+        let response = request(
+            &path,
+            &hub,
+            1,
+            &writer,
+            &json!({"id":"live","verb":"run.start","params":{"watch":true,"spec":{"steps":[
+                {"id":"blocked","type":"deterministic","command":["/bin/sh","-c",command]}
+            ]}}})
+            .to_string(),
+        );
+        tx.send(response).unwrap();
+    });
+    peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut reader = BufReader::new(peer);
+    let first = read_frame(&mut reader);
+    assert_eq!(first["data"]["entry_type"], "run.spawned");
+    assert!(
+        rx.try_recv().is_err(),
+        "run completed before its step was released"
+    );
+    std::fs::write(&release, "go").unwrap();
+    let mut last = 1;
+    loop {
+        let frame = read_frame(&mut reader);
+        let seq = frame["data"]["seq"].as_i64().unwrap();
+        assert!(seq > last);
+        last = seq;
+        if frame["data"]["entry_type"] == "run.completed" {
+            break;
+        }
+    }
+    assert!(rx.recv_timeout(Duration::from_secs(5)).unwrap().ok);
+    worker.join().unwrap();
+}
+
 /// Finding 5: when the journal append for a disconnect's crashed completion
 /// fails, the abandonment is surfaced and retained for the reconciler — never
 /// silently dropped — and the reconciler journals it once the journal heals.

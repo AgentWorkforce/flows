@@ -163,15 +163,15 @@ impl RunSpec {
             if cli.as_ref().is_some_and(|value| value.trim().is_empty()) {
                 return Err(SpecError::EmptyStepCli(step.id.clone()));
             }
-            if let StepKind::Agent { cwd: Some(cwd), .. } = &step.kind
-                && !cwd.starts_with('/')
-            {
-                return Err(SpecError::RelativeStepCwd {
-                    step: step.id.clone(),
-                    cwd: cwd.clone(),
-                });
-            }
-            if let StepKind::Agent { surfaces, .. } = &step.kind {
+            if let StepKind::Agent { surfaces, cwd, .. } = &step.kind {
+                if let Some(cwd) = cwd
+                    && !is_run_root_relative_path(cwd)
+                {
+                    return Err(SpecError::InvalidAgentCwd {
+                        step: step.id.clone(),
+                        cwd: cwd.clone(),
+                    });
+                }
                 for workspace in &surfaces.workspace {
                     if path_surface_identity(&workspace.surface).is_none() {
                         return Err(SpecError::InvalidWorkspaceSurface {
@@ -272,6 +272,28 @@ pub(crate) fn path_surface_identity(path: &str) -> Option<(String, Vec<String>)>
     .then_some((namespace, components))
 }
 
+/// Whether a declared agent `cwd` names a place inside the run's own tree.
+///
+/// The same lexical canonical rule surfaces get — no whitespace aliases,
+/// empty components, `.` or `..` — narrowed to relative paths only, because
+/// the declaration is read against the run root the worker executes under.
+/// An absolute path or a URI-like mount identity names a place the run root
+/// does not contain, and a `..` component walks out of it; both are refused
+/// here rather than discovered on the host. NUL cannot occur in a host path
+/// component, so a declaration carrying one can only mislead a reader.
+fn is_run_root_relative_path(path: &str) -> bool {
+    // U+FEFF is named explicitly because JavaScript's `\s` includes it and
+    // `char::is_whitespace` does not; the SDK names U+0085 for the mirror
+    // reason. Both sides then refuse `White_Space ∪ {U+FEFF}` at the edges,
+    // so a padded declaration cannot pass `flows check` and be refused here.
+    let padding = |c: char| c.is_whitespace() || c == '\u{feff}';
+    !path.contains('\0')
+        && !path.starts_with(padding)
+        && !path.ends_with(padding)
+        && matches!(path_surface_identity(path), Some((namespace, components))
+            if namespace.is_empty() && !components.is_empty())
+}
+
 pub fn is_canonical_external_surface(path: &str) -> bool {
     path_surface_identity(path).is_some()
 }
@@ -315,14 +337,14 @@ const STEP_COMMON_FIELDS: &[&str] = &[
     "memory",
     "requirements",
 ];
-const STEP_DETERMINISTIC_FIELDS: &[&str] = &["command", "timeout_ms", "lease_ms"];
+const STEP_DETERMINISTIC_FIELDS: &[&str] = &["command", "timeout_ms", "lease_ms", "on_non_zero"];
 const STEP_LLM_FIELDS: &[&str] = &["prompt", "model", "cli"];
 const STEP_AGENT_FIELDS: &[&str] = &[
     "instruction",
     "cli",
     "model",
-    "transport",
     "cwd",
+    "transport",
     "recovery_mode",
     "surfaces",
     "permissions",
@@ -339,7 +361,25 @@ fn reject_unknown_step_fields(value: &Value) -> Result<(), SpecError> {
         let kind_fields = match object.get("type").and_then(Value::as_str) {
             Some("deterministic") => STEP_DETERMINISTIC_FIELDS,
             Some("llm") => STEP_LLM_FIELDS,
-            Some("agent") => STEP_AGENT_FIELDS,
+            Some("agent") => {
+                // `cwd` deserializes into `Option<String>`, where serde reads
+                // an explicit null as absence — the step would then run in the
+                // default directory under a spec that declared otherwise. The
+                // shape is checked before serde so a null, a number or an
+                // object is refused instead of silently defaulted.
+                if let Some(cwd) = object.get("cwd")
+                    && !cwd.is_string()
+                {
+                    return Err(SpecError::Malformed(format!(
+                        "step {}: cwd must be a string",
+                        object
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .unwrap_or("?")
+                    )));
+                }
+                STEP_AGENT_FIELDS
+            }
             // Missing/unknown type is rejected by serde's tagged-enum error.
             _ => continue,
         };
@@ -406,6 +446,29 @@ impl StepSpec {
     }
 }
 
+/// What a deterministic step's nonzero exit code means.
+///
+/// `Fail` is the kernel's long-standing implicit gate: `exit_code == 0` or the
+/// step failed. `Record` is the repair-before-failure shape — the command is
+/// allowed to be red, its exit code and output tails stay in the journal
+/// exactly as executed, dependents run, and a later step reads the recorded
+/// outcome instead of re-running the command. It is a policy for the step's
+/// own exit code only; timeouts, worker errors, and declared content or schema
+/// gates keep their existing fatal semantics.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OnNonZero {
+    #[default]
+    Fail,
+    Record,
+}
+
+impl OnNonZero {
+    fn is_default(&self) -> bool {
+        matches!(self, OnNonZero::Fail)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum StepKind {
@@ -415,6 +478,11 @@ pub enum StepKind {
         timeout_ms: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         lease_ms: Option<u64>,
+        /// What a nonzero command exit means. Omitted on serialization when
+        /// it is the default, so every spec written before this field exists
+        /// keeps its exact canonical bytes and its exact hash.
+        #[serde(default, skip_serializing_if = "OnNonZero::is_default")]
+        on_non_zero: OnNonZero,
     },
     Llm {
         prompt: String,
@@ -433,16 +501,22 @@ pub enum StepKind {
         /// then handed to the worker, which surfaces it to the CLI.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
+        /// Directory the attached worker spawns the declared CLI in, relative
+        /// to the run root the worker executes under. The kernel performs no
+        /// I/O: it checks the declaration lexically (the same canonical-path
+        /// rule surfaces get, plus "relative, so it names a place inside the
+        /// run's tree") and carries it verbatim, so the choice is part of the
+        /// run's record rather than ambient host state. Resolving it against a
+        /// real filesystem — existence, symlinks, containment — belongs to the
+        /// worker that spawns the CLI, the one process that shares that
+        /// filesystem. Absent means the run root itself.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cwd: Option<String>,
         /// How the attached worker invokes the declared CLI. The kernel does
         /// not implement either transport; it journals and dispatches the
         /// choice so the worker can honor it deterministically.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         transport: Option<AgentTransport>,
-        /// Absolute working directory the worker starts the CLI in. Carried
-        /// and dispatched like `model`: the kernel never enters it, and
-        /// omitting it serializes the step exactly as before.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        cwd: Option<String>,
         #[serde(default)]
         recovery_mode: RecoveryMode,
         /// Declared mutable surfaces (RFC Appendix A rule 1) — names only.
@@ -753,8 +827,10 @@ pub enum SpecError {
     EmptyStepId,
     #[error("step {0} cli cannot be empty")]
     EmptyStepCli(String),
-    #[error("agent step {step} cwd must be an absolute path, got {cwd:?}")]
-    RelativeStepCwd { step: String, cwd: String },
+    #[error(
+        "agent step {step} declares working directory {cwd:?}, which is not a run-root-relative path (no absolute paths, empty components, \".\" or \"..\")"
+    )]
+    InvalidAgentCwd { step: String, cwd: String },
     #[error("agent step {step} declares non-canonical external surface {path:?}")]
     InvalidExternalSurface { step: String, path: String },
     #[error("agent step {step} declares non-canonical workspace surface {surface:?}")]

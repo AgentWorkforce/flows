@@ -1,3 +1,4 @@
+import { onWorkerFailure } from '../worker-lease.js';
 import { communicationInstruction } from '../communication/spec.js';
 import { checkCommunicationEnvironment, CommunicationEnvironmentError } from '../communication/preflight.js';
 import { parseHumanRecipient } from '../human-to.js';
@@ -9,17 +10,22 @@ import { AuthoredFlowExecutionError, AuthoredHumanParked, type AuthoredHumanWait
 import { answerCommand, resumeCommand } from '../authored-human.js';
 import { join, resolve } from 'node:path';
 import type { ProgressEvent } from '../progress.js';
+import type { JournalEvent } from '../journal-reader.js';
 import { toKernelSpec } from '../compile.js';
 import { socketPathFor } from '../daemon-connection.js';
 import { ensureDaemon, type EnsureDaemonOptions } from '../daemon-lifecycle.js';
 import { isAuthoredFlowPath } from '../direct-input.js';
 import { daemonRefusal } from './daemon-refusal.js';
-import type { RunFailureKind, RunWarningKind, StepFailedDetails } from '../failure-kinds.js';
+import {
+  authoredInput, authoredWorkerRemedy, localAgentRemedy,
+  type AuthoredInput, type LocalAgentRemedy,
+} from './local-agent-remedy.js';
+import type { ParkCause, RunFailureKind, RunWarningKind, StepFailedDetails } from '../failure-kinds.js';
 import { inspectionHint, renderInspection, renderStepEvidence, stepFailureDetails } from './step-failure.js';
 import { JournalClient, JournalProtocolError } from '../journal-client.js';
 import { attachLocalAgent, declaredLocalAgentStreams } from '../local-agent.js';
 import { LlmWorker } from '../llm-worker.js';
-import { readAuthoredRootMetadata, resumeDurableAuthoredFlow } from '../authored-root.js';
+import { readAuthoredRootMetadata, resumeDurableAuthoredFlow, type AuthoredRootMetadata } from '../authored-root.js';
 import type { AuthoredFlowSuspendedResult } from '../authored-flow-executor.js';
 import type {
   RunCompletionReason,
@@ -76,6 +82,17 @@ export interface RunReport {
   completedSteps?: number;
   reuse?: { fromRunId: string; reusedSteps: number; executedSteps: number };
   parkedStep?: ParkedStep;
+  /**
+   * Why an exit-3 park happened, when classification established it.
+   *
+   * Carried structurally so a consumer — including this package's own authored
+   * boundaries — can tell "nothing is attached to run this step" from "the
+   * kernel is waiting for a human to recover it" without matching on the
+   * rendered message. Absent means the cause was not established, never
+   * `worker_unavailable` by default: recommending a worker for a `needs_human`
+   * park is the wrong answer, and guessing it is worse than saying nothing.
+   */
+  parkCause?: ParkCause;
   /** The open `f.human` question a parked authored run is waiting on. */
   humanWait?: AuthoredHumanWait;
   /** `flows answer` only: the answer it recorded. */
@@ -127,6 +144,10 @@ export interface RunLifecycleOptions {
   onPtyReady?: (path: string) => void;
   reuseFromRunId?: string;
   onProgress?: (event: ProgressEvent) => void;
+  /** Stream the run's journal entries while it runs (YAML runs, via `run.start {watch}` / `run.watch`). */
+  onJournalEntry?: (entry: JournalEvent) => void;
+  /** An authored root was admitted: its id is known before its body runs. */
+  onRunStarted?: (run: { runId: string; flow: string; resumed?: boolean }) => void;
   localAgent?: boolean;
   /** `--agent-capacity`: the local workers' concurrency; the default is `DEFAULT_LOCAL_AGENT_CAPACITY`. */
   agentCapacity?: number;
@@ -189,14 +210,16 @@ async function executeCheckedFlow(
     // advertises its existing pins; the daemon still owns surface matching.
     if (options.localAgent) {
       localAgent = await attachLocalAgent(
-        client, dataDir, options.onPtyReady, undefined, options.agentCapacity, declaredLocalAgentStreams(spec),
+        client, dataDir, options.onPtyReady, undefined, options.agentCapacity,
+        undefined, declaredLocalAgentStreams(spec),
       );
     }
     if (options.localAgent && spec.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
       const { attachCommunicationWorkers } = await import('../communication/local.js');
       communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir);
     }
-    const outcome = await client.runStart(spec, options.reuseFromRunId);
+    if (options.onJournalEntry !== undefined) client.on('entry', options.onJournalEntry);
+    const outcome = await startWatched(client, spec, options);
     const execution = await classifyOutcome(client, 'run', outcome, base, socketPath, { ...options, dataDir });
     if (options.reuseFromRunId !== undefined) {
       execution.report.reuse = await reuseSummary(client, outcome.run_id, options.reuseFromRunId);
@@ -216,7 +239,30 @@ async function executeCheckedFlow(
     }
     return protocolFailure('run', base, socketPath, communicationWorkers?.failure ?? localAgent?.failure ?? error);
   } finally {
+    if (options.onJournalEntry !== undefined) client.off('entry', options.onJournalEntry);
     try { await communicationWorkers?.close(); } finally { try { await localAgent?.close(); } finally { client.close(); } }
+  }
+}
+
+/**
+ * `run.start`, streaming the run's entries to `onJournalEntry` when one is
+ * given. A daemon that predates `watch` refuses the field while decoding,
+ * before any run exists, so starting again without it is the same request
+ * minus the observation — never a second run.
+ */
+async function startWatched(
+  client: JournalClient,
+  spec: ReturnType<typeof toKernelSpec>,
+  options: RunLifecycleOptions,
+): Promise<RunOutcome> {
+  const onEntry = options.onJournalEntry;
+  if (onEntry === undefined) return client.runStart(spec, options.reuseFromRunId);
+  try {
+    return await client.runStart(spec, options.reuseFromRunId, undefined, true);
+  } catch (error) {
+    if (!(error instanceof JournalProtocolError) || error.code !== 'bad_request'
+      || !/unknown field `watch`/.test(error.message)) throw error;
+    return await client.runStart(spec, options.reuseFromRunId);
   }
 }
 
@@ -234,17 +280,35 @@ export async function resumeFlow(
   let communicationWorkers: Awaited<ReturnType<typeof import('../communication/local.js').attachCommunicationWorkers>> | undefined;
   let authoredAgent: Awaited<ReturnType<typeof attachLocalAgent>> | undefined;
   let authoredLlm: LlmWorker | undefined;
+  let llmFailure: unknown;
   let authoredLlmClient: JournalClient | undefined;
+  // Hoisted so the catch below can build the authored park remedy from the same
+  // metadata this resume was admitted against — the journal is the only place
+  // the flow path and the original `--input` survive a process boundary.
+  let authoredRoot: AuthoredRootMetadata | undefined;
   const workerCapacity = options.agentCapacity ?? DEFAULT_LOCAL_AGENT_CAPACITY;
   try {
-    const authoredRoot = await readAuthoredRootMetadata(client, runId);
+    authoredRoot = await readAuthoredRootMetadata(client, runId);
     if (authoredRoot !== undefined) {
       base.rootRunId = runId;
+      // Both worker-surface mismatches are refusals, not protocol failures.
+      // They used to throw bare `Error`s, which landed on `protocol_error`
+      // ("RUN <id> unknown") and told nobody what to do instead; and the
+      // second one is the exact complaint this change answers — `--local-agent`
+      // accepted on a run that cannot grow one is worse than rejected, because
+      // the run parks again with a message that has not changed.
       if (authoredRoot.localAgentStream !== undefined && !options.localAgent) {
-        throw new Error('authored root requires --local-agent to resume its pinned worker surface');
+        return localAgentRefusal(base, runId, socketPath,
+          `Run "${runId}" was started with a local agent worker surface, so resuming it needs the same flag.`
+            + ` To continue this run: ${resumeCommand(runId, dataDir, true)}.`);
       }
       if (authoredRoot.localAgentStream === undefined && options.localAgent) {
-        throw new Error('authored root was started without a local agent worker surface');
+        return localAgentRefusal(base, runId, socketPath,
+          `Run "${runId}" was started without a local agent worker surface:`
+            + ' --local-agent is admitted at run start; start a new run.'
+            + localAgentRemedy(authoredWorkerRemedy('worker_unavailable', false, {
+              path: authoredRoot.flowPath, input: authoredInputArgument(authoredRoot), dataDir,
+            })));
       }
       if (options.localAgent) {
         authoredAgent = await attachLocalAgent(
@@ -254,6 +318,10 @@ export async function resumeFlow(
         await authoredLlmClient.connect();
         await authoredLlmClient.hello('flows-authored-resume-llm');
         authoredLlm = new LlmWorker(authoredLlmClient, `${authoredAgent.stream}-llm`, workerCapacity);
+        authoredLlm.on('error', onWorkerFailure('resume-llm', error => {
+          llmFailure = error;
+          client.close();
+        }));
         await authoredLlm.attach();
       }
       const result = await resumeDurableAuthoredFlow(runId, client, {
@@ -277,12 +345,20 @@ export async function resumeFlow(
       const spec = entries.find(entry => entry.entry_type === 'run.spawned')?.payload?.spec;
       if (!spec) throw new Error('Cannot attach a local worker: the journaled run spec is missing');
       authoredAgent = await attachLocalAgent(
-        client, dataDir, options.onPtyReady, undefined, options.agentCapacity, declaredLocalAgentStreams(spec),
+        client, dataDir, options.onPtyReady, undefined, options.agentCapacity,
+        undefined, declaredLocalAgentStreams(spec),
       );
       if (spec?.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
         const { attachCommunicationWorkers } = await import('../communication/local.js');
         communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir);
       }
+    }
+    const onEntry = options.onJournalEntry;
+    if (onEntry !== undefined) {
+      client.on('entry', onEntry);
+      // Observation never decides a resume: a watch the daemon refuses leaves
+      // the run unprojected, and the resume below reports the run's own fate.
+      await client.runWatch(runId).catch(() => client.off('entry', onEntry));
     }
     let outcome = await client.runResume(runId, options.allowHumanInfluenced);
     if (await resumeHelperEffect(client, runId, dataDir)) {
@@ -314,11 +390,41 @@ export async function resumeFlow(
     if (error instanceof AuthoredFlowExecutionError && (error.code === 'step_failed' || error.code === 'gate_failed')) {
       return authoredStepFailure('resume', base, socketPath, error, runId);
     }
+    // An authored resume that parks for want of a worker is a park, reported
+    // like the run path's — and with the same remedy, because an authored root
+    // admits its worker at run start: resuming again cannot attach one, so the
+    // only honest instruction is a new run carrying the same `--input`.
+    // `runId` here is the CHILD run holding the evidence; the root this resume
+    // named stays separate, so `flows` can still collect it.
+    if (error instanceof AuthoredFlowExecutionError && (error.code === 'agent_parked' || error.code === 'llm_parked')) {
+      return {
+        exitCode: 3,
+        report: {
+          ...base,
+          ok: false,
+          runId: error.runId ?? runId,
+          rootRunId: runId,
+          socketPath,
+          status: 'parked',
+          parkCause: error.parkCause,
+          diagnostics: [...base.diagnostics, {
+            severity: 'parked',
+            kind: 'run_parked',
+            message: error.message + localAgentRemedy(authoredWorkerRemedy(
+              error.parkCause, options.localAgent === true,
+              { path: authoredRoot?.flowPath, input: authoredInputArgument(authoredRoot), dataDir },
+            )),
+          }],
+        },
+      };
+    }
     if (error instanceof AuthoredHumanParked) {
       return authoredHumanParked('resume', base, socketPath, error, { dataDir, localAgent: options.localAgent === true });
     }
     if (!(error instanceof JournalProtocolError) || error.code !== 'run_not_found') {
-      return protocolFailure('resume', base, socketPath, error, runId);
+      const cause = error instanceof AuthoredFlowExecutionError
+        ? error : llmFailure ?? authoredAgent?.failure ?? error;
+      return protocolFailure('resume', base, socketPath, cause, runId);
     }
     return {
       exitCode: 2,
@@ -335,6 +441,7 @@ export async function resumeFlow(
     };
   } finally {
     try {
+      if (options.onJournalEntry !== undefined) client.off('entry', options.onJournalEntry);
       await communicationWorkers?.close();
       await authoredLlm?.close();
       authoredLlmClient?.close();
@@ -343,6 +450,45 @@ export async function resumeFlow(
       client.close();
     }
   }
+}
+
+/**
+ * A `--local-agent` mismatch, refused before the resume touches the journal.
+ *
+ * Exit 2 and `ok` left false by `emptyReport`: nothing ran, so this is the same
+ * shape as every other pre-journal refusal on this surface (docs/SURFACE.md §5).
+ * It returns rather than throwing so no worker is attached on the way out.
+ */
+function localAgentRefusal(
+  base: RunReport, runId: string, socketPath: string, message: string,
+): RunExecution {
+  return {
+    exitCode: 2,
+    report: { ...base, runId, socketPath,
+      diagnostics: [...base.diagnostics, { severity: 'refusal', kind: 'local_agent_unavailable', message }] },
+  };
+}
+
+/**
+ * The `--input` argument a new run of this authored root would have to repeat,
+ * rendered back from the journaled metadata.
+ *
+ * `absent` when the root recorded no input, and also when the recorded input is
+ * something `JSON.stringify` cannot render — the remedy formatter then says an
+ * input is required instead of printing a command that would be refused as
+ * `input_invalid`. What it must never do is substitute `{}`: that is a
+ * different invocation of the flow than the one that parked.
+ *
+ * Unlike `runDirectFlow`, this side has only the decoded value: the journal
+ * records the input, not the `--input` word that carried it, so a run started
+ * from a file comes back as inline JSON. `authoredInput` is what keeps that
+ * honest about its own size — a recorded input can be larger than a shell
+ * argument even when the file that supplied it was unremarkable.
+ */
+function authoredInputArgument(metadata: AuthoredRootMetadata | undefined): AuthoredInput {
+  if (metadata === undefined || !metadata.inputPresent) return { kind: 'absent' };
+  const rendered = JSON.stringify(metadata.input);
+  return authoredInput(typeof rendered === 'string' ? rendered : undefined);
 }
 
 /**
@@ -735,25 +881,14 @@ export async function classifyOutcome(
       report: {
         ...report,
         parkedStep,
+        parkCause: needsHuman ? 'needs_human' : 'worker_unavailable',
         diagnostics: [...report.diagnostics, {
           severity: 'parked',
           kind: 'run_parked',
           message: needsHuman
             ? `Run "${current.run_id}" parked at step "${parkedStep.id}" (${parkedStep.type}): waiting for human recovery after the worker attempt failed.`
             : `Run "${current.run_id}" parked at step "${parkedStep.id}" (${parkedStep.type}): no worker is attached for step type "${parkedStep.type}".`
-              // Only suggest the `--local-agent` remedy for YAML flows.
-              // Authored TS flows require `--input`; the bare command below
-              // would be refused (Cursor Bugbot flagged as LOW on flows#293).
-              // For TS we omit the hint rather than fabricate a syntactically
-              // valid but semantically wrong command — the direct-run refusal
-              // for TS already names its own missing --input.
-              + (command === 'run'
-                  && parkedStep.type === 'agent'
-                  && !options.localAgent
-                  && base.path !== undefined
-                  && !isAuthoredFlowPath(base.path)
-                ? ` To start a new run with a local agent worker: flows run --local-agent '${base.path.replace(/'/g, "'\\''")}'. Declared workspace or stream surfaces require a worker that holds their pins.`
-                : ''),
+              + localAgentRemedy(declarativeWorkerRemedy(command, current.run_id, parkedStep, base, options)),
         }],
       },
     };
@@ -761,6 +896,39 @@ export async function classifyOutcome(
   return protocolFailure(command, base, socketPath, new Error(
     `relayflowd returned status ${current.status} without a classifiable completion`,
   ), current.run_id);
+}
+
+/**
+ * Which remedy a worker park gets from the declarative classifier.
+ *
+ * An authored `.flow.ts` is deliberately SILENT here, and the suppression is
+ * tested first on purpose. Its remedy is a new run carrying the same `--input`,
+ * an argument this function does not have; `runDirectFlow` and `resumeFlow`
+ * render it once at the authored boundary where the input (or the journaled
+ * metadata holding it) is in hand. `classifyOutcome` also runs once per
+ * authored `f.agent` CHILD run, so answering here as well would append a
+ * remedy to every child message on the way out — and, on resume, a second
+ * contradictory one after the attached-worker branch below.
+ *
+ * `llm` parks get nothing, unchanged: the declarative verbs attach an
+ * agent-only worker (local-agent.ts advertises `['agent']`), so `--local-agent`
+ * is not a remedy for an `llm` step outside the authored path, which attaches
+ * an `LlmWorker` of its own.
+ */
+function declarativeWorkerRemedy(
+  command: RunCommand,
+  runId: string,
+  parkedStep: ParkedStep,
+  base: CheckReport | RunReport,
+  options: RunLifecycleOptions,
+): LocalAgentRemedy {
+  const dataDir = options.dataDir;
+  if (parkedStep.type !== 'agent') return { kind: 'none' };
+  if (base.path !== undefined && isAuthoredFlowPath(base.path)) return { kind: 'none' };
+  if (options.localAgent === true) return { kind: 'attached' };
+  if (command === 'resume') return { kind: 'spec-resume', runId, dataDir };
+  if (command === 'run' && base.path !== undefined) return { kind: 'spec-run', path: base.path, dataDir };
+  return { kind: 'none' };
 }
 
 interface OutOfBandInspection {
@@ -813,6 +981,9 @@ async function inspectOutOfBandStep(
   };
 }
 
+// Match kernel/relayflowd/src/server/client.rs: allow the lease sweep to dispatch a retry.
+const LEASE_SWEEP_GRACE_MS = 5_000;
+
 async function waitForRunningStep(
   client: JournalClient,
   runId: string,
@@ -831,7 +1002,7 @@ async function waitForRunningStep(
   });
   while (true) {
     throwIfCanceled(options.signal, runningStep.id);
-    const remainingMs = leaseDeadlineMs - Date.now();
+    const remainingMs = leaseDeadlineMs + LEASE_SWEEP_GRACE_MS - Date.now();
     if (remainingMs <= 0) {
       throw new Error(
         `worker lease for step "${runningStep.id}" expired at ${leaseDeadlineMs} without completion`,

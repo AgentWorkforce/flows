@@ -358,6 +358,65 @@ flow-wide `FlowHeader.workspace` / `tools.fs` scopes. The chief harness above
 remains an aspirational example; this option does not make that entire harness
 executable today.
 
+### Per-agent working directory
+
+`AgentOptions.cwd` — and the `cwd:` key on a declarative `type: agent` step —
+names the directory the agent's CLI is spawned in. It is how one flow drives
+agents in several checkouts:
+
+```ts
+const api = await f.agent("api", {
+  task: "Apply the rename in the API checkout.",
+  cwd: "checkouts/service-a",
+});
+const web = await f.agent("web", {
+  task: "Apply the matching rename in the web checkout.",
+  cwd: "checkouts/service-b",
+});
+```
+
+**The path is relative to the run root** — the working directory `flows run`
+was invoked from, which is also the directory an agent runs in when `cwd` is
+absent, and the uploaded tree on the Cloud path (docs/CLOUD.md, "Code sync").
+A relative declaration is the same declaration on every host; an absolute one
+names a place a different machine does not have, so absolute paths are refused
+rather than resolved. The authored runner makes one exception at its own
+edge: an absolute `options.cwd` that names a directory inside this process's
+run root is lowered to the equivalent relative declaration, and one that
+escapes the root is refused — the spec never carries an absolute path either
+way.
+
+Two checks answer two different questions:
+
+- **The declaration** is checked lexically, with no filesystem access, by
+  `flows check`, by the authored runner, and by the kernel — the same rule in
+  all three, so a spec that passes the first is not refused by the last. A
+  `cwd` must be a nonempty string, must not be absolute or URI-like, must not
+  carry surrounding whitespace or a NUL, and must have no empty, `.` or `..`
+  components. `cwd: null` is a refusal, not "no directory". `cwd` is an agent
+  field: a `deterministic` or `llm` step that declares it is `invalid_spec`.
+- **The target** is resolved at dispatch by the worker that spawns the CLI,
+  the one process that provably shares the agent's filesystem. It must be an
+  existing directory whose symlink-free path lies inside the symlink-free run
+  root. A symlink out of the tree, and a sibling whose name merely starts with
+  the run root's, are both outside it. A step whose directory does not resolve
+  completes `worker_error` with the reason journaled, and no CLI is spawned.
+
+`AgentResult.artifacts` are reported relative to this directory, so each agent
+above reports paths within its own checkout.
+
+`cwd` is **not supported with `transport: "relay"`** and is refused when both
+are declared: the relay agent runs on another host, where this process can
+neither resolve the directory nor hold it inside the run root.
+
+This is a declaration of where an agent starts, not a sandbox. Nothing stops a
+CLI from reading or writing outside the directory it was spawned in. Per-step
+scoping is `permissions`, which is recorded and not enforced (gate 8 / #442).
+
+Workspace surfaces are a different thing and are not a directory selector:
+`surfaces.workspace` names the revisions a step pins and writes back to, not a
+path on the host running the CLI.
+
 ### Supported TypeScript LLM calls
 
 The local authored executor supports these signatures:
@@ -536,6 +595,128 @@ malformed durations are refused with `timeout_invalid`. On reaching its timeout,
 the kernel kills the command's process group and journals `completionReason: timeout`;
 `f.run` refuses with code `lease_exceeded`. The override applies only to that
 invocation; calls without options retain the default.
+
+### Repair before failure: `onNonZero: 'record'`
+
+A deterministic step is gated on its exit code by default: a nonzero exit fails
+the step and ends the flow. That is the right default, and it is the wrong one
+for the single most common shape in practice — run a check, let it be red, and
+hand its output to whatever is built to answer it.
+
+`onNonZero: 'record'` is the opt-in for that shape. The command still runs, its
+exit code and output tails are still journaled, and the step still completes;
+what changes is that a positive exit code satisfies the exit check instead of
+failing it, so dependents run. In TypeScript the result is a value rather than
+a throw:
+
+```ts
+const tests = await f.run('npm test', { onNonZero: 'record' });
+if (!tests.ok) {
+  await f.agent('fixer', { task: `Fix these failures:\n${tests.output}` });
+}
+```
+
+`RunResult` is `{ ok, exitCode, stdout, stderr, output }`. Every field is read
+back from the step's journaled outcome, never re-measured — `ok` is exactly
+`exitCode === 0`. `stdout` and `stderr` are the journal's **bounded tails**, not
+complete transcripts; `output` is `stdout` then `stderr` joined by a newline
+when both are nonempty, a reading convenience rather than a reconstruction of
+the real interleaving. Without the policy, `f.run` still resolves to the stdout
+string, so existing bodies are unchanged.
+
+This is what `<command> || true` cannot do. `|| true` throws the exit code
+away, so nothing downstream can tell a passing check from a failing one, and a
+flow that forgets a later gate ships red work silently. `onNonZero: 'record'`
+keeps the code, which is the whole point: the branch below it is a fact, not a
+guess.
+
+**The policy covers exit codes only.** A timeout, a signal or a command that
+never started produced no verdict to record, and still fails the step under
+either policy. Declared `output_contains` and `json_schema` gates are still
+enforced in record mode, as are budgets and journal-append failures. Recording
+is not a retry policy and does not trigger semantic retries.
+
+**Recording makes red allowed, not invisible.** `flows check` annotates a
+recording step with `[onNonZero: record]`, and the kernel labels the satisfied
+check `exit_code:recorded` with the numeric code in its detail, so a recorded
+red outcome reads as red in the journal. A flow that records without ever
+asserting green may still finish successfully — that outcome is inspectable,
+not forbidden.
+
+**Asserting green again.** To demand that recorded commands were green, use the
+declarative `steps_green` gate, which reads the journaled outcomes and never
+re-runs anything:
+
+```yaml
+version: '0.1.0'
+steps:
+  - id: tests
+    type: deterministic
+    command: npm test
+    onNonZero: record
+  - id: lint
+    type: deterministic
+    command: npm run lint
+    onNonZero: record
+  - id: gate
+    type: deterministic
+    command: 'true'
+    verification:
+      type: steps_green
+      ids: [tests, lint]
+```
+
+`steps_green` is deterministic-hosts-only: a worker step records no exit code.
+The ids it names must be deterministic steps that precede it; unknown, forward,
+self and non-deterministic references are refused at compile time, as are empty
+and duplicate id lists. The host keeps its own command and its own exit policy —
+the assertion is lowered to a separate, always-fatal gate step that every
+dependent of the host waits on.
+
+A recorded outcome is immutable, so repair does not turn an old red step green.
+A flow that repairs must produce **new** post-repair evidence and gate on that
+distinct step:
+
+```yaml
+version: '0.1.0'
+steps:
+  - id: tests
+    type: deterministic
+    command: npm test
+    onNonZero: record
+    # Declaring the envelope schema is what lets a later step bind the evidence.
+    verification:
+      type: json_schema
+      schema:
+        type: object
+        properties:
+          exit_code: { type: integer }
+          stdout_tail: { type: string }
+          stderr_tail: { type: string }
+  - id: repair
+    type: agent
+    dependsOn: [tests]
+    input:
+      failures: { step: tests }
+    instruction: Read input.failures and fix the failing tests.
+  - id: retest
+    type: deterministic
+    dependsOn: [repair]
+    command: npm test
+  - id: gate
+    type: deterministic
+    command: 'true'
+    verification:
+      type: steps_green
+      ids: [retest]
+```
+
+`retest` is an ordinary gated step, so the final `steps_green` over it is what
+decides the run. Binding a recorded outcome as input requires the source to
+declare an output schema, as every input binding does (see *Declarative output
+binding*); an `output_contains` source is refused, because that gate cannot also
+carry the envelope schema the binding reads — declare the constraint as a JSON
+Schema instead.
 
 ### The authored operation lifecycle
 
@@ -769,9 +950,14 @@ journal. They are documented in [CLOUD.md](CLOUD.md#reading-a-hosted-run):
 
 ```text
 flows runs [--limit <n>] [--json]
-flows logs [--step <name>] [--raw] [--json] <run-id>
-flows status --cloud [--json] <run-id>
+flows logs [--step <name>] [--raw] [--json] [--follow] <run-id>
+flows status --cloud [--json] [--watch] <run-id>
 ```
+
+`--watch` and `--follow` keep reading until the hosted run is terminal and
+exit with *its* outcome rather than the read's, using `flows run --cloud
+--wait`'s mapping; Ctrl-C ends the observation, not the run. `--watch` needs
+`--cloud`, and `--follow` does not take `--step`.
 
 ### Agent sidechannel (initial byte-stream slice)
 
@@ -830,7 +1016,10 @@ uses the opening shown here; an authored child failure opens with
 ```text
 FAILED [step_failed] Run "<run-id>" failed with completionReason: step_failed.
  Step "<step-id>" (<type>) completionReason: <reason> attempt=<n>/<budget> exit=<code>.
-Detail: <the worker's own account, when it left one>
+Attempts: <count> failed; <whether their recorded evidence agrees>
+  attempt 1: <reason> exit=<code> — stderr: <excerpt>
+  attempt 2: <reason> exit=<code> — stderr: <excerpt>
+Detail: <the gate's verdict, or the worker's own account>
 Stdout (captured excerpt):
 <excerpt>
 Stderr (captured excerpt):
@@ -872,9 +1061,60 @@ journal to be excerpted.
 Each clause is present only when the journal holds the fact behind it; nothing
 is defaulted. The same fields appear as named keys on the `--json` diagnostic
 (`stepId`, `stepType`, `completionReason`, `attempt`, `maxIterations`,
-`exitCode`, `stdoutTail`, `stderrTail`, `detail`, `transcriptPath`, `hint`,
-`journalPath`), so the rendered line and the machine-readable record carry the
-same facts rather than the message being the only copy.
+`exitCode`, `stdoutTail`, `stderrTail`, `detail`, `transcriptPath`, `attempts`,
+`attemptEvidence`, `hint`, `journalPath`), so the rendered line and the
+machine-readable record carry the same facts rather than the message being the
+only copy.
+
+The scalar clauses always describe the **terminal** attempt. `Attempts:` is
+additive and appears only when the journal held more than one failed attempt of
+that step, so a step that failed once renders exactly as it did before. Every
+failed attempt is listed, oldest first, from its own `step.completed` entry —
+the kernel appends one per attempt, so a retry that failed differently from the
+first attempt is a journaled fact rather than something the last attempt's
+output has to be read for. Each entry carries the attempt's reason, its exit
+code when it had one, and up to 256 bytes of whichever of `detail`, `stderr`
+and `stdout` that attempt actually recorded; `(excerpt truncated)` marks an
+account that was cut, and an attempt that recorded nothing says so rather than
+printing empty fields. Attempt excerpts are redacted before they are bounded.
+The corresponding `attempts` entries in `--json` use the keys `attempt`,
+`completionReason`, `disposition`, `exitCode`, `stdoutTail`, `stderrTail`,
+`detail` and `truncated`.
+
+`detail` — on the terminal clause and on each attempt — is the verification
+record's account: the gate's verdict for a deterministic step (`output did not
+contain "READY"`), or what the worker reported for an agent or llm step. A gate
+can refuse output that a command produced happily, so an attempt can report
+exit 0, empty tails and a verdict that is the entire reason it failed. It is
+withheld only when it would repeat bytes already printed beside it: the
+daemon's `{exit_code, stdout_tail, stderr_tail}` render of a worker failure,
+and the `exit_code` gate's bare `exit code was <code>` next to the exit code
+it restates.
+
+`attemptEvidence` says whether the attempts failed for the same reason, and is
+one of:
+
+- `differs` — two attempts that each recorded evidence recorded different
+  evidence. A retry that fails differently usually means an earlier attempt
+  already had a side effect, so the message adds *An earlier attempt may have
+  had side effects.*
+- `unchanged` — every attempt recorded evidence and all of it agrees.
+- `unknown` — at least one attempt journaled nothing about why it failed, or
+  its evidence reached the journal already truncated by the daemon, so whether
+  the causes differ cannot be decided.
+
+Only attempts that recorded something are compared: an attempt that journaled
+no account of itself is unequal to every other one on paper while establishing
+nothing, and would otherwise put the side-effect warning on a crash that is
+evidence of nothing. A render the daemon truncated is compared, because
+truncation can only make two accounts look more alike than they were.
+
+The comparison runs on the journal record before any display bound, and reads
+the verification gate, verdict and detail as well as the exit codes and output
+tails, so two attempts whose visible excerpts are identical are still reported
+as differing when the records behind them are not. `verification_failed` on a
+retry and `retries_exhausted` at the budget limit are the kernel's label for
+the same fallback, so that pair alone is not counted as a changed cause.
 
 `attempt=<n>/<budget>` is read from the journal, not from the spec: `n` is the
 `step.attempt.started` envelope's attempt number and `budget` is the
@@ -1025,6 +1265,19 @@ to `<data-dir>/relayflowd.sock`; `resume` asks that daemon to continue an
 existing run from its journal. The data directory defaults to `.relayflowd`.
 `--json` writes one report-shaped object to stdout while diagnostics remain on
 stderr.
+
+`check`'s `REQUIRES` line names the harnesses a flow needs; a spec with `agent`
+steps also needs a *worker attached for step type `agent`*, and without one the
+run parks at the first such step rather than failing. `flows check` cannot see
+whether one is attached — it is daemon-free by construction — so it warns
+`agent_worker_unresolved` instead of guessing, naming the steps and pointing at
+`flows run --local-agent`. The warning is emitted in the `REQUIRES` position,
+because it is a footnote to that line. It never refuses, and it is scoped to
+`agent` steps: `--local-agent` attaches no `llm` worker, so naming it for an
+`llm` step would be false. Only `flows check` opts in. `run` knows the answer,
+`build` and `deploy` check a spec that will run elsewhere, and an authored
+`.flow.ts` is checked through its header without compiling step bodies, so it
+has no agent steps to count.
 
 `flows check --watch` checks once, then watches the target, its reachable
 relative `use:` imports, and the nearest `flows.json` walking up from the
@@ -1185,7 +1438,7 @@ The exit codes are part of the surface contract:
 |---:|---|
 | `0` | The run completed with `completionReason: success`; deliberate declination also carries a `run_declined` diagnostic locally. |
 | `1` | The run failed with a declared `completionReason`, or a transport, runtime, or daemon protocol error left the outcome unknown. A `step_failed` run names the failing step and its per-step `completionReason`, plus the exit code and output tails the journal recorded for it. An authored `done("step_failed")` exits `1` as well, and says so without naming a step, because no step failed — the body declared the verdict. With a `detail`, that detail replaces the generic sentence and is reported as `completionDetail`. |
-| `2` | The command was refused before a journal write: invalid input, failed preflight, unreachable daemon, or a `run_not_found` resume target. |
+| `2` | The command was refused before a journal write: invalid input, failed preflight, unreachable daemon, a `run_not_found` resume target, or a `--local-agent` the named run cannot honour (`local_agent_unavailable`, below). |
 | `3` | The run parked. `PARKED [run_parked]` names the step and its `llm` or `agent` type, and distinguishes an unavailable worker from a `needs_human` recovery wait. An authored body parked on `f.human` reports the question, who it is for, and the `flows answer` invocation that records the decision (see *Human gates* below). |
 | `4` | An authored body suspended at `f.on(...).next()` for subscription activation or event delivery. JSON reports `status: "suspended"` and the durable `suspension` boundary. The root releases its worker lease; unchanged waits can be resumed without consuming crash retries. This local SDK/daemon contract still requires Cloud router integration before hosted use; see [EVENT-AWAIT.md](EVENT-AWAIT.md). |
 
@@ -1206,6 +1459,52 @@ is live and prints `WAITING [worker_lease]` with the step and lease deadline.
 If the lease expires without a completion, the command fails closed instead of
 polling forever. A manual-recovery agent whose worker dies parks in
 `needs_human`; the same exit-3 report says it is waiting for human recovery.
+
+### Naming the worker a park is missing
+
+An exit-3 park for want of an agent worker names an invocation that supplies
+one. Which invocation depends on what parked, and each command is rendered
+shell-quoted with the `--data-dir` this invocation actually used, so it is
+runnable as printed:
+
+| Parked | Printed remedy |
+|---|---|
+| `flows run <spec>` | `flows run --local-agent '<spec-path>'` — a new run. |
+| `flows resume <run-id>` on a spec run | `flows resume --local-agent <run-id>` — *this* run, which is resumable. |
+| An authored `.flow.ts` | `flows run --local-agent '<flow-path>' --input '<input>'`, repeating the input the parked run was started with. |
+
+The authored line repeats `--input` because a directly run `.flow.ts` without
+one is refused (`input_missing`); when the journal recorded no input, the report
+states that requirement in prose rather than substituting `--input '{}'`, which
+would name a different invocation of the flow than the one that parked. Every
+line carries the standing caveat that declared workspace or stream surfaces
+require a worker holding their pins.
+
+A park reported by `flows run` repeats the `--input` word that invocation was
+given, so a run started from a file names that file. A resume has only the
+journal, which records the input document and not the word that carried it, so
+it renders the input inline — accepted, because an argument that cannot be a
+filename is read as inline JSON rather than as an unreadable path. A recorded
+input larger than one `execve` argument (`MAX_ARG_STRLEN`, 128KiB, against the
+1MiB `--input` ceiling) is stated in prose with its size, naming the input file
+to pass: a printed command that dies with `Argument list too long` is no
+better than the park it answers.
+
+Two parks print no remedy, on purpose. A `needs_human` recovery wait says
+nothing about workers, because attaching one does not clear it. And when
+`--local-agent` was already passed, the report says a worker is attached and
+none was eligible for the step — never "pass `--local-agent`" to someone who
+just did.
+
+For an authored root, `--local-agent` is admitted at run start: the worker
+stream is pinned into the root's metadata, so a resume can only reproduce the
+surface the run began with. `flows resume --local-agent` against an authored
+root started without one is refused before any worker attaches and before the
+resume touches the journal — exit 2, `REFUSED [local_agent_unavailable]`,
+naming the new run to start. A resume that drops the flag a root *was* pinned
+with is refused the same way, naming the resume that keeps it. On a declarative
+run the flag is honoured rather than refused: it attaches a worker and drives
+the parked step. The flag is never accepted and ignored.
 
 ### Human gates: `f.human`
 
@@ -1427,6 +1726,28 @@ worker sends and the run succeeds with it journaled as the agent's
 asserts on `AgentResult.artifacts` — which is how the data-dir case was caught
 at all, by `packages/sdk/tests/agent-transcript-live.test.ts` failing its own
 `artifacts.length !== 0` check.
+
+That exclusion cuts both ways. A gate reads the journaled list and nothing else,
+so an `artifact_exists` path inside a prefix the walk skips — a segment named
+exactly `.git`, `.relayflowd` or `node_modules` — is a path the
+scan can never contribute, however faithfully the agent writes the file.
+Preflight **warns** `gate_path_unscanned`, naming the excluded prefix. Segments
+are compared exactly: `node_modules-copy/out.md` and `reports/v1.2/review.md`
+are fine. The rule lives in `packages/sdk/src/artifact-scan-policy.ts` and the
+walk itself consumes it, so the warning cannot drift from the scan it
+describes, and it is collected before any environment probe can return early,
+so it is not hidden behind an unresolved CLI for a pass or two.
+
+It warns rather than refuses because the scan is not the only writer of that
+list, which makes such a gate unproven rather than unsatisfiable. The *bundled*
+worker journals object-shaped JSON stdout — and a completed Relay task's output
+— verbatim in place of the scanned wrapper, so an agent that answers with its
+own `{"artifacts": [...]}` puts exactly what it names in the list, an unscanned
+path included, and the gate passes. `step.complete` accepts any `output`, so a custom
+worker may do the same. Which route a step takes is a run-time fact, so
+preflight reports the scan's limitation and leaves the verdict to the run. The
+warning retires with the exclusion: when the scan stops skipping those prefixes,
+the kind and `packages/sdk/src/named-gate-preflight.ts` are deleted together.
 
 - Are YAML helper verbs (`slack:`, `mcp:`) core spec vocabulary or compile-time expansion into `run`/effect steps? Leaning: expansion — the kernel spec stays seven words; helpers stay a surface concern.
 - Helper generation cadence: generated from relayfile adapter manifests at build time vs published per-adapter packages. Leaning: generated, with hand-tuned verb names for the top providers.

@@ -71,19 +71,33 @@ process.exit(artifacts.includes(${JSON.stringify(gate.path)})?0:1);`)}`;
   }
   const path = gate.type === 'subprocess_gate' ? gate.from_output
     : gate.type === 'word_count_bounds' ? undefined : gate.in_output_at;
+  const pathKey = gate.type === 'subprocess_gate' ? 'from_output' : 'in_output_at';
   // Only compiler-owned code is serialized. Author strings are JSON literals;
   // upstream output travels exclusively through FLOWS_INPUT, never shell text.
+  //
+  // `fail` answers a gate that exits 1 having said nothing. Every exit that is
+  // NOT the author's own predicate or command verdict goes through it: a
+  // selection that missed, input the child cannot carry, a child that never
+  // started, a child killed by a signal. It writes ONE bounded line to fd 2
+  // and nothing to fd 1 — `references_input` and `word_count_bounds` verify
+  // against stdout, so a stray byte there would change a verdict.
+  //
+  // `writeSync` rather than `process.stderr.write`: on a pipe the latter is
+  // asynchronous, and the `process.exit` on the same line would drop the
+  // diagnostic exactly when it is the only account of the failure there is.
   const setup = `const cp=require('node:child_process');
+const fail=m=>{require('node:fs').writeSync(2,${JSON.stringify(`${gate.type}: `)}+m.replace(/[\\r\\n]+/g,' ').slice(0,400)+'\\n');process.exit(1);};
 const input=JSON.parse(process.env.FLOWS_INPUT);
 let value=input.output;
 const path=${JSON.stringify(path ?? null)};
 if(path!==null){for(const key of path){
 if(value===null||typeof value!=='object'||!Object.hasOwn(value,key)||
-(typeof key==='number'?!Array.isArray(value):Array.isArray(value)))process.exit(1);
+(typeof key==='number'?!Array.isArray(value):Array.isArray(value)))
+fail(${JSON.stringify(`${pathKey} ${JSON.stringify(path ?? null)} selected nothing: no `)}+JSON.stringify(key)+' at that position in the producer output');
 value=value[key];
 }}else if(${deterministic})value=value.stdout_tail;
 const text=typeof value==='string'?value:JSON.stringify(value);
-if(typeof text!=='string')process.exit(1);
+if(typeof text!=='string')fail('the selected value could not be read as text');
 `;
   let body: string;
   switch (gate.type) {
@@ -93,16 +107,32 @@ if(typeof reference!=='string'||reference.length===0||!text.includes(reference))
 process.stdout.write('references_input:pass');`;
       break;
     case 'subprocess_gate':
-      body = `if(text.includes('\\0'))process.exit(1);
+      // `stdio: 'inherit'` hands the child the gate step's own stdout/stderr,
+      // which ARE the kernel's capture pipes (relayflowd/src/exec_det.rs:78),
+      // so the command's output is journaled as it is produced — including
+      // whatever it wrote before a timeout killed the process group. Buffering
+      // it for a post-wait flush would lose exactly that. What was missing is
+      // below: `status` is null for every outcome that is not an exit, and all
+      // of them used to collapse into an indistinguishable bare `exit 1`.
+      body = `if(text.includes('\\0'))fail('the selected text contains a NUL byte and cannot be passed to the gate command');
 const result=cp.spawnSync('/bin/sh',['-c',${JSON.stringify(gate.command)}],{
 env:{...process.env,INPUT:text},stdio:'inherit'});
+if(result.error)fail('could not run the gate command: '+(result.error.code||result.error.message)+' (the selected input was '+Buffer.byteLength(text)+' bytes)');
+if(result.signal)fail('the gate command was terminated by '+result.signal);
 process.exit(result.status===0?0:1);`;
       break;
     case 'word_count_bounds':
+      // The other gate that spawns a child. Its `wc` stderr was piped and then
+      // discarded, so a broken or absent `wc` was reported as a word count out
+      // of bounds. A bounded suffix of what it said travels with the cause.
       body = `const result=cp.spawnSync('wc',['-w'],{input:text,encoding:'utf8',env:{...process.env,LC_ALL:'C'}});
-if(result.status!==0)process.exit(1);
+const noise=(result.stderr||'').trim().slice(-200);
+const said=noise===''?'':': '+noise;
+if(result.error)fail('could not run wc -w: '+(result.error.code||result.error.message)+said);
+if(result.signal)fail('wc -w was terminated by '+result.signal+said);
+if(result.status!==0)fail('wc -w exited '+result.status+said);
 const count=result.stdout.trim();
-if(!/^[0-9]+$/.test(count))process.exit(1);
+if(!/^[0-9]+$/.test(count))fail('wc -w printed '+JSON.stringify(count.slice(0,80))+' instead of a word count'+said);
 process.stdout.write(BigInt(count).toString());`;
       break;
     case 'regex_match':

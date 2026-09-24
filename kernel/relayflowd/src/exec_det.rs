@@ -39,10 +39,13 @@ pub(crate) fn execute_placed_with_input(
     if step.input.is_some() && input.is_none() {
         return worker_error("deterministic step input bindings were not resolved");
     }
+    // `on_non_zero` is read by `verify`, not here: the executor reports what
+    // the process did, and the gate decides what that means.
     let StepKind::Deterministic {
         command,
         timeout_ms,
         lease_ms,
+        ..
     } = &step.kind
     else {
         return worker_error("deterministic executor received a non-deterministic step");
