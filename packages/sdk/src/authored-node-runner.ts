@@ -13,7 +13,7 @@ import {
   AuthoredFlowExecutionError, AuthoredHumanParked,
   type AuthoredFlowExecutionErrorCode, type AuthoredHumanWait,
 } from './authored-flow-error.js';
-import type { StepFailedDetails } from './failure-kinds.js';
+import type { ParkCause, StepFailedDetails } from './failure-kinds.js';
 import { HUMAN_WAIT_ID } from './authored-human.js';
 import { assertAuthoredPromiseHooks } from './authored-runtime-capability.js';
 
@@ -137,13 +137,18 @@ export async function runAuthoredInNode(
             else if (message.type === 'wait') options.onWait?.(message.event);
             else if (message.type === 'result') result = { ...message.result, executionRuntime: runtime };
             else if (message.type === 'error') {
-              failure = message.code === 'human_parked' && isHumanWaitFrame(message.wait) && message.runId === rootRunId
-                ? new AuthoredHumanParked(message.wait, rootRunId)
-                : typeof message.code === 'string'
-                  ? new AuthoredFlowExecutionError(message.code as AuthoredFlowExecutionErrorCode,
-                    message.message, message.completionReason, message.runId,
-                    stepFailedFrame(message.details))
-                  : new Error(message.message);
+              if (message.code === 'human_parked' && isHumanWaitFrame(message.wait) && message.runId === rootRunId) {
+                failure = new AuthoredHumanParked(message.wait, rootRunId);
+              } else if (typeof message.code === 'string') {
+                const authored = new AuthoredFlowExecutionError(message.code as AuthoredFlowExecutionErrorCode,
+                  message.message, message.completionReason, message.runId,
+                  stepFailedFrame(message.details));
+                // Validated, not trusted, like `details`: an unrecognised cause
+                // is dropped so the boundary says nothing about workers rather
+                // than acting on a value this frame could have invented.
+                authored.parkCause = parkCauseFrame(message.parkCause);
+                failure = authored;
+              } else failure = new Error(message.message);
             } else throw new Error('unknown authored runtime message');
           } catch (error) { stop(error instanceof Error ? error : new Error('invalid authored runtime message')); }
         }
@@ -172,6 +177,17 @@ function isHumanWaitFrame(value: unknown): value is AuthoredHumanWait {
     && typeof wait.waitId === 'string' && HUMAN_WAIT_ID.test(wait.waitId)
     && typeof wait.question === 'string' && wait.question !== ''
     && typeof wait.to === 'string' && wait.to !== '';
+}
+
+/**
+ * A park cause arriving over IPC, accepted only as one of the two values the
+ * type admits. Anything else — absent, misspelled, a different type — becomes
+ * `undefined`, which the remedy formatter reads as "unestablished" and answers
+ * with silence. Guessing `worker_unavailable` here would let a malformed frame
+ * put "attach a worker" on a park a worker cannot clear.
+ */
+export function parkCauseFrame(value: unknown): ParkCause | undefined {
+  return value === 'worker_unavailable' || value === 'needs_human' ? value : undefined;
 }
 
 /**

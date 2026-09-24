@@ -134,6 +134,14 @@ export const RUN_FAILURE_KINDS = [
   'gate_failed',
   /** `flows answer` named a wait the run is not asking: unknown, or already answered. */
   'human_wait_unknown',
+  /**
+   * `--local-agent` cannot be honoured for this invocation, so it is refused
+   * rather than accepted and ignored. A local agent worker is admitted at run
+   * start and pinned into the authored root's metadata; a resume can only
+   * reproduce the surface the root was started with. Exit 2, before any worker
+   * attaches and before the resume touches the journal.
+   */
+  'local_agent_unavailable',
 ] as const;
 
 /**
@@ -164,6 +172,20 @@ export type CheckFailureKind = (typeof CHECK_FAILURE_KINDS)[number];
 export type PreflightWarningKind = (typeof PREFLIGHT_WARNING_KINDS)[number];
 export type RunFailureKind = (typeof RUN_FAILURE_KINDS)[number];
 export type RunWarningKind = (typeof RUN_WARNING_KINDS)[number];
+
+/**
+ * Why a run parked, for the reporting side that has to name a remedy.
+ *
+ * `worker_unavailable` is a step nothing is attached to run — the one case
+ * `--local-agent` fixes. `needs_human` is the kernel's manual-recovery wait
+ * after a worker attempt already failed, and attaching a worker does not clear
+ * it. Both arrive as exit 3 under `run_parked`, so the distinction has to
+ * travel as a value: it lives here, beside the run vocabulary, because the
+ * classifier (cli/run.ts), the authored error boundary (authored-flow-error.ts)
+ * and the remedy formatter (cli/local-agent-remedy.ts) all need the same one
+ * and none of them may depend on the others.
+ */
+export type ParkCause = 'worker_unavailable' | 'needs_human';
 
 /**
  * Optional evidence on the existing step_failed diagnostic, not a new kind.
