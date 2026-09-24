@@ -90,7 +90,7 @@ describe('createRunMirror', () => {
     const mirror = createRunMirror({ client, dataDir: '/data', readJournal: read, env: {} });
 
     mirror.start('01ROOT');
-    await mirror.finish({ status: 'completed' });
+    await mirror.finish({ status: 'completed', result: { ok: true, status: 'completed' } });
 
     // The root, and the one child its index names. A data directory holding a
     // hundred other runs contributes nothing.
@@ -109,7 +109,7 @@ describe('createRunMirror', () => {
     });
 
     mirror.start('01ROOT');
-    await mirror.finish({ status: 'completed' });
+    await mirror.finish({ status: 'completed', result: { ok: true, status: 'completed' } });
 
     const snapshot = calls.find(call => call.kind === 'snapshot')!.body as { steps: Array<Record<string, unknown>> };
     expect(snapshot.steps).toHaveLength(1);
@@ -133,7 +133,7 @@ describe('createRunMirror', () => {
     });
 
     mirror.start('01ROOT');
-    await mirror.finish({ status: 'completed', completionReason: 'success', log: ['RUN 01ROOT'] });
+    await mirror.finish({ status: 'completed', completionReason: 'success', result: { ok: true, status: 'completed', completionReason: 'success', runId: '01ROOT' }, log: ['RUN 01ROOT'] });
 
     // Cloud revokes the run's credential at the terminal transition, so every
     // write has to be in before it.
@@ -165,7 +165,7 @@ describe('createRunMirror', () => {
     });
 
     mirror.start('01RUN');
-    await mirror.finish({ status: 'completed' });
+    await mirror.finish({ status: 'completed', result: { ok: true, status: 'completed' } });
 
     const report = calls.find(call => call.kind === 'steps')!.body as { steps: Array<Record<string, unknown>> };
     expect(report.steps[0]!.sandboxId).toBe('');
@@ -188,7 +188,7 @@ describe('createRunMirror', () => {
     });
 
     mirror.start('01RUN');
-    await mirror.finish({ status: 'completed' });
+    await mirror.finish({ status: 'completed', result: { ok: true, status: 'completed' } });
 
     const report = calls.find(call => call.kind === 'steps')!.body as { steps: unknown[] };
     expect(report.steps).toHaveLength(1);
@@ -229,7 +229,7 @@ describe('createRunMirror', () => {
     });
 
     mirror.start('01RUN');
-    await mirror.finish({ status: 'completed' });
+    await mirror.finish({ status: 'completed', result: { ok: true, status: 'completed' } });
 
     const report = calls.find(call => call.kind === 'steps')!.body as { steps: unknown[]; omitted: number };
     expect(report.steps).toHaveLength(MIRROR_MAX_FINAL_STEPS);
@@ -250,7 +250,7 @@ describe('createRunMirror', () => {
     });
 
     mirror.start('01RUN');
-    await expect(mirror.finish({ status: 'failed', error: 'step failed' })).resolves.toBeUndefined();
+    await expect(mirror.finish({ status: 'failed', error: 'step failed', result: { ok: false } })).resolves.toBeUndefined();
     expect(diagnostic).toHaveBeenCalled();
   });
 });

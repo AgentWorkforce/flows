@@ -124,6 +124,7 @@ export function createCloudMirrorSession(
         status: report.completionReason === 'canceled'
           ? 'cancelled'
           : report.ok ? 'completed' : 'failed',
+        result: completionReport(report),
         ...(report.completionReason === undefined ? {} : { completionReason: report.completionReason }),
         ...(terminalError(report) === undefined ? {} : { error: terminalError(report)! }),
         log: request.log(),
@@ -178,6 +179,51 @@ export function mirrorSourceFromJournal(dataDir: string): (runId: string) => Pro
     }
     throw new CloudFlowError('invalid_input',
       `Run "${runId}" journals no spec to mirror; the run is unaffected.`);
+  };
+}
+
+/** Diagnostics one completion report carries; the rest are counted. */
+const MAX_REPORT_DIAGNOSTICS = 20;
+/** One diagnostic message, in code points. */
+const MAX_DIAGNOSTIC_CHARS = 2_000;
+
+/**
+ * The run's completion report, as the terminal callback stores it.
+ *
+ * Cloud reconciles a v2 run's reported status against this document: a
+ * `completed` callback whose report does not carry `ok`, `status`,
+ * `completionReason` and `runId` together is recorded as `failed`. That guard
+ * exists so a sandbox whose bootstrap exits cleanly cannot report a run that
+ * died at step 1 as green — and it cuts the other way too, so a mirror that
+ * omits the report turns a finished local run red. Those four fields are the
+ * contract; everything else here is what a reader of the run page gets for
+ * free, since the run list extracts `completionReason` from the same document.
+ *
+ * Diagnostics are bounded and their messages clipped. They are the one part of
+ * a report that is unbounded free text, and this document is stored whole.
+ */
+function completionReport(report: RunReport): Record<string, unknown> {
+  const diagnostics = report.diagnostics.slice(0, MAX_REPORT_DIAGNOSTICS).map(entry => ({
+    severity: 'severity' in entry ? entry.severity : 'refusal',
+    kind: entry.kind,
+    message: [...entry.message].slice(0, MAX_DIAGNOSTIC_CHARS).join(''),
+  }));
+  return {
+    ok: report.ok,
+    command: report.command,
+    ...(report.runId === undefined ? {} : { runId: report.runId }),
+    ...(report.rootRunId === undefined ? {} : { rootRunId: report.rootRunId }),
+    ...(report.status === undefined ? {} : { status: report.status }),
+    ...(report.completionReason === undefined ? {} : { completionReason: report.completionReason }),
+    ...(report.completionDetail === undefined ? {} : { completionDetail: report.completionDetail }),
+    ...(report.completedSteps === undefined ? {} : { completedSteps: report.completedSteps }),
+    ...(report.parkedStep === undefined ? {} : { parkedStep: report.parkedStep }),
+    ...(report.parkCause === undefined ? {} : { parkCause: report.parkCause }),
+    ...(report.next === undefined ? {} : { next: report.next }),
+    ...(diagnostics.length === 0 ? {} : { diagnostics }),
+    ...(report.diagnostics.length > diagnostics.length
+      ? { diagnosticsOmitted: report.diagnostics.length - diagnostics.length }
+      : {}),
   };
 }
 

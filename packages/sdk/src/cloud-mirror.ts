@@ -81,6 +81,18 @@ export interface RunMirrorOptions {
 /** What the mirror was told about the run when it ended. */
 export interface RunMirrorOutcome {
   status: 'completed' | 'failed' | 'cancelled';
+  /**
+   * The run's own completion report, as the terminal callback stores it.
+   *
+   * Not decoration. Cloud reconciles a v2 run's reported status against this
+   * document and records `failed` for anything that does not prove success —
+   * the guard that stops a sandbox whose bootstrap exited cleanly from
+   * reporting a run that died at step 1 as green. A mirror that sent a status
+   * without the report was reconciled the other way, and a finished local run
+   * showed up red. The run list also reads `completionReason` and
+   * `pullRequestUrl` straight out of it.
+   */
+  result: Record<string, unknown>;
   completionReason?: string;
   error?: string;
   /** Lines the CLI printed for this run, uploaded as `runner.log`. */
@@ -441,11 +453,7 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
         // above depends on.
         await options.client.reportTerminal(
           outcome.status,
-          {
-            status: outcome.status === 'completed' ? 'completed' : outcome.status,
-            ...(outcome.completionReason === undefined ? {} : { completionReason: outcome.completionReason }),
-            ...(outcome.error === undefined ? {} : { error: outcome.error }),
-          },
+          redactJson(outcome.result, env) as Record<string, unknown>,
           outcome.error,
         );
       } catch (error) {
@@ -455,6 +463,25 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
       }
     },
   };
+}
+
+/**
+ * Redact every string the report carries, leaf by leaf.
+ *
+ * Not `redact(JSON.stringify(...))`: the redactor's value patterns end in
+ * `\\S+`, which across serialized JSON would swallow the closing quote and the
+ * next key, and hand Cloud a document it cannot parse. Redacting leaves keeps
+ * the shape intact and still scrubs every free-text field.
+ */
+function redactJson(value: unknown, env: NodeJS.ProcessEnv): unknown {
+  if (typeof value === 'string') return redact(value, env);
+  if (Array.isArray(value)) return value.map(entry => redactJson(entry, env));
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [key, redactJson(entry, env)]),
+    );
+  }
+  return value;
 }
 
 /** Everything about a step but its ever-moving elapsed time. */

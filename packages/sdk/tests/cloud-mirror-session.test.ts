@@ -125,6 +125,71 @@ describe('createCloudMirrorSession', () => {
     expect(register).not.toHaveBeenCalled();
   });
 
+  /**
+   * Cloud reconciles a v2 run's reported status against the report it carries:
+   * a `completed` callback whose result lacks `ok`, `status`,
+   * `completionReason` or `runId` is recorded as `failed`. The first version of
+   * this mirror sent a status with no report, and every finished local run
+   * showed up red on the dashboard.
+   */
+  it('carries the four fields Cloud reconciles a successful v2 run against', async () => {
+    const { io: cli } = io();
+    const mirror = { runId: 'cloud-run', runUrl: 'u', start: vi.fn(), event: vi.fn(), finish: vi.fn(async () => {}) };
+    const session = createCloudMirrorSession({
+      source: async () => ({ workflow: 'name: demo\n', fileType: 'yaml' }),
+      dataDir: '/data',
+      log: () => [],
+    }, cli, {}, { register: vi.fn(async () => registration()), createMirror: vi.fn(() => mirror) });
+
+    session.onRunStarted({ runId: '01RUN' });
+    await session.finish({
+      ok: true,
+      command: 'run',
+      runId: '01RUN',
+      status: 'completed',
+      completionReason: 'success',
+      completedSteps: 2,
+      resolutions: [],
+      diagnostics: [],
+    });
+
+    const outcome = mirror.finish.mock.calls[0]![0] as { status: string; result: Record<string, unknown> };
+    expect(outcome.status).toBe('completed');
+    expect(outcome.result).toMatchObject({
+      ok: true, status: 'completed', completionReason: 'success', runId: '01RUN', completedSteps: 2,
+    });
+  });
+
+  it('bounds the diagnostics the report carries, and says how many it dropped', async () => {
+    const { io: cli } = io();
+    const mirror = { runId: 'cloud-run', runUrl: 'u', start: vi.fn(), event: vi.fn(), finish: vi.fn(async () => {}) };
+    const session = createCloudMirrorSession({
+      source: async () => ({ workflow: 'name: demo\n', fileType: 'yaml' }),
+      dataDir: '/data',
+      log: () => [],
+    }, cli, {}, { register: vi.fn(async () => registration()), createMirror: vi.fn(() => mirror) });
+
+    session.onRunStarted({ runId: '01RUN' });
+    await session.finish({
+      ok: false,
+      command: 'run',
+      runId: '01RUN',
+      resolutions: [],
+      diagnostics: Array.from({ length: 25 }, (_unused, index) => ({
+        severity: 'failure' as const,
+        kind: 'step_failed' as const,
+        message: `${index}:${'x'.repeat(5_000)}`,
+      })),
+    });
+
+    const result = (mirror.finish.mock.calls[0]![0] as { result: Record<string, unknown> }).result;
+    const diagnostics = result.diagnostics as Array<{ message: string }>;
+    expect(diagnostics).toHaveLength(20);
+    expect(result.diagnosticsOmitted).toBe(5);
+    // The report is stored whole, and a diagnostic is the one unbounded field.
+    expect(diagnostics.every(entry => [...entry.message].length <= 2_000)).toBe(true);
+  });
+
   it('reports a park as a failed run carrying its completion reason', async () => {
     const { io: cli } = io();
     const mirror = { runId: 'cloud-run', runUrl: 'u', start: vi.fn(), event: vi.fn(), finish: vi.fn(async () => {}) };
