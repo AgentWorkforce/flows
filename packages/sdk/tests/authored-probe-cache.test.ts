@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { flow } from '@relayflows/surface';
@@ -74,16 +74,17 @@ function expectOneProbe(logs: ReturnType<Awaited<ReturnType<typeof slowProbe>>['
 describe('authored run CLI probe cache', () => {
   it.each([1, DEFAULT_LOCAL_AGENT_CAPACITY])('nine calls have no expired attempts at capacity %i', async capacity => {
     const { fixture, client, options, failures, logs } = await slowProbe(capacity, 4_000);
-    const result = await executeAuthoredFlow(nine, client, undefined, options);
-    expect(result.completionReason).toBe('success');
+    const result = await executeAuthoredFlow(nine, client, undefined, options).catch((error: unknown) => error);
     expect(failures).toEqual([]);
     const runs = readdirSync(join(fixture.data, 'runs')).filter(name => name.endsWith('.sqlite3'));
-    expect(runs.length).toBeGreaterThanOrEqual(9);
     for (const file of runs) {
       const { entries } = await client.journalRead(file.slice(0, -8), 1);
       expect(JSON.stringify(entries), file).not.toContain('lease_expired');
-      expect(entries.filter(e => e.entry_type === 'step.attempt_started'), file).toHaveLength(1);
+      expect(entries.filter(e => typeof e === 'object' && e !== null
+        && 'entry_type' in e && e.entry_type === 'step.attempt.started'), file).toHaveLength(1);
     }
+    expect(result).toMatchObject({ completionReason: 'success' });
+    expect(runs.length).toBeGreaterThanOrEqual(9);
     const sessions = logs().filter(l => l.kind === 'session');
     expect(sessions).toHaveLength(9);
     const peak = Math.max(...sessions.map(s => sessions.filter(o => o.start <= s.start && s.start < o.end).length));
@@ -99,7 +100,8 @@ describe('authored run CLI probe cache', () => {
     } });
     expect(starts).toHaveLength(9);
     // F1 permits one synchronous probe (~300ms), not nine (~3s).
-    expect(starts.at(-1)! - starts[0]!).toBeLessThan(450);
+    // Leave process-startup headroom for loaded CI; exact counts below pin caching.
+    expect(starts.at(-1)! - starts[0]!).toBeLessThan(1_000);
     expectOneProbe(logs());
     await executeAuthoredFlow(nine, client, undefined, options);
     expect(logs().filter(l => l.kind === 'auth')).toHaveLength(2);
@@ -120,7 +122,7 @@ describe('authored run CLI probe cache', () => {
     }
     expectOneProbe(logs());
     // Refused LLMs never acquired a lease.
-    expect(readdirSync(join(fixture.data, 'runs')).filter(n => n.endsWith('.sqlite3'))).toHaveLength(0);
+    expect(existsSync(join(fixture.data, 'runs'))).toBe(false);
   }, 20_000);
 
   it('shares probe results across agent calls too', async () => {

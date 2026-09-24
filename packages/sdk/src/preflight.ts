@@ -65,7 +65,7 @@ export class CliProbeError extends Error {
   }
 }
 
-type CliProbeOutcome =
+export type CliProbeOutcome =
   | { result: CliProbeResult }
   | { failure: CliProbeFailureDetail | null };
 
@@ -89,6 +89,8 @@ export interface PreflightProbes {
 }
 
 export interface PreflightOptions {
+  /** Reuse only within one run and one CLI resolution environment; failures are cached too. */
+  cliProbeCache?: Map<string, CliProbeOutcome>;
   pluginSearchStart?: string;
   /** Validated tools.mcp header and nearest flows.json connections. */
   mcpServers?: readonly string[];
@@ -235,7 +237,7 @@ function preflightSync(flow: unknown, options: PreflightOptions): PreflightResul
   const cliResolutionDiagnostics: PreflightDiagnostic[] = [];
   const resolutions: CliResolution[] = [];
   const resolutionByStep = new Map<string, CliResolution>();
-  const cliProbeResults = new Map<string, CliProbeOutcome>();
+  const cliProbeResults = options.cliProbeCache ?? new Map<string, CliProbeOutcome>();
 
   // A pure fact about the compiled snapshot, collected before anything that
   // can return early. An unresolved CLI, an unknown model or a bad scope all

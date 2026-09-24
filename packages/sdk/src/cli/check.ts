@@ -29,6 +29,7 @@ import {
   CliProbeError,
   type CliResolution,
   type CliProbeResult,
+  type CliProbeOutcome,
   type PreflightDiagnostic,
   type PreflightProbes,
 } from '../preflight.js';
@@ -188,12 +189,14 @@ export function checkAuthoredFlow(
   path: string,
   projectConfig?: ProjectConfig,
   invocation: CheckInvocation = {},
+  cliProbeCache?: Map<string, CliProbeOutcome>,
 ): CheckExecution {
   const absolutePath = resolve(path);
   try {
     const config = projectConfig ?? readProjectConfig(dirname(absolutePath));
     const probes = systemProbes(dirname(absolutePath), config);
     const result = preflight(authoring, {
+      ...(cliProbeCache === undefined ? {} : { cliProbeCache }),
       projectCli: config.cli,
       projectConfigPath: config.path,
       projectSearchStart: dirname(absolutePath),
