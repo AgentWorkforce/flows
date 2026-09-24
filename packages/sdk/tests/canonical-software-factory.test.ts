@@ -128,9 +128,8 @@ describe('canonical software-factory metadata contract', () => {
   );
 
   it('fails closed before push when the Linear closing reference is duplicated in the final body', async () => {
-    // The summary is written by the implementer; PREPARE_CHANGE_METADATA appends
-    // the reference only when absent, so a summary that already carries a
-    // different line for the same slot must stop the run.
+    // The summary is written by the implementer; a body that repeats the
+    // closing line must stop the run rather than ship a doubled reference.
     const result = await runCanonical({
       source: 'linear', title: 'Rate-limit the webhook queue', body: 'body', labels: [],
       identifier: 'TECH-42',
