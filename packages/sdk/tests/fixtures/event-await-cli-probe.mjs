@@ -34,6 +34,8 @@ function invokeWithin(timeout, args) {
     '--data-dir', data, '--json', '--no-observer-link'], { cwd: root, encoding: 'utf8', timeout });
   console.log(JSON.stringify({ args, status: result.status, stdout: result.stdout, stderr: result.stderr }));
   if (result.error) throw result.error;
+  assert.notEqual(result.stdout.trim(), '',
+    `flows ${args[0]} exited ${result.status} without a JSON report: ${result.stderr}`);
   return { status: result.status, report: JSON.parse(result.stdout) };
 }
 
@@ -97,9 +99,10 @@ try {
     && entry.payload.completionReason === 'crashed').length, 0);
   // Metadata belongs to the authored root even when failure diagnostics name
   // a child, and remains available while an unrelated human wait parks it.
+  const authoredFailureDetail = 'event-await proof rejected the delivered frame';
   for (const [name, tail, expectedStatus] of [
     ['human', "await f.human('Proceed?', {to:'khaliq'});", 3],
-    ['failed', "await f.run('false');", 1],
+    ['failed', `return f.done('step_failed', {detail:${JSON.stringify(authoredFailureDetail)}});`, 1],
   ]) {
     writeFileSync(join(root, `${name}.flow.ts`), `import {flow,webhook} from '@relayflows/surface';
 export default flow('${name}-subscription-report', async f => {
@@ -117,22 +120,30 @@ export default flow('${name}-subscription-report', async f => {
     await client.subscriptionDeliver({run_id:rootId,subscription_id:'activity-1',
       router_binding:{generation:name, transport:'local-test-router'},delivery_id:name,
       frame:{type:'metadata_event',payload:{}}});
-    // Two subscription parks shift raw attempts to 3..10. Seven semantic
-    // retries sleep at most 60,960ms including 20% jitter. Keep ordinary
-    // invocations at 30s; this new failure case needs its full retry budget.
-    const boundary = name === 'failed'
-      ? invokeWithin(75_000, ['resume', rootId]) : invoke('resume', rootId);
+    const boundary = invoke('resume', rootId);
     assert.equal(boundary.status, expectedStatus);
     assert.equal(boundary.report.rootRunId, rootId);
     assert.equal(boundary.report.subscriptions.length, 1);
     assert.equal(boundary.report.subscriptions[0].state, name === 'failed' ? 'closed' : 'active');
     if (name === 'failed') {
+      assert.equal(boundary.report.completionReason, 'step_failed');
+      assert.equal(boundary.report.completionDetail, authoredFailureDetail);
+      const failureDiagnostic = boundary.report.diagnostics.find(entry => entry.kind === 'step_failed');
+      assert.equal(failureDiagnostic.detail, authoredFailureDetail);
       const { entries: failureEntries } = await client.journalRead(rootId, 1, 500);
       assert.equal(failureEntries.filter(entry => entry.entry_type === 'step.completed'
-        && entry.payload.completionReason === 'worker_error').length, 8);
+        && entry.payload.completionReason === 'worker_error').length, 0);
+      const rootCompletion = failureEntries.find(entry => entry.entry_type === 'step.completed');
+      assert.equal(rootCompletion.payload.output.completionReason, 'step_failed');
+      assert.equal(rootCompletion.payload.output.completionDetail, authoredFailureDetail);
+      const verdict = await client.streamRead(rootId, 'authored-verdict', 0, 10);
+      assert.deepEqual(verdict.messages.map(message => message.message ?? message), [{
+        verdict: 'relayflows.authored-verdict.v1', step: 'complete-1',
+        reason: 'step_failed', detail: authoredFailureDetail,
+      }]);
     }
   }
-  console.log('E2E_PASS: repeated park, SIGKILL/restart, two wakes replayed in order, deduped delivery, exactly-once child effects, zero crash retries');
+  console.log('E2E_PASS: repeated park, SIGKILL/restart, two wakes replayed in order, deduped delivery, exactly-once child effects, durable authored failure verdict, zero crash retries');
 } finally {
   stopDaemon('SIGTERM');
   rmSync(root, { recursive: true, force: true });
