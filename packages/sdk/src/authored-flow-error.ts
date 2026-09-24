@@ -1,5 +1,5 @@
 import type { HumanRecipient } from './human-to.js';
-import type { StepFailedDetails } from './failure-kinds.js';
+import type { ParkCause, StepFailedDetails } from './failure-kinds.js';
 import type {
   CompletionReason as ProtocolCompletionReason,
   RunCompletionReason as ProtocolRunCompletionReason,
@@ -42,6 +42,18 @@ export type AuthoredFlowExecutionErrorCode =
 export class AuthoredFlowExecutionError extends Error {
   /** Set by the durable root driver after the child error crosses any IPC boundary. */
   rootRunId?: string;
+  /**
+   * Why an `agent_parked`/`llm_parked` child run parked, as the child's own
+   * classification established it (`RunReport.parkCause`).
+   *
+   * Set by the worker runner beside the code, because the code alone does not
+   * say: `agent_parked` covers both "nothing is attached to run this step" and
+   * the kernel's `needs_human` recovery wait, and only the first is fixed by
+   * attaching a worker. The CLI boundary reads this field rather than matching
+   * the message, so the remedy it prints cannot drift from the cause. Absent
+   * means unestablished — the boundary then says nothing about workers.
+   */
+  parkCause?: ParkCause;
   constructor(
     readonly code: AuthoredFlowExecutionErrorCode,
     message: string,

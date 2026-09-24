@@ -1016,7 +1016,10 @@ uses the opening shown here; an authored child failure opens with
 ```text
 FAILED [step_failed] Run "<run-id>" failed with completionReason: step_failed.
  Step "<step-id>" (<type>) completionReason: <reason> attempt=<n>/<budget> exit=<code>.
-Detail: <the worker's own account, when it left one>
+Attempts: <count> failed; <whether their recorded evidence agrees>
+  attempt 1: <reason> exit=<code> — stderr: <excerpt>
+  attempt 2: <reason> exit=<code> — stderr: <excerpt>
+Detail: <the gate's verdict, or the worker's own account>
 Stdout (captured excerpt):
 <excerpt>
 Stderr (captured excerpt):
@@ -1058,9 +1061,60 @@ journal to be excerpted.
 Each clause is present only when the journal holds the fact behind it; nothing
 is defaulted. The same fields appear as named keys on the `--json` diagnostic
 (`stepId`, `stepType`, `completionReason`, `attempt`, `maxIterations`,
-`exitCode`, `stdoutTail`, `stderrTail`, `detail`, `transcriptPath`, `hint`,
-`journalPath`), so the rendered line and the machine-readable record carry the
-same facts rather than the message being the only copy.
+`exitCode`, `stdoutTail`, `stderrTail`, `detail`, `transcriptPath`, `attempts`,
+`attemptEvidence`, `hint`, `journalPath`), so the rendered line and the
+machine-readable record carry the same facts rather than the message being the
+only copy.
+
+The scalar clauses always describe the **terminal** attempt. `Attempts:` is
+additive and appears only when the journal held more than one failed attempt of
+that step, so a step that failed once renders exactly as it did before. Every
+failed attempt is listed, oldest first, from its own `step.completed` entry —
+the kernel appends one per attempt, so a retry that failed differently from the
+first attempt is a journaled fact rather than something the last attempt's
+output has to be read for. Each entry carries the attempt's reason, its exit
+code when it had one, and up to 256 bytes of whichever of `detail`, `stderr`
+and `stdout` that attempt actually recorded; `(excerpt truncated)` marks an
+account that was cut, and an attempt that recorded nothing says so rather than
+printing empty fields. Attempt excerpts are redacted before they are bounded.
+The corresponding `attempts` entries in `--json` use the keys `attempt`,
+`completionReason`, `disposition`, `exitCode`, `stdoutTail`, `stderrTail`,
+`detail` and `truncated`.
+
+`detail` — on the terminal clause and on each attempt — is the verification
+record's account: the gate's verdict for a deterministic step (`output did not
+contain "READY"`), or what the worker reported for an agent or llm step. A gate
+can refuse output that a command produced happily, so an attempt can report
+exit 0, empty tails and a verdict that is the entire reason it failed. It is
+withheld only when it would repeat bytes already printed beside it: the
+daemon's `{exit_code, stdout_tail, stderr_tail}` render of a worker failure,
+and the `exit_code` gate's bare `exit code was <code>` next to the exit code
+it restates.
+
+`attemptEvidence` says whether the attempts failed for the same reason, and is
+one of:
+
+- `differs` — two attempts that each recorded evidence recorded different
+  evidence. A retry that fails differently usually means an earlier attempt
+  already had a side effect, so the message adds *An earlier attempt may have
+  had side effects.*
+- `unchanged` — every attempt recorded evidence and all of it agrees.
+- `unknown` — at least one attempt journaled nothing about why it failed, or
+  its evidence reached the journal already truncated by the daemon, so whether
+  the causes differ cannot be decided.
+
+Only attempts that recorded something are compared: an attempt that journaled
+no account of itself is unequal to every other one on paper while establishing
+nothing, and would otherwise put the side-effect warning on a crash that is
+evidence of nothing. A render the daemon truncated is compared, because
+truncation can only make two accounts look more alike than they were.
+
+The comparison runs on the journal record before any display bound, and reads
+the verification gate, verdict and detail as well as the exit codes and output
+tails, so two attempts whose visible excerpts are identical are still reported
+as differing when the records behind them are not. `verification_failed` on a
+retry and `retries_exhausted` at the budget limit are the kernel's label for
+the same fallback, so that pair alone is not counted as a changed cause.
 
 `attempt=<n>/<budget>` is read from the journal, not from the spec: `n` is the
 `step.attempt.started` envelope's attempt number and `budget` is the
@@ -1384,7 +1438,7 @@ The exit codes are part of the surface contract:
 |---:|---|
 | `0` | The run completed with `completionReason: success`; deliberate declination also carries a `run_declined` diagnostic locally. |
 | `1` | The run failed with a declared `completionReason`, or a transport, runtime, or daemon protocol error left the outcome unknown. A `step_failed` run names the failing step and its per-step `completionReason`, plus the exit code and output tails the journal recorded for it. An authored `done("step_failed")` exits `1` as well, and says so without naming a step, because no step failed — the body declared the verdict. With a `detail`, that detail replaces the generic sentence and is reported as `completionDetail`. |
-| `2` | The command was refused before a journal write: invalid input, failed preflight, unreachable daemon, or a `run_not_found` resume target. |
+| `2` | The command was refused before a journal write: invalid input, failed preflight, unreachable daemon, a `run_not_found` resume target, or a `--local-agent` the named run cannot honour (`local_agent_unavailable`, below). |
 | `3` | The run parked. `PARKED [run_parked]` names the step and its `llm` or `agent` type, and distinguishes an unavailable worker from a `needs_human` recovery wait. An authored body parked on `f.human` reports the question, who it is for, and the `flows answer` invocation that records the decision (see *Human gates* below). |
 
 Without an attached worker, reaching an `llm` or `agent` step returns a durable
@@ -1404,6 +1458,52 @@ is live and prints `WAITING [worker_lease]` with the step and lease deadline.
 If the lease expires without a completion, the command fails closed instead of
 polling forever. A manual-recovery agent whose worker dies parks in
 `needs_human`; the same exit-3 report says it is waiting for human recovery.
+
+### Naming the worker a park is missing
+
+An exit-3 park for want of an agent worker names an invocation that supplies
+one. Which invocation depends on what parked, and each command is rendered
+shell-quoted with the `--data-dir` this invocation actually used, so it is
+runnable as printed:
+
+| Parked | Printed remedy |
+|---|---|
+| `flows run <spec>` | `flows run --local-agent '<spec-path>'` — a new run. |
+| `flows resume <run-id>` on a spec run | `flows resume --local-agent <run-id>` — *this* run, which is resumable. |
+| An authored `.flow.ts` | `flows run --local-agent '<flow-path>' --input '<input>'`, repeating the input the parked run was started with. |
+
+The authored line repeats `--input` because a directly run `.flow.ts` without
+one is refused (`input_missing`); when the journal recorded no input, the report
+states that requirement in prose rather than substituting `--input '{}'`, which
+would name a different invocation of the flow than the one that parked. Every
+line carries the standing caveat that declared workspace or stream surfaces
+require a worker holding their pins.
+
+A park reported by `flows run` repeats the `--input` word that invocation was
+given, so a run started from a file names that file. A resume has only the
+journal, which records the input document and not the word that carried it, so
+it renders the input inline — accepted, because an argument that cannot be a
+filename is read as inline JSON rather than as an unreadable path. A recorded
+input larger than one `execve` argument (`MAX_ARG_STRLEN`, 128KiB, against the
+1MiB `--input` ceiling) is stated in prose with its size, naming the input file
+to pass: a printed command that dies with `Argument list too long` is no
+better than the park it answers.
+
+Two parks print no remedy, on purpose. A `needs_human` recovery wait says
+nothing about workers, because attaching one does not clear it. And when
+`--local-agent` was already passed, the report says a worker is attached and
+none was eligible for the step — never "pass `--local-agent`" to someone who
+just did.
+
+For an authored root, `--local-agent` is admitted at run start: the worker
+stream is pinned into the root's metadata, so a resume can only reproduce the
+surface the run began with. `flows resume --local-agent` against an authored
+root started without one is refused before any worker attaches and before the
+resume touches the journal — exit 2, `REFUSED [local_agent_unavailable]`,
+naming the new run to start. A resume that drops the flag a root *was* pinned
+with is refused the same way, naming the resume that keeps it. On a declarative
+run the flag is honoured rather than refused: it attaches a worker and drives
+the parked step. The flag is never accepted and ignored.
 
 ### Human gates: `f.human`
 

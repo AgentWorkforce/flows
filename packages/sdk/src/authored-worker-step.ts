@@ -79,7 +79,7 @@ export function authoredWorkerRunner(
     const execution = await classifyOutcome(journal, 'run', outcome, report, '', waitOptions);
     if (execution.exitCode === 3) {
       const parked = execution.report.parkedStep;
-      throw new AuthoredFlowExecutionError(
+      const error = new AuthoredFlowExecutionError(
         step.type === 'llm' ? 'llm_parked' : 'agent_parked',
         execution.report.diagnostics.at(-1)?.message
           ?? `flow "${definition.name}" step "${id}" parked`
@@ -88,6 +88,14 @@ export function authoredWorkerRunner(
         undefined,
         outcome.run_id,
       );
+      // Both `agent_parked` and `llm_parked` cover two unrelated situations —
+      // nothing attached to run the step, and the kernel's `needs_human`
+      // recovery wait after a worker attempt failed — and only the first is
+      // fixed by attaching a worker. The child's classification already knows
+      // which; carry it so the CLI boundary can name a remedy without
+      // re-deriving one from this message's wording.
+      error.parkCause = execution.report.parkCause;
+      throw error;
     }
     if (execution.exitCode !== 0) {
       // `execution.report.completionReason` is the RUN's reason (normally
@@ -323,6 +331,8 @@ function stepDetails(
     ...(found.stderrTail === undefined ? {} : { stderrTail: found.stderrTail }),
     ...(found.detail === undefined ? {} : { detail: found.detail }),
     ...(found.transcriptPath === undefined ? {} : { transcriptPath: found.transcriptPath }),
+    ...(found.attempts === undefined ? {} : { attempts: found.attempts }),
+    ...(found.attemptEvidence === undefined ? {} : { attemptEvidence: found.attemptEvidence }),
     ...(found.hint === undefined ? {} : { hint: found.hint }),
     ...(found.journalPath === undefined ? {} : { journalPath: found.journalPath }),
   };

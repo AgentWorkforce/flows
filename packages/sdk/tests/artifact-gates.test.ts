@@ -319,8 +319,13 @@ describe('artifact_exists named gate: static scan coverage', () => {
       writeFileSync(join(dir!, 'node_modules/review.md'), 'findings');
     };
     claudeResult = JSON.stringify({ artifacts: [path] });
+    // The step declares no cwd: `cwd` here is the worker's run root, which is
+    // how a contained working directory is expressed since the run-root
+    // contract landed. Declaring the absolute temp directory on the step is
+    // refused now ("expected a run-root-relative path"), and this test is
+    // about gate scanning, not about the shape of a cwd declaration.
     const authored = { version: '0.1.0', name: 'x', steps: [{ id: 'review', type: 'agent', instruction: 'i',
-      cli: 'claude', cwd: declared, verification: { type: 'artifact_exists', path } }] };
+      cli: 'claude', verification: { type: 'artifact_exists', path } }] };
 
     // `claude` carries a default model, so its probe has to answer the
     // model-scoped readiness question too; nothing else about it matters here.
@@ -338,7 +343,7 @@ describe('artifact_exists named gate: static scan coverage', () => {
       client.once('worker-error', reject);
     });
     const worker = new AgentWorker(client as unknown as JournalClient, {
-      workerId: 'w', pins: { workspace: [], streams: [] },
+      workerId: 'w', pins: { workspace: [], streams: [] }, runRoot: cwd,
     });
     worker.on('error', (error: unknown) => client.emit('worker-error', error));
     await worker.attach();
