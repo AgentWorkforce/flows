@@ -47,6 +47,9 @@ export function applyConstraints(defs, version) {
   Object.assign(defs.AgentSurfaces.properties.external.items, canonicalPath);
   for (const key of ['fileGlobs', 'networkAllowlist']) Object.assign(defs.PermissionsSpec.properties[key].items, nonempty);
   property('OutputContainsGate', 'value', nonempty);
+  // steps-green.ts: a gate naming nothing readable, or the same step twice, is
+  // the `|| true` failure it replaces, so the editor refuses it too.
+  property('StepsGreenGate', 'ids', { minItems: 1, uniqueItems: true, items: { type: 'string', pattern: '\\S' } });
   // Runtime accepts this legacy spelling although ExitCodeGate omits it.
   defs.ExitCodeGate.properties.expect = { type: 'integer', const: 0, description: 'Legacy explicit success code. Only zero is supported.' };
   defs.JsonSchemaGate.properties.schema = { $ref: '#/$defs/OutputSchema', description: 'JSON Schema object or boolean; references and termination are checked by flows check.' };

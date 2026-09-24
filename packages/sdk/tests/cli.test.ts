@@ -1048,9 +1048,9 @@ describe('flows run/resume CLI over the journal protocol', () => {
     expect(output.stderr.join('\n')).not.toContain('protocol_error');
   });
 
-  it('bounds a worker wait by its lease and reports what it is waiting for', async () => {
+  it('bounds a worker wait by its lease plus sweep grace and reports what it is waiting for', async () => {
     const dataDir = temporaryProject('flows-run-lease-');
-    const leaseDeadlineMs = Date.now() + 150;
+    const leaseDeadlineMs = Date.now() - 5_001;
     let snapshots = 0;
     await startCliLoopback(dataDir, {
       hello: sendOk,

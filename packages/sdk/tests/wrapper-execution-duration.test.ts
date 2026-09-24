@@ -220,14 +220,14 @@ it('completes an agent step exactly once when a wrapper outlives the former cap 
     completions.push(args);
     return { ok: true };
   };
-  const worker = new AgentWorker(client as unknown as JournalClient, { workerId: 'w-long', pins: {} as Pins });
+  const worker = new AgentWorker(client as unknown as JournalClient, { workerId: 'w-long', pins: {} as Pins, runRoot: directory });
   const workerErrors: unknown[] = [];
   worker.on('error', (error: unknown) => { workerErrors.push(error); });
   try {
     await worker.attach();
     client.emit('step.dispatch', {
       run_id: 'run-long', step_id: 'step-long', attempt: 1, step_type: 'agent',
-      spec: { cli: held.wrapper, instruction: 'instruction', cwd: directory },
+      spec: { cli: held.wrapper, instruction: 'instruction' },
       lease_id: 'lease-long', lease_deadline_ms: Date.now() + 30_000,
       idempotency_key: 'idem-long', pins: {} as Pins,
     });

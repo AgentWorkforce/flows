@@ -11,9 +11,10 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runCli } from '../src/cli.js';
 import {
-  errorLines, parseLogsArgs, parseRunsArgs, runCloudLogsCli, runCloudRunsCli, runCloudStatusCli,
+  parseLogsArgs, parseRunsArgs, runCloudLogsCli, runCloudRunsCli, runCloudStatusCli,
 } from '../src/cli/cloud-read.js';
 import { renderStepEvidence, stepFailureDetails } from '../src/cli/step-failure.js';
+import { errorLines } from '../src/cli/cloud-format.js';
 import { parseStatusArgs } from '../src/cli/status.js';
 import type { JournalClient } from '../src/journal-client.js';
 import { authoredCompletion, type RunReport } from '../src/cli/run.js';
@@ -831,9 +832,9 @@ describe('argv', () => {
     expect(parseRunsArgs(['--limit', '0'])).toBeUndefined();
     expect(parseRunsArgs(['--limit'])).toBeUndefined();
     expect(parseRunsArgs(['extra'])).toBeUndefined();
-    expect(parseLogsArgs([RUN])).toEqual({ command: 'logs', runId: RUN, step: undefined, raw: false, json: false });
+    expect(parseLogsArgs([RUN])).toEqual({ command: 'logs', runId: RUN, step: undefined, raw: false, json: false, follow: false });
     expect(parseLogsArgs([RUN, '--step', 'agent-2', '--raw', '--json']))
-      .toEqual({ command: 'logs', runId: RUN, step: 'agent-2', raw: true, json: true });
+      .toEqual({ command: 'logs', runId: RUN, step: 'agent-2', raw: true, json: true, follow: false });
     expect(parseLogsArgs([])).toBeUndefined();
     expect(parseLogsArgs([RUN, 'second'])).toBeUndefined();
     expect(parseLogsArgs([RUN, '--step'])).toBeUndefined();
@@ -853,8 +854,8 @@ describe('argv', () => {
     const help = io();
     expect(await runCli(['--help'], help.io)).toBe(0);
     expect(help.stdout[0]).toContain('flows runs [--limit <n>] [--json]');
-    expect(help.stdout[0]).toContain('flows logs [--step <name>] [--raw] [--json] <run-id>');
-    expect(help.stdout[0]).toContain('flows status --cloud [--json] <run-id>');
+    expect(help.stdout[0]).toContain('flows logs [--step <name>] [--raw] [--json] [--follow] <run-id>');
+    expect(help.stdout[0]).toContain('flows status --cloud [--json] [--watch] <run-id>');
   });
 });
 

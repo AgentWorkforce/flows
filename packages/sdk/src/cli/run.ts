@@ -1,3 +1,4 @@
+import { onWorkerFailure } from '../worker-lease.js';
 import { communicationInstruction } from '../communication/spec.js';
 import { checkCommunicationEnvironment, CommunicationEnvironmentError } from '../communication/preflight.js';
 import { parseHumanRecipient } from '../human-to.js';
@@ -206,6 +207,7 @@ export async function resumeFlow(
   let communicationWorkers: Awaited<ReturnType<typeof import('../communication/local.js').attachCommunicationWorkers>> | undefined;
   let authoredAgent: Awaited<ReturnType<typeof attachLocalAgent>> | undefined;
   let authoredLlm: LlmWorker | undefined;
+  let llmFailure: unknown;
   let authoredLlmClient: JournalClient | undefined;
   const workerCapacity = options.agentCapacity ?? DEFAULT_LOCAL_AGENT_CAPACITY;
   try {
@@ -225,6 +227,10 @@ export async function resumeFlow(
         await authoredLlmClient.connect();
         await authoredLlmClient.hello('flows-authored-resume-llm');
         authoredLlm = new LlmWorker(authoredLlmClient, `${authoredAgent.stream}-llm`, workerCapacity);
+        authoredLlm.on('error', onWorkerFailure('resume-llm', error => {
+          llmFailure = error;
+          client.close();
+        }));
         await authoredLlm.attach();
       }
       const result = await resumeDurableAuthoredFlow(runId, client, {
@@ -283,7 +289,9 @@ export async function resumeFlow(
       return authoredHumanParked('resume', base, socketPath, error, { dataDir, localAgent: options.localAgent === true });
     }
     if (!(error instanceof JournalProtocolError) || error.code !== 'run_not_found') {
-      return protocolFailure('resume', base, socketPath, error, runId);
+      const cause = error instanceof AuthoredFlowExecutionError
+        ? error : llmFailure ?? authoredAgent?.failure ?? error;
+      return protocolFailure('resume', base, socketPath, cause, runId);
     }
     return {
       exitCode: 2,
@@ -778,6 +786,9 @@ async function inspectOutOfBandStep(
   };
 }
 
+// Match kernel/relayflowd/src/server/client.rs: allow the lease sweep to dispatch a retry.
+const LEASE_SWEEP_GRACE_MS = 5_000;
+
 async function waitForRunningStep(
   client: JournalClient,
   runId: string,
@@ -796,7 +807,7 @@ async function waitForRunningStep(
   });
   while (true) {
     throwIfCanceled(options.signal, runningStep.id);
-    const remainingMs = leaseDeadlineMs - Date.now();
+    const remainingMs = leaseDeadlineMs + LEASE_SWEEP_GRACE_MS - Date.now();
     if (remainingMs <= 0) {
       throw new Error(
         `worker lease for step "${runningStep.id}" expired at ${leaseDeadlineMs} without completion`,
