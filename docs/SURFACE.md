@@ -358,6 +358,65 @@ flow-wide `FlowHeader.workspace` / `tools.fs` scopes. The chief harness above
 remains an aspirational example; this option does not make that entire harness
 executable today.
 
+### Per-agent working directory
+
+`AgentOptions.cwd` — and the `cwd:` key on a declarative `type: agent` step —
+names the directory the agent's CLI is spawned in. It is how one flow drives
+agents in several checkouts:
+
+```ts
+const api = await f.agent("api", {
+  task: "Apply the rename in the API checkout.",
+  cwd: "checkouts/service-a",
+});
+const web = await f.agent("web", {
+  task: "Apply the matching rename in the web checkout.",
+  cwd: "checkouts/service-b",
+});
+```
+
+**The path is relative to the run root** — the working directory `flows run`
+was invoked from, which is also the directory an agent runs in when `cwd` is
+absent, and the uploaded tree on the Cloud path (docs/CLOUD.md, "Code sync").
+A relative declaration is the same declaration on every host; an absolute one
+names a place a different machine does not have, so absolute paths are refused
+rather than resolved. The authored runner makes one exception at its own
+edge: an absolute `options.cwd` that names a directory inside this process's
+run root is lowered to the equivalent relative declaration, and one that
+escapes the root is refused — the spec never carries an absolute path either
+way.
+
+Two checks answer two different questions:
+
+- **The declaration** is checked lexically, with no filesystem access, by
+  `flows check`, by the authored runner, and by the kernel — the same rule in
+  all three, so a spec that passes the first is not refused by the last. A
+  `cwd` must be a nonempty string, must not be absolute or URI-like, must not
+  carry surrounding whitespace or a NUL, and must have no empty, `.` or `..`
+  components. `cwd: null` is a refusal, not "no directory". `cwd` is an agent
+  field: a `deterministic` or `llm` step that declares it is `invalid_spec`.
+- **The target** is resolved at dispatch by the worker that spawns the CLI,
+  the one process that provably shares the agent's filesystem. It must be an
+  existing directory whose symlink-free path lies inside the symlink-free run
+  root. A symlink out of the tree, and a sibling whose name merely starts with
+  the run root's, are both outside it. A step whose directory does not resolve
+  completes `worker_error` with the reason journaled, and no CLI is spawned.
+
+`AgentResult.artifacts` are reported relative to this directory, so each agent
+above reports paths within its own checkout.
+
+`cwd` is **not supported with `transport: "relay"`** and is refused when both
+are declared: the relay agent runs on another host, where this process can
+neither resolve the directory nor hold it inside the run root.
+
+This is a declaration of where an agent starts, not a sandbox. Nothing stops a
+CLI from reading or writing outside the directory it was spawned in. Per-step
+scoping is `permissions`, which is recorded and not enforced (gate 8 / #442).
+
+Workspace surfaces are a different thing and are not a directory selector:
+`surfaces.workspace` names the revisions a step pins and writes back to, not a
+path on the host running the CLI.
+
 ### Supported TypeScript LLM calls
 
 The local authored executor supports these signatures:
@@ -536,6 +595,128 @@ malformed durations are refused with `timeout_invalid`. On reaching its timeout,
 the kernel kills the command's process group and journals `completionReason: timeout`;
 `f.run` refuses with code `lease_exceeded`. The override applies only to that
 invocation; calls without options retain the default.
+
+### Repair before failure: `onNonZero: 'record'`
+
+A deterministic step is gated on its exit code by default: a nonzero exit fails
+the step and ends the flow. That is the right default, and it is the wrong one
+for the single most common shape in practice — run a check, let it be red, and
+hand its output to whatever is built to answer it.
+
+`onNonZero: 'record'` is the opt-in for that shape. The command still runs, its
+exit code and output tails are still journaled, and the step still completes;
+what changes is that a positive exit code satisfies the exit check instead of
+failing it, so dependents run. In TypeScript the result is a value rather than
+a throw:
+
+```ts
+const tests = await f.run('npm test', { onNonZero: 'record' });
+if (!tests.ok) {
+  await f.agent('fixer', { task: `Fix these failures:\n${tests.output}` });
+}
+```
+
+`RunResult` is `{ ok, exitCode, stdout, stderr, output }`. Every field is read
+back from the step's journaled outcome, never re-measured — `ok` is exactly
+`exitCode === 0`. `stdout` and `stderr` are the journal's **bounded tails**, not
+complete transcripts; `output` is `stdout` then `stderr` joined by a newline
+when both are nonempty, a reading convenience rather than a reconstruction of
+the real interleaving. Without the policy, `f.run` still resolves to the stdout
+string, so existing bodies are unchanged.
+
+This is what `<command> || true` cannot do. `|| true` throws the exit code
+away, so nothing downstream can tell a passing check from a failing one, and a
+flow that forgets a later gate ships red work silently. `onNonZero: 'record'`
+keeps the code, which is the whole point: the branch below it is a fact, not a
+guess.
+
+**The policy covers exit codes only.** A timeout, a signal or a command that
+never started produced no verdict to record, and still fails the step under
+either policy. Declared `output_contains` and `json_schema` gates are still
+enforced in record mode, as are budgets and journal-append failures. Recording
+is not a retry policy and does not trigger semantic retries.
+
+**Recording makes red allowed, not invisible.** `flows check` annotates a
+recording step with `[onNonZero: record]`, and the kernel labels the satisfied
+check `exit_code:recorded` with the numeric code in its detail, so a recorded
+red outcome reads as red in the journal. A flow that records without ever
+asserting green may still finish successfully — that outcome is inspectable,
+not forbidden.
+
+**Asserting green again.** To demand that recorded commands were green, use the
+declarative `steps_green` gate, which reads the journaled outcomes and never
+re-runs anything:
+
+```yaml
+version: '0.1.0'
+steps:
+  - id: tests
+    type: deterministic
+    command: npm test
+    onNonZero: record
+  - id: lint
+    type: deterministic
+    command: npm run lint
+    onNonZero: record
+  - id: gate
+    type: deterministic
+    command: 'true'
+    verification:
+      type: steps_green
+      ids: [tests, lint]
+```
+
+`steps_green` is deterministic-hosts-only: a worker step records no exit code.
+The ids it names must be deterministic steps that precede it; unknown, forward,
+self and non-deterministic references are refused at compile time, as are empty
+and duplicate id lists. The host keeps its own command and its own exit policy —
+the assertion is lowered to a separate, always-fatal gate step that every
+dependent of the host waits on.
+
+A recorded outcome is immutable, so repair does not turn an old red step green.
+A flow that repairs must produce **new** post-repair evidence and gate on that
+distinct step:
+
+```yaml
+version: '0.1.0'
+steps:
+  - id: tests
+    type: deterministic
+    command: npm test
+    onNonZero: record
+    # Declaring the envelope schema is what lets a later step bind the evidence.
+    verification:
+      type: json_schema
+      schema:
+        type: object
+        properties:
+          exit_code: { type: integer }
+          stdout_tail: { type: string }
+          stderr_tail: { type: string }
+  - id: repair
+    type: agent
+    dependsOn: [tests]
+    input:
+      failures: { step: tests }
+    instruction: Read input.failures and fix the failing tests.
+  - id: retest
+    type: deterministic
+    dependsOn: [repair]
+    command: npm test
+  - id: gate
+    type: deterministic
+    command: 'true'
+    verification:
+      type: steps_green
+      ids: [retest]
+```
+
+`retest` is an ordinary gated step, so the final `steps_green` over it is what
+decides the run. Binding a recorded outcome as input requires the source to
+declare an output schema, as every input binding does (see *Declarative output
+binding*); an `output_contains` source is refused, because that gate cannot also
+carry the envelope schema the binding reads — declare the constraint as a JSON
+Schema instead.
 
 ### The authored operation lifecycle
 
@@ -769,9 +950,14 @@ journal. They are documented in [CLOUD.md](CLOUD.md#reading-a-hosted-run):
 
 ```text
 flows runs [--limit <n>] [--json]
-flows logs [--step <name>] [--raw] [--json] <run-id>
-flows status --cloud [--json] <run-id>
+flows logs [--step <name>] [--raw] [--json] [--follow] <run-id>
+flows status --cloud [--json] [--watch] <run-id>
 ```
+
+`--watch` and `--follow` keep reading until the hosted run is terminal and
+exit with *its* outcome rather than the read's, using `flows run --cloud
+--wait`'s mapping; Ctrl-C ends the observation, not the run. `--watch` needs
+`--cloud`, and `--follow` does not take `--step`.
 
 ### Agent sidechannel (initial byte-stream slice)
 
@@ -1026,6 +1212,19 @@ existing run from its journal. The data directory defaults to `.relayflowd`.
 `--json` writes one report-shaped object to stdout while diagnostics remain on
 stderr.
 
+`check`'s `REQUIRES` line names the harnesses a flow needs; a spec with `agent`
+steps also needs a *worker attached for step type `agent`*, and without one the
+run parks at the first such step rather than failing. `flows check` cannot see
+whether one is attached — it is daemon-free by construction — so it warns
+`agent_worker_unresolved` instead of guessing, naming the steps and pointing at
+`flows run --local-agent`. The warning is emitted in the `REQUIRES` position,
+because it is a footnote to that line. It never refuses, and it is scoped to
+`agent` steps: `--local-agent` attaches no `llm` worker, so naming it for an
+`llm` step would be false. Only `flows check` opts in. `run` knows the answer,
+`build` and `deploy` check a spec that will run elsewhere, and an authored
+`.flow.ts` is checked through its header without compiling step bodies, so it
+has no agent steps to count.
+
 `flows check --watch` checks once, then watches the target, its reachable
 relative `use:` imports, and the nearest `flows.json` walking up from the
 flow directory. Saves are debounced for 150 ms; a change during a check
@@ -1084,6 +1283,79 @@ terminal markers are steps that SUCCEED: `done("step_failed")` is the body's
 verdict, not a step that failed, so the terminal marker does not fabricate a
 failing step. Actual step failures still take precedence over authored verdicts.
 
+### Saying why: `done(reason, { detail })`
+
+`done()` takes an optional second argument, `{ detail }`, and it is what a
+reader gets instead of a generic sentence. A flow that knows "one P2 remains:
+`review.clean` was not created" should say so; without it the run record has
+only "its own checks did not pass".
+
+```ts
+f.done("step_failed", { detail: "review found 1 P2: `review.clean` was not created" });
+```
+
+The detail is normalized once, at `done()`, before anything durable is written:
+
+- **Redacted** with the SDK's existing redactor — known token shapes, named
+  credential fields, and the values of secret-looking environment variables.
+  That is a policy, not a promise to recognise every possible secret.
+- **Bounded** to 2,000 Unicode code points *including* the fixed
+  `… (truncated)` suffix, exported as `COMPLETION_DETAIL_MAX_CODE_POINTS`.
+  Over-long details are truncated with that visible marker rather than
+  refused: killing a twenty-step run at its last line because its explanation
+  ran long destroys more evidence than it preserves. Redaction runs BEFORE
+  truncation, because truncating first can split a token so no pattern matches
+  it any more — a truncation that *causes* a leak.
+- **Normalized to absence** when it is empty or whitespace-only. No options,
+  `{}`, `{ detail: undefined }` and `{ detail: "  " }` all mean the same thing
+  as the one-argument call, down to a byte-identical marker command.
+- **Made well-formed**: every lone UTF-16 surrogate becomes U+FFFD. A JS
+  string is code units, not text, and `(prose + "\u{1F642}").slice(0, -1)` —
+  ordinary trimming of an agent's output — leaves a high surrogate with no
+  partner. The journal protocol's JSON decoder refuses such a value, and the
+  refusal carries no request id to answer, so the call never returns. One code
+  unit is substituted for one, so the bound still counts what a reader counts.
+
+A `detail` that is present and not a string, or options that are not an
+object, are refused with `unsupported_completion`. The refusal names the type
+it received and never the value.
+
+With a detail, the marker's stdout is
+`{"completionReason":"<reason>","detail":"<detail>"}`; with none it is exactly
+the `{"completionReason":"<reason>"}` it has always been, so a flow that does
+not opt in keeps its `spec_hash`. The detail is journaled on the authored
+root's output, returned by `flows run --json` as `completionDetail` and on the
+`step_failed` diagnostic's `detail`, and printed by `flows status` as a
+labelled line beside the kernel's own account:
+
+```text
+RUN 9e1a0f2c-…   software-factory   completed   started 20.0s ago   finished success   spend …
+authored done("step_failed"): review found 1 P2: `review.clean` was not created
+steps 1: 1 done
+```
+
+A verdict that carries a detail is **committed before the marker run is
+opened**, on a stream of the flow's own root, exactly as a predicate gate's
+verdict is. That is what makes it survive a resume: redaction reads the
+process environment, so a credential rotated while the process was down would
+otherwise re-normalize the same authored sentence into a different marker
+command — and the marker's admission key is stable, so the kernel would refuse
+the drifted spec as `run_admission_conflict` and the run would lose the
+explanation it had already journaled. A resumed body reuses the committed
+verdict instead of recomputing one. A `done()` with no detail commits nothing:
+its marker command is a function of the reason alone, so there is nothing that
+can drift and nothing to recover.
+
+The kernel facts on the first line do not move: an authored `step_failed` run
+completes with a root step that succeeded, and that stays true and stays
+printed. In the diagnostic *message* — the string a Cloud run's `error` is
+expected to carry — the detail is folded onto one line, with `\n`, `\r`, `\t`
+and `\uXXXX` standing in for control characters, because Cloud's error view
+elides the middle of a long multi-line error. (That projection is the
+server's; see docs/CLOUD.md for what this repository does and does not
+establish about it.) The unescaped text is in `completionDetail` and in the
+diagnostic's `detail` beside it.
+
 `canceled` and `budget_exceeded` are in the type but are refused with
 `unsupported_completion`. They are kernel outcomes, not authored verdicts: the
 kernel records them when it cancels a run or exhausts its budget, and a body
@@ -1111,7 +1383,7 @@ The exit codes are part of the surface contract:
 | Exit | Outcome |
 |---:|---|
 | `0` | The run completed with `completionReason: success`; deliberate declination also carries a `run_declined` diagnostic locally. |
-| `1` | The run failed with a declared `completionReason`, or a transport, runtime, or daemon protocol error left the outcome unknown. A `step_failed` run names the failing step and its per-step `completionReason`, plus the exit code and output tails the journal recorded for it. An authored `done("step_failed")` exits `1` as well, and says so without naming a step, because no step failed — the body declared the verdict. |
+| `1` | The run failed with a declared `completionReason`, or a transport, runtime, or daemon protocol error left the outcome unknown. A `step_failed` run names the failing step and its per-step `completionReason`, plus the exit code and output tails the journal recorded for it. An authored `done("step_failed")` exits `1` as well, and says so without naming a step, because no step failed — the body declared the verdict. With a `detail`, that detail replaces the generic sentence and is reported as `completionDetail`. |
 | `2` | The command was refused before a journal write: invalid input, failed preflight, unreachable daemon, or a `run_not_found` resume target. |
 | `3` | The run parked. `PARKED [run_parked]` names the step and its `llm` or `agent` type, and distinguishes an unavailable worker from a `needs_human` recovery wait. An authored body parked on `f.human` reports the question, who it is for, and the `flows answer` invocation that records the decision (see *Human gates* below). |
 
@@ -1353,6 +1625,28 @@ worker sends and the run succeeds with it journaled as the agent's
 asserts on `AgentResult.artifacts` — which is how the data-dir case was caught
 at all, by `packages/sdk/tests/agent-transcript-live.test.ts` failing its own
 `artifacts.length !== 0` check.
+
+That exclusion cuts both ways. A gate reads the journaled list and nothing else,
+so an `artifact_exists` path inside a prefix the walk skips — a segment named
+exactly `.git`, `.relayflowd` or `node_modules` — is a path the
+scan can never contribute, however faithfully the agent writes the file.
+Preflight **warns** `gate_path_unscanned`, naming the excluded prefix. Segments
+are compared exactly: `node_modules-copy/out.md` and `reports/v1.2/review.md`
+are fine. The rule lives in `packages/sdk/src/artifact-scan-policy.ts` and the
+walk itself consumes it, so the warning cannot drift from the scan it
+describes, and it is collected before any environment probe can return early,
+so it is not hidden behind an unresolved CLI for a pass or two.
+
+It warns rather than refuses because the scan is not the only writer of that
+list, which makes such a gate unproven rather than unsatisfiable. The *bundled*
+worker journals object-shaped JSON stdout — and a completed Relay task's output
+— verbatim in place of the scanned wrapper, so an agent that answers with its
+own `{"artifacts": [...]}` puts exactly what it names in the list, an unscanned
+path included, and the gate passes. `step.complete` accepts any `output`, so a custom
+worker may do the same. Which route a step takes is a run-time fact, so
+preflight reports the scan's limitation and leaves the verdict to the run. The
+warning retires with the exclusion: when the scan stops skipping those prefixes,
+the kind and `packages/sdk/src/named-gate-preflight.ts` are deleted together.
 
 - Are YAML helper verbs (`slack:`, `mcp:`) core spec vocabulary or compile-time expansion into `run`/effect steps? Leaning: expansion — the kernel spec stays seven words; helpers stay a surface concern.
 - Helper generation cadence: generated from relayfile adapter manifests at build time vs published per-adapter packages. Leaning: generated, with hand-tuned verb names for the top providers.

@@ -1,0 +1,44 @@
+# base 2e2043f4c82f1a5c83b090d8a3a82c2d067a79fe
+$ cd packages/sdk && npx vitest run tests/live-kernel.test.ts
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/packages/sdk
+
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/Users/khaliqgant/.relayflows-toolchain/target/1166253295/debug/relayflowd
+LIVE_KERNEL flows=/Users/khaliqgant/Projects/AgentWorkforce/flows/packages/sdk/dist/cli.js
+
+stdout | tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI
+LIVE_ANALYZER ready: claude -p --model claude-haiku-4-5-20251001 round-trip OK
+
+stdout | tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI
+LIVE_ANALYZER analysis: {"reasoning":"This story is directly about an AI agent performing sophisticated automation tasks—opening pull requests and conducting code reviews—which is core to agent-based development workflows and directly relevant to the Relayflow project's focus on agent automation and workflow orchestration.","relevance_score":9,"story_title":"Show HN: an agent that opens and reviews its own pull requests [wake-nonce-7f3a91c4]"}
+
+stdout | tests/live-kernel.test.ts > surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once
+LIVE_KERNEL kill -9 pid=91432 run=01M36HY65T82B19WXM8827FP7X while step=two state=Running
+
+ ✓ tests/live-kernel.test.ts (31 tests) 70036ms
+   ✓ built flows CLI against live relayflowd > twenty-six-step reuses 25 durable completions after editing the failed final step 1666ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 4563ms
+   ✓ built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 32336ms
+   ✓ built flows CLI against live relayflowd > follows a live worker dispatch through flows run 2296ms
+   ✓ built flows CLI against live relayflowd > runs an agent CLI end to end through the SDK worker 1076ms
+   ✓ built flows CLI against live relayflowd > f.agent lowers to a real agent step and dispatches through a live worker 553ms
+   ✓ built flows CLI against live relayflowd > f.agent's default flowPath anchors on cwd, not cwd's parent 367ms
+   ✓ built flows CLI against live relayflowd > can always get a parked run to a late-attaching worker 5566ms
+   ✓ built flows CLI against live relayflowd > reports a real manual-recovery NeedsHuman state as parked 1388ms
+   ✓ built flows CLI against live relayflowd > AgentWorker passes a declared model to an identified wrapper as RELAYFLOW_MODEL 426ms
+   ✓ built flows CLI against live relayflowd > AgentWorker refuses a nonconforming journal-submitted wrapper before exposing RELAYFLOW_MODEL 422ms
+   ✓ built flows CLI against live relayflowd > AgentWorker executes the raw claude adapter with its real model flag 436ms
+   ✓ built flows CLI against live relayflowd > AgentWorker executes the raw codex adapter with its real model flag 415ms
+   ✓ built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI 11511ms
+   ✓ built flows CLI against live relayflowd > preflights before journaling and names an unreachable socket 2199ms
+   ✓ built flows CLI against live relayflowd > starts exactly one daemon when two runs race for one empty data dir 937ms
+   ✓ surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once 1708ms
+
+ Test Files  1 passed (1)
+      Tests  31 passed (31)
+   Start at  00:14:52
+   Duration  71.50s (transform 549ms, setup 0ms, collect 1.25s, tests 70.04s, environment 0ms, prepare 52ms)
+
+
+Exit code: 0

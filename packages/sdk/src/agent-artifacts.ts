@@ -1,19 +1,11 @@
 import { createHash } from 'node:crypto';
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
+import { isUnscannedEntryName } from './artifact-scan-policy.js';
 
 function isEnoent(error: unknown): boolean {
   return error instanceof Error && (error as NodeJS.ErrnoException).code === 'ENOENT';
 }
-
-/**
- * Entry names never walked and never reported, matched exactly, at any depth,
- * before the entry's type is consulted — so a `.git` *file* (a worktree's
- * gitdir pointer) is skipped as surely as a `.git` directory. Exact names, not
- * prefixes: `.github`, `.relayflowd-notes` and every other author-chosen name
- * that merely starts the same way stays eligible.
- */
-const SKIPPED_ENTRY_NAMES = new Set(['.git', '.relayflowd', 'node_modules']);
 
 /**
  * A recursive snapshot of every regular file under `dir`, keyed by its
@@ -55,7 +47,7 @@ async function walk(root: string, current: string, out: Map<string, string>): Pr
     throw error;
   }
   for (const entry of entries) {
-    if (SKIPPED_ENTRY_NAMES.has(entry.name)) continue;
+    if (isUnscannedEntryName(entry.name)) continue;
     const path = join(current, entry.name);
     if (entry.isDirectory()) {
       await walk(root, path, out);

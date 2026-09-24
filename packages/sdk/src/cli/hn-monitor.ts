@@ -1,3 +1,4 @@
+import { onWorkerFailure } from '../worker-lease.js';
 /**
  * `flows hn-monitor start` — CLI-inlined proactive workload for gate 2.
  *
@@ -169,7 +170,7 @@ async function defaultAttachWorker(
   // synchronously, bypasses the drain-aware close(), and crashes the
   // process. Subscribe BEFORE attach so an error during attach is not
   // lost.
-  worker.on('error', onWorkerError);
+  worker.on('error', onWorkerFailure('hn-monitor', onWorkerError));
   await worker.attach();
   return worker;
 }

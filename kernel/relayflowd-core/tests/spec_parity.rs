@@ -116,6 +116,24 @@ fn the_kernel_parses_the_event_triggered_spec_and_stamps_the_same_hash() {
     );
 }
 
+/// The advisory-outcome dialect: a `on_non_zero: "record"` step, a binding that
+/// reads its recorded envelope, and the deterministic gate step the SDK lowers
+/// `steps_green` into. The SDK spelling of that gate never reaches the kernel,
+/// so this proves the kernel parses what the SDK actually emits for it.
+#[test]
+fn the_kernel_parses_the_advisory_repair_spec_and_stamps_the_same_hash() {
+    assert_parity(
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testdata/advisory-repair.spec.canonical.json"
+        )),
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testdata/advisory-repair.spec.sha256"
+        )),
+    );
+}
+
 fn assert_parity(canonical_fixture: &str, expected_hash: &str) {
     let value: Value = serde_json::from_str(canonical_fixture.trim()).unwrap();
     let spec = RunSpec::parse(&value).expect("kernel must parse the SDK's compiled spec");
@@ -196,5 +214,94 @@ fn placement_declaration_acceptance_matches_the_sdk_corpus() {
                 case["name"]
             );
         }
+    }
+}
+
+/// flows#357: `cwd` reached the daemon as `unknown field "cwd" at steps[0]`
+/// after `flows check` had already passed, because the SDK lowered a field the
+/// kernel's closed agent schema did not name. The canonical bytes and hash of a
+/// flow that declares it — on two steps and not on a third — are now pinned on
+/// both sides of the boundary.
+#[test]
+fn agent_working_directories_have_identical_canonical_bytes_and_hash() {
+    assert_parity(
+        include_str!("../../../testdata/agent-cwd.spec.canonical.json"),
+        include_str!("../../../testdata/agent-cwd.spec.sha256"),
+    );
+}
+
+#[test]
+fn agent_cwd_declaration_acceptance_matches_the_sdk_corpus() {
+    let cases: Vec<Value> =
+        serde_json::from_str(include_str!("../../../testdata/agent-cwd-cases.json")).unwrap();
+    for case in cases {
+        let spec = serde_json::json!({"steps":[{
+            "id":"s","type":"agent","instruction":"work","cwd":case["cwd"],
+        }]});
+        let accepted = RunSpec::parse(&spec)
+            .and_then(|spec| spec.validate())
+            .is_ok();
+        assert_eq!(
+            accepted,
+            case["valid"].as_bool().unwrap(),
+            "{}",
+            case["name"]
+        );
+    }
+}
+
+/// An absent `cwd` is absent in the re-serialized spec, not `"cwd":null`: every
+/// fixture committed before this field existed keeps its bytes and its hash.
+#[test]
+fn an_undeclared_agent_cwd_is_not_serialized() {
+    let value = serde_json::json!({
+        "steps": [{"id": "agent", "type": "agent", "instruction": "work"}],
+    });
+    let parsed = RunSpec::parse(&value).expect("an agent step without cwd must parse");
+    parsed.validate().expect("and must validate");
+    assert!(
+        serde_json::to_value(parsed).unwrap()["steps"][0]
+            .get("cwd")
+            .is_none()
+    );
+}
+
+/// `Option<String>` reads an explicit null as absence, which would run the step
+/// in the default directory under a spec that declared otherwise. The shape is
+/// checked before serde so every non-string spelling fails closed.
+#[test]
+fn a_non_string_agent_cwd_fails_closed_rather_than_defaulting() {
+    for cwd in [
+        serde_json::json!(null),
+        serde_json::json!(7),
+        serde_json::json!(["checkouts/service-a"]),
+        serde_json::json!({"path": "checkouts/service-a"}),
+        serde_json::json!(true),
+    ] {
+        let value = serde_json::json!({
+            "steps": [{"id": "agent", "type": "agent", "instruction": "work", "cwd": cwd}],
+        });
+        let error = RunSpec::parse(&value).expect_err("a non-string cwd must fail closed");
+        assert!(
+            error.to_string().contains("cwd must be a string"),
+            "{cwd}: {error}"
+        );
+    }
+}
+
+/// `cwd` is agent-only, and the near-miss spelling is still an unknown field:
+/// widening one verb's schema must not quietly widen the others or the name.
+#[test]
+fn agent_cwd_is_not_accepted_on_other_verbs_or_under_another_name() {
+    for step in [
+        serde_json::json!({"id":"s","type":"deterministic","command":"true","cwd":"checkouts/a"}),
+        serde_json::json!({"id":"s","type":"llm","prompt":"work","cwd":"checkouts/a"}),
+        serde_json::json!({"id":"s","type":"agent","instruction":"work","cwdd":"checkouts/a"}),
+        serde_json::json!({"id":"s","type":"agent","instruction":"work","worker_cwd":"checkouts/a"}),
+    ] {
+        assert!(
+            RunSpec::parse(&serde_json::json!({"steps": [step.clone()]})).is_err(),
+            "{step} must fail closed"
+        );
     }
 }

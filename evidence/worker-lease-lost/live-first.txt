@@ -1,0 +1,14 @@
+$ cd packages/sdk && PATH=/home/daytona/.cargo/bin:$PATH npx vitest run tests/worker-lease-lost-live.test.ts
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/worker-lease-lost-live.test.ts (2 tests) 652ms
+   ✓ reports journal success after completion rejects with lease_conflict 383ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  05:37:16
+   Duration  2.00s (transform 682ms, setup 0ms, collect 1.18s, tests 652ms, environment 0ms, prepare 48ms)
+
+
+Exit code: 0
