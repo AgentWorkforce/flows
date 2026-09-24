@@ -45,10 +45,14 @@ export interface RunProjection {
   readonly channel: string;
   /** Apply a transition; `publish: false` folds replayed history into the snapshot silently. */
   step(event: ProgressEvent & { attempt?: number }, publish?: boolean): void;
+  /** Rebuild an epoch boundary from journal facts, never from old terminal state. */
+  epoch(states: Array<{ id: string; state: ProjectedStepState; attempt?: number; completionReason?: string }>, publish?: boolean): void;
   /** Close the run; only the first call publishes. */
   finish(outcome: { status: RunSnapshot['status']; completionReason?: string }): void;
   /** Resolves when every queued publication settled, or after `timeoutMs`. */
   drain(timeoutMs: number): Promise<void>;
+  /** Stop publication and remove this session's publisher after its queue settles. */
+  close(timeoutMs: number): Promise<void>;
 }
 
 export type ProjectionFetch = (url: string, init: {
@@ -87,9 +91,9 @@ export function createRunProjection(
     })),
   };
 
-  const call = async (path: string, token: string, body?: unknown, idempotencyKey?: string): Promise<unknown> => {
+  const call = async (path: string, token: string, body?: unknown, idempotencyKey?: string, method?: string): Promise<unknown> => {
     const response = await doFetch(new URL(`/v1${path}`, base).toString(), {
-      method: body === undefined ? 'GET' : 'POST',
+      method: method ?? (body === undefined ? 'GET' : 'POST'),
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
@@ -108,10 +112,22 @@ export function createRunProjection(
 
   // A per-session publisher: agent names are unique per workspace, and a
   // resumed run publishes from a fresh session into the same channel.
+  const publisherName = `flow-${randomUUID()}`;
+  let registered = false;
+  let cleanup: Promise<void> | undefined;
+  const removePublisher = (): Promise<void> => cleanup ??= (async () => {
+    if (!registered) return;
+    try {
+      await call(`/agents/${encodeURIComponent(publisherName)}`, options.workspaceKey, undefined, undefined, 'DELETE');
+    } catch {
+      options.diagnostic(`publisher cleanup for #${channel} failed; the run is unaffected`);
+    }
+  })();
   const setup = (async (): Promise<string> => {
     const agent = await call('/agents', options.workspaceKey, {
-      name: `${slug(run.flow)}-${randomUUID().slice(0, 6)}`, type: 'agent', auto_join_general: false,
+      name: publisherName, type: 'agent', auto_join_general: false,
     }) as { token?: unknown } | undefined;
+    registered = true;
     if (typeof agent?.token !== 'string') throw new RelaycastError(0, 'agent_token_missing');
     const token = agent.token;
     try {
@@ -122,13 +138,15 @@ export function createRunProjection(
       await call(`/channels/${encodeURIComponent(channel)}/join`, token, {});
     }
     return token;
-  })();
+  })().catch(async (error: unknown) => { await removePublisher(); throw error; });
 
   let queue: Promise<unknown> = setup;
   let failed = false;
   let sequence = 0;
+  let closed = false;
   const sessionId = randomUUID().slice(0, 8);
   const publish = (event: string, text: string): void => {
+    if (closed) return;
     const data = { relayflow: { version: RELAYFLOW_METADATA_VERSION, event, run: structuredClone(snapshot) } };
     const key = `${sessionId}-${++sequence}`;
     queue = queue.then(async () => {
@@ -148,6 +166,19 @@ export function createRunProjection(
 
   return {
     channel,
+    epoch(states, shouldPublish = true) {
+      snapshot.status = 'running';
+      delete snapshot.completionReason;
+      for (const step of snapshot.steps) {
+        step.state = 'pending';
+        delete step.attempt;
+        delete step.elapsedMs;
+        delete step.completionReason;
+        const state = states.find(candidate => candidate.id === step.id);
+        if (state !== undefined) Object.assign(step, state);
+      }
+      if (shouldPublish) publish('run.started', `▶ ${run.flow} resumed · run ${run.runId}`);
+    },
     step(event, shouldPublish = true) {
       let step = snapshot.steps.find(candidate => candidate.id === event.stepId);
       if (step === undefined) {
@@ -184,6 +215,16 @@ export function createRunProjection(
       ]);
       clearTimeout(timer);
     },
+    async close(timeoutMs) {
+      if (!closed) {
+        closed = true;
+        queue = queue.then(removePublisher, removePublisher);
+      }
+      let timer: NodeJS.Timeout | undefined;
+      try {
+        await Promise.race([queue, new Promise<void>(resolve => { timer = setTimeout(resolve, timeoutMs); timer.unref?.(); })]);
+      } finally { clearTimeout(timer); }
+    },
   };
 }
 
@@ -199,10 +240,6 @@ class RelaycastError extends Error {
   constructor(readonly status: number, readonly code: string) {
     super(status === 0 ? code : `HTTP ${status} ${code}`);
   }
-}
-
-function slug(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'relayflow';
 }
 
 function errorMessage(error: unknown): string {

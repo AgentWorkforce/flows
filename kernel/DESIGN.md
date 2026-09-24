@@ -380,7 +380,7 @@ Minimal verb set for gate 1:
 | verb | params → result | purpose |
 |---|---|---|
 | `hello` | `{protocol: 0, client}` → `{protocol: 0, server}` | handshake; version mismatch is a hard error |
-| `run.start` | `{spec, watch?}` → `{run_id}` | validate spec (zero-agent flows are legal; invalid declarations return `invalid_spec` before storage), create run file, append `run.spawned`, begin scheduling. `watch: true` pushes the new run's entries to this connection from `run.spawned` on, as `run.watch` does — the only way to observe a run whose id the caller does not know yet |
+| `run.start` | `{spec, watch?}` → `{run_id}` | validate spec (zero-agent flows are legal; invalid declarations return `invalid_spec` before storage), create run file, append `run.spawned`, begin scheduling. `watch: true` pushes the new run's entries to this connection from `run.spawned` on; an existing/recovered admission replays then watches the same run. Failed starts roll back their watcher. Observation failure never changes admission or execution. |
 | `run.resume` | `{run_id}` → `{run_id, state}` | §3 memoized resume |
 | `run.cancel` | `{run_id}` → `{run_id, status, completion_reason}` | append durable intent, close active leases, and append the terminal canceled fact; repeated calls return the existing outcome |
 | `run.get` | `{run_id}` → `{status, steps, budget}` | snapshot for legibility |

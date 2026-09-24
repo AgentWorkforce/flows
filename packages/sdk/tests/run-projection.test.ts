@@ -26,6 +26,26 @@ const run = { runId: '01RUN', flow: 'hello-deterministic', steps: [
 ] };
 
 describe('createRunProjection', () => {
+  it('removes its publisher only after the final message, once across repeated close', async () => {
+    const { fetch, calls } = relaycast();
+    const projection = createRunProjection({ workspaceKey: 'rk_live_k', fetch, diagnostic: vi.fn() }, run);
+    projection.finish({ status: 'completed' });
+    await projection.close(1_000);
+    await projection.close(1_000);
+    const name = calls[0]!.body!['name'];
+    expect(calls.at(-1)).toMatchObject({ method: 'DELETE', url: `/v1/agents/${name}`, headers: { Authorization: 'Bearer rk_live_k' } });
+    expect(calls.filter(call => call.method === 'DELETE')).toHaveLength(1);
+    expect(calls.filter(call => call.url.endsWith('/messages'))).toHaveLength(2);
+  });
+
+  it('cleans up after channel setup fails without failing the run', async () => {
+    const { fetch, calls } = relaycast({ '/v1/channels': { status: 500, body: {} } });
+    const diagnostic = vi.fn();
+    const projection = createRunProjection({ workspaceKey: 'rk_live_k', fetch, diagnostic }, run);
+    await projection.close(1_000);
+    expect(calls.filter(call => call.method === 'DELETE')).toHaveLength(1);
+    expect(diagnostic).toHaveBeenCalledOnce();
+  });
   it('registers a publisher, opens wf-<runId>, and posts each transition with the run snapshot', async () => {
     const { fetch, calls } = relaycast();
     const projection = createRunProjection({ workspaceKey: 'rk_live_k', fetch, diagnostic: vi.fn() }, run);
@@ -98,10 +118,12 @@ describe('createJournalProjector', () => {
       opened.push(declared);
       return {
         channel: 'wf-01run',
+        epoch: vi.fn(),
         step: (event: { type: string; stepId: string; stepType: string; elapsedMs: number; completionReason?: string }, publish = true) =>
           { steps.push({ ...event, publish }); },
         finish: (outcome: unknown) => { finished.push(outcome); },
         drain: async () => {},
+        close: async () => {},
       };
     });
     return { open, opened, steps, finished };
@@ -140,6 +162,44 @@ describe('createJournalProjector', () => {
     project(entry(3, 'step.attempt.started', 1_010, 'greet'));
     project(entry(4, 'step.completed', 1_260, 'greet', { completionReason: 'success', disposition: 'step_done' }));
     expect(r.steps.map(s => s.publish)).toEqual([false, true]);
+  });
+
+  it('does not close a resumed projection on an earlier epoch completion', () => {
+    const r = recorder();
+    const project = createJournalProjector(r.open, 2_000);
+    project(spawned);
+    project(entry(2, 'run.completed', 1_500, null, { completionReason: 'success' }));
+    project(entry(3, 'step.attempt.started', 2_100, 'greet'));
+    project(entry(4, 'run.completed', 2_200, null, { completionReason: 'step_failed' }));
+    expect(r.finished).toEqual([{ status: 'failed', completionReason: 'step_failed' }]);
+    expect(r.steps).toHaveLength(1);
+  });
+
+  it('resets terminal and stale steps at the next epoch and publishes its new outcome', async () => {
+    const { fetch, calls } = relaycast();
+    const projection = createRunProjection({ workspaceKey: 'rk_live_test', fetch, diagnostic: vi.fn() }, run);
+    const project = createJournalProjector(() => projection);
+    project(spawned);
+    project(entry(2, 'step.completed', 1_100, 'greet', { completionReason: 'success' }));
+    project(entry(3, 'run.completed', 1_200, null, { completionReason: 'success' }));
+    project(entry(4, 'epoch.summary', 2_000, null, { steps_done: {}, steps_open: {} }));
+    project(entry(5, 'run.completed', 2_100, null, { completionReason: 'step_failed' }));
+    await projection.close(1_000);
+    const posts = calls.filter(call => call.url.endsWith('/messages')).map(call => call.body!['data'] as { relayflow: { run: { status: string; steps: Array<{ state: string }> } } });
+    expect(posts.at(-2)?.relayflow.run).toMatchObject({ status: 'running', steps: [{ state: 'pending' }, { state: 'pending' }] });
+    expect(posts.at(-1)?.relayflow.run.status).toBe('failed');
+  });
+
+  it('publishes a manual park once per attempt, including retry attempts', () => {
+    const r = recorder();
+    const project = createJournalProjector(r.open);
+    project(spawned);
+    for (const attempt of [1, 2]) {
+      project(entry(attempt * 3, 'step.attempt.started', 1_100, 'greet', {}, attempt));
+      project(entry(attempt * 3 + 1, 'step.completed', 1_200, 'greet', { disposition: 'park', completionReason: 'crashed' }, attempt));
+      project(entry(attempt * 3 + 2, 'wait.human', 1_200, 'greet', {}, attempt));
+    }
+    expect(r.steps.filter(step => step.type === 'step.parked')).toHaveLength(2);
   });
 
   it('ignores step entries before run.spawned and a second run.spawned', () => {

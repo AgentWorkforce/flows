@@ -17,6 +17,7 @@ export function createJournalProjector(open: OpenProjection, liveSinceMs = 0): (
   let projection: RunProjection | undefined;
   const types = new Map<string, StepType>();
   const started = new Map<string, number>();
+  const parked = new Set<string>();
 
   return entry => {
     const payload = (entry.payload ?? {}) as Record<string, unknown>;
@@ -29,7 +30,22 @@ export function createJournalProjector(open: OpenProjection, liveSinceMs = 0): (
       projection = open({ runId: entry.run_id, flow: typeof spec.name === 'string' ? spec.name : 'flow', steps });
       return;
     }
-    if (projection === undefined || entry.step_id === null && entry.entry_type !== 'run.completed') return;
+    if (projection === undefined) return;
+    if (entry.entry_type === 'epoch.summary') {
+      started.clear();
+      parked.clear();
+      const done = (payload['steps_done'] ?? {}) as Record<string, { completionReason?: string }>;
+      const pending = (payload['steps_open'] ?? {}) as Record<string, { state?: string; attempt?: number }>;
+      projection.epoch([
+        ...Object.entries(done).map(([id, value]) => ({ id,
+          state: value.completionReason === 'success' ? 'completed' as const : 'failed' as const,
+          completionReason: value.completionReason })),
+        ...Object.entries(pending).map(([id, value]) => ({ id, attempt: value.attempt,
+          state: value.state === 'running' ? 'running' as const : value.state === 'needs_human' ? 'parked' as const : 'pending' as const })),
+      ], live);
+      return;
+    }
+    if (entry.step_id === null && entry.entry_type !== 'run.completed') return;
     const stepId = entry.step_id ?? '';
     const stepType = types.get(stepId) ?? 'deterministic';
     const attempt = entry.attempt ?? undefined;
@@ -44,19 +60,27 @@ export function createJournalProjector(open: OpenProjection, liveSinceMs = 0): (
     };
     switch (entry.entry_type) {
       case 'step.attempt.started':
+        parked.delete(key);
         started.set(key, entry.at_ms);
         event('step.started');
         return;
       case 'wait.human':
+        if (parked.has(key)) return;
+        parked.add(key);
         event('step.parked');
         return;
       case 'step.completed': {
         const reason = typeof payload['completionReason'] === 'string' ? payload['completionReason'] : undefined;
-        const parked = payload['disposition'] === 'park';
-        event(parked ? 'step.parked' : reason === 'success' ? 'step.completed' : 'step.failed', reason);
+        const isParked = payload['disposition'] === 'park';
+        if (isParked && parked.has(key)) return;
+        if (isParked) parked.add(key);
+        event(isParked ? 'step.parked' : reason === 'success' ? 'step.completed' : 'step.failed', reason);
         return;
       }
       case 'run.completed': {
+        // Historical outcomes belong to earlier epochs. The current resume's
+        // report closes the projection if no new terminal entry is appended.
+        if (!live) return;
         const reason = typeof payload['completionReason'] === 'string' ? payload['completionReason'] : undefined;
         projection.finish({ status: runStatus(reason), ...(reason === undefined ? {} : { completionReason: reason }) });
         return;

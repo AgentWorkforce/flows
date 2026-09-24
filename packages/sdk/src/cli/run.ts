@@ -174,6 +174,7 @@ async function executeCheckedFlow(
       const { attachCommunicationWorkers } = await import('../communication/local.js');
       communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir);
     }
+    if (options.onJournalEntry !== undefined) client.on('entry', options.onJournalEntry);
     const outcome = await startWatched(client, spec, options);
     const execution = await classifyOutcome(client, 'run', outcome, base, socketPath, { ...options, dataDir });
     if (options.reuseFromRunId !== undefined) {
@@ -194,6 +195,7 @@ async function executeCheckedFlow(
     }
     return protocolFailure('run', base, socketPath, communicationWorkers?.failure ?? localAgent?.failure ?? error);
   } finally {
+    if (options.onJournalEntry !== undefined) client.off('entry', options.onJournalEntry);
     try { await communicationWorkers?.close(); } finally { try { await localAgent?.close(); } finally { client.close(); } }
   }
 }
@@ -211,15 +213,12 @@ async function startWatched(
 ): Promise<RunOutcome> {
   const onEntry = options.onJournalEntry;
   if (onEntry === undefined) return client.runStart(spec, options.reuseFromRunId);
-  client.on('entry', onEntry);
   try {
     return await client.runStart(spec, options.reuseFromRunId, undefined, true);
   } catch (error) {
     if (!(error instanceof JournalProtocolError) || error.code !== 'bad_request'
       || !/unknown field `watch`/.test(error.message)) throw error;
     return await client.runStart(spec, options.reuseFromRunId);
-  } finally {
-    client.off('entry', onEntry);
   }
 }
 
@@ -296,7 +295,6 @@ export async function resumeFlow(
     if (await resumeHelperEffect(client, runId, dataDir)) {
       outcome = await client.runResume(runId, options.allowHumanInfluenced);
     }
-    if (onEntry !== undefined) client.off('entry', onEntry);
     return await classifyOutcome(client, 'resume', outcome, base, socketPath, { ...options, dataDir });
   } catch (error) {
     if (error instanceof CommunicationEnvironmentError) return { exitCode: 2, report: { ...base, runId, socketPath,
@@ -346,6 +344,7 @@ export async function resumeFlow(
     };
   } finally {
     try {
+      if (options.onJournalEntry !== undefined) client.off('entry', options.onJournalEntry);
       await communicationWorkers?.close();
       await authoredLlm?.close();
       authoredLlmClient?.close();

@@ -53,6 +53,7 @@ export function createObserverSession(
   const liveSinceMs = command === 'resume' ? Date.now() : 0;
   let projection: RunProjection | undefined;
   let minted: Promise<MintOutcome> | undefined;
+  let rootRunId: string | undefined;
 
   const mintFor = (runId: string): Promise<MintOutcome> => minted ??= mint({
     workspaceKey,
@@ -63,6 +64,7 @@ export function createObserverSession(
 
   const open = (run: { runId: string; flow: string; steps?: DeclaredStep[]; resumed?: boolean }): RunProjection => {
     if (projection !== undefined) return projection;
+    rootRunId = run.runId;
     projection = createRunProjection({
       workspaceKey,
       ...(link.baseUrl === undefined ? {} : { baseUrl: link.baseUrl }),
@@ -87,7 +89,8 @@ export function createObserverSession(
     onRunStarted: run => { open(run); },
     onProgress(event) { projection?.step(event); },
     finish(report) {
-      if (report.runId === undefined) return undefined;
+      const runId = rootRunId ?? report.runId;
+      if (runId === undefined) return undefined;
       if (projection === undefined) {
         io.stderr('[observer] this run was not projected (the daemon did not stream its journal); '
           + 'the observer link opens an empty channel');
@@ -97,8 +100,8 @@ export function createObserverSession(
           : report.ok ? 'completed' : 'failed',
         ...(report.completionReason === undefined ? {} : { completionReason: report.completionReason }),
       });
-      const drained = projection?.drain(DRAIN_GRACE_MS) ?? Promise.resolve();
-      return drained.then(() => mintFor(report.runId!));
+      const drained = projection?.close(DRAIN_GRACE_MS) ?? Promise.resolve();
+      return drained.then(() => mintFor(runId));
     },
   };
 }
