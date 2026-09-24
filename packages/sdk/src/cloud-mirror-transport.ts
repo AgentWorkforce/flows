@@ -59,6 +59,16 @@ export interface MirrorRunSource {
   fileType: 'yaml' | 'ts';
   /** Authored runs only: the input the flow was invoked with. */
   inputs?: unknown;
+  /**
+   * The Cloud run of the attempt this one continues, for a `flows resume`.
+   *
+   * Cloud models a resume as a new attempt row — its own hosted resume mints a
+   * fresh run id too — so one parked-then-resumed flow is two rows either way.
+   * Naming the predecessor is what stops those two rows reading as two
+   * unrelated pieces of work: the run page links them, and a reader of the
+   * red "Needs review" row can see it was answered.
+   */
+  resumedFromRunId?: string;
 }
 
 /** One lifecycle event, in the vocabulary Cloud's session event stream uses. */
@@ -90,6 +100,7 @@ export async function registerLocalRun(
       fileType: source.fileType,
       relayflowVersion: 'v2',
       ...(source.inputs === undefined ? {} : { inputs: source.inputs }),
+      ...(source.resumedFromRunId === undefined ? {} : { resumedFromRunId: source.resumedFromRunId }),
     }),
   });
   if (!isCloudRecord(result)) {

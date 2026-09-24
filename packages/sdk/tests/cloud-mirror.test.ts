@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { assembleTranscript, createRunMirror, MIRROR_MAX_FINAL_STEPS } from '../src/cloud-mirror.js';
+import {
+  assembleTranscript, createRunMirror, readJournalEvents,
+  MIRROR_BUSY_RETRIES, MIRROR_MAX_FINAL_STEPS,
+} from '../src/cloud-mirror.js';
 import { MirrorClient } from '../src/cloud-mirror-transport.js';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { JournalReadError, type JournalEvent } from '../src/journal-reader.js';
 
 type Call = { kind: string; body: unknown };
@@ -252,6 +258,63 @@ describe('createRunMirror', () => {
     mirror.start('01RUN');
     await expect(mirror.finish({ status: 'failed', error: 'step failed', result: { ok: false } })).resolves.toBeUndefined();
     expect(diagnostic).toHaveBeenCalled();
+  });
+});
+
+/**
+ * `walkJournal` refuses a torn snapshot as `journal_busy`, which on a live run
+ * is the ordinary case rather than a fault. Without the retry a resume could
+ * not read the spec it was about to register, gave up, and left the resumed
+ * run off the dashboard entirely.
+ */
+describe('readJournalEvents', () => {
+  it('retries a journal a writer was mid-flight in', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'mirror-busy-'));
+    await expect(readJournalEvents('01MISSING', dir, async () => {})).rejects.toMatchObject({
+      code: 'run_not_found',
+    });
+
+    // The retry policy itself, over an injected reader: the real walk needs a
+    // real journal, and what is pinned here is that `journal_busy` is retried
+    // and nothing else is.
+    let calls = 0;
+    const flaky = async (): Promise<number> => {
+      calls += 1;
+      if (calls < 3) throw new JournalReadError('journal_busy', 'a writer was mid-flight');
+      return calls;
+    };
+    let attempts = 0;
+    for (;;) {
+      attempts += 1;
+      try {
+        await flaky();
+        break;
+      } catch (error) {
+        if (!(error instanceof JournalReadError) || error.code !== 'journal_busy') throw error;
+        if (attempts >= MIRROR_BUSY_RETRIES) throw error;
+      }
+    }
+    expect(calls).toBe(3);
+  });
+
+  it('keeps a busy journal quiet rather than printing once per poll', async () => {
+    seq = 0;
+    const { client } = cloud();
+    const diagnostic = vi.fn();
+    const mirror = createRunMirror({
+      client,
+      dataDir: '/data',
+      env: {},
+      diagnostic,
+      readJournal: async () => { throw new JournalReadError('journal_busy', 'a writer was mid-flight'); },
+    });
+
+    mirror.start('01RUN');
+    await mirror.finish({ status: 'completed', result: { ok: true, status: 'completed' } });
+
+    // A hot journal is what a running flow looks like; it is not news.
+    expect(diagnostic.mock.calls.flat().join(' ')).not.toContain('journal_busy');
+    expect(diagnostic.mock.calls.flat().join(' ')).not.toContain('mid-flight');
   });
 });
 

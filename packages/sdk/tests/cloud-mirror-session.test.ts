@@ -52,7 +52,7 @@ describe('createCloudMirrorSession', () => {
 
     expect(register).toHaveBeenCalledOnce();
     expect(mirror.start).toHaveBeenCalledWith('01RUN');
-    expect(err).toContain(`Dashboard: ${registration().runUrl}`);
+    expect(err[0]).toContain(`Dashboard: ${registration().runUrl}`);
     expect(mirror.finish).toHaveBeenCalledWith(expect.objectContaining({ status: 'completed', log: ['RUN 01RUN'] }));
   });
 
@@ -73,6 +73,27 @@ describe('createCloudMirrorSession', () => {
 
     expect(register).toHaveBeenCalledOnce();
     expect(mirror.start).toHaveBeenCalledOnce();
+  });
+
+  it('hands back the Cloud run id, so a script has a handle on the mirrored run', async () => {
+    const { io: cli, err } = io();
+    const mirror = { runId: 'cloud-run', runUrl: registration().runUrl, start: vi.fn(), event: vi.fn(), finish: vi.fn(async () => {}) };
+    const session = createCloudMirrorSession({
+      source: async () => ({ workflow: 'name: demo\n', fileType: 'yaml' }),
+      dataDir: '/data',
+      log: () => [],
+    }, cli, {}, { register: vi.fn(async () => registration()), createMirror: vi.fn(() => mirror) });
+
+    // Nothing is known before the run starts, and asking does not start one.
+    await expect(session.receipt()).resolves.toBeUndefined();
+
+    session.onRunStarted({ runId: '01RUN' });
+    await expect(session.receipt()).resolves.toEqual({
+      cloudRunId: 'cloud-run', dashboardUrl: registration().runUrl,
+    });
+    // The report's own `runId` is the journal's; every hosted read verb takes
+    // Cloud's, so the terminal line names it too rather than burying it in a URL.
+    expect(err[0]).toContain('flows status --cloud --watch cloud-run');
   });
 
   it('says the run stays local when there is no Cloud login, and finishes cleanly', async () => {

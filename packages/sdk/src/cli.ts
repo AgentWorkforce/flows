@@ -11,6 +11,7 @@ import type { JournalEvent } from './journal-reader.js';
 import { createObserverSession } from './cli/observer-session.js';
 import {
   cloudMirrorEnabled, createCloudMirrorSession, mirrorSourceFromJournal, mirrorSourceFromPath,
+  type CloudMirrorReceipt,
 } from './cli/cloud-mirror-session.js';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -392,7 +393,7 @@ export async function runCli(
   // emit the run report immediately and finalize the observer link after.
   if (parsed.json) {
     const observerUrl = await observerUrlFrom(observerMint, logged);
-    emitRunReport(execution, parsed.json, logged, observerUrl);
+    emitRunReport(execution, parsed.json, logged, observerUrl, await mirror?.receipt());
     // Last, and after the report: the run's own output is what the mirror
     // uploads, and a run's exit code has never waited on Cloud. The mirror
     // bounds itself and never rejects.
@@ -1074,6 +1075,7 @@ function emitRunReport(
   json: boolean,
   io: CliIo,
   observerUrl?: string,
+  mirror?: CloudMirrorReceipt,
 ): void {
   const { report } = execution;
   emitDiagnostics(report.diagnostics, io);
@@ -1081,7 +1083,17 @@ function emitRunReport(
     // Fold `observerUrl` into the JSON report as a sibling of `runId`, so
     // downstream tooling that consumes `--json` gets the same signal a
     // human reader gets from the plain-text `Observer:` line.
-    const payload = observerUrl === undefined ? report : { ...report, observerUrl };
+    //
+    // `cloudRunId` and `dashboardUrl` ride beside it for the same reason, and
+    // they close a sharper gap: the report's own `runId` is the *journal's*,
+    // and every hosted read verb (`flows status --cloud`, `flows logs`,
+    // `flows runs`) takes Cloud's. Without these a script that mirrored a run
+    // had no handle on it at all, and a human had to read one out of a URL.
+    const payload = {
+      ...report,
+      ...(observerUrl === undefined ? {} : { observerUrl }),
+      ...(mirror === undefined ? {} : mirror),
+    };
     io.stdout(JSON.stringify(payload));
     return;
   }

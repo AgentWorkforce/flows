@@ -58,6 +58,18 @@ export const MIRROR_TRANSCRIPT_MAX_BYTES = 1024 * 1024;
 export const MIRROR_MAX_TRANSCRIPT_UPLOADS = 64;
 /** The run's own `runner.log`, as the `/logs` route serves it. */
 export const MIRROR_RUNNER_LOG_MAX_BYTES = 256 * 1024;
+/**
+ * Re-reads of a journal a writer was mid-flight in, and the wait between.
+ *
+ * `walkJournal` copies the file and refuses a torn snapshot as `journal_busy`,
+ * which on a *live* run is the ordinary case, not a fault — `flows status`
+ * has always retried it for exactly that reason. Without the same policy the
+ * mirror simply skipped a busy journal: a resume could not read the spec it
+ * was about to register, so it registered nothing at all and the run stayed
+ * off the dashboard.
+ */
+export const MIRROR_BUSY_RETRIES = 5;
+export const MIRROR_BUSY_DELAY_MS = 50;
 /** Journals one mirror will follow: the root, plus the children it admitted. */
 export const MIRROR_MAX_JOURNALS = 4096;
 
@@ -122,10 +134,29 @@ interface CachedStep {
   changedAt: number;
 }
 
-async function defaultReadJournal(runId: string, dataDir: string): Promise<JournalEvent[]> {
-  const events: JournalEvent[] = [];
-  for await (const event of walkJournal(runId, dataDir)) events.push(event);
-  return events;
+/**
+ * One consistent read of a journal, retrying only the mid-write case.
+ *
+ * Shared by the poller and by the resume path that reads a run's spec, so
+ * both treat a writer being mid-flight the way `flows status` does. Every
+ * other failure propagates unchanged: a corrupt journal is not a busy one.
+ */
+export async function readJournalEvents(
+  runId: string,
+  dataDir: string,
+  sleep: (ms: number) => Promise<void> = ms => new Promise(done => { setTimeout(done, ms); }),
+): Promise<JournalEvent[]> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      const events: JournalEvent[] = [];
+      for await (const event of walkJournal(runId, dataDir)) events.push(event);
+      return events;
+    } catch (error) {
+      const busy = error instanceof JournalReadError && error.code === 'journal_busy';
+      if (!busy || attempt >= MIRROR_BUSY_RETRIES) throw error;
+      await sleep(MIRROR_BUSY_DELAY_MS);
+    }
+  }
 }
 
 async function defaultReadTranscript(path: string): Promise<{ bytes: Buffer; size: number }> {
@@ -221,7 +252,7 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
   const intervalMs = options.intervalMs ?? MIRROR_POLL_INTERVAL_MS;
   const pollBudgetMs = options.pollBudgetMs ?? MIRROR_POLL_BUDGET_MS;
   const heartbeatMs = options.snapshotHeartbeatMs ?? MIRROR_SNAPSHOT_HEARTBEAT_MS;
-  const readJournal = options.readJournal ?? defaultReadJournal;
+  const readJournal = options.readJournal ?? readJournalEvents;
   const readTranscript = options.readTranscript ?? defaultReadTranscript;
   const diagnostic = options.diagnostic ?? ((): void => {});
 
@@ -283,10 +314,14 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
       try {
         events = await readJournal(runId, options.dataDir);
       } catch (error) {
-        // `run_not_found` is ordinary: a child journal is named in the index
-        // the moment the step is admitted, which can be before its journal
-        // exists on disk. Everything else keeps the cached view for it.
-        if (!(error instanceof JournalReadError) || error.code !== 'run_not_found') {
+        // Two ordinary conditions, neither worth a line on someone's terminal
+        // once a poll: `run_not_found`, because a child journal is named in
+        // the index the moment its step is admitted and that can precede the
+        // file; and `journal_busy` past its retries, because a hot journal is
+        // what a running flow looks like. Both keep the cached view.
+        const ordinary = error instanceof JournalReadError
+          && (error.code === 'run_not_found' || error.code === 'journal_busy');
+        if (!ordinary) {
           diagnostic(`could not read journal ${runId}: ${error instanceof Error ? error.message : String(error)}`);
         }
         continue;

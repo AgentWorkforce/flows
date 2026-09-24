@@ -139,8 +139,13 @@ hosted run gets, and does so by default:
 
 ```sh
 flows run review.flow.ts --input '{"pr":7}'
-# Dashboard: https://agentrelay.com/cloud/dashboard/workflow/<run>/runner
+# Dashboard: https://…/dashboard/workflow/<run>/runner  ·  flows status --cloud --watch <run>
 ```
+
+The line names Cloud's run id as well as the page, because the report's own
+`runId` is the *journal's* and every hosted read verb (`flows status --cloud`,
+`flows logs`, `flows runs`) takes Cloud's. Under `--json` the same pair rides
+in the report as `cloudRunId` and `dashboardUrl`, beside `observerUrl`.
 
 Nothing about the run changes. It executes locally, against the local daemon,
 under your own credentials; the journal is still the record. What is new is a
@@ -186,14 +191,21 @@ What it does and does not do:
   Cloud mirrors it and does not control it, and a cancel button that stopped
   the *reporting* while the flow kept running would be a cancellation that did
   not happen. Stop it where it is running.
-- **One dashboard row per invocation.** A mirrored run goes terminal on Cloud
-  when the CLI exits, and Cloud refuses to move a terminal run back to
-  `running`, so `flows resume` registers its own row — the same shape Cloud's
-  own v2 resume already has. A resume mirrors the kernel spec its journal
-  recorded, since the flow file may have been edited or deleted since.
+- **One dashboard row per invocation, and the rows are linked.** A mirrored run
+  goes terminal on Cloud when the CLI exits, and Cloud refuses to move a
+  terminal run back to `running`, so `flows resume` registers its own row — the
+  same shape Cloud's own v2 resume already has. It carries `resumedFromRunId`,
+  so the run page says which attempt it continues and a reader of the earlier
+  "Needs review" row can find out how it ended. A resume mirrors the kernel
+  spec its journal recorded, since the flow file may have been edited or
+  deleted since.
 
 No credential is written to disk between invocations: the run token lives only
-for the process that holds it.
+for the process that holds it. What *is* written, under
+`<data-dir>/cloud-runs/`, is which Cloud run mirrored which journal — the id
+and the deployment, nothing else, mode 0600 — so a later `flows resume` of the
+same journal can name its predecessor. Everything in that file was already in
+the URL the first attempt printed. Entries age out at 30 days and 500 rows.
 
 ## Reading a hosted run
 
