@@ -1,0 +1,555 @@
+# Same three files at HEAD (f308f95), run in isolation, for a like-for-like comparison with baseline-e21caad.txt.
+$ git rev-parse HEAD
+f308f95683c46eaddcf5c22eefd35aa04d2d1500
+$ git status --porcelain -- src tests tsconfig.tests.json
+
+$ RELAYFLOWD_BIN=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd npm run build && npx vitest run tests/live-kernel.test.ts tests/stuck-run-triage.test.ts tests/authored-node-runtime.test.ts
+
+> @relayflows/sdk@2.0.22 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/stuck-run-triage.test.ts (22 tests | 22 failed) 99ms
+   × stuck-run-triage input validation > refuses an 8-character run-id prefix: Cloud has no prefix lookup 5ms
+     → expected [Function] to throw error matching /not full Cloud run ids: c649fe14/ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage input validation > refuses the whole batch when any id is invalid, rather than dropping it 1ms
+     → expected [Function] to throw error matching /not full Cloud run ids: nope!/ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage input validation > refuses an empty batch 0ms
+     → expected [Function] to throw error matching /needs runIds/ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage input validation > refuses a batch too large for the edge step lease 0ms
+     → expected [Function] to throw error matching /exceeds the 8 that fit/ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage input validation > accepts eight ids — the incident batch is inside the bound 20ms
+     → promise rejected "TypeError: expected an @relayflows/surfac…" instead of resolving
+   × stuck-run-triage apiUrl > refuses to send the Cloud bearer token to an unapproved origin 1ms
+     → expected [Function] to throw error matching /refusing to send the Cloud bearer to…/\ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage apiUrl > refuses a non-URL apiUrl 1ms
+     → expected [Function] to throw error matching /is not a URL/ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage apiUrl > allows an approved origin and uses it in the curl 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage apiUrl > defaults to production Cloud 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage apiUrl > never publishes a run record the fetch did not produce 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage edge collection > names the Worker on every wrangler invocation 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage edge collection > accepts caller-supplied Workers and rejects option-shaped ones 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage edge collection > falls back when GNU timeout is absent, as it is on macOS 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage edge collection > runs the tails concurrently so wall time does not scale with the batch 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage edge collection > records wrangler's own exit status rather than head's 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage shell text > parses under both sh and bash 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage shell text > collects tails with no GNU timeout on PATH, as on a stock macOS 65ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage agents > declares read-only permissions on every agent 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage agents > tells the forensics agents their evidence is untrusted 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage fan-out > refuses a duplicate run id: two tails would share one evidence file 1ms
+     → expected [Function] to throw error matching /duplicate runIds: c649fe14-0c2e-4e51-…/ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage fan-out > refuses a duplicate Worker name for the same reason 0ms
+     → expected [Function] to throw error matching /duplicate workers: w-one/ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage fan-out > bounds ids x workers, not just ids 1ms
+     → expected [Function] to throw error matching /24 concurrent tails, over the 16/ but got 'expected an @relayflows/surface flow …'
+ ❯ tests/authored-node-runtime.test.ts (14 tests | 14 skipped) 21ms
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd
+LIVE_KERNEL flows=/home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/dist/cli.js
+
+stdout | tests/live-kernel.test.ts > surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once
+LIVE_KERNEL kill -9 pid=81494 run=01M2ZYPBSJ865AJXCAN8WSB46S while step=two state=Running
+
+ ❯ tests/live-kernel.test.ts (31 tests | 8 failed) 53093ms
+   ✓ built flows CLI against live relayflowd > twenty-six-step reuses 25 durable completions after editing the failed final step 2014ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 2275ms
+   ✓ built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 32429ms
+   ✓ built flows CLI against live relayflowd > follows a live worker dispatch through flows run 533ms
+   ✓ built flows CLI against live relayflowd > runs an agent CLI end to end through the SDK worker 469ms
+   ✓ built flows CLI against live relayflowd > f.agent lowers to a real agent step and dispatches through a live worker 749ms
+   ✓ built flows CLI against live relayflowd > can always get a parked run to a late-attaching worker 5577ms
+   ✓ built flows CLI against live relayflowd > reports a real manual-recovery NeedsHuman state as parked 464ms
+   × built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo) 513ms
+     → expected { …(12) } to match object { output: { …(3) }, …(1) }
+(22 matching properties omitted from actual)
+   × built flows CLI against live relayflowd > hn-monitor analyze-story FAILS verification when the CLI omits required schema fields 614ms
+     → expected { …(12) } to match object { …(3) }
+(21 matching properties omitted from actual)
+   × built flows CLI against live relayflowd > agent step preserves the CliResult wrapper as output when the CLI emits non-JSON text 573ms
+     → expected null not to be null
+   × built flows CLI against live relayflowd > AgentWorker exposes wake_context to the CLI via RELAYFLOW_WAKE_CONTEXT env var (real analyzer prerequisite) 607ms
+     → Cannot read properties of null (reading 'story_title')
+   × built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_WAKE_CONTEXT UNSET when the run has no wake_context (undefined-vs-null pin) 499ms
+     → Cannot read properties of null (reading 'env_present')
+   ✓ built flows CLI against live relayflowd > AgentWorker passes a declared model to an identified wrapper as RELAYFLOW_MODEL 568ms
+   ✓ built flows CLI against live relayflowd > AgentWorker refuses a nonconforming journal-submitted wrapper before exposing RELAYFLOW_MODEL 557ms
+   ✓ built flows CLI against live relayflowd > AgentWorker executes the raw claude adapter with its real model flag 400ms
+   ✓ built flows CLI against live relayflowd > AgentWorker executes the raw codex adapter with its real model flag 488ms
+   × built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_MODEL UNSET when the step declares no model 446ms
+     → Cannot read properties of null (reading 'story_title')
+   × built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI 33ms
+     → LIVE_ANALYZER_UNAVAILABLE: "/home/daytona/.relayflow-v2-supervisor/durable/repository/testdata/preflight/analyze-story-claude-cli" does not identify as relayflows-agent-cli-v1 — failing because gate-2 acceptance requires the real analyzer to execute. Set RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 only if this run is not gate evidence.
+   ✓ built flows CLI against live relayflowd > preflights before journaling and names an unreachable socket 731ms
+   ✓ built flows CLI against live relayflowd > starts exactly one daemon when two runs race for one empty data dir 439ms
+   ✓ surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once 817ms
+   × a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant 514ms
+     → expected null to deeply equal { schedule_id: 'heartbeat-1m', …(3) }
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-node-runtime.test.ts [ tests/authored-node-runtime.test.ts ]
+AssertionError: expected '1.3.6' to be '1.4.0' // Object.is equality
+
+Expected: "1.4.0"
+Received: "1.3.6"
+
+ ❯ tests/authored-node-runtime.test.ts:18:77
+     16| 
+     17| beforeAll(() => {
+     18|   expect(spawnSync(bun, ['--version'], { encoding: 'utf8' }).stdout.tr…
+       |                                                                             ^
+     19|   expect(existsSync(daemon), 'build the current kernel or set RELAYFLO…
+     20|   stage = mkdtempSync(join(tmpdir(), 'authored-standalone-build-'));
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/31]⎯
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 30 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo)
+AssertionError: expected { …(12) } to match object { output: { …(3) }, …(1) }
+(22 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "output": Object {
+-     "reasoning": "stub agent runtime — deterministic output for gate-2 clause-2 demo",
+-     "relevance_score": 5,
+-     "story_title": "stub",
+-   },
++   "output": null,
+    "verification": Object {
+-     "gate": "json_schema",
+-     "verdict": "pass",
++     "gate": "execution",
++     "verdict": "fail",
+    },
+  }
+
+ ❯ tests/live-kernel.test.ts:657:36
+    655|         && (entry as { step_id?: string }).step_id === 'analyze-story',
+    656|     ) as { payload: { output: unknown; verification: unknown } } | und…
+    657|     expect(stepCompleted?.payload).toMatchObject({
+       |                                    ^
+    658|       output: {
+    659|         story_title: 'stub',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/31]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story FAILS verification when the CLI omits required schema fields
+AssertionError: expected { …(12) } to match object { …(3) }
+(21 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "completionReason": "retries_exhausted",
++   "completionReason": "worker_error",
+    "output": null,
+    "verification": Object {
+-     "gate": "json_schema",
++     "gate": "execution",
+      "verdict": "fail",
+    },
+  }
+
+ ❯ tests/live-kernel.test.ts:752:36
+    750|     // its verification record names the json_schema rejection. The re…
+    751|     // parsed value is nulled before the completion is persisted.
+    752|     expect(stepCompleted?.payload).toMatchObject({
+       |                                    ^
+    753|       completionReason: 'retries_exhausted',
+    754|       output: null,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/31]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > agent step preserves the CliResult wrapper as output when the CLI emits non-JSON text
+AssertionError: expected null not to be null
+ ❯ tests/live-kernel.test.ts:823:24
+    821|     // here (parseJsonOutput returned null on non-JSON stdout) and
+    822|     // these assertions would all fail.
+    823|     expect(output).not.toBeNull();
+       |                        ^
+    824|     expect(output.exit_code).toBe(0);
+    825|     expect(output.stdout_tail).toContain('looked at the story');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/31]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker exposes wake_context to the CLI via RELAYFLOW_WAKE_CONTEXT env var (real analyzer prerequisite)
+TypeError: Cannot read properties of null (reading 'story_title')
+ ❯ tests/live-kernel.test.ts:891:42
+    889|     ) as { payload: { output: { story_title: string; reasoning: string…
+    890|     expect(stepCompleted).toBeDefined();
+    891|     expect(stepCompleted!.payload.output.story_title).toBe(`echoed:${s…
+       |                                          ^
+    892|     expect(stepCompleted!.payload.output.reasoning).toContain(String(s…
+    893| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/31]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_WAKE_CONTEXT UNSET when the run has no wake_context (undefined-vs-null pin)
+TypeError: Cannot read properties of null (reading 'env_present')
+ ❯ tests/live-kernel.test.ts:958:38
+    956|     ) as { payload: { output: { env_present: boolean } } } | undefined;
+    957|     expect(completed).toBeDefined();
+    958|     expect(completed!.payload.output.env_present).toBe(false);
+       |                                      ^
+    959| 
+    960|     delete process.env.RELAYFLOW_WAKE_CONTEXT;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/31]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_MODEL UNSET when the step declares no model
+TypeError: Cannot read properties of null (reading 'story_title')
+ ❯ tests/live-kernel.test.ts:1194:38
+    1192|     expect(completed).toBeDefined();
+    1193|     // UNSET, not EMPTY and not the leaked parent value.
+    1194|     expect(completed!.payload.output.story_title).toBe('model:UNSET');
+       |                                      ^
+    1195| 
+    1196|     delete process.env.RELAYFLOW_MODEL;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/31]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI
+Error: LIVE_ANALYZER_UNAVAILABLE: "/home/daytona/.relayflow-v2-supervisor/durable/repository/testdata/preflight/analyze-story-claude-cli" does not identify as relayflows-agent-cli-v1 — failing because gate-2 acceptance requires the real analyzer to execute. Set RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 only if this run is not gate evidence.
+ ❯ tests/live-kernel.test.ts:1223:15
+    1221|       const notice = `LIVE_ANALYZER_UNAVAILABLE: ${readiness.detail}`;
+    1222|       if (process.env['RELAYFLOWS_ALLOW_ANALYZER_SKIP'] !== '1') {
+    1223|         throw new Error(
+       |               ^
+    1224|           `${notice} — failing because gate-2 acceptance requires the …
+    1225|           + 'Set RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 only if this run is …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/31]⎯
+
+ FAIL  tests/live-kernel.test.ts > a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant
+AssertionError: expected null to deeply equal { schedule_id: 'heartbeat-1m', …(3) }
+
+- Expected: 
+Object {
+  "lag_ms": 43000,
+  "schedule_id": "heartbeat-1m",
+  "scheduled_for_ms": 1764000000000,
+  "slot": 29400000,
+}
+
++ Received: 
+null
+
+ ❯ tests/live-kernel.test.ts:1665:39
+    1663|     // The bound: the run reports the grid instant and its own lag, so…
+    1664|     // backfilled run can tell it is running for a slot from the past.
+    1665|     expect(completed!.payload.output).toEqual({
+       |                                       ^
+    1666|       schedule_id: 'heartbeat-1m',
+    1667|       slot: 29_400_000,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/31]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage input validation > refuses an 8-character run-id prefix: Cloud has no prefix lookup
+AssertionError: expected [Function] to throw error matching /not full Cloud run ids: c649fe14/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/not full Cloud run ids: c649fe14/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/31]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage input validation > refuses the whole batch when any id is invalid, rather than dropping it
+AssertionError: expected [Function] to throw error matching /not full Cloud run ids: nope!/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/not full Cloud run ids: nope!/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/31]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage input validation > refuses an empty batch
+AssertionError: expected [Function] to throw error matching /needs runIds/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/needs runIds/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/31]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage input validation > refuses a batch too large for the edge step lease
+AssertionError: expected [Function] to throw error matching /exceeds the 8 that fit/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/exceeds the 8 that fit/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/31]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage input validation > accepts eight ids — the incident batch is inside the bound
+AssertionError: promise rejected "TypeError: expected an @relayflows/surfac…" instead of resolving
+ ❯ tests/stuck-run-triage.test.ts:62:40
+     60|   it('accepts eight ids — the incident batch is inside the bound', asy…
+     61|     const ids = Array.from({ length: 8 }, (_, i) => `${ID_A.slice(0, -…
+     62|     await expect(drive({ runIds: ids })).resolves.toBeDefined();
+       |                                        ^
+     63|   });
+     64| });
+
+Caused by: TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:143:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+ ❯ tests/stuck-run-triage.test.ts:62:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/31]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage apiUrl > refuses to send the Cloud bearer token to an unapproved origin
+AssertionError: expected [Function] to throw error matching /refusing to send the Cloud bearer to…/\ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/refusing to send the Cloud bearer token to https:\/\/evil\.example/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/31]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage apiUrl > refuses a non-URL apiUrl
+AssertionError: expected [Function] to throw error matching /is not a URL/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/is not a URL/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/31]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage apiUrl > allows an approved origin and uses it in the curl
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:143:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:77:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/31]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage apiUrl > defaults to production Cloud
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:143:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:82:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/31]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage apiUrl > never publishes a run record the fetch did not produce
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:143:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:89:34
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/31]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage edge collection > names the Worker on every wrangler invocation
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:143:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:98:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/31]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage edge collection > accepts caller-supplied Workers and rejects option-shaped ones
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:143:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:107:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/31]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage edge collection > falls back when GNU timeout is absent, as it is on macOS
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:143:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:115:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/31]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage edge collection > runs the tails concurrently so wall time does not scale with the batch
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:143:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:123:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/31]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage edge collection > records wrangler's own exit status rather than head's
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:143:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:129:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/31]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage shell text > parses under both sh and bash
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:143:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:137:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/31]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage shell text > collects tails with no GNU timeout on PATH, as on a stock macOS
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:143:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:157:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/31]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage agents > declares read-only permissions on every agent
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:143:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:176:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[27/31]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage agents > tells the forensics agents their evidence is untrusted
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:143:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:182:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[28/31]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage fan-out > refuses a duplicate run id: two tails would share one evidence file
+AssertionError: expected [Function] to throw error matching /duplicate runIds: c649fe14-0c2e-4e51-…/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/duplicate runIds: c649fe14-0c2e-4e51-9a6a-4f0d1b0f77aa/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[29/31]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage fan-out > refuses a duplicate Worker name for the same reason
+AssertionError: expected [Function] to throw error matching /duplicate workers: w-one/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/duplicate workers: w-one/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[30/31]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage fan-out > bounds ids x workers, not just ids
+AssertionError: expected [Function] to throw error matching /24 concurrent tails, over the 16/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/24 concurrent tails, over the 16/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[31/31]⎯
+
+ Test Files  3 failed (3)
+      Tests  30 failed | 23 passed | 14 skipped (67)
+   Start at  17:43:23
+   Duration  54.32s (transform 839ms, setup 0ms, collect 2.22s, tests 53.21s, environment 0ms, prepare 120ms)
+
+EXIT=1

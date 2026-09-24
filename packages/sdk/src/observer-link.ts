@@ -238,6 +238,13 @@ export interface MintObserverOptions {
    * (default `https://agentrelay.com`). Separate axis from `baseUrl` — the
    * mint API lives on a different subdomain from the dashboard. */
   dashboardUrl?: string;
+  /**
+   * Scope the token to this one channel, so the dashboard opens on it — the
+   * run's `wf-<runId>` channel — rather than on whichever channel the
+   * workspace lists first. DMs are excluded: a run projects its
+   * conversation into that channel. Omitted: the whole workspace.
+   */
+  channel?: string;
   fetch?: ObserverFetch;
   now?: () => number;
   /** Called for the token's uniquely-suffixed name; injectable for tests. */
@@ -299,7 +306,9 @@ export async function mintObserverUrl(
     name: `flows-run-${uuid}`,
     description: 'Auto-minted by `flows run` for the observer dashboard link.',
     scopes: OBSERVER_SCOPES,
-    filters: { include_dms: true },
+    filters: options.channel === undefined
+      ? { include_dms: true }
+      : { channel_names: [options.channel], include_dms: false },
     expires_at: new Date(now() + OBSERVER_TOKEN_TTL_MS).toISOString(),
   };
 

@@ -111,6 +111,7 @@ export async function executeDurableAuthoredFlow(
       return await completedRootResult(journal, outcome.run_id);
     }
     assertRootCanDispatch(outcome);
+    options.lifecycle?.onRunStarted?.({ runId: outcome.run_id, flow: definition.name });
     // `run.start` is an idempotent receipt. If the first caller died after
     // the daemon dispatched this root, a same-daemon retry sees the existing
     // active run but receives no second dispatch from start itself. Resume is
@@ -157,6 +158,7 @@ export async function resumeDurableAuthoredFlow(
     }
     assertRootCanDispatch(outcome);
     await assertNoOpenHumanWait(journal, outcome);
+    options.lifecycle?.onRunStarted?.({ runId: rootRunId, flow: metadata.flowName, resumed: true });
     const dispatch = await dispatchWait.promise;
     return await driveRoot(loaded, metadata, journal, peer, dispatch, options);
   } finally {

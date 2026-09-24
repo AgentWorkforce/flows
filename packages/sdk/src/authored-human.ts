@@ -1,5 +1,6 @@
 import { AuthoredFlowExecutionError, type AuthoredHumanWait } from './authored-flow-error.js';
 import type { JournalClient } from './journal-client.js';
+import { shellWord } from './shell-word.js';
 
 /**
  * The answer contract for a parked `f.human`.
@@ -143,8 +144,4 @@ export function answerCommand(runId: string, waitId: string, dataDir?: string): 
 export function resumeCommand(runId: string, dataDir?: string, localAgent = false): string {
   const dir = dataDir === undefined ? '' : ` --data-dir ${shellWord(dataDir)}`;
   return `flows resume${dir}${localAgent ? ' --local-agent' : ''} ${runId}`;
-}
-
-function shellWord(value: string): string {
-  return /^[A-Za-z0-9_./=:@%+,-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
 }

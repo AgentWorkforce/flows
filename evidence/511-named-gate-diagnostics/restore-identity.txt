@@ -1,0 +1,17 @@
+# Restoring the working tree to HEAD after the in-place baseline.
+$ git checkout HEAD -- packages/sdk
+$ git status --porcelain -- packages/sdk   # empty = tree and index identical to HEAD
+$ git diff --stat HEAD -- packages/sdk
+$ for f in src/named-gate-lowering.ts tests/named-gate-diagnostics.test.ts tests/named-gate-journal.test.ts tsconfig.tests.json; do git hash-object packages/sdk/$f; git rev-parse HEAD:packages/sdk/$f; done
+# src/named-gate-lowering.ts
+8a4ac50391d95c95693eb20cdbc69869a5d02060
+8a4ac50391d95c95693eb20cdbc69869a5d02060
+# tests/named-gate-diagnostics.test.ts
+b35c60eb24f577a7e8cee998ddf6fb117e9261c5
+b35c60eb24f577a7e8cee998ddf6fb117e9261c5
+# tests/named-gate-journal.test.ts
+2a9f695b88b0f3261fd71bcf5f0b94d6564b1b03
+2a9f695b88b0f3261fd71bcf5f0b94d6564b1b03
+# tsconfig.tests.json
+78b1d3d637f77a82013c2d64e4c863d14c44652b
+78b1d3d637f77a82013c2d64e4c863d14c44652b

@@ -1,5 +1,6 @@
 import { helperProviders } from '@relayflows/surface/runtime';
 import type { PreflightResult, PreflightDiagnostic } from './preflight.js';
+import { helperNamespacesUsed } from './helper-reference.js';
 
 /** Static discovery never executes the body; dynamic aliases are checked at call time. */
 export function preflightHelpers(
@@ -8,12 +9,18 @@ export function preflightHelpers(
     providers?: Readonly<Record<string, { mount: boolean; mock: boolean; token?: string }>> },
 ): PreflightResult {
   const body = typeof definition.body === 'function' ? Function.prototype.toString.call(definition.body) : '';
-  const parameter = body.match(/^(?:async\s+)?(?:function(?:\s+[\w$]+)?\s*)?(?:\(\s*([\w$]+)|([\w$]+)\s*=>)/);
-  const root = (parameter?.[1] ?? parameter?.[2])?.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const parameter = body.match(/^(?:async\s+)?(?:function\s*\*?\s*(?:[\w$]+)?\s*)?(?:\(\s*([\w$]+)|([\w$]+)\s*=>|\*?\s*[\w$]+\s*\(\s*([\w$]+))/u);
+  // NOT regex-escaped: this is compared to an AST Identifier name, so a legal
+  // parameter like `f$` must stay `f$`. Escaping it hid every helper call.
+  const root = parameter?.[1] ?? parameter?.[2] ?? parameter?.[3];
   const diagnostics: PreflightDiagnostic[] = [];
+  // Read from a parse, not from the text: a helper named inside a string,
+  // comment, template quasi or regex is not used, and refusing on one demands
+  // a mount the flow never touches.
+  const referenced = root === undefined ? new Set<string>() : helperNamespacesUsed(body, root);
   for (const { provider, namespace, supported } of helperProviders) {
     const used = definition.header?.tools?.[namespace] === true
-      || (root !== undefined && new RegExp(`(?:^|[^\\w$.])${root}\\s*(?:\\.\\s*${namespace}\\b|\\[\\s*['"]${namespace}['"]\\s*\\])`).test(body));
+      || referenced.has(namespace);
     if (!used) continue;
     const fact = facts.providers?.[provider] ?? (provider === 'slack'
       ? { mount: facts.slackMount, mock: facts.slackMock, token: facts.slackToken }

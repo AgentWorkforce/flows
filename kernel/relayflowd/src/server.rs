@@ -170,17 +170,41 @@ fn handle_request(
                 .map_err(|error| ("invalid_spec", error.to_string()))?;
             spec.validate()
                 .map_err(|error| ("invalid_spec", error.to_string()))?;
-            to_value(
-                engine
-                    .start_with_admission(
-                        spec,
-                        "protocol-v0",
-                        crate::DriveOptions::default(),
-                        params.reuse_from_run_id.as_deref(),
-                        params.admission_key.as_deref(),
-                    )
-                    .map_err(run_start_error)?,
-            )
+            // Registered before the first append, so there is nothing to
+            // replay: the watcher goes live and receives every entry once.
+            let watched = std::cell::RefCell::new(None::<String>);
+            let watch = |run_id: &str, existing: bool| {
+                if params.watch {
+                    if existing {
+                        // Projection failure must never gate admission/recovery.
+                        if watch_with_replay(&engine, hub, connection_id, run_id, writer, || ())
+                            .is_err()
+                        {
+                            return;
+                        }
+                    } else {
+                        hub.watch(connection_id, run_id.to_owned(), writer.clone());
+                        hub.watch_ready(connection_id, run_id, 0);
+                    }
+                    *watched.borrow_mut() = Some(run_id.to_owned());
+                }
+            };
+            let outcome = engine
+                .start_observed(
+                    spec,
+                    "protocol-v0",
+                    crate::DriveOptions::default(),
+                    params.reuse_from_run_id.as_deref(),
+                    params.admission_key.as_deref(),
+                    &watch,
+                )
+                .map_err(run_start_error);
+            if outcome.is_err() {
+                if let Some(run_id) = watched.borrow().as_deref() {
+                    hub.unwatch(connection_id, run_id);
+                }
+            }
+            to_value(outcome?)
         }
         "run.resume" => {
             let params: RunResumeParams = decode_params(request.params)?;

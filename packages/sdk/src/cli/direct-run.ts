@@ -16,6 +16,7 @@ import { DirectInputError, parseDirectInput } from '../direct-input.js';
 import { JournalClient } from '../journal-client.js';
 import { inputFailureReport } from './check.js';
 import { checkAuthoredTriggers } from './check-triggers.js';
+import { authoredInput, authoredWorkerRemedy, localAgentRemedy } from './local-agent-remedy.js';
 import {
   authoredCompletion,
   authoredHumanParked,
@@ -95,6 +96,7 @@ export async function runDirectFlow(
         ...(localAgent === undefined ? {} : { workerCapacity }),
         lifecycle: {
           onProgress: options.onProgress,
+          ...(options.onRunStarted !== undefined ? { onRunStarted: options.onRunStarted } : {}),
           ...(options.signal !== undefined ? { signal: options.signal } : {}),
           ...(options.onWait !== undefined ? { onWait: options.onWait } : {}),
         },
@@ -164,12 +166,26 @@ export async function runDirectFlow(
           ...base,
           ok: false,
           runId: error.runId,
+          rootRunId: error.rootRunId,
           socketPath,
           status: 'parked',
+          parkCause: error.parkCause,
           diagnostics: [...base.diagnostics, {
             severity: 'parked',
             kind: 'run_parked',
-            message: error.message,
+            // The remedy is rendered here rather than by the child's own
+            // `classifyOutcome`, which is deliberately silent for authored
+            // paths: this is the only frame that knows both the flow path and
+            // the `--input` argument a new run has to repeat, and it knows
+            // whether a worker was already attached.
+            //
+            // `inputArgument` is the word this process was invoked with, so a
+            // run started from a file names that file rather than the megabyte
+            // inside it — the thing the journal can no longer tell a resume.
+            message: error.message + localAgentRemedy(authoredWorkerRemedy(
+              error.parkCause, options.localAgent === true,
+              { path, input: authoredInput(inputArgument), dataDir },
+            )),
           }],
         },
       };
