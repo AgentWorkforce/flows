@@ -19,7 +19,29 @@ flows deployments
 `--on` also takes `github:labels=agent`, `jira:project=OPS`, `shortcut:workspace=…`
 or `slack:channel=#eng`. Each matching ticket launches one Cloud run in a fresh
 `relayflow/software-factory-<id>` branch of `--repo`; a passing review opens a
-PR, a blocked one opens a draft PR carrying the findings and ends `step_failed`.
+PR. Review artifacts under `.relayflow/` must contain exactly one verdict:
+
+- `review.passed` opens a ready PR after the hooks allow it.
+- `review.blocked` opens a draft with findings and ends `step_failed` (exit 1).
+- Non-empty `review.unverified` names the missing verification prerequisite.
+  It opens a draft headed **NOT VERIFIED**, explicitly claims no defect, and
+  ends `needs_human` (exit 3). Unlike pre-publication parking, this outcome
+  leaves a pushed branch and an opened draft PR; completion detail says so.
+
+Silence, contradictory verdicts, and an empty `review.unverified` stay BLOCKED.
+Every draft verdict (including hook refusals) names the reviewed commit and says
+it covers that commit only. A new head supersedes the verdict, but this terminating
+flow does not edit old bodies/comments, re-review pushes, or mark drafts ready.
+
+Draft bodies introduce a new machine-readable contract:
+`<!-- relayflow-review verdict=blocked reviewed-head=<40-hex-sha> -->`.
+The other verdict values are `unverified`, `post-review-blocked`, and
+`merge-gate-blocked`. Exactly one marker is allowed before publication.
+The intended first consumer is [the resident babysitter](../babysitter/README.md),
+which is not yet ready for unattended deployment; a future shepherd can compare
+the marker with the current PR head before amending a superseded verdict.
+
+
 The pull-request title is the ticket title (whitespace-normalized and capped at
 240 Unicode code points). GitHub inputs must carry `identifier: "#<number>"`;
 the flow appends exactly one `Fixes #<number>` line and validates the final

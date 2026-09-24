@@ -108,7 +108,7 @@ async function handle(eventType: string, input: unknown, f: Ctx) {
 describe('native Babysitter extension', () => {
   it('composes onto Software Factory with exactly the declared, deliverable subscriptions', async () => {
     const { loaded, extension, base, hostedRuntime } = installed;
-    expect(base).toEqual({ name: 'software-factory', version: '2.0.22' });
+    expect(base).toEqual({ name: 'software-factory', version: '2.0.23' });
     expect(hostedRuntime.base).toEqual(base);
     expect(extension.manifest.permissions).toEqual({
       integrations: ['github'], harnesses: ['codex'], mcp: [], writes: ['cloud:babysitter-turn'],

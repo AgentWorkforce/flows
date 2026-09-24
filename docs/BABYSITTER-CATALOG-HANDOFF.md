@@ -28,8 +28,11 @@ not wired to hosted dispatch and must not be treated as enablement. The package'
 `compat` requires the published 2.0.26 Surface/SDK release that routes
 `labeled`, `unlabeled`, and `ready_for_review`. Export it only from the reviewed
 release commit pinned below. The Software Factory flow's own independently
-versioned header remains `2.0.22`; a regression requires the hosted identity to
-equal the identity obtained from that exact reviewed source.
+versioned header is now `2.0.23`. The hosted loader still pins the previously
+reviewed `2.0.22` source bytes and rejects this revised base. Independent review
+must authorize updating that source digest and the loader's assigned version
+before this base can be used with the native extension. The identity regression
+expects `2.0.23` and remains blocked by that source check until then.
 
 The sandbox contract is deliberately narrower than #442. It re-verifies the
 complete lock-backed installation and every manifest, binds it to the exact
