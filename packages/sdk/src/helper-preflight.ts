@@ -9,8 +9,10 @@ export function preflightHelpers(
     providers?: Readonly<Record<string, { mount: boolean; mock: boolean; token?: string }>> },
 ): PreflightResult {
   const body = typeof definition.body === 'function' ? Function.prototype.toString.call(definition.body) : '';
-  const parameter = body.match(/^(?:async\s+)?(?:function(?:\s+[\w$]+)?\s*)?(?:\(\s*([\w$]+)|([\w$]+)\s*=>)/);
-  const root = (parameter?.[1] ?? parameter?.[2])?.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const parameter = body.match(/^(?:async\s+)?(?:function\s*\*?\s*(?:[\w$]+)?\s*)?(?:\(\s*([\w$]+)|([\w$]+)\s*=>|[\w$]+\s*\(\s*([\w$]+))/u);
+  // NOT regex-escaped: this is compared to an AST Identifier name, so a legal
+  // parameter like `f$` must stay `f$`. Escaping it hid every helper call.
+  const root = parameter?.[1] ?? parameter?.[2] ?? parameter?.[3];
   const diagnostics: PreflightDiagnostic[] = [];
   // Read from a parse, not from the text: a helper named inside a string,
   // comment, template quasi or regex is not used, and refusing on one demands

@@ -156,9 +156,12 @@ export function flowRequirements(
     // payload as input, and handler bodies are not dispatched yet (flows #301).
     // A handler's *trigger* is still a requirement — it is what wakes the flow.
     const text = typeof flow.body === 'function' ? Function.prototype.toString.call(flow.body) : '';
-    const root = contextParameter(text);
-    if (root !== undefined) {
-      const referenced = helperNamespacesUsed(text, root);
+    const rootName = contextParameter(text);
+    const root = rootName === undefined ? undefined : escapeRegExp(rootName);
+    if (root !== undefined && rootName !== undefined) {
+      // The AST walk compares against an Identifier name, so it needs the raw
+      // parameter; the regex scanners below need the escaped one.
+      const referenced = helperNamespacesUsed(text, rootName);
       for (const { provider, namespace } of helperProviders) {
         if (referenced.has(namespace)) declare({ provider, from: 'helper', detail: `f.${namespace}` });
       }
@@ -221,10 +224,25 @@ function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
 }
 
-/** The body's first parameter (`f` in `async (f, input) => …`), escaped for a pattern. */
+/**
+ * The body's first parameter (`f` in `async (f, input) => …`), RAW.
+ *
+ * Returned unescaped because the AST walk compares it to an `Identifier`
+ * name: escaping turned a legal parameter like `f$` into `f\$`, which matches
+ * no identifier and hid every helper call in that flow. Callers that build a
+ * pattern escape it themselves with `escapeRegExp`.
+ */
 function contextParameter(body: string): string | undefined {
-  const parameter = body.match(/^(?:async\s+)?(?:function(?:\s+[\w$]+)?\s*)?(?:\(\s*([\w$]+)|([\w$]+)\s*=>)/u);
-  return (parameter?.[1] ?? parameter?.[2])?.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  // The third alternative is an object-literal method (`async post(f) { … }`),
+  // a shape `Function.prototype.toString()` can return and which the first two
+  // do not match — leaving `root` undefined and the body unscanned entirely.
+  const parameter = body.match(/^(?:async\s+)?(?:function\s*\*?\s*(?:[\w$]+)?\s*)?(?:\(\s*([\w$]+)|([\w$]+)\s*=>|[\w$]+\s*\(\s*([\w$]+))/u);
+  return parameter?.[1] ?? parameter?.[2] ?? parameter?.[3];
+}
+
+/** Escape a literal for embedding in a RegExp source. */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
 /**

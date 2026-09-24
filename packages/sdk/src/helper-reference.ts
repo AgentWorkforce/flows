@@ -56,13 +56,23 @@ function memberName(node: AstNode): string | undefined {
  */
 function parseFlowBody(body: string): AstNode | null {
   const options = { ecmaVersion: 'latest' as const, allowAwaitOutsideFunction: true, allowReturnOutsideFunction: true };
+  // `parseExpressionAt` stops at the end of the first expression and does not
+  // object to what follows, so `async post(f) { … }` parses as the identifier
+  // `async` and reports success having read three characters. Every attempt
+  // must therefore consume the whole source, or a method body would be walked
+  // as its own name and declare no helpers at all.
+  const whole = (source: string, node: AstNode): AstNode => {
+    const end = typeof node.end === 'number' ? node.end : -1;
+    if (end < 0 || source.slice(end).trim() !== '') throw new SyntaxError('unconsumed input');
+    return node;
+  };
   for (const attempt of [
-    () => parseExpressionAt(body, 0, options) as unknown as AstNode,
-    () => parseExpressionAt(`(${body})`, 0, options) as unknown as AstNode,
+    () => whole(body, parseExpressionAt(body, 0, options) as unknown as AstNode),
+    () => whole(`(${body})`, parseExpressionAt(`(${body})`, 0, options) as unknown as AstNode),
     () => parse(body, options) as unknown as AstNode,
     // An object-literal method (`async post(f) { … }`) is neither expression
     // nor statement on its own; it only parses inside an object.
-    () => parseExpressionAt(`({${body}})`, 0, options) as unknown as AstNode,
+    () => whole(`({${body}})`, parseExpressionAt(`({${body}})`, 0, options) as unknown as AstNode),
   ]) {
     try {
       return attempt();
@@ -94,6 +104,7 @@ function textFallback(body: string, root: string): ReadonlySet<string> {
 
 type AstNode = {
   type: string;
+  end?: number;
   name?: string;
   value?: unknown;
   computed?: boolean;

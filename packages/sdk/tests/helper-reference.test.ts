@@ -108,6 +108,21 @@ describe('helper references are read as syntax, not text', () => {
     expect(refusals(async (f: any) => { const o = { gitlab: 1 }; await f.run('true'); return o; })).toEqual([]);
   });
 
+  // The context parameter is compared to an AST Identifier name, so escaping
+  // it for a regex (as the pre-parser code did) hid every call in the flow.
+  it('sees helpers when the context parameter contains a regex metacharacter', () => {
+    expect(refusals(async (f$: any) => { await f$.gitlab.issues.list({}); }))
+      .toContain('helper_provider.mount_required');
+  });
+
+  // `parseExpressionAt` stops at the first expression without objecting to the
+  // rest, so a method body parsed as the identifier `async` and declared
+  // nothing. Every attempt must consume the whole source.
+  it('sees helpers in an object-literal method body', () => {
+    const holder = { async post(f: any) { await f.gitlab.issues.list({}); } };
+    expect(refusals(holder.post)).toContain('helper_provider.mount_required');
+  });
+
   it('does not declare a requirement from a mentioned helper', () => {
     const mentioned = getFlowDefinition(flow('mention', async (ctx: any) => {
       await ctx.run('echo f.gitlab');
