@@ -139,6 +139,18 @@ describe('canonical software-factory metadata contract', () => {
     expect(result.commands.some(command => command.startsWith('git push') || command.startsWith('gh pr create'))).toBe(false);
   });
 
+  it('fails closed before push when the body carries a foreign closing reference', async () => {
+    // A summary naming a different ticket would auto-link the pull request to
+    // the wrong issue on merge. PREPARE appends the expected line, leaving two
+    // closing-keyword lines — the run must stop rather than ship both.
+    const result = await runCanonical({
+      source: 'linear', title: 'Rate-limit the webhook queue', body: 'body', labels: [],
+      identifier: 'TECH-42',
+    }, '## Summary\n\nFixes OTHER-9\n');
+    expect(result.completionReason).toBe('needs_human');
+    expect(result.commands.some(command => command.startsWith('git push') || command.startsWith('gh pr create'))).toBe(false);
+  });
+
   it('normalizes whitespace and caps the title at 240 Unicode code points', async () => {
     const result = await runCanonical({
       source: 'github', title: `  Repair   ${'修'.repeat(250)}  `, body: 'body', labels: [], identifier: '#7',
