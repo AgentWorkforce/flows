@@ -286,6 +286,13 @@ export {
 
 export { createFlow, type CreateFlowOptions, type CreatedFlow } from './create-flow.js';
 
+export * from './flow-tool-contract.js';
+export { parseFlowToolCatalog, canonicalFlowToolCatalog, parseFlowToolEntry, parseFlowToolRun, parseFlowToolEvent,
+  parseFlowToolEvidence, parseFlowToolInvocation, flowToolInputDigest, flowToolRunLinks } from './flow-tool-wire.js';
+export { FlowToolClient, type FlowToolTransport, type FlowToolRequest, type FlowToolInvocationOptions } from './flow-tool-client.js';
+export { createFlowToolHttpTransport, type FlowToolHttpOptions } from './flow-tool-http.js';
+export { createFlowToolAdapters } from './flow-tool-adapters.js';
+
 export { renderProgress, type ProgressEvent } from './progress.js';
 export { webhookTriggerSpec } from './trigger-executor.js';
 export { scheduleTriggerSpec, scheduleLowering, SCHEDULE_EXECUTOR, type ScheduleLowering } from './schedule-trigger.js';

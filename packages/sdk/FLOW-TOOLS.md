@@ -85,13 +85,13 @@ is enabled, and no constraint is silently rewritten. Neither definition carries
 credentials or asserts read-only, destructive, idempotent or business-success
 annotations. Keep its manifest identity in the adapter's trusted binding.
 
-There is deliberately **no MCP server or invocation handler** in this slice.
+The descriptor-only functions above deliberately have no invocation handler.
 The authored runtime currently returns a completion reason and journal-step
 references, not this flow-defined result object or a verified bundle-admission
 receipt. A callable adapter must first bind verified execution to the manifest,
 validate input before effects and validate the real result after execution.
-This module does not implement hosted auth/admission, permission enforcement,
-async events, cancellation, resume, idempotency, or business-result guarantees.
+The new control-plane client below supplies transport and validation, not the
+hosted admission ledger, permission enforcement or execution implementation.
 
 ## Acceptance for this SDK slice
 
@@ -107,5 +107,63 @@ not a hosted end-to-end run or evidence of business-result correctness.
 The unchanged package and Linux kernel/SDK CI gates protect existing consumers.
 Passing them does not satisfy the RFC's live workload gates. Execution/admission
 and a real callable-flow journey remain separate implementation and acceptance
-work: they are prerequisites for shipping a callable adapter, not capabilities
-that this manifest-only module claims to deliver.
+work: they are prerequisites for shipping an enabled callable product, not
+capabilities that this SDK's transport implementation claims to provide.
+
+## Canonical control-plane client and call adapters
+
+`FlowToolClient` speaks one versioned, digest-pinned contract. It has no default
+production endpoint and never falls back to `runInCloud` source submission.
+The deployment must implement the explicit contract in
+[FLOW-TOOLS-IMPLEMENTATION.md](./FLOW-TOOLS-IMPLEMENTATION.md). An unsupported
+executor must refuse before admission; a metadata match is not provenance.
+
+```ts
+import { FlowToolClient, createFlowToolHttpTransport, createFlowToolAdapters } from '@relayflows/sdk';
+
+async function review(apiUrl: string, scopedToken: string, operationKey: string) {
+  const client = new FlowToolClient(createFlowToolHttpTransport({ apiUrl, token: scopedToken }));
+  const catalog = await client.discover(); // server filters scope before returning metadata
+  const selected = catalog.tools.find(tool => tool.manifest.name === 'review_pr');
+  if (!selected) throw new Error('No authorized revision');
+  const adapters = createFlowToolAdapters(client, selected);
+  // The host persists this key for the logical operation; it is not a model argument.
+  const receipt = await adapters.native.call({ pr: 42 }, { idempotencyKey: operationKey });
+  if (receipt.terminal === null) return receipt; // accepted is not completed
+  return receipt.terminal; // inspect business_verdict even when terminal_reason is success
+}
+```
+
+Native `call`, MCP `call` and action `invoke` pass the same input and host-owned
+operation metadata to that client. MCP returns the canonical run in
+`structuredContent` and a JSON text fallback; its output schema is the **run
+envelope**, not the eventual business-result schema. Existing metadata APIs
+remain unchanged. A host registers these handlers with its authenticated
+native/MCP/Relay session; this package does not start a public server or register
+Relay actions automatically. Provider-specific schema translation remains the
+host's responsibility. Never mistake a Relay dispatch acknowledgment for the
+canonical handler result.
+
+`status`, `events`, `evidence`, `cancel`, `resume` and yes/no `answer` all require
+the selected immutable entry and an accepted receipt. Persist that binding and
+the last validated event sequence to reconnect after a client restart; the
+server reauthorizes every operation, including reads. Do not re-resolve an
+alias to a newer revision for an old run. Events reject backwards/duplicate IDs
+and identity changes. Run envelopes reject incomplete terminal claims, invalid
+result schemas, unknown verdicts and mutation of a previously terminal result.
+The server still owns trusted result production, redaction and evidence ACLs.
+
+Async is the default. Sync supplies a server observation bound of at most
+25 seconds and may still return an unfinished receipt. Transport failure means
+the outcome may be unknown: retry only with the same logical operation key.
+No implicit retry, background polling or cancellation is performed. All POST
+commands need stable idempotency keys; human identity is derived from server
+authentication, never an `answered_by` model argument. Observation aborts and
+SSE reconnects do not cancel the run.
+
+Protocol v1 intentionally accepts only read-only catalog entries and `*:read`
+effect labels. Labels are not effect enforcement; enabling a deployment still
+requires the server's real scope controls. Hosted crash/effect proof, generic
+MCP server registration, signed publication/authoring integration and the live
+read-only pilot remain acceptance work. See the gap matrix, not test-fixture
+success, for the current release blockers.
