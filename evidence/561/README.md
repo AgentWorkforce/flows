@@ -25,6 +25,29 @@ git diff --exit-code -- packages/sdk/src/authored-worker-step.ts
 
 The mutation removes only the fifth `checkAuthoredFlow` argument, as captured in [mutation.patch](mutation.patch). After the failure, `git restore -- packages/sdk/src/authored-worker-step.ts` restores the committed bytes. [restore.txt](restore.txt) captures `git diff --exit-code` and the SHA-256 comparison with HEAD.
 
+### Re-verified at `100cd17` (branch head)
+
+The mutation was run once more at the branch head, after the artifact-gate fix
+(`1ccaaed`) landed, so the transcript matches the bytes a reviewer checks out:
+
+```sh
+git apply evidence/561/mutation.patch
+cd packages/sdk && RELAYFLOWD_BIN=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd \
+  ./node_modules/.bin/vitest run tests/authored-probe-cache.test.ts   # exit 1
+cd .. && git restore -- packages/sdk/src/authored-worker-step.ts
+git diff --exit-code -- packages/sdk/src/authored-worker-step.ts      # clean
+sha256sum packages/sdk/src/authored-worker-step.ts
+#   b9cd463d9f1ee274175a0b659119262c0ba5b18f1afc11b866c3e0f7f34023b7
+cd packages/sdk && RELAYFLOWD_BIN=... ./node_modules/.bin/vitest run \
+  tests/authored-probe-cache.test.ts                                  # exit 0
+```
+
+[Mutation failure at head](mutation-red-at-head.txt) — all 5 cases fail, and the
+capacity-1 and capacity-4 journals carry the issue's exact shape: attempt 1
+`"completionReason":"lease_expired"` with `"wallclock_ms":30011`, a
+`retry_backoff` sleep, then attempt 2 `"completionReason":"success"`.
+[Restored pass at head](mutation-green-at-head.txt) — 5 passed, exit 0.
+
 The spread bound allows one 300 ms synchronous probe plus process startup under load (1,000 ms total); the original nine probes take over 3 seconds. Exact auth and identify-only counts additionally pin the cache independently of timing. Worker identification sessions are counted separately from preflight probes. Tests also cover failures, agents, run isolation, capacity, and every child journal.
 
 ## Broader checks
