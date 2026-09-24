@@ -150,6 +150,18 @@ describe('canonical software-factory metadata contract', () => {
     expect(result.commands.some(command => command.startsWith('git push') || command.startsWith('gh pr create'))).toBe(false);
   });
 
+  it('does not mistake ordinary closing-verb prose for a reference', async () => {
+    // A summary sentence that starts with a closing verb is not a ticket
+    // reference — GitHub only links the keyword when an issue reference
+    // follows it. Counting "Fixed the retry loop" would block the run.
+    const result = await runCanonical({
+      source: 'linear', title: 'Rate-limit the webhook queue', body: 'body', labels: [],
+      identifier: 'TECH-42',
+    }, '## Summary\n\nFixed the retry loop in the dispatcher.\n');
+    expect(result.completionReason).toBe('success');
+    expect(result.body.split('\n').filter(line => line === 'Fixes TECH-42')).toHaveLength(1);
+  });
+
   it('normalizes whitespace and caps the title at 240 Unicode code points', async () => {
     const result = await runCanonical({
       source: 'github', title: `  Repair   ${'修'.repeat(250)}  `, body: 'body', labels: [], identifier: '#7',
