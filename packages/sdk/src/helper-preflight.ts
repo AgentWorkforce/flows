@@ -9,7 +9,7 @@ export function preflightHelpers(
     providers?: Readonly<Record<string, { mount: boolean; mock: boolean; token?: string }>> },
 ): PreflightResult {
   const body = typeof definition.body === 'function' ? Function.prototype.toString.call(definition.body) : '';
-  const parameter = body.match(/^(?:async\s+)?(?:function\s*\*?\s*(?:[\w$]+)?\s*)?(?:\(\s*([\w$]+)|([\w$]+)\s*=>|[\w$]+\s*\(\s*([\w$]+))/u);
+  const parameter = body.match(/^(?:async\s+)?(?:function\s*\*?\s*(?:[\w$]+)?\s*)?(?:\(\s*([\w$]+)|([\w$]+)\s*=>|\*?\s*[\w$]+\s*\(\s*([\w$]+))/u);
   // NOT regex-escaped: this is compared to an AST Identifier name, so a legal
   // parameter like `f$` must stay `f$`. Escaping it hid every helper call.
   const root = parameter?.[1] ?? parameter?.[2] ?? parameter?.[3];

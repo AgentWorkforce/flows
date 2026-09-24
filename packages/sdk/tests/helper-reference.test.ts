@@ -123,6 +123,15 @@ describe('helper references are read as syntax, not text', () => {
     expect(refusals(holder.post)).toContain('helper_provider.mount_required');
   });
 
+  it('sees helpers in non-async and generator method bodies', () => {
+    const holder = {
+      plain(f: any) { return f.gitlab.issues.list({}); },
+      *gen(f: any) { return f.gitlab.issues.list({}); },
+    };
+    expect(refusals(holder.plain)).toContain('helper_provider.mount_required');
+    expect(refusals(holder.gen as never)).toContain('helper_provider.mount_required');
+  });
+
   it('does not declare a requirement from a mentioned helper', () => {
     const mentioned = getFlowDefinition(flow('mention', async (ctx: any) => {
       await ctx.run('echo f.gitlab');

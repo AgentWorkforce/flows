@@ -236,7 +236,7 @@ function contextParameter(body: string): string | undefined {
   // The third alternative is an object-literal method (`async post(f) { … }`),
   // a shape `Function.prototype.toString()` can return and which the first two
   // do not match — leaving `root` undefined and the body unscanned entirely.
-  const parameter = body.match(/^(?:async\s+)?(?:function\s*\*?\s*(?:[\w$]+)?\s*)?(?:\(\s*([\w$]+)|([\w$]+)\s*=>|[\w$]+\s*\(\s*([\w$]+))/u);
+  const parameter = body.match(/^(?:async\s+)?(?:function\s*\*?\s*(?:[\w$]+)?\s*)?(?:\(\s*([\w$]+)|([\w$]+)\s*=>|\*?\s*[\w$]+\s*\(\s*([\w$]+))/u);
   return parameter?.[1] ?? parameter?.[2] ?? parameter?.[3];
 }
 
