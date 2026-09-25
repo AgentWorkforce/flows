@@ -32,11 +32,17 @@ Use `--out-dir /tmp/generated-helpers` to inspect output without changing source
 CI regenerates from the installed pinned package and compares every generated
 TypeScript file byte-for-byte, including the namespace index.
 
-Follow-up for the full slice N: add GitHub, Notion, Linear, and Stripe once their
-methods have runtime dispatch support; consume mapping/discovery resources and
-generate the remaining providers. The current runtime implements only Slack.
-The uniform upstream clients expose resource `read`/`list`/`write` methods,
-not `stripe.createInvoice` or `notion.appendBlock`; those aliases need an agreed
-runtime contract before this types-only generator can expose them. GitHub's
-bespoke `createIssue` also requires `owner` in addition to `repo`, `title`, and
-`body`. No new provider methods or resource methods are advertised in this proof.
+Runtime dispatch is no longer Slack-only: every provider in `providers.ts` whose
+`supported` is not `false` binds its upstream client's resource
+`read`/`list`/`write` methods plus the bespoke aliases the generator knows
+(`stripe.createInvoice`, `notion.appendBlock`, GitHub's `createIssue`, which
+requires `owner` in addition to `repo`, `title`, and `body`). `path` stays a
+synchronous path builder and is never dispatched.
+
+`supported` answers whether the pinned upstream writeback client exists. The
+adjacent sorted `resources` list is the exact adapter catalog; bespoke aliases
+such as `stripe.createInvoice` remain outside it. The list is not a claim that
+the whole vendor API is reachable. Keeping both fields in the generated file
+makes catalog growth and regression reviewable as ordinary source diffs.
+GitLab currently exposes `issues`, `merge-requests`, `refs`, `merge`, and
+`close-merge-request` in addition to comments and discussions.

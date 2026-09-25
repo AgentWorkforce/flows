@@ -15,6 +15,7 @@ const refusals = (body: Function): string[] =>
   preflightHelpers({ header: {}, body }, mountFacts).diagnostics
     .filter((d) => d.severity === 'refusal')
     .map((d) => d.kind);
+const fromSource = (source: string): Function => new Function(`return ${source};`)() as Function;
 
 describe('helper references are read as syntax, not text', () => {
   it('does not demand a mount for a helper named inside a string', () => {
@@ -130,6 +131,67 @@ describe('helper references are read as syntax, not text', () => {
     };
     expect(refusals(holder.plain)).toContain('helper_provider.mount_required');
     expect(refusals(holder.gen as never)).toContain('helper_provider.mount_required');
+  });
+
+  it('does not treat destructured locals as the outer flow context', () => {
+    for (const source of [
+      '(f) => { { const { f } = { f: { gitlab: { issues: 42 } } }; return f.gitlab.issues; } }',
+      '(f) => { { const [f] = [{ gitlab: { issues: 42 } }]; return f.gitlab.issues; } }',
+    ]) expect(refusals(fromSource(source)), source).toEqual([]);
+  });
+
+  it('does not treat object or class method parameters as the outer flow context', () => {
+    for (const source of [
+      '(f) => ({ read(f) { return f.gitlab.issues; } }).read({ gitlab: { issues: 42 } })',
+      '(f) => new class { read(f) { return f.gitlab.issues; } }().read({ gitlab: { issues: 42 } })',
+      '(f) => ({ read({ f }) { return f.gitlab.issues; } }).read({ f: { gitlab: { issues: 42 } } })',
+    ]) expect(refusals(fromSource(source)), source).toEqual([]);
+  });
+
+  it('only treats binding targets as shadowing in object/default patterns', () => {
+    for (const source of [
+      '(f) => { const callback = ({ f: x }) => f.gitlab.issues; return callback; }',
+      '(f) => { const callback = (x = f) => f.gitlab.issues; return callback; }',
+    ]) expect(refusals(fromSource(source)), source).toContain('helper_provider.mount_required');
+  });
+
+  it('treats nested function-scoped var declarations as shadowing', () => {
+    expect(refusals(fromSource(
+      '(f) => { const callback = () => { var f; return f.gitlab.issues; }; return callback(); }',
+    ))).toEqual([]);
+    expect(refusals(fromSource(
+      '(f) => { function callback() { var f; return f.gitlab.issues; } return callback(); }',
+    ))).toEqual([]);
+  });
+
+  it('still reads the outer context outside a nested var scope', () => {
+    expect(refusals(fromSource(
+      '(f) => { const callback = () => { var f; return f.gitlab.issues; }; callback(); return f.gitlab.issues; }',
+    ))).toContain('helper_provider.mount_required');
+  });
+
+  it('keeps outer helper references in parameter defaults outside var scope', () => {
+    expect(refusals(fromSource(
+      '(f) => { function read(x = f.gitlab.issues) { var f = local; return f.gitlab; } }',
+    ))).toContain('helper_provider.mount_required');
+  });
+
+  it('keeps root-function parameter defaults visible', () => {
+    expect(refusals(fromSource('(f, x = f.gitlab.issues) => x')))
+      .toContain('helper_provider.mount_required');
+  });
+
+  it('does not let a deeper nested var scope hide an outer helper', () => {
+    expect(refusals(fromSource(
+      '(f) => { const outer = () => { const inner = () => { var f; return f.gitlab; }; return f.gitlab.issues; }; return outer(); }',
+    ))).toContain('helper_provider.mount_required');
+  });
+
+  it('keeps reading the outer context outside a shadowing scope', () => {
+    const source = '(f) => { { const { f } = { f: { gitlab: {} } }; void f.gitlab; } return f.gitlab.issues; }';
+    expect(refusals(fromSource(source))).toContain('helper_provider.mount_required');
+    expect(refusals(fromSource('(f) => { if (f) return f.gitlab.issues; }')))
+      .toContain('helper_provider.mount_required');
   });
 
   // `flowRequirements` has its OWN parameter extraction, mirroring
