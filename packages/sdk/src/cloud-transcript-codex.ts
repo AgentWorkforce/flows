@@ -32,12 +32,22 @@ export const CODEX_FRAME_TYPES: ReadonlySet<string> = new Set([
 /** Item types whose lifecycles are matched and whose fields are read. */
 const SUPPORTED_ITEMS: ReadonlySet<string> = new Set([
   'agent_message', 'reasoning', 'command_execution', 'file_change', 'mcp_tool_call', 'error',
+  // The rest of Codex's `ThreadItemDetails` union
+  // (codex-rs/exec/src/exec_events.rs). Without these three, a real agent turn
+  // reported them as bare `unknown` placeholders naming a type and a size —
+  // honest, but useless: `todo_list` in particular updates continuously
+  // through a turn, so it was the most frequent thing a reader could not read.
+  'web_search', 'todo_list', 'collab_tool_call',
 ]);
 
 const ITEM_FRAMES: ReadonlySet<string> = new Set(['item.started', 'item.updated', 'item.completed']);
 
 /** Calls are numbered; an `apply_patch` is file activity, not a call. */
-const NUMBERED_ITEMS: ReadonlySet<string> = new Set(['command_execution', 'mcp_tool_call']);
+const NUMBERED_ITEMS: ReadonlySet<string> = new Set([
+  'command_execution', 'mcp_tool_call', 'web_search', 'collab_tool_call',
+]);
+/** Todo entries listed per snapshot; a longer plan is counted, not printed. */
+const TODO_MAX_ITEMS = 12;
 
 interface Lifecycle {
   snapshots: Array<Record<string, unknown>>;
@@ -246,6 +256,59 @@ function mcpEntry(item: Record<string, unknown>, complete: boolean, context: Con
     });
 }
 
+/**
+ * `web_search`: a query and what was done with it (`WebSearchItem` — `query`,
+ * `action`, optional structured `results`). Rendered as a call rather than
+ * prose, so a reader sees the search in sequence beside the commands.
+ */
+function webSearchEntry(item: Record<string, unknown>, complete: boolean, context: Context,
+  seq: number): TranscriptEntry | null {
+  const query = str(item['query']);
+  if (query === null) return null;
+  const action = isRecord(item['action']) ? str(item['action']['type']) : str(item['action']);
+  const results = item['results'];
+  const count = Array.isArray(results) ? results.length : null;
+  return tool('web_search', bounded(query, context.clean),
+    count === null ? null : JSON.stringify(results).length, false, {
+      seq, status: action === null ? null : bounded(action, context.clean, 40),
+      exit_code: null,
+      output_excerpt: count === null ? null : `${count} result${count === 1 ? '' : 's'}`,
+      output_truncated: false, complete, error: null,
+    });
+}
+
+/**
+ * `collab_tool_call`: Codex driving other Codex threads (`CollabToolCallItem` —
+ * `tool`, `sender_thread_id`, `receiver_thread_ids`, `agents_states`).
+ *
+ * The per-agent states are reduced to a count per status rather than listed:
+ * `agents_states` is a map keyed by agent id, and ids are not something a
+ * transcript reader can act on.
+ */
+function collabEntry(item: Record<string, unknown>, complete: boolean, context: Context,
+  seq: number): TranscriptEntry | null {
+  const name = str(item['tool']);
+  if (name === null) return null;
+  const receivers = Array.isArray(item['receiver_thread_ids']) ? item['receiver_thread_ids'].length : 0;
+  const states = isRecord(item['agents_states']) ? item['agents_states'] : null;
+  const byStatus = new Map<string, number>();
+  if (states !== null) {
+    for (const state of Object.values(states)) {
+      const status = isRecord(state) ? str(state['status']) : null;
+      if (status !== null) byStatus.set(status, (byStatus.get(status) ?? 0) + 1);
+    }
+  }
+  const summary = [...byStatus.entries()].sort().map(([status, n]) => `${n} ${status}`).join(', ');
+  const status = str(item['status']);
+  return tool('collab_tool_call',
+    bounded(`${name}${receivers > 0 ? ` → ${receivers} thread${receivers === 1 ? '' : 's'}` : ''}`, context.clean),
+    null, status === 'failed', {
+      seq, status: status === null ? null : bounded(status, context.clean, 40),
+      exit_code: null, output_excerpt: summary.length === 0 ? null : summary,
+      output_truncated: false, complete, error: null,
+    });
+}
+
 function fileChangeEntry(item: Record<string, unknown>, complete: boolean, context: Context): TranscriptEntry | null {
   const raw = item['changes'];
   if (!Array.isArray(raw)) return null;
@@ -288,12 +351,31 @@ function itemEntries(item: Record<string, unknown>, complete: boolean, context: 
     if (message === null) return [placeholder(context, itemType)];
     return [{ kind: 'error', source: 'item', message: bounded(message, context.clean, ERROR_MAX_CHARS) }];
   }
-  if (itemType === 'command_execution' || itemType === 'mcp_tool_call') {
+  if (itemType === 'todo_list') {
+    // A plan, not a call: it carries no status and earns no sequence number.
+    // `items[]` is `{text, completed}` (TodoListItem/TodoItem).
+    const items = Array.isArray(item['items']) ? item['items'] : null;
+    if (items === null) return [placeholder(context, itemType)];
+    const listed = items.slice(0, TODO_MAX_ITEMS).flatMap((entry) => {
+      const todo = isRecord(entry) ? entry : undefined;
+      const text = str(todo?.['text']);
+      return text === null ? [] : [{ text: context.clean(text), done: todo!['completed'] === true }];
+    });
+    return [{
+      kind: 'todo', total: items.length, done: listed.filter(entry => entry.done).length,
+      items: listed, ...(items.length > listed.length ? { omitted: items.length - listed.length } : {}),
+      ...(complete ? {} : { complete: false }),
+    }];
+  }
+  if (itemType === 'command_execution' || itemType === 'mcp_tool_call'
+    || itemType === 'web_search' || itemType === 'collab_tool_call') {
     // The number is only spent on a call this module could actually read, so a
     // malformed item leaves no gap in the sequence.
     const seq = context.state.seq + 1;
-    const entry = itemType === 'command_execution'
-      ? commandEntry(item, complete, context, seq) : mcpEntry(item, complete, context, seq);
+    const entry = itemType === 'command_execution' ? commandEntry(item, complete, context, seq)
+      : itemType === 'mcp_tool_call' ? mcpEntry(item, complete, context, seq)
+      : itemType === 'web_search' ? webSearchEntry(item, complete, context, seq)
+      : collabEntry(item, complete, context, seq);
     if (entry === null) return [placeholder(context, itemType)];
     context.state.seq = seq;
     return [entry];

@@ -114,6 +114,18 @@ export interface FinalStep {
   model?: string;
   tokensInput?: number;
   tokensOutput?: number;
+  /**
+   * True when tokens were counted but nobody priced them.
+   *
+   * The kernel already records this (`run-state.ts`'s `Spend`), and
+   * `flows status` already prints `(unmetered)` from it. Without it on the
+   * wire, Cloud cannot tell a step that genuinely cost nothing — a
+   * deterministic `echo` — from one that spent real money against an unpriced
+   * model: both arrive as an absent `costUsd` and render blank. Codex is the
+   * everyday case, because it selects its own model and never reports it, so
+   * `MODEL_PRICING` has nothing to match (`model-pricing.ts` says so outright).
+   */
+  costUnmetered?: true;
   costUsd?: number;
   error?: string;
   detail?: Record<string, unknown>;
@@ -314,6 +326,18 @@ interface AttemptRecord {
   tokensIn?: number;
   tokensOut?: number;
   costUsd?: number;
+  costUnmetered?: boolean;
+  /**
+   * Reasoning tokens the provider reported, when it separates them.
+   *
+   * Carried as a *breakdown*, never added to `tokensOut`: codex's own
+   * `blended_total()` is `non_cached_input + output_tokens` and nothing in its
+   * protocol adds reasoning to output, so `reasoning_output_tokens` is a
+   * subset of `output_tokens` (codex-rs/protocol/src/protocol.rs). Summing
+   * them would inflate metered output and, through `maxDollars`, the budget
+   * ceiling itself.
+   */
+  reasoningOut?: number;
 }
 
 /**
@@ -332,6 +356,7 @@ function attemptsByStep(events: readonly JournalEvent[]): Map<string, AttemptRec
     const digest = record(record(payload['trajectory_tail'])?.['transcript']);
     const file = record(digest?.['file']);
     const result = record(digest?.['result']);
+    const usage = record(result?.['usage']);
     const entries = byStep.get(event.step_id) ?? [];
     entries.push({
       attempt: event.attempt ?? entries.length + 1,
@@ -346,6 +371,9 @@ function attemptsByStep(events: readonly JournalEvent[]): Map<string, AttemptRec
       ...(typeof result?.['total_cost_usd'] === 'number' && Number.isFinite(result['total_cost_usd'])
         && result['total_cost_usd'] >= 0
         ? { costUsd: result['total_cost_usd'] as number } : {}),
+      ...(budget['dollars_unmetered'] === true ? { costUnmetered: true } : {}),
+      ...(int32(usage?.['reasoning_output_tokens']) === undefined
+        ? {} : { reasoningOut: int32(usage!['reasoning_output_tokens'])! }),
     });
     byStep.set(event.step_id, entries);
   }
@@ -374,6 +402,10 @@ function finalStep(
   // Cloud totals these rows for the run's spend — so a retried agent's earlier
   // charges simply vanished from the run.
   const spentUsd = attempts.reduce((total, entry) => total + (entry.costUsd ?? 0), 0);
+  // Unmetered only when no attempt produced a price. A step that was priced on
+  // one attempt and unpriced on another has a real, if partial, figure — and
+  // claiming the whole step is unpriced would hide it.
+  const unmetered = spentUsd === 0 && attempts.some(entry => entry.costUnmetered === true);
   const detail = stepDetail(attempts, env);
   const verification = step.last_attempt?.verification ?? null;
   // What the step said about itself. A gate's verdict detail is the nearest
@@ -408,6 +440,7 @@ function finalStep(
     ...(tokensIn > 0 ? { tokensInput: Math.min(tokensIn, MAX_INT32) } : {}),
     ...(tokensOut > 0 ? { tokensOutput: Math.min(tokensOut, MAX_INT32) } : {}),
     ...(spentUsd > 0 ? { costUsd: spentUsd } : {}),
+    ...(unmetered ? { costUnmetered: true as const } : {}),
     ...(error === undefined ? {} : { error }),
     ...(detail.detail === undefined ? {} : { detail: detail.detail }),
     ...(detail.truncated === undefined ? {} : { detailTruncated: detail.truncated }),

@@ -196,6 +196,85 @@ describe('mirrorJournal', () => {
   });
 });
 
+/**
+ * The kernel already records `dollars_unmetered` and `flows status` already
+ * prints `(unmetered)` from it. The mirror dropped it, so Cloud could not tell
+ * a step that genuinely cost nothing from one that spent real money against an
+ * unpriced model — both arrived as an absent `costUsd`. Codex is the everyday
+ * case: it picks its own model and never reports it, so `MODEL_PRICING` has
+ * nothing to match.
+ */
+describe('unpriced spend', () => {
+  function codexStep(budget: Record<string, unknown>, usage?: Record<string, unknown>): JournalEvent[] {
+    seq = 0;
+    return [
+      entry({
+        entry_type: 'run.spawned',
+        payload: { spec: { name: 'codex', steps: [{ id: 'ask', type: 'agent', after: [] }] } },
+      }),
+      entry({ entry_type: 'step.attempt.started', step_id: 'ask', attempt: 1, payload: {} }),
+      entry({
+        entry_type: 'step.completed',
+        step_id: 'ask',
+        attempt: 1,
+        payload: {
+          completionReason: 'success',
+          disposition: 'step_done',
+          budget,
+          trajectory_tail: { transcript: { result: usage === undefined ? {} : { usage } } },
+        },
+      }),
+    ];
+  }
+
+  it('marks a step unmetered when tokens were counted and nobody priced them', () => {
+    const [step] = mirrorJournal('01RUN', codexStep({
+      tokens_in: 13078, tokens_out: 8, dollars: '0', dollars_unmetered: true,
+    }), 1_700_000_010_000, {}).finals;
+
+    expect(step).toMatchObject({ tokensInput: 13078, tokensOutput: 8, costUnmetered: true });
+    // Never a fabricated zero: an absent price is absent, and said so.
+    expect(step).not.toHaveProperty('costUsd');
+  });
+
+  it('does not mark a genuinely free step unmetered', () => {
+    const [step] = mirrorJournal('01RUN', codexStep({
+      tokens_in: 0, tokens_out: 0, dollars: '0', dollars_unmetered: false,
+    }), 1_700_000_010_000, {}).finals;
+
+    expect(step).not.toHaveProperty('costUnmetered');
+    expect(step).not.toHaveProperty('costUsd');
+  });
+
+  it('prefers a real figure over the unmetered flag when one attempt was priced', () => {
+    const events = codexStep({ tokens_in: 1, tokens_out: 1, dollars: '0', dollars_unmetered: true });
+    (events[2]!.payload as Record<string, unknown>)['trajectory_tail'] = {
+      transcript: { result: { total_cost_usd: 0.004 } },
+    };
+    const [step] = mirrorJournal('01RUN', events, 1_700_000_010_000, {}).finals;
+
+    expect(step).toMatchObject({ costUsd: 0.004 });
+    expect(step).not.toHaveProperty('costUnmetered');
+  });
+
+  /**
+   * Codex's own `blended_total()` is `non_cached_input + output_tokens` and
+   * nothing in its protocol adds reasoning to output, so
+   * `reasoning_output_tokens` is a SUBSET of `output_tokens`. Carried as a
+   * breakdown; summing it would inflate metered output and, through
+   * `maxDollars`, the budget ceiling itself.
+   */
+  it('carries reasoning tokens as a breakdown, never added to metered output', () => {
+    const [step] = mirrorJournal('01RUN', codexStep(
+      { tokens_in: 13078, tokens_out: 900, dollars: '0', dollars_unmetered: true },
+      { input_tokens: 13078, output_tokens: 900, reasoning_output_tokens: 850 },
+    ), 1_700_000_010_000, {}).finals;
+
+    // 900, not 1,750.
+    expect(step!.tokensOutput).toBe(900);
+  });
+});
+
 describe('the bounds Cloud enforces', () => {
   it('redacts before it clips, so no secret survives as a prefix', () => {
     const secret = 'sk-ant-0123456789abcdefghijklmnopqrstuvwxyz';
