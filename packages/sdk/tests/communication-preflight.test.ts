@@ -16,7 +16,7 @@ function fixture(cli: string) {
   const spec: FlowSpec = { version: '0.1.0', cli: executable, steps: [
     { id: 'a', type: 'agent', instruction: 'send' }, { id: 'b', type: 'agent', instruction: 'receive' },
   ], communication: { links: [{ from: 'a', to: 'b' }] } };
-  return { spec, check: (flow = spec) => checkAuthoredFlow(flow, join(root, 'flow.yaml'), config) };
+  return { spec, check: (flow = spec) => checkAuthoredFlow(flow, join(root, 'flow.yaml'), { projectConfig: config }) };
 }
 describe('managed CLI preflight', () => {
   it('probes known CLIs with the same filtered credentials as execution', () => {

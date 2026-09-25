@@ -1,8 +1,8 @@
 # software-factory
 
-[![Deploy Flow](https://agentrelay.com/launch-agent_small.svg)](https://agentrelay.com/cloud/flows/deploy?flow=https%3A%2F%2Fgithub.com%2FAgentWorkforce%2Fflows%2Fblob%2Fmain%2Fexamples%2Fsoftware-factory%2Fsoftware-factory.flow.ts&on=linear)
+[![Deploy Flow](https://agentrelay.com/launch-agent_small.svg)](https://agentrelay.com/cloud/flows/deploy?flow=https%3A%2F%2Fgithub.com%2FAgentWorkforce%2Fflows%2Fblob%2Fmain%2Fexamples%2Fsoftware-factory%2Fsoftware-factory.flow.ts&on=linear%3Aevents%3Dassigned)
 
-One click deploys this flow to [Agent Relay Cloud](https://agentrelay.com/cloud), running on new Linear issues — set your team on the deploy page.
+One click deploys this flow to [Agent Relay Cloud](https://agentrelay.com/cloud), running when a Linear issue is assigned to the connected app user — set your team on the deploy page.
 
 A ticket becomes a pull request: implementation agent → deterministic tests →
 adversarial review agent → PR opened for a human. The review verdict is a file
@@ -12,16 +12,19 @@ neither can be talked into a green result.
 ```sh
 flows check examples/software-factory/software-factory.flow.ts
 flows deploy examples/software-factory/software-factory.flow.ts \
-  --repo acme/api --on linear:team=TECH --approver you
+  --repo acme/api --on linear:events=assigned,team=TECH --approver you
 flows deployments
 ```
 
 `--on` also takes `github:labels=agent`, `jira:project=OPS`, `shortcut:workspace=…`
-or `slack:channel=#eng`, and `linear` accepts `team`, `project`, `labels` and
-`contains` (`linear:team=TECH,labels=agent`); `team` matches the Linear team
-name or its key, so `team=Engineering` and `team=TECH` are the same filter. The
-deploy page shows every filter as an editable field — the badge only fixes the
-provider; team, project and labels are filled in there.
+or `slack:channel=#eng`, and `linear` accepts `team`, `project`, `labels`,
+`contains` and `events` (`linear:team=TECH,labels=agent`); `team` matches the
+Linear team name or its key, so `team=Engineering` and `team=TECH` are the same
+filter. `events` is `issues` (the default — new issues), `assigned` (issues
+assigned to the connected app user — the badge's choice, so assigning a ticket
+delegates it), or `all` for both. The deploy page shows every filter as an
+editable field — the badge only fixes the provider and `assigned`; team,
+project and labels are filled in there.
 
 Each matching ticket launches one Cloud run in a fresh
 `relayflow/software-factory-<id>` branch of `--repo`; a passing review opens a

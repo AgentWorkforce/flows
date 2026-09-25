@@ -64,6 +64,8 @@ describe('trigger source and repository parsing', () => {
     ['slack:channel=#eng', { provider: 'slack', settings: { channel: '#eng' } }],
     ['linear:team=ENG', { provider: 'linear', settings: { team: 'ENG' } }],
     ['linear:team=Engineering,labels=agent,contains=urgent', { provider: 'linear', settings: { team: 'Engineering', labels: 'agent', contains: 'urgent' } }],
+    ['linear:events=assigned', { provider: 'linear', settings: { events: 'assigned' } }],
+    ['linear:events=ALL,team=TECH', { provider: 'linear', settings: { events: 'all', team: 'TECH' } }],
     ['jira:project=OPS,labels=agent', { provider: 'jira', settings: { project: 'OPS', labels: 'agent' } }],
     ['shortcut:workspace=acme,team=Platform', { provider: 'shortcut', settings: { workspace: 'acme', team: 'Platform' } }],
     ['gitlab:project=acme/platform/web', { provider: 'gitlab', settings: { project: 'acme/platform/web' } }],
@@ -75,7 +77,7 @@ describe('trigger source and repository parsing', () => {
     expect(parseTriggerSource(value)).toEqual(expected);
   });
 
-  it.each(['github:channel=x', 'github:labels=', 'github:labels=a,labels=b', 'slack:labels=x', 'github:events=releases', 'gitlab:events=pull_request', 'gitlab:repository=acme/web', 'github:reviews=maybe', 'linear:events=issues'])
+  it.each(['github:channel=x', 'github:labels=', 'github:labels=a,labels=b', 'slack:labels=x', 'github:events=releases', 'gitlab:events=pull_request', 'gitlab:repository=acme/web', 'github:reviews=maybe', 'linear:events=mentions', 'linear:events=pull_request'])
   ('refuses %s', (value) => {
     expect(() => parseTriggerSource(value)).toThrow(expect.objectContaining({ code: 'invalid_input' }));
   });

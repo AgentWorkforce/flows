@@ -1,0 +1,109 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+(node:40764) [FLOWS_WORKER_LEASE_LOST] Warning: test-llm: run_id=01M391141161E357A40MBYPN3A step_id=llm-1 attempt=1: WorkerLeaseLostError: Agent lease is already expired for 01M391141161E357A40MBYPN3A/llm-1.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:40764) [FLOWS_WORKER_LEASE_LOST] Warning: test-llm: run_id=01M39128M2NQ6ATSY779PXPJVP step_id=llm-1 attempt=1: WorkerLeaseLostError: Agent lease is already expired for 01M39128M2NQ6ATSY779PXPJVP/llm-1.
+ ❯ tests/authored-probe-cache.test.ts (5 tests | 5 failed) 87312ms
+   × authored run CLI probe cache > nine calls have no expired attempts at capacity 1 37509ms
+     → 01M391141161E357A40MBYPN3A.sqlite3: expected '[{"at_ms":1790230695973,"attempt":nul…' not to contain 'lease_expired'
+   × authored run CLI probe cache > nine calls have no expired attempts at capacity 4 37935ms
+     → 01M39128M2NQ6ATSY779PXPJVP.sqlite3: expected '[{"at_ms":1790230733446,"attempt":nul…' not to contain 'lease_expired'
+   × authored run CLI probe cache > does not serialize nine starts behind nine probes, and probes again on a new run 6548ms
+     → expected 3340.2447240000038 to be less than 1000
+   × authored run CLI probe cache > caches probe failures while refusing all nine calls 3300ms
+     → expected [ { kind: 'auth' }, …(8) ] to have a length of 1 but got 9
+   × authored run CLI probe cache > shares probe results across agent calls too 2018ms
+     → expected [ { kind: 'auth' }, …(2) ] to have a length of 1 but got 3
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-probe-cache.test.ts > authored run CLI probe cache > nine calls have no expired attempts at capacity 1
+AssertionError: 01M391141161E357A40MBYPN3A.sqlite3: expected '[{"at_ms":1790230695973,"attempt":nul…' not to contain 'lease_expired'
+
+Expected: "lease_expired"
+Received: "[{"at_ms":1790230695973,"attempt":null,"entry_type":"run.spawned","payload":{"created_by":"protocol-v0","journal_version":1,"parent_run_id":null,"spec":{"name":"nine-llms/llm-1","steps":[{"cli":"/tmp/flows-chain-niZO3d/adapter.mjs","depends_on":[],"id":"llm-1","max_iterations":1,"model":"test-model","prompt":"Return JSON for 0","retry":{"initial_backoff_ms":100,"jitter_percent":20,"max_backoff_ms":60000,"multiplier":2},"type":"llm","verification":{"json_schema":{"properties":{"x":{"type":"number"}},"required":["x"],"type":"object"}}}],"version":"0.1.0"},"spec_hash":"c305c1eca299e57e82538e0d90c3cf298cfd7e23d0dce51b6ed3f18b3b4044be"},"run_id":"01M391141161E357A40MBYPN3A","segment_id":1,"seq":1,"step_id":null},{"at_ms":1790230695977,"attempt":null,"entry_type":"step.routed","payload":{"fallbacks_attempted":[],"profile":"attached-worker","provider":"worker"},"run_id":"01M391141161E357A40MBYPN3A","segment_id":1,"seq":2,"step_id":"llm-1"},{"at_ms":1790230695977,"attempt":1,"entry_type":"step.attempt.started","payload":{"executor":"local-agent-5aa55ed4-158a-48e8-b824-cefda6262a22-llm","idempotency_key":"c7efa3a49306bed647bf9b905c6dacc3ef3d5572011ed962679f0f4588307983","lease_deadline_ms":1790230725977,"lease_id":"01M3911419QSC2TBW8EY121M8Q","max_iterations":1,"pins":{"streams":[],"workspace":[]},"recovery_mode":null,"step_type":"llm"},"run_id":"01M391141161E357A40MBYPN3A","segment_id":1,"seq":3,"step_id":"llm-1"},{"at_ms":1790230726015,"attempt":1,"entry_type":"step.completed","payload":{"budget":{"dollars":"0","tokens_in":0,"tokens_out":0},"completed_by":"kernel","completionReason":"lease_expired","disposition":"retry","effects":[],"end_pins":null,"input_hash":"44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","next_attempt_at_ms":1790230726015,"output":null,"spend":{"dollars":0,"tokens_input":0,"tokens_output":0,"wallclock_ms":30038},"step_spec_hash":"51478a00df69af7604bc32ac9e6e6e50a1c627bea9728ebf337c58ce6c6fd487","verification":null},"run_id":"01M391141161E357A40MBYPN3A","segment_id":1,"seq":4,"step_id":"llm-1"},{"at_ms":1790230726015,"attempt":1,"entry_type":"sleep.until","payload":{"reason":"retry_backoff","wait_id":"01M39121BZRBF3ND2YS8TJX1FM","wake_at_ms":1790230726015},"run_id":"01M391141161E357A40MBYPN3A","segment_id":1,"seq":5,"step_id":"llm-1"},{"at_ms":1790230726023,"attempt":1,"entry_type":"wait.completed","payload":{"completionReason":"timer_fired","result":null,"wait_id":"01M39121BZRBF3ND2YS8TJX1FM"},"run_id":"01M391141161E357A40MBYPN3A","segment_id":1,"seq":6,"step_id":"llm-1"},{"at_ms":1790230726024,"attempt":2,"entry_type":"step.attempt.started","payload":{"executor":"local-agent-5aa55ed4-158a-48e8-b824-cefda6262a22-llm","idempotency_key":"c7efa3a49306bed647bf9b905c6dacc3ef3d5572011ed962679f0f4588307983","lease_deadline_ms":1790230756024,"lease_id":"01M39121C8SDT36NE3KZVWBZFD","max_iterations":1,"pins":{"streams":[],"workspace":[]},"recovery_mode":null,"step_type":"llm"},"run_id":"01M391141161E357A40MBYPN3A","segment_id":1,"seq":7,"step_id":"llm-1"},{"at_ms":1790230729145,"attempt":2,"entry_type":"step.completed","payload":{"budget":{"dollars":"0","dollars_unmetered":true,"tokens_in":0,"tokens_out":0},"completed_by":"local-agent-5aa55ed4-158a-48e8-b824-cefda6262a22-llm","completionReason":"success","disposition":"step_done","effects":[],"end_pins":null,"input_hash":"44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","next_attempt_at_ms":null,"output":{"x":4},"spend":{"dollars":0,"dollars_unmetered":true,"tokens_input":0,"tokens_output":0,"wallclock_ms":3121},"step_spec_hash":"51478a00df69af7604bc32ac9e6e6e50a1c627bea9728ebf337c58ce6c6fd487","verification":{"detail":"all gates passed","gate":"json_schema","verdict":"pass"}},"run_id":"01M391141161E357A40MBYPN3A","segment_id":1,"seq":8,"step_id":"llm-1"},{"at_ms":1790230729148,"attempt":null,"entry_type":"run.completed","payload":{"budget_total":{"dollars":"0","dollars_unmetered":true,"tokens_in":0,"tokens_out":0},"completionReason":"success","failed_step_id":null},"run_id":"01M391141161E357A40MBYPN3A","segment_id":1,"seq":9,"step_id":null}]"
+
+ ❯ tests/authored-probe-cache.test.ts:82:49
+     80|     for (const file of runs) {
+     81|       const { entries } = await client.journalRead(file.slice(0, -8), …
+     82|       expect(JSON.stringify(entries), file).not.toContain('lease_expir…
+       |                                                 ^
+     83|       expect(entries.filter(e => typeof e === 'object' && e !== null
+     84|         && 'entry_type' in e && e.entry_type === 'step.attempt.started…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  tests/authored-probe-cache.test.ts > authored run CLI probe cache > nine calls have no expired attempts at capacity 4
+AssertionError: 01M39128M2NQ6ATSY779PXPJVP.sqlite3: expected '[{"at_ms":1790230733446,"attempt":nul…' not to contain 'lease_expired'
+
+Expected: "lease_expired"
+Received: "[{"at_ms":1790230733446,"attempt":null,"entry_type":"run.spawned","payload":{"created_by":"protocol-v0","journal_version":1,"parent_run_id":null,"spec":{"name":"nine-llms/llm-1","steps":[{"cli":"/tmp/flows-chain-NRjmsX/adapter.mjs","depends_on":[],"id":"llm-1","max_iterations":1,"model":"test-model","prompt":"Return JSON for 0","retry":{"initial_backoff_ms":100,"jitter_percent":20,"max_backoff_ms":60000,"multiplier":2},"type":"llm","verification":{"json_schema":{"properties":{"x":{"type":"number"}},"required":["x"],"type":"object"}}}],"version":"0.1.0"},"spec_hash":"07c29d761706e56ddaec92ab6a4f9d14dc2908bf1ed33a23f0974fc3b9e0b042"},"run_id":"01M39128M2NQ6ATSY779PXPJVP","segment_id":1,"seq":1,"step_id":null},{"at_ms":1790230733449,"attempt":null,"entry_type":"step.routed","payload":{"fallbacks_attempted":[],"profile":"attached-worker","provider":"worker"},"run_id":"01M39128M2NQ6ATSY779PXPJVP","segment_id":1,"seq":2,"step_id":"llm-1"},{"at_ms":1790230733449,"attempt":1,"entry_type":"step.attempt.started","payload":{"executor":"local-agent-7c2039e8-ba49-4acd-8ce8-b2f8630149a3-llm","idempotency_key":"adab9f30063e09a1f304a04de8171072f287ce64b49293c83ffdd9deffd2d795","lease_deadline_ms":1790230763449,"lease_id":"01M39128M933BEVH37JZN7Y9P7","max_iterations":1,"pins":{"streams":[],"workspace":[]},"recovery_mode":null,"step_type":"llm"},"run_id":"01M39128M2NQ6ATSY779PXPJVP","segment_id":1,"seq":3,"step_id":"llm-1"},{"at_ms":1790230763516,"attempt":1,"entry_type":"step.completed","payload":{"budget":{"dollars":"0","tokens_in":0,"tokens_out":0},"completed_by":"kernel","completionReason":"lease_expired","disposition":"retry","effects":[],"end_pins":null,"input_hash":"44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","next_attempt_at_ms":1790230763516,"output":null,"spend":{"dollars":0,"tokens_input":0,"tokens_output":0,"wallclock_ms":30067},"step_spec_hash":"5941f015b8f3c5e1e634001e6db17b6da03ff4369604ecd7a5e3ec65e983c441","verification":null},"run_id":"01M39128M2NQ6ATSY779PXPJVP","segment_id":1,"seq":4,"step_id":"llm-1"},{"at_ms":1790230763516,"attempt":1,"entry_type":"sleep.until","payload":{"reason":"retry_backoff","wait_id":"01M39135ZWXK4XHGM47SQS7FHX","wake_at_ms":1790230763516},"run_id":"01M39128M2NQ6ATSY779PXPJVP","segment_id":1,"seq":5,"step_id":"llm-1"},{"at_ms":1790230763532,"attempt":1,"entry_type":"wait.completed","payload":{"completionReason":"timer_fired","result":null,"wait_id":"01M39135ZWXK4XHGM47SQS7FHX"},"run_id":"01M39128M2NQ6ATSY779PXPJVP","segment_id":1,"seq":6,"step_id":"llm-1"},{"at_ms":1790230763533,"attempt":2,"entry_type":"step.attempt.started","payload":{"executor":"local-agent-7c2039e8-ba49-4acd-8ce8-b2f8630149a3-llm","idempotency_key":"adab9f30063e09a1f304a04de8171072f287ce64b49293c83ffdd9deffd2d795","lease_deadline_ms":1790230793533,"lease_id":"01M391360D3KAP5XF0CNFFHFB1","max_iterations":1,"pins":{"streams":[],"workspace":[]},"recovery_mode":null,"step_type":"llm"},"run_id":"01M39128M2NQ6ATSY779PXPJVP","segment_id":1,"seq":7,"step_id":"llm-1"},{"at_ms":1790230766692,"attempt":2,"entry_type":"step.completed","payload":{"budget":{"dollars":"0","dollars_unmetered":true,"tokens_in":0,"tokens_out":0},"completed_by":"local-agent-7c2039e8-ba49-4acd-8ce8-b2f8630149a3-llm","completionReason":"success","disposition":"step_done","effects":[],"end_pins":null,"input_hash":"44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","next_attempt_at_ms":null,"output":{"x":4},"spend":{"dollars":0,"dollars_unmetered":true,"tokens_input":0,"tokens_output":0,"wallclock_ms":3159},"step_spec_hash":"5941f015b8f3c5e1e634001e6db17b6da03ff4369604ecd7a5e3ec65e983c441","verification":{"detail":"all gates passed","gate":"json_schema","verdict":"pass"}},"run_id":"01M39128M2NQ6ATSY779PXPJVP","segment_id":1,"seq":8,"step_id":"llm-1"},{"at_ms":1790230766698,"attempt":null,"entry_type":"run.completed","payload":{"budget_total":{"dollars":"0","dollars_unmetered":true,"tokens_in":0,"tokens_out":0},"completionReason":"success","failed_step_id":null},"run_id":"01M39128M2NQ6ATSY779PXPJVP","segment_id":1,"seq":9,"step_id":null}]"
+
+ ❯ tests/authored-probe-cache.test.ts:82:49
+     80|     for (const file of runs) {
+     81|       const { entries } = await client.journalRead(file.slice(0, -8), …
+     82|       expect(JSON.stringify(entries), file).not.toContain('lease_expir…
+       |                                                 ^
+     83|       expect(entries.filter(e => typeof e === 'object' && e !== null
+     84|         && 'entry_type' in e && e.entry_type === 'step.attempt.started…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  tests/authored-probe-cache.test.ts > authored run CLI probe cache > does not serialize nine starts behind nine probes, and probes again on a new run
+AssertionError: expected 3340.2447240000038 to be less than 1000
+ ❯ tests/authored-probe-cache.test.ts:104:41
+    102|     // F1 permits one synchronous probe (~300ms), not nine (~3s).
+    103|     // Leave process-startup headroom for loaded CI; exact counts belo…
+    104|     expect(starts.at(-1)! - starts[0]!).toBeLessThan(1_000);
+       |                                         ^
+    105|     expectOneProbe(logs());
+    106|     await executeAuthoredFlow(nine, client, undefined, options);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  tests/authored-probe-cache.test.ts > authored run CLI probe cache > caches probe failures while refusing all nine calls
+AssertionError: expected [ { kind: 'auth' }, …(8) ] to have a length of 1 but got 9
+
+- Expected
++ Received
+
+- 1
++ 9
+
+ ❯ expectOneProbe tests/authored-probe-cache.test.ts:70:47
+     68| 
+     69| function expectOneProbe(logs: ReturnType<Awaited<ReturnType<typeof slo…
+     70|   expect(logs.filter(l => l.kind === 'auth')).toHaveLength(1);
+       |                                               ^
+     71|   expect(logs.filter(l => l.kind === 'identify').length - logs.filter(…
+     72| }
+ ❯ tests/authored-probe-cache.test.ts:123:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  tests/authored-probe-cache.test.ts > authored run CLI probe cache > shares probe results across agent calls too
+AssertionError: expected [ { kind: 'auth' }, …(2) ] to have a length of 1 but got 3
+
+- Expected
++ Received
+
+- 1
++ 3
+
+ ❯ expectOneProbe tests/authored-probe-cache.test.ts:70:47
+     68| 
+     69| function expectOneProbe(logs: ReturnType<Awaited<ReturnType<typeof slo…
+     70|   expect(logs.filter(l => l.kind === 'auth')).toHaveLength(1);
+       |                                               ^
+     71|   expect(logs.filter(l => l.kind === 'identify').length - logs.filter(…
+     72| }
+ ❯ tests/authored-probe-cache.test.ts:136:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+ Test Files  1 failed (1)
+      Tests  5 failed (5)
+   Start at  06:18:09
+   Duration  89.27s (transform 1.07s, setup 0ms, collect 1.78s, tests 87.31s, environment 0ms, prepare 44ms)
+
