@@ -115,6 +115,15 @@ No process runs between events: the handler wakes, executes to its next await, p
    and the other provider namespaces remain follow-up work; see
    [the generator notes](../packages/surface/src/helpers/README.md).
 
+   A namespace is not a promise of a whole vendor API. The generated catalog
+   records the exact sorted adapter `resources` alongside each provider's
+   `supported` flag, so authors and preflight tooling can inspect the generated
+   resource surface without loading an adapter's private catalog. Bespoke
+   aliases such as `stripe.createInvoice` remain outside that catalog. In particular,
+   GitLab now lists `issues`, `merge-requests`, `refs`, `merge`, and
+   `close-merge-request` in addition to comments and discussions; the earlier
+   comment-only gap was closed by the pinned relay-helpers release.
+
    The initial local memory slice supports `recall` and `why` in authored flows,
    with no journal step for either read. Script scope is stable across runs of
    the same flow file and name; reads cannot widen it to another flow. The
