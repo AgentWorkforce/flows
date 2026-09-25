@@ -298,7 +298,13 @@ function collabEntry(item: Record<string, unknown>, complete: boolean, context: 
       if (status !== null) byStatus.set(status, (byStatus.get(status) ?? 0) + 1);
     }
   }
-  const summary = [...byStatus.entries()].sort().map(([status, n]) => `${n} ${status}`).join(', ');
+  // Redacted like every neighbouring field. A status is provider text, not a
+  // closed vocabulary this module controls, and it was the one string here that
+  // reached the page without passing the redactor.
+  const summary = bounded(
+    [...byStatus.entries()].sort().map(([status, n]) => `${n} ${status}`).join(', '),
+    context.clean,
+  );
   const status = str(item['status']);
   return tool('collab_tool_call',
     bounded(`${name}${receivers > 0 ? ` → ${receivers} thread${receivers === 1 ? '' : 's'}` : ''}`, context.clean),
@@ -361,8 +367,12 @@ function itemEntries(item: Record<string, unknown>, complete: boolean, context: 
       const text = str(todo?.['text']);
       return text === null ? [] : [{ text: context.clean(text), done: todo!['completed'] === true }];
     });
+    // Counted across the whole plan; only the *display* is capped. Counting the
+    // prefix rendered a 13-item plan whose last item was done as `0/13`, which
+    // is exactly backwards from "the rest are counted, not printed".
+    const done = items.filter(entry => isRecord(entry) && entry['completed'] === true).length;
     return [{
-      kind: 'todo', total: items.length, done: listed.filter(entry => entry.done).length,
+      kind: 'todo', total: items.length, done,
       items: listed, ...(items.length > listed.length ? { omitted: items.length - listed.length } : {}),
       ...(complete ? {} : { complete: false }),
     }];

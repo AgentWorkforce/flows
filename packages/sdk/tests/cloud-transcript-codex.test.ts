@@ -609,6 +609,39 @@ describe('the remaining Codex item types', () => {
     });
   });
 
+  /**
+   * A status is provider text, not a closed vocabulary this module controls, and
+   * this layer IS the redactor — every neighbouring field goes through
+   * `context.clean`. The summary was the one string that did not.
+   */
+  it('redacts a collab agent status like every neighbouring field', () => {
+    const parsed = parseAgentTranscript(JSON.stringify({
+      type: 'item.completed',
+      item: { id: 'i0', type: 'collab_tool_call', tool: 'spawn_agent',
+        sender_thread_id: 's', receiver_thread_ids: ['r1'],
+        agents_states: { a: { status: 'failed: token sk-ant-0123456789abcdefghij' } },
+        status: 'failed' },
+    }), {});
+
+    const rendered = JSON.stringify(parsed.entries);
+    expect(rendered).not.toContain('sk-ant-0123456789abcdefghij');
+    expect(rendered).toContain('[redacted]');
+  });
+
+  it('counts completed todos across the whole plan, not the displayed prefix', () => {
+    // 13 items, only the last one done: the display caps at 12, the count must not.
+    const items = Array.from({ length: 13 }, (_unused, index) => ({
+      text: `task ${index}`, completed: index === 12,
+    }));
+    const parsed = parseAgentTranscript(JSON.stringify({
+      type: 'item.completed', item: { id: 'i0', type: 'todo_list', items },
+    }), {});
+
+    // Used to render 0/13, which is backwards from "counted, not printed".
+    expect(parsed.entries.find(entry => entry.kind === 'todo'))
+      .toMatchObject({ total: 13, done: 1, omitted: 1 });
+  });
+
   it('summarises collab agents by status, never by agent id', () => {
     const parsed = parseAgentTranscript(JSON.stringify({
       type: 'item.completed',
