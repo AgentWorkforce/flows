@@ -12,6 +12,7 @@ export type {
   CloudBabysitterTurnReceipt,
 } from "./cloud.js";
 export type { AgentOptions, AgentResult, DoneOptions, PermissionsSpec, LlmOptions, RunOptions, RunResult, Ctx } from "./context.js";
+export type { Activity, ActivityDuration, ActivityOptions, EventFrame, Wake } from "./activity.js";
 export {
   COMPLETION_DETAIL_MAX_CODE_POINTS,
   COMPLETION_REASONS,

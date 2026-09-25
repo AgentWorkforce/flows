@@ -24,6 +24,9 @@ export interface FrameCtx {
 }
 
 export interface LoopbackHandlers {
+  'subscription.inspect'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
+  'subscription.deliver'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
+  'subscription.fence_overflow'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   hello?: (ctx: FrameCtx) => void;
   'run.start'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'run.resume'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
@@ -37,6 +40,9 @@ export interface LoopbackHandlers {
   'step.complete'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'step.wait'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'event.emit'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
+  'subscription.open'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
+  'subscription.next'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
+  'subscription.close'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'journal.read'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'stream.append'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
   'stream.read'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;

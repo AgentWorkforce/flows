@@ -1,0 +1,4 @@
+$ cd /home/khaliqgant/.cache/dev-pr-proof/flows-dev-stream-pins/packages/sdk
+$ git diff --check
+
+exit=0

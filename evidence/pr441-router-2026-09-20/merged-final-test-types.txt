@@ -1,0 +1,8 @@
+cwd: /tmp/flows-pr-followup/pr441/packages/sdk
+$ env PATH=/home/khaliqgant/.local/share/mise/installs/node/22.23.2/bin:/home/khaliqgant/.local/share/mise/installs/codex/0.154.0/codex-path:/home/khaliqgant/.codex/tmp/arg0/codex-arg0Hpwx08:/home/khaliqgant/.local/share/mise/installs/codex/latest/bin:/home/khaliqgant/.local/share/mise/installs/claude/latest:/home/khaliqgant/.local/share/mise/installs/cursor-agent/latest/bin:/home/khaliqgant/.local/share/mise/installs/gh/latest/gh_2.100.0_linux_amd64/bin:/home/khaliqgant/.local/share/mise/installs/http-muse/latest:/home/khaliqgant/.local/share/mise/installs/node/26.8.1/bin:/home/khaliqgant/.local/share/mise/installs/npm-xai-official-grok/latest/node_modules/.bin:/home/khaliqgant/.local/share/mise/installs/npm-wrangler/latest/node_modules/.bin:/home/khaliqgant/.local/share/mise/installs/npm-neonctl/latest/node_modules/.bin:/home/khaliqgant/.local/share/mise/installs/bun/latest/bin:/home/khaliqgant/.cargo/bin:/home/khaliqgant/.local/share/mise/installs/go/1.25.14/bin:/home/khaliqgant/.local/share/mise/installs/opencode/latest:/home/khaliqgant/.local/share/mise/installs/gemini/latest/node_modules/.bin:/home/khaliqgant/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/home/khaliqgant/.local/share/mise/shims:/usr/bin/site_perl:/usr/bin/vendor_perl:/usr/bin/core_perl npm run typecheck:tests
+
+> @relayflows/sdk@2.0.22 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+
+exit status: 0

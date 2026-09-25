@@ -41,6 +41,7 @@ import type { GetFlowDefinition } from './authored-flow-loader.js';
 import type { RunLifecycleOptions } from './cli/run.js';
 import {
   AuthoredFlowExecutionError,
+  type AuthoredFlowSuspension,
   AuthoredHumanParked,
   type AuthoredFlowExecutionErrorCode,
 } from './authored-flow-error.js';
@@ -52,6 +53,7 @@ import {
   verifyAuthoredOperations,
 } from './authored-flow-operation.js';
 import { AuthoredFlowLifecycle } from './authored-flow-lifecycle.js';
+import { AuthoredActivities } from './authored-activity.js';
 import { displayLabel, type AuthoredStepEdges } from './authored-step-index.js';
 import { JournalClient } from './journal-client.js';
 import { PluginError } from './plugin-manifest.js';
@@ -101,6 +103,7 @@ export interface AuthoredExecutionRuntime {
 }
 
 export interface AuthoredFlowExecutionResult {
+  readonly state?: undefined;
   readonly executionRuntime?: AuthoredExecutionRuntime;
   readonly rootRunId?: string;
   readonly name: string;
@@ -111,6 +114,14 @@ export interface AuthoredFlowExecutionResult {
    * the IPC frame and the report keep the shapes they had.
    */
   readonly completionDetail?: string;
+  readonly journalSteps: readonly AuthoredFlowJournalStep[];
+}
+
+/** A body reached a durable event boundary and released its worker lease. */
+export interface AuthoredFlowSuspendedResult {
+  readonly state: 'suspended';
+  readonly name: string;
+  readonly suspension: AuthoredFlowSuspension;
   readonly journalSteps: readonly AuthoredFlowJournalStep[];
 }
 
@@ -255,6 +266,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   const journalSteps: AuthoredFlowJournalStep[] = [];
   const authoredSteps: AuthoredFlowOperation<unknown>[] = [];
   const lifecycle = new AuthoredFlowLifecycle();
+  const activities = new AuthoredActivities(journal, options.rootRunId);
   const stepEdges = (step: string): AuthoredStepEdges | undefined => lifecycle.stepEdges(step);
   let nextStep = 1;
   let requestedCompletion: LoweredCompletionReason | undefined;
@@ -528,6 +540,10 @@ export async function executeAuthoredFlow<Input = undefined>(
       );
       return trackStep(authoredSteps, agentOp);
     },
+    on(source, activityOptions) {
+      assertOperationAllowed('on', definition.name, requestedCompletion);
+      return activities.open(source, activityOptions);
+    },
     /**
      * `f.human` (docs/SURFACE.md §1, §7). The question is not a child run: it
      * is the ROOT attempt parking on the kernel's `wait.human`. The body
@@ -683,6 +699,11 @@ export async function executeAuthoredFlow<Input = undefined>(
     try {
       worker.stop(bodyFailure);
       await stopAuthoredOperations(authoredSteps, bodyFailure);
+      // A durable wait hands execution back to the control plane. Its
+      // subscriptions must keep receiving events while no body is running.
+      const parked = bodyFailure instanceof AuthoredFlowExecutionError
+        && (bodyFailure.code === 'subscription_suspended' || bodyFailure.code === 'human_parked');
+      if (!parked) await activities.closeAll('canceled');
     } finally {
       lifecycle.close();
     }
@@ -710,6 +731,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     try {
       worker.stop(missingCompletion);
       await stopAuthoredOperations(authoredSteps, missingCompletion);
+      await activities.closeAll('canceled');
     } finally {
       lifecycle.close();
     }
@@ -717,6 +739,16 @@ export async function executeAuthoredFlow<Input = undefined>(
   }
   try {
     await verifyAuthoredOperations(definition.name, authoredSteps, lifecycle);
+  } catch (error) {
+    try {
+      await activities.closeAll('canceled');
+    } finally {
+      lifecycle.close();
+    }
+    throw error;
+  }
+  try {
+    await activities.closeAll('run_completed');
   } finally {
     lifecycle.close();
   }

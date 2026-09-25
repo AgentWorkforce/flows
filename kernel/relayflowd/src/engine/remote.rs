@@ -346,6 +346,7 @@ impl Engine<WallClock> {
                     offset,
                     producer: producer.to_owned(),
                     message,
+                    provider_delivery_id: None,
                 },
             ),
         )?;
@@ -375,7 +376,14 @@ impl Engine<WallClock> {
         Ok((messages, next_offset))
     }
 
-    pub fn emit_event(&self, run_id: &str, event_key: &str, payload: Value) -> Result<usize> {
+    pub fn emit_event(
+        &self,
+        run_id: &str,
+        event_key: &str,
+        payload: Value,
+        delivery_id: Option<&str>,
+        actor: Option<&str>,
+    ) -> Result<usize> {
         let mut journal = self.open_run(run_id)?;
         let spec = journal.run_spec().context("read run spec")?;
         let entries = journal.scan_all().context("read event waits")?;
@@ -387,7 +395,9 @@ impl Engine<WallClock> {
         for entry in &entries {
             if entry.entry_type == EntryType::WaitEvent {
                 let wait: WaitEventPayload = serde_json::from_value(entry.payload.clone())?;
-                if wait.event_key == event_key {
+                if wait.stream.is_none()
+                    && !wait.event_key.starts_with(super::subscriptions::PARK_PREFIX)
+                    && wait.event_key == event_key {
                     open.push((
                         wait.wait_id,
                         entry.step_id.clone(),
@@ -458,10 +468,17 @@ impl Engine<WallClock> {
                 ),
             )?;
         }
+        let activity_matches = self.append_local_subscription_event(
+            run_id,
+            event_key,
+            payload.clone(),
+            delivery_id,
+            actor,
+        )?;
         if !open.is_empty() {
             let _ = self.drive(journal, spec, DriveOptions::default())?;
         }
-        Ok(open.len())
+        Ok(open.len() + activity_matches)
     }
 }
 

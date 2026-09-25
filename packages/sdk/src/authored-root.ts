@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { canonicalize } from './canonical.js';
 import { compileSpec, toKernelSpec } from './compile.js';
-import { executeAuthoredFlow, type AuthoredFlowExecutionResult } from './authored-flow-executor.js';
+import { executeAuthoredFlow, type AuthoredFlowExecutionResult, type AuthoredFlowSuspendedResult } from './authored-flow-executor.js';
 import { isDurableCompletionDetail, isLoweredCompletion } from './authored-completion.js';
 import { AUTHORED_ROOT_KIND } from './authored-verdict.js';
 import {
@@ -20,6 +20,11 @@ import { withWorkerLease } from './worker-lease.js';
 import { AuthoredFlowExecutionError, AuthoredHumanParked } from './authored-flow-error.js';
 import { readOpenHumanWaits } from './authored-human.js';
 import { isSurfaceCompletionReason } from './authored-step-output.js';
+import { readSubscriptionPark } from './authored-subscription-park.js';
+
+export type DurableAuthoredFlowResult =
+  | (AuthoredFlowExecutionResult & { readonly rootRunId: string })
+  | (AuthoredFlowSuspendedResult & { readonly rootRunId: string });
 
 /**
  * Taken from the projection module rather than spelled twice: `flows status`
@@ -55,6 +60,8 @@ export interface AuthoredRootSourceAuthority {
 }
 
 export interface DurableAuthoredOptions {
+  /** Preserve root authority even if a child later fails or parks. */
+  readonly onAdmitted?: (runId: string) => void;
   readonly dataDir: string;
   readonly admissionKey?: string;
   readonly localAgentStream?: string;
@@ -69,7 +76,7 @@ export async function executeDurableAuthoredFlow(
   journal: JournalClient,
   input: unknown,
   options: DurableAuthoredOptions,
-): Promise<AuthoredFlowExecutionResult & { readonly rootRunId: string }> {
+): Promise<DurableAuthoredFlowResult> {
   assertAuthoredRuntimeAvailable();
   const source = await readFile(loaded.sourcePath);
   const sources = await Promise.all(loaded.graph.map(async node => Object.freeze({
@@ -106,6 +113,7 @@ export async function executeDurableAuthoredFlow(
       workspace: [], streams: [{ stream, read_offset: 0 }],
     });
     const outcome = await journal.runStart(spec, undefined, admissionKey);
+    options.onAdmitted?.(outcome.run_id);
     if (outcome.status === 'completed') {
       dispatchWait.cancel();
       return await completedRootResult(journal, outcome.run_id);
@@ -119,6 +127,9 @@ export async function executeDurableAuthoredFlow(
     // redelivers only when the former worker connection is gone.
     const resumed = await journal.runResume(outcome.run_id);
     await assertNoOpenHumanWait(journal, resumed);
+    const parked = await readSubscriptionPark(journal, outcome.run_id);
+    if (parked !== undefined) return { state: 'suspended', name: metadata.flowName,
+      suspension: parked, journalSteps: [], rootRunId: outcome.run_id };
     const dispatch = await dispatchWait.promise;
     return await driveRoot(loaded, metadata, journal, peer, dispatch, options);
   } finally {
@@ -132,7 +143,7 @@ export async function resumeDurableAuthoredFlow(
   rootRunId: string,
   journal: JournalClient,
   options: Omit<DurableAuthoredOptions, 'admissionKey'>,
-): Promise<(AuthoredFlowExecutionResult & { readonly rootRunId: string }) | undefined> {
+): Promise<DurableAuthoredFlowResult | undefined> {
   const metadata = await readAuthoredRootMetadata(journal, rootRunId);
   if (metadata === undefined) return undefined;
   assertAuthoredRuntimeAvailable();
@@ -159,6 +170,9 @@ export async function resumeDurableAuthoredFlow(
     assertRootCanDispatch(outcome);
     await assertNoOpenHumanWait(journal, outcome);
     options.lifecycle?.onRunStarted?.({ runId: rootRunId, flow: metadata.flowName, resumed: true });
+    const parked = await readSubscriptionPark(journal, rootRunId);
+    if (parked !== undefined) return { state: 'suspended', name: metadata.flowName,
+      suspension: parked, journalSteps: [], rootRunId };
     const dispatch = await dispatchWait.promise;
     return await driveRoot(loaded, metadata, journal, peer, dispatch, options);
   } finally {
@@ -204,7 +218,7 @@ async function driveRoot(
   peer: JournalClient,
   dispatch: StepDispatchEvent,
   options: Omit<DurableAuthoredOptions, 'admissionKey'>,
-): Promise<AuthoredFlowExecutionResult & { readonly rootRunId: string }> {
+): Promise<DurableAuthoredFlowResult> {
   try {
     const result = await withWorkerLease(peer, dispatch, async rootSignal => {
       const callerSignal = options.lifecycle?.signal;
@@ -247,6 +261,15 @@ async function driveRoot(
     );
     return Object.freeze({ ...result, rootRunId: dispatch.run_id });
   } catch (error) {
+    if (error instanceof AuthoredFlowExecutionError
+      && error.code === 'subscription_suspended'
+      && error.suspension !== undefined) {
+      await peer.subscriptionPark({ run_id: dispatch.run_id, step_id: dispatch.step_id,
+        attempt: dispatch.attempt, idempotency_key: dispatch.idempotency_key,
+        subscription_id: error.suspension.subscriptionId, phase: error.suspension.kind });
+      return Object.freeze({ state: 'suspended' as const, name: metadata.flowName,
+        suspension: error.suspension, journalSteps: Object.freeze([]), rootRunId: dispatch.run_id });
+    }
     if (error instanceof AuthoredHumanParked) {
       // Not a failure: the body reached a question nobody has answered. Park
       // THIS attempt on the kernel's `wait.human` under the body's own wait

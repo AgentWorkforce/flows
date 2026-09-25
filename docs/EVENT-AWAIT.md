@@ -4,6 +4,37 @@
 proposed, 2026-09-17. Governs the resident verb `on` when it is used inside a
 running flow body rather than as the flow's entry condition.*
 
+### Implementation boundary (2026-09-19)
+
+The local SDK/daemon path implements preparation, explicit router activation,
+durable root suspension, wake replay, and CLI resume. `subscription.park` is a
+lease-holder-only protocol call with `run_id`, `step_id`, `attempt`,
+`idempotency_key`, `subscription_id`, and `phase` (`activation` or `event_wait`).
+It journals a step-scoped `wait.event` and releases the worker lease; it does
+not record a crash or charge a retry. `run.resume` checks the subscription's
+journaled readiness before dispatching the root again. Resuming an unchanged
+wait returns the same CLI suspension report without running the body.
+
+Each authored `next()` supplies a stable call `sequence` to `subscription.next`.
+Completed wakes replay by that ordinal, including after acknowledgment; a body
+re-executing from the beginning must not receive its second wake at its first
+call. Replaying a closed handle does not reopen provider ingress.
+
+Subscription handles are run-scoped call ordinals (`activity-1`, `activity-2`,
+...). Authors must keep `f.on()` call order stable on replay, just as child
+step call order must be stable. These ids are not derived from source locations:
+reordering declarations or branching on unjournaled external state does not
+preserve an activity's identity. The pinned body and replayed results provide
+the supported deterministic ordering.
+
+Cloud's durable binding registry, ingress fencing, suspended-result handling,
+and wake scheduling remain integration work. The CLI integration probe uses a
+local router adapter, not a deployed provider webhook. It lives at
+`packages/sdk/tests/fixtures/event-await-cli-probe.mjs`; the associated test
+exercises repeated resume, daemon SIGKILL/restart, two ordered wakes, duplicate
+delivery, and memoized child effects. This is not evidence for Cloud routing,
+provider authorization, or epoch-compaction acceptance below.
+
 ## 1. The problem
 
 A flow that opens a pull request is not finished when the PR exists. CI fails,
@@ -172,28 +203,37 @@ body-level `on` without both, with `unbounded_subscription`.
 
 ## 5. Kernel (additive)
 
-No new step kind and no new verb. The kernel vocabulary stays closed
-(decision 13).
+No new step kind or surface verb. The daemon adds the internal
+`subscription.activate` handoff verb; the kernel's step vocabulary stays
+closed (decision 13).
 
-1. **`subscription.opened`** — `subscription_id` (deterministic from run id,
-   step id and declaration), `event_types`, `pattern` (the recursive-subset
+1. **`subscription.prepared`** — `subscription_id` (the run-scoped `f.on()` call
+   ordinal, whose order must remain stable on replay), `event_types`, `pattern` (the recursive-subset
    match already used by `TriggerSpec.pattern`), `stream`
-   (`subscription/<subscription_id>`), `deadline_at_ms`, `include_self`, and
-   the immutable provider binding: integration installation, canonical
-   resource scope, authorization snapshot, router binding generation, and
-   durable ingress offset. Opening is a two-party handshake: Cloud first
-   records the fenced binding at that ingress offset, then the journal appends
-   `subscription.opened`; `f.on()` is not visible to the body until both have
-   completed. Recovery first honors any durable `closing: overflow` fence for
-   that generation: it completes the close and its active wait, never restores
-   or replays the binding. Absent that fence, recovery removes a prepared
-   binding that has no matching journal entry, and otherwise restores the same
-   generation and replays ingress after its offset before acknowledging the
-   body. This closes the journal-to-router race without delivering frames that
-   predate opening.
-2. **`subscription.closed`** — `subscription_id`, `completionReason`
+   (`subscription/<subscription_id>`), `settle_ms`, `idle_ms`,
+   `deadline_at_ms`, and `include_self`. It is an immutable request, never an
+   open cursor and never eligible for ingress. The daemon returns a `suspended`
+   outcome at this boundary, carrying this exact prepared snapshot to Cloud
+   (`eventTypes`, canonical `pattern`, bounds, and `includeSelf`); Cloud never
+   parses the sandbox SQLite journal. Cloud assigns the binding generation and
+   ingress cursor after persisting its registry row, so those receipts are not
+   author-controlled suspension fields. No resident daemon thread waits for a
+   Cloud binding.
+2. **`subscription.opened`** — the prepared request plus immutable provider
+   binding: integration installation, canonical resource scope, authorization
+   snapshot, router binding generation, and durable ingress offset. Cloud must
+   first persist its binding and ingress cursor, then invoke the idempotent
+   `subscription.activate` daemon verb, which appends this entry. Only an
+   active entry is visible when the body is resumed. Recovery honors any
+   durable `closing: overflow` fence for that generation; it completes the
+   close and its active wait, never restores or replays the binding. Cloud
+   removes a prepared registry record that lacks a matching active journal
+   entry, and otherwise restores the same generation and replays ingress
+   strictly after its cursor. This closes the journal-to-router race without
+   delivering frames that predate opening.
+3. **`subscription.closed`** — `subscription_id`, `completionReason`
    (`closed` \| `run_completed` \| `canceled` \| `deadline` \| `overflow`).
-3. **Buffered delivery** — matching events become `stream.appended` on the
+4. **Buffered delivery** — matching events become `stream.appended` on the
    subscription's stream, carrying the provider delivery id as the idempotency
    key. A stream holds at most **1,000 unread frames or 1 MiB of unread encoded
    frame bytes**, measured after this subscription consumer's acknowledged
@@ -213,7 +253,7 @@ No new step kind and no new verb. The kernel vocabulary stays closed
    the fenced binding; it never restores that generation as open. The
    would-exceed frame is unappended. Events for a closed or unknown subscription
    are refused, not buffered.
-4. **`wait.event` extension** — alongside `event_key`, a wait may name
+5. **`wait.event` extension** — alongside `event_key`, a wait may name
    `stream`, `from_offset`, `settle_ms`, `idle_at_ms`, and `deadline_at_ms`.
    It completes with `event_received` and `result: { from_offset, next_offset }`
    once the stream has entries at or past `from_offset` and `settle_ms` has
@@ -224,10 +264,10 @@ No new step kind and no new verb. The kernel vocabulary stays closed
    exist; idle completes with `result: { timeout: "idle" }` only when no
    buffered entries won the serialized race. Adding result fields keeps
    `wait.completed`'s reason enum unchanged.
-5. **Timeouts are enforced.** The scheduler arms `timeout_at_ms`,
+6. **Timeouts are enforced.** The scheduler arms `timeout_at_ms`,
    `idle_at_ms`, and `deadline_at_ms` as durable timers for every open wait,
    including `wait.human`. This closes the gap in §2 for existing waits too.
-6. **Epoch summary** carries open subscriptions with their stream offsets and
+7. **Epoch summary** carries open subscriptions with their stream offsets and
    deadlines alongside `open_waits`.
 
 ## 6. Router contract (Cloud)
@@ -235,12 +275,13 @@ No new step kind and no new verb. The kernel vocabulary stays closed
 The event router is Cloud's, not the kernel's (decision 15: the kernel is
 tenant-unaware).
 
-- A `subscription.opened` entry is projected to the router as a fenced binding
-  of `(run_id, subscription_id, generation, ingress_offset)` to its event
-  types, pattern, provider installation, and canonical resource scope. It is
-  removed on `subscription.closed`. The open handshake records the binding and
-  ingress offset before the body can observe the subscription; recovery
-  replays ingress strictly after that offset before acknowledging the binding.
+- A `subscription.prepared` entry tells Cloud to create a fenced binding of
+  `(run_id, subscription_id, generation, ingress_offset)` to its event types,
+  pattern, provider installation, and canonical resource scope. Cloud writes
+  that binding and cursor durably, calls `subscription.activate`, then resumes
+  the body; it removes the binding on `subscription.closed`. A prepared record
+  alone never accepts ingress. Recovery replays ingress strictly after the
+  activated cursor before acknowledging the body.
 - The router matches incoming `EventFrameV1` frames against open bindings,
   first proving the frame came through the bound installation and is within
   the bound resource scope. It then applies the self-actor filter and calls
@@ -248,6 +289,35 @@ tenant-unaware).
   broadens that installation or resource scope. A matching frame for a
   sleeping cell wakes the cell.
 - The router never decides whether the flow is done. It only delivers.
+
+### Targeted router protocol
+
+Cloud delivers through `subscription.deliver`, supplying `run_id`,
+`subscription_id`, the exact immutable `router_binding`, a stable `delivery_id`,
+and the authorized `frame`. This targets only that subscription. The local
+`event.emit` adapter broadcasts to matching subscriptions and is not the Cloud
+router boundary. The kernel refuses unknown, prepared, closed, and stale-binding
+recipients. Duplicates return `{ appended: false, reason: "duplicate" }`; an
+append that triggers the unread limit returns `reason: "overflow"` after the
+journaled overflow close. A successful append returns `{ appended: true }`.
+Provider installation, resource scope, event matching, and self-actor checks
+remain Cloud's responsibility before this call; the receipt is a fence, not an
+authorization credential.
+
+An activation retry must carry the same ingress cursor and complete binding
+receipt as the original journal entry. Changing either is
+`subscription_binding_mismatch`, never a replacement of the active binding.
+`subscription.fence_overflow` carries the same receipt and completes Cloud's
+persisted overflow fence idempotently under the per-run sequencer.
+
+`subscription.inspect` takes `run_id` and returns a read-only `subscriptions`
+projection: identity, prepared/active/closed state, closing reason, binding and
+activation cursor, unread frame/byte counts, settle duration, and absolute idle
+and deadline instants. Idle is taken from the durable wait or the last journaled
+wake, never the time of this query. This gives Cloud a protocol surface for
+scheduling and cleanup without reading sandbox SQLite files. A delivery response
+alone does not authorize Cloud to advance its durable ingress acknowledgment:
+the containing journal must first cross the durable publication barrier.
 
 ## 7. Acceptance
 

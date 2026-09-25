@@ -63,6 +63,19 @@ impl<C: Clock> Engine<C> {
             for action in actions {
                 match action {
                     Action::Append(mut entry) => {
+                        if entry.entry_type == relayflowd_core::EntryType::RunCompleted {
+                            let reason: relayflowd_core::RunCompletedPayload = serde_json::from_value(entry.payload.clone())
+                                .context("decode terminal completion while closing activities")?;
+                            self.close_subscriptions_for_terminal(
+                                &mut journal,
+                                if reason.completion_reason == RunCompletionReason::Canceled {
+                                    relayflowd_core::SubscriptionCompletionReason::Canceled
+                                } else {
+                                    relayflowd_core::SubscriptionCompletionReason::RunCompleted
+                                },
+                                self.clock.now_ms(),
+                            )?;
+                        }
                         if entry.entry_type == relayflowd_core::EntryType::StepAttemptStarted {
                             // A deterministic peer may have completed since this batch
                             // was elected. Re-fold before admitting the next start.

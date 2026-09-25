@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { withSubscriptionMetadata } from './cli/subscription-report.js';
 import { addPlugin } from './cli/add.js';
 import { parsePluginArgs, runPluginCommand, type PluginArgs } from './cli/plugin.js';
 import { watchCheck } from './cli-watch.js';
@@ -77,7 +78,7 @@ export interface CliIo {
   tty?: boolean;
 }
 
-type CliExitCode = 0 | 1 | 2 | 3;
+type CliExitCode = 0 | 1 | 2 | 3 | 4;
 
 /**
  * Every shape `parseArgs` can produce. Exported for `cli-commands.ts`, whose
@@ -410,13 +411,14 @@ export async function runCli(
   // preflight) is worse than printing `Observer:` on a later line, so we
   // emit the run report immediately and finalize the observer link after.
   if (parsed.json) {
+    const reported = await withSubscriptionMetadata(execution);
     const observerUrl = await observerUrlFrom(observerMint, logged);
-    emitRunReport(execution, parsed.json, logged, observerUrl, await mirror?.receipt());
+    emitRunReport(reported, parsed.json, logged, observerUrl, await mirror?.receipt());
     // Last, and after the report: the run's own output is what the mirror
     // uploads, and a run's exit code has never waited on Cloud. The mirror
     // bounds itself and never rejects.
-    await mirror?.finish(execution.report);
-    return execution.exitCode;
+    await mirror?.finish(reported.report);
+    return reported.exitCode;
   }
   emitRunReport(execution, parsed.json, logged);
   await finalizeObserverLine(observerMint, logged);
@@ -434,6 +436,11 @@ export async function runCli(
 async function checkAuthoredFlowComposed(path: string): Promise<{ report: CheckReport }> {
   const helper = await checkHelperBody(path);
   if (!helper.report.ok) return helper;
+  // The activity checker loads the TypeScript compiler. YAML checks and
+  // unrelated CLI commands should not pay that startup cost on every run.
+  const { checkAuthoredActivities } = await import('./cli/check-activities.js');
+  const activities = await checkAuthoredActivities(path);
+  if (!activities.report.ok) return activities;
   const mcp = await checkTypeScriptFlow(path);
   const triggers = isAuthoredFlowPath(path)
     ? await checkAuthoredTriggers(path)
@@ -449,8 +456,8 @@ async function checkAuthoredFlowComposed(path: string): Promise<{ report: CheckR
       // The authored definition sees helper flags, body use and `cli:`
       // declarations; the compiled view underneath knows only its steps.
       ...(triggers?.report.requirements === undefined ? {} : { requirements: triggers.report.requirements }),
-      diagnostics: [...helper.report.diagnostics, ...mcp.report.diagnostics, ...triggerDiagnostics],
-      ok: helper.report.ok && mcp.report.ok && triggerOk,
+      diagnostics: [...helper.report.diagnostics, ...activities.report.diagnostics, ...mcp.report.diagnostics, ...triggerDiagnostics],
+      ok: helper.report.ok && activities.report.ok && mcp.report.ok && triggerOk,
     },
   };
 }

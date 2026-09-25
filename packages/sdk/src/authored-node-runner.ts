@@ -144,7 +144,8 @@ export async function runAuthoredInNode(
               } else if (typeof message.code === 'string') {
                 const authored = new AuthoredFlowExecutionError(message.code as AuthoredFlowExecutionErrorCode,
                   message.message, message.completionReason, message.runId,
-                  stepFailedFrame(message.details));
+                  stepFailedFrame(message.details),
+                  isSuspension(message.suspension) ? message.suspension : undefined);
                 // Validated, not trusted, like `details`: an unrecognised cause
                 // is dropped so the boundary says nothing about workers rather
                 // than acting on a value this frame could have invented.
@@ -170,6 +171,35 @@ export async function runAuthoredInNode(
     await verifyAuthoredNodeResult(result, metadata, rootRunId, socketPath);
     return result;
   } finally { await rm(directory, { recursive: true, force: true }); }
+}
+
+function isSuspension(value: unknown): value is import('./authored-flow-error.js').AuthoredFlowSuspension {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  const common = typeof record['subscriptionId'] === 'string' && record['subscriptionId'].length > 0
+    && typeof record['stream'] === 'string' && record['stream'].length > 0
+    && Number.isSafeInteger(record['deadlineAtMs']) && (record['deadlineAtMs'] as number) >= 0;
+  if (!common) return false;
+  if (record['kind'] === 'event_wait') return true;
+  return record['kind'] === 'activation'
+    && Array.isArray(record['eventTypes']) && record['eventTypes'].length > 0
+    && record['eventTypes'].every(type => typeof type === 'string' && type.length > 0)
+    && (record['pattern'] === undefined || isJsonRecord(record['pattern']))
+    && Number.isSafeInteger(record['settleMs']) && (record['settleMs'] as number) >= 0
+    && Number.isSafeInteger(record['idleMs']) && (record['idleMs'] as number) > 0
+    && typeof record['includeSelf'] === 'boolean';
+}
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    && Object.values(value).every(isJsonValue);
+}
+
+function isJsonValue(value: unknown): boolean {
+  return value === null || typeof value === 'boolean' || typeof value === 'string'
+    || (typeof value === 'number' && Number.isFinite(value))
+    || (Array.isArray(value) && value.every(isJsonValue))
+    || isJsonRecord(value);
 }
 
 /** A park signal from the child names the question the parent must journal. */

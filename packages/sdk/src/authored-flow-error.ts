@@ -36,6 +36,9 @@ export type AuthoredFlowExecutionErrorCode =
   | 'unsettled_derived_work'
   | 'unsupported_promise_lifecycle'
   | 'unsupported_workspace_permission'
+  | 'unbounded_subscription'
+  | 'activity_closed'
+  | 'subscription_suspended'
   | 'unawaited_step'
   | 'unsupported_verb';
 
@@ -73,12 +76,38 @@ export class AuthoredFlowExecutionError extends Error {
      * Node-child error frame — can forward it instead of dropping it.
      */
     readonly details?: StepFailedDetails,
+    readonly suspension?: AuthoredFlowSuspension,
   ) {
     super(`${code}: ${message}`);
     this.name = 'AuthoredFlowExecutionError';
   }
 }
 
+/** Serialized into the CLI report so Cloud can atomically finish activation or wait for a wake. */
+export type AuthoredFlowSuspension =
+  /**
+   * Exact durable `subscription.prepared` facts Cloud must persist before it
+   * fences provider ingress and invokes `subscription.activate`. Binding
+   * generation and ingress cursor are Cloud-assigned receipts, deliberately
+   * absent from the authored request.
+   */
+  | {
+    readonly kind: 'activation';
+    readonly subscriptionId: string;
+    readonly eventTypes: readonly string[];
+    readonly pattern?: Readonly<Record<string, unknown>>;
+    readonly stream: string;
+    readonly settleMs: number;
+    readonly idleMs: number;
+    readonly deadlineAtMs: number;
+    readonly includeSelf: boolean;
+  }
+  | {
+    readonly kind: 'event_wait';
+    readonly subscriptionId: string;
+    readonly stream: string;
+    readonly deadlineAtMs: number;
+  };
 /** The question an authored body parked on, as the kernel journals it. */
 export interface AuthoredHumanWait {
   readonly waitId: string;

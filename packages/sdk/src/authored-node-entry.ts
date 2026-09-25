@@ -93,7 +93,9 @@ try {
     // the only one that saw the child's classification.
     ...(error instanceof AuthoredFlowExecutionError ? { code: error.code,
       completionReason: error.completionReason, runId: error.runId,
-      details: error.details, parkCause: error.parkCause } : {}),
+      details: error.details,
+      parkCause: error.parkCause,
+      ...(error.suspension === undefined ? {} : { suspension: error.suspension }) } : {}),
     ...(error instanceof AuthoredHumanParked ? { wait: error.wait } : {}) });
   process.exitCode = 1;
 } finally {

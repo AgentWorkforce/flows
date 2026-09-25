@@ -874,6 +874,7 @@ describe('flows run/resume CLI over the journal protocol', () => {
     let dialectError: string | null | undefined;
     await startCliLoopback(dataDir, {
       hello: sendOk,
+      'subscription.inspect': (ctx) => sendResult(ctx, { subscriptions: [] }),
       'run.start': (ctx, params) => {
         dialectError = kernelDialectError(params['spec']);
         sendResult(ctx, {
@@ -1174,6 +1175,7 @@ describe('flows run/resume CLI over the journal protocol', () => {
     const dataDir = temporaryProject('flows-resume-');
     await startCliLoopback(dataDir, {
       hello: sendOk,
+      'subscription.inspect': ctx => sendResult(ctx, { subscriptions: [] }),
       'run.resume': (ctx, params) => {
         if (params['run_id'] === 'known-run') {
           sendResult(ctx, {
