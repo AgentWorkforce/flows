@@ -114,6 +114,18 @@ export interface FinalStep {
   model?: string;
   tokensInput?: number;
   tokensOutput?: number;
+  /**
+   * True when tokens were counted but nobody priced them.
+   *
+   * The kernel already records this (`run-state.ts`'s `Spend`), and
+   * `flows status` already prints `(unmetered)` from it. Without it on the
+   * wire, Cloud cannot tell a step that genuinely cost nothing — a
+   * deterministic `echo` — from one that spent real money against an unpriced
+   * model: both arrive as an absent `costUsd` and render blank. Codex is the
+   * everyday case, because it selects its own model and never reports it, so
+   * `MODEL_PRICING` has nothing to match (`model-pricing.ts` says so outright).
+   */
+  costUnmetered?: true;
   costUsd?: number;
   error?: string;
   detail?: Record<string, unknown>;
@@ -314,6 +326,7 @@ interface AttemptRecord {
   tokensIn?: number;
   tokensOut?: number;
   costUsd?: number;
+  costUnmetered?: boolean;
 }
 
 /**
@@ -346,6 +359,7 @@ function attemptsByStep(events: readonly JournalEvent[]): Map<string, AttemptRec
       ...(typeof result?.['total_cost_usd'] === 'number' && Number.isFinite(result['total_cost_usd'])
         && result['total_cost_usd'] >= 0
         ? { costUsd: result['total_cost_usd'] as number } : {}),
+      ...(budget['dollars_unmetered'] === true ? { costUnmetered: true } : {}),
     });
     byStep.set(event.step_id, entries);
   }
@@ -374,6 +388,23 @@ function finalStep(
   // Cloud totals these rows for the run's spend — so a retried agent's earlier
   // charges simply vanished from the run.
   const spentUsd = attempts.reduce((total, entry) => total + (entry.costUsd ?? 0), 0);
+  const priced = attempts.some(entry => entry.costUsd !== undefined);
+  /**
+   * Any unpriced attempt makes the step's cost unknown, even when another
+   * attempt reported one.
+   *
+   * The first cut suppressed the flag whenever `spentUsd > 0`, which published
+   * a partial subtotal as though it were the whole cost: a step that spent
+   * $0.02 on attempt 1 and an unpriced amount on attempt 2 reported exactly
+   * $0.02. The two facts are not exclusive — `costUsd` is then a *lower bound*
+   * and the flag says so. `run-state.ts`'s `addSpend` keeps them together for
+   * the same reason.
+   *
+   * Presence, not a positive sum: an attempt reporting `total_cost_usd: 0` did
+   * produce a price, and testing `spentUsd === 0` would have called that step
+   * unpriced.
+   */
+  const unmetered = attempts.some(entry => entry.costUnmetered === true);
   const detail = stepDetail(attempts, env);
   const verification = step.last_attempt?.verification ?? null;
   // What the step said about itself. A gate's verdict detail is the nearest
@@ -407,7 +438,8 @@ function finalStep(
     ...(model === undefined ? {} : { model }),
     ...(tokensIn > 0 ? { tokensInput: Math.min(tokensIn, MAX_INT32) } : {}),
     ...(tokensOut > 0 ? { tokensOutput: Math.min(tokensOut, MAX_INT32) } : {}),
-    ...(spentUsd > 0 ? { costUsd: spentUsd } : {}),
+    ...(priced ? { costUsd: spentUsd } : {}),
+    ...(unmetered ? { costUnmetered: true as const } : {}),
     ...(error === undefined ? {} : { error }),
     ...(detail.detail === undefined ? {} : { detail: detail.detail }),
     ...(detail.truncated === undefined ? {} : { detailTruncated: detail.truncated }),

@@ -138,6 +138,22 @@ export interface TranscriptResult {
   cache_creation: number | null;
 }
 
+/**
+ * Codex's running to-do list (`TodoListItem`). A plan, not a call: it carries
+ * no status and takes no sequence number, and it updates repeatedly through a
+ * turn — which is why leaving it unparsed was the most visible gap.
+ */
+export interface TranscriptTodo {
+  kind: 'todo';
+  total: number;
+  done: number;
+  items: Array<{ text: string; done: boolean }>;
+  /** Entries past the per-snapshot cap: counted, never printed. */
+  omitted?: number;
+  /** False when read off a snapshot that never completed. */
+  complete?: boolean;
+}
+
 export interface TranscriptUnknown {
   kind: 'unknown';
   type: string;
@@ -152,7 +168,8 @@ export interface TranscriptUnparsed {
 export type TranscriptEntry =
   | TranscriptAttempt | TranscriptAttemptOmitted | TranscriptInit | TranscriptMessage
   | TranscriptThinking | TranscriptTool | TranscriptFileChange | TranscriptThread
-  | TranscriptTurn | TranscriptError | TranscriptResult | TranscriptUnknown | TranscriptUnparsed;
+  | TranscriptTurn | TranscriptError | TranscriptResult | TranscriptTodo
+  | TranscriptUnknown | TranscriptUnparsed;
 
 export interface ParsedTranscript {
   entries: TranscriptEntry[];

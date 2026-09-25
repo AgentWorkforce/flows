@@ -42,7 +42,9 @@ function assertRuntimeRange(
  */
 export function assertBaseCompatible(manifest: FlowExtensionManifest, base: { readonly name: string; readonly version?: string }): void {
   let entry: FlowExtensionManifest['compat']['base'][number] | undefined;
-  for (let index = 0; index < manifest.compat.base.length; index += 1) {
+  // First match, as `.find()` did before the intrinsic-capture rewrite: a
+  // later duplicate name must not widen or narrow the range that decides.
+  for (let index = 0; index < manifest.compat.base.length && entry === undefined; index += 1) {
     if (manifest.compat.base[index]!.name === base.name) entry = manifest.compat.base[index];
   }
   if (entry === undefined) {
