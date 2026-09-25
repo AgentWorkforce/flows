@@ -131,7 +131,8 @@ function walkReferences(
     const parameters = Array.isArray(node.params) ? node.params.filter(isNode) : [];
     const bindsParameter = parameters.some(parameter => patternBinds(parameter, root));
     let bodyHidden = shadowed;
-    if (bindsParameter && !state.rootFunctionFound) state.rootFunctionFound = true;
+    const isRootFunction = bindsParameter && !state.rootFunctionFound;
+    if (isRootFunction) state.rootFunctionFound = true;
     else if (bindsParameter || (isNode(node.id) && patternBinds(node.id, root)) || functionVarBinds(node, root)) {
       bodyHidden = true;
     }
@@ -139,7 +140,7 @@ function walkReferences(
     // body-level `var` scope. Keep them visible unless the parameter list
     // itself binds the root name (in which case all parameter references are
     // local to that parameter environment).
-    const parameterHidden = shadowed || bindsParameter;
+    const parameterHidden = shadowed || (bindsParameter && !isRootFunction);
     for (const parameter of parameters) walkReferences(parameter, root, parameterHidden, state, visit);
     const body = isNode(node.body) ? node.body : undefined;
     if (body !== undefined) walkReferences(body, root, bodyHidden, state, visit);

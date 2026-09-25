@@ -176,6 +176,11 @@ describe('helper references are read as syntax, not text', () => {
     ))).toContain('helper_provider.mount_required');
   });
 
+  it('keeps root-function parameter defaults visible', () => {
+    expect(refusals(fromSource('(f, x = f.gitlab.issues) => x')))
+      .toContain('helper_provider.mount_required');
+  });
+
   it('does not let a deeper nested var scope hide an outer helper', () => {
     expect(refusals(fromSource(
       '(f) => { const outer = () => { const inner = () => { var f; return f.gitlab; }; return f.gitlab.issues; }; return outer(); }',
