@@ -96,6 +96,7 @@ const LOCAL_EXECUTION_OPTIONS = [
   },
   { flags: '--no-spawn', description: 'Require a running relayflowd rather than starting one' },
   { flags: '--no-observer-link', description: 'Do not mint an observer link for this run' },
+  { flags: '--cloud-mirror', description: 'Also put this run on the Cloud dashboard (also FLOWS_CLOUD_MIRROR=1)' },
   {
     flags: '--allow-human-influenced',
     description: 'Proceed even though the run carries human-influenced state',

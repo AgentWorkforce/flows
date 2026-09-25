@@ -9,6 +9,10 @@ import type { CliModelSource } from './cli-adapter.js';
 import { renderProgress, type ProgressEvent } from './progress.js';
 import type { JournalEvent } from './journal-reader.js';
 import { createObserverSession } from './cli/observer-session.js';
+import {
+  cloudMirrorRequested, createCloudMirrorSession, mirrorSourceFromJournal, mirrorSourceFromPath,
+  type CloudMirrorReceipt,
+} from './cli/cloud-mirror-session.js';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import {
@@ -96,8 +100,8 @@ export type ParsedArgs =
   | { command: 'schedules'; json: boolean }
   | { command: 'unschedule'; scheduleId: string; json: boolean }
   | { command: 'check'; json: boolean; watch: boolean; value: string }
-  | { command: 'run'; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
-  | { command: 'resume'; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; allowHumanInfluenced: boolean; value: string }
+  | { command: 'run'; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; cloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
+  | { command: 'resume'; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; cloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
   | { command: 'answer'; dataDir: string; json: boolean; spawn: boolean; note: string | undefined; by: string | undefined; runId: string; waitId: string; answer: boolean }
   | RunsArgs
   | LogsArgs
@@ -127,13 +131,13 @@ const USAGE = [
   'flows run <flow>@sha256:<digest> [--bucket <file-bucket-uri>] [--data-dir <dir>] [--json]',
   'flows check [--watch] [--json] <flow.ts|flow.yaml|spec.json>',
   'flows serve-webhook --data-dir <dir> --port <p> [--allow <name>[,<name>]]',
-  'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] [--reuse-from <run-id>] <flow.yaml|spec.json>',
+  'flows run [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] [--reuse-from <run-id>] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] [--sync-code] [--no-connect] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] [--sync-code] [--no-connect] <flow.ts> --input <inline-json-or-file>',
   'flows sync [--json] [--dry-run] [--dir <path>] <run-id>',
-  'flows run [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <flow.ts> --input <inline-json-or-file>',
+  'flows run [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
-  'flows resume [--allow-human-influenced] [--json] [--no-spawn] [--no-observer-link] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <run-id>',
+  'flows resume [--allow-human-influenced] [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <run-id>',
   'flows answer [--json] [--no-spawn] [--data-dir <dir>] [--note <text>] [--by <identity>] <run-id> <wait-id> <yes|no>',
   'flows replay [--allow-human-influenced] [--json] [--data-dir <dir>] <run-id> [--at <step-id>]',
   'flows status [--json] [--data-dir <dir>] [--tail <n>] [<run-id>]',
@@ -326,25 +330,59 @@ export async function runCli(
   // effect of an invocation that is about to be refused for bad input.
   const startedSteps = new Map<string, number>();
   const observer = parsed.noObserverLink ? undefined : createObserverSession(parsed.command, io);
+  const runnerLog: string[] = [];
+  // Opt-in, unlike the observer link beside it. The observer is the default
+  // way to watch a local run: it is free, it needs only a workspace key, and
+  // it carries a step projection. The dashboard is the richer, hosted view —
+  // it stores the flow source, every step's transcript and this invocation's
+  // own output — so a local run joins it because someone asked, never because
+  // a login happened to be lying around.
+  const mirror = !(parsed.cloudMirror || cloudMirrorRequested(process.env))
+    ? undefined
+    : createCloudMirrorSession({
+      source: parsed.command === 'run'
+        ? mirrorSourceFromPath(parsed.value, parsed.input, parsed.dataDir)
+        : mirrorSourceFromJournal(parsed.dataDir),
+      dataDir: parsed.dataDir,
+      log: () => runnerLog,
+      requested: parsed.cloudMirror ? 'flag' : 'env',
+    }, io);
+  // Everything this invocation prints, kept in order, so the mirror can upload
+  // it as the run's `runner.log` — the object the dashboard's log pane reads,
+  // and the sandbox's own equivalent. A declarative run emits no progress
+  // events at all, so building the log out of those would have left the pane
+  // empty for exactly the runs that are easiest to follow.
+  const logged: CliIo = mirror === undefined ? io : {
+    ...io,
+    stdout: line => { runnerLog.push(line); io.stdout(line); },
+    stderr: line => { runnerLog.push(line); io.stderr(line); },
+  };
   const showProgress = (event: ProgressEvent): void => {
     if (event.type === 'step.started') startedSteps.set(event.stepId, performance.now());
-    if (!parsed.json) for (const line of renderProgress([event])) io.stderr(line);
+    if (!parsed.json) for (const line of renderProgress([event])) logged.stderr(line);
     observer?.onProgress(event);
+    mirror?.onProgress(event);
   };
   const lifecycle = {
     ...(parsed.command === 'run' ? { bucket: parsed.bucket } : {}),
     allowHumanInfluenced: parsed.allowHumanInfluenced,
-    onPtyReady: (path: string) => io.stderr(`PTY ${path}`),
+    onPtyReady: (path: string) => logged.stderr(`PTY ${path}`),
     ...(parsed.command === 'run' && parsed.reuseFromRunId !== undefined ? { reuseFromRunId: parsed.reuseFromRunId } : {}),
     localAgent: parsed.localAgent,
     ...(parsed.agentCapacity === undefined ? {} : { agentCapacity: parsed.agentCapacity }),
     onProgress: showProgress,
-    ...(observer === undefined ? {} : {
-      onJournalEntry: (entry: JournalEvent) => observer.onJournalEntry(entry),
-      onRunStarted: (run: { runId: string; flow: string; resumed?: boolean }) => observer.onRunStarted(run),
+    ...(observer === undefined && mirror === undefined ? {} : {
+      onJournalEntry: (entry: JournalEvent) => {
+        observer?.onJournalEntry(entry);
+        mirror?.onJournalEntry(entry);
+      },
+      onRunStarted: (run: { runId: string; flow: string; resumed?: boolean }) => {
+        observer?.onRunStarted(run);
+        mirror?.onRunStarted(run);
+      },
     }),
     onWait: (progress: RunProgress) => {
-      emitWait(progress, io);
+      emitWait(progress, logged);
       const now = performance.now();
       if (!startedSteps.has(progress.stepId)) startedSteps.set(progress.stepId, now);
       showProgress({ type: 'step.running', stepId: progress.stepId, stepType: progress.stepType,
@@ -372,12 +410,17 @@ export async function runCli(
   // preflight) is worse than printing `Observer:` on a later line, so we
   // emit the run report immediately and finalize the observer link after.
   if (parsed.json) {
-    const observerUrl = await observerUrlFrom(observerMint, io);
-    emitRunReport(execution, parsed.json, io, observerUrl);
+    const observerUrl = await observerUrlFrom(observerMint, logged);
+    emitRunReport(execution, parsed.json, logged, observerUrl, await mirror?.receipt());
+    // Last, and after the report: the run's own output is what the mirror
+    // uploads, and a run's exit code has never waited on Cloud. The mirror
+    // bounds itself and never rejects.
+    await mirror?.finish(execution.report);
     return execution.exitCode;
   }
-  emitRunReport(execution, parsed.json, io);
-  await finalizeObserverLine(observerMint, io);
+  emitRunReport(execution, parsed.json, logged);
+  await finalizeObserverLine(observerMint, logged);
+  await mirror?.finish(execution.report);
   return execution.exitCode;
 }
 
@@ -604,6 +647,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   let sawDataDir = false;
   let spawn = true;
   let noObserverLink = false;
+  let cloudMirror = false;
   let input: string | undefined;
   let sawInput = false;
   let reuseFromRunId: string | undefined;
@@ -662,6 +706,14 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
       noObserverLink = true;
       continue;
     }
+    if (argument === '--cloud-mirror') {
+      // Only meaningful where a local run exists to mirror. Refused on `check`
+      // (which starts nothing) and, below, on `--cloud` (which IS the hosted
+      // run), so the flag never silently no-ops.
+      if (command === 'check' || cloudMirror) return undefined;
+      cloudMirror = true;
+      continue;
+    }
     if (argument === '--data-dir') {
       const value = args[index + 1];
       if (command === 'check' || sawDataDir || value === undefined || value.startsWith('-')) return undefined;
@@ -705,7 +757,8 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
     // observer-link opt-out -- describes nothing there and is refused rather
     // than ignored. `--input` is the authored body's argument and travels with
     // the source, so it is accepted exactly where a local run accepts it.
-    if (allowHumanInfluenced || sawDataDir || !spawn || localAgent || noObserverLink || reuseFromRunId !== undefined) return undefined;
+    if (allowHumanInfluenced || sawDataDir || !spawn || localAgent || noObserverLink || cloudMirror
+      || reuseFromRunId !== undefined) return undefined;
     if (sawInput && !isAuthoredFlowPath(positionals[0]!)) return undefined;
     return { command: 'cloud-run', value: positionals[0]!, json, wait, input, syncCode, noConnect };
   }
@@ -716,8 +769,8 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   return command === 'check'
     ? { command, json, watch, value: positionals[0]! }
     : command === 'run'
-      ? { command, bucket, reuseFromRunId, localAgent, agentCapacity, dataDir, input, json, spawn, noObserverLink, allowHumanInfluenced, value: positionals[0]! }
-      : { command, localAgent, agentCapacity, dataDir, json, spawn, noObserverLink, allowHumanInfluenced, value: positionals[0]! };
+      ? { command, bucket, reuseFromRunId, localAgent, agentCapacity, dataDir, input, json, spawn, noObserverLink, cloudMirror, allowHumanInfluenced, value: positionals[0]! }
+      : { command, localAgent, agentCapacity, dataDir, json, spawn, noObserverLink, cloudMirror, allowHumanInfluenced, value: positionals[0]! };
 }
 
 /**
@@ -1040,6 +1093,7 @@ function emitRunReport(
   json: boolean,
   io: CliIo,
   observerUrl?: string,
+  mirror?: CloudMirrorReceipt,
 ): void {
   const { report } = execution;
   emitDiagnostics(report.diagnostics, io);
@@ -1047,7 +1101,17 @@ function emitRunReport(
     // Fold `observerUrl` into the JSON report as a sibling of `runId`, so
     // downstream tooling that consumes `--json` gets the same signal a
     // human reader gets from the plain-text `Observer:` line.
-    const payload = observerUrl === undefined ? report : { ...report, observerUrl };
+    //
+    // `cloudRunId` and `dashboardUrl` ride beside it for the same reason, and
+    // they close a sharper gap: the report's own `runId` is the *journal's*,
+    // and every hosted read verb (`flows status --cloud`, `flows logs`,
+    // `flows runs`) takes Cloud's. Without these a script that mirrored a run
+    // had no handle on it at all, and a human had to read one out of a URL.
+    const payload = {
+      ...report,
+      ...(observerUrl === undefined ? {} : { observerUrl }),
+      ...(mirror === undefined ? {} : mirror),
+    };
     io.stdout(JSON.stringify(payload));
     return;
   }
