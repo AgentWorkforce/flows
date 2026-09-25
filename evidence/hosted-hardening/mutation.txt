@@ -1,0 +1,44 @@
+# Mutation 1: make the Surface entry resolve lazily again (revert fix A)
+$ npx vitest run tests/hosted-hardening.test.ts -t initializes
+   × hosted extension hardening > resolves the Surface entry while this module initializes, before authored code can steer the loader 25ms
+     → expected '/private/var/folders/l7/1p99_dl16pj5x…' to be '/Users/khaliqgant/Projects/AgentWorkf…' // Object.is equality
+      Tests  1 failed | 10 skipped (11)
+$ shasum -a 256 original restored
+298a611328194a969330551de0cccdccee2221fe51d958c5e7e607d4edaf5dd2
+298a611328194a969330551de0cccdccee2221fe51d958c5e7e607d4edaf5dd2
+$ npx vitest run tests/hosted-hardening.test.ts -t initializes
+ ✓ tests/hosted-hardening.test.ts (11 tests | 10 skipped) 8ms
+      Tests  1 passed | 10 skipped (11)
+
+# Mutation 2: drop the hosted lock name pattern check (revert fix B)
+$ npx vitest run tests/hosted-hardening.test.ts -t not one safe path component
+   × hosted extension hardening > refuses a hosted lock whose plugin name "../escape" is not one safe path component 29ms
+     → expected Error: /private/var/folders/l7/1p99_dl16p… { code: '…' } to match object { code: 'plugin_lock_invalid' }
+   × hosted extension hardening > refuses a hosted lock whose plugin name "a/b" is not one safe path component 6ms
+     → expected Error: /private/var/folders/l7/1p99_dl16p… { code: '…' } to match object { code: 'plugin_lock_invalid' }
+   × hosted extension hardening > refuses a hosted lock whose plugin name "." is not one safe path component 5ms
+     → expected Error: /private/var/folders/l7/1p99_dl16p… { code: '…' } to match object { code: 'plugin_lock_invalid' }
+   × hosted extension hardening > refuses a hosted lock whose plugin name ".." is not one safe path component 5ms
+     → expected Error: /private/var/folders/l7/1p99_dl16p… { code: '…' } to match object { code: 'plugin_lock_invalid' }
+   × hosted extension hardening > refuses a hosted lock whose plugin name "Babysitter" is not one safe path component 5ms
+     → expected Error: /private/var/folders/l7/1p99_dl16p… { code: '…' } to match object { code: 'plugin_lock_invalid' }
+   × hosted extension hardening > refuses a hosted lock whose plugin name "babysitter/../../etc" is not one safe path component 5ms
+     → expected Error: /private/var/folders/l7/1p99_dl16p… { code: '…' } to match object { code: 'plugin_lock_invalid' }
+$ shasum -a 256 original restored
+b1c276859dc837aecd4fb2d5578d30c0f9913ad9a72653a6c655fae2a5324646
+b1c276859dc837aecd4fb2d5578d30c0f9913ad9a72653a6c655fae2a5324646
+$ npx vitest run tests/hosted-hardening.test.ts -t not one safe path component
+ ✓ tests/hosted-hardening.test.ts (11 tests | 4 skipped) 36ms
+      Tests  7 passed | 4 skipped (11)
+
+# Mutation 3: restore last-match compat.base selection (revert fix C)
+$ npx vitest run tests/hosted-hardening.test.ts -t first compat.base entry
+   × hosted extension hardening > matches the first compat.base entry for a name, not the last 17ms
+     → expected [Function] to not throw an error but 'Error: babysitter requires software-f…' was thrown
+      Tests  1 failed | 10 skipped (11)
+$ shasum -a 256 original restored
+3f4069271d2e16cd35dc6ce78ef2ff24067d62ca7fc1d7a0ea8bb3b53a3dd987
+3f4069271d2e16cd35dc6ce78ef2ff24067d62ca7fc1d7a0ea8bb3b53a3dd987
+$ npx vitest run tests/hosted-hardening.test.ts -t first compat.base entry
+ ✓ tests/hosted-hardening.test.ts (11 tests | 10 skipped) 9ms
+      Tests  1 passed | 10 skipped (11)
