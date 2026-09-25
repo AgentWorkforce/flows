@@ -127,13 +127,26 @@ function walkReferences(
   state: { rootFunctionFound: boolean },
   visit: (node: AstNode) => void,
 ): void {
-  let hidden = shadowed;
   if (isFunction(node)) {
     const parameters = Array.isArray(node.params) ? node.params.filter(isNode) : [];
     const bindsParameter = parameters.some(parameter => patternBinds(parameter, root));
+    let bodyHidden = shadowed;
     if (bindsParameter && !state.rootFunctionFound) state.rootFunctionFound = true;
-    else if (bindsParameter || (isNode(node.id) && patternBinds(node.id, root))) hidden = true;
-  } else if (node.type === 'BlockStatement' && blockBinds(node, root)) {
+    else if (bindsParameter || (isNode(node.id) && patternBinds(node.id, root)) || functionVarBinds(node, root)) {
+      bodyHidden = true;
+    }
+    // Parameter initializers run before the function body and are outside a
+    // body-level `var` scope. Keep them visible unless the parameter list
+    // itself binds the root name (in which case all parameter references are
+    // local to that parameter environment).
+    const parameterHidden = shadowed || bindsParameter;
+    for (const parameter of parameters) walkReferences(parameter, root, parameterHidden, state, visit);
+    const body = isNode(node.body) ? node.body : undefined;
+    if (body !== undefined) walkReferences(body, root, bodyHidden, state, visit);
+    return;
+  }
+  let hidden = shadowed;
+  if (node.type === 'BlockStatement' && blockBinds(node, root)) {
     hidden = true;
   } else if (node.type === 'CatchClause' && isNode(node.param) && patternBinds(node.param, root)) {
     hidden = true;
@@ -173,18 +186,67 @@ function blockBinds(node: AstNode, root: string): boolean {
 
 /** Identifier occurrences that introduce bindings, including nested patterns. */
 function patternBinds(pattern: AstNode, root: string): boolean {
-  if (pattern.type === 'Identifier') return pattern.name === root;
-  if (pattern.type === 'MemberExpression') return false;
-  for (const key of Object.keys(pattern)) {
-    if (key === 'type' || key === 'start' || key === 'end' || key === 'loc') continue;
-    const child = pattern[key];
-    if (Array.isArray(child)) {
-      if (child.some(entry => isNode(entry) && patternBinds(entry, root))) return true;
-    } else if (isNode(child) && patternBinds(child, root)) {
-      return true;
+  switch (pattern.type) {
+    case 'Identifier':
+      return pattern.name === root;
+    case 'AssignmentPattern':
+      return isNode(pattern.left) && patternBinds(pattern.left, root);
+    case 'RestElement':
+      return isNode(pattern.argument) && patternBinds(pattern.argument, root);
+    case 'ArrayPattern': {
+      const elements = Array.isArray(pattern.elements) ? pattern.elements : [];
+      return elements.some(element => isNode(element) && patternBinds(element, root));
     }
+    case 'ObjectPattern': {
+      const properties = Array.isArray(pattern.properties) ? pattern.properties : [];
+      return properties.some(property => {
+        if (!isNode(property)) return false;
+        if (property.type === 'RestElement') {
+          return isNode(property.argument) && patternBinds(property.argument, root);
+        }
+        // Object keys are labels, not bindings. Only the value side introduces
+        // the local (including a default-value AssignmentPattern's left side).
+        return property.type === 'Property'
+          && isNode(property.value)
+          && patternBinds(property.value, root);
+      });
+    }
+    default:
+      return false;
   }
-  return false;
+}
+
+/** `var` is function-scoped, so a nested function's declaration hides the
+ * outer flow context for its entire body, including code before the
+ * declaration. Nested functions have their own var scopes and are skipped. */
+function functionVarBinds(node: AstNode, root: string): boolean {
+  const body = isNode(node.body) ? node.body : undefined;
+  if (body === undefined) return false;
+  let found = false;
+  const scan = (current: AstNode): void => {
+    if (found) return;
+    if (current !== body && isFunction(current)) return;
+    if (current.type === 'VariableDeclaration' && current.kind === 'var') {
+      const declarations = Array.isArray(current.declarations)
+        ? current.declarations.filter(isNode) : [];
+      if (declarations.some(declaration => isNode(declaration.id) && patternBinds(declaration.id, root))) {
+        found = true;
+        return;
+      }
+    }
+    for (const key of Object.keys(current)) {
+      if (key === 'type' || key === 'start' || key === 'end' || key === 'loc') continue;
+      const child = current[key];
+      if (Array.isArray(child)) {
+        for (const entry of child) if (isNode(entry)) scan(entry);
+      } else if (isNode(child)) {
+        scan(child);
+      }
+      if (found) return;
+    }
+  };
+  scan(body);
+  return found;
 }
 
 function isNode(value: unknown): value is AstNode {
