@@ -550,9 +550,12 @@ decides which form is meant.
 `contains`, `events`, and the pull-request subscription opt-outs `reviews`,
 `checks`, `comments`), `gitlab` (`project`, `labels`, `contains`, `events`),
 `slack` (`channel`, `contains`), `linear` (`team`, `project`, `labels`,
-`contains`), `jira` (`project`, `labels`, `contains`) or `shortcut`
+`contains`, `events`), `jira` (`project`, `labels`, `contains`) or `shortcut`
 (`workspace`, `team`, `labels`, `contains`), each at most once. A Linear
-`team` matches the team's name or its key. A GitHub source without
+`team` matches the team's name or its key. A Linear `events` is `issues` (the
+default — `issue.create`), `assigned` — `AppUserNotification.issueAssignedToYou`,
+issues assigned to the connected app user, so assigning a ticket delegates it —
+or `all` for both. A GitHub source without
 `repository` is
 scoped to `--repo`. `events` is `issues` (the default: `issues.opened` and
 `issues.labeled`) or `pull_request` — `merge_request` for `gitlab` — which wakes on a pull request being

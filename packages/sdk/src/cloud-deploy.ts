@@ -34,7 +34,9 @@ const PROVIDER_SETTINGS: Record<FlowTriggerProvider, readonly string[]> = {
   github: ['repository', 'labels', 'contains', 'events', 'reviews', 'checks', 'comments'],
   gitlab: ['project', 'labels', 'contains', 'events'],
   slack: ['channel', 'contains'],
-  linear: ['team', 'project', 'labels', 'contains'],
+  // `events`: `issues` (default), `assigned` (issues assigned to the agent's
+  // connected app user), or `all` — which Linear records wake the listener.
+  linear: ['team', 'project', 'labels', 'contains', 'events'],
   jira: ['project', 'labels', 'contains'],
   shortcut: ['workspace', 'team', 'labels', 'contains'],
 };
@@ -137,7 +139,10 @@ export function parseTriggerSource(value: string): FlowTriggerSource {
       if (key === 'events') {
         // Cloud's enum is lowercase; send it that way whatever the shell typed.
         const events = setting.toLowerCase();
-        const valid = provider === 'gitlab' ? ['issues', 'merge_request'] : ['issues', 'pull_request'];
+        const valid =
+          provider === 'gitlab' ? ['issues', 'merge_request']
+            : provider === 'linear' ? ['issues', 'assigned', 'all']
+              : ['issues', 'pull_request'];
         if (!valid.includes(events)) {
           throw new CloudFlowError('invalid_input',
             `${provider} events must be ${valid.map(v => `"${v}"`).join(' or ')}, got "${setting}".`);
