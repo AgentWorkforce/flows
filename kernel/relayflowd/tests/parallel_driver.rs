@@ -440,27 +440,48 @@ fn pause_before_second_independent_step_holds_the_driver_boundary() {
         .unwrap();
 
     let deadline = Instant::now() + Duration::from_secs(15);
-    while fs::read_to_string(&marker).unwrap_or_default() != "first\n" {
+    let run_id = loop {
+        if let Some(entry) = fs::read_dir(data_dir.join("runs"))
+            .ok()
+            .and_then(|mut runs| runs.next())
+        {
+            break entry
+                .unwrap()
+                .path()
+                .file_stem()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_owned();
+        }
+        assert!(Instant::now() < deadline, "driver never spawned the run");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    // Wait until first's success is DURABLE in the journal before killing.
+    // The marker file only proves the effect ran; its completion may not
+    // have reached the journal yet, and a kill in that window makes resume
+    // correctly re-run the step — which says nothing about the pause
+    // boundary while failing the exact-effects assertion below.
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let entries = loop {
+        if let Ok(entries) = Engine::new(&data_dir).journal_entries(&run_id, 1, usize::MAX)
+            && entries.iter().any(|entry| {
+                entry.entry_type == EntryType::StepCompleted
+                    && entry.step_id.as_deref() == Some("first")
+                    && serde_json::from_value::<StepCompletedPayload>(entry.payload.clone())
+                        .unwrap()
+                        .completion_reason
+                        == CompletionReason::Success
+            })
+        {
+            break entries;
+        }
         assert!(
             Instant::now() < deadline,
-            "driver never reached second lane"
+            "driver never journaled first's completion"
         );
         std::thread::sleep(Duration::from_millis(20));
-    }
-    let run_id = fs::read_dir(data_dir.join("runs"))
-        .unwrap()
-        .next()
-        .unwrap()
-        .unwrap()
-        .path()
-        .file_stem()
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .to_owned();
-    let entries = Engine::new(&data_dir)
-        .journal_entries(&run_id, 1, usize::MAX)
-        .unwrap();
+    };
     assert!(!entries.iter().any(|entry| {
         entry.entry_type == EntryType::StepAttemptStarted
             && entry.step_id.as_deref() == Some("second")
