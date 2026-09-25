@@ -132,6 +132,101 @@ A synced run and a Cloud repository grant are mutually exclusive on the
 server: `--sync-code` is the local-driven development loop, and
 webhook-triggered deployments keep cloning through the grant.
 
+## Local runs on the dashboard
+
+A local run is watchable by default through its **observer link** — free, off a
+workspace key, a step projection in its own channel, printed by every `flows
+run` unless `--no-observer-link`. That is the default way to follow a run you
+started in a terminal, and it is unchanged.
+
+`--cloud-mirror` additionally puts the run on the **Cloud dashboard**: the
+richer, hosted view of the same run.
+
+```sh
+flows run --cloud-mirror review.flow.ts --input '{"pr":7}'
+# Dashboard: https://…/dashboard/workflow/<run>/runner  ·  flows status --cloud --watch <run>
+
+FLOWS_CLOUD_MIRROR=1 flows run review.flow.ts     # for a whole shell
+```
+
+Nothing about execution changes. The run executes locally, against the local
+daemon, under your own credentials; the journal is still the record. What is
+added is a reader beside it that polls this run's journals every ten seconds
+and pushes what it finds — the same live step view, the same final step rows,
+the same per-step transcripts and the same terminal status a sandboxed run
+reports. The run row is marked `dispatchType: "local"`, so the run page says it
+ran on your machine rather than promising a sandbox that is never coming.
+
+What the dashboard adds over the observer link: the flow source, every step's
+agent transcript, the run graph, the run's own log, and the run sitting in the
+same history as your hosted ones — readable afterwards through `flows runs`,
+`flows status --cloud` and `flows logs`, which until now only answered for runs
+Cloud had launched.
+
+### Why it is opt-in
+
+Because it is the richer view, it is also the one that *stores* all of that.
+The mirror sends the flow source, step metadata, agent transcripts and this
+invocation's own stderr. Transcripts are the sharp edge: they are whatever the
+agent printed, which includes file contents, command output, and anything it
+read out of its environment. Every string goes through the same redactor
+`flows status` uses — but redaction is pattern matching, and pattern matching
+has a false-negative rate.
+
+So the trigger is an explicit request, never the presence of a login. A
+developer who signed in once to run something hosted has not thereby agreed to
+publish every unrelated experiment in every checkout on that machine into their
+workspace, where anyone who can read the workspace can read it. `--cloud-mirror`
+is that agreement, per run; `FLOWS_CLOUD_MIRROR=1` is it for a shell.
+
+Only an affirmative counts for the environment variable (`1`, `true`, `on`,
+`yes`). Anything else — unset, empty, `0`, or a value nobody meant as a switch
+— leaves the run local, because the cost of reading a stray value as consent is
+someone's runs being uploaded.
+
+The terminal line names Cloud's run id as well as the page, because the
+report's own `runId` is the *journal's* and every hosted read verb (`flows
+status --cloud`, `flows logs`, `flows runs`) takes Cloud's. Under `--json` the
+same pair rides in the report as `cloudRunId` and `dashboardUrl`, beside
+`observerUrl`.
+
+A run that asked for the dashboard and did not get it says so, once, on stderr
+— a missing login, a deployment that does not serve the route, a refused
+registration. It is a request that was not honoured, not an aside, and it never
+changes the run's outcome.
+
+What it does and does not do:
+
+- **Registers before it reports.** `POST /api/v1/workflows/local-run` creates
+  the run row and returns a credential scoped to that one run. Registration
+  happens once the run id exists, so a flow `flows run` refuses at check time
+  never reaches Cloud at all.
+- **Reads only this run's journals.** The root, plus the child journals the
+  root's own authored-step index names. A shared `~/.relayflowd` holding other
+  people's runs contributes nothing.
+- **Cannot fail a run.** Every push collapses to a boolean; each poll is
+  bounded by its own deadline; the whole finish is bounded. A Cloud outage
+  costs a mirrored run its dashboard page and nothing else.
+- **Does not make Cloud the authority.** Cancel is refused for a local run:
+  Cloud mirrors it and does not control it, and a cancel button that stopped
+  the *reporting* while the flow kept running would be a cancellation that did
+  not happen. Stop it where it is running.
+- **One dashboard row per invocation, and the rows are linked.** A mirrored run
+  goes terminal on Cloud when the CLI exits, and Cloud refuses to move a
+  terminal run back to `running`, so `flows resume --cloud-mirror` registers its
+  own row — the same shape Cloud's own v2 resume already has. It carries
+  `resumedFromRunId`, so the run page says which attempt it continues and a
+  reader of the earlier "Needs review" row can find out how it ended. A resume
+  mirrors the kernel spec its journal recorded, since the flow file may have
+  been edited or deleted since.
+
+No credential is written to disk between invocations: the run token lives only
+for the process that holds it. What *is* written, under
+`<data-dir>/cloud-runs/`, is which Cloud run mirrored which journal — the id
+and the deployment, nothing else, mode 0600 — so a later `flows resume` of the
+same journal can name its predecessor. Everything in that file was already in
+the URL the first attempt printed. Entries age out at 30 days and 500 rows.
+
 ## Reading a hosted run
 
 Three read-only verbs answer "what did that run do" from the Cloud API, so an
@@ -140,7 +235,9 @@ agent holding its user's own Cloud credential does not have to hand-roll HTTP:
 ```sh
 flows runs [--limit <n>] [--json]                         # recent runs
 flows logs <run-id> [--step <name>] [--raw] [--json]      # runner log, or a step's transcript
+flows logs <run-id> --follow [--json]                     # ...and keep reading it until the run ends
 flows status --cloud [--json] <run-id>                    # the run's steps, as `flows status` renders a local one
+flows status --cloud --watch [--json] <run-id>            # ...and redraw it until the run ends
 ```
 
 They resolve their credential exactly the way every other hosted verb does
@@ -238,6 +335,17 @@ frame this vocabulary has no opinion about is reported as one line naming its
 type and size, and a line that is not JSON is printed as written, so `--raw`
 is never the only way to find out that something ran.
 
+A retried step that failed differently each time shows every attempt's error
+here, because the runner log is the `flows` process's own captured output and
+the step-failure diagnostic it writes lists every failed attempt (see
+[Reading a failed step](SURFACE.md#reading-a-failed-step)). Nothing is elided
+on the way out: the runner log is printed line for line. The limit is that the
+log is a *recording* — there is no journal-export endpoint, so `flows logs`
+can only show what the `flows` binary that ran the workflow printed at the
+time. A run executed by a build predating this diagnostic carries only the
+terminal attempt in its log, and no later reader can recover the earlier ones
+from Cloud.
+
 `flows status --cloud <run-id>` is the local `flows status` view, sourced from
 the run record and the step list instead of a journal: the `RUN` header with
 status, completion reason and summed spend, a `steps N` count, and one
@@ -263,12 +371,115 @@ authority surface 2.0.22 · artifact 9c361a2cbb0a · commit b4dd665eb433
   ✓ complete-3  deterministic  completed    1 attempt  0.0s  success  gate: exit_code pass
 ```
 
+A step that is still going renders in the same grammar as a finished one, in
+the local view's vocabulary: `↻` for `running` and `backoff`, `⏸` for
+`waiting` and `needs_human`, the number of the attempt now running, and the
+time since its `startTime`.
+
+```text
+  ↻ agent-5  agent          running      attempt 1  6m50s
+```
+
+Only what the snapshot establishes is printed. Cloud's step rows carry no
+maximum-attempt budget, no wait id and no backoff deadline, so — unlike the
+local view — no `attempt 1/3`, no `awaiting human: ...` and no
+`backoff until ...` appears; those cells arrive if and when the step route
+carries the fields. A row with no `startTime` has not been dispatched, so it
+shows no attempt number rather than `attempt 1`, and a step that has ended
+keeps the duration Cloud reported instead of being advanced to now. A running
+run whose snapshot has no rows prints `steps 0` followed by
+`No step snapshot available yet.` — a fact about the snapshot, where a bare
+`steps 0` would be a claim about the run.
+
+### Following a run that is still going
+
+`flows status --cloud --watch` redraws the page every two seconds until the
+run reaches a terminal status, then leaves the final page up. `flows logs
+<run-id> --follow` appends new runner output on the same cadence until the run
+ends and Cloud marks the log complete, then prints the run's outcome:
+
+```text
+LOG 20d04c99-3fa8-48c9-9286-92d364a5bc2e  runner  following  1,204 bytes so far
+[relayflow] ▶ agent-5 (agent) started
+[relayflow] ✓ agent-1 … done in 5m16s · claude-opus-5 · 37 turns · $2.26 · wrote plan.md
+COMPLETED 20d04c99-3fa8-48c9-9286-92d364a5bc2e completionReason: success
+```
+
+Both differ from their one-shot forms in one visible way: **the exit code is
+the run's, not the read's.** They exit 0 only on a run Cloud attests as
+`completed` with `completionReason: success`, 1 on an attested failure or
+cancellation, and 1 with `cloud_invalid_response` on a terminal record that
+attests neither — the same validation `flows run --cloud --wait` blocks on, so
+the two cannot disagree. A plain `flows logs` on a failed run still exits 0,
+because there the exit code describes the read. Ctrl-C exits 1 with
+`observation_aborted`; the hosted run is **not** cancelled by it.
+
+Under `--json` both poll silently and print exactly one document at the end —
+the one their one-shot form would have printed, with `--follow` carrying the
+whole redacted log. That is deliberately unlike `flows check --watch`, which
+emits one JSON report per check: these two have a single result, and a script
+that wants it wants to block and then parse once. In that document `ok: true`
+means the read succeeded; the run's outcome is the exit code.
+
+A watched page is drawn in one write after the cancellation check, so an
+interrupt never leaves half a frame, and a failed poll leaves the previous page
+alone rather than clearing the screen to report it. Transient failures and
+HTTP 408/429/500/502/503/504 are retried with the same doubling delay, capped
+at 30 seconds, that the hosted waiter uses; every other failure refuses with
+the codes below. The page is two reads against two projections (the run record
+then the step rows), so a step row can lag the header above it by a poll; it is
+not an atomic snapshot and does not claim to be.
+
+`--follow` does not take `--step`. A step transcript is not an append-only
+stream: a retry replaces it, and the rendered form is built from the whole
+JSONL. The combination is refused with `invalid_invocation` before any request,
+naming both alternatives. Following the runner log re-reads it whole on every
+poll and prints only the part that is new — the route's `offset` is a byte
+count and the content is a string, and mixing the two silently loses text the
+moment a log contains a non-ASCII character, which the runner's own transition
+lines do. The cost is a full read per poll and the log held in memory; the
+benefit is that no line can be duplicated or skipped. If what was already
+printed is no longer a prefix of what Cloud serves, `--follow` refuses with
+`cloud_log_rewritten` rather than guessing which bytes are new.
+
+What has not been printed yet is redacted as one block, never a line at a
+time, and a line is held back while a secret env value has begun in it and not
+ended — whether the rest of that value is further down the same response or
+has not been served yet. A multi-line value, a PEM private key being the usual
+one, is therefore replaced whole by `[redacted:<NAME>]`: no line of it can
+reach stdout on its own, which is exactly what a line-at-a-time redactor can
+never prevent. The cost is that a line can appear one poll later than the byte
+that completed it.
+
 `--cloud` takes neither `--data-dir` nor `--tail`: both name things on this
 filesystem, which a hosted run has none of, so pairing them is refused as an
-invocation rather than quietly ignored. The spend total is summed from the
+invocation rather than quietly ignored. `--watch` is refused without `--cloud`
+for the same reason: the local `flows status` reads one journal file and
+returns, so there is no loop for it to hang in. The spend total is summed from the
 step rows because the run record carries no total, and Cloud stores each
 step's cost as a float — unlike the local view, which adds the journal's
 decimal strings exactly (`run-state.ts`).
+
+A failed run also prints its `error`, which is where an authored verdict's
+detail arrives. A flow that ends `done("step_failed", { detail })` puts that
+sentence in the run report's `step_failed` diagnostic message, and wherever
+Cloud's run record carries that message as the run's `error`,
+`flows status --cloud` renders it under an `error` heading, redacted again on
+the way out. The message is deliberately one line even when the detail the
+flow passed had line breaks in it — the escapes `\n`, `\r`, `\t` and
+`\uXXXX` are how the breaks appear — because this view elides the middle of a
+long multi-line error, and a forty-line detail rendered as forty lines would
+lose exactly the finding it exists to carry. The unescaped detail is in the
+report's own `completionDetail` and in the diagnostic's `detail`. See
+docs/SURFACE.md for the bound and the redaction.
+
+The step between those two — report diagnostic to stored `error` — is the
+server's, and this repository does not establish it. What is pinned here is
+the client half: the message this CLI produces, and the rendering
+`flows status --cloud` gives an `error` that holds it (`cloud-read.test.ts`,
+which injects the diagnostic into a mocked Cloud record). Treat the hosted end
+to end as unconfirmed until a hosted run or the server source says otherwise;
+that is an evidence limit, not a claim that Cloud drops the field.
 
 Every refusal is one `REFUSED [code] message` line naming what to do next:
 
@@ -280,6 +491,8 @@ Every refusal is one `REFUSED [code] message` line naming what to do next:
 | `cloud_forbidden` | 403: authenticated, but not allowed to read that run or log |
 | `cloud_run_not_found` | 404: no such run for this credential; points at `flows runs` |
 | `cloud_step_no_transcript` | `--step` named a step with no transcript, or no such step; names the ones that have one |
+| `cloud_log_rewritten` | `--follow` found the log no longer starts with what it printed; following it would skip or repeat output |
+| `observation_aborted` | Ctrl-C (or a caller's abort) during `--watch`/`--follow`; the hosted run continues |
 | `invalid_invocation` | the run id is not a run id (wrong characters, too long); refused before any request |
 | `cloud_invalid_response` | Cloud answered something this client cannot trust — a record for a different run, a list that is not a list, a row with no id, a pagination cursor that does not advance |
 | `cloud_unreachable` / `cloud_transport_failed` | the request never completed |
@@ -334,11 +547,18 @@ listener's rules match them there. The digest form,
 decides which form is meant.
 
 `--on <provider>[:key=value,…]` takes `github` (`repository`, `labels`,
-`contains`, `events`), `slack` (`channel`, `contains`), `linear` (`team`,
-`contains`), `jira` (`project`, `contains`) or `shortcut` (`workspace`,
-`contains`), each at most once. A GitHub source without `repository` is
+`contains`, `events`, and the pull-request subscription opt-outs `reviews`,
+`checks`, `comments`), `gitlab` (`project`, `labels`, `contains`, `events`),
+`slack` (`channel`, `contains`), `linear` (`team`, `project`, `labels`,
+`contains`, `events`), `jira` (`project`, `labels`, `contains`) or `shortcut`
+(`workspace`, `team`, `labels`, `contains`), each at most once. A Linear
+`team` matches the team's name or its key. A Linear `events` is `issues` (the
+default — `issue.create`), `assigned` — `AppUserNotification.issueAssignedToYou`,
+issues assigned to the connected app user, so assigning a ticket delegates it —
+or `all` for both. A GitHub source without
+`repository` is
 scoped to `--repo`. `events` is `issues` (the default: `issues.opened` and
-`issues.labeled`) or `pull_request`, which wakes on a pull request being
+`issues.labeled`) or `pull_request` — `merge_request` for `gitlab` — which wakes on a pull request being
 opened, receiving commits, being reopened, or being reviewed; a
 pull-request run checks out the pull request's own head and receives
 `input.pullRequest` (`owner`, `repo`, `number`, `action`, `title`, `body`, `headRef`, `headSha`,

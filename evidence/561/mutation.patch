@@ -1,0 +1,13 @@
+diff --git a/packages/sdk/src/authored-worker-step.ts b/packages/sdk/src/authored-worker-step.ts
+index 8f14a6f..b3dcf65 100644
+--- a/packages/sdk/src/authored-worker-step.ts
++++ b/packages/sdk/src/authored-worker-step.ts
+@@ -49,7 +49,7 @@ export function authoredWorkerRunner(
+     // and real-probing auth/model readiness. An authored agent step gets
+     // nothing for free just because it was declared in TS instead of YAML.
+     const { report, flow: resolved } = checkAuthoredFlow(authoring, flowPath,
+-      projectConfig ??= readProjectConfig(dirname(resolve(flowPath))), {}, cliProbeCache);
++      projectConfig ??= readProjectConfig(dirname(resolve(flowPath))), {});
+     if (!report.ok || resolved === undefined) {
+       const refusal = report.diagnostics.find(
+         (diagnostic): diagnostic is PreflightDiagnostic & { severity: 'refusal' } =>

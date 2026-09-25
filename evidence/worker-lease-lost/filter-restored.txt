@@ -1,0 +1,13 @@
+$ cd packages/sdk && npx vitest run tests/worker-lease-lost.test.ts
+
+ RUN  v2.1.9 /Users/khaliqgant/Projects/AgentWorkforce/flows/packages/sdk
+
+ ✓ tests/worker-lease-lost.test.ts (16 tests) 10ms
+
+ Test Files  1 passed (1)
+      Tests  16 passed (16)
+   Start at  00:14:20
+   Duration  592ms (transform 168ms, setup 0ms, collect 364ms, tests 10ms, environment 0ms, prepare 43ms)
+
+
+Exit code: 0

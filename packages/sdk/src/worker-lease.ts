@@ -1,5 +1,32 @@
-import type { JournalClient } from './journal-client.js';
+import { JournalProtocolError, type JournalClient } from './journal-client.js';
 import type { StepDispatchEvent } from './protocol.js';
+
+export class WorkerLeaseLostError extends Error {
+  constructor(readonly reason: 'already_expired' | 'renewal_expired' | 'completion_expired', message: string) {
+    super(message);
+    this.name = 'WorkerLeaseLostError';
+  }
+}
+
+/** No cause traversal: worker errors preserve their original identity. */
+export function isLeaseLost(error: unknown): boolean {
+  return error instanceof WorkerLeaseLostError || (error instanceof JournalProtocolError
+    && (error.code === 'lease_conflict' || (error.code === 'run_terminal'
+      && ['step.heartbeat', 'step.complete', 'step.wait'].includes(error.verb ?? ''))));
+}
+
+export function onWorkerFailure(label: string, fatal: (error: unknown) => void) {
+  return (error: unknown, dispatch?: StepDispatchEvent): void => {
+    // Without the dispatch there is no attempt to hand back to the kernel: fail closed.
+    if (!isLeaseLost(error) || dispatch === undefined) { fatal(error); return; }
+    // The kernel owns this attempt's fate; its journal supplies the run outcome.
+    // stderr keeps this diagnostic out of structured reports on stdout.
+    process.emitWarning(
+      `${label}: run_id=${dispatch.run_id} step_id=${dispatch.step_id} attempt=${dispatch.attempt}: ${String(error)}`,
+      { code: 'FLOWS_WORKER_LEASE_LOST' },
+    );
+  };
+}
 
 /** Hold the dispatched lease only while its subprocess is still ours to run. */
 export async function withWorkerLease<T>(
@@ -16,12 +43,15 @@ export async function withWorkerLease<T>(
   const fail = (error: unknown): void => { controller.abort(error); };
   const armExpiry = (deadline: number): number => {
     const remaining = deadline - Date.now();
-    if (!Number.isFinite(remaining) || remaining <= 0) {
+    if (!Number.isFinite(remaining)) {
       throw new Error(`Agent lease is already expired for ${dispatch.run_id}/${dispatch.step_id}.`);
+    }
+    if (remaining <= 0) {
+      throw new WorkerLeaseLostError('already_expired', `Agent lease is already expired for ${dispatch.run_id}/${dispatch.step_id}.`);
     }
     latestDeadline = deadline;
     if (expiryTimer !== undefined) clearTimeout(expiryTimer);
-    expiryTimer = setTimeout(() => fail(new Error(
+    expiryTimer = setTimeout(() => fail(new WorkerLeaseLostError('renewal_expired',
       `Agent lease expired before renewal for ${dispatch.run_id}/${dispatch.step_id}.`,
     )), remaining);
     return remaining;
@@ -34,7 +64,7 @@ export async function withWorkerLease<T>(
     // A response handled after local expiry cannot revive ownership, even
     // if its future deadline was issued before this event loop stalled.
     if (Date.now() >= latestDeadline) {
-      throw new Error(`Agent lease expired before renewal for ${dispatch.run_id}/${dispatch.step_id}.`);
+      throw new WorkerLeaseLostError('renewal_expired', `Agent lease expired before renewal for ${dispatch.run_id}/${dispatch.step_id}.`);
     }
     const remaining = armExpiry(result.lease_deadline_ms);
     if (!stopped) {
@@ -57,7 +87,7 @@ export async function withWorkerLease<T>(
     // Timer callbacks can be delayed behind a resolved subprocess promise.
     // Check the clock itself before permitting step.complete.
     if (Date.now() >= latestDeadline) {
-      throw new Error(`Agent lease expired before completion for ${dispatch.run_id}/${dispatch.step_id}.`);
+      throw new WorkerLeaseLostError('completion_expired', `Agent lease expired before completion for ${dispatch.run_id}/${dispatch.step_id}.`);
     }
     return result;
   } finally {

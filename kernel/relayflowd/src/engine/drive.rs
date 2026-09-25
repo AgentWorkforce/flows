@@ -1,4 +1,8 @@
-use std::{collections::BTreeSet, thread, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    thread,
+    time::Duration,
+};
 
 use anyhow::{Context, Result, bail};
 use relayflowd_core::{
@@ -50,6 +54,12 @@ impl<C: Clock> Engine<C> {
             let mut backpressured = false;
             let mut handoff_failed = false;
             let mut skipped_dispatches = BTreeSet::new();
+            // The batch was elected at one instant but runs serially, so a
+            // start journaled after a deterministic peer ran is late by that
+            // peer's runtime. Stamp each start when it is journaled and move
+            // its lease deadline — and its dispatch's — by the same delay, so
+            // neither the attempt's time nor its lease is spent in advance.
+            let mut start_delays = BTreeMap::new();
             for action in actions {
                 match action {
                     Action::Append(mut entry) => {
@@ -106,6 +116,8 @@ impl<C: Clock> Engine<C> {
                             self.prepare_start_entry(&state, &mut entry)?;
                             self.assign_executor(&state, &mut entry)?;
                             self.route_start(&mut journal, &state, &mut entry)?;
+                            // After placement, which can itself be slow.
+                            self.stamp_start(&mut entry, &mut start_delays);
                             self.append(&mut journal, &entry)?;
                             Ok(())
                         })();
@@ -195,6 +207,11 @@ impl<C: Clock> Engine<C> {
                         if skipped_dispatches.remove(&(step.id.clone(), attempt)) {
                             continue;
                         }
+                        let lease_deadline_ms = lease_deadline_ms.saturating_add(
+                            start_delays
+                                .remove(&(step.id.clone(), attempt))
+                                .unwrap_or(0),
+                        );
                         let input = self.resolve_step_input(&mut journal, &step, attempt);
                         if !matches!(input, Ok(Some(_))) {
                             if let Some(dispatcher) = &self.dispatcher {
@@ -360,6 +377,32 @@ impl<C: Clock> Engine<C> {
                 self.park_idle_run(&parked)?;
                 return Ok(parked_outcome(&parked, RunStatus::Parked));
             }
+        }
+    }
+
+    /// Stamp a start with the moment it is journaled and move its lease
+    /// deadline by the delay since the batch was elected, recording the delay
+    /// so the batch's dispatch for the same attempt moves with it. Anything
+    /// but an attempt start is left alone.
+    fn stamp_start(
+        &self,
+        entry: &mut relayflowd_core::JournalEntry,
+        start_delays: &mut BTreeMap<(String, u32), i64>,
+    ) {
+        if entry.entry_type != relayflowd_core::EntryType::StepAttemptStarted {
+            return;
+        }
+        let now_ms = self.clock.now_ms();
+        let delay = now_ms.saturating_sub(entry.at_ms);
+        if delay <= 0 {
+            return;
+        }
+        entry.at_ms = now_ms;
+        if let Some(deadline) = entry.payload["lease_deadline_ms"].as_i64() {
+            entry.payload["lease_deadline_ms"] = deadline.saturating_add(delay).into();
+        }
+        if let (Some(step_id), Some(attempt)) = (entry.step_id.clone(), entry.attempt) {
+            start_delays.insert((step_id, attempt), delay);
         }
     }
 

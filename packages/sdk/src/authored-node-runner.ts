@@ -8,12 +8,14 @@ import { isAbsolute, join } from 'node:path';
 import type { Readable } from 'node:stream';
 import type { AuthoredRootMetadata } from './authored-root.js';
 import type { AuthoredExecutionRuntime, AuthoredFlowExecutionResult, ExecuteAuthoredFlowOptions } from './authored-flow-executor.js';
-import { completionMarker, isLoweredCompletion } from './authored-flow-executor.js';
+import { completionMarker, isDurableCompletionDetail, isLoweredCompletion } from './authored-completion.js';
 import {
   AuthoredFlowExecutionError, AuthoredHumanParked,
   type AuthoredFlowExecutionErrorCode, type AuthoredHumanWait,
 } from './authored-flow-error.js';
-import type { StepFailedDetails } from './failure-kinds.js';
+import type {
+  AttemptEvidenceComparison, ParkCause, StepAttemptFailure, StepFailedDetails,
+} from './failure-kinds.js';
 import { HUMAN_WAIT_ID } from './authored-human.js';
 import { assertAuthoredPromiseHooks } from './authored-runtime-capability.js';
 
@@ -137,13 +139,18 @@ export async function runAuthoredInNode(
             else if (message.type === 'wait') options.onWait?.(message.event);
             else if (message.type === 'result') result = { ...message.result, executionRuntime: runtime };
             else if (message.type === 'error') {
-              failure = message.code === 'human_parked' && isHumanWaitFrame(message.wait) && message.runId === rootRunId
-                ? new AuthoredHumanParked(message.wait, rootRunId)
-                : typeof message.code === 'string'
-                  ? new AuthoredFlowExecutionError(message.code as AuthoredFlowExecutionErrorCode,
-                    message.message, message.completionReason, message.runId,
-                    stepFailedFrame(message.details))
-                  : new Error(message.message);
+              if (message.code === 'human_parked' && isHumanWaitFrame(message.wait) && message.runId === rootRunId) {
+                failure = new AuthoredHumanParked(message.wait, rootRunId);
+              } else if (typeof message.code === 'string') {
+                const authored = new AuthoredFlowExecutionError(message.code as AuthoredFlowExecutionErrorCode,
+                  message.message, message.completionReason, message.runId,
+                  stepFailedFrame(message.details));
+                // Validated, not trusted, like `details`: an unrecognised cause
+                // is dropped so the boundary says nothing about workers rather
+                // than acting on a value this frame could have invented.
+                authored.parkCause = parkCauseFrame(message.parkCause);
+                failure = authored;
+              } else failure = new Error(message.message);
             } else throw new Error('unknown authored runtime message');
           } catch (error) { stop(error instanceof Error ? error : new Error('invalid authored runtime message')); }
         }
@@ -175,6 +182,17 @@ function isHumanWaitFrame(value: unknown): value is AuthoredHumanWait {
 }
 
 /**
+ * A park cause arriving over IPC, accepted only as one of the two values the
+ * type admits. Anything else — absent, misspelled, a different type — becomes
+ * `undefined`, which the remedy formatter reads as "unestablished" and answers
+ * with silence. Guessing `worker_unavailable` here would let a malformed frame
+ * put "attach a worker" on a park a worker cannot clear.
+ */
+export function parkCauseFrame(value: unknown): ParkCause | undefined {
+  return value === 'worker_unavailable' || value === 'needs_human' ? value : undefined;
+}
+
+/**
  * Step evidence arriving over IPC, reduced to the fields `StepFailedDetails`
  * declares and the types it declares them as. The child is the same pinned
  * payload the parent hashed, but the frame is still a claim: an unrecognised
@@ -184,24 +202,74 @@ function isHumanWaitFrame(value: unknown): value is AuthoredHumanWait {
  * evidence frame would replace the answer with a worse one.
  */
 export function stepFailedFrame(value: unknown): StepFailedDetails | undefined {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
-  const frame = value as Record<string, unknown>;
-  const text = (key: string): string | undefined =>
-    typeof frame[key] === 'string' ? (frame[key] as string).slice(0, 8192) : undefined;
-  const count = (key: string): number | undefined =>
-    typeof frame[key] === 'number' && Number.isSafeInteger(frame[key]) ? frame[key] as number : undefined;
+  const frame = frameRecord(value);
+  if (frame === undefined) return undefined;
   const details: StepFailedDetails = {};
   for (const [key, parsed] of [
-    ['stepId', text('stepId')], ['stepType', text('stepType')],
-    ['completionReason', text('completionReason')], ['attempt', count('attempt')],
-    ['maxIterations', count('maxIterations')], ['exitCode', count('exitCode')],
-    ['stdoutTail', text('stdoutTail')], ['stderrTail', text('stderrTail')],
-    ['detail', text('detail')], ['transcriptPath', text('transcriptPath')],
-    ['hint', text('hint')], ['journalPath', text('journalPath')],
+    ['stepId', frameText(frame, 'stepId')], ['stepType', frameText(frame, 'stepType')],
+    ['completionReason', frameText(frame, 'completionReason')], ['attempt', frameCount(frame, 'attempt')],
+    ['maxIterations', frameCount(frame, 'maxIterations')], ['exitCode', frameCount(frame, 'exitCode')],
+    ['stdoutTail', frameText(frame, 'stdoutTail')], ['stderrTail', frameText(frame, 'stderrTail')],
+    ['detail', frameText(frame, 'detail')], ['transcriptPath', frameText(frame, 'transcriptPath')],
+    ['attempts', attemptFrames(frame['attempts'])],
+    ['attemptEvidence', comparisonFrame(frame['attemptEvidence'])],
+    ['hint', frameText(frame, 'hint')], ['journalPath', frameText(frame, 'journalPath')],
   ] as const) {
     if (parsed !== undefined) (details as Record<string, unknown>)[key] = parsed;
   }
   return Object.keys(details).length === 0 ? undefined : details;
+}
+
+/**
+ * The attempt history, reduced element by element on the same terms as the
+ * frame that carries it. An element that is not an object contributes nothing
+ * rather than voiding the whole history: a report naming three of four
+ * attempts is still the first attempt's error, which is the fact the terminal
+ * scalars cannot supply.
+ */
+function attemptFrames(value: unknown): StepAttemptFailure[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const attempts: StepAttemptFailure[] = [];
+  for (const element of value) {
+    const source = frameRecord(element);
+    if (source === undefined) continue;
+    const attempt: StepAttemptFailure = {};
+    for (const [key, parsed] of [
+      ['attempt', frameCount(source, 'attempt')],
+      ['completionReason', frameText(source, 'completionReason')],
+      ['disposition', frameText(source, 'disposition')],
+      ['exitCode', frameCount(source, 'exitCode')],
+      ['stdoutTail', frameText(source, 'stdoutTail')],
+      ['stderrTail', frameText(source, 'stderrTail')],
+      ['detail', frameText(source, 'detail')],
+      // Only a literal `true` claims truncation; anything else leaves the
+      // excerpt unlabelled rather than labelling a complete one as cut.
+      ['truncated', source['truncated'] === true ? true : undefined],
+    ] as const) {
+      if (parsed !== undefined) (attempt as Record<string, unknown>)[key] = parsed;
+    }
+    if (Object.keys(attempt).length > 0) attempts.push(attempt);
+  }
+  return attempts.length === 0 ? undefined : attempts;
+}
+
+/** An unrecognised verdict is dropped, and rendering then says `unknown`. */
+function comparisonFrame(value: unknown): AttemptEvidenceComparison | undefined {
+  return value === 'differs' || value === 'unchanged' || value === 'unknown' ? value : undefined;
+}
+
+function frameRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown> : undefined;
+}
+
+function frameText(frame: Record<string, unknown>, key: string): string | undefined {
+  return typeof frame[key] === 'string' ? (frame[key] as string).slice(0, 8192) : undefined;
+}
+
+function frameCount(frame: Record<string, unknown>, key: string): number | undefined {
+  return typeof frame[key] === 'number' && Number.isSafeInteger(frame[key])
+    ? frame[key] as number : undefined;
 }
 
 /** The IPC frame is a claim, not a durable terminal fact or a sandbox boundary. */
@@ -212,6 +280,9 @@ export async function verifyAuthoredNodeResult(
   const invalid = (why = ''): never => { throw new Error(`authored runtime result has no matching durable completion${process.env['FLOWS_VERIFIER_DEBUG'] && why ? ` (${why})` : ''}`); };
   if (result.rootRunId !== rootRunId || result.name !== metadata.flowName
     || !isLoweredCompletion(result.completionReason)
+    // Type- and bound-check the claimed detail here, so the marker comparison
+    // below compares two values this process would itself have produced.
+    || (result.completionDetail !== undefined && !isDurableCompletionDetail(result.completionDetail))
     || !Array.isArray(result.journalSteps) || result.journalSteps.length === 0) invalid('frame');
   const terminal = result.journalSteps.at(-1)!;
   if (!terminal || !/^complete-[1-9][0-9]*$/.test(terminal.id)) invalid('terminal');
@@ -288,8 +359,11 @@ export async function verifyAuthoredNodeResult(
         // rejected a frame whose reason is not lowerable at all — that one is
         // the runtime validation of untrusted IPC, and it is why nothing has
         // to be re-asserted here just to satisfy the type.
+        // The detail is inside the marker, so this one comparison also
+        // attests it: a frame cannot claim a detail the journal does not
+        // hold, drop one it does, or alter a character of it.
         if (step?.type !== 'deterministic'
-          || step.command !== completionMarker(result.completionReason)) invalid('marker');
+          || step.command !== completionMarker(result.completionReason, result.completionDetail)) invalid('marker');
       }
     }
   } finally { journal.close(); }

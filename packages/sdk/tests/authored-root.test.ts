@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { flow } from '@relayflows/surface';
+import { flow, type Ctx } from '@relayflows/surface';
 import { getFlowDefinition } from '@relayflows/surface/runtime';
 import { loadAuthoredFlow, type LoadedAuthoredFlow } from '../src/authored-flow-loader.js';
 import {
@@ -31,6 +31,7 @@ const surface = Object.freeze({
 
 class RootPeer extends EventEmitter {
   readonly completions: Array<{ attempt: number; reason: string }> = [];
+  readonly outputs: Array<Record<string, unknown> | undefined> = [];
   readonly waits: Array<{ attempt: number; wait: Record<string, unknown> }> = [];
   heartbeats = 0;
 
@@ -60,8 +61,10 @@ class RootPeer extends EventEmitter {
     attempt: number,
     _idempotencyKey: string,
     reason: string,
+    result?: { output?: unknown },
   ): Promise<RunOutcome> {
     this.completions.push({ attempt, reason });
+    this.outputs.push(result?.output as Record<string, unknown> | undefined);
     if (reason === 'success') return outcome(runId, 'completed', 'success');
     return outcome(runId, 'failed', 'step_failed');
   }
@@ -223,6 +226,101 @@ describe('durable authored root', () => {
     await expect(executeDurableAuthoredFlow(
       loaded, journal as unknown as JournalClient, undefined,
       { dataDir: '/unused', admissionKey: 'malformed-completed-result' },
+    )).rejects.toThrow('completed authored root has no durable result');
+  });
+
+  it('journals the authored detail on the root step output', async () => {
+    const loaded = await fixture(false, 0, async (f: Ctx) => {
+      f.done('step_failed', { detail: 'review found 1 P2: review.clean was not created' });
+    });
+    const journal = new RootJournal();
+
+    const result = await executeDurableAuthoredFlow(
+      loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'with-detail' },
+    );
+
+    expect(result.completionDetail).toBe('review found 1 P2: review.clean was not created');
+    expect(journal.peer.outputs.at(-1)).toMatchObject({
+      name: 'flagship',
+      completionReason: 'step_failed',
+      completionDetail: 'review found 1 P2: review.clean was not created',
+    });
+  });
+
+  it('leaves the root output without the key when the body passed no detail', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+
+    await executeDurableAuthoredFlow(
+      loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'no-detail' },
+    );
+
+    const output = journal.peer.outputs.at(-1)!;
+    expect(output['completionReason']).toBe('success');
+    expect('completionDetail' in output).toBe(false);
+  });
+
+  it('recovers the stored detail from a completed root without re-running the body', async () => {
+    let bodyRuns = 0;
+    const loaded = await fixture(false, 0, async (f: Ctx) => {
+      bodyRuns += 1;
+      f.done('step_failed', { detail: 'recomputed from the CURRENT environment' });
+    });
+    const journal = new RootJournal();
+    journal.startStatus = outcome(journal.runId, 'completed', 'success');
+    journal.entries = [completedEntry('step_failed', 'as journaled on the first attempt')];
+
+    const result = await executeDurableAuthoredFlow(
+      loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'completed-with-detail' },
+    );
+
+    // The DURABLE detail, not one recomputed here: redaction reads the current
+    // environment, so a second computation can differ from what was recorded.
+    expect(result).toMatchObject({
+      completionReason: 'step_failed',
+      completionDetail: 'as journaled on the first attempt',
+    });
+    expect(bodyRuns).toBe(0);
+    expect(journal.peer.completions).toEqual([]);
+  });
+
+  it('reads back a legacy completed root that carries no detail', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    journal.startStatus = outcome(journal.runId, 'completed', 'success');
+    journal.entries = [completedEntry('step_failed')];
+
+    const result = await executeDurableAuthoredFlow(
+      loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'legacy-no-detail' },
+    );
+
+    expect(result.completionReason).toBe('step_failed');
+    expect(result.completionDetail).toBeUndefined();
+    expect('completionDetail' in result).toBe(false);
+  });
+
+  it.each([
+    ['a non-string detail', 7],
+    ['an over-long detail', 'a'.repeat(2001)],
+    ['an empty detail', ''],
+  ])('fails closed on %s in the completed root output', async (_label, detail) => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    journal.startStatus = outcome(journal.runId, 'completed', 'success');
+    journal.entries = [{
+      entry_type: 'step.completed', step_id: 'authored-root',
+      payload: { completionReason: 'success', output: {
+        name: 'flagship', completionReason: 'step_failed', journalSteps: [], completionDetail: detail,
+      } },
+    }];
+
+    await expect(executeDurableAuthoredFlow(
+      loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: `malformed-detail-${String(detail).length}` },
     )).rejects.toThrow('completed authored root has no durable result');
   });
 
@@ -422,11 +520,12 @@ function spawnedEntry(loaded: LoadedAuthoredFlow): Record<string, unknown> {
   };
 }
 
-function completedEntry(reason = 'success'): Record<string, unknown> {
+function completedEntry(reason = 'success', detail?: string): Record<string, unknown> {
   return {
     entry_type: 'step.completed', step_id: 'authored-root',
     payload: { completionReason: 'success', output: {
       name: 'flagship', completionReason: reason, journalSteps: [],
+      ...(detail === undefined ? {} : { completionDetail: detail }),
     } },
   };
 }

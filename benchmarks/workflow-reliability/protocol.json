@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "kind": "competitive-benchmark-protocol",
+  "id": "workflow-reliability-v1",
+  "claims": {
+    "buildVsBuy": {
+      "requiredParticipants": ["relayflows", "diy-reference"]
+    },
+    "bestInClass": {
+      "requiredParticipants": ["relayflows", "diy-reference", "temporal", "inngest"]
+    }
+  },
+  "fairnessControls": [
+    "Pin every participant, runtime, model, prompt, tool set, and dependency version before the first measured run.",
+    "Use the same immutable workload fixtures and success predicates for every participant.",
+    "Run on the same isolated host class, randomize participant order, and separate cold-start from warm-run results.",
+    "Use at least 30 measured trials per scenario after five unmeasured warmups.",
+    "Capture raw event history, stdout, stderr, wall time, token use, provider cost, and operator interventions for every trial.",
+    "Publish failures and exclusions; an environment failure is inconclusive, never a product failure or pass.",
+    "Do not form a composite score until metric weights are preregistered for a named customer profile."
+  ],
+  "scenarios": [
+    {
+      "id": "crash-between-steps",
+      "workload": "Complete step A, kill the workflow process before step B starts, restart, and finish the run.",
+      "successPredicates": ["step A external effect count equals 1", "step B external effect count equals 1", "run terminates with a declared completion reason"]
+    },
+    {
+      "id": "crash-during-effect",
+      "workload": "Kill execution after an effect is durably elected but before the provider acknowledgement is recorded.",
+      "successPredicates": ["provider-observed effect count equals 1", "attempt history explains the interrupted attempt", "run completes without manual repair"]
+    },
+    {
+      "id": "semantic-repair",
+      "workload": "Return a syntactically valid but quality-gate-failing agent result, then permit bounded repair attempts.",
+      "successPredicates": ["bad result is not promoted", "repair history is durable", "terminal state is either verified success or a declared verification failure"]
+    },
+    {
+      "id": "durable-human-await",
+      "workload": "Reach a human approval, stop all processes for ten minutes, restart, deliver the approval, and finish.",
+      "successPredicates": ["no compute is required while waiting", "one approval resumes one continuation", "prior completed work is not repeated"]
+    },
+    {
+      "id": "concurrent-resume-race",
+      "workload": "Issue 20 concurrent resume requests for one interrupted run.",
+      "successPredicates": ["one replacement attempt receives the lease", "all other requests are no-ops or typed conflicts", "external effects remain exactly once"]
+    },
+    {
+      "id": "budget-accounting-after-crash",
+      "workload": "Crash after a model or memory result is committed and resume through completion.",
+      "successPredicates": ["resumed token total equals one execution per committed step", "resumed provider cost equals one execution per committed step", "journal attributes every charge to one step"]
+    }
+  ],
+  "metrics": {
+    "primary": [
+      "scenario_success_rate",
+      "duplicate_external_effect_rate",
+      "undeclared_terminal_failure_rate",
+      "manual_interventions_per_100_runs"
+    ],
+    "performance": [
+      "p50_wall_time_ms",
+      "p95_wall_time_ms",
+      "p50_recovery_time_ms",
+      "p95_recovery_time_ms",
+      "tokens_per_successful_run",
+      "provider_cost_per_successful_run"
+    ],
+    "buildBurden": [
+      "preregistered_engineering_minutes",
+      "custom_orchestration_source_lines",
+      "custom_persistence_retry_and_dedupe_source_lines",
+      "runtime_dependencies",
+      "operator_minutes_per_100_runs"
+    ]
+  }
+}

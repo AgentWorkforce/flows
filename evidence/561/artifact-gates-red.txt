@@ -1,0 +1,36 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/artifact-gates.test.ts (27 tests | 1 failed) 248ms
+   × artifact_exists named gate: static scan coverage > does not refuse a gate the bundled worker itself can satisfy through JSON output 10ms
+     → expected [ 'invalid_spec' ] to deeply equal [ 'gate_path_unscanned' ]
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/artifact-gates.test.ts > artifact_exists named gate: static scan coverage > does not refuse a gate the bundled worker itself can satisfy through JSON output
+AssertionError: expected [ 'invalid_spec' ] to deeply equal [ 'gate_path_unscanned' ]
+
+- Expected
++ Received
+
+  Array [
+-   "gate_path_unscanned",
++   "invalid_spec",
+  ]
+
+ ❯ tests/artifact-gates.test.ts:318:50
+    316|     const checked = preflight(authored as never, { probes: { ...probes…
+    317|       cli: () => ({ exists: true, authenticated: true, modelAvailable:…
+    318|     expect(checked.diagnostics.map(d => d.kind)).toEqual(['gate_path_u…
+       |                                                  ^
+    319|     expect(checked.ok).toBe(true);
+    320| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 26 passed (27)
+   Start at  06:37:40
+   Duration  1.90s (transform 820ms, setup 0ms, collect 1.48s, tests 248ms, environment 0ms, prepare 42ms)
+
+EXIT=1

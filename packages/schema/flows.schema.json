@@ -15,6 +15,15 @@
         "agent"
       ]
     },
+    "OnNonZero": {
+      "title": "OnNonZero",
+      "description": "A deterministic step's exit-code policy. `'fail'` is the kernel's implicit\ngate; `'record'` completes the step with its exit code journaled so a later\nstep can read the outcome instead of re-running the command.",
+      "type": "string",
+      "enum": [
+        "fail",
+        "record"
+      ]
+    },
     "McpServerConfig": {
       "title": "McpServerConfig",
       "description": "Project-owned MCP connections. env contains names, never secret values.",
@@ -148,6 +157,7 @@
       "type": "string",
       "enum": [
         "exit_code",
+        "steps_green",
         "output_contains",
         "json_schema",
         "references_input",
@@ -414,6 +424,37 @@
       ],
       "additionalProperties": false
     },
+    "StepsGreenGate": {
+      "title": "StepsGreenGate",
+      "description": "Asserts that every named step recorded a zero exit code, reading the\njournaled outcome instead of re-running the command. This is the read side\nof `onNonZero: 'record'`: red work is allowed to exist, and this gate is\nwhere a flow declares that it stops being allowed.\n\nDeterministic hosts only — a worker step has no recorded exit code to read —\nand the ids it names must be deterministic steps that precede it.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "title": "type",
+          "description": "type in the Relayflows spec.",
+          "type": "string",
+          "const": "steps_green"
+        },
+        "ids": {
+          "title": "ids",
+          "description": "Earlier deterministic step ids whose recorded exit codes must all be zero.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "\\S",
+            "title": "ids items",
+            "description": "ids items value."
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "type",
+        "ids"
+      ],
+      "additionalProperties": false
+    },
     "NamedDataGate": {
       "title": "NamedDataGate",
       "description": "NamedDataGate in the Relayflows spec.",
@@ -476,8 +517,13 @@
           "description": "See ExitCodeGate."
         },
         {
-          "$ref": "#/$defs/OutputVerificationSpec",
+          "$ref": "#/$defs/StepsGreenGate",
           "title": "VerificationSpec alternative 2",
+          "description": "See StepsGreenGate."
+        },
+        {
+          "$ref": "#/$defs/OutputVerificationSpec",
+          "title": "VerificationSpec alternative 3",
           "description": "See OutputVerificationSpec."
         }
       ]
@@ -1111,6 +1157,11 @@
           "description": "Per-invocation deterministic lease in milliseconds (maximum 15 minutes).",
           "type": "number"
         },
+        "onNonZero": {
+          "title": "onNonZero",
+          "description": "What a nonzero exit means. `'fail'` (the default) is the implicit\n`exit_code == 0` gate. `'record'` journals the exit code and output tails\nas the step's outcome, completes the step red, and lets dependents run —\nthe repair-before-failure shape, without discarding the exit code the way\n`<command> || true` does. Declared content and schema gates, timeouts and\nworker errors keep their existing fatal semantics.",
+          "$ref": "#/$defs/OnNonZero"
+        },
         "verification": {
           "title": "verification",
           "description": "Omit to get the implicit `exit_code` gate.",
@@ -1388,7 +1439,7 @@
         },
         "cwd": {
           "title": "cwd",
-          "description": "Working directory for the CLI subprocess; defaults to the flow-runner's cwd.",
+          "description": "Directory the declared CLI is spawned in, as a path relative to the run\nroot — the flow-runner's working directory, which is also where the CLI\nruns when this is absent. Absolute paths, `.`, `..` and empty components\nare refused lexically by `flows check` and by the kernel; the worker that\nspawns the CLI additionally requires the symlink-free directory to exist\ninside the symlink-free run root. A declaration, not a sandbox: nothing\nstops a CLI from writing outside it. Not supported with\n`transport: 'relay'`, where the agent runs on a host this process cannot\nresolve. See docs/SURFACE.md.",
           "type": "string"
         },
         "transport": {
@@ -2117,6 +2168,11 @@
           "title": "lease_ms",
           "description": "lease_ms in the Relayflows spec.",
           "type": "number"
+        },
+        "on_non_zero": {
+          "title": "on_non_zero",
+          "description": "Omitted for the default `'fail'`, exactly as the kernel skips serializing\nit: a step that does not declare the policy keeps the canonical bytes —\nand therefore the step hash — it had before this field existed.",
+          "$ref": "#/$defs/OnNonZero"
         }
       },
       "required": [
@@ -2408,7 +2464,7 @@
         },
         "cwd": {
           "title": "cwd",
-          "description": "Working directory for the CLI subprocess; kernel passes through untouched.",
+          "description": "Run-root-relative directory the attached worker spawns the CLI in. The\nkernel checks the shape and does no I/O: existence and containment are\ndecided by the worker, on the host that shares the agent's filesystem.",
           "type": "string"
         },
         "transport": {

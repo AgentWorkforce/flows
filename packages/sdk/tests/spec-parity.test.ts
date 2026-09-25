@@ -26,7 +26,7 @@ function fixture(name: string): string {
 }
 
 describe('spec parity: one dialect at the SDK<->kernel boundary', () => {
-  for (const name of ['hello-deterministic', 'hello-ladder', 'hello-llm', 'hello-agent', 'step-memory', 'step-placement']) {
+  for (const name of ['hello-deterministic', 'hello-ladder', 'hello-llm', 'hello-agent', 'step-memory', 'step-placement', 'agent-cwd']) {
     it(`compiles ${name} to the pinned canonical JSON`, () => {
       const yaml = fixture(`${name}.flow.yaml`);
       const canonical = compileYamlToCanonicalJson(yaml);
@@ -44,6 +44,48 @@ describe('spec parity: one dialect at the SDK<->kernel boundary', () => {
       expect(kernelToAuthoring(toKernelSpec(flow))).toEqual(flow);
     });
   }
+
+  // The record policy and the gate that reads it, pinned at the same seam. The
+  // fixture is LOWERED (`steps_green` becomes a generated gate step), so it is
+  // not round-tripped: `kernelToAuthoring` is the inverse of `toKernelStep`,
+  // not of gate lowering. The field's own round trip is covered below.
+  it('compiles advisory-repair to the pinned canonical JSON', () => {
+    expect(compileYamlToCanonicalJson(fixture('advisory-repair.flow.yaml')))
+      .toBe(fixture('advisory-repair.spec.canonical.json').trim());
+  });
+
+  it('hashes advisory-repair to the pinned spec_hash', () => {
+    expect(compileAndHash(fixture('advisory-repair.flow.yaml')).hash)
+      .toBe(fixture('advisory-repair.spec.sha256').trim());
+  });
+
+  it('round-trips onNonZero across the kernel dialect', () => {
+    const flow = compileYaml(`
+version: '0.1.0'
+name: record-round-trip
+steps:
+  - id: check
+    type: deterministic
+    command: npm test
+    onNonZero: record
+`);
+    const kernel = toKernelSpec(flow);
+    expect(kernel.steps[0]).toMatchObject({ on_non_zero: 'record' });
+    expect(kernelToAuthoring(kernel)).toEqual(flow);
+  });
+
+  // The default is normalized away on BOTH sides, so a spec written before this
+  // field existed keeps its canonical bytes and therefore its spec hash. An
+  // author who spells out the default must land on those same bytes.
+  it('leaves the default policy out of the canonical bytes and the hash', () => {
+    const yaml = fixture('hello-deterministic.flow.yaml');
+    const spelled = yaml.replace('    command: "echo hello"', '    command: "echo hello"\n    onNonZero: fail');
+    expect(spelled).not.toBe(yaml);
+    expect(compileYamlToCanonicalJson(spelled))
+      .toBe(fixture('hello-deterministic.spec.canonical.json').trim());
+    expect(compileAndHash(spelled).hash).toBe(fixture('hello-deterministic.spec.sha256').trim());
+    expect(JSON.stringify(toKernelSpec(compileYaml(spelled)))).not.toContain('on_non_zero');
+  });
 
   it('normalizes empty triggers exactly as kernel serialization does', () => {
     const yaml = `${fixture('hello-ladder.flow.yaml')}\ntriggers: []\n`;

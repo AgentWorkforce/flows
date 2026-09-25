@@ -6,7 +6,7 @@ flow straight from this repo, shows its steps, and asks you to connect whatever 
 | Flow | Trigger | Deploy |
 |---|---|---|
 | [pr-review-pipeline](pr-review-pipeline/) — three review lenses in parallel, then a consensus pass | every `pull_request` | [![Deploy Flow](https://agentrelay.com/launch-agent_small.svg)](https://agentrelay.com/cloud/flows/deploy?flow=https%3A%2F%2Fgithub.com%2FAgentWorkforce%2Fflows%2Fblob%2Fmain%2Fexamples%2Fpr-review-pipeline%2Fpr-review-pipeline.flow.ts&on=github%3Aevents%3Dpull_request) |
-| [software-factory](software-factory/) — implement → test → adversarial review → open a PR | every Linear issue in team `ENG` | [![Deploy Flow](https://agentrelay.com/launch-agent_small.svg)](https://agentrelay.com/cloud/flows/deploy?flow=https%3A%2F%2Fgithub.com%2FAgentWorkforce%2Fflows%2Fblob%2Fmain%2Fexamples%2Fsoftware-factory%2Fsoftware-factory.flow.ts&on=linear%3Ateam%3DENG) |
+| [software-factory](software-factory/) — implement → test → adversarial review → open a PR | Linear issues assigned to the connected app user | [![Deploy Flow](https://agentrelay.com/launch-agent_small.svg)](https://agentrelay.com/cloud/flows/deploy?flow=https%3A%2F%2Fgithub.com%2FAgentWorkforce%2Fflows%2Fblob%2Fmain%2Fexamples%2Fsoftware-factory%2Fsoftware-factory.flow.ts&on=linear%3Aevents%3Dassigned) |
 | [stale-issues](stale-issues/) — triage every open issue, post a Slack digest | schedule (`flows schedule … --cron "0 9 * * 1-5"`) | — |
 
 Or from a checkout: `flows deploy <flow.ts> --repo <owner/name> --on <provider[:k=v]> --approver <you>`.

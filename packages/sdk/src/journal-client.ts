@@ -51,6 +51,7 @@ interface Pending {
 /** A structured rejection returned by relayflowd over the journal protocol. */
 export class JournalProtocolError extends Error {
   readonly code: string;
+  verb?: string;
 
   constructor(code: string, message: string) {
     super(`${code}: ${message}`);
@@ -223,12 +224,19 @@ export class JournalClient extends EventEmitter {
    * Validate a compiled kernel-dialect spec (zero-agent flows legal), create
    * the run file, and append `run.spawned`. Authoring specs must be compiled
    * with `toKernelSpec` before crossing this journal-protocol boundary.
+   * `watch` streams the run's entries as `'entry'` events while it runs.
    */
-  runStart(spec: KernelRunSpec, reuseFromRunId?: string, admissionKey?: string): Promise<VerbContract['run.start']['result']> {
+  runStart(
+    spec: KernelRunSpec,
+    reuseFromRunId?: string,
+    admissionKey?: string,
+    watch = false,
+  ): Promise<VerbContract['run.start']['result']> {
     return this.request('run.start', {
       spec,
       ...(reuseFromRunId === undefined ? {} : { reuse_from_run_id: reuseFromRunId }),
       ...(admissionKey === undefined ? {} : { admission_key: admissionKey }),
+      ...(watch ? { watch: true } : {}),
     }, null);
   }
 
@@ -370,6 +378,9 @@ export class JournalClient extends EventEmitter {
       step_id: stepId,
       attempt,
       lease_id: leaseId,
+    }).catch(error => {
+      if (error instanceof JournalProtocolError) error.verb = 'step.heartbeat';
+      throw error;
     });
   }
 
@@ -401,7 +412,10 @@ export class JournalClient extends EventEmitter {
       idempotency_key: idempotencyKey,
       completionReason,
       ...extra,
-    }, null);
+    }, null).catch(error => {
+      if (error instanceof JournalProtocolError) error.verb = 'step.complete';
+      throw error;
+    });
   }
 
   /** Satisfy `wait.event`; a human response arrives here too. */
@@ -422,6 +436,9 @@ export class JournalClient extends EventEmitter {
       attempt,
       idempotency_key: idempotencyKey,
       ...wait,
+    }).catch(error => {
+      if (error instanceof JournalProtocolError) error.verb = 'step.wait';
+      throw error;
     });
   }
 

@@ -1,13 +1,15 @@
 import { EventEmitter } from 'node:events';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // A fake `claude` whose "work" is whatever the test's `onSpawn` hook writes
 // into the cwd it was spawned in, so artifact detection is exercised without
-// a real CLI.
+// a real CLI. `claudeResult` is the text of its final result frame; set it to
+// JSON to take the worker's JSON-output path.
 let onSpawn: ((cwd: string | undefined) => void) | undefined;
+let claudeResult = 'done';
 vi.mock('node:child_process', async () => {
   const actual = await vi.importActual<typeof import('node:child_process')>('node:child_process');
   return {
@@ -25,7 +27,7 @@ vi.mock('node:child_process', async () => {
       setImmediate(() => {
         onSpawn?.(options['cwd'] as string | undefined);
         stdout.emit('data', Buffer.from(cli === 'claude'
-          ? JSON.stringify({ type: 'result', result: 'done', usage: { input_tokens: 1, output_tokens: 1 }, total_cost_usd: 0 })
+          ? JSON.stringify({ type: 'result', result: claudeResult, usage: { input_tokens: 1, output_tokens: 1 }, total_cost_usd: 0 })
           : JSON.stringify({ type: 'usage', usage: { input_tokens: 1, output_tokens: 1, total_cost_usd: 0 } })));
         child.emit('close', 0);
       });
@@ -35,16 +37,32 @@ vi.mock('node:child_process', async () => {
 });
 
 import { runAgentCli } from '../src/worker-cli.js';
+import { AgentWorker } from '../src/worker.js';
+import type { JournalClient } from '../src/journal-client.js';
 import { compileSpec } from '../src/compile.js';
 import { lowerNamedGates } from '../src/named-gate-lowering.js';
 import { namedGateErrors, namedGateFailure } from '../src/named-gates.js';
 import { validateSpec } from '../src/validate.js';
 import { checkFlow } from '../src/cli/check.js';
+import { preflight } from '../src/preflight.js';
+import { unscannedArtifactPrefix } from '../src/artifact-scan-policy.js';
+import { snapshotWorkspaceFiles } from '../src/agent-artifacts.js';
 import { execFileSync } from 'node:child_process';
 
 const dirs: string[] = [];
-afterEach(() => { onSpawn = undefined; for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
+afterEach(() => { onSpawn = undefined; claudeResult = 'done'; for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
 function tempDir(): string { const d = mkdtempSync(join(tmpdir(), 'artifact-gates-')); dirs.push(d); return d; }
+/**
+ * A temp directory INSIDE the run root, returned with the run-root-relative
+ * name a spec may declare. A `cwd` in a spec is run-root-relative by contract
+ * (`agent-cwd.ts`), so a `tempDir()` under `os.tmpdir()` cannot be named by
+ * one; only tests that hand the worker a directory directly can use that.
+ */
+function runRootDir(): { directory: string; declared: string } {
+  const directory = mkdtempSync(join(process.cwd(), 'artifact-gates-'));
+  dirs.push(directory);
+  return { directory, declared: basename(directory) };
+}
 
 describe('worker-side artifacts', () => {
   it('journals the files the CLI created or changed in its cwd, content-hashed, including dot-directories, with .git and node_modules excluded', async () => {
@@ -170,5 +188,180 @@ describe('artifact_exists named gate', () => {
     ] }));
     const report = checkFlow(join(dir, 'flow.yaml')).report;
     expect(report.gates).toContainEqual(expect.objectContaining({ stepId: 'review', checks: ['exit_code'], preflightable: true, replayable: true }));
+  });
+});
+
+/**
+ * #513: the gate reads the worker's journaled `artifacts` list, and the
+ * bundled worker's *scan* never puts a dot-named or `node_modules` path in it.
+ * The scan is not the only writer of that list, so preflight warns instead of
+ * refusing — the last case here is the run that proves why. Retire this block
+ * with the module.
+ */
+describe('artifact_exists named gate: static scan coverage', () => {
+  const probes = () => ({ cli: () => ({ exists: true, authenticated: true }), executor: () => true, command: () => true });
+  const gated = (path: string) => ({
+    version: '0.1.0', name: 'x',
+    steps: [{ id: 'review', type: 'agent' as const, instruction: 'i', cli: 'x',
+      verification: { type: 'artifact_exists' as const, path } }],
+  });
+
+  it.each([
+    ['.git/config', '.git'],
+    ['.relayflowd/runs/journal.md', '.relayflowd'],
+    ['node_modules/pkg/out.md', 'node_modules'],
+    ['reports/node_modules/out.md', 'reports/node_modules'],
+    // The whole prefix, not the offending segment alone: that prefix is the
+    // directory the author has to move the artifact out of.
+    ['a/b/.git/hooks/x.md', 'a/b/.git'],
+  ])('warns on %s and names the excluded prefix %s, without refusing', (path, prefix) => {
+    const result = preflight(gated(path) as never, { probes: probes() });
+    const warning = result.diagnostics.find(d => d.kind === 'gate_path_unscanned');
+    expect(warning, JSON.stringify(result.diagnostics)).toMatchObject({ severity: 'warning', stepId: 'review' });
+    expect(warning!.message).toContain(`"${prefix}"`);
+    expect(warning!.message).toContain(path);
+    expect(result.ok).toBe(true);
+  });
+
+  it.each([
+    'review/security.md',
+    // Dotfiles and dot-directories are scanned: `.workflow-artifacts/` is the
+    // conventional place a flow tells its agents to write.
+    '.workflow-artifacts/rust/review.md',
+    '.hidden.md',
+    'reports/.drafts/review.md',
+    'a/b/.c/d/e.md',
+    // Exact segment comparison, so a similar name is not an exclusion.
+    'node_modules-copy/out.md',
+    'reports/node_modules.md',
+    '.relayflowd-notes/out.md',
+    // A dot inside a segment is not a dot-named entry.
+    'review.md',
+    'reports/v1.2/review.md',
+    // A backslash is an ordinary filename character in a POSIX path, never a
+    // separator: `readdir` reports one entry whose name starts with "d".
+    String.raw`dir\.hidden.md`,
+  ])('says nothing about %s, which the scan does record', (path) => {
+    const result = preflight(gated(path) as never, { probes: probes() });
+    expect(result.diagnostics.filter(d => d.kind === 'gate_path_unscanned')).toEqual([]);
+    expect(result.ok).toBe(true);
+  });
+
+  it('agrees with what the real scan records, for every case above', async () => {
+    const cwd = tempDir();
+    const paths = [
+      '.git/config', '.relayflowd/runs/journal.md', 'node_modules/pkg/out.md',
+      'reports/node_modules/out.md', 'a/b/.git/hooks/x.md',
+      '.workflow-artifacts/rust/review.md', '.hidden.md', 'reports/.drafts/review.md',
+      'a/b/.c/d/e.md', '.relayflowd-notes/out.md',
+      'review/security.md', 'node_modules-copy/out.md', 'reports/node_modules.md',
+      'review.md', 'reports/v1.2/review.md', String.raw`dir\.hidden.md`,
+    ];
+    for (const path of paths) {
+      const full = join(cwd, ...path.split('/'));
+      mkdirSync(dirname(full), { recursive: true });
+      writeFileSync(full, 'x');
+    }
+    const scanned = new Set((await snapshotWorkspaceFiles(cwd)).keys());
+    // The predicate is the scan's rule, so "excluded by the predicate" and
+    // "absent from the scan" must be the same set. A drift in either
+    // direction would make the warning lie.
+    for (const path of paths) {
+      expect(scanned.has(path), path).toBe(unscannedArtifactPrefix(path) === undefined);
+    }
+  });
+
+  it('is reported even when an unrelated environment refusal returns first', () => {
+    // `cli_unresolved` returns from preflight before any probe runs. The
+    // author fixes the CLI, reruns, and would otherwise meet the unscanned
+    // path only on the pass after that — or at run time.
+    const result = preflight({
+      version: '0.1.0', name: 'x',
+      steps: [{ id: 'review', type: 'agent', instruction: 'i',
+        verification: { type: 'artifact_exists', path: 'node_modules/out/review.md' } }],
+    } as never, { probes: probes() });
+
+    expect(result.diagnostics.map(d => d.kind)).toEqual(['gate_path_unscanned', 'cli_unresolved']);
+  });
+
+  it('warns through flows check, naming the step, and refuses nothing for it', () => {
+    const dir = tempDir();
+    writeFileSync(join(dir, 'flows.json'), JSON.stringify({ cli: 'true' }));
+    writeFileSync(join(dir, 'flow.yaml'), JSON.stringify({ version: '0.1.0', name: 'gated', steps: [
+      { id: 'review', type: 'agent', instruction: 'i', cli: 'true',
+        verification: { type: 'artifact_exists', path: 'node_modules/out/review.md' } },
+    ] }));
+
+    const report = checkFlow(join(dir, 'flow.yaml')).report;
+
+    expect(report.diagnostics).toContainEqual(expect.objectContaining({
+      severity: 'warning', kind: 'gate_path_unscanned', stepId: 'review',
+    }));
+    // `true` is a real binary that is not an agent CLI, so this report does
+    // refuse — for that, and only that. The gate adds no refusal of its own.
+    expect(report.diagnostics.filter(d => d.severity === 'refusal').map(d => d.kind)).toEqual(['cli_unsupported']);
+  });
+
+  /**
+   * Why it may not refuse. The scan is one writer of `output.artifacts`; the
+   * same bundled worker promotes an agent's object-shaped JSON stdout to
+   * `output` verbatim (`worker.ts`), hidden paths included. This runs the real
+   * `AgentWorker` over a dispatch whose fake `claude` writes the dot-directory
+   * file AND reports it, then runs the real lowered gate command over exactly
+   * what the worker journaled. A refusal would have rejected this spec before
+   * submission.
+   */
+  it('does not refuse a gate the bundled worker itself can satisfy through JSON output', async () => {
+    const { directory: cwd, declared } = runRootDir();
+    const path = 'node_modules/review.md';
+    onSpawn = (dir) => {
+      mkdirSync(join(dir!, 'node_modules'), { recursive: true });
+      writeFileSync(join(dir!, 'node_modules/review.md'), 'findings');
+    };
+    claudeResult = JSON.stringify({ artifacts: [path] });
+    // The step declares no cwd: `cwd` here is the worker's run root, which is
+    // how a contained working directory is expressed since the run-root
+    // contract landed. Declaring the absolute temp directory on the step is
+    // refused now ("expected a run-root-relative path"), and this test is
+    // about gate scanning, not about the shape of a cwd declaration.
+    const authored = { version: '0.1.0', name: 'x', steps: [{ id: 'review', type: 'agent', instruction: 'i',
+      cli: 'claude', verification: { type: 'artifact_exists', path } }] };
+
+    // `claude` carries a default model, so its probe has to answer the
+    // model-scoped readiness question too; nothing else about it matters here.
+    const checked = preflight(authored as never, { probes: { ...probes(),
+      cli: () => ({ exists: true, authenticated: true, modelAvailable: true }) } });
+    expect(checked.diagnostics.map(d => d.kind)).toEqual(['gate_path_unscanned']);
+    expect(checked.ok).toBe(true);
+
+    const lowered = lowerNamedGates(compileSpec(authored).steps);
+    const client = new EventEmitter() as EventEmitter & Record<string, unknown>;
+    client.workerAttach = async () => ({});
+    client.stepHeartbeat = async () => ({ lease_deadline_ms: Date.now() + 30_000 });
+    const completed = new Promise<Record<string, unknown>>((resolve, reject) => {
+      client.stepComplete = async (...args: unknown[]) => { resolve(args[5] as Record<string, unknown>); return {}; };
+      client.once('worker-error', reject);
+    });
+    const worker = new AgentWorker(client as unknown as JournalClient, {
+      workerId: 'w', pins: { workspace: [], streams: [] }, runRoot: cwd,
+    });
+    worker.on('error', (error: unknown) => client.emit('worker-error', error));
+    await worker.attach();
+    client.emit('step.dispatch', {
+      run_id: 'r', step_id: 'review', step_type: 'agent', attempt: 1, idempotency_key: 'k',
+      lease_id: 'l', lease_deadline_ms: Date.now() + 30_000, pins: { workspace: [], streams: [] },
+      spec: lowered[0],
+    });
+    const completion = await completed;
+    await worker.close();
+
+    // The scan recorded nothing (the file is under a dot-directory); the
+    // agent's own JSON is the journaled output, and the gate reads it.
+    expect(await snapshotWorkspaceFiles(cwd)).toEqual(new Map());
+    expect(completion['output']).toEqual({ artifacts: [path] });
+    const command = (lowered[1] as { command: string }).command;
+    expect(() => execFileSync('sh', ['-c', command], {
+      env: { ...process.env, FLOWS_INPUT: JSON.stringify({ output: completion['output'] }) }, stdio: 'pipe',
+    })).not.toThrow();
   });
 });

@@ -812,3 +812,182 @@ fn deterministic_lease_rejects_invalid_and_foreign_fields() {
         );
     }
 }
+
+/// Pin the journal contract the `retries_exhausted` diagnostic reads.
+///
+/// A retried step appends one `step.completed` PER ATTEMPT, each carrying its
+/// own attempt envelope and — for a deterministic step — its own preserved
+/// `{exit_code, stdout_tail, stderr_tail}`. Without that, the first attempt's
+/// error would not exist to report and the reader could only ever show the
+/// last one. Nothing about retry policy is asserted or changed here.
+///
+/// The two attempts below fail with the SAME exit code and DIFFERENT stderr,
+/// which is the shape that matters: the kernel's own verification record is
+/// byte-identical across them ("exit code was 1; output did not contain
+/// \"hello\""), so a reader comparing only that record would call two
+/// different failures the same failure. The distinguishing evidence lives in
+/// the preserved output.
+#[test]
+fn each_failed_attempt_journals_its_own_output_beside_an_identical_verdict() {
+    let spec = retrying_spec();
+    let mut step = spec.steps[0].clone();
+    step.max_iterations = 2;
+
+    let first_output = json!({
+        "exit_code": 1,
+        "stdout_tail": "",
+        "stderr_tail": "remote: GitLab: You cannot push commits for 'factory@example.com'",
+    });
+    let first = completion_actions(
+        "run",
+        &step,
+        1,
+        0,
+        None,
+        AttemptResult::successful(first_output.clone(), "kernel"),
+        1_000,
+    );
+    let Action::Append(first_entry) = &first[0] else {
+        panic!("a failed attempt must append its own completion");
+    };
+    let first_payload: StepCompletedPayload =
+        serde_json::from_value(first_entry.payload.clone()).unwrap();
+    assert_eq!(first_entry.attempt, Some(1));
+    assert_eq!(first_payload.disposition, Disposition::Retry);
+    assert_eq!(
+        first_payload.completion_reason,
+        CompletionReason::VerificationFailed
+    );
+    assert_eq!(first_payload.output, first_output);
+
+    let second_output = json!({
+        "exit_code": 1,
+        "stdout_tail": "",
+        "stderr_tail": "nothing staged inside the declared scope",
+    });
+    let second = completion_actions(
+        "run",
+        &step,
+        2,
+        1,
+        None,
+        AttemptResult::successful(second_output.clone(), "kernel"),
+        2_000,
+    );
+    let Action::Append(second_entry) = &second[0] else {
+        panic!("the terminal attempt must append its own completion");
+    };
+    let second_payload: StepCompletedPayload =
+        serde_json::from_value(second_entry.payload.clone()).unwrap();
+    assert_eq!(second_entry.attempt, Some(2));
+    assert_eq!(second_payload.disposition, Disposition::StepDone);
+    assert_eq!(
+        second_payload.completion_reason,
+        CompletionReason::RetriesExhausted
+    );
+    assert_eq!(second_payload.output, second_output);
+
+    // Both attempts survive, and only the output tells them apart.
+    assert_ne!(first_payload.output, second_payload.output);
+    assert_eq!(first_payload.verification, second_payload.verification);
+    let verification = first_payload.verification.expect("a failure names itself");
+    assert_eq!(verification.gate, "exit_code+output_contains");
+    assert_eq!(verification.verdict, crate::entry::VerificationVerdict::Fail);
+}
+
+/// The label change at the budget limit is POLICY, not a different cause.
+///
+/// Identical deterministic failures are labelled `verification_failed` while
+/// an iteration remains and `retries_exhausted` once it does not, because
+/// `completion_actions` picks the fallback reason from the branch it took. A
+/// reader that compared the raw labels would report "the retry failed for a
+/// different reason" on every ordinary repeated failure, so this pins that
+/// the two labels can sit over byte-identical evidence.
+#[test]
+fn the_exhaustion_label_replaces_verification_failed_over_identical_evidence() {
+    let spec = retrying_spec();
+    let mut step = spec.steps[0].clone();
+    step.max_iterations = 2;
+    let output = json!({"exit_code": 1, "stdout_tail": "", "stderr_tail": "same failure"});
+
+    let mut payloads = Vec::new();
+    for (attempt, semantic_executions, now_ms) in [(1, 0, 1_000), (2, 1, 2_000)] {
+        let actions = completion_actions(
+            "run",
+            &step,
+            attempt,
+            semantic_executions,
+            None,
+            AttemptResult::successful(output.clone(), "kernel"),
+            now_ms,
+        );
+        let Action::Append(entry) = &actions[0] else {
+            panic!("every attempt appends a completion");
+        };
+        assert_eq!(entry.attempt, Some(attempt));
+        payloads.push(
+            serde_json::from_value::<StepCompletedPayload>(entry.payload.clone()).unwrap(),
+        );
+    }
+
+    assert_eq!(
+        payloads[0].completion_reason,
+        CompletionReason::VerificationFailed
+    );
+    assert_eq!(
+        payloads[1].completion_reason,
+        CompletionReason::RetriesExhausted
+    );
+    assert_eq!(payloads[0].output, payloads[1].output);
+    assert_eq!(payloads[0].verification, payloads[1].verification);
+}
+
+/// A retryable worker-reported transport failure keeps its OWN label.
+///
+/// `failure_reason` is supplied, so neither semantic fallback applies: the
+/// retry and terminal completion both read `crashed`, and each carries the
+/// worker's own detail. Ordinary `worker_error` is deliberately terminal;
+/// only classified transport loss reaches this retry path.
+#[test]
+fn a_retryable_worker_reported_reason_is_not_rewritten_by_the_retry_branch() {
+    let spec = retrying_spec();
+    let mut step = spec.steps[0].clone();
+    step.max_iterations = 2;
+    let result = |detail: &str| AttemptResult {
+        failure_reason: Some(CompletionReason::Crashed),
+        failure_detail: Some(detail.to_owned()),
+        ..AttemptResult::successful(Value::Null, "kernel")
+    };
+
+    let retry = completion_actions("run", &step, 1, 0, None, result("push rejected"), 1_000);
+    let Action::Append(retry_entry) = &retry[0] else {
+        panic!("a worker failure appends a completion");
+    };
+    let retry_payload: StepCompletedPayload =
+        serde_json::from_value(retry_entry.payload.clone()).unwrap();
+    assert_eq!(retry_payload.completion_reason, CompletionReason::Crashed);
+    assert_eq!(retry_payload.disposition, Disposition::Retry);
+    assert_eq!(
+        retry_payload.verification.as_ref().map(|v| v.detail.as_str()),
+        Some("push rejected")
+    );
+
+    let terminal = completion_actions("run", &step, 2, 0, None, result("nothing staged"), 2_000);
+    let Action::Append(terminal_entry) = &terminal[0] else {
+        panic!("the terminal worker failure appends a completion");
+    };
+    let terminal_payload: StepCompletedPayload =
+        serde_json::from_value(terminal_entry.payload.clone()).unwrap();
+    assert_eq!(
+        terminal_payload.completion_reason,
+        CompletionReason::Crashed
+    );
+    assert_eq!(terminal_payload.disposition, Disposition::StepDone);
+    assert_eq!(
+        terminal_payload
+            .verification
+            .as_ref()
+            .map(|v| v.detail.as_str()),
+        Some("nothing staged")
+    );
+}

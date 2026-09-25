@@ -39,7 +39,7 @@ export function parseDirectInput(argument: string | undefined): unknown {
     }
   } catch (error) {
     if (error instanceof DirectInputError) throw error;
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+    if (!namesNoFile(error)) {
       throw new DirectInputError('input_unreadable', `Input file "${argument}" could not be inspected.`);
     }
   }
@@ -54,6 +54,27 @@ export function parseDirectInput(argument: string | undefined): unknown {
     const sourceKind = fromFile ? `Input file "${argument}"` : 'Inline input';
     throw new DirectInputError('input_invalid', `${sourceKind} is not valid JSON.`);
   }
+}
+
+/**
+ * Whether the `stat` failed because the argument names no file at all, rather
+ * than because a file exists and could not be inspected.
+ *
+ * `ENOENT` is the ordinary "nothing there". `ENAMETOOLONG` is the same answer
+ * for a longer argument: no path component may exceed the filesystem's limit
+ * (255 bytes on ext4 and on APFS), so an inline JSON object of a few hundred
+ * bytes cannot be a filename on any filesystem this runs on. Calling that
+ * `input_unreadable` refused every inline input longer than a filename — the
+ * recorded-input recovery commands `cli/local-agent-remedy.ts` prints for a
+ * parked run among them, which is how it was found.
+ *
+ * Anything else — a permission error, an I/O error — still refuses, because it
+ * means a path is there and this process could not look at it. Guessing that
+ * such an argument was inline JSON would parse a filename as a document.
+ */
+function namesNoFile(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === 'ENOENT' || code === 'ENAMETOOLONG';
 }
 
 function tooLarge(argument: string, fromFile: boolean): DirectInputError {

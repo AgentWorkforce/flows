@@ -104,3 +104,114 @@ export function redactRelayError(message: string, env: NodeJS.ProcessEnv = proce
   }
   return redact(message, env);
 }
+
+/**
+ * Credential heads whose value may continue past a line boundary.
+ *
+ * Every NAMED_VALUE pattern puts `\s` between the name and the value, and
+ * `\s` matches newlines: `authorization:` alone at the end of a poll is a
+ * complete, unredacted line, while the opaque value that lands on the next
+ * poll arrives with no recognizable credential context and would print
+ * verbatim. A trailing header — the colon plus only whitespace, or for
+ * `authorization` one scheme word — is therefore an open context. A header
+ * already followed by a non-space word has its value on that line and is not
+ * open. `Bearer` is the one bare scheme word the patterns treat as a name.
+ */
+const OPEN_HEADER_PATTERNS: readonly RegExp[] = [
+  /\bauthorization:(?:\s+\w+)?\s*$/i,
+  /\bx-callback-token:\s*$/i,
+  /\bx-nightcto-evidence-token:\s*$/i,
+  /\bBearer\s*$/,
+];
+
+/** A quoted JSON field name; the value side is inspected by the scanner. */
+const JSON_FIELD_HEAD = /"([A-Za-z0-9_.\-]{1,64})"/g;
+
+/**
+ * Where a named-credential context may still be half-arrived at the end of
+ * `text`.
+ *
+ * `openSecretStart` covers secret env *values*; this covers the credential
+ * *names* whose patterns can span a line break: a header released on one poll
+ * leaves its late-arriving value unrecognizable on the next, and a credential
+ * JSON field whose value string is not yet closed leaks its first fragment.
+ * Returns the earliest index at which such a context is open — the point past
+ * which nothing may be released until more of the stream arrives — or
+ * `text.length` when none is open. Holding back is line-granular upstream, so
+ * a false positive delays one line one poll rather than dropping it.
+ */
+export function openCredentialStart(text: string): number {
+  let hold = text.length;
+  for (const pattern of OPEN_HEADER_PATTERNS) {
+    const match = pattern.exec(text);
+    if (match && match.index < hold) hold = match.index;
+  }
+  JSON_FIELD_HEAD.lastIndex = 0;
+  let head: RegExpExecArray | null;
+  while ((head = JSON_FIELD_HEAD.exec(text)) !== null) {
+    if (!isCredentialName(head[1]!)) continue;
+    let i = head.index + head[0].length;
+    while (i < text.length && /\s/.test(text[i]!)) i++;
+    if (i >= text.length) { hold = Math.min(hold, head.index); continue; }
+    if (text[i] !== ':') continue;
+    i++;
+    while (i < text.length && /\s/.test(text[i]!)) i++;
+    if (i >= text.length) { hold = Math.min(hold, head.index); continue; }
+    if (text.startsWith('[redacted]', i) || text[i] !== '"') continue;
+    i++;
+    let closed = false;
+    while (i < text.length) {
+      if (text[i] === '\\') { i += 2; continue; }
+      if (text[i] === '"') { closed = true; break; }
+      i++;
+    }
+    if (!closed) hold = Math.min(hold, head.index);
+  }
+  return hold;
+}
+
+/**
+ * Does `text` end on a bare credential header — a named credential line whose
+ * value, if it has one, begins on the NEXT line?
+ *
+ * The stream releaser needs this apart from `openCredentialStart`: that check
+ * sees only a header at the very end of the consumed text, but the danger is
+ * wider — a released block that *ends* on `x-callback-token:` prints the
+ * header now and its value, arriving on the next line in some later poll,
+ * without the context `redact` needs. `redact` folds the header's newline into
+ * its own named-pattern match, so the releaser's block-prefix check cannot
+ * detect the dependency on its own. Trailing whitespace-only lines after the
+ * header count as part of it — the value is still to come.
+ */
+export function endsWithOpenCredentialHeader(text: string): boolean {
+  const stripped = text.replace(/\s+$/, '');
+  const lastLine = stripped.slice(stripped.lastIndexOf('\n') + 1);
+  return OPEN_HEADER_PATTERNS.some((pattern) => pattern.test(lastLine));
+}
+
+/**
+ * Where a secret value may still be half-arrived at the end of `text`.
+ *
+ * A stream is redacted in pieces, and `redact` only replaces a secret it can
+ * see whole: releasing text up to a point where a secret has begun but not
+ * ended would print the first half of it and never match the second. This
+ * returns the smallest index `i` for which `text.slice(i)` is a proper prefix
+ * of some secret env value — the point past which nothing may be released
+ * until more of the stream arrives — or `text.length` when no value is open.
+ *
+ * Values only, not the token and header *shapes*: those are bounded by
+ * whitespace, so a reader that releases whole lines cannot cut one in half.
+ */
+export function openSecretStart(text: string, env: NodeJS.ProcessEnv = process.env): number {
+  let start = text.length;
+  for (const [, value] of secretEnvValues(env)) {
+    // A proper prefix is shorter than the value, so it can only begin inside
+    // the last `value.length - 1` characters; the first character narrows the
+    // scan to the few positions worth comparing.
+    const first = Math.max(0, text.length - value.length + 1);
+    for (let at = text.indexOf(value[0]!, first); at >= 0 && at < start; at = text.indexOf(value[0]!, at + 1)) {
+      if (value.startsWith(text.slice(at))) { start = at; break; }
+    }
+  }
+  return start;
+}

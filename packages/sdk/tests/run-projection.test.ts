@@ -1,0 +1,232 @@
+import { describe, expect, it, vi } from 'vitest';
+import { createJournalProjector } from '../src/journal-projection.js';
+import type { JournalEvent } from '../src/journal-reader.js';
+import { createRunProjection, type ProjectionFetch } from '../src/run-projection.js';
+
+type Call = { url: string; method: string; body: Record<string, unknown> | undefined; headers: Record<string, string> };
+
+/** A Relaycast stand-in: records every request, answers by path. */
+function relaycast(overrides: Record<string, { status: number; body: unknown }> = {}) {
+  const calls: Call[] = [];
+  const fetch: ProjectionFetch = vi.fn(async (url, init) => {
+    const path = new URL(url).pathname;
+    calls.push({ url: path, method: init.method, headers: init.headers,
+      body: init.body === undefined ? undefined : JSON.parse(init.body) as Record<string, unknown> });
+    const override = overrides[path];
+    const status = override?.status ?? (path === '/v1/agents' ? 201 : 200);
+    const body = override?.body ?? (path === '/v1/agents' ? { ok: true, data: { token: 'at_live_pub' } } : { ok: true, data: {} });
+    return { ok: status < 300, status, json: async () => body };
+  });
+  return { fetch, calls };
+}
+
+const run = { runId: '01RUN', flow: 'hello-deterministic', steps: [
+  { id: 'greet', type: 'deterministic' as const, dependsOn: [] },
+  { id: 'shout', type: 'deterministic' as const, dependsOn: ['greet'] },
+] };
+
+describe('createRunProjection', () => {
+  it('removes its publisher only after the final message, once across repeated close', async () => {
+    const { fetch, calls } = relaycast();
+    const projection = createRunProjection({ workspaceKey: 'rk_live_k', fetch, diagnostic: vi.fn() }, run);
+    projection.finish({ status: 'completed' });
+    await projection.close(1_000);
+    await projection.close(1_000);
+    const name = calls[0]!.body!['name'];
+    expect(calls.at(-1)).toMatchObject({ method: 'DELETE', url: `/v1/agents/${name}`, headers: { Authorization: 'Bearer rk_live_k' } });
+    expect(calls.filter(call => call.method === 'DELETE')).toHaveLength(1);
+    expect(calls.filter(call => call.url.endsWith('/messages'))).toHaveLength(2);
+  });
+
+  it('cleans up after channel setup fails without failing the run', async () => {
+    const { fetch, calls } = relaycast({ '/v1/channels': { status: 500, body: {} } });
+    const diagnostic = vi.fn();
+    const projection = createRunProjection({ workspaceKey: 'rk_live_k', fetch, diagnostic }, run);
+    await projection.close(1_000);
+    expect(calls.filter(call => call.method === 'DELETE')).toHaveLength(1);
+    expect(diagnostic).toHaveBeenCalledOnce();
+  });
+  it('registers a publisher, opens wf-<runId>, and posts each transition with the run snapshot', async () => {
+    const { fetch, calls } = relaycast();
+    const projection = createRunProjection({ workspaceKey: 'rk_live_k', fetch, diagnostic: vi.fn() }, run);
+    projection.step({ type: 'step.started', stepId: 'greet', stepType: 'deterministic', elapsedMs: 0, attempt: 1 });
+    projection.step({ type: 'step.completed', stepId: 'greet', stepType: 'deterministic', elapsedMs: 12.4, completionReason: 'success' });
+    projection.finish({ status: 'completed', completionReason: 'success' });
+    projection.finish({ status: 'failed' });
+    await projection.drain(1_000);
+
+    expect(calls.map(call => `${call.method} ${call.url}`)).toEqual([
+      'POST /v1/agents',
+      'POST /v1/channels',
+      'POST /v1/channels/wf-01run/messages',
+      'POST /v1/channels/wf-01run/messages',
+      'POST /v1/channels/wf-01run/messages',
+      'POST /v1/channels/wf-01run/messages',
+    ]);
+    expect(calls[0]!.headers['Authorization']).toBe('Bearer rk_live_k');
+    expect(calls[1]!.headers['Authorization']).toBe('Bearer at_live_pub');
+    const posts = calls.slice(2).map(call => call.body as { text: string; data: { relayflow: { event: string; run: {
+      status: string; steps: Array<{ id: string; state: string; elapsedMs?: number }> } } } });
+    expect(posts.map(post => post.text)).toEqual([
+      '▶ hello-deterministic started · 2 steps · run 01RUN',
+      '○ greet (deterministic) started',
+      '✓ greet (deterministic) 0.01s completionReason: success',
+      '■ hello-deterministic completed · completionReason: success',
+    ]);
+    expect(posts.map(post => post.data.relayflow.event)).toEqual(['run.started', 'step.started', 'step.completed', 'run.completed']);
+    expect(posts[0]!.data.relayflow.run.steps.map(step => step.state)).toEqual(['pending', 'pending']);
+    expect(posts[2]!.data.relayflow.run.steps[0]).toMatchObject({ id: 'greet', state: 'completed', elapsedMs: 12 });
+    expect(posts[3]!.data.relayflow.run.status).toBe('completed');
+    // Every post carries its own idempotency key.
+    expect(new Set(calls.slice(2).map(call => call.headers['Idempotency-Key'])).size).toBe(4);
+  });
+
+  it('joins the channel when agent communication created it first', async () => {
+    const { fetch, calls } = relaycast({ '/v1/channels': { status: 409, body: { ok: false, error: { code: 'channel_already_exists' } } } });
+    const projection = createRunProjection({ workspaceKey: 'rk_live_k', fetch, diagnostic: vi.fn() }, run);
+    await projection.drain(1_000);
+    expect(calls.map(call => call.url)).toEqual(['/v1/agents', '/v1/channels', '/v1/channels/wf-01run/join', '/v1/channels/wf-01run/messages']);
+  });
+
+  it('reports a failure once, stops publishing, and never throws into the run', async () => {
+    const { fetch, calls } = relaycast({ '/v1/agents': { status: 401, body: { ok: false, error: { code: 'unauthorized' } } } });
+    const diagnostic = vi.fn();
+    const projection = createRunProjection({ workspaceKey: 'rk_live_bad', fetch, diagnostic }, run);
+    projection.step({ type: 'step.started', stepId: 'greet', stepType: 'deterministic', elapsedMs: 0 });
+    projection.finish({ status: 'completed' });
+    await projection.drain(1_000);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.method).toBe('DELETE');
+    expect(diagnostic).toHaveBeenCalledOnce();
+    expect(diagnostic.mock.calls[0]![0]).toContain('HTTP 401 unauthorized');
+  });
+
+  it.each([204, 404])('retires an uncertain publisher create and treats DELETE %s as settled', async status => {
+    const calls: Array<{ url: string; method: string; body?: string }> = [];
+    const fetch: ProjectionFetch = async (url, init) => {
+      calls.push({ url, method: init.method, body: init.body });
+      if (init.method === 'POST') throw new Error('create response lost');
+      return { ok: status === 204, status, json: async () => ({ error: { code: 'agent_not_found' } }) };
+    };
+    const diagnostic = vi.fn();
+    const projection = createRunProjection({ workspaceKey: 'rk_live_test', fetch, diagnostic }, run);
+    await projection.close(1_000);
+    const name = (JSON.parse(calls[0]!.body!) as { name: string }).name;
+    expect(calls[1]).toMatchObject({ method: 'DELETE', url: `https://cast.agentrelay.com/v1/agents/${name}` });
+    expect(calls).toHaveLength(2);
+    expect(diagnostic).toHaveBeenCalledOnce();
+    expect(diagnostic.mock.calls[0]![0]).toContain('create response lost');
+  });
+});
+
+describe('createJournalProjector', () => {
+  const entry = (seq: number, entry_type: string, at_ms: number, step_id: string | null = null,
+    payload: unknown = {}, attempt: number | null = step_id === null ? null : 1): JournalEvent =>
+    ({ seq, segment_id: 1, entry_type, run_id: '01RUN', step_id, attempt, at_ms, payload });
+  const spawned = entry(1, 'run.spawned', 1_000, null, { spec: { name: 'hello', steps: [
+    { id: 'greet', type: 'deterministic', depends_on: [] },
+    { id: 'plan', type: 'llm', depends_on: ['greet'] },
+  ] } });
+
+  function recorder() {
+    const opened: unknown[] = [];
+    const steps: Array<{ type: string; stepId: string; stepType: string; elapsedMs: number; completionReason?: string; publish: boolean }> = [];
+    const finished: unknown[] = [];
+    const open = vi.fn((declared: unknown) => {
+      opened.push(declared);
+      return {
+        channel: 'wf-01run',
+        epoch: vi.fn(),
+        step: (event: { type: string; stepId: string; stepType: string; elapsedMs: number; completionReason?: string }, publish = true) =>
+          { steps.push({ ...event, publish }); },
+        finish: (outcome: unknown) => { finished.push(outcome); },
+        drain: async () => {},
+        close: async () => {},
+      };
+    });
+    return { open, opened, steps, finished };
+  }
+
+  it('opens on run.spawned with the declared graph and maps attempts and completions', () => {
+    const r = recorder();
+    const project = createJournalProjector(r.open);
+    for (const e of [
+      spawned,
+      entry(2, 'step.routed', 1_000, 'greet'),
+      entry(3, 'step.attempt.started', 1_010, 'greet'),
+      entry(4, 'step.completed', 1_260, 'greet', { completionReason: 'success', disposition: 'step_done' }),
+      entry(5, 'step.attempt.started', 1_300, 'plan'),
+      entry(6, 'step.completed', 1_500, 'plan', { completionReason: 'verification_failed', disposition: 'retry' }),
+      entry(7, 'run.completed', 1_600, null, { completionReason: 'step_failed' }),
+    ]) project(e);
+
+    expect(r.opened).toEqual([{ runId: '01RUN', flow: 'hello', steps: [
+      { id: 'greet', type: 'deterministic', dependsOn: [] },
+      { id: 'plan', type: 'llm', dependsOn: ['greet'] },
+    ] }]);
+    expect(r.steps.map(s => [s.type, s.stepId, s.stepType, s.elapsedMs, s.completionReason])).toEqual([
+      ['step.started', 'greet', 'deterministic', 0, undefined],
+      ['step.completed', 'greet', 'deterministic', 250, 'success'],
+      ['step.started', 'plan', 'llm', 0, undefined],
+      ['step.failed', 'plan', 'llm', 200, 'verification_failed'],
+    ]);
+    expect(r.finished).toEqual([{ status: 'failed', completionReason: 'step_failed' }]);
+  });
+
+  it('folds entries journaled before liveSinceMs without publishing them', () => {
+    const r = recorder();
+    const project = createJournalProjector(r.open, 1_200);
+    project(spawned);
+    project(entry(3, 'step.attempt.started', 1_010, 'greet'));
+    project(entry(4, 'step.completed', 1_260, 'greet', { completionReason: 'success', disposition: 'step_done' }));
+    expect(r.steps.map(s => s.publish)).toEqual([false, true]);
+  });
+
+  it('does not close a resumed projection on an earlier epoch completion', () => {
+    const r = recorder();
+    const project = createJournalProjector(r.open, 2_000);
+    project(spawned);
+    project(entry(2, 'run.completed', 1_500, null, { completionReason: 'success' }));
+    project(entry(3, 'step.attempt.started', 2_100, 'greet'));
+    project(entry(4, 'run.completed', 2_200, null, { completionReason: 'step_failed' }));
+    expect(r.finished).toEqual([{ status: 'failed', completionReason: 'step_failed' }]);
+    expect(r.steps).toHaveLength(1);
+  });
+
+  it('resets terminal and stale steps at the next epoch and publishes its new outcome', async () => {
+    const { fetch, calls } = relaycast();
+    const projection = createRunProjection({ workspaceKey: 'rk_live_test', fetch, diagnostic: vi.fn() }, run);
+    const project = createJournalProjector(() => projection);
+    project(spawned);
+    project(entry(2, 'step.completed', 1_100, 'greet', { completionReason: 'success' }));
+    project(entry(3, 'run.completed', 1_200, null, { completionReason: 'success' }));
+    project(entry(4, 'epoch.summary', 2_000, null, { steps_done: {}, steps_open: {} }));
+    project(entry(5, 'run.completed', 2_100, null, { completionReason: 'step_failed' }));
+    await projection.close(1_000);
+    const posts = calls.filter(call => call.url.endsWith('/messages')).map(call => call.body!['data'] as { relayflow: { run: { status: string; steps: Array<{ state: string }> } } });
+    expect(posts.at(-2)?.relayflow.run).toMatchObject({ status: 'running', steps: [{ state: 'pending' }, { state: 'pending' }] });
+    expect(posts.at(-1)?.relayflow.run.status).toBe('failed');
+  });
+
+  it('publishes a manual park once per attempt, including retry attempts', () => {
+    const r = recorder();
+    const project = createJournalProjector(r.open);
+    project(spawned);
+    for (const attempt of [1, 2]) {
+      project(entry(attempt * 3, 'step.attempt.started', 1_100, 'greet', {}, attempt));
+      project(entry(attempt * 3 + 1, 'step.completed', 1_200, 'greet', { disposition: 'park', completionReason: 'crashed' }, attempt));
+      project(entry(attempt * 3 + 2, 'wait.human', 1_200, 'greet', {}, attempt));
+    }
+    expect(r.steps.filter(step => step.type === 'step.parked')).toHaveLength(2);
+  });
+
+  it('ignores step entries before run.spawned and a second run.spawned', () => {
+    const r = recorder();
+    const project = createJournalProjector(r.open);
+    project(entry(3, 'step.attempt.started', 1_010, 'greet'));
+    project(spawned);
+    project(spawned);
+    expect(r.open).toHaveBeenCalledOnce();
+    expect(r.steps).toEqual([]);
+  });
+});
