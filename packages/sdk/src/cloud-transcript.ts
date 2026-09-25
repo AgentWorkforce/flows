@@ -34,7 +34,7 @@ import { redact } from './redact.js';
 export type {
   ParsedTranscript, TranscriptEntry, TranscriptAttempt, TranscriptAttemptOmitted, TranscriptError,
   TranscriptFileChange, TranscriptInit, TranscriptMessage, TranscriptResult, TranscriptThinking,
-  TranscriptThread, TranscriptTool, TranscriptToolCodex, TranscriptTurn, TranscriptUnknown,
+  TranscriptThread, TranscriptTodo, TranscriptTool, TranscriptToolCodex, TranscriptTurn, TranscriptUnknown,
   TranscriptUnparsed,
 } from './cloud-transcript-types.js';
 
@@ -297,6 +297,14 @@ export function renderAgentTranscript(parsed: ParsedTranscript): string[] {
       case 'thinking':
         lines.push(`  thinking  ${thousands(entry.chars)} chars (not shown)`);
         break;
+      case 'todo': {
+        // The plan the agent is working to, as it stood at this snapshot.
+        const progress = `${entry.done}/${entry.total}`;
+        lines.push(`  plan  ${progress}${entry.complete === false ? ' (in progress)' : ''}`);
+        for (const todo of entry.items) lines.push(`    ${todo.done ? '✓' : '·'} ${safe(todo.text)}`);
+        if (entry.omitted !== undefined) lines.push(`    …${entry.omitted} more`);
+        break;
+      }
       case 'tool': {
         const size = entry.is_error ? 'ERROR'
           : entry.result_chars === null ? 'no result' : `${thousands(entry.result_chars)} chars`;

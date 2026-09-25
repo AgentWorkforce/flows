@@ -340,15 +340,23 @@ describe('commands and MCP calls', () => {
 });
 
 describe('fallbacks', () => {
+  /**
+   * This case used `todo_list` and `web_search` as its stand-ins for an
+   * unsupported item type. Both are parsed since 2.0.33, so it now uses a type
+   * Codex does not define — which is what the fallback is actually for: an item
+   * a future codex-cli adds and this module has never seen. The payload must
+   * still not reach the page, because nothing here knows which of its fields
+   * are safe to print.
+   */
   it('names the item type in the placeholder, on every lifecycle event', () => {
     const rendered = render(frames(
-      { type: 'item.started', item: { id: 'i1', type: 'todo_list', items: [] } },
-      { type: 'item.updated', item: { id: 'i1', type: 'todo_list', items: [] } },
-      { type: 'item.completed', item: { id: 'i1', type: 'web_search', query: 'relayflow' } },
+      { type: 'item.started', item: { id: 'i1', type: 'some_future_item', secret: 'relayflow' } },
+      { type: 'item.updated', item: { id: 'i1', type: 'some_future_item', secret: 'relayflow' } },
+      { type: 'item.completed', item: { id: 'i2', type: 'another_future_item', secret: 'relayflow' } },
     ));
-    expect(rendered).toContain('  frame  item.started/todo_list (');
-    expect(rendered).toContain('  frame  item.updated/todo_list (');
-    expect(rendered).toContain('  frame  item.completed/web_search (');
+    expect(rendered).toContain('  frame  item.started/some_future_item (');
+    expect(rendered).toContain('  frame  item.updated/some_future_item (');
+    expect(rendered).toContain('  frame  item.completed/another_future_item (');
     expect(rendered).not.toContain('relayflow');
   });
 
@@ -561,5 +569,95 @@ describe('the Claude vocabulary is untouched', () => {
 
   it('reports a log in neither vocabulary as not a transcript', () => {
     expect(parseAgentTranscript('plain terminal output\n', {}).stream_json).toBe(false);
+  });
+});
+
+/**
+ * The rest of Codex's `ThreadItemDetails` union
+ * (codex-rs/exec/src/exec_events.rs). These three were reported as bare
+ * `unknown` placeholders until 2.0.33 — honest but unreadable, and
+ * `todo_list` is the one that updates continuously through a real turn.
+ */
+describe('the remaining Codex item types', () => {
+  it('renders a running to-do list as a plan, not a call', () => {
+    const parsed = parseAgentTranscript([
+      JSON.stringify({ type: 'thread.started', thread_id: 't1' }),
+      JSON.stringify({ type: 'turn.started' }),
+      JSON.stringify({ type: 'item.completed', item: { id: 'i0', type: 'todo_list', items: [
+        { text: 'read the failing test', completed: true },
+        { text: 'fix the parser', completed: false },
+      ] } }),
+      JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } }),
+    ].join('\n'), {});
+
+    const todo = parsed.entries.find(entry => entry.kind === 'todo');
+    expect(todo).toMatchObject({ kind: 'todo', total: 2, done: 1 });
+    // A plan takes no sequence number: it is not a call.
+    expect(parsed.entries.filter(entry => entry.kind === 'tool')).toHaveLength(0);
+  });
+
+  it('renders a web search as a numbered call with its result count', () => {
+    const parsed = parseAgentTranscript(JSON.stringify({
+      type: 'item.completed',
+      item: { id: 'i0', type: 'web_search', query: 'codex exec json events', action: { type: 'search' },
+        results: [{ url: 'a' }, { url: 'b' }] },
+    }), {});
+
+    expect(parsed.entries.find(entry => entry.kind === 'tool')).toMatchObject({
+      kind: 'tool', name: 'web_search', target: 'codex exec json events',
+      codex: { seq: 1, status: 'search', output_excerpt: '2 results' },
+    });
+  });
+
+  /**
+   * A status is provider text, not a closed vocabulary this module controls, and
+   * this layer IS the redactor — every neighbouring field goes through
+   * `context.clean`. The summary was the one string that did not.
+   */
+  it('redacts a collab agent status like every neighbouring field', () => {
+    const parsed = parseAgentTranscript(JSON.stringify({
+      type: 'item.completed',
+      item: { id: 'i0', type: 'collab_tool_call', tool: 'spawn_agent',
+        sender_thread_id: 's', receiver_thread_ids: ['r1'],
+        agents_states: { a: { status: 'failed: token sk-ant-0123456789abcdefghij' } },
+        status: 'failed' },
+    }), {});
+
+    const rendered = JSON.stringify(parsed.entries);
+    expect(rendered).not.toContain('sk-ant-0123456789abcdefghij');
+    expect(rendered).toContain('[redacted]');
+  });
+
+  it('counts completed todos across the whole plan, not the displayed prefix', () => {
+    // 13 items, only the last one done: the display caps at 12, the count must not.
+    const items = Array.from({ length: 13 }, (_unused, index) => ({
+      text: `task ${index}`, completed: index === 12,
+    }));
+    const parsed = parseAgentTranscript(JSON.stringify({
+      type: 'item.completed', item: { id: 'i0', type: 'todo_list', items },
+    }), {});
+
+    // Used to render 0/13, which is backwards from "counted, not printed".
+    expect(parsed.entries.find(entry => entry.kind === 'todo'))
+      .toMatchObject({ total: 13, done: 1, omitted: 1 });
+  });
+
+  it('summarises collab agents by status, never by agent id', () => {
+    const parsed = parseAgentTranscript(JSON.stringify({
+      type: 'item.completed',
+      item: { id: 'i0', type: 'collab_tool_call', tool: 'spawn_agent',
+        sender_thread_id: 'sender-thread-id', receiver_thread_ids: ['r1', 'r2'],
+        agents_states: {
+          'agent-id-nobody-can-act-on': { status: 'running', message: null },
+          'another-agent-id': { status: 'completed', message: null },
+        },
+        status: 'completed' },
+    }), {});
+
+    const entry = parsed.entries.find(item => item.kind === 'tool');
+    expect(entry).toMatchObject({ kind: 'tool', name: 'collab_tool_call', target: 'spawn_agent → 2 threads' });
+    expect(entry).toHaveProperty('codex.output_excerpt', '1 completed, 1 running');
+    // Agent ids are not something a transcript reader can act on.
+    expect(JSON.stringify(parsed.entries)).not.toContain('agent-id-nobody-can-act-on');
   });
 });
