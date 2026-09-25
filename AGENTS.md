@@ -48,6 +48,14 @@ truth*: the journal is the record, and the workspace is one view onto it. A run
 that never joins a workspace is harder to watch; it is not less durable, less
 resumable, or less correct.
 
+The observer link is the default way to watch a local run. `--cloud-mirror`
+(or `FLOWS_CLOUD_MIRROR=1`) additionally puts the run on the Cloud dashboard,
+which is the richer hosted view and therefore opt-in: it stores the flow
+source, every step's transcript and the run's own output, so it happens because
+someone asked and never because a login was present (`docs/CLOUD.md`, "Local
+runs on the dashboard"). Both are projections — watchability, not authority —
+and neither can fail a run.
+
 This paragraph previously said every run MUST join the canonical workspace and
 that anything else was a defect. That predates decision 7 and outlived it — it
 caused a review to flag a local demo as a P1 defect when the demo was fine.

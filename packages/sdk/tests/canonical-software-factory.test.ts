@@ -72,7 +72,9 @@ function runCanonical(issue: Issue, summary = '## Summary\n\nImplemented the tic
     commands,
     completionReason,
     ghArgs: existsSync(capture) ? readFileSync(capture, 'utf8').trim().split('\n') : [],
-    body: readFileSync(join(root, '.relayflow/pr-body.md'), 'utf8'),
+    body: existsSync(join(root, '.relayflow/pr-body.md'))
+      ? readFileSync(join(root, '.relayflow/pr-body.md'), 'utf8')
+      : '',
   }));
 }
 
@@ -93,6 +95,71 @@ describe('canonical software-factory metadata contract', () => {
     expect(validate).toBeGreaterThan(-1);
     expect(validate).toBeLessThan(push);
     expect(push).toBeLessThan(open);
+  });
+
+  it('writes a Linear closing reference that the GitHub integration links back', async () => {
+    const result = await runCanonical({
+      source: 'linear', title: 'Rate-limit the webhook queue', body: 'Per-connection 429 budget.', labels: ['agent'],
+      identifier: 'TECH-42', url: 'https://linear.app/wepost/issue/TECH-42',
+    });
+    expect(result.completionReason).toBe('success');
+    expect(result.body.split('\n').filter(line => line === 'Fixes TECH-42')).toHaveLength(1);
+  });
+
+  it('accepts a Linear team key that carries digits', async () => {
+    const result = await runCanonical({
+      source: 'linear', title: 'Rate-limit the webhook queue', body: 'body', labels: [],
+      identifier: 'PLA4-42', url: 'https://linear.app/wepost/issue/PLA4-42',
+    });
+    expect(result.completionReason).toBe('success');
+    expect(result.body.split('\n').filter(line => line === 'Fixes PLA4-42')).toHaveLength(1);
+  });
+
+  it.each(['', 'not-an-issue'])(
+    'stops before push when a Linear ticket has no linkable identifier (%s)',
+    async (identifier) => {
+      const result = await runCanonical({
+        source: 'linear', title: 'Rate-limit the webhook queue', body: 'body', labels: [],
+        identifier, url: 'https://linear.app/wepost/issue/TECH-42',
+      });
+      expect(result.completionReason).toBe('needs_human');
+      expect(result.commands.some(command => command.startsWith('git push') || command.startsWith('gh pr create'))).toBe(false);
+    },
+  );
+
+  it('fails closed before push when the Linear closing reference is duplicated in the final body', async () => {
+    // The summary is written by the implementer; a body that repeats the
+    // closing line must stop the run rather than ship a doubled reference.
+    const result = await runCanonical({
+      source: 'linear', title: 'Rate-limit the webhook queue', body: 'body', labels: [],
+      identifier: 'TECH-42',
+    }, '## Summary\n\nFixes TECH-42\n\nFixes TECH-42\n');
+    expect(result.completionReason).toBe('needs_human');
+    expect(result.commands.some(command => command.startsWith('git push') || command.startsWith('gh pr create'))).toBe(false);
+  });
+
+  it('fails closed before push when the body carries a foreign closing reference', async () => {
+    // A summary naming a different ticket would auto-link the pull request to
+    // the wrong issue on merge. PREPARE appends the expected line, leaving two
+    // closing-keyword lines — the run must stop rather than ship both.
+    const result = await runCanonical({
+      source: 'linear', title: 'Rate-limit the webhook queue', body: 'body', labels: [],
+      identifier: 'TECH-42',
+    }, '## Summary\n\nFixes OTHER-9\n');
+    expect(result.completionReason).toBe('needs_human');
+    expect(result.commands.some(command => command.startsWith('git push') || command.startsWith('gh pr create'))).toBe(false);
+  });
+
+  it('does not mistake ordinary closing-verb prose for a reference', async () => {
+    // A summary sentence that starts with a closing verb is not a ticket
+    // reference — GitHub only links the keyword when an issue reference
+    // follows it. Counting "Fixed the retry loop" would block the run.
+    const result = await runCanonical({
+      source: 'linear', title: 'Rate-limit the webhook queue', body: 'body', labels: [],
+      identifier: 'TECH-42',
+    }, '## Summary\n\nFixed the retry loop in the dispatcher.\n');
+    expect(result.completionReason).toBe('success');
+    expect(result.body.split('\n').filter(line => line === 'Fixes TECH-42')).toHaveLength(1);
   });
 
   it('normalizes whitespace and caps the title at 240 Unicode code points', async () => {
