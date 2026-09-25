@@ -1,0 +1,16 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/authored-probe-cache.test.ts (5 tests) 21193ms
+   ✓ authored run CLI probe cache > nine calls have no expired attempts at capacity 1 7215ms
+   ✓ authored run CLI probe cache > nine calls have no expired attempts at capacity 4 5382ms
+   ✓ authored run CLI probe cache > does not serialize nine starts behind nine probes, and probes again on a new run 6922ms
+   ✓ authored run CLI probe cache > caches probe failures while refusing all nine calls 400ms
+   ✓ authored run CLI probe cache > shares probe results across agent calls too 1272ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  06:39:32
+   Duration  22.85s (transform 923ms, setup 0ms, collect 1.49s, tests 21.19s, environment 0ms, prepare 46ms)
+
+EXIT=0

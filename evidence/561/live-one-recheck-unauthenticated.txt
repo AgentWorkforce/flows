@@ -1,0 +1,28 @@
+○ run-1 (deterministic) 0.00s
+✓ run-1 (deterministic) 0.03s completionReason: success
+○ llm-2 (llm) 0.00s
+○ llm-3 (llm) 0.00s
+○ llm-4 (llm) 0.00s
+○ llm-5 (llm) 0.00s
+○ llm-6 (llm) 0.00s
+○ llm-7 (llm) 0.00s
+○ llm-8 (llm) 0.00s
+○ llm-9 (llm) 0.00s
+○ llm-10 (llm) 0.00s
+✗ llm-2 (llm) 1.04s
+✗ llm-3 (llm) 0.12s
+✗ llm-4 (llm) 0.10s
+✗ llm-5 (llm) 0.08s
+✗ llm-6 (llm) 0.07s
+✗ llm-7 (llm) 0.05s
+✗ llm-8 (llm) 0.04s
+✗ llm-9 (llm) 0.03s
+✗ llm-10 (llm) 0.01s
+REFUSED [invalid_spec] llm_cli_unresolved: Step "llm-2" declares CLI "claude", but "claude auth status" exited non-zero (exit 1); authenticate it or repair that adapter's authentication probe. It reported: {
+  "loggedIn": false,
+  "authMethod": "none",
+  "apiProvider": "firstParty",
+  "analyticsDisabled": false,
+  "projectsDirectory": "/home/daytona/.claude/projects",
+  "configDirectory": "/home/daytona/.claude"
+}

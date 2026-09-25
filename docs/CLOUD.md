@@ -132,6 +132,101 @@ A synced run and a Cloud repository grant are mutually exclusive on the
 server: `--sync-code` is the local-driven development loop, and
 webhook-triggered deployments keep cloning through the grant.
 
+## Local runs on the dashboard
+
+A local run is watchable by default through its **observer link** — free, off a
+workspace key, a step projection in its own channel, printed by every `flows
+run` unless `--no-observer-link`. That is the default way to follow a run you
+started in a terminal, and it is unchanged.
+
+`--cloud-mirror` additionally puts the run on the **Cloud dashboard**: the
+richer, hosted view of the same run.
+
+```sh
+flows run --cloud-mirror review.flow.ts --input '{"pr":7}'
+# Dashboard: https://…/dashboard/workflow/<run>/runner  ·  flows status --cloud --watch <run>
+
+FLOWS_CLOUD_MIRROR=1 flows run review.flow.ts     # for a whole shell
+```
+
+Nothing about execution changes. The run executes locally, against the local
+daemon, under your own credentials; the journal is still the record. What is
+added is a reader beside it that polls this run's journals every ten seconds
+and pushes what it finds — the same live step view, the same final step rows,
+the same per-step transcripts and the same terminal status a sandboxed run
+reports. The run row is marked `dispatchType: "local"`, so the run page says it
+ran on your machine rather than promising a sandbox that is never coming.
+
+What the dashboard adds over the observer link: the flow source, every step's
+agent transcript, the run graph, the run's own log, and the run sitting in the
+same history as your hosted ones — readable afterwards through `flows runs`,
+`flows status --cloud` and `flows logs`, which until now only answered for runs
+Cloud had launched.
+
+### Why it is opt-in
+
+Because it is the richer view, it is also the one that *stores* all of that.
+The mirror sends the flow source, step metadata, agent transcripts and this
+invocation's own stderr. Transcripts are the sharp edge: they are whatever the
+agent printed, which includes file contents, command output, and anything it
+read out of its environment. Every string goes through the same redactor
+`flows status` uses — but redaction is pattern matching, and pattern matching
+has a false-negative rate.
+
+So the trigger is an explicit request, never the presence of a login. A
+developer who signed in once to run something hosted has not thereby agreed to
+publish every unrelated experiment in every checkout on that machine into their
+workspace, where anyone who can read the workspace can read it. `--cloud-mirror`
+is that agreement, per run; `FLOWS_CLOUD_MIRROR=1` is it for a shell.
+
+Only an affirmative counts for the environment variable (`1`, `true`, `on`,
+`yes`). Anything else — unset, empty, `0`, or a value nobody meant as a switch
+— leaves the run local, because the cost of reading a stray value as consent is
+someone's runs being uploaded.
+
+The terminal line names Cloud's run id as well as the page, because the
+report's own `runId` is the *journal's* and every hosted read verb (`flows
+status --cloud`, `flows logs`, `flows runs`) takes Cloud's. Under `--json` the
+same pair rides in the report as `cloudRunId` and `dashboardUrl`, beside
+`observerUrl`.
+
+A run that asked for the dashboard and did not get it says so, once, on stderr
+— a missing login, a deployment that does not serve the route, a refused
+registration. It is a request that was not honoured, not an aside, and it never
+changes the run's outcome.
+
+What it does and does not do:
+
+- **Registers before it reports.** `POST /api/v1/workflows/local-run` creates
+  the run row and returns a credential scoped to that one run. Registration
+  happens once the run id exists, so a flow `flows run` refuses at check time
+  never reaches Cloud at all.
+- **Reads only this run's journals.** The root, plus the child journals the
+  root's own authored-step index names. A shared `~/.relayflowd` holding other
+  people's runs contributes nothing.
+- **Cannot fail a run.** Every push collapses to a boolean; each poll is
+  bounded by its own deadline; the whole finish is bounded. A Cloud outage
+  costs a mirrored run its dashboard page and nothing else.
+- **Does not make Cloud the authority.** Cancel is refused for a local run:
+  Cloud mirrors it and does not control it, and a cancel button that stopped
+  the *reporting* while the flow kept running would be a cancellation that did
+  not happen. Stop it where it is running.
+- **One dashboard row per invocation, and the rows are linked.** A mirrored run
+  goes terminal on Cloud when the CLI exits, and Cloud refuses to move a
+  terminal run back to `running`, so `flows resume --cloud-mirror` registers its
+  own row — the same shape Cloud's own v2 resume already has. It carries
+  `resumedFromRunId`, so the run page says which attempt it continues and a
+  reader of the earlier "Needs review" row can find out how it ended. A resume
+  mirrors the kernel spec its journal recorded, since the flow file may have
+  been edited or deleted since.
+
+No credential is written to disk between invocations: the run token lives only
+for the process that holds it. What *is* written, under
+`<data-dir>/cloud-runs/`, is which Cloud run mirrored which journal — the id
+and the deployment, nothing else, mode 0600 — so a later `flows resume` of the
+same journal can name its predecessor. Everything in that file was already in
+the URL the first attempt printed. Entries age out at 30 days and 500 rows.
+
 ## Reading a hosted run
 
 Three read-only verbs answer "what did that run do" from the Cloud API, so an
@@ -452,11 +547,18 @@ listener's rules match them there. The digest form,
 decides which form is meant.
 
 `--on <provider>[:key=value,…]` takes `github` (`repository`, `labels`,
-`contains`, `events`), `slack` (`channel`, `contains`), `linear` (`team`,
-`contains`), `jira` (`project`, `contains`) or `shortcut` (`workspace`,
-`contains`), each at most once. A GitHub source without `repository` is
+`contains`, `events`, and the pull-request subscription opt-outs `reviews`,
+`checks`, `comments`), `gitlab` (`project`, `labels`, `contains`, `events`),
+`slack` (`channel`, `contains`), `linear` (`team`, `project`, `labels`,
+`contains`, `events`), `jira` (`project`, `labels`, `contains`) or `shortcut`
+(`workspace`, `team`, `labels`, `contains`), each at most once. A Linear
+`team` matches the team's name or its key. A Linear `events` is `issues` (the
+default — `issue.create`), `assigned` — `AppUserNotification.issueAssignedToYou`,
+issues assigned to the connected app user, so assigning a ticket delegates it —
+or `all` for both. A GitHub source without
+`repository` is
 scoped to `--repo`. `events` is `issues` (the default: `issues.opened` and
-`issues.labeled`) or `pull_request`, which wakes on a pull request being
+`issues.labeled`) or `pull_request` — `merge_request` for `gitlab` — which wakes on a pull request being
 opened, receiving commits, being reopened, or being reviewed; a
 pull-request run checks out the pull request's own head and receives
 `input.pullRequest` (`owner`, `repo`, `number`, `action`, `title`, `body`, `headRef`, `headSha`,

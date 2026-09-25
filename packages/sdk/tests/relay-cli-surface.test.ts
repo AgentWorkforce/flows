@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -15,6 +15,7 @@ import { CLI_VERBS, type CliCommandSpec, type CliOptionSpec, type CliVerbSpec } 
 import { parseCliArgs, runCli, type ParsedArgs } from '../src/cli.js';
 
 const temporaryDirectories: string[] = [];
+const SDK_VERSION = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version;
 
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
@@ -37,6 +38,16 @@ function capture(): RelayCliIo & { out: string; err: string } {
   };
   return sink;
 }
+
+it.each(['--version', '-V'])('routes %s through the mounted surface', async (flag) => {
+  const io = capture();
+
+  const surface = createRelayCliSurface();
+  await expect(surface.run([flag], io)).resolves.toBe(0);
+  expect(surface.version).toBe(SDK_VERSION);
+  expect(io.out).toBe(`${SDK_VERSION}\n`);
+  expect(io.err).toBe('');
+});
 
 const DIGEST = `hello@sha256:${'a'.repeat(64)}`;
 const BUNDLE_DIR = `dist/flows/${DIGEST}`;
@@ -108,14 +119,14 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
   {
     verb: 'resume',
     argv: ['resume', '--json', '--data-dir', '.relayflowd', '--local-agent', '--agent-capacity', '8', '--no-spawn',
-      '--no-observer-link', '--allow-human-influenced', RUN_ID],
+      '--no-observer-link', '--cloud-mirror', '--allow-human-influenced', RUN_ID],
     variant: 'resume',
   },
   { verb: 'run', argv: ['run', 'flow.yaml'], variant: 'run' },
   {
     verb: 'run',
     argv: ['run', '--json', '--data-dir', '.relayflowd', '--local-agent', '--agent-capacity', '8', '--no-spawn',
-      '--no-observer-link', '--allow-human-influenced', '--input', '{"a":1}', 'review.flow.ts'],
+      '--no-observer-link', '--cloud-mirror', '--allow-human-influenced', '--input', '{"a":1}', 'review.flow.ts'],
     variant: 'run',
   },
   // `--input` is the authored body's argument and `--reuse-from` memoizes a

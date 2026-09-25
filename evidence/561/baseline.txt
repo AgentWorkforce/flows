@@ -1,0 +1,115 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+(node:16742) [FLOWS_WORKER_LEASE_LOST] Warning: test-llm: run_id=01M390MBFVS1E4P7XHG40XXVT3 step_id=llm-1 attempt=1: WorkerLeaseLostError: Agent lease is already expired for 01M390MBFVS1E4P7XHG40XXVT3/llm-1.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:16742) [FLOWS_WORKER_LEASE_LOST] Warning: test-llm: run_id=01M390NG2Q7NEX3EPDJJCAE5T7 step_id=llm-1 attempt=1: WorkerLeaseLostError: Agent lease is already expired for 01M390NG2Q7NEX3EPDJJCAE5T7/llm-1.
+ ❯ tests/authored-probe-cache.test.ts (5 tests | 5 failed) 86829ms
+   × authored run CLI probe cache > nine calls have no expired attempts at capacity 1 37494ms
+     → step_failed: journal step "llm-1" completed with lease_expired
+Inspect: flows replay 01M390MBFVS1E4P7XHG40XXVT3 --at llm-1
+   × authored run CLI probe cache > nine calls have no expired attempts at capacity 4 37529ms
+     → step_failed: journal step "llm-1" completed with lease_expired
+Inspect: flows replay 01M390NG2Q7NEX3EPDJJCAE5T7 --at llm-1
+   × authored run CLI probe cache > does not serialize nine starts behind nine probes, and probes again on a new run 6453ms
+     → expected 3250.5002949999907 to be less than 450
+   × authored run CLI probe cache > caches probe failures while refusing all nine calls 3299ms
+     → expected [ { kind: 'auth' }, …(8) ] to have a length of 1 but got 9
+   × authored run CLI probe cache > shares probe results across agent calls too 2052ms
+     → expected [ { kind: 'auth' }, …(2) ] to have a length of 1 but got 3
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-probe-cache.test.ts > authored run CLI probe cache > nine calls have no expired attempts at capacity 1
+AuthoredFlowExecutionError: step_failed: journal step "llm-1" completed with lease_expired
+Inspect: flows replay 01M390MBFVS1E4P7XHG40XXVT3 --at llm-1
+ ❯ stepFailure src/authored-step-output.ts:123:10
+    121|     ...edges,
+    122|   });
+    123|   return new AuthoredFlowExecutionError('step_failed', message, reason…
+       |          ^
+    124| }
+    125| 
+ ❯ Module.readCompletedStepOutput src/authored-step-output.ts:70:11
+ ❯ WorkerSlots.run src/worker-slots.ts:44:14
+ ❯ Object.llm src/authored-worker-step.ts:233:22
+ ❯ Module.observeStep src/progress.ts:48:20
+ ❯ AuthoredFlowOperation.begin src/authored-flow-operation.ts:174:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  tests/authored-probe-cache.test.ts > authored run CLI probe cache > nine calls have no expired attempts at capacity 4
+AuthoredFlowExecutionError: step_failed: journal step "llm-1" completed with lease_expired
+Inspect: flows replay 01M390NG2Q7NEX3EPDJJCAE5T7 --at llm-1
+ ❯ stepFailure src/authored-step-output.ts:123:10
+    121|     ...edges,
+    122|   });
+    123|   return new AuthoredFlowExecutionError('step_failed', message, reason…
+       |          ^
+    124| }
+    125| 
+ ❯ Module.readCompletedStepOutput src/authored-step-output.ts:70:11
+ ❯ WorkerSlots.run src/worker-slots.ts:44:14
+ ❯ Object.llm src/authored-worker-step.ts:233:22
+ ❯ Module.observeStep src/progress.ts:48:20
+ ❯ AuthoredFlowOperation.begin src/authored-flow-operation.ts:174:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  tests/authored-probe-cache.test.ts > authored run CLI probe cache > does not serialize nine starts behind nine probes, and probes again on a new run
+AssertionError: expected 3250.5002949999907 to be less than 450
+ ❯ tests/authored-probe-cache.test.ts:102:41
+    100|     expect(starts).toHaveLength(9);
+    101|     // F1 permits one synchronous probe (~300ms), not nine (~3s).
+    102|     expect(starts.at(-1)! - starts[0]!).toBeLessThan(450);
+       |                                         ^
+    103|     expectOneProbe(logs());
+    104|     await executeAuthoredFlow(nine, client, undefined, options);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  tests/authored-probe-cache.test.ts > authored run CLI probe cache > caches probe failures while refusing all nine calls
+AssertionError: expected [ { kind: 'auth' }, …(8) ] to have a length of 1 but got 9
+
+- Expected
++ Received
+
+- 1
++ 9
+
+ ❯ expectOneProbe tests/authored-probe-cache.test.ts:70:47
+     68| 
+     69| function expectOneProbe(logs: ReturnType<Awaited<ReturnType<typeof slo…
+     70|   expect(logs.filter(l => l.kind === 'auth')).toHaveLength(1);
+       |                                               ^
+     71|   expect(logs.filter(l => l.kind === 'identify').length - logs.filter(…
+     72| }
+ ❯ tests/authored-probe-cache.test.ts:121:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  tests/authored-probe-cache.test.ts > authored run CLI probe cache > shares probe results across agent calls too
+AssertionError: expected [ { kind: 'auth' }, …(2) ] to have a length of 1 but got 3
+
+- Expected
++ Received
+
+- 1
++ 3
+
+ ❯ expectOneProbe tests/authored-probe-cache.test.ts:70:47
+     68| 
+     69| function expectOneProbe(logs: ReturnType<Awaited<ReturnType<typeof slo…
+     70|   expect(logs.filter(l => l.kind === 'auth')).toHaveLength(1);
+       |                                               ^
+     71|   expect(logs.filter(l => l.kind === 'identify').length - logs.filter(…
+     72| }
+ ❯ tests/authored-probe-cache.test.ts:134:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+ Test Files  1 failed (1)
+      Tests  5 failed (5)
+   Start at  06:11:11
+   Duration  88.74s (transform 1.05s, setup 0ms, collect 1.73s, tests 86.83s, environment 0ms, prepare 44ms)
+
