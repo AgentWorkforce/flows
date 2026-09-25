@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { connect, type Socket } from 'node:net';
@@ -123,6 +124,49 @@ setTimeout(() => {
     stdout_tail: 'stdin-closed-before-startup',
     transport: { phase: 'close', cause: 'exited', exit_code: 0, signal: null, retryable: false },
   });
+});
+
+it('a drive that disconnects before spawn leaves an unattended CLI at EOF', async () => {
+  const dataDir = dir();
+  const cli = join(dataDir, 'claude');
+  writeFileSync(cli, `#!/usr/bin/env node
+const watchdog = setTimeout(() => process.exit(91), 2000);
+process.stdin.resume();
+process.stdin.on('end', () => {
+  clearTimeout(watchdog);
+  process.stdout.write('eof-after-drive-disconnect');
+});
+`, { mode: 0o755 });
+  let path = '';
+  let peer: Socket | undefined;
+  let greeted = false;
+  const channel = await openSidechannel({
+    dataDir, runId: 'r', stepId: 's', attempt: 1,
+    onDrive: () => { greeted = true; },
+    onReady: value => { path = value; },
+  }, () => true);
+  expect(channel).toBeDefined();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      peer = connect(path);
+      peer.once('error', reject);
+      peer.once('connect', () => peer!.end('HELLO drive\n'));
+      peer.once('close', resolve);
+    });
+    // Let the server consume its matching close event before the spawn-time
+    // enrollment decision. The peer greeted successfully, but is not live.
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(greeted).toBe(true);
+    const driven = await channel!.waitForDrive(0);
+    expect(driven).toBe(false);
+
+    let stdout = '';
+    const child = spawn(cli, [], { stdio: [driven ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
+    child.stdout.on('data', bytes => { stdout += bytes.toString(); });
+    const exitCode = await new Promise<number | null>(resolve => child.once('close', resolve));
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('eof-after-drive-disconnect');
+  } finally { peer?.destroy(); channel?.close(); }
 });
 
 it('rejects drive after EOF without marking human intervention', async () => {

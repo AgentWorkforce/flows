@@ -31,10 +31,8 @@ export async function openSidechannel(
   canDrive: () => boolean = () => true,
 ) {
   const peers = new Map<Socket, boolean>();
+  const drivePeers = new Set<Socket>();
   let closed = false;
-  let driveConnected = false;
-  let announceDrive!: () => void;
-  const driveConnection = new Promise<void>(resolve => { announceDrive = resolve; });
   const server = createServer(socket => {
     if (peers.size >= 16) { socket.destroy(); return; }
     peers.set(socket, false);
@@ -42,7 +40,10 @@ export async function openSidechannel(
     let mode: string | undefined;
     socket.setTimeout(2_000, () => socket.destroy());
     socket.on('error', () => socket.destroy());
-    socket.on('close', () => peers.delete(socket));
+    socket.on('close', () => {
+      peers.delete(socket);
+      drivePeers.delete(socket);
+    });
     socket.on('data', (bytes: Buffer) => {
       if (mode === undefined) {
         hello = Buffer.concat([hello, bytes]);
@@ -56,8 +57,7 @@ export async function openSidechannel(
         peers.set(socket, true);
         // Passthrough is a passive raw-byte view in this initial slice.
         if (mode === 'drive') {
-          driveConnected = true;
-          announceDrive();
+          drivePeers.add(socket);
           context.onDrive();
         }
         bytes = hello.subarray(end + 1);
@@ -106,14 +106,11 @@ export async function openSidechannel(
      * view and passthrough peers never change the child's stdin contract.
      */
     async waitForDrive(timeoutMs: number): Promise<boolean> {
-      if (driveConnected) return true;
-      let timer: NodeJS.Timeout | undefined;
-      await Promise.race([
-        driveConnection,
-        new Promise<void>(resolve => { timer = setTimeout(resolve, timeoutMs); }),
-      ]);
-      if (timer !== undefined) clearTimeout(timer);
-      return driveConnected;
+      // Enrollment is a live state, not a sticky historical event. Hold the
+      // whole bounded window so a peer that greets and then disconnects before
+      // spawn cannot leave the child with piped stdin and nobody to close it.
+      if (timeoutMs > 0) await new Promise<void>(resolve => setTimeout(resolve, timeoutMs));
+      return drivePeers.size > 0;
     },
     close() {
       if (closed) return;
