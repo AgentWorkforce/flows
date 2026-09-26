@@ -28,8 +28,13 @@ not wired to hosted dispatch and must not be treated as enablement. The package'
 `compat` requires the published 2.0.26 Surface/SDK release that routes
 `labeled`, `unlabeled`, and `ready_for_review`. Export it only from the reviewed
 release commit pinned below. The Software Factory flow's own independently
-versioned header remains `2.0.22`; a regression requires the hosted identity to
-equal the identity obtained from that exact reviewed source.
+versioned header is now `2.0.23`; the hosted loader pins that revision's source
+bytes and its assigned identity, and a regression requires the hosted identity to
+equal the identity obtained from that exact reviewed source. Both pins are bytes
+of `examples/software-factory/software-factory.flow.ts`: any change to that file
+is also a change to `SOFTWARE_FACTORY_SHA256` and the assigned version in
+`packages/sdk/src/hosted-extension-runtime.ts`, and the base is rejected until
+they are updated together.
 
 The sandbox contract is deliberately narrower than #442. It re-verifies the
 complete lock-backed installation and every manifest, binds it to the exact

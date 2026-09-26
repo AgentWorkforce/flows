@@ -26,7 +26,7 @@ const REALPATH = realpath;
 const PATH_DIRNAME = dirname;
 const PATH_JOIN = join;
 const PATH_RESOLVE = resolve;
-const SOFTWARE_FACTORY_SHA256 = 'b97a3466c2affabb61afa655d4b2f726942d753c0466740b64ba26a78da359c6';
+const SOFTWARE_FACTORY_SHA256 = '8bbcf0e42f47d6bc6491a129935f96b791be03c8a5ed5b73d651c4e77913e2d7';
 const ARRAY_IS_ARRAY = Array.isArray;
 const OBJECT_FREEZE = Object.freeze;
 const WEAK_MAP_GET = Function.prototype.call.bind(WeakMap.prototype.get) as <K extends object, V>(
@@ -243,7 +243,7 @@ async function baseAt(origin: string, generation: RuntimeGeneration): Promise<Ho
     }
     const value = frozenHostedPromiseValue({
       name: 'software-factory',
-      version: '2.0.22',
+      version: '2.0.23',
     });
     WEAK_SET_ADD(BASE_AUTHORITY, value);
     WEAK_MAP_SET(BASE_GENERATION, value, generation);
