@@ -119,6 +119,16 @@ export { parseHumanTo, parseHumanRecipient, humanRecipientProvider, type HumanRe
 
 export { canonicalize, specHash } from './canonical.js';
 export {
+  createFlowToolManifest, parseFlowToolManifest, canonicalFlowToolManifest,
+  validateFlowToolInput, validateFlowToolResult,
+  type FlowToolDeclarationV1, type FlowToolManifestV1, type FlowToolDigest,
+} from './flow-tool-manifest.js';
+export { FLOW_TOOL_SCHEMA_DIALECT, type FlowToolJson, type FlowToolObjectSchema } from './flow-tool-schema.js';
+export {
+  flowToolFunctionDefinition, flowToolMcpDefinition,
+  type FlowToolFunctionDefinition, type FlowToolMcpDefinition,
+} from './flow-tool-definitions.js';
+export {
   compileAndHash,
   compileSpec,
   compileYaml,
@@ -275,6 +285,17 @@ export {
 } from './tick-source.js';
 
 export { createFlow, type CreateFlowOptions, type CreatedFlow } from './create-flow.js';
+
+export * from './flow-tool-contract.js';
+export { parseFlowToolCatalog, canonicalFlowToolCatalog, parseFlowToolEntry, parseFlowToolRun, parseFlowToolEvent,
+  parseFlowToolEvidence, parseFlowToolInvocation, flowToolInputDigest, flowToolRunLinks } from './flow-tool-wire.js';
+export { FlowToolClient, type FlowToolTransport, type FlowToolRequest, type FlowToolInvocationOptions } from './flow-tool-client.js';
+export { createFlowToolHttpTransport, type FlowToolHttpOptions } from './flow-tool-http.js';
+export { createFlowToolAdapters } from './flow-tool-adapters.js';
+export {
+  createKernelFlowToolControlPlane, FLOW_TOOL_INPUT_PLACEHOLDER,
+  type KernelFlowToolDeployment, type KernelFlowToolControlPlaneOptions,
+} from './flow-tool-kernel.js';
 
 export { renderProgress, type ProgressEvent } from './progress.js';
 export { webhookTriggerSpec } from './trigger-executor.js';
