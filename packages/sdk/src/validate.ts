@@ -403,6 +403,12 @@ class Validator {
     if (st['maxIterations'] !== undefined && !isPosInt(st['maxIterations'])) {
       this.fail(`${at}.maxIterations: expected a positive integer`);
     }
+    if (st['transportRetries'] !== undefined
+      && (typeof st['transportRetries'] !== 'number'
+        || !Number.isSafeInteger(st['transportRetries'])
+        || st['transportRetries'] < 0)) {
+      this.fail(`${at}.transportRetries: expected a non-negative integer`);
+    }
 
     if (type === 'deterministic') {
       this.validateDeterministic(st as unknown as DeterministicStepSpec, at);

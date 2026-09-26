@@ -1,0 +1,22 @@
+# The full-suite run (green-sdk.txt) had node_modules overridden with the locally packed surface (--no-save), which resolved @agent-relay/cli-surface to 12.4.0 against the lockfile pin 12.2.4; bundle.test.ts refuses to build from a non-pristine tree. Re-run that file from a pristine `npm ci`:
+$ cd packages/sdk && npm ci --ignore-scripts && npx vitest run tests/bundle.test.ts
+added 193 packages in 985ms
+
+ RUN  v2.1.9 /tmp/flows-fleet-501/packages/sdk
+
+ ✓ tests/bundle.test.ts (23 tests) 5279ms
+   ✓ immutable bundles > verifies with --verify in any position and answers --json with one object 528ms
+   ✓ immutable bundles > builds and verifies the canonical YAML fixture through the compiled CLI 711ms
+   ✓ immutable bundles > emits the ephemeral warning on CLI stderr and uses the default output directory 414ms
+   ✓ immutable bundles > builds a standalone TS fixture twice with identical executable hashes 1422ms
+
+ Test Files  1 passed (1)
+      Tests  23 passed (23)
+   Start at  02:51:18
+   Duration  6.00s (transform 289ms, setup 0ms, collect 526ms, tests 5.28s, environment 0ms, prepare 89ms)
+
+exit_code=0
+
+# authored-node-runtime.test.ts pins bun --version to exactly 1.4.0; this machine has:
+$ bun --version
+1.4.2

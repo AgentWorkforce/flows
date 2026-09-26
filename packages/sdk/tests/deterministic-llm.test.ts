@@ -91,6 +91,7 @@ steps:
     instruction: "Edit the repo per the plan."
     recoveryMode: inspect
     maxIterations: 2
+    transportRetries: 1
     surfaces:
       workspace:
         - surface: repo
@@ -111,6 +112,7 @@ describe('compile: agent step (ladder rung c, Appendix A surface)', () => {
     expect(act.instruction).toBe('Edit the repo per the plan.');
     expect(act.recoveryMode).toBe('inspect');
     expect(act.maxIterations).toBe(2);
+    expect(act.transportRetries).toBe(1);
     expect(act.surfaces?.workspace).toEqual([{ surface: 'repo' }]);
     expect(act.surfaces?.streams).toEqual([{ stream: 'results' }]);
     expect(act.surfaces?.external).toEqual(['pr://github/example']);

@@ -11,7 +11,7 @@ use crate::{
         StepCompletedPayload, WaitHumanPayload,
     },
     spec::{RecoveryMode, StepKind},
-    state::{RunState, StepState},
+    state::{RunState, StepState, park_placeholder_wait_id},
 };
 
 pub fn recovery_actions(state: &RunState, now_ms: i64) -> Vec<Action> {
@@ -36,13 +36,39 @@ pub fn recovery_actions_filtered(
     let mut actions = Vec::new();
     for spec in &state.spec.steps {
         let runtime = &state.steps[&spec.id];
-        let StepState::Running {
-            attempt,
-            lease_deadline_ms,
-            ..
-        } = runtime.state
-        else {
-            continue;
+        let (attempt, lease_deadline_ms) = match &runtime.state {
+            StepState::Running {
+                attempt,
+                lease_deadline_ms,
+                ..
+            } => (*attempt, *lease_deadline_ms),
+            // A `manual` park is two appends: `step.completed` (`park`), then
+            // the `wait.human` a human answers. Dying between them leaves the
+            // step parked on the placeholder id with no wait to answer — a
+            // permanent park nobody can end. Journal the wait now; it is
+            // rebuilt from the same journaled facts the first writer used.
+            StepState::NeedsHuman { wait_id }
+                if matches!(
+                    spec.kind,
+                    StepKind::Agent {
+                        recovery_mode: RecoveryMode::Manual,
+                        ..
+                    }
+                ) && *wait_id == park_placeholder_wait_id(&spec.id, runtime.attempts) =>
+            {
+                actions.push(Action::Append(manual_park_wait(
+                    &state.run_id,
+                    &spec.id,
+                    runtime.attempts,
+                    runtime
+                        .last_completion_reason
+                        .unwrap_or(CompletionReason::Crashed),
+                    now_ms,
+                    runtime.last_start_pins.as_ref(),
+                )));
+                continue;
+            }
+            _ => continue,
         };
         if lease_is_active(&spec.id, attempt) {
             continue;
@@ -85,13 +111,16 @@ pub fn abandonment_actions(
             ..
         }
     );
-    let may_retry = runtime.semantic_executions < spec.max_iterations;
+    let transport_failures = runtime.attempts.saturating_sub(runtime.semantic_executions);
+    let may_retry = transport_failures <= spec.retry.max_transport_retries;
     // No retry delay for a dead leased attempt. This function records an
     // attempt that died WITHOUT producing a result a gate could judge -- which
     // is why, as the doc comment above says, it does not charge a semantic
-    // iteration either. Rate-limiting it is the same category error: the
-    // backoff curve exists to damp a step that keeps failing on its own merits,
-    // not one whose worker was killed.
+    // iteration. It is still bounded by the explicit transport retry budget;
+    // otherwise a permanently broken worker can redispatch forever while its
+    // semantic counter stays at zero. Rate-limiting remains a separate
+    // category: the backoff curve damps a step that keeps failing on its own
+    // merits, not one whose worker was killed.
     //
     // Leaving the delay in place also made recovery order a race, which is
     // issue #155. The dead lane sat in `Backoff` with `wake_at_ms` a few
@@ -137,24 +166,13 @@ pub fn abandonment_actions(
         },
     ))];
     if manual {
-        actions.push(Action::Append(JournalEntry::new(
-            EntryType::WaitHuman,
-            state.run_id.clone(),
-            Some(step_id.to_owned()),
-            Some(attempt),
+        actions.push(Action::Append(manual_park_wait(
+            &state.run_id,
+            step_id,
+            attempt,
+            reason,
             now_ms,
-            WaitHumanPayload {
-                wait_id: deterministic_ulid(&state.run_id, step_id, attempt, now_ms, "manual"),
-                prompt: format!(
-                    "agent step {step_id} of run {} ended {reason:?} with a dirty workspace; \
-                     a human must inspect it before another attempt",
-                    state.run_id
-                ),
-                requested_of: "run-owner".to_owned(),
-                options: Some(vec!["retry".to_owned(), "cancel".to_owned()]),
-                timeout_at_ms: None,
-                diff_ref: dirty_diff_ref(runtime.last_start_pins.as_ref()),
-            },
+            runtime.last_start_pins.as_ref(),
         )));
     } else if let Some(wake_at_ms) = next_attempt_at_ms {
         actions.push(Action::Append(JournalEntry::new(
@@ -171,6 +189,39 @@ pub fn abandonment_actions(
         )));
     }
     actions
+}
+
+/// The `wait.human` entry that parks a `manual` agent step after a dead
+/// attempt. One constructor for both ways the kernel learns of the death —
+/// an abandoned lease (`abandonment_actions`) and a worker that reported its
+/// own transport loss through `step.complete` (`completion_actions`) — so the
+/// two paths cannot drift into parking with different prompts or diffs.
+pub(super) fn manual_park_wait(
+    run_id: &str,
+    step_id: &str,
+    attempt: u32,
+    reason: CompletionReason,
+    now_ms: i64,
+    start_pins: Option<&Pins>,
+) -> JournalEntry {
+    JournalEntry::new(
+        EntryType::WaitHuman,
+        run_id.to_owned(),
+        Some(step_id.to_owned()),
+        Some(attempt),
+        now_ms,
+        WaitHumanPayload {
+            wait_id: deterministic_ulid(run_id, step_id, attempt, now_ms, "manual"),
+            prompt: format!(
+                "agent step {step_id} of run {run_id} ended {reason:?} with a dirty workspace; \
+                 a human must inspect it before another attempt"
+            ),
+            requested_of: "run-owner".to_owned(),
+            options: Some(vec!["retry".to_owned(), "cancel".to_owned()]),
+            timeout_at_ms: None,
+            diff_ref: dirty_diff_ref(start_pins),
+        },
+    )
 }
 
 /// Appendix A rule 4: the `manual` park hands the human a diff of the pinned

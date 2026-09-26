@@ -1,0 +1,19 @@
+# Setup (documented in .github/workflows/publish.yml and scripts/surface-package-gate.sh): the SDK typechecks against the published @relayflows/surface unless the locally built surface is packed and installed with --no-save.
+$ cd packages/surface && npm ci --ignore-scripts && ./node_modules/.bin/tsc && cd ../.. && node scripts/pack-release.mjs surface
+  -> PACK_OK @relayflows/surface@2.0.22 (dist/publish/relayflows-surface-2.0.22.tgz)
+$ cd packages/sdk && npm ci && npm install --no-save --package-lock=false --ignore-scripts ../../dist/publish/relayflows-surface-2.0.22.tgz && test ! -L node_modules/@relayflows/surface
+
+$ cd packages/sdk && npm run typecheck && npm run typecheck:tests && npm run build
+
+> @relayflows/sdk@2.0.22 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+
+> @relayflows/sdk@2.0.22 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+
+> @relayflows/sdk@2.0.22 build
+> tsc && node scripts/make-cli-executable.mjs
+
+exit_code=0

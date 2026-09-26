@@ -200,6 +200,29 @@ export function authoredWorkerRunner(
           `f.agent options.transport must be 'direct' or 'relay' (got ${JSON.stringify(options.transport)}).`,
         );
       }
+      if (options.maxIterations !== undefined
+        && (!Number.isSafeInteger(options.maxIterations) || options.maxIterations < 1)) {
+        throw new AuthoredFlowExecutionError(
+          'agent_cli_unresolved',
+          `f.agent options.maxIterations must be a positive integer (got ${JSON.stringify(options.maxIterations)}).`,
+        );
+      }
+      if (options.transportRetries !== undefined
+        && (!Number.isSafeInteger(options.transportRetries) || options.transportRetries < 0)) {
+        throw new AuthoredFlowExecutionError(
+          'agent_cli_unresolved',
+          `f.agent options.transportRetries must be a non-negative integer (got ${JSON.stringify(options.transportRetries)}).`,
+        );
+      }
+      if (options.recoveryMode !== undefined
+        && options.recoveryMode !== 'reset'
+        && options.recoveryMode !== 'inspect'
+        && options.recoveryMode !== 'manual') {
+        throw new AuthoredFlowExecutionError(
+          'agent_cli_unresolved',
+          `f.agent options.recoveryMode must be 'reset', 'inspect', or 'manual' (got ${JSON.stringify(options.recoveryMode)}).`,
+        );
+      }
       const cwdTransport = agentCwdTransportError(declaredCwd, options.transport);
       if (cwdTransport !== undefined) {
         throw new AuthoredFlowExecutionError('agent_cli_unresolved', `f.agent options.${cwdTransport}.`);
@@ -216,6 +239,9 @@ export function authoredWorkerRunner(
         ...(options.model === undefined ? {} : { model: options.model }),
         ...(declaredCwd === undefined ? {} : { cwd: declaredCwd }),
         ...(options.transport === undefined ? {} : { transport: options.transport }),
+        ...(options.maxIterations === undefined ? {} : { maxIterations: options.maxIterations }),
+        ...(options.transportRetries === undefined ? {} : { transportRetries: options.transportRetries }),
+        ...(options.recoveryMode === undefined ? {} : { recoveryMode: options.recoveryMode }),
         ...(verification === undefined ? {} : { verification }),
       });
       if (typeof output !== 'object' || output === null || Array.isArray(output)) {
@@ -326,7 +352,13 @@ function stepDetails(
     ...(found.completionReason === undefined ? {} : { completionReason: found.completionReason }),
     ...(found.attempt === undefined ? {} : { attempt: found.attempt }),
     ...(found.maxIterations === undefined ? {} : { maxIterations: found.maxIterations }),
+    ...(found.transportRetries === undefined ? {} : { transportRetries: found.transportRetries }),
     ...(found.exitCode === undefined ? {} : { exitCode: found.exitCode }),
+    ...(found.transportPhase === undefined ? {} : { transportPhase: found.transportPhase }),
+    ...(found.transportCause === undefined ? {} : { transportCause: found.transportCause }),
+    ...(found.signal === undefined ? {} : { signal: found.signal }),
+    ...(found.errorCode === undefined ? {} : { errorCode: found.errorCode }),
+    ...(found.retryableTransport === undefined ? {} : { retryableTransport: found.retryableTransport }),
     ...(found.stdoutTail === undefined ? {} : { stdoutTail: found.stdoutTail }),
     ...(found.stderrTail === undefined ? {} : { stderrTail: found.stderrTail }),
     ...(found.detail === undefined ? {} : { detail: found.detail }),

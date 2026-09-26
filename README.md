@@ -13,6 +13,10 @@ export default flow('hello', async (f) => {
   console.log(greeting.trim());
   const answer = await f.agent('greeter', {
     task: 'Reply with one short hello sentence. Do not use tools or modify files.',
+    // Semantic failures do not retry; one classified transport loss may.
+    maxIterations: 1,
+    transportRetries: 1,
+    recoveryMode: 'reset',
   });
   console.log(answer.summary);
   f.done('success');

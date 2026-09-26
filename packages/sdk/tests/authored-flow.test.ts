@@ -229,6 +229,22 @@ describe('authored flow journal executor', () => {
     }
   });
 
+  it('refuses invalid f.agent retry and recovery controls before contacting the journal', async () => {
+    const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
+    for (const [field, value, message] of [
+      ['maxIterations', 0, 'positive integer'],
+      ['transportRetries', -1, 'non-negative integer'],
+      ['recoveryMode', 'continue', "'reset', 'inspect', or 'manual'"],
+    ] as const) {
+      await expect(executeAuthoredFlow(flow(`agent-invalid-${field}`, async f => {
+        await f.agent('worker', { task: 'x', [field]: value } as never);
+        f.done('success');
+      }), disconnectedJournal)).rejects.toMatchObject({
+        code: 'agent_cli_unresolved', message: expect.stringContaining(message),
+      });
+    }
+  });
+
   it('rejects invalid raw headers before the executor can contact the journal', async () => {
     const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
 

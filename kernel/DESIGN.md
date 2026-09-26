@@ -58,6 +58,7 @@ One per attempt. Payload:
 | `pins.workspace` | agent steps: `[{surface, revision_id}]` — relayfile revision id per declared mount surface, or `{worktree_base_commit}` |
 | `pins.streams` | `[{stream, read_offset}]` — consumer offsets at attempt start |
 | `max_iterations` | from spec, echoed for legibility |
+| `max_transport_retries` | from spec, echoed for legibility like `max_iterations`; additional attempts allowed after classified infrastructure loss (`crashed` / `lease_expired`). Always present — an explicit `0` is the value that explains why a lost process was not retried, so the journal never omits it (the spec's canonical form omits its default of one; the journal does not) |
 
 Deterministic/llm steps journal `pins.streams` only if they consume streams;
 `pins.workspace` is empty (no workspace).
@@ -74,7 +75,7 @@ Payload:
 | `verification` | `{gate, verdict: pass\|fail, detail}` or null |
 | `end_pins` | agent steps: `{workspace: [{surface, revision_id}], streams: [{stream, read_offset}]}` — Appendix A rule 6: the next step's starting state **is** this |
 | `effects` | list of `{surface_path, idempotency_key}` dedupe keys recorded this attempt |
-| `trajectory_tail` | agent failure only: worker-supplied tail injected into an `inspect` retry; `step.complete` rejects one over 16 KiB of canonical JSON |
+| `trajectory_tail` | agent failure only: worker-supplied tail injected into an `inspect` retry; direct workers add bounded/redacted `transport{phase,cause,exit_code,signal,error_code?,retryable,stderr_tail}` evidence; `step.complete` rejects one over 16 KiB of canonical JSON |
 | `budget` | `{tokens_in, tokens_out, dollars, dollars_unmetered?}` — exact; zero for memoized replay by construction (no entry is written on replay). `dollars_unmetered: true` (omitted when false) marks tokens of unknown dollar cost: `dollars` is then metered cost only, dollar ceilings ignore the unknown part, token ceilings count it |
 | `completed_by` | `kernel` \| worker id — out-of-band completion uses the same entry, same discipline |
 | `next_attempt_at_ms` | when `disposition=retry`: computed backoff+jitter wake time |
@@ -290,9 +291,27 @@ attempt's `budget` field.
 under the attempt's idempotency key; every writeback is a journaled
 `effect.recorded` deduped by `(step_id, idempotency_key, surface_path)`;
 `step.completed` pins end state, which defines the next step's start. Dead
-attempt ⇒ recovery mode: `reset` restores pinned revisions and retries;
-`inspect` retries inside the dirty workspace with the failed attempt's tail
-injected; `manual` parks as `wait.human` with `diff_ref`.
+attempt ⇒ recovery mode: `reset` restores pinned revisions before a permitted
+retry; `inspect` resumes inside the dirty workspace with the failed attempt's
+tail injected; `manual` parks as `wait.human` with `diff_ref`. Infrastructure retry
+is a separate, explicit budget (`retry.max_transport_retries`, default one so a
+single process loss remains resumable; set zero to disable).
+Only `crashed` and `lease_expired` consume it. `worker_error`, timeout, budget,
+cancellation, and an ordinary nonzero CLI exit are terminal regardless of the
+budget; semantic verification retry remains bounded only by `max_iterations`.
+
+The kernel learns of a dead attempt two ways, and the recovery mode applies to
+both: the kernel notices an abandoned lease (`abandonment_actions`), or the
+worker reports its own loss through `step.complete` with `crashed` /
+`lease_expired` (`completion_actions`). Under `manual` either path journals
+`step.completed` with `disposition: park` and then the `wait.human` a human
+answers, each its own append. A process death between the two leaves the step
+folded to the placeholder wait id `park-<step>-<attempt>` with nothing to
+answer; resume recognises that placeholder and journals the missing
+`wait.human` from the same journaled facts (last completion reason, start
+pins), once. The SDK decides *which* transport losses are `crashed`
+(`worker-cli.ts` classifies, `cli-transport-evidence.ts` maps to the reason);
+the kernel decides what a `crashed` completion *does* (budget, recovery mode).
 
 ### Memoized resume
 

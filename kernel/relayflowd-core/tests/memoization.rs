@@ -50,6 +50,7 @@ fn source(state: &RunState) -> relayflowd_core::JournalEntry {
         step,
         1,
         0,
+        None,
         AttemptResult::successful(json!("answer"), "worker"),
         1,
     )

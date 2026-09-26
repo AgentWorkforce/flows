@@ -274,6 +274,27 @@ describe('step failure diagnostic', () => {
     expect(diagnostic.message).toContain('Transcript: /data/runs/run-failed/steps/fail-command/attempt-2.transcript.jsonl');
   });
 
+  it('renders structured transport cause, signal, retryability, and redacted stderr', async () => {
+    const { client } = stub([[{
+      seq: 1, entry_type: 'step.completed', step_id: 'fail-command', attempt: 2,
+      payload: {
+        completionReason: 'crashed', disposition: 'step_done', output: null,
+        trajectory_tail: { transport: {
+          phase: 'close', cause: 'signal', exit_code: null, signal: 'SIGKILL',
+          retryable: true, stderr_tail: 'connection reset [redacted:API_TOKEN]',
+        } },
+        verification: { gate: 'execution', verdict: 'fail', detail: 'worker reported crashed' },
+      },
+    }]], 'agent');
+    const diagnostic = (await classify(client)).report.diagnostics.at(-1) as RunDiagnostic;
+    expect(diagnostic).toMatchObject({
+      completionReason: 'crashed', attempt: 2,
+      transportPhase: 'close', transportCause: 'signal', signal: 'SIGKILL',
+      retryableTransport: true, stderrTail: 'connection reset [redacted:API_TOKEN]',
+    });
+    expect(diagnostic.message).toContain('signal=SIGKILL transport=signal phase=close retryable=true');
+  });
+
   it('does not print a stderr excerpt twice', async () => {
     const { client } = stub([[{
       seq: 1, entry_type: 'step.completed', step_id: 'fail-command',

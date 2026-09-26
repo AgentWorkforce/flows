@@ -66,9 +66,7 @@ class RootPeer extends EventEmitter {
     this.completions.push({ attempt, reason });
     this.outputs.push(result?.output as Record<string, unknown> | undefined);
     if (reason === 'success') return outcome(runId, 'completed', 'success');
-    if (attempt >= 8) return outcome(runId, 'failed', 'step_failed');
-    queueMicrotask(() => this.emit('step.dispatch', dispatch(runId, attempt + 1)));
-    return outcome(runId, 'parked', null);
+    return outcome(runId, 'failed', 'step_failed');
   }
 }
 
@@ -341,7 +339,7 @@ describe('durable authored root', () => {
     expect(journal.peer.completions).toEqual([{ attempt: 2, reason: 'success' }]);
   });
 
-  it('drives declared root retries to a durable terminal after a body failure', async () => {
+  it('terminalizes a returned body failure without replaying semantic side effects', async () => {
     const loaded = await fixture(true);
     const journal = new RootJournal();
 
@@ -349,9 +347,7 @@ describe('durable authored root', () => {
       loaded, journal as unknown as JournalClient, undefined,
       { dataDir: '/unused', admissionKey: 'failure' },
     )).rejects.toThrow('child failed');
-    expect(journal.peer.completions).toEqual(Array.from({ length: 8 }, (_, index) => ({
-      attempt: index + 1, reason: 'worker_error',
-    })));
+    expect(journal.peer.completions).toEqual([{ attempt: 1, reason: 'worker_error' }]);
   });
 
   it('renews the authored root lease while its body is still running', async () => {

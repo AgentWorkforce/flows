@@ -13,7 +13,7 @@ fn parallel_spec() -> crate::RunSpec {
                 "id": "lane-b",
                 "type": "llm",
                 "prompt": "research b",
-                "retry": {"initial_backoff_ms": 0, "max_backoff_ms": 0, "multiplier": 1, "jitter_percent": 0}
+                "retry": {"initial_backoff_ms": 0, "max_backoff_ms": 0, "multiplier": 1, "jitter_percent": 0, "max_transport_retries": 1}
             },
             {
                 "id": "join",
@@ -25,7 +25,7 @@ fn parallel_spec() -> crate::RunSpec {
                 "id": "lane-a",
                 "type": "llm",
                 "prompt": "research a",
-                "retry": {"initial_backoff_ms": 0, "max_backoff_ms": 0, "multiplier": 1, "jitter_percent": 0}
+                "retry": {"initial_backoff_ms": 0, "max_backoff_ms": 0, "multiplier": 1, "jitter_percent": 0, "max_transport_retries": 1}
             }
         ]
     }))
@@ -50,18 +50,21 @@ fn parallel_agent_spec(overlapping: bool) -> crate::RunSpec {
                 "id": "lane-b",
                 "type": "agent",
                 "instruction": "b",
+                "retry": {"max_transport_retries": 1},
                 "surfaces": {"workspace": [{"surface": "repo-b"}]}
             },
             {
                 "id": "lane-a",
                 "type": "agent",
                 "instruction": "a",
+                "retry": {"max_transport_retries": 1},
                 "surfaces": {"workspace": [{"surface": lane_a_surface}]}
             },
             {
                 "id": "join",
                 "type": "agent",
                 "instruction": "join",
+                "retry": {"max_transport_retries": 1},
                 "depends_on": ["lane-b", "lane-a"],
                 "surfaces": {"workspace": [
                     {"surface": "repo-b"},
@@ -92,7 +95,7 @@ fn agent_success(
         }],
         streams: Vec::new(),
     });
-    completion_actions("run", step, 1, 0, result, now_ms)
+    completion_actions("run", step, 1, 0, None, result, now_ms)
         .into_iter()
         .find_map(|action| match action {
             Action::Append(entry) if entry.entry_type == EntryType::StepCompleted => Some(entry),
@@ -139,6 +142,7 @@ fn parallel_lanes_do_not_cross_the_dependency_barrier_early() {
             step,
             1,
             0,
+            None,
             AttemptResult::successful(json!({"answer": answer}), "worker"),
             20,
         )
@@ -395,6 +399,7 @@ fn failed_run_drains_open_siblings_before_terminal_entry() {
         &spec.steps[0],
         1,
         0,
+        None,
         failed,
         20,
     )));
@@ -410,6 +415,7 @@ fn failed_run_drains_open_siblings_before_terminal_entry() {
             &spec.steps[2],
             1,
             0,
+            None,
             AttemptResult::successful(json!({"answer": "a"}), "worker"),
             21,
         )

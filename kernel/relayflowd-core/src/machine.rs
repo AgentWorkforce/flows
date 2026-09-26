@@ -303,6 +303,7 @@ fn start_actions(state: &RunState, step: &StepSpec, attempt: u32, now_ms: i64) -
             recovery_mode,
             pins: pins.clone(),
             max_iterations: step.max_iterations,
+            max_transport_retries: step.retry.max_transport_retries,
         },
     );
     let execute = match step.step_type() {
@@ -332,11 +333,18 @@ fn start_actions(state: &RunState, step: &StepSpec, attempt: u32, now_ms: i64) -
 /// completed here ran to a result, so it is the `semantic_executions + 1`-th
 /// semantic execution; `max_iterations` bounds that count, never the raw
 /// attempt number — a crashed attempt must not consume iteration allowance.
+///
+/// `start_pins` are the attempt's journaled starting pins
+/// (`StepRuntime::last_start_pins`). They are read only when a `manual` agent
+/// step reports its own transport loss: Appendix A rule 4 parks that step with
+/// a diff of the *pinned* revision vs. current state, and the pinned revision
+/// is the kernel's record, never the worker's claim.
 pub fn completion_actions(
     run_id: &str,
     step: &StepSpec,
     attempt: u32,
     semantic_executions: u32,
+    start_pins: Option<&Pins>,
     result: AttemptResult,
     now_ms: i64,
 ) -> Vec<Action> {
@@ -363,7 +371,37 @@ pub fn completion_actions(
     let verified = verification
         .as_ref()
         .is_some_and(|record| record.verdict == crate::entry::VerificationVerdict::Pass);
-    let may_retry = semantic_executions.saturating_add(1) < step.max_iterations;
+    let may_retry_semantic = semantic_executions.saturating_add(1) < step.max_iterations;
+    // `attempt` counts every start while `semantic_executions` counts only
+    // results a gate could judge. Their difference is therefore the number of
+    // infrastructure failures including this attempt. Keep that budget
+    // separate: a generic nonzero worker exit is not infrastructure, and a
+    // crash must not get an unbounded free loop merely because it consumed no
+    // semantic iteration.
+    let transport_failures = attempt.saturating_sub(semantic_executions);
+    let may_retry_transport = transport_failures <= step.retry.max_transport_retries;
+    let semantic_failure = matches!(
+        result.failure_reason,
+        None | Some(CompletionReason::VerificationFailed)
+    );
+    let transport_failure = matches!(
+        result.failure_reason,
+        Some(CompletionReason::Crashed | CompletionReason::LeaseExpired)
+    );
+    // Appendix A rule 4: a dead attempt under `manual` parks as `needs_human`
+    // with a diff, whichever way the kernel learned of the death. The
+    // abandoned-lease path (`abandonment_actions`) always honoured that; a
+    // worker that reported its own crash through `step.complete` used to be
+    // redispatched under the transport budget instead, so the same dead
+    // attempt parked or continued depending on who noticed it first.
+    let manual_park = transport_failure
+        && matches!(
+            step.kind,
+            StepKind::Agent {
+                recovery_mode: RecoveryMode::Manual,
+                ..
+            }
+        );
     // Preserve `result.output` for successful completions, and for FAILED
     // deterministic completions specifically — deterministic attempts journal
     // `{exit_code, stdout_tail, stderr_tail}` so the CLI can render the
@@ -378,7 +416,17 @@ pub fn completion_actions(
             result.output,
             None,
         )
-    } else if may_retry {
+    } else if manual_park {
+        (
+            result
+                .failure_reason
+                .expect("a transport failure carries its reason"),
+            Disposition::Park,
+            Value::Null,
+            None,
+        )
+    } else if (semantic_failure && may_retry_semantic) || (transport_failure && may_retry_transport)
+    {
         let key = idempotency_key(run_id, &step.id);
         let delay = backoff_delay_ms(&step.retry, &key, attempt);
         (
@@ -386,7 +434,11 @@ pub fn completion_actions(
                 .failure_reason
                 .unwrap_or(CompletionReason::VerificationFailed),
             Disposition::Retry,
-            if preserve_failure_output { result.output } else { Value::Null },
+            if preserve_failure_output {
+                result.output
+            } else {
+                Value::Null
+            },
             Some(now_ms.saturating_add(delay as i64)),
         )
     } else {
@@ -395,7 +447,11 @@ pub fn completion_actions(
                 .failure_reason
                 .unwrap_or(CompletionReason::RetriesExhausted),
             Disposition::StepDone,
-            if preserve_failure_output { result.output } else { Value::Null },
+            if preserve_failure_output {
+                result.output
+            } else {
+                Value::Null
+            },
             None,
         )
     };
@@ -424,7 +480,11 @@ pub fn completion_actions(
         },
     );
     let mut actions = vec![Action::Append(completed)];
-    if let Some(wake_at_ms) = next_attempt_at_ms {
+    if disposition == Disposition::Park {
+        actions.push(Action::Append(recovery::manual_park_wait(
+            run_id, &step.id, attempt, reason, now_ms, start_pins,
+        )));
+    } else if let Some(wake_at_ms) = next_attempt_at_ms {
         actions.push(Action::Append(JournalEntry::new(
             EntryType::SleepUntil,
             run_id,
@@ -506,5 +566,7 @@ mod parallel;
 
 #[cfg(test)]
 mod parallel_tests;
+#[cfg(test)]
+mod recovery_tests;
 #[cfg(test)]
 mod tests;

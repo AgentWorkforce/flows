@@ -1,0 +1,305 @@
+### 1. Pre-mutation checksums
+
+$ sha256sum relayflowd-core/src/machine.rs relayflowd-core/src/machine/recovery.rs
+66335467e788ee9f9a6c666dedb4bb0133e5610477feb5e8c213c5366b95d1b7  relayflowd-core/src/machine.rs
+0496ed9a034d4898221a34dbe79c6d599479d2e1a3f03121b6b1c8febb498adc  relayflowd-core/src/machine/recovery.rs
+exit_code=0
+
+### 2. Mutation A+B: worker-reported manual park disabled (machine.rs) AND torn-park repair disabled (recovery.rs)
+
+$ sed -i s/    let manual_park = transport_failure$/    let manual_park = false \&\& transport_failure/ relayflowd-core/src/machine.rs
+exit_code=0
+
+$ sed -i s/                ) \&\& \*wait_id == park_placeholder_wait_id(&spec.id, runtime.attempts) =>/                ) \&\& false \&\& *wait_id == park_placeholder_wait_id(\&spec.id, runtime.attempts) =>/ relayflowd-core/src/machine/recovery.rs
+exit_code=0
+
+$ git diff --stat -- relayflowd-core/src/machine.rs relayflowd-core/src/machine/recovery.rs
+ kernel/relayflowd-core/src/machine.rs          | 4 +++-
+ kernel/relayflowd-core/src/machine/recovery.rs | 2 +-
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+exit_code=0
+
+$ git diff -U0 -- relayflowd-core/src/machine.rs relayflowd-core/src/machine/recovery.rs
+diff --git i/kernel/relayflowd-core/src/machine.rs w/kernel/relayflowd-core/src/machine.rs
+index c36d37b0..91548b4c 100644
+--- i/kernel/relayflowd-core/src/machine.rs
++++ w/kernel/relayflowd-core/src/machine.rs
+@@ -397 +397 @@ pub fn completion_actions(
+-    let manual_park = transport_failure
++    let manual_park = false && transport_failure
+@@ -569,0 +570,2 @@ mod parallel_tests;
++mod recovery_tests;
++#[cfg(test)]
+diff --git i/kernel/relayflowd-core/src/machine/recovery.rs w/kernel/relayflowd-core/src/machine/recovery.rs
+index 355bb149..e92c3d17 100644
+--- i/kernel/relayflowd-core/src/machine/recovery.rs
++++ w/kernel/relayflowd-core/src/machine/recovery.rs
+@@ -57 +57 @@ pub fn recovery_actions_filtered(
+-                ) && *wait_id == park_placeholder_wait_id(&spec.id, runtime.attempts) =>
++                ) && false && *wait_id == park_placeholder_wait_id(&spec.id, runtime.attempts) =>
+exit_code=0
+
+### 3. RED under mutation A+B
+
+$ sh -c cargo test -p relayflowd-core --lib -- machine::recovery_tests
+   Compiling relayflowd-core v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.65s
+     Running unittests src/lib.rs (/tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/target/debug/deps/relayflowd_core-82d87717b3255c51)
+
+running 3 tests
+test machine::recovery_tests::reset_recovery_still_retries_a_worker_reported_transport_loss ... ok
+test machine::recovery_tests::recovery_journals_the_wait_human_a_torn_manual_park_never_wrote ... FAILED
+test machine::recovery_tests::manual_recovery_parks_a_worker_reported_transport_loss_instead_of_redispatching ... FAILED
+
+failures:
+
+---- machine::recovery_tests::recovery_journals_the_wait_human_a_torn_manual_park_never_wrote stdout ----
+
+thread 'machine::recovery_tests::recovery_journals_the_wait_human_a_torn_manual_park_never_wrote' (2406525) panicked at relayflowd-core/src/machine/recovery_tests.rs:174:9:
+assertion `left == right` failed: worker-reported: the torn prefix folds to the placeholder
+  left: Backoff { attempt: 1, wake_at_ms: 20 }
+ right: NeedsHuman { wait_id: "park-agent-1" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- machine::recovery_tests::manual_recovery_parks_a_worker_reported_transport_loss_instead_of_redispatching stdout ----
+
+thread 'machine::recovery_tests::manual_recovery_parks_a_worker_reported_transport_loss_instead_of_redispatching' (2406524) panicked at relayflowd-core/src/machine/recovery_tests.rs:45:9:
+assertion `left == right` failed: Crashed: a park is a completion plus a wait.human and nothing else (no retry timer): [Append(JournalEntry { seq: 0, segment_id: 0, entry_type: StepCompleted, run_id: "run", step_id: Some("agent"), attempt: Some(1), at_ms: 20, payload: Object {"budget": Object {"dollars": String("0"), "tokens_in": Number(0), "tokens_out": Number(0)}, "completed_by": String("worker"), "completionReason": String("crashed"), "disposition": String("retry"), "effects": Array [], "end_pins": Object {"streams": Array [], "workspace": Array [Object {"revision_id": String("rev-dirty"), "surface": String("repo")}]}, "next_attempt_at_ms": Number(20), "output": Null, "spend": Object {"dollars": Number(0), "tokens_input": Number(0), "tokens_output": Number(0), "wallclock_ms": Number(0)}, "trajectory_tail": Object {"transport": Object {"cause": String("signal_close")}}, "verification": Object {"detail": String("direct transport closed by signal"), "gate": String("execution"), "verdict": String("fail")}} }), Append(JournalEntry { seq: 0, segment_id: 0, entry_type: SleepUntil, run_id: "run", step_id: Some("agent"), attempt: Some(1), at_ms: 20, payload: Object {"reason": String("retry_backoff"), "wait_id": String("000000000MNSWFKX4NGBY4K6EJ"), "wake_at_ms": Number(20)} }), ArmTimer { at_ms: 20 }]
+  left: 3
+ right: 2
+
+
+failures:
+    machine::recovery_tests::manual_recovery_parks_a_worker_reported_transport_loss_instead_of_redispatching
+    machine::recovery_tests::recovery_journals_the_wait_human_a_torn_manual_park_never_wrote
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p relayflowd-core --lib`
+exit_code=101
+
+$ sh -c cargo test -p relayflowd --test manual_recovery
+   Compiling relayflowd-core v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd-core)
+   Compiling relayflowd-journal v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd-journal)
+   Compiling relayflowd v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.16s
+     Running tests/manual_recovery.rs (/tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/target/debug/deps/manual_recovery-6793123a1244aad2)
+
+running 2 tests
+test manual_park_of_a_worker_reported_loss_survives_reopen_and_answers_to_a_human ... FAILED
+test a_park_torn_between_its_two_appends_is_repaired_on_resume ... FAILED
+
+failures:
+
+---- manual_park_of_a_worker_reported_loss_survives_reopen_and_answers_to_a_human stdout ----
+
+thread 'manual_park_of_a_worker_reported_loss_survives_reopen_and_answers_to_a_human' (2407345) panicked at relayflowd/tests/manual_recovery.rs:189:9:
+assertion `left == right` failed: Crashed with max_transport_retries=1: a manual step must not be redispatched after a reported loss
+  left: 2
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- a_park_torn_between_its_two_appends_is_repaired_on_resume stdout ----
+
+thread 'a_park_torn_between_its_two_appends_is_repaired_on_resume' (2407344) panicked at relayflowd/tests/manual_recovery.rs:265:5:
+the injected crash must fire after the park append
+
+
+failures:
+    a_park_torn_between_its_two_appends_is_repaired_on_resume
+    manual_park_of_a_worker_reported_loss_survives_reopen_and_answers_to_a_human
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p relayflowd --test manual_recovery`
+exit_code=101
+
+$ sh -c cargo test -p relayflowd --test crash_resume manual_recovery
+   Compiling relayflowd v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.39s
+     Running tests/crash_resume.rs (/tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/target/debug/deps/crash_resume-d2d102ec3e89b705)
+
+running 1 test
+test manual_recovery::manual_recovery_parks_a_worker_reported_loss_across_daemon_restart_until_a_human_answers ... FAILED
+
+failures:
+
+---- manual_recovery::manual_recovery_parks_a_worker_reported_loss_across_daemon_restart_until_a_human_answers stdout ----
+
+thread 'manual_recovery::manual_recovery_parks_a_worker_reported_loss_across_daemon_restart_until_a_human_answers' (2407591) panicked at relayflowd/tests/crash_resume/manual_recovery.rs:74:5:
+crashed with max_transport_retries=1: a parked manual step must not be redispatched
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    manual_recovery::manual_recovery_parks_a_worker_reported_loss_across_daemon_restart_until_a_human_answers
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 40 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p relayflowd --test crash_resume`
+exit_code=101
+
+### 4. Restore byte-for-byte and verify
+
+$ cp /tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/mutation-keep/machine.rs.keep relayflowd-core/src/machine.rs
+exit_code=0
+
+$ cp /tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/mutation-keep/recovery.rs.keep relayflowd-core/src/machine/recovery.rs
+exit_code=0
+
+$ sha256sum -c /tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/mutation-keep/keep.sha
+relayflowd-core/src/machine.rs: OK
+relayflowd-core/src/machine/recovery.rs: OK
+exit_code=0
+
+$ git diff --stat -- relayflowd-core/src/machine.rs relayflowd-core/src/machine/recovery.rs
+ kernel/relayflowd-core/src/machine.rs | 2 ++
+ 1 file changed, 2 insertions(+)
+exit_code=0
+
+### 5. Mutation B only: torn-park repair disabled (recovery.rs); park intact
+
+$ sed -i s/                ) \&\& \*wait_id == park_placeholder_wait_id(&spec.id, runtime.attempts) =>/                ) \&\& false \&\& *wait_id == park_placeholder_wait_id(\&spec.id, runtime.attempts) =>/ relayflowd-core/src/machine/recovery.rs
+exit_code=0
+
+$ git diff -U0 -- relayflowd-core/src/machine/recovery.rs
+diff --git i/kernel/relayflowd-core/src/machine/recovery.rs w/kernel/relayflowd-core/src/machine/recovery.rs
+index 355bb149..e92c3d17 100644
+--- i/kernel/relayflowd-core/src/machine/recovery.rs
++++ w/kernel/relayflowd-core/src/machine/recovery.rs
+@@ -57 +57 @@ pub fn recovery_actions_filtered(
+-                ) && *wait_id == park_placeholder_wait_id(&spec.id, runtime.attempts) =>
++                ) && false && *wait_id == park_placeholder_wait_id(&spec.id, runtime.attempts) =>
+exit_code=0
+
+### 6. RED under mutation B only (repair-specific tests)
+
+$ sh -c cargo test -p relayflowd-core --lib -- machine::recovery_tests::recovery_journals_the_wait_human_a_torn_manual_park_never_wrote
+   Compiling relayflowd-core v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.71s
+     Running unittests src/lib.rs (/tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/target/debug/deps/relayflowd_core-82d87717b3255c51)
+
+running 1 test
+test machine::recovery_tests::recovery_journals_the_wait_human_a_torn_manual_park_never_wrote ... FAILED
+
+failures:
+
+---- machine::recovery_tests::recovery_journals_the_wait_human_a_torn_manual_park_never_wrote stdout ----
+
+thread 'machine::recovery_tests::recovery_journals_the_wait_human_a_torn_manual_park_never_wrote' (2407915) panicked at relayflowd-core/src/machine/recovery_tests.rs:187:9:
+assertion `left == right` failed: worker-reported: recovery journals exactly the missing wait: []
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    machine::recovery_tests::recovery_journals_the_wait_human_a_torn_manual_park_never_wrote
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 71 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p relayflowd-core --lib`
+exit_code=101
+
+$ sh -c cargo test -p relayflowd --test manual_recovery a_park_torn_between_its_two_appends_is_repaired_on_resume
+   Compiling relayflowd-core v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd-core)
+   Compiling relayflowd-journal v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd-journal)
+   Compiling relayflowd v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.25s
+     Running tests/manual_recovery.rs (/tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/target/debug/deps/manual_recovery-6793123a1244aad2)
+
+running 1 test
+test a_park_torn_between_its_two_appends_is_repaired_on_resume ... FAILED
+
+failures:
+
+---- a_park_torn_between_its_two_appends_is_repaired_on_resume stdout ----
+
+thread 'a_park_torn_between_its_two_appends_is_repaired_on_resume' (2408757) panicked at relayflowd/tests/manual_recovery.rs:66:13:
+injected crash between the park completion and its wait.human
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'a_park_torn_between_its_two_appends_is_repaired_on_resume' (2408757) panicked at relayflowd/tests/manual_recovery.rs:144:5:
+assertion `left == right` failed: exactly one wait.human: []
+  left: 0
+ right: 1
+
+
+failures:
+    a_park_torn_between_its_two_appends_is_repaired_on_resume
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p relayflowd --test manual_recovery`
+exit_code=101
+
+### 7. Restore byte-for-byte and verify
+
+$ cp /tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/mutation-keep/recovery.rs.keep relayflowd-core/src/machine/recovery.rs
+exit_code=0
+
+$ sha256sum -c /tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/mutation-keep/keep.sha
+relayflowd-core/src/machine.rs: OK
+relayflowd-core/src/machine/recovery.rs: OK
+exit_code=0
+
+$ git diff --stat -- relayflowd-core/src/machine.rs relayflowd-core/src/machine/recovery.rs
+ kernel/relayflowd-core/src/machine.rs | 2 ++
+ 1 file changed, 2 insertions(+)
+exit_code=0
+
+### 8. GREEN on restored code
+
+$ sh -c cargo test -p relayflowd-core --lib -- machine::recovery_tests
+   Compiling relayflowd-core v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.71s
+     Running unittests src/lib.rs (/tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/target/debug/deps/relayflowd_core-82d87717b3255c51)
+
+running 3 tests
+test machine::recovery_tests::reset_recovery_still_retries_a_worker_reported_transport_loss ... ok
+test machine::recovery_tests::recovery_journals_the_wait_human_a_torn_manual_park_never_wrote ... ok
+test machine::recovery_tests::manual_recovery_parks_a_worker_reported_transport_loss_instead_of_redispatching ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+exit_code=0
+
+$ sh -c cargo test -p relayflowd --test manual_recovery
+   Compiling relayflowd-core v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd-core)
+   Compiling relayflowd-journal v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd-journal)
+   Compiling relayflowd v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.42s
+     Running tests/manual_recovery.rs (/tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/target/debug/deps/manual_recovery-6793123a1244aad2)
+
+running 2 tests
+test a_park_torn_between_its_two_appends_is_repaired_on_resume ... ok
+test manual_park_of_a_worker_reported_loss_survives_reopen_and_answers_to_a_human ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+exit_code=0
+
+$ sh -c cargo test -p relayflowd --test crash_resume manual_recovery
+   Compiling relayflowd v0.1.0 (/tmp/flows-fleet-501/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.40s
+     Running tests/crash_resume.rs (/tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/target/debug/deps/crash_resume-d2d102ec3e89b705)
+
+running 1 test
+test manual_recovery::manual_recovery_parks_a_worker_reported_loss_across_daemon_restart_until_a_human_answers ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 40 filtered out; finished in 1.44s
+
+exit_code=0
+
+$ sh -c cargo test -p relayflowd-core --lib -- machine::tests::all_backing_off_steps_return_timers entry::attempt_started_tests
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (/tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/target/debug/deps/relayflowd_core-82d87717b3255c51)
+
+running 3 tests
+test entry::attempt_started_tests::a_pre_field_attempt_started_still_reads ... ok
+test entry::attempt_started_tests::max_transport_retries_is_always_journaled ... ok
+test machine::tests::all_backing_off_steps_return_timers ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+exit_code=0

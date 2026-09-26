@@ -260,7 +260,7 @@ fn a_replacement_worker_at_a_different_revision_is_not_dispatched_the_stale_pins
             // already be standing at the pinned revision.
             "recovery_mode": "inspect",
             "max_iterations": 1,
-            "retry": {"initial_backoff_ms": 0, "max_backoff_ms": 0, "multiplier": 1, "jitter_percent": 0},
+            "retry": {"initial_backoff_ms": 0, "max_backoff_ms": 0, "multiplier": 1, "jitter_percent": 0, "max_transport_retries": 1},
             "surfaces": {"workspace": [{"surface": "repo"}]}
         }]
     });

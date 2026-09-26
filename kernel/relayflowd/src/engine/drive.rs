@@ -170,12 +170,13 @@ impl<C: Clock> Engine<C> {
                                 }
                             }
                         }
-                        let semantic_executions = state.steps[&step.id].semantic_executions;
+                        let runtime = &state.steps[&step.id];
                         for action in completion_actions(
                             journal.run_id(),
                             &step,
                             attempt,
-                            semantic_executions,
+                            runtime.semantic_executions,
+                            runtime.last_start_pins.as_ref(),
                             result,
                             self.clock.now_ms(),
                         ) {
@@ -424,11 +425,13 @@ impl<C: Clock> Engine<C> {
         result.failure_detail = Some(format!(
             "attempt was not dispatched: the attached worker does not hold its starting pins ({detail})"
         ));
+        let runtime = &state.steps[&step.id];
         for action in completion_actions(
             journal.run_id(),
             step,
             attempt,
-            state.steps[&step.id].semantic_executions,
+            runtime.semantic_executions,
+            runtime.last_start_pins.as_ref(),
             result,
             self.clock.now_ms(),
         ) {

@@ -60,6 +60,7 @@ export async function stepFailureDetails(
   // enforcing (relayflowd-core/src/entry.rs `AttemptStartedPayload`). They are
   // collected on the same walk and reported only when the journal held them.
   const budgets = new Map<string, number>();
+  const transportBudgets = new Map<string, number>();
   // Keyed by step, so interleaved steps never pool their attempts and a page
   // boundary never splits one step's history.
   const histories = new Map<string, AttemptHistory>();
@@ -79,6 +80,10 @@ export async function stepFailureDetails(
         const maxIterations = record(entry['payload'])?.['max_iterations'];
         if (typeof maxIterations === 'number' && Number.isSafeInteger(maxIterations) && maxIterations > 0) {
           budgets.set(stepId, maxIterations);
+        }
+        const transportRetries = record(entry['payload'])?.['max_transport_retries'];
+        if (typeof transportRetries === 'number' && Number.isSafeInteger(transportRetries) && transportRetries >= 0) {
+          transportBudgets.set(stepId, transportRetries);
         }
         continue;
       }
@@ -110,12 +115,14 @@ export async function stepFailureDetails(
       const stepType = snapshot.steps[stepId]?.type;
       const attempt = entry['attempt'];
       const maxIterations = budgets.get(stepId);
+      const transportRetries = transportBudgets.get(stepId);
       failures.set(stepId, {
         stepId,
         completionReason,
         ...(stepType === undefined ? {} : { stepType }),
         ...(typeof attempt === 'number' && Number.isSafeInteger(attempt) && attempt > 0 ? { attempt } : {}),
         ...(maxIterations === undefined ? {} : { maxIterations }),
+        ...(transportRetries === undefined ? {} : { transportRetries }),
         ...terminalEvidence(payload),
         // A single failed attempt is already fully described by the scalars
         // above; repeating it as a one-element history would add a clause to
@@ -158,7 +165,13 @@ export function renderStepEvidence(details: StepFailedDetails): string {
     + (details.stepType === undefined ? '' : ` (${details.stepType})`)
     + ` completionReason: ${details.completionReason}`
     + renderAttempt(details)
+    + (details.transportRetries === undefined ? '' : ` transportRetries=${details.transportRetries}`)
     + (details.exitCode === undefined ? '' : ` exit=${details.exitCode}`)
+    + (details.signal === undefined ? '' : ` signal=${details.signal}`)
+    + (details.transportCause === undefined ? '' : ` transport=${details.transportCause}`)
+    + (details.transportPhase === undefined ? '' : ` phase=${details.transportPhase}`)
+    + (details.errorCode === undefined ? '' : ` error_code=${details.errorCode}`)
+    + (details.retryableTransport === undefined ? '' : ` retryable=${details.retryableTransport}`)
     + '.'
     + renderAttemptHistory(details)
     + (details.detail === undefined ? '' : `\nDetail: ${details.detail}`)
