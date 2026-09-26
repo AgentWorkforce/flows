@@ -88,19 +88,29 @@ fn sigkill_sweep_covers_before_and_between_the_rung_b_steps() {
             .process_group(0)
             .spawn()
             .unwrap();
+        // "Before the first step" still means the run EXISTS. Counting zero
+        // completions alone is already true for the empty journal
+        // `Engine::start` creates before RunSpawned, and a kill there leaves
+        // no run -- resume correctly answers `run_not_found` (#185), which
+        // is how this sweep kept presenting as #174.
         wait_until(label, || {
             journal_entries(&fixture.data_dir).is_some_and(|entries| {
                 entries
                     .iter()
-                    .filter(|entry| {
-                        entry.entry_type == EntryType::StepCompleted
-                            && serde_json::from_value::<StepCompletedPayload>(entry.payload.clone())
+                    .any(|entry| entry.entry_type == EntryType::RunSpawned)
+                    && entries
+                        .iter()
+                        .filter(|entry| {
+                            entry.entry_type == EntryType::StepCompleted
+                                && serde_json::from_value::<StepCompletedPayload>(
+                                    entry.payload.clone(),
+                                )
                                 .is_ok_and(|payload| {
                                     payload.completion_reason == CompletionReason::Success
                                 })
-                    })
-                    .count()
-                    == durable_before_kill
+                        })
+                        .count()
+                        == durable_before_kill
             })
         });
         kill_group(run.id());
