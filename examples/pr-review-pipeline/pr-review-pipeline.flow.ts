@@ -75,6 +75,7 @@ export default flow<PrReviewInput>(
           .agent(`${lens}-reviewer`, {
             // Pinned: a Cloud sandbox has no flows.json to resolve the CLI from.
             cli: "claude",
+            model: "claude-sonnet-5",
             task:
               `Review this diff for ${lens} issues ONLY — ignore everything else. ` +
               `Write every finding, or an explicit "no issues found", to ` +
@@ -93,6 +94,7 @@ export default flow<PrReviewInput>(
     const consensus = await f
       .agent("consensus", {
         cli: "claude",
+        model: "claude-sonnet-5",
         task:
           `Read ${LENSES.map(findingsPath).join(", ")}. Where two reviewers ` +
           `reached opposite verdicts on the same spot in the diff, resolve it ` +

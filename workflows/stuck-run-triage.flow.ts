@@ -29,6 +29,7 @@ import { flow } from "@relayflows/surface";
 
 const shellWord = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
 const CLI = "claude";
+const MODEL = "claude-sonnet-5";
 const OUT = "triage";
 
 /**
@@ -214,6 +215,7 @@ export default flow<StuckRunTriageInput>(
     await Promise.all([
       f.agent("sandbox-forensics", {
         cli: CLI,
+        model: MODEL,
         permissions: READONLY,
         task:
           `${context}\n\nFor each run, find its sandbox and establish what is actually happening inside: ` +
@@ -226,6 +228,7 @@ export default flow<StuckRunTriageInput>(
       }),
       f.agent("edge-forensics", {
         cli: CLI,
+        model: MODEL,
         permissions: READONLY,
         task:
           `${context}\n\nEstablish what Cloud and the edge think. For each run: status, timestamps, ` +
@@ -242,6 +245,7 @@ export default flow<StuckRunTriageInput>(
 
     await f.agent("verdict", {
       cli: CLI,
+      model: MODEL,
       permissions: READONLY,
       task:
         `Read ${OUT}/sandbox-forensics.md and ${OUT}/edge-forensics.md. Both are agent reports over ` +

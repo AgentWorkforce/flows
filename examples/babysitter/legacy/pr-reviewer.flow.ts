@@ -131,6 +131,9 @@ const reviewerBody = flow<Input>(
     await f
       .agent("review", {
         cli: input.reviewerCli ?? "claude",
+        model: input.reviewerCli === undefined || input.reviewerCli === "claude"
+          ? "claude-sonnet-5"
+          : input.reviewerCli === "codex" ? "gpt-5.6-sol" : undefined,
         task: reviewHarnessPrompt(pr) + `\nWrite the review to ${REVIEW_FILE}. Read .workforce/threads.json for the existing bot and reviewer comments.`,
       })
       .gate({ type: "subprocess_gate", command: `test -s ${REVIEW_FILE}` });

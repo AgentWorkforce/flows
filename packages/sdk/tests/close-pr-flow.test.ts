@@ -150,6 +150,19 @@ describe('close-pr journaled repair loop', () => {
     expect(h.agents()[0]?.instruction).toContain('error TS1005: syntax error');
   });
 
+  it.each([
+    ['codex', 'gpt-5.6-sol'],
+    ['claude', 'claude-sonnet-5'],
+    ['cursor-agent', 'gpt-5.6-sol-high'],
+    ['grok', 'grok-4.7'],
+  ])('pins the current generated model for %s when no override is supplied', async (cli, model) => {
+    const h = await harness([{ checks: [failed, green[1]!] }, { checks: green }], {
+      input: { cli, model: undefined },
+    });
+    expect((await h.execute()).completionReason).toBe('success');
+    expect(h.agents()[0]).toMatchObject({ cli, model });
+  });
+
   it('parks after exactly three nonconverging repairs, with accumulated blockers', async () => {
     const h = await harness([{ checks: [failed, green[1]!] }]);
     expect((await h.execute()).completionReason).toBe('needs_human');

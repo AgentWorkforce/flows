@@ -51,6 +51,7 @@ function prFromInput(input: PrReviewInput): Pr | undefined {
 
 const REPO = { owner: "AgentWorkforce", repo: "flows" } as const;
 const CLI = "claude";
+const MODEL = "claude-sonnet-5";
 
 const LENSES = {
   kernel:
@@ -139,6 +140,7 @@ export default flow<PrReviewInput>(
         f
           .agent(`${lens}-reviewer`, {
             cli: CLI,
+            model: MODEL,
             task:
               `You are reviewing a pull request to AgentWorkforce/flows through ONE lens: ${LENSES[lens]}. ` +
               `Ignore everything outside that lens. The diff is in ${DIFF} (read it; do not run git). Read the ` +
@@ -153,6 +155,7 @@ export default flow<PrReviewInput>(
     await f
       .agent("consensus", {
         cli: CLI,
+        model: MODEL,
         task:
           `Read ${(Object.keys(LENSES) as Lens[]).map(findingsPath).join(", ")} (the diff they reviewed is in ${DIFF}). ` +
           `Produce ONE review comment for the pull request in ${CONSENSUS}: a one-line verdict (APPROVE / REQUEST ` +

@@ -30,6 +30,8 @@ export default flow(
 
     const upgrade = await f
       .agent("upgrader", {
+        cli: "claude",
+        model: "claude-sonnet-5",
         task:
           `One or more dependencies are out of date:\n${outdated}\n\n` +
           `Upgrade them, run the test suite, and fix anything the upgrade breaks. ` +
@@ -47,6 +49,8 @@ export default flow(
     // own summary.
     const verification = await f
       .agent("verifier", {
+        cli: "claude",
+        model: "claude-sonnet-5",
         task:
           `Read sandbox/upgrade/CHANGES.md. In this sandbox, install the ` +
           `upgraded dependencies and boot the application. Using computer use, ` +

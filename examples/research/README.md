@@ -196,8 +196,8 @@ to widen the kernel vocabulary.
 - **No trajectory for Grok beyond its final object.** `grok --output-format
   json` returns one object; its `streaming-json` mode was not adopted because
   it was not verified to end with a usage record.
-- **Models are declared, never inherited.** Claude lanes use the CLI aliases
-  `sonnet` / `opus`; Codex is pinned to `gpt-5.6-sol` and Grok to
-  `grok-4.6`, the models those CLIs resolved in the first run.
+- **Models are declared, never inherited.** Claude lanes use
+  `claude-sonnet-5` / `claude-opus-5`; Codex is pinned to `gpt-5.6-sol`
+  and Grok to `grok-4.7`, the models those CLIs resolve today.
   Preflight round-trips each pair, so a host that cannot resolve one refuses
   at minute zero; change the header, not the host, to move a lane.

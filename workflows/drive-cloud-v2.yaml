@@ -106,6 +106,7 @@ steps:
     \ reported BLOCKED_NEEDS_HUMAN three times and was\nscored as failing three times. Saying you are\
     \ blocked is a result,\nnot a failure \u2014 but it must be said in the file, not the token.\n"
   cli: claude
+  model: claude-sonnet-5
   surfaces:
     streams:
     - stream: flows-drive-cloud
@@ -206,6 +207,7 @@ steps:
     \ until they pass. Keep files small and\nsingle-purpose. End with BUILD_DONE only when the definition\
     \ of done\npasses locally; paste the passing output.\n"
   cli: codex
+  model: gpt-5.6-sol
   surfaces:
     streams:
     - stream: flows-drive-cloud

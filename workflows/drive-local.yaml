@@ -48,6 +48,7 @@ steps:
   - id: implement
     type: agent
     cli: claude
+    model: claude-sonnet-5
     dependsOn: [initial-scope]
     # Required, not decorative: the launcher refuses an agent step with no pins
     # (`LOCAL_AGENT_PINS_REQUIRED: declare a stream; the kernel refuses workers

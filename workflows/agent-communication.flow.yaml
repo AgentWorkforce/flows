@@ -9,6 +9,7 @@ communication:
 steps:
   - id: designer
     type: agent
+    model: claude-sonnet-5
     maxIterations: 1
     instruction: >-
       Propose a concise retry policy for a webhook handler. Send proposal-v1 to
@@ -17,6 +18,7 @@ steps:
       process and ack it, then call complete with your final policy.
   - id: reviewer
     type: agent
+    model: claude-sonnet-5
     maxIterations: 1
     instruction: >-
       Wait for designer's automatically injected proposal. Process and ack it.

@@ -10,6 +10,7 @@ steps:
   - id: claude
     type: agent
     cli: claude
+    model: claude-sonnet-5
     maxIterations: 1
     instruction: >-
       Transport test only. Send codex message ID hello-v1 with exact text
@@ -19,6 +20,7 @@ steps:
   - id: codex
     type: agent
     cli: codex
+    model: gpt-5.6-sol
     maxIterations: 1
     instruction: >-
       Transport test only. Send cursor message ID hello-v1 with exact text
@@ -28,6 +30,7 @@ steps:
   - id: cursor
     type: agent
     cli: cursor-agent
+    model: gpt-5.6-sol-high
     maxIterations: 1
     instruction: >-
       Transport test only. Send claude message ID hello-v1 with exact text

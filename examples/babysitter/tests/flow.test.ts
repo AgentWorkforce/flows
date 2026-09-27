@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { babysit } from '../babysitter.flow.ts';
+import { babysit, generatedModelForCli } from '../babysitter.flow.ts';
 import { mergeExact } from '../github.ts';
 import type { Ctx } from '@relayflows/surface';
 const sha = 'a'.repeat(40);
@@ -12,6 +12,12 @@ function context(live: unknown = state) {
   const f = { run: async (command: string) => { commands.push(command); return command.startsWith('node -e') ? JSON.stringify(live) : ''; }, done: (reason: string) => { reasons.push(reason); }, agent: () => { agents++; throw new Error('unsafe agent dispatch'); } } as unknown as Ctx;
   return { f, commands, reasons, agents: () => agents };
 }
+test('known first-party harnesses resolve to current explicit model pins', () => {
+  assert.deepEqual(
+    ['claude', 'codex', 'cursor-agent', 'grok', '/opt/custom-wrapper'].map(generatedModelForCli),
+    ['claude-sonnet-5', 'gpt-5.6-sol', 'gpt-5.6-sol-high', 'grok-4.7', undefined],
+  );
+});
 test('malformed input makes zero effects; missing live state declines before agents', async () => {
   const x = context(); await assert.rejects(babysit(x.f, null)); assert.equal(x.commands.length, 0);
   const y = context({}); await babysit(y.f, config); assert.deepEqual(y.reasons, ['declined']); assert.equal(y.agents(), 0);

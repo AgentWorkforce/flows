@@ -29,6 +29,8 @@ export default flow<SocialPostInput>(
   async (f, input) => {
     const research = await f
       .agent("researcher", {
+        cli: "claude",
+        model: "claude-sonnet-5",
         task:
           `Research current, verifiable facts about "${input.topic}" for ` +
           `${input.brand}. Cite a source for every claim. Write your findings ` +
@@ -42,6 +44,8 @@ export default flow<SocialPostInput>(
 
     const draft = await f
       .agent("writer", {
+        cli: "claude",
+        model: "claude-sonnet-5",
         task:
           `Read research/notes.md and draft one social post for ${input.brand} ` +
           `about "${input.topic}". Do not state anything the research does not ` +
@@ -58,6 +62,8 @@ export default flow<SocialPostInput>(
     // PASSED without writing the marker fails closed.
     const factCheck = await f
       .agent("fact-checker", {
+        cli: "claude",
+        model: "claude-sonnet-5",
         task:
           `Check every factual claim in drafts/post.md against research/notes.md. ` +
           `If — and only if — every claim is directly supported, write ` +
@@ -72,6 +78,8 @@ export default flow<SocialPostInput>(
 
     const graphic = await f
       .agent("designer", {
+        cli: "claude",
+        model: "claude-sonnet-5",
         task:
           `Read drafts/post.md and generate one on-brand graphic for ${input.brand} ` +
           `to accompany it. Write it to drafts/graphic.png.`,

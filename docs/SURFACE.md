@@ -140,7 +140,7 @@ No process runs between events: the handler wakes, executes to its next await, p
    ```yaml
    - agent: Review this diff for security issues.        # 1. anonymous
    agents:
-     reviewer: { cli: claude, model: claude-sonnet-4-6 } # 2. named — explicit and reusable
+     reviewer: { cli: claude, model: claude-sonnet-5 }   # 2. named — explicit and reusable
    ```
    The declarative named-agent schema in this slice is exactly `{ cli, model }`;
    unknown fields fail closed. Defining a richer team reviewer means writing
