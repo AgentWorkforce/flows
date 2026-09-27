@@ -92,7 +92,7 @@ function approvedApi(apiUrl: string | undefined): string {
 
 export default flow<StuckRunTriageInput>(
   "stuck-run-triage",
-  { budget: { dollars: 8, wallclock: "45m" } },
+  { budget: { tokens: 800_000, dollars: 8, wallclock: "45m" } },
   async (f, input) => {
     const runIds = input.runIds ?? [];
     if (runIds.length === 0) throw new Error("stuck-run-triage needs runIds (full Cloud run ids)");

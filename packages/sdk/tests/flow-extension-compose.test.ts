@@ -22,6 +22,7 @@ const versions = { sdk: '2.0.22', surface: '2.0.22' };
 const now = () => new Date('2026-09-20T12:00:00Z');
 const dirs: string[] = [];
 afterEach(() => {
+  vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
   dirs.splice(0).forEach(p => rmSync(p, { recursive: true, force: true }));
@@ -126,6 +127,10 @@ describe('composing flow extensions onto a base flow', () => {
     expect(subscriptions(loadedReverse).slice(0, 2)).toEqual(['issues.opened', 'issues.closed']);
   });
   it('flows check reports the composition and keeps the composed triggers deliverable', async () => {
+    // The contract under test is composition, not api.github.com availability.
+    // Extension preflight still runs; give its declared server a deterministic
+    // successful HEAD response instead of making this CI gate depend on WAN.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 200 })));
     const p = project();
     await install(p);
     const { report } = await checkAuthoredTriggers(p.flow);

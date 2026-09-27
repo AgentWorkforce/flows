@@ -19,7 +19,7 @@ import { flow } from "@relayflows/surface";
 
 export default flow(
   "dependency-upgrade-bot",
-  { budget: "$4/run" },
+  { budget: { tokens: 400_000, dollars: 4 } },
   async (f) => {
     const outdated = await f
       .run("npm outdated --json 2>/dev/null || true")

@@ -72,7 +72,7 @@ function validVersion(value: string): boolean {
 
 export default flow<GitlabSurfaceParityInput>(
   "gitlab-surface-parity",
-  { budget: "$2/run" },
+  { budget: { tokens: 200_000, dollars: 2 } },
   async (f, input) => {
     const branch = input.branch ?? "feat/gitlab-surface-parity";
     if (!/^[A-Za-z0-9][A-Za-z0-9._\/-]*$/u.test(branch)) {

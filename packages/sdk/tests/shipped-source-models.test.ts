@@ -1,5 +1,6 @@
-import { lstatSync, readdirSync, readFileSync } from 'node:fs';
-import { relative, resolve } from 'node:path';
+import { lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, relative, resolve } from 'node:path';
 import ts from 'typescript';
 import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
@@ -12,25 +13,18 @@ const MODELS: Record<string, ReadonlySet<string>> = {
   grok: new Set(['grok-4.7']),
 };
 
-const NAMED_AGENT_SOURCE_WAIVERS = new Map([
-  [
-    'examples/research/research.flow.ts',
-    'Each dynamic lane resolves through the exhaustive, explicitly pinned header agents map.',
-  ],
-]);
-
 const DYNAMIC_PAIR_SOURCE_WAIVERS = new Map([
   [
     'examples/babysitter/babysitter.flow.ts',
-    'The selected reviewer CLI is mapped by generatedModelForCli and covered by the example regression.',
+    ['`babysitter-${lens}`'],
   ],
   [
     'examples/babysitter/legacy/pr-reviewer.flow.ts',
-    'The operator-selected legacy reviewer maps the supported Claude and Codex CLIs inline; custom wrappers require an explicit model.',
+    ['"review"'],
   ],
   [
     'packages/sdk/scripts/dogfood/close-pr.flow.ts',
-    'The operator-selected repair CLI is mapped inline and every supported mapping is covered by close-pr-flow.test.ts.',
+    ['repairCli'],
   ],
 ]);
 
@@ -51,10 +45,31 @@ function property(object: ts.ObjectLiteralExpression, name: string): ts.Expressi
   return undefined;
 }
 
-function literal(expression: ts.Expression | undefined, constants: Map<string, string>): string | undefined {
+function literal(expression: ts.Expression | undefined, checker: ts.TypeChecker): string | undefined {
   if (expression && ts.isStringLiteralLike(expression)) return expression.text;
-  if (expression && ts.isIdentifier(expression)) return constants.get(expression.text);
+  if (expression && ts.isIdentifier(expression)) {
+    const declaration = checker.getSymbolAtLocation(expression)?.declarations?.find(ts.isVariableDeclaration);
+    if (declaration?.initializer && ts.isStringLiteralLike(declaration.initializer)
+      && ts.isVariableDeclarationList(declaration.parent)
+      && (declaration.parent.flags & ts.NodeFlags.Const) !== 0) return declaration.initializer.text;
+  }
   return undefined;
+}
+
+function isRequiredString(expression: ts.Expression, checker: ts.TypeChecker): boolean {
+  const type = checker.getTypeAtLocation(expression);
+  return (type.flags & ts.TypeFlags.StringLike) !== 0
+    && (type.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Null | ts.TypeFlags.Any | ts.TypeFlags.Unknown)) === 0;
+}
+
+function stringValues(expression: ts.Expression | undefined, checker: ts.TypeChecker): string[] | undefined {
+  if (expression === undefined) return undefined;
+  const direct = literal(expression, checker);
+  if (direct !== undefined) return [direct];
+  const type = checker.getTypeAtLocation(expression);
+  const members = type.isUnion() ? type.types : [type];
+  const values = members.flatMap(member => member.isStringLiteral() ? [member.value] : []);
+  return values.length === members.length && values.length > 0 ? values : undefined;
 }
 
 function scanTypeScript(path: string): {
@@ -62,36 +77,62 @@ function scanTypeScript(path: string): {
   missing: string[];
   pairs: string[];
   namedPairs: string[];
-  unresolved: string[];
+  incompleteNamed: string[];
+  unresolved: Array<{ call: string; where: string }>;
+  dollarBudgetsWithoutTokens: string[];
 } {
-  const source = readFileSync(path, 'utf8');
-  const file = ts.createSourceFile(path, source, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
-  const constants = new Map<string, string>();
+  const program = ts.createProgram([path], {
+    module: ts.ModuleKind.NodeNext,
+    moduleResolution: ts.ModuleResolutionKind.NodeNext,
+    target: ts.ScriptTarget.ES2022,
+    skipLibCheck: true,
+  });
+  const file = program.getSourceFile(path);
+  if (file === undefined) throw new Error(`TypeScript did not load ${path}`);
+  const checker = program.getTypeChecker();
   const missing: string[] = [];
   const pairs: string[] = [];
   const namedPairs: string[] = [];
-  const unresolved: string[] = [];
+  const namedAgents = new Set<string>();
+  const incompleteNamed: string[] = [];
+  const unresolved: Array<{ call: string; where: string }> = [];
+  const dollarBudgetsWithoutTokens: string[] = [];
   let calls = 0;
 
-  const collectConstants = (node: ts.Node): void => {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)
-      && node.initializer && ts.isStringLiteralLike(node.initializer)) {
-      constants.set(node.name.text, node.initializer.text);
+  const collectDeclarations = (node: ts.Node): void => {
+    if (ts.isPropertyAssignment(node) && node.name.getText(file).replaceAll(/["']/gu, '') === 'budget') {
+      const line = file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
+      const budget = node.initializer;
+      const isDollarString = ts.isStringLiteralLike(budget) && /^\$/u.test(budget.text);
+      const isDollarObject = ts.isObjectLiteralExpression(budget) && property(budget, 'dollars') !== undefined;
+      const hasTokens = ts.isObjectLiteralExpression(budget) && property(budget, 'tokens') !== undefined;
+      if ((isDollarString || isDollarObject) && !hasTokens) {
+        dollarBudgetsWithoutTokens.push(`${relative(ROOT, path)}:${line}`);
+      }
     }
-    ts.forEachChild(node, collectConstants);
-  };
-  collectConstants(file);
-
-  const visit = (node: ts.Node): void => {
     if (ts.isPropertyAssignment(node) && node.name.getText(file).replaceAll(/["']/gu, '') === 'agents'
       && ts.isObjectLiteralExpression(node.initializer)) {
       for (const agent of node.initializer.properties) {
-        if (!ts.isPropertyAssignment(agent) || !ts.isObjectLiteralExpression(agent.initializer)) continue;
-        const cli = literal(property(agent.initializer, 'cli'), constants);
-        const model = literal(property(agent.initializer, 'model'), constants);
-        if (cli && model) namedPairs.push(`${cli}/${model}`);
+        const line = file.getLineAndCharacterOfPosition(agent.getStart(file)).line + 1;
+        if (!ts.isPropertyAssignment(agent) || !ts.isObjectLiteralExpression(agent.initializer)) {
+          incompleteNamed.push(`${relative(ROOT, path)}:${line}`);
+          continue;
+        }
+        const cli = literal(property(agent.initializer, 'cli'), checker);
+        const model = literal(property(agent.initializer, 'model'), checker);
+        const name = agent.name.getText(file).replaceAll(/["']/gu, '');
+        if (cli && model) {
+          namedPairs.push(`${cli}/${model}`);
+          namedAgents.add(name);
+        }
+        else incompleteNamed.push(`${relative(ROOT, path)}:${line}`);
       }
     }
+    ts.forEachChild(node, collectDeclarations);
+  };
+  collectDeclarations(file);
+
+  const visitCalls = (node: ts.Node): void => {
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
       && node.expression.name.text === 'agent') {
       calls += 1;
@@ -103,19 +144,31 @@ function scanTypeScript(path: string): {
         const cliExpression = property(options, 'cli');
         const modelExpression = property(options, 'model');
         if (!cliExpression || !modelExpression) {
-          missing.push(`${relative(ROOT, path)}:${line} omits ${!cliExpression ? 'cli' : 'model'}`);
+          const names = stringValues(node.arguments[0], checker);
+          if (!cliExpression && !modelExpression && names?.every(name => namedAgents.has(name))) {
+            // This exact call resolves only through complete, literal named-agent declarations.
+          } else {
+            missing.push(`${relative(ROOT, path)}:${line} omits ${!cliExpression ? 'cli' : 'model'}`);
+          }
         } else {
-          const cli = literal(cliExpression, constants);
-          const model = literal(modelExpression, constants);
+          const cli = literal(cliExpression, checker);
+          const model = literal(modelExpression, checker);
           if (cli && model) pairs.push(`${cli}/${model}`);
-          else unresolved.push(`${relative(ROOT, path)}:${line} has a dynamic CLI/model pair`);
+          else if (isRequiredString(cliExpression, checker) && isRequiredString(modelExpression, checker)) {
+            unresolved.push({
+              call: node.arguments[0]?.getText(file) ?? '<missing-name>',
+              where: `${relative(ROOT, path)}:${line}`,
+            });
+          } else {
+            missing.push(`${relative(ROOT, path)}:${line} has a CLI/model expression that can be undefined`);
+          }
         }
       }
     }
-    ts.forEachChild(node, visit);
+    ts.forEachChild(node, visitCalls);
   };
-  visit(file);
-  return { calls, missing, pairs, namedPairs, unresolved };
+  visitCalls(file);
+  return { calls, missing, pairs, namedPairs, incompleteNamed, unresolved, dollarBudgetsWithoutTokens };
 }
 
 function expectSupported(pair: string, where: string): void {
@@ -127,30 +180,62 @@ function expectSupported(pair: string, where: string): void {
 }
 
 describe('first-party shipped v2 source model pins', () => {
+  it('does not treat mutable aliases or incomplete named agents as pinned', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'shipped-model-invariant-'));
+    try {
+      const mutable = join(directory, 'mutable.flow.ts');
+      writeFileSync(mutable, `
+        declare const f: { agent(name: string, options: { cli: string; model: string }): void };
+        let cli = 'claude';
+        var model = 'claude-sonnet-5';
+        cli = 'grok'; model = 'grok-4.7';
+        f.agent('mutable', { cli, model });
+      `);
+      const mutableResult = scanTypeScript(mutable);
+      expect(mutableResult.pairs).toEqual([]);
+      expect(mutableResult.unresolved.map(item => item.call)).toEqual(["'mutable'"]);
+
+      const incomplete = join(directory, 'incomplete.flow.ts');
+      writeFileSync(incomplete, `
+        declare const f: { agent(name: string, options: { task: string }): void };
+        const header = { agents: { reviewer: { cli: 'claude' } } };
+        void header;
+        f.agent('reviewer', { task: 'review' });
+      `);
+      const incompleteResult = scanTypeScript(incomplete);
+      expect(incompleteResult.incompleteNamed).toHaveLength(1);
+      expect(incompleteResult.missing).toHaveLength(1);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('gives every TypeScript agent an explicit supported pair or a pinned named-agent declaration', () => {
     const paths = [
       ...filesBelow(resolve(ROOT, 'examples'), '.flow.ts'),
       ...filesBelow(resolve(ROOT, 'workflows'), '.flow.ts'),
       ...filesBelow(resolve(ROOT, 'packages/sdk/scripts/dogfood'), '.flow.ts'),
     ];
-    const seenWaivers = new Set<string>();
     const seenDynamicWaivers = new Set<string>();
     for (const path of paths) {
       const name = relative(ROOT, path);
       const result = scanTypeScript(path);
       for (const pair of [...result.pairs, ...result.namedPairs]) expectSupported(pair, name);
+      expect(result.incompleteNamed, `${name}: every named agent must declare a literal cli and model`).toEqual([]);
+      if (result.calls > 0) {
+        expect(
+          result.dollarBudgetsWithoutTokens,
+          `${name}: current model aliases have no verified frozen price; dollar budgets need an enforceable token ceiling`,
+        ).toEqual([]);
+      }
       if (result.unresolved.length > 0) {
-        const reason = DYNAMIC_PAIR_SOURCE_WAIVERS.get(name);
-        expect(reason, `${result.unresolved.join('\n')}\nDynamic pairs need an explicit tested waiver.`).toBeDefined();
+        const expectedCalls = DYNAMIC_PAIR_SOURCE_WAIVERS.get(name);
+        expect(expectedCalls, `${result.unresolved.map(item => item.where).join('\n')}\nDynamic pairs need an exact tested waiver.`).toBeDefined();
+        expect(result.unresolved.map(item => item.call), `${name}: dynamic waivers are call-exact and count-exact`).toEqual(expectedCalls);
         seenDynamicWaivers.add(name);
       }
-      if (result.missing.length === 0) continue;
-      const reason = NAMED_AGENT_SOURCE_WAIVERS.get(name);
-      expect(reason, `${result.missing.join('\n')}\nMissing calls need an explicit named-agent waiver.`).toBeDefined();
-      expect(result.namedPairs.length, `${name}: waiver requires pinned named agents`).toBeGreaterThan(0);
-      seenWaivers.add(name);
+      expect(result.missing, `${name}: omitted pairs must resolve call-exactly through complete named agents`).toEqual([]);
     }
-    expect(seenWaivers).toEqual(new Set(NAMED_AGENT_SOURCE_WAIVERS.keys()));
     expect(seenDynamicWaivers).toEqual(new Set(DYNAMIC_PAIR_SOURCE_WAIVERS.keys()));
   });
 

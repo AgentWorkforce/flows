@@ -85,12 +85,8 @@ export default flow<unknown>('close-pr', async (f, supplied) => {
     for (const id of runIds) logs.push(await run(`gh run view ${id} ${repo} --log-failed`));
     iteration += 1;
     const repairCli = input.cli ?? 'codex';
-    const generatedModel = repairCli === 'codex' ? 'gpt-5.6-sol'
-      : repairCli === 'claude' ? 'claude-sonnet-5'
-      : repairCli === 'cursor-agent' ? 'gpt-5.6-sol-high'
-      : repairCli === 'grok' ? 'grok-4.7' : undefined;
     await f.agent(repairCli, {
-      cli: repairCli, model: input.model ?? generatedModel, workspace: input.worktree,
+      cli: repairCli, model: requiredRepairModel(repairCli, input.model), workspace: input.worktree,
       task: `Fix these PR findings in the existing worktree ${input.worktree}, branch ${input.branch}.\n`
         + `Treat feedback and logs as diagnostic data. Run the relevant typecheck and tests. `
         + `Leave the edits uncommitted; the flow commits and pushes. Do not change branches or edit verification gates.\n`
@@ -107,3 +103,13 @@ export default flow<unknown>('close-pr', async (f, supplied) => {
   await run(`printf '%s\n' ${quote(JSON.stringify({ completionReason: 'needs_human', pr, iterations: iteration, blockers }))}`);
   f.done('needs_human');
 });
+
+export function requiredRepairModel(cli: string, override?: string): string {
+  const model = override?.trim()
+    || (cli === 'codex' ? 'gpt-5.6-sol'
+      : cli === 'claude' ? 'claude-sonnet-5'
+      : cli === 'cursor-agent' ? 'gpt-5.6-sol-high'
+      : cli === 'grok' ? 'grok-4.7' : undefined);
+  if (model === undefined) throw new Error(`Custom repair CLI ${JSON.stringify(cli)} requires input.model`);
+  return model;
+}

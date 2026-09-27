@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flow } from '@relayflows/surface';
-import closePr from '../scripts/dogfood/close-pr.flow.js';
+import closePr, { requiredRepairModel } from '../scripts/dogfood/close-pr.flow.js';
 import {
   analyzeFindings, checksCommand, parseChecks, parseInput, parsePrNumber, quote,
   type BotComment, type Check, type ClosePrInput, type ReviewThread,
@@ -161,6 +161,11 @@ describe('close-pr journaled repair loop', () => {
     });
     expect((await h.execute()).completionReason).toBe('success');
     expect(h.agents()[0]).toMatchObject({ cli, model });
+  }, 15_000);
+
+  it('requires an explicit model for a custom repair wrapper', () => {
+    expect(() => requiredRepairModel('/opt/custom-wrapper')).toThrow(/requires input\.model/);
+    expect(requiredRepairModel('/opt/custom-wrapper', ' custom-model ')).toBe('custom-model');
   });
 
   it('parks after exactly three nonconverging repairs, with accumulated blockers', async () => {

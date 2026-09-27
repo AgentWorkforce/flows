@@ -36,7 +36,8 @@
       "skipLabels": { "type": "array", "items": { "type": "string" }, "default": ["no-agent-relay-review"] },
       "requiredChecks": { "type": "array", "items": { "type": "string" } },
       "merge": { "type": "boolean", "default": false },
-      "reviewerCli": { "type": "string" }
+      "reviewerCli": { "type": "string" },
+      "reviewerModel": { "type": "string", "minLength": 1 }
     },
     "required": ["testCommand", "botLogin", "approvers"],
     "additionalProperties": false

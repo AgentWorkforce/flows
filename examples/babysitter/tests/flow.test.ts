@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { babysit, generatedModelForCli } from '../babysitter.flow.ts';
+import { babysit, generatedModelForCli, requiredReviewerModel } from '../babysitter.flow.ts';
+import { requiredReviewerModel as requiredLegacyReviewerModel } from '../legacy/pr-reviewer.flow.ts';
 import { mergeExact } from '../github.ts';
+import { parseInput } from '../input.ts';
 import type { Ctx } from '@relayflows/surface';
 const sha = 'a'.repeat(40);
 const config = { owner: 'acme', repo: 'widgets', number: 7, testCommand: 'npm test', botLogin: 'babysitter[bot]', merge: true, approvers: ['alice'], organizations: ['acme'], reviewAuthors: [], skipLabels: [], requiredChecks: ['unit'] };
@@ -17,6 +19,14 @@ test('known first-party harnesses resolve to current explicit model pins', () =>
     ['claude', 'codex', 'cursor-agent', 'grok', '/opt/custom-wrapper'].map(generatedModelForCli),
     ['claude-sonnet-5', 'gpt-5.6-sol', 'gpt-5.6-sol-high', 'grok-4.7', undefined],
   );
+});
+test('custom reviewer wrappers require and preserve an explicit model', () => {
+  assert.throws(() => requiredReviewerModel('/opt/custom-wrapper'), /requires reviewerModel/);
+  assert.equal(requiredReviewerModel('/opt/custom-wrapper', ' custom-model '), 'custom-model');
+  assert.throws(() => requiredLegacyReviewerModel('/opt/custom-wrapper'), /requires reviewerModel/);
+  assert.equal(requiredLegacyReviewerModel('/opt/custom-wrapper', ' legacy-model '), 'legacy-model');
+  assert.throws(() => parseInput({ ...config, reviewerCli: '/opt/custom-wrapper' }), /requires reviewerModel/);
+  assert.equal(parseInput({ ...config, reviewerCli: '/opt/custom-wrapper', reviewerModel: ' exact-model ' }).reviewerModel, 'exact-model');
 });
 test('malformed input makes zero effects; missing live state declines before agents', async () => {
   const x = context(); await assert.rejects(babysit(x.f, null)); assert.equal(x.commands.length, 0);

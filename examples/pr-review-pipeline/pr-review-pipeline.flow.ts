@@ -43,7 +43,7 @@ function findingsPath(lens: Lens): string {
 
 export default flow<PrReviewInput>(
   "pr-review-pipeline",
-  { budget: "$3/run" },
+  { budget: { tokens: 300_000, dollars: 3 } },
   async (f, input) => {
     // Cloud clones the repo at the pull request's head, so the base is only
     // reachable after a fetch; FETCH_HEAD...<head> is the PR's merge-base diff.

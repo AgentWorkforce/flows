@@ -25,7 +25,7 @@ export interface SocialPostInput {
 
 export default flow<SocialPostInput>(
   "social-post-pipeline",
-  { budget: "$5/run" },
+  { budget: { tokens: 500_000, dollars: 5 } },
   async (f, input) => {
     const research = await f
       .agent("researcher", {

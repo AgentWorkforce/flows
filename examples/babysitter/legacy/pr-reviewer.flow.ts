@@ -61,6 +61,8 @@ export interface Input {
   githubTransport?: "helper" | "curl";
   /** The coding-agent CLI that writes the review. Default `claude`; `codex`, or a custom wrapper path. */
   reviewerCli?: string;
+  /** Required exact model when reviewerCli names a custom wrapper. */
+  reviewerModel?: string;
   /**
    * The repository's verification command, pinned by the operator BEFORE the
    * agent runs. Default `npm test`. It is never read from the checkout, so an
@@ -78,7 +80,7 @@ export const DEFAULT_SKIP_LABEL = "no-agent-relay-review";
 
 const reviewerBody = flow<Input>(
   "pr-reviewer",
-  { budget: { dollars: 8, wallclock: "45m" } },
+  { budget: { tokens: 800_000, dollars: 8, wallclock: "45m" } },
   async (f, input) => {
     const pr = prFromInput(input);
     const api = (path: string) =>
@@ -131,9 +133,7 @@ const reviewerBody = flow<Input>(
     await f
       .agent("review", {
         cli: input.reviewerCli ?? "claude",
-        model: input.reviewerCli === undefined || input.reviewerCli === "claude"
-          ? "claude-sonnet-5"
-          : input.reviewerCli === "codex" ? "gpt-5.6-sol" : undefined,
+        model: requiredReviewerModel(input.reviewerCli ?? "claude", input.reviewerModel),
         task: reviewHarnessPrompt(pr) + `\nWrite the review to ${REVIEW_FILE}. Read .workforce/threads.json for the existing bot and reviewer comments.`,
       })
       .gate({ type: "subprocess_gate", command: `test -s ${REVIEW_FILE}` });
@@ -204,6 +204,16 @@ const reviewer = reviewerBody
 
 export { reviewer };
 export default reviewer;
+
+export function requiredReviewerModel(cli: string, override?: string): string {
+  const model = override?.trim()
+    || (cli === "claude" ? "claude-sonnet-5"
+      : cli === "codex" ? "gpt-5.6-sol"
+      : cli === "cursor-agent" ? "gpt-5.6-sol-high"
+      : cli === "grok" ? "grok-4.7" : undefined);
+  if (model === undefined) throw new Error(`Custom reviewer CLI ${JSON.stringify(cli)} requires reviewerModel`);
+  return model;
+}
 
 // ── GitHub writes ───────────────────────────────────────────────────────────
 // Kept outside the body on purpose: `flows check` discovers `f.github` by

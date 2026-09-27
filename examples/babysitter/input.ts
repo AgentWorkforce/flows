@@ -5,7 +5,7 @@ export interface Config {
   owner: string; repo: string; number: number; testCommand: string;
   approvers: string[]; organizations: string[]; merge: boolean;
   reviewAuthors: string[]; skipLabels: string[]; requiredChecks: string[];
-  botLogin: string; reviewerCli?: string;
+  botLogin: string; reviewerCli?: string; reviewerModel?: string;
   /**
    * Optional operator pin. Present, it *constrains* the run to one head: the
    * run declines when live state has moved past it. Absent — the resident
@@ -55,14 +55,22 @@ export function parseInput(value: unknown): Config {
     || (x.headSha !== undefined && !shaValid(x.headSha))
     || !text(x.testCommand) || /[\0\r\n]/.test(x.testCommand)
     || !text(x.botLogin) || (x.merge !== undefined && typeof x.merge !== 'boolean')
-    || (x.reviewerCli !== undefined && !text(x.reviewerCli))) throw new Error('Invalid Babysitter configuration: pin repository, PR, bot identity and validation command');
+    || (x.reviewerCli !== undefined && !text(x.reviewerCli))
+    || (x.reviewerModel !== undefined && !text(x.reviewerModel))) throw new Error('Invalid Babysitter configuration: pin repository, PR, bot identity and validation command');
+  const reviewerCli = typeof x.reviewerCli === 'string' ? x.reviewerCli.trim() : undefined;
+  const reviewerModel = typeof x.reviewerModel === 'string' ? x.reviewerModel.trim() : undefined;
+  if (reviewerCli !== undefined && !['claude', 'codex', 'cursor-agent', 'grok'].includes(reviewerCli)
+    && reviewerModel === undefined) {
+    throw new Error('Invalid Babysitter configuration: a custom reviewerCli requires reviewerModel');
+  }
   const config: Config = {
     owner: x.owner, repo: x.repo, number: Number(x.number),
     testCommand: x.testCommand, botLogin: x.botLogin, merge: x.merge === true,
     approvers: list(x.approvers), organizations: list(x.organizations), reviewAuthors: list(x.reviewAuthors),
     skipLabels: list(x.skipLabels, ['no-agent-relay-review']), requiredChecks: list(x.requiredChecks),
     ...(typeof x.headSha === 'string' ? { headSha: x.headSha } : {}),
-    ...(typeof x.reviewerCli === 'string' ? { reviewerCli: x.reviewerCli } : {}),
+    ...(reviewerCli === undefined ? {} : { reviewerCli }),
+    ...(reviewerModel === undefined ? {} : { reviewerModel }),
   };
   if (x.event !== undefined) config.event = parseEvent(x.event, config);
   return config;

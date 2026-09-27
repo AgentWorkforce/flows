@@ -114,7 +114,7 @@ export interface ResearchFlowContext {
 
 export interface ResearchFlowHeader {
   agents: Record<AgentName, AgentDefinition>;
-  budget: string;
+  budget: { tokens: number; dollars: number };
 }
 
 export interface ResearchFlowDefinition {
@@ -157,7 +157,7 @@ export default flow(
       grok: { cli: "grok", model: "grok-4.7" },
       synthesizer: { cli: "claude", model: "claude-opus-5" },
     },
-    budget: "$15/run",
+    budget: { tokens: 1_500_000, dollars: 15 },
   },
   async (f, input) => {
     // Fan-out. Every lane is independent, so all three are dispatched at

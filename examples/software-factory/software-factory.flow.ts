@@ -61,7 +61,7 @@ const TEST = 'if [ -f package.json ] && node -e \'p=require("./package.json");pr
 export default flow<Input>("software-factory", {
   version: "2.0.23",
   hooks: ["pre-implement", "post-review", "merge-gate"],
-  budget: { dollars: 10, wallclock: "1h" },
+  budget: { tokens: 1_000_000, dollars: 10, wallclock: "1h" },
 }, async (f, input) => {
   const { issue } = input;
   if (!issue || typeof issue.source !== "string" || !issue.source.trim() || typeof issue.title !== "string" || !issue.title.trim()) {

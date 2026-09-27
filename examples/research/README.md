@@ -179,8 +179,10 @@ to widen the kernel vocabulary.
   exactly two subagents; the CLIs (Claude's Agent tool, Codex `multi_agent`,
   Grok subagents) do so in their own way, and the transcript in `<lane>.log`
   is the evidence. Nothing in the shim can count them.
-- **No budget enforcement.** The header declares `$15/run`; nothing meters
-  it until the kernel's budget envelope lands.
+- **Token and dollar budget.** The header declares a 1.5M-token / $15 ceiling.
+  Current model aliases without a verified frozen dollar price are explicitly
+  journaled as dollar-unmetered, while the token ceiling still bounds every
+  lane and the exact provider/model preflight remains fail-closed.
 - **Lane failure fails the whole run.** There is no partial synthesis over
   two of three reports. Re-run with a **new `--slug`** (or move the failed
   run's directory aside): the run dir is `<date>-<slug>` and a non-empty one

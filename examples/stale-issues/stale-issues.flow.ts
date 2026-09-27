@@ -48,7 +48,7 @@ const FINDING_SCHEMA = {
 // integer issue number only.
 const mrkdwn = (text: string): string => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-export default flow<Input>("stale-issues", { budget: { dollars: 2, wallclock: "10m" }, tools: { slack: true } }, async (f, input) => {
+export default flow<Input>("stale-issues", { budget: { tokens: 200_000, dollars: 2, wallclock: "10m" }, tools: { slack: true } }, async (f, input) => {
   if (!REPO.test(input.repo)) {
     await f.run("echo 'Stopped: repo must be owner/name.' >&2");
     return f.done("needs_human");

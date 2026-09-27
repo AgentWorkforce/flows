@@ -86,7 +86,7 @@ const CONSENSUS = "review/consensus.md";
 
 export default flow<PrReviewInput>(
   "flows-pr-review",
-  { budget: "$4/run" },
+  { budget: { tokens: 400_000, dollars: 4 } },
   async (f, input) => {
     const pr = prFromInput(input);
     // Cloud wakes on opened / new commits / reopened / reviewed, not on
