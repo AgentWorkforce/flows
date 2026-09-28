@@ -441,6 +441,35 @@ describe('hosted extension hostile protocol', () => {
     expect(calls).toBe(0);
   });
 
+  it('does not invoke a capability buffered after a terminal frame in the same chunk', async () => {
+    const protocol = new PassThrough();
+    const stdin = new PassThrough();
+    const stderr = new PassThrough();
+    const child = Object.assign(new EventEmitter(), {
+      exitCode: null,
+      signalCode: null,
+      kill: () => true,
+    }) as unknown as ChildProcess;
+    let calls = 0;
+    const run = exchangeHostedExtension(
+      child,
+      protocol,
+      stdin,
+      stderr,
+      10_000,
+      { type: 'run' },
+      async () => { calls += 1; return { receiptId: 'late', status: 'queued' }; },
+    );
+    const observed = run.then(() => undefined, error => error as Error);
+    protocol.write(`${JSON.stringify({ type: 'error', message: 'terminal' })}\n${JSON.stringify(capabilityFrame())}\n`);
+    expect(await observed).toMatchObject({
+      code: 'plugin_unsupported',
+      message: expect.stringContaining('Hosted extension failed: terminal'),
+    });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(calls).toBe(0);
+  });
+
   it('settles successful completion with captured intrinsics', async () => {
     const protocol = new PassThrough();
     const stdin = new PassThrough();

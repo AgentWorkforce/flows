@@ -172,6 +172,10 @@ export async function exchangeHostedExtension(
       buffer += STRING(chunk);
       if (BUFFER_BYTE_LENGTH(buffer) > MAX_FRAME_BYTES) return refuse('Hosted extension protocol exceeded its size limit.');
       for (;;) {
+        // A frame earlier in this same chunk may have called finish. Stop at
+        // the terminal frame boundary before parsing or invoking anything
+        // else already buffered behind it.
+        if (settled) return;
         const end = STRING_INDEX_OF(buffer, '\n');
         if (end < 0) break;
         const line = STRING_SLICE(buffer, 0, end);
@@ -226,7 +230,7 @@ export async function exchangeHostedExtension(
             || message.completionReason !== 'success' || message.capabilityCalls !== 1) {
             return refuse('Hosted extension reported a completion without exactly one capability call.');
           }
-          finish(undefined, frozenHostedPromiseValue({ completionReason: 'success', capabilityCalls: 1 }));
+          return finish(undefined, frozenHostedPromiseValue({ completionReason: 'success', capabilityCalls: 1 }));
         } else if (message.type === 'error') {
           if (!hasExactKeys(message, ['type', 'message']) || typeof message.message !== 'string') {
             return refuse('Hosted extension emitted a malformed error frame.');
@@ -239,7 +243,7 @@ export async function exchangeHostedExtension(
             deferredProtocolError ??= error;
             return;
           }
-          finish(capabilityError ?? error);
+          return finish(capabilityError ?? error);
         } else return refuse('Hosted extension emitted an unknown protocol message.');
       }
     });
