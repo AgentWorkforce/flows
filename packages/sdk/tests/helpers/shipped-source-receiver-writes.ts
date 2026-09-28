@@ -83,6 +83,25 @@ function isDirectObjectAssignCall(node: ts.Node): node is ts.CallExpression {
   return ts.isIdentifier(target) && target.text === 'Object';
 }
 
+function referencesGlobalObject(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen = new Set<ts.Symbol>(),
+): boolean {
+  expression = unwrap(expression);
+  if (ts.isIdentifier(expression)) {
+    if (expression.text === 'Object') return true;
+    const symbol = checker.getSymbolAtLocation(expression);
+    if (!symbol || seen.has(symbol)) return false;
+    seen.add(symbol);
+    const declaration = symbol.declarations?.find(ts.isVariableDeclaration);
+    return declaration?.initializer !== undefined
+      && referencesGlobalObject(declaration.initializer, checker, seen);
+  }
+  const branches = wrappedExpressionBranches(expression);
+  return branches?.some(branch => referencesGlobalObject(branch, checker, new Set(seen))) ?? false;
+}
+
 function referencesObjectAssign(
   expression: ts.Expression,
   checker: ts.TypeChecker,
@@ -114,8 +133,7 @@ function referencesObjectAssign(
           const receiver = receiverPath.length === 0
             ? source.initializer
             : aggregateValueAtPath(source.initializer, receiverPath, checker, new Set(seen))?.value;
-          const target = receiver && unwrap(receiver);
-          if (target && ts.isIdentifier(target) && target.text === 'Object') return true;
+          if (receiver && referencesGlobalObject(receiver, checker, new Set(seen))) return true;
         }
       }
     }
