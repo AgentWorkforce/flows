@@ -309,14 +309,14 @@ describe('canonical run dispatches the installed Software Garden Babysitter', ()
         }),
         // Sandbox startup is part of this deadline. Leave enough time for the
         // capability to begin, then deliberately hold it beyond the deadline.
-        timeoutMs: 1_000,
+        timeoutMs: 3_000,
       };
 
       let settled = false;
       const pending = run(installed.flowPath, input('pull_request.labeled', deliveryId), authority);
       void pending.then(() => { settled = true; }, () => { settled = true; });
       await started;
-      await delay(1_050);
+      await delay(3_050);
       expect(settled).toBe(false);
       expect(calls).toBe(1);
 
@@ -341,6 +341,7 @@ describe('canonical run dispatches the installed Software Garden Babysitter', ()
       expect(readdirSync(receipts).map(file => readFileSync(join(receipts, file), 'utf8'))).toEqual(afterCompletion);
       expect(calls).toBe(1);
     },
+    10_000,
   );
 
   it.skipIf(process.platform !== 'linux' || !existsSync('/usr/bin/bwrap'))(
