@@ -257,14 +257,18 @@ describe('first-party shipped source model pins', () => {
 
       const unsafeFlowHeaders = join(directory, 'unsafe-flow-headers.flow.ts');
       writeFileSync(unsafeFlowHeaders, `
+        import { flow as importedFlow } from '@relayflows/surface';
+        import * as surface from '@relayflows/surface';
         declare function flow(name: string, header: unknown, body: () => void): void;
         const define = flow;
         define('aliased', { budget: '$2' }, () => {});
+        importedFlow('imported', { budget: '$2' }, () => {});
+        surface.flow('namespace', { budget: '$2' }, () => {});
         flow('accessor', { get budget() { return { dollars: 2, tokens: 20_000_000 }; } }, () => {});
         flow('duplicate', { budget: '$2', budget: '$1' }, () => {});
       `);
       const unsafeFlowHeaderResult = scanTypeScript(unsafeFlowHeaders);
-      expect(unsafeFlowHeaderResult.dollarBudgetsWithoutTokenCeilings).toHaveLength(1);
+      expect(unsafeFlowHeaderResult.dollarBudgetsWithoutTokenCeilings).toHaveLength(3);
       expect(unsafeFlowHeaderResult.invalidFlowHeaders).toHaveLength(2);
 
       const namedBody = join(directory, 'named-body.flow.ts');

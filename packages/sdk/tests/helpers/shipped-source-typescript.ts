@@ -168,11 +168,20 @@ function isFlowConstructor(
   seen = new Set<ts.Symbol>(),
 ): boolean {
   expression = unwrapTransparentExpression(expression);
+  if (memberName(expression) === 'flow') {
+    const receiver = memberReceiver(expression);
+    const namespace = receiver && ts.isIdentifier(unwrapTransparentExpression(receiver))
+      ? checker.getSymbolAtLocation(unwrapTransparentExpression(receiver))
+      : undefined;
+    if (namespace?.declarations?.some(ts.isNamespaceImport)) return true;
+  }
   if (!ts.isIdentifier(expression)) return false;
   if (expression.text === 'flow') return true;
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return false;
   seen.add(symbol);
+  const imported = symbol.declarations?.find(ts.isImportSpecifier);
+  if (imported && (imported.propertyName ?? imported.name).text === 'flow') return true;
   const variable = symbol.declarations?.find(ts.isVariableDeclaration);
   return Boolean(variable?.initializer && ts.isVariableDeclarationList(variable.parent)
     && (variable.parent.flags & ts.NodeFlags.Const) !== 0
