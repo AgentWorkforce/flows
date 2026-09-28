@@ -107,6 +107,21 @@ function referencesObjectAssign(
     return declaration?.initializer !== undefined
       && referencesObjectAssign(declaration.initializer, checker, seen);
   }
+  if (ts.isConditionalExpression(expression)) {
+    return referencesObjectAssign(expression.whenTrue, checker, new Set(seen))
+      || referencesObjectAssign(expression.whenFalse, checker, new Set(seen));
+  }
+  if (ts.isBinaryExpression(expression)
+    && (expression.operatorToken.kind === ts.SyntaxKind.CommaToken
+      || expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+      || expression.operatorToken.kind === ts.SyntaxKind.BarBarToken
+      || expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)) {
+    return referencesObjectAssign(expression.left, checker, new Set(seen))
+      || referencesObjectAssign(expression.right, checker, new Set(seen));
+  }
+  if (ts.isAwaitExpression(expression)) {
+    return referencesObjectAssign(expression.expression, checker, seen);
+  }
   const receiver = memberReceiver(expression);
   if (receiver && ['call', 'apply', 'bind'].includes(memberName(expression) ?? '')) {
     return referencesObjectAssign(receiver, checker, seen);

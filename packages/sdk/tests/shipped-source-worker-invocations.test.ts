@@ -58,10 +58,15 @@ describe('shipped-source worker invocation resolution', () => {
         function objectAssignBoundWrite(parameter: any) { const assign = Object.assign.bind(Object); assign(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
         function objectAssignCallWrite(parameter: any) { Object.assign.call(Object, parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
         function objectAssignApplyWrite(parameter: any) { Object.assign.apply(Object, [parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }]); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function objectAssignConditionalAliasWrite(parameter: any) { const assign = flag ? Object.assign : Object.assign; assign(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function objectAssignLogicalAliasWrite(parameter: any) { const assign = (flag && Object.assign) || Object.assign; assign(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function objectAssignNullishAliasWrite(parameter: any) { const assign = Object.assign ?? Object.assign; assign(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function objectAssignCommaAliasWrite(parameter: any) { const assign = (flag, Object.assign); assign(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        async function objectAssignAwaitAliasWrite(parameter: any) { const assign = await Object.assign; assign(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
       `);
       const variableAliasResult = scanTypeScript(variableAliases);
-      expect(variableAliasResult.calls).toBe(32);
-      expect(variableAliasResult.missing).toHaveLength(32);
+      expect(variableAliasResult.calls).toBe(37);
+      expect(variableAliasResult.missing).toHaveLength(37);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `
