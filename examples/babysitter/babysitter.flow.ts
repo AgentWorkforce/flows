@@ -111,7 +111,7 @@ export function generatedModelForCli(cli: string): string | undefined {
 export function requiredReviewerModel(cli: string, override?: string): string {
   const cliProblem = declarationStringError(cli.trim());
   if (cliProblem !== undefined) throw new Error(`Invalid reviewer CLI: ${cliProblem}`);
-  const model = override?.trim() || generatedModelForCli(cli);
+  const model = override === undefined ? generatedModelForCli(cli) : override.trim();
   if (model === undefined) throw new Error(`Custom reviewer CLI ${JSON.stringify(cli)} requires reviewerModel`);
   const modelProblem = declarationStringError(model);
   if (modelProblem !== undefined) throw new Error(`Invalid reviewer model: ${modelProblem}`);

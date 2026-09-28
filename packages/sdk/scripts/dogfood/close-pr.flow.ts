@@ -112,11 +112,12 @@ export default flow<unknown>('close-pr', async (f, supplied) => {
 export function requiredRepairModel(cli: string, override?: string): string {
   const cliProblem = modelNameError(cli.trim());
   if (cliProblem !== undefined) throw new Error(`Invalid repair CLI: ${cliProblem}`);
-  const model = override?.trim()
-    || (cli === 'codex' ? 'gpt-5.6-sol'
+  const model = override === undefined
+    ? (cli === 'codex' ? 'gpt-5.6-sol'
       : cli === 'claude' ? 'claude-sonnet-5'
       : cli === 'cursor-agent' ? 'gpt-5.6-sol-high'
-      : cli === 'grok' ? 'grok-4.7' : undefined);
+      : cli === 'grok' ? 'grok-4.7' : undefined)
+    : override.trim();
   if (model === undefined) throw new Error(`Custom repair CLI ${JSON.stringify(cli)} requires input.model`);
   const problem = modelNameError(model);
   if (problem !== undefined) throw new Error(`Invalid repair model: ${problem}`);

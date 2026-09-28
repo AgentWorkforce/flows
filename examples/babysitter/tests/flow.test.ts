@@ -24,6 +24,7 @@ test('known first-party harnesses resolve to current explicit model pins', () =>
 test('custom reviewer wrappers require and preserve an explicit model', () => {
   assert.throws(() => requiredReviewerModel('/opt/custom-wrapper'), /requires reviewerModel/);
   assert.equal(requiredReviewerModel('/opt/custom-wrapper', ' custom-model '), 'custom-model');
+  assert.throws(() => requiredReviewerModel('claude', '   '), /non-empty string/);
   assert.throws(() => requiredReviewerModel('/opt/custom-wrapper', 'bad\nmodel'), /control characters/);
   assert.throws(() => requiredLegacyReviewerModel('/opt/custom-wrapper'), /requires reviewerModel/);
   assert.equal(requiredLegacyReviewerModel('/opt/custom-wrapper', ' legacy-model '), 'legacy-model');
