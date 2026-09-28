@@ -1,4 +1,9 @@
 import ts from 'typescript';
+import {
+  aggregateValueAtPath,
+  bindingDefaultValues,
+  bindingSource,
+} from './shipped-source-binding-values.js';
 
 type WorkerMethod = 'agent' | 'llm';
 
@@ -84,6 +89,14 @@ function symbolHasWrites(
       found = true;
       return;
     }
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      && memberReceiver(node.left)) {
+      const value = unwrap(node.right);
+      if (ts.isIdentifier(value) && checker.getSymbolAtLocation(value) === symbol) {
+        found = true;
+        return;
+      }
+    }
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
       const initializer = unwrap(node.initializer);
       if (ts.isIdentifier(initializer) && checker.getSymbolAtLocation(initializer) === symbol) {
@@ -133,6 +146,19 @@ function variableInitializer(
   };
 }
 
+function bindingValues(
+  binding: ts.BindingElement,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): Array<{ value: ts.Expression }> {
+  const source = bindingSource(binding);
+  if (!source) return [];
+  return [
+    aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
+    ...bindingDefaultValues(source, checker, new Set(seen)),
+  ].filter((value): value is NonNullable<typeof value> => value !== undefined);
+}
+
 function invocationHelper(
   expression: ts.Expression,
   checker: ts.TypeChecker,
@@ -146,6 +172,20 @@ function invocationHelper(
     if (callable) return { operation, ...callable };
   }
   if (!ts.isIdentifier(expression)) return undefined;
+  const symbol = checker.getSymbolAtLocation(expression);
+  if (!symbol || seen.has(symbol)) return undefined;
+  const binding = symbol.declarations?.find(ts.isBindingElement);
+  if (binding) {
+    seen.add(symbol);
+    if (binding.initializer) {
+      const helper = invocationHelper(binding.initializer, checker, new Set(seen));
+      if (helper) return { ...helper, args: [], auditable: false };
+    }
+    for (const value of bindingValues(binding, checker, seen)) {
+      const helper = invocationHelper(value.value, checker, new Set(seen));
+      if (helper) return { ...helper, args: [], auditable: false };
+    }
+  }
   const initializer = variableInitializer(expression, checker, seen);
   if (!initializer) return undefined;
   const helper = invocationHelper(initializer.expression, checker, seen);
@@ -163,6 +203,20 @@ function bindHelper(
     return receiver ? workerCallable(receiver, checker, new Set(seen)) : undefined;
   }
   if (!ts.isIdentifier(expression)) return undefined;
+  const symbol = checker.getSymbolAtLocation(expression);
+  if (!symbol || seen.has(symbol)) return undefined;
+  const binding = symbol.declarations?.find(ts.isBindingElement);
+  if (binding) {
+    seen.add(symbol);
+    if (binding.initializer) {
+      const callable = bindHelper(binding.initializer, checker, new Set(seen));
+      if (callable) return { ...callable, args: [], auditable: false };
+    }
+    for (const value of bindingValues(binding, checker, seen)) {
+      const callable = bindHelper(value.value, checker, new Set(seen));
+      if (callable) return { ...callable, args: [], auditable: false };
+    }
+  }
   const initializer = variableInitializer(expression, checker, seen);
   if (!initializer) return undefined;
   const callable = bindHelper(initializer.expression, checker, seen);
@@ -193,6 +247,20 @@ function bindInvoker(
     };
   }
   if (!ts.isIdentifier(expression)) return undefined;
+  const symbol = checker.getSymbolAtLocation(expression);
+  if (!symbol || seen.has(symbol)) return undefined;
+  const binding = symbol.declarations?.find(ts.isBindingElement);
+  if (binding) {
+    seen.add(symbol);
+    if (binding.initializer) {
+      const invoker = bindInvoker(binding.initializer, checker, new Set(seen));
+      if (invoker) return { ...invoker, args: [], prebound: [], auditable: false };
+    }
+    for (const value of bindingValues(binding, checker, seen)) {
+      const invoker = bindInvoker(value.value, checker, new Set(seen));
+      if (invoker) return { ...invoker, args: [], prebound: [], auditable: false };
+    }
+  }
   const initializer = variableInitializer(expression, checker, seen);
   if (!initializer) return undefined;
   const invoker = bindInvoker(initializer.expression, checker, seen);
@@ -290,9 +358,16 @@ function workerCallable(
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;
   const binding = symbol.declarations?.find(ts.isBindingElement);
+  if (binding) seen.add(symbol);
   if (binding?.initializer) {
     const callable = workerCallable(binding.initializer, checker, new Set(seen));
     if (callable) return { ...callable, args: [], auditable: false };
+  }
+  if (binding) {
+    for (const value of bindingValues(binding, checker, seen)) {
+      const callable = workerCallable(value.value, checker, new Set(seen));
+      if (callable) return { ...callable, args: [], auditable: false };
+    }
   }
   if (binding && ts.isObjectBindingPattern(binding.parent)) {
     const name = propertyName(binding.propertyName ?? (ts.isIdentifier(binding.name) ? binding.name : undefined));

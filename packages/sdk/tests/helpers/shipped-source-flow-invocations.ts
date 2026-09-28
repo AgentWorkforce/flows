@@ -1,4 +1,10 @@
 import ts from 'typescript';
+import {
+  aggregateValueAtPath,
+  bindingDefaultValues,
+  bindingSource,
+  objectMemberValue,
+} from './shipped-source-binding-values.js';
 
 interface FlowCallable {
   args: readonly ts.Expression[];
@@ -11,14 +17,6 @@ interface FlowInvocationHelper extends FlowCallable {
 
 interface FlowBindInvoker extends FlowInvocationHelper {
   prebound: readonly ts.Expression[];
-}
-
-function propertyName(name: ts.PropertyName | undefined): string | undefined {
-  if (!name) return undefined;
-  if (ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name)) return name.text;
-  return ts.isComputedPropertyName(name) && ts.isStringLiteralLike(name.expression)
-    ? name.expression.text
-    : undefined;
 }
 
 function unwrap(expression: ts.Expression): ts.Expression {
@@ -45,104 +43,6 @@ function memberReceiver(expression: ts.Expression): ts.Expression | undefined {
     : undefined;
 }
 
-function objectMemberValue(
-  expression: ts.Expression,
-  name: string,
-  checker: ts.TypeChecker,
-  seen: Set<ts.Symbol>,
-): { value: ts.Expression; auditable: boolean; symbol?: ts.Symbol } | undefined {
-  expression = unwrap(expression);
-  if (ts.isObjectLiteralExpression(expression)) {
-    const member = expression.properties.find(candidate => propertyName(candidate.name) === name);
-    if (member && ts.isPropertyAssignment(member)) return { value: member.initializer, auditable: true };
-    if (member && ts.isShorthandPropertyAssignment(member)) return {
-      value: member.name,
-      auditable: true,
-      symbol: checker.getShorthandAssignmentValueSymbol(member),
-    };
-    return undefined;
-  }
-  if (ts.isIdentifier(expression)) {
-    const symbol = checker.getSymbolAtLocation(expression);
-    if (!symbol || seen.has(symbol)) return undefined;
-    seen.add(symbol);
-    const variable = symbol.declarations?.find(ts.isVariableDeclaration);
-    if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)) return undefined;
-    const value = objectMemberValue(variable.initializer, name, checker, seen);
-    return value && (variable.parent.flags & ts.NodeFlags.Const) === 0
-      ? { ...value, auditable: false }
-      : value;
-  }
-  const parentName = memberName(expression);
-  const parentReceiver = memberReceiver(expression);
-  if (!parentName || !parentReceiver) return undefined;
-  const parent = objectMemberValue(parentReceiver, parentName, checker, seen);
-  if (!parent) return undefined;
-  const value = objectMemberValue(parent.value, name, checker, seen);
-  return value && !parent.auditable ? { ...value, auditable: false } : value;
-}
-
-function objectBindingSource(binding: ts.BindingElement): {
-  defaults: Array<{ expression: ts.Expression; path: string[] }>;
-  initializer: ts.Expression;
-  immutable: boolean;
-  path: string[];
-} | undefined {
-  const defaults: Array<{ expression: ts.Expression; path: string[] }> = [];
-  const path: string[] = [];
-  let current = binding;
-  while (ts.isObjectBindingPattern(current.parent)) {
-    const name = propertyName(current.propertyName
-      ?? (ts.isIdentifier(current.name) ? current.name : undefined));
-    if (!name) return undefined;
-    path.unshift(name);
-    if (current.initializer) defaults.push({ expression: current.initializer, path: path.slice(1) });
-    const owner = current.parent.parent;
-    if (ts.isBindingElement(owner)) {
-      current = owner;
-      continue;
-    }
-    if (!ts.isVariableDeclaration(owner) || !owner.initializer
-      || !ts.isVariableDeclarationList(owner.parent)) return undefined;
-    return {
-      defaults,
-      initializer: owner.initializer,
-      immutable: (owner.parent.flags & ts.NodeFlags.Const) !== 0,
-      path,
-    };
-  }
-  return undefined;
-}
-
-function bindingDefaultValues(
-  source: ReturnType<typeof objectBindingSource> & {},
-  checker: ts.TypeChecker,
-  seen: Set<ts.Symbol>,
-): Array<{ value: ts.Expression; auditable: boolean; symbol?: ts.Symbol }> {
-  return source.defaults.flatMap(fallback => {
-    if (fallback.path.length === 0) return [{ value: fallback.expression, auditable: false }];
-    const value = objectValueAtPath(fallback.expression, fallback.path, checker, new Set(seen));
-    return value ? [{ ...value, auditable: false }] : [];
-  });
-}
-
-function objectValueAtPath(
-  expression: ts.Expression,
-  path: readonly string[],
-  checker: ts.TypeChecker,
-  seen: Set<ts.Symbol>,
-): { value: ts.Expression; auditable: boolean; symbol?: ts.Symbol } | undefined {
-  let current: { value: ts.Expression; auditable: boolean; symbol?: ts.Symbol } = {
-    value: expression,
-    auditable: true,
-  };
-  for (const name of path) {
-    const member = objectMemberValue(current.value, name, checker, seen);
-    if (!member) return undefined;
-    current = !current.auditable ? { ...member, auditable: false } : member;
-  }
-  return current;
-}
 
 function namespaceSymbolAuditable(
   symbol: ts.Symbol,
@@ -157,11 +57,11 @@ function namespaceSymbolAuditable(
     const fallback = namespaceAuditable(binding.initializer, checker, new Set(seen));
     if (fallback !== undefined) return false;
   }
-  if (binding && ts.isObjectBindingPattern(binding.parent)) {
-    const source = objectBindingSource(binding);
+  if (binding) {
+    const source = bindingSource(binding);
     if (source) {
       const values = [
-        objectValueAtPath(source.initializer, source.path, checker, seen),
+        aggregateValueAtPath(source.initializer, source.path, checker, seen),
         ...bindingDefaultValues(source, checker, seen),
       ].filter((value): value is NonNullable<typeof value> => value !== undefined);
       for (const member of values) {
@@ -214,6 +114,23 @@ function invocationHelper(
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;
   seen.add(symbol);
+  const binding = symbol.declarations?.find(ts.isBindingElement);
+  if (binding?.initializer) {
+    const helper = invocationHelper(binding.initializer, checker, new Set(seen));
+    if (helper) return { ...helper, args: [], auditable: false };
+  }
+  if (binding) {
+    const source = bindingSource(binding);
+    const values = source ? [
+      aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
+      ...bindingDefaultValues(source, checker, new Set(seen)),
+    ] : [];
+    for (const value of values) {
+      if (!value) continue;
+      const helper = invocationHelper(value.value, checker, new Set(seen));
+      if (helper) return { ...helper, args: [], auditable: false };
+    }
+  }
   const variable = symbol.declarations?.find(ts.isVariableDeclaration);
   if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)) return undefined;
   const helper = invocationHelper(variable.initializer, checker, seen);
@@ -236,6 +153,19 @@ function bindHelper(
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;
   seen.add(symbol);
+  const binding = symbol.declarations?.find(ts.isBindingElement);
+  if (binding?.initializer) {
+    const helper = bindHelper(binding.initializer, checker, new Set(seen));
+    if (helper) return { args: [], auditable: false };
+  }
+  if (binding) {
+    const source = bindingSource(binding);
+    const value = source
+      ? aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen))
+      : undefined;
+    const helper = value ? bindHelper(value.value, checker, new Set(seen)) : undefined;
+    if (helper) return { args: [], auditable: false };
+  }
   const variable = symbol.declarations?.find(ts.isVariableDeclaration);
   if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)) return undefined;
   const helper = bindHelper(variable.initializer, checker, seen);
@@ -270,6 +200,19 @@ function bindInvoker(
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;
   seen.add(symbol);
+  const binding = symbol.declarations?.find(ts.isBindingElement);
+  if (binding?.initializer) {
+    const invoker = bindInvoker(binding.initializer, checker, new Set(seen));
+    if (invoker) return { ...invoker, args: [], prebound: [], auditable: false };
+  }
+  if (binding) {
+    const source = bindingSource(binding);
+    const value = source
+      ? aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen))
+      : undefined;
+    const invoker = value ? bindInvoker(value.value, checker, new Set(seen)) : undefined;
+    if (invoker) return { ...invoker, args: [], prebound: [], auditable: false };
+  }
   const variable = symbol.declarations?.find(ts.isVariableDeclaration);
   if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)) return undefined;
   const invoker = bindInvoker(variable.initializer, checker, seen);
@@ -352,8 +295,24 @@ function flowConstructor(
     const fallback = flowConstructor(binding.initializer, checker, new Set(seen));
     if (fallback) return { ...fallback, auditable: false };
   }
-  if (binding && ts.isObjectBindingPattern(binding.parent)) {
-    const source = objectBindingSource(binding);
+  if (binding) {
+    const source = bindingSource(binding);
+    if (source) {
+      const direct = aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen));
+      const constructor = direct ? flowConstructor(direct.value, checker, new Set(seen)) : undefined;
+      if (constructor) return { ...constructor, auditable: false };
+      for (const fallback of source.defaults) {
+        if (fallback.path.at(-1) !== 'flow') continue;
+        const receiverPath = fallback.path.slice(0, -1);
+        const receiver = receiverPath.length === 0
+          ? { value: fallback.expression, auditable: false }
+          : aggregateValueAtPath(fallback.expression, receiverPath, checker, new Set(seen));
+        const namespace = receiver?.symbol
+          ? namespaceSymbolAuditable(receiver.symbol, checker, new Set(seen))
+          : receiver ? namespaceAuditable(receiver.value, checker) : undefined;
+        if (namespace !== undefined) return { args: [], auditable: false };
+      }
+    }
     if (source?.path.at(-1) === 'flow') {
       for (const fallback of bindingDefaultValues(source, checker, new Set(seen))) {
         const constructor = flowConstructor(fallback.value, checker, new Set(seen));
@@ -362,7 +321,7 @@ function flowConstructor(
       const receiverPath = source.path.slice(0, -1);
       const receiver = receiverPath.length === 0
         ? { value: source.initializer, auditable: true }
-        : objectValueAtPath(source.initializer, receiverPath, checker, new Set());
+        : aggregateValueAtPath(source.initializer, receiverPath, checker, new Set());
       const namespace = receiver?.symbol
         ? namespaceSymbolAuditable(receiver.symbol, checker, new Set())
         : receiver ? namespaceAuditable(receiver.value, checker) : undefined;
