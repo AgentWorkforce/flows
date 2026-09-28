@@ -8,6 +8,13 @@ import { assertAuthoredNodeVersion, parseAuthoredParentPid } from './authored-ru
 import { AuthoredFlowExecutionError, AuthoredHumanParked } from './authored-flow-error.js';
 import { isAgentCapacity } from './worker-slots.js';
 import type { AuthoredRootMetadata } from './authored-root.js';
+import { authoredNodeUtility } from './authored-node-utility.js';
+
+const utility = await authoredNodeUtility(process.argv.slice(2));
+if (utility !== undefined) {
+  writeSync(1, JSON.stringify(utility));
+  process.exit(0);
+}
 
 let channelKey: string | undefined, sequence = 0;
 // Capture writers before loading authored modules; credentials never enter env.

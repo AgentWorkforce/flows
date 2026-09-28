@@ -232,20 +232,13 @@ export async function assertReviewerPairReady(
 ): Promise<void> {
   let result;
   try {
-    // Keep this source self-contained for Cloud, but do not fork the adapter
-    // contract: the first journaled command loads the installed SDK's exact
-    // model-scoped probe before any GitHub, checkout, or artifact effect.
-    const script = [
-      `import { realpathSync } from "node:fs";`,
-      `import { dirname, resolve } from "node:path";`,
-      `import { pathToFileURL } from "node:url";`,
-      `const [cli, model, directory] = process.argv.slice(-3);`,
-      `const binary = realpathSync(process.env.FLOWS_BIN);`,
-      `const module = await import(pathToFileURL(resolve(dirname(binary), "cli/cli-probe.js")).href);`,
-      `process.stdout.write(JSON.stringify(await module.probeCliAsync(cli, directory, model)));`,
-    ].join("");
+    // The authored Node payload is sealed by the SDK and carries its canonical
+    // model-scoped probe. Re-enter that exact payload instead of guessing the
+    // on-disk layout of a `flows` wrapper (or requiring one on PATH).
+    const runtime = process.argv[1];
+    if (!runtime) throw new Error("authored Node runtime path is unavailable");
     const output = await f.run(
-      `FLOWS_BIN="$(command -v flows)" node --input-type=module -e ${shellWord(script)} -- `
+      `${shellWord(process.execPath)} ${shellWord(runtime)} --probe-cli `
         + `${shellWord(cli)} ${shellWord(model)} ${shellWord(directory)}`,
     );
     result = JSON.parse(output) as {

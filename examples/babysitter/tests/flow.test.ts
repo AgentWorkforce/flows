@@ -17,7 +17,7 @@ function context(
   let agents = 0;
   const f = { run: async (command: string) => {
     commands.push(command);
-    if (command.includes('cli-probe.js')) return JSON.stringify(probe);
+    if (command.includes('--probe-cli')) return JSON.stringify(probe);
     return command.startsWith('node -e') ? JSON.stringify(live) : '';
   }, done: (reason: string) => { reasons.push(reason); }, agent: () => { agents++; throw new Error('unsafe agent dispatch'); } } as unknown as Ctx;
   return { f, commands, reasons, agents: () => agents };
@@ -68,9 +68,9 @@ test('unavailable legacy reviewer pair fails before GitHub or repository effects
     /Reviewer model "unavailable-exact-model" is unavailable through "claude"/,
   );
   assert.equal(x.commands.length, 1);
-  assert.match(x.commands[0]!, /cli-probe\.js/);
-  assert.match(x.commands[0]!, /claude unavailable-exact-model/);
-  assert.doesNotMatch(x.commands[0]!, /curl|git fetch|git checkout|\.workforce/);
+  assert.match(x.commands[0]!, /--probe-cli/);
+  assert.match(x.commands[0]!, /'claude' 'unavailable-exact-model'/);
+  assert.doesNotMatch(x.commands[0]!, /command -v flows|cli-probe\.js|curl|git fetch|git checkout|\.workforce/);
   assert.equal(x.agents(), 0);
 });
 test('malformed input makes zero effects; missing live state declines before agents', async () => {

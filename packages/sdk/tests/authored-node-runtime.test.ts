@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -92,6 +92,24 @@ async function entries(directory: string, runId: string) {
 }
 
 describe('Bun 1.4.0 standalone → native Node authored lifecycle', () => {
+  it('re-enters the sealed runtime for an exact model probe without a flows binary on PATH', () => {
+    const f = fixture(`const runtime=process.argv[1];
+      if(!runtime) throw new Error('missing authored runtime');
+      const quote=(value:string)=>JSON.stringify(value);
+      const output=await f.run([process.execPath,runtime,'--probe-cli','./agent.mjs','exact-model',process.cwd()].map(quote).join(' '));
+      const probe=JSON.parse(output);
+      if(!probe.exists||!probe.supported||probe.authenticated!==true||probe.modelAvailable!==true) throw new Error('probe refused');
+      f.done('success');`);
+    const nodeOnlyPath = join(f.directory, 'node-only-path');
+    mkdirSync(nodeOnlyPath);
+    symlinkSync(process.execPath, join(nodeOnlyPath, 'node'));
+    const result = f.invoke(['run', 'case.flow.ts', '--input', '{}'], {
+      PATH: `${nodeOnlyPath}:/usr/bin:/bin`,
+    });
+    expect(result.status, result.stderr + result.stdout).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({ ok: true, completionReason: 'success' });
+  }, 90_000);
+
   it('suppresses the loader warning while preserving authored experimental warnings', () => {
     const f = fixture(`process.emitWarning('authored warning remains visible', 'ExperimentalWarning');
       await f.run('printf ok'); f.done('success');`);
