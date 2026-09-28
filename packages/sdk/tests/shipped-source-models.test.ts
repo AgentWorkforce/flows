@@ -351,6 +351,23 @@ describe('first-party shipped source model pins', () => {
       expect(functionMethodResult.calls).toBe(3);
       expect(functionMethodResult.missing).toHaveLength(3);
 
+      const spreadPins = join(directory, 'spread-pins.flow.ts');
+      writeFileSync(spreadPins, `
+        declare const override: object;
+        declare const f: { agent(name: string, options: object): void };
+        declare function flow(name: string, header: object, body: () => void): void;
+        flow('spread-pins', { agents: {
+          reviewer: { cli: 'claude', model: 'claude-sonnet-5', ...override },
+          duplicate: { cli: 'claude', cli: 'codex', model: 'claude-sonnet-5' },
+        } }, () => f.agent('reviewer', {
+          cli: 'claude', model: 'claude-sonnet-5', task: 'x', ...override,
+        }));
+        f.agent('duplicate', { cli: 'claude', model: 'claude-sonnet-5', model: 'gpt-5.6-sol' });
+      `);
+      const spreadPinResult = scanTypeScript(spreadPins);
+      expect(spreadPinResult.incompleteNamed).toHaveLength(2);
+      expect(spreadPinResult.missing).toHaveLength(2);
+
       const taggedLlm = join(directory, 'tagged-llm.flow.ts');
       writeFileSync(taggedLlm, `
         declare const f: { llm(strings: TemplateStringsArray): void };

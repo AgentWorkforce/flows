@@ -18,8 +18,17 @@ function context(
   const f = { run: async (command: string) => {
     commands.push(command);
     if (command.includes('--probe-cli')) return JSON.stringify(probe);
+    if (command.startsWith('curl ') && command.includes('/check-runs?')) return '{"check_runs":[]}';
+    if (command.startsWith('curl ') && command.includes('/status')) return '{"statuses":[]}';
+    if (command.startsWith('curl ') && command.includes('/reviews?')) return JSON.stringify([
+      { user: { login: 'alice' }, state: 'APPROVED', commit_id: sha, submitted_at: '2026-09-28T00:00:00Z' },
+    ]);
+    if (command.startsWith('curl ') && command.includes('api.github.com/repos/acme/widgets/pulls/7')) return JSON.stringify({
+      state: 'open', draft: false, mergeable: true, mergeable_state: 'clean', head: { sha }, labels: [],
+    });
     return command.startsWith('node -e') ? JSON.stringify(live) : '';
-  }, done: (reason: string) => { reasons.push(reason); }, agent: () => { agents++; throw new Error('unsafe agent dispatch'); } } as unknown as Ctx;
+  }, done: (reason: string) => { reasons.push(reason); }, agent: () => { agents++; throw new Error('unsafe agent dispatch'); },
+  github: { mergePullRequest: async () => ({ merged: true }) } } as unknown as Ctx;
   return { f, commands, reasons, agents: () => agents };
 }
 test('known first-party harnesses resolve to current explicit model pins', () => {
@@ -71,6 +80,20 @@ test('unavailable legacy reviewer pair fails before GitHub or repository effects
   assert.match(x.commands[0]!, /--probe-cli/);
   assert.match(x.commands[0]!, /'claude' 'unavailable-exact-model'/);
   assert.doesNotMatch(x.commands[0]!, /command -v flows|cli-probe\.js|curl|git fetch|git checkout|\.workforce/);
+  assert.equal(x.agents(), 0);
+});
+test('approval-only legacy wakes do not probe an unused reviewer pair', async () => {
+  const body = getFlowDefinition(legacyReviewer).body;
+  const x = context(state, {
+    exists: true, supported: true, authenticated: true, modelAvailable: false,
+  });
+  await body(x.f, {
+    owner: 'acme', repo: 'widgets', number: 7, approvers: 'alice',
+    reviewerCli: 'claude', reviewerModel: 'unavailable-exact-model',
+    event: { review: { state: 'approved', user: { login: 'alice' }, commit_id: sha } },
+  });
+  assert.deepEqual(x.reasons, ['success']);
+  assert.ok(x.commands.every(command => !command.includes('--probe-cli')));
   assert.equal(x.agents(), 0);
 });
 test('malformed input makes zero effects; missing live state declines before agents', async () => {

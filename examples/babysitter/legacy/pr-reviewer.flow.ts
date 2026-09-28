@@ -85,7 +85,6 @@ const reviewerBody = flow<Input>(
     const pr = prFromInput(input);
     const reviewerCli = input.reviewerCli === undefined ? "claude" : input.reviewerCli.trim();
     const reviewerModel = requiredReviewerModel(reviewerCli, input.reviewerModel);
-    await assertReviewerPairReady(f, reviewerCli, reviewerModel, process.cwd());
     const api = (path: string) =>
       f.run(`curl -sf -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" ${shellWord(`https://api.github.com/repos/${pr.owner}/${pr.repo}${path}`)}`);
 
@@ -104,6 +103,10 @@ const reviewerBody = flow<Input>(
       await f.run(`printf '%s\\n' ${shellWord(merged ? `merged #${pr.number} at ${pr.headSha}` : `GitHub did not confirm the merge of #${pr.number}`)}`);
       return f.done(merged ? "success" : "step_failed");
     }
+
+    // Approval-only wakes never dispatch the reviewer. Review wakes still
+    // prove the exact pair before their first GitHub or checkout effect.
+    await assertReviewerPairReady(f, reviewerCli, reviewerModel, process.cwd());
 
     // ── review gate: merged/closed, draft, disabling label, author allowlist ──
     const meta = JSON.parse(await api(`/pulls/${pr.number}`)) as PrMeta;

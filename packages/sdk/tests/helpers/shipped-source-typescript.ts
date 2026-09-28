@@ -17,6 +17,18 @@ function property(object: ts.ObjectLiteralExpression, name: string): ts.Expressi
   return undefined;
 }
 
+function hasUnprovableOverrides(object: ts.ObjectLiteralExpression, critical: ReadonlySet<string>): boolean {
+  const seen = new Set<string>();
+  for (const candidate of object.properties) {
+    if (!ts.isPropertyAssignment(candidate) && !ts.isShorthandPropertyAssignment(candidate)) return true;
+    const name = propertyName(candidate.name);
+    if (name === undefined) return true;
+    if (critical.has(name) && seen.has(name)) return true;
+    seen.add(name);
+  }
+  return false;
+}
+
 function identifierSymbol(expression: ts.Identifier, checker: ts.TypeChecker): ts.Symbol | undefined {
   return ts.isShorthandPropertyAssignment(expression.parent)
     ? checker.getShorthandAssignmentValueSymbol(expression.parent)
@@ -256,15 +268,19 @@ export function scanTypeScript(path: string): TypeScriptModelInventory {
       if (agentsExpression !== undefined && !ts.isObjectLiteralExpression(agentsExpression)) {
         incompleteNamed.push(`${relative(ROOT, path)}:${line}`);
       } else if (agentsExpression && ts.isObjectLiteralExpression(agentsExpression)) {
+        const agentNames = new Set<string>();
         for (const agent of agentsExpression.properties) {
           const agentLine = file.getLineAndCharacterOfPosition(agent.getStart(file)).line + 1;
-          if (!ts.isPropertyAssignment(agent) || !ts.isObjectLiteralExpression(agent.initializer)) {
+          const name = propertyName(agent.name);
+          if (!ts.isPropertyAssignment(agent) || !ts.isObjectLiteralExpression(agent.initializer)
+            || name === undefined || agentNames.has(name)
+            || hasUnprovableOverrides(agent.initializer, new Set(['cli', 'model']))) {
             incompleteNamed.push(`${relative(ROOT, path)}:${agentLine}`);
             continue;
           }
+          agentNames.add(name);
           const cli = literal(property(agent.initializer, 'cli'), checker);
           const model = literal(property(agent.initializer, 'model'), checker);
-          const name = agent.name.getText(file).replaceAll(/["']/gu, '');
           if (cli && model) {
             namedPairs.push(`${cli}/${model}`);
             namedAgents.add(name);
@@ -301,6 +317,8 @@ export function scanTypeScript(path: string): TypeScriptModelInventory {
       const line = file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
       if (!options || !ts.isObjectLiteralExpression(options)) {
         missing.push(`${relative(ROOT, path)}:${line} has no inline options object`);
+      } else if (hasUnprovableOverrides(options, new Set(['cli', 'model']))) {
+        missing.push(`${relative(ROOT, path)}:${line} has unprovable options overrides`);
       } else {
         const cliExpression = property(options, 'cli');
         const modelExpression = property(options, 'model');
