@@ -39,7 +39,7 @@ export type HostedSoftwareGardenRunOptions = Omit<
 
 /**
  * Execute the pinned hosted composition as one journaled effect step. Plugin,
- * pin, route, base, and platform refusals are resolved before a run exists;
+ * pin, route, and base refusals are resolved before a run exists;
  * every error after admission is a terminal step failure because the external
  * queue outcome may already be in doubt.
  */

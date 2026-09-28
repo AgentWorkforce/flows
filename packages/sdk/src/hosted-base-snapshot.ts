@@ -27,7 +27,10 @@ import {
 } from './hosted-promise-safety.js';
 import { PluginError } from './plugin-manifest.js';
 
-const EXCLUDED_DIRECTORIES = new Set(['.flows', '.git', 'node_modules']);
+// Runtime journals are not authored base source. Keeping the standard data
+// directory in the generation would make daemon startup invalidate the exact
+// generation it was started to execute.
+const EXCLUDED_DIRECTORIES = new Set(['.flows', '.git', '.relayflowd', 'node_modules']);
 const CHMOD = chmod;
 const MKDIR = mkdir;
 const MKDTEMP = mkdtemp;

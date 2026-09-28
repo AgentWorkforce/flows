@@ -192,6 +192,22 @@ describe('hosted base private snapshot', () => {
     }
   });
 
+  it('excludes the standard relayflowd data directory from the admitted generation', async () => {
+    const { project, flowPath } = fixture();
+    const data = join(project, '.relayflowd');
+    mkdirSync(join(data, 'runs'), { recursive: true });
+    writeFileSync(join(data, 'relayflowd.sqlite3'), 'before');
+    const snapshot = await createHostedBaseSnapshot(flowPath);
+    try {
+      expect(() => readFileSync(join(snapshot.snapshotRoot, '.relayflowd/relayflowd.sqlite3'))).toThrow();
+      const before = await hostedBaseSourceDigest(snapshot.liveSources);
+      writeFileSync(join(data, 'runs/new.sqlite3'), 'after');
+      expect(await hostedBaseSourceDigest(snapshot.liveSources)).toBe(before);
+    } finally {
+      await removeHostedBaseSnapshot(snapshot);
+    }
+  });
+
   it('refuses an oversized source file before buffering its contents', async () => {
     const { project, flowPath } = fixture();
     const oversized = join(project, 'oversized.bin');

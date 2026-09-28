@@ -89,7 +89,7 @@ async function run(
     '--input',
     JSON.stringify(descriptor),
     '--data-dir',
-    join(flowPath, '..', 'daemon'),
+    join(flowPath, '..', '.relayflowd'),
     '--json',
     '--no-observer-link',
   ], {
