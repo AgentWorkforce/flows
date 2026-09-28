@@ -150,56 +150,56 @@ describe('canonical run dispatches the installed Software Garden Babysitter', ()
 
   it.runIf(process.platform === 'linux')(
     'refuses a canonical hosted run with no installed Babysitter before the capability is called', async () => {
-    const empty = await project(false);
-    let calls = 0;
-    const result = await run(empty.flowPath, input(), hosted(
-      'pull_request.labeled',
-      'delivery-canonical',
-      async () => { calls += 1; return { receiptId: 'never', status: 'queued' }; },
-    ));
-    expect(result).toMatchObject({
-      exitCode: 2,
-      report: { ok: false, command: 'run', path: empty.flowPath },
-    });
-    expect(result.report.diagnostics).toEqual([
-      expect.objectContaining({ severity: 'refusal', kind: 'plugin_event_unroutable' }),
-    ]);
-    expect(calls).toBe(0);
+      const empty = await project(false);
+      let calls = 0;
+      const result = await run(empty.flowPath, input(), hosted(
+        'pull_request.labeled',
+        'delivery-canonical',
+        async () => { calls += 1; return { receiptId: 'never', status: 'queued' }; },
+      ));
+      expect(result).toMatchObject({
+        exitCode: 2,
+        report: { ok: false, command: 'run', path: empty.flowPath },
+      });
+      expect(result.report.diagnostics).toEqual([
+        expect.objectContaining({ severity: 'refusal', kind: 'plugin_event_unroutable' }),
+      ]);
+      expect(calls).toBe(0);
     },
   );
 
   it.runIf(process.platform === 'linux')(
     'refuses installed-store drift before the canonical run calls the capability', async () => {
-    const changed = await project();
-    appendFileSync(join(changed.root, '.flows/plugins', `babysitter@sha256:${DIGEST}`, 'turn.ts'), '\n// drift\n');
-    let calls = 0;
-    const result = await run(changed.flowPath, input(), hosted(
-      'pull_request.labeled',
-      'delivery-canonical',
-      async () => { calls += 1; return { receiptId: 'never', status: 'queued' }; },
-    ));
-    expect(result).toMatchObject({ exitCode: 2, report: { ok: false } });
-    expect(result.report.diagnostics).toEqual([
-      expect.objectContaining({ severity: 'refusal', kind: 'plugin_source_drift' }),
-    ]);
-    expect(calls).toBe(0);
+      const changed = await project();
+      appendFileSync(join(changed.root, '.flows/plugins', `babysitter@sha256:${DIGEST}`, 'turn.ts'), '\n// drift\n');
+      let calls = 0;
+      const result = await run(changed.flowPath, input(), hosted(
+        'pull_request.labeled',
+        'delivery-canonical',
+        async () => { calls += 1; return { receiptId: 'never', status: 'queued' }; },
+      ));
+      expect(result).toMatchObject({ exitCode: 2, report: { ok: false } });
+      expect(result.report.diagnostics).toEqual([
+        expect.objectContaining({ severity: 'refusal', kind: 'plugin_source_drift' }),
+      ]);
+      expect(calls).toBe(0);
     },
   );
 
   it.runIf(process.platform === 'linux')(
     'refuses an unmatched verified route before the canonical run calls the capability', async () => {
-    const installed = await project();
-    let calls = 0;
-    const result = await run(installed.flowPath, input('push'), hosted(
-      'push',
-      'delivery-canonical',
-      async () => { calls += 1; return { receiptId: 'never', status: 'queued' }; },
-    ));
-    expect(result).toMatchObject({ exitCode: 2, report: { ok: false } });
-    expect(result.report.diagnostics).toEqual([
-      expect.objectContaining({ severity: 'refusal', kind: 'plugin_event_unroutable' }),
-    ]);
-    expect(calls).toBe(0);
+      const installed = await project();
+      let calls = 0;
+      const result = await run(installed.flowPath, input('push'), hosted(
+        'push',
+        'delivery-canonical',
+        async () => { calls += 1; return { receiptId: 'never', status: 'queued' }; },
+      ));
+      expect(result).toMatchObject({ exitCode: 2, report: { ok: false } });
+      expect(result.report.diagnostics).toEqual([
+        expect.objectContaining({ severity: 'refusal', kind: 'plugin_event_unroutable' }),
+      ]);
+      expect(calls).toBe(0);
     },
   );
 
@@ -226,6 +226,7 @@ describe('canonical run dispatches the installed Software Garden Babysitter', ()
 
       await expect(run(installed.flowPath, input('pull_request.labeled', deliveryId), authority)).resolves.toMatchObject({
         exitCode: 0,
+        stderr: [],
         report: {
           ok: true,
           command: 'run',
