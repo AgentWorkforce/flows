@@ -56,6 +56,12 @@ function literal(expression: ts.Expression | undefined, checker: ts.TypeChecker)
   return undefined;
 }
 
+function numericLiteral(expression: ts.Expression | undefined): number | undefined {
+  if (!expression || !ts.isNumericLiteral(expression)) return undefined;
+  const value = Number(expression.text.replaceAll('_', ''));
+  return Number.isFinite(value) ? value : undefined;
+}
+
 function isRequiredString(expression: ts.Expression, checker: ts.TypeChecker): boolean {
   const type = checker.getTypeAtLocation(expression);
   return (type.flags & ts.TypeFlags.StringLike) !== 0
@@ -79,7 +85,7 @@ function scanTypeScript(path: string): {
   namedPairs: string[];
   incompleteNamed: string[];
   unresolved: Array<{ call: string; where: string }>;
-  dollarBudgetsWithoutTokens: string[];
+  dollarBudgetsWithoutTokenCeilings: string[];
 } {
   const program = ts.createProgram([path], {
     module: ts.ModuleKind.NodeNext,
@@ -96,7 +102,7 @@ function scanTypeScript(path: string): {
   const namedAgents = new Set<string>();
   const incompleteNamed: string[] = [];
   const unresolved: Array<{ call: string; where: string }> = [];
-  const dollarBudgetsWithoutTokens: string[] = [];
+  const dollarBudgetsWithoutTokenCeilings: string[] = [];
   let calls = 0;
 
   const collectDeclarations = (node: ts.Node): void => {
@@ -104,10 +110,13 @@ function scanTypeScript(path: string): {
       const line = file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
       const budget = node.initializer;
       const isDollarString = ts.isStringLiteralLike(budget) && /^\$/u.test(budget.text);
+      const dollars = ts.isObjectLiteralExpression(budget) ? numericLiteral(property(budget, 'dollars')) : undefined;
+      const tokens = ts.isObjectLiteralExpression(budget) ? numericLiteral(property(budget, 'tokens')) : undefined;
       const isDollarObject = ts.isObjectLiteralExpression(budget) && property(budget, 'dollars') !== undefined;
-      const hasTokens = ts.isObjectLiteralExpression(budget) && property(budget, 'tokens') !== undefined;
-      if ((isDollarString || isDollarObject) && !hasTokens) {
-        dollarBudgetsWithoutTokens.push(`${relative(ROOT, path)}:${line}`);
+      const hasEnforceableCeiling = dollars !== undefined && dollars > 0
+        && tokens !== undefined && tokens >= 0 && tokens <= dollars * 100_000;
+      if ((isDollarString || isDollarObject) && !hasEnforceableCeiling) {
+        dollarBudgetsWithoutTokenCeilings.push(`${relative(ROOT, path)}:${line}`);
       }
     }
     if (ts.isPropertyAssignment(node) && node.name.getText(file).replaceAll(/["']/gu, '') === 'agents'
@@ -175,7 +184,28 @@ function scanTypeScript(path: string): {
     ts.forEachChild(node, visitCalls);
   };
   visitCalls(file);
-  return { calls, missing, pairs, namedPairs, incompleteNamed, unresolved, dollarBudgetsWithoutTokens };
+  return { calls, missing, pairs, namedPairs, incompleteNamed, unresolved, dollarBudgetsWithoutTokenCeilings };
+}
+
+function scanDeclarative(document: Record<string, unknown>, where: string): {
+  calls: number;
+  missing: string[];
+  pairs: string[];
+} {
+  const flowCli = typeof document.cli === 'string' ? document.cli : undefined;
+  const steps = Array.isArray(document.steps) ? document.steps as Array<Record<string, unknown>> : [];
+  const modelSteps = steps.filter(candidate => candidate.type === 'agent' || candidate.type === 'llm');
+  const missing: string[] = [];
+  const pairs: string[] = [];
+  for (const step of modelSteps) {
+    const label = `${where}:${String(step.id)}`;
+    const cli = typeof step.cli === 'string' ? step.cli : flowCli;
+    const model = typeof step.model === 'string' ? step.model : undefined;
+    if (!cli) missing.push(`${label} has no effective CLI`);
+    if (!model) missing.push(`${label} has no explicit model`);
+    if (cli && model) pairs.push(`${cli}/${model}`);
+  }
+  return { calls: modelSteps.length, missing, pairs };
 }
 
 function expectSupported(pair: string, where: string): void {
@@ -223,7 +253,21 @@ describe('first-party shipped v2 source model pins', () => {
       const incompleteLlmResult = scanTypeScript(incompleteLlm);
       expect(incompleteLlmResult.calls).toBe(1);
       expect(incompleteLlmResult.missing).toHaveLength(1);
-      expect(incompleteLlmResult.dollarBudgetsWithoutTokens).toHaveLength(1);
+      expect(incompleteLlmResult.dollarBudgetsWithoutTokenCeilings).toHaveLength(1);
+
+      const looseBudget = join(directory, 'loose-budget.flow.ts');
+      writeFileSync(looseBudget, `
+        const header = { budget: { tokens: 20_000_000, dollars: 2 } };
+        void header;
+      `);
+      expect(scanTypeScript(looseBudget).dollarBudgetsWithoutTokenCeilings).toHaveLength(1);
+
+      const boundedBudget = join(directory, 'bounded-budget.flow.ts');
+      writeFileSync(boundedBudget, `
+        const header = { budget: { tokens: 200_000, dollars: 2 } };
+        void header;
+      `);
+      expect(scanTypeScript(boundedBudget).dollarBudgetsWithoutTokenCeilings).toEqual([]);
 
       const taggedLlm = join(directory, 'tagged-llm.flow.ts');
       writeFileSync(taggedLlm, `
@@ -235,6 +279,23 @@ describe('first-party shipped v2 source model pins', () => {
       expect(taggedLlmResult.missing).toEqual([
         expect.stringContaining('tagged f.llm has no explicit CLI/model options'),
       ]);
+
+      const declarativeLlm = scanDeclarative(parse(`
+        version: 0.1.0
+        cli: claude
+        steps:
+          - id: missing-model
+            type: llm
+            prompt: triage
+          - id: unsupported-model
+            type: llm
+            model: not-a-model
+            prompt: triage
+      `) as Record<string, unknown>, 'mutation.flow.yaml');
+      expect(declarativeLlm.calls).toBe(2);
+      expect(declarativeLlm.missing).toEqual(['mutation.flow.yaml:missing-model has no explicit model']);
+      expect(() => declarativeLlm.pairs.forEach(pair => expectSupported(pair, 'mutation.flow.yaml')))
+        .toThrow('unsupported pair');
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -254,8 +315,8 @@ describe('first-party shipped v2 source model pins', () => {
       expect(result.incompleteNamed, `${name}: every named agent must declare a literal cli and model`).toEqual([]);
       if (result.calls > 0) {
         expect(
-          result.dollarBudgetsWithoutTokens,
-          `${name}: current model aliases have no verified frozen price; dollar budgets need an enforceable token ceiling`,
+          result.dollarBudgetsWithoutTokenCeilings,
+          `${name}: current model aliases have no verified frozen price; dollar budgets need at most 100,000 tokens per dollar`,
         ).toEqual([]);
       }
       if (result.unresolved.length > 0) {
@@ -269,29 +330,24 @@ describe('first-party shipped v2 source model pins', () => {
     expect(seenDynamicWaivers).toEqual(new Set(DYNAMIC_PAIR_SOURCE_WAIVERS.keys()));
   });
 
-  it('gives every current declarative agent an effective supported CLI/model pair', () => {
+  it('gives every current declarative agent and LLM an effective supported CLI/model pair', () => {
     const paths = [
       ...filesBelow(resolve(ROOT, 'examples'), '.yaml'),
       ...filesBelow(resolve(ROOT, 'workflows'), '.yaml'),
     ];
     let currentFiles = 0;
-    let agentSteps = 0;
+    let modelSteps = 0;
     for (const path of paths) {
       const document = parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
       if (String(document.version) !== '0.1.0') continue;
       currentFiles += 1;
-      const flowCli = typeof document.cli === 'string' ? document.cli : undefined;
-      const steps = Array.isArray(document.steps) ? document.steps as Array<Record<string, unknown>> : [];
-      for (const step of steps.filter(candidate => candidate.type === 'agent')) {
-        agentSteps += 1;
-        const cli = typeof step.cli === 'string' ? step.cli : flowCli;
-        const model = typeof step.model === 'string' ? step.model : undefined;
-        expect(cli, `${relative(ROOT, path)}:${String(step.id)} has no effective CLI`).toBeTruthy();
-        expect(model, `${relative(ROOT, path)}:${String(step.id)} has no explicit model`).toBeTruthy();
-        if (cli && model) expectSupported(`${cli}/${model}`, `${relative(ROOT, path)}:${String(step.id)}`);
-      }
+      const name = relative(ROOT, path);
+      const result = scanDeclarative(document, name);
+      modelSteps += result.calls;
+      expect(result.missing, `${name}: every declarative agent/LLM needs an effective CLI and explicit model`).toEqual([]);
+      for (const pair of result.pairs) expectSupported(pair, name);
     }
     expect(currentFiles).toBe(7);
-    expect(agentSteps).toBe(8);
+    expect(modelSteps).toBe(8);
   });
 });
