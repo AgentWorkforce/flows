@@ -31,7 +31,10 @@ import {
 import { answerFlow } from './cli/answer.js';
 import { checkAuthoredTriggers } from './cli/check-triggers.js';
 import { parseWebhookArgs, runServeWebhook } from './cli/serve-webhook.js';
-import { runDirectFlow } from './cli/direct-run.js';
+import {
+  runDirectFlow,
+  type HostedSoftwareGardenRunOptions,
+} from './cli/direct-run.js';
 import { parseReplayArgs, replayJournal, type ReplayArgs } from './cli/replay.js';
 import { parseStatusArgs, runStatus, type StatusArgs } from './cli/status.js';
 import {
@@ -183,6 +186,13 @@ export interface RunCliOptions {
    * SIGINT/SIGTERM are handled here, for the duration of that verb only.
    */
   signal?: AbortSignal;
+
+  /**
+   * Verified delivery authority and the only capability exposed to the
+   * canonical hosted Software Garden + Babysitter run. The standalone binary
+   * never constructs this option; an owning hosted action must inject it.
+   */
+  hostedSoftwareGardenBabysitter?: HostedSoftwareGardenRunOptions;
 }
 
 /**
@@ -214,11 +224,13 @@ export async function runCli(
   io: CliIo = PROCESS_IO,
   options: RunCliOptions = {},
 ): Promise<CliExitCode> {
-  if (args.length === 1 && (args[0] === '--version' || args[0] === '-V')) {
+  if (options.hostedSoftwareGardenBabysitter === undefined
+    && args.length === 1 && (args[0] === '--version' || args[0] === '-V')) {
     io.stdout(options.version ?? packageVersion());
     return 0;
   }
-  if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) {
+  if (options.hostedSoftwareGardenBabysitter === undefined
+    && args.length === 1 && (args[0] === '--help' || args[0] === '-h')) {
     io.stdout(USAGE);
     return 0;
   }
@@ -227,6 +239,16 @@ export async function runCli(
   if (parsed === undefined) {
     const report = inputFailureReport({ kind: 'invalid_invocation', message: USAGE });
     emitCheckReport(report, args.includes('--json'), io);
+    return 2;
+  }
+
+  if (options.hostedSoftwareGardenBabysitter !== undefined
+    && (parsed.command !== 'run' || !isAuthoredFlowPath(parsed.value))) {
+    const report = inputFailureReport({
+      kind: 'invalid_invocation',
+      message: 'Hosted Software Garden authority is accepted only by an authored flow run.',
+    }, 'value' in parsed && typeof parsed.value === 'string' ? parsed.value : undefined);
+    emitCheckReport(report, 'json' in parsed && parsed.json === true, io);
     return 2;
   }
 
@@ -393,6 +415,9 @@ export async function runCli(
         elapsedMs: now - startedSteps.get(progress.stepId)! });
     },
     daemon: { spawn: parsed.spawn && spawnAllowedByEnv() },
+    ...(options.hostedSoftwareGardenBabysitter === undefined ? {} : {
+      hostedSoftwareGardenBabysitter: options.hostedSoftwareGardenBabysitter,
+    }),
   };
   const execution = parsed.command === 'run'
     ? isAuthoredFlowPath(parsed.value)

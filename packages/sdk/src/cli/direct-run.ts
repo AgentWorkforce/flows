@@ -14,7 +14,12 @@ import { executeDurableAuthoredFlow } from '../authored-root.js';
 import { AuthoredHumanParked } from '../authored-flow-error.js';
 import { AuthoredFlowLoadError } from '../authored-flow-loader.js';
 import { DirectInputError, parseDirectInput } from '../direct-input.js';
+import {
+  runHostedSoftwareGardenBabysitter,
+  type RunHostedSoftwareGardenBabysitterOptions,
+} from '../hosted-extension-isolation.js';
 import { JournalClient } from '../journal-client.js';
+import { PluginError } from '../plugin-manifest.js';
 import { inputFailureReport } from './check.js';
 import { checkAuthoredTriggers } from './check-triggers.js';
 import { authoredInput, authoredWorkerRemedy, localAgentRemedy } from './local-agent-remedy.js';
@@ -33,11 +38,25 @@ import {
   type RunReport,
 } from './run.js';
 
+export type HostedSoftwareGardenRunOptions = Omit<
+  RunHostedSoftwareGardenBabysitterOptions,
+  'flowPath' | 'input'
+>;
+
+export interface RunDirectFlowOptions extends RunLifecycleOptions {
+  /**
+   * Host-verified authority for the canonical Software Garden + Babysitter
+   * delivery path. This is deliberately an in-process option: neither flow
+   * input nor CLI flags can mint the branded dispatch or queue capability.
+   */
+  hostedSoftwareGardenBabysitter?: HostedSoftwareGardenRunOptions;
+}
+
 export async function runDirectFlow(
   path: string,
   inputArgument: string | undefined,
   dataDir: string,
-  options: RunLifecycleOptions = {},
+  options: RunDirectFlowOptions = {},
 ): Promise<RunExecution> {
   // Consume and close the agent-only descriptor before authored source is
   // imported by trigger preflight. Authored code never receives this object.
@@ -54,6 +73,60 @@ export async function runDirectFlow(
       exitCode: 2,
       report: fromCheckReport('run', inputFailureReport(failure, path)),
     };
+  }
+
+  // A hosted Software Garden delivery is still a normal authored `run`, but
+  // it must branch before the ordinary trigger checker imports tenant code or
+  // a daemon is attached. The caller supplies only authority that was minted
+  // from its verified delivery and its exact queue capability; the loader
+  // independently resolves the reviewed base plus installed, lock-backed
+  // Babysitter generation and the sandbox selects the exact matched handler.
+  if (options.hostedSoftwareGardenBabysitter !== undefined) {
+    const base: RunReport = { ...emptyReport('run'), path };
+    try {
+      const result = await runHostedSoftwareGardenBabysitter({
+        ...options.hostedSoftwareGardenBabysitter,
+        flowPath: path,
+        input,
+      });
+      return {
+        exitCode: 0,
+        report: {
+          ...base,
+          ok: true,
+          status: 'completed',
+          completionReason: result.completionReason,
+          completedSteps: result.capabilityCalls,
+        },
+      };
+    } catch (error) {
+      if (error instanceof PluginError) {
+        return {
+          exitCode: 2,
+          report: {
+            ...base,
+            diagnostics: [...base.diagnostics, {
+              severity: 'refusal',
+              kind: error.code,
+              message: error.message,
+            }],
+          },
+        };
+      }
+      return {
+        exitCode: 1,
+        report: {
+          ...base,
+          status: 'failed',
+          completionReason: 'step_failed',
+          diagnostics: [...base.diagnostics, {
+            severity: 'failure',
+            kind: 'step_failed',
+            message: error instanceof Error ? error.message : 'Hosted Babysitter capability failed.',
+          }],
+        },
+      };
+    }
   }
 
   // Declared triggers are knowable before any daemon or step is started.
