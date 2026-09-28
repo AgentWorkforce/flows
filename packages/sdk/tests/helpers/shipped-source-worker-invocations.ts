@@ -94,6 +94,23 @@ function symbolHasWrites(
         }
       }
     }
+    if (ts.isPropertyAssignment(node) && ts.isIdentifier(unwrap(node.initializer))
+      && checker.getSymbolAtLocation(unwrap(node.initializer)) === symbol) {
+      found = true;
+      return;
+    }
+    if (ts.isShorthandPropertyAssignment(node)
+      && checker.getShorthandAssignmentValueSymbol(node) === symbol) {
+      found = true;
+      return;
+    }
+    if (ts.isArrayLiteralExpression(node) && node.elements.some(element => {
+      const value = ts.isSpreadElement(element) ? element.expression : element;
+      return ts.isIdentifier(unwrap(value)) && checker.getSymbolAtLocation(unwrap(value)) === symbol;
+    })) {
+      found = true;
+      return;
+    }
     ts.forEachChild(node, visit);
   };
   visit(source);
@@ -273,6 +290,10 @@ function workerCallable(
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;
   const binding = symbol.declarations?.find(ts.isBindingElement);
+  if (binding?.initializer) {
+    const callable = workerCallable(binding.initializer, checker, new Set(seen));
+    if (callable) return { ...callable, args: [], auditable: false };
+  }
   if (binding && ts.isObjectBindingPattern(binding.parent)) {
     const name = propertyName(binding.propertyName ?? (ts.isIdentifier(binding.name) ? binding.name : undefined));
     const declaration = binding.parent.parent;

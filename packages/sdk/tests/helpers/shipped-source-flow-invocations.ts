@@ -153,6 +153,10 @@ function namespaceSymbolAuditable(
   if (symbol.declarations?.some(ts.isNamespaceImport)) return true;
   seen.add(symbol);
   const binding = symbol.declarations?.find(ts.isBindingElement);
+  if (binding?.initializer) {
+    const fallback = namespaceAuditable(binding.initializer, checker, new Set(seen));
+    if (fallback !== undefined) return false;
+  }
   if (binding && ts.isObjectBindingPattern(binding.parent)) {
     const source = objectBindingSource(binding);
     if (source) {
@@ -344,6 +348,10 @@ function flowConstructor(
   const imported = symbol.declarations?.find(ts.isImportSpecifier);
   if (imported && (imported.propertyName ?? imported.name).text === 'flow') return { args: [], auditable: true };
   const binding = symbol.declarations?.find(ts.isBindingElement);
+  if (binding?.initializer) {
+    const fallback = flowConstructor(binding.initializer, checker, new Set(seen));
+    if (fallback) return { ...fallback, auditable: false };
+  }
   if (binding && ts.isObjectBindingPattern(binding.parent)) {
     const source = objectBindingSource(binding);
     if (source?.path.at(-1) === 'flow') {
