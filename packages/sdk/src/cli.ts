@@ -252,11 +252,13 @@ export async function runCli(
     return 2;
   }
   if (options.hostedSoftwareGardenBabysitter !== undefined && parsed.command === 'run') {
-    const ignoredFlag = args.find(argument => [
-      '--local-agent',
-      '--agent-capacity',
-      '--allow-human-influenced',
-    ].includes(argument));
+    const ignoredFlag = parsed.localAgent
+      ? '--local-agent'
+      : parsed.agentCapacity !== undefined
+        ? '--agent-capacity'
+        : parsed.allowHumanInfluenced
+          ? '--allow-human-influenced'
+          : undefined;
     if (ignoredFlag !== undefined) {
       const report = inputFailureReport({
         kind: 'invalid_invocation',

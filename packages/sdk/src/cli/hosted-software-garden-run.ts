@@ -115,6 +115,7 @@ export async function runHostedSoftwareGardenFlow(
   }));
   const peer = client.createPeer();
   let work: Promise<HostedCompletion> | undefined;
+  let capabilityFailed = false;
   let capabilityFailure: unknown;
   let workerFailure: unknown;
 
@@ -130,7 +131,10 @@ export async function runHostedSoftwareGardenFlow(
     const attempt = completeHostedDispatch(peer, event, runtime, input, hosted, dataDir);
     work = attempt;
     void attempt.then(completion => {
-      capabilityFailure ??= completion.failure;
+      if (completion.failed) {
+        capabilityFailed = true;
+        capabilityFailure = completion.failure;
+      }
     }, error => {
       workerFailure ??= error;
     }).finally(() => {
@@ -164,7 +168,7 @@ export async function runHostedSoftwareGardenFlow(
       socketPath,
       { ...lifecycle, dataDir },
     );
-    if (execution.exitCode !== 1 || capabilityFailure === undefined) return execution;
+    if (execution.exitCode !== 1 || !capabilityFailed) return execution;
     return {
       ...execution,
       report: {
@@ -184,10 +188,9 @@ export async function runHostedSoftwareGardenFlow(
   }
 }
 
-interface HostedCompletion {
-  readonly outcome: RunOutcome;
-  readonly failure?: unknown;
-}
+type HostedCompletion =
+  | { readonly outcome: RunOutcome; readonly failed: false }
+  | { readonly outcome: RunOutcome; readonly failed: true; readonly failure: unknown };
 
 async function completeHostedDispatch(
   peer: JournalClient,
@@ -199,6 +202,7 @@ async function completeHostedDispatch(
 ): Promise<HostedCompletion> {
   let result: unknown;
   let effectConfirmed = false;
+  let failed = false;
   let failure: unknown;
   try {
     result = await withWorkerLease(peer, dispatch, async signal => {
@@ -234,29 +238,30 @@ async function completeHostedDispatch(
       });
     });
   } catch (error) {
+    failed = true;
     failure = error;
   }
 
-  const output = failure === undefined
-    ? { type: 'hosted-flow-extension', result }
-    : { type: 'hosted-flow-extension', diagnostic: errorMessage(failure) };
+  const output = failed
+    ? { type: 'hosted-flow-extension', diagnostic: errorMessage(failure) }
+    : { type: 'hosted-flow-extension', result };
   const outcome = await peer.stepComplete(
     dispatch.run_id,
     dispatch.step_id,
     dispatch.attempt,
     dispatch.idempotency_key,
-    failure === undefined ? 'success' : 'worker_error',
+    failed ? 'worker_error' : 'success',
     {
       output,
       started_pins: dispatch.pins,
       end_pins: dispatch.pins,
-      ...(failure === undefined ? {} : { trajectory_tail: output }),
+      ...(failed ? { trajectory_tail: output } : {}),
       effects: effectConfirmed
         ? [{ surface_path: SURFACE_PATH, idempotency_key: dispatch.idempotency_key }]
         : [],
     },
   );
-  return failure === undefined ? { outcome } : { outcome, failure };
+  return failed ? { outcome, failed: true, failure } : { outcome, failed: false };
 }
 
 function hostedReceiptPath(dataDir: string, dispatch: StepDispatchEvent): string {

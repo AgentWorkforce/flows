@@ -343,4 +343,31 @@ describe('canonical run dispatches the installed Software Garden Babysitter', ()
       expect(calls).toBe(1);
     },
   );
+
+  it.skipIf(process.platform !== 'linux' || !existsSync('/usr/bin/bwrap'))(
+    'fails closed when the capability rejects without an Error value', async () => {
+      const installed = await project();
+      let calls = 0;
+      const result = await run(installed.flowPath, input(), hosted(
+        'pull_request.labeled',
+        'delivery-canonical',
+        async () => { calls += 1; return await Promise.reject(undefined); },
+      ));
+      expect(result).toMatchObject({
+        exitCode: 1,
+        report: {
+          ok: false,
+          runId: expect.any(String),
+          status: 'failed',
+          completionReason: 'step_failed',
+          diagnostics: [expect.objectContaining({
+            severity: 'failure',
+            kind: 'step_failed',
+            message: 'Hosted Babysitter capability failed.',
+          })],
+        },
+      });
+      expect(calls).toBe(1);
+    },
+  );
 });

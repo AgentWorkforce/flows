@@ -96,11 +96,13 @@ obtains an opaque base and installation as one generation with
 `loadHostedExtensionRuntime`, then calls `runHostedCapabilityExtension` with
 both values from its journal-attached worker. Unsupported local-worker flags
 are refused instead of ignored. Every dispatch rechecks the current extension
-declarations and complete project source tree against that generation. Directory entries are
-streamed beneath a shared entry bound;
+declarations and complete project source tree against that generation.
+Directory entries are streamed beneath a shared entry bound;
 nonblocking no-follow descriptors and explicitly bounded reads enforce the
-cumulative-byte limit before source contents are buffered. The loader never imports
-tenant base code to derive authority. It
+cumulative-byte limit before source contents are buffered. Only runtime/control
+directories (`.flows`, `.git`, `.relayflowd`, and `node_modules`) are excluded,
+so starting the standard journal daemon cannot invalidate the generation it is
+executing. The loader never imports tenant base code to derive authority. It
 requires the exact reviewed Software Factory flow-file SHA-256 and assigns its
 pinned name/version in the parent; project `node_modules`, relative imports,
 stdout, process termination, globals, and module caches therefore cannot forge
