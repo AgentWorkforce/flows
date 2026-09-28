@@ -9,6 +9,10 @@ interface FlowInvocationHelper extends FlowCallable {
   operation: 'call' | 'apply';
 }
 
+interface FlowBindInvoker extends FlowInvocationHelper {
+  prebound: readonly ts.Expression[];
+}
+
 function propertyName(name: ts.PropertyName | undefined): string | undefined {
   if (!name) return undefined;
   if (ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name)) return name.text;
@@ -104,6 +108,40 @@ function bindHelper(
     : helper;
 }
 
+function bindInvoker(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen = new Set<ts.Symbol>(),
+): FlowBindInvoker | undefined {
+  expression = unwrap(expression);
+  if (ts.isCallExpression(expression) && memberName(expression.expression) === 'bind') {
+    const receiver = memberReceiver(expression.expression);
+    const operation = receiver ? memberName(receiver) : undefined;
+    const helperReceiver = receiver ? memberReceiver(receiver) : undefined;
+    const helper = helperReceiver ? bindHelper(helperReceiver, checker, new Set(seen)) : undefined;
+    const target = expression.arguments[0]
+      ? bindHelper(expression.arguments[0], checker, new Set(seen))
+      : undefined;
+    if (helper && (operation === 'call' || operation === 'apply')) return {
+      operation,
+      args: helper.args,
+      prebound: expression.arguments.slice(1),
+      auditable: helper.auditable && target?.auditable === true
+        && !expression.arguments.some(ts.isSpreadElement),
+    };
+  }
+  if (!ts.isIdentifier(expression)) return undefined;
+  const symbol = checker.getSymbolAtLocation(expression);
+  if (!symbol || seen.has(symbol)) return undefined;
+  seen.add(symbol);
+  const variable = symbol.declarations?.find(ts.isVariableDeclaration);
+  if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)) return undefined;
+  const invoker = bindInvoker(variable.initializer, checker, seen);
+  return invoker && (variable.parent.flags & ts.NodeFlags.Const) === 0
+    ? { ...invoker, args: [], prebound: [], auditable: false }
+    : invoker;
+}
+
 function flowConstructor(
   expression: ts.Expression,
   checker: ts.TypeChecker,
@@ -135,6 +173,18 @@ function flowConstructor(
     };
   }
   if (ts.isCallExpression(expression)) {
+    const invoker = bindInvoker(expression.expression, checker, new Set(seen));
+    if (invoker) {
+      const args = [...invoker.prebound, ...expression.arguments];
+      const target = args[0] ? flowConstructor(args[0], checker, new Set(seen)) : undefined;
+      if (invoker.operation !== 'call' || args.length < 2 || !target) {
+        return { args: [], auditable: false };
+      }
+      return {
+        args: [...target.args, ...args.slice(2)],
+        auditable: invoker.auditable && target.auditable && !expression.arguments.some(ts.isSpreadElement),
+      };
+    }
     const operation = memberName(expression.expression);
     const receiver = memberReceiver(expression.expression);
     const helper = receiver ? bindHelper(receiver, checker, new Set(seen)) : undefined;
@@ -146,16 +196,19 @@ function flowConstructor(
         return { args: [], auditable: false };
       }
       return {
-        args: [...helper.args, ...expression.arguments.slice(2)],
+        args: [...target.args, ...expression.arguments.slice(2)],
         auditable: helper.auditable && target.auditable && !expression.arguments.some(ts.isSpreadElement),
       };
     }
   }
   if (!ts.isIdentifier(expression)) return undefined;
-  if (expression.text === 'flow') return { args: [], auditable: true };
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;
   seen.add(symbol);
+  if (expression.text === 'flow'
+    && symbol.declarations?.some(declaration => ts.isFunctionDeclaration(declaration))) {
+    return { args: [], auditable: true };
+  }
   const imported = symbol.declarations?.find(ts.isImportSpecifier);
   if (imported && (imported.propertyName ?? imported.name).text === 'flow') return { args: [], auditable: true };
   const binding = symbol.declarations?.find(ts.isBindingElement);

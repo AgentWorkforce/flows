@@ -12,6 +12,10 @@ interface WorkerInvocationHelper extends WorkerCallable {
   operation: 'call' | 'apply';
 }
 
+interface WorkerBindInvoker extends WorkerInvocationHelper {
+  prebound: readonly ts.Expression[];
+}
+
 export interface WorkerInvocation extends WorkerCallable {}
 
 function unwrap(expression: ts.Expression): ts.Expression {
@@ -98,6 +102,56 @@ function bindHelper(
   return callable && !initializer.immutable ? { ...callable, args: [], auditable: false } : callable;
 }
 
+function bindInvoker(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen = new Set<ts.Symbol>(),
+): WorkerBindInvoker | undefined {
+  expression = unwrap(expression);
+  if (ts.isCallExpression(expression) && memberName(expression.expression) === 'bind') {
+    const receiver = memberReceiver(expression.expression);
+    const operation = receiver ? memberName(receiver) : undefined;
+    const helperReceiver = receiver ? memberReceiver(receiver) : undefined;
+    const helper = helperReceiver ? bindHelper(helperReceiver, checker, new Set(seen)) : undefined;
+    const target = expression.arguments[0]
+      ? bindHelper(expression.arguments[0], checker, new Set(seen))
+      : undefined;
+    if (helper && (operation === 'call' || operation === 'apply')) return {
+      operation,
+      method: helper.method,
+      args: helper.args,
+      prebound: expression.arguments.slice(1),
+      auditable: helper.auditable && target?.method === helper.method && target.auditable
+        && !expression.arguments.some(ts.isSpreadElement),
+    };
+  }
+  if (!ts.isIdentifier(expression)) return undefined;
+  const initializer = variableInitializer(expression, checker, seen);
+  if (!initializer) return undefined;
+  const invoker = bindInvoker(initializer.expression, checker, seen);
+  return invoker && !initializer.immutable
+    ? { ...invoker, args: [], prebound: [], auditable: false }
+    : invoker;
+}
+
+function receiverAuditable(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen = new Set<ts.Symbol>(),
+): boolean {
+  expression = unwrap(expression);
+  if (!ts.isIdentifier(expression)) return true;
+  const symbol = checker.getSymbolAtLocation(expression);
+  if (!symbol || seen.has(symbol)) return false;
+  seen.add(symbol);
+  const variable = symbol.declarations?.find(ts.isVariableDeclaration);
+  if (!variable) return true;
+  if (!ts.isVariableDeclarationList(variable.parent)
+    || (variable.parent.flags & ts.NodeFlags.Const) === 0) return false;
+  if (!variable.initializer) return true;
+  return receiverAuditable(variable.initializer, checker, seen);
+}
+
 function workerCallable(
   expression: ts.Expression,
   checker: ts.TypeChecker,
@@ -105,7 +159,10 @@ function workerCallable(
 ): WorkerCallable | undefined {
   expression = unwrap(expression);
   const direct = memberName(expression);
-  if (direct === 'agent' || direct === 'llm') return { method: direct, args: [], auditable: true };
+  if (direct === 'agent' || direct === 'llm') {
+    const receiver = memberReceiver(expression);
+    return { method: direct, args: [], auditable: receiver ? receiverAuditable(receiver, checker) : false };
+  }
   if (ts.isCallExpression(expression) && memberName(expression.expression) === 'bind') {
     const receiver = memberReceiver(expression.expression);
     const callable = receiver ? workerCallable(receiver, checker, new Set(seen)) : undefined;
@@ -127,6 +184,19 @@ function workerCallable(
     };
   }
   if (ts.isCallExpression(expression)) {
+    const invoker = bindInvoker(expression.expression, checker, new Set(seen));
+    if (invoker) {
+      const args = [...invoker.prebound, ...expression.arguments];
+      const target = args[0] ? workerCallable(args[0], checker, new Set(seen)) : undefined;
+      if (invoker.operation !== 'call' || args.length < 2 || target?.method !== invoker.method) {
+        return { method: invoker.method, args: [], auditable: false };
+      }
+      return {
+        method: invoker.method,
+        args: [...target.args, ...args.slice(2)],
+        auditable: invoker.auditable && target.auditable && !expression.arguments.some(ts.isSpreadElement),
+      };
+    }
     const operation = memberName(expression.expression);
     const receiver = memberReceiver(expression.expression);
     const helper = receiver ? bindHelper(receiver, checker, new Set(seen)) : undefined;
@@ -138,7 +208,7 @@ function workerCallable(
         || target?.method !== helper.method) return { method: helper.method, args: [], auditable: false };
       return {
         method: helper.method,
-        args: [...helper.args, ...expression.arguments.slice(2)],
+        args: [...target.args, ...expression.arguments.slice(2)],
         auditable: helper.auditable && target.auditable && !expression.arguments.some(ts.isSpreadElement),
       };
     }

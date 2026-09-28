@@ -260,19 +260,19 @@ describe('first-party shipped source model pins', () => {
         import * as surface from '@relayflows/surface';
         declare const flowArgs: [string, unknown, () => void], bindArgs: [undefined, string], callArgs: [undefined, string, unknown, () => void], receiverArgs: [undefined];
         declare function flow(name: string, header: unknown, body: () => void): void;
-        const define = flow, bound = flow.bind(undefined), helper = flow.call, applyHelper = flow.apply, helperBound = helper.bind(flow, undefined), bindFlow = flow.bind, api = surface; const { flow: destructured, ['flow']: computed } = surface; let mutableFlow = flow, mutableHelper = flow.call, mutableApi = surface;
-        const preboundName = flow.bind(undefined, 'prebound-name'), preboundHeader = flow.bind(undefined, 'prebound-header', { budget: '$2' }), extractedBound = bindFlow.call(flow, undefined, 'extracted');
+        const define = flow, baseFlow = flow, bound = flow.bind(undefined), helper = flow.call, applyHelper = flow.apply, helperBound = helper.bind(flow, undefined), bindFlow = flow.bind, invokeBind = bindFlow.call.bind(bindFlow), api = surface; const { flow: destructured, ['flow']: computed } = surface; let mutableFlow = flow, mutableHelper = flow.call, mutableApi = surface;
+        const preboundName = flow.bind(undefined, 'prebound-name'), preboundHeader = flow.bind(undefined, 'prebound-header', { budget: '$2' }), reboundHeader = bindFlow.call(preboundHeader, undefined, 'ignored', { budget: { dollars: 2, tokens: 200_000 } }), extractedBound = bindFlow.call(flow, undefined, 'extracted'), twiceBound = invokeBind(flow, undefined, 'twice');
         define('aliased', { budget: '$2' }, () => {}); bound('bound', { budget: '$2' }, () => {}); destructured('destructured', { budget: '$2' }, () => {}); mutableFlow('mutable', { budget: '$2' }, () => {}); mutableHelper(undefined, 'mutable-helper', { budget: '$2' }, () => {}); mutableApi.flow('mutable-api', { budget: '$2' }, () => {});
-        preboundName({ budget: '$2' }, () => {}); preboundHeader(() => {}); helper(undefined, 'helper', { budget: '$2' }, () => {}); applyHelper(undefined, ['apply-helper', { budget: '$2' }, () => {}]); helperBound('helper-bound', { budget: '$2' }, () => {});
-        importedFlow('imported', { budget: '$2' }, () => {}); api.flow('namespace-alias', { budget: '$2' }, () => {}); computed('computed-binding', { budget: '$2' }, () => {}); extractedBound({ budget: '$2' }, () => {});
+        preboundName({ budget: '$2' }, () => {}); preboundHeader(() => {}); reboundHeader(() => {}); helper(undefined, 'helper', { budget: '$2' }, () => {}); applyHelper(undefined, ['apply-helper', { budget: '$2' }, () => {}]); helperBound('helper-bound', { budget: '$2' }, () => {});
+        importedFlow('imported', { budget: '$2' }, () => {}); api.flow('namespace-alias', { budget: '$2' }, () => {}); computed('computed-binding', { budget: '$2' }, () => {}); extractedBound({ budget: '$2' }, () => {}); twiceBound({ budget: '$2' }, () => {}); { let flow = baseFlow; flow = baseFlow.bind(undefined, 'shadowed', { budget: '$2' }); flow(() => {}); }
         surface.flow('namespace', { budget: '$2' }, () => {}); surface.flow.call(undefined, 'called', { budget: '$2' }, () => {}); surface.flow.apply(undefined, ['applied', { budget: '$2' }, () => {}]); surface.flow.apply(undefined, [] as unknown as []);
         surface.flow.call(undefined, ...flowArgs); surface.flow.apply(undefined, [...flowArgs]); flow.bind(...bindArgs)({ budget: '$2' }, () => {}); flow.call(...callArgs); flow.apply(...receiverArgs, ['outer-applied', { budget: '$2' }, () => {}]);
         flow('accessor', { get budget() { return { dollars: 2, tokens: 20_000_000 }; } }, () => {});
         flow('duplicate', { budget: '$2', budget: '$1' }, () => {});
       `);
       const unsafeFlowHeaderResult = scanTypeScript(unsafeFlowHeaders);
-      expect(unsafeFlowHeaderResult.dollarBudgetsWithoutTokenCeilings).toHaveLength(15);
-      expect(unsafeFlowHeaderResult.invalidFlowHeaders).toHaveLength(11);
+      expect(unsafeFlowHeaderResult.dollarBudgetsWithoutTokenCeilings).toHaveLength(17);
+      expect(unsafeFlowHeaderResult.invalidFlowHeaders).toHaveLength(12);
 
       const namedBody = join(directory, 'named-body.flow.ts');
       writeFileSync(namedBody, `
@@ -317,13 +317,13 @@ describe('first-party shipped source model pins', () => {
           llm(prompt: string, options: { output: object }): void;
         };
         const runAgent = f.agent;
-        const generate = (f['llm']); let mutableAgent = f.agent, mutableCall = f.agent.call;
-        runAgent('review', { task: 'x' }); mutableAgent('review', { task: 'x' });
+        const generate = (f['llm']); let mutableAgent = f.agent, mutableCall = f.agent.call, mutableWorker = f;
+        runAgent('review', { task: 'x' }); mutableAgent('review', { task: 'x' }); mutableWorker = { agent: f.agent.bind(f, 'real', { task: 'x' }), llm: f.llm }; mutableWorker.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' });
         generate('prompt', { output: {} }); mutableCall(f, 'review', { task: 'x' });
       `);
       const variableAliasResult = scanTypeScript(variableAliases);
-      expect(variableAliasResult.calls).toBe(4);
-      expect(variableAliasResult.missing).toHaveLength(4);
+      expect(variableAliasResult.calls).toBe(5);
+      expect(variableAliasResult.missing).toHaveLength(5);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `
@@ -346,14 +346,14 @@ describe('first-party shipped source model pins', () => {
           agent(name: string, options: { task: string }): void;
           llm(prompt: string, options: { output: object }): void;
         };
-        const runAgent = f.agent.bind(f), preboundAgent = f.agent.bind(f, 'real', { task: 'x' }), bindAgent = f.agent.bind, extractedBound = bindAgent.call(f.agent, f, 'real', { task: 'x' });
+        const runAgent = f.agent.bind(f), preboundAgent = f.agent.bind(f, 'real', { task: 'x' }), bindAgent = f.agent.bind, invokeBind = bindAgent.call.bind(bindAgent), reboundAgent = bindAgent.call(preboundAgent, f, 'ignored', { cli: 'claude', model: 'claude-sonnet-5' }), extractedBound = bindAgent.call(f.agent, f, 'real', { task: 'x' }), twiceBound = invokeBind(f.agent, f, 'real', { task: 'x' });
         const generate = f['llm']['bind'](f), preboundLlm = f.llm.bind(f, 'real', { output: {} });
-        runAgent('review', { task: 'x' }); preboundAgent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); extractedBound('ignored', { cli: 'claude', model: 'claude-sonnet-5' });
+        runAgent('review', { task: 'x' }); preboundAgent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); reboundAgent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); extractedBound('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); twiceBound('ignored', { cli: 'claude', model: 'claude-sonnet-5' });
         generate('prompt', { output: {} }); preboundLlm('ignored', { cli: 'claude', model: 'claude-sonnet-5' });
       `);
       const boundAliasResult = scanTypeScript(boundAliases);
-      expect(boundAliasResult.calls).toBe(5);
-      expect(boundAliasResult.missing).toHaveLength(5);
+      expect(boundAliasResult.calls).toBe(7);
+      expect(boundAliasResult.missing).toHaveLength(7);
 
       const functionMethods = join(directory, 'function-methods.flow.ts');
       writeFileSync(functionMethods, `
