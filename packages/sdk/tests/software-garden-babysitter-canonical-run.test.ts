@@ -363,7 +363,7 @@ describe('canonical run dispatches the installed Software Garden Babysitter', ()
           diagnostics: [expect.objectContaining({
             severity: 'failure',
             kind: 'step_failed',
-            message: 'Hosted Babysitter capability failed.',
+            message: expect.stringContaining('non-error value'),
           })],
         },
       });

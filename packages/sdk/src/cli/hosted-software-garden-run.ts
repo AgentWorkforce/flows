@@ -201,7 +201,7 @@ async function completeHostedDispatch(
   dataDir: string,
 ): Promise<HostedCompletion> {
   let result: unknown;
-  let effectConfirmed = false;
+  let effectRecorded = false;
   let failed = false;
   let failure: unknown;
   try {
@@ -225,13 +225,19 @@ async function completeHostedDispatch(
               revisionBefore: 'pending',
               revisionAfter: hosted.dispatch.deliveryId,
             }, async () => {
+              // performEffect reaches this callback only after effect.record
+              // succeeded, so a provider rejection still has a journal fact
+              // the failing step completion must carry.
+              effectRecorded = true;
               signal.throwIfAborted();
               receipt = await hosted.babysitterTurn.queue(request, authority);
               await atomicJson(file, receipt);
               signal.throwIfAborted();
             });
-            if (!performed) receipt = await readHelperReceipt(file);
-            effectConfirmed = true;
+            if (!performed) {
+              effectRecorded = true;
+              receipt = await readHelperReceipt(file);
+            }
             return receipt;
           },
         },
@@ -256,7 +262,7 @@ async function completeHostedDispatch(
       started_pins: dispatch.pins,
       end_pins: dispatch.pins,
       ...(failed ? { trajectory_tail: output } : {}),
-      effects: effectConfirmed
+      effects: effectRecorded
         ? [{ surface_path: SURFACE_PATH, idempotency_key: dispatch.idempotency_key }]
         : [],
     },
