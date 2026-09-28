@@ -307,14 +307,16 @@ describe('canonical run dispatches the installed Software Garden Babysitter', ()
           await released;
           return { receiptId: `bst_${'2'.repeat(64)}`, status: 'queued' };
         }),
-        timeoutMs: 25,
+        // Sandbox startup is part of this deadline. Leave enough time for the
+        // capability to begin, then deliberately hold it beyond the deadline.
+        timeoutMs: 1_000,
       };
 
       let settled = false;
       const pending = run(installed.flowPath, input('pull_request.labeled', deliveryId), authority);
       void pending.then(() => { settled = true; }, () => { settled = true; });
       await started;
-      await delay(75);
+      await delay(1_050);
       expect(settled).toBe(false);
       expect(calls).toBe(1);
 

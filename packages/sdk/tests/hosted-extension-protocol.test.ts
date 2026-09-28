@@ -411,6 +411,36 @@ describe('hosted extension hostile protocol', () => {
     });
   }, 15_000);
 
+  it('does not invoke a capability frame delivered after timeout settlement', async () => {
+    const protocol = new PassThrough();
+    const stdin = new PassThrough();
+    const stderr = new PassThrough();
+    const child = Object.assign(new EventEmitter(), {
+      exitCode: null,
+      signalCode: null,
+      kill: () => true,
+    }) as unknown as ChildProcess;
+    let calls = 0;
+    const run = exchangeHostedExtension(
+      child,
+      protocol,
+      stdin,
+      stderr,
+      10,
+      { type: 'run' },
+      async () => { calls += 1; return { receiptId: 'late', status: 'queued' }; },
+    );
+    const observed = run.then(() => undefined, error => error as Error);
+    await new Promise(resolve => setTimeout(resolve, 30));
+    expect(await observed).toMatchObject({
+      code: 'plugin_unsupported',
+      message: expect.stringContaining('sandbox timed out'),
+    });
+    protocol.write(`${JSON.stringify(capabilityFrame())}\n`);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(calls).toBe(0);
+  });
+
   it('settles successful completion with captured intrinsics', async () => {
     const protocol = new PassThrough();
     const stdin = new PassThrough();

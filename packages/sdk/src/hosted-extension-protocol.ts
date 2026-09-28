@@ -165,6 +165,10 @@ export async function exchangeHostedExtension(
     EVENT_ON(stdin, 'error', () => refuse('Hosted extension capability channel closed.'));
     EVENT_ON(protocol, 'error', () => refuse('Hosted extension protocol channel failed.'));
     EVENT_ON(protocol, 'data', chunk => {
+      // Streams may still deliver bytes buffered before finish killed the
+      // sandbox. A terminal protocol exchange must never start a capability
+      // from one of those late frames.
+      if (settled) return;
       buffer += STRING(chunk);
       if (BUFFER_BYTE_LENGTH(buffer) > MAX_FRAME_BYTES) return refuse('Hosted extension protocol exceeded its size limit.');
       for (;;) {
