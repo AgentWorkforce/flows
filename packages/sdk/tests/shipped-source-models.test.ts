@@ -123,6 +123,24 @@ function memberName(expression: ts.Expression): string | undefined {
   return undefined;
 }
 
+function workerMethodName(expression: ts.Expression, checker: ts.TypeChecker): string | undefined {
+  const direct = memberName(expression);
+  if (direct !== undefined) return direct;
+  while (ts.isParenthesizedExpression(expression)) expression = expression.expression;
+  if (!ts.isIdentifier(expression)) return undefined;
+  const declaration = checker.getSymbolAtLocation(expression)?.declarations?.find(ts.isBindingElement);
+  if (!declaration || !ts.isObjectBindingPattern(declaration.parent)) return undefined;
+  const propertyName = declaration.propertyName ?? declaration.name;
+  return ts.isIdentifier(propertyName) || ts.isStringLiteralLike(propertyName) ? propertyName.text : undefined;
+}
+
+function isFlowCall(node: ts.Node): node is ts.CallExpression {
+  if (!ts.isCallExpression(node)) return false;
+  let expression: ts.Expression = node.expression;
+  while (ts.isParenthesizedExpression(expression)) expression = expression.expression;
+  return ts.isIdentifier(expression) && expression.text === 'flow';
+}
+
 function isRequiredString(expression: ts.Expression, checker: ts.TypeChecker): boolean {
   const type = checker.getTypeAtLocation(expression);
   return (type.flags & ts.TypeFlags.StringLike) !== 0
@@ -145,6 +163,7 @@ function scanTypeScript(path: string): {
   pairs: string[];
   namedPairs: string[];
   incompleteNamed: string[];
+  invalidFlowHeaders: string[];
   unresolved: Array<{ call: string; where: string }>;
   dollarBudgetsWithoutTokenCeilings: string[];
 } {
@@ -160,60 +179,86 @@ function scanTypeScript(path: string): {
   const missing: string[] = [];
   const pairs: string[] = [];
   const namedPairs: string[] = [];
-  const namedAgents = new Set<string>();
+  const namedAgentsByFlow = new Map<ts.CallExpression, Set<string>>();
   const incompleteNamed: string[] = [];
+  const invalidFlowHeaders: string[] = [];
   const unresolved: Array<{ call: string; where: string }> = [];
   const dollarBudgetsWithoutTokenCeilings: string[] = [];
   let calls = 0;
 
-  const collectDeclarations = (node: ts.Node): void => {
-    if ((ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node))
-      && node.name.getText(file).replaceAll(/["']/gu, '') === 'budget') {
+  const collectFlowHeaders = (node: ts.Node): void => {
+    if (isFlowCall(node) && node.arguments.length >= 3) {
+      const header = node.arguments[1];
       const line = file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
-      const budgetExpression = ts.isPropertyAssignment(node) ? node.initializer : node.name;
-      const budget = constInitializer(budgetExpression, checker);
-      const budgetObject = objectLiteral(budgetExpression, checker);
-      const isDollarString = budget !== undefined && ts.isStringLiteralLike(budget) && /^\$/u.test(budget.text);
-      const dollars = budgetObject ? numericLiteral(property(budgetObject, 'dollars'), checker) : undefined;
-      const tokens = budgetObject ? numericLiteral(property(budgetObject, 'tokens'), checker) : undefined;
-      const isDollarObject = budget !== undefined && ts.isObjectLiteralExpression(budget)
-        && property(budget, 'dollars') !== undefined;
-      const hasEnforceableCeiling = dollars !== undefined && dollars > 0
-        && tokens !== undefined && tokens >= 0 && tokens <= dollars * 100_000;
-      if ((isDollarString || isDollarObject) && !hasEnforceableCeiling) {
-        dollarBudgetsWithoutTokenCeilings.push(`${relative(ROOT, path)}:${line}`);
+      if (!header || !ts.isObjectLiteralExpression(header)) {
+        invalidFlowHeaders.push(`${relative(ROOT, path)}:${line} flow header must be an inline object literal`);
+        ts.forEachChild(node, collectFlowHeaders);
+        return;
+      }
+
+      const budgetExpression = property(header, 'budget');
+      if (budgetExpression !== undefined) {
+        const budgetProperty = header.properties.find(candidate =>
+          candidate.name?.getText(file).replaceAll(/["']/gu, '') === 'budget');
+        const budgetLine = budgetProperty
+          ? file.getLineAndCharacterOfPosition(budgetProperty.getStart(file)).line + 1
+          : line;
+        const budget = constInitializer(budgetExpression, checker);
+        const budgetObject = objectLiteral(budgetExpression, checker);
+        const isDollarString = budget !== undefined && ts.isStringLiteralLike(budget) && /^\$/u.test(budget.text);
+        const dollars = budgetObject ? numericLiteral(property(budgetObject, 'dollars'), checker) : undefined;
+        const tokens = budgetObject ? numericLiteral(property(budgetObject, 'tokens'), checker) : undefined;
+        const isDollarObject = budget !== undefined && ts.isObjectLiteralExpression(budget)
+          && property(budget, 'dollars') !== undefined;
+        const hasEnforceableCeiling = dollars !== undefined && dollars > 0
+          && tokens !== undefined && tokens >= 0 && tokens <= dollars * 100_000;
+        if ((isDollarString || isDollarObject) && !hasEnforceableCeiling) {
+          dollarBudgetsWithoutTokenCeilings.push(`${relative(ROOT, path)}:${budgetLine}`);
+        }
+      }
+
+      const agentsExpression = property(header, 'agents');
+      const namedAgents = new Set<string>();
+      namedAgentsByFlow.set(node, namedAgents);
+      if (agentsExpression !== undefined && !ts.isObjectLiteralExpression(agentsExpression)) {
+        incompleteNamed.push(`${relative(ROOT, path)}:${line}`);
+      } else if (agentsExpression && ts.isObjectLiteralExpression(agentsExpression)) {
+        for (const agent of agentsExpression.properties) {
+          const line = file.getLineAndCharacterOfPosition(agent.getStart(file)).line + 1;
+          if (!ts.isPropertyAssignment(agent) || !ts.isObjectLiteralExpression(agent.initializer)) {
+            incompleteNamed.push(`${relative(ROOT, path)}:${line}`);
+            continue;
+          }
+          const cli = literal(property(agent.initializer, 'cli'), checker);
+          const model = literal(property(agent.initializer, 'model'), checker);
+          const name = agent.name.getText(file).replaceAll(/["']/gu, '');
+          if (cli && model) {
+            namedPairs.push(`${cli}/${model}`);
+            namedAgents.add(name);
+          }
+          else incompleteNamed.push(`${relative(ROOT, path)}:${line}`);
+        }
       }
     }
-    if (ts.isPropertyAssignment(node) && node.name.getText(file).replaceAll(/["']/gu, '') === 'agents'
-      && ts.isObjectLiteralExpression(node.initializer)) {
-      for (const agent of node.initializer.properties) {
-        const line = file.getLineAndCharacterOfPosition(agent.getStart(file)).line + 1;
-        if (!ts.isPropertyAssignment(agent) || !ts.isObjectLiteralExpression(agent.initializer)) {
-          incompleteNamed.push(`${relative(ROOT, path)}:${line}`);
-          continue;
-        }
-        const cli = literal(property(agent.initializer, 'cli'), checker);
-        const model = literal(property(agent.initializer, 'model'), checker);
-        const name = agent.name.getText(file).replaceAll(/["']/gu, '');
-        if (cli && model) {
-          namedPairs.push(`${cli}/${model}`);
-          namedAgents.add(name);
-        }
-        else incompleteNamed.push(`${relative(ROOT, path)}:${line}`);
-      }
-    }
-    ts.forEachChild(node, collectDeclarations);
+    ts.forEachChild(node, collectFlowHeaders);
   };
-  collectDeclarations(file);
+  collectFlowHeaders(file);
+
+  const enclosingFlow = (node: ts.Node): ts.CallExpression | undefined => {
+    for (let parent = node.parent; parent; parent = parent.parent) {
+      if (isFlowCall(parent)) return parent;
+    }
+    return undefined;
+  };
 
   const visitCalls = (node: ts.Node): void => {
-    if (ts.isTaggedTemplateExpression(node) && memberName(node.tag) === 'llm') {
+    if (ts.isTaggedTemplateExpression(node) && workerMethodName(node.tag, checker) === 'llm') {
       calls += 1;
       const line = file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
       missing.push(`${relative(ROOT, path)}:${line} tagged f.llm has no explicit CLI/model options`);
     }
     if (ts.isCallExpression(node)) {
-      const method = memberName(node.expression);
+      const method = workerMethodName(node.expression, checker);
       if (method !== 'agent' && method !== 'llm') {
         ts.forEachChild(node, visitCalls);
         return;
@@ -229,7 +274,10 @@ function scanTypeScript(path: string): {
         const modelExpression = property(options, 'model');
         if (!cliExpression || !modelExpression) {
           const names = stringValues(node.arguments[0], checker);
-          if (kind === 'agent' && !cliExpression && !modelExpression && names?.every(name => namedAgents.has(name))) {
+          const flow = enclosingFlow(node);
+          const namedAgents = flow ? namedAgentsByFlow.get(flow) : undefined;
+          if (kind === 'agent' && !cliExpression && !modelExpression
+            && names?.every(name => namedAgents?.has(name) === true)) {
             // This exact call resolves only through complete, literal named-agent declarations.
           } else {
             missing.push(`${relative(ROOT, path)}:${line} omits ${!cliExpression ? 'cli' : 'model'}`);
@@ -252,7 +300,16 @@ function scanTypeScript(path: string): {
     ts.forEachChild(node, visitCalls);
   };
   visitCalls(file);
-  return { calls, missing, pairs, namedPairs, incompleteNamed, unresolved, dollarBudgetsWithoutTokenCeilings };
+  return {
+    calls,
+    missing,
+    pairs,
+    namedPairs,
+    incompleteNamed,
+    invalidFlowHeaders,
+    unresolved,
+    dollarBudgetsWithoutTokenCeilings,
+  };
 }
 
 function scanDeclarative(document: Record<string, unknown>, where: string): {
@@ -330,21 +387,33 @@ describe('first-party shipped source model pins', () => {
 
       const incomplete = join(directory, 'incomplete.flow.ts');
       writeFileSync(incomplete, `
+        declare function flow(name: string, header: unknown, body: () => void): void;
         declare const f: { agent(name: string, options: { task: string }): void };
-        const header = { agents: { reviewer: { cli: 'claude' } } };
-        void header;
-        f.agent('reviewer', { task: 'review' });
+        flow('incomplete', { agents: { reviewer: { cli: 'claude' } } }, () => {
+          f.agent('reviewer', { task: 'review' });
+        });
       `);
       const incompleteResult = scanTypeScript(incomplete);
       expect(incompleteResult.incompleteNamed).toHaveLength(1);
       expect(incompleteResult.missing).toHaveLength(1);
 
+      const unusedNamedPolicy = join(directory, 'unused-named-policy.flow.ts');
+      writeFileSync(unusedNamedPolicy, `
+        declare function flow(name: string, header: unknown, body: () => void): void;
+        declare const f: { agent(name: string, options: { task: string }): void };
+        const policy = { agents: { reviewer: { cli: 'claude', model: 'claude-sonnet-5' } } };
+        void policy;
+        flow('unrelated-policy', {}, () => f.agent('reviewer', { task: 'review' }));
+      `);
+      const unusedNamedPolicyResult = scanTypeScript(unusedNamedPolicy);
+      expect(unusedNamedPolicyResult.namedPairs).toEqual([]);
+      expect(unusedNamedPolicyResult.missing).toHaveLength(1);
+
       const incompleteLlm = join(directory, 'incomplete-llm.flow.ts');
       writeFileSync(incompleteLlm, `
+        declare function flow(name: string, header: unknown, body: () => void): void;
         declare const f: { llm(prompt: string, options: { cli: string }): void };
-        const header = { budget: '$2' };
-        void header;
-        f.llm('triage', { cli: 'claude' });
+        flow('incomplete-llm', { budget: '$2' }, () => f.llm('triage', { cli: 'claude' }));
       `);
       const incompleteLlmResult = scanTypeScript(incompleteLlm);
       expect(incompleteLlmResult.calls).toBe(1);
@@ -353,15 +422,15 @@ describe('first-party shipped source model pins', () => {
 
       const looseBudget = join(directory, 'loose-budget.flow.ts');
       writeFileSync(looseBudget, `
-        const header = { budget: { tokens: 20_000_000, dollars: 2 } };
-        void header;
+        declare function flow(name: string, header: unknown, body: () => void): void;
+        flow('loose', { budget: { tokens: 20_000_000, dollars: 2 } }, () => {});
       `);
       expect(scanTypeScript(looseBudget).dollarBudgetsWithoutTokenCeilings).toHaveLength(1);
 
       const boundedBudget = join(directory, 'bounded-budget.flow.ts');
       writeFileSync(boundedBudget, `
-        const header = { budget: { tokens: 200_000, dollars: 2 } };
-        void header;
+        declare function flow(name: string, header: unknown, body: () => void): void;
+        flow('bounded', { budget: { tokens: 200_000, dollars: 2 } }, () => {});
       `);
       expect(scanTypeScript(boundedBudget).dollarBudgetsWithoutTokenCeilings).toEqual([]);
 
@@ -370,8 +439,8 @@ describe('first-party shipped source model pins', () => {
         const tokens = 20_000_000;
         const dollars = 2;
         const budget = { tokens, dollars };
-        const header = { budget };
-        void header;
+        declare function flow(name: string, header: unknown, body: () => void): void;
+        flow('shorthand', { budget }, () => {});
       `);
       expect(scanTypeScript(shorthandBudget).dollarBudgetsWithoutTokenCeilings).toHaveLength(1);
 
@@ -379,8 +448,8 @@ describe('first-party shipped source model pins', () => {
       writeFileSync(mutatedBudget, `
         const budget = { tokens: 200_000, dollars: 2 };
         budget.tokens = 20_000_000;
-        const header = { budget };
-        void header;
+        declare function flow(name: string, header: unknown, body: () => void): void;
+        flow('mutated', { budget }, () => {});
       `);
       expect(scanTypeScript(mutatedBudget).dollarBudgetsWithoutTokenCeilings).toHaveLength(1);
 
@@ -392,7 +461,17 @@ describe('first-party shipped source model pins', () => {
         alias.budget.tokens = 20_000_000;
         flow('mutated-through-alias', { budget }, () => {});
       `);
-      expect(scanTypeScript(aliasedBudget).dollarBudgetsWithoutTokenCeilings).toHaveLength(2);
+      expect(scanTypeScript(aliasedBudget).dollarBudgetsWithoutTokenCeilings).toHaveLength(1);
+
+      const aliasedHeader = join(directory, 'aliased-header.flow.ts');
+      writeFileSync(aliasedHeader, `
+        declare function flow(name: string, header: unknown, body: () => void): void;
+        const budget = { tokens: 200_000, dollars: 2 };
+        const header = { budget };
+        header.budget.tokens = 20_000_000;
+        flow('mutated-through-header', header, () => {});
+      `);
+      expect(scanTypeScript(aliasedHeader).invalidFlowHeaders).toHaveLength(1);
 
       const elementAccess = join(directory, 'element-access.flow.ts');
       writeFileSync(elementAccess, `
@@ -406,6 +485,21 @@ describe('first-party shipped source model pins', () => {
       const elementAccessResult = scanTypeScript(elementAccess);
       expect(elementAccessResult.calls).toBe(2);
       expect(elementAccessResult.missing).toHaveLength(2);
+
+      const destructured = join(directory, 'destructured.flow.ts');
+      writeFileSync(destructured, `
+        declare const f: {
+          agent(name: string, options: { task: string }): void;
+          llm(prompt: string, options: { output: object }): void;
+        };
+        const { agent } = f;
+        const { llm: generate } = f;
+        agent('review', { task: 'x' });
+        generate('prompt', { output: {} });
+      `);
+      const destructuredResult = scanTypeScript(destructured);
+      expect(destructuredResult.calls).toBe(2);
+      expect(destructuredResult.missing).toHaveLength(2);
 
       const taggedLlm = join(directory, 'tagged-llm.flow.ts');
       writeFileSync(taggedLlm, `
@@ -469,6 +563,7 @@ describe('first-party shipped source model pins', () => {
       const result = scanTypeScript(path);
       for (const pair of [...result.pairs, ...result.namedPairs]) expectSupported(pair, name);
       expect(result.incompleteNamed, `${name}: every named agent must declare a literal cli and model`).toEqual([]);
+      expect(result.invalidFlowHeaders, `${name}: flow headers must be inline and statically auditable`).toEqual([]);
       if (result.calls > 0) {
         expect(
           result.dollarBudgetsWithoutTokenCeilings,
