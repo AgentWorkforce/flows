@@ -140,7 +140,10 @@ function receiverAuditable(
   seen = new Set<ts.Symbol>(),
 ): boolean {
   expression = unwrap(expression);
-  if (!ts.isIdentifier(expression)) return true;
+  if (!ts.isIdentifier(expression)) {
+    const receiver = memberReceiver(expression);
+    return receiver ? receiverAuditable(receiver, checker, seen) : false;
+  }
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return false;
   seen.add(symbol);
@@ -223,7 +226,10 @@ function workerCallable(
     const immutable = ts.isVariableDeclaration(declaration)
       && ts.isVariableDeclarationList(declaration.parent)
       && (declaration.parent.flags & ts.NodeFlags.Const) !== 0;
-    return name === 'agent' || name === 'llm' ? { method: name, args: [], auditable: immutable } : undefined;
+    const receiver = ts.isVariableDeclaration(declaration) ? declaration.initializer : undefined;
+    return name === 'agent' || name === 'llm'
+      ? { method: name, args: [], auditable: immutable && !!receiver && receiverAuditable(receiver, checker) }
+      : undefined;
   }
   const initializer = variableInitializer(expression, checker, seen);
   if (!initializer) return undefined;

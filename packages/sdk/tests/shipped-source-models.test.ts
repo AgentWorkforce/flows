@@ -231,13 +231,13 @@ describe('first-party shipped source model pins', () => {
 
       const aliasedHeader = join(directory, 'aliased-header.flow.ts');
       writeFileSync(aliasedHeader, `
-        declare function flow(name: string, header: unknown, body: () => void): void;
+        import * as surface from '@relayflows/surface'; declare function flow(name: string, header: unknown, body: () => void): void;
         const budget = { tokens: 200_000, dollars: 2 };
-        const header = { budget };
+        const header = { budget }, box = { surface };
         header.budget.tokens = 20_000_000;
-        flow('mutated-through-header', header, () => {});
+        flow('mutated-through-header', header, () => {}); box.surface.flow('nested-namespace', { budget: '$2' }, () => {});
       `);
-      expect(scanTypeScript(aliasedHeader).invalidFlowHeaders).toHaveLength(1);
+      expect(scanTypeScript(aliasedHeader).invalidFlowHeaders).toHaveLength(2);
 
       const twoArgumentBudget = join(directory, 'two-argument-budget.flow.ts');
       writeFileSync(twoArgumentBudget, `
@@ -317,13 +317,13 @@ describe('first-party shipped source model pins', () => {
           llm(prompt: string, options: { output: object }): void;
         };
         const runAgent = f.agent;
-        const generate = (f['llm']); let mutableAgent = f.agent, mutableCall = f.agent.call, mutableWorker = f;
-        runAgent('review', { task: 'x' }); mutableAgent('review', { task: 'x' }); mutableWorker = { agent: f.agent.bind(f, 'real', { task: 'x' }), llm: f.llm }; mutableWorker.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' });
-        generate('prompt', { output: {} }); mutableCall(f, 'review', { task: 'x' });
+        const generate = (f['llm']); let mutableAgent = f.agent, mutableCall = f.agent.call, mutableWorker = f, box: any = { worker: f };
+        runAgent('review', { task: 'x' }); mutableAgent('review', { task: 'x' }); mutableWorker = { agent: f.agent.bind(f, 'real', { task: 'x' }), llm: f.llm }; mutableWorker.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); const { agent: extractedMutable } = mutableWorker; extractedMutable('ignored', { cli: 'claude', model: 'claude-sonnet-5' });
+        generate('prompt', { output: {} }); mutableCall(f, 'review', { task: 'x' }); box.worker = mutableWorker; box.worker.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' });
       `);
       const variableAliasResult = scanTypeScript(variableAliases);
-      expect(variableAliasResult.calls).toBe(5);
-      expect(variableAliasResult.missing).toHaveLength(5);
+      expect(variableAliasResult.calls).toBe(7);
+      expect(variableAliasResult.missing).toHaveLength(7);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `

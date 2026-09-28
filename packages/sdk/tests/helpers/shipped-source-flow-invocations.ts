@@ -45,21 +45,75 @@ function memberReceiver(expression: ts.Expression): ts.Expression | undefined {
     : undefined;
 }
 
-function namespaceAuditable(
+function objectMemberValue(
   expression: ts.Expression,
+  name: string,
   checker: ts.TypeChecker,
-  seen = new Set<ts.Symbol>(),
-): boolean | undefined {
+  seen: Set<ts.Symbol>,
+): { value: ts.Expression; auditable: boolean; symbol?: ts.Symbol } | undefined {
   expression = unwrap(expression);
-  if (!ts.isIdentifier(expression)) return undefined;
-  const symbol = checker.getSymbolAtLocation(expression);
-  if (!symbol || seen.has(symbol)) return undefined;
+  if (ts.isObjectLiteralExpression(expression)) {
+    const member = expression.properties.find(candidate => propertyName(candidate.name) === name);
+    if (member && ts.isPropertyAssignment(member)) return { value: member.initializer, auditable: true };
+    if (member && ts.isShorthandPropertyAssignment(member)) return {
+      value: member.name,
+      auditable: true,
+      symbol: checker.getShorthandAssignmentValueSymbol(member),
+    };
+    return undefined;
+  }
+  if (ts.isIdentifier(expression)) {
+    const symbol = checker.getSymbolAtLocation(expression);
+    if (!symbol || seen.has(symbol)) return undefined;
+    seen.add(symbol);
+    const variable = symbol.declarations?.find(ts.isVariableDeclaration);
+    if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)) return undefined;
+    const value = objectMemberValue(variable.initializer, name, checker, seen);
+    return value && (variable.parent.flags & ts.NodeFlags.Const) === 0
+      ? { ...value, auditable: false }
+      : value;
+  }
+  const parentName = memberName(expression);
+  const parentReceiver = memberReceiver(expression);
+  if (!parentName || !parentReceiver) return undefined;
+  const parent = objectMemberValue(parentReceiver, parentName, checker, seen);
+  if (!parent) return undefined;
+  const value = objectMemberValue(parent.value, name, checker, seen);
+  return value && !parent.auditable ? { ...value, auditable: false } : value;
+}
+
+function namespaceSymbolAuditable(
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): boolean | undefined {
+  if (seen.has(symbol)) return undefined;
   if (symbol.declarations?.some(ts.isNamespaceImport)) return true;
   seen.add(symbol);
   const variable = symbol.declarations?.find(ts.isVariableDeclaration);
   if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)) return undefined;
   const nested = namespaceAuditable(variable.initializer, checker, seen);
   return nested === undefined ? undefined : nested && (variable.parent.flags & ts.NodeFlags.Const) !== 0;
+}
+
+function namespaceAuditable(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen = new Set<ts.Symbol>(),
+): boolean | undefined {
+  expression = unwrap(expression);
+  if (!ts.isIdentifier(expression)) {
+    const name = memberName(expression);
+    const receiver = memberReceiver(expression);
+    if (!name || !receiver) return undefined;
+    const member = objectMemberValue(receiver, name, checker, seen);
+    const nested = member?.symbol
+      ? namespaceSymbolAuditable(member.symbol, checker, seen)
+      : member ? namespaceAuditable(member.value, checker, seen) : undefined;
+    return nested === undefined ? undefined : false;
+  }
+  const symbol = checker.getSymbolAtLocation(expression);
+  return symbol ? namespaceSymbolAuditable(symbol, checker, seen) : undefined;
 }
 
 function invocationHelper(
