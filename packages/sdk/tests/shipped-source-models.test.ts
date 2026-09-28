@@ -321,6 +321,36 @@ describe('first-party shipped source model pins', () => {
       expect(assertedAliasResult.calls).toBe(2);
       expect(assertedAliasResult.missing).toHaveLength(2);
 
+      const boundAliases = join(directory, 'bound-aliases.flow.ts');
+      writeFileSync(boundAliases, `
+        declare const f: {
+          agent(name: string, options: { task: string }): void;
+          llm(prompt: string, options: { output: object }): void;
+        };
+        const runAgent = f.agent.bind(f);
+        const generate = f['llm']['bind'](f);
+        runAgent('review', { task: 'x' });
+        generate('prompt', { output: {} });
+      `);
+      const boundAliasResult = scanTypeScript(boundAliases);
+      expect(boundAliasResult.calls).toBe(2);
+      expect(boundAliasResult.missing).toHaveLength(2);
+
+      const functionMethods = join(directory, 'function-methods.flow.ts');
+      writeFileSync(functionMethods, `
+        declare const f: {
+          agent(name: string, options: { task: string }): void;
+          llm(prompt: string, options: { output: object }): void;
+        };
+        declare const dynamicArgs: ['review', { task: string }];
+        f.agent.call(f, 'review', { task: 'x' });
+        f.llm.apply(f, ['prompt', { output: {} }]);
+        f.agent.apply(f, dynamicArgs);
+      `);
+      const functionMethodResult = scanTypeScript(functionMethods);
+      expect(functionMethodResult.calls).toBe(3);
+      expect(functionMethodResult.missing).toHaveLength(3);
+
       const taggedLlm = join(directory, 'tagged-llm.flow.ts');
       writeFileSync(taggedLlm, `
         declare const f: { llm(strings: TemplateStringsArray): void };

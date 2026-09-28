@@ -1,10 +1,11 @@
 import { flow } from '@relayflows/surface';
-import { probeCliAsync } from '../../src/cli/cli-probe.js';
 import { modelNameError } from '../../src/model-name.js';
 import {
   analyzeFindings, checksCommand, failedRunId, MAX_REPAIR_ITERATIONS,
   parseChecks, parseInput, parsePrNumber, quote, type Finding,
 } from './close-pr-state.ts';
+
+type Ctx = Parameters<Parameters<typeof flow<unknown>>[2]>[0];
 
 // Run after implement/push. IMPL_CLOSE_INPUT is JSON, captured by a journaled step.
 export default flow<unknown>('close-pr', async (f, supplied) => {
@@ -15,7 +16,7 @@ export default flow<unknown>('close-pr', async (f, supplied) => {
   // Validate the repair harness before any repository or GitHub side effect.
   const repairCli = input.cli ?? 'codex';
   const repairModel = requiredRepairModel(repairCli, input.model);
-  await assertRepairPairReady(repairCli, repairModel, input.worktree);
+  await assertRepairPairReady(f, repairCli, repairModel, input.worktree);
   const run = (command: string) => f.run(`cd ${quote(input.worktree)} && (${command})`);
   const repo = `--repo ${quote(input.repo)}`;
   const assertBranch = `test "$(git branch --show-current)" = ${quote(input.branch)}`;
@@ -124,10 +125,26 @@ export function requiredRepairModel(cli: string, override?: string): string {
   return model;
 }
 
-export async function assertRepairPairReady(cli: string, model: string, directory: string): Promise<void> {
+export async function assertRepairPairReady(
+  f: Pick<Ctx, 'run'>,
+  cli: string,
+  model: string,
+  directory: string,
+): Promise<void> {
   let result;
   try {
-    result = await probeCliAsync(cli, directory, model);
+    const runtime = process.argv[1];
+    if (!runtime) throw new Error('authored Node runtime path is unavailable');
+    const output = await f.run(
+      `${quote(process.execPath)} ${quote(runtime)} --probe-cli `
+        + `${quote(cli)} ${quote(model)} ${quote(directory)}`,
+    );
+    result = JSON.parse(output) as {
+      exists?: boolean;
+      supported?: boolean;
+      authenticated?: boolean | 'unverified';
+      modelAvailable?: boolean;
+    };
   } catch (error) {
     throw new Error(`Repair CLI/model readiness probe failed: ${(error as Error).message}`);
   }

@@ -13,7 +13,6 @@ import {
 import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
 import { runDirectFlow } from '../src/cli/direct-run.js';
 import * as runOperations from '../src/cli/run.js';
-import { probeCliAsync } from '../src/cli/cli-probe.js';
 import { JournalClient } from '../src/journal-client.js';
 import type { KernelRunSpec, KernelStepSpec } from '../src/spec.js';
 
@@ -22,13 +21,6 @@ import type { KernelRunSpec, KernelStepSpec } from '../src/spec.js';
 vi.mock('../src/cli/check.js', async importOriginal => ({
   ...await importOriginal<typeof import('../src/cli/check.js')>(),
   checkAuthoredFlow: (spec: unknown) => ({ report: { ok: true, diagnostics: [] }, flow: spec }),
-}));
-
-vi.mock('../src/cli/cli-probe.js', async importOriginal => ({
-  ...await importOriginal<typeof import('../src/cli/cli-probe.js')>(),
-  probeCliAsync: vi.fn(async () => ({
-    exists: true, supported: true, authenticated: true, modelAvailable: true,
-  })),
 }));
 
 const green: Check[] = [
@@ -59,6 +51,7 @@ afterEach(async () => {
 async function harness(snapshots: Snapshot[], options: {
   existing?: boolean; input?: Partial<ClosePrInput>; changeHead?: boolean;
   malformedChecks?: boolean; mergeState?: string; failTerminal?: boolean;
+  probe?: { exists: boolean; supported: boolean; authenticated: boolean; modelAvailable: boolean };
 } = {}) {
   const specs: KernelRunSpec[] = [];
   const entries = new Map<string, unknown>();
@@ -75,6 +68,9 @@ async function harness(snapshots: Snapshot[], options: {
     const command = step.command;
     commands.push(command);
     if (command.includes('$IMPL_CLOSE_INPUT')) return JSON.stringify(input);
+    if (command.includes('--probe-cli')) return JSON.stringify(options.probe ?? {
+      exists: true, supported: true, authenticated: true, modelAvailable: true,
+    });
     if (command.includes('git rev-parse HEAD')) return head();
     if (command.includes('gh pr list')) return options.existing ? '[{"number":7}]' : '[]';
     if (command.includes('gh pr create')) return 'https://github.com/acme/repo/pull/7\n';
@@ -132,6 +128,9 @@ describe('close-pr journaled repair loop', () => {
     ], { existing: true });
     const result = await h.execute();
     expect(result.completionReason).toBe('success');
+    expect(h.commands[0]).toContain('IMPL_CLOSE_INPUT');
+    expect(h.commands[1]).toContain('--probe-cli');
+    expect(h.commands.filter(command => command.includes('--probe-cli'))).toHaveLength(1);
     expect(h.commands.some(command => command.includes('gh pr create'))).toBe(false);
     expect(h.agents()).toHaveLength(1);
     expect(h.agents()[0]).toMatchObject({
@@ -190,15 +189,15 @@ describe('close-pr journaled repair loop', () => {
   });
 
   it('rejects an unavailable repair pair before repository or GitHub side effects', async () => {
-    vi.mocked(probeCliAsync).mockResolvedValueOnce({
-      exists: true, supported: true, authenticated: true, modelAvailable: false,
-    });
     const h = await harness([{ checks: green }], {
       input: { cli: '/opt/custom-wrapper', model: 'exact-model' },
+      probe: { exists: true, supported: true, authenticated: true, modelAvailable: false },
     });
     await expect(h.execute()).rejects.toThrow(/Repair model "exact-model" is unavailable/);
-    expect(h.commands).toHaveLength(1);
+    expect(h.commands).toHaveLength(2);
     expect(h.commands[0]).toContain('IMPL_CLOSE_INPUT');
+    expect(h.commands[1]).toContain('--probe-cli');
+    expect(h.commands[1]).toContain("'/opt/custom-wrapper' 'exact-model' '/tmp/slice worktree'");
     expect(h.commands.some(command => command.includes('cd '))).toBe(false);
     expect(h.commands.some(command => command.includes('gh '))).toBe(false);
   });

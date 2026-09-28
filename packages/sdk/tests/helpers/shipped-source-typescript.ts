@@ -91,6 +91,14 @@ function memberName(expression: ts.Expression): string | undefined {
   return undefined;
 }
 
+function memberReceiver(expression: ts.Expression): ts.Expression | undefined {
+  expression = unwrapTransparentExpression(expression);
+  if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
+    return expression.expression;
+  }
+  return undefined;
+}
+
 function workerMethodName(
   expression: ts.Expression,
   checker: ts.TypeChecker,
@@ -99,6 +107,10 @@ function workerMethodName(
   const direct = memberName(expression);
   if (direct !== undefined) return direct;
   expression = unwrapTransparentExpression(expression);
+  if (ts.isCallExpression(expression) && memberName(expression.expression) === 'bind') {
+    const receiver = memberReceiver(expression.expression);
+    return receiver ? workerMethodName(receiver, checker, seen) : undefined;
+  }
   if (!ts.isIdentifier(expression)) return undefined;
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;
@@ -112,6 +124,30 @@ function workerMethodName(
   if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)
     || (variable.parent.flags & ts.NodeFlags.Const) === 0) return undefined;
   return workerMethodName(variable.initializer, checker, seen);
+}
+
+function workerInvocation(
+  node: ts.CallExpression,
+  checker: ts.TypeChecker,
+): { method: string; args: readonly ts.Expression[] } | undefined {
+  const direct = workerMethodName(node.expression, checker);
+  if (direct === 'agent' || direct === 'llm') return { method: direct, args: node.arguments };
+
+  const operation = memberName(node.expression);
+  const receiver = memberReceiver(node.expression);
+  const method = receiver ? workerMethodName(receiver, checker) : undefined;
+  if (method !== 'agent' && method !== 'llm') return undefined;
+  if (operation === 'call') return { method, args: node.arguments.slice(1) };
+  if (operation === 'apply') {
+    const applied = node.arguments[1];
+    return {
+      method,
+      // A dynamic argument list is a real worker invocation, but its pair is
+      // not statically auditable. Empty args make the caller fail closed.
+      args: applied && ts.isArrayLiteralExpression(applied) ? applied.elements : [],
+    };
+  }
+  return undefined;
 }
 
 function isFlowCall(node: ts.Node): node is ts.CallExpression {
@@ -254,13 +290,14 @@ export function scanTypeScript(path: string): TypeScriptModelInventory {
       missing.push(`${relative(ROOT, path)}:${line} tagged f.llm has no explicit CLI/model options`);
     }
     if (ts.isCallExpression(node)) {
-      const method = workerMethodName(node.expression, checker);
-      if (method !== 'agent' && method !== 'llm') {
+      const invocation = workerInvocation(node, checker);
+      if (invocation === undefined) {
         ts.forEachChild(node, visitCalls);
         return;
       }
+      const { method, args } = invocation;
       calls += 1;
-      const options = node.arguments[1];
+      const options = args[1];
       const line = file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
       if (!options || !ts.isObjectLiteralExpression(options)) {
         missing.push(`${relative(ROOT, path)}:${line} has no inline options object`);
@@ -268,7 +305,7 @@ export function scanTypeScript(path: string): TypeScriptModelInventory {
         const cliExpression = property(options, 'cli');
         const modelExpression = property(options, 'model');
         if (!cliExpression || !modelExpression) {
-          const names = stringValues(node.arguments[0], checker);
+          const names = stringValues(args[0], checker);
           const flow = enclosingFlow(node);
           const namedAgents = flow ? namedAgentsByFlow.get(flow) : undefined;
           if (method === 'agent' && !cliExpression && !modelExpression
@@ -283,7 +320,7 @@ export function scanTypeScript(path: string): TypeScriptModelInventory {
           if (cli && model) pairs.push(`${cli}/${model}`);
           else if (isRequiredString(cliExpression, checker) && isRequiredString(modelExpression, checker)) {
             unresolved.push({
-              call: node.arguments[0]?.getText(file) ?? '<missing-name>',
+              call: args[0]?.getText(file) ?? '<missing-name>',
               where: `${relative(ROOT, path)}:${line}`,
             });
           } else {
