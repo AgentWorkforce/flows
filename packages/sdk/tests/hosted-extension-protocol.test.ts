@@ -377,6 +377,40 @@ describe('hosted extension hostile protocol', () => {
     expect(calls).toBe(1);
   }, 15_000);
 
+  it('waits for a pending adapter to settle after the sandbox timeout', async () => {
+    const protocol = new PassThrough();
+    const stdin = new PassThrough();
+    const stderr = new PassThrough();
+    const child = Object.assign(new EventEmitter(), {
+      exitCode: null,
+      signalCode: null,
+      kill: () => true,
+    }) as unknown as ChildProcess;
+    let settle!: (value: unknown) => void;
+    const adapter = new Promise(resolve => { settle = resolve; });
+    let markInvoked!: () => void;
+    const invoked = new Promise<void>(resolve => { markInvoked = resolve; });
+    let completed = false;
+    const run = exchangeHostedExtension(
+      child,
+      protocol,
+      stdin,
+      stderr,
+      10,
+      { type: 'run' },
+      async () => { markInvoked(); return await adapter; },
+    ).finally(() => { completed = true; });
+    protocol.write(`${JSON.stringify(capabilityFrame())}\n`);
+    await waitForInvocation(invoked);
+    await new Promise(resolve => setTimeout(resolve, 30));
+    expect(completed).toBe(false);
+    settle({ receiptId: 'settled-after-timeout', status: 'queued' });
+    await expect(run).rejects.toMatchObject({
+      code: 'plugin_unsupported',
+      message: expect.stringContaining('outcome is in doubt'),
+    });
+  }, 15_000);
+
   it('settles successful completion with captured intrinsics', async () => {
     const protocol = new PassThrough();
     const stdin = new PassThrough();

@@ -115,6 +115,7 @@ export async function runHostedSoftwareGardenFlow(
   }));
   const peer = client.createPeer();
   let work: Promise<HostedCompletion> | undefined;
+  let completedWork: HostedCompletion | undefined;
   let capabilityFailed = false;
   let capabilityFailure: unknown;
   let workerFailure: unknown;
@@ -131,6 +132,7 @@ export async function runHostedSoftwareGardenFlow(
     const attempt = completeHostedDispatch(peer, event, runtime, input, hosted, dataDir);
     work = attempt;
     void attempt.then(completion => {
+      completedWork = completion;
       if (completion.failed) {
         capabilityFailed = true;
         capabilityFailure = completion.failure;
@@ -160,7 +162,7 @@ export async function runHostedSoftwareGardenFlow(
     const outcome = started.status === 'running'
       ? await client.runResume(started.run_id, true)
       : started;
-    const execution = await classifyOutcome(
+    let execution = await classifyOutcome(
       client,
       'run',
       outcome,
@@ -168,6 +170,23 @@ export async function runHostedSoftwareGardenFlow(
       socketPath,
       { ...lifecycle, dataDir },
     );
+    // The generic classifier may observe a transient parked/protocol shape
+    // after the isolated child is killed even though this dedicated worker is
+    // still holding the authoritative, uncancellable capability call. Never
+    // close the peer or return that intermediate report while its dispatch is
+    // live. The worker completion is the journal boundary for this one-step
+    // hosted run; classify its resulting kernel outcome instead.
+    const completion = work === undefined ? completedWork : await work;
+    if (completion !== undefined) {
+      execution = await classifyOutcome(
+        client,
+        'run',
+        completion.outcome,
+        base,
+        socketPath,
+        { ...lifecycle, dataDir },
+      );
+    }
     if (execution.exitCode !== 1 || !capabilityFailed) return execution;
     return {
       ...execution,
