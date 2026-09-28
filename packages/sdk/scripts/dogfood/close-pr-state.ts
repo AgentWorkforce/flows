@@ -1,4 +1,5 @@
 import { isAbsolute } from 'node:path';
+import { modelNameError } from '../../src/model-name.js';
 
 export const MAX_REPAIR_ITERATIONS = 3;
 
@@ -38,6 +39,13 @@ export function parseInput(raw: string): ClosePrInput {
     if (input[key] !== undefined && (typeof input[key] !== 'string' || input[key].includes('\0'))) {
       throw new Error(`${key} must be a string`);
     }
+  }
+  for (const key of ['cli', 'model'] as const) {
+    if (input[key] === undefined) continue;
+    const normalized = input[key].trim();
+    const problem = modelNameError(normalized);
+    if (problem !== undefined) throw new Error(`${key}: ${problem}`);
+    input[key] = normalized;
   }
   for (const key of ['prNumber', 'maxPolls', 'pollIntervalSeconds'] as const) {
     if (input[key] !== undefined && (!Number.isSafeInteger(input[key]) || input[key] < 1)) {

@@ -1,9 +1,12 @@
 import { flow } from '@relayflows/surface';
 
 export default flow('prospect-demo', async (f) => {
-  const message = await f.llm`Write one short, friendly Slack message introducing
+  const message = await f.llm(
+    `Write one short, friendly Slack message introducing
     Relayflows: a flow can generate a message with an LLM and post it to Slack.
-    Return only the message text. Do not use tools or mention anyone.`;
+    Return only the message text. Do not use tools or mention anyone.`,
+    { cli: 'claude', model: 'claude-sonnet-5', output: { type: 'string' } },
+  ) as string;
 
   await f.slack.post('#test', message);
   f.done('success');

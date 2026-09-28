@@ -83,6 +83,8 @@ const reviewerBody = flow<Input>(
   { budget: { tokens: 800_000, dollars: 8, wallclock: "45m" } },
   async (f, input) => {
     const pr = prFromInput(input);
+    const reviewerCli = input.reviewerCli?.trim() || "claude";
+    const reviewerModel = requiredReviewerModel(reviewerCli, input.reviewerModel);
     const api = (path: string) =>
       f.run(`curl -sf -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" ${shellWord(`https://api.github.com/repos/${pr.owner}/${pr.repo}${path}`)}`);
 
@@ -132,8 +134,8 @@ const reviewerBody = flow<Input>(
     // ── the review. One agent step, gated on the file it must write. ──
     await f
       .agent("review", {
-        cli: input.reviewerCli ?? "claude",
-        model: requiredReviewerModel(input.reviewerCli ?? "claude", input.reviewerModel),
+        cli: reviewerCli,
+        model: reviewerModel,
         task: reviewHarnessPrompt(pr) + `\nWrite the review to ${REVIEW_FILE}. Read .workforce/threads.json for the existing bot and reviewer comments.`,
       })
       .gate({ type: "subprocess_gate", command: `test -s ${REVIEW_FILE}` });
@@ -206,13 +208,26 @@ export { reviewer };
 export default reviewer;
 
 export function requiredReviewerModel(cli: string, override?: string): string {
+  const cliProblem = declarationStringError(cli.trim());
+  if (cliProblem !== undefined) throw new Error(`Invalid reviewer CLI: ${cliProblem}`);
   const model = override?.trim()
     || (cli === "claude" ? "claude-sonnet-5"
       : cli === "codex" ? "gpt-5.6-sol"
       : cli === "cursor-agent" ? "gpt-5.6-sol-high"
       : cli === "grok" ? "grok-4.7" : undefined);
   if (model === undefined) throw new Error(`Custom reviewer CLI ${JSON.stringify(cli)} requires reviewerModel`);
+  const modelProblem = declarationStringError(model);
+  if (modelProblem !== undefined) throw new Error(`Invalid reviewer model: ${modelProblem}`);
   return model;
+}
+
+function declarationStringError(value: string): string | undefined {
+  if (!value) return "expected a non-empty string";
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (code < 0x20 || code === 0x7f) return "must not contain control characters";
+  }
+  return undefined;
 }
 
 // ── GitHub writes ───────────────────────────────────────────────────────────

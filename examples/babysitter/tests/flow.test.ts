@@ -23,10 +23,14 @@ test('known first-party harnesses resolve to current explicit model pins', () =>
 test('custom reviewer wrappers require and preserve an explicit model', () => {
   assert.throws(() => requiredReviewerModel('/opt/custom-wrapper'), /requires reviewerModel/);
   assert.equal(requiredReviewerModel('/opt/custom-wrapper', ' custom-model '), 'custom-model');
+  assert.throws(() => requiredReviewerModel('/opt/custom-wrapper', 'bad\nmodel'), /control characters/);
   assert.throws(() => requiredLegacyReviewerModel('/opt/custom-wrapper'), /requires reviewerModel/);
   assert.equal(requiredLegacyReviewerModel('/opt/custom-wrapper', ' legacy-model '), 'legacy-model');
+  assert.throws(() => requiredLegacyReviewerModel('/opt/custom-wrapper', 'bad\nmodel'), /control characters/);
   assert.throws(() => parseInput({ ...config, reviewerCli: '/opt/custom-wrapper' }), /requires reviewerModel/);
   assert.equal(parseInput({ ...config, reviewerCli: '/opt/custom-wrapper', reviewerModel: ' exact-model ' }).reviewerModel, 'exact-model');
+  assert.throws(() => parseInput({ ...config, reviewerCli: 'bad\ncli', reviewerModel: 'exact-model' }), /control characters/);
+  assert.throws(() => parseInput({ ...config, reviewerCli: '/opt/custom-wrapper', reviewerModel: 'bad\nmodel' }), /control characters/);
 });
 test('malformed input makes zero effects; missing live state declines before agents', async () => {
   const x = context(); await assert.rejects(babysit(x.f, null)); assert.equal(x.commands.length, 0);

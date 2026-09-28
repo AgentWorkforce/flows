@@ -18,6 +18,14 @@ export interface Config {
 export const record = (x: unknown): Record<string, unknown> => x !== null && typeof x === 'object' && !Array.isArray(x) ? x as Record<string, unknown> : {};
 export const shaValid = (x: unknown): x is string => typeof x === 'string' && /^[a-f0-9]{40}$/.test(x);
 export const text = (x: unknown): x is string => typeof x === 'string' && x.trim().length > 0;
+export const declarationStringError = (value: string): string | undefined => {
+  if (!value) return 'expected a non-empty string';
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (code < 0x20 || code === 0x7f) return 'must not contain control characters';
+  }
+  return undefined;
+};
 const list = (x: unknown, fallback: string[] = []): string[] => {
   if (x === undefined) return fallback;
   if (!Array.isArray(x) || !x.every(text)) throw new Error('Babysitter lists must contain nonempty strings');
@@ -59,6 +67,11 @@ export function parseInput(value: unknown): Config {
     || (x.reviewerModel !== undefined && !text(x.reviewerModel))) throw new Error('Invalid Babysitter configuration: pin repository, PR, bot identity and validation command');
   const reviewerCli = typeof x.reviewerCli === 'string' ? x.reviewerCli.trim() : undefined;
   const reviewerModel = typeof x.reviewerModel === 'string' ? x.reviewerModel.trim() : undefined;
+  const reviewerCliProblem = reviewerCli === undefined ? undefined : declarationStringError(reviewerCli);
+  const reviewerModelProblem = reviewerModel === undefined ? undefined : declarationStringError(reviewerModel);
+  if (reviewerCliProblem !== undefined || reviewerModelProblem !== undefined) {
+    throw new Error(`Invalid Babysitter reviewer declaration: ${reviewerCliProblem ?? reviewerModelProblem}`);
+  }
   if (reviewerCli !== undefined && !['claude', 'codex', 'cursor-agent', 'grok'].includes(reviewerCli)
     && reviewerModel === undefined) {
     throw new Error('Invalid Babysitter configuration: a custom reviewerCli requires reviewerModel');

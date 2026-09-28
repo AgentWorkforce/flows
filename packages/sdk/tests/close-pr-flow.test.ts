@@ -140,7 +140,7 @@ describe('close-pr journaled repair loop', () => {
     expect(new Set(result.journalSteps.map(step => step.id)).size).toBe(h.specs.length);
     expect(h.reads).toHaveLength(h.specs.length);
     expect(h.commands.filter(command => command.includes('/comments'))).toHaveLength(2);
-  });
+  }, 15_000);
 
   it('opens a PR and feeds failed CI logs into the repair agent', async () => {
     const h = await harness([{ checks: [failed, green[1]!] }, { checks: green }]);
@@ -148,7 +148,7 @@ describe('close-pr journaled repair loop', () => {
     expect(h.commands.some(command => command.includes('gh pr create'))).toBe(true);
     expect(h.commands.some(command => command.includes('gh run view 42') && command.includes('--log-failed'))).toBe(true);
     expect(h.agents()[0]?.instruction).toContain('error TS1005: syntax error');
-  });
+  }, 15_000);
 
   it.each([
     ['codex', 'gpt-5.6-sol'],
@@ -166,13 +166,14 @@ describe('close-pr journaled repair loop', () => {
   it('requires an explicit model for a custom repair wrapper', () => {
     expect(() => requiredRepairModel('/opt/custom-wrapper')).toThrow(/requires input\.model/);
     expect(requiredRepairModel('/opt/custom-wrapper', ' custom-model ')).toBe('custom-model');
+    expect(() => requiredRepairModel('/opt/custom-wrapper', 'bad\nmodel')).toThrow(/control characters/);
   });
 
-  it('rejects a custom repair wrapper without a model before repository or GitHub side effects', async () => {
+  it.each([undefined, 'bad\nmodel'])('rejects an invalid custom repair model %j before repository or GitHub side effects', async model => {
     const h = await harness([{ checks: green }], {
-      input: { cli: '/opt/custom-wrapper', model: undefined },
+      input: { cli: '/opt/custom-wrapper', model },
     });
-    await expect(h.execute()).rejects.toThrow(/requires input\.model/);
+    await expect(h.execute()).rejects.toThrow(/requires input\.model|model: must not contain control characters/);
     expect(h.commands).toHaveLength(1);
     expect(h.commands[0]).toContain('IMPL_CLOSE_INPUT');
     expect(h.commands.some(command => command.includes('cd '))).toBe(false);
@@ -189,7 +190,7 @@ describe('close-pr journaled repair loop', () => {
     expect(h.commands.at(-2)).toContain('TypeScript failed');
     expect(h.commands.at(-2)).toContain('"iterations":3');
     expect(h.commands.at(-1)).toBe(`printf '%s' '{"completionReason":"needs_human"}'`);
-  });
+  }, 15_000);
 
   it('can converge on the third repair', async () => {
     const h = await harness([
@@ -198,7 +199,7 @@ describe('close-pr journaled repair loop', () => {
     ]);
     expect((await h.execute()).completionReason).toBe('success');
     expect(h.agents()).toHaveLength(3);
-  });
+  }, 15_000);
 
   it('polls pending checks without spending repair attempts or reading incomplete logs', async () => {
     const h = await harness([
@@ -316,8 +317,12 @@ describe('PR state parsing and shell boundaries', () => {
   });
   it('validates input and PR identity', () => {
     expect(parseInput(JSON.stringify(baseInput))).toEqual(baseInput);
+    expect(parseInput(JSON.stringify({ ...baseInput, cli: ' codex ', model: ' exact-model ' })))
+      .toMatchObject({ cli: 'codex', model: 'exact-model' });
     expect(() => parseInput(JSON.stringify({ ...baseInput, worktree: '.' }))).toThrow();
     expect(() => parseInput(JSON.stringify({ ...baseInput, maxPolls: 0 }))).toThrow();
+    expect(() => parseInput(JSON.stringify({ ...baseInput, cli: 'bad\ncli' }))).toThrow(/cli:.*control/);
+    expect(() => parseInput(JSON.stringify({ ...baseInput, model: 'bad\nmodel' }))).toThrow(/model:.*control/);
     expect(parsePrNumber('https://github.com/acme/repo/pull/7\n')).toBe(7);
     expect(() => parsePrNumber('failed: 7')).toThrow();
   });

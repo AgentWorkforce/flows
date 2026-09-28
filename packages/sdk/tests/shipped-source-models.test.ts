@@ -133,6 +133,12 @@ function scanTypeScript(path: string): {
   collectDeclarations(file);
 
   const visitCalls = (node: ts.Node): void => {
+    if (ts.isTaggedTemplateExpression(node) && ts.isPropertyAccessExpression(node.tag)
+      && node.tag.name.text === 'llm') {
+      calls += 1;
+      const line = file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
+      missing.push(`${relative(ROOT, path)}:${line} tagged f.llm has no explicit CLI/model options`);
+    }
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
       && (node.expression.name.text === 'agent' || node.expression.name.text === 'llm')) {
       const kind = node.expression.name.text;
@@ -218,6 +224,17 @@ describe('first-party shipped v2 source model pins', () => {
       expect(incompleteLlmResult.calls).toBe(1);
       expect(incompleteLlmResult.missing).toHaveLength(1);
       expect(incompleteLlmResult.dollarBudgetsWithoutTokens).toHaveLength(1);
+
+      const taggedLlm = join(directory, 'tagged-llm.flow.ts');
+      writeFileSync(taggedLlm, `
+        declare const f: { llm(strings: TemplateStringsArray): void };
+        f.llm\`triage\`;
+      `);
+      const taggedLlmResult = scanTypeScript(taggedLlm);
+      expect(taggedLlmResult.calls).toBe(1);
+      expect(taggedLlmResult.missing).toEqual([
+        expect.stringContaining('tagged f.llm has no explicit CLI/model options'),
+      ]);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

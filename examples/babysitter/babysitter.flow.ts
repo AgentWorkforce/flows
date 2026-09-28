@@ -1,5 +1,5 @@
 import { flow, type Ctx } from '@relayflows/surface';
-import { parseInput, record, shaValid, shellWord, type Config } from './input.ts';
+import { declarationStringError, parseInput, record, shaValid, shellWord, type Config } from './input.ts';
 import { eligible, ready, mergeAllowed } from './state.ts';
 import { conflictAllowed } from './safety.ts';
 import { lenses, reconcile } from './artifacts.ts';
@@ -109,8 +109,12 @@ export function generatedModelForCli(cli: string): string | undefined {
 
 /** Custom wrappers have no adapter default, so their operator must pin a model. */
 export function requiredReviewerModel(cli: string, override?: string): string {
+  const cliProblem = declarationStringError(cli.trim());
+  if (cliProblem !== undefined) throw new Error(`Invalid reviewer CLI: ${cliProblem}`);
   const model = override?.trim() || generatedModelForCli(cli);
   if (model === undefined) throw new Error(`Custom reviewer CLI ${JSON.stringify(cli)} requires reviewerModel`);
+  const modelProblem = declarationStringError(model);
+  if (modelProblem !== undefined) throw new Error(`Invalid reviewer model: ${modelProblem}`);
   return model;
 }
 // The resident subscription contract is declared once, in subscriptions.ts, and
