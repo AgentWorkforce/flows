@@ -179,6 +179,28 @@ function isFlowNamespace(
     && isFlowNamespace(variable.initializer, checker, seen));
 }
 
+function flowInvocationHelper(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen = new Set<ts.Symbol>(),
+): { operation: 'call' | 'apply'; args: readonly ts.Expression[]; auditable: boolean } | undefined {
+  expression = unwrapTransparentExpression(expression);
+  const operation = memberName(expression);
+  const receiver = memberReceiver(expression);
+  if ((operation === 'call' || operation === 'apply') && receiver) {
+    const constructor = flowConstructorArguments(receiver, checker, seen);
+    if (constructor) return { operation, ...constructor };
+  }
+  if (!ts.isIdentifier(expression)) return undefined;
+  const symbol = checker.getSymbolAtLocation(expression);
+  if (!symbol || seen.has(symbol)) return undefined;
+  seen.add(symbol);
+  const variable = symbol.declarations?.find(ts.isVariableDeclaration);
+  if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)
+    || (variable.parent.flags & ts.NodeFlags.Const) === 0) return undefined;
+  return flowInvocationHelper(variable.initializer, checker, seen);
+}
+
 function flowConstructorArguments(
   expression: ts.Expression,
   checker: ts.TypeChecker,
@@ -191,9 +213,18 @@ function flowConstructorArguments(
   }
   if (ts.isCallExpression(expression) && memberName(expression.expression) === 'bind') {
     const receiver = memberReceiver(expression.expression);
-    const constructor = receiver ? flowConstructorArguments(receiver, checker, seen) : undefined;
-    if (!constructor) return undefined;
+    const constructor = receiver ? flowConstructorArguments(receiver, checker, new Set(seen)) : undefined;
     const bound = expression.arguments.slice(1);
+    if (!constructor && receiver) {
+      const helper = flowInvocationHelper(receiver, checker, new Set(seen));
+      if (!helper) return undefined;
+      if (helper.operation !== 'call' || bound.length < 1) return { args: [], auditable: false };
+      return {
+        args: [...helper.args, ...bound.slice(1)],
+        auditable: helper.auditable && !expression.arguments.some(ts.isSpreadElement),
+      };
+    }
+    if (!constructor) return undefined;
     return {
       args: [...constructor.args, ...bound],
       auditable: constructor.auditable && !expression.arguments.some(ts.isSpreadElement),

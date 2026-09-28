@@ -260,10 +260,10 @@ describe('first-party shipped source model pins', () => {
         import * as surface from '@relayflows/surface';
         declare const flowArgs: [string, unknown, () => void], bindArgs: [undefined, string], callArgs: [undefined, string, unknown, () => void], receiverArgs: [undefined];
         declare function flow(name: string, header: unknown, body: () => void): void;
-        const define = flow, bound = flow.bind(undefined), api = surface; const { flow: destructured, ['flow']: computed } = surface;
+        const define = flow, bound = flow.bind(undefined), helper = flow.call, helperBound = helper.bind(flow, undefined), api = surface; const { flow: destructured, ['flow']: computed } = surface;
         const preboundName = flow.bind(undefined, 'prebound-name'), preboundHeader = flow.bind(undefined, 'prebound-header', { budget: '$2' });
         define('aliased', { budget: '$2' }, () => {}); bound('bound', { budget: '$2' }, () => {}); destructured('destructured', { budget: '$2' }, () => {});
-        preboundName({ budget: '$2' }, () => {}); preboundHeader(() => {});
+        preboundName({ budget: '$2' }, () => {}); preboundHeader(() => {}); helperBound('helper-bound', { budget: '$2' }, () => {});
         importedFlow('imported', { budget: '$2' }, () => {}); api.flow('namespace-alias', { budget: '$2' }, () => {}); computed('computed-binding', { budget: '$2' }, () => {});
         surface.flow('namespace', { budget: '$2' }, () => {}); surface.flow.call(undefined, 'called', { budget: '$2' }, () => {}); surface.flow.apply(undefined, ['applied', { budget: '$2' }, () => {}]); surface.flow.apply(undefined, [] as unknown as []);
         surface.flow.call(undefined, ...flowArgs); surface.flow.apply(undefined, [...flowArgs]); flow.bind(...bindArgs)({ budget: '$2' }, () => {}); flow.call(...callArgs); flow.apply(...receiverArgs, ['outer-applied', { budget: '$2' }, () => {}]);
@@ -271,7 +271,7 @@ describe('first-party shipped source model pins', () => {
         flow('duplicate', { budget: '$2', budget: '$1' }, () => {});
       `);
       const unsafeFlowHeaderResult = scanTypeScript(unsafeFlowHeaders);
-      expect(unsafeFlowHeaderResult.dollarBudgetsWithoutTokenCeilings).toHaveLength(11);
+      expect(unsafeFlowHeaderResult.dollarBudgetsWithoutTokenCeilings).toHaveLength(12);
       expect(unsafeFlowHeaderResult.invalidFlowHeaders).toHaveLength(8);
 
       const namedBody = join(directory, 'named-body.flow.ts');
