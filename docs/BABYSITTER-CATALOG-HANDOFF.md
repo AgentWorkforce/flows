@@ -1,17 +1,23 @@
 # Babysitter catalog artifact handoff
 
-Babysitter is an optional extension on Software Factory/Garden, never a second
-Recommended Flow. Activation accepts only top-level `babysitter: { enabled:
-boolean }`; Cloud reserves the extension name and obtains its bytes from the
-server-owned catalog. Client extension bytes cannot enable Babysitter.
+Babysitter is a first-class Recommended Flow of kind `extension`, related to
+the `software-factory` base. Cloud reserves the extension name and obtains its
+bytes from the server-owned catalog. Client extension bytes cannot enable
+Babysitter. Discovery does not imply activation: activation stays blocked until
+the hosted caller uses the canonical composition entrypoint and a live receipt
+proves the complete path.
 
 ## Current readiness
 
-No native Babysitter artifact is released by this change. PR #549 merged the
-authenticated dispatch boundary but intentionally refuses matched extension
-handlers with `plugin_unsupported`. The existing `examples/babysitter` declares
-Claude, GitHub comment writes, and a merge-gate hook; it is not the native
-existing-session package. Keep enabled activation at 409 with zero writes.
+The reviewed native artifact shipped in Flows 2.0.26. The existing
+`examples/babysitter` declares Claude, GitHub comment writes, and a merge-gate
+hook; it is not the native existing-session package. Ordinary authored dispatch
+still refuses matched extension handlers with `plugin_unsupported`, because it
+imports tenant JavaScript in the host. Hosted callers must instead call
+`runHostedSoftwareGardenBabysitter`, which captures the reviewed Software
+Garden base and complete lock-backed installation as one generation before it
+runs the exact matched native handler in the capability sandbox. Keep enabled
+activation blocked with zero writes until Cloud calls that entrypoint.
 
 The native handler must consume host-verified delivery authority, normalize the
 repository/PR event, and call the Cloud lineage path. Cloud must recheck the
@@ -20,11 +26,12 @@ are not enforcement. Export success is byte verification, not execution approval
 
 The native package source is `extensions/babysitter` (see its README for the
 turn contract). Flows 2.0.26 is published, but the package cannot execute
-through the generic executor: #549 still refuses it. The SDK now has a separate Linux-only
+through the generic executor: #549 still refuses it. The SDK has a separate Linux-only
 capability sandbox that injects exactly
 `capabilities.cloud.babysitterTurn.queue` without exposing the base context,
 workspace, environment credentials, network, helpers, MCP, or harnesses. It is
-not wired to hosted dispatch and must not be treated as enablement. The package's
+is reached by the canonical composition entrypoint, but Cloud does not yet call
+that entrypoint and this must not be treated as enablement. The package's
 `compat` requires the published 2.0.26 Surface/SDK release that routes
 `labeled`, `unlabeled`, and `ready_for_review`. Export it only from the reviewed
 release commit pinned below. The Software Factory flow's own independently
