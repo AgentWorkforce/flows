@@ -126,6 +126,8 @@ function invocationHelper(
   if ((operation === 'call' || operation === 'apply') && receiver) {
     const callable = workerCallable(receiver, checker, new Set(seen));
     if (callable) return { operation, ...callable };
+    const nested = invocationHelper(receiver, checker, new Set(seen));
+    if (nested) return { operation, method: nested.method, args: [], auditable: false };
   }
   const wrapped = wrappedResult(expression, seen,
     (branch, branchSeen) => invocationHelper(branch, checker, branchSeen));

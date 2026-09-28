@@ -115,11 +115,20 @@ describe('shipped-source worker invocation resolution', () => {
         function wrappedArraySpreadWorker() { const slots = [...(flag ? [f.agent] : [f.agent])]; slots[0]('review', { task: 'x' }); }
         function bindingObjectWriterWrite(parameter: any) { const { box } = { box: { writer: Object.assign } }; box.writer(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
         function wrappedArraySpreadWriterWrite(parameter: any) { const slots = [...(flag ? [Object.assign] : [Object.assign])]; slots[0](parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function unknownArraySpreadWorker(extras: unknown[]) { const slots = [f.agent, ...extras]; slots[0]('review', { task: 'x' }); }
+        function unknownComputedOverwriteWorker(key: string) { const box = { run: f.agent, [key]: () => undefined }; box.run('review', { task: 'x' }); }
+        function objectRestWorker() { const { ...workers } = { run: f.agent }; workers.run('review', { task: 'x' }); }
+        function arrayRestWorker() { const [, ...workers] = [undefined, f.agent]; workers[0]('review', { task: 'x' }); }
+        function objectRestWriterWrite(parameter: any) { const { ...writers } = { assign: Object.assign }; writers.assign(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function numericObjectWorker() { const box = { 0: f.agent }; box[0]('review', { task: 'x' }); }
+        function stringArrayWorker() { const slots = [f.agent]; slots['0']('review', { task: 'x' }); }
+        function recursiveCallHelperWorker() { f.agent.call.call(f.agent, f, 'review', { task: 'x' }); }
+        function recursiveApplyHelperWorker() { f.agent.apply.call(f.agent, f, ['review', { task: 'x' }]); }
         async function wrappedWorkerAliases() { const conditionalRun = flag ? f.agent : f.agent, logicalRun = (flag && f.agent) || f.agent, nullishRun = f.agent ?? f.agent, commaRun = (flag, f.agent), awaitRun = await f.agent; conditionalRun('review', { task: 'x' }); logicalRun('review', { task: 'x' }); nullishRun('review', { task: 'x' }); commaRun('review', { task: 'x' }); awaitRun('review', { task: 'x' }); }
       `);
       const variableAliasResult = scanTypeScript(variableAliases);
-      expect(variableAliasResult.calls).toBe(93);
-      expect(variableAliasResult.missing).toHaveLength(93);
+      expect(variableAliasResult.calls).toBe(102);
+      expect(variableAliasResult.missing).toHaveLength(102);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `

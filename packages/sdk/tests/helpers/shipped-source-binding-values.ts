@@ -2,6 +2,10 @@ import ts from 'typescript';
 
 export type BindingPathSegment = string | number;
 
+type BindingRest =
+  | { excluded: string[]; kind: 'object' }
+  | { kind: 'array'; start: number };
+
 export function wrappedExpressionBranches(expression: ts.Expression): readonly ts.Expression[] | undefined {
   expression = unwrap(expression);
   if (ts.isConditionalExpression(expression)) return [expression.whenTrue, expression.whenFalse];
@@ -117,6 +121,10 @@ export function objectMemberValue(
         ?? (member.name && ts.isComputedPropertyName(member.name)
           ? staticPropertySegment(member.name.expression, checker, new Set(seen))
           : undefined);
+      if (member.name && ts.isComputedPropertyName(member.name) && key === undefined) {
+        obscured = true;
+        continue;
+      }
       if (key !== name) continue;
       if (ts.isPropertyAssignment(member)) return { value: member.initializer, auditable: !obscured };
       if (ts.isShorthandPropertyAssignment(member)) return {
@@ -136,6 +144,7 @@ export function objectMemberValue(
     if (binding) {
       const source = bindingSource(binding);
       if (!source?.immutable) return undefined;
+      if (source.rest?.kind === 'object' && source.rest.excluded.includes(name)) return undefined;
       const values = [
         aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
         ...bindingDefaultValues(source, checker, new Set(seen)),
@@ -166,16 +175,37 @@ export function bindingSource(binding: ts.BindingElement): {
   initializer: ts.Expression;
   immutable: boolean;
   path: BindingPathSegment[];
+  rest?: BindingRest;
 } | undefined {
   const defaults: Array<{ expression: ts.Expression; path: BindingPathSegment[] }> = [];
   const path: BindingPathSegment[] = [];
+  let rest: BindingRest | undefined;
   let current = binding;
   while (ts.isObjectBindingPattern(current.parent) || ts.isArrayBindingPattern(current.parent)) {
-    const segment = ts.isObjectBindingPattern(current.parent)
-      ? propertyName(current.propertyName ?? (ts.isIdentifier(current.name) ? current.name : undefined))
-      : current.parent.elements.indexOf(current);
-    if (segment === undefined || (typeof segment === 'number' && segment < 0)) return undefined;
-    path.unshift(segment);
+    if (current.dotDotDotToken) {
+      if (rest) return undefined;
+      if (ts.isObjectBindingPattern(current.parent)) {
+        rest = {
+          excluded: current.parent.elements
+            .filter(element => element !== current && !element.dotDotDotToken)
+            .map(element => propertyName(
+              element.propertyName ?? (ts.isIdentifier(element.name) ? element.name : undefined),
+            ))
+            .filter((name): name is string => name !== undefined),
+          kind: 'object',
+        };
+      } else {
+        const start = current.parent.elements.indexOf(current);
+        if (start < 0) return undefined;
+        rest = { kind: 'array', start };
+      }
+    } else {
+      const segment = ts.isObjectBindingPattern(current.parent)
+        ? propertyName(current.propertyName ?? (ts.isIdentifier(current.name) ? current.name : undefined))
+        : current.parent.elements.indexOf(current);
+      if (segment === undefined || (typeof segment === 'number' && segment < 0)) return undefined;
+      path.unshift(segment);
+    }
     if (current.initializer) defaults.push({ expression: current.initializer, path: path.slice(1) });
     const owner = current.parent.parent;
     if (ts.isBindingElement(owner)) {
@@ -189,6 +219,7 @@ export function bindingSource(binding: ts.BindingElement): {
       initializer: owner.initializer,
       immutable: (owner.parent.flags & ts.NodeFlags.Const) !== 0,
       path,
+      rest,
     };
   }
   return undefined;
@@ -242,10 +273,30 @@ function aggregateMemberValue(
   checker: ts.TypeChecker,
   seen: Set<ts.Symbol>,
 ): { value: ts.Expression; auditable: boolean; symbol?: ts.Symbol } | undefined {
-  if (typeof segment === 'string') return objectMemberValue(expression, segment, checker, seen);
-  const array = staticArrayElements(expression, checker, seen);
-  const value = array?.values[segment];
-  return value ? { value, auditable: array.auditable } : undefined;
+  const stringKey = String(segment);
+  if (typeof segment === 'string') {
+    const objectSeen = new Set(seen);
+    const object = objectMemberValue(expression, stringKey, checker, objectSeen);
+    if (object) {
+      objectSeen.forEach(symbol => seen.add(symbol));
+      return object;
+    }
+  }
+  const index = typeof segment === 'number'
+    ? segment
+    : /^(?:0|[1-9]\d*)$/u.test(segment) ? Number(segment) : undefined;
+  if (index !== undefined) {
+    const arraySeen = new Set(seen);
+    const array = staticArrayElements(expression, checker, arraySeen);
+    const value = array?.values[index];
+    if (value) {
+      arraySeen.forEach(symbol => seen.add(symbol));
+      return { value, auditable: array.auditable };
+    }
+  }
+  return typeof segment === 'number'
+    ? objectMemberValue(expression, stringKey, checker, seen)
+    : undefined;
 }
 
 function staticArrayElements(
@@ -275,7 +326,7 @@ function staticArrayElements(
         continue;
       }
       const spread = staticArrayElements(element.expression, checker, new Set(seen));
-      if (!spread) return undefined;
+      if (!spread) return { values, auditable: false };
       values.push(...spread.values);
       auditable &&= spread.auditable;
     }
@@ -303,7 +354,12 @@ function staticArrayElements(
     for (const candidate of values) {
       if (!candidate) continue;
       const value = staticArrayElements(candidate.value, checker, new Set(seen));
-      if (value) return { ...value, auditable: false };
+      if (value) return {
+        auditable: false,
+        values: source.rest?.kind === 'array'
+          ? value.values.slice(source.rest.start)
+          : value.values,
+      };
     }
     return undefined;
   }

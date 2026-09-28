@@ -154,6 +154,8 @@ function invocationHelper(
   if ((operation === 'call' || operation === 'apply') && receiver) {
     const constructor = flowConstructor(receiver, checker, new Set(seen));
     if (constructor) return { operation, ...constructor };
+    const nested = invocationHelper(receiver, checker, new Set(seen));
+    if (nested) return { operation, args: [], auditable: false };
   }
   const wrapped = wrappedResult(expression, seen,
     (branch, branchSeen) => invocationHelper(branch, checker, branchSeen));
