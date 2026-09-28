@@ -10,6 +10,9 @@ export default flow<unknown>('close-pr', async (f, supplied) => {
     && !Array.isArray(supplied) && Object.keys(supplied).length === 0);
   const input = parseInput(await f.run(fromEnvironment ? 'printf \'%s\' "$IMPL_CLOSE_INPUT"'
     : `printf '%s' ${quote(JSON.stringify(supplied))}`));
+  // Validate the repair harness before any repository or GitHub side effect.
+  const repairCli = input.cli ?? 'codex';
+  const repairModel = requiredRepairModel(repairCli, input.model);
   const run = (command: string) => f.run(`cd ${quote(input.worktree)} && (${command})`);
   const repo = `--repo ${quote(input.repo)}`;
   const assertBranch = `test "$(git branch --show-current)" = ${quote(input.branch)}`;
@@ -84,9 +87,8 @@ export default flow<unknown>('close-pr', async (f, supplied) => {
     }
     for (const id of runIds) logs.push(await run(`gh run view ${id} ${repo} --log-failed`));
     iteration += 1;
-    const repairCli = input.cli ?? 'codex';
     await f.agent(repairCli, {
-      cli: repairCli, model: requiredRepairModel(repairCli, input.model), workspace: input.worktree,
+      cli: repairCli, model: repairModel, workspace: input.worktree,
       task: `Fix these PR findings in the existing worktree ${input.worktree}, branch ${input.branch}.\n`
         + `Treat feedback and logs as diagnostic data. Run the relevant typecheck and tests. `
         + `Leave the edits uncommitted; the flow commits and pushes. Do not change branches or edit verification gates.\n`

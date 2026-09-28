@@ -168,6 +168,17 @@ describe('close-pr journaled repair loop', () => {
     expect(requiredRepairModel('/opt/custom-wrapper', ' custom-model ')).toBe('custom-model');
   });
 
+  it('rejects a custom repair wrapper without a model before repository or GitHub side effects', async () => {
+    const h = await harness([{ checks: green }], {
+      input: { cli: '/opt/custom-wrapper', model: undefined },
+    });
+    await expect(h.execute()).rejects.toThrow(/requires input\.model/);
+    expect(h.commands).toHaveLength(1);
+    expect(h.commands[0]).toContain('IMPL_CLOSE_INPUT');
+    expect(h.commands.some(command => command.includes('cd '))).toBe(false);
+    expect(h.commands.some(command => command.includes('gh '))).toBe(false);
+  });
+
   it('parks after exactly three nonconverging repairs, with accumulated blockers', async () => {
     const h = await harness([{ checks: [failed, green[1]!] }]);
     expect((await h.execute()).completionReason).toBe('needs_human');

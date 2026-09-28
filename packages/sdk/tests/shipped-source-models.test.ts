@@ -134,7 +134,8 @@ function scanTypeScript(path: string): {
 
   const visitCalls = (node: ts.Node): void => {
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
-      && node.expression.name.text === 'agent') {
+      && (node.expression.name.text === 'agent' || node.expression.name.text === 'llm')) {
+      const kind = node.expression.name.text;
       calls += 1;
       const options = node.arguments[1];
       const line = file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
@@ -145,7 +146,7 @@ function scanTypeScript(path: string): {
         const modelExpression = property(options, 'model');
         if (!cliExpression || !modelExpression) {
           const names = stringValues(node.arguments[0], checker);
-          if (!cliExpression && !modelExpression && names?.every(name => namedAgents.has(name))) {
+          if (kind === 'agent' && !cliExpression && !modelExpression && names?.every(name => namedAgents.has(name))) {
             // This exact call resolves only through complete, literal named-agent declarations.
           } else {
             missing.push(`${relative(ROOT, path)}:${line} omits ${!cliExpression ? 'cli' : 'model'}`);
@@ -205,12 +206,24 @@ describe('first-party shipped v2 source model pins', () => {
       const incompleteResult = scanTypeScript(incomplete);
       expect(incompleteResult.incompleteNamed).toHaveLength(1);
       expect(incompleteResult.missing).toHaveLength(1);
+
+      const incompleteLlm = join(directory, 'incomplete-llm.flow.ts');
+      writeFileSync(incompleteLlm, `
+        declare const f: { llm(prompt: string, options: { cli: string }): void };
+        const header = { budget: '$2' };
+        void header;
+        f.llm('triage', { cli: 'claude' });
+      `);
+      const incompleteLlmResult = scanTypeScript(incompleteLlm);
+      expect(incompleteLlmResult.calls).toBe(1);
+      expect(incompleteLlmResult.missing).toHaveLength(1);
+      expect(incompleteLlmResult.dollarBudgetsWithoutTokens).toHaveLength(1);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
   });
 
-  it('gives every TypeScript agent an explicit supported pair or a pinned named-agent declaration', () => {
+  it('gives every TypeScript agent and LLM an explicit supported pair or a pinned named-agent declaration', () => {
     const paths = [
       ...filesBelow(resolve(ROOT, 'examples'), '.flow.ts'),
       ...filesBelow(resolve(ROOT, 'workflows'), '.flow.ts'),
