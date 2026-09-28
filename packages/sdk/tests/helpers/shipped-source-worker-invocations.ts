@@ -60,7 +60,13 @@ function writeRoot(expression: ts.Expression): ts.Identifier | undefined {
   return expression;
 }
 
-function symbolHasWrites(symbol: ts.Symbol, checker: ts.TypeChecker): boolean {
+function symbolHasWrites(
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+  seen = new Set<ts.Symbol>(),
+): boolean {
+  if (seen.has(symbol)) return false;
+  seen.add(symbol);
   const source = symbol.valueDeclaration?.getSourceFile() ?? symbol.declarations?.[0]?.getSourceFile();
   if (!source) return true;
   let found = false;
@@ -77,6 +83,16 @@ function symbolHasWrites(symbol: ts.Symbol, checker: ts.TypeChecker): boolean {
     if (root && checker.getSymbolAtLocation(root) === symbol) {
       found = true;
       return;
+    }
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      const initializer = unwrap(node.initializer);
+      if (ts.isIdentifier(initializer) && checker.getSymbolAtLocation(initializer) === symbol) {
+        const alias = checker.getSymbolAtLocation(node.name);
+        if (!alias || symbolHasWrites(alias, checker, seen)) {
+          found = true;
+          return;
+        }
+      }
     }
     ts.forEachChild(node, visit);
   };

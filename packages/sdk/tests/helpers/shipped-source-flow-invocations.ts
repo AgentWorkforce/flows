@@ -83,10 +83,12 @@ function objectMemberValue(
 }
 
 function objectBindingSource(binding: ts.BindingElement): {
+  defaults: Array<{ expression: ts.Expression; path: string[] }>;
   initializer: ts.Expression;
   immutable: boolean;
   path: string[];
 } | undefined {
+  const defaults: Array<{ expression: ts.Expression; path: string[] }> = [];
   const path: string[] = [];
   let current = binding;
   while (ts.isObjectBindingPattern(current.parent)) {
@@ -94,6 +96,7 @@ function objectBindingSource(binding: ts.BindingElement): {
       ?? (ts.isIdentifier(current.name) ? current.name : undefined));
     if (!name) return undefined;
     path.unshift(name);
+    if (current.initializer) defaults.push({ expression: current.initializer, path: path.slice(1) });
     const owner = current.parent.parent;
     if (ts.isBindingElement(owner)) {
       current = owner;
@@ -102,12 +105,25 @@ function objectBindingSource(binding: ts.BindingElement): {
     if (!ts.isVariableDeclaration(owner) || !owner.initializer
       || !ts.isVariableDeclarationList(owner.parent)) return undefined;
     return {
+      defaults,
       initializer: owner.initializer,
       immutable: (owner.parent.flags & ts.NodeFlags.Const) !== 0,
       path,
     };
   }
   return undefined;
+}
+
+function bindingDefaultValues(
+  source: ReturnType<typeof objectBindingSource> & {},
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): Array<{ value: ts.Expression; auditable: boolean; symbol?: ts.Symbol }> {
+  return source.defaults.flatMap(fallback => {
+    if (fallback.path.length === 0) return [{ value: fallback.expression, auditable: false }];
+    const value = objectValueAtPath(fallback.expression, fallback.path, checker, new Set(seen));
+    return value ? [{ ...value, auditable: false }] : [];
+  });
 }
 
 function objectValueAtPath(
@@ -140,11 +156,16 @@ function namespaceSymbolAuditable(
   if (binding && ts.isObjectBindingPattern(binding.parent)) {
     const source = objectBindingSource(binding);
     if (source) {
-      const member = objectValueAtPath(source.initializer, source.path, checker, seen);
-      const nested = member?.symbol
-        ? namespaceSymbolAuditable(member.symbol, checker, seen)
-        : member ? namespaceAuditable(member.value, checker, seen) : undefined;
-      return nested === undefined ? undefined : false;
+      const values = [
+        objectValueAtPath(source.initializer, source.path, checker, seen),
+        ...bindingDefaultValues(source, checker, seen),
+      ].filter((value): value is NonNullable<typeof value> => value !== undefined);
+      for (const member of values) {
+        const nested = member.symbol
+          ? namespaceSymbolAuditable(member.symbol, checker, new Set(seen))
+          : namespaceAuditable(member.value, checker, new Set(seen));
+        if (nested !== undefined) return false;
+      }
     }
   }
   const variable = symbol.declarations?.find(ts.isVariableDeclaration);
@@ -326,6 +347,10 @@ function flowConstructor(
   if (binding && ts.isObjectBindingPattern(binding.parent)) {
     const source = objectBindingSource(binding);
     if (source?.path.at(-1) === 'flow') {
+      for (const fallback of bindingDefaultValues(source, checker, new Set(seen))) {
+        const constructor = flowConstructor(fallback.value, checker, new Set(seen));
+        if (constructor) return { ...constructor, auditable: false };
+      }
       const receiverPath = source.path.slice(0, -1);
       const receiver = receiverPath.length === 0
         ? { value: source.initializer, auditable: true }

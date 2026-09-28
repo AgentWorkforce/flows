@@ -233,11 +233,11 @@ describe('first-party shipped source model pins', () => {
       writeFileSync(aliasedHeader, `
         import * as surface from '@relayflows/surface'; declare function flow(name: string, header: unknown, body: () => void): void;
         const budget = { tokens: 200_000, dollars: 2 };
-        const header = { budget }, box = { surface }, envelope = { nested: { surface } }; const { surface: nested, surface: { flow: defineNested } } = box; const { nested: { surface: deepNested } } = envelope;
+        const header = { budget }, box = { surface }, envelope: any = { nested: { surface } }, empty: any = {}; const { surface: nested, surface: { flow: defineNested } } = box; const { nested: { surface: deepNested } } = envelope; const { surface: defaultNamespace = surface } = empty; const { surface: { flow: defaultConstructor = surface.flow } = {} } = empty;
         header.budget.tokens = 20_000_000;
-        flow('mutated-through-header', header, () => {}); box.surface.flow('nested-namespace', { budget: '$2' }, () => {}); nested.flow('destructured-namespace', { budget: '$2' }, () => {}); deepNested.flow('deep-destructured-namespace', { budget: '$2' }, () => {}); defineNested('nested-flow-binding', { budget: '$2' }, () => {});
+        flow('mutated-through-header', header, () => {}); box.surface.flow('nested-namespace', { budget: '$2' }, () => {}); nested.flow('destructured-namespace', { budget: '$2' }, () => {}); deepNested.flow('deep-destructured-namespace', { budget: '$2' }, () => {}); defineNested('nested-flow-binding', { budget: '$2' }, () => {}); defaultNamespace.flow('default-namespace', { budget: '$2' }, () => {}); defaultConstructor('default-constructor', { budget: '$2' }, () => {});
       `);
-      expect(scanTypeScript(aliasedHeader).invalidFlowHeaders).toHaveLength(5);
+      expect(scanTypeScript(aliasedHeader).invalidFlowHeaders).toHaveLength(7);
 
       const twoArgumentBudget = join(directory, 'two-argument-budget.flow.ts');
       writeFileSync(twoArgumentBudget, `
@@ -319,11 +319,11 @@ describe('first-party shipped source model pins', () => {
         const runAgent = f.agent;
         const generate = (f['llm']); let mutableAgent = f.agent, mutableCall = f.agent.call, mutableWorker = f, box: any = { worker: f };
         runAgent('review', { task: 'x' }); mutableAgent('review', { task: 'x' }); mutableWorker = { agent: f.agent.bind(f, 'real', { task: 'x' }), llm: f.llm }; mutableWorker.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); const { agent: extractedMutable } = mutableWorker; extractedMutable('ignored', { cli: 'claude', model: 'claude-sonnet-5' });
-        generate('prompt', { output: {} }); mutableCall(f, 'review', { task: 'x' }); box.worker = mutableWorker; box.worker.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); function nested(parameter: any) { parameter.agent = f.agent.bind(f, 'real', { task: 'x' }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); const alias = parameter; alias.agent = parameter.agent; alias.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); parameter.worker = mutableWorker; parameter.worker.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); const { worker } = parameter; worker.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); const { agent } = worker; agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        generate('prompt', { output: {} }); mutableCall(f, 'review', { task: 'x' }); box.worker = mutableWorker; box.worker.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); function nested(parameter: any) { parameter.agent = f.agent.bind(f, 'real', { task: 'x' }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); const alias = parameter; alias.agent = parameter.agent; alias.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); const escaped = alias; escaped.agent = parameter.agent; alias.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); parameter.worker = mutableWorker; parameter.worker.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); const { worker } = parameter; worker.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); const { agent } = worker; agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
       `);
       const variableAliasResult = scanTypeScript(variableAliases);
-      expect(variableAliasResult.calls).toBe(12);
-      expect(variableAliasResult.missing).toHaveLength(12);
+      expect(variableAliasResult.calls).toBe(13);
+      expect(variableAliasResult.missing).toHaveLength(13);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `
