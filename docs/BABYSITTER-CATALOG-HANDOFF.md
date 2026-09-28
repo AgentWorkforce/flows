@@ -13,11 +13,12 @@ The reviewed native artifact shipped in Flows 2.0.26. The existing
 `examples/babysitter` declares Claude, GitHub comment writes, and a merge-gate
 hook; it is not the native existing-session package. Ordinary authored dispatch
 still refuses matched extension handlers with `plugin_unsupported`, because it
-imports tenant JavaScript in the host. Hosted callers must instead call
-`runHostedSoftwareGardenBabysitter`, which captures the reviewed Software
-Garden base and complete lock-backed installation as one generation before it
-runs the exact matched native handler in the capability sandbox. Keep enabled
-activation blocked with zero writes until Cloud calls that entrypoint.
+imports tenant JavaScript in the host. The external exact-target Relay/Flows
+runtime must instead call `runHostedSoftwareGardenBabysitter`, which captures
+the reviewed Software Garden base and complete lock-backed installation as one
+generation before it runs the exact matched native handler in the capability
+sandbox. Keep enabled activation blocked with zero writes until that runtime
+calls the entrypoint.
 
 The native handler must consume host-verified delivery authority, normalize the
 repository/PR event, and call the Cloud lineage path. Cloud must recheck the
@@ -30,7 +31,7 @@ through the generic executor: #549 still refuses it. The SDK has a separate Linu
 capability sandbox that injects exactly
 `capabilities.cloud.babysitterTurn.queue` without exposing the base context,
 workspace, environment credentials, network, helpers, MCP, or harnesses. It is
-is reached by the canonical composition entrypoint, but Cloud does not yet call
+reached by the canonical composition entrypoint, but no deployed runtime calls
 that entrypoint and this must not be treated as enablement. The package's
 `compat` requires the published 2.0.26 Surface/SDK release that routes
 `labeled`, `unlabeled`, and `ready_for_review`. Export it only from the reviewed
@@ -58,11 +59,18 @@ normalized input against non-serializable verified dispatch authority, and
 permits one queue call. The parent capability adapter
 receives that original authority plus immutable extension provenance; the
 capability request never carries workspace, activation, listener, session,
-lineage, label, head, prompt, merge, route, or config authority. Cloud PR #3942 owns the
-lineage/authority core and must inject workspace, activation, and listener from
-persisted dispatch context, re-read live PR/label/head state, and return only
-`{ receiptId, status: 'queued' | 'duplicate' }`. Refusal or in-doubt transport
-rejects once with no fallback.
+lineage, label, head, prompt, merge, route, or config authority. Cloud PR #4002
+at `25412782bf148ff8dd8018bdbafd719d4e8347fa` deliberately supplies no execution
+authority: it emits the exact-target `relay:hosted-flow-extension:v1` action for
+an external Relay/Flows runtime. That runtime owns this entrypoint; only its
+validated capability call reaches `relay:native-existing-session:v1`
+downstream. Merged Cloud PR #3942 owns that downstream lineage/authority core
+and must inject workspace, activation, and listener from persisted dispatch
+context, re-read live PR/label/head state, and return only `{ receiptId, status:
+'queued' | 'duplicate' }`. Refusal or in-doubt transport rejects once with no
+fallback. Activation remains blocked until the external runtime owner is
+merged, deployed, and the complete path produces a live receipt on a private
+repository.
 
 Only the parent validator is a security boundary. The isolated entry can write
 its inherited protocol descriptor directly and bypass child-side routing,

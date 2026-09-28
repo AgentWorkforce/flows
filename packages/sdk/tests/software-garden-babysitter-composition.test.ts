@@ -103,21 +103,28 @@ describe('canonical Software Garden + Babysitter composition', () => {
   it.skipIf(process.platform !== 'linux' || !existsSync('/usr/bin/bwrap'))(
     'executes the pinned composition and preserves queued/duplicate replay receipts', async () => {
       const statuses = ['queued', 'duplicate'] as const;
+      const deliveryId = 'delivery-replay';
+      const receiptId = `bst_${'1'.repeat(64)}`;
+      const replayDispatch = dispatch('pull_request.labeled', deliveryId);
+      const replayInput = input('pull_request.labeled', deliveryId);
       const calls: unknown[] = [];
       for (let index = 0; index < statuses.length; index += 1) {
-        const deliveryId = `delivery-${index + 1}`;
         const result = await runHostedSoftwareGardenBabysitter({
           flowPath: installed.flowPath,
-          dispatch: dispatch('pull_request.labeled', deliveryId),
-          input: input('pull_request.labeled', deliveryId),
+          dispatch: replayDispatch,
+          input: replayInput,
           babysitterTurn: { queue: async (request, authority) => {
             calls.push({ request, authority });
-            return { receiptId: `bst_${String(index + 1).repeat(64)}`, status: statuses[index] };
+            return { receiptId, status: statuses[index] };
           } },
         });
         expect(result).toEqual({ completionReason: 'success', capabilityCalls: 1 });
       }
       expect(calls).toHaveLength(2);
+      expect(calls.map(call => (call as { request: { delivery: { deliveryId: string } } }).request.delivery.deliveryId))
+        .toEqual([deliveryId, deliveryId]);
+      expect(calls.map(call => (call as { authority: { dispatch: { deliveryId: string } } }).authority.dispatch.deliveryId))
+        .toEqual([deliveryId, deliveryId]);
       expect(calls.map(call => (call as { authority: { extension: unknown } }).authority.extension)).toEqual([
         { name: 'babysitter', version: '0.2.0', ref: REF, digest: DIGEST },
         { name: 'babysitter', version: '0.2.0', ref: REF, digest: DIGEST },
