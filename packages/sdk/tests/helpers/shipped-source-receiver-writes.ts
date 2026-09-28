@@ -75,51 +75,26 @@ function expressionMayEvaluateToSymbol(
   return branches?.some(branch => expressionMayEvaluateToSymbol(branch, symbol, checker)) ?? false;
 }
 
-function isDirectObjectAssignCall(node: ts.Node): node is ts.CallExpression {
-  if (!ts.isCallExpression(node) || memberName(node.expression) !== 'assign') return false;
-  const receiver = memberReceiver(node.expression);
-  if (!receiver) return false;
-  const target = unwrap(receiver);
-  return ts.isIdentifier(target) && target.text === 'Object';
-}
+const REFLECTIVE_WRITERS = {
+  Object: new Set(['assign', 'defineProperty', 'defineProperties', 'setPrototypeOf']),
+  Reflect: new Set(['set', 'defineProperty', 'deleteProperty', 'setPrototypeOf']),
+} as const;
 
-function referencesGlobalObject(
+function referencesIntrinsic(
   expression: ts.Expression,
+  intrinsic: keyof typeof REFLECTIVE_WRITERS,
   checker: ts.TypeChecker,
   seen = new Set<ts.Symbol>(),
 ): boolean {
   expression = unwrap(expression);
   if (ts.isIdentifier(expression)) {
-    if (expression.text === 'Object') return true;
-    const symbol = checker.getSymbolAtLocation(expression);
-    if (!symbol || seen.has(symbol)) return false;
-    seen.add(symbol);
-    const declaration = symbol.declarations?.find(ts.isVariableDeclaration);
-    return declaration?.initializer !== undefined
-      && referencesGlobalObject(declaration.initializer, checker, seen);
-  }
-  const branches = wrappedExpressionBranches(expression);
-  return branches?.some(branch => referencesGlobalObject(branch, checker, new Set(seen))) ?? false;
-}
-
-function referencesObjectAssign(
-  expression: ts.Expression,
-  checker: ts.TypeChecker,
-  seen = new Set<ts.Symbol>(),
-): boolean {
-  expression = unwrap(expression);
-  if (memberName(expression) === 'assign') {
-    const receiver = memberReceiver(expression);
-    const target = receiver && unwrap(receiver);
-    if (target && ts.isIdentifier(target) && target.text === 'Object') return true;
-  }
-  if (ts.isIdentifier(expression)) {
+    if (expression.text === intrinsic) return true;
     const symbol = checker.getSymbolAtLocation(expression);
     if (!symbol || seen.has(symbol)) return false;
     seen.add(symbol);
     const binding = symbol.declarations?.find(ts.isBindingElement);
     if (binding?.initializer
-      && referencesObjectAssign(binding.initializer, checker, new Set(seen))) return true;
+      && referencesIntrinsic(binding.initializer, intrinsic, checker, new Set(seen))) return true;
     if (binding) {
       const source = bindingSource(binding);
       if (source) {
@@ -127,28 +102,92 @@ function referencesObjectAssign(
           aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
           ...bindingDefaultValues(source, checker, new Set(seen)),
         ].filter((value): value is NonNullable<typeof value> => value !== undefined);
-        if (values.some(value => referencesObjectAssign(value.value, checker, new Set(seen)))) return true;
-        if (source.path.at(-1) === 'assign') {
+        if (values.some(value => referencesIntrinsic(
+          value.value,
+          intrinsic,
+          checker,
+          new Set(seen),
+        ))) return true;
+      }
+    }
+    const declaration = symbol.declarations?.find(ts.isVariableDeclaration);
+    return declaration?.initializer !== undefined
+      && referencesIntrinsic(declaration.initializer, intrinsic, checker, seen);
+  }
+  const branches = wrappedExpressionBranches(expression);
+  return branches?.some(branch => referencesIntrinsic(branch, intrinsic, checker, new Set(seen))) ?? false;
+}
+
+function isReflectiveWriter(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): boolean {
+  const name = memberName(expression);
+  const receiver = memberReceiver(expression);
+  if (!name || !receiver) return false;
+  return (Object.entries(REFLECTIVE_WRITERS) as Array<[
+    keyof typeof REFLECTIVE_WRITERS,
+    ReadonlySet<string>,
+  ]>).some(([intrinsic, names]) => names.has(name)
+    && referencesIntrinsic(receiver, intrinsic, checker, new Set(seen)));
+}
+
+function isDirectReflectiveWriterCall(
+  node: ts.Node,
+  checker: ts.TypeChecker,
+): node is ts.CallExpression {
+  return ts.isCallExpression(node) && isReflectiveWriter(node.expression, checker, new Set());
+}
+
+function referencesReflectiveWriter(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen = new Set<ts.Symbol>(),
+): boolean {
+  expression = unwrap(expression);
+  if (isReflectiveWriter(expression, checker, seen)) return true;
+  if (ts.isIdentifier(expression)) {
+    const symbol = checker.getSymbolAtLocation(expression);
+    if (!symbol || seen.has(symbol)) return false;
+    seen.add(symbol);
+    const binding = symbol.declarations?.find(ts.isBindingElement);
+    if (binding?.initializer
+      && referencesReflectiveWriter(binding.initializer, checker, new Set(seen))) return true;
+    if (binding) {
+      const source = bindingSource(binding);
+      if (source) {
+        const values = [
+          aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
+          ...bindingDefaultValues(source, checker, new Set(seen)),
+        ].filter((value): value is NonNullable<typeof value> => value !== undefined);
+        if (values.some(value => referencesReflectiveWriter(value.value, checker, new Set(seen)))) return true;
+        const name = source.path.at(-1);
+        if (typeof name === 'string') {
           const receiverPath = source.path.slice(0, -1);
           const receiver = receiverPath.length === 0
             ? source.initializer
             : aggregateValueAtPath(source.initializer, receiverPath, checker, new Set(seen))?.value;
-          if (receiver && referencesGlobalObject(receiver, checker, new Set(seen))) return true;
+          if (receiver && (Object.entries(REFLECTIVE_WRITERS) as Array<[
+            keyof typeof REFLECTIVE_WRITERS,
+            ReadonlySet<string>,
+          ]>).some(([intrinsic, names]) => names.has(name)
+            && referencesIntrinsic(receiver, intrinsic, checker, new Set(seen)))) return true;
         }
       }
     }
     const declaration = symbol.declarations?.find(ts.isVariableDeclaration);
     return declaration?.initializer !== undefined
-      && referencesObjectAssign(declaration.initializer, checker, seen);
+      && referencesReflectiveWriter(declaration.initializer, checker, seen);
   }
   const branches = wrappedExpressionBranches(expression);
-  if (branches) return branches.some(branch => referencesObjectAssign(branch, checker, new Set(seen)));
+  if (branches) return branches.some(branch => referencesReflectiveWriter(branch, checker, new Set(seen)));
   const receiver = memberReceiver(expression);
   if (receiver && ['call', 'apply', 'bind'].includes(memberName(expression) ?? '')) {
-    return referencesObjectAssign(receiver, checker, seen);
+    return referencesReflectiveWriter(receiver, checker, seen);
   }
   return ts.isCallExpression(expression)
-    ? referencesObjectAssign(expression.expression, checker, seen)
+    ? referencesReflectiveWriter(expression.expression, checker, seen)
     : false;
 }
 
@@ -190,14 +229,14 @@ export function symbolHasWrites(
       found = true;
       return;
     }
-    if (isDirectObjectAssignCall(node)) {
+    if (isDirectReflectiveWriterCall(node, checker)) {
       if (node.arguments[0] && assignmentTargetHasSymbol(node.arguments[0], symbol, checker)) {
         found = true;
         return;
       }
-    } else if (ts.isCallExpression(node) && referencesObjectAssign(node.expression, checker)
+    } else if (ts.isCallExpression(node) && referencesReflectiveWriter(node.expression, checker)
       && node.arguments.some(argument => nodeReferencesSymbol(argument, symbol, checker))) {
-      // Once Object.assign has escaped through call/apply/bind or an alias,
+      // Once a reflective writer has escaped through call/apply/bind or an alias,
       // its target position is no longer uniformly represented in the AST.
       // Treat any receiver passed into that invocation as escaped rather than
       // trusting a trailing model pair after a possible reflective write.

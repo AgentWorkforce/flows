@@ -75,11 +75,23 @@ describe('shipped-source worker invocation resolution', () => {
         function objectAssignNullishTargetWrite(parameter: any) { Object.assign(parameter ?? parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
         function objectAssignCommaTargetWrite(parameter: any) { Object.assign((flag, parameter), { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
         async function objectAssignAwaitTargetWrite(parameter: any) { Object.assign(await parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function objectAliasReceiverAssignWrite(parameter: any) { const O = Object; O.assign(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function objectDefinePropertyWrite(parameter: any) { Object.defineProperty(parameter, 'agent', { value: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function objectDefinePropertiesWrite(parameter: any) { Object.defineProperties(parameter, { agent: { value: f.agent.bind(f, 'real', { task: 'x' }) } }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function objectSetPrototypeOfWrite(parameter: any) { Object.setPrototypeOf(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function reflectSetWrite(parameter: any) { Reflect.set(parameter, 'agent', f.agent.bind(f, 'real', { task: 'x' })); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function reflectDefinePropertyWrite(parameter: any) { Reflect.defineProperty(parameter, 'agent', { value: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function reflectDeletePropertyWrite(parameter: any) { Reflect.deleteProperty(parameter, 'agent'); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function reflectSetPrototypeOfWrite(parameter: any) { Reflect.setPrototypeOf(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function destructuredDefinePropertyWrite(parameter: any) { const { defineProperty } = Object; defineProperty(parameter, 'agent', { value: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function destructuredReflectSetWrite(parameter: any) { const { set } = Reflect; set(parameter, 'agent', f.agent.bind(f, 'real', { task: 'x' })); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function bindingElementObjectAliasWrite(parameter: any) { const [O] = [Object]; O.assign(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function bindingElementObjectDefaultWrite(parameter: any) { const objects: Array<typeof Object | undefined> = []; const [O = Object] = objects; O.assign(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
         async function wrappedWorkerAliases() { const conditionalRun = flag ? f.agent : f.agent, logicalRun = (flag && f.agent) || f.agent, nullishRun = f.agent ?? f.agent, commaRun = (flag, f.agent), awaitRun = await f.agent; conditionalRun('review', { task: 'x' }); logicalRun('review', { task: 'x' }); nullishRun('review', { task: 'x' }); commaRun('review', { task: 'x' }); awaitRun('review', { task: 'x' }); }
       `);
       const variableAliasResult = scanTypeScript(variableAliases);
-      expect(variableAliasResult.calls).toBe(54);
-      expect(variableAliasResult.missing).toHaveLength(54);
+      expect(variableAliasResult.calls).toBe(66);
+      expect(variableAliasResult.missing).toHaveLength(66);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `
