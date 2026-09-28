@@ -264,23 +264,20 @@ function flowInvocation(
       auditable: constructor.auditable && !node.arguments.some(ts.isSpreadElement),
     };
   }
-  const operation = memberName(node.expression);
-  const receiver = memberReceiver(node.expression);
-  const called = receiver ? flowConstructorArguments(receiver, checker) : undefined;
-  if (!called) return undefined;
-  if (operation === 'call') {
+  const helper = flowInvocationHelper(node.expression, checker);
+  if (!helper) return undefined;
+  if (helper.operation === 'call') {
     const args = node.arguments.slice(1);
     return {
-      args: [...called.args, ...args],
-      auditable: called.auditable && !node.arguments.some(ts.isSpreadElement),
+      args: [...helper.args, ...args],
+      auditable: helper.auditable && !node.arguments.some(ts.isSpreadElement),
     };
   }
-  if (operation !== 'apply') return undefined;
   const applied = node.arguments[1];
   return applied && ts.isArrayLiteralExpression(applied)
     ? {
-        args: [...called.args, ...applied.elements],
-        auditable: called.auditable && !node.arguments.some(ts.isSpreadElement)
+        args: [...helper.args, ...applied.elements],
+        auditable: helper.auditable && !node.arguments.some(ts.isSpreadElement)
           && !applied.elements.some(ts.isSpreadElement),
       }
     : { args: [], auditable: false };
