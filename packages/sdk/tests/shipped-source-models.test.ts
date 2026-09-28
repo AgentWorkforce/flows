@@ -141,6 +141,16 @@ function isFlowCall(node: ts.Node): node is ts.CallExpression {
   return ts.isIdentifier(expression) && expression.text === 'flow';
 }
 
+function flowHeader(node: ts.CallExpression, checker: ts.TypeChecker): ts.Expression | undefined {
+  if (node.arguments.length < 2) return undefined;
+  const candidate = node.arguments[1];
+  if (candidate === undefined) return undefined;
+  if (node.arguments.length === 2 && checker.getTypeAtLocation(candidate).getCallSignatures().length > 0) {
+    return undefined;
+  }
+  return candidate;
+}
+
 function isRequiredString(expression: ts.Expression, checker: ts.TypeChecker): boolean {
   const type = checker.getTypeAtLocation(expression);
   return (type.flags & ts.TypeFlags.StringLike) !== 0
@@ -187,10 +197,14 @@ function scanTypeScript(path: string): {
   let calls = 0;
 
   const collectFlowHeaders = (node: ts.Node): void => {
-    if (isFlowCall(node) && node.arguments.length >= 3) {
-      const header = node.arguments[1];
+    if (isFlowCall(node)) {
+      const header = flowHeader(node, checker);
+      if (header === undefined) {
+        ts.forEachChild(node, collectFlowHeaders);
+        return;
+      }
       const line = file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
-      if (!header || !ts.isObjectLiteralExpression(header)) {
+      if (!ts.isObjectLiteralExpression(header) || header.properties.some(ts.isSpreadAssignment)) {
         invalidFlowHeaders.push(`${relative(ROOT, path)}:${line} flow header must be an inline object literal`);
         ts.forEachChild(node, collectFlowHeaders);
         return;
@@ -472,6 +486,29 @@ describe('first-party shipped source model pins', () => {
         flow('mutated-through-header', header, () => {});
       `);
       expect(scanTypeScript(aliasedHeader).invalidFlowHeaders).toHaveLength(1);
+
+      const twoArgumentBudget = join(directory, 'two-argument-budget.flow.ts');
+      writeFileSync(twoArgumentBudget, `
+        declare function flow(name: string, header: unknown): unknown;
+        flow('scheduled', { budget: '$2' });
+      `);
+      expect(scanTypeScript(twoArgumentBudget).dollarBudgetsWithoutTokenCeilings).toHaveLength(1);
+
+      const spreadHeader = join(directory, 'spread-header.flow.ts');
+      writeFileSync(spreadHeader, `
+        declare function flow(name: string, header: unknown, body: () => void): void;
+        const policy = { budget: '$2' };
+        flow('spread', { ...policy }, () => {});
+      `);
+      expect(scanTypeScript(spreadHeader).invalidFlowHeaders).toHaveLength(1);
+
+      const namedBody = join(directory, 'named-body.flow.ts');
+      writeFileSync(namedBody, `
+        declare function flow(name: string, body: () => void): void;
+        const body = () => {};
+        flow('body', body);
+      `);
+      expect(scanTypeScript(namedBody).invalidFlowHeaders).toEqual([]);
 
       const elementAccess = join(directory, 'element-access.flow.ts');
       writeFileSync(elementAccess, `
