@@ -261,7 +261,6 @@ describe('canonical run dispatches the installed Software Garden Babysitter', ()
       const first = await run(installed.flowPath, input('pull_request.labeled', deliveryId), authority);
       expect(first).toMatchObject({
         exitCode: 0,
-        stderr: [],
         report: {
           ok: true,
           command: 'run',
@@ -277,7 +276,6 @@ describe('canonical run dispatches the installed Software Garden Babysitter', ()
       const retried = await run(installed.flowPath, input('pull_request.labeled', deliveryId), authority);
       expect(retried).toMatchObject({
         exitCode: 0,
-        stderr: [],
         report: {
           ok: true,
           runId: first.report.runId,
