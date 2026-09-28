@@ -45,11 +45,15 @@ function property(object: ts.ObjectLiteralExpression, name: string): ts.Expressi
   return undefined;
 }
 
-function constInitializer(expression: ts.Expression | undefined, checker: ts.TypeChecker): ts.Expression | undefined {
-  if (!expression || !ts.isIdentifier(expression)) return expression;
-  const symbol = ts.isShorthandPropertyAssignment(expression.parent)
+function identifierSymbol(expression: ts.Identifier, checker: ts.TypeChecker): ts.Symbol | undefined {
+  return ts.isShorthandPropertyAssignment(expression.parent)
     ? checker.getShorthandAssignmentValueSymbol(expression.parent)
     : checker.getSymbolAtLocation(expression);
+}
+
+function constInitializer(expression: ts.Expression | undefined, checker: ts.TypeChecker): ts.Expression | undefined {
+  if (!expression || !ts.isIdentifier(expression)) return expression;
+  const symbol = identifierSymbol(expression, checker);
   const declaration = symbol?.declarations?.find(ts.isVariableDeclaration);
   if (!declaration?.initializer || !ts.isVariableDeclarationList(declaration.parent)
     || (declaration.parent.flags & ts.NodeFlags.Const) === 0) return expression;
@@ -70,7 +74,33 @@ function numericLiteral(expression: ts.Expression | undefined, checker: ts.TypeC
 
 function objectLiteral(expression: ts.Expression | undefined, checker: ts.TypeChecker): ts.ObjectLiteralExpression | undefined {
   const resolved = constInitializer(expression, checker);
-  return resolved && ts.isObjectLiteralExpression(resolved) ? resolved : undefined;
+  if (!resolved || !ts.isObjectLiteralExpression(resolved)) return undefined;
+  if (resolved.properties.some(ts.isSpreadAssignment)) return undefined;
+  const ceilingFields = resolved.properties
+    .map(candidate => candidate.name?.getText().replaceAll(/["']/gu, ''))
+    .filter(name => name === 'tokens' || name === 'dollars');
+  if (new Set(ceilingFields).size !== ceilingFields.length) return undefined;
+  if (!expression || !ts.isIdentifier(expression)) return resolved;
+
+  const symbol = identifierSymbol(expression, checker);
+  const declaration = symbol?.declarations?.find(ts.isVariableDeclaration);
+  if (!symbol || !declaration || !ts.isIdentifier(declaration.name)) return undefined;
+  let onlyBudgetReferences = true;
+  const visit = (node: ts.Node): void => {
+    if (!onlyBudgetReferences) return;
+    if (ts.isIdentifier(node) && identifierSymbol(node, checker) === symbol) {
+      const parent = node.parent;
+      const isDeclaration = node === declaration.name;
+      const isShorthandBudget = ts.isShorthandPropertyAssignment(parent)
+        && parent.name === node && parent.name.text === 'budget';
+      const isAssignedBudget = ts.isPropertyAssignment(parent)
+        && parent.initializer === node && parent.name.getText().replaceAll(/["']/gu, '') === 'budget';
+      if (!isDeclaration && !isShorthandBudget && !isAssignedBudget) onlyBudgetReferences = false;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(declaration.getSourceFile());
+  return onlyBudgetReferences ? resolved : undefined;
 }
 
 function isRequiredString(expression: ts.Expression, checker: ts.TypeChecker): boolean {
@@ -126,7 +156,8 @@ function scanTypeScript(path: string): {
       const isDollarString = budget !== undefined && ts.isStringLiteralLike(budget) && /^\$/u.test(budget.text);
       const dollars = budgetObject ? numericLiteral(property(budgetObject, 'dollars'), checker) : undefined;
       const tokens = budgetObject ? numericLiteral(property(budgetObject, 'tokens'), checker) : undefined;
-      const isDollarObject = budgetObject !== undefined && property(budgetObject, 'dollars') !== undefined;
+      const isDollarObject = budget !== undefined && ts.isObjectLiteralExpression(budget)
+        && property(budget, 'dollars') !== undefined;
       const hasEnforceableCeiling = dollars !== undefined && dollars > 0
         && tokens !== undefined && tokens >= 0 && tokens <= dollars * 100_000;
       if ((isDollarString || isDollarObject) && !hasEnforceableCeiling) {
@@ -320,6 +351,15 @@ describe('first-party shipped source model pins', () => {
         void header;
       `);
       expect(scanTypeScript(shorthandBudget).dollarBudgetsWithoutTokenCeilings).toHaveLength(1);
+
+      const mutatedBudget = join(directory, 'mutated-budget.flow.ts');
+      writeFileSync(mutatedBudget, `
+        const budget = { tokens: 200_000, dollars: 2 };
+        budget.tokens = 20_000_000;
+        const header = { budget };
+        void header;
+      `);
+      expect(scanTypeScript(mutatedBudget).dollarBudgetsWithoutTokenCeilings).toHaveLength(1);
 
       const taggedLlm = join(directory, 'tagged-llm.flow.ts');
       writeFileSync(taggedLlm, `
