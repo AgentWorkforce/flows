@@ -46,19 +46,20 @@ function memberReceiver(expression: ts.Expression): ts.Expression | undefined {
     : undefined;
 }
 
-function immutableInitializer(
+function variableInitializer(
   expression: ts.Identifier,
   checker: ts.TypeChecker,
   seen: Set<ts.Symbol>,
-): ts.Expression | undefined {
+): { expression: ts.Expression; immutable: boolean } | undefined {
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;
   seen.add(symbol);
   const variable = symbol.declarations?.find(ts.isVariableDeclaration);
-  return variable?.initializer && ts.isVariableDeclarationList(variable.parent)
-    && (variable.parent.flags & ts.NodeFlags.Const) !== 0
-    ? variable.initializer
-    : undefined;
+  if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)) return undefined;
+  return {
+    expression: variable.initializer,
+    immutable: (variable.parent.flags & ts.NodeFlags.Const) !== 0,
+  };
 }
 
 function invocationHelper(
@@ -74,8 +75,27 @@ function invocationHelper(
     if (callable) return { operation, ...callable };
   }
   if (!ts.isIdentifier(expression)) return undefined;
-  const initializer = immutableInitializer(expression, checker, seen);
-  return initializer ? invocationHelper(initializer, checker, seen) : undefined;
+  const initializer = variableInitializer(expression, checker, seen);
+  if (!initializer) return undefined;
+  const helper = invocationHelper(initializer.expression, checker, seen);
+  return helper && !initializer.immutable ? { ...helper, args: [], auditable: false } : helper;
+}
+
+function bindHelper(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen = new Set<ts.Symbol>(),
+): WorkerCallable | undefined {
+  expression = unwrap(expression);
+  if (memberName(expression) === 'bind') {
+    const receiver = memberReceiver(expression);
+    return receiver ? workerCallable(receiver, checker, new Set(seen)) : undefined;
+  }
+  if (!ts.isIdentifier(expression)) return undefined;
+  const initializer = variableInitializer(expression, checker, seen);
+  if (!initializer) return undefined;
+  const callable = bindHelper(initializer.expression, checker, seen);
+  return callable && !initializer.immutable ? { ...callable, args: [], auditable: false } : callable;
 }
 
 function workerCallable(
@@ -106,16 +126,39 @@ function workerCallable(
       auditable: helper.auditable && !expression.arguments.some(ts.isSpreadElement),
     };
   }
+  if (ts.isCallExpression(expression)) {
+    const operation = memberName(expression.expression);
+    const receiver = memberReceiver(expression.expression);
+    const helper = receiver ? bindHelper(receiver, checker, new Set(seen)) : undefined;
+    if (helper) {
+      const target = expression.arguments[0]
+        ? workerCallable(expression.arguments[0], checker, new Set(seen))
+        : undefined;
+      if (operation !== 'call' || expression.arguments.length < 2
+        || target?.method !== helper.method) return { method: helper.method, args: [], auditable: false };
+      return {
+        method: helper.method,
+        args: [...helper.args, ...expression.arguments.slice(2)],
+        auditable: helper.auditable && target.auditable && !expression.arguments.some(ts.isSpreadElement),
+      };
+    }
+  }
   if (!ts.isIdentifier(expression)) return undefined;
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;
   const binding = symbol.declarations?.find(ts.isBindingElement);
   if (binding && ts.isObjectBindingPattern(binding.parent)) {
     const name = propertyName(binding.propertyName ?? (ts.isIdentifier(binding.name) ? binding.name : undefined));
-    return name === 'agent' || name === 'llm' ? { method: name, args: [], auditable: true } : undefined;
+    const declaration = binding.parent.parent;
+    const immutable = ts.isVariableDeclaration(declaration)
+      && ts.isVariableDeclarationList(declaration.parent)
+      && (declaration.parent.flags & ts.NodeFlags.Const) !== 0;
+    return name === 'agent' || name === 'llm' ? { method: name, args: [], auditable: immutable } : undefined;
   }
-  const initializer = immutableInitializer(expression, checker, seen);
-  return initializer ? workerCallable(initializer, checker, seen) : undefined;
+  const initializer = variableInitializer(expression, checker, seen);
+  if (!initializer) return undefined;
+  const callable = workerCallable(initializer.expression, checker, seen);
+  return callable && !initializer.immutable ? { ...callable, args: [], auditable: false } : callable;
 }
 
 export function workerMethodName(expression: ts.Expression, checker: ts.TypeChecker): string | undefined {
