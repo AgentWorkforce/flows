@@ -50,6 +50,40 @@ function memberReceiver(expression: ts.Expression): ts.Expression | undefined {
     : undefined;
 }
 
+function writeRoot(expression: ts.Expression): ts.Identifier | undefined {
+  expression = unwrap(expression);
+  while (!ts.isIdentifier(expression)) {
+    const receiver = memberReceiver(expression);
+    if (!receiver) return undefined;
+    expression = unwrap(receiver);
+  }
+  return expression;
+}
+
+function symbolHasWrites(symbol: ts.Symbol, checker: ts.TypeChecker): boolean {
+  const source = symbol.valueDeclaration?.getSourceFile() ?? symbol.declarations?.[0]?.getSourceFile();
+  if (!source) return true;
+  let found = false;
+  const visit = (node: ts.Node): void => {
+    if (found) return;
+    let target: ts.Expression | undefined;
+    if (ts.isBinaryExpression(node)
+      && node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment
+      && node.operatorToken.kind <= ts.SyntaxKind.LastAssignment) target = node.left;
+    if ((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node))
+      && (node.operator === ts.SyntaxKind.PlusPlusToken
+        || node.operator === ts.SyntaxKind.MinusMinusToken)) target = node.operand;
+    const root = target ? writeRoot(target) : undefined;
+    if (root && checker.getSymbolAtLocation(root) === symbol) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return found;
+}
+
 function variableInitializer(
   expression: ts.Identifier,
   checker: ts.TypeChecker,
@@ -148,6 +182,8 @@ function receiverAuditable(
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return false;
   seen.add(symbol);
+  if (symbolHasWrites(symbol, checker)) return false;
+  if (symbol.declarations?.some(ts.isBindingElement)) return false;
   const variable = symbol.declarations?.find(ts.isVariableDeclaration);
   if (!variable) return allowOpaqueRoot;
   if (!ts.isVariableDeclarationList(variable.parent)

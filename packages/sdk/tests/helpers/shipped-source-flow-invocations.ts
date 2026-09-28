@@ -82,6 +82,52 @@ function objectMemberValue(
   return value && !parent.auditable ? { ...value, auditable: false } : value;
 }
 
+function objectBindingSource(binding: ts.BindingElement): {
+  initializer: ts.Expression;
+  immutable: boolean;
+  path: string[];
+} | undefined {
+  const path: string[] = [];
+  let current = binding;
+  while (ts.isObjectBindingPattern(current.parent)) {
+    const name = propertyName(current.propertyName
+      ?? (ts.isIdentifier(current.name) ? current.name : undefined));
+    if (!name) return undefined;
+    path.unshift(name);
+    const owner = current.parent.parent;
+    if (ts.isBindingElement(owner)) {
+      current = owner;
+      continue;
+    }
+    if (!ts.isVariableDeclaration(owner) || !owner.initializer
+      || !ts.isVariableDeclarationList(owner.parent)) return undefined;
+    return {
+      initializer: owner.initializer,
+      immutable: (owner.parent.flags & ts.NodeFlags.Const) !== 0,
+      path,
+    };
+  }
+  return undefined;
+}
+
+function objectValueAtPath(
+  expression: ts.Expression,
+  path: readonly string[],
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): { value: ts.Expression; auditable: boolean; symbol?: ts.Symbol } | undefined {
+  let current: { value: ts.Expression; auditable: boolean; symbol?: ts.Symbol } = {
+    value: expression,
+    auditable: true,
+  };
+  for (const name of path) {
+    const member = objectMemberValue(current.value, name, checker, seen);
+    if (!member) return undefined;
+    current = !current.auditable ? { ...member, auditable: false } : member;
+  }
+  return current;
+}
+
 function namespaceSymbolAuditable(
   symbol: ts.Symbol,
   checker: ts.TypeChecker,
@@ -92,10 +138,9 @@ function namespaceSymbolAuditable(
   seen.add(symbol);
   const binding = symbol.declarations?.find(ts.isBindingElement);
   if (binding && ts.isObjectBindingPattern(binding.parent)) {
-    const name = propertyName(binding.propertyName ?? (ts.isIdentifier(binding.name) ? binding.name : undefined));
-    const declaration = binding.parent.parent;
-    if (name && ts.isVariableDeclaration(declaration) && declaration.initializer) {
-      const member = objectMemberValue(declaration.initializer, name, checker, seen);
+    const source = objectBindingSource(binding);
+    if (source) {
+      const member = objectValueAtPath(source.initializer, source.path, checker, seen);
       const nested = member?.symbol
         ? namespaceSymbolAuditable(member.symbol, checker, seen)
         : member ? namespaceAuditable(member.value, checker, seen) : undefined;
@@ -279,16 +324,19 @@ function flowConstructor(
   if (imported && (imported.propertyName ?? imported.name).text === 'flow') return { args: [], auditable: true };
   const binding = symbol.declarations?.find(ts.isBindingElement);
   if (binding && ts.isObjectBindingPattern(binding.parent)) {
-    const name = binding.propertyName ?? (ts.isIdentifier(binding.name) ? binding.name : undefined);
-    const declaration = binding.parent.parent;
-    if (propertyName(name) === 'flow' && ts.isVariableDeclaration(declaration) && declaration.initializer) {
-      const namespace = namespaceAuditable(declaration.initializer, checker);
-      if (namespace !== undefined && ts.isVariableDeclarationList(declaration.parent)) {
-        return {
-          args: [],
-          auditable: namespace && (declaration.parent.flags & ts.NodeFlags.Const) !== 0,
-        };
-      }
+    const source = objectBindingSource(binding);
+    if (source?.path.at(-1) === 'flow') {
+      const receiverPath = source.path.slice(0, -1);
+      const receiver = receiverPath.length === 0
+        ? { value: source.initializer, auditable: true }
+        : objectValueAtPath(source.initializer, receiverPath, checker, new Set());
+      const namespace = receiver?.symbol
+        ? namespaceSymbolAuditable(receiver.symbol, checker, new Set())
+        : receiver ? namespaceAuditable(receiver.value, checker) : undefined;
+      if (namespace !== undefined) return {
+        args: [],
+        auditable: source.immutable && receiverPath.length === 0 && namespace,
+      };
     }
   }
   const variable = symbol.declarations?.find(ts.isVariableDeclaration);
