@@ -84,7 +84,8 @@ const reviewerBody = flow<Input>(
   async (f, input) => {
     const pr = prFromInput(input);
     const reviewerCli = input.reviewerCli === undefined ? "claude" : input.reviewerCli.trim();
-    const reviewerModel = requiredReviewerModel(reviewerCli, input.reviewerModel);
+    const cliProblem = declarationStringError(reviewerCli);
+    if (cliProblem !== undefined) throw new Error(`Invalid reviewer CLI: ${cliProblem}`);
     const api = (path: string) =>
       f.run(`curl -sf -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" ${shellWord(`https://api.github.com/repos/${pr.owner}/${pr.repo}${path}`)}`);
 
@@ -106,6 +107,7 @@ const reviewerBody = flow<Input>(
 
     // Approval-only wakes never dispatch the reviewer. Review wakes still
     // prove the exact pair before their first GitHub or checkout effect.
+    const reviewerModel = requiredReviewerModel(reviewerCli, input.reviewerModel);
     await assertReviewerPairReady(f, reviewerCli, reviewerModel, process.cwd());
 
     // ── review gate: merged/closed, draft, disabling label, author allowlist ──

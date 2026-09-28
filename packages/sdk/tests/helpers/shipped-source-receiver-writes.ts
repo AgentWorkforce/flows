@@ -1,4 +1,10 @@
 import ts from 'typescript';
+import {
+  aggregateValueAtPath,
+  bindingDefaultValues,
+  bindingSource,
+  wrappedExpressionBranches,
+} from './shipped-source-binding-values.js';
 
 function unwrap(expression: ts.Expression): ts.Expression {
   while (ts.isParenthesizedExpression(expression)
@@ -53,6 +59,8 @@ function assignmentTargetHasSymbol(
   if (ts.isBinaryExpression(target) && target.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
     return assignmentTargetHasSymbol(target.left, symbol, checker);
   }
+  const branches = wrappedExpressionBranches(target);
+  if (branches) return branches.some(branch => assignmentTargetHasSymbol(branch, symbol, checker));
   return false;
 }
 
@@ -63,21 +71,8 @@ function expressionMayEvaluateToSymbol(
 ): boolean {
   expression = unwrap(expression);
   if (ts.isIdentifier(expression)) return checker.getSymbolAtLocation(expression) === symbol;
-  if (ts.isConditionalExpression(expression)) {
-    return expressionMayEvaluateToSymbol(expression.whenTrue, symbol, checker)
-      || expressionMayEvaluateToSymbol(expression.whenFalse, symbol, checker);
-  }
-  if (ts.isBinaryExpression(expression)
-    && (expression.operatorToken.kind === ts.SyntaxKind.CommaToken
-      || expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
-      || expression.operatorToken.kind === ts.SyntaxKind.BarBarToken
-      || expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)) {
-    return expressionMayEvaluateToSymbol(expression.left, symbol, checker)
-      || expressionMayEvaluateToSymbol(expression.right, symbol, checker);
-  }
-  return ts.isAwaitExpression(expression)
-    ? expressionMayEvaluateToSymbol(expression.expression, symbol, checker)
-    : false;
+  const branches = wrappedExpressionBranches(expression);
+  return branches?.some(branch => expressionMayEvaluateToSymbol(branch, symbol, checker)) ?? false;
 }
 
 function isDirectObjectAssignCall(node: ts.Node): node is ts.CallExpression {
@@ -103,25 +98,33 @@ function referencesObjectAssign(
     const symbol = checker.getSymbolAtLocation(expression);
     if (!symbol || seen.has(symbol)) return false;
     seen.add(symbol);
+    const binding = symbol.declarations?.find(ts.isBindingElement);
+    if (binding?.initializer
+      && referencesObjectAssign(binding.initializer, checker, new Set(seen))) return true;
+    if (binding) {
+      const source = bindingSource(binding);
+      if (source) {
+        const values = [
+          aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
+          ...bindingDefaultValues(source, checker, new Set(seen)),
+        ].filter((value): value is NonNullable<typeof value> => value !== undefined);
+        if (values.some(value => referencesObjectAssign(value.value, checker, new Set(seen)))) return true;
+        if (source.path.at(-1) === 'assign') {
+          const receiverPath = source.path.slice(0, -1);
+          const receiver = receiverPath.length === 0
+            ? source.initializer
+            : aggregateValueAtPath(source.initializer, receiverPath, checker, new Set(seen))?.value;
+          const target = receiver && unwrap(receiver);
+          if (target && ts.isIdentifier(target) && target.text === 'Object') return true;
+        }
+      }
+    }
     const declaration = symbol.declarations?.find(ts.isVariableDeclaration);
     return declaration?.initializer !== undefined
       && referencesObjectAssign(declaration.initializer, checker, seen);
   }
-  if (ts.isConditionalExpression(expression)) {
-    return referencesObjectAssign(expression.whenTrue, checker, new Set(seen))
-      || referencesObjectAssign(expression.whenFalse, checker, new Set(seen));
-  }
-  if (ts.isBinaryExpression(expression)
-    && (expression.operatorToken.kind === ts.SyntaxKind.CommaToken
-      || expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
-      || expression.operatorToken.kind === ts.SyntaxKind.BarBarToken
-      || expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)) {
-    return referencesObjectAssign(expression.left, checker, new Set(seen))
-      || referencesObjectAssign(expression.right, checker, new Set(seen));
-  }
-  if (ts.isAwaitExpression(expression)) {
-    return referencesObjectAssign(expression.expression, checker, seen);
-  }
+  const branches = wrappedExpressionBranches(expression);
+  if (branches) return branches.some(branch => referencesObjectAssign(branch, checker, new Set(seen)));
   const receiver = memberReceiver(expression);
   if (receiver && ['call', 'apply', 'bind'].includes(memberName(expression) ?? '')) {
     return referencesObjectAssign(receiver, checker, seen);

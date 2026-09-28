@@ -63,10 +63,17 @@ describe('shipped-source worker invocation resolution', () => {
         function objectAssignNullishAliasWrite(parameter: any) { const assign = Object.assign ?? Object.assign; assign(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
         function objectAssignCommaAliasWrite(parameter: any) { const assign = (flag, Object.assign); assign(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
         async function objectAssignAwaitAliasWrite(parameter: any) { const assign = await Object.assign; assign(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function objectAssignDestructuredAliasWrite(parameter: any) { const { assign } = Object; assign(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function objectAssignConditionalTargetWrite(parameter: any) { Object.assign(flag ? parameter : parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function objectAssignLogicalTargetWrite(parameter: any) { Object.assign((flag && parameter) || parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function objectAssignNullishTargetWrite(parameter: any) { Object.assign(parameter ?? parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function objectAssignCommaTargetWrite(parameter: any) { Object.assign((flag, parameter), { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        async function objectAssignAwaitTargetWrite(parameter: any) { Object.assign(await parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        async function wrappedWorkerAliases() { const conditionalRun = flag ? f.agent : f.agent, logicalRun = (flag && f.agent) || f.agent, nullishRun = f.agent ?? f.agent, commaRun = (flag, f.agent), awaitRun = await f.agent; conditionalRun('review', { task: 'x' }); logicalRun('review', { task: 'x' }); nullishRun('review', { task: 'x' }); commaRun('review', { task: 'x' }); awaitRun('review', { task: 'x' }); }
       `);
       const variableAliasResult = scanTypeScript(variableAliases);
-      expect(variableAliasResult.calls).toBe(37);
-      expect(variableAliasResult.missing).toHaveLength(37);
+      expect(variableAliasResult.calls).toBe(48);
+      expect(variableAliasResult.missing).toHaveLength(48);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `

@@ -2,6 +2,19 @@ import ts from 'typescript';
 
 type BindingPathSegment = string | number;
 
+export function wrappedExpressionBranches(expression: ts.Expression): readonly ts.Expression[] | undefined {
+  expression = unwrap(expression);
+  if (ts.isConditionalExpression(expression)) return [expression.whenTrue, expression.whenFalse];
+  if (ts.isBinaryExpression(expression)
+    && (expression.operatorToken.kind === ts.SyntaxKind.CommaToken
+      || expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+      || expression.operatorToken.kind === ts.SyntaxKind.BarBarToken
+      || expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)) {
+    return [expression.left, expression.right];
+  }
+  return ts.isAwaitExpression(expression) ? [expression.expression] : undefined;
+}
+
 function unwrap(expression: ts.Expression): ts.Expression {
   while (ts.isParenthesizedExpression(expression)
     || ts.isAsExpression(expression)

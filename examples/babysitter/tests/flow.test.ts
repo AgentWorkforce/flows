@@ -89,7 +89,7 @@ test('approval-only legacy wakes do not probe an unused reviewer pair', async ()
   });
   await body(x.f, {
     owner: 'acme', repo: 'widgets', number: 7, approvers: 'alice',
-    reviewerCli: 'claude', reviewerModel: 'unavailable-exact-model',
+    reviewerCli: '/opt/custom-wrapper',
     event: { review: { state: 'approved', user: { login: 'alice' }, commit_id: sha } },
   });
   assert.deepEqual(x.reasons, ['success']);

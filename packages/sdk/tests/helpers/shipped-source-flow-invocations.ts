@@ -4,6 +4,7 @@ import {
   bindingDefaultValues,
   bindingSource,
   objectMemberValue,
+  wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
 
 interface FlowCallable {
@@ -56,6 +57,20 @@ function bindingValues(
   ].filter((value): value is NonNullable<typeof value> => value !== undefined);
 }
 
+function wrappedResult<T extends { auditable: boolean }>(
+  expression: ts.Expression,
+  seen: Set<ts.Symbol>,
+  resolve: (branch: ts.Expression, seen: Set<ts.Symbol>) => T | undefined,
+): T | undefined {
+  const branches = wrappedExpressionBranches(expression);
+  if (!branches) return undefined;
+  for (const branch of branches) {
+    const result = resolve(branch, new Set(seen));
+    if (result) return { ...result, auditable: false };
+  }
+  return undefined;
+}
+
 
 function namespaceSymbolAuditable(
   symbol: ts.Symbol,
@@ -97,6 +112,12 @@ function namespaceAuditable(
   seen = new Set<ts.Symbol>(),
 ): boolean | undefined {
   expression = unwrap(expression);
+  const branches = wrappedExpressionBranches(expression);
+  if (branches) {
+    return branches.some(branch => namespaceAuditable(branch, checker, new Set(seen)) !== undefined)
+      ? false
+      : undefined;
+  }
   if (!ts.isIdentifier(expression)) {
     const name = memberName(expression);
     const receiver = memberReceiver(expression);
@@ -123,6 +144,9 @@ function invocationHelper(
     const constructor = flowConstructor(receiver, checker, seen);
     if (constructor) return { operation, ...constructor };
   }
+  const wrapped = wrappedResult(expression, seen,
+    (branch, branchSeen) => invocationHelper(branch, checker, branchSeen));
+  if (wrapped) return wrapped;
   if (!ts.isIdentifier(expression)) return undefined;
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;
@@ -156,6 +180,9 @@ function bindHelper(
     const receiver = memberReceiver(expression);
     return receiver ? flowConstructor(receiver, checker, new Set(seen)) : undefined;
   }
+  const wrapped = wrappedResult(expression, seen,
+    (branch, branchSeen) => bindHelper(branch, checker, branchSeen));
+  if (wrapped) return { args: [], auditable: false };
   if (!ts.isIdentifier(expression)) return undefined;
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;
@@ -201,6 +228,9 @@ function bindInvoker(
         && !expression.arguments.some(ts.isSpreadElement),
     };
   }
+  const wrapped = wrappedResult(expression, seen,
+    (branch, branchSeen) => bindInvoker(branch, checker, branchSeen));
+  if (wrapped) return { ...wrapped, args: [], prebound: [], auditable: false };
   if (!ts.isIdentifier(expression)) return undefined;
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;
@@ -283,6 +313,9 @@ function flowConstructor(
       };
     }
   }
+  const wrapped = wrappedResult(expression, seen,
+    (branch, branchSeen) => flowConstructor(branch, checker, branchSeen));
+  if (wrapped) return wrapped;
   if (!ts.isIdentifier(expression)) return undefined;
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;
