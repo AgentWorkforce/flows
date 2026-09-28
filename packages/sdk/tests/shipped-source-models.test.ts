@@ -258,21 +258,21 @@ describe('first-party shipped source model pins', () => {
       writeFileSync(unsafeFlowHeaders, `
         import { flow as importedFlow } from '@relayflows/surface';
         import * as surface from '@relayflows/surface';
-        declare const flowArgs: [string, unknown, () => void];
+        declare const flowArgs: [string, unknown, () => void], bindArgs: [undefined, string], callArgs: [undefined, string, unknown, () => void], receiverArgs: [undefined];
         declare function flow(name: string, header: unknown, body: () => void): void;
-        const define = flow, bound = flow.bind(undefined); const { flow: destructured } = surface;
+        const define = flow, bound = flow.bind(undefined), api = surface; const { flow: destructured, ['flow']: computed } = surface;
         const preboundName = flow.bind(undefined, 'prebound-name'), preboundHeader = flow.bind(undefined, 'prebound-header', { budget: '$2' });
         define('aliased', { budget: '$2' }, () => {}); bound('bound', { budget: '$2' }, () => {}); destructured('destructured', { budget: '$2' }, () => {});
         preboundName({ budget: '$2' }, () => {}); preboundHeader(() => {});
-        importedFlow('imported', { budget: '$2' }, () => {});
+        importedFlow('imported', { budget: '$2' }, () => {}); api.flow('namespace-alias', { budget: '$2' }, () => {}); computed('computed-binding', { budget: '$2' }, () => {});
         surface.flow('namespace', { budget: '$2' }, () => {}); surface.flow.call(undefined, 'called', { budget: '$2' }, () => {}); surface.flow.apply(undefined, ['applied', { budget: '$2' }, () => {}]); surface.flow.apply(undefined, [] as unknown as []);
-        surface.flow.call(undefined, ...flowArgs); surface.flow.apply(undefined, [...flowArgs]);
+        surface.flow.call(undefined, ...flowArgs); surface.flow.apply(undefined, [...flowArgs]); flow.bind(...bindArgs)({ budget: '$2' }, () => {}); flow.call(...callArgs); flow.apply(...receiverArgs, ['outer-applied', { budget: '$2' }, () => {}]);
         flow('accessor', { get budget() { return { dollars: 2, tokens: 20_000_000 }; } }, () => {});
         flow('duplicate', { budget: '$2', budget: '$1' }, () => {});
       `);
       const unsafeFlowHeaderResult = scanTypeScript(unsafeFlowHeaders);
-      expect(unsafeFlowHeaderResult.dollarBudgetsWithoutTokenCeilings).toHaveLength(9);
-      expect(unsafeFlowHeaderResult.invalidFlowHeaders).toHaveLength(5);
+      expect(unsafeFlowHeaderResult.dollarBudgetsWithoutTokenCeilings).toHaveLength(11);
+      expect(unsafeFlowHeaderResult.invalidFlowHeaders).toHaveLength(8);
 
       const namedBody = join(directory, 'named-body.flow.ts');
       writeFileSync(namedBody, `
@@ -440,6 +440,7 @@ describe('first-party shipped source model pins', () => {
   it('gives every TypeScript agent and LLM an explicit supported pair or a pinned named-agent declaration', () => {
     const paths = [
       ...filesBelow(resolve(ROOT, 'examples'), '.flow.ts'),
+      resolve(ROOT, 'examples/babysitter/hosted.ts'),
       ...filesBelow(resolve(ROOT, 'workflows'), '.flow.ts'),
       ...filesBelow(resolve(ROOT, 'packages/sdk/scripts/dogfood'), '.flow.ts'),
     ];
@@ -450,12 +451,10 @@ describe('first-party shipped source model pins', () => {
       for (const pair of [...result.pairs, ...result.namedPairs]) expectSupported(pair, name);
       expect(result.incompleteNamed, `${name}: every named agent must declare a literal cli and model`).toEqual([]);
       expect(result.invalidFlowHeaders, `${name}: flow headers must be inline and statically auditable`).toEqual([]);
-      if (result.calls > 0) {
-        expect(
-          result.dollarBudgetsWithoutTokenCeilings,
-          `${name}: current model aliases have no verified frozen price; dollar budgets need at most 100,000 tokens per dollar`,
-        ).toEqual([]);
-      }
+      expect(
+        result.dollarBudgetsWithoutTokenCeilings,
+        `${name}: current model aliases have no verified frozen price; dollar budgets need at most 100,000 tokens per dollar`,
+      ).toEqual([]);
       if (result.unresolved.length > 0) {
         const expectedCalls = DYNAMIC_PAIR_SOURCE_WAIVERS.get(name);
         expect(expectedCalls, `${result.unresolved.map(item => item.where).join('\n')}\nDynamic pairs need an exact tested waiver.`).toBeDefined();

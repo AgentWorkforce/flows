@@ -162,6 +162,23 @@ function workerInvocation(
   return undefined;
 }
 
+function isFlowNamespace(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen = new Set<ts.Symbol>(),
+): boolean {
+  expression = unwrapTransparentExpression(expression);
+  if (!ts.isIdentifier(expression)) return false;
+  const symbol = checker.getSymbolAtLocation(expression);
+  if (!symbol || seen.has(symbol)) return false;
+  if (symbol.declarations?.some(ts.isNamespaceImport)) return true;
+  seen.add(symbol);
+  const variable = symbol.declarations?.find(ts.isVariableDeclaration);
+  return Boolean(variable?.initializer && ts.isVariableDeclarationList(variable.parent)
+    && (variable.parent.flags & ts.NodeFlags.Const) !== 0
+    && isFlowNamespace(variable.initializer, checker, seen));
+}
+
 function flowConstructorArguments(
   expression: ts.Expression,
   checker: ts.TypeChecker,
@@ -170,10 +187,7 @@ function flowConstructorArguments(
   expression = unwrapTransparentExpression(expression);
   if (memberName(expression) === 'flow') {
     const receiver = memberReceiver(expression);
-    const namespace = receiver && ts.isIdentifier(unwrapTransparentExpression(receiver))
-      ? checker.getSymbolAtLocation(unwrapTransparentExpression(receiver))
-      : undefined;
-    if (namespace?.declarations?.some(ts.isNamespaceImport)) return { args: [], auditable: true };
+    if (receiver && isFlowNamespace(receiver, checker)) return { args: [], auditable: true };
   }
   if (ts.isCallExpression(expression) && memberName(expression.expression) === 'bind') {
     const receiver = memberReceiver(expression.expression);
@@ -182,7 +196,7 @@ function flowConstructorArguments(
     const bound = expression.arguments.slice(1);
     return {
       args: [...constructor.args, ...bound],
-      auditable: constructor.auditable && !bound.some(ts.isSpreadElement),
+      auditable: constructor.auditable && !expression.arguments.some(ts.isSpreadElement),
     };
   }
   if (!ts.isIdentifier(expression)) return undefined;
@@ -194,8 +208,10 @@ function flowConstructorArguments(
   if (imported && (imported.propertyName ?? imported.name).text === 'flow') return { args: [], auditable: true };
   const binding = symbol.declarations?.find(ts.isBindingElement);
   if (binding && ts.isObjectBindingPattern(binding.parent)) {
-    const name = binding.propertyName ?? binding.name;
-    if ((ts.isIdentifier(name) || ts.isStringLiteralLike(name)) && name.text === 'flow') {
+    const name = binding.propertyName ?? (ts.isIdentifier(binding.name) ? binding.name : undefined);
+    const declaration = binding.parent.parent;
+    if (propertyName(name) === 'flow' && ts.isVariableDeclaration(declaration)
+      && declaration.initializer && isFlowNamespace(declaration.initializer, checker)) {
       return { args: [], auditable: true };
     }
   }
@@ -223,14 +239,18 @@ function flowInvocation(
   if (!called) return undefined;
   if (operation === 'call') {
     const args = node.arguments.slice(1);
-    return { args: [...called.args, ...args], auditable: called.auditable && !args.some(ts.isSpreadElement) };
+    return {
+      args: [...called.args, ...args],
+      auditable: called.auditable && !node.arguments.some(ts.isSpreadElement),
+    };
   }
   if (operation !== 'apply') return undefined;
   const applied = node.arguments[1];
   return applied && ts.isArrayLiteralExpression(applied)
     ? {
         args: [...called.args, ...applied.elements],
-        auditable: called.auditable && !applied.elements.some(ts.isSpreadElement),
+        auditable: called.auditable && !node.arguments.some(ts.isSpreadElement)
+          && !applied.elements.some(ts.isSpreadElement),
       }
     : { args: [], auditable: false };
 }
