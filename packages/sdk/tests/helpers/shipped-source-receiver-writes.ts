@@ -80,12 +80,49 @@ function expressionMayEvaluateToSymbol(
     : false;
 }
 
-function isObjectAssignCall(node: ts.Node): node is ts.CallExpression {
+function isDirectObjectAssignCall(node: ts.Node): node is ts.CallExpression {
   if (!ts.isCallExpression(node) || memberName(node.expression) !== 'assign') return false;
   const receiver = memberReceiver(node.expression);
   if (!receiver) return false;
   const target = unwrap(receiver);
   return ts.isIdentifier(target) && target.text === 'Object';
+}
+
+function referencesObjectAssign(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen = new Set<ts.Symbol>(),
+): boolean {
+  expression = unwrap(expression);
+  if (memberName(expression) === 'assign') {
+    const receiver = memberReceiver(expression);
+    const target = receiver && unwrap(receiver);
+    if (target && ts.isIdentifier(target) && target.text === 'Object') return true;
+  }
+  if (ts.isIdentifier(expression)) {
+    const symbol = checker.getSymbolAtLocation(expression);
+    if (!symbol || seen.has(symbol)) return false;
+    seen.add(symbol);
+    const declaration = symbol.declarations?.find(ts.isVariableDeclaration);
+    return declaration?.initializer !== undefined
+      && referencesObjectAssign(declaration.initializer, checker, seen);
+  }
+  const receiver = memberReceiver(expression);
+  if (receiver && ['call', 'apply', 'bind'].includes(memberName(expression) ?? '')) {
+    return referencesObjectAssign(receiver, checker, seen);
+  }
+  return ts.isCallExpression(expression)
+    ? referencesObjectAssign(expression.expression, checker, seen)
+    : false;
+}
+
+function nodeReferencesSymbol(node: ts.Node, symbol: ts.Symbol, checker: ts.TypeChecker): boolean {
+  if (ts.isIdentifier(node) && checker.getSymbolAtLocation(node) === symbol) return true;
+  let found = false;
+  ts.forEachChild(node, child => {
+    if (!found && nodeReferencesSymbol(child, symbol, checker)) found = true;
+  });
+  return found;
 }
 
 export function symbolHasWrites(
@@ -117,8 +154,17 @@ export function symbolHasWrites(
       found = true;
       return;
     }
-    if (isObjectAssignCall(node) && node.arguments[0]
-      && assignmentTargetHasSymbol(node.arguments[0], symbol, checker)) {
+    if (isDirectObjectAssignCall(node)) {
+      if (node.arguments[0] && assignmentTargetHasSymbol(node.arguments[0], symbol, checker)) {
+        found = true;
+        return;
+      }
+    } else if (ts.isCallExpression(node) && referencesObjectAssign(node.expression, checker)
+      && node.arguments.some(argument => nodeReferencesSymbol(argument, symbol, checker))) {
+      // Once Object.assign has escaped through call/apply/bind or an alias,
+      // its target position is no longer uniformly represented in the AST.
+      // Treat any receiver passed into that invocation as escaped rather than
+      // trusting a trailing model pair after a possible reflective write.
       found = true;
       return;
     }
@@ -128,8 +174,7 @@ export function symbolHasWrites(
       return;
     }
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-      const initializer = unwrap(node.initializer);
-      if (ts.isIdentifier(initializer) && checker.getSymbolAtLocation(initializer) === symbol) {
+      if (expressionMayEvaluateToSymbol(node.initializer, symbol, checker)) {
         const alias = checker.getSymbolAtLocation(node.name);
         if (!alias || symbolHasWrites(alias, checker, seen)) {
           found = true;

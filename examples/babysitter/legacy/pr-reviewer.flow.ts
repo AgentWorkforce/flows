@@ -235,9 +235,9 @@ export async function assertReviewerPairReady(
 ): Promise<void> {
   let result;
   try {
-    // The authored Node payload is sealed by the SDK and carries its canonical
-    // model-scoped probe. Re-enter that exact payload instead of guessing the
-    // on-disk layout of a `flows` wrapper (or requiring one on PATH).
+    // The SDK serves the same model-scoped probe from the ordinary flows CLI
+    // and the sealed authored Node payload. Re-enter the active Node entrypoint
+    // instead of guessing an installed package layout or requiring PATH lookup.
     const runtime = process.argv[1];
     if (!runtime) throw new Error("authored Node runtime path is unavailable");
     const output = await f.run(

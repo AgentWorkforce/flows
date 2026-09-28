@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { probeCli, probeCliAsync } from '../src/cli/cli-probe.js';
 import { authoredNodeUtility } from '../src/authored-node-utility.js';
 import * as adapters from '../src/cli-adapter.js';
+import { runCli } from '../src/cli.js';
 
 const directories: string[] = [];
 afterEach(() => {
@@ -33,6 +34,23 @@ it('serves the exact model-scoped probe from the sealed authored runtime utility
   });
   await expect(authoredNodeUtility(['--probe-cli', path])).rejects.toThrow('requires exactly');
   await expect(authoredNodeUtility(['ordinary-authored-start'])).resolves.toBeUndefined();
+});
+
+it('routes the exact model-scoped probe through the ordinary Node CLI entry', async () => {
+  const { path, directory } = wrapper(identify + 'process.exit(0)');
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  await expect(runCli(['--probe-cli', path, 'exact-model', directory], {
+    stdout: line => stdout.push(line),
+    stderr: line => stderr.push(line),
+  })).resolves.toBe(0);
+  expect(stderr).toEqual([]);
+  expect(JSON.parse(stdout.join('\n'))).toMatchObject({
+    exists: true,
+    supported: true,
+    authenticated: true,
+    modelAvailable: true,
+  });
 });
 
 it.each([

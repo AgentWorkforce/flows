@@ -59,6 +59,7 @@ import {
   type MintObserverOptions,
 } from './observer-link.js';
 import { packageVersion } from './package-version.js';
+import { authoredNodeUtility } from './authored-node-utility.js';
 
 export type { CheckInputDiagnostic, CheckReport } from './cli/check.js';
 
@@ -213,6 +214,15 @@ export async function runCli(
   io: CliIo = PROCESS_IO,
   options: RunCliOptions = {},
 ): Promise<CliExitCode> {
+  // Authored flows re-enter the active Node entrypoint for model-scoped
+  // readiness probes. Under the ordinary Node runtime that entrypoint is this
+  // CLI, while Bun delegates authored execution to authored-node-entry.ts.
+  // Serve the same SDK-owned utility from both paths before public verb parsing.
+  const utility = await authoredNodeUtility([...args]);
+  if (utility !== undefined) {
+    io.stdout(JSON.stringify(utility));
+    return 0;
+  }
   if (args.length === 1 && (args[0] === '--version' || args[0] === '-V')) {
     io.stdout(options.version ?? packageVersion());
     return 0;
