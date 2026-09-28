@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { babysit, generatedModelForCli, requiredReviewerModel } from '../babysitter.flow.ts';
-import { requiredReviewerModel as requiredLegacyReviewerModel } from '../legacy/pr-reviewer.flow.ts';
+import { requiredReviewerModel as requiredLegacyReviewerModel, reviewer as legacyReviewer } from '../legacy/pr-reviewer.flow.ts';
 import { mergeExact } from '../github.ts';
 import { parseInput } from '../input.ts';
 import type { Ctx } from '@relayflows/surface';
+import { getFlowDefinition } from '@relayflows/surface/runtime';
 const sha = 'a'.repeat(40);
 const config = { owner: 'acme', repo: 'widgets', number: 7, testCommand: 'npm test', botLogin: 'babysitter[bot]', merge: true, approvers: ['alice'], organizations: ['acme'], reviewAuthors: [], skipLabels: [], requiredChecks: ['unit'] };
 const state = { state: 'open', merged: false, draft: false, headSha: sha, baseSha: 'b'.repeat(40), headRepo: 'acme/widgets', author: 'author', labels: [], mergeable: true, mergeState: 'clean', checks: [{ name: 'unit', sha, status: 'completed', conclusion: 'success' }], reviews: [{ login: 'alice', sha, state: 'APPROVED', id: 1 }], requestedReviewers: [] };
@@ -27,10 +28,24 @@ test('custom reviewer wrappers require and preserve an explicit model', () => {
   assert.throws(() => requiredLegacyReviewerModel('/opt/custom-wrapper'), /requires reviewerModel/);
   assert.equal(requiredLegacyReviewerModel('/opt/custom-wrapper', ' legacy-model '), 'legacy-model');
   assert.throws(() => requiredLegacyReviewerModel('/opt/custom-wrapper', 'bad\nmodel'), /control characters/);
+  assert.throws(() => requiredLegacyReviewerModel(' '), /non-empty/);
+  assert.throws(() => requiredLegacyReviewerModel('claude', ' '), /non-empty/);
   assert.throws(() => parseInput({ ...config, reviewerCli: '/opt/custom-wrapper' }), /requires reviewerModel/);
   assert.equal(parseInput({ ...config, reviewerCli: '/opt/custom-wrapper', reviewerModel: ' exact-model ' }).reviewerModel, 'exact-model');
   assert.throws(() => parseInput({ ...config, reviewerCli: 'bad\ncli', reviewerModel: 'exact-model' }), /control characters/);
   assert.throws(() => parseInput({ ...config, reviewerCli: '/opt/custom-wrapper', reviewerModel: 'bad\nmodel' }), /control characters/);
+});
+test('blank legacy reviewer overrides fail before GitHub or repository effects', async () => {
+  const body = getFlowDefinition(legacyReviewer).body;
+  for (const override of [{ reviewerCli: ' ' }, { reviewerModel: ' ' }]) {
+    const x = context();
+    await assert.rejects(
+      body(x.f, { owner: 'acme', repo: 'widgets', number: 7, approvers: '', ...override }),
+      /non-empty/,
+    );
+    assert.equal(x.commands.length, 0);
+    assert.equal(x.agents(), 0);
+  }
 });
 test('malformed input makes zero effects; missing live state declines before agents', async () => {
   const x = context(); await assert.rejects(babysit(x.f, null)); assert.equal(x.commands.length, 0);

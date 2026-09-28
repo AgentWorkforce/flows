@@ -83,7 +83,7 @@ const reviewerBody = flow<Input>(
   { budget: { tokens: 800_000, dollars: 8, wallclock: "45m" } },
   async (f, input) => {
     const pr = prFromInput(input);
-    const reviewerCli = input.reviewerCli?.trim() || "claude";
+    const reviewerCli = input.reviewerCli === undefined ? "claude" : input.reviewerCli.trim();
     const reviewerModel = requiredReviewerModel(reviewerCli, input.reviewerModel);
     const api = (path: string) =>
       f.run(`curl -sf -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" ${shellWord(`https://api.github.com/repos/${pr.owner}/${pr.repo}${path}`)}`);
@@ -208,13 +208,15 @@ export { reviewer };
 export default reviewer;
 
 export function requiredReviewerModel(cli: string, override?: string): string {
-  const cliProblem = declarationStringError(cli.trim());
+  const normalizedCli = cli.trim();
+  const cliProblem = declarationStringError(normalizedCli);
   if (cliProblem !== undefined) throw new Error(`Invalid reviewer CLI: ${cliProblem}`);
-  const model = override?.trim()
-    || (cli === "claude" ? "claude-sonnet-5"
-      : cli === "codex" ? "gpt-5.6-sol"
-      : cli === "cursor-agent" ? "gpt-5.6-sol-high"
-      : cli === "grok" ? "grok-4.7" : undefined);
+  const model = override === undefined
+    ? (normalizedCli === "claude" ? "claude-sonnet-5"
+      : normalizedCli === "codex" ? "gpt-5.6-sol"
+      : normalizedCli === "cursor-agent" ? "gpt-5.6-sol-high"
+      : normalizedCli === "grok" ? "grok-4.7" : undefined)
+    : override.trim();
   if (model === undefined) throw new Error(`Custom reviewer CLI ${JSON.stringify(cli)} requires reviewerModel`);
   const modelProblem = declarationStringError(model);
   if (modelProblem !== undefined) throw new Error(`Invalid reviewer model: ${modelProblem}`);
