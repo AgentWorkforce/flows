@@ -162,11 +162,25 @@ function workerInvocation(
   return undefined;
 }
 
-function isFlowCall(node: ts.Node): node is ts.CallExpression {
-  if (!ts.isCallExpression(node)) return false;
-  let expression: ts.Expression = node.expression;
-  while (ts.isParenthesizedExpression(expression)) expression = expression.expression;
-  return ts.isIdentifier(expression) && expression.text === 'flow';
+function isFlowConstructor(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen = new Set<ts.Symbol>(),
+): boolean {
+  expression = unwrapTransparentExpression(expression);
+  if (!ts.isIdentifier(expression)) return false;
+  if (expression.text === 'flow') return true;
+  const symbol = checker.getSymbolAtLocation(expression);
+  if (!symbol || seen.has(symbol)) return false;
+  seen.add(symbol);
+  const variable = symbol.declarations?.find(ts.isVariableDeclaration);
+  return Boolean(variable?.initializer && ts.isVariableDeclarationList(variable.parent)
+    && (variable.parent.flags & ts.NodeFlags.Const) !== 0
+    && isFlowConstructor(variable.initializer, checker, seen));
+}
+
+function isFlowCall(node: ts.Node, checker: ts.TypeChecker): node is ts.CallExpression {
+  return ts.isCallExpression(node) && isFlowConstructor(node.expression, checker);
 }
 
 function flowHeader(node: ts.CallExpression, checker: ts.TypeChecker): ts.Expression | undefined {
@@ -227,15 +241,16 @@ export function scanTypeScript(path: string): TypeScriptModelInventory {
   let calls = 0;
 
   const collectFlowHeaders = (node: ts.Node): void => {
-    if (isFlowCall(node)) {
+    if (isFlowCall(node, checker)) {
       const header = flowHeader(node, checker);
       if (header === undefined) {
         ts.forEachChild(node, collectFlowHeaders);
         return;
       }
       const line = file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
-      if (!ts.isObjectLiteralExpression(header) || header.properties.some(ts.isSpreadAssignment)) {
-        invalidFlowHeaders.push(`${relative(ROOT, path)}:${line} flow header must be an inline object literal`);
+      if (!ts.isObjectLiteralExpression(header)
+        || hasUnprovableOverrides(header, new Set(['budget', 'agents']))) {
+        invalidFlowHeaders.push(`${relative(ROOT, path)}:${line} flow header must be inline and statically auditable`);
         ts.forEachChild(node, collectFlowHeaders);
         return;
       }
@@ -294,7 +309,7 @@ export function scanTypeScript(path: string): TypeScriptModelInventory {
 
   const enclosingFlow = (node: ts.Node): ts.CallExpression | undefined => {
     for (let parent = node.parent; parent; parent = parent.parent) {
-      if (isFlowCall(parent)) return parent;
+      if (isFlowCall(parent, checker)) return parent;
     }
     return undefined;
   };

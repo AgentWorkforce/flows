@@ -13,7 +13,7 @@ function context(
   live: unknown = state,
   probe: unknown = { exists: true, supported: true, authenticated: true, modelAvailable: true },
 ) {
-  const commands: string[] = [], reasons: string[] = [];
+  const commands: string[] = [], reasons: string[] = [], merges: string[] = [];
   let agents = 0;
   const f = { run: async (command: string) => {
     commands.push(command);
@@ -28,8 +28,8 @@ function context(
     });
     return command.startsWith('node -e') ? JSON.stringify(live) : '';
   }, done: (reason: string) => { reasons.push(reason); }, agent: () => { agents++; throw new Error('unsafe agent dispatch'); },
-  github: { mergePullRequest: async () => ({ merged: true }) } } as unknown as Ctx;
-  return { f, commands, reasons, agents: () => agents };
+  github: { mergePullRequest: async (input: { sha: string }) => { merges.push(input.sha); return { merged: true }; } } } as unknown as Ctx;
+  return { f, commands, reasons, merges, agents: () => agents };
 }
 test('known first-party harnesses resolve to current explicit model pins', () => {
   assert.deepEqual(
@@ -93,6 +93,7 @@ test('approval-only legacy wakes do not probe an unused reviewer pair', async ()
     event: { review: { state: 'approved', user: { login: 'alice' }, commit_id: sha } },
   });
   assert.deepEqual(x.reasons, ['success']);
+  assert.deepEqual(x.merges, [sha]);
   assert.ok(x.commands.every(command => !command.includes('--probe-cli')));
   assert.equal(x.agents(), 0);
 });

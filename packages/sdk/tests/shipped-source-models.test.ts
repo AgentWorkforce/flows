@@ -255,6 +255,18 @@ describe('first-party shipped source model pins', () => {
       `);
       expect(scanTypeScript(spreadHeader).invalidFlowHeaders).toHaveLength(1);
 
+      const unsafeFlowHeaders = join(directory, 'unsafe-flow-headers.flow.ts');
+      writeFileSync(unsafeFlowHeaders, `
+        declare function flow(name: string, header: unknown, body: () => void): void;
+        const define = flow;
+        define('aliased', { budget: '$2' }, () => {});
+        flow('accessor', { get budget() { return { dollars: 2, tokens: 20_000_000 }; } }, () => {});
+        flow('duplicate', { budget: '$2', budget: '$1' }, () => {});
+      `);
+      const unsafeFlowHeaderResult = scanTypeScript(unsafeFlowHeaders);
+      expect(unsafeFlowHeaderResult.dollarBudgetsWithoutTokenCeilings).toHaveLength(1);
+      expect(unsafeFlowHeaderResult.invalidFlowHeaders).toHaveLength(2);
+
       const namedBody = join(directory, 'named-body.flow.ts');
       writeFileSync(namedBody, `
         declare function flow(name: string, body: () => void): void;
