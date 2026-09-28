@@ -260,16 +260,16 @@ describe('first-party shipped source model pins', () => {
         import { flow as importedFlow } from '@relayflows/surface';
         import * as surface from '@relayflows/surface';
         declare function flow(name: string, header: unknown, body: () => void): void;
-        const define = flow;
-        define('aliased', { budget: '$2' }, () => {});
+        const define = flow, bound = flow.bind(undefined); const { flow: destructured } = surface;
+        define('aliased', { budget: '$2' }, () => {}); bound('bound', { budget: '$2' }, () => {}); destructured('destructured', { budget: '$2' }, () => {});
         importedFlow('imported', { budget: '$2' }, () => {});
-        surface.flow('namespace', { budget: '$2' }, () => {});
+        surface.flow('namespace', { budget: '$2' }, () => {}); surface.flow.call(undefined, 'called', { budget: '$2' }, () => {}); surface.flow.apply(undefined, ['applied', { budget: '$2' }, () => {}]); surface.flow.apply(undefined, [] as unknown as []);
         flow('accessor', { get budget() { return { dollars: 2, tokens: 20_000_000 }; } }, () => {});
         flow('duplicate', { budget: '$2', budget: '$1' }, () => {});
       `);
       const unsafeFlowHeaderResult = scanTypeScript(unsafeFlowHeaders);
-      expect(unsafeFlowHeaderResult.dollarBudgetsWithoutTokenCeilings).toHaveLength(3);
-      expect(unsafeFlowHeaderResult.invalidFlowHeaders).toHaveLength(2);
+      expect(unsafeFlowHeaderResult.dollarBudgetsWithoutTokenCeilings).toHaveLength(7);
+      expect(unsafeFlowHeaderResult.invalidFlowHeaders).toHaveLength(3);
 
       const namedBody = join(directory, 'named-body.flow.ts');
       writeFileSync(namedBody, `
