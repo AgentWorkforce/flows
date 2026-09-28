@@ -45,21 +45,32 @@ function property(object: ts.ObjectLiteralExpression, name: string): ts.Expressi
   return undefined;
 }
 
-function literal(expression: ts.Expression | undefined, checker: ts.TypeChecker): string | undefined {
-  if (expression && ts.isStringLiteralLike(expression)) return expression.text;
-  if (expression && ts.isIdentifier(expression)) {
-    const declaration = checker.getSymbolAtLocation(expression)?.declarations?.find(ts.isVariableDeclaration);
-    if (declaration?.initializer && ts.isStringLiteralLike(declaration.initializer)
-      && ts.isVariableDeclarationList(declaration.parent)
-      && (declaration.parent.flags & ts.NodeFlags.Const) !== 0) return declaration.initializer.text;
-  }
-  return undefined;
+function constInitializer(expression: ts.Expression | undefined, checker: ts.TypeChecker): ts.Expression | undefined {
+  if (!expression || !ts.isIdentifier(expression)) return expression;
+  const symbol = ts.isShorthandPropertyAssignment(expression.parent)
+    ? checker.getShorthandAssignmentValueSymbol(expression.parent)
+    : checker.getSymbolAtLocation(expression);
+  const declaration = symbol?.declarations?.find(ts.isVariableDeclaration);
+  if (!declaration?.initializer || !ts.isVariableDeclarationList(declaration.parent)
+    || (declaration.parent.flags & ts.NodeFlags.Const) === 0) return expression;
+  return declaration.initializer;
 }
 
-function numericLiteral(expression: ts.Expression | undefined): number | undefined {
-  if (!expression || !ts.isNumericLiteral(expression)) return undefined;
-  const value = Number(expression.text.replaceAll('_', ''));
+function literal(expression: ts.Expression | undefined, checker: ts.TypeChecker): string | undefined {
+  const resolved = constInitializer(expression, checker);
+  return resolved && ts.isStringLiteralLike(resolved) ? resolved.text : undefined;
+}
+
+function numericLiteral(expression: ts.Expression | undefined, checker: ts.TypeChecker): number | undefined {
+  const resolved = constInitializer(expression, checker);
+  if (!resolved || !ts.isNumericLiteral(resolved)) return undefined;
+  const value = Number(resolved.text.replaceAll('_', ''));
   return Number.isFinite(value) ? value : undefined;
+}
+
+function objectLiteral(expression: ts.Expression | undefined, checker: ts.TypeChecker): ts.ObjectLiteralExpression | undefined {
+  const resolved = constInitializer(expression, checker);
+  return resolved && ts.isObjectLiteralExpression(resolved) ? resolved : undefined;
 }
 
 function isRequiredString(expression: ts.Expression, checker: ts.TypeChecker): boolean {
@@ -106,13 +117,16 @@ function scanTypeScript(path: string): {
   let calls = 0;
 
   const collectDeclarations = (node: ts.Node): void => {
-    if (ts.isPropertyAssignment(node) && node.name.getText(file).replaceAll(/["']/gu, '') === 'budget') {
+    if ((ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node))
+      && node.name.getText(file).replaceAll(/["']/gu, '') === 'budget') {
       const line = file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
-      const budget = node.initializer;
-      const isDollarString = ts.isStringLiteralLike(budget) && /^\$/u.test(budget.text);
-      const dollars = ts.isObjectLiteralExpression(budget) ? numericLiteral(property(budget, 'dollars')) : undefined;
-      const tokens = ts.isObjectLiteralExpression(budget) ? numericLiteral(property(budget, 'tokens')) : undefined;
-      const isDollarObject = ts.isObjectLiteralExpression(budget) && property(budget, 'dollars') !== undefined;
+      const budgetExpression = ts.isPropertyAssignment(node) ? node.initializer : node.name;
+      const budget = constInitializer(budgetExpression, checker);
+      const budgetObject = objectLiteral(budgetExpression, checker);
+      const isDollarString = budget !== undefined && ts.isStringLiteralLike(budget) && /^\$/u.test(budget.text);
+      const dollars = budgetObject ? numericLiteral(property(budgetObject, 'dollars'), checker) : undefined;
+      const tokens = budgetObject ? numericLiteral(property(budgetObject, 'tokens'), checker) : undefined;
+      const isDollarObject = budgetObject !== undefined && property(budgetObject, 'dollars') !== undefined;
       const hasEnforceableCeiling = dollars !== undefined && dollars > 0
         && tokens !== undefined && tokens >= 0 && tokens <= dollars * 100_000;
       if ((isDollarString || isDollarObject) && !hasEnforceableCeiling) {
@@ -193,14 +207,42 @@ function scanDeclarative(document: Record<string, unknown>, where: string): {
   pairs: string[];
 } {
   const flowCli = typeof document.cli === 'string' ? document.cli : undefined;
-  const steps = Array.isArray(document.steps) ? document.steps as Array<Record<string, unknown>> : [];
+  const agents = new Map<string, { cli?: string; model?: string }>();
+  if (Array.isArray(document.agents)) {
+    for (const candidate of document.agents as Array<Record<string, unknown>>) {
+      if (typeof candidate.name === 'string') {
+        agents.set(candidate.name, {
+          cli: typeof candidate.cli === 'string' ? candidate.cli : undefined,
+          model: typeof candidate.model === 'string' ? candidate.model : undefined,
+        });
+      }
+    }
+  } else if (document.agents && typeof document.agents === 'object') {
+    for (const [name, value] of Object.entries(document.agents as Record<string, unknown>)) {
+      const candidate = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+      agents.set(name, {
+        cli: typeof candidate.cli === 'string' ? candidate.cli : undefined,
+        model: typeof candidate.model === 'string' ? candidate.model : undefined,
+      });
+    }
+  }
+  const workflows = Array.isArray(document.workflows) ? document.workflows as Array<Record<string, unknown>> : [];
+  const steps = Array.isArray(document.steps)
+    ? document.steps as Array<Record<string, unknown>>
+    : workflows.flatMap(workflow => Array.isArray(workflow.steps) ? workflow.steps as Array<Record<string, unknown>> : []);
   const modelSteps = steps.filter(candidate => candidate.type === 'agent' || candidate.type === 'llm');
   const missing: string[] = [];
   const pairs: string[] = [];
+  for (const [name, agent] of agents) {
+    if (!agent.cli) missing.push(`${where}:agent:${name} has no effective CLI`);
+    if (!agent.model) missing.push(`${where}:agent:${name} has no explicit model`);
+    if (agent.cli && agent.model) pairs.push(`${agent.cli}/${agent.model}`);
+  }
   for (const step of modelSteps) {
-    const label = `${where}:${String(step.id)}`;
-    const cli = typeof step.cli === 'string' ? step.cli : flowCli;
-    const model = typeof step.model === 'string' ? step.model : undefined;
+    const label = `${where}:${String(step.id ?? step.name)}`;
+    const named = typeof step.agent === 'string' ? agents.get(step.agent) : undefined;
+    const cli = typeof step.cli === 'string' ? step.cli : named?.cli ?? flowCli;
+    const model = typeof step.model === 'string' ? step.model : named?.model;
     if (!cli) missing.push(`${label} has no effective CLI`);
     if (!model) missing.push(`${label} has no explicit model`);
     if (cli && model) pairs.push(`${cli}/${model}`);
@@ -216,7 +258,7 @@ function expectSupported(pair: string, where: string): void {
   expect(MODELS[cli]?.has(model), `${where}: unsupported pair ${pair}`).toBe(true);
 }
 
-describe('first-party shipped v2 source model pins', () => {
+describe('first-party shipped source model pins', () => {
   it('does not treat mutable aliases or incomplete named agents as pinned', () => {
     const directory = mkdtempSync(join(tmpdir(), 'shipped-model-invariant-'));
     try {
@@ -269,6 +311,16 @@ describe('first-party shipped v2 source model pins', () => {
       `);
       expect(scanTypeScript(boundedBudget).dollarBudgetsWithoutTokenCeilings).toEqual([]);
 
+      const shorthandBudget = join(directory, 'shorthand-budget.flow.ts');
+      writeFileSync(shorthandBudget, `
+        const tokens = 20_000_000;
+        const dollars = 2;
+        const budget = { tokens, dollars };
+        const header = { budget };
+        void header;
+      `);
+      expect(scanTypeScript(shorthandBudget).dollarBudgetsWithoutTokenCeilings).toHaveLength(1);
+
       const taggedLlm = join(directory, 'tagged-llm.flow.ts');
       writeFileSync(taggedLlm, `
         declare const f: { llm(strings: TemplateStringsArray): void };
@@ -296,6 +348,24 @@ describe('first-party shipped v2 source model pins', () => {
       expect(declarativeLlm.missing).toEqual(['mutation.flow.yaml:missing-model has no explicit model']);
       expect(() => declarativeLlm.pairs.forEach(pair => expectSupported(pair, 'mutation.flow.yaml')))
         .toThrow('unsupported pair');
+
+      const activeV1 = scanDeclarative(parse(`
+        version: '1.0'
+        agents:
+          - name: lead
+            cli: claude
+        workflows:
+          - name: drive
+            steps:
+              - name: assess
+                type: agent
+                agent: lead
+      `) as Record<string, unknown>, 'drive-cloud.yaml');
+      expect(activeV1.calls).toBe(1);
+      expect(activeV1.missing).toEqual([
+        'drive-cloud.yaml:agent:lead has no explicit model',
+        'drive-cloud.yaml:assess has no explicit model',
+      ]);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -330,24 +400,32 @@ describe('first-party shipped v2 source model pins', () => {
     expect(seenDynamicWaivers).toEqual(new Set(DYNAMIC_PAIR_SOURCE_WAIVERS.keys()));
   });
 
-  it('gives every current declarative agent and LLM an effective supported CLI/model pair', () => {
+  it('gives every current declarative and active v1 Cloud agent/LLM an effective supported CLI/model pair', () => {
     const paths = [
       ...filesBelow(resolve(ROOT, 'examples'), '.yaml'),
       ...filesBelow(resolve(ROOT, 'workflows'), '.yaml'),
     ];
     let currentFiles = 0;
     let modelSteps = 0;
+    let activeV1Files = 0;
+    let activeV1ModelSteps = 0;
     for (const path of paths) {
       const document = parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
-      if (String(document.version) !== '0.1.0') continue;
-      currentFiles += 1;
       const name = relative(ROOT, path);
+      const isCurrent = String(document.version) === '0.1.0';
+      const isActiveV1 = name === 'workflows/drive-cloud.yaml';
+      if (!isCurrent && !isActiveV1) continue;
+      if (isCurrent) currentFiles += 1;
+      if (isActiveV1) activeV1Files += 1;
       const result = scanDeclarative(document, name);
-      modelSteps += result.calls;
+      if (isCurrent) modelSteps += result.calls;
+      if (isActiveV1) activeV1ModelSteps += result.calls;
       expect(result.missing, `${name}: every declarative agent/LLM needs an effective CLI and explicit model`).toEqual([]);
       for (const pair of result.pairs) expectSupported(pair, name);
     }
     expect(currentFiles).toBe(7);
     expect(modelSteps).toBe(8);
+    expect(activeV1Files).toBe(1);
+    expect(activeV1ModelSteps).toBe(2);
   });
 });
