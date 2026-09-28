@@ -14,14 +14,13 @@ import { executeDurableAuthoredFlow } from '../authored-root.js';
 import { AuthoredHumanParked } from '../authored-flow-error.js';
 import { AuthoredFlowLoadError } from '../authored-flow-loader.js';
 import { DirectInputError, parseDirectInput } from '../direct-input.js';
-import {
-  runHostedSoftwareGardenBabysitter,
-  type RunHostedSoftwareGardenBabysitterOptions,
-} from '../hosted-extension-isolation.js';
 import { JournalClient } from '../journal-client.js';
-import { PluginError } from '../plugin-manifest.js';
 import { inputFailureReport } from './check.js';
 import { checkAuthoredTriggers } from './check-triggers.js';
+import {
+  runHostedSoftwareGardenFlow,
+  type HostedSoftwareGardenRunOptions,
+} from './hosted-software-garden-run.js';
 import { authoredInput, authoredWorkerRemedy, localAgentRemedy } from './local-agent-remedy.js';
 import {
   authoredCompletion,
@@ -38,10 +37,7 @@ import {
   type RunReport,
 } from './run.js';
 
-export type HostedSoftwareGardenRunOptions = Omit<
-  RunHostedSoftwareGardenBabysitterOptions,
-  'flowPath' | 'input'
->;
+export type { HostedSoftwareGardenRunOptions } from './hosted-software-garden-run.js';
 
 export interface RunDirectFlowOptions extends RunLifecycleOptions {
   /**
@@ -83,58 +79,7 @@ export async function runDirectFlow(
   // Babysitter generation and the sandbox selects the exact matched handler.
   const hostedSoftwareGarden = options.hostedSoftwareGardenBabysitter;
   if (hostedSoftwareGarden !== undefined) {
-    const base: RunReport = { ...emptyReport('run'), path };
-    let capabilityInvoked = false;
-    try {
-      const result = await runHostedSoftwareGardenBabysitter({
-        ...hostedSoftwareGarden,
-        babysitterTurn: {
-          queue: async (request, authority) => {
-            capabilityInvoked = true;
-            return await hostedSoftwareGarden.babysitterTurn.queue(request, authority);
-          },
-        },
-        flowPath: path,
-        input,
-      });
-      return {
-        exitCode: 0,
-        report: {
-          ...base,
-          ok: true,
-          status: 'completed',
-          completionReason: result.completionReason,
-          completedSteps: result.capabilityCalls,
-        },
-      };
-    } catch (error) {
-      if (error instanceof PluginError && !capabilityInvoked) {
-        return {
-          exitCode: 2,
-          report: {
-            ...base,
-            diagnostics: [...base.diagnostics, {
-              severity: 'refusal',
-              kind: error.code,
-              message: error.message,
-            }],
-          },
-        };
-      }
-      return {
-        exitCode: 1,
-        report: {
-          ...base,
-          status: 'failed',
-          completionReason: 'step_failed',
-          diagnostics: [...base.diagnostics, {
-            severity: 'failure',
-            kind: 'step_failed',
-            message: error instanceof Error ? error.message : 'Hosted Babysitter capability failed.',
-          }],
-        },
-      };
-    }
+    return runHostedSoftwareGardenFlow(path, input, dataDir, hostedSoftwareGarden, options);
   }
 
   // Declared triggers are knowable before any daemon or step is started.

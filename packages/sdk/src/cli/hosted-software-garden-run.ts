@@ -1,0 +1,310 @@
+import { createHash, randomUUID } from 'node:crypto';
+import { join } from 'node:path';
+import { compileSpec, toKernelSpec } from '../compile.js';
+import { runtimeVersions } from '../flow-extension-compat.js';
+import {
+  hostedExtensionDispatchIdentity,
+  type HostedEventIdentity,
+} from '../flow-extension-loader.js';
+import {
+  loadHostedExtensionRuntime,
+  runHostedCapabilityExtension,
+  selectHostedExtensionForRuntime,
+  type RunHostedSoftwareGardenBabysitterOptions,
+} from '../hosted-extension-isolation.js';
+import { atomicJson, readHelperReceipt } from '../helper-storage.js';
+import { JournalClient } from '../journal-client.js';
+import { PluginError } from '../plugin-manifest.js';
+import type { RunOutcome, StepDispatchEvent } from '../protocol.js';
+import { SPEC_SCHEMA_VERSION } from '../spec.js';
+import { withWorkerLease } from '../worker-lease.js';
+import {
+  classifyOutcome,
+  connect,
+  emptyReport,
+  protocolFailure,
+  socketFor,
+  type RunExecution,
+  type RunLifecycleOptions,
+  type RunReport,
+} from './run.js';
+
+const STEP_ID = 'babysitter-turn';
+const SURFACE_PATH = '/cloud/babysitter-turn';
+
+export type HostedSoftwareGardenRunOptions = Omit<
+  RunHostedSoftwareGardenBabysitterOptions,
+  'flowPath' | 'input' | 'bubblewrapPath' | 'nodePath' | 'prlimitPath'
+>;
+
+/**
+ * Execute the pinned hosted composition as one journaled effect step. Plugin,
+ * pin, route, base, and platform refusals are resolved before a run exists;
+ * every error after admission is a terminal step failure because the external
+ * queue outcome may already be in doubt.
+ */
+export async function runHostedSoftwareGardenFlow(
+  path: string,
+  input: unknown,
+  dataDir: string,
+  hosted: HostedSoftwareGardenRunOptions,
+  lifecycle: RunLifecycleOptions,
+): Promise<RunExecution> {
+  const base: RunReport = { ...emptyReport('run'), path };
+  let identity: HostedEventIdentity;
+  let runtime: Awaited<ReturnType<typeof loadHostedExtensionRuntime>>;
+  let selected: Awaited<ReturnType<typeof selectHostedExtensionForRuntime>>;
+  try {
+    identity = hostedExtensionDispatchIdentity(hosted.dispatch);
+    runtime = await loadHostedExtensionRuntime(path);
+    selected = await selectHostedExtensionForRuntime(
+      runtime.installation,
+      runtime.base,
+      identity,
+      runtimeVersions(),
+    );
+  } catch (error) {
+    if (error instanceof PluginError) return pluginRefusal(base, error);
+    return hostedFailure(base, error);
+  }
+
+  const socketPath = socketFor(dataDir);
+  const client = new JournalClient(socketPath);
+  const connected = await connect(client, 'run', dataDir, base, lifecycle);
+  if (connected !== undefined) return connected;
+
+  const admissionIdentity = {
+    provider: identity.provider,
+    eventType: hosted.dispatch.eventType,
+    deliveryId: hosted.dispatch.deliveryId,
+    base: runtime.base,
+    extension: {
+      name: selected.manifest.name,
+      version: selected.manifest.version,
+      ref: selected.artifact.ref,
+      digest: selected.artifact.digest,
+      manifestSha256: selected.artifact.manifestSha256,
+    },
+  };
+  const admissionDigest = createHash('sha256')
+    .update(JSON.stringify(admissionIdentity))
+    .digest('hex');
+  const stream = `hosted-babysitter-${admissionDigest}`;
+  const instruction = JSON.stringify({
+    type: 'effect',
+    provider: 'cloud',
+    verb: 'babysitter-turn',
+    identity,
+    authority: admissionIdentity,
+    input,
+  });
+  const spec = toKernelSpec(compileSpec({
+    version: SPEC_SCHEMA_VERSION,
+    name: 'software-factory/hosted-babysitter',
+    steps: [{
+      id: STEP_ID,
+      type: 'agent',
+      instruction,
+      maxIterations: 1,
+      recoveryMode: 'reset',
+      surfaces: {
+        streams: [{ stream }],
+        external: [SURFACE_PATH],
+      },
+    }],
+  }));
+  const peer = client.createPeer();
+  let work: Promise<HostedCompletion> | undefined;
+  let capabilityFailure: unknown;
+  let workerFailure: unknown;
+
+  const dispatch = (event: StepDispatchEvent): void => {
+    const dispatched = event.spec as { instruction?: string; surfaces?: { streams?: { stream: string }[] } };
+    if (work !== undefined || event.step_id !== STEP_ID || event.step_type !== 'agent'
+      || dispatched.instruction !== instruction
+      || !dispatched.surfaces?.streams?.some(pin => pin.stream === stream)) {
+      workerFailure = new Error('Hosted Babysitter worker received an unexpected dispatch.');
+      peer.close(workerFailure);
+      return;
+    }
+    const attempt = completeHostedDispatch(peer, event, runtime, input, hosted, dataDir);
+    work = attempt;
+    void attempt.then(completion => {
+      capabilityFailure ??= completion.failure;
+    }, error => {
+      workerFailure ??= error;
+    }).finally(() => {
+      if (work === attempt) work = undefined;
+    });
+  };
+
+  peer.on('step.dispatch', dispatch);
+  peer.on('error', error => { workerFailure ??= error; });
+  if (lifecycle.onJournalEntry !== undefined) client.on('entry', lifecycle.onJournalEntry);
+  try {
+    await peer.connect();
+    await peer.hello('flows-hosted-babysitter');
+    const pins = { workspace: [], streams: [{ stream, read_offset: 0 }] };
+    await peer.workerAttach(`hosted-babysitter-${randomUUID()}`, ['agent'], pins, 1, [stream]);
+    const admissionKey = `hosted-babysitter:${admissionDigest}`;
+    const started = await client.runStart(spec, undefined, admissionKey, lifecycle.onJournalEntry !== undefined);
+    lifecycle.onRunStarted?.({ runId: started.run_id, flow: path });
+    // An idempotent concurrent start can observe the original admission while
+    // its leased attempt is still running. Resume is live-lease-aware and
+    // converts that snapshot into the same parked/terminal shape handled by
+    // every other CLI run before classification.
+    const outcome = started.status === 'running'
+      ? await client.runResume(started.run_id, true)
+      : started;
+    const execution = await classifyOutcome(
+      client,
+      'run',
+      outcome,
+      base,
+      socketPath,
+      { ...lifecycle, dataDir },
+    );
+    if (execution.exitCode !== 1 || capabilityFailure === undefined) return execution;
+    return {
+      ...execution,
+      report: {
+        ...execution.report,
+        diagnostics: execution.report.diagnostics.map(diagnostic => diagnostic.kind === 'step_failed'
+          ? { ...diagnostic, message: errorMessage(capabilityFailure) }
+          : diagnostic),
+      },
+    };
+  } catch (error) {
+    return protocolFailure('run', base, socketPath, workerFailure ?? error);
+  } finally {
+    if (lifecycle.onJournalEntry !== undefined) client.off('entry', lifecycle.onJournalEntry);
+    peer.off('step.dispatch', dispatch);
+    peer.close();
+    client.close();
+  }
+}
+
+interface HostedCompletion {
+  readonly outcome: RunOutcome;
+  readonly failure?: unknown;
+}
+
+async function completeHostedDispatch(
+  peer: JournalClient,
+  dispatch: StepDispatchEvent,
+  runtime: Awaited<ReturnType<typeof loadHostedExtensionRuntime>>,
+  input: unknown,
+  hosted: HostedSoftwareGardenRunOptions,
+  dataDir: string,
+): Promise<HostedCompletion> {
+  let result: unknown;
+  let effectConfirmed = false;
+  let failure: unknown;
+  try {
+    result = await withWorkerLease(peer, dispatch, async signal => {
+      return await runHostedCapabilityExtension({
+        installation: runtime.installation,
+        base: runtime.base,
+        dispatch: hosted.dispatch,
+        input,
+        ...(hosted.timeoutMs === undefined ? {} : { timeoutMs: hosted.timeoutMs }),
+        babysitterTurn: {
+          queue: async (request, authority) => {
+            const file = hostedReceiptPath(dataDir, dispatch);
+            let receipt: unknown;
+            const performed = await peer.performEffect({
+              runId: dispatch.run_id,
+              stepId: dispatch.step_id,
+              attempt: dispatch.attempt,
+              idempotencyKey: dispatch.idempotency_key,
+              surfacePath: SURFACE_PATH,
+              revisionBefore: 'pending',
+              revisionAfter: hosted.dispatch.deliveryId,
+            }, async () => {
+              signal.throwIfAborted();
+              receipt = await hosted.babysitterTurn.queue(request, authority);
+              await atomicJson(file, receipt);
+              signal.throwIfAborted();
+            });
+            if (!performed) receipt = await readHelperReceipt(file);
+            effectConfirmed = true;
+            return receipt;
+          },
+        },
+      });
+    });
+  } catch (error) {
+    failure = error;
+  }
+
+  const output = failure === undefined
+    ? { type: 'hosted-flow-extension', result }
+    : { type: 'hosted-flow-extension', diagnostic: errorMessage(failure) };
+  const outcome = await peer.stepComplete(
+    dispatch.run_id,
+    dispatch.step_id,
+    dispatch.attempt,
+    dispatch.idempotency_key,
+    failure === undefined ? 'success' : 'worker_error',
+    {
+      output,
+      started_pins: dispatch.pins,
+      end_pins: dispatch.pins,
+      ...(failure === undefined ? {} : { trajectory_tail: output }),
+      effects: effectConfirmed
+        ? [{ surface_path: SURFACE_PATH, idempotency_key: dispatch.idempotency_key }]
+        : [],
+    },
+  );
+  return failure === undefined ? { outcome } : { outcome, failure };
+}
+
+function hostedReceiptPath(dataDir: string, dispatch: StepDispatchEvent): string {
+  const name = createHash('sha256')
+    .update(`${dispatch.run_id}:${dispatch.step_id}:${dispatch.idempotency_key}`)
+    .digest('hex');
+  return join(dataDir, 'hosted-extension-receipts', `${name}.json`);
+}
+
+function pluginRefusal(base: RunReport, error: PluginError): RunExecution {
+  return {
+    exitCode: 2,
+    report: {
+      ...base,
+      diagnostics: [...base.diagnostics, {
+        severity: 'refusal',
+        kind: error.code,
+        message: error.message,
+      }],
+    },
+  };
+}
+
+function hostedFailure(
+  base: RunReport,
+  error: unknown,
+  runId?: string,
+  socketPath?: string,
+  completedSteps?: number,
+): RunExecution {
+  return {
+    exitCode: 1,
+    report: {
+      ...base,
+      ...(runId === undefined ? {} : { runId }),
+      ...(socketPath === undefined ? {} : { socketPath }),
+      status: 'failed',
+      completionReason: 'step_failed',
+      ...(completedSteps === undefined ? {} : { completedSteps }),
+      diagnostics: [...base.diagnostics, {
+        severity: 'failure',
+        kind: 'step_failed',
+        message: errorMessage(error),
+      }],
+    },
+  };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Hosted Babysitter capability failed.';
+}

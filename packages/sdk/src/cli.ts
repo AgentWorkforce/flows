@@ -251,6 +251,21 @@ export async function runCli(
     emitCheckReport(report, 'json' in parsed && parsed.json === true, io);
     return 2;
   }
+  if (options.hostedSoftwareGardenBabysitter !== undefined && parsed.command === 'run') {
+    const ignoredFlag = args.find(argument => [
+      '--local-agent',
+      '--agent-capacity',
+      '--allow-human-influenced',
+    ].includes(argument));
+    if (ignoredFlag !== undefined) {
+      const report = inputFailureReport({
+        kind: 'invalid_invocation',
+        message: `${ignoredFlag} is not supported by a hosted Software Garden run.`,
+      }, parsed.value);
+      emitCheckReport(report, parsed.json, io);
+      return 2;
+    }
+  }
 
   if (parsed.command === 'add') return addPlugin(parsed.value, io);
   if (parsed.command === 'plugin') return runPluginCommand(parsed, io);

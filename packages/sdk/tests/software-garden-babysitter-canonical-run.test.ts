@@ -88,6 +88,8 @@ async function run(
     flowPath,
     '--input',
     JSON.stringify(descriptor),
+    '--data-dir',
+    join(flowPath, '..', 'daemon'),
     '--json',
     '--no-observer-link',
   ], {
@@ -148,6 +150,36 @@ describe('canonical run dispatches the installed Software Garden Babysitter', ()
     }]);
   });
 
+  it.each(['--local-agent', '--agent-capacity', '--allow-human-influenced'])(
+    'refuses the unsupported %s flag instead of silently ignoring it', async (flag) => {
+      const installed = await project();
+      const stdout: string[] = [];
+      const args = [
+        'run', installed.flowPath, '--input', JSON.stringify(input()), flag,
+        ...(flag === '--agent-capacity' ? ['2'] : []), '--json', '--no-observer-link',
+      ];
+      const exitCode = await runCli(args, {
+        stdout: line => stdout.push(line),
+        stderr: () => {},
+      }, {
+        hostedSoftwareGardenBabysitter: hosted(
+          'pull_request.labeled',
+          'delivery-canonical',
+          async () => ({ receiptId: 'never', status: 'queued' }),
+        ),
+      });
+      expect(exitCode).toBe(2);
+      expect(JSON.parse(stdout.at(-1) ?? '{}')).toMatchObject({
+        ok: false,
+        diagnostics: [expect.objectContaining({
+          severity: 'refusal',
+          kind: 'invalid_invocation',
+          message: expect.stringContaining(flag),
+        })],
+      });
+    },
+  );
+
   it.runIf(process.platform === 'linux')(
     'refuses a canonical hosted run with no installed Babysitter before the capability is called', async () => {
       const empty = await project(false);
@@ -207,7 +239,9 @@ describe('canonical run dispatches the installed Software Garden Babysitter', ()
     'runs the exact matched installed handler through the sandbox from the normal run command', async () => {
       const installed = await project();
       const deliveryId = 'delivery-canonical-e2e';
+      let calls = 0;
       const authority = hosted('pull_request.labeled', deliveryId, async (request, received) => {
+        calls += 1;
         expect(received.dispatch).toBe(authority.dispatch);
         expect(received.extension).toEqual({
           name: 'babysitter',
@@ -224,19 +258,35 @@ describe('canonical run dispatches the installed Software Garden Babysitter', ()
         return { receiptId: `bst_${'1'.repeat(64)}`, status: 'queued' };
       });
 
-      await expect(run(installed.flowPath, input('pull_request.labeled', deliveryId), authority)).resolves.toMatchObject({
+      const first = await run(installed.flowPath, input('pull_request.labeled', deliveryId), authority);
+      expect(first).toMatchObject({
         exitCode: 0,
         stderr: [],
         report: {
           ok: true,
           command: 'run',
           path: installed.flowPath,
+          runId: expect.any(String),
+          socketPath: expect.any(String),
           status: 'completed',
           completionReason: 'success',
           completedSteps: 1,
           diagnostics: [],
         },
       });
+      const retried = await run(installed.flowPath, input('pull_request.labeled', deliveryId), authority);
+      expect(retried).toMatchObject({
+        exitCode: 0,
+        stderr: [],
+        report: {
+          ok: true,
+          runId: first.report.runId,
+          status: 'completed',
+          completionReason: 'success',
+          completedSteps: 1,
+        },
+      });
+      expect(calls).toBe(1);
     },
   );
 
@@ -254,6 +304,8 @@ describe('canonical run dispatches the installed Software Garden Babysitter', ()
         exitCode: 1,
         report: {
           ok: false,
+          runId: expect.any(String),
+          socketPath: expect.any(String),
           status: 'failed',
           completionReason: 'step_failed',
           diagnostics: [expect.objectContaining({
@@ -280,6 +332,8 @@ describe('canonical run dispatches the installed Software Garden Babysitter', ()
         exitCode: 1,
         report: {
           ok: false,
+          runId: expect.any(String),
+          socketPath: expect.any(String),
           status: 'failed',
           completionReason: 'step_failed',
           diagnostics: [expect.objectContaining({

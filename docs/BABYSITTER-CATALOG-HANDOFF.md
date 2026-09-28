@@ -18,12 +18,15 @@ must instead use the normal embedded `runCli(["run", flowPath, "--input", ...])`
 surface and inject `RunCliOptions.hostedSoftwareGardenBabysitter`. That
 non-serializable option carries the host-verified dispatch and the single queue
 capability; no CLI flag or flow input can mint either. The canonical authored
-run branches before trigger inspection, tenant import, or daemon attachment,
-then `runHostedSoftwareGardenBabysitter` captures the reviewed Software Garden
-base and complete lock-backed installation as one generation before it runs the
-exact matched native handler in the capability sandbox. Every other command or
-path surface refuses the hosted authority. Keep enabled activation blocked with
-zero writes until that action is released and deployed.
+run preflights the reviewed Software Garden base and complete lock-backed
+installation as one generation before trigger inspection, tenant import, or
+daemon attachment. It then admits one journaled effect step under a delivery-
+and-pin-bound key and runs the exact matched native handler in the capability
+sandbox. The queue write uses the journal's record/perform/confirm protocol;
+the returned run ID, terminal reason, and completed-step count come from that
+journal rather than an in-memory synthetic result. Every other command or path
+surface refuses the hosted authority. Keep enabled activation blocked with zero
+writes until that action is released and deployed.
 
 The native handler must consume host-verified delivery authority, normalize the
 repository/PR event, and call the Cloud lineage path. Cloud must recheck the
@@ -91,8 +94,9 @@ The normal embedded run deliberately does not replace #549's standalone
 refusal. Its hosted option calls the canonical composition boundary, which
 obtains an opaque base and installation as one generation with
 `loadHostedExtensionRuntime`, then calls `runHostedCapabilityExtension` with
-both values. Every dispatch rechecks the current extension declarations and
-complete project source tree against that generation. Directory entries are
+both values from its journal-attached worker. Unsupported local-worker flags
+are refused instead of ignored. Every dispatch rechecks the current extension
+declarations and complete project source tree against that generation. Directory entries are
 streamed beneath a shared entry bound;
 nonblocking no-follow descriptors and explicitly bounded reads enforce the
 cumulative-byte limit before source contents are buffered. The loader never imports
