@@ -239,4 +239,56 @@ describe('canonical run dispatches the installed Software Garden Babysitter', ()
       });
     },
   );
+
+  it.skipIf(process.platform !== 'linux' || !existsSync('/usr/bin/bwrap'))(
+    'reports capability denial once as a terminal failure without fallback', async () => {
+      const installed = await project();
+      const refusal = new Error('live babysit label is absent');
+      let calls = 0;
+      const result = await run(installed.flowPath, input(), hosted(
+        'pull_request.labeled',
+        'delivery-canonical',
+        async () => { calls += 1; throw refusal; },
+      ));
+      expect(result).toMatchObject({
+        exitCode: 1,
+        report: {
+          ok: false,
+          status: 'failed',
+          completionReason: 'step_failed',
+          diagnostics: [expect.objectContaining({
+            severity: 'failure',
+            kind: 'step_failed',
+            message: refusal.message,
+          })],
+        },
+      });
+      expect(calls).toBe(1);
+    },
+  );
+
+  it.skipIf(process.platform !== 'linux' || !existsSync('/usr/bin/bwrap'))(
+    'does not misclassify a post-capability receipt error as a clean refusal', async () => {
+      const installed = await project();
+      let calls = 0;
+      const result = await run(installed.flowPath, input(), hosted(
+        'pull_request.labeled',
+        'delivery-canonical',
+        async () => { calls += 1; return { receiptId: '', status: 'queued' }; },
+      ));
+      expect(result).toMatchObject({
+        exitCode: 1,
+        report: {
+          ok: false,
+          status: 'failed',
+          completionReason: 'step_failed',
+          diagnostics: [expect.objectContaining({
+            severity: 'failure',
+            kind: 'step_failed',
+          })],
+        },
+      });
+      expect(calls).toBe(1);
+    },
+  );
 });

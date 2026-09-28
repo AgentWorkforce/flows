@@ -81,11 +81,19 @@ export async function runDirectFlow(
   // from its verified delivery and its exact queue capability; the loader
   // independently resolves the reviewed base plus installed, lock-backed
   // Babysitter generation and the sandbox selects the exact matched handler.
-  if (options.hostedSoftwareGardenBabysitter !== undefined) {
+  const hostedSoftwareGarden = options.hostedSoftwareGardenBabysitter;
+  if (hostedSoftwareGarden !== undefined) {
     const base: RunReport = { ...emptyReport('run'), path };
+    let capabilityInvoked = false;
     try {
       const result = await runHostedSoftwareGardenBabysitter({
-        ...options.hostedSoftwareGardenBabysitter,
+        ...hostedSoftwareGarden,
+        babysitterTurn: {
+          queue: async (request, authority) => {
+            capabilityInvoked = true;
+            return await hostedSoftwareGarden.babysitterTurn.queue(request, authority);
+          },
+        },
         flowPath: path,
         input,
       });
@@ -100,7 +108,7 @@ export async function runDirectFlow(
         },
       };
     } catch (error) {
-      if (error instanceof PluginError) {
+      if (error instanceof PluginError && !capabilityInvoked) {
         return {
           exitCode: 2,
           report: {
