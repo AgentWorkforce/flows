@@ -13,12 +13,17 @@ The reviewed native artifact shipped in Flows 2.0.26. The existing
 `examples/babysitter` declares Claude, GitHub comment writes, and a merge-gate
 hook; it is not the native existing-session package. Ordinary authored dispatch
 still refuses matched extension handlers with `plugin_unsupported`, because it
-imports tenant JavaScript in the host. The external exact-target Relay/Flows
-runtime must instead call `runHostedSoftwareGardenBabysitter`, which captures
-the reviewed Software Garden base and complete lock-backed installation as one
-generation before it runs the exact matched native handler in the capability
-sandbox. Keep enabled activation blocked with zero writes until that runtime
-calls the entrypoint.
+imports tenant JavaScript in the host. An owning exact-target Relay/Flows action
+must instead use the normal embedded `runCli(["run", flowPath, "--input", ...])`
+surface and inject `RunCliOptions.hostedSoftwareGardenBabysitter`. That
+non-serializable option carries the host-verified dispatch and the single queue
+capability; no CLI flag or flow input can mint either. The canonical authored
+run branches before trigger inspection, tenant import, or daemon attachment,
+then `runHostedSoftwareGardenBabysitter` captures the reviewed Software Garden
+base and complete lock-backed installation as one generation before it runs the
+exact matched native handler in the capability sandbox. Every other command or
+path surface refuses the hosted authority. Keep enabled activation blocked with
+zero writes until that action is released and deployed.
 
 The native handler must consume host-verified delivery authority, normalize the
 repository/PR event, and call the Cloud lineage path. Cloud must recheck the
@@ -31,8 +36,9 @@ through the generic executor: #549 still refuses it. The SDK has a separate Linu
 capability sandbox that injects exactly
 `capabilities.cloud.babysitterTurn.queue` without exposing the base context,
 workspace, environment credentials, network, helpers, MCP, or harnesses. It is
-reached by the canonical composition entrypoint, but no deployed runtime calls
-that entrypoint and this must not be treated as enablement. The package's
+reached by the canonical authored `run` surface when the owning hosted action
+injects verified authority, but no deployed runtime consumes this contract and
+this must not be treated as enablement. The package's
 `compat` requires the published 2.0.26 Surface/SDK release that routes
 `labeled`, `unlabeled`, and `ready_for_review`. Export it only from the reviewed
 release commit pinned below. The Software Factory flow's own independently
@@ -59,11 +65,12 @@ normalized input against non-serializable verified dispatch authority, and
 permits one queue call. The parent capability adapter
 receives that original authority plus immutable extension provenance; the
 capability request never carries workspace, activation, listener, session,
-lineage, label, head, prompt, merge, route, or config authority. Cloud PR #4002
-at `25412782bf148ff8dd8018bdbafd719d4e8347fa` deliberately supplies no execution
+lineage, label, head, prompt, merge, route, or config authority. Merged Cloud
+PR #4002 at merge commit `ced414ab40424c7bbd4cd780ad01751d7fc85685`
+(reviewed head `6201470228b23c225290d0eee356eb1c0006e31d`) deliberately supplies no execution
 authority: it emits the exact-target `relay:hosted-flow-extension:v1` action for
-an external Relay/Flows runtime. That runtime owns this entrypoint; only its
-validated capability call reaches `relay:native-existing-session:v1`
+an external Relay/Flows runtime. That runtime owns the embedded hosted-run
+option; only its validated capability call reaches `relay:native-existing-session:v1`
 downstream. Merged Cloud PR #3942 owns that downstream lineage/authority core
 and must inject workspace, activation, and listener from persisted dispatch
 context, re-read live PR/label/head state, and return only `{ receiptId, status:
@@ -80,11 +87,13 @@ the branded dispatch, and waits for the adapter's authoritative outcome before
 settling any premature child terminal frame. An authoritative adapter rejection
 settles immediately with its original typed error even if the child hangs.
 
-Before replacing #549's refusal, the hosted caller must obtain an opaque base
-and installation as one generation with `loadHostedExtensionRuntime`, then call
-`runHostedCapabilityExtension` with both values. Every dispatch rechecks the
-current extension declarations and complete project source tree against that
-generation. Directory entries are streamed beneath a shared entry bound;
+The normal embedded run deliberately does not replace #549's standalone
+refusal. Its hosted option calls the canonical composition boundary, which
+obtains an opaque base and installation as one generation with
+`loadHostedExtensionRuntime`, then calls `runHostedCapabilityExtension` with
+both values. Every dispatch rechecks the current extension declarations and
+complete project source tree against that generation. Directory entries are
+streamed beneath a shared entry bound;
 nonblocking no-follow descriptors and explicitly bounded reads enforce the
 cumulative-byte limit before source contents are buffered. The loader never imports
 tenant base code to derive authority. It
