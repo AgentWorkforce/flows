@@ -9,10 +9,17 @@ import { getFlowDefinition } from '@relayflows/surface/runtime';
 const sha = 'a'.repeat(40);
 const config = { owner: 'acme', repo: 'widgets', number: 7, testCommand: 'npm test', botLogin: 'babysitter[bot]', merge: true, approvers: ['alice'], organizations: ['acme'], reviewAuthors: [], skipLabels: [], requiredChecks: ['unit'] };
 const state = { state: 'open', merged: false, draft: false, headSha: sha, baseSha: 'b'.repeat(40), headRepo: 'acme/widgets', author: 'author', labels: [], mergeable: true, mergeState: 'clean', checks: [{ name: 'unit', sha, status: 'completed', conclusion: 'success' }], reviews: [{ login: 'alice', sha, state: 'APPROVED', id: 1 }], requestedReviewers: [] };
-function context(live: unknown = state) {
+function context(
+  live: unknown = state,
+  probe: unknown = { exists: true, supported: true, authenticated: true, modelAvailable: true },
+) {
   const commands: string[] = [], reasons: string[] = [];
   let agents = 0;
-  const f = { run: async (command: string) => { commands.push(command); return command.startsWith('node -e') ? JSON.stringify(live) : ''; }, done: (reason: string) => { reasons.push(reason); }, agent: () => { agents++; throw new Error('unsafe agent dispatch'); } } as unknown as Ctx;
+  const f = { run: async (command: string) => {
+    commands.push(command);
+    if (command.includes('cli-probe.js')) return JSON.stringify(probe);
+    return command.startsWith('node -e') ? JSON.stringify(live) : '';
+  }, done: (reason: string) => { reasons.push(reason); }, agent: () => { agents++; throw new Error('unsafe agent dispatch'); } } as unknown as Ctx;
   return { f, commands, reasons, agents: () => agents };
 }
 test('known first-party harnesses resolve to current explicit model pins', () => {
@@ -47,6 +54,24 @@ test('blank legacy reviewer overrides fail before GitHub or repository effects',
     assert.equal(x.commands.length, 0);
     assert.equal(x.agents(), 0);
   }
+});
+test('unavailable legacy reviewer pair fails before GitHub or repository effects', async () => {
+  const body = getFlowDefinition(legacyReviewer).body;
+  const x = context(state, {
+    exists: true, supported: true, authenticated: true, modelAvailable: false,
+  });
+  await assert.rejects(
+    body(x.f, {
+      owner: 'acme', repo: 'widgets', number: 7, approvers: '',
+      reviewerCli: 'claude', reviewerModel: 'unavailable-exact-model',
+    }),
+    /Reviewer model "unavailable-exact-model" is unavailable through "claude"/,
+  );
+  assert.equal(x.commands.length, 1);
+  assert.match(x.commands[0]!, /cli-probe\.js/);
+  assert.match(x.commands[0]!, /claude unavailable-exact-model/);
+  assert.doesNotMatch(x.commands[0]!, /curl|git fetch|git checkout|\.workforce/);
+  assert.equal(x.agents(), 0);
 });
 test('malformed input makes zero effects; missing live state declines before agents', async () => {
   const x = context(); await assert.rejects(babysit(x.f, null)); assert.equal(x.commands.length, 0);

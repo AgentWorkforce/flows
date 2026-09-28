@@ -85,6 +85,7 @@ const reviewerBody = flow<Input>(
     const pr = prFromInput(input);
     const reviewerCli = input.reviewerCli === undefined ? "claude" : input.reviewerCli.trim();
     const reviewerModel = requiredReviewerModel(reviewerCli, input.reviewerModel);
+    await assertReviewerPairReady(f, reviewerCli, reviewerModel, process.cwd());
     const api = (path: string) =>
       f.run(`curl -sf -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" ${shellWord(`https://api.github.com/repos/${pr.owner}/${pr.repo}${path}`)}`);
 
@@ -221,6 +222,49 @@ export function requiredReviewerModel(cli: string, override?: string): string {
   const modelProblem = declarationStringError(model);
   if (modelProblem !== undefined) throw new Error(`Invalid reviewer model: ${modelProblem}`);
   return model;
+}
+
+export async function assertReviewerPairReady(
+  f: Pick<Ctx, "run">,
+  cli: string,
+  model: string,
+  directory: string,
+): Promise<void> {
+  let result;
+  try {
+    // Keep this source self-contained for Cloud, but do not fork the adapter
+    // contract: the first journaled command loads the installed SDK's exact
+    // model-scoped probe before any GitHub, checkout, or artifact effect.
+    const script = [
+      `import { realpathSync } from "node:fs";`,
+      `import { dirname, resolve } from "node:path";`,
+      `import { pathToFileURL } from "node:url";`,
+      `const [cli, model, directory] = process.argv.slice(-3);`,
+      `const binary = realpathSync(process.env.FLOWS_BIN);`,
+      `const module = await import(pathToFileURL(resolve(dirname(binary), "cli/cli-probe.js")).href);`,
+      `process.stdout.write(JSON.stringify(await module.probeCliAsync(cli, directory, model)));`,
+    ].join("");
+    const output = await f.run(
+      `FLOWS_BIN="$(command -v flows)" node --input-type=module -e ${shellWord(script)} -- `
+        + `${shellWord(cli)} ${shellWord(model)} ${shellWord(directory)}`,
+    );
+    result = JSON.parse(output) as {
+      exists?: boolean;
+      supported?: boolean;
+      authenticated?: boolean | "unverified";
+      modelAvailable?: boolean;
+    };
+  } catch (error) {
+    throw new Error(`Reviewer CLI/model readiness probe failed: ${(error as Error).message}`);
+  }
+  if (!result.exists) throw new Error(`Reviewer CLI ${JSON.stringify(cli)} does not resolve as an executable`);
+  if (result.supported === false) {
+    throw new Error(`Reviewer CLI ${JSON.stringify(cli)} is not a supported provider or conforming Relayflows wrapper`);
+  }
+  if (result.authenticated !== true) throw new Error(`Reviewer CLI ${JSON.stringify(cli)} is not authenticated`);
+  if (result.modelAvailable !== true) {
+    throw new Error(`Reviewer model ${JSON.stringify(model)} is unavailable through ${JSON.stringify(cli)}`);
+  }
 }
 
 function declarationStringError(value: string): string | undefined {
