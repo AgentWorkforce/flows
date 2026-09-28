@@ -162,39 +162,47 @@ function workerInvocation(
   return undefined;
 }
 
-function isFlowConstructor(
+function flowConstructorArguments(
   expression: ts.Expression,
   checker: ts.TypeChecker,
   seen = new Set<ts.Symbol>(),
-): boolean {
+): { args: readonly ts.Expression[]; auditable: boolean } | undefined {
   expression = unwrapTransparentExpression(expression);
   if (memberName(expression) === 'flow') {
     const receiver = memberReceiver(expression);
     const namespace = receiver && ts.isIdentifier(unwrapTransparentExpression(receiver))
       ? checker.getSymbolAtLocation(unwrapTransparentExpression(receiver))
       : undefined;
-    if (namespace?.declarations?.some(ts.isNamespaceImport)) return true;
+    if (namespace?.declarations?.some(ts.isNamespaceImport)) return { args: [], auditable: true };
   }
   if (ts.isCallExpression(expression) && memberName(expression.expression) === 'bind') {
     const receiver = memberReceiver(expression.expression);
-    return receiver ? isFlowConstructor(receiver, checker, seen) : false;
+    const constructor = receiver ? flowConstructorArguments(receiver, checker, seen) : undefined;
+    if (!constructor) return undefined;
+    const bound = expression.arguments.slice(1);
+    return {
+      args: [...constructor.args, ...bound],
+      auditable: constructor.auditable && !bound.some(ts.isSpreadElement),
+    };
   }
-  if (!ts.isIdentifier(expression)) return false;
-  if (expression.text === 'flow') return true;
+  if (!ts.isIdentifier(expression)) return undefined;
+  if (expression.text === 'flow') return { args: [], auditable: true };
   const symbol = checker.getSymbolAtLocation(expression);
-  if (!symbol || seen.has(symbol)) return false;
+  if (!symbol || seen.has(symbol)) return undefined;
   seen.add(symbol);
   const imported = symbol.declarations?.find(ts.isImportSpecifier);
-  if (imported && (imported.propertyName ?? imported.name).text === 'flow') return true;
+  if (imported && (imported.propertyName ?? imported.name).text === 'flow') return { args: [], auditable: true };
   const binding = symbol.declarations?.find(ts.isBindingElement);
   if (binding && ts.isObjectBindingPattern(binding.parent)) {
     const name = binding.propertyName ?? binding.name;
-    if ((ts.isIdentifier(name) || ts.isStringLiteralLike(name)) && name.text === 'flow') return true;
+    if ((ts.isIdentifier(name) || ts.isStringLiteralLike(name)) && name.text === 'flow') {
+      return { args: [], auditable: true };
+    }
   }
   const variable = symbol.declarations?.find(ts.isVariableDeclaration);
-  return Boolean(variable?.initializer && ts.isVariableDeclarationList(variable.parent)
-    && (variable.parent.flags & ts.NodeFlags.Const) !== 0
-    && isFlowConstructor(variable.initializer, checker, seen));
+  if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)
+    || (variable.parent.flags & ts.NodeFlags.Const) === 0) return undefined;
+  return flowConstructorArguments(variable.initializer, checker, seen);
 }
 
 function flowInvocation(
@@ -202,15 +210,28 @@ function flowInvocation(
   checker: ts.TypeChecker,
 ): { args: readonly ts.Expression[]; auditable: boolean } | undefined {
   if (!ts.isCallExpression(node)) return undefined;
-  if (isFlowConstructor(node.expression, checker)) return { args: node.arguments, auditable: true };
+  const constructor = flowConstructorArguments(node.expression, checker);
+  if (constructor) {
+    return {
+      args: [...constructor.args, ...node.arguments],
+      auditable: constructor.auditable && !node.arguments.some(ts.isSpreadElement),
+    };
+  }
   const operation = memberName(node.expression);
   const receiver = memberReceiver(node.expression);
-  if (!receiver || !isFlowConstructor(receiver, checker)) return undefined;
-  if (operation === 'call') return { args: node.arguments.slice(1), auditable: true };
+  const called = receiver ? flowConstructorArguments(receiver, checker) : undefined;
+  if (!called) return undefined;
+  if (operation === 'call') {
+    const args = node.arguments.slice(1);
+    return { args: [...called.args, ...args], auditable: called.auditable && !args.some(ts.isSpreadElement) };
+  }
   if (operation !== 'apply') return undefined;
   const applied = node.arguments[1];
   return applied && ts.isArrayLiteralExpression(applied)
-    ? { args: applied.elements, auditable: true }
+    ? {
+        args: [...called.args, ...applied.elements],
+        auditable: called.auditable && !applied.elements.some(ts.isSpreadElement),
+      }
     : { args: [], auditable: false };
 }
 

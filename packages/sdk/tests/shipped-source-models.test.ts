@@ -12,7 +12,6 @@ const MODELS: Record<string, ReadonlySet<string>> = {
   'cursor-agent': new Set(['gpt-5.6-sol-high']),
   grok: new Set(['grok-4.7']),
 };
-
 const DYNAMIC_PAIR_SOURCE_WAIVERS = new Map([
   [
     'examples/babysitter/babysitter.flow.ts',
@@ -259,17 +258,21 @@ describe('first-party shipped source model pins', () => {
       writeFileSync(unsafeFlowHeaders, `
         import { flow as importedFlow } from '@relayflows/surface';
         import * as surface from '@relayflows/surface';
+        declare const flowArgs: [string, unknown, () => void];
         declare function flow(name: string, header: unknown, body: () => void): void;
         const define = flow, bound = flow.bind(undefined); const { flow: destructured } = surface;
+        const preboundName = flow.bind(undefined, 'prebound-name'), preboundHeader = flow.bind(undefined, 'prebound-header', { budget: '$2' });
         define('aliased', { budget: '$2' }, () => {}); bound('bound', { budget: '$2' }, () => {}); destructured('destructured', { budget: '$2' }, () => {});
+        preboundName({ budget: '$2' }, () => {}); preboundHeader(() => {});
         importedFlow('imported', { budget: '$2' }, () => {});
         surface.flow('namespace', { budget: '$2' }, () => {}); surface.flow.call(undefined, 'called', { budget: '$2' }, () => {}); surface.flow.apply(undefined, ['applied', { budget: '$2' }, () => {}]); surface.flow.apply(undefined, [] as unknown as []);
+        surface.flow.call(undefined, ...flowArgs); surface.flow.apply(undefined, [...flowArgs]);
         flow('accessor', { get budget() { return { dollars: 2, tokens: 20_000_000 }; } }, () => {});
         flow('duplicate', { budget: '$2', budget: '$1' }, () => {});
       `);
       const unsafeFlowHeaderResult = scanTypeScript(unsafeFlowHeaders);
-      expect(unsafeFlowHeaderResult.dollarBudgetsWithoutTokenCeilings).toHaveLength(7);
-      expect(unsafeFlowHeaderResult.invalidFlowHeaders).toHaveLength(3);
+      expect(unsafeFlowHeaderResult.dollarBudgetsWithoutTokenCeilings).toHaveLength(9);
+      expect(unsafeFlowHeaderResult.invalidFlowHeaders).toHaveLength(5);
 
       const namedBody = join(directory, 'named-body.flow.ts');
       writeFileSync(namedBody, `
