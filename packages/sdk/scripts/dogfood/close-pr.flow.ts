@@ -1,4 +1,5 @@
 import { flow } from '@relayflows/surface';
+import { probeCliAsync } from '../../src/cli/cli-probe.js';
 import { modelNameError } from '../../src/model-name.js';
 import {
   analyzeFindings, checksCommand, failedRunId, MAX_REPAIR_ITERATIONS,
@@ -14,6 +15,7 @@ export default flow<unknown>('close-pr', async (f, supplied) => {
   // Validate the repair harness before any repository or GitHub side effect.
   const repairCli = input.cli ?? 'codex';
   const repairModel = requiredRepairModel(repairCli, input.model);
+  await assertRepairPairReady(repairCli, repairModel, input.worktree);
   const run = (command: string) => f.run(`cd ${quote(input.worktree)} && (${command})`);
   const repo = `--repo ${quote(input.repo)}`;
   const assertBranch = `test "$(git branch --show-current)" = ${quote(input.branch)}`;
@@ -119,4 +121,23 @@ export function requiredRepairModel(cli: string, override?: string): string {
   const problem = modelNameError(model);
   if (problem !== undefined) throw new Error(`Invalid repair model: ${problem}`);
   return model;
+}
+
+export async function assertRepairPairReady(cli: string, model: string, directory: string): Promise<void> {
+  let result;
+  try {
+    result = await probeCliAsync(cli, directory, model);
+  } catch (error) {
+    throw new Error(`Repair CLI/model readiness probe failed: ${(error as Error).message}`);
+  }
+  if (!result.exists) throw new Error(`Repair CLI ${JSON.stringify(cli)} does not resolve as an executable`);
+  if (result.supported === false) {
+    throw new Error(`Repair CLI ${JSON.stringify(cli)} is not a supported provider or conforming Relayflows wrapper`);
+  }
+  if (result.authenticated !== true) {
+    throw new Error(`Repair CLI ${JSON.stringify(cli)} is not authenticated`);
+  }
+  if (result.modelAvailable !== true) {
+    throw new Error(`Repair model ${JSON.stringify(model)} is unavailable through ${JSON.stringify(cli)}`);
+  }
 }

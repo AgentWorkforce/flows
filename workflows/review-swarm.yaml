@@ -63,6 +63,7 @@ agents:
   # harness must not become the whole team's blind spot.
   - name: maintainability
     cli: claude
+    model: claude-sonnet-5
     preset: reviewer
     role: >-
       MAINTAINABILITY lens. Could a stranger read this diff in six months and
@@ -74,6 +75,7 @@ agents:
       and notes are not blockers and must not change it.
   - name: history
     cli: codex
+    model: gpt-5.6-sol
     preset: reviewer
     role: >-
       HISTORY lens. Does this fit the story of the code? Reject ONLY when the
@@ -91,6 +93,7 @@ agents:
     # `maintainability = claude`; `history` and `structure` stay independent
     # because their prompts differ, not because their CLIs differ.
     cli: codex
+    model: gpt-5.6-sol
     preset: reviewer
     role: >-
       STRUCTURE lens. Boundaries, coupling, file size, single purpose. Does the

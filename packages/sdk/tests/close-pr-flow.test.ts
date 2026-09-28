@@ -13,6 +13,7 @@ import {
 import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
 import { runDirectFlow } from '../src/cli/direct-run.js';
 import * as runOperations from '../src/cli/run.js';
+import { probeCliAsync } from '../src/cli/cli-probe.js';
 import { JournalClient } from '../src/journal-client.js';
 import type { KernelRunSpec, KernelStepSpec } from '../src/spec.js';
 
@@ -21,6 +22,13 @@ import type { KernelRunSpec, KernelStepSpec } from '../src/spec.js';
 vi.mock('../src/cli/check.js', async importOriginal => ({
   ...await importOriginal<typeof import('../src/cli/check.js')>(),
   checkAuthoredFlow: (spec: unknown) => ({ report: { ok: true, diagnostics: [] }, flow: spec }),
+}));
+
+vi.mock('../src/cli/cli-probe.js', async importOriginal => ({
+  ...await importOriginal<typeof import('../src/cli/cli-probe.js')>(),
+  probeCliAsync: vi.fn(async () => ({
+    exists: true, supported: true, authenticated: true, modelAvailable: true,
+  })),
 }));
 
 const green: Check[] = [
@@ -174,6 +182,20 @@ describe('close-pr journaled repair loop', () => {
       input: { cli: '/opt/custom-wrapper', model },
     });
     await expect(h.execute()).rejects.toThrow(/requires input\.model|model: must not contain control characters/);
+    expect(h.commands).toHaveLength(1);
+    expect(h.commands[0]).toContain('IMPL_CLOSE_INPUT');
+    expect(h.commands.some(command => command.includes('cd '))).toBe(false);
+    expect(h.commands.some(command => command.includes('gh '))).toBe(false);
+  });
+
+  it('rejects an unavailable repair pair before repository or GitHub side effects', async () => {
+    vi.mocked(probeCliAsync).mockResolvedValueOnce({
+      exists: true, supported: true, authenticated: true, modelAvailable: false,
+    });
+    const h = await harness([{ checks: green }], {
+      input: { cli: '/opt/custom-wrapper', model: 'exact-model' },
+    });
+    await expect(h.execute()).rejects.toThrow(/Repair model "exact-model" is unavailable/);
     expect(h.commands).toHaveLength(1);
     expect(h.commands[0]).toContain('IMPL_CLOSE_INPUT');
     expect(h.commands.some(command => command.includes('cd '))).toBe(false);

@@ -1,4 +1,4 @@
-import { lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import ts from 'typescript';
@@ -36,6 +36,20 @@ function filesBelow(path: string, suffix: string): string[] {
     if (stat.isSymbolicLink()) return [];
     return stat.isDirectory() ? filesBelow(file, suffix) : file.endsWith(suffix) ? [file] : [];
   });
+}
+
+function launchedDeclarativeSources(): ReadonlySet<string> {
+  const operationalFiles = ['.github', 'ops', 'scripts'].flatMap(directory =>
+    ['.yml', '.yaml', '.sh'].flatMap(suffix => filesBelow(resolve(ROOT, directory), suffix)));
+  const launched = new Set<string>();
+  const command = /\b(?:agent-relay\s+cloud\s+run|flows\s+run)[\s\\]+(?:\.\.\/gate-files\/)?(workflows\/[A-Za-z0-9._/-]+\.ya?ml)/gu;
+  for (const path of operationalFiles) {
+    for (const match of readFileSync(path, 'utf8').matchAll(command)) {
+      const source = match[1];
+      if (source !== undefined && existsSync(resolve(ROOT, source))) launched.add(source);
+    }
+  }
+  return launched;
 }
 
 function property(object: ts.ObjectLiteralExpression, name: string): ts.Expression | undefined {
@@ -89,18 +103,24 @@ function objectLiteral(expression: ts.Expression | undefined, checker: ts.TypeCh
   const visit = (node: ts.Node): void => {
     if (!onlyBudgetReferences) return;
     if (ts.isIdentifier(node) && identifierSymbol(node, checker) === symbol) {
-      const parent = node.parent;
       const isDeclaration = node === declaration.name;
-      const isShorthandBudget = ts.isShorthandPropertyAssignment(parent)
-        && parent.name === node && parent.name.text === 'budget';
-      const isAssignedBudget = ts.isPropertyAssignment(parent)
-        && parent.initializer === node && parent.name.getText().replaceAll(/["']/gu, '') === 'budget';
-      if (!isDeclaration && !isShorthandBudget && !isAssignedBudget) onlyBudgetReferences = false;
+      // The one accepted reference is the exact `budget` property currently
+      // being inspected. A second `{ budget }` container is an alias through
+      // which the object can be mutated without touching the original symbol.
+      if (!isDeclaration && node !== expression) onlyBudgetReferences = false;
     }
     ts.forEachChild(node, visit);
   };
   visit(declaration.getSourceFile());
   return onlyBudgetReferences ? resolved : undefined;
+}
+
+function memberName(expression: ts.Expression): string | undefined {
+  while (ts.isParenthesizedExpression(expression)) expression = expression.expression;
+  if (ts.isPropertyAccessExpression(expression)) return expression.name.text;
+  if (ts.isElementAccessExpression(expression) && expression.argumentExpression
+    && ts.isStringLiteralLike(expression.argumentExpression)) return expression.argumentExpression.text;
+  return undefined;
 }
 
 function isRequiredString(expression: ts.Expression, checker: ts.TypeChecker): boolean {
@@ -187,15 +207,18 @@ function scanTypeScript(path: string): {
   collectDeclarations(file);
 
   const visitCalls = (node: ts.Node): void => {
-    if (ts.isTaggedTemplateExpression(node) && ts.isPropertyAccessExpression(node.tag)
-      && node.tag.name.text === 'llm') {
+    if (ts.isTaggedTemplateExpression(node) && memberName(node.tag) === 'llm') {
       calls += 1;
       const line = file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
       missing.push(`${relative(ROOT, path)}:${line} tagged f.llm has no explicit CLI/model options`);
     }
-    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
-      && (node.expression.name.text === 'agent' || node.expression.name.text === 'llm')) {
-      const kind = node.expression.name.text;
+    if (ts.isCallExpression(node)) {
+      const method = memberName(node.expression);
+      if (method !== 'agent' && method !== 'llm') {
+        ts.forEachChild(node, visitCalls);
+        return;
+      }
+      const kind = method;
       calls += 1;
       const options = node.arguments[1];
       const line = file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
@@ -361,6 +384,29 @@ describe('first-party shipped source model pins', () => {
       `);
       expect(scanTypeScript(mutatedBudget).dollarBudgetsWithoutTokenCeilings).toHaveLength(1);
 
+      const aliasedBudget = join(directory, 'aliased-budget.flow.ts');
+      writeFileSync(aliasedBudget, `
+        declare function flow(name: string, header: unknown, body: () => void): void;
+        const budget = { tokens: 200_000, dollars: 2 };
+        const alias = { budget };
+        alias.budget.tokens = 20_000_000;
+        flow('mutated-through-alias', { budget }, () => {});
+      `);
+      expect(scanTypeScript(aliasedBudget).dollarBudgetsWithoutTokenCeilings).toHaveLength(2);
+
+      const elementAccess = join(directory, 'element-access.flow.ts');
+      writeFileSync(elementAccess, `
+        declare const f: {
+          agent(name: string, options: { task: string }): void;
+          llm(prompt: string, options: { output: object }): void;
+        };
+        f['agent']('review', { task: 'x' });
+        (f['llm'])('prompt', { output: {} });
+      `);
+      const elementAccessResult = scanTypeScript(elementAccess);
+      expect(elementAccessResult.calls).toBe(2);
+      expect(elementAccessResult.missing).toHaveLength(2);
+
       const taggedLlm = join(directory, 'tagged-llm.flow.ts');
       writeFileSync(taggedLlm, `
         declare const f: { llm(strings: TemplateStringsArray): void };
@@ -449,11 +495,12 @@ describe('first-party shipped source model pins', () => {
     let modelSteps = 0;
     let activeV1Files = 0;
     let activeV1ModelSteps = 0;
+    const activeV1Sources = launchedDeclarativeSources();
     for (const path of paths) {
       const document = parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
       const name = relative(ROOT, path);
       const isCurrent = String(document.version) === '0.1.0';
-      const isActiveV1 = name === 'workflows/drive-cloud.yaml';
+      const isActiveV1 = activeV1Sources.has(name) && !isCurrent;
       if (!isCurrent && !isActiveV1) continue;
       if (isCurrent) currentFiles += 1;
       if (isActiveV1) activeV1Files += 1;
@@ -465,7 +512,7 @@ describe('first-party shipped source model pins', () => {
     }
     expect(currentFiles).toBe(7);
     expect(modelSteps).toBe(8);
-    expect(activeV1Files).toBe(1);
-    expect(activeV1ModelSteps).toBe(2);
+    expect(activeV1Files).toBe(2);
+    expect(activeV1ModelSteps).toBe(5);
   });
 });
