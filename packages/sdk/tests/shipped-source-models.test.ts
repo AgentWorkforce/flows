@@ -346,14 +346,14 @@ describe('first-party shipped source model pins', () => {
           agent(name: string, options: { task: string }): void;
           llm(prompt: string, options: { output: object }): void;
         };
-        const runAgent = f.agent.bind(f);
-        const generate = f['llm']['bind'](f);
-        runAgent('review', { task: 'x' });
-        generate('prompt', { output: {} });
+        const runAgent = f.agent.bind(f), preboundAgent = f.agent.bind(f, 'real', { task: 'x' });
+        const generate = f['llm']['bind'](f), preboundLlm = f.llm.bind(f, 'real', { output: {} });
+        runAgent('review', { task: 'x' }); preboundAgent('ignored', { cli: 'claude', model: 'claude-sonnet-5' });
+        generate('prompt', { output: {} }); preboundLlm('ignored', { cli: 'claude', model: 'claude-sonnet-5' });
       `);
       const boundAliasResult = scanTypeScript(boundAliases);
-      expect(boundAliasResult.calls).toBe(2);
-      expect(boundAliasResult.missing).toHaveLength(2);
+      expect(boundAliasResult.calls).toBe(4);
+      expect(boundAliasResult.missing).toHaveLength(4);
 
       const functionMethods = join(directory, 'function-methods.flow.ts');
       writeFileSync(functionMethods, `
@@ -361,14 +361,14 @@ describe('first-party shipped source model pins', () => {
           agent(name: string, options: { task: string }): void;
           llm(prompt: string, options: { output: object }): void;
         };
-        declare const dynamicArgs: ['review', { task: string }];
-        f.agent.call(f, 'review', { task: 'x' });
-        f.llm.apply(f, ['prompt', { output: {} }]);
+        declare const dynamicArgs: ['review', { task: string }], prefix: unknown[];
+        f.agent.call(f, 'review', { task: 'x' }); f.agent.call(...prefix, 'ignored', { cli: 'claude', model: 'claude-sonnet-5' });
+        f.llm.apply(f, ['prompt', { output: {} }]); f.llm.apply(...prefix, ['ignored', { cli: 'claude', model: 'claude-sonnet-5' }]);
         f.agent.apply(f, dynamicArgs);
       `);
       const functionMethodResult = scanTypeScript(functionMethods);
-      expect(functionMethodResult.calls).toBe(3);
-      expect(functionMethodResult.missing).toHaveLength(3);
+      expect(functionMethodResult.calls).toBe(5);
+      expect(functionMethodResult.missing).toHaveLength(5);
 
       const spreadPins = join(directory, 'spread-pins.flow.ts');
       writeFileSync(spreadPins, `

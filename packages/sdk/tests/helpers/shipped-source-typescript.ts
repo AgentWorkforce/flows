@@ -1,5 +1,6 @@
 import { relative, resolve } from 'node:path';
 import ts from 'typescript';
+import { workerInvocation, workerMethodName } from './shipped-source-worker-invocations.js';
 
 const ROOT = resolve('../..');
 
@@ -107,57 +108,6 @@ function memberReceiver(expression: ts.Expression): ts.Expression | undefined {
   expression = unwrapTransparentExpression(expression);
   if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
     return expression.expression;
-  }
-  return undefined;
-}
-
-function workerMethodName(
-  expression: ts.Expression,
-  checker: ts.TypeChecker,
-  seen = new Set<ts.Symbol>(),
-): string | undefined {
-  const direct = memberName(expression);
-  if (direct !== undefined) return direct;
-  expression = unwrapTransparentExpression(expression);
-  if (ts.isCallExpression(expression) && memberName(expression.expression) === 'bind') {
-    const receiver = memberReceiver(expression.expression);
-    return receiver ? workerMethodName(receiver, checker, seen) : undefined;
-  }
-  if (!ts.isIdentifier(expression)) return undefined;
-  const symbol = checker.getSymbolAtLocation(expression);
-  if (!symbol || seen.has(symbol)) return undefined;
-  seen.add(symbol);
-  const binding = symbol.declarations?.find(ts.isBindingElement);
-  if (binding && ts.isObjectBindingPattern(binding.parent)) {
-    const propertyName = binding.propertyName ?? binding.name;
-    return ts.isIdentifier(propertyName) || ts.isStringLiteralLike(propertyName) ? propertyName.text : undefined;
-  }
-  const variable = symbol.declarations?.find(ts.isVariableDeclaration);
-  if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)
-    || (variable.parent.flags & ts.NodeFlags.Const) === 0) return undefined;
-  return workerMethodName(variable.initializer, checker, seen);
-}
-
-function workerInvocation(
-  node: ts.CallExpression,
-  checker: ts.TypeChecker,
-): { method: string; args: readonly ts.Expression[] } | undefined {
-  const direct = workerMethodName(node.expression, checker);
-  if (direct === 'agent' || direct === 'llm') return { method: direct, args: node.arguments };
-
-  const operation = memberName(node.expression);
-  const receiver = memberReceiver(node.expression);
-  const method = receiver ? workerMethodName(receiver, checker) : undefined;
-  if (method !== 'agent' && method !== 'llm') return undefined;
-  if (operation === 'call') return { method, args: node.arguments.slice(1) };
-  if (operation === 'apply') {
-    const applied = node.arguments[1];
-    return {
-      method,
-      // A dynamic argument list is a real worker invocation, but its pair is
-      // not statically auditable. Empty args make the caller fail closed.
-      args: applied && ts.isArrayLiteralExpression(applied) ? applied.elements : [],
-    };
   }
   return undefined;
 }
@@ -432,11 +382,13 @@ export function scanTypeScript(path: string): TypeScriptModelInventory {
         ts.forEachChild(node, visitCalls);
         return;
       }
-      const { method, args } = invocation;
+      const { method, args, auditable } = invocation;
       calls += 1;
       const options = args[1];
       const line = file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
-      if (!options || !ts.isObjectLiteralExpression(options)) {
+      if (!auditable) {
+        missing.push(`${relative(ROOT, path)}:${line} has statically unauditable arguments`);
+      } else if (!options || !ts.isObjectLiteralExpression(options)) {
         missing.push(`${relative(ROOT, path)}:${line} has no inline options object`);
       } else if (hasUnprovableOverrides(options, new Set(['cli', 'model']))) {
         missing.push(`${relative(ROOT, path)}:${line} has unprovable options overrides`);
