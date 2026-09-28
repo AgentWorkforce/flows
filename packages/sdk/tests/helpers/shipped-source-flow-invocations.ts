@@ -90,6 +90,18 @@ function namespaceSymbolAuditable(
   if (seen.has(symbol)) return undefined;
   if (symbol.declarations?.some(ts.isNamespaceImport)) return true;
   seen.add(symbol);
+  const binding = symbol.declarations?.find(ts.isBindingElement);
+  if (binding && ts.isObjectBindingPattern(binding.parent)) {
+    const name = propertyName(binding.propertyName ?? (ts.isIdentifier(binding.name) ? binding.name : undefined));
+    const declaration = binding.parent.parent;
+    if (name && ts.isVariableDeclaration(declaration) && declaration.initializer) {
+      const member = objectMemberValue(declaration.initializer, name, checker, seen);
+      const nested = member?.symbol
+        ? namespaceSymbolAuditable(member.symbol, checker, seen)
+        : member ? namespaceAuditable(member.value, checker, seen) : undefined;
+      return nested === undefined ? undefined : false;
+    }
+  }
   const variable = symbol.declarations?.find(ts.isVariableDeclaration);
   if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)) return undefined;
   const nested = namespaceAuditable(variable.initializer, checker, seen);

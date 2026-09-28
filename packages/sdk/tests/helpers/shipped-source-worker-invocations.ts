@@ -138,21 +138,22 @@ function receiverAuditable(
   expression: ts.Expression,
   checker: ts.TypeChecker,
   seen = new Set<ts.Symbol>(),
+  allowOpaqueRoot = true,
 ): boolean {
   expression = unwrap(expression);
   if (!ts.isIdentifier(expression)) {
     const receiver = memberReceiver(expression);
-    return receiver ? receiverAuditable(receiver, checker, seen) : false;
+    return receiver ? receiverAuditable(receiver, checker, seen, false) : false;
   }
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return false;
   seen.add(symbol);
   const variable = symbol.declarations?.find(ts.isVariableDeclaration);
-  if (!variable) return true;
+  if (!variable) return allowOpaqueRoot;
   if (!ts.isVariableDeclarationList(variable.parent)
     || (variable.parent.flags & ts.NodeFlags.Const) === 0) return false;
-  if (!variable.initializer) return true;
-  return receiverAuditable(variable.initializer, checker, seen);
+  if (!variable.initializer) return allowOpaqueRoot;
+  return receiverAuditable(variable.initializer, checker, seen, allowOpaqueRoot);
 }
 
 function workerCallable(
