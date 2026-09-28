@@ -87,11 +87,24 @@ describe('shipped-source worker invocation resolution', () => {
         function destructuredReflectSetWrite(parameter: any) { const { set } = Reflect; set(parameter, 'agent', f.agent.bind(f, 'real', { task: 'x' })); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
         function bindingElementObjectAliasWrite(parameter: any) { const [O] = [Object]; O.assign(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
         function bindingElementObjectDefaultWrite(parameter: any) { const objects: Array<typeof Object | undefined> = []; const [O = Object] = objects; O.assign(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function objectIntrinsicMemberWrite(parameter: any) { const box = { O: Object }; box.O.assign(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function objectWriterMemberWrite(parameter: any) { const box = { writer: Object.assign }; box.writer(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function arrayWriterMemberWrite(parameter: any) { const slots = [Object.assign]; slots[0](parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function nestedIntrinsicMemberWrite(parameter: any) { const slots = [{ O: Object }]; slots[0].O.assign(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function nestedWriterMemberWrite(parameter: any) { const slots = [{ writer: Object.assign }]; slots[0].writer(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function objectWorkerMemberCall() { const box = { run: f.agent }; box.run('review', { task: 'x' }); }
+        function arrayWorkerMemberCall() { const slots = [f.agent]; slots[0]('review', { task: 'x' }); }
+        function nestedWorkerMemberCall() { const slots = [{ run: f.agent }]; slots[0].run('review', { task: 'x' }); }
+        function objectWorkerMemberCallHelper() { const box = { call: f.agent.call }; box.call(f.agent, 'review', { task: 'x' }); }
+        function objectWorkerMemberBindHelper() { const box = { bind: f.agent.bind }; box.bind.call(f.agent, undefined, 'review')({ task: 'x' }); }
+        function objectWorkerMemberBindInvoker() { const box = { invoker: f.agent.bind.call.bind(f.agent.bind) }; box.invoker(f.agent.bind, f.agent, undefined, 'review')({ task: 'x' }); }
+        function reflectSetReceiverWrite(parameter: any) { const target = { agent: f.agent }; Reflect.set(target, 'agent', f.agent.bind(f, 'real', { task: 'x' }), parameter); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function cyclicAggregateMemberCall() { const box: any = { run: box.run }; box.run('review', { task: 'x' }); }
         async function wrappedWorkerAliases() { const conditionalRun = flag ? f.agent : f.agent, logicalRun = (flag && f.agent) || f.agent, nullishRun = f.agent ?? f.agent, commaRun = (flag, f.agent), awaitRun = await f.agent; conditionalRun('review', { task: 'x' }); logicalRun('review', { task: 'x' }); nullishRun('review', { task: 'x' }); commaRun('review', { task: 'x' }); awaitRun('review', { task: 'x' }); }
       `);
       const variableAliasResult = scanTypeScript(variableAliases);
-      expect(variableAliasResult.calls).toBe(66);
-      expect(variableAliasResult.missing).toHaveLength(66);
+      expect(variableAliasResult.calls).toBe(78);
+      expect(variableAliasResult.missing).toHaveLength(78);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `

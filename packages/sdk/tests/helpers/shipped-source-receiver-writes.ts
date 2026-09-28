@@ -1,5 +1,6 @@
 import ts from 'typescript';
 import {
+  aggregateExpressionValue,
   aggregateValueAtPath,
   bindingDefaultValues,
   bindingSource,
@@ -114,30 +115,37 @@ function referencesIntrinsic(
     return declaration?.initializer !== undefined
       && referencesIntrinsic(declaration.initializer, intrinsic, checker, seen);
   }
+  const memberSeen = new Set(seen);
+  const member = aggregateExpressionValue(expression, checker, memberSeen);
+  if (member && referencesIntrinsic(member.value, intrinsic, checker, memberSeen)) return true;
   const branches = wrappedExpressionBranches(expression);
   return branches?.some(branch => referencesIntrinsic(branch, intrinsic, checker, new Set(seen))) ?? false;
 }
 
-function isReflectiveWriter(
+function reflectiveWriter(
   expression: ts.Expression,
   checker: ts.TypeChecker,
   seen: Set<ts.Symbol>,
-): boolean {
+): { intrinsic: keyof typeof REFLECTIVE_WRITERS; name: string } | undefined {
   const name = memberName(expression);
   const receiver = memberReceiver(expression);
-  if (!name || !receiver) return false;
-  return (Object.entries(REFLECTIVE_WRITERS) as Array<[
+  if (!name || !receiver) return undefined;
+  const entry = (Object.entries(REFLECTIVE_WRITERS) as Array<[
     keyof typeof REFLECTIVE_WRITERS,
     ReadonlySet<string>,
-  ]>).some(([intrinsic, names]) => names.has(name)
+  ]>).find(([intrinsic, names]) => names.has(name)
     && referencesIntrinsic(receiver, intrinsic, checker, new Set(seen)));
+  return entry ? { intrinsic: entry[0], name } : undefined;
 }
 
-function isDirectReflectiveWriterCall(
+function directReflectiveWriterTargets(
   node: ts.Node,
   checker: ts.TypeChecker,
-): node is ts.CallExpression {
-  return ts.isCallExpression(node) && isReflectiveWriter(node.expression, checker, new Set());
+): readonly number[] | undefined {
+  if (!ts.isCallExpression(node)) return undefined;
+  const writer = reflectiveWriter(node.expression, checker, new Set());
+  if (!writer) return undefined;
+  return writer.intrinsic === 'Reflect' && writer.name === 'set' ? [0, 3] : [0];
 }
 
 function referencesReflectiveWriter(
@@ -146,7 +154,7 @@ function referencesReflectiveWriter(
   seen = new Set<ts.Symbol>(),
 ): boolean {
   expression = unwrap(expression);
-  if (isReflectiveWriter(expression, checker, seen)) return true;
+  if (reflectiveWriter(expression, checker, seen)) return true;
   if (ts.isIdentifier(expression)) {
     const symbol = checker.getSymbolAtLocation(expression);
     if (!symbol || seen.has(symbol)) return false;
@@ -180,6 +188,9 @@ function referencesReflectiveWriter(
     return declaration?.initializer !== undefined
       && referencesReflectiveWriter(declaration.initializer, checker, seen);
   }
+  const memberSeen = new Set(seen);
+  const member = aggregateExpressionValue(expression, checker, memberSeen);
+  if (member && referencesReflectiveWriter(member.value, checker, memberSeen)) return true;
   const branches = wrappedExpressionBranches(expression);
   if (branches) return branches.some(branch => referencesReflectiveWriter(branch, checker, new Set(seen)));
   const receiver = memberReceiver(expression);
@@ -229,8 +240,12 @@ export function symbolHasWrites(
       found = true;
       return;
     }
-    if (isDirectReflectiveWriterCall(node, checker)) {
-      if (node.arguments[0] && assignmentTargetHasSymbol(node.arguments[0], symbol, checker)) {
+    const reflectiveTargets = directReflectiveWriterTargets(node, checker);
+    if (reflectiveTargets && ts.isCallExpression(node)) {
+      if (reflectiveTargets.some(index => {
+        const target = node.arguments[index];
+        return !!target && assignmentTargetHasSymbol(target, symbol, checker);
+      })) {
         found = true;
         return;
       }

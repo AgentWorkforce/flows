@@ -1,9 +1,9 @@
 import ts from 'typescript';
 import {
+  aggregateExpressionValue,
   aggregateValueAtPath,
   bindingDefaultValues,
   bindingSource,
-  objectMemberValue,
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
 
@@ -71,6 +71,18 @@ function wrappedResult<T extends { auditable: boolean }>(
   return undefined;
 }
 
+function aggregateResult<T extends { auditable: boolean }>(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+  resolve: (value: ts.Expression, seen: Set<ts.Symbol>) => T | undefined,
+): T | undefined {
+  const memberSeen = new Set(seen);
+  const member = aggregateExpressionValue(expression, checker, memberSeen);
+  const result = member ? resolve(member.value, memberSeen) : undefined;
+  return result ? { ...result, auditable: false } : undefined;
+}
+
 
 function namespaceSymbolAuditable(
   symbol: ts.Symbol,
@@ -119,10 +131,7 @@ function namespaceAuditable(
       : undefined;
   }
   if (!ts.isIdentifier(expression)) {
-    const name = memberName(expression);
-    const receiver = memberReceiver(expression);
-    if (!name || !receiver) return undefined;
-    const member = objectMemberValue(receiver, name, checker, seen);
+    const member = aggregateExpressionValue(expression, checker, seen);
     const nested = member?.symbol
       ? namespaceSymbolAuditable(member.symbol, checker, seen)
       : member ? namespaceAuditable(member.value, checker, seen) : undefined;
@@ -141,12 +150,15 @@ function invocationHelper(
   const operation = memberName(expression);
   const receiver = memberReceiver(expression);
   if ((operation === 'call' || operation === 'apply') && receiver) {
-    const constructor = flowConstructor(receiver, checker, seen);
+    const constructor = flowConstructor(receiver, checker, new Set(seen));
     if (constructor) return { operation, ...constructor };
   }
   const wrapped = wrappedResult(expression, seen,
     (branch, branchSeen) => invocationHelper(branch, checker, branchSeen));
   if (wrapped) return wrapped;
+  const aggregate = aggregateResult(expression, checker, seen,
+    (value, memberSeen) => invocationHelper(value, checker, memberSeen));
+  if (aggregate) return aggregate;
   if (!ts.isIdentifier(expression)) return undefined;
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;
@@ -178,11 +190,15 @@ function bindHelper(
   expression = unwrap(expression);
   if (memberName(expression) === 'bind') {
     const receiver = memberReceiver(expression);
-    return receiver ? flowConstructor(receiver, checker, new Set(seen)) : undefined;
+    const constructor = receiver ? flowConstructor(receiver, checker, new Set(seen)) : undefined;
+    if (constructor) return constructor;
   }
   const wrapped = wrappedResult(expression, seen,
     (branch, branchSeen) => bindHelper(branch, checker, branchSeen));
   if (wrapped) return { args: [], auditable: false };
+  const aggregate = aggregateResult(expression, checker, seen,
+    (value, memberSeen) => bindHelper(value, checker, memberSeen));
+  if (aggregate) return aggregate;
   if (!ts.isIdentifier(expression)) return undefined;
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;
@@ -231,6 +247,9 @@ function bindInvoker(
   const wrapped = wrappedResult(expression, seen,
     (branch, branchSeen) => bindInvoker(branch, checker, branchSeen));
   if (wrapped) return { ...wrapped, args: [], prebound: [], auditable: false };
+  const aggregate = aggregateResult(expression, checker, seen,
+    (value, memberSeen) => bindInvoker(value, checker, memberSeen));
+  if (aggregate) return aggregate;
   if (!ts.isIdentifier(expression)) return undefined;
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;
@@ -316,6 +335,9 @@ function flowConstructor(
   const wrapped = wrappedResult(expression, seen,
     (branch, branchSeen) => flowConstructor(branch, checker, branchSeen));
   if (wrapped) return wrapped;
+  const aggregate = aggregateResult(expression, checker, seen,
+    (value, memberSeen) => flowConstructor(value, checker, memberSeen));
+  if (aggregate) return aggregate;
   if (!ts.isIdentifier(expression)) return undefined;
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;

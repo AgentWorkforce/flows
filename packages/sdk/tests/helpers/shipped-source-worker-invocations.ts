@@ -1,5 +1,6 @@
 import ts from 'typescript';
 import {
+  aggregateExpressionValue,
   aggregateValueAtPath,
   bindingDefaultValues,
   bindingSource,
@@ -100,6 +101,18 @@ function wrappedResult<T extends { auditable: boolean }>(
   return undefined;
 }
 
+function aggregateResult<T extends { auditable: boolean }>(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+  resolve: (value: ts.Expression, seen: Set<ts.Symbol>) => T | undefined,
+): T | undefined {
+  const memberSeen = new Set(seen);
+  const member = aggregateExpressionValue(expression, checker, memberSeen);
+  const result = member ? resolve(member.value, memberSeen) : undefined;
+  return result ? { ...result, auditable: false } : undefined;
+}
+
 function invocationHelper(
   expression: ts.Expression,
   checker: ts.TypeChecker,
@@ -115,6 +128,9 @@ function invocationHelper(
   const wrapped = wrappedResult(expression, seen,
     (branch, branchSeen) => invocationHelper(branch, checker, branchSeen));
   if (wrapped) return wrapped;
+  const aggregate = aggregateResult(expression, checker, seen,
+    (value, memberSeen) => invocationHelper(value, checker, memberSeen));
+  if (aggregate) return aggregate;
   if (!ts.isIdentifier(expression)) return undefined;
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;
@@ -144,11 +160,15 @@ function bindHelper(
   expression = unwrap(expression);
   if (memberName(expression) === 'bind') {
     const receiver = memberReceiver(expression);
-    return receiver ? workerCallable(receiver, checker, new Set(seen)) : undefined;
+    const callable = receiver ? workerCallable(receiver, checker, new Set(seen)) : undefined;
+    if (callable) return callable;
   }
   const wrapped = wrappedResult(expression, seen,
     (branch, branchSeen) => bindHelper(branch, checker, branchSeen));
   if (wrapped) return { ...wrapped, args: [], auditable: false };
+  const aggregate = aggregateResult(expression, checker, seen,
+    (value, memberSeen) => bindHelper(value, checker, memberSeen));
+  if (aggregate) return aggregate;
   if (!ts.isIdentifier(expression)) return undefined;
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;
@@ -196,6 +216,9 @@ function bindInvoker(
   const wrapped = wrappedResult(expression, seen,
     (branch, branchSeen) => bindInvoker(branch, checker, branchSeen));
   if (wrapped) return { ...wrapped, args: [], prebound: [], auditable: false };
+  const aggregate = aggregateResult(expression, checker, seen,
+    (value, memberSeen) => bindInvoker(value, checker, memberSeen));
+  if (aggregate) return aggregate;
   if (!ts.isIdentifier(expression)) return undefined;
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;
@@ -307,6 +330,9 @@ function workerCallable(
   const wrapped = wrappedResult(expression, seen,
     (branch, branchSeen) => workerCallable(branch, checker, branchSeen));
   if (wrapped) return wrapped;
+  const aggregate = aggregateResult(expression, checker, seen,
+    (value, memberSeen) => workerCallable(value, checker, memberSeen));
+  if (aggregate) return aggregate;
   if (!ts.isIdentifier(expression)) return undefined;
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;

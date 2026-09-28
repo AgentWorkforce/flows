@@ -32,19 +32,20 @@ function propertyName(name: ts.PropertyName | undefined): string | undefined {
     : undefined;
 }
 
-function memberName(expression: ts.Expression): string | undefined {
-  expression = unwrap(expression);
-  if (ts.isPropertyAccessExpression(expression)) return expression.name.text;
-  if (ts.isElementAccessExpression(expression) && expression.argumentExpression
-    && ts.isStringLiteralLike(expression.argumentExpression)) return expression.argumentExpression.text;
-  return undefined;
-}
-
 function memberReceiver(expression: ts.Expression): ts.Expression | undefined {
   expression = unwrap(expression);
   return ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)
     ? expression.expression
     : undefined;
+}
+
+function memberSegment(expression: ts.Expression): BindingPathSegment | undefined {
+  expression = unwrap(expression);
+  if (ts.isPropertyAccessExpression(expression)) return expression.name.text;
+  if (!ts.isElementAccessExpression(expression) || !expression.argumentExpression) return undefined;
+  const argument = unwrap(expression.argumentExpression);
+  if (ts.isStringLiteralLike(argument)) return argument.text;
+  return ts.isNumericLiteral(argument) ? Number(argument.text) : undefined;
 }
 
 export function objectMemberValue(
@@ -75,10 +76,7 @@ export function objectMemberValue(
       ? { ...value, auditable: false }
       : value;
   }
-  const parentName = memberName(expression);
-  const parentReceiver = memberReceiver(expression);
-  if (!parentName || !parentReceiver) return undefined;
-  const parent = objectMemberValue(parentReceiver, parentName, checker, seen);
+  const parent = aggregateExpressionValue(expression, checker, seen);
   if (!parent) return undefined;
   const value = objectMemberValue(parent.value, name, checker, seen);
   return value && !parent.auditable ? { ...value, auditable: false } : value;
@@ -147,6 +145,18 @@ export function aggregateValueAtPath(
   return current;
 }
 
+export function aggregateExpressionValue(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): { value: ts.Expression; auditable: boolean; symbol?: ts.Symbol } | undefined {
+  const segment = memberSegment(expression);
+  const receiver = memberReceiver(expression);
+  return segment !== undefined && receiver
+    ? aggregateMemberValue(receiver, segment, checker, seen)
+    : undefined;
+}
+
 function aggregateMemberValue(
   expression: ts.Expression,
   segment: BindingPathSegment,
@@ -160,6 +170,11 @@ function aggregateMemberValue(
     return element && !ts.isOmittedExpression(element) && !ts.isSpreadElement(element)
       ? { value: element, auditable: true }
       : undefined;
+  }
+  const parent = aggregateExpressionValue(expression, checker, seen);
+  if (parent) {
+    const value = aggregateMemberValue(parent.value, segment, checker, seen);
+    return value && !parent.auditable ? { ...value, auditable: false } : value;
   }
   if (!ts.isIdentifier(expression)) return undefined;
   const symbol = checker.getSymbolAtLocation(expression);
