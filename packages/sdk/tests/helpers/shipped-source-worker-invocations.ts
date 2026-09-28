@@ -4,6 +4,7 @@ import {
   bindingDefaultValues,
   bindingSource,
 } from './shipped-source-binding-values.js';
+import { symbolHasWrites } from './shipped-source-receiver-writes.js';
 
 type WorkerMethod = 'agent' | 'llm';
 
@@ -53,81 +54,6 @@ function memberReceiver(expression: ts.Expression): ts.Expression | undefined {
   return ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)
     ? expression.expression
     : undefined;
-}
-
-function writeRoot(expression: ts.Expression): ts.Identifier | undefined {
-  expression = unwrap(expression);
-  while (!ts.isIdentifier(expression)) {
-    const receiver = memberReceiver(expression);
-    if (!receiver) return undefined;
-    expression = unwrap(receiver);
-  }
-  return expression;
-}
-
-function symbolHasWrites(
-  symbol: ts.Symbol,
-  checker: ts.TypeChecker,
-  seen = new Set<ts.Symbol>(),
-): boolean {
-  if (seen.has(symbol)) return false;
-  seen.add(symbol);
-  const source = symbol.valueDeclaration?.getSourceFile() ?? symbol.declarations?.[0]?.getSourceFile();
-  if (!source) return true;
-  let found = false;
-  const visit = (node: ts.Node): void => {
-    if (found) return;
-    let target: ts.Expression | undefined;
-    if (ts.isBinaryExpression(node)
-      && node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment
-      && node.operatorToken.kind <= ts.SyntaxKind.LastAssignment) target = node.left;
-    if ((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node))
-      && (node.operator === ts.SyntaxKind.PlusPlusToken
-        || node.operator === ts.SyntaxKind.MinusMinusToken)) target = node.operand;
-    const root = target ? writeRoot(target) : undefined;
-    if (root && checker.getSymbolAtLocation(root) === symbol) {
-      found = true;
-      return;
-    }
-    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
-      && memberReceiver(node.left)) {
-      const value = unwrap(node.right);
-      if (ts.isIdentifier(value) && checker.getSymbolAtLocation(value) === symbol) {
-        found = true;
-        return;
-      }
-    }
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-      const initializer = unwrap(node.initializer);
-      if (ts.isIdentifier(initializer) && checker.getSymbolAtLocation(initializer) === symbol) {
-        const alias = checker.getSymbolAtLocation(node.name);
-        if (!alias || symbolHasWrites(alias, checker, seen)) {
-          found = true;
-          return;
-        }
-      }
-    }
-    if (ts.isPropertyAssignment(node) && ts.isIdentifier(unwrap(node.initializer))
-      && checker.getSymbolAtLocation(unwrap(node.initializer)) === symbol) {
-      found = true;
-      return;
-    }
-    if (ts.isShorthandPropertyAssignment(node)
-      && checker.getShorthandAssignmentValueSymbol(node) === symbol) {
-      found = true;
-      return;
-    }
-    if (ts.isArrayLiteralExpression(node) && node.elements.some(element => {
-      const value = ts.isSpreadElement(element) ? element.expression : element;
-      return ts.isIdentifier(unwrap(value)) && checker.getSymbolAtLocation(unwrap(value)) === symbol;
-    })) {
-      found = true;
-      return;
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(source);
-  return found;
 }
 
 function variableInitializer(

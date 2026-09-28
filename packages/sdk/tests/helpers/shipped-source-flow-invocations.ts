@@ -43,6 +43,19 @@ function memberReceiver(expression: ts.Expression): ts.Expression | undefined {
     : undefined;
 }
 
+function bindingValues(
+  binding: ts.BindingElement,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): Array<{ value: ts.Expression }> {
+  const source = bindingSource(binding);
+  if (!source) return [];
+  return [
+    aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
+    ...bindingDefaultValues(source, checker, new Set(seen)),
+  ].filter((value): value is NonNullable<typeof value> => value !== undefined);
+}
+
 
 function namespaceSymbolAuditable(
   symbol: ts.Symbol,
@@ -120,13 +133,7 @@ function invocationHelper(
     if (helper) return { ...helper, args: [], auditable: false };
   }
   if (binding) {
-    const source = bindingSource(binding);
-    const values = source ? [
-      aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
-      ...bindingDefaultValues(source, checker, new Set(seen)),
-    ] : [];
-    for (const value of values) {
-      if (!value) continue;
+    for (const value of bindingValues(binding, checker, seen)) {
       const helper = invocationHelper(value.value, checker, new Set(seen));
       if (helper) return { ...helper, args: [], auditable: false };
     }
@@ -159,12 +166,10 @@ function bindHelper(
     if (helper) return { args: [], auditable: false };
   }
   if (binding) {
-    const source = bindingSource(binding);
-    const value = source
-      ? aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen))
-      : undefined;
-    const helper = value ? bindHelper(value.value, checker, new Set(seen)) : undefined;
-    if (helper) return { args: [], auditable: false };
+    for (const value of bindingValues(binding, checker, seen)) {
+      const helper = bindHelper(value.value, checker, new Set(seen));
+      if (helper) return { args: [], auditable: false };
+    }
   }
   const variable = symbol.declarations?.find(ts.isVariableDeclaration);
   if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)) return undefined;
@@ -206,12 +211,10 @@ function bindInvoker(
     if (invoker) return { ...invoker, args: [], prebound: [], auditable: false };
   }
   if (binding) {
-    const source = bindingSource(binding);
-    const value = source
-      ? aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen))
-      : undefined;
-    const invoker = value ? bindInvoker(value.value, checker, new Set(seen)) : undefined;
-    if (invoker) return { ...invoker, args: [], prebound: [], auditable: false };
+    for (const value of bindingValues(binding, checker, seen)) {
+      const invoker = bindInvoker(value.value, checker, new Set(seen));
+      if (invoker) return { ...invoker, args: [], prebound: [], auditable: false };
+    }
   }
   const variable = symbol.declarations?.find(ts.isVariableDeclaration);
   if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)) return undefined;
@@ -301,6 +304,10 @@ function flowConstructor(
       const direct = aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen));
       const constructor = direct ? flowConstructor(direct.value, checker, new Set(seen)) : undefined;
       if (constructor) return { ...constructor, auditable: false };
+      for (const fallback of bindingDefaultValues(source, checker, new Set(seen))) {
+        const fallbackConstructor = flowConstructor(fallback.value, checker, new Set(seen));
+        if (fallbackConstructor) return { ...fallbackConstructor, auditable: false };
+      }
       for (const fallback of source.defaults) {
         if (fallback.path.at(-1) !== 'flow') continue;
         const receiverPath = fallback.path.slice(0, -1);
