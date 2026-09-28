@@ -4,6 +4,7 @@ import {
   aggregateValueAtPath,
   bindingDefaultValues,
   bindingSource,
+  staticMemberSegment,
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
 
@@ -16,12 +17,13 @@ function unwrap(expression: ts.Expression): ts.Expression {
   return expression;
 }
 
-function memberName(expression: ts.Expression): string | undefined {
-  expression = unwrap(expression);
-  if (ts.isPropertyAccessExpression(expression)) return expression.name.text;
-  if (ts.isElementAccessExpression(expression) && expression.argumentExpression
-    && ts.isStringLiteralLike(expression.argumentExpression)) return expression.argumentExpression.text;
-  return undefined;
+function memberName(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen = new Set<ts.Symbol>(),
+): string | undefined {
+  const segment = staticMemberSegment(expression, checker, seen);
+  return typeof segment === 'string' ? segment : undefined;
 }
 
 function memberReceiver(expression: ts.Expression): ts.Expression | undefined {
@@ -127,7 +129,7 @@ function reflectiveWriter(
   checker: ts.TypeChecker,
   seen: Set<ts.Symbol>,
 ): { intrinsic: keyof typeof REFLECTIVE_WRITERS; name: string } | undefined {
-  const name = memberName(expression);
+  const name = memberName(expression, checker, new Set(seen));
   const receiver = memberReceiver(expression);
   if (!name || !receiver) return undefined;
   const entry = (Object.entries(REFLECTIVE_WRITERS) as Array<[
@@ -194,7 +196,9 @@ function referencesReflectiveWriter(
   const branches = wrappedExpressionBranches(expression);
   if (branches) return branches.some(branch => referencesReflectiveWriter(branch, checker, new Set(seen)));
   const receiver = memberReceiver(expression);
-  if (receiver && ['call', 'apply', 'bind'].includes(memberName(expression) ?? '')) {
+  if (receiver && ['call', 'apply', 'bind'].includes(
+    memberName(expression, checker, new Set(seen)) ?? '',
+  )) {
     return referencesReflectiveWriter(receiver, checker, seen);
   }
   return ts.isCallExpression(expression)

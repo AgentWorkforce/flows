@@ -4,6 +4,7 @@ import {
   aggregateValueAtPath,
   bindingDefaultValues,
   bindingSource,
+  staticMemberSegment,
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
 
@@ -29,12 +30,13 @@ function unwrap(expression: ts.Expression): ts.Expression {
   return expression;
 }
 
-function memberName(expression: ts.Expression): string | undefined {
-  expression = unwrap(expression);
-  if (ts.isPropertyAccessExpression(expression)) return expression.name.text;
-  if (ts.isElementAccessExpression(expression) && expression.argumentExpression
-    && ts.isStringLiteralLike(expression.argumentExpression)) return expression.argumentExpression.text;
-  return undefined;
+function memberName(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen = new Set<ts.Symbol>(),
+): string | undefined {
+  const segment = staticMemberSegment(expression, checker, seen);
+  return typeof segment === 'string' ? segment : undefined;
 }
 
 function memberReceiver(expression: ts.Expression): ts.Expression | undefined {
@@ -147,7 +149,7 @@ function invocationHelper(
   seen = new Set<ts.Symbol>(),
 ): FlowInvocationHelper | undefined {
   expression = unwrap(expression);
-  const operation = memberName(expression);
+  const operation = memberName(expression, checker, new Set(seen));
   const receiver = memberReceiver(expression);
   if ((operation === 'call' || operation === 'apply') && receiver) {
     const constructor = flowConstructor(receiver, checker, new Set(seen));
@@ -188,7 +190,7 @@ function bindHelper(
   seen = new Set<ts.Symbol>(),
 ): FlowCallable | undefined {
   expression = unwrap(expression);
-  if (memberName(expression) === 'bind') {
+  if (memberName(expression, checker, new Set(seen)) === 'bind') {
     const receiver = memberReceiver(expression);
     const constructor = receiver ? flowConstructor(receiver, checker, new Set(seen)) : undefined;
     if (constructor) return constructor;
@@ -228,9 +230,10 @@ function bindInvoker(
   seen = new Set<ts.Symbol>(),
 ): FlowBindInvoker | undefined {
   expression = unwrap(expression);
-  if (ts.isCallExpression(expression) && memberName(expression.expression) === 'bind') {
+  if (ts.isCallExpression(expression)
+    && memberName(expression.expression, checker, new Set(seen)) === 'bind') {
     const receiver = memberReceiver(expression.expression);
-    const operation = receiver ? memberName(receiver) : undefined;
+    const operation = receiver ? memberName(receiver, checker, new Set(seen)) : undefined;
     const helperReceiver = receiver ? memberReceiver(receiver) : undefined;
     const helper = helperReceiver ? bindHelper(helperReceiver, checker, new Set(seen)) : undefined;
     const target = expression.arguments[0]
@@ -279,12 +282,13 @@ function flowConstructor(
   seen = new Set<ts.Symbol>(),
 ): FlowCallable | undefined {
   expression = unwrap(expression);
-  if (memberName(expression) === 'flow') {
+  if (memberName(expression, checker, new Set(seen)) === 'flow') {
     const receiver = memberReceiver(expression);
     const auditable = receiver ? namespaceAuditable(receiver, checker) : undefined;
     if (auditable !== undefined) return { args: [], auditable };
   }
-  if (ts.isCallExpression(expression) && memberName(expression.expression) === 'bind') {
+  if (ts.isCallExpression(expression)
+    && memberName(expression.expression, checker, new Set(seen)) === 'bind') {
     const receiver = memberReceiver(expression.expression);
     const constructor = receiver ? flowConstructor(receiver, checker, new Set(seen)) : undefined;
     const bound = expression.arguments.slice(1);
@@ -316,7 +320,7 @@ function flowConstructor(
         auditable: invoker.auditable && target.auditable && !expression.arguments.some(ts.isSpreadElement),
       };
     }
-    const operation = memberName(expression.expression);
+    const operation = memberName(expression.expression, checker, new Set(seen));
     const receiver = memberReceiver(expression.expression);
     const helper = receiver ? bindHelper(receiver, checker, new Set(seen)) : undefined;
     if (helper) {

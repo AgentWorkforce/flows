@@ -100,11 +100,26 @@ describe('shipped-source worker invocation resolution', () => {
         function objectWorkerMemberBindInvoker() { const box = { invoker: f.agent.bind.call.bind(f.agent.bind) }; box.invoker(f.agent.bind, f.agent, undefined, 'review')({ task: 'x' }); }
         function reflectSetReceiverWrite(parameter: any) { const target = { agent: f.agent }; Reflect.set(target, 'agent', f.agent.bind(f, 'real', { task: 'x' }), parameter); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
         function cyclicAggregateMemberCall() { const box: any = { run: box.run }; box.run('review', { task: 'x' }); }
+        function computedWorkerMemberCall() { const method = 'agent' as const; f[method]('review', { task: 'x' }); }
+        function computedWorkerBindCall() { const method = 'agent' as const, bind = 'bind' as const; f[method][bind](f, 'review')({ task: 'x' }); }
+        function computedReflectiveWriter(parameter: any) { const assign = 'assign' as const; Object[assign](parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function computedAggregateWorker() { const key = 'run' as const, box = { [key]: f.agent }; box[key]('review', { task: 'x' }); }
+        function objectSpreadWorker() { const box = { ...{ run: f.agent.bind(f) } }; box.run('review', { task: 'x' }); }
+        function arraySpreadWorker() { const slots = [...[f.agent.bind(f)]]; slots[0]('review', { task: 'x' }); }
+        function objectSpreadWriterWrite(parameter: any) { const box = { ...{ writer: Object.assign } }; box.writer(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function arraySpreadWriterWrite(parameter: any) { const slots = [...[Object.assign]]; slots[0](parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function objectSpreadIntrinsicWrite(parameter: any) { const box = { ...{ O: Object } }; box.O.assign(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function bindingObjectWorker() { const { box } = { box: { run: f.agent } }; box.run('review', { task: 'x' }); }
+        function bindingArrayWorker() { const { slots } = { slots: [f.agent] }; slots[0]('review', { task: 'x' }); }
+        function wrappedObjectSpreadWorker() { const box = { ...(flag ? { run: f.agent } : { run: f.agent }) }; box.run('review', { task: 'x' }); }
+        function wrappedArraySpreadWorker() { const slots = [...(flag ? [f.agent] : [f.agent])]; slots[0]('review', { task: 'x' }); }
+        function bindingObjectWriterWrite(parameter: any) { const { box } = { box: { writer: Object.assign } }; box.writer(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function wrappedArraySpreadWriterWrite(parameter: any) { const slots = [...(flag ? [Object.assign] : [Object.assign])]; slots[0](parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
         async function wrappedWorkerAliases() { const conditionalRun = flag ? f.agent : f.agent, logicalRun = (flag && f.agent) || f.agent, nullishRun = f.agent ?? f.agent, commaRun = (flag, f.agent), awaitRun = await f.agent; conditionalRun('review', { task: 'x' }); logicalRun('review', { task: 'x' }); nullishRun('review', { task: 'x' }); commaRun('review', { task: 'x' }); awaitRun('review', { task: 'x' }); }
       `);
       const variableAliasResult = scanTypeScript(variableAliases);
-      expect(variableAliasResult.calls).toBe(78);
-      expect(variableAliasResult.missing).toHaveLength(78);
+      expect(variableAliasResult.calls).toBe(93);
+      expect(variableAliasResult.missing).toHaveLength(93);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `

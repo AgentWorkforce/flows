@@ -4,6 +4,7 @@ import {
   aggregateValueAtPath,
   bindingDefaultValues,
   bindingSource,
+  staticMemberSegment,
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
 import { symbolHasWrites } from './shipped-source-receiver-writes.js';
@@ -43,12 +44,13 @@ function propertyName(name: ts.PropertyName | undefined): string | undefined {
     : undefined;
 }
 
-function memberName(expression: ts.Expression): string | undefined {
-  expression = unwrap(expression);
-  if (ts.isPropertyAccessExpression(expression)) return expression.name.text;
-  if (ts.isElementAccessExpression(expression) && expression.argumentExpression
-    && ts.isStringLiteralLike(expression.argumentExpression)) return expression.argumentExpression.text;
-  return undefined;
+function memberName(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen = new Set<ts.Symbol>(),
+): string | undefined {
+  const segment = staticMemberSegment(expression, checker, seen);
+  return typeof segment === 'string' ? segment : undefined;
 }
 
 function memberReceiver(expression: ts.Expression): ts.Expression | undefined {
@@ -119,7 +121,7 @@ function invocationHelper(
   seen = new Set<ts.Symbol>(),
 ): WorkerInvocationHelper | undefined {
   expression = unwrap(expression);
-  const operation = memberName(expression);
+  const operation = memberName(expression, checker, new Set(seen));
   const receiver = memberReceiver(expression);
   if ((operation === 'call' || operation === 'apply') && receiver) {
     const callable = workerCallable(receiver, checker, new Set(seen));
@@ -158,7 +160,7 @@ function bindHelper(
   seen = new Set<ts.Symbol>(),
 ): WorkerCallable | undefined {
   expression = unwrap(expression);
-  if (memberName(expression) === 'bind') {
+  if (memberName(expression, checker, new Set(seen)) === 'bind') {
     const receiver = memberReceiver(expression);
     const callable = receiver ? workerCallable(receiver, checker, new Set(seen)) : undefined;
     if (callable) return callable;
@@ -196,9 +198,10 @@ function bindInvoker(
   seen = new Set<ts.Symbol>(),
 ): WorkerBindInvoker | undefined {
   expression = unwrap(expression);
-  if (ts.isCallExpression(expression) && memberName(expression.expression) === 'bind') {
+  if (ts.isCallExpression(expression)
+    && memberName(expression.expression, checker, new Set(seen)) === 'bind') {
     const receiver = memberReceiver(expression.expression);
-    const operation = receiver ? memberName(receiver) : undefined;
+    const operation = receiver ? memberName(receiver, checker, new Set(seen)) : undefined;
     const helperReceiver = receiver ? memberReceiver(receiver) : undefined;
     const helper = helperReceiver ? bindHelper(helperReceiver, checker, new Set(seen)) : undefined;
     const target = expression.arguments[0]
@@ -272,12 +275,13 @@ function workerCallable(
   seen = new Set<ts.Symbol>(),
 ): WorkerCallable | undefined {
   expression = unwrap(expression);
-  const direct = memberName(expression);
+  const direct = memberName(expression, checker, new Set(seen));
   if (direct === 'agent' || direct === 'llm') {
     const receiver = memberReceiver(expression);
     return { method: direct, args: [], auditable: receiver ? receiverAuditable(receiver, checker) : false };
   }
-  if (ts.isCallExpression(expression) && memberName(expression.expression) === 'bind') {
+  if (ts.isCallExpression(expression)
+    && memberName(expression.expression, checker, new Set(seen)) === 'bind') {
     const receiver = memberReceiver(expression.expression);
     const callable = receiver ? workerCallable(receiver, checker, new Set(seen)) : undefined;
     const bound = expression.arguments.slice(1);
@@ -311,7 +315,7 @@ function workerCallable(
         auditable: invoker.auditable && target.auditable && !expression.arguments.some(ts.isSpreadElement),
       };
     }
-    const operation = memberName(expression.expression);
+    const operation = memberName(expression.expression, checker, new Set(seen));
     const receiver = memberReceiver(expression.expression);
     const helper = receiver ? bindHelper(receiver, checker, new Set(seen)) : undefined;
     if (helper) {
