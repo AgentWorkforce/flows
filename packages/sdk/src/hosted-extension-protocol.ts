@@ -141,13 +141,24 @@ export async function exchangeHostedExtension(
       finish(capabilityError ?? error);
     };
     const timeout = SET_TIMEOUT(() => {
-      CHILD_PROCESS_KILL(child, 'SIGKILL');
-      finish(new PluginError(
+      const error = new PluginError(
         'plugin_unsupported',
         capabilityState === 'pending'
           ? 'Hosted capability outcome is in doubt after the sandbox timeout.'
           : 'Hosted extension sandbox timed out.',
-      ));
+      );
+      // The host capability is not cancellable at this boundary. Reporting a
+      // terminal result while it is still running would let the provider write
+      // land after the journal had already completed the step. Kill the tenant
+      // sandbox immediately, but defer the terminal protocol result until the
+      // in-flight capability has settled and its effect can be journaled.
+      if (capabilityState === 'pending') {
+        deferredProtocolError ??= error;
+        CHILD_PROCESS_KILL(child, 'SIGKILL');
+        return;
+      }
+      CHILD_PROCESS_KILL(child, 'SIGKILL');
+      finish(error);
     }, timeoutMs);
     TIMER_UNREF(timeout);
 

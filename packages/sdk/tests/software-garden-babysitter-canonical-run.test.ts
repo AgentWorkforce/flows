@@ -3,15 +3,18 @@ import {
   existsSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { setTimeout as delay } from 'node:timers/promises';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { runCli, type RunCliOptions } from '../src/cli.js';
 import { addExtensionPlugin } from '../src/cli/add-extension.js';
 import { hostedExtensionDispatchFromVerifiedDelivery } from '../src/flow-extension-loader.js';
+import { JournalClient } from '../src/journal-client.js';
 import { entriesFromDirectory, fakeGithub } from './fake-github.js';
 
 const NATIVE_SHA = '8b33ebab8347514f80d9da5a81206a087f641714';
@@ -285,6 +288,113 @@ describe('canonical run dispatches the installed Software Garden Babysitter', ()
         },
       });
       expect(calls).toBe(1);
+    },
+  );
+
+  it.skipIf(process.platform !== 'linux' || !existsSync('/usr/bin/bwrap'))(
+    'does not complete the journal while a timed-out capability is still pending', async () => {
+      const installed = await project();
+      const deliveryId = 'delivery-timeout-pending';
+      let calls = 0;
+      let release!: () => void;
+      let capabilityStarted!: () => void;
+      const released = new Promise<void>(resolveReleased => { release = resolveReleased; });
+      const started = new Promise<void>(resolveStarted => { capabilityStarted = resolveStarted; });
+      const authority = {
+        ...hosted('pull_request.labeled', deliveryId, async () => {
+          calls += 1;
+          capabilityStarted();
+          await released;
+          return { receiptId: `bst_${'2'.repeat(64)}`, status: 'queued' };
+        }),
+        timeoutMs: 25,
+      };
+
+      let settled = false;
+      const pending = run(installed.flowPath, input('pull_request.labeled', deliveryId), authority);
+      void pending.then(() => { settled = true; }, () => { settled = true; });
+      await started;
+      await delay(75);
+      expect(settled).toBe(false);
+      expect(calls).toBe(1);
+
+      release();
+      const result = await pending;
+      expect(result).toMatchObject({
+        exitCode: 1,
+        report: {
+          ok: false,
+          status: 'failed',
+          completionReason: 'step_failed',
+          diagnostics: [expect.objectContaining({
+            severity: 'failure',
+            kind: 'step_failed',
+            message: expect.stringContaining('outcome is in doubt'),
+          })],
+        },
+      });
+      const receipts = join(installed.root, '.relayflowd', 'hosted-extension-receipts');
+      const afterCompletion = readdirSync(receipts).map(file => readFileSync(join(receipts, file), 'utf8'));
+      await delay(50);
+      expect(readdirSync(receipts).map(file => readFileSync(join(receipts, file), 'utf8'))).toEqual(afterCompletion);
+      expect(calls).toBe(1);
+    },
+  );
+
+  it.skipIf(process.platform !== 'linux' || !existsSync('/usr/bin/bwrap'))(
+    'reuses the durable receipt when an elected effect is replayed before confirmation', async () => {
+      const installed = await project();
+      const deliveryId = 'delivery-reclaimed-receipt';
+      let calls = 0;
+      const replay = vi.spyOn(JournalClient.prototype, 'performEffect').mockImplementationOnce(
+        async function (effect, perform) {
+          const { deduped } = await this.effectRecord(
+            effect.runId,
+            effect.stepId,
+            effect.attempt,
+            effect.idempotencyKey,
+            effect.surfacePath,
+            effect.revisionBefore,
+            effect.revisionAfter,
+          );
+          expect(deduped).toBe(false);
+          await perform();
+          // Inject the crash boundary: the provider receipt is durable, but
+          // effect.confirm has not happened and a reclaimed election reruns
+          // the callback. Recovery must consume the receipt, not write twice.
+          await perform();
+          await this.effectConfirm(
+            effect.runId,
+            effect.stepId,
+            effect.attempt,
+            effect.idempotencyKey,
+            effect.surfacePath,
+          );
+          return true;
+        },
+      );
+      try {
+        const result = await run(installed.flowPath, input('pull_request.labeled', deliveryId), hosted(
+          'pull_request.labeled',
+          deliveryId,
+          async () => {
+            calls += 1;
+            return { receiptId: `bst_${'3'.repeat(64)}`, status: 'queued' };
+          },
+        ));
+        expect(result).toMatchObject({
+          exitCode: 0,
+          report: {
+            ok: true,
+            status: 'completed',
+            completionReason: 'success',
+            completedSteps: 1,
+          },
+        });
+        expect(calls).toBe(1);
+      } finally {
+        replay.mockRestore();
+      }
     },
   );
 

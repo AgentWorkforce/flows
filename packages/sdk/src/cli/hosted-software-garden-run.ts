@@ -230,14 +230,25 @@ async function completeHostedDispatch(
               // the failing step completion must carry.
               effectRecorded = true;
               signal.throwIfAborted();
-              receipt = await hosted.babysitterTurn.queue(request, authority);
-              await atomicJson(file, receipt);
+              // A crash after the durable receipt write but before
+              // effect.confirm leaves this election reclaimable. Consume that
+              // receipt on the reclaimed attempt instead of calling the
+              // external provider a second time.
+              try {
+                receipt = await readHelperReceipt(file);
+              } catch (error) {
+                if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+                receipt = await hosted.babysitterTurn.queue(request, authority);
+                await atomicJson(file, receipt);
+              }
               signal.throwIfAborted();
             });
-            if (!performed) {
-              effectRecorded = true;
-              receipt = await readHelperReceipt(file);
-            }
+            // Also required after a confirmed election followed by a crash
+            // before step.complete. An elected recovery callback may already
+            // have populated receipt above, so this is deliberately based on
+            // the value rather than only on performEffect's return flag.
+            if (!performed) effectRecorded = true;
+            if (receipt === undefined) receipt = await readHelperReceipt(file);
             return receipt;
           },
         },
