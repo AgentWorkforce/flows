@@ -3,8 +3,15 @@ import ts from 'typescript';
 
 const ROOT = resolve('../..');
 
+function propertyName(name: ts.PropertyName | undefined): string | undefined {
+  if (name === undefined) return undefined;
+  if (ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name)) return name.text;
+  if (ts.isComputedPropertyName(name) && ts.isStringLiteralLike(name.expression)) return name.expression.text;
+  return undefined;
+}
+
 function property(object: ts.ObjectLiteralExpression, name: string): ts.Expression | undefined {
-  const candidate = object.properties.find(property => property.name?.getText().replaceAll(/["']/gu, '') === name);
+  const candidate = object.properties.find(property => propertyName(property.name) === name);
   if (candidate && ts.isPropertyAssignment(candidate)) return candidate.initializer;
   if (candidate && ts.isShorthandPropertyAssignment(candidate)) return candidate.name;
   return undefined;
@@ -40,9 +47,11 @@ function numericLiteral(expression: ts.Expression | undefined, checker: ts.TypeC
 function objectLiteral(expression: ts.Expression | undefined, checker: ts.TypeChecker): ts.ObjectLiteralExpression | undefined {
   const resolved = constInitializer(expression, checker);
   if (!resolved || !ts.isObjectLiteralExpression(resolved)) return undefined;
-  if (resolved.properties.some(ts.isSpreadAssignment)) return undefined;
+  if (resolved.properties.some(candidate =>
+    (!ts.isPropertyAssignment(candidate) && !ts.isShorthandPropertyAssignment(candidate))
+    || propertyName(candidate.name) === undefined)) return undefined;
   const ceilingFields = resolved.properties
-    .map(candidate => candidate.name?.getText().replaceAll(/["']/gu, ''))
+    .map(candidate => propertyName(candidate.name))
     .filter(name => name === 'tokens' || name === 'dollars');
   if (new Set(ceilingFields).size !== ceilingFields.length) return undefined;
   if (!expression || !ts.isIdentifier(expression)) return resolved;
@@ -65,8 +74,17 @@ function objectLiteral(expression: ts.Expression | undefined, checker: ts.TypeCh
   return onlyBudgetReferences ? resolved : undefined;
 }
 
+function unwrapTransparentExpression(expression: ts.Expression): ts.Expression {
+  while (ts.isParenthesizedExpression(expression)
+    || ts.isAsExpression(expression)
+    || ts.isSatisfiesExpression(expression)
+    || ts.isNonNullExpression(expression)
+    || ts.isTypeAssertionExpression(expression)) expression = expression.expression;
+  return expression;
+}
+
 function memberName(expression: ts.Expression): string | undefined {
-  while (ts.isParenthesizedExpression(expression)) expression = expression.expression;
+  expression = unwrapTransparentExpression(expression);
   if (ts.isPropertyAccessExpression(expression)) return expression.name.text;
   if (ts.isElementAccessExpression(expression) && expression.argumentExpression
     && ts.isStringLiteralLike(expression.argumentExpression)) return expression.argumentExpression.text;
@@ -80,7 +98,7 @@ function workerMethodName(
 ): string | undefined {
   const direct = memberName(expression);
   if (direct !== undefined) return direct;
-  while (ts.isParenthesizedExpression(expression)) expression = expression.expression;
+  expression = unwrapTransparentExpression(expression);
   if (!ts.isIdentifier(expression)) return undefined;
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;

@@ -28,6 +28,14 @@ const DYNAMIC_PAIR_SOURCE_WAIVERS = new Map([
   ],
 ]);
 
+// RelayCron stores these registrations outside the repository, so there is no
+// executable launch command for source discovery to find. Keep this manifest in
+// lockstep with the schedules documented in ops/AUTONOMY.md.
+const REGISTERED_SCHEDULE_SOURCES = new Set([
+  'workflows/drive.yaml',
+  'workflows/watchdog.yaml',
+]);
+
 function filesBelow(path: string, suffix: string): string[] {
   return readdirSync(path).flatMap(entry => {
     if (entry === 'node_modules' || entry === 'dist') return [];
@@ -38,18 +46,19 @@ function filesBelow(path: string, suffix: string): string[] {
   });
 }
 
-function launchedDeclarativeSources(): ReadonlySet<string> {
+function activeDeclarativeSources(): ReadonlySet<string> {
   const operationalFiles = ['.github', 'ops', 'scripts'].flatMap(directory =>
     ['.yml', '.yaml', '.sh'].flatMap(suffix => filesBelow(resolve(ROOT, directory), suffix)));
-  const launched = new Set<string>();
+  const active = new Set(REGISTERED_SCHEDULE_SOURCES);
   const command = /\b(?:agent-relay\s+cloud\s+run|flows\s+run)[\s\\]+(?:\.\.\/gate-files\/)?(workflows\/[A-Za-z0-9._/-]+\.ya?ml)/gu;
   for (const path of operationalFiles) {
     for (const match of readFileSync(path, 'utf8').matchAll(command)) {
       const source = match[1];
-      if (source !== undefined && existsSync(resolve(ROOT, source))) launched.add(source);
+      if (source !== undefined && existsSync(resolve(ROOT, source))) active.add(source);
     }
   }
-  return launched;
+  for (const source of active) expect(existsSync(resolve(ROOT, source)), `${source}: active workflow source must exist`).toBe(true);
+  return active;
 }
 
 function scanDeclarative(document: Record<string, unknown>, where: string): {
@@ -214,6 +223,13 @@ describe('first-party shipped source model pins', () => {
       `);
       expect(scanTypeScript(conditionalBudget).dollarBudgetsWithoutTokenCeilings).toHaveLength(1);
 
+      const computedBudget = join(directory, 'computed-budget.flow.ts');
+      writeFileSync(computedBudget, `
+        declare function flow(name: string, header: unknown, body: () => void): void;
+        flow('computed', { budget: { ['dollars']: 2, tokens: 20_000_000 } }, () => {});
+      `);
+      expect(scanTypeScript(computedBudget).dollarBudgetsWithoutTokenCeilings).toHaveLength(1);
+
       const aliasedHeader = join(directory, 'aliased-header.flow.ts');
       writeFileSync(aliasedHeader, `
         declare function flow(name: string, header: unknown, body: () => void): void;
@@ -289,6 +305,21 @@ describe('first-party shipped source model pins', () => {
       const variableAliasResult = scanTypeScript(variableAliases);
       expect(variableAliasResult.calls).toBe(2);
       expect(variableAliasResult.missing).toHaveLength(2);
+
+      const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
+      writeFileSync(assertedAliases, `
+        declare const f: {
+          agent(name: string, options: { task: string }): void;
+          llm(prompt: string, options: { output: object }): void;
+        };
+        const runAgent = f.agent as typeof f.agent;
+        const generate = (f['llm'] satisfies typeof f.llm)!;
+        runAgent('review', { task: 'x' });
+        generate('prompt', { output: {} });
+      `);
+      const assertedAliasResult = scanTypeScript(assertedAliases);
+      expect(assertedAliasResult.calls).toBe(2);
+      expect(assertedAliasResult.missing).toHaveLength(2);
 
       const taggedLlm = join(directory, 'tagged-llm.flow.ts');
       writeFileSync(taggedLlm, `
@@ -379,7 +410,7 @@ describe('first-party shipped source model pins', () => {
     let modelSteps = 0;
     let activeV1Files = 0;
     let activeV1ModelSteps = 0;
-    const activeV1Sources = launchedDeclarativeSources();
+    const activeV1Sources = activeDeclarativeSources();
     for (const path of paths) {
       const document = parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
       const name = relative(ROOT, path);
@@ -396,7 +427,7 @@ describe('first-party shipped source model pins', () => {
     }
     expect(currentFiles).toBe(7);
     expect(modelSteps).toBe(8);
-    expect(activeV1Files).toBe(2);
-    expect(activeV1ModelSteps).toBe(5);
+    expect(activeV1Files).toBe(4);
+    expect(activeV1ModelSteps).toBe(10);
   });
 });
