@@ -10,6 +10,7 @@ import {
   staticArrayElements,
   staticMemberSegment,
 } from './shipped-source-binding-values.js';
+import { directAssignedMemberValues } from './shipped-source-direct-member-writes.js';
 
 function unwrap(expression: ts.Expression): ts.Expression {
   while (ts.isParenthesizedExpression(expression)
@@ -55,6 +56,7 @@ export function baseAggregateExpressionValues(
       }
     }
   };
+  for (const value of directAssignedMemberValues(expression, checker, new Set(seen))) add(value);
   const unwrappedReceiver = unwrap(receiver);
   let receiverSymbol: ts.Symbol | undefined;
   if (ts.isIdentifier(unwrappedReceiver)) {

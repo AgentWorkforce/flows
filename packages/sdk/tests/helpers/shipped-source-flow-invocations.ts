@@ -7,24 +7,20 @@ import {
   assignedValues,
   bindingDefaultValues,
   staticArrayElements,
-  staticCallArguments,
   staticMemberSegment,
+  staticPropertySegment,
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
 import { reflectApplyArgumentCandidates } from './shipped-source-reflect-apply.js';
-
-interface FlowCallable {
-  args: readonly ts.Expression[];
-  auditable: boolean;
-}
-
-interface FlowInvocationHelper extends FlowCallable {
-  operation: 'call' | 'apply';
-}
-
-interface FlowBindInvoker extends FlowInvocationHelper {
-  prebound: readonly ts.Expression[];
-}
+import { staticCallArguments } from './shipped-source-static-call-arguments.js';
+import {
+  type FlowCallable,
+  type FlowBindInvoker,
+  type FlowInvocationHelper,
+  resolveFlowBindHelper,
+  resolveFlowBindInvoker,
+  resolveFlowInvocationHelper,
+} from './shipped-source-flow-helpers.js';
 
 function unwrap(expression: ts.Expression): ts.Expression {
   while (ts.isParenthesizedExpression(expression)
@@ -49,19 +45,6 @@ function memberReceiver(expression: ts.Expression): ts.Expression | undefined {
   return ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)
     ? expression.expression
     : undefined;
-}
-
-function bindingValues(
-  binding: ts.BindingElement,
-  checker: ts.TypeChecker,
-  seen: Set<ts.Symbol>,
-): Array<{ value: ts.Expression }> {
-  const source = bindingSource(binding, checker);
-  if (!source) return [];
-  return [
-    aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
-    ...bindingDefaultValues(source, checker, new Set(seen)),
-  ].filter((value): value is NonNullable<typeof value> => value !== undefined);
 }
 
 function wrappedResult<T extends { auditable: boolean }>(
@@ -91,7 +74,6 @@ function aggregateResult<T extends { auditable: boolean }>(
   }
   return undefined;
 }
-
 
 function namespaceSymbolAuditable(
   symbol: ts.Symbol,
@@ -155,42 +137,7 @@ function invocationHelper(
   checker: ts.TypeChecker,
   seen = new Set<ts.Symbol>(),
 ): FlowInvocationHelper | undefined {
-  expression = unwrap(expression);
-  const operation = memberName(expression, checker, new Set(seen));
-  const receiver = memberReceiver(expression);
-  if ((operation === 'call' || operation === 'apply') && receiver) {
-    const constructor = flowConstructor(receiver, checker, new Set(seen));
-    if (constructor) return { operation, ...constructor };
-    const nested = invocationHelper(receiver, checker, new Set(seen));
-    if (nested) return { operation, args: [], auditable: false };
-  }
-  const wrapped = wrappedResult(expression, seen,
-    (branch, branchSeen) => invocationHelper(branch, checker, branchSeen));
-  if (wrapped) return wrapped;
-  const aggregate = aggregateResult(expression, checker, seen,
-    (value, memberSeen) => invocationHelper(value, checker, memberSeen));
-  if (aggregate) return aggregate;
-  if (!ts.isIdentifier(expression)) return undefined;
-  const symbol = checker.getSymbolAtLocation(expression);
-  if (!symbol || seen.has(symbol)) return undefined;
-  seen.add(symbol);
-  const binding = symbol.declarations?.find(ts.isBindingElement);
-  if (binding?.initializer) {
-    const helper = invocationHelper(binding.initializer, checker, new Set(seen));
-    if (helper) return { ...helper, args: [], auditable: false };
-  }
-  if (binding) {
-    for (const value of bindingValues(binding, checker, seen)) {
-      const helper = invocationHelper(value.value, checker, new Set(seen));
-      if (helper) return { ...helper, args: [], auditable: false };
-    }
-  }
-  const variable = symbol.declarations?.find(ts.isVariableDeclaration);
-  if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)) return undefined;
-  const helper = invocationHelper(variable.initializer, checker, seen);
-  return helper && (variable.parent.flags & ts.NodeFlags.Const) === 0
-    ? { ...helper, args: [], auditable: false }
-    : helper;
+  return resolveFlowInvocationHelper(expression, checker, flowConstructor, seen);
 }
 
 function bindHelper(
@@ -198,39 +145,7 @@ function bindHelper(
   checker: ts.TypeChecker,
   seen = new Set<ts.Symbol>(),
 ): FlowCallable | undefined {
-  expression = unwrap(expression);
-  if (memberName(expression, checker, new Set(seen)) === 'bind') {
-    const receiver = memberReceiver(expression);
-    const constructor = receiver ? flowConstructor(receiver, checker, new Set(seen)) : undefined;
-    if (constructor) return constructor;
-  }
-  const wrapped = wrappedResult(expression, seen,
-    (branch, branchSeen) => bindHelper(branch, checker, branchSeen));
-  if (wrapped) return { args: [], auditable: false };
-  const aggregate = aggregateResult(expression, checker, seen,
-    (value, memberSeen) => bindHelper(value, checker, memberSeen));
-  if (aggregate) return aggregate;
-  if (!ts.isIdentifier(expression)) return undefined;
-  const symbol = checker.getSymbolAtLocation(expression);
-  if (!symbol || seen.has(symbol)) return undefined;
-  seen.add(symbol);
-  const binding = symbol.declarations?.find(ts.isBindingElement);
-  if (binding?.initializer) {
-    const helper = bindHelper(binding.initializer, checker, new Set(seen));
-    if (helper) return { args: [], auditable: false };
-  }
-  if (binding) {
-    for (const value of bindingValues(binding, checker, seen)) {
-      const helper = bindHelper(value.value, checker, new Set(seen));
-      if (helper) return { args: [], auditable: false };
-    }
-  }
-  const variable = symbol.declarations?.find(ts.isVariableDeclaration);
-  if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)) return undefined;
-  const helper = bindHelper(variable.initializer, checker, seen);
-  return helper && (variable.parent.flags & ts.NodeFlags.Const) === 0
-    ? { args: [], auditable: false }
-    : helper;
+  return resolveFlowBindHelper(expression, checker, flowConstructor, seen);
 }
 
 function bindInvoker(
@@ -238,51 +153,7 @@ function bindInvoker(
   checker: ts.TypeChecker,
   seen = new Set<ts.Symbol>(),
 ): FlowBindInvoker | undefined {
-  expression = unwrap(expression);
-  if (ts.isCallExpression(expression)
-    && memberName(expression.expression, checker, new Set(seen)) === 'bind') {
-    const receiver = memberReceiver(expression.expression);
-    const operation = receiver ? memberName(receiver, checker, new Set(seen)) : undefined;
-    const helperReceiver = receiver ? memberReceiver(receiver) : undefined;
-    const helper = helperReceiver ? bindHelper(helperReceiver, checker, new Set(seen)) : undefined;
-    const target = expression.arguments[0]
-      ? bindHelper(expression.arguments[0], checker, new Set(seen))
-      : undefined;
-    if (helper && (operation === 'call' || operation === 'apply')) return {
-      operation,
-      args: helper.args,
-      prebound: expression.arguments.slice(1),
-      auditable: helper.auditable && target?.auditable === true
-        && !expression.arguments.some(ts.isSpreadElement),
-    };
-  }
-  const wrapped = wrappedResult(expression, seen,
-    (branch, branchSeen) => bindInvoker(branch, checker, branchSeen));
-  if (wrapped) return { ...wrapped, args: [], prebound: [], auditable: false };
-  const aggregate = aggregateResult(expression, checker, seen,
-    (value, memberSeen) => bindInvoker(value, checker, memberSeen));
-  if (aggregate) return aggregate;
-  if (!ts.isIdentifier(expression)) return undefined;
-  const symbol = checker.getSymbolAtLocation(expression);
-  if (!symbol || seen.has(symbol)) return undefined;
-  seen.add(symbol);
-  const binding = symbol.declarations?.find(ts.isBindingElement);
-  if (binding?.initializer) {
-    const invoker = bindInvoker(binding.initializer, checker, new Set(seen));
-    if (invoker) return { ...invoker, args: [], prebound: [], auditable: false };
-  }
-  if (binding) {
-    for (const value of bindingValues(binding, checker, seen)) {
-      const invoker = bindInvoker(value.value, checker, new Set(seen));
-      if (invoker) return { ...invoker, args: [], prebound: [], auditable: false };
-    }
-  }
-  const variable = symbol.declarations?.find(ts.isVariableDeclaration);
-  if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)) return undefined;
-  const invoker = bindInvoker(variable.initializer, checker, seen);
-  return invoker && (variable.parent.flags & ts.NodeFlags.Const) === 0
-    ? { ...invoker, args: [], prebound: [], auditable: false }
-    : invoker;
+  return resolveFlowBindInvoker(expression, checker, flowConstructor, seen);
 }
 
 function flowConstructor(
@@ -402,8 +273,19 @@ function flowConstructor(
         : receiver ? namespaceAuditable(receiver.value, checker) : undefined;
       if (namespace !== undefined) return {
         args: [],
-        auditable: source.immutable && receiverPath.length === 0 && namespace,
+        auditable: source.immutable && receiverPath.length === 0 && namespace
+          && !(binding.propertyName && ts.isComputedPropertyName(binding.propertyName)
+            && !ts.isStringLiteralLike(binding.propertyName.expression)),
       };
+    }
+    const computedName = binding.propertyName && ts.isComputedPropertyName(binding.propertyName)
+      ? staticPropertySegment(binding.propertyName.expression, checker, new Set())
+      : undefined;
+    if (computedName === 'flow') {
+      const declaration = binding.parent.parent;
+      const receiver = ts.isVariableDeclaration(declaration) ? declaration.initializer : undefined;
+      const namespace = receiver ? namespaceAuditable(receiver, checker) : undefined;
+      if (namespace !== undefined) return { args: [], auditable: false };
     }
   }
   for (const value of assignedValues(symbol, checker)) {

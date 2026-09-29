@@ -1,5 +1,5 @@
 import ts from 'typescript';
-import { staticArrayElementCandidates } from './shipped-source-binding-values.js';
+import { staticArrayElementCandidates } from './shipped-source-static-call-arguments.js';
 import { callableArgumentCandidates } from './shipped-source-callable-invocations.js';
 import { referencesGlobalMember } from './shipped-source-global-provenance.js';
 import { referencesIntrinsicMember } from './shipped-source-intrinsic-members.js';

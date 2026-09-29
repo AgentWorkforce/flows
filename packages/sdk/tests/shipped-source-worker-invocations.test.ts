@@ -207,13 +207,19 @@ describe('shipped-source worker invocation resolution', () => {
         function reflectApplyObjectAssignMemberWorker() { const box: any = {}; Reflect.apply(Object.assign, Object, [box, { run: f.agent }]); box.run('review', { task: 'x' }); }
         function reflectApplyReflectSetMemberWorker() { const box: any = {}; Reflect.apply(Reflect.set, Reflect, [box, 'run', f.agent]); box.run('review', { task: 'x' }); }
         function aggregateObjectAssignMemberWorker() { const box: any = {}, helpers = { assign: Object.assign }; helpers.assign(box, { run: f.agent }); box.run('review', { task: 'x' }); }
+        function memberAssignedObjectAssignMemberWorker() { const box: any = {}, helpers: any = {}; helpers.assign = Object.assign; helpers.assign(box, { run: f.agent }); box.run('review', { task: 'x' }); }
         function defaultedObjectAssignMemberWorker() { const box: any = {}, assigners: Array<typeof Object.assign | undefined> = []; const [assign = Object.assign] = assigners; assign(box, { run: f.agent }); box.run('review', { task: 'x' }); }
         function assignedDestructuredObjectAssignMemberWorker() { const box: any = {}; let assign: any; ({ assign } = Object); assign(box, { run: f.agent }); box.run('review', { task: 'x' }); }
         function boundObjectAssignAliasMemberWorker() { const box: any = {}, assign = Object.assign.bind(Object); assign(box, { run: f.agent }); box.run('review', { task: 'x' }); }
         function aliasedDefinePropertiesMemberWorker() { const box: any = {}, descriptors = { run: { value: f.agent } }; Object.defineProperties(box, descriptors); box.run('review', { task: 'x' }); }
+        function memberAssignedDefinePropertiesMemberWorker() { const box: any = {}, maps: any = {}; maps.descriptors = { run: { value: f.agent } }; Object.defineProperties(box, maps.descriptors); box.run('review', { task: 'x' }); }
         function spreadDefinePropertiesMemberWorker() { const box: any = {}, descriptors = { ...{ run: { value: f.agent } } }; Object.defineProperties(box, descriptors); box.run('review', { task: 'x' }); }
         function aliasedReflectiveTargetMemberWorker() { const box: any = {}, alias = box; Object.assign(alias, { run: f.agent }); box.run('review', { task: 'x' }); }
         function returnedReflectiveTargetMemberWorker() { const box: any = {}; const identity = (value: any) => value; Object.assign(identity(box), { run: f.agent }); box.run('review', { task: 'x' }); }
+        function returnedConstAliasReflectiveTargetMemberWorker() { const box: any = {}; function identity(value: any) { const alias = value; return alias; } Object.assign(identity(box), { run: f.agent }); box.run('review', { task: 'x' }); }
+        function returnedAssignedAliasReflectiveTargetMemberWorker() { const box: any = {}; function identity(value: any) { let alias; alias = value; return alias; } Object.assign(identity(box), { run: f.agent }); box.run('review', { task: 'x' }); }
+        function returnedWrappedReflectiveTargetMemberWorker() { const box: any = {}; function identity(value: any) { return flag ? value : value; } Object.assign(identity(box), { run: f.agent }); box.run('review', { task: 'x' }); }
+        function capturedReflectiveTargetMemberWorker() { const box: any = {}; function getBox() { return box; } Object.assign(getBox(), { run: f.agent }); box.run('review', { task: 'x' }); }
         function branchedApplyReflectiveWriterMemberWorker() { const box: any = {}; Object.assign.apply(Object, flag ? [box, { run: () => undefined }] : [box, { run: f.agent }]); box.run('review', { task: 'x' }); }
         function spreadReflectiveWriterMemberWorker(extras: any[]) { const box: any = {}; Object.assign(box, { run: f.agent }, ...extras); box.run('review', { task: 'x' }); }
         function spreadApplyReflectiveWriterMemberWorker(extras: any[]) { const box: any = {}; Object.assign.apply(Object, [box, ...extras, { run: f.agent }]); box.run('review', { task: 'x' }); }
@@ -222,6 +228,7 @@ describe('shipped-source worker invocation resolution', () => {
         function pairedAccessorMemberWorker() { const box: any = { get run() { return f.agent; }, set run(value: any) {} }; box.run('review', { task: 'x' }); }
         function branchedObjectGetterMemberWorker() { const box: any = { get run() { if (flag) return () => undefined; return f.agent; } }; box.run('review', { task: 'x' }); }
         function definePropertyGetterMemberWorker() { const box: any = {}; Object.defineProperty(box, 'run', { get() { return f.agent; } }); box.run('review', { task: 'x' }); }
+        function aliasedDefinePropertyGetterMemberWorker() { const box: any = {}, getter = () => f.agent; Object.defineProperty(box, 'run', { get: getter }); box.run('review', { task: 'x' }); }
         function definePropertiesGetterMemberWorker() { const box: any = {}; Object.defineProperties(box, { run: { get() { return f.agent; } } }); box.run('review', { task: 'x' }); }
         function nestedRestMemberAssignedWorker() { const box: any = {}; [...[box.slots]] = [[f.agent]]; box.slots[0]('review', { task: 'x' }); }
         function arrayRestMemberAssignedWorker() { const box: any = {}; [...box.slots] = [f.agent]; box.slots[0]('review', { task: 'x' }); }
@@ -235,13 +242,33 @@ describe('shipped-source worker invocation resolution', () => {
         function reassignedArrayBindingWorker() { let [slots] = [[() => undefined]]; [slots] = [[f.agent]]; slots[0]('review', { task: 'x' }); }
         function assignedDestructuredWorker() { let { run } = { run: () => undefined }; run = f.agent; run('review', { task: 'x' }); }
         function computedDestructuredWorker() { const key = 'agent' as const; const { [key]: run } = f; run('review', { task: 'x' }); }
+        function renamedComputedDestructuredWorker() { const original = 'agent' as const, key = original; const { [key]: run } = f; run('review', { task: 'x' }); }
+        function bindingComputedDestructuredWorker() { const { key } = { key: 'agent' as const }; const { [key]: run } = f; run('review', { task: 'x' }); }
+        function logicalComputedDestructuredWorker() { const key = (flag && 'agent') || 'agent'; const { [key]: run } = f; run('review', { task: 'x' }); }
+        function nestedComputedDestructuredWorker() { const key = 'agent' as const; const { [key]: { [key]: run } } = { agent: { agent: f.agent } }; run('review', { task: 'x' }); }
         function recursiveCallHelperWorker() { f.agent.call.call(f.agent, f, 'review', { task: 'x' }); }
         function recursiveApplyHelperWorker() { f.agent.apply.call(f.agent, f, ['review', { task: 'x' }]); }
         async function wrappedWorkerAliases() { const conditionalRun = flag ? f.agent : f.agent, logicalRun = (flag && f.agent) || f.agent, nullishRun = f.agent ?? f.agent, commaRun = (flag, f.agent), awaitRun = await f.agent; conditionalRun('review', { task: 'x' }); logicalRun('review', { task: 'x' }); nullishRun('review', { task: 'x' }); commaRun('review', { task: 'x' }); awaitRun('review', { task: 'x' }); }
       `);
       const variableAliasResult = scanTypeScript(variableAliases);
-      expect(variableAliasResult.calls).toBe(215);
-      expect(variableAliasResult.missing).toHaveLength(215);
+      expect(variableAliasResult.calls).toBe(226);
+      expect(variableAliasResult.missing).toHaveLength(226);
+      const repairedWorkerCases = [
+        `const box: any = {}, helpers: any = {}; helpers.assign = Object.assign; helpers.assign(box, { run: f.agent }); box.run('review', { task: 'x' });`,
+        `const box: any = {}, maps: any = {}; maps.descriptors = { run: { value: f.agent } }; Object.defineProperties(box, maps.descriptors); box.run('review', { task: 'x' });`,
+        `const box: any = {}; function identity(value: any) { const alias = value; return alias; } Object.assign(identity(box), { run: f.agent }); box.run('review', { task: 'x' });`,
+        `const box: any = {}; function identity(value: any) { let alias; alias = value; return alias; } Object.assign(identity(box), { run: f.agent }); box.run('review', { task: 'x' });`,
+        `const box: any = {}; function identity(value: any) { return flag ? value : value; } Object.assign(identity(box), { run: f.agent }); box.run('review', { task: 'x' });`,
+        `const box: any = {}; function getBox() { return box; } Object.assign(getBox(), { run: f.agent }); box.run('review', { task: 'x' });`,
+        `const box: any = {}, getter = () => f.agent; Object.defineProperty(box, 'run', { get: getter }); box.run('review', { task: 'x' });`,
+      ];
+      for (const [index, candidate] of repairedWorkerCases.entries()) {
+        const repairedWorker = join(directory, `repaired-worker-${index}.flow.ts`);
+        writeFileSync(repairedWorker, `declare const f: any, flag: boolean; ${candidate}`);
+        const result = scanTypeScript(repairedWorker);
+        expect(result.calls, candidate).toBe(1);
+        expect(result.missing, candidate).toHaveLength(1);
+      }
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `

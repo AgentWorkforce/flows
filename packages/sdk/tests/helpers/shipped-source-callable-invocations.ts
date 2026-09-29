@@ -5,11 +5,13 @@ import {
   aggregateValueAtPath,
   assignedValues,
   bindingDefaultValues,
-  staticArrayElementCandidates,
-  staticCallArguments,
   staticMemberSegment,
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
+import {
+  staticArrayElementCandidates,
+  staticCallArguments,
+} from './shipped-source-static-call-arguments.js';
 
 type CallableMatcher = (
   expression: ts.Expression,

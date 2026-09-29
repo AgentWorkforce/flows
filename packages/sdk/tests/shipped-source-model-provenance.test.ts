@@ -227,13 +227,19 @@ describe('shipped-source model provenance', () => {
         { const box: any = {}; Reflect.apply(Object.assign, Object, [box, { define: surface.flow }]); box.define('reflect-apply-object-assign-member-constructor', { budget: '$2' }, () => {}); }
         { const box: any = {}; Reflect.apply(Reflect.set, Reflect, [box, 'define', surface.flow]); box.define('reflect-apply-reflect-set-member-constructor', { budget: '$2' }, () => {}); }
         { const box: any = {}, helpers = { assign: Object.assign }; helpers.assign(box, { define: surface.flow }); box.define('aggregate-object-assign-member-constructor', { budget: '$2' }, () => {}); }
+        { const box: any = {}, helpers: any = {}; helpers.assign = Object.assign; helpers.assign(box, { define: surface.flow }); box.define('member-assigned-object-assign-member-constructor', { budget: '$2' }, () => {}); }
         { const box: any = {}, assigners: Array<typeof Object.assign | undefined> = []; const [assign = Object.assign] = assigners; assign(box, { define: surface.flow }); box.define('defaulted-object-assign-member-constructor', { budget: '$2' }, () => {}); }
         { const box: any = {}; let assign: any; ({ assign } = Object); assign(box, { define: surface.flow }); box.define('assigned-destructured-object-assign-member-constructor', { budget: '$2' }, () => {}); }
         { const box: any = {}, assign = Object.assign.bind(Object); assign(box, { define: surface.flow }); box.define('bound-object-assign-alias-member-constructor', { budget: '$2' }, () => {}); }
         { const box: any = {}, descriptors = { define: { value: surface.flow } }; Object.defineProperties(box, descriptors); box.define('aliased-define-properties-member-constructor', { budget: '$2' }, () => {}); }
+        { const box: any = {}, maps: any = {}; maps.descriptors = { define: { value: surface.flow } }; Object.defineProperties(box, maps.descriptors); box.define('member-assigned-define-properties-member-constructor', { budget: '$2' }, () => {}); }
         { const box: any = {}, descriptors = { ...{ define: { value: surface.flow } } }; Object.defineProperties(box, descriptors); box.define('spread-define-properties-member-constructor', { budget: '$2' }, () => {}); }
         { const box: any = {}, alias = box; Object.assign(alias, { define: surface.flow }); box.define('aliased-reflective-target-member-constructor', { budget: '$2' }, () => {}); }
         { const box: any = {}; const identity = (value: any) => value; Object.assign(identity(box), { define: surface.flow }); box.define('returned-reflective-target-member-constructor', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function identity(value: any) { const alias = value; return alias; } Object.assign(identity(box), { define: surface.flow }); box.define('returned-const-alias-reflective-target-member-constructor', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function identity(value: any) { let alias; alias = value; return alias; } Object.assign(identity(box), { define: surface.flow }); box.define('returned-assigned-alias-reflective-target-member-constructor', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function identity(value: any) { return flag ? value : value; } Object.assign(identity(box), { define: surface.flow }); box.define('returned-wrapped-reflective-target-member-constructor', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function getBox() { return box; } Object.assign(getBox(), { define: surface.flow }); box.define('captured-reflective-target-member-constructor', { budget: '$2' }, () => {}); }
         { const box: any = {}; Object.assign.apply(Object, flag ? [box, { define: () => undefined }] : [box, { define: surface.flow }]); box.define('branched-apply-reflective-writer-member-constructor', { budget: '$2' }, () => {}); }
         { const box: any = {}, extras: any[] = []; Object.assign(box, { define: surface.flow }, ...extras); box.define('spread-reflective-writer-member-constructor', { budget: '$2' }, () => {}); }
         { const box: any = {}, extras: any[] = []; Object.assign.apply(Object, [box, ...extras, { define: surface.flow }]); box.define('spread-apply-reflective-writer-member-constructor', { budget: '$2' }, () => {}); }
@@ -242,6 +248,7 @@ describe('shipped-source model provenance', () => {
         { const box: any = { get define() { return surface.flow; }, set define(value: any) {} }; box.define('paired-accessor-member-constructor', { budget: '$2' }, () => {}); }
         { const box: any = { get define() { if (flag) return () => undefined; return surface.flow; } }; box.define('branched-object-getter-member-constructor', { budget: '$2' }, () => {}); }
         { const box: any = {}; Object.defineProperty(box, 'define', { get() { return surface.flow; } }); box.define('define-property-getter-member-constructor', { budget: '$2' }, () => {}); }
+        { const box: any = {}, getter = () => surface.flow; Object.defineProperty(box, 'define', { get: getter }); box.define('aliased-define-property-getter-member-constructor', { budget: '$2' }, () => {}); }
         { const box: any = {}; Object.defineProperties(box, { define: { get() { return surface.flow; } } }); box.define('define-properties-getter-member-constructor', { budget: '$2' }, () => {}); }
         { const box: any = {}; [...[box.constructors]] = [[surface.flow]]; box.constructors[0]('nested-rest-member-assigned-constructor', { budget: '$2' }, () => {}); }
         { const box: any = {}; [...box.constructors] = [surface.flow]; box.constructors[0]('array-rest-member-assigned-constructor', { budget: '$2' }, () => {}); }
@@ -254,9 +261,38 @@ describe('shipped-source model provenance', () => {
         { let { constructors } = { constructors: { define: () => undefined } }; ({ constructors } = { constructors: { define: surface.flow } }); constructors.define('reassigned-object-binding-constructor', { budget: '$2' }, () => {}); }
         { let [constructors] = [[() => undefined]]; [constructors] = [[surface.flow]]; constructors[0]('reassigned-array-binding-constructor', { budget: '$2' }, () => {}); }
         { let { assigned } = { assigned: () => undefined }; assigned = surface.flow; assigned('assigned-destructured-constructor', { budget: '$2' }, () => {}); }
+        { const original = 'flow' as const, key = original; const { [key]: define } = surface; define('renamed-computed-destructured-constructor', { budget: '$2' }, () => {}); }
+        { const { key } = { key: 'flow' as const }; const { [key]: define } = surface; define('binding-computed-destructured-constructor', { budget: '$2' }, () => {}); }
+        { const key = (flag && 'flow') || 'flow'; const { [key]: define } = surface; define('logical-computed-destructured-constructor', { budget: '$2' }, () => {}); }
+        { const key = 'flow' as const; const { [key]: { [key]: define } } = { flow: { flow: surface.flow } }; define('nested-computed-destructured-constructor', { budget: '$2' }, () => {}); }
         async function wrappedFlowAliases() { const conditionalDefine = flag ? surface.flow : surface.flow, logicalDefine = (flag && surface.flow) || surface.flow, nullishDefine = surface.flow ?? surface.flow, commaDefine = (flag, surface.flow), awaitDefine = await surface.flow; conditionalDefine('conditional-flow', { budget: '$2' }, () => {}); logicalDefine('logical-flow', { budget: '$2' }, () => {}); nullishDefine('nullish-flow', { budget: '$2' }, () => {}); commaDefine('comma-flow', { budget: '$2' }, () => {}); awaitDefine('await-flow', { budget: '$2' }, () => {}); }
       `);
-      expect(scanTypeScript(aliasedHeader).invalidFlowHeaders).toHaveLength(135);
+      expect(scanTypeScript(aliasedHeader).invalidFlowHeaders).toHaveLength(146);
+      const repairedFlowCases = [
+        `{ const box: any = {}, helpers: any = {}; helpers.assign = Object.assign; helpers.assign(box, { define: surface.flow }); box.define('member-writer', { budget: '$2' }, () => {}); }`,
+        `{ const box: any = {}, maps: any = {}; maps.descriptors = { define: { value: surface.flow } }; Object.defineProperties(box, maps.descriptors); box.define('member-map', { budget: '$2' }, () => {}); }`,
+        `{ const box: any = {}; function identity(value: any) { const alias = value; return alias; } Object.assign(identity(box), { define: surface.flow }); box.define('const-alias', { budget: '$2' }, () => {}); }`,
+        `{ const box: any = {}; function identity(value: any) { let alias; alias = value; return alias; } Object.assign(identity(box), { define: surface.flow }); box.define('assigned-alias', { budget: '$2' }, () => {}); }`,
+        `{ const box: any = {}; function identity(value: any) { return flag ? value : value; } Object.assign(identity(box), { define: surface.flow }); box.define('wrapped-return', { budget: '$2' }, () => {}); }`,
+        `{ const box: any = {}; function getBox() { return box; } Object.assign(getBox(), { define: surface.flow }); box.define('captured-return', { budget: '$2' }, () => {}); }`,
+        `{ const box: any = {}, getter = () => surface.flow; Object.defineProperty(box, 'define', { get: getter }); box.define('getter-alias', { budget: '$2' }, () => {}); }`,
+      ];
+      for (const [index, candidate] of repairedFlowCases.entries()) {
+        const repairedFlow = join(directory, `repaired-flow-${index}.flow.ts`);
+        writeFileSync(repairedFlow, `import * as surface from '@relayflows/surface'; declare const flag: boolean; ${candidate}`);
+        expect(scanTypeScript(repairedFlow).invalidFlowHeaders, candidate).toHaveLength(1);
+      }
+      const computedBindingCases = [
+        `{ const original = 'flow' as const, key = original; const { [key]: define } = surface; define('renamed', { budget: '$2' }, () => {}); }`,
+        `{ const { key } = { key: 'flow' as const }; const { [key]: define } = surface; define('binding', { budget: '$2' }, () => {}); }`,
+        `{ const key = (flag && 'flow') || 'flow'; const { [key]: define } = surface; define('logical', { budget: '$2' }, () => {}); }`,
+        `{ const key = 'flow' as const; const { [key]: { [key]: define } } = { flow: { flow: surface.flow } }; define('nested', { budget: '$2' }, () => {}); }`,
+      ];
+      for (const [index, candidate] of computedBindingCases.entries()) {
+        const computedBinding = join(directory, `computed-binding-${index}.flow.ts`);
+        writeFileSync(computedBinding, `import * as surface from '@relayflows/surface'; declare const flag: boolean; ${candidate}`);
+        expect(scanTypeScript(computedBinding).invalidFlowHeaders, candidate).toHaveLength(1);
+      }
 
       const twoArgumentBudget = join(directory, 'two-argument-budget.flow.ts');
       writeFileSync(twoArgumentBudget, `

@@ -6,13 +6,13 @@ import {
   aggregateValueAtPath,
   assignedValues,
   bindingDefaultValues,
-  staticCallArguments,
   staticArrayElements,
   staticMemberSegment,
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
 import { reflectApplyArgumentCandidates } from './shipped-source-reflect-apply.js';
 import { symbolHasWrites } from './shipped-source-receiver-writes.js';
+import { staticCallArguments } from './shipped-source-static-call-arguments.js';
 
 type WorkerMethod = 'agent' | 'llm';
 

@@ -40,24 +40,100 @@ function staticPropertySegment(
   seen: Set<ts.Symbol>,
 ): BindingPathSegment | undefined {
   expression = unwrap(expression);
+  if (ts.isAwaitExpression(expression)) {
+    return staticPropertySegment(expression.expression, checker, new Set(seen));
+  }
   if (ts.isStringLiteralLike(expression)) return expression.text;
   if (ts.isNumericLiteral(expression)) return Number(expression.text);
   const type = checker.getTypeAtLocation(expression);
   if (type.isStringLiteral()) return type.value;
   if ((type.flags & ts.TypeFlags.NumberLiteral) !== 0) return (type as ts.NumberLiteralType).value;
-  if (ts.isConditionalExpression(expression)) {
-    const left = staticPropertySegment(expression.whenTrue, checker, new Set(seen));
-    const right = staticPropertySegment(expression.whenFalse, checker, new Set(seen));
-    return left !== undefined && left === right ? left : undefined;
+  const branches = ts.isConditionalExpression(expression)
+    ? [expression.whenTrue, expression.whenFalse]
+    : ts.isBinaryExpression(expression)
+      && (expression.operatorToken.kind === ts.SyntaxKind.CommaToken
+        || expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+        || expression.operatorToken.kind === ts.SyntaxKind.BarBarToken
+        || expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)
+      ? [expression.left, expression.right]
+      : undefined;
+  if (branches) {
+    const values = branches.map(branch => staticPropertySegment(branch, checker, new Set(seen)));
+    const first = values[0];
+    return first !== undefined && values.every(value => value === first) ? first : undefined;
   }
   if (!ts.isIdentifier(expression)) return undefined;
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;
-  seen.add(symbol);
+  const nextSeen = new Set(seen).add(symbol);
+  const binding = symbol.declarations?.find(ts.isBindingElement);
+  if (binding) {
+    const source = bindingSource(binding, checker, new Set(nextSeen));
+    if (source?.immutable) {
+      const value = staticPropertySegmentAtPath(
+        source.initializer,
+        source.path,
+        checker,
+        new Set(nextSeen),
+      );
+      if (value !== undefined) return value;
+    }
+    if (binding.initializer) {
+      const value = staticPropertySegment(binding.initializer, checker, new Set(nextSeen));
+      if (value !== undefined) return value;
+    }
+  }
   const declaration = symbol.declarations?.find(ts.isVariableDeclaration);
   if (!declaration?.initializer || !ts.isVariableDeclarationList(declaration.parent)
     || (declaration.parent.flags & ts.NodeFlags.Const) === 0) return undefined;
-  return staticPropertySegment(declaration.initializer, checker, seen);
+  return staticPropertySegment(declaration.initializer, checker, nextSeen);
+}
+
+function staticPropertySegmentAtPath(
+  expression: ts.Expression,
+  path: readonly BindingPathSegment[],
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): BindingPathSegment | undefined {
+  expression = unwrap(expression);
+  if (path.length === 0) return staticPropertySegment(expression, checker, seen);
+  if (ts.isIdentifier(expression)) {
+    const symbol = checker.getSymbolAtLocation(expression);
+    if (!symbol || seen.has(symbol)) return undefined;
+    const declaration = symbol.declarations?.find(ts.isVariableDeclaration);
+    if (!declaration?.initializer || !ts.isVariableDeclarationList(declaration.parent)
+      || (declaration.parent.flags & ts.NodeFlags.Const) === 0) return undefined;
+    return staticPropertySegmentAtPath(
+      declaration.initializer,
+      path,
+      checker,
+      new Set(seen).add(symbol),
+    );
+  }
+  const [head, ...tail] = path;
+  if (ts.isObjectLiteralExpression(expression)) {
+    for (const property of [...expression.properties].reverse()) {
+      if (ts.isSpreadAssignment(property)) {
+        const value = staticPropertySegmentAtPath(property.expression, path, checker, new Set(seen));
+        if (value !== undefined) return value;
+        continue;
+      }
+      const name = propertyName(property.name, checker, new Set(seen));
+      if (name === undefined || String(head) !== name) continue;
+      const initializer = ts.isPropertyAssignment(property) ? property.initializer
+        : ts.isShorthandPropertyAssignment(property) ? property.name : undefined;
+      return initializer
+        ? staticPropertySegmentAtPath(initializer, tail, checker, new Set(seen))
+        : undefined;
+    }
+    return undefined;
+  }
+  const index = head === undefined ? undefined : canonicalArrayIndex(head);
+  if (!ts.isArrayLiteralExpression(expression) || index === undefined) return undefined;
+  const element = expression.elements[index];
+  return element && !ts.isOmittedExpression(element) && !ts.isSpreadElement(element)
+    ? staticPropertySegmentAtPath(element, tail, checker, new Set(seen))
+    : undefined;
 }
 
 function canonicalArrayIndex(segment: BindingPathSegment): number | undefined {
