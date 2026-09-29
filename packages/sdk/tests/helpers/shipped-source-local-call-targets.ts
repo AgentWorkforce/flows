@@ -36,22 +36,27 @@ function pathsAtActual(
     : [];
 }
 
-function arrayRestSelection(
+function arrayBindingSelection(
   formalPath: readonly BindingPathSegment[],
   returnedPath: readonly BindingPathSegment[],
-  restStart: number,
+  rest: { prefixLength: number; start: number },
 ): {
-  index: number | undefined;
   sourcePath: BindingPathSegment[];
   suffix: BindingPathSegment[];
-} {
-  const formalOffset = formalPath[0];
+} | undefined {
+  const prefix = formalPath.slice(0, rest.prefixLength);
+  const relativeFormal = formalPath.slice(rest.prefixLength);
+  const formalOffset = relativeFormal[0];
   const returnedOffset = returnedPath[0];
   const relativeOffset = formalOffset ?? returnedOffset ?? 0;
   const index = canonicalArrayIndex(relativeOffset);
+  if (index === undefined) return undefined;
   return {
-    index: index === undefined ? undefined : restStart + index,
-    sourcePath: formalOffset === undefined ? [] : [...formalPath.slice(1)],
+    sourcePath: [
+      ...prefix,
+      rest.start + index,
+      ...(formalOffset === undefined ? [] : relativeFormal.slice(1)),
+    ],
     suffix: formalOffset === undefined && returnedOffset !== undefined
       ? [...returnedPath.slice(1)]
       : [...returnedPath],
@@ -72,16 +77,21 @@ export function localCallTargetPaths(
       const mapped = declaration.parameters.flatMap((parameter, parameterIndex) =>
         bindingNamePaths(parameter.name, returnedMember.symbol, checker).flatMap(formal => {
           if (parameter.dotDotDotToken) {
-            const selection = formal.rest?.kind === 'array'
-              ? arrayRestSelection(formal.path, returnedMember.path, formal.rest.start)
-              : arrayRestSelection(formal.path, returnedMember.path, 0);
-            const actual = selection.index === undefined
-              ? undefined
-              : actuals[parameterIndex + selection.index];
+            const selection = arrayBindingSelection(
+              formal.path,
+              returnedMember.path,
+              formal.rest?.kind === 'array'
+                ? formal.rest
+                : { prefixLength: 0, start: 0 },
+            );
+            if (!selection) return [];
+            const [actualOffset, ...sourcePath] = selection.sourcePath;
+            const index = actualOffset === undefined ? undefined : canonicalArrayIndex(actualOffset);
+            const actual = index === undefined ? undefined : actuals[parameterIndex + index];
             return actual && !ts.isSpreadElement(actual)
               ? pathsAtActual(
                   actual,
-                  selection.sourcePath,
+                  sourcePath,
                   selection.suffix,
                   checker,
                   seen,
@@ -95,16 +105,16 @@ export function localCallTargetPaths(
             : supplied;
           if (formal.rest?.kind === 'array') {
             if (!actual || ts.isSpreadElement(actual)) return [];
-            const selection = arrayRestSelection(
+            const selection = arrayBindingSelection(
               formal.path,
               returnedMember.path,
-              formal.rest.start,
+              formal.rest,
             );
-            return selection.index === undefined
+            return !selection
               ? []
               : pathsAtActual(
                   actual,
-                  [selection.index, ...selection.sourcePath],
+                  selection.sourcePath,
                   selection.suffix,
                   checker,
                   seen,

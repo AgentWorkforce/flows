@@ -24,6 +24,17 @@ function unwrap(expression: ts.Expression): ts.Expression {
   return expression;
 }
 
+function memberRootSymbol(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+): ts.Symbol | undefined {
+  expression = unwrap(expression);
+  while (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
+    expression = unwrap(expression.expression);
+  }
+  return ts.isIdentifier(expression) ? checker.getSymbolAtLocation(expression) : undefined;
+}
+
 export function staticPropertySegments(
   expression: ts.Expression,
   checker: ts.TypeChecker,
@@ -37,8 +48,12 @@ export function staticPropertySegments(
   if (branches) return [...new Set(branches.flatMap(branch =>
     staticPropertySegments(branch, checker, new Set(seen), memberValueCandidates)))];
   if (!ts.isIdentifier(expression)) {
-    return [...new Set((memberValueCandidates?.(expression, new Set(seen)) ?? []).flatMap(candidate =>
-      staticPropertySegments(candidate, checker, new Set(seen), memberValueCandidates)))];
+    const root = memberRootSymbol(expression, checker);
+    if (root && seen.has(root)) return [];
+    const candidates = memberValueCandidates?.(expression, new Set(seen)) ?? [];
+    const nextSeen = root ? new Set(seen).add(root) : new Set(seen);
+    return [...new Set(candidates.flatMap(candidate =>
+      staticPropertySegments(candidate, checker, new Set(nextSeen), memberValueCandidates)))];
   }
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return [];

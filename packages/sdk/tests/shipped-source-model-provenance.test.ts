@@ -325,8 +325,12 @@ describe('shipped-source model provenance', () => {
         { const box: any = {}; function id(value: any) { return value; } const alias = id(box); alias.define = surface.flow; box.define('local-call-receiver-alias', { budget: '$2' }, () => {}); }
         { const box: any = {}, keys: any = {}; keys.value = 'define'; box[keys.value] = surface.flow; box.define('member-held-direct-key', { budget: '$2' }, () => {}); }
         { const box: any = {}; function id(...[skip, ...[value]]: any[]) { return value; } Object.assign(id(undefined, box), { define: surface.flow }); box.define('nested-rest-direct-binding', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function id(...[[skip, ...rest]]: any[]) { return rest[0]; } Object.assign(id([undefined, box]), { define: surface.flow }); box.define('nested-rest-array-prefix', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function id(...[{ items: [skip, ...rest] }]: any[]) { return rest[0]; } Object.assign(id({ items: [undefined, box] }), { define: surface.flow }); box.define('nested-rest-object-prefix', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function id(...[[skip, ...[value]]]: any[]) { return value; } Object.assign(id([undefined, box]), { define: surface.flow }); box.define('nested-rest-prefixed-binding', { budget: '$2' }, () => {}); }
+        { const box: any = {}, keys: any = {}; keys.a = 'define'; keys.a = keys.b; keys.b = keys.a; box[keys.a] = surface.flow; box.define('cyclic-member-key', { budget: '$2' }, () => {}); }
       `);
-      expect(scanTypeScript(formalAndReceiverRepairs).invalidFlowHeaders).toHaveLength(29);
+      expect(scanTypeScript(formalAndReceiverRepairs).invalidFlowHeaders).toHaveLength(33);
       const computedBindingCases = [
         `{ const original = 'flow' as const, key = original; const { [key]: define } = surface; define('renamed', { budget: '$2' }, () => {}); }`,
         `{ const { key } = { key: 'flow' as const }; const { [key]: define } = surface; define('binding', { budget: '$2' }, () => {}); }`,

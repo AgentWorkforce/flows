@@ -312,10 +312,14 @@ describe('shipped-source worker invocation resolution', () => {
         { const box: any = {}; function id(value: any) { return value; } const alias = id(box); alias.run = f.agent; box.run('review', { task: 'x' }); }
         { const box: any = {}, keys: any = {}; keys.value = 'run'; box[keys.value] = f.agent; box.run('review', { task: 'x' }); }
         { const box: any = {}; function id(...[skip, ...[value]]: any[]) { return value; } Object.assign(id(undefined, box), { run: f.agent }); box.run('review', { task: 'x' }); }
+        { const box: any = {}; function id(...[[skip, ...rest]]: any[]) { return rest[0]; } Object.assign(id([undefined, box]), { run: f.agent }); box.run('review', { task: 'x' }); }
+        { const box: any = {}; function id(...[{ items: [skip, ...rest] }]: any[]) { return rest[0]; } Object.assign(id({ items: [undefined, box] }), { run: f.agent }); box.run('review', { task: 'x' }); }
+        { const box: any = {}; function id(...[[skip, ...[value]]]: any[]) { return value; } Object.assign(id([undefined, box]), { run: f.agent }); box.run('review', { task: 'x' }); }
+        { const box: any = {}, keys: any = {}; keys.a = 'run'; keys.a = keys.b; keys.b = keys.a; box[keys.a] = f.agent; box.run('review', { task: 'x' }); }
       `);
       const formalAndReceiverResult = scanTypeScript(formalAndReceiverRepairs);
-      expect(formalAndReceiverResult.calls).toBe(29);
-      expect(formalAndReceiverResult.missing).toHaveLength(29);
+      expect(formalAndReceiverResult.calls).toBe(33);
+      expect(formalAndReceiverResult.missing).toHaveLength(33);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `

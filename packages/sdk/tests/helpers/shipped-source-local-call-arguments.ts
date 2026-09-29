@@ -7,7 +7,11 @@ import {
 
 export interface BindingNamePath {
   path: BindingPathSegment[];
-  rest?: { excluded: string[]; kind: 'object' } | { kind: 'array'; start: number };
+  rest?: { excluded: string[]; kind: 'object' } | {
+    kind: 'array';
+    prefixLength: number;
+    start: number;
+  };
 }
 
 function unwrap(expression: ts.Expression): ts.Expression {
@@ -49,7 +53,11 @@ export function bindingNamePaths(
       checker,
       element.dotDotDotToken ? path : [...path, index],
       element.dotDotDotToken
-        ? { kind: 'array', start: index + (rest?.kind === 'array' ? rest.start : 0) }
+        ? {
+            kind: 'array',
+            prefixLength: rest?.kind === 'array' ? rest.prefixLength : path.length,
+            start: index + (rest?.kind === 'array' ? rest.start : 0),
+          }
         : rest,
     );
   });
