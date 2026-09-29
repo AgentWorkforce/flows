@@ -368,7 +368,9 @@ function workerCallable(
     if (callable) return { ...callable, args: [], auditable: false };
   }
   if (binding && ts.isObjectBindingPattern(binding.parent)) {
-    const name = propertyName(binding.propertyName ?? (ts.isIdentifier(binding.name) ? binding.name : undefined));
+    const directName = propertyName(binding.propertyName ?? (ts.isIdentifier(binding.name) ? binding.name : undefined));
+    const sourceName = bindingSource(binding, checker)?.path.at(-1);
+    const name = directName ?? (typeof sourceName === 'string' ? sourceName : undefined);
     const declaration = binding.parent.parent;
     const immutable = ts.isVariableDeclaration(declaration)
       && ts.isVariableDeclarationList(declaration.parent)

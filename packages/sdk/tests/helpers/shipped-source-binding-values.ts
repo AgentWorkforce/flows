@@ -1,5 +1,6 @@
 import ts from 'typescript';
 import {
+  assignedMemberValues,
   assignedSources,
   bindingDefaultValues,
   bindingSource,
@@ -247,6 +248,7 @@ export function aggregateExpressionValues(
   const add = (value: typeof values[number] | undefined): void => {
     if (value && !values.some(candidate => candidate.value === value.value)) values.push(value);
   };
+  for (const value of assignedMemberValues(expression, checker, new Set(seen))) add(value);
   const unwrappedReceiver = unwrap(receiver);
   let receiverSymbol: ts.Symbol | undefined;
   if (ts.isIdentifier(unwrappedReceiver)) {

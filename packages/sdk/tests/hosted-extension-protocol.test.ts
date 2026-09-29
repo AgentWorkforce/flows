@@ -18,6 +18,7 @@ import {
 } from '../src/hosted-extension-protocol.js';
 import { snapshotJsonValue } from '../src/json-value.js';
 import { validateFlowExtensionManifest } from '../src/flow-extension-manifest.js';
+import { validateHostedFlowExtensionManifest } from '../src/hosted-extension-manifest.js';
 import { materializePlugin } from '../src/plugin-store.js';
 
 const roots: string[] = [];
@@ -43,6 +44,16 @@ const manifest = () => ({
     budget: { dollars: 1, wallclock: '5m' },
   },
   preflight: { credentials: [], servers: [] },
+});
+
+it.each([
+  { dollars: 0.1234567 },
+  { wallclock: '999999999999999d' },
+])('rejects a hosted extension budget outside the runtime grammar: %j', budget => {
+  const base = manifest();
+  const value = { ...base, permissions: { ...base.permissions, budget } };
+  expect(() => validateHostedFlowExtensionManifest(value))
+    .toThrow(expect.objectContaining({ code: 'plugin_manifest_invalid' }));
 });
 
 function descriptor() {

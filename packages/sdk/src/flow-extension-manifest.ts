@@ -6,6 +6,7 @@ import { PluginError, pluginKindOf } from './plugin-manifest.js';
 import { safePath } from './bundle.js';
 import { SHA, parsePluginSource, type PluginSourceInput } from './plugin-source.js';
 import { isVersionRange, parseVersion } from './semver-range.js';
+import { parseBudget } from './budget.js';
 
 /**
  * Schema 2, `kind: "flow-extension"`: a plugin whose `entry` default-exports
@@ -121,6 +122,7 @@ function permissions(value: unknown): FlowExtensionPermissions {
     if (value.budget.tokens !== undefined && (typeof value.budget.tokens !== 'number' || !Number.isSafeInteger(value.budget.tokens) || !(value.budget.tokens > 0))) return invalid('permissions.budget.tokens must be a positive safe integer.');
     if (value.budget.dollars !== undefined && (typeof value.budget.dollars !== 'number' || !(value.budget.dollars > 0) || !Number.isFinite(value.budget.dollars))) return invalid('permissions.budget.dollars must be a positive number.');
     if (value.budget.wallclock !== undefined && (typeof value.budget.wallclock !== 'string' || !WALLCLOCK.test(value.budget.wallclock))) return invalid('permissions.budget.wallclock must be a duration such as 45m.');
+    try { parseBudget(value.budget); } catch { return invalid('permissions.budget must use runtime budget syntax.'); }
     budget = Object.freeze({ ...(value.budget.tokens === undefined ? {} : { tokens: value.budget.tokens }), ...(value.budget.dollars === undefined ? {} : { dollars: value.budget.dollars }), ...(value.budget.wallclock === undefined ? {} : { wallclock: value.budget.wallclock }) });
   }
   return Object.freeze({

@@ -230,6 +230,8 @@ describe('schema-2 manifest validation', () => {
     ['an unknown harness', (m: Record<string, unknown>) => ({ ...m, permissions: { ...(m.permissions as object), harnesses: ['cursor'] } }), 'plugin_manifest_invalid'],
     ['a malformed write class', (m: Record<string, unknown>) => ({ ...m, permissions: { ...(m.permissions as object), writes: ['github'] } }), 'plugin_manifest_invalid'],
     ['a non-positive budget', (m: Record<string, unknown>) => ({ ...m, permissions: { ...(m.permissions as object), budget: { dollars: 0 } } }), 'plugin_manifest_invalid'],
+    ['an overprecise dollar budget', (m: Record<string, unknown>) => ({ ...m, permissions: { ...(m.permissions as object), budget: { dollars: 0.1234567 } } }), 'plugin_manifest_invalid'],
+    ['an overflowing wallclock budget', (m: Record<string, unknown>) => ({ ...m, permissions: { ...(m.permissions as object), budget: { wallclock: '999999999999999d' } } }), 'plugin_manifest_invalid'],
     ['a fractional token budget', (m: Record<string, unknown>) => ({ ...m, permissions: { ...(m.permissions as object), budget: { tokens: 1.5 } } }), 'plugin_manifest_invalid'],
     ['a config that is not a JSON Schema', (m: Record<string, unknown>) => ({ ...m, config: { type: 'not-a-type' } }), 'plugin_manifest_invalid'],
     ['a missing preflight', (m: Record<string, unknown>) => { const { preflight, ...rest } = m; void preflight; return rest; }, 'plugin_preflight_missing'],

@@ -129,8 +129,9 @@ describe('close-pr journaled repair loop', () => {
     const result = await h.execute();
     expect(result.completionReason).toBe('success');
     expect(h.commands[0]).toContain('IMPL_CLOSE_INPUT');
-    expect(h.commands[1]).toContain('--probe-cli');
     expect(h.commands.filter(command => command.includes('--probe-cli'))).toHaveLength(1);
+    expect(h.commands.findIndex(command => command.includes('--probe-cli')))
+      .toBeGreaterThan(h.commands.findIndex(command => command.includes('gh pr checks')));
     expect(h.commands.some(command => command.includes('gh pr create'))).toBe(false);
     expect(h.agents()).toHaveLength(1);
     expect(h.agents()[0]).toMatchObject({
@@ -177,29 +178,35 @@ describe('close-pr journaled repair loop', () => {
     expect(() => requiredRepairModel('/opt/custom-wrapper', 'bad\nmodel')).toThrow(/control characters/);
   });
 
-  it.each([undefined, 'bad\nmodel'])('rejects an invalid custom repair model %j before repository or GitHub side effects', async model => {
+  it('lets an approval-only run merge without resolving an unused repair pair', async () => {
     const h = await harness([{ checks: green }], {
+      input: { cli: '/opt/custom-wrapper', model: undefined },
+      probe: { exists: false, supported: false, authenticated: false, modelAvailable: false },
+    });
+    expect((await h.execute()).completionReason).toBe('success');
+    expect(h.commands.some(command => command.includes('--probe-cli'))).toBe(false);
+    expect(h.agents()).toHaveLength(0);
+  });
+
+  it.each([undefined, 'bad\nmodel'])('rejects an invalid custom repair model %j before invoking a repair agent', async model => {
+    const h = await harness([{ checks: [failed, green[1]!] }], {
       input: { cli: '/opt/custom-wrapper', model },
     });
     await expect(h.execute()).rejects.toThrow(/requires input\.model|model: must not contain control characters/);
-    expect(h.commands).toHaveLength(1);
-    expect(h.commands[0]).toContain('IMPL_CLOSE_INPUT');
-    expect(h.commands.some(command => command.includes('cd '))).toBe(false);
-    expect(h.commands.some(command => command.includes('gh '))).toBe(false);
+    expect(h.agents()).toHaveLength(0);
+    expect(h.commands.some(command => command.includes('gh pr merge'))).toBe(false);
   });
 
-  it('rejects an unavailable repair pair before repository or GitHub side effects', async () => {
-    const h = await harness([{ checks: green }], {
+  it('rejects an unavailable repair pair before invoking a repair agent', async () => {
+    const h = await harness([{ checks: [failed, green[1]!] }], {
       input: { cli: '/opt/custom-wrapper', model: 'exact-model' },
       probe: { exists: true, supported: true, authenticated: true, modelAvailable: false },
     });
     await expect(h.execute()).rejects.toThrow(/Repair model "exact-model" is unavailable/);
-    expect(h.commands).toHaveLength(2);
-    expect(h.commands[0]).toContain('IMPL_CLOSE_INPUT');
-    expect(h.commands[1]).toContain('--probe-cli');
-    expect(h.commands[1]).toContain("'/opt/custom-wrapper' 'exact-model' '/tmp/slice worktree'");
-    expect(h.commands.some(command => command.includes('cd '))).toBe(false);
-    expect(h.commands.some(command => command.includes('gh '))).toBe(false);
+    const probe = h.commands.find(command => command.includes('--probe-cli'));
+    expect(probe).toContain("'/opt/custom-wrapper' 'exact-model' '/tmp/slice worktree'");
+    expect(h.commands.some(command => command.includes('gh pr checks'))).toBe(true);
+    expect(h.agents()).toHaveLength(0);
   });
 
   it('parks after exactly three nonconverging repairs, with accumulated blockers', async () => {

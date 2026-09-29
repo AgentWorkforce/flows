@@ -16,6 +16,11 @@ export interface AssignedSource {
   rest?: BindingRest;
 }
 
+interface MemberAssignedSource {
+  initializer: ts.Expression;
+  path: BindingPathSegment[];
+}
+
 function unwrap(expression: ts.Expression): ts.Expression {
   while (ts.isParenthesizedExpression(expression)
     || ts.isAsExpression(expression)
@@ -43,6 +48,78 @@ function propertyName(
 function canonicalArrayIndex(segment: BindingPathSegment): number | undefined {
   if (typeof segment === 'number') return Number.isInteger(segment) && segment >= 0 ? segment : undefined;
   return /^(?:0|[1-9]\d*)$/u.test(segment) ? Number(segment) : undefined;
+}
+
+function memberAssignmentPath(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+): { path: BindingPathSegment[]; symbol: ts.Symbol } | undefined {
+  expression = unwrap(expression);
+  if (ts.isIdentifier(expression)) {
+    const symbol = checker.getSymbolAtLocation(expression);
+    return symbol ? { path: [], symbol } : undefined;
+  }
+  if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return undefined;
+  const parent = memberAssignmentPath(expression.expression, checker);
+  if (!parent) return undefined;
+  const segment = ts.isPropertyAccessExpression(expression)
+    ? expression.name.text
+    : expression.argumentExpression
+      ? staticPropertySegment(expression.argumentExpression, checker, new Set([parent.symbol]))
+      : undefined;
+  return segment === undefined ? undefined : { ...parent, path: [...parent.path, segment] };
+}
+
+const memberAssignedSourceCache = new WeakMap<
+  ts.TypeChecker,
+  WeakMap<ts.Symbol, MemberAssignedSource[]>
+>();
+
+function memberAssignedSources(symbol: ts.Symbol, checker: ts.TypeChecker): MemberAssignedSource[] {
+  let checkerCache = memberAssignedSourceCache.get(checker);
+  if (!checkerCache) {
+    checkerCache = new WeakMap();
+    memberAssignedSourceCache.set(checker, checkerCache);
+  }
+  const cached = checkerCache.get(symbol);
+  if (cached) return cached;
+  const source = symbol.valueDeclaration?.getSourceFile() ?? symbol.declarations?.[0]?.getSourceFile();
+  if (!source) return [];
+  const values: MemberAssignedSource[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isBinaryExpression(node) && assignmentMayStoreRight(node.operatorToken.kind)) {
+      const target = memberAssignmentPath(node.left, checker);
+      if (target?.symbol === symbol && target.path.length > 0) {
+        values.push({ initializer: node.right, path: target.path });
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  checkerCache.set(symbol, values);
+  return values;
+}
+
+export function assignedMemberValues(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): Array<{ value: ts.Expression; auditable: false }> {
+  const target = memberAssignmentPath(expression, checker);
+  if (!target || target.path.length === 0) return [];
+  return memberAssignedSources(target.symbol, checker).flatMap(source => {
+    if (source.path.length > target.path.length
+      || source.path.some((segment, index) => String(segment) !== String(target.path[index]))) return [];
+    const remainder = target.path.slice(source.path.length);
+    if (remainder.length === 0) return [{ value: source.initializer, auditable: false as const }];
+    const value = aggregateValueAtPath(
+      source.initializer,
+      remainder,
+      checker,
+      new Set(seen).add(target.symbol),
+    );
+    return value ? [{ value: value.value, auditable: false as const }] : [];
+  });
 }
 
 export function bindingSource(

@@ -303,12 +303,15 @@ describe('first-party shipped source model pins', () => {
         { let constructor: any; constructor = { define: surface.flow }; constructor.define('later-safe-object-assigned-constructor', { budget: '$2' }, () => {}); constructor = { define: () => undefined }; }
         { let constructors: any; [...constructors] = [surface.flow]; constructors[0]('later-safe-array-rest-assigned-constructor', { budget: '$2' }, () => {}); [...constructors] = [() => undefined]; }
         { let constructor: any; if (flag) constructor = { define: surface.flow }; else constructor = { define: () => undefined }; constructor.define('branched-object-assigned-constructor', { budget: '$2' }, () => {}); }
+        { const box: any = {}; box.define = surface.flow; box.define('member-assigned-constructor', { budget: '$2' }, () => {}); }
+        { const box: any = {}; box.worker = { define: surface.flow }; box.worker.define('nested-member-assigned-constructor', { budget: '$2' }, () => {}); }
+        { const slots: any[] = []; slots[0] = surface.flow; slots[0]('element-assigned-constructor', { budget: '$2' }, () => {}); }
         { let { constructors } = { constructors: { define: () => undefined } }; ({ constructors } = { constructors: { define: surface.flow } }); constructors.define('reassigned-object-binding-constructor', { budget: '$2' }, () => {}); }
         { let [constructors] = [[() => undefined]]; [constructors] = [[surface.flow]]; constructors[0]('reassigned-array-binding-constructor', { budget: '$2' }, () => {}); }
         { let { assigned } = { assigned: () => undefined }; assigned = surface.flow; assigned('assigned-destructured-constructor', { budget: '$2' }, () => {}); }
         async function wrappedFlowAliases() { const conditionalDefine = flag ? surface.flow : surface.flow, logicalDefine = (flag && surface.flow) || surface.flow, nullishDefine = surface.flow ?? surface.flow, commaDefine = (flag, surface.flow), awaitDefine = await surface.flow; conditionalDefine('conditional-flow', { budget: '$2' }, () => {}); logicalDefine('logical-flow', { budget: '$2' }, () => {}); nullishDefine('nullish-flow', { budget: '$2' }, () => {}); commaDefine('comma-flow', { budget: '$2' }, () => {}); awaitDefine('await-flow', { budget: '$2' }, () => {}); }
       `);
-      expect(scanTypeScript(aliasedHeader).invalidFlowHeaders).toHaveLength(91);
+      expect(scanTypeScript(aliasedHeader).invalidFlowHeaders).toHaveLength(94);
 
       const twoArgumentBudget = join(directory, 'two-argument-budget.flow.ts');
       writeFileSync(twoArgumentBudget, `

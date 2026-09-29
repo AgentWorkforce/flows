@@ -187,16 +187,20 @@ describe('shipped-source worker invocation resolution', () => {
         function laterSafeObjectAssignedWorker() { let worker: any; worker = { run: f.agent }; worker.run('review', { task: 'x' }); worker = { run: () => undefined }; }
         function laterSafeArrayRestAssignedWorker() { let workers: any; [...workers] = [f.agent]; workers[0]('review', { task: 'x' }); [...workers] = [() => undefined]; }
         function branchedObjectAssignedWorker(flag: boolean) { let worker: any; if (flag) worker = { run: f.agent }; else worker = { run: () => undefined }; worker.run('review', { task: 'x' }); }
+        function memberAssignedWorker() { const box: any = {}; box.run = f.agent; box.run('review', { task: 'x' }); }
+        function nestedMemberAssignedWorker() { const box: any = {}; box.worker = { run: f.agent }; box.worker.run('review', { task: 'x' }); }
+        function elementAssignedWorker() { const slots: any[] = []; slots[0] = f.agent; slots[0]('review', { task: 'x' }); }
         function reassignedObjectBindingWorker() { let { workers } = { workers: { run: () => undefined } }; ({ workers } = { workers: { run: f.agent } }); workers.run('review', { task: 'x' }); }
         function reassignedArrayBindingWorker() { let [slots] = [[() => undefined]]; [slots] = [[f.agent]]; slots[0]('review', { task: 'x' }); }
         function assignedDestructuredWorker() { let { run } = { run: () => undefined }; run = f.agent; run('review', { task: 'x' }); }
+        function computedDestructuredWorker() { const key = 'agent' as const; const { [key]: run } = f; run('review', { task: 'x' }); }
         function recursiveCallHelperWorker() { f.agent.call.call(f.agent, f, 'review', { task: 'x' }); }
         function recursiveApplyHelperWorker() { f.agent.apply.call(f.agent, f, ['review', { task: 'x' }]); }
         async function wrappedWorkerAliases() { const conditionalRun = flag ? f.agent : f.agent, logicalRun = (flag && f.agent) || f.agent, nullishRun = f.agent ?? f.agent, commaRun = (flag, f.agent), awaitRun = await f.agent; conditionalRun('review', { task: 'x' }); logicalRun('review', { task: 'x' }); nullishRun('review', { task: 'x' }); commaRun('review', { task: 'x' }); awaitRun('review', { task: 'x' }); }
       `);
       const variableAliasResult = scanTypeScript(variableAliases);
-      expect(variableAliasResult.calls).toBe(170);
-      expect(variableAliasResult.missing).toHaveLength(170);
+      expect(variableAliasResult.calls).toBe(174);
+      expect(variableAliasResult.missing).toHaveLength(174);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `
