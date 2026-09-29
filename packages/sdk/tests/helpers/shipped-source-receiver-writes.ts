@@ -78,6 +78,33 @@ function expressionMayEvaluateToSymbol(
   return branches?.some(branch => expressionMayEvaluateToSymbol(branch, symbol, checker)) ?? false;
 }
 
+function expressionMayExposeSymbol(
+  expression: ts.Expression,
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+): boolean {
+  expression = unwrap(expression);
+  if (expressionMayEvaluateToSymbol(expression, symbol, checker)) return true;
+  if (ts.isArrayLiteralExpression(expression)) return expression.elements.some(element =>
+    !ts.isOmittedExpression(element)
+    && expressionMayExposeSymbol(
+      ts.isSpreadElement(element) ? element.expression : element,
+      symbol,
+      checker,
+    ));
+  if (ts.isObjectLiteralExpression(expression)) return expression.properties.some(member => {
+    if (ts.isPropertyAssignment(member)) {
+      return expressionMayExposeSymbol(member.initializer, symbol, checker);
+    }
+    if (ts.isShorthandPropertyAssignment(member)) {
+      return checker.getShorthandAssignmentValueSymbol(member) === symbol;
+    }
+    return ts.isSpreadAssignment(member)
+      && expressionMayExposeSymbol(member.expression, symbol, checker);
+  });
+  return false;
+}
+
 const REFLECTIVE_WRITERS = {
   Object: new Set(['assign', 'defineProperty', 'defineProperties', 'setPrototypeOf']),
   Reflect: new Set(['set', 'defineProperty', 'deleteProperty', 'setPrototypeOf']),
@@ -215,6 +242,40 @@ function nodeReferencesSymbol(node: ts.Node, symbol: ts.Symbol, checker: ts.Type
   return found;
 }
 
+function ordinaryCallMayWriteSymbol(
+  node: ts.CallExpression,
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): boolean {
+  const argumentIndexes = node.arguments.flatMap((argument, index) =>
+    expressionMayExposeSymbol(argument, symbol, checker) ? [index] : []);
+  if (argumentIndexes.length === 0) return false;
+
+  const helperName = memberName(node.expression, checker);
+  const helperReceiver = memberReceiver(node.expression);
+  const root = helperReceiver ? writeRoot(helperReceiver) : undefined;
+  const filteredIndexes = helperName && ['call', 'apply', 'bind'].includes(helperName)
+    && root && checker.getSymbolAtLocation(root) === symbol
+    ? argumentIndexes.filter(index => index !== 0)
+    : argumentIndexes;
+  if (filteredIndexes.length === 0) return false;
+
+  const declaration = checker.getResolvedSignature(node)?.declaration;
+  if (!declaration || !ts.isFunctionLike(declaration)
+    || !('body' in declaration) || !declaration.body) return true;
+  for (const index of filteredIndexes) {
+    const rest = declaration.parameters.at(-1)?.dotDotDotToken
+      ? declaration.parameters.at(-1)
+      : undefined;
+    const parameter = declaration.parameters[index] ?? rest;
+    if (!parameter || !ts.isIdentifier(parameter.name)) return true;
+    const parameterSymbol = checker.getSymbolAtLocation(parameter.name);
+    if (!parameterSymbol || symbolHasWrites(parameterSymbol, checker, new Set(seen))) return true;
+  }
+  return false;
+}
+
 export function symbolHasWrites(
   symbol: ts.Symbol,
   checker: ts.TypeChecker,
@@ -259,6 +320,13 @@ export function symbolHasWrites(
       // its target position is no longer uniformly represented in the AST.
       // Treat any receiver passed into that invocation as escaped rather than
       // trusting a trailing model pair after a possible reflective write.
+      found = true;
+      return;
+    }
+    if (ts.isCallExpression(node) && ordinaryCallMayWriteSymbol(node, symbol, checker, seen)) {
+      // Passing a receiver to an ordinary callable lets that callable replace
+      // agent/llm before a later syntactically pinned invocation. Without
+      // whole-program effect analysis, treat the escape as a possible write.
       found = true;
       return;
     }

@@ -119,16 +119,27 @@ describe('shipped-source worker invocation resolution', () => {
         function unknownComputedOverwriteWorker(key: string) { const box = { run: f.agent, [key]: () => undefined }; box.run('review', { task: 'x' }); }
         function objectRestWorker() { const { ...workers } = { run: f.agent }; workers.run('review', { task: 'x' }); }
         function arrayRestWorker() { const [, ...workers] = [undefined, f.agent]; workers[0]('review', { task: 'x' }); }
+        function defaultedArrayRestWorker(sources: any[]) { const [, ...workers = [f.agent]] = sources; workers[0]('review', { task: 'x' }); }
+        function defaultedArrayRestWriterWrite(parameter: any, sources: any[]) { const [, ...writers = [Object.assign]] = sources; writers[0](parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function nestedArrayRestWorker() { const [, ...[run]] = [undefined, f.agent]; run('review', { task: 'x' }); }
+        function nestedArrayRestWriterWrite(parameter: any) { const [, ...[writer]] = [undefined, Object.assign]; writer(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function outerDefaultArrayRestWorker(source: any) { const { pack: [, ...workers] = [undefined, f.agent] } = source; workers[0]('review', { task: 'x' }); }
+        function outerDefaultArrayRestWriterWrite(parameter: any, source: any) { const { pack: [, ...writers] = [undefined, Object.assign] } = source; writers[0](parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
         function objectRestWriterWrite(parameter: any) { const { ...writers } = { assign: Object.assign }; writers.assign(parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
         function numericObjectWorker() { const box = { 0: f.agent }; box[0]('review', { task: 'x' }); }
+        function computedNumericObjectWorker() { const box = { [0]: f.agent }; box[0]('review', { task: 'x' }); }
         function stringArrayWorker() { const slots = [f.agent]; slots['0']('review', { task: 'x' }); }
+        function computedNumericWriterWrite(parameter: any) { const box = { [0]: Object.assign }; box[0](parameter, { agent: f.agent.bind(f, 'real', { task: 'x' }) }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function ordinaryCallEscape(parameter: any) { const overwrite = (receiver: any) => { receiver.agent = f.agent.bind(f, 'real', { task: 'x' }); }; overwrite(parameter); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function ordinaryCallEscapeViaCall(parameter: any) { const overwrite = (receiver: any) => { receiver.agent = f.agent.bind(f, 'real', { task: 'x' }); }; overwrite.call(undefined, parameter); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function ordinaryCallEscapeViaApply(parameter: any) { const overwrite = (receiver: any) => { receiver.agent = f.agent.bind(f, 'real', { task: 'x' }); }; overwrite.apply(undefined, [parameter]); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
         function recursiveCallHelperWorker() { f.agent.call.call(f.agent, f, 'review', { task: 'x' }); }
         function recursiveApplyHelperWorker() { f.agent.apply.call(f.agent, f, ['review', { task: 'x' }]); }
         async function wrappedWorkerAliases() { const conditionalRun = flag ? f.agent : f.agent, logicalRun = (flag && f.agent) || f.agent, nullishRun = f.agent ?? f.agent, commaRun = (flag, f.agent), awaitRun = await f.agent; conditionalRun('review', { task: 'x' }); logicalRun('review', { task: 'x' }); nullishRun('review', { task: 'x' }); commaRun('review', { task: 'x' }); awaitRun('review', { task: 'x' }); }
       `);
       const variableAliasResult = scanTypeScript(variableAliases);
-      expect(variableAliasResult.calls).toBe(102);
-      expect(variableAliasResult.missing).toHaveLength(102);
+      expect(variableAliasResult.calls).toBe(113);
+      expect(variableAliasResult.missing).toHaveLength(113);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `

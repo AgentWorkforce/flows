@@ -125,7 +125,7 @@ export function objectMemberValue(
         obscured = true;
         continue;
       }
-      if (key !== name) continue;
+      if (key === undefined || String(key) !== name) continue;
       if (ts.isPropertyAssignment(member)) return { value: member.initializer, auditable: !obscured };
       if (ts.isShorthandPropertyAssignment(member)) return {
         value: member.name,
@@ -171,20 +171,25 @@ export function objectMemberValue(
 }
 
 export function bindingSource(binding: ts.BindingElement): {
-  defaults: Array<{ expression: ts.Expression; path: BindingPathSegment[] }>;
+  defaults: Array<{ applyRest: boolean; expression: ts.Expression; path: BindingPathSegment[] }>;
   initializer: ts.Expression;
   immutable: boolean;
   path: BindingPathSegment[];
   rest?: BindingRest;
 } | undefined {
-  const defaults: Array<{ expression: ts.Expression; path: BindingPathSegment[] }> = [];
+  const defaults: Array<{ applyRest: boolean; expression: ts.Expression; path: BindingPathSegment[] }> = [];
   const path: BindingPathSegment[] = [];
   let rest: BindingRest | undefined;
   let current = binding;
   while (ts.isObjectBindingPattern(current.parent) || ts.isArrayBindingPattern(current.parent)) {
     if (current.dotDotDotToken) {
-      if (rest) return undefined;
-      if (ts.isObjectBindingPattern(current.parent)) {
+      if (ts.isArrayBindingPattern(current.parent) && current !== binding) {
+        const start = current.parent.elements.indexOf(current);
+        if (start < 0 || typeof path[0] !== 'number') return undefined;
+        path[0] += start;
+      } else if (rest) {
+        return undefined;
+      } else if (ts.isObjectBindingPattern(current.parent)) {
         rest = {
           excluded: current.parent.elements
             .filter(element => element !== current && !element.dotDotDotToken)
@@ -206,7 +211,11 @@ export function bindingSource(binding: ts.BindingElement): {
       if (segment === undefined || (typeof segment === 'number' && segment < 0)) return undefined;
       path.unshift(segment);
     }
-    if (current.initializer) defaults.push({ expression: current.initializer, path: path.slice(1) });
+    if (current.initializer) defaults.push({
+      applyRest: rest?.kind === 'array' && !current.dotDotDotToken,
+      expression: current.initializer,
+      path: path.slice(1),
+    });
     const owner = current.parent.parent;
     if (ts.isBindingElement(owner)) {
       current = owner;
@@ -229,11 +238,15 @@ export function bindingDefaultValues(
   source: ReturnType<typeof bindingSource> & {},
   checker: ts.TypeChecker,
   seen: Set<ts.Symbol>,
-): Array<{ value: ts.Expression; auditable: boolean; symbol?: ts.Symbol }> {
+): Array<{ value: ts.Expression; auditable: boolean; applyRest: boolean; symbol?: ts.Symbol }> {
   return source.defaults.flatMap(fallback => {
-    if (fallback.path.length === 0) return [{ value: fallback.expression, auditable: false }];
+    if (fallback.path.length === 0) return [{
+      value: fallback.expression,
+      auditable: false,
+      applyRest: fallback.applyRest,
+    }];
     const value = aggregateValueAtPath(fallback.expression, fallback.path, checker, new Set(seen));
-    return value ? [{ ...value, auditable: false }] : [];
+    return value ? [{ ...value, auditable: false, applyRest: fallback.applyRest }] : [];
   });
 }
 
@@ -347,16 +360,19 @@ function staticArrayElements(
     const source = bindingSource(binding);
     if (!source?.immutable) return undefined;
     const values = [
-      aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
-      ...bindingDefaultValues(source, checker, new Set(seen)),
-      ...(binding.initializer ? [{ value: binding.initializer, auditable: false }] : []),
+      { candidate: aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)), applyRest: true },
+      ...bindingDefaultValues(source, checker, new Set(seen))
+        .map(candidate => ({ candidate, applyRest: candidate.applyRest })),
+      ...(binding.initializer
+        ? [{ candidate: { value: binding.initializer, auditable: false }, applyRest: false }]
+        : []),
     ];
-    for (const candidate of values) {
+    for (const { candidate, applyRest } of values) {
       if (!candidate) continue;
       const value = staticArrayElements(candidate.value, checker, new Set(seen));
       if (value) return {
         auditable: false,
-        values: source.rest?.kind === 'array'
+        values: applyRest && source.rest?.kind === 'array'
           ? value.values.slice(source.rest.start)
           : value.values,
       };
