@@ -1,13 +1,11 @@
 import ts from 'typescript';
-import {
-  assignedValues,
-  bindingDefaultValues,
-  bindingSource,
-} from './shipped-source-binding-provenance.js';
+import { bindingSource } from './shipped-source-binding-provenance.js';
+import { aggregateExpressionValues } from './shipped-source-aggregate-values.js';
 import {
   aggregateExpressionValue,
-  aggregateExpressionValues,
   aggregateValueAtPath,
+  assignedValues,
+  bindingDefaultValues,
   staticArrayElements,
   staticCallArguments,
   staticMemberSegment,

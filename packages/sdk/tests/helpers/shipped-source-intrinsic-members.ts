@@ -1,13 +1,13 @@
 import ts from 'typescript';
 import {
   assignedSources,
-  assignedValues,
-  bindingDefaultValues,
   bindingSource,
 } from './shipped-source-binding-provenance.js';
+import { baseAggregateExpressionValues } from './shipped-source-base-aggregate-values.js';
 import {
-  aggregateExpressionValues,
   aggregateValueAtPath,
+  assignedValues,
+  bindingDefaultValues,
   staticMemberSegment,
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
@@ -108,7 +108,7 @@ export function referencesIntrinsicMember(
   if (branches) return branches.some(branch =>
     referencesIntrinsicMember(branch, intrinsic, name, checker, new Set(seen)));
   const aggregateSeen = new Set(seen);
-  for (const aggregate of aggregateExpressionValues(expression, checker, aggregateSeen)) {
+  for (const aggregate of baseAggregateExpressionValues(expression, checker, aggregateSeen)) {
     if (referencesIntrinsicMember(
       aggregate.value,
       intrinsic,

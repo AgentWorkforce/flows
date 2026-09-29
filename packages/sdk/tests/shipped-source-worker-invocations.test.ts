@@ -211,10 +211,15 @@ describe('shipped-source worker invocation resolution', () => {
         function assignedDestructuredObjectAssignMemberWorker() { const box: any = {}; let assign: any; ({ assign } = Object); assign(box, { run: f.agent }); box.run('review', { task: 'x' }); }
         function boundObjectAssignAliasMemberWorker() { const box: any = {}, assign = Object.assign.bind(Object); assign(box, { run: f.agent }); box.run('review', { task: 'x' }); }
         function aliasedDefinePropertiesMemberWorker() { const box: any = {}, descriptors = { run: { value: f.agent } }; Object.defineProperties(box, descriptors); box.run('review', { task: 'x' }); }
+        function spreadDefinePropertiesMemberWorker() { const box: any = {}, descriptors = { ...{ run: { value: f.agent } } }; Object.defineProperties(box, descriptors); box.run('review', { task: 'x' }); }
         function aliasedReflectiveTargetMemberWorker() { const box: any = {}, alias = box; Object.assign(alias, { run: f.agent }); box.run('review', { task: 'x' }); }
+        function returnedReflectiveTargetMemberWorker() { const box: any = {}; const identity = (value: any) => value; Object.assign(identity(box), { run: f.agent }); box.run('review', { task: 'x' }); }
         function branchedApplyReflectiveWriterMemberWorker() { const box: any = {}; Object.assign.apply(Object, flag ? [box, { run: () => undefined }] : [box, { run: f.agent }]); box.run('review', { task: 'x' }); }
         function spreadReflectiveWriterMemberWorker(extras: any[]) { const box: any = {}; Object.assign(box, { run: f.agent }, ...extras); box.run('review', { task: 'x' }); }
+        function spreadApplyReflectiveWriterMemberWorker(extras: any[]) { const box: any = {}; Object.assign.apply(Object, [box, ...extras, { run: f.agent }]); box.run('review', { task: 'x' }); }
+        function spreadReflectApplyReflectiveWriterMemberWorker(extras: any[]) { const box: any = {}; Reflect.apply(Object.assign, Object, [box, ...extras, { run: f.agent }]); box.run('review', { task: 'x' }); }
         function objectGetterMemberWorker() { const box: any = { get run() { return f.agent; } }; box.run('review', { task: 'x' }); }
+        function pairedAccessorMemberWorker() { const box: any = { get run() { return f.agent; }, set run(value: any) {} }; box.run('review', { task: 'x' }); }
         function branchedObjectGetterMemberWorker() { const box: any = { get run() { if (flag) return () => undefined; return f.agent; } }; box.run('review', { task: 'x' }); }
         function definePropertyGetterMemberWorker() { const box: any = {}; Object.defineProperty(box, 'run', { get() { return f.agent; } }); box.run('review', { task: 'x' }); }
         function definePropertiesGetterMemberWorker() { const box: any = {}; Object.defineProperties(box, { run: { get() { return f.agent; } } }); box.run('review', { task: 'x' }); }
@@ -235,8 +240,8 @@ describe('shipped-source worker invocation resolution', () => {
         async function wrappedWorkerAliases() { const conditionalRun = flag ? f.agent : f.agent, logicalRun = (flag && f.agent) || f.agent, nullishRun = f.agent ?? f.agent, commaRun = (flag, f.agent), awaitRun = await f.agent; conditionalRun('review', { task: 'x' }); logicalRun('review', { task: 'x' }); nullishRun('review', { task: 'x' }); commaRun('review', { task: 'x' }); awaitRun('review', { task: 'x' }); }
       `);
       const variableAliasResult = scanTypeScript(variableAliases);
-      expect(variableAliasResult.calls).toBe(210);
-      expect(variableAliasResult.missing).toHaveLength(210);
+      expect(variableAliasResult.calls).toBe(215);
+      expect(variableAliasResult.missing).toHaveLength(215);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `

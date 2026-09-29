@@ -1,12 +1,12 @@
 import ts from 'typescript';
 import {
   assignmentMayStoreRight,
-  assignedValues,
-  bindingDefaultValues,
   bindingSource,
 } from './shipped-source-binding-provenance.js';
 import {
   aggregateValueAtPath,
+  assignedValues,
+  bindingDefaultValues,
   staticMemberSegment,
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';

@@ -1,12 +1,10 @@
 import ts from 'typescript';
+import { bindingSource } from './shipped-source-binding-provenance.js';
+import { baseAggregateExpressionValues } from './shipped-source-base-aggregate-values.js';
 import {
+  aggregateValueAtPath,
   assignedValues,
   bindingDefaultValues,
-  bindingSource,
-} from './shipped-source-binding-provenance.js';
-import {
-  aggregateExpressionValues,
-  aggregateValueAtPath,
   staticArrayElementCandidates,
   staticCallArguments,
   staticMemberSegment,
@@ -59,7 +57,7 @@ function callableCandidates(
     return candidates;
   }
   const aggregateSeen = new Set(seen);
-  for (const aggregate of aggregateExpressionValues(expression, checker, aggregateSeen)) {
+  for (const aggregate of baseAggregateExpressionValues(expression, checker, aggregateSeen)) {
     candidates.push(...callableCandidates(aggregate.value, matcher, checker, new Set(aggregateSeen)));
   }
   const operation = staticMemberSegment(expression, checker, new Set(seen));

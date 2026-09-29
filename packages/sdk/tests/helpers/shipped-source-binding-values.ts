@@ -1,8 +1,6 @@
 import ts from 'typescript';
 import {
-  assignedMemberValues,
   assignedSources,
-  bindingDefaultValues,
   bindingSource,
   type BindingPathSegment,
 } from './shipped-source-binding-provenance.js';
@@ -138,6 +136,7 @@ export function objectMemberValue(
   }
   if (ts.isObjectLiteralExpression(expression)) {
     let obscured = false;
+    let setterSeen = false;
     for (const member of [...expression.properties].reverse()) {
       if (ts.isSpreadAssignment(member)) {
         const value = objectMemberValue(member.expression, name, checker, new Set(seen));
@@ -154,12 +153,20 @@ export function objectMemberValue(
         continue;
       }
       if (key === undefined || String(key) !== name) continue;
-      if (ts.isPropertyAssignment(member)) return { value: member.initializer, auditable: !obscured };
-      if (ts.isShorthandPropertyAssignment(member)) return {
-        value: member.name,
-        auditable: !obscured,
-        symbol: checker.getShorthandAssignmentValueSymbol(member),
-      };
+      if (ts.isSetAccessorDeclaration(member)) {
+        setterSeen = true;
+        continue;
+      }
+      if (ts.isPropertyAssignment(member)) return setterSeen
+        ? undefined
+        : { value: member.initializer, auditable: !obscured };
+      if (ts.isShorthandPropertyAssignment(member)) return setterSeen
+        ? undefined
+        : {
+            value: member.name,
+            auditable: !obscured,
+            symbol: checker.getShorthandAssignmentValueSymbol(member),
+          };
       if (ts.isGetAccessorDeclaration(member)) {
         const [returned, ...alternatives] = returnedExpressions(member.body);
         return returned ? { value: returned, auditable: false, alternatives } : undefined;
@@ -247,7 +254,12 @@ export function aggregateExpressionValue(
   expression: ts.Expression,
   checker: ts.TypeChecker,
   seen: Set<ts.Symbol>,
-): { value: ts.Expression; auditable: boolean; symbol?: ts.Symbol } | undefined {
+): {
+  value: ts.Expression;
+  auditable: boolean;
+  symbol?: ts.Symbol;
+  alternatives?: ts.Expression[];
+} | undefined {
   const segment = staticMemberSegment(expression, checker, seen);
   const receiver = memberReceiver(expression);
   return segment !== undefined && receiver
@@ -255,68 +267,7 @@ export function aggregateExpressionValue(
     : undefined;
 }
 
-export function aggregateExpressionValues(
-  expression: ts.Expression,
-  checker: ts.TypeChecker,
-  seen: Set<ts.Symbol>,
-): Array<{ value: ts.Expression; auditable: boolean; symbol?: ts.Symbol }> {
-  const segment = staticMemberSegment(expression, checker, new Set(seen));
-  const receiver = memberReceiver(expression);
-  if (segment === undefined || !receiver) return [];
-  const values: Array<{ value: ts.Expression; auditable: boolean; symbol?: ts.Symbol }> = [];
-  const add = (value: (typeof values[number] & { alternatives?: ts.Expression[] }) | undefined): void => {
-    if (!value) return;
-    if (!values.some(candidate => candidate.value === value.value)) values.push(value);
-    for (const alternative of value.alternatives ?? []) {
-      if (!values.some(candidate => candidate.value === alternative)) {
-        values.push({ value: alternative, auditable: false });
-      }
-    }
-  };
-  for (const value of assignedMemberValues(expression, checker, new Set(seen))) add(value);
-  const unwrappedReceiver = unwrap(receiver);
-  let receiverSymbol: ts.Symbol | undefined;
-  if (ts.isIdentifier(unwrappedReceiver)) {
-    const symbol = checker.getSymbolAtLocation(unwrappedReceiver);
-    receiverSymbol = symbol;
-    if (symbol && !seen.has(symbol)) {
-      const sourceSeen = new Set(seen).add(symbol);
-      for (const source of assignedSources(symbol, checker)) {
-        const candidate = source.path.length === 0
-          ? { value: source.initializer, auditable: false }
-          : aggregateValueAtPath(source.initializer, source.path, checker, new Set(sourceSeen));
-        if (!candidate) continue;
-        if (source.rest?.kind === 'array') {
-          const index = canonicalArrayIndex(segment);
-          const elements = staticArrayElements(candidate.value, checker, new Set(sourceSeen))?.values;
-          const value = index === undefined ? undefined : elements?.[source.rest.start + index];
-          if (value) add({ value, auditable: false });
-          continue;
-        }
-        if (source.rest?.kind === 'object') {
-          const name = String(segment);
-          if (!source.rest.excluded.includes(name)) {
-            const value = objectMemberValue(candidate.value, name, checker, new Set(sourceSeen));
-            if (value) add({ ...value, auditable: false });
-          }
-          continue;
-        }
-        const value = aggregateMemberValue(candidate.value, segment, checker, new Set(sourceSeen));
-        if (value) add({ ...value, auditable: false });
-      }
-    }
-  } else {
-    for (const parent of aggregateExpressionValues(receiver, checker, seen)) {
-      const value = aggregateMemberValue(parent.value, segment, checker, new Set(seen));
-      if (value) add({ ...value, auditable: false });
-    }
-  }
-  add(aggregateMemberValue(receiver, segment, checker, new Set(seen)));
-  if (receiverSymbol) seen.add(receiverSymbol);
-  return values;
-}
-
-function aggregateMemberValue(
+export function aggregateMemberValue(
   expression: ts.Expression,
   segment: BindingPathSegment,
   checker: ts.TypeChecker,
@@ -351,6 +302,31 @@ function aggregateMemberValue(
     : undefined;
 }
 
+export function bindingDefaultValues(
+  source: ReturnType<typeof bindingSource> & {},
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): Array<{ value: ts.Expression; auditable: boolean; applyRest: boolean; symbol?: ts.Symbol }> {
+  return source.defaults.flatMap(fallback => {
+    if (fallback.path.length === 0) return [{
+      value: fallback.expression,
+      auditable: false,
+      applyRest: fallback.applyRest,
+    }];
+    const value = aggregateValueAtPath(fallback.expression, fallback.path, checker, new Set(seen));
+    return value ? [{ ...value, auditable: false, applyRest: fallback.applyRest }] : [];
+  });
+}
+
+export function assignedValues(symbol: ts.Symbol, checker: ts.TypeChecker): ts.Expression[] {
+  return assignedSources(symbol, checker).flatMap(source => {
+    if (source.rest) return [];
+    if (source.path.length === 0) return [source.initializer];
+    const value = aggregateValueAtPath(source.initializer, source.path, checker, new Set());
+    return value ? [value.value] : [];
+  });
+}
+
 export function staticArrayElements(
   expression: ts.Expression,
   checker: ts.TypeChecker,
@@ -379,23 +355,33 @@ export function staticArrayElements(
     } : undefined;
   }
   if (ts.isArrayLiteralExpression(expression)) {
-    const values: Array<ts.Expression | undefined> = [];
+    let candidates: Array<Array<ts.Expression | undefined>> = [[]];
     let auditable = true;
     for (const element of expression.elements) {
       if (ts.isOmittedExpression(element)) {
-        values.push(undefined);
+        candidates.forEach(values => values.push(undefined));
         continue;
       }
       if (!ts.isSpreadElement(element)) {
-        values.push(element);
+        candidates.forEach(values => values.push(element));
         continue;
       }
       const spread = staticArrayElements(element.expression, checker, new Set(seen));
-      if (!spread) return { values, auditable: false };
-      values.push(...spread.values);
-      auditable &&= spread.auditable;
+      if (!spread) {
+        auditable = false;
+        continue;
+      }
+      const spreadCandidates = [spread.values, ...(spread.alternatives ?? [])];
+      candidates = candidates.flatMap(prefix => spreadCandidates.map(values => [...prefix, ...values]));
+      auditable &&= spread.auditable && spreadCandidates.length === 1;
     }
-    return { values, auditable };
+    const values = candidates[0] ?? [];
+    const alternatives = candidates.slice(1);
+    return {
+      values,
+      auditable,
+      ...(alternatives.length > 0 ? { alternatives } : {}),
+    };
   }
   const parentSeen = new Set(seen);
   const parent = aggregateExpressionValue(expression, checker, parentSeen);

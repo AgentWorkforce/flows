@@ -1,11 +1,9 @@
 import ts from 'typescript';
+import { bindingSource } from './shipped-source-binding-provenance.js';
+import { aggregateExpressionValues } from './shipped-source-aggregate-values.js';
 import {
-  bindingDefaultValues,
-  bindingSource,
-} from './shipped-source-binding-provenance.js';
-import {
-  aggregateExpressionValues,
   aggregateValueAtPath,
+  bindingDefaultValues,
   staticMemberSegment,
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';

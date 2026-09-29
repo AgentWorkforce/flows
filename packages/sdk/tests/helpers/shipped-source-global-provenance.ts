@@ -1,13 +1,13 @@
 import ts from 'typescript';
 import {
   assignedSources,
-  assignedValues,
-  bindingDefaultValues,
   bindingSource,
 } from './shipped-source-binding-provenance.js';
+import { baseAggregateExpressionValues } from './shipped-source-base-aggregate-values.js';
 import {
-  aggregateExpressionValues,
   aggregateValueAtPath,
+  assignedValues,
+  bindingDefaultValues,
   staticMemberSegment,
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
@@ -44,7 +44,7 @@ function referencesGlobalIdentifier(
   if (branches) return branches.some(branch =>
     referencesGlobalIdentifier(branch, globalName, checker, new Set(seen)));
   const aggregateSeen = new Set(seen);
-  for (const aggregate of aggregateExpressionValues(expression, checker, aggregateSeen)) {
+  for (const aggregate of baseAggregateExpressionValues(expression, checker, aggregateSeen)) {
     if (referencesGlobalIdentifier(
       aggregate.value,
       globalName,
@@ -98,7 +98,7 @@ export function referencesGlobalMember(
   if (branches) return branches.some(branch =>
     referencesGlobalMember(branch, globalName, name, checker, new Set(seen)));
   const aggregateSeen = new Set(seen);
-  for (const aggregate of aggregateExpressionValues(expression, checker, aggregateSeen)) {
+  for (const aggregate of baseAggregateExpressionValues(expression, checker, aggregateSeen)) {
     if (referencesGlobalMember(
       aggregate.value,
       globalName,
