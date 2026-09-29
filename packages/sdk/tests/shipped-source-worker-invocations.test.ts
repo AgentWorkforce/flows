@@ -165,6 +165,7 @@ describe('shipped-source worker invocation resolution', () => {
         function recursiveReflectApplyCallWorker() { Reflect.apply.call.call(Reflect.apply, Reflect, f.agent, f, ['review', { task: 'x' }]); }
         function preboundCalledReflectApplyWorker() { const invoke = Reflect.apply.bind(Reflect, f.agent); invoke.call(null, f, ['review', { task: 'x' }]); }
         function preboundAppliedReflectApplyWorker() { const invoke = Reflect.apply.bind(Reflect, f.agent); invoke.apply(null, [f, ['review', { task: 'x' }]]); }
+        function overwrittenAggregateReflectApplyWorker() { let helper: any; helper = { invoke: Reflect.apply }; helper.invoke(f.agent, f, ['review', { task: 'x' }]); helper = { invoke: () => undefined }; }
         function assignedDestructuredReflectApplyWorker() { let apply: any; ({ apply } = Reflect); apply(f.agent, f, ['review', { task: 'x' }]); }
         function assignedComputedReflectApplyWorker() { const key = 'apply' as const; let apply: any; ({ [key]: apply } = Reflect); apply(f.agent, f, ['review', { task: 'x' }]); }
         function forwardedWorker() { const invoke = (run: (...args: any[]) => void, ...args: any[]) => run(...args); invoke(f.agent, 'review', { task: 'x' }); }
@@ -199,8 +200,8 @@ describe('shipped-source worker invocation resolution', () => {
         async function wrappedWorkerAliases() { const conditionalRun = flag ? f.agent : f.agent, logicalRun = (flag && f.agent) || f.agent, nullishRun = f.agent ?? f.agent, commaRun = (flag, f.agent), awaitRun = await f.agent; conditionalRun('review', { task: 'x' }); logicalRun('review', { task: 'x' }); nullishRun('review', { task: 'x' }); commaRun('review', { task: 'x' }); awaitRun('review', { task: 'x' }); }
       `);
       const variableAliasResult = scanTypeScript(variableAliases);
-      expect(variableAliasResult.calls).toBe(174);
-      expect(variableAliasResult.missing).toHaveLength(174);
+      expect(variableAliasResult.calls).toBe(175);
+      expect(variableAliasResult.missing).toHaveLength(175);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `

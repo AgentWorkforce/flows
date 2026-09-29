@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flow } from '@relayflows/surface';
-import closePr, { requiredRepairModel } from '../scripts/dogfood/close-pr.flow.js';
+import closePr, { executableFrom, requiredRepairModel } from '../scripts/dogfood/close-pr.flow.js';
 import {
   analyzeFindings, checksCommand, parseChecks, parseInput, parsePrNumber, quote,
   type BotComment, type Check, type ClosePrInput, type ReviewThread,
@@ -176,6 +176,16 @@ describe('close-pr journaled repair loop', () => {
     expect(requiredRepairModel('/opt/custom-wrapper', ' custom-model ')).toBe('custom-model');
     expect(() => requiredRepairModel('codex', '   ')).toThrow(/non-empty string/);
     expect(() => requiredRepairModel('/opt/custom-wrapper', 'bad\nmodel')).toThrow(/control characters/);
+  });
+
+  it('uses the same absolute executable for a slash-relative wrapper probe and repair step', async () => {
+    const h = await harness([{ checks: [failed, green[1]!] }, { checks: green }], {
+      input: { cli: './tools/repair-wrapper', model: 'exact-model' },
+    });
+    expect((await h.execute()).completionReason).toBe('success');
+    const executable = executableFrom('./tools/repair-wrapper', baseInput.worktree);
+    expect(h.commands.find(command => command.includes('--probe-cli'))).toContain(`'${executable}'`);
+    expect(h.agents()[0]).toMatchObject({ cli: executable, model: 'exact-model' });
   });
 
   it('lets an approval-only run merge without resolving an unused repair pair', async () => {

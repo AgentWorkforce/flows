@@ -1,4 +1,5 @@
 import { flow } from '@relayflows/surface';
+import { isAbsolute, resolve } from 'node:path';
 import { modelNameError } from '../../src/model-name.js';
 import {
   analyzeFindings, checksCommand, failedRunId, MAX_REPAIR_ITERATIONS,
@@ -89,8 +90,9 @@ export default flow<unknown>('close-pr', async (f, supplied) => {
     for (const id of runIds) logs.push(await run(`gh run view ${id} ${repo} --log-failed`));
     iteration += 1;
     if (!repairPair) {
-      const cli = input.cli ?? 'codex';
-      const model = requiredRepairModel(cli, input.model);
+      const authoredCli = input.cli ?? 'codex';
+      const model = requiredRepairModel(authoredCli, input.model);
+      const cli = executableFrom(authoredCli, input.worktree);
       await assertRepairPairReady(f, cli, model, input.worktree);
       repairPair = { cli, model };
     }
@@ -127,6 +129,11 @@ export function requiredRepairModel(cli: string, override?: string): string {
   const problem = modelNameError(model);
   if (problem !== undefined) throw new Error(`Invalid repair model: ${problem}`);
   return model;
+}
+
+/** Resolve slash-relative wrappers exactly as the readiness probe does. */
+export function executableFrom(cli: string, directory: string): string {
+  return cli.includes('/') && !isAbsolute(cli) ? resolve(directory, cli) : cli;
 }
 
 export async function assertRepairPairReady(

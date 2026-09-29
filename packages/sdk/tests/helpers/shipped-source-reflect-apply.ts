@@ -5,7 +5,7 @@ import {
   bindingSource,
 } from './shipped-source-binding-provenance.js';
 import {
-  aggregateExpressionValue,
+  aggregateExpressionValues,
   aggregateValueAtPath,
   staticArrayElements,
   staticCallArguments,
@@ -55,8 +55,10 @@ function reflectApplyCallable(
     return undefined;
   }
   const aggregateSeen = new Set(seen);
-  const aggregate = aggregateExpressionValue(expression, checker, aggregateSeen);
-  if (aggregate) return reflectApplyCallable(aggregate.value, checker, aggregateSeen);
+  for (const aggregate of aggregateExpressionValues(expression, checker, aggregateSeen)) {
+    const callable = reflectApplyCallable(aggregate.value, checker, new Set(aggregateSeen));
+    if (callable) return callable;
+  }
   const operation = staticMemberSegment(expression, checker, new Set(seen));
   const receiver = memberReceiver(expression);
   if (receiver && (operation === 'call' || operation === 'apply')) {

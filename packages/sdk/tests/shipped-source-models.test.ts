@@ -281,6 +281,7 @@ describe('first-party shipped source model pins', () => {
         Reflect.apply.call.call(Reflect.apply, Reflect, surface.flow, surface, ['recursive-reflect-apply-call-constructor', { budget: '$2' }, () => {}]);
         { const invoke = Reflect.apply.bind(Reflect, surface.flow); invoke.call(null, surface, ['prebound-called-reflect-apply-constructor', { budget: '$2' }, () => {}]); }
         { const invoke = Reflect.apply.bind(Reflect, surface.flow); invoke.apply(null, [surface, ['prebound-applied-reflect-apply-constructor', { budget: '$2' }, () => {}]]); }
+        { let helper: any; helper = { invoke: Reflect.apply }; helper.invoke(surface.flow, surface, ['overwritten-aggregate-reflect-apply-constructor', { budget: '$2' }, () => {}]); helper = { invoke: () => undefined }; }
         { let apply: any; ({ apply } = Reflect); apply(surface.flow, surface, ['assigned-destructured-reflect-apply-constructor', { budget: '$2' }, () => {}]); }
         { const key = 'apply' as const; let apply: any; ({ [key]: apply } = Reflect); apply(surface.flow, surface, ['assigned-computed-reflect-apply-constructor', { budget: '$2' }, () => {}]); }
         { const invoke = (define: (...args: any[]) => void, ...args: any[]) => define(...args); invoke(surface.flow, 'forwarded-constructor', { budget: '$2' }, () => {}); }
@@ -311,7 +312,7 @@ describe('first-party shipped source model pins', () => {
         { let { assigned } = { assigned: () => undefined }; assigned = surface.flow; assigned('assigned-destructured-constructor', { budget: '$2' }, () => {}); }
         async function wrappedFlowAliases() { const conditionalDefine = flag ? surface.flow : surface.flow, logicalDefine = (flag && surface.flow) || surface.flow, nullishDefine = surface.flow ?? surface.flow, commaDefine = (flag, surface.flow), awaitDefine = await surface.flow; conditionalDefine('conditional-flow', { budget: '$2' }, () => {}); logicalDefine('logical-flow', { budget: '$2' }, () => {}); nullishDefine('nullish-flow', { budget: '$2' }, () => {}); commaDefine('comma-flow', { budget: '$2' }, () => {}); awaitDefine('await-flow', { budget: '$2' }, () => {}); }
       `);
-      expect(scanTypeScript(aliasedHeader).invalidFlowHeaders).toHaveLength(94);
+      expect(scanTypeScript(aliasedHeader).invalidFlowHeaders).toHaveLength(95);
 
       const twoArgumentBudget = join(directory, 'two-argument-budget.flow.ts');
       writeFileSync(twoArgumentBudget, `
