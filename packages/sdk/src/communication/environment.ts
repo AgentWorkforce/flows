@@ -4,25 +4,24 @@ import { wrapperEnvironment } from '../wrapper-runtime.js';
 const terminalNames = ['TERM', 'COLORTERM', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME'];
 const relayNames = ['RELAY_API_KEY', 'RELAY_WORKSPACE_KEY', 'AGENT_RELAY_WORKSPACE_KEY',
   'RELAY_BROKER_API_KEY', 'RELAY_AGENT_TOKEN', 'RELAY_NODE_TOKEN', 'RELAY_WORKSPACES_JSON'];
-const providerNames: Record<string, string[]> = {
+// Multi-provider CLIs select their provider in their own configuration.
+const multiProvider = ['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL',
+  'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'OPENROUTER_API_KEY'];
+export const providerNames: Record<string, readonly string[]> = {
   claude: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR'],
   codex: ['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'CODEX_HOME'],
   gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_APPLICATION_CREDENTIALS', 'GOOGLE_CLOUD_PROJECT', 'GOOGLE_CLOUD_LOCATION'],
   // AgentWorkforce/cloud#4026's house-provider run contract injects the scoped
-  // key plus both endpoint names. cursor-agent 2026.09.10 reads API_ENDPOINT as
-  // its target API and API_BASE_URL as its auth API; both remain Cursor-scoped.
+  // key plus both endpoint names. Observed (not tested here) in cursor-agent
+  // 2026.09.10: API_ENDPOINT targets the API and API_BASE_URL targets auth.
   'cursor-agent': ['CURSOR_API_KEY', 'CURSOR_API_ENDPOINT', 'CURSOR_API_BASE_URL'],
   droid: ['FACTORY_API_KEY'],
   // AgentWorkforce/cloud#4026's house-provider run contract gives Grok an
   // isolated home plus an xAI-compatible base URL. These remain Grok-scoped.
   grok: ['XAI_API_KEY', 'GROK_XAI_API_BASE_URL', 'GROK_HOME'],
+  ...Object.fromEntries(['opencode', 'aider', 'goose', 'pi', 'deepagents'].map(cli => [cli, multiProvider])),
 };
-// Multi-provider CLIs select their provider in their own configuration.
-const multiProvider = ['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL',
-  'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'OPENROUTER_API_KEY'];
-for (const cli of ['opencode', 'aider', 'goose', 'pi', 'deepagents']) providerNames[cli] = multiProvider;
-export const providerCliNames = Object.freeze(Object.keys(providerNames));
-function selected(source: NodeJS.ProcessEnv, names: string[]) {
+function selected(source: NodeJS.ProcessEnv, names: readonly string[]) {
   return Object.fromEntries(names.filter(name => source[name] !== undefined).map(name => [name, source[name]]));
 }
 export function brokerEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {

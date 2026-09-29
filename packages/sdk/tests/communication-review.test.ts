@@ -4,7 +4,7 @@ import { it, expect, vi } from 'vitest';
 import { CommunicationSession } from '../src/communication/session.js';
 import { createProjection } from '../src/communication/projection.js';
 import { openCommunicationTools } from '../src/communication/tools.js';
-import { agentEnvironment, brokerEnvironment, providerCliNames } from '../src/communication/environment.js';
+import { agentEnvironment, brokerEnvironment, providerNames } from '../src/communication/environment.js';
 import type { RelayMessaging, RelayRuntime } from '../src/communication/relay.js';
 import type { JournalClient } from '../src/journal-client.js';
 import type { StepDispatchEvent } from '../src/protocol.js';
@@ -74,7 +74,7 @@ it('passes provider-specific proxy routing only to Cursor and Grok children', ()
   });
   for (const name of grokNames) expect(agentEnvironment('cursor-agent', source)).not.toHaveProperty(name);
   for (const name of cursorNames) expect(agentEnvironment('grok', source)).not.toHaveProperty(name);
-  for (const cli of [...providerCliNames.filter(name => !['cursor-agent', 'grok'].includes(name)), '/custom/cli']) {
+  for (const cli of [...Object.keys(providerNames).filter(name => !['cursor-agent', 'grok'].includes(name)), '/custom/cli']) {
     for (const name of [...cursorNames, ...grokNames]) expect(agentEnvironment(cli, source)).not.toHaveProperty(name);
   }
 });
