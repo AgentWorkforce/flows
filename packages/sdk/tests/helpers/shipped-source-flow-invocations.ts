@@ -2,8 +2,10 @@ import ts from 'typescript';
 import {
   aggregateExpressionValue,
   aggregateValueAtPath,
+  assignedValues,
   bindingDefaultValues,
   bindingSource,
+  referencesGlobalMember,
   staticMemberSegment,
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
@@ -399,6 +401,10 @@ function flowConstructor(
       };
     }
   }
+  for (const value of assignedValues(symbol, checker)) {
+    const constructor = flowConstructor(value, checker, new Set([...seen, symbol]));
+    if (constructor) return { args: [], auditable: false };
+  }
   const variable = symbol.declarations?.find(ts.isVariableDeclaration);
   if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)) return undefined;
   const constructor = flowConstructor(variable.initializer, checker, seen);
@@ -412,13 +418,32 @@ export function flowInvocation(
   checker: ts.TypeChecker,
 ): FlowCallable | undefined {
   if (!ts.isCallExpression(node)) return undefined;
+  if (referencesGlobalMember(node.expression, 'Reflect', 'apply', checker)) {
+    const target = node.arguments[0] ? flowConstructor(node.arguments[0], checker) : undefined;
+    const applied = node.arguments[2];
+    if (target) return applied && ts.isArrayLiteralExpression(applied)
+      ? {
+          args: [...target.args, ...applied.elements],
+          auditable: false,
+        }
+      : { args: [], auditable: false };
+  }
   const constructor = flowConstructor(node.expression, checker);
   if (constructor) return {
     args: [...constructor.args, ...node.arguments],
     auditable: constructor.auditable && !node.arguments.some(ts.isSpreadElement),
   };
   const helper = invocationHelper(node.expression, checker);
-  if (!helper) return undefined;
+  if (!helper) {
+    const declaration = checker.getResolvedSignature(node)?.declaration;
+    if (declaration && ts.isFunctionLike(declaration) && 'body' in declaration && declaration.body) {
+      for (const argument of node.arguments) {
+        const forwarded = flowConstructor(ts.isSpreadElement(argument) ? argument.expression : argument, checker);
+        if (forwarded) return { args: [], auditable: false };
+      }
+    }
+    return undefined;
+  }
   if (helper.operation === 'call') return {
     args: [...helper.args, ...node.arguments.slice(1)],
     auditable: helper.auditable && !node.arguments.some(ts.isSpreadElement),

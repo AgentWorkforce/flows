@@ -266,9 +266,15 @@ describe('first-party shipped source model pins', () => {
         (function outerDefaultArrayRestConstructor(source: any) { const { pack: [, ...constructors] = [undefined, surface.flow] } = source; constructors[0]('outer-default-array-rest-constructor', { budget: '$2' }, () => {}); })({});
         surface.flow.call.call(surface.flow, surface, 'recursive-call-helper', { budget: '$2' }, () => {});
         surface.flow.apply.call(surface.flow, surface, ['recursive-apply-helper', { budget: '$2' }, () => {}]);
+        Reflect.apply(surface.flow, surface, ['reflect-apply-constructor', { budget: '$2' }, () => {}]);
+        { const apply = Reflect.apply; apply(surface.flow, surface, ['aliased-reflect-apply-constructor', { budget: '$2' }, () => {}]); }
+        { const R = Reflect; R.apply(surface.flow, surface, ['aliased-reflect-constructor', { budget: '$2' }, () => {}]); }
+        { const { apply } = Reflect; apply(surface.flow, surface, ['destructured-reflect-apply-constructor', { budget: '$2' }, () => {}]); }
+        { const invoke = (define: (...args: any[]) => void, ...args: any[]) => define(...args); invoke(surface.flow, 'forwarded-constructor', { budget: '$2' }, () => {}); }
+        { let assigned: any = () => undefined; assigned = surface.flow; assigned('assigned-constructor', { budget: '$2' }, () => {}); }
         async function wrappedFlowAliases() { const conditionalDefine = flag ? surface.flow : surface.flow, logicalDefine = (flag && surface.flow) || surface.flow, nullishDefine = surface.flow ?? surface.flow, commaDefine = (flag, surface.flow), awaitDefine = await surface.flow; conditionalDefine('conditional-flow', { budget: '$2' }, () => {}); logicalDefine('logical-flow', { budget: '$2' }, () => {}); nullishDefine('nullish-flow', { budget: '$2' }, () => {}); commaDefine('comma-flow', { budget: '$2' }, () => {}); awaitDefine('await-flow', { budget: '$2' }, () => {}); }
       `);
-      expect(scanTypeScript(aliasedHeader).invalidFlowHeaders).toHaveLength(51);
+      expect(scanTypeScript(aliasedHeader).invalidFlowHeaders).toHaveLength(57);
 
       const twoArgumentBudget = join(directory, 'two-argument-budget.flow.ts');
       writeFileSync(twoArgumentBudget, `

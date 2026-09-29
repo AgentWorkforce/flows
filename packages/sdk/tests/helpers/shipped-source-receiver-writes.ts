@@ -251,6 +251,103 @@ function nodeReferencesSymbol(node: ts.Node, symbol: ts.Symbol, checker: ts.Type
   return found;
 }
 
+function symbolMayAliasSymbol(
+  candidate: ts.Symbol,
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): boolean {
+  if (candidate === symbol) return true;
+  if (seen.has(candidate)) return false;
+  const nextSeen = new Set(seen);
+  nextSeen.add(candidate);
+  for (const declaration of candidate.declarations ?? []) {
+    if (ts.isVariableDeclaration(declaration) && declaration.initializer
+      && expressionMayAliasSymbol(
+        declaration.initializer,
+        symbol,
+        checker,
+        new Set(nextSeen),
+      )) return true;
+    if (!ts.isBindingElement(declaration)) continue;
+    if (declaration.initializer && expressionMayAliasSymbol(
+      declaration.initializer,
+      symbol,
+      checker,
+      new Set(nextSeen),
+    )) return true;
+    const source = bindingSource(declaration);
+    if (!source) continue;
+    const values = [
+      aggregateValueAtPath(source.initializer, source.path, checker, new Set(nextSeen)),
+      ...bindingDefaultValues(source, checker, new Set(nextSeen)),
+    ].filter((value): value is NonNullable<typeof value> => value !== undefined);
+    if (values.some(value => expressionMayAliasSymbol(
+      value.value,
+      symbol,
+      checker,
+      new Set(nextSeen),
+    ))) return true;
+  }
+  const source = candidate.valueDeclaration?.getSourceFile()
+    ?? candidate.declarations?.[0]?.getSourceFile();
+  if (!source) return false;
+  let assigned = false;
+  const visit = (node: ts.Node): void => {
+    if (assigned) return;
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      && ts.isIdentifier(node.left)
+      && checker.getSymbolAtLocation(node.left) === candidate
+      && expressionMayAliasSymbol(node.right, symbol, checker, new Set(nextSeen))) {
+      assigned = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return assigned;
+}
+
+function expressionMayAliasSymbol(
+  expression: ts.Expression,
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+  seen = new Set<ts.Symbol>(),
+): boolean {
+  expression = unwrap(expression);
+  if (ts.isSpreadElement(expression)) {
+    return expressionMayAliasSymbol(expression.expression, symbol, checker, seen);
+  }
+  if (ts.isIdentifier(expression)) {
+    const candidate = checker.getSymbolAtLocation(expression);
+    return candidate !== undefined && symbolMayAliasSymbol(candidate, symbol, checker, seen);
+  }
+  const branches = wrappedExpressionBranches(expression);
+  if (branches) {
+    return branches.some(branch => expressionMayAliasSymbol(
+      branch,
+      symbol,
+      checker,
+      new Set(seen),
+    ));
+  }
+  if (ts.isArrayLiteralExpression(expression)) return expression.elements.some(element =>
+    !ts.isOmittedExpression(element)
+    && expressionMayAliasSymbol(element, symbol, checker, new Set(seen)));
+  if (ts.isObjectLiteralExpression(expression)) return expression.properties.some(member => {
+    if (ts.isPropertyAssignment(member)) {
+      return expressionMayAliasSymbol(member.initializer, symbol, checker, new Set(seen));
+    }
+    if (ts.isShorthandPropertyAssignment(member)) {
+      const candidate = checker.getShorthandAssignmentValueSymbol(member);
+      return candidate !== undefined && symbolMayAliasSymbol(candidate, symbol, checker, new Set(seen));
+    }
+    return ts.isSpreadAssignment(member)
+      && expressionMayAliasSymbol(member.expression, symbol, checker, new Set(seen));
+  });
+  return false;
+}
+
 function functionReturnsSymbol(
   declaration: ts.FunctionLikeDeclaration,
   symbol: ts.Symbol,
@@ -258,14 +355,14 @@ function functionReturnsSymbol(
 ): boolean {
   if (!('body' in declaration) || !declaration.body) return true;
   if (!ts.isBlock(declaration.body)) {
-    return nodeReferencesSymbol(declaration.body, symbol, checker);
+    return expressionMayAliasSymbol(declaration.body, symbol, checker);
   }
   let found = false;
   const visit = (node: ts.Node): void => {
     if (found) return;
     if (node !== declaration.body && ts.isFunctionLike(node)) return;
     if (ts.isReturnStatement(node) && node.expression
-      && nodeReferencesSymbol(node.expression, symbol, checker)) {
+      && expressionMayAliasSymbol(node.expression, symbol, checker)) {
       found = true;
       return;
     }
@@ -284,6 +381,11 @@ function ordinaryCallMayWriteSymbol(
   const argumentIndexes = node.arguments.flatMap((argument, index) =>
     expressionMayExposeSymbol(argument, symbol, checker) ? [index] : []);
   if (argumentIndexes.length === 0) return false;
+  if (argumentIndexes.some(index => ts.isSpreadElement(node.arguments[index]!))) {
+    // A spread's AST position does not identify the formal parameter that
+    // receives the exposed receiver after runtime expansion.
+    return true;
+  }
 
   const helperName = memberName(node.expression, checker);
   const helperReceiver = memberReceiver(node.expression);
@@ -371,12 +473,21 @@ export function symbolHasWrites(
       return;
     }
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-      if (expressionMayEvaluateToSymbol(node.initializer, symbol, checker)) {
+      if (expressionMayAliasSymbol(node.initializer, symbol, checker)) {
         const alias = checker.getSymbolAtLocation(node.name);
         if (!alias || symbolHasWrites(alias, checker, seen)) {
           found = true;
           return;
         }
+      }
+    }
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      && ts.isIdentifier(node.left)
+      && expressionMayAliasSymbol(node.right, symbol, checker)) {
+      const alias = checker.getSymbolAtLocation(node.left);
+      if (!alias || alias !== symbol && symbolHasWrites(alias, checker, seen)) {
+        found = true;
+        return;
       }
     }
     if (ts.isPropertyAssignment(node) && expressionMayEvaluateToSymbol(node.initializer, symbol, checker)) {
