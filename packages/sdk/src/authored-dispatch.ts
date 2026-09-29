@@ -1,14 +1,15 @@
 import type { DispatchResult } from '@relayflows/surface';
-import type { AuthoredFlowDefinition, FlowHandle } from './authored-flow.js';
+import type { FlowHandle } from './authored-flow.js';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
 import type { LoadedAuthoredFlowNode } from './authored-flow-loader.js';
+import { flowRequirements, type RequirementsFlowDefinition } from './flow-requirements.js';
 
 export const MAX_DISPATCH_DEPTH = 3;
 
 /** Resolve one attenuated direct child from the statically loaded `use` graph. */
 export function resolveDispatchChild(options: {
   readonly handle: FlowHandle;
-  readonly definition: Pick<AuthoredFlowDefinition<unknown>, 'name' | 'header'>;
+  readonly definition: RequirementsFlowDefinition & { readonly name: string };
   readonly graph?: readonly LoadedAuthoredFlowNode[];
   readonly flowName: string;
   readonly depth: number;
@@ -73,11 +74,11 @@ export function childLeaves(steps: readonly { readonly id: string; readonly afte
 
 /** A child may use only provider/MCP capabilities its parent already declared. */
 function assertChildCapabilities(
-  parent: Pick<AuthoredFlowDefinition<unknown>, 'name' | 'header'>,
-  child: Pick<AuthoredFlowDefinition<unknown>, 'name' | 'header'>,
+  parent: RequirementsFlowDefinition & { readonly name: string },
+  child: RequirementsFlowDefinition & { readonly name: string },
 ): void {
-  const parentTools = parent.header.tools ?? {};
-  const childTools = child.header.tools ?? {};
+  const parentTools = parent.header?.tools ?? {};
+  const childTools = child.header?.tools ?? {};
   for (const [tool, declared] of Object.entries(childTools)) {
     if (tool === 'mcp') {
       const allowed = new Set(Array.isArray(parentTools.mcp) ? parentTools.mcp as readonly unknown[] : []);
@@ -88,13 +89,25 @@ function assertChildCapabilities(
           `child flow "${child.name}" widens tools.mcp beyond parent "${parent.name}"`,
         );
       }
-      continue;
     }
-    if (declared === true && parentTools[tool as keyof typeof parentTools] !== true) {
+  }
+  const parentHelpers = helperAuthority(parent);
+  for (const requirement of flowRequirements(child).integrations) {
+    if ((requirement.from === 'tools' || requirement.from === 'helper')
+      && !parentHelpers.has(requirement.provider)) {
       throw new AuthoredFlowExecutionError(
         'dispatch_invalid',
-        `child flow "${child.name}" requires tools.${tool}, which parent "${parent.name}" did not grant`,
+        `child flow "${child.name}" requires ${requirement.detail}, which parent "${parent.name}" did not grant`,
       );
     }
   }
+}
+
+/** Helper providers this flow can delegate, from explicit or statically visible use. */
+export function helperAuthority(
+  definition: RequirementsFlowDefinition,
+): ReadonlySet<string> {
+  return new Set(flowRequirements(definition).integrations
+    .filter(requirement => requirement.from === 'tools' || requirement.from === 'helper')
+    .map(requirement => requirement.provider));
 }

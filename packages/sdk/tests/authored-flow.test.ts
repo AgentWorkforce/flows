@@ -289,6 +289,15 @@ describe('authored flow journal executor', () => {
   it('attenuates child capabilities and keeps the run-tree budget at the root', async () => {
     const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
     const wider = flow('wider', { tools: { slack: true } }, async (f) => f.done('success'));
+    const visibleHelper = flow('visible-helper', async (f) => {
+      await f.slack.post('#ops', 'must not send');
+      f.done('success');
+    });
+    const hiddenSlack = (f: Ctx) => f.slack.post('#ops', 'must not send');
+    const hiddenHelper = flow('hidden-helper', async (f) => {
+      await hiddenSlack(f);
+      f.done('success');
+    });
     const budgeted = flow('budgeted', { budget: { tokens: 1 } }, async (f) => f.done('success'));
     const parent = flow('parent', { use: ['./wider.flow.ts', './budgeted.flow.ts'] }, async (f) => {
       await f.dispatch('wider', {});
@@ -303,6 +312,20 @@ describe('authored flow journal executor', () => {
 
     await expect(executeAuthoredFlow(parent, disconnectedJournal, undefined, { flowGraph: graph as never }))
       .rejects.toMatchObject({ code: 'dispatch_invalid', message: expect.stringContaining('requires tools.slack') });
+
+    for (const child of [visibleHelper, hiddenHelper]) {
+      const childName = getFlowDefinition(child).name;
+      const helperParent = flow(`parent-${childName}`, { use: ['./helper.flow.ts'] }, async (f) => {
+        await f.dispatch(childName, {});
+        f.done('success');
+      });
+      const helperGraph = [
+        { path: '/helper.flow.ts', handle: child, getDefinition: getFlowDefinition, use: [] },
+        { path: '/parent.flow.ts', handle: helperParent, getDefinition: getFlowDefinition, use: ['/helper.flow.ts'] },
+      ];
+      await expect(executeAuthoredFlow(helperParent, disconnectedJournal, undefined, { flowGraph: helperGraph as never }))
+        .rejects.toMatchObject({ code: 'dispatch_invalid', message: expect.stringContaining('slack') });
+    }
 
     const budgetParent = flow('budget-parent', { use: ['./budgeted.flow.ts'] }, async (f) => {
       await f.dispatch('budgeted', {});

@@ -23,9 +23,13 @@ export default flow('grandchild', async (f, input: { word: string }) => {
   f.done('success');
 });
 `);
+    writeFileSync(`${fixture.root}/empty.flow.ts`, `import { flow } from '@relayflows/surface';
+export default flow('empty', async f => { f.done('success'); });
+`);
     const childPath = `${fixture.root}/child.flow.ts`;
     writeFileSync(childPath, `import { flow } from '@relayflows/surface';
-export default flow('child', { use: ['./grandchild.flow.ts'] }, async (f, input: { word: string }) => {
+export default flow('child', { use: ['./empty.flow.ts', './grandchild.flow.ts'] }, async (f, input: { word: string }) => {
+  await f.dispatch('empty', {});
   await f.dispatch('grandchild', { word: 'grandchild' });
   await f.run(\`printf '%s' \"\${input.word}\" >> effects\`);
   f.done('success');
@@ -56,11 +60,13 @@ export default flow('parent', { use: ['./child.flow.ts'] }, async f => {
     const completed = messages.filter(record => record['state'] === 'completed');
     expect(completed.map(record => record['step'])).toEqual([
       'run-1',
-      'dispatch-2--dispatch-1--run-1',
-      'dispatch-2--dispatch-1--complete-2',
+      'dispatch-2--dispatch-1--complete-1',
       'dispatch-2--dispatch-1',
-      'dispatch-2--run-2',
-      'dispatch-2--complete-3',
+      'dispatch-2--dispatch-2--run-1',
+      'dispatch-2--dispatch-2--complete-2',
+      'dispatch-2--dispatch-2',
+      'dispatch-2--run-3',
+      'dispatch-2--complete-4',
       'dispatch-2',
       'run-3',
       'complete-4',
@@ -69,12 +75,14 @@ export default flow('parent', { use: ['./child.flow.ts'] }, async f => {
       label: record['label'], after: record['after'],
     }]))).toEqual({
       'run-1': { label: undefined, after: undefined },
-      'dispatch-2--dispatch-1--run-1': { label: undefined, after: ['run-1'] },
-      'dispatch-2--dispatch-1--complete-2': { label: undefined, after: undefined },
-      'dispatch-2--dispatch-1': { label: 'grandchild', after: ['dispatch-2--dispatch-1--run-1'] },
-      'dispatch-2--run-2': { label: undefined, after: ['dispatch-2--dispatch-1'] },
-      'dispatch-2--complete-3': { label: undefined, after: undefined },
-      'dispatch-2': { label: 'child', after: ['dispatch-2--run-2'] },
+      'dispatch-2--dispatch-1--complete-1': { label: undefined, after: undefined },
+      'dispatch-2--dispatch-1': { label: 'empty', after: ['run-1'] },
+      'dispatch-2--dispatch-2--run-1': { label: undefined, after: ['dispatch-2--dispatch-1'] },
+      'dispatch-2--dispatch-2--complete-2': { label: undefined, after: undefined },
+      'dispatch-2--dispatch-2': { label: 'grandchild', after: ['dispatch-2--dispatch-2--run-1'] },
+      'dispatch-2--run-3': { label: undefined, after: ['dispatch-2--dispatch-2'] },
+      'dispatch-2--complete-4': { label: undefined, after: undefined },
+      'dispatch-2': { label: 'child', after: ['dispatch-2--dispatch-1', 'dispatch-2--run-3'] },
       'run-3': { label: undefined, after: ['dispatch-2'] },
       'complete-4': { label: undefined, after: undefined },
     });
@@ -82,14 +90,15 @@ export default flow('parent', { use: ['./child.flow.ts'] }, async f => {
       await readJournalEvents(report.runId, fixture.data), Date.now(), process.env);
     const runIds = Object.fromEntries(completed.map(record => [record['step'], record['runId']])) as Record<string, string>;
     expect(Object.fromEntries([
-      'run-1', 'dispatch-2--dispatch-1--run-1', 'dispatch-2--dispatch-1',
-      'dispatch-2--run-2', 'dispatch-2', 'run-3',
+      'run-1', 'dispatch-2--dispatch-1', 'dispatch-2--dispatch-2--run-1',
+      'dispatch-2--dispatch-2', 'dispatch-2--run-3', 'dispatch-2', 'run-3',
     ].map(step => [step, folded.hints.get(`${runIds[step]}/${step}`)]))).toEqual({
       'run-1': undefined,
-      'dispatch-2--dispatch-1--run-1': { after: ['run-1'] },
-      'dispatch-2--dispatch-1': { label: 'grandchild', after: ['dispatch-2--dispatch-1--run-1'] },
-      'dispatch-2--run-2': { after: ['dispatch-2--dispatch-1'] },
-      'dispatch-2': { label: 'child', after: ['dispatch-2--run-2'] },
+      'dispatch-2--dispatch-1': { label: 'empty', after: ['run-1'] },
+      'dispatch-2--dispatch-2--run-1': { after: ['dispatch-2--dispatch-1'] },
+      'dispatch-2--dispatch-2': { label: 'grandchild', after: ['dispatch-2--dispatch-2--run-1'] },
+      'dispatch-2--run-3': { after: ['dispatch-2--dispatch-2'] },
+      'dispatch-2': { label: 'child', after: ['dispatch-2--dispatch-1', 'dispatch-2--run-3'] },
       'run-3': { after: ['dispatch-2'] },
     });
 

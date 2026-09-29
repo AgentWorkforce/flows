@@ -69,7 +69,7 @@ import type {
   RunCompletionReason as ProtocolRunCompletionReason,
 } from './protocol.js';
 import type { AuthoredWorkerSlots } from './worker-slots.js';
-import { childLeaves, parseDispatchReceipt, resolveDispatchChild } from './authored-dispatch.js';
+import { childLeaves, helperAuthority, parseDispatchReceipt, resolveDispatchChild } from './authored-dispatch.js';
 
 type Assert<T extends true> = T;
 type Equal<A, B> = [A] extends [B]
@@ -201,6 +201,8 @@ export interface ExecuteAuthoredFlowOptions {
   readonly sharedBudget?: AuthoredBudget;
   /** Root-owned worker capacity shared by every descendant. */
   readonly workerSlots?: AuthoredWorkerSlots;
+  /** Parent helper authority inherited by this dispatched child. */
+  readonly allowedHelperProviders?: ReadonlySet<string>;
 }
 
 export async function executeAuthoredFlow<Input = undefined>(
@@ -285,6 +287,14 @@ export async function executeAuthoredFlow<Input = undefined>(
   let requestedDetail: string | undefined;
   const qualify = (id: string): string => `${options.stepPrefix ?? ''}${id}`;
   const nextId = (kind: string): string => qualify(`${kind}-${nextStep++}`);
+  const assertHelperAllowed = (provider: string): void => {
+    if (options.allowedHelperProviders !== undefined && !options.allowedHelperProviders.has(provider)) {
+      throw new AuthoredFlowExecutionError(
+        'dispatch_invalid',
+        `child flow "${definition.name}" attempted helper provider "${provider}" outside its parent's granted integrations`,
+      );
+    }
+  };
 
   const lowerDeterministic = authoredDeterministicRunner(
     definition.name, journal, journalSteps, budget, {
@@ -478,6 +488,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   const slackRun = options.rootRunId ?? randomUUID();
   function slackOperation<T>(call: SlackCall): Step<T> {
     assertOperationAllowed(`slack.${call.verb}`, definition.name, requestedCompletion);
+    assertHelperAllowed(call.provider);
     const snapshot = snapshotJsonValue(call, 'f.slack call') as unknown as SlackCall;
     const id = qualify(`slack-${slackRun}-${nextStep++}`);
     return trackStep(authoredSteps, new AuthoredFlowOperation<T>(
@@ -507,6 +518,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     ...createHelpers(<T>(call: HelperCall): Step<T> => {
       const verb = `${call.provider}.${call.verb}`;
       assertOperationAllowed(verb, definition.name, requestedCompletion);
+      assertHelperAllowed(call.provider);
       const snapshot = snapshotJsonValue(call, `f.${verb} call`) as unknown as HelperCall;
       const id = qualify(`${call.provider}-${slackRun}-${nextStep++}`);
       return trackStep(authoredSteps, new AuthoredFlowOperation<T>(id, verb,
@@ -639,6 +651,11 @@ export async function executeAuthoredFlow<Input = undefined>(
         'dispatch',
         () => assertOperationAllowed('dispatch', definition.name, requestedCompletion),
         async () => {
+          const inheritedAfter = stepEdges(id)?.after ?? [];
+          const currentHelperAuthority = helperAuthority(definition);
+          const allowedHelperProviders = options.allowedHelperProviders === undefined
+            ? currentHelperAuthority
+            : new Set([...currentHelperAuthority].filter(provider => options.allowedHelperProviders!.has(provider)));
           const childResult = await executeAuthoredFlow(child.handle, journal, inputSnapshot, {
             getDefinition: child.getDefinition,
             dataDir: options.dataDir,
@@ -649,9 +666,10 @@ export async function executeAuthoredFlow<Input = undefined>(
             flowGraph: options.flowGraph,
             stepPrefix: `${id}--`,
             dispatchDepth: depth + 1,
-            entryAfter: stepEdges(id)?.after ?? [],
+            entryAfter: inheritedAfter,
             sharedBudget: budget,
             ...(worker.slots === undefined ? {} : { workerSlots: worker.slots }),
+            allowedHelperProviders,
             ...(options.extensions === undefined ? {} : { extensions: options.extensions }),
             onProgress,
             ...(options.onWait === undefined ? {} : { onWait: options.onWait }),
@@ -668,8 +686,8 @@ export async function executeAuthoredFlow<Input = undefined>(
           const leaves = childLeaves(childResult.journalSteps);
           edgeOverrides.set(id, {
             ...displayLabel(childResult.name),
-            ...(leaves.length > 0 ? { after: leaves } : dispatchOp.edges?.after === undefined
-              ? {} : { after: dispatchOp.edges.after }),
+            ...(leaves.length > 0 ? { after: leaves } : inheritedAfter.length === 0
+              ? {} : { after: inheritedAfter }),
           });
           const receipt: DispatchResult = {
             name: childResult.name,
