@@ -122,6 +122,8 @@ export interface RunLifecycleOptions {
   onJournalEntry?: (entry: JournalEvent) => void;
   /** An authored root was admitted: its id is known before its body runs. */
   onRunStarted?: (run: { runId: string; flow: string; resumed?: boolean }) => void;
+  /** A declarative root returned its admission receipt, even if no watched entry arrived. */
+  onRunReceipt?: (run: { runId: string; flow: string }) => void;
   localAgent?: boolean;
   /** `--agent-capacity`: the local workers' concurrency; the default is `DEFAULT_LOCAL_AGENT_CAPACITY`. */
   agentCapacity?: number;
@@ -194,10 +196,11 @@ async function executeCheckedFlow(
     // `run.start { watch: true }` is an event stream, not the source of the
     // root identity. A short deterministic run can finish before its first
     // watched entry is delivered (and an older daemon may refuse `watch`), so
-    // observers and the Cloud mirror must be opened from the run receipt just
-    // as authored roots are. Their session is idempotent if an entry won the
-    // race and opened it first.
-    options.onRunStarted?.({ runId: outcome.run_id, flow: spec.name ?? 'flow' });
+    // receipt consumers such as the Cloud mirror need the admitted id too.
+    // This stays separate from `onRunStarted`: opening the observer without a
+    // streamed journal would manufacture an empty projection and suppress its
+    // truthful "not projected" diagnostic.
+    options.onRunReceipt?.({ runId: outcome.run_id, flow: spec.name ?? 'flow' });
     const execution = await classifyOutcome(client, 'run', outcome, base, socketPath, { ...options, dataDir });
     if (options.reuseFromRunId !== undefined) {
       execution.report.reuse = await reuseSummary(client, outcome.run_id, options.reuseFromRunId);
