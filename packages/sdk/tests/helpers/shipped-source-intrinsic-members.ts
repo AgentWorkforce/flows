@@ -1,10 +1,12 @@
 import ts from 'typescript';
 import {
+  assignedSources,
   assignedValues,
   bindingDefaultValues,
   bindingSource,
 } from './shipped-source-binding-provenance.js';
 import {
+  aggregateExpressionValues,
   aggregateValueAtPath,
   staticMemberSegment,
   wrappedExpressionBranches,
@@ -105,11 +107,28 @@ export function referencesIntrinsicMember(
   const branches = wrappedExpressionBranches(expression);
   if (branches) return branches.some(branch =>
     referencesIntrinsicMember(branch, intrinsic, name, checker, new Set(seen)));
+  const aggregateSeen = new Set(seen);
+  for (const aggregate of aggregateExpressionValues(expression, checker, aggregateSeen)) {
+    if (referencesIntrinsicMember(
+      aggregate.value,
+      intrinsic,
+      name,
+      checker,
+      new Set(aggregateSeen),
+    )) return true;
+  }
   if (!ts.isIdentifier(expression)) return false;
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return false;
   seen.add(symbol);
   const binding = symbol.declarations?.find(ts.isBindingElement);
+  if (binding?.initializer && referencesIntrinsicMember(
+    binding.initializer,
+    intrinsic,
+    name,
+    checker,
+    new Set(seen),
+  )) return true;
   if (binding) {
     const source = bindingSource(binding, checker, new Set(seen));
     if (source?.path.at(-1) === name) {
@@ -124,6 +143,30 @@ export function referencesIntrinsicMember(
         new Set(seen),
       )) return true;
     }
+    const values = source ? [
+      aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
+      ...bindingDefaultValues(source, checker, new Set(seen)),
+    ].filter((value): value is NonNullable<typeof value> => value !== undefined) : [];
+    if (values.some(value => referencesIntrinsicMember(
+      value.value,
+      intrinsic,
+      name,
+      checker,
+      new Set(seen),
+    ))) return true;
+  }
+  for (const source of assignedSources(symbol, checker)) {
+    if (source.rest || source.path.at(-1) !== name) continue;
+    const receiverPath = source.path.slice(0, -1);
+    const sourceReceiver = receiverPath.length === 0
+      ? source.initializer
+      : aggregateValueAtPath(source.initializer, receiverPath, checker, new Set(seen))?.value;
+    if (sourceReceiver && referencesIntrinsicIdentifier(
+      sourceReceiver,
+      intrinsic,
+      checker,
+      new Set(seen),
+    )) return true;
   }
   if (assignedValues(symbol, checker).some(value => referencesIntrinsicMember(
     value,

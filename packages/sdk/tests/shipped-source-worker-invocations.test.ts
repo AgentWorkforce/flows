@@ -197,6 +197,20 @@ describe('shipped-source worker invocation resolution', () => {
         function arrayPatternMemberAssignedWorker() { const slots: any[] = []; [slots[0]] = [f.agent]; slots[0]('review', { task: 'x' }); }
         function objectAssignMemberWorker() { const box: any = {}; Object.assign(box, { run: f.agent }); box.run('review', { task: 'x' }); }
         function reflectSetMemberWorker() { const box: any = {}; Reflect.set(box, 'run', f.agent); box.run('review', { task: 'x' }); }
+        function objectAssignCallMemberWorker() { const box: any = {}; Object.assign.call(Object, box, { run: f.agent }); box.run('review', { task: 'x' }); }
+        function objectAssignApplyMemberWorker() { const box: any = {}; Object.assign.apply(Object, [box, { run: f.agent }]); box.run('review', { task: 'x' }); }
+        function objectAssignBindMemberWorker() { const box: any = {}; Object.assign.bind(Object)(box, { run: f.agent }); box.run('review', { task: 'x' }); }
+        function reflectSetCallMemberWorker() { const box: any = {}; Reflect.set.call(Reflect, box, 'run', f.agent); box.run('review', { task: 'x' }); }
+        function reflectSetApplyMemberWorker() { const box: any = {}; Reflect.set.apply(Reflect, [box, 'run', f.agent]); box.run('review', { task: 'x' }); }
+        function reflectSetBindMemberWorker() { const box: any = {}; Reflect.set.bind(Reflect)(box, 'run', f.agent); box.run('review', { task: 'x' }); }
+        function reflectApplyObjectAssignMemberWorker() { const box: any = {}; Reflect.apply(Object.assign, Object, [box, { run: f.agent }]); box.run('review', { task: 'x' }); }
+        function reflectApplyReflectSetMemberWorker() { const box: any = {}; Reflect.apply(Reflect.set, Reflect, [box, 'run', f.agent]); box.run('review', { task: 'x' }); }
+        function aggregateObjectAssignMemberWorker() { const box: any = {}, helpers = { assign: Object.assign }; helpers.assign(box, { run: f.agent }); box.run('review', { task: 'x' }); }
+        function defaultedObjectAssignMemberWorker() { const box: any = {}, assigners: Array<typeof Object.assign | undefined> = []; const [assign = Object.assign] = assigners; assign(box, { run: f.agent }); box.run('review', { task: 'x' }); }
+        function assignedDestructuredObjectAssignMemberWorker() { const box: any = {}; let assign: any; ({ assign } = Object); assign(box, { run: f.agent }); box.run('review', { task: 'x' }); }
+        function boundObjectAssignAliasMemberWorker() { const box: any = {}, assign = Object.assign.bind(Object); assign(box, { run: f.agent }); box.run('review', { task: 'x' }); }
+        function aliasedDefinePropertiesMemberWorker() { const box: any = {}, descriptors = { run: { value: f.agent } }; Object.defineProperties(box, descriptors); box.run('review', { task: 'x' }); }
+        function nestedRestMemberAssignedWorker() { const box: any = {}; [...[box.slots]] = [[f.agent]]; box.slots[0]('review', { task: 'x' }); }
         function arrayRestMemberAssignedWorker() { const box: any = {}; [...box.slots] = [f.agent]; box.slots[0]('review', { task: 'x' }); }
         function objectRestMemberAssignedWorker() { const box: any = {}; ({ ...box.workers } = { run: f.agent }); box.workers.run('review', { task: 'x' }); }
         function objectDefinePropertyMemberWorker() { const box: any = {}; Object.defineProperty(box, 'run', { value: f.agent }); box.run('review', { task: 'x' }); }
@@ -213,8 +227,8 @@ describe('shipped-source worker invocation resolution', () => {
         async function wrappedWorkerAliases() { const conditionalRun = flag ? f.agent : f.agent, logicalRun = (flag && f.agent) || f.agent, nullishRun = f.agent ?? f.agent, commaRun = (flag, f.agent), awaitRun = await f.agent; conditionalRun('review', { task: 'x' }); logicalRun('review', { task: 'x' }); nullishRun('review', { task: 'x' }); commaRun('review', { task: 'x' }); awaitRun('review', { task: 'x' }); }
       `);
       const variableAliasResult = scanTypeScript(variableAliases);
-      expect(variableAliasResult.calls).toBe(188);
-      expect(variableAliasResult.missing).toHaveLength(188);
+      expect(variableAliasResult.calls).toBe(202);
+      expect(variableAliasResult.missing).toHaveLength(202);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `
