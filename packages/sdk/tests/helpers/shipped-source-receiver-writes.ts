@@ -85,6 +85,12 @@ function expressionMayExposeSymbol(
 ): boolean {
   expression = unwrap(expression);
   if (expressionMayEvaluateToSymbol(expression, symbol, checker)) return true;
+  const branches = wrappedExpressionBranches(expression);
+  if (branches) return branches.some(branch => expressionMayExposeSymbol(branch, symbol, checker));
+  if (ts.isCallExpression(expression) || ts.isNewExpression(expression)) {
+    const argumentsArray = expression.arguments ?? [];
+    return argumentsArray.some(argument => expressionMayExposeSymbol(argument, symbol, checker));
+  }
   if (ts.isArrayLiteralExpression(expression)) return expression.elements.some(element =>
     !ts.isOmittedExpression(element)
     && expressionMayExposeSymbol(
@@ -336,12 +342,21 @@ export function symbolHasWrites(
       return;
     }
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-      if (expressionMayEvaluateToSymbol(node.initializer, symbol, checker)) {
+      if (expressionMayExposeSymbol(node.initializer, symbol, checker)) {
         const alias = checker.getSymbolAtLocation(node.name);
         if (!alias || symbolHasWrites(alias, checker, seen)) {
           found = true;
           return;
         }
+      }
+    }
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      && ts.isIdentifier(node.left)
+      && expressionMayExposeSymbol(node.right, symbol, checker)) {
+      const alias = checker.getSymbolAtLocation(node.left);
+      if (!alias || symbolHasWrites(alias, checker, seen)) {
+        found = true;
+        return;
       }
     }
     if (ts.isPropertyAssignment(node) && expressionMayEvaluateToSymbol(node.initializer, symbol, checker)) {

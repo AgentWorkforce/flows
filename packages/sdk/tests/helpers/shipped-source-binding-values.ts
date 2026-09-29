@@ -36,6 +36,11 @@ function propertyName(name: ts.PropertyName | undefined): string | undefined {
     : undefined;
 }
 
+function canonicalArrayIndex(segment: BindingPathSegment): number | undefined {
+  if (typeof segment === 'number') return Number.isInteger(segment) && segment >= 0 ? segment : undefined;
+  return /^(?:0|[1-9]\d*)$/u.test(segment) ? Number(segment) : undefined;
+}
+
 export function staticPropertySegment(
   expression: ts.Expression,
   checker: ts.TypeChecker,
@@ -185,8 +190,9 @@ export function bindingSource(binding: ts.BindingElement): {
     if (current.dotDotDotToken) {
       if (ts.isArrayBindingPattern(current.parent) && current !== binding) {
         const start = current.parent.elements.indexOf(current);
-        if (start < 0 || typeof path[0] !== 'number') return undefined;
-        path[0] += start;
+        const index = path[0] === undefined ? undefined : canonicalArrayIndex(path[0]);
+        if (start < 0 || index === undefined) return undefined;
+        path[0] = index + start;
       } else if (rest) {
         return undefined;
       } else if (ts.isObjectBindingPattern(current.parent)) {
@@ -295,9 +301,7 @@ function aggregateMemberValue(
       return object;
     }
   }
-  const index = typeof segment === 'number'
-    ? segment
-    : /^(?:0|[1-9]\d*)$/u.test(segment) ? Number(segment) : undefined;
+  const index = canonicalArrayIndex(segment);
   if (index !== undefined) {
     const arraySeen = new Set(seen);
     const array = staticArrayElements(expression, checker, arraySeen);
