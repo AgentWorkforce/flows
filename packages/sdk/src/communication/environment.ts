@@ -9,8 +9,8 @@ const providerNames: Record<string, string[]> = {
   codex: ['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'CODEX_HOME'],
   gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_APPLICATION_CREDENTIALS', 'GOOGLE_CLOUD_PROJECT', 'GOOGLE_CLOUD_LOCATION'],
   // AgentWorkforce/cloud#4026's house-provider run contract injects the scoped
-  // key plus both endpoint names used across supported cursor-agent versions.
-  // Keep all three provider-specific so none can leak into another harness.
+  // key plus both endpoint names. cursor-agent 2026.09.10 reads API_ENDPOINT as
+  // its target API and API_BASE_URL as its auth API; both remain Cursor-scoped.
   'cursor-agent': ['CURSOR_API_KEY', 'CURSOR_API_ENDPOINT', 'CURSOR_API_BASE_URL'],
   droid: ['FACTORY_API_KEY'],
   // AgentWorkforce/cloud#4026's house-provider run contract gives Grok an
@@ -21,6 +21,7 @@ const providerNames: Record<string, string[]> = {
 const multiProvider = ['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL',
   'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'OPENROUTER_API_KEY'];
 for (const cli of ['opencode', 'aider', 'goose', 'pi', 'deepagents']) providerNames[cli] = multiProvider;
+export const providerCliNames = Object.freeze(Object.keys(providerNames));
 function selected(source: NodeJS.ProcessEnv, names: string[]) {
   return Object.fromEntries(names.filter(name => source[name] !== undefined).map(name => [name, source[name]]));
 }
