@@ -11,9 +11,8 @@ const providerNames: Readonly<Record<string, readonly string[]>> = Object.freeze
   claude: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR'],
   codex: ['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'CODEX_HOME'],
   gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_APPLICATION_CREDENTIALS', 'GOOGLE_CLOUD_PROJECT', 'GOOGLE_CLOUD_LOCATION'],
-  // AgentWorkforce/cloud#4026's house-provider run contract injects the scoped
-  // key plus both endpoint names. Observed (not tested here) in cursor-agent
-  // 2026.09.10: API_ENDPOINT targets the API and API_BASE_URL targets auth.
+  // AgentWorkforce/cloud#4026 passes both endpoint names unchanged as aliases
+  // for the same run-scoped House proxy base; BASE_URL is not a separate origin.
   'cursor-agent': ['CURSOR_API_KEY', 'CURSOR_API_ENDPOINT', 'CURSOR_API_BASE_URL'],
   droid: ['FACTORY_API_KEY'],
   // AgentWorkforce/cloud#4026's house-provider run contract gives Grok an

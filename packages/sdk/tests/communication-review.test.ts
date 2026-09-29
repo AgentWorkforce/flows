@@ -52,10 +52,11 @@ it('does not carry ambient secrets into the broker, and scopes provider credenti
 });
 
 it('passes provider-specific proxy routing only to Cursor and Grok children', () => {
+  const cursorProxy = 'https://proxy.test/v1/house/cursor/runs/run-1';
   const source = {
     CURSOR_API_KEY: 'cursor-key',
-    CURSOR_API_ENDPOINT: 'https://runtime.proxy.test/v1/house/cursor/runs/run-1',
-    CURSOR_API_BASE_URL: 'https://auth.proxy.test/v1/house/cursor/runs/run-1',
+    CURSOR_API_ENDPOINT: cursorProxy,
+    CURSOR_API_BASE_URL: cursorProxy,
     XAI_API_KEY: 'xai-key',
     GROK_XAI_API_BASE_URL: 'https://proxy.test/v1/house/xai/runs/run-1',
     GROK_HOME: '/tmp/grok-house-run-1',
