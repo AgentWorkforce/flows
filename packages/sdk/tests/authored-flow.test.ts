@@ -343,6 +343,38 @@ describe('authored flow journal executor', () => {
       .rejects.toMatchObject({ code: 'dispatch_depth_exceeded' });
   });
 
+  it('passes project hook implementations into a dispatched child', async () => {
+    let hookRuns = 0;
+    const child = flow('child', { hooks: ['policy'] }, async (f) => {
+      const allowed = await f.hook('policy', { target: 'child' });
+      f.done(allowed ? 'success' : 'step_failed');
+    });
+    const parent = flow('parent', { use: ['./child.flow.ts'] }, async (f) => {
+      await f.dispatch('child', {});
+      f.done('success');
+    });
+    const graph = [
+      { path: '/child.flow.ts', handle: child, getDefinition: getFlowDefinition, use: [] },
+      { path: '/parent.flow.ts', handle: parent, getDefinition: getFlowDefinition, use: ['/child.flow.ts'] },
+    ];
+    const base = loadedExtension('policy-extension', flow('policy-extension', async f => f.done('success')));
+    const extension: LoadedFlowExtension = {
+      ...base,
+      manifest: { ...base.manifest, extends: { ...base.manifest.extends, hooks: ['policy'] } },
+      hooks: Object.freeze({ policy: async () => { hookRuns += 1; return true; } }),
+    };
+    const client = await connectedClient('authored-child-hook-test');
+    try {
+      await expect(executeAuthoredFlow(parent, client, undefined, {
+        flowGraph: graph as never,
+        extensions: [extension],
+      })).resolves.toMatchObject({ completionReason: 'success' });
+    } finally {
+      client.close();
+    }
+    expect(hookRuns).toBe(1);
+  });
+
   it('treats done as terminal and rejects later operations before journal contact', async () => {
     const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
     await expect(executeAuthoredFlow(flow('after-done', async (f) => {
@@ -777,5 +809,7 @@ function loadedExtension(name: string, handle: ReturnType<typeof flow>): LoadedF
 
 function outputFor(command: string): string {
   if (command.startsWith('emit:')) return command.slice('emit:'.length);
+  const literal = /^printf '%s' '(\{.*\})'$/u.exec(command)?.[1];
+  if (literal?.startsWith('{"name":')) return literal;
   return command === 'printf authored-journal-ok' ? 'authored-journal-ok' : '';
 }

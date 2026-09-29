@@ -68,7 +68,7 @@ import type {
   CompletionReason as ProtocolCompletionReason,
   RunCompletionReason as ProtocolRunCompletionReason,
 } from './protocol.js';
-import { authoredWorkerSlots, type AuthoredWorkerSlots } from './worker-slots.js';
+import type { AuthoredWorkerSlots } from './worker-slots.js';
 import { childLeaves, parseDispatchReceipt, resolveDispatchChild } from './authored-dispatch.js';
 
 type Assert<T extends true> = T;
@@ -294,12 +294,10 @@ export async function executeAuthoredFlow<Input = undefined>(
     },
   );
 
-  const workerSlots = options.workerSlots ?? (options.workerCapacity === undefined
-    ? undefined : authoredWorkerSlots(options.workerCapacity));
   const worker = authoredWorkerRunner(
     definition, journal, flowPath, journalSteps, waitOptions,
     localAgentStream, budget, definition.header.budget, options.rootRunId, options.workerCapacity, stepEdges,
-    workerSlots,
+    options.workerSlots,
   );
 
   /**
@@ -651,9 +649,10 @@ export async function executeAuthoredFlow<Input = undefined>(
             flowGraph: options.flowGraph,
             stepPrefix: `${id}--`,
             dispatchDepth: depth + 1,
-            entryAfter: dispatchOp.edges?.after ?? [],
+            entryAfter: stepEdges(id)?.after ?? [],
             sharedBudget: budget,
-            ...(workerSlots === undefined ? {} : { workerSlots }),
+            ...(worker.slots === undefined ? {} : { workerSlots: worker.slots }),
+            ...(options.extensions === undefined ? {} : { extensions: options.extensions }),
             onProgress,
             ...(options.onWait === undefined ? {} : { onWait: options.onWait }),
             ...(options.signal === undefined ? {} : { signal: options.signal }),
@@ -678,7 +677,9 @@ export async function executeAuthoredFlow<Input = undefined>(
             ...(childResult.completionDetail === undefined ? {} : { completionDetail: childResult.completionDetail }),
           };
           const literal = `'${JSON.stringify(receipt).replaceAll("'", "'\\''")}'`;
-          const recorded = await lowerDeterministic(id, `printf '%s' ${literal}`, false);
+          const recorded = await lowerDeterministic(
+            id, `printf '%s' ${literal}`, false, undefined, dispatchOp.namedGate,
+          );
           return parseDispatchReceipt(recorded, id);
         },
         lifecycle,
