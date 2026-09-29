@@ -263,9 +263,11 @@ export function assignedValues(symbol: ts.Symbol, checker: ts.TypeChecker): ts.E
   if (!source) return [];
   const values: ts.Expression[] = [];
   const visit = (node: ts.Node): void => {
-    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
-      && ts.isIdentifier(node.left) && checker.getSymbolAtLocation(node.left) === symbol) {
-      values.push(node.right);
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      const target = unwrap(node.left);
+      if (ts.isIdentifier(target) && checker.getSymbolAtLocation(target) === symbol) {
+        values.push(node.right);
+      }
     }
     ts.forEachChild(node, visit);
   };

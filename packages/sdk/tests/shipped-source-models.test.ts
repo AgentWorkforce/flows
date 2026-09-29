@@ -272,9 +272,10 @@ describe('first-party shipped source model pins', () => {
         { const { apply } = Reflect; apply(surface.flow, surface, ['destructured-reflect-apply-constructor', { budget: '$2' }, () => {}]); }
         { const invoke = (define: (...args: any[]) => void, ...args: any[]) => define(...args); invoke(surface.flow, 'forwarded-constructor', { budget: '$2' }, () => {}); }
         { let assigned: any = () => undefined; assigned = surface.flow; assigned('assigned-constructor', { budget: '$2' }, () => {}); }
+        { let assigned: any = () => undefined; (assigned as any) = surface.flow; assigned('wrapped-assigned-constructor', { budget: '$2' }, () => {}); }
         async function wrappedFlowAliases() { const conditionalDefine = flag ? surface.flow : surface.flow, logicalDefine = (flag && surface.flow) || surface.flow, nullishDefine = surface.flow ?? surface.flow, commaDefine = (flag, surface.flow), awaitDefine = await surface.flow; conditionalDefine('conditional-flow', { budget: '$2' }, () => {}); logicalDefine('logical-flow', { budget: '$2' }, () => {}); nullishDefine('nullish-flow', { budget: '$2' }, () => {}); commaDefine('comma-flow', { budget: '$2' }, () => {}); awaitDefine('await-flow', { budget: '$2' }, () => {}); }
       `);
-      expect(scanTypeScript(aliasedHeader).invalidFlowHeaders).toHaveLength(57);
+      expect(scanTypeScript(aliasedHeader).invalidFlowHeaders).toHaveLength(58);
 
       const twoArgumentBudget = join(directory, 'two-argument-budget.flow.ts');
       writeFileSync(twoArgumentBudget, `

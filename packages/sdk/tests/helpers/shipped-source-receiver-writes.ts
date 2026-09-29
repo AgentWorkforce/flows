@@ -295,12 +295,14 @@ function symbolMayAliasSymbol(
   let assigned = false;
   const visit = (node: ts.Node): void => {
     if (assigned) return;
-    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
-      && ts.isIdentifier(node.left)
-      && checker.getSymbolAtLocation(node.left) === candidate
-      && expressionMayAliasSymbol(node.right, symbol, checker, new Set(nextSeen))) {
-      assigned = true;
-      return;
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      const target = unwrap(node.left);
+      if (ts.isIdentifier(target)
+        && checker.getSymbolAtLocation(target) === candidate
+        && expressionMayAliasSymbol(node.right, symbol, checker, new Set(nextSeen))) {
+        assigned = true;
+        return;
+      }
     }
     ts.forEachChild(node, visit);
   };
@@ -481,13 +483,15 @@ export function symbolHasWrites(
         }
       }
     }
-    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
-      && ts.isIdentifier(node.left)
-      && expressionMayAliasSymbol(node.right, symbol, checker)) {
-      const alias = checker.getSymbolAtLocation(node.left);
-      if (!alias || alias !== symbol && symbolHasWrites(alias, checker, seen)) {
-        found = true;
-        return;
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      const aliasTarget = unwrap(node.left);
+      if (ts.isIdentifier(aliasTarget)
+        && expressionMayAliasSymbol(node.right, symbol, checker)) {
+        const alias = checker.getSymbolAtLocation(aliasTarget);
+        if (!alias || alias !== symbol && symbolHasWrites(alias, checker, seen)) {
+          found = true;
+          return;
+        }
       }
     }
     if (ts.isPropertyAssignment(node) && expressionMayEvaluateToSymbol(node.initializer, symbol, checker)) {
