@@ -281,7 +281,8 @@ function flowConstructor(
     const computedName = binding.propertyName && ts.isComputedPropertyName(binding.propertyName)
       ? staticPropertySegment(binding.propertyName.expression, checker, new Set())
       : undefined;
-    if (computedName === 'flow') {
+    if (binding.propertyName && ts.isComputedPropertyName(binding.propertyName)
+      && (computedName === 'flow' || computedName === undefined)) {
       const declaration = binding.parent.parent;
       const receiver = ts.isVariableDeclaration(declaration) ? declaration.initializer : undefined;
       const namespace = receiver ? namespaceAuditable(receiver, checker) : undefined;

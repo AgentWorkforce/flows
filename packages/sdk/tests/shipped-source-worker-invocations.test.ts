@@ -261,6 +261,16 @@ describe('shipped-source worker invocation resolution', () => {
         `const box: any = {}; function identity(value: any) { return flag ? value : value; } Object.assign(identity(box), { run: f.agent }); box.run('review', { task: 'x' });`,
         `const box: any = {}; function getBox() { return box; } Object.assign(getBox(), { run: f.agent }); box.run('review', { task: 'x' });`,
         `const box: any = {}, getter = () => f.agent; Object.defineProperty(box, 'run', { get: getter }); box.run('review', { task: 'x' });`,
+        `const box: any = {}; function id(...values: any[]) { return values[0]; } Object.assign(id(box), { run: f.agent }); box.run('review', { task: 'x' });`,
+        `const box: any = {}; function id({ value }: { value: any }) { return value; } Object.assign(id({ value: box }), { run: f.agent }); box.run('review', { task: 'x' });`,
+        `const box: any = {}; function id(value: any) { return value; } Object.assign(id(...[box]), { run: f.agent }); box.run('review', { task: 'x' });`,
+        `const box: any = {}; function id(value: any = box) { return value; } Object.assign(id(), { run: f.agent }); box.run('review', { task: 'x' });`,
+        `const box: any = {}, alias = box; alias.run = f.agent; box.run('review', { task: 'x' });`,
+        `let key: string; key = 'agent'; const { [key]: run } = f; run('review', { task: 'x' });`,
+        `const source = flag ? { key: 'agent' as const } : { key: 'agent' as const }; const { key } = source; const { [key]: run } = f; run('review', { task: 'x' });`,
+        `const source = (flag && { key: 'agent' as const }) || { key: 'agent' as const }; const { key } = source; const { [key]: run } = f; run('review', { task: 'x' });`,
+        `const box: any = {}, a: any = {}, b: any = {}; a.descriptors = b.descriptors; b.descriptors = a.descriptors; b.descriptors = { run: { value: f.agent } }; Object.defineProperties(box, a.descriptors); box.run('review', { task: 'x' });`,
+        `const box: any = {}, a: any = {}, b: any = {}; a.getter = b.getter; b.getter = a.getter; b.getter = () => f.agent; Object.defineProperty(box, 'run', { get: a.getter }); box.run('review', { task: 'x' });`,
       ];
       for (const [index, candidate] of repairedWorkerCases.entries()) {
         const repairedWorker = join(directory, `repaired-worker-${index}.flow.ts`);

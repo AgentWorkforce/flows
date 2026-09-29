@@ -374,8 +374,12 @@ function workerCallable(
       && ts.isVariableDeclarationList(declaration.parent)
       && (declaration.parent.flags & ts.NodeFlags.Const) !== 0;
     const receiver = ts.isVariableDeclaration(declaration) ? declaration.initializer : undefined;
-    return name === 'agent' || name === 'llm'
-      ? { method: name, args: [], auditable: immutable && !!receiver && receiverAuditable(receiver, checker) }
+    if (name === 'agent' || name === 'llm') {
+      return { method: name, args: [], auditable: immutable && !!receiver && receiverAuditable(receiver, checker) };
+    }
+    return binding.propertyName && ts.isComputedPropertyName(binding.propertyName)
+      && !!receiver && receiverAuditable(receiver, checker)
+      ? { method: 'agent', args: [], auditable: false }
       : undefined;
   }
   const initializer = variableInitializer(expression, checker, seen);

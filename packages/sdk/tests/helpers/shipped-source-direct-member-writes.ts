@@ -1,6 +1,7 @@
 import ts from 'typescript';
 import {
   assignmentMayStoreRight,
+  bindingSource,
   type BindingPathSegment,
   type BindingRest,
 } from './shipped-source-binding-provenance.js';
@@ -43,24 +44,48 @@ function canonicalArrayIndex(segment: BindingPathSegment): number | undefined {
   return /^(?:0|[1-9]\d*)$/u.test(segment) ? Number(segment) : undefined;
 }
 
+function directMemberPaths(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen = new Set<ts.Symbol>(),
+): Array<{ path: BindingPathSegment[]; symbol: ts.Symbol }> {
+  expression = unwrap(expression);
+  if (ts.isIdentifier(expression)) {
+    const symbol = checker.getSymbolAtLocation(expression);
+    if (!symbol) return [];
+    const paths = [{ path: [] as BindingPathSegment[], symbol }];
+    if (seen.has(symbol)) return paths;
+    const nextSeen = new Set(seen).add(symbol);
+    const add = (candidate: ts.Expression | undefined, suffix: BindingPathSegment[] = []): void => {
+      if (!candidate) return;
+      for (const parent of directMemberPaths(candidate, checker, new Set(nextSeen))) {
+        paths.push({ ...parent, path: [...parent.path, ...suffix] });
+      }
+    };
+    const binding = symbol.declarations?.find(ts.isBindingElement);
+    if (binding) {
+      const source = bindingSource(binding, checker, new Set(nextSeen));
+      if (source) add(source.initializer, source.path);
+      add(binding.initializer);
+    }
+    add(symbol.declarations?.find(ts.isVariableDeclaration)?.initializer);
+    return paths;
+  }
+  if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return [];
+  const segment = ts.isPropertyAccessExpression(expression)
+    ? expression.name.text
+    : expression.argumentExpression
+      ? staticPropertySegment(expression.argumentExpression, checker, new Set(seen))
+      : undefined;
+  return segment === undefined ? [] : directMemberPaths(expression.expression, checker, seen)
+    .map(parent => ({ ...parent, path: [...parent.path, segment] }));
+}
+
 export function directMemberPath(
   expression: ts.Expression,
   checker: ts.TypeChecker,
 ): { path: BindingPathSegment[]; symbol: ts.Symbol } | undefined {
-  expression = unwrap(expression);
-  if (ts.isIdentifier(expression)) {
-    const symbol = checker.getSymbolAtLocation(expression);
-    return symbol ? { path: [], symbol } : undefined;
-  }
-  if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return undefined;
-  const parent = directMemberPath(expression.expression, checker);
-  if (!parent) return undefined;
-  const segment = ts.isPropertyAccessExpression(expression)
-    ? expression.name.text
-    : expression.argumentExpression
-      ? staticPropertySegment(expression.argumentExpression, checker, new Set([parent.symbol]))
-      : undefined;
-  return segment === undefined ? undefined : { ...parent, path: [...parent.path, segment] };
+  return directMemberPaths(expression, checker)[0];
 }
 
 function sourcesAtTarget(
@@ -70,9 +95,14 @@ function sourcesAtTarget(
   sourcePath: BindingPathSegment[] = [],
 ): IndexedDirectMemberAssignedSource[] {
   target = unwrap(target);
-  const member = directMemberPath(target, checker);
-  if (member && member.path.length > 0) {
-    return [{ initializer: value, path: member.path, sourcePath, symbol: member.symbol }];
+  const members = directMemberPaths(target, checker).filter(member => member.path.length > 0);
+  if (members.length > 0) {
+    return members.map(member => ({
+      initializer: value,
+      path: member.path,
+      sourcePath,
+      symbol: member.symbol,
+    }));
   }
   if (ts.isBinaryExpression(target) && target.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
     return [
@@ -173,37 +203,38 @@ export function directAssignedMemberValues(
   checker: ts.TypeChecker,
   seen: Set<ts.Symbol>,
 ): Array<{ value: ts.Expression; auditable: false }> {
-  const target = directMemberPath(expression, checker);
-  if (!target || target.path.length === 0) return [];
-  return directMemberAssignedSources(target.symbol, checker).flatMap(source => {
-    if (source.path.length > target.path.length
-      || source.path.some((segment, index) => String(segment) !== String(target.path[index]))) return [];
-    const sourceValue = source.sourcePath.length === 0
-      ? { value: source.initializer }
-      : aggregateValueAtPath(
-          source.initializer,
-          source.sourcePath,
-          checker,
-          new Set(seen).add(target.symbol),
-        );
-    if (!sourceValue) return [];
-    let remainder = target.path.slice(source.path.length);
-    if (source.rest?.kind === 'object') {
-      const name = remainder[0];
-      if (name === undefined || source.rest.excluded.includes(String(name))) return [];
-    }
-    if (source.rest?.kind === 'array') {
-      const index = remainder[0] === undefined ? undefined : canonicalArrayIndex(remainder[0]);
-      if (index === undefined) return [];
-      remainder = [source.rest.start + index, ...remainder.slice(1)];
-    }
-    if (remainder.length === 0) return [{ value: sourceValue.value, auditable: false as const }];
-    const candidate = aggregateValueAtPath(
-      sourceValue.value,
-      remainder,
-      checker,
-      new Set(seen).add(target.symbol),
-    );
-    return candidate ? [{ value: candidate.value, auditable: false as const }] : [];
+  return directMemberPaths(expression, checker).flatMap(target => {
+    if (target.path.length === 0 || seen.has(target.symbol)) return [];
+    return directMemberAssignedSources(target.symbol, checker).flatMap(source => {
+      if (source.path.length > target.path.length
+        || source.path.some((segment, index) => String(segment) !== String(target.path[index]))) return [];
+      const sourceValue = source.sourcePath.length === 0
+        ? { value: source.initializer }
+        : aggregateValueAtPath(
+            source.initializer,
+            source.sourcePath,
+            checker,
+            new Set(seen).add(target.symbol),
+          );
+      if (!sourceValue) return [];
+      let remainder = target.path.slice(source.path.length);
+      if (source.rest?.kind === 'object') {
+        const name = remainder[0];
+        if (name === undefined || source.rest.excluded.includes(String(name))) return [];
+      }
+      if (source.rest?.kind === 'array') {
+        const index = remainder[0] === undefined ? undefined : canonicalArrayIndex(remainder[0]);
+        if (index === undefined) return [];
+        remainder = [source.rest.start + index, ...remainder.slice(1)];
+      }
+      if (remainder.length === 0) return [{ value: sourceValue.value, auditable: false as const }];
+      const candidate = aggregateValueAtPath(
+        sourceValue.value,
+        remainder,
+        checker,
+        new Set(seen).add(target.symbol),
+      );
+      return candidate ? [{ value: candidate.value, auditable: false as const }] : [];
+    });
   });
 }
