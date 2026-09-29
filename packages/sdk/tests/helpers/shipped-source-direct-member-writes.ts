@@ -11,6 +11,7 @@ import {
   staticPropertySegment,
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
+import { localCallTargetPaths } from './shipped-source-local-call-targets.js';
 import { staticPropertySegments } from './shipped-source-static-property-segments.js';
 
 interface DirectMemberAssignedSource {
@@ -90,6 +91,14 @@ function directMemberPaths(
     add(variable?.initializer);
     return paths;
   }
+  if (ts.isCallExpression(expression)) {
+    return localCallTargetPaths(
+      expression,
+      checker,
+      seen,
+      (candidate, nextSeen) => directMemberPaths(candidate, checker, nextSeen),
+    );
+  }
   if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return [];
   const segment = ts.isPropertyAccessExpression(expression)
     ? expression.name.text
@@ -111,7 +120,13 @@ function directWriteMemberPaths(
   const segments = ts.isPropertyAccessExpression(expression)
     ? [expression.name.text]
     : expression.argumentExpression
-      ? staticPropertySegments(expression.argumentExpression, checker, new Set())
+      ? staticPropertySegments(
+          expression.argumentExpression,
+          checker,
+          new Set(),
+          (candidate, seen) => directAssignedMemberValues(candidate, checker, seen)
+            .map(value => value.value),
+        )
       : [];
   if (segments.length === 0) return paths;
   if (ts.isElementAccessExpression(expression) && expression.argumentExpression) {

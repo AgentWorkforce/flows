@@ -17,12 +17,7 @@ import {
   directMemberPath,
 } from './shipped-source-direct-member-writes.js';
 import { intrinsicInvocationArgumentCandidates } from './shipped-source-intrinsic-invocations.js';
-import {
-  bindingNamePaths,
-  canonicalArrayIndex,
-  isStaticallyUndefined,
-  localCallArgumentCandidates,
-} from './shipped-source-local-call-arguments.js';
+import { localCallTargetPaths } from './shipped-source-local-call-targets.js';
 import { returnedExpressions } from './shipped-source-return-values.js';
 
 export interface ReflectiveMemberAssignedSource {
@@ -50,22 +45,6 @@ function propertyName(
   if (ts.isStringLiteralLike(name.expression)) return name.expression.text;
   const segment = staticPropertySegment(name.expression, checker, new Set());
   return segment === undefined ? undefined : String(segment);
-}
-
-function memberPathsAtActual(
-  actual: ts.Expression,
-  sourcePath: readonly BindingPathSegment[],
-  suffix: readonly BindingPathSegment[],
-  checker: ts.TypeChecker,
-  seen: Set<ts.Symbol>,
-): Array<{ path: BindingPathSegment[]; symbol: ts.Symbol }> {
-  const value = sourcePath.length === 0
-    ? { value: actual }
-    : aggregateValueAtPath(actual, sourcePath, checker, new Set(seen));
-  return value
-    ? memberAssignmentPaths(value.value, checker, new Set(seen))
-      .map(parent => ({ ...parent, path: [...parent.path, ...suffix] }))
-    : [];
 }
 
 function memberAssignmentPaths(
@@ -105,63 +84,12 @@ function memberAssignmentPaths(
     return paths;
   }
   if (ts.isCallExpression(expression)) {
-    const declaration = checker.getResolvedSignature(expression)?.declaration;
-    if (!declaration || !ts.isFunctionLike(declaration) || !('body' in declaration)) return [];
-    const actualCandidates = localCallArgumentCandidates(expression.arguments, checker);
-    return actualCandidates.flatMap(actuals => returnedExpressions(declaration.body).flatMap(returned =>
-      memberAssignmentPaths(returned, checker, new Set(seen)).flatMap(returnedMember => {
-        const mapped = declaration.parameters.flatMap((parameter, parameterIndex) =>
-          bindingNamePaths(parameter.name, returnedMember.symbol, checker).flatMap(formal => {
-            if (parameter.dotDotDotToken) {
-              const formalOffset = formal.path[0];
-              const returnedOffset = returnedMember.path[0];
-              const offset = formal.rest?.kind === 'array'
-                ? returnedOffset
-                : formalOffset ?? returnedOffset;
-              const index = offset === undefined ? undefined : canonicalArrayIndex(offset);
-              const sourcePath = formalOffset === undefined ? formal.path : formal.path.slice(1);
-              const suffix = formalOffset === undefined
-                ? returnedMember.path.slice(1)
-                : returnedMember.path;
-              const restStart = formal.rest?.kind === 'array' ? formal.rest.start : 0;
-              const actual = index !== undefined
-                ? actuals[parameterIndex + restStart + index]
-                : undefined;
-              return actual && !ts.isSpreadElement(actual)
-                ? memberPathsAtActual(actual, sourcePath, suffix, checker, seen)
-                : [];
-            }
-            const supplied = actuals[parameterIndex];
-            const actual = !supplied || isStaticallyUndefined(supplied, checker)
-              ? parameter.initializer
-              : supplied;
-            if (formal.rest?.kind === 'array') {
-              const [offset, ...suffix] = returnedMember.path;
-              const index = offset === undefined ? undefined : canonicalArrayIndex(offset);
-              return actual && index !== undefined && !ts.isSpreadElement(actual)
-                ? memberPathsAtActual(
-                    actual,
-                    [...formal.path, formal.rest.start + index],
-                    suffix,
-                    checker,
-                    seen,
-                  )
-                : [];
-            }
-            if (formal.rest?.kind === 'object') {
-              const [member, ...suffix] = returnedMember.path;
-              return actual && member !== undefined
-                && !formal.rest.excluded.includes(String(member))
-                && !ts.isSpreadElement(actual)
-                ? memberPathsAtActual(actual, [...formal.path, member], suffix, checker, seen)
-                : [];
-            }
-            return actual && !ts.isSpreadElement(actual)
-              ? memberPathsAtActual(actual, formal.path, returnedMember.path, checker, seen)
-              : [];
-          }));
-        return mapped.length > 0 ? mapped : [returnedMember];
-      })));
+    return localCallTargetPaths(
+      expression,
+      checker,
+      seen,
+      (candidate, nextSeen) => memberAssignmentPaths(candidate, checker, nextSeen),
+    );
   }
   if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return [];
   const segment = ts.isPropertyAccessExpression(expression)

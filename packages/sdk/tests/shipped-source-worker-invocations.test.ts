@@ -309,10 +309,13 @@ describe('shipped-source worker invocation resolution', () => {
         { const box: any = {}; let key: string; ({ key } = { key: 'run' }); box[key] = f.agent; box.run('review', { task: 'x' }); }
         { const box: any = {}; let key: string; [key] = ['run']; box[key] = f.agent; box.run('review', { task: 'x' }); }
         { const box: any = {}; let key: string; if (flag) key = 'run'; else key = 'other'; box[key] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; function id(value: any) { return value; } const alias = id(box); alias.run = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}, keys: any = {}; keys.value = 'run'; box[keys.value] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; function id(...[skip, ...[value]]: any[]) { return value; } Object.assign(id(undefined, box), { run: f.agent }); box.run('review', { task: 'x' }); }
       `);
       const formalAndReceiverResult = scanTypeScript(formalAndReceiverRepairs);
-      expect(formalAndReceiverResult.calls).toBe(26);
-      expect(formalAndReceiverResult.missing).toHaveLength(26);
+      expect(formalAndReceiverResult.calls).toBe(29);
+      expect(formalAndReceiverResult.missing).toHaveLength(29);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `

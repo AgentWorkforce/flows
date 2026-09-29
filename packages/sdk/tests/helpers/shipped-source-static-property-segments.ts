@@ -10,6 +10,11 @@ import {
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
 
+type MemberValueCandidates = (
+  expression: ts.Expression,
+  seen: Set<ts.Symbol>,
+) => ts.Expression[];
+
 function unwrap(expression: ts.Expression): ts.Expression {
   while (ts.isParenthesizedExpression(expression)
     || ts.isAsExpression(expression)
@@ -23,22 +28,32 @@ export function staticPropertySegments(
   expression: ts.Expression,
   checker: ts.TypeChecker,
   seen: Set<ts.Symbol>,
+  memberValueCandidates?: MemberValueCandidates,
 ): BindingPathSegment[] {
   const exact = staticPropertySegment(expression, checker, new Set(seen));
   if (exact !== undefined) return [exact];
   expression = unwrap(expression);
   const branches = wrappedExpressionBranches(expression);
   if (branches) return [...new Set(branches.flatMap(branch =>
-    staticPropertySegments(branch, checker, new Set(seen))))];
-  if (!ts.isIdentifier(expression)) return [];
+    staticPropertySegments(branch, checker, new Set(seen), memberValueCandidates)))];
+  if (!ts.isIdentifier(expression)) {
+    return [...new Set((memberValueCandidates?.(expression, new Set(seen)) ?? []).flatMap(candidate =>
+      staticPropertySegments(candidate, checker, new Set(seen), memberValueCandidates)))];
+  }
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return [];
   const nextSeen = new Set(seen).add(symbol);
   const values: BindingPathSegment[] = [];
   const add = (candidate: ts.Expression | undefined): void => {
     if (!candidate) return;
-    const value = staticPropertySegment(candidate, checker, new Set(nextSeen));
-    if (value !== undefined && !values.includes(value)) values.push(value);
+    for (const value of staticPropertySegments(
+      candidate,
+      checker,
+      new Set(nextSeen),
+      memberValueCandidates,
+    )) {
+      if (!values.includes(value)) values.push(value);
+    }
   };
   for (const source of assignedSources(symbol, checker)) {
     if (source.rest || source.initializer.getStart() >= expression.getStart()) continue;
