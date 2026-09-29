@@ -15,6 +15,8 @@ type MemberValueCandidates = (
   seen: Set<ts.Symbol>,
 ) => ts.Expression[];
 
+type SeenMemberPaths = Map<ts.Symbol, Set<string>>;
+
 function unwrap(expression: ts.Expression): ts.Expression {
   while (ts.isParenthesizedExpression(expression)
     || ts.isAsExpression(expression)
@@ -75,28 +77,55 @@ function aggregateMemberCandidates(
   return values;
 }
 
+function cloneSeenMemberPaths(seen: SeenMemberPaths): SeenMemberPaths {
+  return new Map([...seen].map(([symbol, paths]) => [symbol, new Set(paths)]));
+}
+
+function memberPathKey(path: readonly BindingPathSegment[]): string {
+  return path.map(segment => `${typeof segment}:${String(segment)}`).join('/');
+}
+
 export function staticPropertySegments(
   expression: ts.Expression,
   checker: ts.TypeChecker,
   seen: Set<ts.Symbol>,
   memberValueCandidates?: MemberValueCandidates,
+  seenMemberPaths: SeenMemberPaths = new Map(),
 ): BindingPathSegment[] {
   const exact = staticPropertySegment(expression, checker, new Set(seen));
   if (exact !== undefined) return [exact];
   expression = unwrap(expression);
   const branches = wrappedExpressionBranches(expression);
   if (branches) return [...new Set(branches.flatMap(branch =>
-    staticPropertySegments(branch, checker, new Set(seen), memberValueCandidates)))];
+    staticPropertySegments(
+      branch,
+      checker,
+      new Set(seen),
+      memberValueCandidates,
+      cloneSeenMemberPaths(seenMemberPaths),
+    )))];
   if (!ts.isIdentifier(expression)) {
     const member = memberRootPath(expression, checker, seen);
-    if (member && seen.has(member.symbol)) return [];
+    const key = member ? memberPathKey(member.path) : undefined;
+    if (member && key !== undefined && seenMemberPaths.get(member.symbol)?.has(key)) return [];
     const candidates = [
       ...(member ? aggregateMemberCandidates(expression, member, checker, seen) : []),
       ...(memberValueCandidates?.(expression, new Set(seen)) ?? []),
     ];
-    const nextSeen = member ? new Set(seen).add(member.symbol) : new Set(seen);
+    const nextSeenMembers = cloneSeenMemberPaths(seenMemberPaths);
+    if (member && key !== undefined) {
+      const paths = nextSeenMembers.get(member.symbol) ?? new Set<string>();
+      paths.add(key);
+      nextSeenMembers.set(member.symbol, paths);
+    }
     return [...new Set(candidates.flatMap(candidate =>
-      staticPropertySegments(candidate, checker, new Set(nextSeen), memberValueCandidates)))];
+      staticPropertySegments(
+        candidate,
+        checker,
+        new Set(seen),
+        memberValueCandidates,
+        cloneSeenMemberPaths(nextSeenMembers),
+      )))];
   }
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return [];
@@ -109,6 +138,7 @@ export function staticPropertySegments(
       checker,
       new Set(nextSeen),
       memberValueCandidates,
+      cloneSeenMemberPaths(seenMemberPaths),
     )) {
       if (!values.includes(value)) values.push(value);
     }

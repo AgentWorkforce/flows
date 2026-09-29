@@ -109,6 +109,16 @@ function directMemberPaths(
       ? staticPropertySegment(expression.argumentExpression, checker, new Set(seen))
       : undefined;
   if (segment === undefined) return [];
+  const receiver = unwrap(expression.expression);
+  if (ts.isCallExpression(receiver)) {
+    return localCallTargetPaths(
+      receiver,
+      checker,
+      seen,
+      (candidate, nextSeen) => directMemberPaths(candidate, checker, nextSeen),
+      [segment],
+    );
+  }
   return directMemberPaths(expression.expression, checker, seen)
     .map(parent => ({ ...parent, path: [...parent.path, segment] }));
 }

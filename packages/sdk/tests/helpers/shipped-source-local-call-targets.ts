@@ -48,7 +48,8 @@ function arrayBindingSelection(
   const relativeFormal = formalPath.slice(rest.prefixLength);
   const formalOffset = relativeFormal[0];
   const returnedOffset = returnedPath[0];
-  const relativeOffset = formalOffset ?? returnedOffset ?? 0;
+  const relativeOffset = formalOffset ?? returnedOffset;
+  if (relativeOffset === undefined) return undefined;
   const index = canonicalArrayIndex(relativeOffset);
   if (index === undefined) return undefined;
   return {
@@ -68,18 +69,20 @@ export function localCallTargetPaths(
   checker: ts.TypeChecker,
   seen: Set<ts.Symbol>,
   resolve: ResolveTargetPaths,
+  callerPath: readonly BindingPathSegment[] = [],
 ): LocalCallTargetPath[] {
   const declaration = checker.getResolvedSignature(expression)?.declaration;
   if (!declaration || !ts.isFunctionLike(declaration) || !('body' in declaration)) return [];
   const actualCandidates = localCallArgumentCandidates(expression.arguments, checker);
   return actualCandidates.flatMap(actuals => returnedExpressions(declaration.body).flatMap(returned =>
     resolve(returned, new Set(seen)).flatMap(returnedMember => {
+      const returnedPath = [...returnedMember.path, ...callerPath];
       const mapped = declaration.parameters.flatMap((parameter, parameterIndex) =>
         bindingNamePaths(parameter.name, returnedMember.symbol, checker).flatMap(formal => {
           if (parameter.dotDotDotToken) {
             const selection = arrayBindingSelection(
               formal.path,
-              returnedMember.path,
+              returnedPath,
               formal.rest?.kind === 'array'
                 ? formal.rest
                 : { prefixLength: 0, start: 0 },
@@ -107,7 +110,7 @@ export function localCallTargetPaths(
             if (!actual || ts.isSpreadElement(actual)) return [];
             const selection = arrayBindingSelection(
               formal.path,
-              returnedMember.path,
+              returnedPath,
               formal.rest,
             );
             return !selection
@@ -122,7 +125,7 @@ export function localCallTargetPaths(
                 );
           }
           if (formal.rest?.kind === 'object') {
-            const [member, ...suffix] = returnedMember.path;
+            const [member, ...suffix] = returnedPath;
             return actual && member !== undefined
               && !formal.rest.excluded.includes(String(member))
               && !ts.isSpreadElement(actual)
@@ -140,13 +143,13 @@ export function localCallTargetPaths(
             ? pathsAtActual(
                 actual,
                 formal.path,
-                returnedMember.path,
+                returnedPath,
                 checker,
                 seen,
                 resolve,
               )
             : [];
         }));
-      return mapped.length > 0 ? mapped : [returnedMember];
+      return mapped.length > 0 ? mapped : [{ ...returnedMember, path: returnedPath }];
     })));
 }

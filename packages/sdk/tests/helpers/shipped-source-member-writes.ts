@@ -98,8 +98,17 @@ function memberAssignmentPaths(
       ? staticPropertySegment(expression.argumentExpression, checker, new Set(seen))
       : undefined;
   if (segment === undefined) return [];
-  const paths = memberAssignmentPaths(expression.expression, checker, seen)
-    .map(parent => ({ ...parent, path: [...parent.path, segment] }));
+  const receiver = unwrap(expression.expression);
+  const paths = ts.isCallExpression(receiver)
+    ? localCallTargetPaths(
+        receiver,
+        checker,
+        seen,
+        (candidate, nextSeen) => memberAssignmentPaths(candidate, checker, nextSeen),
+        [segment],
+      )
+    : memberAssignmentPaths(expression.expression, checker, seen)
+      .map(parent => ({ ...parent, path: [...parent.path, segment] }));
   paths.push(...directMemberAliasPaths(expression, checker));
   return paths;
 }
