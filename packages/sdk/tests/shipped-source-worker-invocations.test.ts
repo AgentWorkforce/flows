@@ -163,6 +163,8 @@ describe('shipped-source worker invocation resolution', () => {
         function composedCalledReflectApplyWorker() { const invoke = Reflect.apply.call.bind(Reflect.apply); invoke(Reflect, f.agent, f, ['review', { task: 'x' }]); }
         function composedAppliedReflectApplyWorker() { const invoke = Reflect.apply.apply.bind(Reflect.apply); invoke(Reflect, [f.agent, f, ['review', { task: 'x' }]]); }
         function recursiveReflectApplyCallWorker() { Reflect.apply.call.call(Reflect.apply, Reflect, f.agent, f, ['review', { task: 'x' }]); }
+        function preboundCalledReflectApplyWorker() { const invoke = Reflect.apply.bind(Reflect, f.agent); invoke.call(null, f, ['review', { task: 'x' }]); }
+        function preboundAppliedReflectApplyWorker() { const invoke = Reflect.apply.bind(Reflect, f.agent); invoke.apply(null, [f, ['review', { task: 'x' }]]); }
         function assignedDestructuredReflectApplyWorker() { let apply: any; ({ apply } = Reflect); apply(f.agent, f, ['review', { task: 'x' }]); }
         function assignedComputedReflectApplyWorker() { const key = 'apply' as const; let apply: any; ({ [key]: apply } = Reflect); apply(f.agent, f, ['review', { task: 'x' }]); }
         function forwardedWorker() { const invoke = (run: (...args: any[]) => void, ...args: any[]) => run(...args); invoke(f.agent, 'review', { task: 'x' }); }
@@ -182,6 +184,9 @@ describe('shipped-source worker invocation resolution', () => {
         function objectRestAssignedWorker() { let workers: any; ({ ...workers } = { run: f.agent }); workers.run('review', { task: 'x' }); }
         function laterObjectAssignedWorker() { let worker: any; worker = { run: () => undefined }; worker = { run: f.agent }; worker.run('review', { task: 'x' }); }
         function laterArrayRestAssignedWorker() { let workers: any; [...workers] = [() => undefined]; [...workers] = [f.agent]; workers[0]('review', { task: 'x' }); }
+        function laterSafeObjectAssignedWorker() { let worker: any; worker = { run: f.agent }; worker.run('review', { task: 'x' }); worker = { run: () => undefined }; }
+        function laterSafeArrayRestAssignedWorker() { let workers: any; [...workers] = [f.agent]; workers[0]('review', { task: 'x' }); [...workers] = [() => undefined]; }
+        function branchedObjectAssignedWorker(flag: boolean) { let worker: any; if (flag) worker = { run: f.agent }; else worker = { run: () => undefined }; worker.run('review', { task: 'x' }); }
         function reassignedObjectBindingWorker() { let { workers } = { workers: { run: () => undefined } }; ({ workers } = { workers: { run: f.agent } }); workers.run('review', { task: 'x' }); }
         function reassignedArrayBindingWorker() { let [slots] = [[() => undefined]]; [slots] = [[f.agent]]; slots[0]('review', { task: 'x' }); }
         function assignedDestructuredWorker() { let { run } = { run: () => undefined }; run = f.agent; run('review', { task: 'x' }); }
@@ -190,8 +195,8 @@ describe('shipped-source worker invocation resolution', () => {
         async function wrappedWorkerAliases() { const conditionalRun = flag ? f.agent : f.agent, logicalRun = (flag && f.agent) || f.agent, nullishRun = f.agent ?? f.agent, commaRun = (flag, f.agent), awaitRun = await f.agent; conditionalRun('review', { task: 'x' }); logicalRun('review', { task: 'x' }); nullishRun('review', { task: 'x' }); commaRun('review', { task: 'x' }); awaitRun('review', { task: 'x' }); }
       `);
       const variableAliasResult = scanTypeScript(variableAliases);
-      expect(variableAliasResult.calls).toBe(165);
-      expect(variableAliasResult.missing).toHaveLength(165);
+      expect(variableAliasResult.calls).toBe(170);
+      expect(variableAliasResult.missing).toHaveLength(170);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `

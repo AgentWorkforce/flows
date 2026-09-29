@@ -6,6 +6,7 @@ import {
 } from './shipped-source-binding-provenance.js';
 import {
   aggregateExpressionValue,
+  aggregateExpressionValues,
   aggregateValueAtPath,
   staticArrayElements,
   staticCallArguments,
@@ -86,9 +87,11 @@ function aggregateResult<T extends { auditable: boolean }>(
   resolve: (value: ts.Expression, seen: Set<ts.Symbol>) => T | undefined,
 ): T | undefined {
   const memberSeen = new Set(seen);
-  const member = aggregateExpressionValue(expression, checker, memberSeen);
-  const result = member ? resolve(member.value, memberSeen) : undefined;
-  return result ? { ...result, auditable: false } : undefined;
+  for (const member of aggregateExpressionValues(expression, checker, memberSeen)) {
+    const result = resolve(member.value, new Set(memberSeen));
+    if (result) return { ...result, auditable: false };
+  }
+  return undefined;
 }
 
 

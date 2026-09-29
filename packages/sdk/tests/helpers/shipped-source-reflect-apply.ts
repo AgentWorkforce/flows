@@ -15,8 +15,10 @@ import {
 import { referencesGlobalMember } from './shipped-source-global-provenance.js';
 
 interface ReflectApplyCallable {
-  helpers: Array<'apply' | 'call'>;
-  prebound: ts.Expression[];
+  operations: Array<
+    | { kind: 'apply' | 'call' }
+    | { kind: 'bind'; args: ts.Expression[] }
+  >;
 }
 
 function unwrap(expression: ts.Expression): ts.Expression {
@@ -42,7 +44,7 @@ function reflectApplyCallable(
 ): ReflectApplyCallable | undefined {
   expression = unwrap(expression);
   if (referencesGlobalMember(expression, 'Reflect', 'apply', checker, new Set(seen))) {
-    return { helpers: [], prebound: [] };
+    return { operations: [] };
   }
   const branches = wrappedExpressionBranches(expression);
   if (branches) {
@@ -61,7 +63,7 @@ function reflectApplyCallable(
     const callable = reflectApplyCallable(receiver, checker, new Set(seen));
     if (callable) return {
       ...callable,
-      helpers: [...callable.helpers, operation],
+      operations: [...callable.operations, { kind: operation }],
     };
   }
   if (ts.isCallExpression(expression)) {
@@ -72,7 +74,10 @@ function reflectApplyCallable(
       const args = staticCallArguments(expression.arguments, checker);
       if (callable && args) return {
         ...callable,
-        prebound: [...callable.prebound, ...args.values.slice(1)],
+        operations: [
+          ...callable.operations,
+          { kind: 'bind', args: args.values.slice(1) },
+        ],
       };
     }
     return undefined;
@@ -108,9 +113,13 @@ function invokeReflectApplyCallable(
   args: readonly ts.Expression[],
   checker: ts.TypeChecker,
 ): readonly ts.Expression[] | undefined {
-  let invoked = [...callable.prebound, ...args];
-  for (const helper of [...callable.helpers].reverse()) {
-    if (helper === 'call') {
+  let invoked = [...args];
+  for (const operation of [...callable.operations].reverse()) {
+    if (operation.kind === 'bind') {
+      invoked = [...operation.args, ...invoked];
+      continue;
+    }
+    if (operation.kind === 'call') {
       invoked = invoked.slice(1);
       continue;
     }
