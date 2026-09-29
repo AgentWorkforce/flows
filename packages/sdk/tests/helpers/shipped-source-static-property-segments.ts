@@ -5,10 +5,12 @@ import {
   type BindingPathSegment,
 } from './shipped-source-binding-provenance.js';
 import {
+  aggregateMemberValue,
   aggregateValueAtPath,
   staticPropertySegment,
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
+import { returnedExpressions } from './shipped-source-return-values.js';
 
 type MemberValueCandidates = (
   expression: ts.Expression,
@@ -26,25 +28,51 @@ function unwrap(expression: ts.Expression): ts.Expression {
   return expression;
 }
 
-function memberRootPath(
+function memberRootPaths(
   expression: ts.Expression,
   checker: ts.TypeChecker,
   seen: Set<ts.Symbol>,
-): { path: BindingPathSegment[]; symbol: ts.Symbol } | undefined {
+): Array<{ path: BindingPathSegment[]; symbol: ts.Symbol }> {
   expression = unwrap(expression);
+  const branches = wrappedExpressionBranches(expression);
+  if (branches) return branches.flatMap(branch => memberRootPaths(branch, checker, new Set(seen)));
   if (ts.isIdentifier(expression)) {
     const symbol = checker.getSymbolAtLocation(expression);
-    return symbol ? { path: [], symbol } : undefined;
+    return symbol ? [{ path: [], symbol }] : [];
   }
-  if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return undefined;
-  const parent = memberRootPath(expression.expression, checker, seen);
-  if (!parent) return undefined;
+  if (ts.isCallExpression(expression)) {
+    const declaration = checker.getResolvedSignature(expression)?.declaration;
+    const symbol = checker.getSymbolAtLocation(unwrap(expression.expression));
+    if (!declaration || !ts.isFunctionLike(declaration) || !('body' in declaration)
+      || (symbol && seen.has(symbol))) return [];
+    const nextSeen = symbol ? new Set(seen).add(symbol) : new Set(seen);
+    return returnedExpressions(declaration.body).flatMap(returned =>
+      memberRootPaths(returned, checker, new Set(nextSeen)));
+  }
+  if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return [];
   const segment = ts.isPropertyAccessExpression(expression)
     ? expression.name.text
     : expression.argumentExpression
       ? staticPropertySegment(expression.argumentExpression, checker, new Set(seen))
       : undefined;
-  return segment === undefined ? undefined : { ...parent, path: [...parent.path, segment] };
+  return segment === undefined ? [] : memberRootPaths(expression.expression, checker, seen)
+    .map(parent => ({ ...parent, path: [...parent.path, segment] }));
+}
+
+function aggregateValuesAtPath(
+  expression: ts.Expression,
+  path: readonly BindingPathSegment[],
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): ts.Expression[] {
+  let values = [expression];
+  for (const segment of path) {
+    values = values.flatMap(value => {
+      const member = aggregateMemberValue(value, segment, checker, new Set(seen));
+      return member ? [member.value, ...(member.alternatives ?? [])] : [];
+    });
+  }
+  return values;
 }
 
 function aggregateMemberCandidates(
@@ -60,8 +88,7 @@ function aggregateMemberCandidates(
     path: readonly BindingPathSegment[] = member.path,
   ): void => {
     if (!initializer) return;
-    const candidate = aggregateValueAtPath(initializer, path, checker, new Set(nextSeen));
-    if (candidate) values.push(candidate.value);
+    values.push(...aggregateValuesAtPath(initializer, path, checker, new Set(nextSeen)));
   };
   for (const source of assignedSources(member.symbol, checker)) {
     if (source.rest || source.initializer.getStart() >= expression.getStart()) continue;
@@ -75,6 +102,21 @@ function aggregateMemberCandidates(
   }
   add(member.symbol.declarations?.find(ts.isVariableDeclaration)?.initializer);
   return values;
+}
+
+function localCallReturnCandidates(
+  expression: ts.CallExpression,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): { candidates: ts.Expression[]; seen: Set<ts.Symbol> } | undefined {
+  const declaration = checker.getResolvedSignature(expression)?.declaration;
+  const symbol = checker.getSymbolAtLocation(unwrap(expression.expression));
+  if (!declaration || !ts.isFunctionLike(declaration) || !('body' in declaration)
+    || (symbol && seen.has(symbol))) return undefined;
+  return {
+    candidates: returnedExpressions(declaration.body),
+    seen: symbol ? new Set(seen).add(symbol) : new Set(seen),
+  };
 }
 
 function cloneSeenMemberPaths(seen: SeenMemberPaths): SeenMemberPaths {
@@ -104,16 +146,29 @@ export function staticPropertySegments(
       memberValueCandidates,
       cloneSeenMemberPaths(seenMemberPaths),
     )))];
+  if (ts.isCallExpression(expression)) {
+    const returned = localCallReturnCandidates(expression, checker, seen);
+    if (returned) return [...new Set(returned.candidates.flatMap(candidate =>
+      staticPropertySegments(
+        candidate,
+        checker,
+        new Set(returned.seen),
+        memberValueCandidates,
+        cloneSeenMemberPaths(seenMemberPaths),
+      )))];
+  }
   if (!ts.isIdentifier(expression)) {
-    const member = memberRootPath(expression, checker, seen);
-    const key = member ? memberPathKey(member.path) : undefined;
-    if (member && key !== undefined && seenMemberPaths.get(member.symbol)?.has(key)) return [];
+    const discoveredMembers = memberRootPaths(expression, checker, seen);
+    const members = discoveredMembers.filter(member =>
+      !seenMemberPaths.get(member.symbol)?.has(memberPathKey(member.path)));
+    if (discoveredMembers.length > 0 && members.length === 0) return [];
     const candidates = [
-      ...(member ? aggregateMemberCandidates(expression, member, checker, seen) : []),
+      ...members.flatMap(member => aggregateMemberCandidates(expression, member, checker, seen)),
       ...(memberValueCandidates?.(expression, new Set(seen)) ?? []),
     ];
     const nextSeenMembers = cloneSeenMemberPaths(seenMemberPaths);
-    if (member && key !== undefined) {
+    for (const member of members) {
+      const key = memberPathKey(member.path);
       const paths = nextSeenMembers.get(member.symbol) ?? new Set<string>();
       paths.add(key);
       nextSeenMembers.set(member.symbol, paths);

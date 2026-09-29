@@ -322,10 +322,17 @@ describe('shipped-source worker invocation resolution', () => {
         { const box: any = {}, holder = { keys: { value: 'run' as const } }; box[holder.keys.value] = f.agent; box.run('review', { task: 'x' }); }
         { const box: any = {}, keys: any = {}; keys.b = 'run'; keys.a = keys.b; box[keys.a] = f.agent; box.run('review', { task: 'x' }); }
         { const box: any = {}; function id([skip, ...rest]: any[]) { return rest; } Object.assign(id([undefined, box])[0], { run: f.agent }); box.run('review', { task: 'x' }); }
+        { const box: any = {}; function id(value: any) { return value; } let alias: any; (alias = id(box)).run = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; function id(value: any) { return value; } let alias: any; (alias ||= id(box)).run = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; function key() { return 'run' as const; } box[key()] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; function id({ skip, ...rest }: any) { return rest; } Object.assign(id({ skip: 0, value: box }).value, { run: f.agent }); box.run('review', { task: 'x' }); }
+        { const box: any = {}, holder = { keys: flag ? { value: 'other' as const } : { value: 'run' as const } }; box[holder.keys.value] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}, holder = { keys: { value: 'run' as const } }; function get() { return holder; } box[get().keys.value] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}, first = { keys: { value: 'other' as const } }, second = { keys: { value: 'run' as const } }; box[(flag ? first : second).keys.value] = f.agent; box.run('review', { task: 'x' }); }
       `);
       const formalAndReceiverResult = scanTypeScript(formalAndReceiverRepairs);
-      expect(formalAndReceiverResult.calls).toBe(39);
-      expect(formalAndReceiverResult.missing).toHaveLength(39);
+      expect(formalAndReceiverResult.calls).toBe(46);
+      expect(formalAndReceiverResult.missing).toHaveLength(46);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `

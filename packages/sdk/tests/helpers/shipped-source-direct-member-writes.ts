@@ -57,6 +57,12 @@ function directMemberPaths(
   const branches = wrappedExpressionBranches(expression);
   if (branches) return branches.flatMap(candidate =>
     directMemberPaths(candidate, checker, new Set(seen)));
+  if (ts.isBinaryExpression(expression) && assignmentMayStoreRight(expression.operatorToken.kind)) {
+    const candidates = expression.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      ? [expression.right]
+      : [expression.left, expression.right];
+    return candidates.flatMap(candidate => directMemberPaths(candidate, checker, new Set(seen)));
+  }
   if (ts.isIdentifier(expression)) {
     const symbol = checker.getSymbolAtLocation(expression);
     if (!symbol) return [];
