@@ -113,11 +113,22 @@ function memberAssignmentPaths(
         const mapped = declaration.parameters.flatMap((parameter, parameterIndex) =>
           bindingNamePaths(parameter.name, returnedMember.symbol, checker).flatMap(formal => {
             if (parameter.dotDotDotToken) {
-              const [offset, ...suffix] = returnedMember.path;
+              const formalOffset = formal.path[0];
+              const returnedOffset = returnedMember.path[0];
+              const offset = formal.rest?.kind === 'array'
+                ? returnedOffset
+                : formalOffset ?? returnedOffset;
               const index = offset === undefined ? undefined : canonicalArrayIndex(offset);
-              const actual = index !== undefined ? actuals[parameterIndex + index] : undefined;
+              const sourcePath = formalOffset === undefined ? formal.path : formal.path.slice(1);
+              const suffix = formalOffset === undefined
+                ? returnedMember.path.slice(1)
+                : returnedMember.path;
+              const restStart = formal.rest?.kind === 'array' ? formal.rest.start : 0;
+              const actual = index !== undefined
+                ? actuals[parameterIndex + restStart + index]
+                : undefined;
               return actual && !ts.isSpreadElement(actual)
-                ? memberPathsAtActual(actual, formal.path, suffix, checker, seen)
+                ? memberPathsAtActual(actual, sourcePath, suffix, checker, seen)
                 : [];
             }
             const supplied = actuals[parameterIndex];

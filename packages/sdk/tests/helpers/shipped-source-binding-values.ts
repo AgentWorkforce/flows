@@ -81,9 +81,14 @@ export function staticPropertySegment(
       .filter((value): value is BindingPathSegment => value !== undefined) : [];
     if (values.length > 0 && values.every(value => value === values[0])) return values[0];
   }
-  const assigned = assignedSources(symbol, checker)
-    .filter(source => source.path.length === 0 && !source.rest)
-    .map(source => staticPropertySegment(source.initializer, checker, new Set(seen)))
+  const preceding = assignedSources(symbol, checker)
+    .filter(source => !source.rest && source.initializer.getStart() < expression.getStart());
+  const assigned = preceding
+    .map(source => source.path.length === 0
+      ? { value: source.initializer }
+      : aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)))
+    .filter((value): value is { value: ts.Expression } => value !== undefined)
+    .map(value => staticPropertySegment(value.value, checker, new Set(seen)))
     .filter((value): value is BindingPathSegment => value !== undefined);
   if (assigned.length > 0 && assigned.every(value => value === assigned[0])) return assigned[0];
   const declaration = symbol.declarations?.find(ts.isVariableDeclaration);

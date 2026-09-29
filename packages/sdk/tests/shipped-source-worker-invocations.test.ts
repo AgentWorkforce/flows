@@ -295,10 +295,24 @@ describe('shipped-source worker invocation resolution', () => {
         { const box: any = {}; let alias: any; ({ alias } = { alias: box }); alias.run = f.agent; box.run('review', { task: 'x' }); }
         { const box: any = {}, holder = { alias: box }; Object.assign(holder.alias, { run: f.agent }); box.run('review', { task: 'x' }); }
         { const box: any = {}; let key: string; key = 'run'; box[key] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}, other: any = {}; let alias: any = other; alias = box; alias.run = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; let alias: any = null; alias ||= box; alias.run = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; let holder: any = {}; holder = { alias: box }; holder.alias.run = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}, holder: any = {}; holder.alias = box; holder.alias.run = f.agent; box.run('review', { task: 'x' }); }
+        { const holder: any = { alias: {} }; const { alias } = holder; alias.run = f.agent; holder.alias.run('review', { task: 'x' }); }
+        { const box: any = {}; function id(...[{ value }]: any[]) { return value; } Object.assign(id({ value: box }), { run: f.agent }); box.run('review', { task: 'x' }); }
+        { const box: any = { nested: {} }; function id(...[{ value }]: any[]) { return value.nested; } Object.assign(id({ value: box }), { run: f.agent }); box.nested.run('review', { task: 'x' }); }
+        { const box: any = {}; function id(...[[value]]: any[]) { return value; } Object.assign(id([box]), { run: f.agent }); box.run('review', { task: 'x' }); }
+        { const box: any = {}; function id(...[skip, value]: any[]) { return value; } Object.assign(id(undefined, box), { run: f.agent }); box.run('review', { task: 'x' }); }
+        { const box: any = {}; function id([skip, ...[unused, ...rest]]: any[]) { return rest[0]; } Object.assign(id([undefined, undefined, box]), { run: f.agent }); box.run('review', { task: 'x' }); }
+        { const box: any = {}; let key: string; key = 'run'; box[key] = f.agent; key = 'other'; box.run('review', { task: 'x' }); }
+        { const box: any = {}; let key: string; ({ key } = { key: 'run' }); box[key] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; let key: string; [key] = ['run']; box[key] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; let key: string; if (flag) key = 'run'; else key = 'other'; box[key] = f.agent; box.run('review', { task: 'x' }); }
       `);
       const formalAndReceiverResult = scanTypeScript(formalAndReceiverRepairs);
-      expect(formalAndReceiverResult.calls).toBe(12);
-      expect(formalAndReceiverResult.missing).toHaveLength(12);
+      expect(formalAndReceiverResult.calls).toBe(26);
+      expect(formalAndReceiverResult.missing).toHaveLength(26);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `

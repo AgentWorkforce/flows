@@ -308,8 +308,22 @@ describe('shipped-source model provenance', () => {
         { const box: any = {}; let alias: any; ({ alias } = { alias: box }); alias.define = surface.flow; box.define('assigned-binding-receiver-alias', { budget: '$2' }, () => {}); }
         { const box: any = {}, holder = { alias: box }; Object.assign(holder.alias, { define: surface.flow }); box.define('reflective-member-receiver-alias', { budget: '$2' }, () => {}); }
         { const box: any = {}; let key: string; key = 'define'; box[key] = surface.flow; box.define('assigned-direct-key', { budget: '$2' }, () => {}); }
+        { const box: any = {}, other: any = {}; let alias: any = other; alias = box; alias.define = surface.flow; box.define('initialized-assigned-receiver', { budget: '$2' }, () => {}); }
+        { const box: any = {}; let alias: any = null; alias ||= box; alias.define = surface.flow; box.define('initialized-logical-receiver', { budget: '$2' }, () => {}); }
+        { const box: any = {}; let holder: any = {}; holder = { alias: box }; holder.alias.define = surface.flow; box.define('assigned-holder-receiver', { budget: '$2' }, () => {}); }
+        { const box: any = {}, holder: any = {}; holder.alias = box; holder.alias.define = surface.flow; box.define('assigned-member-receiver', { budget: '$2' }, () => {}); }
+        { const holder: any = { alias: {} }; const { alias } = holder; alias.define = surface.flow; holder.alias.define('binding-parent-path', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function id(...[{ value }]: any[]) { return value; } Object.assign(id({ value: box }), { define: surface.flow }); box.define('rest-object-pattern', { budget: '$2' }, () => {}); }
+        { const box: any = { nested: {} }; function id(...[{ value }]: any[]) { return value.nested; } Object.assign(id({ value: box }), { define: surface.flow }); box.nested.define('rest-object-pattern-suffix', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function id(...[[value]]: any[]) { return value; } Object.assign(id([box]), { define: surface.flow }); box.define('rest-array-pattern', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function id(...[skip, value]: any[]) { return value; } Object.assign(id(undefined, box), { define: surface.flow }); box.define('rest-pattern-index', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function id([skip, ...[unused, ...rest]]: any[]) { return rest[0]; } Object.assign(id([undefined, undefined, box]), { define: surface.flow }); box.define('nested-rest-offset', { budget: '$2' }, () => {}); }
+        { const box: any = {}; let key: string; key = 'define'; box[key] = surface.flow; key = 'other'; box.define('temporal-assigned-key', { budget: '$2' }, () => {}); }
+        { const box: any = {}; let key: string; ({ key } = { key: 'define' }); box[key] = surface.flow; box.define('object-assigned-key', { budget: '$2' }, () => {}); }
+        { const box: any = {}; let key: string; [key] = ['define']; box[key] = surface.flow; box.define('array-assigned-key', { budget: '$2' }, () => {}); }
+        { const box: any = {}; let key: string; if (flag) key = 'define'; else key = 'other'; box[key] = surface.flow; box.define('branched-assigned-key', { budget: '$2' }, () => {}); }
       `);
-      expect(scanTypeScript(formalAndReceiverRepairs).invalidFlowHeaders).toHaveLength(12);
+      expect(scanTypeScript(formalAndReceiverRepairs).invalidFlowHeaders).toHaveLength(26);
       const computedBindingCases = [
         `{ const original = 'flow' as const, key = original; const { [key]: define } = surface; define('renamed', { budget: '$2' }, () => {}); }`,
         `{ const { key } = { key: 'flow' as const }; const { [key]: define } = surface; define('binding', { budget: '$2' }, () => {}); }`,
@@ -421,11 +435,15 @@ describe('shipped-source model provenance', () => {
               - name: assess
                 type: agent
                 agent: lead
+              - name: assess-untyped-v1
+                agent: lead
+                task: inspect
       `) as Record<string, unknown>, 'drive-cloud.yaml');
-      expect(activeV1.calls).toBe(1);
+      expect(activeV1.calls).toBe(2);
       expect(activeV1.missing).toEqual([
         'drive-cloud.yaml:agent:lead has no explicit model',
         'drive-cloud.yaml:assess has no explicit model',
+        'drive-cloud.yaml:assess-untyped-v1 has no explicit model',
       ]);
     } finally {
       rmSync(directory, { recursive: true, force: true });

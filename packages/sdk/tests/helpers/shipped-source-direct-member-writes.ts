@@ -11,6 +11,7 @@ import {
   staticPropertySegment,
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
+import { staticPropertySegments } from './shipped-source-static-property-segments.js';
 
 interface DirectMemberAssignedSource {
   initializer: ts.Expression;
@@ -70,6 +71,7 @@ function directMemberPaths(
     if (binding) {
       const source = bindingSource(binding, checker, new Set(nextSeen));
       if (source) {
+        add(source.initializer, source.path);
         const candidate = source.path.length === 0
           ? { value: source.initializer }
           : aggregateValueAtPath(source.initializer, source.path, checker, new Set(nextSeen));
@@ -78,14 +80,12 @@ function directMemberPaths(
       add(binding.initializer);
     }
     const variable = symbol.declarations?.find(ts.isVariableDeclaration);
-    if (!variable?.initializer) {
-      for (const source of assignedSources(symbol, checker)) {
-        if (source.rest) continue;
-        const candidate = source.path.length === 0
-          ? { value: source.initializer }
-          : aggregateValueAtPath(source.initializer, source.path, checker, new Set(nextSeen));
-        add(candidate?.value);
-      }
+    for (const source of assignedSources(symbol, checker)) {
+      if (source.rest) continue;
+      const candidate = source.path.length === 0
+        ? { value: source.initializer }
+        : aggregateValueAtPath(source.initializer, source.path, checker, new Set(nextSeen));
+      add(candidate?.value);
     }
     add(variable?.initializer);
     return paths;
@@ -105,17 +105,23 @@ function directWriteMemberPaths(
   expression: ts.Expression,
   checker: ts.TypeChecker,
 ): Array<{ path: BindingPathSegment[]; symbol: ts.Symbol }> {
-  const paths = directMemberPaths(expression, checker);
+  let paths = directMemberPaths(expression, checker);
   expression = unwrap(expression);
   if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return paths;
-  const segment = ts.isPropertyAccessExpression(expression)
-    ? expression.name.text
+  const segments = ts.isPropertyAccessExpression(expression)
+    ? [expression.name.text]
     : expression.argumentExpression
-      ? staticPropertySegment(expression.argumentExpression, checker, new Set())
-      : undefined;
-  if (segment === undefined) return paths;
-  for (const parent of directMemberAliasPaths(expression.expression, checker)) {
-    paths.push({ ...parent, path: [...parent.path, segment] });
+      ? staticPropertySegments(expression.argumentExpression, checker, new Set())
+      : [];
+  if (segments.length === 0) return paths;
+  if (ts.isElementAccessExpression(expression) && expression.argumentExpression) {
+    paths = segments.flatMap(segment => directMemberPaths(expression.expression, checker)
+      .map(parent => ({ ...parent, path: [...parent.path, segment] })));
+  }
+  for (const segment of segments) {
+    for (const parent of directMemberAliasPaths(expression.expression, checker)) {
+      paths.push({ ...parent, path: [...parent.path, segment] });
+    }
   }
   return paths;
 }
@@ -131,6 +137,12 @@ export function directMemberAliasPaths(
     const binding = member.symbol.declarations?.find(ts.isBindingElement);
     const candidates: Array<{ expression: ts.Expression; path: BindingPathSegment[] }> = [];
     if (variable?.initializer) candidates.push({ expression: variable.initializer, path: member.path });
+    for (const source of assignedSources(member.symbol, checker)) {
+      if (!source.rest) candidates.push({
+        expression: source.initializer,
+        path: [...source.path, ...member.path],
+      });
+    }
     if (binding) {
       const source = bindingSource(binding, checker, new Set([member.symbol]));
       if (source) candidates.push({
@@ -140,6 +152,19 @@ export function directMemberAliasPaths(
     }
     for (const candidate of candidates) {
       const value = aggregateValueAtPath(candidate.expression, candidate.path, checker, new Set([member.symbol]));
+      if (value) aliases.push(...directMemberPaths(value.value, checker, new Set([member.symbol])));
+    }
+    for (const source of directMemberAssignedSources(member.symbol, checker)) {
+      if (source.path.length > member.path.length
+        || source.path.some((segment, index) => String(segment) !== String(member.path[index]))) continue;
+      const sourceValue = source.sourcePath.length === 0
+        ? { value: source.initializer }
+        : aggregateValueAtPath(source.initializer, source.sourcePath, checker, new Set([member.symbol]));
+      if (!sourceValue) continue;
+      const remainder = member.path.slice(source.path.length);
+      const value = remainder.length === 0
+        ? sourceValue
+        : aggregateValueAtPath(sourceValue.value, remainder, checker, new Set([member.symbol]));
       if (value) aliases.push(...directMemberPaths(value.value, checker, new Set([member.symbol])));
     }
   }

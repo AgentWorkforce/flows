@@ -48,7 +48,9 @@ export function bindingNamePaths(
       symbol,
       checker,
       element.dotDotDotToken ? path : [...path, index],
-      element.dotDotDotToken ? { kind: 'array', start: index } : rest,
+      element.dotDotDotToken
+        ? { kind: 'array', start: index + (rest?.kind === 'array' ? rest.start : 0) }
+        : rest,
     );
   });
   const excluded: string[] = [];
