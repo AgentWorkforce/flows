@@ -152,6 +152,8 @@ export interface MirroredJournal {
   children: string[];
   /** Authored graph hints by step id, from an authored root's step index. */
   hints: Map<string, { label?: string; after?: string[] }>;
+  /** Authored completion receipts are durable evidence, not graph nodes. */
+  hidden: string[];
 }
 
 type Payload = Record<string, unknown>;
@@ -507,6 +509,7 @@ export function mirrorJournal(
     transcripts,
     children: index.children,
     hints: index.hints,
+    hidden: index.hidden,
   };
 }
 
@@ -522,7 +525,11 @@ export function mirrorJournal(
 function authoredIndex(
   events: readonly JournalEvent[],
   env: NodeJS.ProcessEnv,
-): { children: string[]; hints: Map<string, { label?: string; after?: string[] }> } {
+): {
+  children: string[];
+  hints: Map<string, { label?: string; after?: string[] }>;
+  hidden: string[];
+} {
   const messages: unknown[] = [];
   for (const event of events) {
     if (event.entry_type !== 'stream.appended') continue;
@@ -531,8 +538,15 @@ function authoredIndex(
   }
   const children: string[] = [];
   const hints = new Map<string, { label?: string; after?: string[] }>();
+  const hidden: string[] = [];
   for (const entry of foldAuthoredStepRecords(messages).values()) {
     if (/^[A-Za-z0-9][A-Za-z0-9_-]*$/u.test(entry.runId)) children.push(entry.runId);
+    // This is the executor's durable verdict receipt, not an authored unit of
+    // work. Only an entry in the authored root index can be hidden here, so a
+    // declarative step coincidentally named `complete-N` remains visible.
+    if (/(?:^|--)complete-[1-9][0-9]*$/.test(entry.step)) {
+      hidden.push(`${entry.runId}/${entry.step}`);
+    }
     const name = label(entry.label, env);
     const after = entry.after === undefined
       ? undefined
@@ -546,7 +560,7 @@ function authoredIndex(
       ...(after === undefined ? {} : { after }),
     });
   }
-  return { children, hints };
+  return { children, hints, hidden };
 }
 
 /**

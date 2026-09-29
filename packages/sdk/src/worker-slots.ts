@@ -90,3 +90,13 @@ export class WorkerSlots {
     for (const waiter of this.waiting.splice(0)) waiter.reject(reason);
   }
 }
+
+/** One run-tree-wide capacity pool, shared by parent and child flows. */
+export interface AuthoredWorkerSlots {
+  readonly agent: WorkerSlots;
+  readonly llm: WorkerSlots;
+}
+
+export function authoredWorkerSlots(capacity: number): AuthoredWorkerSlots {
+  return Object.freeze({ agent: new WorkerSlots(capacity), llm: new WorkerSlots(capacity) });
+}

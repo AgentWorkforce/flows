@@ -163,6 +163,14 @@ same history as your hosted ones — readable afterwards through `flows runs`,
 `flows status --cloud` and `flows logs`, which until now only answered for runs
 Cloud had launched.
 
+An authored flow composed with `use` and `f.dispatch` still occupies one
+dashboard run. The mirror follows child journals named by the root's authored
+index and uploads journal-derived labels and dependency edges, so parent steps,
+qualified child steps, and dispatch receipts render as one flattened connected
+DAG both while the run is live and after its final report. Internal authored
+`complete-N` receipts remain durable journal evidence and are intentionally not
+shown as work nodes.
+
 ### Why it is opt-in
 
 Because it is the richer view, it is also the one that *stores* all of that.
