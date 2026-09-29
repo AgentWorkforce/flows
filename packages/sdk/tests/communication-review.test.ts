@@ -51,6 +51,29 @@ it('does not carry ambient secrets into the broker, and scopes provider credenti
   expect(agentEnvironment('/custom/cli', source)).not.toHaveProperty('GITHUB_TOKEN');
 });
 
+it('passes provider-specific proxy routing only to Cursor and Grok children', () => {
+  const source = {
+    CURSOR_API_KEY: 'cursor-key',
+    CURSOR_API_ENDPOINT: 'https://proxy.test/v1/house/cursor/runs/run-1',
+    XAI_API_KEY: 'xai-key',
+    GROK_XAI_API_BASE_URL: 'https://proxy.test/v1/house/xai/runs/run-1',
+    GROK_HOME: '/tmp/grok-house-run-1',
+  };
+  expect(agentEnvironment('cursor-agent', source)).toMatchObject({
+    CURSOR_API_KEY: source.CURSOR_API_KEY,
+    CURSOR_API_ENDPOINT: source.CURSOR_API_ENDPOINT,
+  });
+  expect(agentEnvironment('grok', source)).toMatchObject({
+    XAI_API_KEY: source.XAI_API_KEY,
+    GROK_XAI_API_BASE_URL: source.GROK_XAI_API_BASE_URL,
+    GROK_HOME: source.GROK_HOME,
+  });
+  expect(agentEnvironment('cursor-agent', source)).not.toHaveProperty('XAI_API_KEY');
+  expect(agentEnvironment('grok', source)).not.toHaveProperty('CURSOR_API_KEY');
+  expect(agentEnvironment('codex', source)).not.toHaveProperty('CURSOR_API_ENDPOINT');
+  expect(agentEnvironment('claude', source)).not.toHaveProperty('GROK_XAI_API_BASE_URL');
+});
+
 async function request(path: string, value: object) {
   const socket = createConnection(path);
   await once(socket, 'connect');
