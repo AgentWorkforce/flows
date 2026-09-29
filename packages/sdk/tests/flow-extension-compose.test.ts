@@ -100,6 +100,18 @@ describe('composing flow extensions onto a base flow', () => {
     expect(node.getDefinition(node.handle).name).toBe('babysitter');
     expect(node.getDefinition(node.handle).handlers).toHaveLength(11);
   });
+  it('retains an extension entry budget that is stricter than its manifest ceiling', async () => {
+    const p = project();
+    const entry = readFileSync(join(fixtureRoot, 'extension-babysitter/babysitter.flow.ts'), 'utf8')
+      .replace('tokens: 800_000', 'tokens: 100_000');
+    await install(p, variant(manifest => manifest, entry));
+    const loaded = await loadAuthoredFlow(p.flow, { versions });
+    expect(loaded.getDefinition(loaded.handle).header.budget).toEqual({
+      tokens: 100_000,
+      dollars: 8,
+      wallclock: '45m',
+    });
+  });
   it('loads the root alone with extensions: none, and helper loading ignores extension entries', async () => {
     const p = project();
     await install(p);

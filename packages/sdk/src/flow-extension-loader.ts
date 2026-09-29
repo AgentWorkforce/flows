@@ -87,13 +87,19 @@ function composeBudget(
   extensions: readonly LoadedFlowExtension[],
 ): AuthoredFlowDefinition['header']['budget'] {
   const ceilings = extensions
-    .map(extension => extension.manifest.permissions.budget)
+    .flatMap(extension => [
+      extension.manifest.permissions.budget,
+      extension.getDefinition(extension.handle).header.budget,
+    ])
     .filter((budget): budget is NonNullable<typeof budget> => budget !== undefined);
   if (ceilings.length === 0) return base;
-  if (typeof base === 'string') {
-    throw new PluginError('plugin_incompatible', 'A structured extension budget cannot compose with a shorthand base-flow budget.');
+  if (typeof base === 'string' || ceilings.some(budget => typeof budget === 'string')) {
+    throw new PluginError('plugin_incompatible', 'A shorthand budget cannot compose with structured base-flow or extension budget ceilings.');
   }
-  const budgets = [...(base === undefined ? [] : [base]), ...ceilings];
+  const budgets = [
+    ...(base === undefined ? [] : [base]),
+    ...ceilings.filter((budget): budget is Exclude<typeof budget, string> => typeof budget !== 'string'),
+  ];
   const tokens = budgets.flatMap(budget => budget.tokens === undefined ? [] : [budget.tokens]);
   const dollars = budgets.flatMap(budget => budget.dollars === undefined ? [] : [budget.dollars]);
   const wallclocks = budgets.flatMap(budget => budget.wallclock === undefined ? [] : [budget.wallclock]);

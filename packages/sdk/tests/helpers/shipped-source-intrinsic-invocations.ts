@@ -1,5 +1,5 @@
 import ts from 'typescript';
-import { staticArrayElements } from './shipped-source-binding-values.js';
+import { staticArrayElementCandidates } from './shipped-source-binding-values.js';
 import { callableArgumentCandidates } from './shipped-source-callable-invocations.js';
 import { referencesGlobalMember } from './shipped-source-global-provenance.js';
 import { referencesIntrinsicMember } from './shipped-source-intrinsic-members.js';
@@ -41,12 +41,17 @@ function invocationArguments(
   );
   for (const reflectArgs of reflected) {
     const target = reflectArgs[0];
-    const applied = reflectArgs[2]
-      ? staticArrayElements(reflectArgs[2], checker, new Set())?.values
-        .filter((value): value is ts.Expression => value !== undefined)
-      : undefined;
-    if (!target || !applied) continue;
-    candidates.push(...invocationArguments(target, applied, intrinsic, name, checker, depth + 1));
+    if (!target || !reflectArgs[2]) continue;
+    for (const applied of staticArrayElementCandidates(reflectArgs[2], checker, new Set())) {
+      candidates.push(...invocationArguments(
+        target,
+        applied.values.filter((value): value is ts.Expression => value !== undefined),
+        intrinsic,
+        name,
+        checker,
+        depth + 1,
+      ));
+    }
   }
   return candidates;
 }

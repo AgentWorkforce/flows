@@ -7,7 +7,7 @@ import {
 import {
   aggregateExpressionValues,
   aggregateValueAtPath,
-  staticArrayElements,
+  staticArrayElementCandidates,
   staticCallArguments,
   staticMemberSegment,
   wrappedExpressionBranches,
@@ -77,17 +77,15 @@ function callableCandidates(
     const callOperation = staticMemberSegment(expression.expression, checker, new Set(seen));
     const callReceiver = memberReceiver(expression.expression);
     if (callOperation === 'bind' && callReceiver) {
-      const args = staticCallArguments(expression.arguments, checker);
-      if (args) {
-        for (const callable of callableCandidates(callReceiver, matcher, checker, new Set(seen))) {
-          candidates.push({
-            ...callable,
-            operations: [
-              ...callable.operations,
-              { kind: 'bind', args: args.values.slice(1) },
-            ],
-          });
-        }
+      const args = knownCallArguments(expression.arguments, checker);
+      for (const callable of callableCandidates(callReceiver, matcher, checker, new Set(seen))) {
+        candidates.push({
+          ...callable,
+          operations: [
+            ...callable.operations,
+            { kind: 'bind', args: args.slice(1) },
+          ],
+        });
       }
     }
     return candidates;
@@ -121,25 +119,32 @@ function invokeCallableCandidate(
   callable: CallableCandidate,
   args: readonly ts.Expression[],
   checker: ts.TypeChecker,
-): readonly ts.Expression[] | undefined {
-  let invoked = [...args];
+): Array<readonly ts.Expression[]> {
+  let invoked: Array<readonly ts.Expression[]> = [[...args]];
   for (const operation of [...callable.operations].reverse()) {
     if (operation.kind === 'bind') {
-      invoked = [...operation.args, ...invoked];
+      invoked = invoked.map(candidate => [...operation.args, ...candidate]);
       continue;
     }
     if (operation.kind === 'call') {
-      invoked = invoked.slice(1);
+      invoked = invoked.map(candidate => candidate.slice(1));
       continue;
     }
-    const applied = invoked[1]
-      ? staticArrayElements(invoked[1], checker, new Set())?.values
-        .filter((value): value is ts.Expression => value !== undefined)
-      : undefined;
-    if (!applied) return undefined;
-    invoked = applied;
+    invoked = invoked.flatMap(candidate => candidate[1]
+      ? staticArrayElementCandidates(candidate[1], checker, new Set())
+        .map(applied => applied.values.filter((value): value is ts.Expression => value !== undefined))
+      : []);
   }
   return invoked;
+}
+
+function knownCallArguments(
+  args: readonly ts.Expression[],
+  checker: ts.TypeChecker,
+): ts.Expression[] {
+  const expanded = staticCallArguments(args, checker);
+  if (expanded) return expanded.values;
+  return args.flatMap(argument => ts.isSpreadElement(argument) ? [] : [argument]);
 }
 
 export function callableArgumentCandidates(
@@ -148,10 +153,8 @@ export function callableArgumentCandidates(
   matcher: CallableMatcher,
   checker: ts.TypeChecker,
 ): Array<readonly ts.Expression[]> {
-  const expanded = staticCallArguments(args, checker);
-  if (!expanded) return [];
+  const expanded = knownCallArguments(args, checker);
   return callableCandidates(expression, matcher, checker).flatMap(callable => {
-    const invoked = invokeCallableCandidate(callable, expanded.values, checker);
-    return invoked ? [invoked] : [];
+    return invokeCallableCandidate(callable, expanded, checker);
   });
 }

@@ -12,6 +12,7 @@ import {
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
 import { intrinsicInvocationArgumentCandidates } from './shipped-source-intrinsic-invocations.js';
+import { returnedExpressions } from './shipped-source-return-values.js';
 
 export interface ReflectiveMemberAssignedSource {
   initializer: ts.Expression;
@@ -40,24 +41,47 @@ function propertyName(
   return segment === undefined ? undefined : String(segment);
 }
 
-function memberAssignmentPath(
+function memberAssignmentPaths(
   expression: ts.Expression,
   checker: ts.TypeChecker,
-): { path: BindingPathSegment[]; symbol: ts.Symbol } | undefined {
+  seen = new Set<ts.Symbol>(),
+): Array<{ path: BindingPathSegment[]; symbol: ts.Symbol }> {
   expression = unwrap(expression);
   if (ts.isIdentifier(expression)) {
     const symbol = checker.getSymbolAtLocation(expression);
-    return symbol ? { path: [], symbol } : undefined;
+    if (!symbol) return [];
+    const paths = [{ path: [] as BindingPathSegment[], symbol }];
+    if (seen.has(symbol)) return paths;
+    seen.add(symbol);
+    const binding = symbol.declarations?.find(ts.isBindingElement);
+    if (binding) {
+      const source = bindingSource(binding, checker, new Set(seen));
+      if (source) {
+        for (const parent of memberAssignmentPaths(source.initializer, checker, new Set(seen))) {
+          paths.push({ ...parent, path: [...parent.path, ...source.path] });
+        }
+      }
+      if (binding.initializer) {
+        paths.push(...memberAssignmentPaths(binding.initializer, checker, new Set(seen)));
+      }
+    }
+    for (const assigned of assignedValues(symbol, checker)) {
+      paths.push(...memberAssignmentPaths(assigned, checker, new Set(seen)));
+    }
+    const variable = symbol.declarations?.find(ts.isVariableDeclaration);
+    if (variable?.initializer) {
+      paths.push(...memberAssignmentPaths(variable.initializer, checker, new Set(seen)));
+    }
+    return paths;
   }
-  if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return undefined;
-  const parent = memberAssignmentPath(expression.expression, checker);
-  if (!parent) return undefined;
+  if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return [];
   const segment = ts.isPropertyAccessExpression(expression)
     ? expression.name.text
     : expression.argumentExpression
-      ? staticPropertySegment(expression.argumentExpression, checker, new Set([parent.symbol]))
+      ? staticPropertySegment(expression.argumentExpression, checker, new Set(seen))
       : undefined;
-  return segment === undefined ? undefined : { ...parent, path: [...parent.path, segment] };
+  return segment === undefined ? [] : memberAssignmentPaths(expression.expression, checker, seen)
+    .map(parent => ({ ...parent, path: [...parent.path, segment] }));
 }
 
 function objectLiteralCandidates(
@@ -99,32 +123,56 @@ function objectLiteralCandidates(
   return values;
 }
 
+function descriptorCallableValues(
+  descriptor: ts.Expression,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): ts.Expression[] {
+  const values: ts.Expression[] = [];
+  for (const candidate of objectLiteralCandidates(descriptor, checker, seen)) {
+    for (const property of candidate.properties) {
+      const name = propertyName(property.name, checker);
+      if (name === 'value' && ts.isPropertyAssignment(property)) {
+        values.push(property.initializer);
+        continue;
+      }
+      if (name !== 'get') continue;
+      if (ts.isMethodDeclaration(property)) {
+        values.push(...returnedExpressions(property.body));
+      } else if (ts.isPropertyAssignment(property)
+        && (ts.isArrowFunction(property.initializer) || ts.isFunctionExpression(property.initializer))) {
+        values.push(...returnedExpressions(property.initializer.body));
+      }
+    }
+  }
+  return values;
+}
+
 export function reflectiveMemberAssignedSources(
   node: ts.CallExpression,
   symbol: ts.Symbol,
   checker: ts.TypeChecker,
 ): ReflectiveMemberAssignedSource[] {
   const values: ReflectiveMemberAssignedSource[] = [];
-  const targetFor = (args: readonly ts.Expression[]) => {
-    const target = args[0] ? memberAssignmentPath(args[0], checker) : undefined;
-    return target?.symbol === symbol ? target : undefined;
-  };
+  const targetsFor = (args: readonly ts.Expression[]) => args[0]
+    ? memberAssignmentPaths(args[0], checker).filter(target => target.symbol === symbol)
+    : [];
   for (const args of intrinsicInvocationArgumentCandidates(node, 'Object', 'assign', checker)) {
-    const target = targetFor(args);
-    if (!target) continue;
-    values.push(...args.slice(1).map(initializer => ({
-      initializer,
-      path: target.path,
-      sourcePath: [],
-    })));
+    for (const target of targetsFor(args)) {
+      values.push(...args.slice(1).map(initializer => ({
+        initializer,
+        path: target.path,
+        sourcePath: [],
+      })));
+    }
   }
   for (const args of intrinsicInvocationArgumentCandidates(node, 'Reflect', 'set', checker)) {
-    const target = targetFor(args);
     const segment = args[1]
       ? staticPropertySegment(args[1], checker, new Set([symbol]))
       : undefined;
     const initializer = args[2];
-    if (target && segment !== undefined && initializer) values.push({
+    if (segment === undefined || !initializer) continue;
+    for (const target of targetsFor(args)) values.push({
       initializer,
       path: [...target.path, segment],
       sourcePath: [],
@@ -135,31 +183,47 @@ export function reflectiveMemberAssignedSources(
     ['Reflect', 'defineProperty'],
   ] as const) {
     for (const args of intrinsicInvocationArgumentCandidates(node, intrinsic, name, checker)) {
-      const target = targetFor(args);
       const segment = args[1]
         ? staticPropertySegment(args[1], checker, new Set([symbol]))
         : undefined;
       const descriptor = args[2];
-      if (target && segment !== undefined && descriptor) values.push({
-        initializer: descriptor,
-        path: [...target.path, segment],
-        sourcePath: ['value'],
-      });
-    }
-  }
-  for (const args of intrinsicInvocationArgumentCandidates(node, 'Object', 'defineProperties', checker)) {
-    const target = targetFor(args);
-    const descriptors = args[1];
-    if (!target || !descriptors) continue;
-    for (const candidate of objectLiteralCandidates(descriptors, checker, new Set([symbol]))) {
-      for (const property of candidate.properties) {
-        if (!ts.isPropertyAssignment(property)) continue;
-        const segment = propertyName(property.name, checker);
-        if (segment !== undefined) values.push({
-          initializer: property.initializer,
+      if (segment === undefined || !descriptor) continue;
+      for (const target of targetsFor(args)) {
+        const callables = descriptorCallableValues(descriptor, checker, new Set([symbol]));
+        if (callables.length > 0) values.push(...callables.map(initializer => ({
+          initializer,
+          path: [...target.path, segment],
+          sourcePath: [],
+        })));
+        else values.push({
+          initializer: descriptor,
           path: [...target.path, segment],
           sourcePath: ['value'],
         });
+      }
+    }
+  }
+  for (const args of intrinsicInvocationArgumentCandidates(node, 'Object', 'defineProperties', checker)) {
+    const descriptors = args[1];
+    if (!descriptors) continue;
+    for (const target of targetsFor(args)) {
+      for (const candidate of objectLiteralCandidates(descriptors, checker, new Set([symbol]))) {
+        for (const property of candidate.properties) {
+          if (!ts.isPropertyAssignment(property)) continue;
+          const segment = propertyName(property.name, checker);
+          if (segment === undefined) continue;
+          const callables = descriptorCallableValues(property.initializer, checker, new Set([symbol]));
+          if (callables.length > 0) values.push(...callables.map(initializer => ({
+            initializer,
+            path: [...target.path, segment],
+            sourcePath: [],
+          })));
+          else values.push({
+            initializer: property.initializer,
+            path: [...target.path, segment],
+            sourcePath: ['value'],
+          });
+        }
       }
     }
   }
@@ -168,9 +232,9 @@ export function reflectiveMemberAssignedSources(
     ['Reflect', 'setPrototypeOf'],
   ] as const) {
     for (const args of intrinsicInvocationArgumentCandidates(node, intrinsic, name, checker)) {
-      const target = targetFor(args);
       const prototype = args[1];
-      if (target && prototype) values.push({
+      if (!prototype) continue;
+      for (const target of targetsFor(args)) values.push({
         initializer: prototype,
         path: target.path,
         sourcePath: [],

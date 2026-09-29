@@ -6,6 +6,7 @@ import {
   bindingSource,
   type BindingPathSegment,
 } from './shipped-source-binding-provenance.js';
+import { returnedExpressions } from './shipped-source-return-values.js';
 
 export function wrappedExpressionBranches(expression: ts.Expression): readonly ts.Expression[] | undefined {
   expression = unwrap(expression);
@@ -111,15 +112,29 @@ export function objectMemberValue(
   name: string,
   checker: ts.TypeChecker,
   seen: Set<ts.Symbol>,
-): { value: ts.Expression; auditable: boolean; symbol?: ts.Symbol } | undefined {
+): {
+  value: ts.Expression;
+  auditable: boolean;
+  symbol?: ts.Symbol;
+  alternatives?: ts.Expression[];
+} | undefined {
   expression = unwrap(expression);
   const branches = wrappedExpressionBranches(expression);
   if (branches) {
+    const values = [];
     for (const branch of branches) {
       const value = objectMemberValue(branch, name, checker, new Set(seen));
-      if (value) return { ...value, auditable: false };
+      if (value) values.push(value);
     }
-    return undefined;
+    const [value, ...alternatives] = values;
+    return value ? {
+      ...value,
+      auditable: false,
+      alternatives: [
+        ...(value.alternatives ?? []),
+        ...alternatives.flatMap(candidate => [candidate.value, ...(candidate.alternatives ?? [])]),
+      ],
+    } : undefined;
   }
   if (ts.isObjectLiteralExpression(expression)) {
     let obscured = false;
@@ -145,6 +160,10 @@ export function objectMemberValue(
         auditable: !obscured,
         symbol: checker.getShorthandAssignmentValueSymbol(member),
       };
+      if (ts.isGetAccessorDeclaration(member)) {
+        const [returned, ...alternatives] = returnedExpressions(member.body);
+        return returned ? { value: returned, auditable: false, alternatives } : undefined;
+      }
       return undefined;
     }
     return undefined;
@@ -245,8 +264,14 @@ export function aggregateExpressionValues(
   const receiver = memberReceiver(expression);
   if (segment === undefined || !receiver) return [];
   const values: Array<{ value: ts.Expression; auditable: boolean; symbol?: ts.Symbol }> = [];
-  const add = (value: typeof values[number] | undefined): void => {
-    if (value && !values.some(candidate => candidate.value === value.value)) values.push(value);
+  const add = (value: (typeof values[number] & { alternatives?: ts.Expression[] }) | undefined): void => {
+    if (!value) return;
+    if (!values.some(candidate => candidate.value === value.value)) values.push(value);
+    for (const alternative of value.alternatives ?? []) {
+      if (!values.some(candidate => candidate.value === alternative)) {
+        values.push({ value: alternative, auditable: false });
+      }
+    }
   };
   for (const value of assignedMemberValues(expression, checker, new Set(seen))) add(value);
   const unwrappedReceiver = unwrap(receiver);
@@ -296,7 +321,12 @@ function aggregateMemberValue(
   segment: BindingPathSegment,
   checker: ts.TypeChecker,
   seen: Set<ts.Symbol>,
-): { value: ts.Expression; auditable: boolean; symbol?: ts.Symbol } | undefined {
+): {
+  value: ts.Expression;
+  auditable: boolean;
+  symbol?: ts.Symbol;
+  alternatives?: ts.Expression[];
+} | undefined {
   const stringKey = String(segment);
   if (typeof segment === 'string') {
     const objectSeen = new Set(seen);
@@ -325,15 +355,28 @@ export function staticArrayElements(
   expression: ts.Expression,
   checker: ts.TypeChecker,
   seen: Set<ts.Symbol>,
-): { values: Array<ts.Expression | undefined>; auditable: boolean } | undefined {
+): {
+  values: Array<ts.Expression | undefined>;
+  auditable: boolean;
+  alternatives?: Array<Array<ts.Expression | undefined>>;
+} | undefined {
   expression = unwrap(expression);
   const branches = wrappedExpressionBranches(expression);
   if (branches) {
+    const candidates = [];
     for (const branch of branches) {
       const value = staticArrayElements(branch, checker, new Set(seen));
-      if (value) return { ...value, auditable: false };
+      if (value) candidates.push(value);
     }
-    return undefined;
+    const [value, ...alternatives] = candidates;
+    return value ? {
+      ...value,
+      auditable: false,
+      alternatives: [
+        ...(value.alternatives ?? []),
+        ...alternatives.flatMap(candidate => [candidate.values, ...(candidate.alternatives ?? [])]),
+      ],
+    } : undefined;
   }
   if (ts.isArrayLiteralExpression(expression)) {
     const values: Array<ts.Expression | undefined> = [];
@@ -414,6 +457,18 @@ export function staticArrayElements(
     if (value) return { ...value, auditable: false };
   }
   return undefined;
+}
+
+export function staticArrayElementCandidates(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): Array<{ values: Array<ts.Expression | undefined>; auditable: boolean }> {
+  const value = staticArrayElements(expression, checker, seen);
+  return value ? [
+    value,
+    ...(value.alternatives ?? []).map(values => ({ values, auditable: false })),
+  ] : [];
 }
 
 export function staticCallArguments(

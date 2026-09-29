@@ -173,6 +173,7 @@ describe('close-pr journaled repair loop', () => {
 
   it('requires an explicit model for a custom repair wrapper', () => {
     expect(() => requiredRepairModel('/opt/custom-wrapper')).toThrow(/requires input\.model/);
+    expect(requiredRepairModel(' codex ')).toBe('gpt-5.6-sol');
     expect(requiredRepairModel('/opt/custom-wrapper', ' custom-model ')).toBe('custom-model');
     expect(() => requiredRepairModel('codex', '   ')).toThrow(/non-empty string/);
     expect(() => requiredRepairModel('/opt/custom-wrapper', 'bad\nmodel')).toThrow(/control characters/);
