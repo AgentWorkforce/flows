@@ -54,6 +54,9 @@ function directMemberPaths(
   seen = new Set<ts.Symbol>(),
 ): Array<{ path: BindingPathSegment[]; symbol: ts.Symbol }> {
   expression = unwrap(expression);
+  const branches = wrappedExpressionBranches(expression);
+  if (branches) return branches.flatMap(candidate =>
+    directMemberPaths(candidate, checker, new Set(seen)));
   if (ts.isIdentifier(expression)) {
     const symbol = checker.getSymbolAtLocation(expression);
     if (!symbol) return [];

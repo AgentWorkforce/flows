@@ -24,15 +24,55 @@ function unwrap(expression: ts.Expression): ts.Expression {
   return expression;
 }
 
-function memberRootSymbol(
+function memberRootPath(
   expression: ts.Expression,
   checker: ts.TypeChecker,
-): ts.Symbol | undefined {
+  seen: Set<ts.Symbol>,
+): { path: BindingPathSegment[]; symbol: ts.Symbol } | undefined {
   expression = unwrap(expression);
-  while (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
-    expression = unwrap(expression.expression);
+  if (ts.isIdentifier(expression)) {
+    const symbol = checker.getSymbolAtLocation(expression);
+    return symbol ? { path: [], symbol } : undefined;
   }
-  return ts.isIdentifier(expression) ? checker.getSymbolAtLocation(expression) : undefined;
+  if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return undefined;
+  const parent = memberRootPath(expression.expression, checker, seen);
+  if (!parent) return undefined;
+  const segment = ts.isPropertyAccessExpression(expression)
+    ? expression.name.text
+    : expression.argumentExpression
+      ? staticPropertySegment(expression.argumentExpression, checker, new Set(seen))
+      : undefined;
+  return segment === undefined ? undefined : { ...parent, path: [...parent.path, segment] };
+}
+
+function aggregateMemberCandidates(
+  expression: ts.Expression,
+  member: { path: BindingPathSegment[]; symbol: ts.Symbol },
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): ts.Expression[] {
+  const nextSeen = new Set(seen).add(member.symbol);
+  const values: ts.Expression[] = [];
+  const add = (
+    initializer: ts.Expression | undefined,
+    path: readonly BindingPathSegment[] = member.path,
+  ): void => {
+    if (!initializer) return;
+    const candidate = aggregateValueAtPath(initializer, path, checker, new Set(nextSeen));
+    if (candidate) values.push(candidate.value);
+  };
+  for (const source of assignedSources(member.symbol, checker)) {
+    if (source.rest || source.initializer.getStart() >= expression.getStart()) continue;
+    add(source.initializer, [...source.path, ...member.path]);
+  }
+  const binding = member.symbol.declarations?.find(ts.isBindingElement);
+  if (binding) {
+    const source = bindingSource(binding, checker, new Set(nextSeen));
+    if (source) add(source.initializer, [...source.path, ...member.path]);
+    add(binding.initializer);
+  }
+  add(member.symbol.declarations?.find(ts.isVariableDeclaration)?.initializer);
+  return values;
 }
 
 export function staticPropertySegments(
@@ -48,10 +88,13 @@ export function staticPropertySegments(
   if (branches) return [...new Set(branches.flatMap(branch =>
     staticPropertySegments(branch, checker, new Set(seen), memberValueCandidates)))];
   if (!ts.isIdentifier(expression)) {
-    const root = memberRootSymbol(expression, checker);
-    if (root && seen.has(root)) return [];
-    const candidates = memberValueCandidates?.(expression, new Set(seen)) ?? [];
-    const nextSeen = root ? new Set(seen).add(root) : new Set(seen);
+    const member = memberRootPath(expression, checker, seen);
+    if (member && seen.has(member.symbol)) return [];
+    const candidates = [
+      ...(member ? aggregateMemberCandidates(expression, member, checker, seen) : []),
+      ...(memberValueCandidates?.(expression, new Set(seen)) ?? []),
+    ];
+    const nextSeen = member ? new Set(seen).add(member.symbol) : new Set(seen);
     return [...new Set(candidates.flatMap(candidate =>
       staticPropertySegments(candidate, checker, new Set(nextSeen), memberValueCandidates)))];
   }
