@@ -74,6 +74,8 @@ it('passes provider-specific proxy routing only to Cursor and Grok children', ()
   });
   for (const name of grokNames) expect(agentEnvironment('cursor-agent', source)).not.toHaveProperty(name);
   for (const name of cursorNames) expect(agentEnvironment('grok', source)).not.toHaveProperty(name);
+  // Keep the named CLIs in sync with providerNames; the custom path covers the
+  // fail-closed fallback for unknown executables.
   for (const cli of ['claude', 'codex', 'gemini', 'droid', 'opencode', 'aider', 'goose', 'pi', 'deepagents', '/custom/cli']) {
     for (const name of [...cursorNames, ...grokNames]) expect(agentEnvironment(cli, source)).not.toHaveProperty(name);
   }

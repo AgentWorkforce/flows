@@ -8,13 +8,13 @@ const providerNames: Record<string, string[]> = {
   claude: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR'],
   codex: ['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'CODEX_HOME'],
   gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_APPLICATION_CREDENTIALS', 'GOOGLE_CLOUD_PROJECT', 'GOOGLE_CLOUD_LOCATION'],
-  // Cloud's house-provider run contract injects the scoped key plus both
-  // endpoint names used across supported cursor-agent versions. Keep all three
-  // provider-specific so none can leak into a different harness process.
+  // AgentWorkforce/cloud#4026's house-provider run contract injects the scoped
+  // key plus both endpoint names used across supported cursor-agent versions.
+  // Keep all three provider-specific so none can leak into another harness.
   'cursor-agent': ['CURSOR_API_KEY', 'CURSOR_API_ENDPOINT', 'CURSOR_API_BASE_URL'],
   droid: ['FACTORY_API_KEY'],
-  // Cloud's house-provider run contract gives Grok an isolated home plus an
-  // xAI-compatible base URL. These remain scoped to the Grok child process.
+  // AgentWorkforce/cloud#4026's house-provider run contract gives Grok an
+  // isolated home plus an xAI-compatible base URL. These remain Grok-scoped.
   grok: ['XAI_API_KEY', 'GROK_XAI_API_BASE_URL', 'GROK_HOME'],
 };
 // Multi-provider CLIs select their provider in their own configuration.
