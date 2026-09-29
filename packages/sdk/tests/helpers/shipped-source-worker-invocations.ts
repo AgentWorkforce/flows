@@ -1,16 +1,18 @@
 import ts from 'typescript';
 import {
-  aggregateExpressionValue,
-  aggregateValueAtPath,
   assignedValues,
   bindingDefaultValues,
   bindingSource,
-  reflectApplyArguments,
+} from './shipped-source-binding-provenance.js';
+import {
+  aggregateExpressionValue,
+  aggregateValueAtPath,
   staticCallArguments,
   staticArrayElements,
   staticMemberSegment,
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
+import { reflectApplyArguments } from './shipped-source-reflect-apply.js';
 import { symbolHasWrites } from './shipped-source-receiver-writes.js';
 
 type WorkerMethod = 'agent' | 'llm';

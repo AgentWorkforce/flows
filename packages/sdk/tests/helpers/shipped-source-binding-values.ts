@@ -1,10 +1,10 @@
 import ts from 'typescript';
-
-export type BindingPathSegment = string | number;
-
-type BindingRest =
-  | { excluded: string[]; kind: 'object' }
-  | { kind: 'array'; start: number };
+import {
+  assignedSources,
+  bindingDefaultValues,
+  bindingSource,
+  type BindingPathSegment,
+} from './shipped-source-binding-provenance.js';
 
 export function wrappedExpressionBranches(expression: ts.Expression): readonly ts.Expression[] | undefined {
   expression = unwrap(expression);
@@ -155,19 +155,19 @@ export function objectMemberValue(
     const binding = symbol.declarations?.find(ts.isBindingElement);
     if (binding) {
       const source = bindingSource(binding, checker);
-      if (!source?.immutable) return undefined;
-      if (source.rest?.kind === 'object' && source.rest.excluded.includes(name)) return undefined;
-      const values = [
-        aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
-        ...bindingDefaultValues(source, checker, new Set(seen)),
-        ...(binding.initializer ? [{ value: binding.initializer, auditable: false }] : []),
-      ];
-      for (const candidate of values) {
-        if (!candidate) continue;
-        const value = objectMemberValue(candidate.value, name, checker, new Set(seen));
-        if (value) return { ...value, auditable: false };
+      if (source?.immutable) {
+        if (source.rest?.kind === 'object' && source.rest.excluded.includes(name)) return undefined;
+        const values = [
+          aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
+          ...bindingDefaultValues(source, checker, new Set(seen)),
+          ...(binding.initializer ? [{ value: binding.initializer, auditable: false }] : []),
+        ];
+        for (const candidate of values) {
+          if (!candidate) continue;
+          const value = objectMemberValue(candidate.value, name, checker, new Set(seen));
+          if (value) return { ...value, auditable: false };
+        }
       }
-      return undefined;
     }
     const variable = symbol.declarations?.find(ts.isVariableDeclaration);
     const variableList = variable && ts.isVariableDeclarationList(variable.parent)
@@ -177,7 +177,7 @@ export function objectMemberValue(
       const value = objectMemberValue(variable.initializer, name, checker, seen);
       if (value) return value;
     }
-    for (const source of assignedSources(symbol, checker)) {
+    for (const source of [...assignedSources(symbol, checker)].reverse()) {
       if (source.rest?.kind === 'object' && source.rest.excluded.includes(name)) continue;
       const candidate = source.path.length === 0
         ? { value: source.initializer, auditable: false }
@@ -203,335 +203,6 @@ export function objectMemberValue(
   if (!parent) return undefined;
   const value = objectMemberValue(parent.value, name, checker, seen);
   return value && !parent.auditable ? { ...value, auditable: false } : value;
-}
-
-export function bindingSource(
-  binding: ts.BindingElement,
-  checker?: ts.TypeChecker,
-  seen = new Set<ts.Symbol>(),
-): {
-  defaults: Array<{ applyRest: boolean; expression: ts.Expression; path: BindingPathSegment[] }>;
-  initializer: ts.Expression;
-  immutable: boolean;
-  path: BindingPathSegment[];
-  rest?: BindingRest;
-} | undefined {
-  const defaults: Array<{ applyRest: boolean; expression: ts.Expression; path: BindingPathSegment[] }> = [];
-  const path: BindingPathSegment[] = [];
-  let rest: BindingRest | undefined;
-  let current = binding;
-  while (ts.isObjectBindingPattern(current.parent) || ts.isArrayBindingPattern(current.parent)) {
-    let defaultPath: BindingPathSegment[] | undefined;
-    if (current.dotDotDotToken) {
-      if (ts.isArrayBindingPattern(current.parent) && current !== binding) {
-        const start = current.parent.elements.indexOf(current);
-        const index = path[0] === undefined ? undefined : canonicalArrayIndex(path[0]);
-        if (start < 0 || index === undefined) return undefined;
-        defaultPath = path.slice();
-        path[0] = index + start;
-      } else if (rest) {
-        return undefined;
-      } else if (ts.isObjectBindingPattern(current.parent)) {
-        rest = {
-          excluded: current.parent.elements
-            .filter(element => element !== current && !element.dotDotDotToken)
-            .map(element => propertyName(
-              element.propertyName ?? (ts.isIdentifier(element.name) ? element.name : undefined),
-              checker,
-              seen,
-            ))
-            .filter((name): name is string => name !== undefined),
-          kind: 'object',
-        };
-      } else {
-        const start = current.parent.elements.indexOf(current);
-        if (start < 0) return undefined;
-        rest = { kind: 'array', start };
-      }
-    } else {
-      const segment = ts.isObjectBindingPattern(current.parent)
-        ? propertyName(
-            current.propertyName ?? (ts.isIdentifier(current.name) ? current.name : undefined),
-            checker,
-            seen,
-          )
-        : current.parent.elements.indexOf(current);
-      if (segment === undefined || (typeof segment === 'number' && segment < 0)) return undefined;
-      path.unshift(segment);
-    }
-    if (current.initializer) defaults.push({
-      applyRest: rest?.kind === 'array' && !current.dotDotDotToken,
-      expression: current.initializer,
-      path: defaultPath ?? path.slice(1),
-    });
-    const owner = current.parent.parent;
-    if (ts.isBindingElement(owner)) {
-      current = owner;
-      continue;
-    }
-    if (!ts.isVariableDeclaration(owner) || !owner.initializer
-      || !ts.isVariableDeclarationList(owner.parent)) return undefined;
-    return {
-      defaults,
-      initializer: owner.initializer,
-      immutable: (owner.parent.flags & ts.NodeFlags.Const) !== 0,
-      path,
-      rest,
-    };
-  }
-  return undefined;
-}
-
-export function bindingDefaultValues(
-  source: ReturnType<typeof bindingSource> & {},
-  checker: ts.TypeChecker,
-  seen: Set<ts.Symbol>,
-): Array<{ value: ts.Expression; auditable: boolean; applyRest: boolean; symbol?: ts.Symbol }> {
-  return source.defaults.flatMap(fallback => {
-    if (fallback.path.length === 0) return [{
-      value: fallback.expression,
-      auditable: false,
-      applyRest: fallback.applyRest,
-    }];
-    const value = aggregateValueAtPath(fallback.expression, fallback.path, checker, new Set(seen));
-    return value ? [{ ...value, auditable: false, applyRest: fallback.applyRest }] : [];
-  });
-}
-
-interface AssignedSource {
-  initializer: ts.Expression;
-  path: BindingPathSegment[];
-  rest?:
-    | { kind: 'array'; start: number }
-    | { excluded: string[]; kind: 'object' };
-}
-
-const assignedSourceCache = new WeakMap<ts.TypeChecker, WeakMap<ts.Symbol, AssignedSource[]>>();
-
-function assignedSourcesAtTarget(
-  target: ts.Expression,
-  value: ts.Expression,
-  symbol: ts.Symbol,
-  checker: ts.TypeChecker,
-  path: BindingPathSegment[] = [],
-): AssignedSource[] {
-  target = unwrap(target);
-  if (ts.isIdentifier(target)) {
-    const targetSymbol = ts.isShorthandPropertyAssignment(target.parent)
-      ? checker.getShorthandAssignmentValueSymbol(target.parent)
-      : checker.getSymbolAtLocation(target);
-    return targetSymbol === symbol ? [{ initializer: value, path }] : [];
-  }
-  if (ts.isBinaryExpression(target) && target.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-    return [
-      ...assignedSourcesAtTarget(target.left, value, symbol, checker, path),
-      ...assignedSourcesAtTarget(target.left, target.right, symbol, checker),
-    ];
-  }
-  if (ts.isArrayLiteralExpression(target)) {
-    return target.elements.flatMap((element, index) => {
-      if (ts.isOmittedExpression(element)) return [];
-      if (!ts.isSpreadElement(element)) {
-        return assignedSourcesAtTarget(element, value, symbol, checker, [...path, index]);
-      }
-      return assignedSourcesAtTarget(element.expression, value, symbol, checker).flatMap(source => {
-        if (source.initializer !== value) return source;
-        if (source.path.length === 0) return [{
-          ...source,
-          path: [...path],
-          rest: { kind: 'array' as const, start: index },
-        }];
-        const [first, ...tail] = source.path;
-        const relative = canonicalArrayIndex(first!);
-        return relative === undefined ? [] : [{
-          ...source,
-          path: [...path, index + relative, ...tail],
-        }];
-      });
-    });
-  }
-  if (!ts.isObjectLiteralExpression(target)) return [];
-  const excluded: string[] = [];
-  return target.properties.flatMap(property => {
-    if (ts.isSpreadAssignment(property)) {
-      return assignedSourcesAtTarget(property.expression, value, symbol, checker).map(source =>
-        source.initializer !== value || source.path.length > 0 ? source : {
-          ...source,
-          path: [...path],
-          rest: { excluded: [...excluded], kind: 'object' as const },
-        });
-    }
-    const segment = propertyName(property.name, checker);
-    if (segment === undefined) return [];
-    excluded.push(segment);
-    const assigned = ts.isShorthandPropertyAssignment(property)
-      ? [
-          ...assignedSourcesAtTarget(property.name, value, symbol, checker, [...path, segment]),
-          ...(property.objectAssignmentInitializer
-            ? assignedSourcesAtTarget(property.name, property.objectAssignmentInitializer, symbol, checker)
-            : []),
-        ]
-      : ts.isPropertyAssignment(property)
-        ? assignedSourcesAtTarget(property.initializer, value, symbol, checker, [...path, segment])
-        : [];
-    return assigned;
-  });
-}
-
-function assignedSources(symbol: ts.Symbol, checker: ts.TypeChecker): AssignedSource[] {
-  let checkerCache = assignedSourceCache.get(checker);
-  if (!checkerCache) {
-    checkerCache = new WeakMap();
-    assignedSourceCache.set(checker, checkerCache);
-  }
-  const cached = checkerCache.get(symbol);
-  if (cached) return cached;
-  const source = symbol.valueDeclaration?.getSourceFile() ?? symbol.declarations?.[0]?.getSourceFile();
-  if (!source) return [];
-  const values: AssignedSource[] = [];
-  const visit = (node: ts.Node): void => {
-    if (ts.isBinaryExpression(node) && assignmentMayStoreRight(node.operatorToken.kind)) {
-      values.push(...assignedSourcesAtTarget(node.left, node.right, symbol, checker));
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(source);
-  checkerCache.set(symbol, values);
-  return values;
-}
-
-export function assignedValues(symbol: ts.Symbol, checker: ts.TypeChecker): ts.Expression[] {
-  return assignedSources(symbol, checker).flatMap(source => {
-    if (source.rest) return [];
-    if (source.path.length === 0) return [source.initializer];
-    const value = aggregateValueAtPath(source.initializer, source.path, checker, new Set());
-    return value ? [value.value] : [];
-  });
-}
-
-export function assignmentMayStoreRight(kind: ts.SyntaxKind): boolean {
-  return kind === ts.SyntaxKind.EqualsToken
-    || kind === ts.SyntaxKind.AmpersandAmpersandEqualsToken
-    || kind === ts.SyntaxKind.BarBarEqualsToken
-    || kind === ts.SyntaxKind.QuestionQuestionEqualsToken;
-}
-
-function referencesGlobalIdentifier(
-  expression: ts.Expression,
-  globalName: string,
-  checker: ts.TypeChecker,
-  seen: Set<ts.Symbol>,
-): boolean {
-  expression = unwrap(expression);
-  if (ts.isIdentifier(expression) && expression.text === globalName) return true;
-  const branches = wrappedExpressionBranches(expression);
-  if (branches) return branches.some(branch =>
-    referencesGlobalIdentifier(branch, globalName, checker, new Set(seen)));
-  const aggregateSeen = new Set(seen);
-  const aggregate = aggregateExpressionValue(expression, checker, aggregateSeen);
-  if (aggregate && referencesGlobalIdentifier(
-    aggregate.value,
-    globalName,
-    checker,
-    aggregateSeen,
-  )) return true;
-  if (!ts.isIdentifier(expression)) return false;
-  const symbol = checker.getSymbolAtLocation(expression);
-  if (!symbol || seen.has(symbol)) return false;
-  seen.add(symbol);
-  const binding = symbol.declarations?.find(ts.isBindingElement);
-  if (binding?.initializer && referencesGlobalIdentifier(
-    binding.initializer,
-    globalName,
-    checker,
-    new Set(seen),
-  )) return true;
-  if (binding) {
-    const source = bindingSource(binding, checker);
-    const values = source ? [
-      aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
-      ...bindingDefaultValues(source, checker, new Set(seen)),
-    ].filter((value): value is NonNullable<typeof value> => value !== undefined) : [];
-    if (values.some(value => referencesGlobalIdentifier(
-      value.value,
-      globalName,
-      checker,
-      new Set(seen),
-    ))) return true;
-  }
-  if (assignedValues(symbol, checker).some(value =>
-    referencesGlobalIdentifier(value, globalName, checker, new Set(seen)))) return true;
-  const variable = symbol.declarations?.find(ts.isVariableDeclaration);
-  return !!variable?.initializer
-    && referencesGlobalIdentifier(variable.initializer, globalName, checker, seen);
-}
-
-export function referencesGlobalMember(
-  expression: ts.Expression,
-  globalName: string,
-  name: string,
-  checker: ts.TypeChecker,
-  seen = new Set<ts.Symbol>(),
-): boolean {
-  expression = unwrap(expression);
-  const receiver = memberReceiver(expression);
-  if (staticMemberSegment(expression, checker, new Set(seen)) === name && receiver
-    && referencesGlobalIdentifier(receiver, globalName, checker, new Set(seen))) return true;
-  const branches = wrappedExpressionBranches(expression);
-  if (branches) return branches.some(branch =>
-    referencesGlobalMember(branch, globalName, name, checker, new Set(seen)));
-  const aggregateSeen = new Set(seen);
-  const aggregate = aggregateExpressionValue(expression, checker, aggregateSeen);
-  if (aggregate && referencesGlobalMember(
-    aggregate.value,
-    globalName,
-    name,
-    checker,
-    aggregateSeen,
-  )) return true;
-  if (!ts.isIdentifier(expression)) return false;
-  const symbol = checker.getSymbolAtLocation(expression);
-  if (!symbol || seen.has(symbol)) return false;
-  seen.add(symbol);
-  const binding = symbol.declarations?.find(ts.isBindingElement);
-  if (binding?.initializer && referencesGlobalMember(
-    binding.initializer,
-    globalName,
-    name,
-    checker,
-    new Set(seen),
-  )) return true;
-  if (binding) {
-    const source = bindingSource(binding, checker);
-    if (source?.path.at(-1) === name) {
-      const receiverPath = source.path.slice(0, -1);
-      const sourceReceiver = receiverPath.length === 0
-        ? source.initializer
-        : aggregateValueAtPath(source.initializer, receiverPath, checker, new Set(seen))?.value;
-      if (sourceReceiver && referencesGlobalIdentifier(
-        sourceReceiver,
-        globalName,
-        checker,
-        new Set(seen),
-      )) return true;
-    }
-    const values = source ? [
-      aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
-      ...bindingDefaultValues(source, checker, new Set(seen)),
-    ].filter((value): value is NonNullable<typeof value> => value !== undefined) : [];
-    if (values.some(value => referencesGlobalMember(
-      value.value,
-      globalName,
-      name,
-      checker,
-      new Set(seen),
-    ))) return true;
-  }
-  if (assignedValues(symbol, checker).some(value =>
-    referencesGlobalMember(value, globalName, name, checker, new Set(seen)))) return true;
-  const variable = symbol.declarations?.find(ts.isVariableDeclaration);
-  return !!variable?.initializer
-    && referencesGlobalMember(variable.initializer, globalName, name, checker, seen);
 }
 
 export function aggregateValueAtPath(
@@ -640,26 +311,26 @@ export function staticArrayElements(
   const binding = symbol.declarations?.find(ts.isBindingElement);
   if (binding) {
     const source = bindingSource(binding, checker);
-    if (!source?.immutable) return undefined;
-    const values = [
-      { candidate: aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)), applyRest: true },
-      ...bindingDefaultValues(source, checker, new Set(seen))
-        .map(candidate => ({ candidate, applyRest: candidate.applyRest })),
-      ...(binding.initializer
-        ? [{ candidate: { value: binding.initializer, auditable: false }, applyRest: false }]
-        : []),
-    ];
-    for (const { candidate, applyRest } of values) {
-      if (!candidate) continue;
-      const value = staticArrayElements(candidate.value, checker, new Set(seen));
-      if (value) return {
-        auditable: false,
-        values: applyRest && source.rest?.kind === 'array'
-          ? value.values.slice(source.rest.start)
-          : value.values,
-      };
+    if (source?.immutable) {
+      const values = [
+        { candidate: aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)), applyRest: true },
+        ...bindingDefaultValues(source, checker, new Set(seen))
+          .map(candidate => ({ candidate, applyRest: candidate.applyRest })),
+        ...(binding.initializer
+          ? [{ candidate: { value: binding.initializer, auditable: false }, applyRest: false }]
+          : []),
+      ];
+      for (const { candidate, applyRest } of values) {
+        if (!candidate) continue;
+        const value = staticArrayElements(candidate.value, checker, new Set(seen));
+        if (value) return {
+          auditable: false,
+          values: applyRest && source.rest?.kind === 'array'
+            ? value.values.slice(source.rest.start)
+            : value.values,
+        };
+      }
     }
-    return undefined;
   }
   const variable = symbol.declarations?.find(ts.isVariableDeclaration);
   const variableList = variable && ts.isVariableDeclarationList(variable.parent)
@@ -669,7 +340,7 @@ export function staticArrayElements(
     const value = staticArrayElements(variable.initializer, checker, seen);
     if (value) return value;
   }
-  for (const source of assignedSources(symbol, checker)) {
+  for (const source of [...assignedSources(symbol, checker)].reverse()) {
     const candidate = source.path.length === 0
       ? { value: source.initializer, auditable: false }
       : aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen));
@@ -706,86 +377,4 @@ export function staticCallArguments(
     auditable = false;
   }
   return { values, auditable };
-}
-
-function reflectApplyCallable(
-  expression: ts.Expression,
-  checker: ts.TypeChecker,
-  seen = new Set<ts.Symbol>(),
-): { prebound: ts.Expression[] } | undefined {
-  expression = unwrap(expression);
-  if (referencesGlobalMember(expression, 'Reflect', 'apply', checker, new Set(seen))) {
-    return { prebound: [] };
-  }
-  const branches = wrappedExpressionBranches(expression);
-  if (branches) {
-    for (const branch of branches) {
-      const callable = reflectApplyCallable(branch, checker, new Set(seen));
-      if (callable) return callable;
-    }
-    return undefined;
-  }
-  const aggregateSeen = new Set(seen);
-  const aggregate = aggregateExpressionValue(expression, checker, aggregateSeen);
-  if (aggregate) return reflectApplyCallable(aggregate.value, checker, aggregateSeen);
-  if (ts.isCallExpression(expression)) {
-    const operation = staticMemberSegment(expression.expression, checker, new Set(seen));
-    const receiver = memberReceiver(expression.expression);
-    if (operation === 'bind' && receiver) {
-      const callable = reflectApplyCallable(receiver, checker, new Set(seen));
-      const args = staticCallArguments(expression.arguments, checker);
-      if (callable && args) return {
-        prebound: [...callable.prebound, ...args.values.slice(1)],
-      };
-    }
-    return undefined;
-  }
-  if (!ts.isIdentifier(expression)) return undefined;
-  const symbol = checker.getSymbolAtLocation(expression);
-  if (!symbol || seen.has(symbol)) return undefined;
-  seen.add(symbol);
-  const binding = symbol.declarations?.find(ts.isBindingElement);
-  if (binding) {
-    const source = bindingSource(binding, checker);
-    const values = source ? [
-      aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
-      ...bindingDefaultValues(source, checker, new Set(seen)),
-    ].filter((value): value is NonNullable<typeof value> => value !== undefined) : [];
-    for (const value of values) {
-      const callable = reflectApplyCallable(value.value, checker, new Set(seen));
-      if (callable) return callable;
-    }
-  }
-  for (const value of assignedValues(symbol, checker)) {
-    const callable = reflectApplyCallable(value, checker, new Set(seen));
-    if (callable) return callable;
-  }
-  const variable = symbol.declarations?.find(ts.isVariableDeclaration);
-  return variable?.initializer
-    ? reflectApplyCallable(variable.initializer, checker, seen)
-    : undefined;
-}
-
-export function reflectApplyArguments(
-  node: ts.CallExpression,
-  checker: ts.TypeChecker,
-): readonly ts.Expression[] | undefined {
-  const expanded = staticCallArguments(node.arguments, checker);
-  if (!expanded) return undefined;
-  const receiver = memberReceiver(node.expression);
-  const operation = staticMemberSegment(node.expression, checker, new Set());
-  if (receiver && (operation === 'call' || operation === 'apply')) {
-    const callable = reflectApplyCallable(receiver, checker);
-    if (callable) {
-      const invoked = operation === 'call'
-        ? expanded.values.slice(1)
-        : expanded.values[1]
-          ? staticArrayElements(expanded.values[1], checker, new Set())?.values
-            .filter((value): value is ts.Expression => value !== undefined)
-          : undefined;
-      return invoked ? [...callable.prebound, ...invoked] : undefined;
-    }
-  }
-  const callable = reflectApplyCallable(node.expression, checker);
-  return callable ? [...callable.prebound, ...expanded.values] : undefined;
 }

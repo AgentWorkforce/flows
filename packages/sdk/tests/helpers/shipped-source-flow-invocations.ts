@@ -1,16 +1,18 @@
 import ts from 'typescript';
 import {
-  aggregateExpressionValue,
-  aggregateValueAtPath,
   assignedValues,
   bindingDefaultValues,
   bindingSource,
-  reflectApplyArguments,
+} from './shipped-source-binding-provenance.js';
+import {
+  aggregateExpressionValue,
+  aggregateValueAtPath,
   staticArrayElements,
   staticCallArguments,
   staticMemberSegment,
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
+import { reflectApplyArguments } from './shipped-source-reflect-apply.js';
 
 interface FlowCallable {
   args: readonly ts.Expression[];
