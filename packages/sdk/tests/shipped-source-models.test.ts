@@ -262,12 +262,13 @@ describe('first-party shipped source model pins', () => {
         (function defaultedArrayRestConstructor(sources: any[]) { const [, ...constructors = [surface.flow]] = sources; constructors[0]('defaulted-array-rest-constructor', { budget: '$2' }, () => {}); })([]);
         { const [, ...[nestedRestConstructor]] = [undefined, surface.flow]; nestedRestConstructor('nested-array-rest-constructor', { budget: '$2' }, () => {}); }
         { const [, ...{ 0: nestedObjectRestConstructor }] = [undefined, surface.flow]; nestedObjectRestConstructor('nested-object-under-array-rest-constructor', { budget: '$2' }, () => {}); }
+        (function defaultedNestedObjectRestConstructor(sources: any[]) { const [, ...{ 0: define } = [surface.flow]] = sources; define('defaulted-nested-object-under-array-rest-constructor', { budget: '$2' }, () => {}); })([]);
         (function outerDefaultArrayRestConstructor(source: any) { const { pack: [, ...constructors] = [undefined, surface.flow] } = source; constructors[0]('outer-default-array-rest-constructor', { budget: '$2' }, () => {}); })({});
         surface.flow.call.call(surface.flow, surface, 'recursive-call-helper', { budget: '$2' }, () => {});
         surface.flow.apply.call(surface.flow, surface, ['recursive-apply-helper', { budget: '$2' }, () => {}]);
         async function wrappedFlowAliases() { const conditionalDefine = flag ? surface.flow : surface.flow, logicalDefine = (flag && surface.flow) || surface.flow, nullishDefine = surface.flow ?? surface.flow, commaDefine = (flag, surface.flow), awaitDefine = await surface.flow; conditionalDefine('conditional-flow', { budget: '$2' }, () => {}); logicalDefine('logical-flow', { budget: '$2' }, () => {}); nullishDefine('nullish-flow', { budget: '$2' }, () => {}); commaDefine('comma-flow', { budget: '$2' }, () => {}); awaitDefine('await-flow', { budget: '$2' }, () => {}); }
       `);
-      expect(scanTypeScript(aliasedHeader).invalidFlowHeaders).toHaveLength(50);
+      expect(scanTypeScript(aliasedHeader).invalidFlowHeaders).toHaveLength(51);
 
       const twoArgumentBudget = join(directory, 'two-argument-budget.flow.ts');
       writeFileSync(twoArgumentBudget, `

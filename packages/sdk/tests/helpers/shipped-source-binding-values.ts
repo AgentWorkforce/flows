@@ -187,11 +187,13 @@ export function bindingSource(binding: ts.BindingElement): {
   let rest: BindingRest | undefined;
   let current = binding;
   while (ts.isObjectBindingPattern(current.parent) || ts.isArrayBindingPattern(current.parent)) {
+    let defaultPath: BindingPathSegment[] | undefined;
     if (current.dotDotDotToken) {
       if (ts.isArrayBindingPattern(current.parent) && current !== binding) {
         const start = current.parent.elements.indexOf(current);
         const index = path[0] === undefined ? undefined : canonicalArrayIndex(path[0]);
         if (start < 0 || index === undefined) return undefined;
+        defaultPath = path.slice();
         path[0] = index + start;
       } else if (rest) {
         return undefined;
@@ -220,7 +222,7 @@ export function bindingSource(binding: ts.BindingElement): {
     if (current.initializer) defaults.push({
       applyRest: rest?.kind === 'array' && !current.dotDotDotToken,
       expression: current.initializer,
-      path: path.slice(1),
+      path: defaultPath ?? path.slice(1),
     });
     const owner = current.parent.parent;
     if (ts.isBindingElement(owner)) {
