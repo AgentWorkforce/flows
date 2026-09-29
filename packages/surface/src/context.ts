@@ -101,6 +101,16 @@ export interface LlmOptions {
   model?: string;
 }
 
+/** Durable receipt returned after a statically declared child flow succeeds. */
+export interface DispatchResult {
+  /** The child flow's declared name. */
+  name: string;
+  /** `success`; every other child verdict rejects the dispatch. */
+  completionReason: 'success';
+  /** The child's journaled completion detail, when it supplied one. */
+  completionDetail?: string;
+}
+
 /** The optional second argument to {@link Ctx.done}. */
 export interface DoneOptions {
   /** Why the flow reached this verdict; redacted, bounded, and journaled. */
@@ -143,7 +153,12 @@ export interface Ctx extends Helpers {
    * recorded with the question; it is not a delivery address.
    */
   human(question: string, options: { to: string }): Step<boolean>;
-  dispatch<T>(flow: string, input: unknown): Promise<T>;
+  /**
+   * Run a direct child declared in this flow's `use` header. The child shares
+   * this durable root, budget, worker capacity and Cloud graph; arbitrary
+   * paths and undeclared flow names are refused before the child body runs.
+   */
+  dispatch(flow: string, input: unknown): Step<DispatchResult>;
   /**
    * Run every installed implementation of a named hook in lock order and
    * AND-compose the booleans. With no implementations this is a journaled

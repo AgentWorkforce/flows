@@ -34,6 +34,7 @@ export default flow("chief", {
   identity: "chief",                          // gate 8 — a principal
   memory: { script: true, agent: true },      // gate 5 — relayhistory-backed
   budget: "$20/day",
+  use: ["./garden/implement.flow.ts"],         // direct child allowlist
 })
 .on(slack.mention("#exec"), async (f, event) => {          // gate 2 — trigger = entry condition
   const intent = await f.llm`Extract the work request, if any: ${event.text}`
@@ -49,8 +50,8 @@ export default flow("chief", {
   const ok = await f.human(`Ship this?\n${plan.summary}`, { to: "khaliq" });
   if (!ok) return f.done("declined"); // choose not to proceed after a negative answer
 
-  const pr = await f.dispatch("garden/implement", plan);   // gate 3 — child flow
-  await f.slack.reply(event, `Shipped: ${pr.url}`);
+  const child = await f.dispatch("garden/implement", plan); // gate 3 — child flow
+  await f.slack.reply(event, `Shipped: ${child.name} (${child.completionReason})`);
 });
 ```
 
@@ -1452,9 +1453,10 @@ The exit codes are part of the surface contract:
 
 Without an attached worker, reaching an `llm` or `agent` step returns a durable
 parked outcome. For authored TypeScript, `--local-agent` attaches both local
-workers as described above. Event, deployed-digest, HTTP, SDK-call, and
-flow-to-flow invocation remain later-gate surface work; they are not shipped
-by this CLI. Schedules are: `schedule.cron(...)` / `schedule.every(...)` are
+workers as described above. Direct, statically declared child-flow invocation
+is shipped through `use` / `f.dispatch`; event, deployed-digest, HTTP, SDK-call,
+and arbitrary public-flow invocation remain later-gate surface work. Schedules
+are: `schedule.cron(...)` / `schedule.every(...)` are
 declared on a flow, lowered to the `flows.tick` subscription, printed by
 `flows check` with the `flows tick start` invocation that drives a fixed
 interval locally, and registered on Cloud by `flows schedule` (see
@@ -1513,6 +1515,48 @@ naming the new run to start. A resume that drops the flag a root *was* pinned
 with is refused the same way, naming the resume that keeps it. On a declarative
 run the flag is honoured rather than refused: it attaches a worker and drives
 the parked step. The flag is never accepted and ignored.
+
+### Child flows: `f.dispatch`
+
+```ts
+export default flow("release", {
+  use: ["./implement.flow.ts"],
+  budget: { tokens: 50_000 },
+}, async (f, input) => {
+  await f.run("printf '%s' prepare");
+  const child = await f.dispatch("implement", { issue: input.issue });
+  await f.run("printf '%s' publish");
+  f.done(child.completionReason);
+});
+```
+
+`f.dispatch(name, input)` runs one **direct** child named by the current
+flow's static `use` header. `use` entries are relative `.flow.ts` paths; the
+loader resolves their complete graph before any authored body runs and refuses
+missing files, cycles, repeated paths, and two direct children with the same
+declared flow name. A computed path or an undeclared/transitive-only child name
+cannot widen that graph at runtime.
+
+The input is snapshotted as JSON before admission. Child operations share the
+parent's durable root and receive qualified identities such as
+`dispatch-2--run-1`. The first child operation depends on the parent's current
+predecessors; the journaled `dispatch-2` receipt joins the child's leaves; the
+next parent operation depends on that receipt. Resume replays those identities,
+so neither parent nor child effects repeat. A successful call returns
+`{ name, completionReason: "success", completionDetail? }`; any other child
+verdict fails the dispatch rather than turning failure into a value.
+
+Authority narrows down the tree. All descendants share the root budget
+accumulator and worker-capacity pool. In this release a child may not declare a
+second budget, require a tool capability its parent did not grant, or call
+`f.human`; the root owns the budget ceiling and approval authority. Static
+`use` cycles are refused and runtime child depth is capped at three. These are
+local/hosted authored-flow composition semantics, not permission for arbitrary
+public Flow Tools to call one another.
+
+With `--cloud-mirror`, the root, child operations and dispatch receipts are
+projected as one flattened, connected dashboard graph. Internal `complete-N`
+verdict receipts stay in the journal as evidence but are hidden from the graph.
 
 ### Human gates: `f.human`
 
@@ -1578,8 +1622,8 @@ answer, and `answeredBy` records the OS user who did. On Cloud the same wait is
 answered through the run's answer route — by the delivered channel above, or
 `POST /api/v1/workflows/runs/<id>/answer` — with the answerer's identity
 (`slack:@handle`, `github:@login`, or the Cloud user). `timeout` is not yet
-enforced (DESIGN.md §1.4). `f.dispatch` still fails closed as
-`unsupported_verb`.
+enforced (DESIGN.md §1.4). A child flow cannot call `f.human`; approval
+authority remains with the root flow.
 
 `flows resume` reports `run_unavailable` only when relayflowd returns the
 typed `run_not_found` refusal. A dropped connection, request failure, or

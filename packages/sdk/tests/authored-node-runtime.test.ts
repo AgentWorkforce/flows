@@ -241,8 +241,8 @@ f.done('${reason}');`);
     expect(existsSync(join(f.directory,'forbidden-effects'))).toBe(false);
   }, 60_000);
 
-  it('loads captured graph bytes before preserving the unsupported-use refusal', () => {
-    const f=fixture(`f.done('success');`);
+  it('dispatches the captured child graph even when the source changes before execution', () => {
+    const f=fixture(`await f.dispatch('child',{});f.done('success');`);
     const original=`import {flow} from '@relayflows/surface';import {writeFileSync} from 'node:fs';if(!process.versions.bun)writeFileSync('loaded-source','original');export default flow('child',async f=>{f.done('success')});`;
     const modified=original.replace("'original'", "'modified'");
     writeFileSync(join(f.directory,'child.flow.ts'),original);
@@ -250,8 +250,7 @@ f.done('${reason}');`);
       .replace("flow('runtime-case',async", "flow('runtime-case',{use:['./child.flow.ts']},async");
     writeFileSync(join(f.directory,'case.flow.ts'),
       `if(!process.versions.bun)writeFileSync('child.flow.ts',${JSON.stringify(modified)});\n`+root);
-    const result=f.run();expect(result.status,result.stderr+result.stdout).toBe(2);
-    expect(result.stderr+result.stdout).toContain('unsupported_header');
+    const result=f.run();expect(result.status,result.stderr+result.stdout).toBe(0);
     expect(readFileSync(join(f.directory,'child.flow.ts'),'utf8')).toBe(modified);
     expect(readFileSync(join(f.directory,'loaded-source'),'utf8')).toBe('original');
   },30_000);

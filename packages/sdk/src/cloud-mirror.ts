@@ -287,6 +287,7 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
   const finals = new Map<string, { journalRunId: string; row: FinalStep }>();
   const transcripts = new Map<string, { stepName: string; attempts: Array<{ attempt: number; path: string }> }>();
   const hints = new Map<string, { label?: string; after?: string[] }>();
+  const hidden = new Set<string>();
   /** Live steps the cache cap dropped, by identity, so a capped view owns up to it. */
   const evicted = new Set<string>();
   /** Finished steps past the report cap, by identity. Counted, never sent. */
@@ -318,6 +319,7 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
 
   const remember = (journalRunId: string, step: SnapshotStep, order: number): void => {
     const key = `${journalRunId}/${step.stepName}`;
+    if (hidden.has(key)) return;
     const existing = steps.get(key);
     const changed = existing === undefined || fingerprint(existing.step) !== fingerprint(step);
     steps.set(key, { step, order, changedAt: changed ? now() : existing!.changedAt });
@@ -365,19 +367,30 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
         continue;
       }
       for (const child of folded.children) admit(child);
+      for (const key of folded.hidden) {
+        hidden.add(key);
+        steps.delete(key);
+        finals.delete(key);
+        transcripts.delete(key);
+      }
       for (const [key, hint] of folded.hints) {
         // Merge, never replace: a completion record can omit a label or an
         // edge the admission carried, and the view must not lose a step's
         // name between them.
         const existing = hints.get(key);
         hints.set(key, {
-          ...(hint.label ?? existing?.label ? { label: hint.label ?? existing?.label } : {}),
-          ...(hint.after ?? existing?.after ? { after: hint.after ?? existing?.after } : {}),
+          // The root's authored index is scanned before the child journal and
+          // carries causal edges across child runs. A child spec only knows
+          // its own single-step graph (`depends_on: []`), so it may fill a
+          // missing field but must never erase the root's richer answer.
+          ...(existing?.label ?? hint.label ? { label: existing?.label ?? hint.label } : {}),
+          ...(existing?.after ?? hint.after ? { after: existing?.after ?? hint.after } : {}),
         });
       }
       folded.steps.forEach((step, order) => remember(runId, step, order));
       for (const row of folded.finals) {
         const key = `${runId}/${row.stepName}`;
+        if (hidden.has(key)) continue;
         // The report cap bounds what this process holds, not just what it
         // sends: a run with ten thousand steps must not grow its own mirror.
         // Steps past it are counted by identity, so a step read twice is one
