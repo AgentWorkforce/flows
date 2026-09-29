@@ -36,7 +36,7 @@ function eventKeys(manifest: FlowExtensionManifest): readonly string[] {
 
 function formatBudget(budget: FlowExtensionManifest['permissions']['budget']): string {
   if (budget === undefined) return 'inherits base';
-  return [budget.dollars === undefined ? '' : `$${budget.dollars}`, budget.wallclock ?? ''].filter(Boolean).join(' / ') || 'inherits base';
+  return [budget.tokens === undefined ? '' : `${budget.tokens} tokens`, budget.dollars === undefined ? '' : `$${budget.dollars}`, budget.wallclock ?? ''].filter(Boolean).join(' / ') || 'inherits base';
 }
 
 export function describeExtension(manifest: FlowExtensionManifest): string[] {

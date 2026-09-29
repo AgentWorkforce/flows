@@ -2,6 +2,7 @@ import ts from 'typescript';
 import {
   aggregateExpressionValue,
   aggregateValueAtPath,
+  assignedValues,
   bindingDefaultValues,
   bindingSource,
   staticMemberSegment,
@@ -135,7 +136,7 @@ function referencesIntrinsic(
     if (binding?.initializer
       && referencesIntrinsic(binding.initializer, intrinsic, checker, new Set(seen))) return true;
     if (binding) {
-      const source = bindingSource(binding);
+      const source = bindingSource(binding, checker);
       if (source) {
         const values = [
           aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
@@ -201,7 +202,7 @@ function referencesReflectiveWriter(
     if (binding?.initializer
       && referencesReflectiveWriter(binding.initializer, checker, new Set(seen))) return true;
     if (binding) {
-      const source = bindingSource(binding);
+      const source = bindingSource(binding, checker);
       if (source) {
         const values = [
           aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
@@ -276,7 +277,7 @@ function symbolMayAliasSymbol(
       checker,
       new Set(nextSeen),
     )) return true;
-    const source = bindingSource(declaration);
+    const source = bindingSource(declaration, checker);
     if (!source) continue;
     const values = [
       aggregateValueAtPath(source.initializer, source.path, checker, new Set(nextSeen)),
@@ -289,25 +290,8 @@ function symbolMayAliasSymbol(
       new Set(nextSeen),
     ))) return true;
   }
-  const source = candidate.valueDeclaration?.getSourceFile()
-    ?? candidate.declarations?.[0]?.getSourceFile();
-  if (!source) return false;
-  let assigned = false;
-  const visit = (node: ts.Node): void => {
-    if (assigned) return;
-    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-      const target = unwrap(node.left);
-      if (ts.isIdentifier(target)
-        && checker.getSymbolAtLocation(target) === candidate
-        && expressionMayAliasSymbol(node.right, symbol, checker, new Set(nextSeen))) {
-        assigned = true;
-        return;
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(source);
-  return assigned;
+  return assignedValues(candidate, checker).some(value =>
+    expressionMayAliasSymbol(value, symbol, checker, new Set(nextSeen)));
 }
 
 function expressionMayAliasSymbol(

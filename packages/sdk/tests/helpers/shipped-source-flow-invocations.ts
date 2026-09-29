@@ -6,6 +6,8 @@ import {
   bindingDefaultValues,
   bindingSource,
   referencesGlobalMember,
+  staticArrayElements,
+  staticCallArguments,
   staticMemberSegment,
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
@@ -13,6 +15,22 @@ import {
 interface FlowCallable {
   args: readonly ts.Expression[];
   auditable: boolean;
+}
+
+function reflectApplyArguments(
+  node: ts.CallExpression,
+  checker: ts.TypeChecker,
+): readonly ts.Expression[] | undefined {
+  const direct = referencesGlobalMember(node.expression, 'Reflect', 'apply', checker);
+  const expanded = staticCallArguments(node.arguments, checker);
+  if (direct) return expanded?.values;
+  const receiver = memberReceiver(node.expression);
+  if (!receiver || !referencesGlobalMember(receiver, 'Reflect', 'apply', checker)) return undefined;
+  const operation = memberName(node.expression, checker);
+  if (operation === 'call') return expanded?.values.slice(1);
+  if (operation !== 'apply' || !expanded?.values[1]) return undefined;
+  return staticArrayElements(expanded.values[1], checker, new Set())?.values
+    .filter((value): value is ts.Expression => value !== undefined);
 }
 
 interface FlowInvocationHelper extends FlowCallable {
@@ -53,7 +71,7 @@ function bindingValues(
   checker: ts.TypeChecker,
   seen: Set<ts.Symbol>,
 ): Array<{ value: ts.Expression }> {
-  const source = bindingSource(binding);
+  const source = bindingSource(binding, checker);
   if (!source) return [];
   return [
     aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
@@ -102,7 +120,7 @@ function namespaceSymbolAuditable(
     if (fallback !== undefined) return false;
   }
   if (binding) {
-    const source = bindingSource(binding);
+    const source = bindingSource(binding, checker);
     if (source) {
       const values = [
         aggregateValueAtPath(source.initializer, source.path, checker, seen),
@@ -362,7 +380,7 @@ function flowConstructor(
     if (fallback) return { ...fallback, auditable: false };
   }
   if (binding) {
-    const source = bindingSource(binding);
+    const source = bindingSource(binding, checker);
     if (source) {
       const direct = aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen));
       const constructor = direct ? flowConstructor(direct.value, checker, new Set(seen)) : undefined;
@@ -418,12 +436,14 @@ export function flowInvocation(
   checker: ts.TypeChecker,
 ): FlowCallable | undefined {
   if (!ts.isCallExpression(node)) return undefined;
-  if (referencesGlobalMember(node.expression, 'Reflect', 'apply', checker)) {
-    const target = node.arguments[0] ? flowConstructor(node.arguments[0], checker) : undefined;
-    const applied = node.arguments[2];
-    if (target) return applied && ts.isArrayLiteralExpression(applied)
+  const reflectArgs = reflectApplyArguments(node, checker);
+  if (reflectArgs) {
+    const target = reflectArgs[0] ? flowConstructor(reflectArgs[0], checker) : undefined;
+    const applied = reflectArgs[2];
+    const appliedArgs = applied ? staticArrayElements(applied, checker, new Set()) : undefined;
+    if (target) return appliedArgs
       ? {
-          args: [...target.args, ...applied.elements],
+          args: [...target.args, ...appliedArgs.values.filter((value): value is ts.Expression => value !== undefined)],
           auditable: false,
         }
       : { args: [], auditable: false };
@@ -437,7 +457,8 @@ export function flowInvocation(
   if (!helper) {
     const declaration = checker.getResolvedSignature(node)?.declaration;
     if (declaration && ts.isFunctionLike(declaration) && 'body' in declaration && declaration.body) {
-      for (const argument of node.arguments) {
+      const forwardedArgs = staticCallArguments(node.arguments, checker)?.values ?? node.arguments;
+      for (const argument of forwardedArgs) {
         const forwarded = flowConstructor(ts.isSpreadElement(argument) ? argument.expression : argument, checker);
         if (forwarded) return { args: [], auditable: false };
       }

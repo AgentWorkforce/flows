@@ -152,16 +152,24 @@ describe('shipped-source worker invocation resolution', () => {
         function aliasedReflectApplyWorker() { const apply = Reflect.apply; apply(f.agent, f, ['review', { task: 'x' }]); }
         function aliasedReflectWorker() { const R = Reflect; R.apply(f.agent, f, ['review', { task: 'x' }]); }
         function destructuredReflectApplyWorker() { const { apply } = Reflect; apply(f.agent, f, ['review', { task: 'x' }]); }
+        function computedDestructuredReflectApplyWorker() { const key = 'apply' as const; const { [key]: apply } = Reflect; apply(f.agent, f, ['review', { task: 'x' }]); }
+        function calledReflectApplyWorker() { Reflect.apply.call(Reflect, f.agent, f, ['review', { task: 'x' }]); }
+        function appliedReflectApplyWorker() { Reflect.apply.apply(Reflect, [f.agent, f, ['review', { task: 'x' }]]); }
+        function spreadReflectApplyWorker() { Reflect.apply(...[f.agent, f, ['review', { task: 'x' }]] as const); }
         function forwardedWorker() { const invoke = (run: (...args: any[]) => void, ...args: any[]) => run(...args); invoke(f.agent, 'review', { task: 'x' }); }
+        function spreadForwardedWorker() { const invoke = (run: (...args: any[]) => void, ...args: any[]) => run(...args); invoke(...[f.agent, 'review', { task: 'x' }] as const); }
         function assignedWorker() { let run: any = () => undefined; run = f.agent; run('review', { task: 'x' }); }
         function wrappedAssignedWorker() { let run: any = () => undefined; (run as any) = f.agent; run('review', { task: 'x' }); }
+        function objectAssignedWorker() { let run: any; ({ run } = { run: f.agent }); run('review', { task: 'x' }); }
+        function arrayAssignedWorker() { let run: any; [run] = [f.agent]; run('review', { task: 'x' }); }
+        function assignedDestructuredWorker() { let { run } = { run: () => undefined }; run = f.agent; run('review', { task: 'x' }); }
         function recursiveCallHelperWorker() { f.agent.call.call(f.agent, f, 'review', { task: 'x' }); }
         function recursiveApplyHelperWorker() { f.agent.apply.call(f.agent, f, ['review', { task: 'x' }]); }
         async function wrappedWorkerAliases() { const conditionalRun = flag ? f.agent : f.agent, logicalRun = (flag && f.agent) || f.agent, nullishRun = f.agent ?? f.agent, commaRun = (flag, f.agent), awaitRun = await f.agent; conditionalRun('review', { task: 'x' }); logicalRun('review', { task: 'x' }); nullishRun('review', { task: 'x' }); commaRun('review', { task: 'x' }); awaitRun('review', { task: 'x' }); }
       `);
       const variableAliasResult = scanTypeScript(variableAliases);
-      expect(variableAliasResult.calls).toBe(135);
-      expect(variableAliasResult.missing).toHaveLength(135);
+      expect(variableAliasResult.calls).toBe(143);
+      expect(variableAliasResult.missing).toHaveLength(143);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `

@@ -28,12 +28,19 @@ function unwrap(expression: ts.Expression): ts.Expression {
   return expression;
 }
 
-function propertyName(name: ts.PropertyName | undefined): string | undefined {
+function propertyName(
+  name: ts.PropertyName | undefined,
+  checker?: ts.TypeChecker,
+  seen = new Set<ts.Symbol>(),
+): string | undefined {
   if (!name) return undefined;
   if (ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name)) return name.text;
-  return ts.isComputedPropertyName(name) && ts.isStringLiteralLike(name.expression)
-    ? name.expression.text
+  if (!ts.isComputedPropertyName(name)) return undefined;
+  if (ts.isStringLiteralLike(name.expression)) return name.expression.text;
+  const segment = checker
+    ? staticPropertySegment(name.expression, checker, new Set(seen))
     : undefined;
+  return segment === undefined ? undefined : String(segment);
 }
 
 function canonicalArrayIndex(segment: BindingPathSegment): number | undefined {
@@ -64,7 +71,7 @@ export function staticPropertySegment(
   seen.add(symbol);
   const binding = symbol.declarations?.find(ts.isBindingElement);
   if (binding) {
-    const source = bindingSource(binding);
+    const source = bindingSource(binding, checker, new Set(seen));
     const values = source?.immutable ? [
       ...(binding.initializer ? [{ value: binding.initializer }] : []),
       aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
@@ -147,7 +154,7 @@ export function objectMemberValue(
     seen.add(symbol);
     const binding = symbol.declarations?.find(ts.isBindingElement);
     if (binding) {
-      const source = bindingSource(binding);
+      const source = bindingSource(binding, checker);
       if (!source?.immutable) return undefined;
       if (source.rest?.kind === 'object' && source.rest.excluded.includes(name)) return undefined;
       const values = [
@@ -175,7 +182,11 @@ export function objectMemberValue(
   return value && !parent.auditable ? { ...value, auditable: false } : value;
 }
 
-export function bindingSource(binding: ts.BindingElement): {
+export function bindingSource(
+  binding: ts.BindingElement,
+  checker?: ts.TypeChecker,
+  seen = new Set<ts.Symbol>(),
+): {
   defaults: Array<{ applyRest: boolean; expression: ts.Expression; path: BindingPathSegment[] }>;
   initializer: ts.Expression;
   immutable: boolean;
@@ -203,6 +214,8 @@ export function bindingSource(binding: ts.BindingElement): {
             .filter(element => element !== current && !element.dotDotDotToken)
             .map(element => propertyName(
               element.propertyName ?? (ts.isIdentifier(element.name) ? element.name : undefined),
+              checker,
+              seen,
             ))
             .filter((name): name is string => name !== undefined),
           kind: 'object',
@@ -214,7 +227,11 @@ export function bindingSource(binding: ts.BindingElement): {
       }
     } else {
       const segment = ts.isObjectBindingPattern(current.parent)
-        ? propertyName(current.propertyName ?? (ts.isIdentifier(current.name) ? current.name : undefined))
+        ? propertyName(
+            current.propertyName ?? (ts.isIdentifier(current.name) ? current.name : undefined),
+            checker,
+            seen,
+          )
         : current.parent.elements.indexOf(current);
       if (segment === undefined || (typeof segment === 'number' && segment < 0)) return undefined;
       path.unshift(segment);
@@ -258,16 +275,57 @@ export function bindingDefaultValues(
   });
 }
 
+function assignedValueAtTarget(
+  target: ts.Expression,
+  value: ts.Expression,
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+  path: BindingPathSegment[] = [],
+): ts.Expression | undefined {
+  target = unwrap(target);
+  if (ts.isIdentifier(target)) {
+    const targetSymbol = ts.isShorthandPropertyAssignment(target.parent)
+      ? checker.getShorthandAssignmentValueSymbol(target.parent)
+      : checker.getSymbolAtLocation(target);
+    if (targetSymbol !== symbol) return undefined;
+    return path.length === 0
+      ? value
+      : aggregateValueAtPath(value, path, checker, new Set())?.value;
+  }
+  if (ts.isBinaryExpression(target) && target.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+    return assignedValueAtTarget(target.left, value, symbol, checker, path);
+  }
+  if (ts.isArrayLiteralExpression(target)) {
+    for (const [index, element] of target.elements.entries()) {
+      if (ts.isOmittedExpression(element) || ts.isSpreadElement(element)) continue;
+      const assigned = assignedValueAtTarget(element, value, symbol, checker, [...path, index]);
+      if (assigned) return assigned;
+    }
+    return undefined;
+  }
+  if (!ts.isObjectLiteralExpression(target)) return undefined;
+  for (const property of target.properties) {
+    if (ts.isSpreadAssignment(property)) continue;
+    const segment = propertyName(property.name, checker);
+    if (segment === undefined) continue;
+    const assigned = ts.isShorthandPropertyAssignment(property)
+      ? assignedValueAtTarget(property.name, value, symbol, checker, [...path, segment])
+      : ts.isPropertyAssignment(property)
+        ? assignedValueAtTarget(property.initializer, value, symbol, checker, [...path, segment])
+        : undefined;
+    if (assigned) return assigned;
+  }
+  return undefined;
+}
+
 export function assignedValues(symbol: ts.Symbol, checker: ts.TypeChecker): ts.Expression[] {
   const source = symbol.valueDeclaration?.getSourceFile() ?? symbol.declarations?.[0]?.getSourceFile();
   if (!source) return [];
   const values: ts.Expression[] = [];
   const visit = (node: ts.Node): void => {
     if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-      const target = unwrap(node.left);
-      if (ts.isIdentifier(target) && checker.getSymbolAtLocation(target) === symbol) {
-        values.push(node.right);
-      }
+      const value = assignedValueAtTarget(node.left, node.right, symbol, checker);
+      if (value) values.push(value);
     }
     ts.forEachChild(node, visit);
   };
@@ -306,7 +364,7 @@ function referencesGlobalIdentifier(
     new Set(seen),
   )) return true;
   if (binding) {
-    const source = bindingSource(binding);
+    const source = bindingSource(binding, checker);
     const values = source ? [
       aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
       ...bindingDefaultValues(source, checker, new Set(seen)),
@@ -361,7 +419,7 @@ export function referencesGlobalMember(
     new Set(seen),
   )) return true;
   if (binding) {
-    const source = bindingSource(binding);
+    const source = bindingSource(binding, checker);
     if (source?.path.at(-1) === name) {
       const receiverPath = source.path.slice(0, -1);
       const sourceReceiver = receiverPath.length === 0
@@ -453,7 +511,7 @@ function aggregateMemberValue(
     : undefined;
 }
 
-function staticArrayElements(
+export function staticArrayElements(
   expression: ts.Expression,
   checker: ts.TypeChecker,
   seen: Set<ts.Symbol>,
@@ -498,7 +556,7 @@ function staticArrayElements(
   seen.add(symbol);
   const binding = symbol.declarations?.find(ts.isBindingElement);
   if (binding) {
-    const source = bindingSource(binding);
+    const source = bindingSource(binding, checker);
     if (!source?.immutable) return undefined;
     const values = [
       { candidate: aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)), applyRest: true },
@@ -526,4 +584,23 @@ function staticArrayElements(
   return value && (variable.parent.flags & ts.NodeFlags.Const) === 0
     ? { ...value, auditable: false }
     : value;
+}
+
+export function staticCallArguments(
+  args: readonly ts.Expression[],
+  checker: ts.TypeChecker,
+): { values: ts.Expression[]; auditable: boolean } | undefined {
+  const values: ts.Expression[] = [];
+  let auditable = true;
+  for (const argument of args) {
+    if (!ts.isSpreadElement(argument)) {
+      values.push(argument);
+      continue;
+    }
+    const spread = staticArrayElements(argument.expression, checker, new Set());
+    if (!spread || spread.values.some(value => value === undefined)) return undefined;
+    values.push(...spread.values as ts.Expression[]);
+    auditable = false;
+  }
+  return { values, auditable };
 }

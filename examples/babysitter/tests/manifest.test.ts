@@ -37,5 +37,5 @@ test('merge-gate is a live-state predicate: no matching PR is a pass, a held gat
 test('the manifest budget is the flow header budget, and the entry name is the file the flow lives in', () => {
   const source = readFileSync(new URL('../babysitter.flow.ts', import.meta.url), 'utf8');
   assert.match(source, /budget: \{ tokens: 800_000, dollars: 8, wallclock: '45m' \}/);
-  assert.deepEqual(manifest.permissions.budget, { dollars: 8, wallclock: '45m' });
+  assert.deepEqual(manifest.permissions.budget, { tokens: 800_000, dollars: 8, wallclock: '45m' });
 });

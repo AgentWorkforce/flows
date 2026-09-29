@@ -82,6 +82,33 @@ function wallclockMs(value: string): number | undefined {
   return Number(match[1]) * WALLCLOCK_MS[unit];
 }
 
+function composeBudget(
+  base: AuthoredFlowDefinition['header']['budget'],
+  extensions: readonly LoadedFlowExtension[],
+): AuthoredFlowDefinition['header']['budget'] {
+  const ceilings = extensions
+    .map(extension => extension.manifest.permissions.budget)
+    .filter((budget): budget is NonNullable<typeof budget> => budget !== undefined);
+  if (ceilings.length === 0) return base;
+  if (typeof base === 'string') {
+    throw new PluginError('plugin_incompatible', 'A structured extension budget cannot compose with a shorthand base-flow budget.');
+  }
+  const budgets = [...(base === undefined ? [] : [base]), ...ceilings];
+  const tokens = budgets.flatMap(budget => budget.tokens === undefined ? [] : [budget.tokens]);
+  const dollars = budgets.flatMap(budget => budget.dollars === undefined ? [] : [budget.dollars]);
+  const wallclocks = budgets.flatMap(budget => budget.wallclock === undefined ? [] : [budget.wallclock]);
+  const wallclock = wallclocks.reduce<string | undefined>((strictest, candidate) => {
+    if (strictest === undefined) return candidate;
+    return (wallclockMs(candidate) ?? Number.POSITIVE_INFINITY)
+      < (wallclockMs(strictest) ?? Number.POSITIVE_INFINITY) ? candidate : strictest;
+  }, undefined);
+  return Object.freeze({
+    ...(tokens.length === 0 ? {} : { tokens: Math.min(...tokens) }),
+    ...(dollars.length === 0 ? {} : { dollars: Math.min(...dollars) }),
+    ...(wallclock === undefined ? {} : { wallclock }),
+  });
+}
+
 /** Credentials and servers declared on a flow-extension, probed before the base body starts. */
 export async function probeFlowExtension(manifest: FlowExtensionManifest, env: NodeJS.ProcessEnv = process.env): Promise<void> {
   for (const credential of manifest.preflight.credentials) {
@@ -253,6 +280,12 @@ async function loadOne<Authority>(
   assertBaseCompatible(manifest, { name: base.definition.name, version: base.definition.header.version });
   const baseBudget = base.definition.header.budget;
   const ceiling = manifest.permissions.budget;
+  if (ceiling !== undefined && typeof baseBudget === 'string') {
+    throw new PluginError('plugin_incompatible', `${manifest.name} declares a structured budget ceiling that cannot compose with the base flow's shorthand budget.`);
+  }
+  if (ceiling?.tokens !== undefined && typeof baseBudget === 'object' && baseBudget.tokens !== undefined && ceiling.tokens > baseBudget.tokens) {
+    throw new PluginError('plugin_incompatible', `${manifest.name} declares a ${ceiling.tokens}-token budget ceiling above the base flow's ${baseBudget.tokens}-token ceiling.`);
+  }
   if (ceiling?.dollars !== undefined && typeof baseBudget === 'object' && baseBudget.dollars !== undefined && ceiling.dollars > baseBudget.dollars) {
     throw new PluginError('plugin_incompatible', `${manifest.name} declares a $${ceiling.dollars} budget ceiling above the base flow's $${baseBudget.dollars}.`);
   }
@@ -329,11 +362,15 @@ export async function loadFlowExtensions<Authority>(
   return Object.freeze(loaded);
 }
 
-/** The base definition with extension handlers appended in lock order; the base's own fields are untouched. */
+/** The base definition with extension handlers appended and every declared budget ceiling retained. */
 export function composeDefinition<Input>(base: AuthoredFlowDefinition<Input>, extensions: readonly LoadedFlowExtension[]): AuthoredFlowDefinition<Input> {
   if (extensions.length === 0) return base;
+  const budget = composeBudget(base.header.budget, extensions);
   return Object.freeze({
     ...base,
+    header: budget === base.header.budget
+      ? base.header
+      : Object.freeze({ ...base.header, budget }),
     handlers: Object.freeze([...base.handlers, ...extensions.flatMap(extension => extension.handlers)]),
   });
 }

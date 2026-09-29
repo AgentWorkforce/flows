@@ -6,6 +6,8 @@ import {
   bindingDefaultValues,
   bindingSource,
   referencesGlobalMember,
+  staticCallArguments,
+  staticArrayElements,
   staticMemberSegment,
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
@@ -83,7 +85,7 @@ function bindingValues(
   checker: ts.TypeChecker,
   seen: Set<ts.Symbol>,
 ): Array<{ value: ts.Expression }> {
-  const source = bindingSource(binding);
+  const source = bindingSource(binding, checker);
   if (!source) return [];
   return [
     aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
@@ -356,6 +358,10 @@ function workerCallable(
       if (callable) return { ...callable, args: [], auditable: false };
     }
   }
+  for (const value of assignedValues(symbol, checker)) {
+    const callable = workerCallable(value, checker, new Set([...seen, symbol]));
+    if (callable) return { ...callable, args: [], auditable: false };
+  }
   if (binding && ts.isObjectBindingPattern(binding.parent)) {
     const name = propertyName(binding.propertyName ?? (ts.isIdentifier(binding.name) ? binding.name : undefined));
     const declaration = binding.parent.parent;
@@ -367,14 +373,26 @@ function workerCallable(
       ? { method: name, args: [], auditable: immutable && !!receiver && receiverAuditable(receiver, checker) }
       : undefined;
   }
-  for (const value of assignedValues(symbol, checker)) {
-    const callable = workerCallable(value, checker, new Set([...seen, symbol]));
-    if (callable) return { ...callable, args: [], auditable: false };
-  }
   const initializer = variableInitializer(expression, checker, seen);
   if (!initializer) return undefined;
   const callable = workerCallable(initializer.expression, checker, seen);
   return callable && !initializer.immutable ? { ...callable, args: [], auditable: false } : callable;
+}
+
+function reflectApplyArguments(
+  node: ts.CallExpression,
+  checker: ts.TypeChecker,
+): readonly ts.Expression[] | undefined {
+  const direct = referencesGlobalMember(node.expression, 'Reflect', 'apply', checker);
+  const expanded = staticCallArguments(node.arguments, checker);
+  if (direct) return expanded?.values;
+  const receiver = memberReceiver(node.expression);
+  if (!receiver || !referencesGlobalMember(receiver, 'Reflect', 'apply', checker)) return undefined;
+  const operation = memberName(node.expression, checker);
+  if (operation === 'call') return expanded?.values.slice(1);
+  if (operation !== 'apply' || !expanded?.values[1]) return undefined;
+  return staticArrayElements(expanded.values[1], checker, new Set())?.values
+    .filter((value): value is ts.Expression => value !== undefined);
 }
 
 export function workerMethodName(expression: ts.Expression, checker: ts.TypeChecker): string | undefined {
@@ -385,13 +403,15 @@ export function workerInvocation(
   node: ts.CallExpression,
   checker: ts.TypeChecker,
 ): WorkerInvocation | undefined {
-  if (referencesGlobalMember(node.expression, 'Reflect', 'apply', checker)) {
-    const target = node.arguments[0] ? workerCallable(node.arguments[0], checker) : undefined;
-    const applied = node.arguments[2];
-    if (target) return applied && ts.isArrayLiteralExpression(applied)
+  const reflectArgs = reflectApplyArguments(node, checker);
+  if (reflectArgs) {
+    const target = reflectArgs[0] ? workerCallable(reflectArgs[0], checker) : undefined;
+    const applied = reflectArgs[2];
+    const appliedArgs = applied ? staticArrayElements(applied, checker, new Set()) : undefined;
+    if (target) return appliedArgs
       ? {
           method: target.method,
-          args: [...target.args, ...applied.elements],
+          args: [...target.args, ...appliedArgs.values.filter((value): value is ts.Expression => value !== undefined)],
           auditable: false,
         }
       : { method: target.method, args: [], auditable: false };
@@ -406,7 +426,8 @@ export function workerInvocation(
   if (!helper) {
     const declaration = checker.getResolvedSignature(node)?.declaration;
     if (declaration && ts.isFunctionLike(declaration) && 'body' in declaration && declaration.body) {
-      for (const argument of node.arguments) {
+      const forwardedArgs = staticCallArguments(node.arguments, checker)?.values ?? node.arguments;
+      for (const argument of forwardedArgs) {
         const forwarded = workerCallable(ts.isSpreadElement(argument) ? argument.expression : argument, checker);
         if (forwarded) return { method: forwarded.method, args: [], auditable: false };
       }

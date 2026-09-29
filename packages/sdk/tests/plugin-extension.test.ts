@@ -230,6 +230,7 @@ describe('schema-2 manifest validation', () => {
     ['an unknown harness', (m: Record<string, unknown>) => ({ ...m, permissions: { ...(m.permissions as object), harnesses: ['cursor'] } }), 'plugin_manifest_invalid'],
     ['a malformed write class', (m: Record<string, unknown>) => ({ ...m, permissions: { ...(m.permissions as object), writes: ['github'] } }), 'plugin_manifest_invalid'],
     ['a non-positive budget', (m: Record<string, unknown>) => ({ ...m, permissions: { ...(m.permissions as object), budget: { dollars: 0 } } }), 'plugin_manifest_invalid'],
+    ['a fractional token budget', (m: Record<string, unknown>) => ({ ...m, permissions: { ...(m.permissions as object), budget: { tokens: 1.5 } } }), 'plugin_manifest_invalid'],
     ['a config that is not a JSON Schema', (m: Record<string, unknown>) => ({ ...m, config: { type: 'not-a-type' } }), 'plugin_manifest_invalid'],
     ['a missing preflight', (m: Record<string, unknown>) => { const { preflight, ...rest } = m; void preflight; return rest; }, 'plugin_preflight_missing'],
   ])('refuses %s', (_, patch, code) => {
@@ -356,7 +357,7 @@ describe('flows plugin remove / update', () => {
     expect(p.text()).toContain(`Update babysitter  ${REF} → ${to}`);
     expect(p.text()).toContain('version: 0.1.0 → 0.2.0');
     expect(p.text()).toContain('+github:issue:comment');
-    expect(p.text()).toContain('budget: $8 / 45m → $12 / 1h');
+    expect(p.text()).toContain('budget: 800000 tokens / $8 / 45m → $12 / 1h');
     expect(p.text()).toContain('REFUSED [plugin_manifest_invalid] Re-run with --yes to apply this update.');
     expect(JSON.parse(readFileSync(join(p.cwd, 'flows.json'), 'utf8')).plugins).toEqual([REF]);
     expect(readPluginLock(p.cwd).plugins[0]!.digest).toBe(digest);

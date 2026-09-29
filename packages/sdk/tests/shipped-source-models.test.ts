@@ -270,12 +270,20 @@ describe('first-party shipped source model pins', () => {
         { const apply = Reflect.apply; apply(surface.flow, surface, ['aliased-reflect-apply-constructor', { budget: '$2' }, () => {}]); }
         { const R = Reflect; R.apply(surface.flow, surface, ['aliased-reflect-constructor', { budget: '$2' }, () => {}]); }
         { const { apply } = Reflect; apply(surface.flow, surface, ['destructured-reflect-apply-constructor', { budget: '$2' }, () => {}]); }
+        { const key = 'apply' as const; const { [key]: apply } = Reflect; apply(surface.flow, surface, ['computed-destructured-reflect-apply-constructor', { budget: '$2' }, () => {}]); }
+        Reflect.apply.call(Reflect, surface.flow, surface, ['called-reflect-apply-constructor', { budget: '$2' }, () => {}]);
+        Reflect.apply.apply(Reflect, [surface.flow, surface, ['applied-reflect-apply-constructor', { budget: '$2' }, () => {}]]);
+        Reflect.apply(...[surface.flow, surface, ['spread-reflect-apply-constructor', { budget: '$2' }, () => {}]] as const);
         { const invoke = (define: (...args: any[]) => void, ...args: any[]) => define(...args); invoke(surface.flow, 'forwarded-constructor', { budget: '$2' }, () => {}); }
+        { const invoke = (define: (...args: any[]) => void, ...args: any[]) => define(...args); invoke(...[surface.flow, 'spread-forwarded-constructor', { budget: '$2' }, () => {}] as const); }
         { let assigned: any = () => undefined; assigned = surface.flow; assigned('assigned-constructor', { budget: '$2' }, () => {}); }
         { let assigned: any = () => undefined; (assigned as any) = surface.flow; assigned('wrapped-assigned-constructor', { budget: '$2' }, () => {}); }
+        { let assigned: any; ({ assigned } = { assigned: surface.flow }); assigned('object-assigned-constructor', { budget: '$2' }, () => {}); }
+        { let assigned: any; [assigned] = [surface.flow]; assigned('array-assigned-constructor', { budget: '$2' }, () => {}); }
+        { let { assigned } = { assigned: () => undefined }; assigned = surface.flow; assigned('assigned-destructured-constructor', { budget: '$2' }, () => {}); }
         async function wrappedFlowAliases() { const conditionalDefine = flag ? surface.flow : surface.flow, logicalDefine = (flag && surface.flow) || surface.flow, nullishDefine = surface.flow ?? surface.flow, commaDefine = (flag, surface.flow), awaitDefine = await surface.flow; conditionalDefine('conditional-flow', { budget: '$2' }, () => {}); logicalDefine('logical-flow', { budget: '$2' }, () => {}); nullishDefine('nullish-flow', { budget: '$2' }, () => {}); commaDefine('comma-flow', { budget: '$2' }, () => {}); awaitDefine('await-flow', { budget: '$2' }, () => {}); }
       `);
-      expect(scanTypeScript(aliasedHeader).invalidFlowHeaders).toHaveLength(58);
+      expect(scanTypeScript(aliasedHeader).invalidFlowHeaders).toHaveLength(66);
 
       const twoArgumentBudget = join(directory, 'two-argument-budget.flow.ts');
       writeFileSync(twoArgumentBudget, `

@@ -6,7 +6,7 @@ import { flow, github, type Ctx } from '@relayflows/surface';
 
 async function babysit(f: Ctx): Promise<void> { f.done('declined'); }
 
-export default flow('babysitter', { budget: { dollars: 8, wallclock: '45m' } }, babysit)
+export default flow('babysitter', { budget: { tokens: 800_000, dollars: 8, wallclock: '45m' } }, babysit)
   .on(github.pull_request('opened'), babysit)
   .on(github.pull_request('synchronize'), babysit)
   .on(github.pull_request('reopened'), babysit)

@@ -83,7 +83,9 @@ describe('composing flow extensions onto a base flow', () => {
     // The base's own definition, as its surface copy holds it, is unchanged.
     expect(loaded.graph[0]!.getDefinition(loaded.handle).handlers).toHaveLength(1);
     expect(composed.name).toBe('software-factory');
-    expect(composed.header).toBe(loaded.graph[0]!.getDefinition(loaded.handle).header);
+    expect(composed.header).not.toBe(loaded.graph[0]!.getDefinition(loaded.handle).header);
+    expect(composed.header.budget).toEqual({ tokens: 800_000, dollars: 8, wallclock: '45m' });
+    expect(loaded.graph[0]!.getDefinition(loaded.handle).header.budget).toEqual({ dollars: 10, wallclock: '1h' });
     expect(loaded.graph.map(node => node.handle.name)).toEqual(['software-factory', 'babysitter']);
     // Compare canonical paths: the loader realpaths the root (macOS tmpdir is a
     // symlink, /var → /private/var), and the store path derives from that root.
@@ -244,6 +246,20 @@ describe('composition fails closed', () => {
     const p = project();
     await install(p, variant(patch));
     await expect(loadAuthoredFlow(p.flow, { versions })).rejects.toMatchObject({ code, message: expect.stringContaining(message) });
+  });
+  it('refuses a token ceiling above an existing base-flow token ceiling', async () => {
+    const p = project(`
+      import { flow, github } from '@relayflows/surface';
+      export default flow('software-factory', { budget: { tokens: 1_000_000, dollars: 10, wallclock: '1h' } }, async f => { f.done('success'); })
+        .on(github.issues({ action: 'opened' }), async f => { f.done('success'); });
+    `);
+    await install(p, variant(m => ({
+      ...m,
+      permissions: { ...(m.permissions as object), budget: { tokens: 1_100_000 } },
+    })));
+    await expect(loadAuthoredFlow(p.flow, { versions })).rejects.toMatchObject({
+      code: 'plugin_incompatible', message: expect.stringContaining('token budget ceiling'),
+    });
   });
   const HOOK_ENTRY = "import { flow, github } from '@relayflows/surface';\nexport const hooks = { 'merge-gate': async () => true };\nexport default flow('babysitter', async f => { f.done('success'); }).on(github.pull_request('opened'), async f => { f.done('success'); });\n";
   it('refuses a hook export that the manifest does not declare', async () => {

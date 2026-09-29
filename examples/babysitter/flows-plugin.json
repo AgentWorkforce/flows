@@ -22,7 +22,7 @@
     "harnesses": ["claude"],
     "mcp": [],
     "writes": ["github:pull_request:comment"],
-    "budget": { "dollars": 8, "wallclock": "45m" }
+    "budget": { "tokens": 800000, "dollars": 8, "wallclock": "45m" }
   },
   "preflight": { "credentials": [], "servers": ["https://api.github.com"] },
   "config": {

@@ -12,6 +12,7 @@ import { PluginError } from './plugin-manifest.js';
 
 const ARRAY_IS_ARRAY = Array.isArray;
 const NUMBER_IS_FINITE = Number.isFinite;
+const NUMBER_IS_SAFE_INTEGER = Number.isSafeInteger;
 const OBJECT_CREATE = Object.create;
 const OBJECT_FREEZE = Object.freeze;
 const OBJECT_HAS_OWN = Object.hasOwn;
@@ -168,8 +169,13 @@ function permissionsShape(value: unknown): FlowExtensionPermissions {
   }
   let budget: FlowExtensionPermissions['budget'];
   if (value.budget !== undefined) {
-    if (!record(value.budget) || !hasOnlyKeys(value.budget, ['dollars', 'wallclock'])) {
-      return invalid('permissions.budget expects dollars and/or wallclock.');
+    if (!record(value.budget) || !hasOnlyKeys(value.budget, ['tokens', 'dollars', 'wallclock'])) {
+      return invalid('permissions.budget expects tokens, dollars, and/or wallclock.');
+    }
+    if (value.budget.tokens !== undefined
+      && (typeof value.budget.tokens !== 'number'
+        || !NUMBER_IS_SAFE_INTEGER(value.budget.tokens) || value.budget.tokens <= 0)) {
+      return invalid('permissions.budget.tokens must be a positive safe integer.');
     }
     if (value.budget.dollars !== undefined
       && (typeof value.budget.dollars !== 'number' || value.budget.dollars <= 0
@@ -180,7 +186,8 @@ function permissionsShape(value: unknown): FlowExtensionPermissions {
       && (typeof value.budget.wallclock !== 'string' || !matches(WALLCLOCK, value.budget.wallclock))) {
       return invalid('permissions.budget.wallclock must be a duration such as 45m.');
     }
-    const projected = OBJECT_CREATE(null) as { dollars?: number; wallclock?: string };
+    const projected = OBJECT_CREATE(null) as { tokens?: number; dollars?: number; wallclock?: string };
+    if (value.budget.tokens !== undefined) projected.tokens = value.budget.tokens;
     if (value.budget.dollars !== undefined) projected.dollars = value.budget.dollars;
     if (value.budget.wallclock !== undefined) projected.wallclock = value.budget.wallclock;
     budget = OBJECT_FREEZE(projected);
