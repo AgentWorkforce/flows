@@ -5,9 +5,9 @@ const terminalNames = ['TERM', 'COLORTERM', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 
 const relayNames = ['RELAY_API_KEY', 'RELAY_WORKSPACE_KEY', 'AGENT_RELAY_WORKSPACE_KEY',
   'RELAY_BROKER_API_KEY', 'RELAY_AGENT_TOKEN', 'RELAY_NODE_TOKEN', 'RELAY_WORKSPACES_JSON'];
 // Multi-provider CLIs select their provider in their own configuration.
-const multiProvider = ['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL',
-  'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'OPENROUTER_API_KEY'];
-export const providerNames: Record<string, readonly string[]> = {
+const multiProvider = Object.freeze(['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL',
+  'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'OPENROUTER_API_KEY']);
+const providerNames: Readonly<Record<string, readonly string[]>> = Object.freeze({
   claude: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR'],
   codex: ['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'CODEX_HOME'],
   gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_APPLICATION_CREDENTIALS', 'GOOGLE_CLOUD_PROJECT', 'GOOGLE_CLOUD_LOCATION'],
@@ -20,7 +20,9 @@ export const providerNames: Record<string, readonly string[]> = {
   // isolated home plus an xAI-compatible base URL. These remain Grok-scoped.
   grok: ['XAI_API_KEY', 'GROK_XAI_API_BASE_URL', 'GROK_HOME'],
   ...Object.fromEntries(['opencode', 'aider', 'goose', 'pi', 'deepagents'].map(cli => [cli, multiProvider])),
-};
+});
+/** @internal Names-only test seam; credential lists remain private. */
+export function providerEnvironmentCliNames(): readonly string[] { return Object.keys(providerNames); }
 function selected(source: NodeJS.ProcessEnv, names: readonly string[]) {
   return Object.fromEntries(names.filter(name => source[name] !== undefined).map(name => [name, source[name]]));
 }

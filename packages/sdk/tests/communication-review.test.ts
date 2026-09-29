@@ -4,7 +4,7 @@ import { it, expect, vi } from 'vitest';
 import { CommunicationSession } from '../src/communication/session.js';
 import { createProjection } from '../src/communication/projection.js';
 import { openCommunicationTools } from '../src/communication/tools.js';
-import { agentEnvironment, brokerEnvironment, providerNames } from '../src/communication/environment.js';
+import { agentEnvironment, brokerEnvironment, providerEnvironmentCliNames } from '../src/communication/environment.js';
 import type { RelayMessaging, RelayRuntime } from '../src/communication/relay.js';
 import type { JournalClient } from '../src/journal-client.js';
 import type { StepDispatchEvent } from '../src/protocol.js';
@@ -62,6 +62,9 @@ it('passes provider-specific proxy routing only to Cursor and Grok children', ()
   };
   const cursorNames = ['CURSOR_API_KEY', 'CURSOR_API_ENDPOINT', 'CURSOR_API_BASE_URL'];
   const grokNames = ['XAI_API_KEY', 'GROK_XAI_API_BASE_URL', 'GROK_HOME'];
+  const providerClis = ['claude', 'codex', 'gemini', 'cursor-agent', 'droid', 'grok',
+    'opencode', 'aider', 'goose', 'pi', 'deepagents'];
+  expect(providerEnvironmentCliNames().sort()).toEqual([...providerClis].sort());
   expect(agentEnvironment('cursor-agent', source)).toMatchObject({
     CURSOR_API_KEY: source.CURSOR_API_KEY,
     CURSOR_API_ENDPOINT: source.CURSOR_API_ENDPOINT,
@@ -74,7 +77,7 @@ it('passes provider-specific proxy routing only to Cursor and Grok children', ()
   });
   for (const name of grokNames) expect(agentEnvironment('cursor-agent', source)).not.toHaveProperty(name);
   for (const name of cursorNames) expect(agentEnvironment('grok', source)).not.toHaveProperty(name);
-  for (const cli of [...Object.keys(providerNames).filter(name => !['cursor-agent', 'grok'].includes(name)), '/custom/cli']) {
+  for (const cli of [...providerClis.filter(name => !['cursor-agent', 'grok'].includes(name)), '/custom/cli']) {
     for (const name of [...cursorNames, ...grokNames]) expect(agentEnvironment(cli, source)).not.toHaveProperty(name);
   }
 });
