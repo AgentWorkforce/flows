@@ -280,6 +280,26 @@ describe('shipped-source worker invocation resolution', () => {
         expect(result.missing, candidate).toHaveLength(1);
       }
 
+      const formalAndReceiverRepairs = join(directory, 'formal-and-receiver-repairs.flow.ts');
+      writeFileSync(formalAndReceiverRepairs, `
+        declare const f: any, flag: boolean;
+        { const box: any = {}; function id(value: any = box) { return value; } Object.assign(id(undefined), { run: f.agent }); box.run('review', { task: 'x' }); }
+        { const box: any = { nested: {} }; function id(...values: any[]) { return values['0'].nested; } Object.assign(id(box), { run: f.agent }); box.nested.run('review', { task: 'x' }); }
+        { const box: any = {}; function id([skip, ...rest]: any[]) { return rest[0]; } Object.assign(id([undefined, box]), { run: f.agent }); box.run('review', { task: 'x' }); }
+        { const box: any = {}, other: any = {}; function id(value: any) { return value; } Object.assign(id(...(flag ? [other] : [box])), { run: f.agent }); box.run('review', { task: 'x' }); }
+        { const box: any = {}; let alias: any; alias = box; alias.run = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}, alias = flag ? box : box; alias.run = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}, holder = { alias: box }; holder.alias.run = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}, holder = [box]; holder[0].run = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; const { alias } = { alias: box }; alias.run = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; let alias: any; ({ alias } = { alias: box }); alias.run = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}, holder = { alias: box }; Object.assign(holder.alias, { run: f.agent }); box.run('review', { task: 'x' }); }
+        { const box: any = {}; let key: string; key = 'run'; box[key] = f.agent; box.run('review', { task: 'x' }); }
+      `);
+      const formalAndReceiverResult = scanTypeScript(formalAndReceiverRepairs);
+      expect(formalAndReceiverResult.calls).toBe(12);
+      expect(formalAndReceiverResult.missing).toHaveLength(12);
+
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `
         declare const f: {

@@ -1,6 +1,7 @@
 import ts from 'typescript';
 import {
   assignmentMayStoreRight,
+  assignedSources,
   bindingSource,
   type BindingPathSegment,
   type BindingRest,
@@ -8,6 +9,7 @@ import {
 import {
   aggregateValueAtPath,
   staticPropertySegment,
+  wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
 
 interface DirectMemberAssignedSource {
@@ -58,17 +60,34 @@ function directMemberPaths(
     const nextSeen = new Set(seen).add(symbol);
     const add = (candidate: ts.Expression | undefined, suffix: BindingPathSegment[] = []): void => {
       if (!candidate) return;
-      for (const parent of directMemberPaths(candidate, checker, new Set(nextSeen))) {
+      const candidates = wrappedExpressionBranches(candidate) ?? [candidate];
+      for (const parent of candidates.flatMap(value =>
+        directMemberPaths(value, checker, new Set(nextSeen)))) {
         paths.push({ ...parent, path: [...parent.path, ...suffix] });
       }
     };
     const binding = symbol.declarations?.find(ts.isBindingElement);
     if (binding) {
       const source = bindingSource(binding, checker, new Set(nextSeen));
-      if (source) add(source.initializer, source.path);
+      if (source) {
+        const candidate = source.path.length === 0
+          ? { value: source.initializer }
+          : aggregateValueAtPath(source.initializer, source.path, checker, new Set(nextSeen));
+        add(candidate?.value);
+      }
       add(binding.initializer);
     }
-    add(symbol.declarations?.find(ts.isVariableDeclaration)?.initializer);
+    const variable = symbol.declarations?.find(ts.isVariableDeclaration);
+    if (!variable?.initializer) {
+      for (const source of assignedSources(symbol, checker)) {
+        if (source.rest) continue;
+        const candidate = source.path.length === 0
+          ? { value: source.initializer }
+          : aggregateValueAtPath(source.initializer, source.path, checker, new Set(nextSeen));
+        add(candidate?.value);
+      }
+    }
+    add(variable?.initializer);
     return paths;
   }
   if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return [];
@@ -77,8 +96,54 @@ function directMemberPaths(
     : expression.argumentExpression
       ? staticPropertySegment(expression.argumentExpression, checker, new Set(seen))
       : undefined;
-  return segment === undefined ? [] : directMemberPaths(expression.expression, checker, seen)
+  if (segment === undefined) return [];
+  return directMemberPaths(expression.expression, checker, seen)
     .map(parent => ({ ...parent, path: [...parent.path, segment] }));
+}
+
+function directWriteMemberPaths(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+): Array<{ path: BindingPathSegment[]; symbol: ts.Symbol }> {
+  const paths = directMemberPaths(expression, checker);
+  expression = unwrap(expression);
+  if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return paths;
+  const segment = ts.isPropertyAccessExpression(expression)
+    ? expression.name.text
+    : expression.argumentExpression
+      ? staticPropertySegment(expression.argumentExpression, checker, new Set())
+      : undefined;
+  if (segment === undefined) return paths;
+  for (const parent of directMemberAliasPaths(expression.expression, checker)) {
+    paths.push({ ...parent, path: [...parent.path, segment] });
+  }
+  return paths;
+}
+
+export function directMemberAliasPaths(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+): Array<{ path: BindingPathSegment[]; symbol: ts.Symbol }> {
+  const aliases: Array<{ path: BindingPathSegment[]; symbol: ts.Symbol }> = [];
+  for (const member of directMemberPaths(expression, checker)) {
+    if (member.path.length === 0) continue;
+    const variable = member.symbol.declarations?.find(ts.isVariableDeclaration);
+    const binding = member.symbol.declarations?.find(ts.isBindingElement);
+    const candidates: Array<{ expression: ts.Expression; path: BindingPathSegment[] }> = [];
+    if (variable?.initializer) candidates.push({ expression: variable.initializer, path: member.path });
+    if (binding) {
+      const source = bindingSource(binding, checker, new Set([member.symbol]));
+      if (source) candidates.push({
+        expression: source.initializer,
+        path: [...source.path, ...member.path],
+      });
+    }
+    for (const candidate of candidates) {
+      const value = aggregateValueAtPath(candidate.expression, candidate.path, checker, new Set([member.symbol]));
+      if (value) aliases.push(...directMemberPaths(value.value, checker, new Set([member.symbol])));
+    }
+  }
+  return aliases;
 }
 
 export function directMemberPath(
@@ -95,7 +160,7 @@ function sourcesAtTarget(
   sourcePath: BindingPathSegment[] = [],
 ): IndexedDirectMemberAssignedSource[] {
   target = unwrap(target);
-  const members = directMemberPaths(target, checker).filter(member => member.path.length > 0);
+  const members = directWriteMemberPaths(target, checker).filter(member => member.path.length > 0);
   if (members.length > 0) {
     return members.map(member => ({
       initializer: value,

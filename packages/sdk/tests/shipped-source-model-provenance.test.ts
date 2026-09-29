@@ -292,6 +292,24 @@ describe('shipped-source model provenance', () => {
         writeFileSync(repairedFlow, `import * as surface from '@relayflows/surface'; declare const flag: boolean; ${candidate}`);
         expect(scanTypeScript(repairedFlow).invalidFlowHeaders, candidate).toHaveLength(1);
       }
+      const formalAndReceiverRepairs = join(directory, 'formal-and-receiver-repairs.flow.ts');
+      writeFileSync(formalAndReceiverRepairs, `
+        import * as surface from '@relayflows/surface';
+        declare const flag: boolean;
+        { const box: any = {}; function id(value: any = box) { return value; } Object.assign(id(undefined), { define: surface.flow }); box.define('explicit-undefined-default', { budget: '$2' }, () => {}); }
+        { const box: any = { nested: {} }; function id(...values: any[]) { return values['0'].nested; } Object.assign(id(box), { define: surface.flow }); box.nested.define('rest-member-formal', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function id([skip, ...rest]: any[]) { return rest[0]; } Object.assign(id([undefined, box]), { define: surface.flow }); box.define('array-rest-formal', { budget: '$2' }, () => {}); }
+        { const box: any = {}, other: any = {}; function id(value: any) { return value; } Object.assign(id(...(flag ? [other] : [box])), { define: surface.flow }); box.define('alternate-spread-actual', { budget: '$2' }, () => {}); }
+        { const box: any = {}; let alias: any; alias = box; alias.define = surface.flow; box.define('assigned-receiver-alias', { budget: '$2' }, () => {}); }
+        { const box: any = {}, alias = flag ? box : box; alias.define = surface.flow; box.define('wrapped-receiver-alias', { budget: '$2' }, () => {}); }
+        { const box: any = {}, holder = { alias: box }; holder.alias.define = surface.flow; box.define('object-member-receiver-alias', { budget: '$2' }, () => {}); }
+        { const box: any = {}, holder = [box]; holder[0].define = surface.flow; box.define('array-member-receiver-alias', { budget: '$2' }, () => {}); }
+        { const box: any = {}; const { alias } = { alias: box }; alias.define = surface.flow; box.define('binding-receiver-alias', { budget: '$2' }, () => {}); }
+        { const box: any = {}; let alias: any; ({ alias } = { alias: box }); alias.define = surface.flow; box.define('assigned-binding-receiver-alias', { budget: '$2' }, () => {}); }
+        { const box: any = {}, holder = { alias: box }; Object.assign(holder.alias, { define: surface.flow }); box.define('reflective-member-receiver-alias', { budget: '$2' }, () => {}); }
+        { const box: any = {}; let key: string; key = 'define'; box[key] = surface.flow; box.define('assigned-direct-key', { budget: '$2' }, () => {}); }
+      `);
+      expect(scanTypeScript(formalAndReceiverRepairs).invalidFlowHeaders).toHaveLength(12);
       const computedBindingCases = [
         `{ const original = 'flow' as const, key = original; const { [key]: define } = surface; define('renamed', { budget: '$2' }, () => {}); }`,
         `{ const { key } = { key: 'flow' as const }; const { [key]: define } = surface; define('binding', { budget: '$2' }, () => {}); }`,

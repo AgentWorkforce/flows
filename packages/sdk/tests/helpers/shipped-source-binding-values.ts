@@ -81,6 +81,11 @@ export function staticPropertySegment(
       .filter((value): value is BindingPathSegment => value !== undefined) : [];
     if (values.length > 0 && values.every(value => value === values[0])) return values[0];
   }
+  const assigned = assignedSources(symbol, checker)
+    .filter(source => source.path.length === 0 && !source.rest)
+    .map(source => staticPropertySegment(source.initializer, checker, new Set(seen)))
+    .filter((value): value is BindingPathSegment => value !== undefined);
+  if (assigned.length > 0 && assigned.every(value => value === assigned[0])) return assigned[0];
   const declaration = symbol.declarations?.find(ts.isVariableDeclaration);
   if (!declaration?.initializer || !ts.isVariableDeclarationList(declaration.parent)
     || (declaration.parent.flags & ts.NodeFlags.Const) === 0) return undefined;
