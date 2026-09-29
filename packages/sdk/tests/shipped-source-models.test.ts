@@ -261,7 +261,7 @@ describe('first-party shipped source model pins', () => {
         (function unknownComputedOverwriteConstructor(key: string) { const constructors = { define: surface.flow, [key]: () => undefined }; constructors.define('unknown-computed-constructor', { budget: '$2' }, () => {}); })('other');
         (function defaultedArrayRestConstructor(sources: any[]) { const [, ...constructors = [surface.flow]] = sources; constructors[0]('defaulted-array-rest-constructor', { budget: '$2' }, () => {}); })([]);
         { const [, ...[nestedRestConstructor]] = [undefined, surface.flow]; nestedRestConstructor('nested-array-rest-constructor', { budget: '$2' }, () => {}); }
-        { const [...{ 0: nestedObjectRestConstructor }] = [surface.flow]; nestedObjectRestConstructor('nested-object-under-array-rest-constructor', { budget: '$2' }, () => {}); }
+        { const [, ...{ 0: nestedObjectRestConstructor }] = [undefined, surface.flow]; nestedObjectRestConstructor('nested-object-under-array-rest-constructor', { budget: '$2' }, () => {}); }
         (function outerDefaultArrayRestConstructor(source: any) { const { pack: [, ...constructors] = [undefined, surface.flow] } = source; constructors[0]('outer-default-array-rest-constructor', { budget: '$2' }, () => {}); })({});
         surface.flow.call.call(surface.flow, surface, 'recursive-call-helper', { budget: '$2' }, () => {});
         surface.flow.apply.call(surface.flow, surface, ['recursive-apply-helper', { budget: '$2' }, () => {}]);

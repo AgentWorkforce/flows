@@ -84,6 +84,9 @@ function expressionMayExposeSymbol(
   checker: ts.TypeChecker,
 ): boolean {
   expression = unwrap(expression);
+  if (ts.isSpreadElement(expression)) {
+    return expressionMayExposeSymbol(expression.expression, symbol, checker);
+  }
   if (expressionMayEvaluateToSymbol(expression, symbol, checker)) return true;
   const branches = wrappedExpressionBranches(expression);
   if (branches) return branches.some(branch => expressionMayExposeSymbol(branch, symbol, checker));
@@ -248,6 +251,30 @@ function nodeReferencesSymbol(node: ts.Node, symbol: ts.Symbol, checker: ts.Type
   return found;
 }
 
+function functionReturnsSymbol(
+  declaration: ts.FunctionLikeDeclaration,
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+): boolean {
+  if (!('body' in declaration) || !declaration.body) return true;
+  if (!ts.isBlock(declaration.body)) {
+    return nodeReferencesSymbol(declaration.body, symbol, checker);
+  }
+  let found = false;
+  const visit = (node: ts.Node): void => {
+    if (found) return;
+    if (node !== declaration.body && ts.isFunctionLike(node)) return;
+    if (ts.isReturnStatement(node) && node.expression
+      && nodeReferencesSymbol(node.expression, symbol, checker)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(declaration.body);
+  return found;
+}
+
 function ordinaryCallMayWriteSymbol(
   node: ts.CallExpression,
   symbol: ts.Symbol,
@@ -277,7 +304,9 @@ function ordinaryCallMayWriteSymbol(
     const parameter = declaration.parameters[index] ?? rest;
     if (!parameter || !ts.isIdentifier(parameter.name)) return true;
     const parameterSymbol = checker.getSymbolAtLocation(parameter.name);
-    if (!parameterSymbol || symbolHasWrites(parameterSymbol, checker, new Set(seen))) return true;
+    if (!parameterSymbol
+      || symbolHasWrites(parameterSymbol, checker, new Set(seen))
+      || functionReturnsSymbol(declaration, parameterSymbol, checker)) return true;
   }
   return false;
 }
@@ -342,21 +371,12 @@ export function symbolHasWrites(
       return;
     }
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-      if (expressionMayExposeSymbol(node.initializer, symbol, checker)) {
+      if (expressionMayEvaluateToSymbol(node.initializer, symbol, checker)) {
         const alias = checker.getSymbolAtLocation(node.name);
         if (!alias || symbolHasWrites(alias, checker, seen)) {
           found = true;
           return;
         }
-      }
-    }
-    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
-      && ts.isIdentifier(node.left)
-      && expressionMayExposeSymbol(node.right, symbol, checker)) {
-      const alias = checker.getSymbolAtLocation(node.left);
-      if (!alias || symbolHasWrites(alias, checker, seen)) {
-        found = true;
-        return;
       }
     }
     if (ts.isPropertyAssignment(node) && expressionMayEvaluateToSymbol(node.initializer, symbol, checker)) {
