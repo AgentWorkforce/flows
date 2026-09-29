@@ -5,21 +5,22 @@ const terminalNames = ['TERM', 'COLORTERM', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 
 const relayNames = ['RELAY_API_KEY', 'RELAY_WORKSPACE_KEY', 'AGENT_RELAY_WORKSPACE_KEY',
   'RELAY_BROKER_API_KEY', 'RELAY_AGENT_TOKEN', 'RELAY_NODE_TOKEN', 'RELAY_WORKSPACES_JSON'];
 // Multi-provider CLIs select their provider in their own configuration.
-const multiProvider = Object.freeze(['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL',
-  'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'OPENROUTER_API_KEY']);
-const providerNames: Readonly<Record<string, readonly string[]>> = Object.freeze({
+const multiProvider = ['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL',
+  'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'OPENROUTER_API_KEY'] as const;
+const providerNames: Readonly<Record<string, readonly string[]>> = {
   claude: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CONFIG_DIR'],
   codex: ['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'CODEX_HOME'],
   gemini: ['GEMINI_API_KEY', 'GOOGLE_API_KEY', 'GOOGLE_APPLICATION_CREDENTIALS', 'GOOGLE_CLOUD_PROJECT', 'GOOGLE_CLOUD_LOCATION'],
   // AgentWorkforce/cloud#4026 passes both endpoint names unchanged as aliases
-  // for the same run-scoped House proxy base; BASE_URL is not a separate origin.
+  // for one run-scoped House proxy base. Dropping either can let a compatible
+  // Cursor version fall back to its provider default and bypass the House route.
   'cursor-agent': ['CURSOR_API_KEY', 'CURSOR_API_ENDPOINT', 'CURSOR_API_BASE_URL'],
   droid: ['FACTORY_API_KEY'],
   // AgentWorkforce/cloud#4026's house-provider run contract gives Grok an
   // isolated home plus an xAI-compatible base URL. These remain Grok-scoped.
   grok: ['XAI_API_KEY', 'GROK_XAI_API_BASE_URL', 'GROK_HOME'],
   ...Object.fromEntries(['opencode', 'aider', 'goose', 'pi', 'deepagents'].map(cli => [cli, multiProvider])),
-});
+};
 /** @internal Names-only test seam; credential lists remain private. */
 export function providerEnvironmentCliNames(): readonly string[] { return Object.keys(providerNames); }
 function selected(source: NodeJS.ProcessEnv, names: readonly string[]) {

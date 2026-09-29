@@ -65,7 +65,7 @@ it('passes provider-specific proxy routing only to Cursor and Grok children', ()
   const grokNames = ['XAI_API_KEY', 'GROK_XAI_API_BASE_URL', 'GROK_HOME'];
   const providerClis = ['claude', 'codex', 'gemini', 'cursor-agent', 'droid', 'grok',
     'opencode', 'aider', 'goose', 'pi', 'deepagents'];
-  expect(providerEnvironmentCliNames().sort()).toEqual([...providerClis].sort());
+  expect([...providerEnvironmentCliNames()].sort()).toEqual([...providerClis].sort());
   expect(agentEnvironment('cursor-agent', source)).toMatchObject({
     CURSOR_API_KEY: source.CURSOR_API_KEY,
     CURSOR_API_ENDPOINT: source.CURSOR_API_ENDPOINT,
