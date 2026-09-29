@@ -2,6 +2,7 @@ import ts from 'typescript';
 import {
   aggregateExpressionValue,
   aggregateValueAtPath,
+  assignmentMayStoreRight,
   assignedValues,
   bindingDefaultValues,
   bindingSource,
@@ -453,7 +454,7 @@ export function symbolHasWrites(
       found = true;
       return;
     }
-    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+    if (ts.isBinaryExpression(node) && assignmentMayStoreRight(node.operatorToken.kind)
       && memberReceiver(node.left) && expressionMayEvaluateToSymbol(node.right, symbol, checker)) {
       found = true;
       return;
@@ -467,7 +468,7 @@ export function symbolHasWrites(
         }
       }
     }
-    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+    if (ts.isBinaryExpression(node) && assignmentMayStoreRight(node.operatorToken.kind)) {
       const aliasTarget = unwrap(node.left);
       if (ts.isIdentifier(aliasTarget)
         && expressionMayAliasSymbol(node.right, symbol, checker)) {

@@ -170,11 +170,34 @@ export function objectMemberValue(
       return undefined;
     }
     const variable = symbol.declarations?.find(ts.isVariableDeclaration);
-    if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)) return undefined;
-    const value = objectMemberValue(variable.initializer, name, checker, seen);
-    return value && (variable.parent.flags & ts.NodeFlags.Const) === 0
-      ? { ...value, auditable: false }
-      : value;
+    const variableList = variable && ts.isVariableDeclarationList(variable.parent)
+      ? variable.parent
+      : undefined;
+    if (variable?.initializer && variableList && (variableList.flags & ts.NodeFlags.Const) !== 0) {
+      const value = objectMemberValue(variable.initializer, name, checker, seen);
+      if (value) return value;
+    }
+    for (const source of assignedSources(symbol, checker)) {
+      if (source.rest?.kind === 'object' && source.rest.excluded.includes(name)) continue;
+      const candidate = source.path.length === 0
+        ? { value: source.initializer, auditable: false }
+        : aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen));
+      if (!candidate) continue;
+      if (source.rest?.kind === 'array') {
+        const index = canonicalArrayIndex(name);
+        const values = staticArrayElements(candidate.value, checker, new Set(seen))?.values;
+        const value = index === undefined ? undefined : values?.[source.rest.start + index];
+        if (value) return { value, auditable: false };
+        continue;
+      }
+      const value = objectMemberValue(candidate.value, name, checker, new Set(seen));
+      if (value) return { ...value, auditable: false };
+    }
+    if (variable?.initializer && variableList) {
+      const value = objectMemberValue(variable.initializer, name, checker, seen);
+      if (value) return { ...value, auditable: false };
+    }
+    return undefined;
   }
   const parent = aggregateExpressionValue(expression, checker, seen);
   if (!parent) return undefined;
@@ -275,62 +298,122 @@ export function bindingDefaultValues(
   });
 }
 
-function assignedValueAtTarget(
+interface AssignedSource {
+  initializer: ts.Expression;
+  path: BindingPathSegment[];
+  rest?:
+    | { kind: 'array'; start: number }
+    | { excluded: string[]; kind: 'object' };
+}
+
+const assignedSourceCache = new WeakMap<ts.TypeChecker, WeakMap<ts.Symbol, AssignedSource[]>>();
+
+function assignedSourcesAtTarget(
   target: ts.Expression,
   value: ts.Expression,
   symbol: ts.Symbol,
   checker: ts.TypeChecker,
   path: BindingPathSegment[] = [],
-): ts.Expression | undefined {
+): AssignedSource[] {
   target = unwrap(target);
   if (ts.isIdentifier(target)) {
     const targetSymbol = ts.isShorthandPropertyAssignment(target.parent)
       ? checker.getShorthandAssignmentValueSymbol(target.parent)
       : checker.getSymbolAtLocation(target);
-    if (targetSymbol !== symbol) return undefined;
-    return path.length === 0
-      ? value
-      : aggregateValueAtPath(value, path, checker, new Set())?.value;
+    return targetSymbol === symbol ? [{ initializer: value, path }] : [];
   }
   if (ts.isBinaryExpression(target) && target.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-    return assignedValueAtTarget(target.left, value, symbol, checker, path);
+    return [
+      ...assignedSourcesAtTarget(target.left, value, symbol, checker, path),
+      ...assignedSourcesAtTarget(target.left, target.right, symbol, checker),
+    ];
   }
   if (ts.isArrayLiteralExpression(target)) {
-    for (const [index, element] of target.elements.entries()) {
-      if (ts.isOmittedExpression(element) || ts.isSpreadElement(element)) continue;
-      const assigned = assignedValueAtTarget(element, value, symbol, checker, [...path, index]);
-      if (assigned) return assigned;
+    return target.elements.flatMap((element, index) => {
+      if (ts.isOmittedExpression(element)) return [];
+      if (!ts.isSpreadElement(element)) {
+        return assignedSourcesAtTarget(element, value, symbol, checker, [...path, index]);
+      }
+      return assignedSourcesAtTarget(element.expression, value, symbol, checker).flatMap(source => {
+        if (source.initializer !== value) return source;
+        if (source.path.length === 0) return [{
+          ...source,
+          path: [...path],
+          rest: { kind: 'array' as const, start: index },
+        }];
+        const [first, ...tail] = source.path;
+        const relative = canonicalArrayIndex(first!);
+        return relative === undefined ? [] : [{
+          ...source,
+          path: [...path, index + relative, ...tail],
+        }];
+      });
+    });
+  }
+  if (!ts.isObjectLiteralExpression(target)) return [];
+  const excluded: string[] = [];
+  return target.properties.flatMap(property => {
+    if (ts.isSpreadAssignment(property)) {
+      return assignedSourcesAtTarget(property.expression, value, symbol, checker).map(source =>
+        source.initializer !== value || source.path.length > 0 ? source : {
+          ...source,
+          path: [...path],
+          rest: { excluded: [...excluded], kind: 'object' as const },
+        });
     }
-    return undefined;
-  }
-  if (!ts.isObjectLiteralExpression(target)) return undefined;
-  for (const property of target.properties) {
-    if (ts.isSpreadAssignment(property)) continue;
     const segment = propertyName(property.name, checker);
-    if (segment === undefined) continue;
+    if (segment === undefined) return [];
+    excluded.push(segment);
     const assigned = ts.isShorthandPropertyAssignment(property)
-      ? assignedValueAtTarget(property.name, value, symbol, checker, [...path, segment])
+      ? [
+          ...assignedSourcesAtTarget(property.name, value, symbol, checker, [...path, segment]),
+          ...(property.objectAssignmentInitializer
+            ? assignedSourcesAtTarget(property.name, property.objectAssignmentInitializer, symbol, checker)
+            : []),
+        ]
       : ts.isPropertyAssignment(property)
-        ? assignedValueAtTarget(property.initializer, value, symbol, checker, [...path, segment])
-        : undefined;
-    if (assigned) return assigned;
-  }
-  return undefined;
+        ? assignedSourcesAtTarget(property.initializer, value, symbol, checker, [...path, segment])
+        : [];
+    return assigned;
+  });
 }
 
-export function assignedValues(symbol: ts.Symbol, checker: ts.TypeChecker): ts.Expression[] {
+function assignedSources(symbol: ts.Symbol, checker: ts.TypeChecker): AssignedSource[] {
+  let checkerCache = assignedSourceCache.get(checker);
+  if (!checkerCache) {
+    checkerCache = new WeakMap();
+    assignedSourceCache.set(checker, checkerCache);
+  }
+  const cached = checkerCache.get(symbol);
+  if (cached) return cached;
   const source = symbol.valueDeclaration?.getSourceFile() ?? symbol.declarations?.[0]?.getSourceFile();
   if (!source) return [];
-  const values: ts.Expression[] = [];
+  const values: AssignedSource[] = [];
   const visit = (node: ts.Node): void => {
-    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-      const value = assignedValueAtTarget(node.left, node.right, symbol, checker);
-      if (value) values.push(value);
+    if (ts.isBinaryExpression(node) && assignmentMayStoreRight(node.operatorToken.kind)) {
+      values.push(...assignedSourcesAtTarget(node.left, node.right, symbol, checker));
     }
     ts.forEachChild(node, visit);
   };
   visit(source);
+  checkerCache.set(symbol, values);
   return values;
+}
+
+export function assignedValues(symbol: ts.Symbol, checker: ts.TypeChecker): ts.Expression[] {
+  return assignedSources(symbol, checker).flatMap(source => {
+    if (source.rest) return [];
+    if (source.path.length === 0) return [source.initializer];
+    const value = aggregateValueAtPath(source.initializer, source.path, checker, new Set());
+    return value ? [value.value] : [];
+  });
+}
+
+export function assignmentMayStoreRight(kind: ts.SyntaxKind): boolean {
+  return kind === ts.SyntaxKind.EqualsToken
+    || kind === ts.SyntaxKind.AmpersandAmpersandEqualsToken
+    || kind === ts.SyntaxKind.BarBarEqualsToken
+    || kind === ts.SyntaxKind.QuestionQuestionEqualsToken;
 }
 
 function referencesGlobalIdentifier(
@@ -579,11 +662,31 @@ export function staticArrayElements(
     return undefined;
   }
   const variable = symbol.declarations?.find(ts.isVariableDeclaration);
-  if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)) return undefined;
-  const value = staticArrayElements(variable.initializer, checker, seen);
-  return value && (variable.parent.flags & ts.NodeFlags.Const) === 0
-    ? { ...value, auditable: false }
-    : value;
+  const variableList = variable && ts.isVariableDeclarationList(variable.parent)
+    ? variable.parent
+    : undefined;
+  if (variable?.initializer && variableList && (variableList.flags & ts.NodeFlags.Const) !== 0) {
+    const value = staticArrayElements(variable.initializer, checker, seen);
+    if (value) return value;
+  }
+  for (const source of assignedSources(symbol, checker)) {
+    const candidate = source.path.length === 0
+      ? { value: source.initializer, auditable: false }
+      : aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen));
+    if (!candidate || source.rest?.kind === 'object') continue;
+    const value = staticArrayElements(candidate.value, checker, new Set(seen));
+    if (value) return {
+      auditable: false,
+      values: source.rest?.kind === 'array'
+        ? value.values.slice(source.rest.start)
+        : value.values,
+    };
+  }
+  if (variable?.initializer && variableList) {
+    const value = staticArrayElements(variable.initializer, checker, seen);
+    if (value) return { ...value, auditable: false };
+  }
+  return undefined;
 }
 
 export function staticCallArguments(
@@ -603,4 +706,86 @@ export function staticCallArguments(
     auditable = false;
   }
   return { values, auditable };
+}
+
+function reflectApplyCallable(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen = new Set<ts.Symbol>(),
+): { prebound: ts.Expression[] } | undefined {
+  expression = unwrap(expression);
+  if (referencesGlobalMember(expression, 'Reflect', 'apply', checker, new Set(seen))) {
+    return { prebound: [] };
+  }
+  const branches = wrappedExpressionBranches(expression);
+  if (branches) {
+    for (const branch of branches) {
+      const callable = reflectApplyCallable(branch, checker, new Set(seen));
+      if (callable) return callable;
+    }
+    return undefined;
+  }
+  const aggregateSeen = new Set(seen);
+  const aggregate = aggregateExpressionValue(expression, checker, aggregateSeen);
+  if (aggregate) return reflectApplyCallable(aggregate.value, checker, aggregateSeen);
+  if (ts.isCallExpression(expression)) {
+    const operation = staticMemberSegment(expression.expression, checker, new Set(seen));
+    const receiver = memberReceiver(expression.expression);
+    if (operation === 'bind' && receiver) {
+      const callable = reflectApplyCallable(receiver, checker, new Set(seen));
+      const args = staticCallArguments(expression.arguments, checker);
+      if (callable && args) return {
+        prebound: [...callable.prebound, ...args.values.slice(1)],
+      };
+    }
+    return undefined;
+  }
+  if (!ts.isIdentifier(expression)) return undefined;
+  const symbol = checker.getSymbolAtLocation(expression);
+  if (!symbol || seen.has(symbol)) return undefined;
+  seen.add(symbol);
+  const binding = symbol.declarations?.find(ts.isBindingElement);
+  if (binding) {
+    const source = bindingSource(binding, checker);
+    const values = source ? [
+      aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
+      ...bindingDefaultValues(source, checker, new Set(seen)),
+    ].filter((value): value is NonNullable<typeof value> => value !== undefined) : [];
+    for (const value of values) {
+      const callable = reflectApplyCallable(value.value, checker, new Set(seen));
+      if (callable) return callable;
+    }
+  }
+  for (const value of assignedValues(symbol, checker)) {
+    const callable = reflectApplyCallable(value, checker, new Set(seen));
+    if (callable) return callable;
+  }
+  const variable = symbol.declarations?.find(ts.isVariableDeclaration);
+  return variable?.initializer
+    ? reflectApplyCallable(variable.initializer, checker, seen)
+    : undefined;
+}
+
+export function reflectApplyArguments(
+  node: ts.CallExpression,
+  checker: ts.TypeChecker,
+): readonly ts.Expression[] | undefined {
+  const expanded = staticCallArguments(node.arguments, checker);
+  if (!expanded) return undefined;
+  const receiver = memberReceiver(node.expression);
+  const operation = staticMemberSegment(node.expression, checker, new Set());
+  if (receiver && (operation === 'call' || operation === 'apply')) {
+    const callable = reflectApplyCallable(receiver, checker);
+    if (callable) {
+      const invoked = operation === 'call'
+        ? expanded.values.slice(1)
+        : expanded.values[1]
+          ? staticArrayElements(expanded.values[1], checker, new Set())?.values
+            .filter((value): value is ts.Expression => value !== undefined)
+          : undefined;
+      return invoked ? [...callable.prebound, ...invoked] : undefined;
+    }
+  }
+  const callable = reflectApplyCallable(node.expression, checker);
+  return callable ? [...callable.prebound, ...expanded.values] : undefined;
 }

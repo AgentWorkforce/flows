@@ -5,7 +5,7 @@ import {
   assignedValues,
   bindingDefaultValues,
   bindingSource,
-  referencesGlobalMember,
+  reflectApplyArguments,
   staticArrayElements,
   staticCallArguments,
   staticMemberSegment,
@@ -15,22 +15,6 @@ import {
 interface FlowCallable {
   args: readonly ts.Expression[];
   auditable: boolean;
-}
-
-function reflectApplyArguments(
-  node: ts.CallExpression,
-  checker: ts.TypeChecker,
-): readonly ts.Expression[] | undefined {
-  const direct = referencesGlobalMember(node.expression, 'Reflect', 'apply', checker);
-  const expanded = staticCallArguments(node.arguments, checker);
-  if (direct) return expanded?.values;
-  const receiver = memberReceiver(node.expression);
-  if (!receiver || !referencesGlobalMember(receiver, 'Reflect', 'apply', checker)) return undefined;
-  const operation = memberName(node.expression, checker);
-  if (operation === 'call') return expanded?.values.slice(1);
-  if (operation !== 'apply' || !expanded?.values[1]) return undefined;
-  return staticArrayElements(expanded.values[1], checker, new Set())?.values
-    .filter((value): value is ts.Expression => value !== undefined);
 }
 
 interface FlowInvocationHelper extends FlowCallable {

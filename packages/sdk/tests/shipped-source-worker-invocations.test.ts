@@ -145,8 +145,10 @@ describe('shipped-source worker invocation resolution', () => {
         function returnedConstAliasWrite(parameter: any) { function identity(receiver: any) { const returned = receiver; return returned; } const alias = identity(parameter); alias.agent = f.agent.bind(f, 'real', { task: 'x' }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
         function returnedAssignedAliasWrite(parameter: any) { function identity(receiver: any) { let returned; returned = receiver; return returned; } const alias = identity(parameter); alias.agent = f.agent.bind(f, 'real', { task: 'x' }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
         function returnedWrappedAssignedAliasWrite(parameter: any) { function identity(receiver: any) { let returned; (returned as any) = receiver; return returned; } const alias = identity(parameter); alias.agent = f.agent.bind(f, 'real', { task: 'x' }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function returnedLogicalAliasWrite(parameter: any) { function identity(receiver: any) { let returned; returned ??= receiver; return returned; } const alias = identity(parameter); alias.agent = f.agent.bind(f, 'real', { task: 'x' }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
         function assignedReceiverAliasWrite(parameter: any) { let alias: any; alias = parameter; alias.agent = f.agent.bind(f, 'real', { task: 'x' }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
         function wrappedAssignedReceiverAliasWrite(parameter: any) { let alias: any; (alias) = parameter; alias.agent = f.agent.bind(f, 'real', { task: 'x' }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
+        function logicalAssignedReceiverAliasWrite(parameter: any) { let alias: any; alias ||= parameter; alias.agent = f.agent.bind(f, 'real', { task: 'x' }); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
         function spreadParameterEscape(parameter: any) { const overwrite = (_unused: any, receiver: any) => { receiver.agent = f.agent.bind(f, 'real', { task: 'x' }); }; overwrite(...[undefined, parameter]); parameter.agent('ignored', { cli: 'claude', model: 'claude-sonnet-5' }); }
         function reflectApplyWorker() { Reflect.apply(f.agent, f, ['review', { task: 'x' }]); }
         function aliasedReflectApplyWorker() { const apply = Reflect.apply; apply(f.agent, f, ['review', { task: 'x' }]); }
@@ -156,20 +158,30 @@ describe('shipped-source worker invocation resolution', () => {
         function calledReflectApplyWorker() { Reflect.apply.call(Reflect, f.agent, f, ['review', { task: 'x' }]); }
         function appliedReflectApplyWorker() { Reflect.apply.apply(Reflect, [f.agent, f, ['review', { task: 'x' }]]); }
         function spreadReflectApplyWorker() { Reflect.apply(...[f.agent, f, ['review', { task: 'x' }]] as const); }
+        function boundReflectApplyWorker() { Reflect.apply.bind(Reflect)(f.agent, f, ['review', { task: 'x' }]); }
+        function preboundReflectApplyWorker() { const invoke = Reflect.apply.bind(Reflect, f.agent, f); invoke(['review', { task: 'x' }]); }
         function forwardedWorker() { const invoke = (run: (...args: any[]) => void, ...args: any[]) => run(...args); invoke(f.agent, 'review', { task: 'x' }); }
         function spreadForwardedWorker() { const invoke = (run: (...args: any[]) => void, ...args: any[]) => run(...args); invoke(...[f.agent, 'review', { task: 'x' }] as const); }
         function assignedWorker() { let run: any = () => undefined; run = f.agent; run('review', { task: 'x' }); }
         function wrappedAssignedWorker() { let run: any = () => undefined; (run as any) = f.agent; run('review', { task: 'x' }); }
+        function orAssignedWorker() { let run: any; run ||= f.agent; run('review', { task: 'x' }); }
+        function andAssignedWorker() { let run: any = () => undefined; run &&= f.agent; run('review', { task: 'x' }); }
+        function nullishAssignedWorker() { let run: any; run ??= f.agent; run('review', { task: 'x' }); }
         function objectAssignedWorker() { let run: any; ({ run } = { run: f.agent }); run('review', { task: 'x' }); }
         function arrayAssignedWorker() { let run: any; [run] = [f.agent]; run('review', { task: 'x' }); }
+        function defaultedObjectAssignedWorker() { let run: any; ({ run = f.agent } = {}); run('review', { task: 'x' }); }
+        function defaultedArrayAssignedWorker() { let run: any; [run = f.agent] = []; run('review', { task: 'x' }); }
+        function arrayRestAssignedWorker() { let workers: any; [, ...workers] = [undefined, f.agent]; workers[0]('review', { task: 'x' }); }
+        function nestedArrayRestAssignedWorker() { let run: any; [, ...[run]] = [undefined, f.agent]; run('review', { task: 'x' }); }
+        function objectRestAssignedWorker() { let workers: any; ({ ...workers } = { run: f.agent }); workers.run('review', { task: 'x' }); }
         function assignedDestructuredWorker() { let { run } = { run: () => undefined }; run = f.agent; run('review', { task: 'x' }); }
         function recursiveCallHelperWorker() { f.agent.call.call(f.agent, f, 'review', { task: 'x' }); }
         function recursiveApplyHelperWorker() { f.agent.apply.call(f.agent, f, ['review', { task: 'x' }]); }
         async function wrappedWorkerAliases() { const conditionalRun = flag ? f.agent : f.agent, logicalRun = (flag && f.agent) || f.agent, nullishRun = f.agent ?? f.agent, commaRun = (flag, f.agent), awaitRun = await f.agent; conditionalRun('review', { task: 'x' }); logicalRun('review', { task: 'x' }); nullishRun('review', { task: 'x' }); commaRun('review', { task: 'x' }); awaitRun('review', { task: 'x' }); }
       `);
       const variableAliasResult = scanTypeScript(variableAliases);
-      expect(variableAliasResult.calls).toBe(143);
-      expect(variableAliasResult.missing).toHaveLength(143);
+      expect(variableAliasResult.calls).toBe(155);
+      expect(variableAliasResult.missing).toHaveLength(155);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `
