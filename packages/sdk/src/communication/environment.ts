@@ -11,7 +11,7 @@ const providerNames: Record<string, string[]> = {
   // Cursor's managed/house credential path requires the API endpoint as well
   // as the scoped key. Keep both provider-specific so neither can leak into a
   // different harness process.
-  'cursor-agent': ['CURSOR_API_KEY', 'CURSOR_API_ENDPOINT'],
+  'cursor-agent': ['CURSOR_API_KEY', 'CURSOR_API_ENDPOINT', 'CURSOR_API_BASE_URL'],
   droid: ['FACTORY_API_KEY'],
   // Grok uses an isolated home plus an xAI-compatible base URL for managed
   // credentials. These remain scoped to the Grok child process.

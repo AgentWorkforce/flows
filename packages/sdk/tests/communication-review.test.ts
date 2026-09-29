@@ -55,6 +55,7 @@ it('passes provider-specific proxy routing only to Cursor and Grok children', ()
   const source = {
     CURSOR_API_KEY: 'cursor-key',
     CURSOR_API_ENDPOINT: 'https://proxy.test/v1/house/cursor/runs/run-1',
+    CURSOR_API_BASE_URL: 'https://proxy.test/v1/house/cursor/runs/run-1',
     XAI_API_KEY: 'xai-key',
     GROK_XAI_API_BASE_URL: 'https://proxy.test/v1/house/xai/runs/run-1',
     GROK_HOME: '/tmp/grok-house-run-1',
@@ -62,6 +63,7 @@ it('passes provider-specific proxy routing only to Cursor and Grok children', ()
   expect(agentEnvironment('cursor-agent', source)).toMatchObject({
     CURSOR_API_KEY: source.CURSOR_API_KEY,
     CURSOR_API_ENDPOINT: source.CURSOR_API_ENDPOINT,
+    CURSOR_API_BASE_URL: source.CURSOR_API_BASE_URL,
   });
   expect(agentEnvironment('grok', source)).toMatchObject({
     XAI_API_KEY: source.XAI_API_KEY,
@@ -71,6 +73,7 @@ it('passes provider-specific proxy routing only to Cursor and Grok children', ()
   expect(agentEnvironment('cursor-agent', source)).not.toHaveProperty('XAI_API_KEY');
   expect(agentEnvironment('grok', source)).not.toHaveProperty('CURSOR_API_KEY');
   expect(agentEnvironment('codex', source)).not.toHaveProperty('CURSOR_API_ENDPOINT');
+  expect(agentEnvironment('codex', source)).not.toHaveProperty('CURSOR_API_BASE_URL');
   expect(agentEnvironment('claude', source)).not.toHaveProperty('GROK_XAI_API_BASE_URL');
 });
 
