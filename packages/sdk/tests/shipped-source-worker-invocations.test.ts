@@ -166,6 +166,8 @@ describe('shipped-source worker invocation resolution', () => {
         function preboundCalledReflectApplyWorker() { const invoke = Reflect.apply.bind(Reflect, f.agent); invoke.call(null, f, ['review', { task: 'x' }]); }
         function preboundAppliedReflectApplyWorker() { const invoke = Reflect.apply.bind(Reflect, f.agent); invoke.apply(null, [f, ['review', { task: 'x' }]]); }
         function overwrittenAggregateReflectApplyWorker() { let helper: any; helper = { invoke: Reflect.apply }; helper.invoke(f.agent, f, ['review', { task: 'x' }]); helper = { invoke: () => undefined }; }
+        function overwrittenComposedReflectApplyWorker() { let helper: any; helper = { invoke: Reflect.apply.call.bind(Reflect.apply) }; helper.invoke(Reflect, f.agent, f, ['review', { task: 'x' }]); helper = { invoke: Reflect.apply }; }
+        function globalThisReflectApplyWorker() { globalThis.Reflect.apply(f.agent, f, ['review', { task: 'x' }]); }
         function assignedDestructuredReflectApplyWorker() { let apply: any; ({ apply } = Reflect); apply(f.agent, f, ['review', { task: 'x' }]); }
         function assignedComputedReflectApplyWorker() { const key = 'apply' as const; let apply: any; ({ [key]: apply } = Reflect); apply(f.agent, f, ['review', { task: 'x' }]); }
         function forwardedWorker() { const invoke = (run: (...args: any[]) => void, ...args: any[]) => run(...args); invoke(f.agent, 'review', { task: 'x' }); }
@@ -191,6 +193,17 @@ describe('shipped-source worker invocation resolution', () => {
         function memberAssignedWorker() { const box: any = {}; box.run = f.agent; box.run('review', { task: 'x' }); }
         function nestedMemberAssignedWorker() { const box: any = {}; box.worker = { run: f.agent }; box.worker.run('review', { task: 'x' }); }
         function elementAssignedWorker() { const slots: any[] = []; slots[0] = f.agent; slots[0]('review', { task: 'x' }); }
+        function objectPatternMemberAssignedWorker() { const box: any = {}; ({ run: box.run } = { run: f.agent }); box.run('review', { task: 'x' }); }
+        function arrayPatternMemberAssignedWorker() { const slots: any[] = []; [slots[0]] = [f.agent]; slots[0]('review', { task: 'x' }); }
+        function objectAssignMemberWorker() { const box: any = {}; Object.assign(box, { run: f.agent }); box.run('review', { task: 'x' }); }
+        function reflectSetMemberWorker() { const box: any = {}; Reflect.set(box, 'run', f.agent); box.run('review', { task: 'x' }); }
+        function arrayRestMemberAssignedWorker() { const box: any = {}; [...box.slots] = [f.agent]; box.slots[0]('review', { task: 'x' }); }
+        function objectRestMemberAssignedWorker() { const box: any = {}; ({ ...box.workers } = { run: f.agent }); box.workers.run('review', { task: 'x' }); }
+        function objectDefinePropertyMemberWorker() { const box: any = {}; Object.defineProperty(box, 'run', { value: f.agent }); box.run('review', { task: 'x' }); }
+        function objectDefinePropertiesMemberWorker() { const box: any = {}; Object.defineProperties(box, { run: { value: f.agent } }); box.run('review', { task: 'x' }); }
+        function objectSetPrototypeMemberWorker() { const box: any = {}; Object.setPrototypeOf(box, { run: f.agent }); box.run('review', { task: 'x' }); }
+        function reflectDefinePropertyMemberWorker() { const box: any = {}; Reflect.defineProperty(box, 'run', { value: f.agent }); box.run('review', { task: 'x' }); }
+        function reflectSetPrototypeMemberWorker() { const box: any = {}; Reflect.setPrototypeOf(box, { run: f.agent }); box.run('review', { task: 'x' }); }
         function reassignedObjectBindingWorker() { let { workers } = { workers: { run: () => undefined } }; ({ workers } = { workers: { run: f.agent } }); workers.run('review', { task: 'x' }); }
         function reassignedArrayBindingWorker() { let [slots] = [[() => undefined]]; [slots] = [[f.agent]]; slots[0]('review', { task: 'x' }); }
         function assignedDestructuredWorker() { let { run } = { run: () => undefined }; run = f.agent; run('review', { task: 'x' }); }
@@ -200,8 +213,8 @@ describe('shipped-source worker invocation resolution', () => {
         async function wrappedWorkerAliases() { const conditionalRun = flag ? f.agent : f.agent, logicalRun = (flag && f.agent) || f.agent, nullishRun = f.agent ?? f.agent, commaRun = (flag, f.agent), awaitRun = await f.agent; conditionalRun('review', { task: 'x' }); logicalRun('review', { task: 'x' }); nullishRun('review', { task: 'x' }); commaRun('review', { task: 'x' }); awaitRun('review', { task: 'x' }); }
       `);
       const variableAliasResult = scanTypeScript(variableAliases);
-      expect(variableAliasResult.calls).toBe(175);
-      expect(variableAliasResult.missing).toHaveLength(175);
+      expect(variableAliasResult.calls).toBe(188);
+      expect(variableAliasResult.missing).toHaveLength(188);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `

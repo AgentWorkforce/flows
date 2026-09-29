@@ -6,7 +6,7 @@ import {
   bindingSource,
 } from './shipped-source-binding-provenance.js';
 import {
-  aggregateExpressionValue,
+  aggregateExpressionValues,
   aggregateValueAtPath,
   staticMemberSegment,
   wrappedExpressionBranches,
@@ -36,12 +36,22 @@ function referencesGlobalIdentifier(
 ): boolean {
   expression = unwrap(expression);
   if (ts.isIdentifier(expression) && expression.text === globalName) return true;
+  const globalReceiver = memberReceiver(expression);
+  if (staticMemberSegment(expression, checker, new Set(seen)) === globalName
+    && globalReceiver
+    && referencesGlobalIdentifier(globalReceiver, 'globalThis', checker, new Set(seen))) return true;
   const branches = wrappedExpressionBranches(expression);
   if (branches) return branches.some(branch =>
     referencesGlobalIdentifier(branch, globalName, checker, new Set(seen)));
   const aggregateSeen = new Set(seen);
-  const aggregate = aggregateExpressionValue(expression, checker, aggregateSeen);
-  if (aggregate && referencesGlobalIdentifier(aggregate.value, globalName, checker, aggregateSeen)) return true;
+  for (const aggregate of aggregateExpressionValues(expression, checker, aggregateSeen)) {
+    if (referencesGlobalIdentifier(
+      aggregate.value,
+      globalName,
+      checker,
+      new Set(aggregateSeen),
+    )) return true;
+  }
   if (!ts.isIdentifier(expression)) return false;
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return false;
@@ -88,8 +98,15 @@ export function referencesGlobalMember(
   if (branches) return branches.some(branch =>
     referencesGlobalMember(branch, globalName, name, checker, new Set(seen)));
   const aggregateSeen = new Set(seen);
-  const aggregate = aggregateExpressionValue(expression, checker, aggregateSeen);
-  if (aggregate && referencesGlobalMember(aggregate.value, globalName, name, checker, aggregateSeen)) return true;
+  for (const aggregate of aggregateExpressionValues(expression, checker, aggregateSeen)) {
+    if (referencesGlobalMember(
+      aggregate.value,
+      globalName,
+      name,
+      checker,
+      new Set(aggregateSeen),
+    )) return true;
+  }
   if (!ts.isIdentifier(expression)) return false;
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return false;

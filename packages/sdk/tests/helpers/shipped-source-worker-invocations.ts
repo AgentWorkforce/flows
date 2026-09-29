@@ -13,7 +13,7 @@ import {
   staticMemberSegment,
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
-import { reflectApplyArguments } from './shipped-source-reflect-apply.js';
+import { reflectApplyArgumentCandidates } from './shipped-source-reflect-apply.js';
 import { symbolHasWrites } from './shipped-source-receiver-writes.js';
 
 type WorkerMethod = 'agent' | 'llm';
@@ -394,8 +394,7 @@ export function workerInvocation(
   node: ts.CallExpression,
   checker: ts.TypeChecker,
 ): WorkerInvocation | undefined {
-  const reflectArgs = reflectApplyArguments(node, checker);
-  if (reflectArgs) {
+  for (const reflectArgs of reflectApplyArgumentCandidates(node, checker)) {
     const target = reflectArgs[0] ? workerCallable(reflectArgs[0], checker) : undefined;
     const applied = reflectArgs[2];
     const appliedArgs = applied ? staticArrayElements(applied, checker, new Set()) : undefined;

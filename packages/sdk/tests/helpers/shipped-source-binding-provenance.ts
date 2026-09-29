@@ -3,6 +3,7 @@ import {
   aggregateValueAtPath,
   staticPropertySegment,
 } from './shipped-source-binding-values.js';
+import { referencesIntrinsicMember } from './shipped-source-intrinsic-members.js';
 
 export type BindingPathSegment = string | number;
 
@@ -19,6 +20,8 @@ export interface AssignedSource {
 interface MemberAssignedSource {
   initializer: ts.Expression;
   path: BindingPathSegment[];
+  rest?: BindingRest;
+  sourcePath: BindingPathSegment[];
 }
 
 function unwrap(expression: ts.Expression): ts.Expression {
@@ -70,6 +73,125 @@ function memberAssignmentPath(
   return segment === undefined ? undefined : { ...parent, path: [...parent.path, segment] };
 }
 
+function memberAssignedSourcesAtTarget(
+  target: ts.Expression,
+  value: ts.Expression,
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+  sourcePath: BindingPathSegment[] = [],
+): MemberAssignedSource[] {
+  target = unwrap(target);
+  const member = memberAssignmentPath(target, checker);
+  if (member?.symbol === symbol && member.path.length > 0) {
+    return [{ initializer: value, path: member.path, sourcePath }];
+  }
+  if (ts.isBinaryExpression(target) && target.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+    return [
+      ...memberAssignedSourcesAtTarget(target.left, value, symbol, checker, sourcePath),
+      ...memberAssignedSourcesAtTarget(target.left, target.right, symbol, checker),
+    ];
+  }
+  if (ts.isArrayLiteralExpression(target)) return target.elements.flatMap((element, index) => {
+    if (ts.isOmittedExpression(element)) return [];
+    if (!ts.isSpreadElement(element)) {
+      return memberAssignedSourcesAtTarget(element, value, symbol, checker, [...sourcePath, index]);
+    }
+    return memberAssignedSourcesAtTarget(element.expression, value, symbol, checker, sourcePath)
+      .map(source => ({
+        ...source,
+        rest: {
+          kind: 'array' as const,
+          start: index + (source.rest?.kind === 'array' ? source.rest.start : 0),
+        },
+      }));
+  });
+  if (!ts.isObjectLiteralExpression(target)) return [];
+  const excluded: string[] = [];
+  return target.properties.flatMap(property => {
+    if (ts.isSpreadAssignment(property)) {
+      return memberAssignedSourcesAtTarget(property.expression, value, symbol, checker, sourcePath)
+        .map(source => ({
+          ...source,
+          rest: { excluded: [...excluded], kind: 'object' as const },
+        }));
+    }
+    const segment = propertyName(property.name, checker);
+    if (segment === undefined) return [];
+    const assignmentTarget = ts.isPropertyAssignment(property) ? property.initializer
+      : ts.isShorthandPropertyAssignment(property) ? property.name : undefined;
+    if (!assignmentTarget) return [];
+    excluded.push(segment);
+    return memberAssignedSourcesAtTarget(
+      assignmentTarget,
+      value,
+      symbol,
+      checker,
+      [...sourcePath, segment],
+    );
+  });
+}
+
+function reflectiveMemberAssignedSources(
+  node: ts.CallExpression,
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+): MemberAssignedSource[] {
+  const target = node.arguments[0] ? memberAssignmentPath(node.arguments[0], checker) : undefined;
+  if (!target || target.symbol !== symbol) return [];
+  if (referencesIntrinsicMember(node.expression, 'Object', 'assign', checker)) {
+    return node.arguments.slice(1).map(initializer => ({
+      initializer,
+      path: target.path,
+      sourcePath: [],
+    }));
+  }
+  if (referencesIntrinsicMember(node.expression, 'Reflect', 'set', checker)) {
+    const segment = node.arguments[1]
+      ? staticPropertySegment(node.arguments[1], checker, new Set([symbol]))
+      : undefined;
+    const initializer = node.arguments[2];
+    return segment === undefined || !initializer ? [] : [{
+      initializer,
+      path: [...target.path, segment],
+      sourcePath: [],
+    }];
+  }
+  const defineProperty = referencesIntrinsicMember(node.expression, 'Object', 'defineProperty', checker)
+    || referencesIntrinsicMember(node.expression, 'Reflect', 'defineProperty', checker);
+  if (defineProperty) {
+    const segment = node.arguments[1]
+      ? staticPropertySegment(node.arguments[1], checker, new Set([symbol]))
+      : undefined;
+    const descriptor = node.arguments[2];
+    return segment === undefined || !descriptor ? [] : [{
+      initializer: descriptor,
+      path: [...target.path, segment],
+      sourcePath: ['value'],
+    }];
+  }
+  if (referencesIntrinsicMember(node.expression, 'Object', 'defineProperties', checker)) {
+    const descriptors = node.arguments[1] ? unwrap(node.arguments[1]) : undefined;
+    if (!descriptors || !ts.isObjectLiteralExpression(descriptors)) return [];
+    return descriptors.properties.flatMap(property => {
+      if (!ts.isPropertyAssignment(property)) return [];
+      const segment = propertyName(property.name, checker);
+      return segment === undefined ? [] : [{
+        initializer: property.initializer,
+        path: [...target.path, segment],
+        sourcePath: ['value'],
+      }];
+    });
+  }
+  const setPrototypeOf = referencesIntrinsicMember(node.expression, 'Object', 'setPrototypeOf', checker)
+    || referencesIntrinsicMember(node.expression, 'Reflect', 'setPrototypeOf', checker);
+  const prototype = node.arguments[1];
+  return setPrototypeOf && prototype ? [{
+    initializer: prototype,
+    path: target.path,
+    sourcePath: [],
+  }] : [];
+}
+
 const memberAssignedSourceCache = new WeakMap<
   ts.TypeChecker,
   WeakMap<ts.Symbol, MemberAssignedSource[]>
@@ -88,11 +210,9 @@ function memberAssignedSources(symbol: ts.Symbol, checker: ts.TypeChecker): Memb
   const values: MemberAssignedSource[] = [];
   const visit = (node: ts.Node): void => {
     if (ts.isBinaryExpression(node) && assignmentMayStoreRight(node.operatorToken.kind)) {
-      const target = memberAssignmentPath(node.left, checker);
-      if (target?.symbol === symbol && target.path.length > 0) {
-        values.push({ initializer: node.right, path: target.path });
-      }
+      values.push(...memberAssignedSourcesAtTarget(node.left, node.right, symbol, checker));
     }
+    if (ts.isCallExpression(node)) values.push(...reflectiveMemberAssignedSources(node, symbol, checker));
     ts.forEachChild(node, visit);
   };
   visit(source);
@@ -110,10 +230,28 @@ export function assignedMemberValues(
   return memberAssignedSources(target.symbol, checker).flatMap(source => {
     if (source.path.length > target.path.length
       || source.path.some((segment, index) => String(segment) !== String(target.path[index]))) return [];
-    const remainder = target.path.slice(source.path.length);
-    if (remainder.length === 0) return [{ value: source.initializer, auditable: false as const }];
+    const sourceValue = source.sourcePath.length === 0
+      ? { value: source.initializer }
+      : aggregateValueAtPath(
+          source.initializer,
+          source.sourcePath,
+          checker,
+          new Set(seen).add(target.symbol),
+        );
+    if (!sourceValue) return [];
+    let remainder = target.path.slice(source.path.length);
+    if (source.rest?.kind === 'object') {
+      const name = remainder[0];
+      if (name === undefined || source.rest.excluded.includes(String(name))) return [];
+    }
+    if (source.rest?.kind === 'array') {
+      const index = remainder[0] === undefined ? undefined : canonicalArrayIndex(remainder[0]);
+      if (index === undefined) return [];
+      remainder = [source.rest.start + index, ...remainder.slice(1)];
+    }
+    if (remainder.length === 0) return [{ value: sourceValue.value, auditable: false as const }];
     const value = aggregateValueAtPath(
-      source.initializer,
+      sourceValue.value,
       remainder,
       checker,
       new Set(seen).add(target.symbol),
