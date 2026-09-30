@@ -189,7 +189,11 @@ No process runs between events: the handler wakes, executes to its next await, p
    wrong identification is `cli_unsupported`, never
    mislabeled as `cli_unauthenticated`. If a model-scoped probe fails, the
    adapter's real unscoped authentication command distinguishes
-   `model_unavailable` from `cli_unauthenticated`. At execution the worker
+   `model_unavailable` from `cli_unauthenticated`, and the adapter reads the
+   failed probe's own output to split out `cli_outdated` (the CLI is too old
+   for the model) and `provider_usage_limited` (the credential hit a usage or
+   rate limit). Only `model_unavailable` asks the author to verify the model
+   name; all three carry the probe's redacted output. At execution the worker
    starts one wrapper process with only `--relayflows-adapter-v1` and a scrubbed
    environment, waits for the exact identity token, then sends one JSON line
    containing instruction plus any declared model/wake context over that
