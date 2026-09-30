@@ -69,6 +69,8 @@ export function addReportedCost(total: ReportedCostTotal, completion: Payload, m
   if (cost === null && (modelFree || reused)) return total;
   const dollars = cost === null ? null : cost['dollars'];
   const source = cost === null ? null : cost['source'];
+  // An internal effect worker ran no model: a known $0 that names no cost source.
+  if (source === 'no_model') return total;
   if (typeof dollars !== 'string' || !/^\d+(?:\.\d+)?$/.test(dollars) || (source !== 'cli' && source !== 'priced')) {
     return { ...total, complete: false };
   }

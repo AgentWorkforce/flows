@@ -415,6 +415,9 @@ pub enum ReportedCostSource {
     Cli,
     /// Estimated from the step's full token usage at a frozen price.
     Priced,
+    /// No model ran: an internal effect worker (provider helper, plugin, MCP)
+    /// completed the step. `dollars` is zero.
+    NoModel,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

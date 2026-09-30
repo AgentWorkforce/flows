@@ -79,6 +79,11 @@ export interface HelloParams {
 export interface HelloResult {
   protocol: 0;
   server: string;
+  /**
+   * Additive request capabilities within protocol 0. Absent from daemons that
+   * predate it, which then accept none of the optional fields it gates.
+   */
+  features?: string[];
 }
 
 export interface StepSpend {
@@ -105,8 +110,11 @@ export interface StepSpend {
 export interface ReportedCost {
   /** Non-negative decimal string, six places. */
   dollars: string;
-  /** `cli`: the CLI's own reported total. `priced`: estimated from full token usage. */
-  source: 'cli' | 'priced';
+  /**
+   * `cli`: the CLI's own reported total. `priced`: estimated from full token
+   * usage. `no_model`: an internal effect worker completed the step; $0.
+   */
+  source: 'cli' | 'priced' | 'no_model';
 }
 
 export type StepUsage =

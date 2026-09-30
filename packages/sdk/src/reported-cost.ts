@@ -43,6 +43,9 @@ export function reportedCost(result: WorkerCliResult, model: string | undefined)
   return { dollars: microDollars(micro), source: 'priced' };
 }
 
+/** What an internal effect worker (provider helper, plugin, MCP) reports: no model ran. */
+export const NO_MODEL_COST: ReportedCost = Object.freeze({ dollars: '0.000000', source: 'no_model' });
+
 function microDollars(micro: bigint): string {
   return `${micro / 1_000_000n}.${String(micro % 1_000_000n).padStart(6, '0')}`;
 }

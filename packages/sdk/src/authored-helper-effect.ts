@@ -14,6 +14,7 @@ import { helperWriteback, HelperDeliveryError } from './helper-writeback.js';
 import { checkSlackHelpers } from './slack-preflight.js';
 import { atomicJson, readSlackReceipt, receiptPath, slackWriteback, type SlackCall } from './slack-writeback.js';
 import { authoredChildAdmissionKey } from './authored-admission.js';
+import { NO_MODEL_COST } from './reported-cost.js';
 
 type ProviderCall = HelperCall | SlackCall;
 
@@ -135,11 +136,11 @@ async function completeHelperDispatch(client: JournalClient, dispatch: StepDispa
     await client.stepComplete(dispatch.run_id, dispatch.step_id, dispatch.attempt,
       dispatch.idempotency_key, 'worker_error', {
         output: { ...call, diagnostic: error.message },
-        started_pins: dispatch.pins, end_pins: dispatch.pins, effects: [],
+        started_pins: dispatch.pins, end_pins: dispatch.pins, effects: [], reported_cost: NO_MODEL_COST,
       });
     return;
   }
   await client.stepComplete(dispatch.run_id, dispatch.step_id, dispatch.attempt,
-    dispatch.idempotency_key, 'success', { output, started_pins: dispatch.pins, end_pins: dispatch.pins,
+    dispatch.idempotency_key, 'success', { output, started_pins: dispatch.pins, end_pins: dispatch.pins, reported_cost: NO_MODEL_COST,
       effects: [{ surface_path: `/${call.provider}`, idempotency_key: dispatch.idempotency_key }] });
 }

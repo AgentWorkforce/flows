@@ -353,6 +353,17 @@ describe('foldRunState', () => {
     expect(view.reported_cost).toEqual({ dollars: '0', complete: true, source: null });
   });
 
+  it('counts an internal effect worker\'s no_model report as a known $0 that names no cost source', () => {
+    const view = foldRunState(journal(
+      spawned,
+      completed('fetch', 1, T0 + 1000, {}),
+      completed('analyze', 1, T0 + 2000, { reported_cost: { dollars: '1.500000', source: 'cli' } }),
+      completed('post', 1, T0 + 3000, { reported_cost: { dollars: '0.000000', source: 'no_model' } }),
+    ), T0 + 4000);
+    expect(view.steps[2]!.reported_cost).toEqual({ dollars: '0', complete: true, source: null });
+    expect(view.reported_cost).toEqual({ dollars: '1.5', complete: true, source: 'cli' });
+  });
+
   it('does not take a zero budget as proof no model ran: a recovered agent attempt stays unknown', () => {
     // Crash recovery and cancellation journal a default budget although the model ran.
     const view = foldRunState(journal(
