@@ -6,10 +6,22 @@ import { AgentWorker } from '../src/worker.js';
 import { runAgentCli } from '../src/worker-cli.js';
 
 vi.mock('../src/worker-cli.js', () => ({ runAgentCli: vi.fn() }));
-afterEach(() => { vi.useRealTimers(); vi.resetAllMocks(); });
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.resetAllMocks(); });
+
+// A stalled event loop: both clocks jump while queued timer callbacks wait.
+// The lease is timed on the monotonic clock (worker-lease.ts), so a stall
+// that moved only the wall clock would not be one.
+let stalledMs = 0;
+function stall(ms: number): void {
+  vi.setSystemTime(Date.now() + ms);
+  stalledMs += ms;
+}
 
 function setup() {
-  vi.useFakeTimers();
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'performance'] });
+  stalledMs = 0;
+  const fakeNow = performance.now.bind(performance);
+  vi.spyOn(performance, 'now').mockImplementation(() => fakeNow() + stalledMs);
   const client = Object.assign(new EventEmitter(), {
     workerAttach: vi.fn(async () => ({})),
     stepHeartbeat: vi.fn(async () => ({ lease_deadline_ms: Date.now() + 30_000 })),
@@ -107,7 +119,7 @@ describe('worker lease ownership', () => {
 it('refuses completion past the deadline even before the expiry timer runs', async () => {
   const { client, worker, errors, dispatch } = setup();
   vi.mocked(runAgentCli).mockImplementation(async () => {
-    vi.setSystemTime(Date.now() + 30_001); // changes the clock WITHOUT running timers
+    stall(30_001); // changes the clock WITHOUT running timers
     return { exit_code: 0, stdout_tail: 'late', stderr_tail: '' };
   });
   await worker.attach();
@@ -121,7 +133,7 @@ it('refuses completion past the deadline even before the expiry timer runs', asy
 it('does not revive ownership when the initial heartbeat response is handled late', async () => {
   const { client, worker, errors, dispatch } = setup();
   client.stepHeartbeat.mockImplementationOnce(async () => {
-    vi.setSystemTime(Date.now() + 30_001); // leave timer callbacks queued
+    stall(30_001); // leave timer callbacks queued
     return { lease_deadline_ms: Date.now() + 30_000 };
   });
   await worker.attach();
@@ -136,7 +148,7 @@ it('aborts the CLI when a later heartbeat response would revive an expired lease
   const { client, worker, errors, dispatch } = setup();
   client.stepHeartbeat.mockResolvedValueOnce({ lease_deadline_ms: Date.now() + 30_000 })
     .mockImplementationOnce(async () => {
-      vi.setSystemTime(Date.now() + 20_001); // renewal starts at t=10s
+      stall(20_001); // renewal starts at t=10s
       return { lease_deadline_ms: Date.now() + 30_000 };
     });
   const signals = runningCli(60_000);

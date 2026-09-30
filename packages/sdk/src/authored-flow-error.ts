@@ -30,6 +30,12 @@ export type AuthoredFlowExecutionErrorCode =
   | 'operation_callback_failed'
   | 'step_failed'
   | 'lease_exceeded'
+  /**
+   * The CLI lost the authored root's worker lease and the kernel did not
+   * re-dispatch the root to it. The run is not failed: completed steps are
+   * journaled and `flows resume <rootRunId>` continues it.
+   */
+  | 'root_lease_lost'
   | 'unsupported_completion'
   | 'unsupported_gate'
   | 'gate_failed'

@@ -381,12 +381,13 @@ fn handle_request(
             let lock = hub.run_lock(&params.run_id);
             let _guard = lock.lock().expect("run lock");
             ensure_mutable(&engine, &params.run_id)?;
+            let now = now_ms();
             let (deadline, run_deadline) = hub
                 .heartbeat(
                     connection_id,
                     &(params.run_id.clone(), params.step_id, params.attempt),
                     &params.lease_id,
-                    now_ms(),
+                    now,
                 )
                 .map_err(protocol_conflict)?;
             // Durable renewal: persist the extended deadline so the lease the
@@ -396,7 +397,9 @@ fn handle_request(
             engine
                 .renew_lease(&params.run_id, run_deadline)
                 .map_err(internal_error)?;
-            Ok(json!({"lease_deadline_ms": deadline}))
+            // `lease_ttl_ms`: the same deadline as a duration, so the worker can
+            // time it on its own clock (see the dispatch frame in assignments.rs).
+            Ok(json!({"lease_deadline_ms": deadline, "lease_ttl_ms": deadline.saturating_sub(now)}))
         }
         "step.complete" => {
             let params: StepCompleteParams = decode_params(request.params)?;

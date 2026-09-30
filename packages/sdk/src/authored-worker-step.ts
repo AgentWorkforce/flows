@@ -343,6 +343,7 @@ function stepDetails(
     ...(found.completionReason === undefined ? {} : { completionReason: found.completionReason }),
     ...(found.attempt === undefined ? {} : { attempt: found.attempt }),
     ...(found.maxIterations === undefined ? {} : { maxIterations: found.maxIterations }),
+    ...(found.unchargedAttempts === undefined ? {} : { unchargedAttempts: found.unchargedAttempts }),
     ...(found.exitCode === undefined ? {} : { exitCode: found.exitCode }),
     ...(found.stdoutTail === undefined ? {} : { stdoutTail: found.stdoutTail }),
     ...(found.stderrTail === undefined ? {} : { stderrTail: found.stderrTail }),

@@ -408,6 +408,9 @@ export async function resumeFlow(
     if (error instanceof AuthoredFlowExecutionError && (error.code === 'step_failed' || error.code === 'gate_failed')) {
       return authoredStepFailure('resume', base, socketPath, error, runId);
     }
+    if (error instanceof AuthoredFlowExecutionError && error.code === 'root_lease_lost') {
+      return rootLeaseLostReport('resume', base, socketPath, error, runId);
+    }
     // An authored resume that parks for want of a worker is a park, reported
     // like the run path's — and with the same remedy, because an authored root
     // admits its worker at run start: resuming again cannot attach one, so the
@@ -522,6 +525,38 @@ function authoredInputArgument(metadata: AuthoredRootMetadata | undefined): Auth
  * drove correctly, and it produces a report with no `status`, which is the
  * whole of what `RUN <id> unknown` ever meant.
  */
+/**
+ * The authored root's lease was lost and not re-dispatched to this process
+ * (authored-root.ts driveRootFollowingRetries). Exit 1 because this CLI did
+ * not finish the run, but the report says what is true of it: still
+ * `running` in the journal, and resumable -- never `protocol_error` with the
+ * generic "worker wait canceled" and no run id, which is what it was.
+ */
+export function rootLeaseLostReport(
+  command: RunCommand,
+  base: CheckReport | RunReport,
+  socketPath: string,
+  error: AuthoredFlowExecutionError,
+  fallbackRunId?: string,
+): RunExecution {
+  const rootRunId = error.rootRunId ?? fallbackRunId;
+  return {
+    exitCode: 1,
+    report: {
+      ...fromBase(command, base),
+      ok: false,
+      ...(rootRunId === undefined ? {} : { runId: rootRunId, rootRunId }),
+      socketPath,
+      status: 'running',
+      diagnostics: [...base.diagnostics, {
+        severity: 'failure',
+        kind: 'root_lease_lost',
+        message: error.message.replace(/^root_lease_lost: /, ''),
+      }],
+    },
+  };
+}
+
 export function authoredStepFailure(
   command: RunCommand,
   base: CheckReport | RunReport,
@@ -798,7 +833,12 @@ export async function classifyOutcome(
   let parkedStep: ParkedStep | undefined;
   let needsHuman = false;
   let unclassifiedPolls = 0;
-  while (current.status === 'parked') {
+  // `running` too: an authored body re-driven after a lost root lease re-admits
+  // its child by admission key and gets the EXISTING run back, mid-attempt.
+  // Only `parked` was followed, so that child -- on the attempt 2 the kernel
+  // retried it to -- fell straight through to "status running without a
+  // classifiable completion" and failed the flow (customer rw_3a0fcb71).
+  while (current.status === 'parked' || current.status === 'running') {
     const inspection = await inspectOutOfBandStep(client, current.run_id);
     // A runnable sibling may only be waiting for capacity held by a live
     // attempt. Keep driving until that lease releases before declaring a park.
@@ -809,6 +849,20 @@ export async function classifyOutcome(
     }
     if (inspection?.runningStep !== undefined) {
       await waitForRunningStep(client, current.run_id, inspection.runningStep, options);
+      current = await client.runResume(current.run_id, command === 'run' || options.allowHumanInfluenced);
+      continue;
+    }
+    // A step in `backoff` is between attempts: the kernel has scheduled the
+    // next one (a dead worker's retry is due at once, but waits for the
+    // worker slot the dead attempt held; a failed attempt waits out the
+    // retry policy's delay, bounded by its max_backoff_ms). That is progress,
+    // not an unclassifiable state -- treating it as one gave up after 2s on a
+    // child whose attempt 2 then succeeded (customer rw_3a0fcb71). Once due,
+    // the step is dispatched (`running`, followed above) or, with no worker,
+    // left `runnable` and reported as a park.
+    if (inspection?.backoffStep !== undefined && inspection.runningStep === undefined) {
+      throwIfCanceled(options.signal, inspection.backoffStep.id);
+      await delay(EXPIRED_LEASE_POLL_MS, options.signal);
       current = await client.runResume(current.run_id, command === 'run' || options.allowHumanInfluenced);
       continue;
     }
@@ -954,6 +1008,8 @@ interface OutOfBandInspection {
   parkedStep?: ParkedStep;
   needsHuman: boolean;
   runningStep?: RunningStep;
+  /** A step waiting out a retry backoff: its next attempt is scheduled. */
+  backoffStep?: ParkedStep;
 }
 
 interface RunningStep extends ParkedStep {
@@ -981,6 +1037,9 @@ async function inspectOutOfBandStep(
   const runningEntry = entries.find(([, step]) =>
     step.type !== 'deterministic' && step.state === 'running',
   );
+  const backoffEntry = entries.find(([, step]) =>
+    step.type !== 'deterministic' && step.state === 'backoff',
+  );
   const parkedEntry = humanEntry ?? runnableEntry;
   const parkedStep = parkedEntry === undefined ? undefined : {
     id: parkedEntry[0],
@@ -996,11 +1055,21 @@ async function inspectOutOfBandStep(
     needsHuman: humanEntry !== undefined,
     ...(parkedStep !== undefined ? { parkedStep } : {}),
     ...(runningStep !== undefined ? { runningStep } : {}),
+    ...(backoffEntry !== undefined ? { backoffStep: {
+      id: backoffEntry[0],
+      type: backoffEntry[1].type as Extract<StepType, 'llm' | 'agent'>,
+    } } : {}),
   };
 }
 
 // Match kernel/relayflowd/src/server/client.rs: allow the lease sweep to dispatch a retry.
 export const LEASE_SWEEP_GRACE_MS = 5_000;
+// How often to re-ask the daemon about a step whose lease looks expired here.
+const EXPIRED_LEASE_POLL_MS = 250;
+// A deadline unchanged for a whole lease (relayflowd LEASE_RENEWAL_MS, 30s)
+// plus the sweep grace was renewed by nobody: the attempt is dead and the
+// daemon never swept it. Fail rather than hang.
+const STALE_LEASE_MS = 30_000 + LEASE_SWEEP_GRACE_MS;
 
 async function waitForRunningStep(
   client: JournalClient,
@@ -1018,20 +1087,29 @@ async function waitForRunningStep(
     stepType: runningStep.type,
     leaseDeadlineMs,
   });
+  // When the lease deadline last changed, on this process's monotonic clock.
+  // A live worker renews every ~10s, moving the deadline; a dead lease the
+  // daemon has not swept keeps it. That -- not a comparison of the daemon's
+  // deadline with our wall clock -- is what separates the two under skew.
+  let deadlineSeenAt = performance.now();
   while (true) {
     throwIfCanceled(options.signal, runningStep.id);
     const remainingMs = leaseDeadlineMs + LEASE_SWEEP_GRACE_MS - Date.now();
-    if (remainingMs <= 0) {
+    if (remainingMs <= 0 && performance.now() - deadlineSeenAt > STALE_LEASE_MS) {
       throw new Error(
         `worker lease for step "${runningStep.id}" expired at ${leaseDeadlineMs} without completion`,
       );
     }
-    await delay(Math.min(50, remainingMs), options.signal);
+    // Past the deadline by THIS clock alone is not an expiry: the daemon may
+    // still hold the lease (skew) or be sweeping it into a retry. Keep
+    // following the step, at a slower poll, until the daemon says otherwise.
+    await delay(remainingMs <= 0 ? EXPIRED_LEASE_POLL_MS : Math.min(50, remainingMs), options.signal);
     const snapshot = await client.runGet(runId);
     const step = snapshot.steps[runningStep.id];
     if (step?.state !== 'running') return;
     if (step.lease_deadline_ms !== undefined && step.lease_deadline_ms !== leaseDeadlineMs) {
       leaseDeadlineMs = step.lease_deadline_ms;
+      deadlineSeenAt = performance.now();
       options.onWait?.({
         runId,
         stepId: runningStep.id,
@@ -1098,7 +1176,14 @@ function errorMessage(error: unknown): string {
 }
 
 function throwIfCanceled(signal: AbortSignal | undefined, stepId: string): void {
-  if (signal?.aborted === true) throw new Error(`waiting for running step "${stepId}" was canceled`);
+  if (signal?.aborted === true) {
+    throw new Error(`waiting for running step "${stepId}" was canceled${cancelCause(signal)}`, { cause: signal.reason });
+  }
+}
+
+/** Why a wait was canceled, when whoever aborted it said (a lost lease does). */
+function cancelCause(signal: AbortSignal): string {
+  return signal.reason instanceof Error && signal.reason.name !== 'AbortError' ? `: ${signal.reason.message}` : '';
 }
 
 export function delay(ms: number, signal?: AbortSignal): Promise<void> {
@@ -1112,7 +1197,9 @@ export function delay(ms: number, signal?: AbortSignal): Promise<void> {
     const cancel = (): void => {
       clearTimeout(timer);
       signal.removeEventListener('abort', cancel);
-      rejectDelay(new Error('worker wait canceled'));
+      // Carries the abort reason: a bare "worker wait canceled" was all a
+      // lost root lease ever reported (customer rw_3a0fcb71).
+      rejectDelay(new Error(`worker wait canceled${cancelCause(signal)}`, { cause: signal.reason }));
     };
     if (signal.aborted) cancel();
     else signal.addEventListener('abort', cancel, { once: true });

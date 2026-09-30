@@ -16,9 +16,9 @@ import { JournalClient } from './journal-client.js';
 import type { RunOutcome, StepDispatchEvent } from './protocol.js';
 import { SPEC_SCHEMA_VERSION } from './spec.js';
 import type { RunLifecycleOptions } from './cli/run.js';
-import { withWorkerLease } from './worker-lease.js';
+import { isLeaseLost, withWorkerLease } from './worker-lease.js';
 import { AuthoredFlowExecutionError, AuthoredHumanParked } from './authored-flow-error.js';
-import { readOpenHumanWaits } from './authored-human.js';
+import { readOpenHumanWaits, resumeCommand } from './authored-human.js';
 import { isSurfaceCompletionReason } from './authored-step-output.js';
 import { readSubscriptionPark } from './authored-subscription-park.js';
 import { localAgentCredentialEnvironment } from './local-agent-environment.js';
@@ -134,7 +134,7 @@ export async function executeDurableAuthoredFlow(
     if (parked !== undefined) return { state: 'suspended', name: metadata.flowName,
       suspension: parked, journalSteps: [], rootRunId: outcome.run_id };
     const dispatch = await dispatchWait.promise;
-    return await driveRoot(loaded, metadata, journal, peer, dispatch, options);
+    return await driveRootFollowingRetries(loaded, metadata, journal, peer, dispatch, options);
   } finally {
     cancelDispatch();
     peer.close();
@@ -177,7 +177,7 @@ export async function resumeDurableAuthoredFlow(
     if (parked !== undefined) return { state: 'suspended', name: metadata.flowName,
       suspension: parked, journalSteps: [], rootRunId };
     const dispatch = await dispatchWait.promise;
-    return await driveRoot(loaded, metadata, journal, peer, dispatch, options);
+    return await driveRootFollowingRetries(loaded, metadata, journal, peer, dispatch, options);
   } finally {
     cancelDispatch();
     peer.close();
@@ -212,6 +212,91 @@ export async function readAuthoredRootMetadata(
     throw new Error('authored root journal has malformed authority metadata');
   }
   return Object.freeze({ ...value, extensions: value.extensions ?? [] });
+}
+
+/**
+ * How many times one CLI re-drives a root whose lease it lost. Each re-drive
+ * replays completed steps from their journaled receipts, so the bound guards a
+ * lease that keeps being lost, not the cost of the work.
+ */
+const MAX_ROOT_REDRIVES = 3;
+/**
+ * How long to wait for the kernel to re-dispatch a root whose lease was lost:
+ * a full lease (30s, relayflowd LEASE_RENEWAL_MS) in case the daemon still
+ * held it, plus its sweep and grace.
+ */
+const ROOT_REDISPATCH_TIMEOUT_MS = 45_000;
+
+/**
+ * Drive the root, and FOLLOW the kernel when it retries the root attempt.
+ *
+ * A lost root lease is not a failed flow. The kernel journals the attempt
+ * `lease_expired` with `disposition: retry` without charging an iteration
+ * (relayflowd-core recovery.rs) and re-dispatches the root to the worker
+ * still attached on `peer` -- this process. Exiting there with
+ * "worker wait canceled" (customer rw_3a0fcb71) threw away a run the kernel
+ * was about to continue, including a child agent already on its second
+ * attempt: the re-driven body replays completed steps from their receipts and
+ * adopts that in-flight child (authored-step-output.ts). Only when no retry
+ * arrives does the error leave, as `root_lease_lost` naming the resume.
+ */
+async function driveRootFollowingRetries(
+  loaded: LoadedAuthoredFlow,
+  metadata: AuthoredRootMetadata,
+  journal: JournalClient,
+  peer: JournalClient,
+  firstDispatch: StepDispatchEvent,
+  options: Omit<DurableAuthoredOptions, 'admissionKey'>,
+): Promise<DurableAuthoredFlowResult> {
+  let dispatch = firstDispatch;
+  for (let redrives = 0; ; redrives += 1) {
+    // Listen before driving: the retry can be dispatched the moment the
+    // daemon sweeps the lease, before the aborted body has unwound. The
+    // timeout starts only once there is a lost lease to wait on.
+    const next = rootRedispatch(peer);
+    try {
+      const result = await driveRoot(loaded, metadata, journal, peer, dispatch, options);
+      next.cancel();
+      return result;
+    } catch (error) {
+      if (!isLeaseLost(error) || options.lifecycle?.signal?.aborted === true) {
+        next.cancel();
+        throw error;
+      }
+      const lost = sentence(error instanceof Error ? error.message : String(error));
+      const resume = resumeCommand(dispatch.run_id, options.dataDir, options.localAgentStream !== undefined);
+      if (redrives >= MAX_ROOT_REDRIVES) {
+        next.cancel();
+        throw rootLeaseLost(dispatch, `${lost} It was lost ${redrives + 1} times in this process; continue the run with: ${resume}`, error);
+      }
+      process.emitWarning(
+        `authored root run_id=${dispatch.run_id} attempt=${dispatch.attempt}: ${lost} Waiting for the kernel to retry it.`,
+        { code: 'FLOWS_ROOT_LEASE_LOST' },
+      );
+      try {
+        dispatch = await next.wait(ROOT_REDISPATCH_TIMEOUT_MS);
+      } catch {
+        throw rootLeaseLost(dispatch, `${lost} The kernel did not re-dispatch the root within ${ROOT_REDISPATCH_TIMEOUT_MS / 1000}s; continue the run with: ${resume}`, error);
+      }
+      if (dispatch.run_id !== firstDispatch.run_id) {
+        throw new Error('authored root retry was dispatched for a different run');
+      }
+    }
+  }
+}
+
+function sentence(text: string): string {
+  return /[.!?]$/.test(text) ? text : `${text}.`;
+}
+
+function rootLeaseLost(dispatch: StepDispatchEvent, message: string, cause: unknown): AuthoredFlowExecutionError {
+  const error = new AuthoredFlowExecutionError('root_lease_lost',
+    `authored root run ${dispatch.run_id} lost its worker lease on attempt ${dispatch.attempt}. ${message}`
+      + ' Completed steps are journaled and are not re-run.',
+    'lease_expired');
+  error.rootRunId = dispatch.run_id;
+  (error as { cause?: unknown }).cause = cause;
+  return error;
 }
 
 async function driveRoot(
@@ -269,6 +354,9 @@ async function driveRoot(
     );
     return Object.freeze({ ...result, rootRunId: dispatch.run_id });
   } catch (error) {
+    // A lost lease is owned by the kernel's retry path, not by this attempt's
+    // terminalization or suspension handling.
+    if (isLeaseLost(error)) throw error;
     if (error instanceof AuthoredFlowExecutionError
       && error.code === 'subscription_suspended'
       && error.suspension !== undefined) {
@@ -376,7 +464,40 @@ function hasRootStream(step: Record<string, unknown>): boolean {
   try { rootStreamFromMetadata(step); return true; } catch { return false; }
 }
 
-function nextRootDispatch(peer: JournalClient): {
+/**
+ * Buffers the next root dispatch from the moment it is created; `wait`
+ * bounds only the time spent waiting for it. Unlike `nextRootDispatch`, no
+ * timer runs while the body is being driven -- a body longer than the
+ * timeout must not leave a rejected promise nobody awaits.
+ */
+function rootRedispatch(peer: JournalClient): {
+  wait(timeoutMs: number): Promise<StepDispatchEvent>;
+  cancel(): void;
+} {
+  let received: StepDispatchEvent | undefined;
+  let deliver: ((dispatch: StepDispatchEvent) => void) | undefined;
+  const onDispatch = (dispatch: StepDispatchEvent): void => {
+    if (dispatch.step_id !== 'authored-root') return;
+    peer.off('step.dispatch', onDispatch);
+    if (deliver === undefined) received = dispatch;
+    else deliver(dispatch);
+  };
+  peer.on('step.dispatch', onDispatch);
+  const cancel = (): void => { peer.off('step.dispatch', onDispatch); };
+  return {
+    cancel,
+    wait: timeoutMs => new Promise((resolve, reject) => {
+      if (received !== undefined) { resolve(received); return; }
+      const timer = setTimeout(() => {
+        cancel();
+        reject(new Error('authored root was not re-dispatched'));
+      }, timeoutMs);
+      deliver = dispatch => { clearTimeout(timer); resolve(dispatch); };
+    }),
+  };
+}
+
+function nextRootDispatch(peer: JournalClient, timeoutMs = 30_000): {
   promise: Promise<StepDispatchEvent>;
   cancel(): void;
 } {
@@ -385,7 +506,7 @@ function nextRootDispatch(peer: JournalClient): {
     const timer = setTimeout(() => {
       peer.off('step.dispatch', onDispatch);
       reject(new Error('authored root was not dispatched'));
-    }, 30_000);
+    }, timeoutMs);
     const onDispatch = (dispatch: StepDispatchEvent) => {
       if (dispatch.step_id !== 'authored-root') return;
       clearTimeout(timer);

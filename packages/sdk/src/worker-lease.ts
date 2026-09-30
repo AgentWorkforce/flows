@@ -2,8 +2,12 @@ import { JournalProtocolError, type JournalClient } from './journal-client.js';
 import type { StepDispatchEvent } from './protocol.js';
 
 export class WorkerLeaseLostError extends Error {
-  constructor(readonly reason: 'already_expired' | 'renewal_expired' | 'completion_expired', message: string) {
-    super(message);
+  constructor(
+    readonly reason: 'already_expired' | 'renewal_expired' | 'completion_expired',
+    message: string,
+    options?: { cause?: unknown },
+  ) {
+    super(message, options);
     this.name = 'WorkerLeaseLostError';
   }
 }
@@ -36,13 +40,19 @@ export async function withWorkerLease<T>(
 ): Promise<T> {
   const controller = new AbortController();
   let stopped = false;
-  let latestDeadline = dispatch.lease_deadline_ms;
+  // Every deadline below is on THIS process's monotonic clock. The daemon
+  // issues `lease_deadline_ms` on its own wall clock, and comparing it with
+  // ours made the lease exactly as good as the two clocks' agreement: a
+  // worker 45s ahead refused every dispatch as already expired, one 75s
+  // behind scheduled its first renewal after the daemon had swept the lease
+  // (customer rw_3a0fcb71; tests/worker-lease-drift-live.test.ts).
+  let latestDeadline = Number.NaN;
   let renewalTimer: NodeJS.Timeout | undefined;
   let expiryTimer: NodeJS.Timeout | undefined;
   let pending: Promise<void> = Promise.resolve();
   const fail = (error: unknown): void => { controller.abort(error); };
   const armExpiry = (deadline: number): number => {
-    const remaining = deadline - Date.now();
+    const remaining = deadline - performance.now();
     if (!Number.isFinite(remaining)) {
       throw new Error(`Agent lease is already expired for ${dispatch.run_id}/${dispatch.step_id}.`);
     }
@@ -57,16 +67,19 @@ export async function withWorkerLease<T>(
     return remaining;
   };
   const renew = async (): Promise<void> => {
+    // Anchored BEFORE the request: the daemon starts the renewed lease no
+    // earlier than it receives this, so the local deadline errs early.
+    const sentAt = performance.now();
     const result = await untilAborted(client.stepHeartbeat(
       dispatch.run_id, dispatch.step_id, dispatch.attempt, dispatch.lease_id,
     ), controller.signal);
     controller.signal.throwIfAborted();
     // A response handled after local expiry cannot revive ownership, even
     // if its future deadline was issued before this event loop stalled.
-    if (Date.now() >= latestDeadline) {
+    if (performance.now() >= latestDeadline) {
       throw new WorkerLeaseLostError('renewal_expired', `Agent lease expired before renewal for ${dispatch.run_id}/${dispatch.step_id}.`);
     }
-    const remaining = armExpiry(result.lease_deadline_ms);
+    const remaining = armExpiry(localDeadline(result.lease_deadline_ms, result.lease_ttl_ms, sentAt));
     if (!stopped) {
       renewalTimer = setTimeout(() => {
         pending = renew().catch(fail);
@@ -74,10 +87,23 @@ export async function withWorkerLease<T>(
     }
   };
   try {
-    armExpiry(dispatch.lease_deadline_ms);
+    armExpiry(localDeadline(dispatch.lease_deadline_ms, dispatch.lease_ttl_ms, performance.now()));
     // Establish ownership before starting an effectful process.
     await renew();
-    const result = await execute(controller.signal);
+    let result: T;
+    try {
+      result = await execute(controller.signal);
+    } catch (error) {
+      // A body that rejected because the lease was lost under it reports
+      // whatever its wait happened to say ("worker wait canceled"). The lease
+      // is the cause, and callers branch on it (isLeaseLost): an attempt the
+      // kernel will retry must not be recorded as the body's own failure.
+      const lost = controller.signal.reason;
+      if (lost instanceof WorkerLeaseLostError && error !== lost) {
+        throw new WorkerLeaseLostError(lost.reason, lost.message, { cause: error });
+      }
+      throw error;
+    }
     stopped = true;
     if (renewalTimer !== undefined) clearTimeout(renewalTimer);
     // Drain any renewal before the caller sends step.complete. A renewal
@@ -86,7 +112,7 @@ export async function withWorkerLease<T>(
     controller.signal.throwIfAborted();
     // Timer callbacks can be delayed behind a resolved subprocess promise.
     // Check the clock itself before permitting step.complete.
-    if (Date.now() >= latestDeadline) {
+    if (performance.now() >= latestDeadline) {
       throw new WorkerLeaseLostError('completion_expired', `Agent lease expired before completion for ${dispatch.run_id}/${dispatch.step_id}.`);
     }
     return result;
@@ -97,6 +123,18 @@ export async function withWorkerLease<T>(
     if (expiryTimer !== undefined) clearTimeout(expiryTimer);
     await pending;
   }
+}
+
+/**
+ * A daemon lease deadline on this process's monotonic clock. With the
+ * daemon's `lease_ttl_ms` the wall clocks never meet: the duration is added to
+ * `anchor`, a moment no later than the daemon started it. An older daemon
+ * sends only the absolute deadline, which keeps the old wall-clock comparison
+ * -- read NOW, not at `anchor`, or the round trip would be subtracted twice.
+ */
+function localDeadline(daemonDeadlineMs: number, ttlMs: number | undefined, anchor: number): number {
+  if (typeof ttlMs === 'number' && Number.isFinite(ttlMs)) return anchor + ttlMs;
+  return performance.now() + (daemonDeadlineMs - Date.now());
 }
 
 function untilAborted<T>(request: Promise<T>, signal: AbortSignal): Promise<T> {

@@ -243,11 +243,20 @@ impl StepDispatcher for ProtocolHub {
             sessions.reservations.remove(&key);
             return Ok(DispatchOutcome::PinMismatch { detail });
         }
-        if let Err(error) = write_frame(
-            &worker.writer,
-            &json!({"event": "step.dispatch", "data": dispatch}),
-        )
-        .with_context(|| format!("dispatch step to worker {}", worker.worker_id))
+        // `lease_ttl_ms` restates the deadline as a duration on this daemon's
+        // clock. The worker times its lease against its OWN clock, so an
+        // absolute deadline alone is only as good as the two clocks' agreement
+        // -- a skew of one lease length refused every dispatch locally as
+        // already expired, or renewed after the daemon had swept the lease.
+        let mut frame = json!({"event": "step.dispatch", "data": dispatch});
+        frame["data"]["lease_ttl_ms"] = json!(
+            dispatch
+                .lease_deadline_ms
+                .saturating_sub(super::super::protocol::now_ms())
+                .max(0)
+        );
+        if let Err(error) = write_frame(&worker.writer, &frame)
+            .with_context(|| format!("dispatch step to worker {}", worker.worker_id))
         {
             sessions.reservations.remove(&key);
             return Err(error);

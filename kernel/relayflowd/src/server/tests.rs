@@ -572,6 +572,31 @@ fn run_resume_refuses_a_valid_journal_that_belongs_to_another_run() {
     );
 }
 
+/// The dispatch restates its lease as a duration on the daemon's clock, so a
+/// worker can time the lease on its own clock instead of comparing the
+/// absolute deadline with a wall clock that may disagree (customer
+/// rw_3a0fcb71: a skewed worker refused or under-renewed every lease).
+#[test]
+fn dispatch_carries_the_lease_as_a_duration() {
+    let directory = tempdir().unwrap();
+    let data_dir = directory.path();
+    let hub = Arc::new(ProtocolHub::default());
+    let worker_peer = attach_llm_worker(data_dir, &hub, 1);
+    let mut worker_reader = BufReader::new(worker_peer);
+    let before = now_ms();
+    start_llm_run(data_dir, &hub);
+    let dispatch = read_frame(&mut worker_reader);
+    assert_eq!(dispatch["event"], "step.dispatch");
+    let ttl = dispatch["data"]["lease_ttl_ms"]
+        .as_i64()
+        .expect("lease_ttl_ms");
+    let deadline = dispatch["data"]["lease_deadline_ms"].as_i64().unwrap();
+    assert!(
+        ttl > 0 && ttl <= deadline - before,
+        "ttl {ttl} deadline {deadline} before {before}"
+    );
+}
+
 /// Finding 3: a hung worker that stops heartbeating past its lease deadline —
 /// socket still open, so no disconnect fires — must not leave the run in
 /// waiting_worker forever. The reconciler journals a `lease_expired`

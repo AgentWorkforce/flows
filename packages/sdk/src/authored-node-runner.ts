@@ -240,7 +240,8 @@ export function stepFailedFrame(value: unknown): StepFailedDetails | undefined {
   for (const [key, parsed] of [
     ['stepId', frameText(frame, 'stepId')], ['stepType', frameText(frame, 'stepType')],
     ['completionReason', frameText(frame, 'completionReason')], ['attempt', frameCount(frame, 'attempt')],
-    ['maxIterations', frameCount(frame, 'maxIterations')], ['exitCode', frameCount(frame, 'exitCode')],
+    ['maxIterations', frameCount(frame, 'maxIterations')],
+    ['unchargedAttempts', frameCount(frame, 'unchargedAttempts')], ['exitCode', frameCount(frame, 'exitCode')],
     ['stdoutTail', frameText(frame, 'stdoutTail')], ['stderrTail', frameText(frame, 'stderrTail')],
     ['detail', frameText(frame, 'detail')], ['transcriptPath', frameText(frame, 'transcriptPath')],
     ['attempts', attemptFrames(frame['attempts'])],
