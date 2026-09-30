@@ -82,6 +82,7 @@ try {
       getDefinition: loaded.getDefinition, dataDir: request.dataDir,
       flowPath: request.metadata.flowPath, rootRunId: request.rootRunId,
       extensions: loaded.extensions,
+      flowGraph: loaded.graph,
       localAgentStream: request.localAgentStream, signal: controller.signal,
       ...(request.workerCapacity === undefined ? {} : { workerCapacity: request.workerCapacity }),
       onProgress: event => send({ type: 'progress', event }),
@@ -100,7 +101,9 @@ try {
     // the only one that saw the child's classification.
     ...(error instanceof AuthoredFlowExecutionError ? { code: error.code,
       completionReason: error.completionReason, runId: error.runId,
-      details: error.details, parkCause: error.parkCause } : {}),
+      details: error.details,
+      parkCause: error.parkCause,
+      ...(error.suspension === undefined ? {} : { suspension: error.suspension }) } : {}),
     ...(error instanceof AuthoredHumanParked ? { wait: error.wait } : {}) });
   process.exitCode = 1;
 } finally {

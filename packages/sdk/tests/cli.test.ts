@@ -874,6 +874,7 @@ describe('flows run/resume CLI over the journal protocol', () => {
     let dialectError: string | null | undefined;
     await startCliLoopback(dataDir, {
       hello: sendOk,
+      'subscription.inspect': (ctx) => sendResult(ctx, { subscriptions: [] }),
       'run.start': (ctx, params) => {
         dialectError = kernelDialectError(params['spec']);
         sendResult(ctx, {
@@ -1126,6 +1127,29 @@ describe('flows run/resume CLI over the journal protocol', () => {
     }));
   });
 
+  it('reports a declarative admission receipt when no watched journal entry arrives', async () => {
+    const dataDir = temporaryProject('flows-run-receipt-');
+    await startCliLoopback(dataDir, {
+      hello: sendOk,
+      'run.start': (ctx) => sendResult(ctx, {
+        run_id: 'run-fast-receipt',
+        status: 'completed',
+        completion_reason: 'success',
+        completed_steps: 2,
+      }),
+    });
+    const receipts: Array<{ runId: string; flow: string }> = [];
+
+    const execution = await runFlow(
+      join(TESTDATA, 'hello-deterministic.flow.yaml'),
+      dataDir,
+      { onJournalEntry: () => {}, onRunReceipt: receipt => receipts.push(receipt) },
+    );
+
+    expect(execution.exitCode).toBe(0);
+    expect(receipts).toEqual([{ runId: 'run-fast-receipt', flow: 'hello-deterministic' }]);
+  });
+
   it('resumes a parked run from snapshot step types without reading journal sequence one', async () => {
     const dataDir = temporaryProject('flows-resume-snapshot-');
     await startCliLoopback(dataDir, {
@@ -1174,6 +1198,7 @@ describe('flows run/resume CLI over the journal protocol', () => {
     const dataDir = temporaryProject('flows-resume-');
     await startCliLoopback(dataDir, {
       hello: sendOk,
+      'subscription.inspect': ctx => sendResult(ctx, { subscriptions: [] }),
       'run.resume': (ctx, params) => {
         if (params['run_id'] === 'known-run') {
           sendResult(ctx, {

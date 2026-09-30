@@ -143,7 +143,9 @@ describe('step failure diagnostic', () => {
     expect(output).toContain('not ok 200 - pty-exit: child reaped twice');
     if (json) {
       const report = JSON.parse(output) as RunReport;
-      const diagnostic = report.diagnostics.at(-1) as RunDiagnostic;
+      // `at(-1)` is not stable: a failed run can append a trailing
+      // protocol_error when the subscription snapshot cannot be inspected.
+      const diagnostic = report.diagnostics.find(entry => entry.kind === 'step_failed') as RunDiagnostic;
       expect(diagnostic.stderrTail).toContain('not ok 200 - pty-exit: child reaped twice');
       expect(Buffer.byteLength(diagnostic.stderrTail!)).toBeLessThanOrEqual(EXCERPT_BYTES);
     }

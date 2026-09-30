@@ -1,0 +1,6 @@
+cwd: /tmp/flows-pr-followup/pr441/kernel
+$ cargo build -p relayflowd
+   Compiling relayflowd v0.1.0 (/tmp/flows-pr-followup/pr441/kernel/relayflowd)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.46s
+
+exit status: 0

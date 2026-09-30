@@ -16,7 +16,7 @@ import { snapshotJsonValue } from './json-value.js';
 import { authoredChildAdmissionKey } from './authored-admission.js';
 import { alsoRecord, recordAuthoredChild } from './authored-step-index.js';
 import type { StepFailedDetails } from './failure-kinds.js';
-import { WorkerSlots } from './worker-slots.js';
+import { authoredWorkerSlots, type AuthoredWorkerSlots } from './worker-slots.js';
 
 const WORKSPACE_PERMISSION_ANNOTATION = /:\s*(readonly|readwrite)\s*$/i;
 
@@ -26,11 +26,16 @@ export function authoredWorkerRunner(
   journalSteps: AuthoredFlowJournalStep[], waitOptions: RunLifecycleOptions,
   localAgentStream?: string, budget?: AuthoredBudget, headerBudget?: unknown,
   rootRunId?: string, workerCapacity?: number, stepEdges?: AuthoredStepContext['stepEdges'],
+  sharedSlots?: AuthoredWorkerSlots,
 ) {
   // Sized to the attached local workers, so concurrent calls wait here for a
   // slot instead of being admitted and parked for want of a free worker.
-  const slots = workerCapacity === undefined ? undefined
-    : { agent: new WorkerSlots(workerCapacity), llm: new WorkerSlots(workerCapacity) };
+  const ownsSlots = sharedSlots === undefined;
+  const slots = sharedSlots ?? (workerCapacity === undefined ? undefined : authoredWorkerSlots(workerCapacity));
+  const slotScopes = slots === undefined ? undefined : {
+    agent: slots.agent.scope(),
+    llm: slots.llm.scope(),
+  };
   const check = authoredPreflight(flowPath);
   const context: AuthoredStepContext = {
     ...(rootRunId === undefined ? {} : { rootRunId }),
@@ -136,14 +141,20 @@ export function authoredWorkerRunner(
     const admit = async () => budget === undefined
       ? consume(await journal.runStart(spec, undefined, admissionKey))
       : budget.execute(journal, spec, consume, admissionKey);
-    return slots === undefined ? admit() : slots[step.type === 'llm' ? 'llm' : 'agent'].run(admit);
+    return slotScopes === undefined ? admit() : slotScopes[step.type === 'llm' ? 'llm' : 'agent'].run(admit);
   }
 
   return {
+    slots,
     /** Refuse every agent/LLM call still waiting for a worker slot (body teardown). */
     stop(reason: unknown): void {
-      slots?.agent.close(reason);
-      slots?.llm.close(reason);
+      if (ownsSlots) {
+        slots?.agent.close(reason);
+        slots?.llm.close(reason);
+      } else {
+        slotScopes?.agent.close(reason);
+        slotScopes?.llm.close(reason);
+      }
     },
     async agent(id: string, options: AgentOptions, verification?: NamedGate): Promise<AgentResult> {
       if (options.workspace !== undefined && localAgentStream !== undefined) {

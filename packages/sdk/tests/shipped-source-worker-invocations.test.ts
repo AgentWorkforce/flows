@@ -269,6 +269,10 @@ describe('shipped-source worker invocation resolution', () => {
         `let key: string; key = 'agent'; const { [key]: run } = f; run('review', { task: 'x' });`,
         `const source = flag ? { key: 'agent' as const } : { key: 'agent' as const }; const { key } = source; const { [key]: run } = f; run('review', { task: 'x' });`,
         `const source = (flag && { key: 'agent' as const }) || { key: 'agent' as const }; const { key } = source; const { [key]: run } = f; run('review', { task: 'x' });`,
+        `const box: any = {}, captured = { keys: { value: 'run' as const } }; function get() { return captured; } box[get().keys.value] = f.agent; box.run('review', { task: 'x' });`,
+        `const box: any = {}; function key(value: any) { return value; } let alias: any; box[(alias = key({ name: 'run' })).name] = f.agent; box.run('review', { task: 'x' });`,
+        `const box: any = {}; function key(value: any) { return value; } let alias: any; box[(alias ||= key({ name: 'run' })).name] = f.agent; box.run('review', { task: 'x' });`,
+        `const box: any = {}; const source = flag ? { key: 'other' as const } : { key: 'run' as const }; const { key } = source; box[key] = f.agent; box.run('review', { task: 'x' });`,
         `const box: any = {}, a: any = {}, b: any = {}; a.descriptors = b.descriptors; b.descriptors = a.descriptors; b.descriptors = { run: { value: f.agent } }; Object.defineProperties(box, a.descriptors); box.run('review', { task: 'x' });`,
         `const box: any = {}, a: any = {}, b: any = {}; a.getter = b.getter; b.getter = a.getter; b.getter = () => f.agent; Object.defineProperty(box, 'run', { get: a.getter }); box.run('review', { task: 'x' });`,
       ];

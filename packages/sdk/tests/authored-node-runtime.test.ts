@@ -66,7 +66,7 @@ if(request){appendFileSync('agent-effects','once\\n');await new Promise(r=>setTi
 `);
   chmodSync(wrapper, 0o755);
   writeFileSync(join(directory, 'flows.json'), JSON.stringify({ cli: wrapper }));
-  writeFileSync(join(directory, 'case.flow.ts'), `import {flow} from '@relayflows/surface';
+  writeFileSync(join(directory, 'case.flow.ts'), `import {flow,webhook} from '@relayflows/surface';
 import {appendFileSync,existsSync,writeFileSync,writeSync} from 'node:fs';
 export default flow('runtime-case',async f=>{${body}});
 `);
@@ -110,6 +110,15 @@ describe('Bun 1.4.0 standalone → native Node authored lifecycle', () => {
     expect(JSON.parse(result.stdout)).toMatchObject({ ok: true, completionReason: 'success' });
   }, 90_000);
 
+  it('serializes the immutable prepared binding facts through the Node and CLI boundary', () => {
+    const f = fixture(`const activity=f.on(webhook('github_pull_request',{action:'opened',repository:{id:7}}),{settle:'2m',idle:'1h',deadline:'1d',includeSelf:true});await activity.next();f.done('success');`);
+    const result = f.run(); expect(result.status, result.stderr + result.stdout).toBe(4);
+    expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, status: 'suspended', suspension: {
+      kind: 'activation', subscriptionId: 'activity-1', eventTypes: ['github_pull_request'],
+      pattern: { action: 'opened', repository: { id: 7 } }, settleMs: 120_000,
+      idleMs: 3_600_000, includeSelf: true,
+    } });
+  }, 60_000);
   it('suppresses the loader warning while preserving authored experimental warnings', () => {
     const f = fixture(`process.emitWarning('authored warning remains visible', 'ExperimentalWarning');
       await f.run('printf ok'); f.done('success');`);
@@ -259,8 +268,8 @@ f.done('${reason}');`);
     expect(existsSync(join(f.directory,'forbidden-effects'))).toBe(false);
   }, 60_000);
 
-  it('loads captured graph bytes before preserving the unsupported-use refusal', () => {
-    const f=fixture(`f.done('success');`);
+  it('dispatches the captured child graph even when the source changes before execution', () => {
+    const f=fixture(`await f.dispatch('child',{});f.done('success');`);
     const original=`import {flow} from '@relayflows/surface';import {writeFileSync} from 'node:fs';if(!process.versions.bun)writeFileSync('loaded-source','original');export default flow('child',async f=>{f.done('success')});`;
     const modified=original.replace("'original'", "'modified'");
     writeFileSync(join(f.directory,'child.flow.ts'),original);
@@ -268,8 +277,7 @@ f.done('${reason}');`);
       .replace("flow('runtime-case',async", "flow('runtime-case',{use:['./child.flow.ts']},async");
     writeFileSync(join(f.directory,'case.flow.ts'),
       `if(!process.versions.bun)writeFileSync('child.flow.ts',${JSON.stringify(modified)});\n`+root);
-    const result=f.run();expect(result.status,result.stderr+result.stdout).toBe(2);
-    expect(result.stderr+result.stdout).toContain('unsupported_header');
+    const result=f.run();expect(result.status,result.stderr+result.stdout).toBe(0);
     expect(readFileSync(join(f.directory,'child.flow.ts'),'utf8')).toBe(modified);
     expect(readFileSync(join(f.directory,'loaded-source'),'utf8')).toBe('original');
   },30_000);

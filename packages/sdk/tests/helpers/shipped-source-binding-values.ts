@@ -74,7 +74,8 @@ export function staticPropertySegment(
     const source = bindingSource(binding, checker, new Set(seen));
     const values = source?.immutable ? [
       ...(binding.initializer ? [{ value: binding.initializer }] : []),
-      aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
+      ...aggregateValuesAtPath(source.initializer, source.path, checker, new Set(seen))
+        .map(value => ({ value })),
       ...bindingDefaultValues(source, checker, new Set(seen)),
     ].filter((value): value is { value: ts.Expression } => value !== undefined)
       .map(value => staticPropertySegment(value.value, checker, new Set(seen)))
@@ -84,10 +85,10 @@ export function staticPropertySegment(
   const preceding = assignedSources(symbol, checker)
     .filter(source => !source.rest && source.initializer.getStart() < expression.getStart());
   const assigned = preceding
-    .map(source => source.path.length === 0
-      ? { value: source.initializer }
-      : aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)))
-    .filter((value): value is { value: ts.Expression } => value !== undefined)
+    .flatMap(source => source.path.length === 0
+      ? [{ value: source.initializer }]
+      : aggregateValuesAtPath(source.initializer, source.path, checker, new Set(seen))
+        .map(value => ({ value })))
     .map(value => staticPropertySegment(value.value, checker, new Set(seen)))
     .filter((value): value is BindingPathSegment => value !== undefined);
   if (assigned.length > 0 && assigned.every(value => value === assigned[0])) return assigned[0];
@@ -258,6 +259,22 @@ export function aggregateValueAtPath(
     current = !current.auditable ? { ...member, auditable: false } : member;
   }
   return current;
+}
+
+function aggregateValuesAtPath(
+  expression: ts.Expression,
+  path: readonly BindingPathSegment[],
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): ts.Expression[] {
+  let values = [expression];
+  for (const segment of path) {
+    values = values.flatMap(value => {
+      const member = aggregateMemberValue(value, segment, checker, new Set(seen));
+      return member ? [member.value, ...(member.alternatives ?? [])] : [];
+    });
+  }
+  return values;
 }
 
 export function aggregateExpressionValue(

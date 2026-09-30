@@ -1,5 +1,6 @@
 import ts from 'typescript';
 import {
+  assignmentMayStoreRight,
   assignedSources,
   bindingSource,
   type BindingPathSegment,
@@ -38,6 +39,13 @@ function localCallMembers(
   const branches = wrappedExpressionBranches(expression);
   if (branches) return branches.flatMap(branch =>
     localCallMembers(branch, checker, new Set(seen), path));
+  if (ts.isBinaryExpression(expression) && assignmentMayStoreRight(expression.operatorToken.kind)) {
+    const results = expression.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      ? [expression.right]
+      : [expression.left, expression.right];
+    return results.flatMap(result =>
+      localCallMembers(result, checker, new Set(seen), path));
+  }
   if (ts.isCallExpression(expression)) return [{ call: expression, path: [...path] }];
   if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return [];
   const segment = ts.isPropertyAccessExpression(expression)
@@ -206,22 +214,32 @@ export function staticPropertySegments(
       if (!values.includes(value)) values.push(value);
     }
   };
+  const addAggregate = (
+    initializer: ts.Expression,
+    path: readonly BindingPathSegment[],
+  ): void => {
+    for (const candidate of aggregateValuesAtPath(
+      initializer,
+      path,
+      checker,
+      new Set(nextSeen),
+    )) add(candidate);
+  };
   for (const source of assignedSources(symbol, checker)) {
     if (source.rest || source.initializer.getStart() >= expression.getStart()) continue;
-    const candidate = source.path.length === 0
-      ? { value: source.initializer }
-      : aggregateValueAtPath(source.initializer, source.path, checker, new Set(nextSeen));
-    add(candidate?.value);
+    if (source.path.length === 0) add(source.initializer);
+    else addAggregate(
+      source.initializer,
+      source.path,
+    );
   }
   const binding = symbol.declarations?.find(ts.isBindingElement);
   if (binding) {
     const source = bindingSource(binding, checker, new Set(nextSeen));
-    if (source?.immutable) add(aggregateValueAtPath(
+    if (source?.immutable) addAggregate(
       source.initializer,
       source.path,
-      checker,
-      new Set(nextSeen),
-    )?.value);
+    );
     add(binding.initializer);
   }
   add(symbol.declarations?.find(ts.isVariableDeclaration)?.initializer);

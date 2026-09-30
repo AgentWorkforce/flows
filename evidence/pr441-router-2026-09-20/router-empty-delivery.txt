@@ -1,0 +1,13 @@
+cwd: /tmp/flows-pr-followup/pr441/kernel
+$ cargo test -p relayflowd --lib server::tests::subscription_router
+   Compiling relayflowd v0.1.0 (/tmp/flows-pr-followup/pr441/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.64s
+     Running unittests src/lib.rs (target/debug/deps/relayflowd-f043db0bb3534a16)
+
+running 1 test
+test server::tests::subscription_router::targeted_router_verbs_validate_receipts_and_preserve_wire_metadata ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 53 filtered out; finished in 0.01s
+
+
+exit status: 0

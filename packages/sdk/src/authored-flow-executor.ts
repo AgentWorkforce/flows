@@ -22,6 +22,7 @@ import {
 import { commitAuthoredVerdict } from './authored-completion-record.js';
 import {
   type AgentResult,
+  type DispatchResult,
   type LlmOptions,
   type CloudHelper,
   type CompletionReason as SurfaceCompletionReason,
@@ -38,9 +39,11 @@ import { observeStep, type ProgressEvent } from './progress.js';
 import { parseStepTimeout } from './compile.js';
 import { getAuthoredFlowDefinition } from './authored-flow.js';
 import type { GetFlowDefinition } from './authored-flow-loader.js';
+import type { LoadedAuthoredFlowNode } from './authored-flow-loader.js';
 import type { RunLifecycleOptions } from './cli/run.js';
 import {
   AuthoredFlowExecutionError,
+  type AuthoredFlowSuspension,
   AuthoredHumanParked,
   type AuthoredFlowExecutionErrorCode,
 } from './authored-flow-error.js';
@@ -52,6 +55,7 @@ import {
   verifyAuthoredOperations,
 } from './authored-flow-operation.js';
 import { AuthoredFlowLifecycle } from './authored-flow-lifecycle.js';
+import { AuthoredActivities } from './authored-activity.js';
 import { displayLabel, type AuthoredStepEdges } from './authored-step-index.js';
 import { JournalClient } from './journal-client.js';
 import { PluginError } from './plugin-manifest.js';
@@ -66,6 +70,8 @@ import type {
   CompletionReason as ProtocolCompletionReason,
   RunCompletionReason as ProtocolRunCompletionReason,
 } from './protocol.js';
+import type { AuthoredWorkerSlots } from './worker-slots.js';
+import { childLeaves, helperAuthority, parseDispatchReceipt, resolveDispatchChild } from './authored-dispatch.js';
 
 type Assert<T extends true> = T;
 type Equal<A, B> = [A] extends [B]
@@ -101,6 +107,7 @@ export interface AuthoredExecutionRuntime {
 }
 
 export interface AuthoredFlowExecutionResult {
+  readonly state?: undefined;
   readonly executionRuntime?: AuthoredExecutionRuntime;
   readonly rootRunId?: string;
   readonly name: string;
@@ -111,6 +118,14 @@ export interface AuthoredFlowExecutionResult {
    * the IPC frame and the report keep the shapes they had.
    */
   readonly completionDetail?: string;
+  readonly journalSteps: readonly AuthoredFlowJournalStep[];
+}
+
+/** A body reached a durable event boundary and released its worker lease. */
+export interface AuthoredFlowSuspendedResult {
+  readonly state: 'suspended';
+  readonly name: string;
+  readonly suspension: AuthoredFlowSuspension;
   readonly journalSteps: readonly AuthoredFlowJournalStep[];
 }
 
@@ -185,6 +200,20 @@ export interface ExecuteAuthoredFlowOptions {
    * from authored input: direct `/workflows/run` callers control that JSON.
    */
   readonly extensionDispatch?: HostedExtensionDispatch;
+  /** Pinned static `use:` graph available to `f.dispatch`. */
+  readonly flowGraph?: readonly LoadedAuthoredFlowNode[];
+  /** Internal namespace for descendant step/admission identities. */
+  readonly stepPrefix?: string;
+  /** Current child depth. Root is zero; dispatch is capped at three. */
+  readonly dispatchDepth?: number;
+  /** Parent predecessors inherited by the first operation in a child body. */
+  readonly entryAfter?: readonly string[];
+  /** Root-owned budget accumulator shared by every descendant. */
+  readonly sharedBudget?: AuthoredBudget;
+  /** Root-owned worker capacity shared by every descendant. */
+  readonly workerSlots?: AuthoredWorkerSlots;
+  /** Parent helper authority inherited by this dispatched child. */
+  readonly allowedHelperProviders?: ReadonlySet<string>;
 }
 
 export async function executeAuthoredFlow<Input = undefined>(
@@ -209,7 +238,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   };
   const definition = getDefinition<Input>(handle);
   const hostedHandler = extensionHandlerForHostedDispatch(options.extensionDispatch, options.extensions ?? []);
-  const headerFields = Object.keys(definition.header).filter(key => key !== 'tools' && key !== 'budget' && key !== 'memory' && key !== 'version' && key !== 'hooks');
+  const headerFields = Object.keys(definition.header).filter(key => key !== 'tools' && key !== 'budget' && key !== 'memory' && key !== 'version' && key !== 'hooks' && key !== 'use');
   if (definition.header.tools && Object.keys(definition.header.tools).some(key => !['mcp', ...helperProviders.map(p => p.namespace)].includes(key))) headerFields.push('tools');
   if (definition.header.tools?.relayfile !== undefined) headerFields.push('tools.relayfile');
   const helperPreflight = checkSlackHelpers(definition);
@@ -242,7 +271,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     );
   }
 
-  const budget = new AuthoredBudget(definition.header.budget);
+  const budget = options.sharedBudget ?? new AuthoredBudget(definition.header.budget);
   if (definition.header.memory?.agent === true) {
     throw new AuthoredFlowExecutionError('unsupported_header', 'memory.agent requires the follow-up identity-scoped agent memory adapter');
   }
@@ -255,10 +284,29 @@ export async function executeAuthoredFlow<Input = undefined>(
   const journalSteps: AuthoredFlowJournalStep[] = [];
   const authoredSteps: AuthoredFlowOperation<unknown>[] = [];
   const lifecycle = new AuthoredFlowLifecycle();
-  const stepEdges = (step: string): AuthoredStepEdges | undefined => lifecycle.stepEdges(step);
+  const activities = new AuthoredActivities(journal, options.rootRunId);
+  const edgeOverrides = new Map<string, AuthoredStepEdges>();
+  const stepEdges = (step: string): AuthoredStepEdges | undefined => {
+    const overridden = edgeOverrides.get(step);
+    if (overridden !== undefined) return overridden;
+    const local = lifecycle.stepEdges(step);
+    if (local === undefined || (local.after !== undefined && local.after.length > 0) || options.entryAfter === undefined
+      || options.entryAfter.length === 0) return local;
+    return { ...local, after: [...options.entryAfter] };
+  };
   let nextStep = 1;
   let requestedCompletion: LoweredCompletionReason | undefined;
   let requestedDetail: string | undefined;
+  const qualify = (id: string): string => `${options.stepPrefix ?? ''}${id}`;
+  const nextId = (kind: string): string => qualify(`${kind}-${nextStep++}`);
+  const assertHelperAllowed = (provider: string): void => {
+    if (options.allowedHelperProviders !== undefined && !options.allowedHelperProviders.has(provider)) {
+      throw new AuthoredFlowExecutionError(
+        'dispatch_invalid',
+        `child flow "${definition.name}" attempted helper provider "${provider}" outside its parent's granted integrations`,
+      );
+    }
+  };
 
   const lowerDeterministic = authoredDeterministicRunner(
     definition.name, journal, journalSteps, budget, {
@@ -271,6 +319,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   const worker = authoredWorkerRunner(
     definition, journal, flowPath, journalSteps, waitOptions,
     localAgentStream, budget, definition.header.budget, options.rootRunId, options.workerCapacity, stepEdges,
+    options.workerSlots,
   );
 
   /**
@@ -373,7 +422,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   function llmOperation(prompt: string, options: LlmOptions): Step<unknown>;
   function llmOperation(prompt: string | TemplateStringsArray, ...values: unknown[]): Step<unknown> {
     assertOperationAllowed('llm', definition.name, requestedCompletion);
-    const id = `llm-${nextStep++}`;
+    const id = nextId('llm');
     // Hoist the operation reference so the start closure can read the
     // caller's `.gate(config)` at spec-build time. AuthoredFlowOperation
     // begins after construction returns, so `llmOp` is defined by then.
@@ -420,7 +469,7 @@ export async function executeAuthoredFlow<Input = undefined>(
         `f.run options.onNonZero must be 'fail' or 'record' (got ${JSON.stringify(policy)}).`,
       );
     }
-    const id = `run-${nextStep++}`;
+    const id = nextId('run');
     if (policy === 'record') {
       let recordOp!: AuthoredFlowOperation<RunResult>;
       recordOp = new AuthoredFlowOperation<RunResult>(
@@ -451,8 +500,9 @@ export async function executeAuthoredFlow<Input = undefined>(
   const slackRun = options.rootRunId ?? randomUUID();
   function slackOperation<T>(call: SlackCall): Step<T> {
     assertOperationAllowed(`slack.${call.verb}`, definition.name, requestedCompletion);
+    assertHelperAllowed(call.provider);
     const snapshot = snapshotJsonValue(call, 'f.slack call') as unknown as SlackCall;
-    const id = `slack-${slackRun}-${nextStep++}`;
+    const id = qualify(`slack-${slackRun}-${nextStep++}`);
     return trackStep(authoredSteps, new AuthoredFlowOperation<T>(
       id, `slack.${call.verb}`,
       () => assertOperationAllowed(`slack.${call.verb}`, definition.name, requestedCompletion),
@@ -480,8 +530,9 @@ export async function executeAuthoredFlow<Input = undefined>(
     ...createHelpers(<T>(call: HelperCall): Step<T> => {
       const verb = `${call.provider}.${call.verb}`;
       assertOperationAllowed(verb, definition.name, requestedCompletion);
+      assertHelperAllowed(call.provider);
       const snapshot = snapshotJsonValue(call, `f.${verb} call`) as unknown as HelperCall;
-      const id = `${call.provider}-${slackRun}-${nextStep++}`;
+      const id = qualify(`${call.provider}-${slackRun}-${nextStep++}`);
       return trackStep(authoredSteps, new AuthoredFlowOperation<T>(id, verb,
         () => assertOperationAllowed(verb, definition.name, requestedCompletion),
         async () => await runHelperEffect(journal, definition.name, id, snapshot,
@@ -496,7 +547,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     },
     mcp: buildMcpProxy(checkedMcp.inventory, (server, tool, args, known) => {
       assertOperationAllowed('mcp', definition.name, requestedCompletion);
-      const id = `mcp-${nextStep++}`;
+      const id = nextId('mcp');
       return trackStep(authoredSteps, new AuthoredFlowOperation(
         id, 'mcp',
         () => assertOperationAllowed('mcp', definition.name, requestedCompletion),
@@ -516,7 +567,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       assertOperationAllowed('agent', definition.name, requestedCompletion);
       // Authored headers do not yet declare reusable named agents, so the name
       // identifies nothing to the kernel; it is the step's label in the DAG.
-      const id = `agent-${nextStep++}`;
+      const id = nextId('agent');
       let agentOp!: AuthoredFlowOperation<AgentResult>;
       agentOp = new AuthoredFlowOperation<AgentResult>(
         id,
@@ -527,6 +578,17 @@ export async function executeAuthoredFlow<Input = undefined>(
         displayLabel(typeof name === 'string' ? name : undefined),
       );
       return trackStep(authoredSteps, agentOp);
+    },
+    on(source, activityOptions) {
+      assertOperationAllowed('on', definition.name, requestedCompletion);
+      // Activity ids are root-scoped (`activity-N`); a child's own counter would collide.
+      if ((options.dispatchDepth ?? 0) > 0) {
+        throw new AuthoredFlowExecutionError(
+          'dispatch_invalid',
+          `child flow "${definition.name}" cannot call f.on in this release; activities are root-scoped`,
+        );
+      }
+      return activities.open(source, activityOptions);
     },
     /**
      * `f.human` (docs/SURFACE.md §1, §7). The question is not a child run: it
@@ -545,6 +607,12 @@ export async function executeAuthoredFlow<Input = undefined>(
      */
     human(question, humanOptions) {
       assertOperationAllowed('human', definition.name, requestedCompletion);
+      if ((options.dispatchDepth ?? 0) > 0) {
+        throw new AuthoredFlowExecutionError(
+          'dispatch_invalid',
+          `child flow "${definition.name}" cannot call f.human in this release; the parent owns approval authority`,
+        );
+      }
       if (typeof question !== 'string' || question.trim() === '') {
         throw new AuthoredFlowExecutionError('human_answer_invalid', 'f.human requires a non-empty question');
       }
@@ -558,7 +626,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       if (!parsedTo.ok) {
         throw new AuthoredFlowExecutionError('human_to_invalid', `f.human to ${parsedTo.reason}`);
       }
-      const id = `human-${nextStep++}`;
+      const id = nextId('human');
       const to = humanOptions.to;
       // Hoisted like `llmOp`/`runOp`: the start closure reads the caller's
       // `.gate(config)` at spec-build time, so a named gate on the answer is
@@ -590,13 +658,79 @@ export async function executeAuthoredFlow<Input = undefined>(
       );
       return trackStep(authoredSteps, humanOp);
     },
-    dispatch<T>() {
+    dispatch(flowName, dispatchInput) {
       assertOperationAllowed('dispatch', definition.name, requestedCompletion);
-      throw unsupportedVerb('dispatch');
+      const depth = options.dispatchDepth ?? 0;
+      const child = resolveDispatchChild({
+        handle, definition, graph: options.flowGraph,
+        flowName, depth,
+      });
+      const childDefinition = child.getDefinition(child.handle);
+      const inputSnapshot = snapshotJsonValue(dispatchInput, `f.dispatch(${JSON.stringify(flowName)}) input`);
+      const id = nextId('dispatch');
+      let dispatchOp!: AuthoredFlowOperation<DispatchResult>;
+      dispatchOp = new AuthoredFlowOperation<DispatchResult>(
+        id,
+        'dispatch',
+        () => assertOperationAllowed('dispatch', definition.name, requestedCompletion),
+        async () => {
+          const inheritedAfter = stepEdges(id)?.after ?? [];
+          const currentHelperAuthority = helperAuthority(definition);
+          const allowedHelperProviders = options.allowedHelperProviders === undefined
+            ? currentHelperAuthority
+            : new Set([...currentHelperAuthority].filter(provider => options.allowedHelperProviders!.has(provider)));
+          const childResult = await executeAuthoredFlow(child.handle, journal, inputSnapshot, {
+            getDefinition: child.getDefinition,
+            dataDir: options.dataDir,
+            flowPath: child.path,
+            ...(localAgentStream === undefined ? {} : { localAgentStream }),
+            ...(options.workerCapacity === undefined ? {} : { workerCapacity: options.workerCapacity }),
+            ...(options.rootRunId === undefined ? {} : { rootRunId: options.rootRunId }),
+            flowGraph: options.flowGraph,
+            stepPrefix: `${id}--`,
+            dispatchDepth: depth + 1,
+            entryAfter: inheritedAfter,
+            sharedBudget: budget,
+            ...(worker.slots === undefined ? {} : { workerSlots: worker.slots }),
+            allowedHelperProviders,
+            ...(options.extensions === undefined ? {} : { extensions: options.extensions }),
+            onProgress,
+            ...(options.onWait === undefined ? {} : { onWait: options.onWait }),
+            ...(options.signal === undefined ? {} : { signal: options.signal }),
+          });
+          if (childResult.completionReason !== 'success') {
+            throw new AuthoredFlowExecutionError(
+              'step_failed',
+              `child flow "${childResult.name}" completed with ${childResult.completionReason}`
+                + (childResult.completionDetail === undefined ? '' : `: ${childResult.completionDetail}`),
+              childResult.completionReason === 'step_failed' ? 'step_failed' : undefined,
+            );
+          }
+          const leaves = childLeaves(childResult.journalSteps);
+          edgeOverrides.set(id, {
+            ...displayLabel(childResult.name),
+            ...(leaves.length > 0 ? { after: leaves } : inheritedAfter.length === 0
+              ? {} : { after: inheritedAfter }),
+          });
+          const receipt: DispatchResult = {
+            name: childResult.name,
+            completionReason: 'success',
+            ...(childResult.completionDetail === undefined ? {} : { completionDetail: childResult.completionDetail }),
+          };
+          const literal = `'${JSON.stringify(receipt).replaceAll("'", "'\\''")}'`;
+          const recorded = await lowerDeterministic(
+            id, `printf '%s' ${literal}`, false, undefined, dispatchOp.namedGate,
+          );
+          return parseDispatchReceipt(recorded, id);
+        },
+        lifecycle,
+        displayLabel(flowName),
+      );
+      return trackStep(authoredSteps, dispatchOp);
     },
     hook(name, input) {
       assertOperationAllowed('hook', definition.name, requestedCompletion);
-      const id = `hook-${nextStep++}`;
+      const id = nextId('hook');
       const snapshot = snapshotJsonValue(input, 'f.hook input');
       return trackStep(authoredSteps, new AuthoredFlowOperation<boolean>(
         id, 'hook',
@@ -661,7 +795,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   Object.assign(context, pluginHelpers(checkedMcp.plugins ?? [], (plugin, verb, args) => {
     const label = `${verb.namespace}.${verb.method}`;
     assertOperationAllowed(label, definition.name, requestedCompletion);
-    const id = `plugin-${nextStep++}`;
+    const id = nextId('plugin');
     return trackStep(authoredSteps, new AuthoredFlowOperation(
       id, label, () => assertOperationAllowed(label, definition.name, requestedCompletion),
       () => runPluginEffect(journal, definition.name, id, plugin, verb, args,
@@ -683,6 +817,11 @@ export async function executeAuthoredFlow<Input = undefined>(
     try {
       worker.stop(bodyFailure);
       await stopAuthoredOperations(authoredSteps, bodyFailure);
+      // A durable wait hands execution back to the control plane. Its
+      // subscriptions must keep receiving events while no body is running.
+      const parked = bodyFailure instanceof AuthoredFlowExecutionError
+        && (bodyFailure.code === 'subscription_suspended' || bodyFailure.code === 'human_parked');
+      if (!parked) await activities.closeAll('canceled');
     } finally {
       lifecycle.close();
     }
@@ -710,6 +849,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     try {
       worker.stop(missingCompletion);
       await stopAuthoredOperations(authoredSteps, missingCompletion);
+      await activities.closeAll('canceled');
     } finally {
       lifecycle.close();
     }
@@ -717,6 +857,16 @@ export async function executeAuthoredFlow<Input = undefined>(
   }
   try {
     await verifyAuthoredOperations(definition.name, authoredSteps, lifecycle);
+  } catch (error) {
+    try {
+      await activities.closeAll('canceled');
+    } finally {
+      lifecycle.close();
+    }
+    throw error;
+  }
+  try {
+    await activities.closeAll('run_completed');
   } finally {
     lifecycle.close();
   }
@@ -735,7 +885,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   // explanation the root had already journaled to `run_admission_conflict`.
   // With no detail there is no environment in the command and nothing to
   // commit, so that path is untouched.
-  const terminalId = `complete-${nextStep}`;
+  const terminalId = qualify(`complete-${nextStep}`);
   const verdict = await commitAuthoredVerdict(journal, options.rootRunId, terminalId, {
     reason: requestedCompletion,
     ...(requestedDetail === undefined ? {} : { detail: requestedDetail }),

@@ -23,13 +23,15 @@ import {
 import type { ParkCause, RunFailureKind, RunWarningKind, StepFailedDetails } from '../failure-kinds.js';
 import { inspectionHint, renderInspection, renderStepEvidence, stepFailureDetails } from './step-failure.js';
 import { JournalClient, JournalProtocolError } from '../journal-client.js';
-import { attachLocalAgent } from '../local-agent.js';
+import { attachLocalAgent, declaredLocalAgentStreams } from '../local-agent.js';
 import { LlmWorker } from '../llm-worker.js';
 import { readAuthoredRootMetadata, resumeDurableAuthoredFlow, type AuthoredRootMetadata } from '../authored-root.js';
+import type { AuthoredFlowSuspendedResult } from '../authored-flow-executor.js';
 import type {
   RunCompletionReason,
   RunOutcome,
   RunStatus,
+  SubscriptionSnapshot,
 } from '../protocol.js';
 import type { StepType } from '../spec.js';
 import {
@@ -42,7 +44,7 @@ import {
   type CheckReport,
 } from './check.js';
 
-export type RunExitCode = 0 | 1 | 2 | 3;
+export type RunExitCode = 0 | 1 | 2 | 3 | 4;
 export type RunCommand = 'run' | 'resume' | 'answer';
 
 export interface ParkedStep {
@@ -52,7 +54,7 @@ export interface ParkedStep {
 
 export interface RunDiagnostic extends StepFailedDetails {
   severity: 'refusal' | 'failure' | 'parked' | 'warning' | 'declined';
-  kind: RunFailureKind | RunWarningKind | RunCompletionReason;
+  kind: RunFailureKind | RunWarningKind | RunCompletionReason | 'subscription_suspended';
   message: string;
 }
 
@@ -61,10 +63,14 @@ export interface RunReport {
   command: RunCommand;
   path?: string;
   runId?: string;
-  /** Authored root to resume/collect when runId identifies a failed child. */
+  /** Authored root owning subscriptions when runId names a failed child. */
   rootRunId?: string;
   socketPath?: string;
-  status?: RunStatus;
+  status?: RunStatus | 'suspended';
+  /** Cloud consumes this exact durable boundary before launching a resume. */
+  suspension?: AuthoredFlowSuspendedResult['suspension'] & { settleMs?: number; idleAtMs?: number };
+  /** Durable subscription projection for Cloud routing and cleanup. */
+  subscriptions?: SubscriptionSnapshot[];
   completionReason?: RunCompletionReason;
   /**
    * What the body passed to `done(reason, { detail })`, normalized: redacted,
@@ -103,6 +109,26 @@ export interface RunExecution {
   report: RunReport;
 }
 
+export function suspendedExecution(
+  command: RunCommand,
+  base: CheckReport | RunReport,
+  socketPath: string,
+  runId: string,
+  result: AuthoredFlowSuspendedResult & { readonly rootRunId: string },
+): RunExecution {
+  return {
+    exitCode: 4,
+    report: {
+      ...fromBase(command, base), ok: false, runId, socketPath, status: 'suspended',
+      suspension: result.suspension, completedSteps: result.journalSteps.length,
+      diagnostics: [...base.diagnostics, {
+        severity: 'warning', kind: 'subscription_suspended',
+        message: `Flow "${result.name}" suspended for ${result.suspension.kind}.`,
+      }],
+    },
+  };
+}
+
 export interface RunProgress {
   runId: string;
   stepId: string;
@@ -122,6 +148,8 @@ export interface RunLifecycleOptions {
   onJournalEntry?: (entry: JournalEvent) => void;
   /** An authored root was admitted: its id is known before its body runs. */
   onRunStarted?: (run: { runId: string; flow: string; resumed?: boolean }) => void;
+  /** A declarative root returned its admission receipt, even if no watched entry arrived. */
+  onRunReceipt?: (run: { runId: string; flow: string }) => void;
   localAgent?: boolean;
   /** `--agent-capacity`: the local workers' concurrency; the default is `DEFAULT_LOCAL_AGENT_CAPACITY`. */
   agentCapacity?: number;
@@ -183,7 +211,10 @@ async function executeCheckedFlow(
     // Use the checked CLI/model and declared surfaces unchanged. The worker
     // advertises its existing pins; the daemon still owns surface matching.
     if (options.localAgent) {
-      localAgent = await attachLocalAgent(client, dataDir, options.onPtyReady, undefined, options.agentCapacity);
+      localAgent = await attachLocalAgent(
+        client, dataDir, options.onPtyReady, undefined, options.agentCapacity,
+        undefined, declaredLocalAgentStreams(spec),
+      );
     }
     if (options.localAgent && spec.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
       const { attachCommunicationWorkers } = await import('../communication/local.js');
@@ -191,6 +222,14 @@ async function executeCheckedFlow(
     }
     if (options.onJournalEntry !== undefined) client.on('entry', options.onJournalEntry);
     const outcome = await startWatched(client, spec, options);
+    // `run.start { watch: true }` is an event stream, not the source of the
+    // root identity. A short deterministic run can finish before its first
+    // watched entry is delivered (and an older daemon may refuse `watch`), so
+    // receipt consumers such as the Cloud mirror need the admitted id too.
+    // This stays separate from `onRunStarted`: opening the observer without a
+    // streamed journal would manufacture an empty projection and suppress its
+    // truthful "not projected" diagnostic.
+    options.onRunReceipt?.({ runId: outcome.run_id, flow: spec.name ?? 'flow' });
     const execution = await classifyOutcome(client, 'run', outcome, base, socketPath, { ...options, dataDir });
     if (options.reuseFromRunId !== undefined) {
       execution.report.reuse = await reuseSummary(client, outcome.run_id, options.reuseFromRunId);
@@ -261,6 +300,7 @@ export async function resumeFlow(
   try {
     authoredRoot = await readAuthoredRootMetadata(client, runId);
     if (authoredRoot !== undefined) {
+      base.rootRunId = runId;
       // Both worker-surface mismatches are refusals, not protocol failures.
       // They used to throw bare `Error`s, which landed on `protocol_error`
       // ("RUN <id> unknown") and told nobody what to do instead; and the
@@ -301,6 +341,9 @@ export async function resumeFlow(
         lifecycle: options,
       });
       if (result === undefined) throw new Error('authored root disappeared during resume');
+      if (result.state === 'suspended') {
+        return suspendedExecution('resume', base, socketPath, runId, result);
+      }
       return authoredCompletion('resume', base, socketPath, result, runId);
     }
     // resumeHelperEffect subsumes the old resumeSlackEffect: it handles the
@@ -308,9 +351,13 @@ export async function resumeFlow(
     // second call the earlier rebase left is a stale reference from before
     // the helper fanout renamed the API.
     if (options.localAgent) {
-      authoredAgent = await attachLocalAgent(client, dataDir, options.onPtyReady, undefined, options.agentCapacity);
       const entries = (await client.journalRead(runId, 1)).entries as Array<{ entry_type: string; payload?: { spec?: import('../spec.js').KernelRunSpec } }>;
       const spec = entries.find(entry => entry.entry_type === 'run.spawned')?.payload?.spec;
+      if (!spec) throw new Error('Cannot attach a local worker: the journaled run spec is missing');
+      authoredAgent = await attachLocalAgent(
+        client, dataDir, options.onPtyReady, undefined, options.agentCapacity,
+        undefined, declaredLocalAgentStreams(spec),
+      );
       if (spec?.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
         const { attachCommunicationWorkers } = await import('../communication/local.js');
         communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir);

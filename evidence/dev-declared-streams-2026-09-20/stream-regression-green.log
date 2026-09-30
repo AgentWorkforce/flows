@@ -1,0 +1,59 @@
+$ cd /home/khaliqgant/.cache/dev-pr-proof/flows-dev-stream-pins/packages/sdk
+$ env RELAYFLOWD_BIN=/tmp/flows-pr-followup/pr441/kernel/target/debug/relayflowd npx vitest run tests/yaml-declared-streams-live.test.ts
+
+ RUN  v2.1.9 /home/khaliqgant/.cache/dev-pr-proof/flows-dev-stream-pins/packages/sdk
+
+ ❯ tests/yaml-declared-streams-live.test.ts (8 tests | 4 failed) 3838ms
+   × YAML declared streams through the built CLI and real daemon > runs with the checked step CLI and model and journals done 418ms
+     → expected { streams: [ …(2) ] } to deeply equal { workspace: [], streams: [ …(2) ] }
+   × YAML declared streams through the built CLI and real daemon > runs with the checked named CLI and model and journals done 495ms
+     → expected { streams: [ …(2) ] } to deeply equal { workspace: [], streams: [ …(2) ] }
+   × YAML declared streams through the built CLI and real daemon > runs with the checked flow CLI and model and journals done 480ms
+     → expected { streams: [ …(2) ] } to deeply equal { workspace: [], streams: [ …(2) ] }
+   × YAML declared streams through the built CLI and real daemon > runs with the checked project CLI and model and journals done 471ms
+     → expected { streams: [ …(2) ] } to deeply equal { workspace: [], streams: [ …(2) ] }
+   ✓ YAML declared streams through the built CLI and real daemon > still parks without --local-agent 356ms
+   ✓ YAML declared streams through the built CLI and real daemon > reports the agent process failure 490ms
+   ✓ YAML declared streams through the built CLI and real daemon > resumes the journaled stream declarations after the input YAML changes 791ms
+   ✓ YAML declared streams through the built CLI and real daemon > preserves declared workspace surfaces that the local worker cannot pin 335ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/yaml-declared-streams-live.test.ts > YAML declared streams through the built CLI and real daemon > runs with the checked step CLI and model and journals done
+ FAIL  tests/yaml-declared-streams-live.test.ts > YAML declared streams through the built CLI and real daemon > runs with the checked named CLI and model and journals done
+ FAIL  tests/yaml-declared-streams-live.test.ts > YAML declared streams through the built CLI and real daemon > runs with the checked flow CLI and model and journals done
+ FAIL  tests/yaml-declared-streams-live.test.ts > YAML declared streams through the built CLI and real daemon > runs with the checked project CLI and model and journals done
+AssertionError: expected { streams: [ …(2) ] } to deeply equal { workspace: [], streams: [ …(2) ] }
+
+- Expected
++ Received
+
+  Object {
+    "streams": Array [
+      Object {
+        "stream": "flows-drive-cloud",
+      },
+      Object {
+        "stream": "audit",
+      },
+    ],
+-   "workspace": Array [],
+  }
+
+ ❯ tests/yaml-declared-streams-live.test.ts:83:38
+     81|       const spawned = entries.entries.find(e => e.entry_type === 'run.…
+     82|       const spec = (spawned.payload as { spec: { steps: Array<{ surfac…
+     83|       expect(spec.steps[0].surfaces).toEqual({ workspace: [], streams:…
+       |                                      ^
+     84|       expect(entries.entries).toContainEqual(expect.objectContaining({
+     85|         entry_type: 'step.completed', step_id: 'greet', payload: expec…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 4 passed (8)
+   Start at  10:19:06
+   Duration  4.12s (transform 62ms, setup 0ms, collect 75ms, tests 3.84s, environment 0ms, prepare 59ms)
+
+
+exit=1

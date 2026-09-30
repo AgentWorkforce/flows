@@ -13,7 +13,7 @@ import { EventEmitter } from 'node:events';
 export { walkJournal, JournalReadError, type JournalEvent, type JournalReadFailure } from './journal-reader.js';
 import { randomUUID } from 'node:crypto';
 import { createConnection, type Socket } from 'node:net';
-import type { VerbContract, EventSubmitParams } from './protocol.js';
+import type { VerbContract, EventEmitParams, EventSubmitParams } from './protocol.js';
 import {
   PROTOCOL_VERSION,
   type CompletionReason,
@@ -442,8 +442,17 @@ export class JournalClient extends EventEmitter {
     });
   }
 
-  eventEmit(runId: string, eventKey: string, payload: unknown): Promise<VerbContract['event.emit']['result']> {
-    return this.request('event.emit', { run_id: runId, event_key: eventKey, payload });
+  eventEmit(
+    runId: string,
+    eventKey: string,
+    payload: unknown,
+    options: Pick<EventEmitParams, 'delivery_id' | 'actor'> = {},
+  ): Promise<VerbContract['event.emit']['result']> {
+    return this.request('event.emit', { run_id: runId, event_key: eventKey, payload, ...options });
+  }
+
+  subscriptionPark(params: VerbContract['subscription.park']['params']): Promise<VerbContract['subscription.park']['result']> {
+    return this.request('subscription.park', params);
   }
 
   /**
@@ -455,6 +464,41 @@ export class JournalClient extends EventEmitter {
    */
   eventSubmit(spec: unknown, event: EventSubmitParams['event']): Promise<VerbContract['event.submit']['result']> {
     return this.request('event.submit', { spec, event });
+  }
+
+  /** Prepare a body subscription. Cloud must activate the returned request before a body can observe it. */
+  subscriptionOpen(params: VerbContract['subscription.open']['params']): Promise<VerbContract['subscription.open']['result']> {
+    return this.request('subscription.open', params, null);
+  }
+
+  /** Commit Cloud's durable binding receipt and ingress fence. */
+  subscriptionActivate(params: VerbContract['subscription.activate']['params']): Promise<VerbContract['subscription.activate']['result']> {
+    return this.request('subscription.activate', params, null);
+  }
+
+  /** Append to one activated subscription under its immutable router receipt. */
+  subscriptionDeliver(params: VerbContract['subscription.deliver']['params']): Promise<VerbContract['subscription.deliver']['result']> {
+    return this.request('subscription.deliver', params, null);
+  }
+
+  /** Read durable subscription state without changing timers or ingress. */
+  subscriptionInspect(params: VerbContract['subscription.inspect']['params']): Promise<VerbContract['subscription.inspect']['result']> {
+    return this.request('subscription.inspect', params);
+  }
+
+  /** Fence the exact activated receipt after router-side overflow. */
+  subscriptionFenceOverflow(params: VerbContract['subscription.fence_overflow']['params']): Promise<VerbContract['subscription.fence_overflow']['result']> {
+    return this.request('subscription.fence_overflow', params, null);
+  }
+
+  /** Return a durable wake, or an explicit suspension with no daemon-side sleep. */
+  subscriptionNext(params: VerbContract['subscription.next']['params']): Promise<VerbContract['subscription.next']['result']> {
+    return this.request('subscription.next', params, null);
+  }
+
+  /** Close a body subscription; the server refuses later external appends. */
+  subscriptionClose(params: VerbContract['subscription.close']['params']): Promise<VerbContract['subscription.close']['result']> {
+    return this.request('subscription.close', params, null);
   }
 
   channelAppend(params: VerbContract['channel.append']['params']): Promise<VerbContract['channel.append']['result']> {

@@ -1,0 +1,38 @@
+$ cd /home/khaliqgant/.cache/dev-pr-proof/flows-dev-stream-pins/packages/sdk
+$ env RELAYFLOWD_BIN=/tmp/flows-pr-followup/pr441/kernel/target/debug/relayflowd npx vitest run tests/yaml-declared-streams-live.test.ts tests/local-agent-stream-selection.test.ts tests/yaml-local-agent-live.test.ts tests/local-agent-live.test.ts tests/communication-spec.test.ts tests/communication-worker.test.ts
+
+ RUN  v2.1.9 /home/khaliqgant/.cache/dev-pr-proof/flows-dev-stream-pins/packages/sdk
+
+ ✓ tests/local-agent-stream-selection.test.ts (1 test) 3ms
+ ✓ tests/communication-worker.test.ts (15 tests) 1497ms
+ ✓ tests/yaml-local-agent-live.test.ts (7 tests) 3318ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked step CLI and model and journals done 538ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked named CLI and model and journals done 486ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked flow CLI and model and journals done 491ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked project CLI and model and journals done 436ms
+   ✓ YAML --local-agent through the built CLI and real daemon > still parks without --local-agent 430ms
+   ✓ YAML --local-agent through the built CLI and real daemon > reports the agent process failure 499ms
+   ✓ YAML --local-agent through the built CLI and real daemon > preserves declared workspace surfaces that the local worker cannot pin 438ms
+ ✓ tests/yaml-declared-streams-live.test.ts (8 tests) 3757ms
+   ✓ YAML declared streams through the built CLI and real daemon > runs with the checked step CLI and model and journals done 529ms
+   ✓ YAML declared streams through the built CLI and real daemon > runs with the checked named CLI and model and journals done 417ms
+   ✓ YAML declared streams through the built CLI and real daemon > runs with the checked flow CLI and model and journals done 418ms
+   ✓ YAML declared streams through the built CLI and real daemon > runs with the checked project CLI and model and journals done 429ms
+   ✓ YAML declared streams through the built CLI and real daemon > still parks without --local-agent 335ms
+   ✓ YAML declared streams through the built CLI and real daemon > reports the agent process failure 505ms
+   ✓ YAML declared streams through the built CLI and real daemon > resumes the journaled stream declarations after the input YAML changes 802ms
+   ✓ YAML declared streams through the built CLI and real daemon > preserves declared workspace surfaces that the local worker cannot pin 323ms
+ ✓ tests/local-agent-live.test.ts (5 tests) 66020ms
+   ✓ built CLI local agent against a real daemon > dispatches through the wrapper and keeps --json stdout report-shaped 2030ms
+   ✓ built CLI local agent against a real daemon > runs beyond the initial 30-second lease without a second invocation 35590ms
+   ✓ built CLI local agent against a real daemon > renders actual agent completion in text output 1645ms
+   ✓ built CLI local agent against a real daemon > returns a failed run when the agent process fails 12564ms
+   ✓ built CLI local agent against a real daemon > refuses a workspace it cannot pin before invoking the agent 14189ms
+
+ Test Files  5 passed (5)
+      Tests  36 passed (36)
+   Start at  10:20:31
+   Duration  66.27s (transform 432ms, setup 0ms, collect 949ms, tests 74.59s, environment 1ms, prepare 318ms)
+
+
+exit=0

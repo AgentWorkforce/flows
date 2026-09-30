@@ -173,6 +173,13 @@ export function localCallValueCandidates(
     || (callee && seen.has(callee))) return undefined;
   const nextSeen = callee ? new Set(seen).add(callee) : new Set(seen);
   const actualCandidates = localCallArgumentCandidates(expression.arguments, checker);
+  const fallbackAtCallerPath = (
+    candidate: LocalCallValueResolution['candidates'][number],
+  ): LocalCallValueResolution['candidates'] => {
+    if (callerPath.length === 0) return [candidate];
+    return valuesAtPath(candidate.expression, callerPath, checker, candidate.seen)
+      .map(value => ({ expression: value, seen: new Set(candidate.seen) }));
+  };
   const candidates = returnedExpressions(declaration.body).flatMap(returned => {
     return returnedValueCandidates(returned, checker, nextSeen).flatMap(returnedCandidate => {
       const returnedMember = expressionRootPath(
@@ -187,12 +194,10 @@ export function localCallValueCandidates(
           checker,
           returnedCandidate.seen,
         );
-        return selected.length > 0
-          ? selected.map(candidate => ({
-              expression: candidate,
-              seen: new Set(returnedCandidate.seen),
-            }))
-          : [returnedCandidate];
+        return selected.map(candidate => ({
+          expression: candidate,
+          seen: new Set(returnedCandidate.seen),
+        }));
       }
       const returnedPath = [...returnedMember.path, ...callerPath];
       const mapped = declaration.parameters.flatMap((parameter, parameterIndex) =>
@@ -241,7 +246,7 @@ export function localCallValueCandidates(
               seen,
             ).map(value => ({ expression: value, seen: new Set(seen) }));
           })));
-      return mapped.length > 0 ? mapped : [returnedCandidate];
+      return mapped.length > 0 ? mapped : fallbackAtCallerPath(returnedCandidate);
     });
   });
   return { candidates };

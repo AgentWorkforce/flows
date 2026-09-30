@@ -61,6 +61,7 @@ export type { StepSpend } from './protocol.js';
 export { SPEC_SCHEMA_VERSION } from './spec.js';
 
 export {
+  runHostedSoftwareGardenBabysitter,
   runHostedCapabilityExtension,
   loadHostedExtensionRuntime,
   type HostedExtensionArtifact,
@@ -70,6 +71,7 @@ export {
   type HostedCapabilityAuthority,
   type HostedBabysitterCapability,
   type RunHostedExtensionOptions,
+  type RunHostedSoftwareGardenBabysitterOptions,
   type HostedExtensionResult,
 } from './hosted-extension-isolation.js';
 export {
@@ -171,6 +173,12 @@ export type {
   EffectRef,
   EventEmitParams,
   EventEmitResult,
+  SubscriptionCloseParams,
+  SubscriptionCloseResult,
+  SubscriptionNextParams,
+  SubscriptionNextResult,
+  SubscriptionOpenParams,
+  SubscriptionOpenResult,
   HelloParams,
   HelloResult,
   JournalReadParams,

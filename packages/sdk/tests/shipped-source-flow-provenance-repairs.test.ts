@@ -24,6 +24,10 @@ describe('shipped-source flow provenance repairs', () => {
         `{ let key: string; key = 'flow'; const { [key]: define } = surface; define('mutable-key', { budget: '$2' }, () => {}); }`,
         `{ const source = flag ? { key: 'flow' as const } : { key: 'flow' as const }; const { key } = source; const { [key]: define } = surface; define('wrapped-key-source', { budget: '$2' }, () => {}); }`,
         `{ const source = (flag && { key: 'flow' as const }) || { key: 'flow' as const }; const { key } = source; const { [key]: define } = surface; define('logical-key-source', { budget: '$2' }, () => {}); }`,
+        `{ const box: any = {}, captured = { keys: { value: 'define' as const } }; function get() { return captured; } box[get().keys.value] = surface.flow; box.define('captured-caller-path', { budget: '$2' }, () => {}); }`,
+        `{ const box: any = {}; function key(value: any) { return value; } let alias: any; box[(alias = key({ name: 'define' })).name] = surface.flow; box.define('assignment-wrapped-caller-path', { budget: '$2' }, () => {}); }`,
+        `{ const box: any = {}; function key(value: any) { return value; } let alias: any; box[(alias ||= key({ name: 'define' })).name] = surface.flow; box.define('logical-assignment-wrapped-caller-path', { budget: '$2' }, () => {}); }`,
+        `{ const box: any = {}; const source = flag ? { key: 'other' as const } : { key: 'define' as const }; const { key } = source; box[key] = surface.flow; box.define('branched-destructured-key', { budget: '$2' }, () => {}); }`,
         `{ const box: any = {}, a: any = {}, b: any = {}; a.descriptors = b.descriptors; b.descriptors = a.descriptors; b.descriptors = { define: { value: surface.flow } }; Object.defineProperties(box, a.descriptors); box.define('cyclic-descriptor-map', { budget: '$2' }, () => {}); }`,
         `{ const box: any = {}, a: any = {}, b: any = {}; a.getter = b.getter; b.getter = a.getter; b.getter = () => surface.flow; Object.defineProperty(box, 'define', { get: a.getter }); box.define('cyclic-getter-alias', { budget: '$2' }, () => {}); }`,
       ];
