@@ -6,6 +6,7 @@ import type { AuthoredFlowJournalStep } from './authored-flow-executor.js';
 import type { StepFailedDetails } from './failure-kinds.js';
 import { inspectionHint, renderInspection, renderStepEvidence, stepFailureDetails } from './cli/step-failure.js';
 import { alsoRecord, recordAuthoredChild, type AuthoredStepEdges } from './authored-step-index.js';
+import { readChildJournal, waitForTerminalChildRun } from './authored-child-run.js';
 
 /**
  * What an authored operation needs in order to leave readable evidence:
@@ -19,6 +20,8 @@ export interface AuthoredStepContext {
   readonly dataDir?: string;
   /** The step's label and causal predecessors, carried on every record about it. */
   readonly stepEdges?: (step: string) => AuthoredStepEdges | undefined;
+  /** Cancels the wait for an adopted child run that is not yet terminal. */
+  readonly signal?: AbortSignal;
 }
 
 /**
@@ -27,12 +30,23 @@ export interface AuthoredStepContext {
  * clean success before handing the raw `output` back for verb-specific
  * extraction (a plain string for `f.run`, an `AgentResult` for `f.agent`).
  *
- * Callers are responsible for having already waited for the run to reach a
- * terminal state — `f.run`'s caller relies on `runStart`'s own immediate
- * response (the kernel drives a deterministic step to completion inline, no
- * race); `f.agent`'s caller relies on `classifyOutcome` (cli/run.ts) having
- * already polled to one. Given that, a single read from the start of this
- * run's small journal is enough, and no polling happens here.
+ * The run must be terminal before it is judged. Usually it already is —
+ * `f.run`'s `runStart` drives a deterministic step to completion inline, and
+ * `f.agent`'s caller has polled one with `classifyOutcome` (cli/run.ts). But a
+ * child ADOPTED through its admission key on resume is returned as it stands,
+ * possibly mid-attempt or mid-backoff on the request that first started it,
+ * so a journal with no `run.completed` and a step still unsettled is waited
+ * out first (`waitForTerminalChildRun`, bounded by the child's own lease and
+ * backoff). A child that cannot settle — parked on a worker nobody attached —
+ * reports its latest attempt that ran to a failed result, or is refused.
+ *
+ * The step's verdict is its TERMINAL completion. A retried attempt journals a
+ * `step.completed` too — `disposition: retry` (crash recovery's `crashed`, a
+ * `worker_error`, a failed gate with iterations left) — and it precedes the
+ * attempt that settled the step. Taking the first `step.completed` read that
+ * retried attempt's failure as the step's, and failed a child that completed
+ * `success`. Only the last completion whose disposition is not `retry` or
+ * `park` is read, recorded and indexed.
  *
  * What is NOT delegated to the caller is the run's verdict. A child spec has
  * more than one step whenever the author declared a `.gate()`, and that gate
@@ -57,14 +71,46 @@ export async function readCompletedStepOutput(
   journalSteps: AuthoredFlowJournalStep[],
   context: AuthoredStepContext = {},
 ): Promise<unknown> {
-  const entries = (await journal.journalRead(runId, 1)).entries;
-  const completed = entries.find((entry) => isStepCompleted(entry, stepId));
-  if (!isStepCompleted(completed, stepId)) {
-    throw protocolViolation(runId, `journal has no step.completed for "${stepId}"`);
+  let entries = await readChildJournal(journal, runId);
+  let completed = terminalCompletion(entries, stepId);
+  // Wait only while something in the run is still unsettled: this step (an
+  // attempt or a retry backoff in flight) or another step that has started —
+  // a declared gate running after the producer, whose verdict is the run's.
+  if (!entries.some(entry => runCompletionReason(entry) !== undefined)
+    && (completed === undefined || unsettledSteps(entries).size > 0)) {
+    const status = await waitForTerminalChildRun(journal, runId, context.signal);
+    entries = await readChildJournal(journal, runId);
+    completed = terminalCompletion(entries, stepId);
+    if (status !== 'completed' && status !== 'failed' && completed === undefined) {
+      // Nothing will settle the step from here: the child is parked on a
+      // worker the caller did not keep attached (a helper drives exactly one
+      // attempt, and the retry dispatched after it dies with its connection).
+      // The latest attempt that ran to a result — not one the kernel recorded
+      // as dead (`completed_by: kernel`, machine/recovery.rs) — is then why
+      // the step stands where it does, and is reported as that: never as a
+      // success, never silently.
+      const attempts = entries.filter((entry): entry is StepCompletedEntry => isStepCompleted(entry, stepId));
+      const latest = attempts.filter(entry => entry.payload.completed_by !== 'kernel').at(-1) ?? attempts.at(-1);
+      if (latest === undefined || latest.payload.completionReason === 'success') {
+        throw protocolViolation(runId, `child run for step "${stepId}" is not terminal (status: ${status})`);
+      }
+      completed = latest;
+    }
+  }
+  const runReason = entries.map(runCompletionReason).find((value) => value !== undefined);
+  const edges = context.stepEdges?.(stepId);
+  if (completed === undefined) {
+    // Canceled or out of budget while the step was between attempts: the run
+    // settled with no terminal completion for the step. That is the run's
+    // failure to report, not a malformed journal.
+    if (runReason !== undefined && runReason !== 'success') {
+      throw await stepFailure(journal, runId, stepId, runReason, context, edges,
+        `journal run for step "${stepId}" completed with ${runReason}`);
+    }
+    throw protocolViolation(runId, `journal has no terminal step.completed for "${stepId}"`);
   }
 
   const reason = completed.payload.completionReason;
-  const edges = context.stepEdges?.(stepId);
   journalSteps.push(Object.freeze({ id: stepId, runId, completionReason: reason, ...edges }));
   if (reason !== 'success') {
     throw await stepFailure(journal, runId, stepId, reason, context, edges,
@@ -76,7 +122,6 @@ export async function readCompletedStepOutput(
   // verdict. Reading only the producer's entry let a failed gate resolve as
   // though the command had passed — the `|| true` invisibility this module's
   // recording policy exists to remove, reappearing one layer up.
-  const runReason = entries.map(runCompletionReason).find((value) => value !== undefined);
   if (runReason !== undefined && runReason !== 'success') {
     throw await stepFailure(journal, runId, stepId, runReason, context, edges,
       `journal run for step "${stepId}" completed with ${runReason}`);
@@ -204,8 +249,36 @@ interface StepCompletedEntry {
   step_id: string;
   payload: {
     completionReason: ProtocolCompletionReason;
+    disposition?: unknown;
+    completed_by?: unknown;
     output: unknown;
   };
+}
+
+/**
+ * `retry` and `park` completions record an attempt the kernel did not settle
+ * the step on (relayflowd-core `Disposition`); a later attempt did, or has yet to.
+ */
+function settles(entry: StepCompletedEntry): boolean {
+  return entry.payload.disposition !== 'retry' && entry.payload.disposition !== 'park';
+}
+
+/** The step's LAST settling completion. */
+function terminalCompletion(entries: readonly unknown[], stepId: string): StepCompletedEntry | undefined {
+  return entries
+    .filter((entry): entry is StepCompletedEntry => isStepCompleted(entry, stepId) && settles(entry))
+    .at(-1);
+}
+
+/** Steps with an attempt started and no settling completion after it. */
+function unsettledSteps(entries: readonly unknown[]): Set<string> {
+  const open = new Set<string>();
+  for (const entry of entries) {
+    if (!isRecord(entry) || typeof entry['step_id'] !== 'string') continue;
+    if (entry['entry_type'] === 'step.attempt.started') open.add(entry['step_id']);
+    else if (isStepCompleted(entry, entry['step_id']) && settles(entry)) open.delete(entry['step_id']);
+  }
+  return open;
 }
 
 function isStepCompleted(value: unknown, stepId: string): value is StepCompletedEntry {

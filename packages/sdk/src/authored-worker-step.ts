@@ -41,6 +41,7 @@ export function authoredWorkerRunner(
     ...(rootRunId === undefined ? {} : { rootRunId }),
     ...(waitOptions.dataDir === undefined ? {} : { dataDir: waitOptions.dataDir }),
     ...(stepEdges === undefined ? {} : { stepEdges }),
+    ...(waitOptions.signal === undefined ? {} : { signal: waitOptions.signal }),
   };
   async function run(step: StepSpec): Promise<unknown> {
     const id = step.id;
