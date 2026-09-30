@@ -57,17 +57,19 @@ function context(
   github: { mergePullRequest: async (input: { sha: string }) => { merges.push(input.sha); return { merged: true }; } } } as unknown as Ctx;
   return { f, commands, runOptions, reasons, merges, agentCalls, agents: () => agents };
 }
-test('known first-party harnesses resolve to current explicit model pins', () => {
+test('only registered direct-probe providers receive generated model pins', () => {
   assert.deepEqual(
     ['claude', 'codex', 'cursor-agent', 'grok', '/opt/custom-wrapper'].map(generatedModelForCli),
-    ['claude-sonnet-5', 'gpt-5.6-sol', 'gpt-5.6-sol-high', 'grok-4.7', undefined],
+    ['claude-sonnet-5', 'gpt-5.6-sol', undefined, undefined, undefined],
   );
 });
 test('provider executable basenames retain generated model defaults', () => {
   assert.equal(generatedModelForCli('/usr/local/bin/codex'), 'gpt-5.6-sol');
   assert.equal(generatedModelForCli('./tools/claude.exe'), 'claude-sonnet-5');
-  assert.equal(requiredLegacyReviewerModel('/usr/local/bin/cursor-agent'), 'gpt-5.6-sol-high');
-  assert.equal(parseInput({ ...config, reviewerCli: '/usr/local/bin/grok' }).reviewerModel, undefined);
+  assert.throws(() => requiredReviewerModel('/usr/local/bin/cursor-agent'), /requires reviewerModel/);
+  assert.throws(() => requiredReviewerModel('/usr/local/bin/grok'), /requires reviewerModel/);
+  assert.throws(() => requiredLegacyReviewerModel('/usr/local/bin/cursor-agent'), /requires reviewerModel/);
+  assert.throws(() => parseInput({ ...config, reviewerCli: '/usr/local/bin/grok' }), /requires reviewerModel/);
 });
 test('custom reviewer wrappers require and preserve an explicit model', () => {
   assert.equal(requiredReviewerModel(' claude '), 'claude-sonnet-5');

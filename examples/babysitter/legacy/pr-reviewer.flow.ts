@@ -227,9 +227,7 @@ export function requiredReviewerModel(cli: string, override?: string): string {
   if (cliProblem !== undefined) throw new Error(`Invalid reviewer CLI: ${cliProblem}`);
   const model = override === undefined
     ? (basename(normalizedCli).replace(/\.exe$/iu, "") === "claude" ? "claude-sonnet-5"
-      : basename(normalizedCli).replace(/\.exe$/iu, "") === "codex" ? "gpt-5.6-sol"
-      : basename(normalizedCli).replace(/\.exe$/iu, "") === "cursor-agent" ? "gpt-5.6-sol-high"
-      : basename(normalizedCli).replace(/\.exe$/iu, "") === "grok" ? "grok-4.7" : undefined)
+      : basename(normalizedCli).replace(/\.exe$/iu, "") === "codex" ? "gpt-5.6-sol" : undefined)
     : override.trim();
   if (model === undefined) throw new Error(`Custom reviewer CLI ${JSON.stringify(cli)} requires reviewerModel`);
   const modelProblem = declarationStringError(model);

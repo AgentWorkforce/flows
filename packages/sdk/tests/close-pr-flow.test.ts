@@ -173,8 +173,6 @@ describe('close-pr journaled repair loop', () => {
   it.each([
     ['codex', 'gpt-5.6-sol'],
     ['claude', 'claude-sonnet-5'],
-    ['cursor-agent', 'gpt-5.6-sol-high'],
-    ['grok', 'grok-4.7'],
   ])('pins the current generated model for %s when no override is supplied', async (cli, model) => {
     const h = await harness([{ checks: [failed, green[1]!] }, { checks: green }], {
       input: { cli, model: undefined },
@@ -185,6 +183,8 @@ describe('close-pr journaled repair loop', () => {
 
   it('requires an explicit model for a custom repair wrapper', () => {
     expect(() => requiredRepairModel('/opt/custom-wrapper')).toThrow(/requires input\.model/);
+    expect(() => requiredRepairModel('cursor-agent')).toThrow(/requires input\.model/);
+    expect(() => requiredRepairModel('grok')).toThrow(/requires input\.model/);
     expect(requiredRepairModel(' codex ')).toBe('gpt-5.6-sol');
     expect(requiredRepairModel('/opt/custom-wrapper', ' custom-model ')).toBe('custom-model');
     expect(() => requiredRepairModel('codex', '   ')).toThrow(/non-empty string/);

@@ -96,6 +96,9 @@ describe('shipped-source flow provenance repairs', () => {
         `{ const box: any = {}, holder: any = {}, alias = holder; Object.assign(alias, { ops: [Object.assign] }); for (const op of holder.ops) op(box, { define: surface.flow }); box.define('aliased-reflective-member-writer', { budget: '$2' }, () => {}); }`,
         `{ function inner() { return [surface.flow]; } function getHolder() { return { flows: inner() }; } for (const define of getHolder().flows) define('returned-call-array', { budget: '$2' }, () => {}); }`,
         `{ const box: any = {}; function inner() { return [Object.assign]; } function getHolder() { return { ops: inner() }; } for (const op of getHolder().ops) op(box, { define: surface.flow }); box.define('returned-call-array-writer', { budget: '$2' }, () => {}); }`,
+        `{ function defineFlow({ o = { k: 'flow' as const } }: any) { const { [o.k]: define } = surface; define('parameter-default-key', { budget: '$2' }, () => {}); } defineFlow({ o: { k: 'task' } }); }`,
+        `{ const [, defines] = [, [surface.flow]]; for (const define of defines) define('positional-hole', { budget: '$2' }, () => {}); }`,
+        `{ const [defines] = flag ? [[() => undefined]] : [[surface.flow]]; for (const define of defines) define('positional-alternative', { budget: '$2' }, () => {}); }`,
       ];
       for (const [index, candidate] of cases.entries()) {
         const file = join(directory, `repaired-flow-${index}.flow.ts`);

@@ -196,23 +196,13 @@ function staticPropertySegmentAtPath(
     const binding = symbol.declarations?.find(ts.isBindingElement);
     if (binding) {
       const source = bindingSource(binding, checker, new Set(nextSeen));
-      if (source) {
-        return staticPropertySegmentAtPath(
-          source.initializer,
-          [...source.path, ...path],
-          checker,
-          new Set(nextSeen),
-        );
-      }
-      if (binding.initializer) {
-        const value = staticPropertySegmentAtPath(
-          binding.initializer,
-          path,
-          checker,
-          new Set(nextSeen),
-        );
-        if (value !== undefined) return value;
-      }
+      if (!source) return undefined;
+      return staticPropertySegmentAtPath(
+        source.initializer,
+        [...source.path, ...path],
+        checker,
+        new Set(nextSeen),
+      );
     }
     const declaration = symbol.declarations?.find(ts.isVariableDeclaration);
     if (!declaration?.initializer || !ts.isVariableDeclarationList(declaration.parent)

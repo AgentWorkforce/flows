@@ -292,6 +292,9 @@ describe('shipped-source worker invocation resolution', () => {
         `const box: any = {}, holder: any = {}, alias = holder; Object.assign(alias, { ops: [Object.assign] }); for (const op of holder.ops) op(box, { run: f.agent }); box.run('review', { task: 'x' });`,
         `function inner() { return [f.agent]; } function getHolder() { return { workers: inner() }; } for (const run of getHolder().workers) run('review', { task: 'x' });`,
         `const box: any = {}; function inner() { return [Object.assign]; } function getHolder() { return { ops: inner() }; } for (const op of getHolder().ops) op(box, { run: f.agent }); box.run('review', { task: 'x' });`,
+        `function worker({ o = { k: 'agent' as const } }: any) { const { [o.k]: run } = f; run('review', { task: 'x' }); } worker({ o: { k: 'llm' } });`,
+        `const [, workers] = [, [f.agent]]; for (const run of workers) run('review', { task: 'x' });`,
+        `const [workers] = flag ? [[() => undefined]] : [[f.agent]]; for (const run of workers) run('review', { task: 'x' });`,
       ];
       for (const [index, candidate] of repairedWorkerCases.entries()) {
         const repairedWorker = join(directory, `repaired-worker-${index}.flow.ts`);

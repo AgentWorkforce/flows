@@ -126,9 +126,7 @@ export function requiredRepairModel(cli: string, override?: string): string {
   if (cliProblem !== undefined) throw new Error(`Invalid repair CLI: ${cliProblem}`);
   const model = override === undefined
     ? (basename(normalizedCli).replace(/\.exe$/iu, '') === 'codex' ? 'gpt-5.6-sol'
-      : basename(normalizedCli).replace(/\.exe$/iu, '') === 'claude' ? 'claude-sonnet-5'
-      : basename(normalizedCli).replace(/\.exe$/iu, '') === 'cursor-agent' ? 'gpt-5.6-sol-high'
-      : basename(normalizedCli).replace(/\.exe$/iu, '') === 'grok' ? 'grok-4.7' : undefined)
+      : basename(normalizedCli).replace(/\.exe$/iu, '') === 'claude' ? 'claude-sonnet-5' : undefined)
     : override.trim();
   if (model === undefined) throw new Error(`Custom repair CLI ${JSON.stringify(cli)} requires input.model`);
   const problem = modelNameError(model);

@@ -128,31 +128,41 @@ function memberPath(
   return undefined;
 }
 
-function arrayValues(
+function arrayCandidates(
   expression: ts.Expression,
   checker: ts.TypeChecker,
   sources: StaticIterationSources,
   seen: Set<ts.Symbol>,
-): ts.Expression[] {
+): Array<Array<ts.Expression | undefined>> {
   expression = unwrap(expression);
   const wrapped = branches(expression);
-  if (wrapped) return wrapped.flatMap(branch => arrayValues(branch, checker, sources, new Set(seen)));
+  if (wrapped) return wrapped.flatMap(branch =>
+    arrayCandidates(branch, checker, sources, new Set(seen)));
   if (ts.isArrayLiteralExpression(expression)) {
-    return expression.elements.flatMap(element => {
-      if (ts.isOmittedExpression(element)) return [];
-      return ts.isSpreadElement(element)
-        ? arrayValues(element.expression, checker, sources, new Set(seen))
-        : [element];
-    });
+    let candidates: Array<Array<ts.Expression | undefined>> = [[]];
+    for (const element of expression.elements) {
+      if (ts.isOmittedExpression(element)) {
+        candidates.forEach(candidate => candidate.push(undefined));
+        continue;
+      }
+      if (!ts.isSpreadElement(element)) {
+        candidates.forEach(candidate => candidate.push(element));
+        continue;
+      }
+      const spread = arrayCandidates(element.expression, checker, sources, new Set(seen));
+      candidates = candidates.flatMap(prefix =>
+        spread.map(values => [...prefix, ...values]));
+    }
+    return candidates;
   }
   if (ts.isCallExpression(expression)) {
     return expressionValues(expression, checker, seen).flatMap(value =>
-      arrayValues(value, checker, sources, new Set(seen)));
+      arrayCandidates(value, checker, sources, new Set(seen)));
   }
   if (ts.isElementAccessExpression(expression) && expression.argumentExpression
     && expressionSegment(expression.argumentExpression, checker) === undefined) {
     return allObjectMemberValues(expression.expression, checker, sources, new Set(seen))
-      .flatMap(value => arrayValues(value, checker, sources, new Set(seen)));
+      .flatMap(value => arrayCandidates(value, checker, sources, new Set(seen)));
   }
   const member = memberPath(expression, checker);
   if (member) {
@@ -164,7 +174,7 @@ function arrayValues(
       checker,
       sources,
       new Set(seen),
-    )).flatMap(value => arrayValues(value, checker, sources, new Set(nextSeen)));
+    )).flatMap(value => arrayCandidates(value, checker, sources, new Set(nextSeen)));
   }
   if (!ts.isIdentifier(expression)) return [];
   const symbol = checker.getSymbolAtLocation(expression);
@@ -178,11 +188,25 @@ function arrayValues(
       sources,
       new Set(nextSeen),
     );
-    if (source.iterationValue) return values;
+    if (source.iterationValue) return values.map(value => [value]);
     if (source.rest?.kind === 'object') return [];
-    const elements = values.flatMap(value => arrayValues(value, checker, sources, new Set(nextSeen)));
-    return source.rest?.kind === 'array' ? elements.slice(source.rest.start) : elements;
+    const candidates = values.flatMap(value =>
+      arrayCandidates(value, checker, sources, new Set(nextSeen)));
+    const restStart = source.rest?.kind === 'array' ? source.rest.start : undefined;
+    return restStart !== undefined
+      ? candidates.map(elements => elements.slice(restStart))
+      : candidates;
   });
+}
+
+function arrayValues(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  sources: StaticIterationSources,
+  seen: Set<ts.Symbol>,
+): ts.Expression[] {
+  return arrayCandidates(expression, checker, sources, seen)
+    .flatMap(candidate => candidate.filter((value): value is ts.Expression => value !== undefined));
 }
 
 function objectMemberValues(
@@ -280,7 +304,8 @@ function valuesAtPath(
     ...objectMemberValues(expression, head!, checker, sources, seen),
     ...(index === undefined
       ? []
-      : arrayValues(expression, checker, sources, seen).slice(index, index + 1)),
+      : arrayCandidates(expression, checker, sources, seen)
+        .flatMap(candidate => candidate[index] ? [candidate[index]!] : [])),
   ];
   return tail.length === 0 ? values : values.flatMap(value =>
     valuesAtPath(value, tail, checker, sources, new Set(seen)));

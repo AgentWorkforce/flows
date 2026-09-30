@@ -117,13 +117,11 @@ async function reviewLens(
   }).gate({ type: 'subprocess_gate', command: `test -s ${shellWord(`${dir}/${lens}.json`)}` });
 }
 
-/** Current first-party pins; an operator-supplied wrapper must name its model explicitly upstream. */
+/** Current direct-probe adapter pins; every wrapper must name its model explicitly upstream. */
 export function generatedModelForCli(cli: string): string | undefined {
   const provider = basename(cli).replace(/\.exe$/iu, '');
   if (provider === 'claude') return 'claude-sonnet-5';
   if (provider === 'codex') return 'gpt-5.6-sol';
-  if (provider === 'cursor-agent') return 'gpt-5.6-sol-high';
-  if (provider === 'grok') return 'grok-4.7';
   return undefined;
 }
 
