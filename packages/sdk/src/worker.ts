@@ -124,7 +124,8 @@ export class AgentWorker extends EventEmitter {
     if (communication) {
       if (!this.options.dataDir) throw new Error('Agent communication requires a worker data directory');
       const { completeCommunicationDispatch } = await import('./communication/worker.js');
-      await completeCommunicationDispatch(this.client, dispatch, communication, this.options.dataDir, this.options.runRoot);
+      await completeCommunicationDispatch(this.client, dispatch, communication, this.options.dataDir,
+        this.options.runRoot, this.options.environment);
       return;
     }
     let humanIntervention = false;

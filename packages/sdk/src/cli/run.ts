@@ -180,7 +180,7 @@ export async function runFlow(
   const agentEnvironment = localAgentEnvironment();
   const prepared = parseDigestReference(path) ? await prepareDigestRun(path, options.bucket) : undefined;
   if (prepared && 'exitCode' in prepared) return prepared;
-  const checked = prepared ?? checkFlow(path);
+  const checked = prepared ?? checkFlow(path, { environment: agentEnvironment });
   if (!checked.report.ok || checked.flow === undefined) {
     return { exitCode: 2, report: fromCheckReport('run', checked.report) };
   }
@@ -192,7 +192,7 @@ async function executeCheckedFlow(
   checked: ReturnType<typeof checkFlow>,
   dataDir: string,
   options: RunLifecycleOptions,
-  agentEnvironment: NodeJS.ProcessEnv,
+  agentEnvironment?: NodeJS.ProcessEnv,
 ): Promise<RunExecution> {
   const socketPath = socketFor(dataDir);
   // Carry the preflight's diagnostics as a RunReport from here on, so the
@@ -221,7 +221,7 @@ async function executeCheckedFlow(
     }
     if (options.localAgent && spec.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
       const { attachCommunicationWorkers } = await import('../communication/local.js');
-      communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir);
+      communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir, agentEnvironment);
     }
     if (options.onJournalEntry !== undefined) client.on('entry', options.onJournalEntry);
     const outcome = await startWatched(client, spec, options);
@@ -345,6 +345,7 @@ export async function resumeFlow(
         dataDir,
         localAgentStream: authoredAgent?.stream,
         ...(authoredAgent === undefined ? {} : { workerCapacity }),
+        ...(agentEnvironment === undefined ? {} : { agentEnvironment }),
         lifecycle: options,
       });
       if (result === undefined) throw new Error('authored root disappeared during resume');
@@ -367,7 +368,7 @@ export async function resumeFlow(
       );
       if (spec?.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
         const { attachCommunicationWorkers } = await import('../communication/local.js');
-        communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir);
+        communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir, agentEnvironment);
       }
     }
     const onEntry = options.onJournalEntry;

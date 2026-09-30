@@ -101,6 +101,7 @@ export async function runDirectFlow(
         onAdmitted: runId => { base.rootRunId = runId; },
         localAgentStream: localAgent?.stream,
         ...(localAgent === undefined ? {} : { workerCapacity }),
+        ...(agentEnvironment === undefined ? {} : { agentEnvironment }),
         lifecycle: {
           onProgress: options.onProgress,
           ...(options.onRunStarted !== undefined ? { onRunStarted: options.onRunStarted } : {}),

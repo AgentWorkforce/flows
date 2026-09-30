@@ -8,12 +8,20 @@ import { closeSync, readSync } from 'node:fs';
 export const LOCAL_AGENT_ENV_FD = 'FLOWS_LOCAL_AGENT_ENV_FD';
 
 const MAX_BYTES = 64 * 1024;
+const AGENT_CREDENTIAL_NAMES = new Set([
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_BASE_URL',
+  'OPENAI_API_KEY',
+  'OPENAI_BASE_URL',
+]);
 
-export function localAgentEnvironment(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function localAgentEnvironment(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv | undefined {
   const environment = { ...base };
   const rawFd = environment[LOCAL_AGENT_ENV_FD];
   delete environment[LOCAL_AGENT_ENV_FD];
-  if (rawFd === undefined) return environment;
+  // Without the descriptor, provider launches keep their historical live
+  // process.env behavior instead of freezing an early snapshot.
+  if (rawFd === undefined) return undefined;
   // Every later child — especially the authored runtime — inherits process.env.
   // Remove the capability marker before any authored module can be imported.
   if (base === process.env) delete process.env[LOCAL_AGENT_ENV_FD];
@@ -48,12 +56,33 @@ export function localAgentEnvironment(base: NodeJS.ProcessEnv = process.env): No
   if (!plainObject(parsed)) throw new Error('local agent environment payload must be an object of strings');
   const agentEnvironment: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(parsed)) {
-    if (key.length === 0 || key.includes('=') || key.includes('\0') || typeof value !== 'string' || value.includes('\0')) {
+    if (!AGENT_CREDENTIAL_NAMES.has(key) || typeof value !== 'string' || value.includes('\0')) {
       throw new Error('local agent environment payload must be an object of valid environment strings');
     }
     if (key !== LOCAL_AGENT_ENV_FD) agentEnvironment[key] = value;
   }
   return { ...environment, ...agentEnvironment };
+}
+
+/** Reduce a composed provider environment to the credential overlay that is
+ * safe to serialize across the authored Node runtime boundary. */
+export function localAgentCredentialEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries([...AGENT_CREDENTIAL_NAMES]
+    .flatMap(key => environment[key] === undefined ? [] : [[key, environment[key]!]]));
+}
+
+/** Validate the parent-to-authored-runtime handoff without touching a descriptor. */
+export function validatedLocalAgentEnvironment(value: unknown): NodeJS.ProcessEnv | undefined {
+  if (value === undefined) return undefined;
+  if (!plainObject(value)) throw new Error('local agent environment payload must be an object of strings');
+  const environment: NodeJS.ProcessEnv = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (!AGENT_CREDENTIAL_NAMES.has(key) || typeof entry !== 'string' || entry.includes('\0')) {
+      throw new Error('local agent environment payload must be an object of valid environment strings');
+    }
+    environment[key] = entry;
+  }
+  return environment;
 }
 
 function plainObject(value: unknown): value is Record<string, unknown> {

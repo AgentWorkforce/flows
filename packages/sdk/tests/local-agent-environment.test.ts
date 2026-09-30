@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { LOCAL_AGENT_ENV_FD, localAgentEnvironment } from '../src/local-agent-environment.js';
+import { LOCAL_AGENT_ENV_FD, localAgentCredentialEnvironment, localAgentEnvironment } from '../src/local-agent-environment.js';
 
 function payloadFd(value: string): number {
   const path = join(tmpdir(), `flows-agent-env-${randomUUID()}.json`);
@@ -15,27 +15,29 @@ function payloadFd(value: string): number {
 
 describe('local agent environment', () => {
   it('merges descriptor values, removes the marker, and closes the descriptor', () => {
-    const fd = payloadFd(JSON.stringify({ ANTHROPIC_API_KEY: 'house-key', SHARED: 'agent' }));
-    const environment = localAgentEnvironment({ [LOCAL_AGENT_ENV_FD]: String(fd), SAFE: 'yes', SHARED: 'base' });
-    expect(environment).toEqual({ SAFE: 'yes', SHARED: 'agent', ANTHROPIC_API_KEY: 'house-key' });
+    const fd = payloadFd(JSON.stringify({ ANTHROPIC_API_KEY: 'house-key' }));
+    const environment = localAgentEnvironment({ [LOCAL_AGENT_ENV_FD]: String(fd), SAFE: 'yes' });
+    expect(environment).toEqual({ SAFE: 'yes', ANTHROPIC_API_KEY: 'house-key' });
     expect(() => closeSync(fd)).toThrow();
   });
 
-  it('returns a copy of an ordinary environment', () => {
-    const base = { SAFE: 'yes' };
-    const environment = localAgentEnvironment(base);
-    expect(environment).toEqual(base);
-    expect(environment).not.toBe(base);
+  it('preserves live process environment behavior without a descriptor', () => {
+    expect(localAgentEnvironment({ SAFE: 'yes' })).toBeUndefined();
+  });
+
+  it('serializes only provider credentials to the authored runtime', () => {
+    expect(localAgentCredentialEnvironment({ PATH: '/usr/bin', NODE_OPTIONS: '--inspect',
+      ANTHROPIC_API_KEY: 'house-key' })).toEqual({ ANTHROPIC_API_KEY: 'house-key' });
   });
 
   it('removes the inherited descriptor capability from process.env', () => {
-    const fd = payloadFd(JSON.stringify({ HOUSE_PROVIDER_KEY: 'secret' }));
+    const fd = payloadFd(JSON.stringify({ ANTHROPIC_API_KEY: 'secret' }));
     const prior = process.env[LOCAL_AGENT_ENV_FD];
     process.env[LOCAL_AGENT_ENV_FD] = String(fd);
     try {
       const environment = localAgentEnvironment();
-      expect(environment.HOUSE_PROVIDER_KEY).toBe('secret');
-      expect(environment[LOCAL_AGENT_ENV_FD]).toBeUndefined();
+      expect(environment?.ANTHROPIC_API_KEY).toBe('secret');
+      expect(environment?.[LOCAL_AGENT_ENV_FD]).toBeUndefined();
       expect(process.env[LOCAL_AGENT_ENV_FD]).toBeUndefined();
     } finally {
       if (prior !== undefined) process.env[LOCAL_AGENT_ENV_FD] = prior;
@@ -47,9 +49,12 @@ describe('local agent environment', () => {
     ['an invalid descriptor', { [LOCAL_AGENT_ENV_FD]: 'nope' }],
     ['malformed JSON', undefined],
     ['non-string values', undefined],
+    ['an execution-setting key', undefined],
   ])('fails closed for %s', (_name, preset) => {
     const fd = preset === undefined
-      ? payloadFd(_name === 'malformed JSON' ? '{' : JSON.stringify({ SECRET: 1 }))
+      ? payloadFd(_name === 'malformed JSON' ? '{'
+        : _name === 'an execution-setting key' ? JSON.stringify({ PATH: '/host-controlled' })
+        : JSON.stringify({ ANTHROPIC_API_KEY: 1 }))
       : undefined;
     expect(() => localAgentEnvironment(preset ?? { [LOCAL_AGENT_ENV_FD]: String(fd) })).toThrow();
   });
