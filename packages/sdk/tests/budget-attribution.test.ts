@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 import { decodeProviderResult, decodeWrapperResult, requirePricedUsage } from '../src/worker-usage.js';
 import { pricedUsage, MODEL_PRICING } from '../src/model-pricing.js';
-import { AuthoredBudget } from '../src/authored-budget.js';
+import { AuthoredBudget, budgetExceededMessage } from '../src/authored-budget.js';
 import type { JournalClient } from '../src/journal-client.js';
 import type { StepDispatchEvent } from '../src/protocol.js';
 import { LlmWorker } from '../src/llm-worker.js';
@@ -68,3 +68,41 @@ describe('budget attribution', () => {
     expect(calls[1]?.[0].budget.prior_spend).toMatchObject({tokens_in:500, tokens_out:500, dollars:'0.000000', wallclock_ms:5, dollars_unmetered:true});
   });
 });
+
+describe('authored budget refusal names the limit it crossed', () => {
+  const charge = (payload: Record<string, unknown>) => ({seq: 1, entry_type: 'step.completed', at_ms: 0, payload});
+  // The shape of Cloud run f28314ed: 26 steps summed to 132.9 min of step
+  // wallclock under `{ wallclock: "2h", dollars: 25 }`, and the refusal said
+  // only "Flow budget exceeded before the next step." — not which limit.
+  it('reports wallclock used against the declared header on refusal', async () => {
+    const budget = new AuthoredBudget({wallclock: '2h', dollars: 25});
+    let started = 0;
+    const client = {
+      runStart: vi.fn(async () => ({run_id: `r${++started}`, status: started === 1 ? 'completed' : 'failed',
+        completion_reason: started === 1 ? 'success' : 'budget_exceeded', completed_steps: started === 1 ? 1 : 0})),
+      journalRead: vi.fn(async (run: string, seq: number) => ({entries: run === 'r1' && seq === 1
+        ? [charge({budget: {tokens_in: 878, tokens_out: 257687, dollars: '6.446600'}, spend: {wallclock_ms: 7_974_000}})] : []})),
+    };
+    const step = (id: string) => ({version: '0.1.0', steps: [{id}]}) as never;
+    await budget.execute(client as unknown as JournalClient, step('agent-26'), async () => 'ok');
+    const refused = budget.execute(client as unknown as JournalClient, step('run-27'), async () => 'unreachable');
+    await expect(refused).rejects.toMatchObject({
+      message: 'step_failed: Flow budget exceeded before step "run-27": wallclock 132.9m used of 2h declared in the flow\'s budget header.',
+      code: 'step_failed', completionReason: 'budget_exceeded',
+    });
+  });
+  it('names every crossed dimension, marks unmetered dollars, and scopes a day window', () => {
+    const total = {input: 900n, output: 300n, micro: 25_500_000n, ms: 30_000n, unmetered: true};
+    expect(budgetExceededMessage({max_dollars: '25', max_tokens: 1000, max_wallclock_ms: 60_000, window: 'day'}, total))
+      .toBe("Flow budget exceeded before the next step: dollars $25.50 metered (some steps unmetered) used of $25.00 declared; tokens 1200 used of 1000 declared in today's window of the flow's budget header.");
+    expect(budgetExceededMessage({max_tokens_in: 800, max_tokens_out: 300}, total))
+      .toBe("Flow budget exceeded before the next step: input tokens 900 used of 800 declared in the flow's budget header.");
+  });
+  it('keeps the generic wording when the carried totals do not explain the kernel refusal', () => {
+    // Equal is not over: the kernel compares strictly, so this total alone
+    // did not trip it and the accumulator must not invent a reason.
+    expect(budgetExceededMessage({max_wallclock_ms: 60_000, max_dollars: '1'}, {input: 0n, output: 0n, micro: 1_000_000n, ms: 60_000n, unmetered: false}))
+      .toBe('Flow budget exceeded before the next step.');
+  });
+});
+
