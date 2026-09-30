@@ -24,10 +24,7 @@ import type {
   AgentStepSpec,
   DeterministicStepSpec,
   FlowSpec,
-  KernelAgentStep,
   KernelRunSpec,
-  KernelStepCommon,
-  KernelStepSpec,
   KernelTriggerSpec,
   KernelVerificationSpec,
   LlmStepSpec,
@@ -49,6 +46,9 @@ import {
   inheritResolvedCliIdentities,
   rememberResolvedCliIdentities,
   resolvedCliIdentities,
+  type ResolvedKernelAgentStep,
+  type ResolvedKernelStepCommon,
+  type ResolvedKernelStepSpec,
 } from './resolved-cli-identity.js';
 
 export class CompileError extends Error {
@@ -612,8 +612,8 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function toKernelStep(step: StepSpec, cliIdentity?: string): KernelStepSpec {
-  const common: KernelStepCommon = {
+function toKernelStep(step: StepSpec, cliIdentity?: string): ResolvedKernelStepSpec {
+  const common: ResolvedKernelStepCommon = {
     id: step.id,
     depends_on: step.input === undefined ? step.dependsOn ?? []
       : [...new Set([...(step.dependsOn ?? []), ...bindingDependencies(step.input)])],
@@ -660,7 +660,7 @@ function toKernelStep(step: StepSpec, cliIdentity?: string): KernelStepSpec {
       };
     }
     case 'agent': {
-      const out: KernelAgentStep = {
+      const out: ResolvedKernelAgentStep = {
         ...common,
         type: 'agent',
         instruction: step.instruction,

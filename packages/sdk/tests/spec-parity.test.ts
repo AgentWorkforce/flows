@@ -19,6 +19,7 @@ import { canonicalize, kernelToAuthoring, specHash } from '../src/index.js';
 // comment.
 
 const TESTDATA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'testdata');
+const AUTHORING_SCHEMA = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'schema', 'flows.schema.json');
 
 function fixture(name: string): string {
   return readFileSync(join(TESTDATA, name), 'utf8');
@@ -237,5 +238,9 @@ steps:
     cli: agent-cli
 `);
     expect(kernelToAuthoring(toKernelSpec(flow))).toEqual(flow);
+  });
+
+  it('keeps the host-proved CLI identity out of the authoring schema', () => {
+    expect(readFileSync(AUTHORING_SCHEMA, 'utf8')).not.toContain('cli_identity');
   });
 });

@@ -5,7 +5,7 @@ import type { WorkerCliResult } from './worker-cli.js';
 import { EventEmitter } from 'node:events';
 import type { JournalClient } from './journal-client.js';
 import type { Pins, StepDispatchEvent } from './protocol.js';
-import type { KernelAgentStep } from './spec.js';
+import type { ResolvedKernelAgentStep } from './resolved-cli-identity.js';
 import { runAgentCli } from './worker-cli.js';
 import { agentStepCwd } from './agent-cwd.js';
 import { resolveCliModel } from './cli-adapter.js';
@@ -114,7 +114,7 @@ export class AgentWorker extends EventEmitter {
   };
 
   private async execute(dispatch: StepDispatchEvent): Promise<void> {
-    const spec = dispatch.spec as Partial<KernelAgentStep>;
+    const spec = dispatch.spec as Partial<ResolvedKernelAgentStep>;
     const helper = helperCall(spec);
     if (helper !== undefined) {
       if (this.options.dataDir === undefined) throw new Error('Helper worker requires a data directory for durable receipts');

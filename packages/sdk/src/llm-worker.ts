@@ -5,7 +5,7 @@ import type { WorkerCliResult } from './worker-cli.js';
 import { EventEmitter } from 'node:events';
 import type { JournalClient } from './journal-client.js';
 import type { CompletionReason, StepDispatchEvent } from './protocol.js';
-import type { KernelLlmStep } from './spec.js';
+import type { ResolvedKernelLlmStep } from './resolved-cli-identity.js';
 import { runAgentCli } from './worker-cli.js';
 import { resolveCliModel } from './cli-adapter.js';
 import { withWorkerLease } from './worker-lease.js';
@@ -54,7 +54,7 @@ export class LlmWorker extends EventEmitter {
   };
 
   private async execute(dispatch: StepDispatchEvent): Promise<void> {
-    const spec = dispatch.spec as KernelLlmStep;
+    const spec = dispatch.spec as ResolvedKernelLlmStep;
     const schema = spec.verification?.json_schema;
     const prompt = schema === undefined ? spec.prompt
       : `${spec.prompt}\n\nReturn only a JSON value matching this JSON Schema (no Markdown fences):\n${JSON.stringify(schema)}`;

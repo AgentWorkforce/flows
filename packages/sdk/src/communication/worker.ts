@@ -3,7 +3,7 @@ import { basename } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { JournalClient } from '../journal-client.js';
 import type { StepDispatchEvent } from '../protocol.js';
-import type { KernelAgentStep } from '../spec.js';
+import type { ResolvedKernelAgentStep } from '../resolved-cli-identity.js';
 import { withWorkerLease } from '../worker-lease.js';
 import { workerInstruction } from '../worker-input.js';
 import { resolveCliModel } from '../cli-adapter.js';
@@ -20,7 +20,7 @@ export function requireCommunicationCli(cli: string | undefined): void {
 export async function completeCommunicationDispatch(client: JournalClient, dispatch: StepDispatchEvent,
   instruction: CommunicationInstruction, dataDir: string, runRoot?: string,
   environment?: NodeJS.ProcessEnv): Promise<void> {
-  const spec = dispatch.spec as KernelAgentStep;
+  const spec = dispatch.spec as ResolvedKernelAgentStep;
   requireCommunicationCli(spec.cli);
   let output: unknown;
   let completionReason: 'success' | 'worker_error' = 'success';
@@ -36,7 +36,7 @@ export async function completeCommunicationDispatch(client: JournalClient, dispa
       started_pins: dispatch.pins, end_pins: dispatch.pins });
 }
 async function run(client: JournalClient, dispatch: StepDispatchEvent, instruction: CommunicationInstruction,
-  spec: KernelAgentStep, dataDir: string, lease: AbortSignal, runRoot?: string,
+  spec: ResolvedKernelAgentStep, dataDir: string, lease: AbortSignal, runRoot?: string,
   environment?: NodeJS.ProcessEnv): Promise<unknown> {
   // Same contract as the CLI worker: a declared directory is resolved and held
   // inside the same run root the CLI worker measures against, before anything

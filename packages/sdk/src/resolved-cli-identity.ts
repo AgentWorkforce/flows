@@ -1,4 +1,20 @@
-import type { FlowSpec } from './spec.js';
+import type {
+  FlowSpec,
+  KernelAgentStep,
+  KernelLlmStep,
+  KernelStepCommon,
+  KernelStepSpec,
+} from './spec.js';
+
+interface ResolvedCliIdentityField {
+  /** Host-proved authored identity used to select the adapter for canonical CLI bytes. */
+  cli_identity?: string;
+}
+
+export type ResolvedKernelStepCommon = KernelStepCommon & ResolvedCliIdentityField;
+export type ResolvedKernelAgentStep = KernelAgentStep & ResolvedCliIdentityField;
+export type ResolvedKernelLlmStep = KernelLlmStep & ResolvedCliIdentityField;
+export type ResolvedKernelStepSpec = KernelStepSpec & ResolvedCliIdentityField;
 
 /**
  * Host-proved CLI identities are deliberately out-of-band from the authoring

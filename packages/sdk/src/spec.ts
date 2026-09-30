@@ -474,8 +474,6 @@ export interface KernelStepCommon {
   max_iterations: number;
   retry: KernelRetryPolicy;
   verification: KernelVerificationSpec;
-  /** Host-proved authored identity used to select the adapter for canonical CLI bytes. */
-  cli_identity?: string;
 }
 
 export interface KernelDeterministicStep extends KernelStepCommon {
