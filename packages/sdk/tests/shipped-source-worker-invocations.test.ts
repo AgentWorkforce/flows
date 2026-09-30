@@ -338,10 +338,16 @@ describe('shipped-source worker invocation resolution', () => {
         { const box: any = {}; function id([skip, ...rest]: any[]) { return rest; } ((flag && id([undefined, box])) || id([undefined, box]))[0].run = f.agent; box.run('review', { task: 'x' }); }
         { const box: any = {}; function id([skip, ...rest]: any[]) { return rest; } async function repair() { (await id([undefined, box]))[0].run = f.agent; box.run('review', { task: 'x' }); } repair(); }
         { const box: any = {}, keys: any = {}; keys.a = { b: 'run' }; keys['a/string:b'] = keys.a.b; box[keys['a/string:b']] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; function key(value: any) { return value; } box[key('run')] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; function key(value: any) { return value.name; } box[key({ name: 'run' })] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; function key(value: any = 'run') { return value; } box[key(undefined)] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; function key(...values: any[]) { return values[0]; } box[key('run')] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; function key({ name }: any) { return name; } box[key({ name: 'run' })] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; function key([skip, ...rest]: any[]) { return rest[0]; } box[key([undefined, 'run'])] = f.agent; box.run('review', { task: 'x' }); }
       `);
       const formalAndReceiverResult = scanTypeScript(formalAndReceiverRepairs);
-      expect(formalAndReceiverResult.calls).toBe(55);
-      expect(formalAndReceiverResult.missing).toHaveLength(55);
+      expect(formalAndReceiverResult.calls).toBe(61);
+      expect(formalAndReceiverResult.missing).toHaveLength(61);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `

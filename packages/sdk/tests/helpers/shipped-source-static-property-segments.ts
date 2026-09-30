@@ -10,7 +10,7 @@ import {
   staticPropertySegment,
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
-import { returnedExpressions } from './shipped-source-return-values.js';
+import { localCallValueCandidates } from './shipped-source-local-call-targets.js';
 
 type MemberValueCandidates = (
   expression: ts.Expression,
@@ -41,13 +41,9 @@ function memberRootPaths(
     return symbol ? [{ path: [], symbol }] : [];
   }
   if (ts.isCallExpression(expression)) {
-    const declaration = checker.getResolvedSignature(expression)?.declaration;
-    const symbol = checker.getSymbolAtLocation(unwrap(expression.expression));
-    if (!declaration || !ts.isFunctionLike(declaration) || !('body' in declaration)
-      || (symbol && seen.has(symbol))) return [];
-    const nextSeen = symbol ? new Set(seen).add(symbol) : new Set(seen);
-    return returnedExpressions(declaration.body).flatMap(returned =>
-      memberRootPaths(returned, checker, new Set(nextSeen)));
+    const returned = localCallValueCandidates(expression, checker, seen);
+    return returned?.candidates.flatMap(candidate =>
+      memberRootPaths(candidate, checker, new Set(returned.seen))) ?? [];
   }
   if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return [];
   const segment = ts.isPropertyAccessExpression(expression)
@@ -104,21 +100,6 @@ function aggregateMemberCandidates(
   return values;
 }
 
-function localCallReturnCandidates(
-  expression: ts.CallExpression,
-  checker: ts.TypeChecker,
-  seen: Set<ts.Symbol>,
-): { candidates: ts.Expression[]; seen: Set<ts.Symbol> } | undefined {
-  const declaration = checker.getResolvedSignature(expression)?.declaration;
-  const symbol = checker.getSymbolAtLocation(unwrap(expression.expression));
-  if (!declaration || !ts.isFunctionLike(declaration) || !('body' in declaration)
-    || (symbol && seen.has(symbol))) return undefined;
-  return {
-    candidates: returnedExpressions(declaration.body),
-    seen: symbol ? new Set(seen).add(symbol) : new Set(seen),
-  };
-}
-
 function cloneSeenMemberPaths(seen: SeenMemberPaths): SeenMemberPaths {
   return new Map([...seen].map(([symbol, paths]) => [symbol, new Set(paths)]));
 }
@@ -147,8 +128,8 @@ export function staticPropertySegments(
       cloneSeenMemberPaths(seenMemberPaths),
     )))];
   if (ts.isCallExpression(expression)) {
-    const returned = localCallReturnCandidates(expression, checker, seen);
-    if (returned) return [...new Set(returned.candidates.flatMap(candidate =>
+    const returned = localCallValueCandidates(expression, checker, seen);
+    if (returned && returned.candidates.length > 0) return [...new Set(returned.candidates.flatMap(candidate =>
       staticPropertySegments(
         candidate,
         checker,

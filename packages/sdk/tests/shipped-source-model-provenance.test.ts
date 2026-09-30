@@ -351,8 +351,14 @@ describe('shipped-source model provenance', () => {
         { const box: any = {}; function id([skip, ...rest]: any[]) { return rest; } ((flag && id([undefined, box])) || id([undefined, box]))[0].define = surface.flow; box.define('logical-rest-call-receiver', { budget: '$2' }, () => {}); }
         { const box: any = {}; function id([skip, ...rest]: any[]) { return rest; } async function repair() { (await id([undefined, box]))[0].define = surface.flow; box.define('await-rest-call-receiver', { budget: '$2' }, () => {}); } repair(); }
         { const box: any = {}, keys: any = {}; keys.a = { b: 'define' }; keys['a/string:b'] = keys.a.b; box[keys['a/string:b']] = surface.flow; box.define('collision-free-member-key', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function key(value: any) { return value; } box[key('define')] = surface.flow; box.define('parameter-local-call-key', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function key(value: any) { return value.name; } box[key({ name: 'define' })] = surface.flow; box.define('member-parameter-local-call-key', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function key(value: any = 'define') { return value; } box[key(undefined)] = surface.flow; box.define('default-parameter-local-call-key', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function key(...values: any[]) { return values[0]; } box[key('define')] = surface.flow; box.define('rest-parameter-local-call-key', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function key({ name }: any) { return name; } box[key({ name: 'define' })] = surface.flow; box.define('object-binding-local-call-key', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function key([skip, ...rest]: any[]) { return rest[0]; } box[key([undefined, 'define'])] = surface.flow; box.define('array-rest-local-call-key', { budget: '$2' }, () => {}); }
       `);
-      expect(scanTypeScript(formalAndReceiverRepairs).invalidFlowHeaders).toHaveLength(55);
+      expect(scanTypeScript(formalAndReceiverRepairs).invalidFlowHeaders).toHaveLength(61);
       const computedBindingCases = [
         `{ const original = 'flow' as const, key = original; const { [key]: define } = surface; define('renamed', { budget: '$2' }, () => {}); }`,
         `{ const { key } = { key: 'flow' as const }; const { [key]: define } = surface; define('binding', { budget: '$2' }, () => {}); }`,
