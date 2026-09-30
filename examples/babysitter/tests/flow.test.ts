@@ -31,7 +31,11 @@ function context(
   let agents = 0;
   const f = { run: async (command: string) => {
     commands.push(command);
-    if (command.includes('--probe-cli')) return JSON.stringify(probe);
+    if (command.includes('--probe-cli')) {
+      const requested = command.match(/--probe-cli '([^']+)'/)?.[1] ?? '';
+      const executable = requested.startsWith('/') ? requested : `/usr/bin/${requested}`;
+      return JSON.stringify({ ...(probe as object), executable });
+    }
     if (command.startsWith('curl ') && command.includes('/check-runs?')) return '{"check_runs":[]}';
     if (command.startsWith('curl ') && command.includes('/status')) return '{"statuses":[]}';
     if (command.startsWith('curl ') && command.includes('/reviews?')) return JSON.stringify([
@@ -57,6 +61,8 @@ test('known first-party harnesses resolve to current explicit model pins', () =>
   );
 });
 test('custom reviewer wrappers require and preserve an explicit model', () => {
+  assert.equal(requiredReviewerModel(' claude '), 'claude-sonnet-5');
+  assert.equal(requiredLegacyReviewerModel(' claude '), 'claude-sonnet-5');
   assert.throws(() => requiredReviewerModel('/opt/custom-wrapper'), /requires reviewerModel/);
   assert.equal(requiredReviewerModel('/opt/custom-wrapper', ' custom-model '), 'custom-model');
   assert.throws(() => requiredReviewerModel('claude', '   '), /non-empty string/);
@@ -95,6 +101,16 @@ test('legacy reviewer probes and dispatches the same resolved wrapper', async ()
   assert.match(x.commands[0]!, new RegExp(executable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.equal(x.agentCalls[0]?.cli, executable);
   assert.equal(x.agentCalls[0]?.model, 'exact-model');
+});
+test('legacy reviewer dispatches the absolute executable bound by the probe', async () => {
+  const body = getFlowDefinition(legacyReviewer).body;
+  const x = context(state, undefined, true);
+  await assert.rejects(
+    body(x.f, { owner: 'acme', repo: 'widgets', number: 7, approvers: '', reviewerCli: 'claude' }),
+    /captured agent dispatch/,
+  );
+  assert.equal(x.agentCalls[0]?.cli, '/usr/bin/claude');
+  assert.equal(x.agentCalls[0]?.model, 'claude-sonnet-5');
 });
 test('blank legacy reviewer overrides fail before GitHub or repository effects', async () => {
   const body = getFlowDefinition(legacyReviewer).body;
@@ -140,6 +156,13 @@ test('modern reviewer readiness fails closed before capture commands are possibl
   assert.match(x.commands[0]!, new RegExp(BABYSITTER_FLOW_DIRECTORY.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.ok(x.commands.every(command => !/mktemp|git clone|git fetch/.test(command)));
   assert.equal(x.agents(), 0);
+});
+test('modern reviewer readiness returns the absolute executable selected by the probe', async () => {
+  const x = context();
+  assert.equal(
+    await assertReviewerPairReady(x.f, 'claude', 'claude-sonnet-5', BABYSITTER_FLOW_DIRECTORY),
+    '/usr/bin/claude',
+  );
 });
 test('approval-only legacy wakes do not probe an unused reviewer pair', async () => {
   const body = getFlowDefinition(legacyReviewer).body;

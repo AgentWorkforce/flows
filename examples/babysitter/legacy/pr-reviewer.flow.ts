@@ -111,8 +111,12 @@ const reviewerBody = flow<Input>(
     // Approval-only wakes never dispatch the reviewer. Review wakes still
     // prove the exact pair before their first GitHub or checkout effect.
     const reviewerModel = requiredReviewerModel(reviewerCli, input.reviewerModel);
-    const reviewerExecutable = reviewerExecutableFrom(reviewerCli, LEGACY_REVIEWER_FLOW_DIRECTORY);
-    await assertReviewerPairReady(f, reviewerExecutable, reviewerModel, LEGACY_REVIEWER_FLOW_DIRECTORY);
+    const reviewerExecutable = await assertReviewerPairReady(
+      f,
+      reviewerExecutableFrom(reviewerCli, LEGACY_REVIEWER_FLOW_DIRECTORY),
+      reviewerModel,
+      LEGACY_REVIEWER_FLOW_DIRECTORY,
+    );
 
     // ── review gate: merged/closed, draft, disabling label, author allowlist ──
     const meta = JSON.parse(await api(`/pulls/${pr.number}`)) as PrMeta;
@@ -233,7 +237,7 @@ export function requiredReviewerModel(cli: string, override?: string): string {
   return model;
 }
 
-/** Bind slash-relative wrappers once so the explicit probe and agent step use identical bytes. */
+/** Resolve authored relative wrappers before the probe binds every CLI to an absolute executable. */
 export function reviewerExecutableFrom(cli: string, directory: string): string {
   return cli.includes("/") && !isAbsolute(cli) ? resolve(directory, cli) : cli;
 }
@@ -243,7 +247,7 @@ export async function assertReviewerPairReady(
   cli: string,
   model: string,
   directory: string,
-): Promise<void> {
+): Promise<string> {
   let result;
   try {
     // The SDK serves the same model-scoped probe from the ordinary flows CLI
@@ -260,6 +264,7 @@ export async function assertReviewerPairReady(
       supported?: boolean;
       authenticated?: boolean | "unverified";
       modelAvailable?: boolean;
+      executable?: string;
     };
   } catch (error) {
     throw new Error(`Reviewer CLI/model readiness probe failed: ${(error as Error).message}`);
@@ -272,6 +277,10 @@ export async function assertReviewerPairReady(
   if (result.modelAvailable !== true) {
     throw new Error(`Reviewer model ${JSON.stringify(model)} is unavailable through ${JSON.stringify(cli)}`);
   }
+  if (result.executable === undefined || !isAbsolute(result.executable)) {
+    throw new Error(`Reviewer CLI ${JSON.stringify(cli)} did not bind an absolute executable`);
+  }
+  return result.executable;
 }
 
 function declarationStringError(value: string): string | undefined {

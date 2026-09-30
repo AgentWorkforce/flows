@@ -68,9 +68,13 @@ async function harness(snapshots: Snapshot[], options: {
     const command = step.command;
     commands.push(command);
     if (command.includes('$IMPL_CLOSE_INPUT')) return JSON.stringify(input);
-    if (command.includes('--probe-cli')) return JSON.stringify(options.probe ?? {
-      exists: true, supported: true, authenticated: true, modelAvailable: true,
-    });
+    if (command.includes('--probe-cli')) {
+      const requested = command.match(/--probe-cli '([^']+)'/)?.[1] ?? '';
+      const executable = requested.startsWith('/') ? requested : `/usr/bin/${requested}`;
+      return JSON.stringify({ ...(options.probe ?? {
+        exists: true, supported: true, authenticated: true, modelAvailable: true,
+      }), executable });
+    }
     if (command.includes('git rev-parse HEAD')) return head();
     if (command.includes('gh pr list')) return options.existing ? '[{"number":7}]' : '[]';
     if (command.includes('gh pr create')) return 'https://github.com/acme/repo/pull/7\n';
@@ -135,7 +139,7 @@ describe('close-pr journaled repair loop', () => {
     expect(h.commands.some(command => command.includes('gh pr create'))).toBe(false);
     expect(h.agents()).toHaveLength(1);
     expect(h.agents()[0]).toMatchObject({
-      cli: 'codex', model: 'test-model', instruction: expect.stringContaining('Null access'),
+      cli: '/usr/bin/codex', model: 'test-model', instruction: expect.stringContaining('Null access'),
       surfaces: { workspace: [{ surface: baseInput.worktree }] },
     });
     const push = h.commands.findIndex(command => command.includes('git push --force-with-lease'));
@@ -168,7 +172,7 @@ describe('close-pr journaled repair loop', () => {
       input: { cli, model: undefined },
     });
     expect((await h.execute()).completionReason).toBe('success');
-    expect(h.agents()[0]).toMatchObject({ cli, model });
+    expect(h.agents()[0]).toMatchObject({ cli: `/usr/bin/${cli}`, model });
   }, 15_000);
 
   it('requires an explicit model for a custom repair wrapper', () => {

@@ -92,8 +92,12 @@ export default flow<unknown>('close-pr', async (f, supplied) => {
     if (!repairPair) {
       const authoredCli = input.cli ?? 'codex';
       const model = requiredRepairModel(authoredCli, input.model);
-      const cli = executableFrom(authoredCli, input.worktree);
-      await assertRepairPairReady(f, cli, model, input.worktree);
+      const cli = await assertRepairPairReady(
+        f,
+        executableFrom(authoredCli, input.worktree),
+        model,
+        input.worktree,
+      );
       repairPair = { cli, model };
     }
     const { cli: repairCli, model: repairModel } = repairPair;
@@ -132,7 +136,7 @@ export function requiredRepairModel(cli: string, override?: string): string {
   return model;
 }
 
-/** Resolve slash-relative wrappers exactly as the readiness probe does. */
+/** Resolve authored relative wrappers before the probe binds every CLI to an absolute executable. */
 export function executableFrom(cli: string, directory: string): string {
   return cli.includes('/') && !isAbsolute(cli) ? resolve(directory, cli) : cli;
 }
@@ -142,7 +146,7 @@ export async function assertRepairPairReady(
   cli: string,
   model: string,
   directory: string,
-): Promise<void> {
+): Promise<string> {
   let result;
   try {
     const runtime = process.argv[1];
@@ -156,6 +160,7 @@ export async function assertRepairPairReady(
       supported?: boolean;
       authenticated?: boolean | 'unverified';
       modelAvailable?: boolean;
+      executable?: string;
     };
   } catch (error) {
     throw new Error(`Repair CLI/model readiness probe failed: ${(error as Error).message}`);
@@ -170,4 +175,8 @@ export async function assertRepairPairReady(
   if (result.modelAvailable !== true) {
     throw new Error(`Repair model ${JSON.stringify(model)} is unavailable through ${JSON.stringify(cli)}`);
   }
+  if (result.executable === undefined || !isAbsolute(result.executable)) {
+    throw new Error(`Repair CLI ${JSON.stringify(cli)} did not bind an absolute executable`);
+  }
+  return result.executable;
 }

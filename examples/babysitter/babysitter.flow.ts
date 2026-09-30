@@ -71,9 +71,14 @@ export async function babysitConfigured(f: Ctx, c: Config, wake: Wake, deliveryI
     await report(f, 'Babysitter review blocked: enforce agent workspace and credential scopes (gate 8 / #442) before running untrusted PR content.');
     return f.done('needs_human');
   }
-  const reviewerCli = reviewerExecutableFrom(c.reviewerCli ?? 'claude', BABYSITTER_FLOW_DIRECTORY);
-  const reviewerModel = requiredReviewerModel(c.reviewerCli ?? 'claude', c.reviewerModel);
-  await assertReviewerPairReady(f, reviewerCli, reviewerModel, BABYSITTER_FLOW_DIRECTORY);
+  const authoredReviewerCli = c.reviewerCli ?? 'claude';
+  const reviewerModel = requiredReviewerModel(authoredReviewerCli, c.reviewerModel);
+  const reviewerCli = await assertReviewerPairReady(
+    f,
+    reviewerExecutableFrom(authoredReviewerCli, BABYSITTER_FLOW_DIRECTORY),
+    reviewerModel,
+    BABYSITTER_FLOW_DIRECTORY,
+  );
   const dir = await capture(f, c, live, head);
   await Promise.all(lenses.map(lens => reviewLens(f, c, dir, head, lens, reviewerCli, reviewerModel)));
   await assertUntouched(f, dir, head);
@@ -123,16 +128,17 @@ export function generatedModelForCli(cli: string): string | undefined {
 
 /** Custom wrappers have no adapter default, so their operator must pin a model. */
 export function requiredReviewerModel(cli: string, override?: string): string {
-  const cliProblem = declarationStringError(cli.trim());
+  const normalizedCli = cli.trim();
+  const cliProblem = declarationStringError(normalizedCli);
   if (cliProblem !== undefined) throw new Error(`Invalid reviewer CLI: ${cliProblem}`);
-  const model = override === undefined ? generatedModelForCli(cli) : override.trim();
+  const model = override === undefined ? generatedModelForCli(normalizedCli) : override.trim();
   if (model === undefined) throw new Error(`Custom reviewer CLI ${JSON.stringify(cli)} requires reviewerModel`);
   const modelProblem = declarationStringError(model);
   if (modelProblem !== undefined) throw new Error(`Invalid reviewer model: ${modelProblem}`);
   return model;
 }
 
-/** Bind slash-relative wrappers once so readiness and dispatch use identical bytes. */
+/** Resolve authored relative wrappers before the probe binds every CLI to an absolute executable. */
 export function reviewerExecutableFrom(cli: string, directory: string): string {
   return cli.includes('/') && !isAbsolute(cli) ? resolve(directory, cli) : cli;
 }
@@ -142,7 +148,7 @@ export async function assertReviewerPairReady(
   cli: string,
   model: string,
   directory: string,
-): Promise<void> {
+): Promise<string> {
   let result;
   try {
     const runtime = process.argv[1];
@@ -155,6 +161,7 @@ export async function assertReviewerPairReady(
       supported?: boolean;
       authenticated?: boolean | 'unverified';
       modelAvailable?: boolean;
+      executable?: string;
     };
   } catch (error) {
     throw new Error(`Reviewer CLI/model readiness probe failed: ${(error as Error).message}`);
@@ -167,6 +174,10 @@ export async function assertReviewerPairReady(
   if (result.modelAvailable !== true) {
     throw new Error(`Reviewer model ${JSON.stringify(model)} is unavailable through ${JSON.stringify(cli)}`);
   }
+  if (result.executable === undefined || !isAbsolute(result.executable)) {
+    throw new Error(`Reviewer CLI ${JSON.stringify(cli)} did not bind an absolute executable`);
+  }
+  return result.executable;
 }
 // The resident subscription contract is declared once, in subscriptions.ts, and
 // registered from that declaration. A handler cannot drift from the set the

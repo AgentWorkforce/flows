@@ -87,7 +87,7 @@ function* probeSequence(
   // the headless wrapper protocol; do not demand that protocol from Gemini,
   // Cursor, OpenCode, or other interactive tools. Never invent an auth pass.
   if (execution === 'managed' && kind === 'relayflows-wrapper-v1') {
-    return { exists: true, supported: true, authenticated: 'unverified' };
+    return { exists: true, supported: true, authenticated: 'unverified', executable };
   }
   const environment = execution === 'managed'
     ? { ...brokerEnvironment(process.env), ...agentEnvironment(executable) } : process.env;
@@ -108,6 +108,7 @@ function* probeSequence(
       exists: true,
       supported: true,
       authenticated: (yield probe(auth)).status === 0,
+      executable,
       authCommand,
     };
   }
@@ -124,6 +125,7 @@ function* probeSequence(
       supported: true,
       authenticated: true,
       modelAvailable: true,
+      executable,
       authCommand,
       modelCommand,
     };
@@ -143,6 +145,7 @@ function* probeSequence(
     supported: true,
     authenticated,
     modelAvailable: false,
+    executable,
     authCommand,
     modelCommand,
     modelExitCode: scopedProbe.status,

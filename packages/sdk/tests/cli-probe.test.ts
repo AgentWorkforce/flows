@@ -31,9 +31,26 @@ it('serves the exact model-scoped probe from the sealed authored runtime utility
     supported: true,
     authenticated: true,
     modelAvailable: true,
+    executable: path,
   });
   await expect(authoredNodeUtility(['--probe-cli', path])).rejects.toThrow('requires exactly');
   await expect(authoredNodeUtility(['ordinary-authored-start'])).resolves.toBeUndefined();
+});
+
+it('returns the absolute executable selected for a bare CLI name', async () => {
+  const { path, directory } = wrapper(identify + 'process.exit(0)');
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${directory}:${previousPath ?? ''}`;
+  try {
+    await expect(probeCliAsync('wrapper', directory, 'exact-model')).resolves.toMatchObject({
+      exists: true,
+      executable: path,
+      modelAvailable: true,
+    });
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+  }
 });
 
 it('routes the exact model-scoped probe through the ordinary Node CLI entry', async () => {
@@ -50,6 +67,7 @@ it('routes the exact model-scoped probe through the ordinary Node CLI entry', as
     supported: true,
     authenticated: true,
     modelAvailable: true,
+    executable: path,
   });
 });
 

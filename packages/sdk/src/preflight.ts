@@ -35,6 +35,8 @@ export interface CliResolution {
 export interface CliProbeResult {
   exists: boolean;
   authenticated: boolean | 'unverified';
+  /** Absolute executable selected once for both this probe and later dispatch. */
+  executable?: string;
   /** False when a custom executable did not identify as a wrapper adapter. */
   supported?: boolean;
   /** Exact declared model passed the CLI's model-scoped readiness probe. */
