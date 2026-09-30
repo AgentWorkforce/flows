@@ -125,13 +125,13 @@ export async function runPluginEffect(
       if (dispatchExpired) await cancelChildRun();
       if (outcome.status !== 'completed') await completed;
       if (diagnostic !== undefined) {
-        try { await readCompletedStepOutput(journal, outcome.run_id, id, journalSteps); }
+        try { await readCompletedStepOutput(journal, outcome.run_id, id, journalSteps, {}, outcome.status); }
         catch (error) {
           if (!(error instanceof AuthoredFlowExecutionError) || error.code !== 'step_failed') throw error;
           throw new PluginStepError(diagnostic, outcome.run_id);
         }
       }
-      const receipt = await readCompletedStepOutput(journal, outcome.run_id, id, journalSteps) as { output: unknown };
+      const receipt = await readCompletedStepOutput(journal, outcome.run_id, id, journalSteps, {}, outcome.status) as { output: unknown };
       return receipt.output;
     }, admissionKey), deadline]);
   } finally {

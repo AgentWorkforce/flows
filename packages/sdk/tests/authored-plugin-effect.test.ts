@@ -26,7 +26,8 @@ function fixture() {
     runStart: vi.fn(async (spec: any) => { started.resolve(spec); return { run_id: 'plugin-run' }; }),
     runCancel: vi.fn(async () => {}),
     journalRead: vi.fn(async () => ({ entries: [{ entry_type: 'step.completed', step_id: 'plugin-1',
-      payload: { completionReason: 'success', output: { type: 'effect', output: { ok: true } } } }] })),
+      payload: { completionReason: 'success', output: { type: 'effect', output: { ok: true } } } },
+      { entry_type: 'run.completed', payload: { completionReason: 'success' } }] })),
   };
   const plugin = readPlugin(resolve('../../testdata/plugins/helper-datadog'), '@flows/helper-datadog');
   const run = () => runPluginEffect(journal as unknown as JournalClient, 'test', 'plugin-1', plugin,

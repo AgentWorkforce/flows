@@ -992,7 +992,7 @@ async function inspectOutOfBandStep(
 }
 
 // Match kernel/relayflowd/src/server/client.rs: allow the lease sweep to dispatch a retry.
-const LEASE_SWEEP_GRACE_MS = 5_000;
+export const LEASE_SWEEP_GRACE_MS = 5_000;
 
 async function waitForRunningStep(
   client: JournalClient,
@@ -1093,7 +1093,7 @@ function throwIfCanceled(signal: AbortSignal | undefined, stepId: string): void 
   if (signal?.aborted === true) throw new Error(`waiting for running step "${stepId}" was canceled`);
 }
 
-function delay(ms: number, signal?: AbortSignal): Promise<void> {
+export function delay(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolveDelay, rejectDelay) => {
     const finish = (): void => {
       signal?.removeEventListener('abort', cancel);
