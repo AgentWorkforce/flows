@@ -112,9 +112,9 @@ describe('flows status', () => {
       v: 1, run_id: RUN_ID, name: 'journal-close-repro', status: 'completed', completion_reason: 'success',
       spawned_at_ms: EVENTS[0]!.at_ms, now_ms: T_END + 60_000, this_step: null, partial: [],
       spend: { tokens_in: 0, tokens_out: 0, dollars: '0', dollars_unmetered: false },
-      // This journal predates reported_cost, and its steps metered nothing:
-      // no model ran, so $0 is the complete answer rather than a lower bound.
-      reported_cost: { dollars: '0', complete: true, source: null },
+      // This journal predates reported_cost: its agent step reported nothing,
+      // so the total is a lower bound rather than a measured $0.
+      reported_cost: { dollars: '0', complete: false, source: null },
       counts: { total: 3, done: 3, running: 0, pending: 0, backoff: 0, waiting: 0, needs_human: 0 },
     });
     expect(view.steps).toHaveLength(3);

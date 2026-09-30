@@ -325,7 +325,7 @@ describe('foldRunState', () => {
     expect(view.spend.dollars).toBe('0.002');
   });
 
-  it('counts steps where no model ran as free: memoized reuse, and agent steps that metered nothing', () => {
+  it('counts only steps known to run no model as free: shell steps and memoized reuse', () => {
     const view = foldRunState(journal(
       spawned,
       completed('fetch', 1, T0 + 1000, {}),
@@ -333,14 +333,31 @@ describe('foldRunState', () => {
       completed('analyze', 1, T0 + 2000, {
         reused_from: { run_id: 'old', step_id: 'analyze', seq: 7 }, completed_by: 'kernel:reuse',
       }),
-      // An agent-typed step that called no model (authored root, helper) meters nothing.
-      completed('post', 1, T0 + 3000, {}),
-    ), T0 + 4000);
-    expect(view.steps.map((step) => step.reported_cost)).toEqual([
-      { dollars: '0', complete: true, source: null },
+    ), T0 + 3000);
+    expect(view.steps.slice(0, 2).map((step) => step.reported_cost)).toEqual([
       { dollars: '0', complete: true, source: null },
       { dollars: '0', complete: true, source: null },
     ]);
+    expect(view.reported_cost).toEqual({ dollars: '0', complete: true, source: null });
+  });
+
+  it('does not take a zero budget as proof no model ran: a recovered agent attempt stays unknown', () => {
+    // Crash recovery and cancellation journal a default budget although the model ran.
+    const view = foldRunState(journal(
+      spawned,
+      completed('fetch', 1, T0 + 1000, {}),
+      completed('analyze', 1, T0 + 2000, { completionReason: 'crashed', disposition: 'retry', next_attempt_at_ms: T0 + 3000, completed_by: 'kernel' }),
+    ), T0 + 4000);
+    expect(view.steps[1]!.reported_cost).toEqual({ dollars: '0', complete: false, source: null });
+    expect(view.reported_cost.complete).toBe(false);
+  });
+
+  it('counts the authored root as free: its model calls are child runs', () => {
+    const rootSpec = { name: 'authored', steps: [{ id: 'authored-root', type: 'agent', depends_on: [], max_iterations: 1 }] };
+    const view = foldRunState(journal(
+      { entry_type: 'run.spawned', payload: { spec: rootSpec, spec_hash: 'h', parent_run_id: null, journal_version: 1, created_by: 't' } },
+      completed('authored-root', 1, T0 + 1000, {}),
+    ), T0 + 2000);
     expect(view.reported_cost).toEqual({ dollars: '0', complete: true, source: null });
   });
 
