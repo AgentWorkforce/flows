@@ -89,9 +89,10 @@ function staticPropertySegment(
   }
   const assigned = assignedSources(symbol, checker)
     .filter(source => source.path.length === 0)
-    .map(source => staticPropertySegment(source.initializer, checker, new Set(nextSeen)))
-    .filter((value): value is BindingPathSegment => value !== undefined);
-  if (assigned.length > 0 && assigned.every(value => value === assigned[0])) return assigned[0];
+    .map(source => staticPropertySegment(source.initializer, checker, new Set(nextSeen)));
+  const firstAssigned = assigned[0];
+  if (firstAssigned !== undefined
+    && assigned.every(value => value !== undefined && value === firstAssigned)) return firstAssigned;
   const declaration = symbol.declarations?.find(ts.isVariableDeclaration);
   if (!declaration?.initializer || !ts.isVariableDeclarationList(declaration.parent)
     || (declaration.parent.flags & ts.NodeFlags.Const) === 0) return undefined;

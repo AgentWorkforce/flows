@@ -289,6 +289,14 @@ function workerCallable(
     const receiver = memberReceiver(expression);
     return { method: direct, args: [], auditable: receiver ? receiverAuditable(receiver, checker) : false };
   }
+  if (ts.isElementAccessExpression(expression) && direct === undefined) {
+    const receiver = expression.expression;
+    const type = checker.getTypeAtLocation(receiver);
+    const method = type.getProperty('agent') ? 'agent' : type.getProperty('llm') ? 'llm' : undefined;
+    if (method && receiverAuditable(receiver, checker)) {
+      return { method, args: [], auditable: false };
+    }
+  }
   if (ts.isCallExpression(expression)
     && memberName(expression.expression, checker, new Set(seen)) === 'bind') {
     const receiver = memberReceiver(expression.expression);

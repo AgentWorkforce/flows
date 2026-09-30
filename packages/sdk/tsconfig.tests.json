@@ -54,6 +54,7 @@
     "tests/named-gate-journal.test.ts",
     "tests/build-gate.test.ts",
     "tests/scope-preflight.test.ts",
+    "tests/shipped-source-flow-provenance-repairs.test.ts",
     "tests/shipped-source-model-provenance.test.ts",
     "tests/shipped-source-models.test.ts",
     "tests/shipped-source-worker-invocations.test.ts",

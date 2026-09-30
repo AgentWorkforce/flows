@@ -4,29 +4,14 @@ import {
   bindingSource,
   type BindingPathSegment,
 } from './shipped-source-binding-provenance.js';
+import {
+  canonicalArrayIndex,
+  unwrapExpression as unwrap,
+  wrappedExpressionBranches,
+} from './shipped-source-expression-values.js';
 import { returnedExpressions } from './shipped-source-return-values.js';
 
-export function wrappedExpressionBranches(expression: ts.Expression): readonly ts.Expression[] | undefined {
-  expression = unwrap(expression);
-  if (ts.isConditionalExpression(expression)) return [expression.whenTrue, expression.whenFalse];
-  if (ts.isBinaryExpression(expression)
-    && (expression.operatorToken.kind === ts.SyntaxKind.CommaToken
-      || expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
-      || expression.operatorToken.kind === ts.SyntaxKind.BarBarToken
-      || expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)) {
-    return [expression.left, expression.right];
-  }
-  return ts.isAwaitExpression(expression) ? [expression.expression] : undefined;
-}
-
-function unwrap(expression: ts.Expression): ts.Expression {
-  while (ts.isParenthesizedExpression(expression)
-    || ts.isAsExpression(expression)
-    || ts.isSatisfiesExpression(expression)
-    || ts.isNonNullExpression(expression)
-    || ts.isTypeAssertionExpression(expression)) expression = expression.expression;
-  return expression;
-}
+export { wrappedExpressionBranches } from './shipped-source-expression-values.js';
 
 function propertyName(
   name: ts.PropertyName | undefined,
@@ -41,11 +26,6 @@ function propertyName(
     ? staticPropertySegment(name.expression, checker, new Set(seen))
     : undefined;
   return segment === undefined ? undefined : String(segment);
-}
-
-function canonicalArrayIndex(segment: BindingPathSegment): number | undefined {
-  if (typeof segment === 'number') return Number.isInteger(segment) && segment >= 0 ? segment : undefined;
-  return /^(?:0|[1-9]\d*)$/u.test(segment) ? Number(segment) : undefined;
 }
 
 export function staticPropertySegment(
@@ -78,20 +58,24 @@ export function staticPropertySegment(
         .map(value => ({ value })),
       ...bindingDefaultValues(source, checker, new Set(seen)),
     ].filter((value): value is { value: ts.Expression } => value !== undefined)
-      .map(value => staticPropertySegment(value.value, checker, new Set(seen)))
-      .filter((value): value is BindingPathSegment => value !== undefined) : [];
-    if (values.length > 0 && values.every(value => value === values[0])) return values[0];
+      .map(value => staticPropertySegment(value.value, checker, new Set(seen))) : [];
+    const first = values[0];
+    if (first !== undefined
+      && values.every(value => value !== undefined && value === first)) return first;
   }
   const preceding = assignedSources(symbol, checker)
     .filter(source => !source.rest && source.initializer.getStart() < expression.getStart());
-  const assigned = preceding
-    .flatMap(source => source.path.length === 0
-      ? [{ value: source.initializer }]
-      : aggregateValuesAtPath(source.initializer, source.path, checker, new Set(seen))
-        .map(value => ({ value })))
-    .map(value => staticPropertySegment(value.value, checker, new Set(seen)))
-    .filter((value): value is BindingPathSegment => value !== undefined);
-  if (assigned.length > 0 && assigned.every(value => value === assigned[0])) return assigned[0];
+  const assigned = preceding.flatMap(source => {
+    const values = source.path.length === 0
+      ? [source.initializer]
+      : aggregateValuesAtPath(source.initializer, source.path, checker, new Set(seen));
+    return values.length > 0
+      ? values.map(value => staticPropertySegment(value, checker, new Set(seen)))
+      : [undefined];
+  });
+  const firstAssigned = assigned[0];
+  if (firstAssigned !== undefined
+    && assigned.every(value => value !== undefined && value === firstAssigned)) return firstAssigned;
   const declaration = symbol.declarations?.find(ts.isVariableDeclaration);
   if (!declaration?.initializer || !ts.isVariableDeclarationList(declaration.parent)
     || (declaration.parent.flags & ts.NodeFlags.Const) === 0) return undefined;
@@ -239,8 +223,19 @@ export function objectMemberValue(
   }
   const parent = aggregateExpressionValue(expression, checker, seen);
   if (!parent) return undefined;
-  const value = objectMemberValue(parent.value, name, checker, seen);
-  return value && !parent.auditable ? { ...value, auditable: false } : value;
+  const values = [parent.value, ...(parent.alternatives ?? [])].flatMap(candidate => {
+    const value = objectMemberValue(candidate, name, checker, new Set(seen));
+    return value ? [value] : [];
+  });
+  const [value, ...alternatives] = values;
+  return value ? {
+    ...value,
+    auditable: parent.auditable && alternatives.length === 0 ? value.auditable : false,
+    alternatives: [
+      ...(value.alternatives ?? []),
+      ...alternatives.flatMap(candidate => [candidate.value, ...(candidate.alternatives ?? [])]),
+    ],
+  } : undefined;
 }
 
 export function aggregateValueAtPath(

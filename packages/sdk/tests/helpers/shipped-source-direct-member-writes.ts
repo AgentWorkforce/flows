@@ -15,6 +15,7 @@ import { localCallTargetPaths } from './shipped-source-local-call-targets.js';
 import { staticPropertySegments } from './shipped-source-static-property-segments.js';
 
 interface DirectMemberAssignedSource {
+  dynamic?: true;
   initializer: ts.Expression;
   path: BindingPathSegment[];
   sourcePath: BindingPathSegment[];
@@ -214,13 +215,26 @@ function sourcesAtTarget(
 ): IndexedDirectMemberAssignedSource[] {
   target = unwrap(target);
   const members = directWriteMemberPaths(target, checker).filter(member => member.path.length > 0);
-  if (members.length > 0) {
-    return members.map(member => ({
-      initializer: value,
-      path: member.path,
-      sourcePath,
-      symbol: member.symbol,
-    }));
+  const dynamicParents = ts.isElementAccessExpression(target) && target.argumentExpression
+    && staticPropertySegment(target.argumentExpression, checker, new Set()) === undefined
+    ? directMemberPaths(target.expression, checker)
+    : [];
+  if (members.length > 0 || dynamicParents.length > 0) {
+    return [
+      ...members.map(member => ({
+        initializer: value,
+        path: member.path,
+        sourcePath,
+        symbol: member.symbol,
+      })),
+      ...dynamicParents.map(parent => ({
+        dynamic: true as const,
+        initializer: value,
+        path: parent.path,
+        sourcePath,
+        symbol: parent.symbol,
+      })),
+    ];
   }
   if (ts.isBinaryExpression(target) && target.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
     return [
@@ -336,6 +350,9 @@ export function directAssignedMemberValues(
           );
       if (!sourceValue) return [];
       let remainder = target.path.slice(source.path.length);
+      if (source.dynamic) return remainder.length === 1
+        ? [{ value: sourceValue.value, auditable: false as const }]
+        : [];
       if (source.rest?.kind === 'object') {
         const name = remainder[0];
         if (name === undefined || source.rest.excluded.includes(String(name))) return [];

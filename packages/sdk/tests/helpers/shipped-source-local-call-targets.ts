@@ -114,6 +114,11 @@ function valuesAtPath(
   checker: ts.TypeChecker,
   seen: Set<ts.Symbol>,
 ): ts.Expression[] {
+  expression = unwrap(expression);
+  if (ts.isCallExpression(expression)) {
+    const resolved = localCallValueCandidates(expression, checker, seen, path);
+    if (resolved) return resolved.candidates.map(candidate => candidate.expression);
+  }
   let values = [expression];
   for (const segment of path) {
     values = values.flatMap(value => {

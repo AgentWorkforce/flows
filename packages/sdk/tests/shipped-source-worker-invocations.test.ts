@@ -366,10 +366,13 @@ describe('shipped-source worker invocation resolution', () => {
         { const box: any = {}; function key(value: any) { return value; } box[key({ name: 'run' }).name] = f.agent; box.run('review', { task: 'x' }); }
         { const box: any = {}; function key({ skip, ...rest }: any) { return rest; } box[key({ skip: 0, name: 'run' }).name] = f.agent; box.run('review', { task: 'x' }); }
         { const box: any = {}; function key([skip, ...rest]: any[]) { return rest; } box[key([0, 'run'])[0]] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; function id(value: any) { return value; } box[id(id({ name: 'run' })).name] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; const source = flag ? { key: 'other' as const } : { key: runtimeKey }; declare const runtimeKey: string; const { key } = source; box[key] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; const captured = flag ? { keys: { value: 'other' as const } } : { keys: { value: 'run' as const } }; function get() { return captured.keys; } box[get().value] = f.agent; box.run('review', { task: 'x' }); }
       `);
       const formalAndReceiverResult = scanTypeScript(formalAndReceiverRepairs);
-      expect(formalAndReceiverResult.calls).toBe(79);
-      expect(formalAndReceiverResult.missing).toHaveLength(79);
+      expect(formalAndReceiverResult.calls).toBe(82);
+      expect(formalAndReceiverResult.missing).toHaveLength(82);
 
       const recursiveLocalCallKey = join(directory, 'recursive-local-call-key.flow.ts');
       writeFileSync(recursiveLocalCallKey, `
@@ -379,7 +382,9 @@ describe('shipped-source worker invocation resolution', () => {
         box[key('run')] = f.agent;
         box.run('review', { task: 'x' });
       `);
-      expect(scanTypeScript(recursiveLocalCallKey).calls).toBe(0);
+      const recursiveLocalCallKeyResult = scanTypeScript(recursiveLocalCallKey);
+      expect(recursiveLocalCallKeyResult.calls).toBe(1);
+      expect(recursiveLocalCallKeyResult.missing).toHaveLength(1);
 
       const unresolvedComputedBinding = join(directory, 'unresolved-computed-binding.flow.ts');
       writeFileSync(unresolvedComputedBinding, `
@@ -394,6 +399,19 @@ describe('shipped-source worker invocation resolution', () => {
       const unresolvedComputedBindingResult = scanTypeScript(unresolvedComputedBinding);
       expect(unresolvedComputedBindingResult.calls).toBe(1);
       expect(unresolvedComputedBindingResult.missing).toHaveLength(1);
+
+      const unresolvedAssignedKey = join(directory, 'unresolved-assigned-key.flow.ts');
+      writeFileSync(unresolvedAssignedKey, `
+        declare const f: { agent(name: string, options: { task: string }): void };
+        declare const flag: boolean, other: string;
+        let key: string;
+        key = 'agent';
+        if (flag) key = other;
+        f[key]('review', { task: 'x' });
+      `);
+      const unresolvedAssignedKeyResult = scanTypeScript(unresolvedAssignedKey);
+      expect(unresolvedAssignedKeyResult.calls).toBe(1);
+      expect(unresolvedAssignedKeyResult.missing).toHaveLength(1);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `
