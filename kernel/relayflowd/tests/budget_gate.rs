@@ -532,3 +532,38 @@ fn a_malformed_reported_cost_is_refused() {
         .unwrap_err();
     assert!(error.to_string().contains("reported_cost"), "{error}");
 }
+
+#[test]
+fn a_no_model_cost_must_be_zero() {
+    let dir = tempfile::tempdir().unwrap();
+    let worker = Arc::new(Worker::default());
+    let engine = Engine::with_runtime(dir.path(), worker.clone(), worker.clone());
+    let spec =
+        RunSpec::parse(&json!({"steps":[{"id":"first","type":"llm","prompt":"a"}]})).unwrap();
+    let started = engine.start(spec, "test", None).unwrap();
+    let d = worker.0.lock().unwrap()[0].clone();
+    let completion = |dollars: &str| OutOfBandCompletion {
+        human_intervention: false,
+        attempt: d.attempt,
+        idempotency_key: d.idempotency_key.clone(),
+        completion_reason: CompletionReason::Success,
+        output: json!("a"),
+        budget: Budget::default(),
+        completed_by: "mock".into(),
+        started_pins: None,
+        end_pins: None,
+        effects: vec![],
+        trajectory_tail: None,
+        reported_cost: Some(ReportedCost {
+            dollars: dollars.into(),
+            source: ReportedCostSource::NoModel,
+        }),
+    };
+    let error = engine
+        .complete_out_of_band(&started.run_id, "first", completion("5"))
+        .unwrap_err();
+    assert!(error.to_string().contains("no_model"), "{error}");
+    engine
+        .complete_out_of_band(&started.run_id, "first", completion("0.000000"))
+        .unwrap();
+}

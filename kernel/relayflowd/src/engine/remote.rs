@@ -144,6 +144,14 @@ impl Engine<WallClock> {
         {
             bail!("step completion reported_cost.dollars must be a non-negative decimal string");
         }
+        // `no_model` asserts nothing ran that could cost money; a non-zero
+        // amount contradicts it and would be dropped by every reader.
+        if let Some(cost) = &completion.reported_cost
+            && cost.source == relayflowd_core::ReportedCostSource::NoModel
+            && cost.dollars.bytes().any(|b| b.is_ascii_digit() && b != b'0')
+        {
+            bail!("step completion reported_cost.source no_model must carry zero dollars");
+        }
         let mut journal = self.open_run(run_id)?;
         let spec = journal.run_spec().context("read run spec")?;
         let state = self.load_state(&journal, spec.clone())?;
