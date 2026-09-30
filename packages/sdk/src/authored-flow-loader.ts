@@ -100,6 +100,18 @@ export async function loadAuthoredFlow(path: string, options: LoadAuthoredFlowOp
         }
         dependencies.push(child.path);
       }
+      const childNames = new Set<string>();
+      for (const path of dependencies) {
+        const child = loaded.get(path)!;
+        const name = child.getDefinition(child.handle).name;
+        if (childNames.has(name)) {
+          throw new AuthoredFlowLoadError(
+            `Flow "${absolutePath}" declares two direct use children named "${name}".`,
+            'use_invalid',
+          );
+        }
+        childNames.add(name);
+      }
       const node = Object.freeze({ path: absolutePath, handle, getDefinition, surfaceAuthority, use: Object.freeze(dependencies) });
       loaded.set(absolutePath, node);
       return node;

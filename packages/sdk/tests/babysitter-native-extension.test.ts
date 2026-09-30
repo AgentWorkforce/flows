@@ -108,7 +108,7 @@ async function handle(eventType: string, input: unknown, f: Ctx) {
 describe('native Babysitter extension', () => {
   it('composes onto Software Factory with exactly the declared, deliverable subscriptions', async () => {
     const { loaded, extension, base, hostedRuntime } = installed;
-    expect(base).toEqual({ name: 'software-factory', version: '2.0.22' });
+    expect(base).toEqual({ name: 'software-factory', version: '2.0.23' });
     expect(hostedRuntime.base).toEqual(base);
     expect(extension.manifest.permissions).toEqual({
       integrations: ['github'], harnesses: ['codex'], mcp: [], writes: ['cloud:babysitter-turn'],
@@ -277,7 +277,7 @@ describe('native Babysitter extension', () => {
       prototype.update = function poisonedUpdate() { poisonCalls += 1; return this; } as typeof prototype.update;
       prototype.digest = (() => {
         poisonCalls += 1;
-        return '49c993220b9c34fab2d4b0e51911656f62b8b657f534d988691960d45bb9d9b6';
+        return '8bbcf0e42f47d6bc6491a129935f96b791be03c8a5ed5b73d651c4e77913e2d7';
       }) as typeof prototype.digest;
       await expect(loadHostedExtensionRuntime(racing.flowPath))
         .rejects.toMatchObject({ code: 'plugin_source_invalid' });

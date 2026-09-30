@@ -51,6 +51,28 @@ describe('WorkerSlots', () => {
     expect(started).toEqual(['a']);
   });
 
+  it('closing one scope leaves sibling and later pool admissions available', async () => {
+    const slots = new WorkerSlots(1);
+    const child = slots.scope();
+    const sibling = slots.scope();
+    const gate = deferred();
+    const started: string[] = [];
+    const holder = slots.run(async () => { started.push('holder'); await gate.promise; });
+    const childQueued = child.run(async () => { started.push('child'); });
+    const siblingQueued = sibling.run(async () => { started.push('sibling'); return 'sibling'; });
+    await Promise.resolve();
+
+    const reason = new Error('child failed');
+    child.close(reason);
+    await expect(childQueued).rejects.toBe(reason);
+    await expect(child.run(async () => undefined)).rejects.toBe(reason);
+    gate.resolve();
+    await holder;
+    expect(await siblingQueued).toBe('sibling');
+    expect(await slots.run(async () => 'later')).toBe('later');
+    expect(started).toEqual(['holder', 'sibling']);
+  });
+
   // The Cursor case on #554: the holder's own rejection fails the body, and
   // that failure reaches close() through microtasks only. A synchronous
   // handoff let the next waiter start before close() could refuse it.

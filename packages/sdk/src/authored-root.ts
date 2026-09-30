@@ -242,6 +242,7 @@ async function driveRoot(
           ...(options.workerCapacity === undefined ? {} : { workerCapacity: options.workerCapacity }),
           rootRunId: dispatch.run_id,
           extensions: loaded.extensions,
+          flowGraph: loaded.graph,
           ...options.lifecycle,
           signal: callerSignal === undefined
             ? rootSignal

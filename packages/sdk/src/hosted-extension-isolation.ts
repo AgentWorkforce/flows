@@ -10,6 +10,7 @@ import {
 import {
   assertHostedInstallationAuthority,
   assertHostedRuntimeAuthority,
+  loadHostedExtensionRuntime,
   type HostedExtensionArtifact,
   type HostedExtensionBase,
   type HostedExtensionInstallation,
@@ -104,7 +105,41 @@ export interface RunHostedExtensionOptions {
   readonly prlimitPath?: string;
 }
 
+export interface RunHostedSoftwareGardenBabysitterOptions
+  extends Omit<RunHostedExtensionOptions, 'installation' | 'base'> {
+  /** Exact reviewed Software Garden source inside its lock-backed project. */
+  readonly flowPath: string;
+}
+
 export type HostedExtensionResult = HostedExtensionProtocolResult;
+
+/**
+ * Compose the canonical Software Garden base with its installed native
+ * Babysitter and execute one host-verified delivery. Base source, extension
+ * declarations, lock entries and stored bytes are captured as one opaque
+ * generation; the capability runner rechecks that generation immediately
+ * before the isolated process starts.
+ *
+ * Hosted callers use this entrypoint instead of the ordinary authored loader,
+ * which imports extension JavaScript in the host and therefore keeps refusing
+ * matched hosted handlers.
+ */
+export async function runHostedSoftwareGardenBabysitter(
+  options: RunHostedSoftwareGardenBabysitterOptions,
+): Promise<HostedExtensionResult> {
+  const runtime = await loadHostedExtensionRuntime(options.flowPath);
+  return await runHostedCapabilityExtension({
+    installation: runtime.installation,
+    base: runtime.base,
+    dispatch: options.dispatch,
+    input: options.input,
+    babysitterTurn: options.babysitterTurn,
+    ...(OBJECT_HAS_OWN(options, 'timeoutMs') ? { timeoutMs: options.timeoutMs } : {}),
+    ...(OBJECT_HAS_OWN(options, 'bubblewrapPath') ? { bubblewrapPath: options.bubblewrapPath } : {}),
+    ...(OBJECT_HAS_OWN(options, 'nodePath') ? { nodePath: options.nodePath } : {}),
+    ...(OBJECT_HAS_OWN(options, 'prlimitPath') ? { prlimitPath: options.prlimitPath } : {}),
+  });
+}
 
 /**
  * Execute a capability-only hosted extension in a Linux mount/PID/network/user
@@ -114,8 +149,9 @@ export type HostedExtensionResult = HostedExtensionProtocolResult;
  * authenticated capability adapter and passes the original branded dispatch
  * authority to that adapter out of band.
  *
- * This is deliberately not wired into executeAuthoredFlow yet. #549's refusal
- * remains the rollout gate until the Cloud adapter and independent review land.
+ * The ordinary authored executor deliberately stays refused: it imports
+ * extension JavaScript in the host. `runHostedSoftwareGardenBabysitter` is the
+ * canonical composition boundary for a hosted Software Garden delivery.
  */
 export async function runHostedCapabilityExtension(
   options: RunHostedExtensionOptions,

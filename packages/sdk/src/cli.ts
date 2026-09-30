@@ -381,6 +381,9 @@ export async function runCli(
         observer?.onRunStarted(run);
         mirror?.onRunStarted(run);
       },
+      ...(mirror === undefined ? {} : {
+        onRunReceipt: (run: { runId: string }) => { mirror.onRunStarted(run); },
+      }),
     }),
     onWait: (progress: RunProgress) => {
       emitWait(progress, logged);

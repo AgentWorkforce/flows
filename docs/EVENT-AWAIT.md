@@ -81,8 +81,8 @@ Verified against `main` at `85e7e372`:
   running a fix step is lost.
 - **The authored `Ctx` has no `on`.** `packages/surface/src/context.ts`
   exposes `human`, `dispatch`, and `done`; `human` lowers to `wait.human`
-  (SURFACE.md §5 *Human gates*); the authored executor still throws
-  `unsupported_verb` for `dispatch`.
+  (SURFACE.md §5 *Human gates*). `dispatch` runs a direct static `use` child;
+  it does not provide the durable buffered event subscription designed here.
 
 ## 3. Surface
 

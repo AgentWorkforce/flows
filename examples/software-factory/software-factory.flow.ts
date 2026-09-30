@@ -28,12 +28,14 @@ const WORK = ".relayflow";
 const PREPARE_CHANGE_METADATA = [
   `if [ ! -s ${WORK}/pr-body.md ]; then echo missing-body; exit 0; fi`,
   `if [ -n "$reference" ] && ! grep -qxF "$reference" ${WORK}/pr-body.md; then printf "\\n%s\\n" "$reference" >> ${WORK}/pr-body.md; fi`,
+  `if [ -n "$scope" ] && ! grep -qxF "$scope" ${WORK}/pr-body.md; then printf "\\n%s\\n" "$scope" >> ${WORK}/pr-body.md; fi`,
   "echo prepared",
 ].join("; ");
 
 // Redundant with the TypeScript checks on purpose: this runs immediately
 // before the first external effect and validates the final title/body bytes.
 const VALIDATE_CHANGE_METADATA = [
+  `if [ -n "$scope" ]; then scope_count=$(grep -cE '^<!-- relayflow-review ' ${WORK}/pr-body.md || true); if [ "$scope_count" -ne 1 ]; then echo malformed-review-scope; exit 0; fi; fi`,
   `if [ ! -s ${WORK}/pr-body.md ]; then echo missing-body`,
   "elif [ -z \"$title\" ]; then echo empty-title",
   "elif ! printf \"%s\\n\" \"$title_length\" | grep -Eq \"^[0-9]+$\"; then echo malformed-title-length",
@@ -57,7 +59,7 @@ const VALIDATE_CHANGE_METADATA = [
 const TEST = 'if [ -f package.json ] && node -e \'p=require("./package.json");process.exit(p.scripts&&p.scripts.test?0:1)\'; then npm ci --no-audit --no-fund && npm test; else echo "no test script; skipping"; fi';
 
 export default flow<Input>("software-factory", {
-  version: "2.0.22",
+  version: "2.0.23",
   hooks: ["pre-implement", "post-review", "merge-gate"],
   budget: { dollars: 10, wallclock: "1h" },
 }, async (f, input) => {
@@ -66,7 +68,7 @@ export default flow<Input>("software-factory", {
     // Parked, not canceled: a body cannot declare a kernel outcome, and the
     // printed reason is what a human reads on the parked run.
     await f.run("echo 'Stopped: no ticket arrived with this run.' >&2");
-    return f.done("needs_human");
+    return f.done("needs_human", { detail: "no ticket arrived; nothing pushed" });
   }
   const normalizedTitle = issue.title.trim().replace(/\s+/g, " ");
   const title = Array.from(normalizedTitle).slice(0, 240).join("").trim();
@@ -78,11 +80,11 @@ export default flow<Input>("software-factory", {
   const issueUrl = typeof issue.url === "string" ? issue.url.trim() : "";
   if (!title || placeholderTitle) {
     await f.run("echo 'Stopped: the pull-request title is empty or still a placeholder.' >&2");
-    return f.done("needs_human");
+    return f.done("needs_human", { detail: "invalid pull-request title; nothing pushed" });
   }
   if (issueSource === "github" && !/^#[1-9]\d*$/.test(issueIdentifier)) {
     await f.run("echo 'Stopped: a GitHub ticket must carry its normalized identifier in #<number> form.' >&2");
-    return f.done("needs_human");
+    return f.done("needs_human", { detail: "malformed GitHub identifier; nothing pushed" });
   }
   // A Linear identifier is the write-back hook: Linear's GitHub integration
   // links the pull request to the issue and moves it on merge when the body
@@ -104,13 +106,23 @@ export default flow<Input>("software-factory", {
           : "";
   const ticket = `${issue.title}\n\n${issue.body ?? ""}${issue.url ? `\n\n${issue.url}` : ""}`;
 
-  const openPullRequest = async (bodyCommand: string, draft: boolean): Promise<boolean> => {
-    await f.run(bodyCommand);
-    await f.run(`reference=${shellWord(changeReference)}; ${PREPARE_CHANGE_METADATA}`);
+  let reviewedHead = "";
+  let publicationFailure = "";
+  const openPullRequest = async (body: (sha: string) => string, draft: boolean, verdict = ""): Promise<boolean> => {
+    reviewedHead = (await f.run("git rev-parse HEAD")).trim();
+    if (!/^[0-9a-f]{40}$/.test(reviewedHead)) {
+      publicationFailure = "could not read the reviewed head commit; nothing pushed";
+      await f.run("echo 'Stopped: could not read the reviewed head commit. Nothing was pushed.' >&2");
+      return false;
+    }
+    const scope = verdict ? `<!-- relayflow-review verdict=${verdict} reviewed-head=${reviewedHead} -->` : "";
+    await f.run(body(reviewedHead));
+    await f.run(`reference=${shellWord(changeReference)}; scope=${shellWord(scope)}; ${PREPARE_CHANGE_METADATA}`);
     const metadata = (await f.run(
-      `title=${shellWord(title)}; title_length=${titleLength}; source=${shellWord(issueSource)}; identifier=${shellWord(issueIdentifier)}; ${VALIDATE_CHANGE_METADATA}`,
+      `title=${shellWord(title)}; scope=${shellWord(scope)}; title_length=${titleLength}; source=${shellWord(issueSource)}; identifier=${shellWord(issueIdentifier)}; ${VALIDATE_CHANGE_METADATA}`,
     )).trim();
     if (metadata !== "valid") {
+      publicationFailure = `invalid pull-request metadata (${metadata}); nothing pushed`;
       await f.run(`echo ${shellWord(`Stopped: invalid pull-request metadata (${metadata}). No branch was pushed and no pull request was opened.`)} >&2`);
       return false;
     }
@@ -119,12 +131,18 @@ export default flow<Input>("software-factory", {
     return true;
   };
 
+  const draftBody = (heading: string, review = false, unverified = false) => (sha: string): string =>
+    `sha=${shellWord(sha)}; { cat ${WORK}/summary.md; printf '\\n\\n## %s at %s\\n\\n' ${shellWord(heading)} "$sha"; ` +
+    (unverified ? `printf '%s\\n' 'No defect claimed. Verification could not run:'; cat ${WORK}/review.unverified; printf '\\n'; ` : "") +
+    `printf '%s\\n\\n' 'This verdict covers this commit only; a new head supersedes it and requires a new review.'; ` +
+    (review ? `cat ${WORK}/review.md; ` : "") + `} > ${WORK}/pr-body.md`;
+
   // Fresh work dir, excluded from git, no leftover verdicts.
   await f.run(`rm -rf ${WORK} && mkdir -p ${WORK} && { grep -qxF '${WORK}/' .git/info/exclude 2>/dev/null || echo '${WORK}/' >> .git/info/exclude; }`);
 
   if (!await f.hook("pre-implement", { title, issue })) {
     await f.run("echo 'Stopped: pre-implement hook refused this ticket.' >&2");
-    return f.done("declined");
+    return f.done("declined", { detail: "pre-implement hook refused this ticket; nothing pushed" });
   }
 
   await f.agent("implementer", {
@@ -141,21 +159,22 @@ export default flow<Input>("software-factory", {
     cli: "claude",
     task: `Review the diff against the base branch as an adversary: find bugs, missing tests, unsafe defaults, and scope creep. ` +
       `Fix what is mechanical and re-run the tests. Write ${WORK}/review.md with your findings, then write ${WORK}/review.passed ` +
-      `ONLY if the change is ready for a human to merge; otherwise write ${WORK}/review.blocked with the blocking findings.`,
+      `ONLY if the change is ready for a human to merge; write ${WORK}/review.blocked with any blocking defects. ` +
+      `If no defect was found but verification cannot run, write a non-empty ${WORK}/review.unverified instead: name the missing prerequisite in both ${WORK}/review.md and ${WORK}/review.unverified. Write exactly one verdict file.`,
   }).gate({ type: "subprocess_gate", command: `test -s ${WORK}/review.md` });
 
   await f.run(TEST, { timeout: "15m" });
 
   if (!await f.hook("post-review", { title })) {
     await f.run("git add -A && (git diff --cached --quiet || git commit -qm 'Software factory: implementation and review fixes')");
-    if (!await openPullRequest(`{ cat ${WORK}/summary.md; printf '\\n\\n## post-review: blocked\\n\\n'; } > ${WORK}/pr-body.md`, true)) {
-      return f.done("needs_human");
+    if (!await openPullRequest(draftBody("post-review: blocked"), true, "post-review-blocked")) {
+      return f.done("needs_human", { detail: publicationFailure });
     }
-    return f.done("step_failed");
+    return f.done("step_failed", { detail: `post-review hook blocked at ${reviewedHead}; draft PR opened` });
   }
 
-  // Passed means exactly one verdict, and it is the pass marker.
-  const verdict = await f.run(`if [ -f ${WORK}/review.passed ] && [ ! -f ${WORK}/review.blocked ]; then echo PASSED; else echo BLOCKED; fi`);
+  // Exactly one verdict is required; silence, contradictions and empty unverified fail closed.
+  const verdict = await f.run(`count=0; for v in blocked unverified passed; do [ -f ${WORK}/review.$v ] && count=$((count+1)); done; if [ "$count" -ne 1 ]; then echo BLOCKED; elif [ -f ${WORK}/review.blocked ]; then echo BLOCKED; elif [ -s ${WORK}/review.unverified ]; then echo UNVERIFIED; elif [ -f ${WORK}/review.passed ]; then echo PASSED; else echo BLOCKED; fi`);
   await f.run("git add -A && (git diff --cached --quiet || git commit -qm 'Software factory: implementation and review fixes')");
 
   // Deterministic step, not an agent decision: the PR is opened either way,
@@ -170,18 +189,26 @@ export default flow<Input>("software-factory", {
       headSha,
     });
     if (!allowed) {
-      if (!await openPullRequest(`{ cat ${WORK}/summary.md; printf '\\n\\n## merge-gate: blocked\\n\\n'; } > ${WORK}/pr-body.md`, true)) {
-        return f.done("needs_human");
+      if (!await openPullRequest(draftBody("merge-gate: blocked"), true, "merge-gate-blocked")) {
+        return f.done("needs_human", { detail: publicationFailure });
       }
-      return f.done("step_failed");
+      return f.done("step_failed", { detail: `merge-gate blocked at ${reviewedHead}; draft PR opened` });
     }
-    if (!await openPullRequest(`cp ${WORK}/summary.md ${WORK}/pr-body.md`, false)) {
-      return f.done("needs_human");
+    if (!await openPullRequest(() => `cp ${WORK}/summary.md ${WORK}/pr-body.md`, false)) {
+      return f.done("needs_human", { detail: publicationFailure });
     }
     return f.done("success");
   }
-  if (!await openPullRequest(`{ cat ${WORK}/summary.md; printf '\\n\\n## Adversarial review: BLOCKED\\n\\n'; cat ${WORK}/review.md; } > ${WORK}/pr-body.md`, true)) {
-    return f.done("needs_human");
+  const unverified = verdict.trim() === "UNVERIFIED";
+  if (!await openPullRequest(
+    draftBody(`Adversarial review: ${unverified ? "NOT VERIFIED" : "BLOCKED"}`, true, unverified),
+    true, unverified ? "unverified" : "blocked",
+  )) {
+    return f.done("needs_human", { detail: publicationFailure });
   }
-  f.done("step_failed");
+  // Unlike pre-publication parking, this needs_human leaves a pushed branch and draft PR.
+  if (unverified) {
+    return f.done("needs_human", { detail: `review could not verify at ${reviewedHead}; draft PR opened, no defect claimed` });
+  }
+  return f.done("step_failed", { detail: `adversarial review blocked at ${reviewedHead}; draft PR opened` });
 });

@@ -67,6 +67,9 @@ const STRING_STARTS_WITH = Function.prototype.call.bind(
 ) as (value: string, search: string) => boolean;
 const LOCK_HEX64 = /^[0-9a-f]{64}$/;
 const LOCK_SHA = /^[0-9a-f]{40}$/;
+// `name` reaches pluginStoreDirectory as a path segment, so it stays one
+// lowercase kebab-case component: no separators, no `.`/`..`, no traversal.
+const LOCK_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const LOCK_OWNER = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
 const LOCK_REPO = /^[A-Za-z0-9_.-]{1,100}$/;
 const HTTPS_GITHUB = /^https:\/\/github\.com\//;
@@ -240,6 +243,7 @@ function parseHostedPluginLock(input: unknown): {
       ]) ||
       entry.kind !== "flow-extension" ||
       typeof entry.name !== "string" ||
+      !REGEXP_TEST(LOCK_NAME, entry.name) ||
       typeof entry.version !== "string" ||
       typeof entry.digest !== "string" ||
       !REGEXP_TEST(LOCK_HEX64, entry.digest) ||

@@ -7,6 +7,16 @@ export function isAgentCapacity(value: unknown): value is number {
   return Number.isInteger(value) && (value as number) >= 1 && (value as number) <= MAX_LOCAL_AGENT_CAPACITY;
 }
 
+export interface WorkerSlotScope {
+  run<T>(work: () => Promise<T>): Promise<T>;
+  /** Refuse this flow's queued/future work without closing the shared pool. */
+  close(reason: unknown): void;
+}
+
+interface ScopeState {
+  closed?: { readonly reason: unknown };
+}
+
 /**
  * First-come admission to a worker that holds `capacity` dispatches at once.
  *
@@ -19,7 +29,11 @@ export function isAgentCapacity(value: unknown): value is number {
  */
 export class WorkerSlots {
   private held = 0;
-  private readonly waiting: Array<{ resolve: () => void; reject: (reason: unknown) => void }> = [];
+  private readonly waiting: Array<{
+    resolve: () => void;
+    reject: (reason: unknown) => void;
+    scope?: ScopeState;
+  }> = [];
   private closed: { readonly reason: unknown } | undefined;
 
   constructor(readonly capacity: number) {
@@ -27,17 +41,36 @@ export class WorkerSlots {
   }
 
   async run<T>(work: () => Promise<T>): Promise<T> {
+    return this.runInScope(work);
+  }
+
+  /** One independently closable admission scope over this shared capacity. */
+  scope(): WorkerSlotScope {
+    const scope: ScopeState = {};
+    return Object.freeze({
+      run: <T>(work: () => Promise<T>) => this.runInScope(work, scope),
+      close: (reason: unknown) => this.closeScope(scope, reason),
+    });
+  }
+
+  private async runInScope<T>(work: () => Promise<T>, scope?: ScopeState): Promise<T> {
     if (this.closed !== undefined) throw this.closed.reason;
+    if (scope?.closed !== undefined) throw scope.closed.reason;
     if (this.held < this.capacity) this.held++;
     // A released slot is handed straight to the next waiter, so `held` never
     // dips below capacity while anyone is queued and no later caller can jump it.
     else {
-      await new Promise<void>((resolve, reject) => this.waiting.push({ resolve, reject }));
+      await new Promise<void>((resolve, reject) => this.waiting.push({ resolve, reject, scope }));
       // Woken with the slot, but the body may have failed in between (see release).
       const closed = this.closedReason();
       if (closed !== undefined) {
         this.release();
         throw closed.reason;
+      }
+      const scopeClosed = scopeClosedReason(scope);
+      if (scopeClosed !== undefined) {
+        this.release();
+        throw scopeClosed.reason;
       }
     }
     try {
@@ -66,15 +99,26 @@ export class WorkerSlots {
       return;
     }
     setImmediate(() => {
-      if (this.closed === undefined) {
+      if (this.closed === undefined && next.scope?.closed === undefined) {
         next.resolve();
         return;
       }
       // Closed meanwhile. `close` could not see this waiter (already taken off
       // the queue), so refuse it here, and pass the slot on instead of leaking it.
-      next.reject(this.closed.reason);
+      next.reject(this.closed?.reason ?? next.scope!.closed!.reason);
       this.release();
     });
+  }
+
+  private closeScope(scope: ScopeState, reason: unknown): void {
+    if (scope.closed !== undefined) return;
+    scope.closed = { reason };
+    for (let index = this.waiting.length - 1; index >= 0; index--) {
+      const waiter = this.waiting[index]!;
+      if (waiter.scope !== scope) continue;
+      this.waiting.splice(index, 1);
+      waiter.reject(reason);
+    }
   }
 
   /**
@@ -89,4 +133,19 @@ export class WorkerSlots {
     this.closed = { reason };
     for (const waiter of this.waiting.splice(0)) waiter.reject(reason);
   }
+}
+
+/** Read through a call so a check after an `await` is not narrowed away. */
+function scopeClosedReason(scope?: ScopeState): { readonly reason: unknown } | undefined {
+  return scope?.closed;
+}
+
+/** One run-tree-wide capacity pool, shared by parent and child flows. */
+export interface AuthoredWorkerSlots {
+  readonly agent: WorkerSlots;
+  readonly llm: WorkerSlots;
+}
+
+export function authoredWorkerSlots(capacity: number): AuthoredWorkerSlots {
+  return Object.freeze({ agent: new WorkerSlots(capacity), llm: new WorkerSlots(capacity) });
 }

@@ -1,0 +1,46 @@
+$ (cd packages/sdk && npm run typecheck)
+> @relayflows/sdk@2.0.32 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+Exit: 0
+
+$ (cd packages/sdk && npm run build)
+> tsc && node scripts/make-cli-executable.mjs
+
+Exit: 0
+
+$ (cd packages/sdk && npm run typecheck:tests)
+> @relayflows/sdk@2.0.32 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+Exit: 0
+
+$ (cd packages/sdk && npx vitest run tests/hosted-hardening.test.ts tests/hosted-extension-isolation.test.ts tests/hosted-extension-protocol.test.ts tests/hosted-extension-routing.test.ts tests/hosted-base-snapshot.test.ts tests/plugin-store-bounds.test.ts tests/babysitter-native-extension.test.ts tests/flow-extension-compose.test.ts tests/plugin-extension.test.ts tests/authored-flow.test.ts)  # passing lines elided
+ ❯ runTest node_modules/@vitest/runner/dist/index.js:1056:11
+ ❯ runSuite node_modules/@vitest/runner/dist/index.js:1205:15
+ ❯ runSuite node_modules/@vitest/runner/dist/index.js:1205:15
+ ❯ runFiles node_modules/@vitest/runner/dist/index.js:1262:5
+ ❯ startTests node_modules/@vitest/runner/dist/index.js:1271:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+This error originated in "tests/hosted-extension-protocol.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "rejects two forged calls after the authoritative first outcome settles". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ Test Files  4 failed | 6 passed (10)
+      Tests  34 failed | 199 passed | 47 skipped (280)
+     Errors  1 error
+   Start at  22:55:46
+   Duration  51.29s (transform 11.41s, setup 783ms, collect 60.44s, tests 63.80s, environment 7ms, prepare 5.61s)
+
+Exit: 1
+
+# Baseline: the same suites on this branch with all changes stashed (git stash push -u), macOS
+$ (cd packages/sdk && npx vitest run tests/hosted-extension-isolation.test.ts -t "resolves locked artifacts")
+   × hosted extension capability isolation > resolves locked artifacts without importing extension top-level code
+     → expected [ { …(6) } ] to deeply equal [ { …(6) } ]
+      Tests  1 failed | 21 skipped (22)
+The 34 failures in the run above are all pre-existing on this host: 33 are 'hosted extension isolation requires Linux' (these suites need Linux + bubblewrap) and the deep-equal one reproduces with the changes stashed, as captured here. CI on Linux is the authority.

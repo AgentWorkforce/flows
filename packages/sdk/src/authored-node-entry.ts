@@ -75,6 +75,7 @@ try {
       getDefinition: loaded.getDefinition, dataDir: request.dataDir,
       flowPath: request.metadata.flowPath, rootRunId: request.rootRunId,
       extensions: loaded.extensions,
+      flowGraph: loaded.graph,
       localAgentStream: request.localAgentStream, signal: controller.signal,
       ...(request.workerCapacity === undefined ? {} : { workerCapacity: request.workerCapacity }),
       onProgress: event => send({ type: 'progress', event }),

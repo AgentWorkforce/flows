@@ -53,6 +53,22 @@ const PATH_RESOLVE = resolve;
 const SPAWN = spawn;
 const PROCESS_EXEC_PATH = process.execPath;
 const PROCESS_NODE_VERSION = process.versions.node;
+
+/**
+ * The host's own `@relayflows/surface` entry, resolved once while this module
+ * initializes. `require.resolve` consults `Module._resolveFilename`, which is
+ * writable: resolving lazily would run after authored flow code has had a
+ * chance to replace it and could hand the sandbox a different package. The
+ * lookup therefore happens before any authored module can load, and a failure
+ * is reported when a caller actually needs the root.
+ */
+const SURFACE_ENTRY: string | undefined = (() => {
+  try { return REALPATH_SYNC(CREATE_REQUIRE(import.meta.url).resolve('@relayflows/surface')); }
+  catch { return undefined; }
+})();
+
+/** @internal Seam for the regression that pins initialization-time capture. */
+export function capturedSurfaceEntry(): string | undefined { return SURFACE_ENTRY; }
 const PROCESS_PLATFORM = process.platform;
 const PROMISE = Promise;
 const EVENT_ON = Function.prototype.call.bind(EventEmitter.prototype.on) as (
@@ -250,9 +266,8 @@ export async function runHostedExtensionSandbox(
 
 async function resolveSurfaceRoot(expectedVersion: string, override?: string): Promise<string> {
   if (override !== undefined) return await checkedSurfaceRoot(override, expectedVersion);
-  let resolved: string;
-  try { resolved = REALPATH_SYNC(CREATE_REQUIRE(import.meta.url).resolve('@relayflows/surface')); }
-  catch { return unsupported('hosted extension cannot resolve @relayflows/surface'); }
+  const resolved = SURFACE_ENTRY;
+  if (resolved === undefined) return unsupported('hosted extension cannot resolve @relayflows/surface');
   let directory = PATH_DIRNAME(resolved);
   const root = PATH_PARSE(directory).root;
   while (directory !== root) {
