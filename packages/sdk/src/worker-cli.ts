@@ -91,6 +91,7 @@ export async function runAgentCli(
   cwd?: string,
   transport: AgentTransport = 'direct',
   relayContext?: AgentRelayContext,
+  processEnvironment: NodeJS.ProcessEnv = process.env,
 ): Promise<WorkerCliResult> {
   signal?.throwIfAborted();
   if (signal !== undefined && process.platform === 'win32') {
@@ -134,7 +135,7 @@ export async function runAgentCli(
   if (kind === 'relayflows-wrapper-v1') {
     // The closed allowlist admits no ambient RELAYFLOW_* value; the four
     // discovery names are set from this dispatch, exactly as for a direct spawn.
-    const wrapperEnv = wrapperEnvironment(process.env);
+    const wrapperEnv = wrapperEnvironment(processEnvironment);
     applyStepEnvironment(wrapperEnv, sidechannel);
     return requirePricedUsage(decodeWrapperResult(await runWrapperSession(
       cli,
@@ -148,7 +149,7 @@ export async function runAgentCli(
     )), effectiveModel);
   }
 
-  const env: NodeJS.ProcessEnv = { ...process.env };
+  const env: NodeJS.ProcessEnv = { ...processEnvironment };
   delete env[WAKE_CONTEXT_ENV];
   delete env[MODEL_ENV];
   // Where this attempt's journal is, so the agent can run `flows status` on
