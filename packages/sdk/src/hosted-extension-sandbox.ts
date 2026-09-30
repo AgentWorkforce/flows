@@ -128,7 +128,7 @@ const SURFACE_RUNTIME_SHA256 = OBJECT_FREEZE({
   'helpers/providers.js': '4eb06d0d85ca0a3434bb2dbba7407e3d95eef2dfbedaeb0e2de0c0c0ea812457',
   'provider-trigger.js': 'e2664c65397f93fb486eb6f1e756c7cec3f88b3851d79c23567cad986f80f1ff',
   'schedule.js': '8fe72f176a75ec0b5f26e12db7a597575c259a2e2cbb59690f9dc20a5e63940b',
-  'triggers.js': '78e771589f80027fb0248fc97232e7abc431ea674e7571a5d37934317a8e3703',
+  'triggers.js': '1d7856f5fb08727a4442e78040428762d08ea96e6aaaa1b243599a7d4c7b26b2',
   'triggers/github.js': 'e312994320f82aad0af00d09c504175d929cc6c601dfe1bc522632462ad9a48b',
 });
 const SURFACE_PACKAGE_JSON = '{"name":"@relayflows/surface","type":"module","exports":{".":"./index.js","./runtime":"./runtime.js"}}';
