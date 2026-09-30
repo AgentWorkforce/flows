@@ -368,8 +368,10 @@ describe('shipped-source model provenance', () => {
         { const box: any = {}; function key(value: any) { let alias; return alias ||= value; } box[key('define')] = surface.flow; box.define('logical-assignment-return-local-call-key', { budget: '$2' }, () => {}); }
         { const box: any = {}; function id(value: any) { return value; } function key(value: any) { return id(value); } box[key('define')] = surface.flow; box.define('nested-call-return-local-call-key', { budget: '$2' }, () => {}); }
         { const box: any = {}; function key(value: any) { return (flag, value); } box[key('define')] = surface.flow; box.define('comma-return-local-call-key', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function id(value: any): any { if (flag) return value; return id(value); } Object.assign(id(box), { define: surface.flow }); box.define('recursive-reflective-target', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function id(value: any) { return value; } Object.assign(id(id(box)), { define: surface.flow }); box.define('nested-same-helper-reflective-target', { budget: '$2' }, () => {}); }
       `);
-      expect(scanTypeScript(formalAndReceiverRepairs).invalidFlowHeaders).toHaveLength(72);
+      expect(scanTypeScript(formalAndReceiverRepairs).invalidFlowHeaders).toHaveLength(74);
       const computedBindingCases = [
         `{ const original = 'flow' as const, key = original; const { [key]: define } = surface; define('renamed', { budget: '$2' }, () => {}); }`,
         `{ const { key } = { key: 'flow' as const }; const { [key]: define } = surface; define('binding', { budget: '$2' }, () => {}); }`,

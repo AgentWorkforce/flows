@@ -355,10 +355,12 @@ describe('shipped-source worker invocation resolution', () => {
         { const box: any = {}; function key(value: any) { let alias; return alias ||= value; } box[key('run')] = f.agent; box.run('review', { task: 'x' }); }
         { const box: any = {}; function id(value: any) { return value; } function key(value: any) { return id(value); } box[key('run')] = f.agent; box.run('review', { task: 'x' }); }
         { const box: any = {}; function key(value: any) { return (flag, value); } box[key('run')] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; function id(value: any): any { if (flag) return value; return id(value); } Object.assign(id(box), { run: f.agent }); box.run('review', { task: 'x' }); }
+        { const box: any = {}; function id(value: any) { return value; } Object.assign(id(id(box)), { run: f.agent }); box.run('review', { task: 'x' }); }
       `);
       const formalAndReceiverResult = scanTypeScript(formalAndReceiverRepairs);
-      expect(formalAndReceiverResult.calls).toBe(72);
-      expect(formalAndReceiverResult.missing).toHaveLength(72);
+      expect(formalAndReceiverResult.calls).toBe(74);
+      expect(formalAndReceiverResult.missing).toHaveLength(74);
 
       const recursiveLocalCallKey = join(directory, 'recursive-local-call-key.flow.ts');
       writeFileSync(recursiveLocalCallKey, `
