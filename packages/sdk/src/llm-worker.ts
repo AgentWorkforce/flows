@@ -22,6 +22,7 @@ export class LlmWorker extends EventEmitter {
     private readonly client: JournalClient,
     private readonly workerId: string,
     private readonly capacity: number = DEFAULT_LOCAL_AGENT_CAPACITY,
+    private readonly environment?: NodeJS.ProcessEnv,
   ) {
     super();
   }
@@ -59,7 +60,8 @@ export class LlmWorker extends EventEmitter {
     const effectiveModel = typeof spec.cli === 'string' ? resolveCliModel(spec.cli, spec.model) : spec.model;
     const completed: WorkerCliResult = await withWorkerLease(this.client, dispatch, signal =>
       typeof spec.cli === 'string' && typeof spec.prompt === 'string'
-        ? runAgentCli(spec.cli, workerInstruction(prompt, dispatch), dispatch.wake_context, effectiveModel, undefined, signal, 'llm')
+        ? runAgentCli(spec.cli, workerInstruction(prompt, dispatch), dispatch.wake_context, effectiveModel, undefined, signal, 'llm',
+          undefined, undefined, 'direct', undefined, this.environment)
         : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'llm step has no declared CLI' }));
     const { result, usage } = workerSpend(completed, effectiveModel);
     let reason: CompletionReason = result.exit_code === 0 ? 'success' : 'worker_error';

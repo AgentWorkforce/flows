@@ -42,6 +42,18 @@ it('keeps missing executables and unsupported identification fail closed', async
   expect(await probeCliAsync('relayflows-no-such-executable', directory)).toEqual({ exists: false, authenticated: false });
 });
 
+it('uses an explicit provider environment for every probe process', async () => {
+  const { path, directory } = wrapper(identify +
+    "process.exit(process.env.ANTHROPIC_API_KEY === 'house-key' ? 0 : 1)");
+  const environment = { ...process.env, ANTHROPIC_API_KEY: 'house-key' };
+  expect(probeCli(path, directory, 'test-model', undefined, environment)).toMatchObject({
+    authenticated: true, modelAvailable: true,
+  });
+  expect(await probeCliAsync(path, directory, 'test-model', undefined, environment)).toMatchObject({
+    authenticated: true, modelAvailable: true,
+  });
+});
+
 it('reports timeout in both drivers while the async driver leaves the loop free', async () => {
   const { path, directory } = wrapper(identify + 'setTimeout(() => {}, 10_000);');
   const original = adapters.modelReadinessProbe;

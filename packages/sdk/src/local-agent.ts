@@ -15,6 +15,7 @@ export async function attachLocalAgent(
   capacity: number = DEFAULT_LOCAL_AGENT_CAPACITY,
   runRoot?: string,
   declaredStreams: readonly string[] = [],
+  environment?: NodeJS.ProcessEnv,
 ): Promise<{
   stream: string;
   readonly failure: unknown;
@@ -31,7 +32,7 @@ export async function attachLocalAgent(
     // second parking behind the first. Authored bodies size their admission to
     // this same number (worker-slots.ts), so they never ask for more.
     capacity,
-    dataDir, onPtyReady, runRoot,
+    dataDir, onPtyReady, runRoot, environment,
     pins: { workspace: [], streams: [...new Set([stream, ...declaredStreams])]
       .map(stream => ({ stream, read_offset: 0 })) },
   });

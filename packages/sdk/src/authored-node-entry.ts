@@ -8,6 +8,7 @@ import { assertAuthoredNodeVersion, parseAuthoredParentPid } from './authored-ru
 import { AuthoredFlowExecutionError, AuthoredHumanParked } from './authored-flow-error.js';
 import { isAgentCapacity } from './worker-slots.js';
 import type { AuthoredRootMetadata } from './authored-root.js';
+import { validatedLocalAgentEnvironment } from './local-agent-environment.js';
 
 let channelKey: string | undefined, sequence = 0;
 // Capture writers before loading authored modules; credentials never enter env.
@@ -49,7 +50,8 @@ try {
   send({ type: 'ready', runtime: { kind: 'node', version: process.versions.node,
     executableSha256: hash(process.execPath), payloadSha256: hash(process.argv[1]!) } });
   const request = await new Promise<{ channelKey: string; metadata: AuthoredRootMetadata; socketPath: string;
-    rootRunId: string; dataDir: string; localAgentStream?: string; workerCapacity?: number }>((resolve, reject) => {
+    rootRunId: string; dataDir: string; localAgentStream?: string; workerCapacity?: number;
+    agentEnvironment?: unknown }>((resolve, reject) => {
     let buffer = '';
     process.stdin.setEncoding('utf8');
     const onData = (chunk: string): void => {
@@ -65,6 +67,10 @@ try {
   if (typeof request.channelKey !== 'string' || !/^[a-f0-9]{64}$/.test(request.channelKey)) throw new Error('invalid authored channel key');
   channelKey = request.channelKey;
   controller.signal.throwIfAborted();
+  // Validate the parent handoff before evaluating any authored module. Only
+  // provider credentials may cross this channel; controls such as PATH and
+  // NODE_OPTIONS remain the child's inherited values.
+  const agentEnvironment = validatedLocalAgentEnvironment(request.agentEnvironment);
   const loaded = await loadPinnedAuthoredSource(request.metadata, true);
   if (request.localAgentStream !== request.metadata.localAgentStream) throw new Error('authored root local agent surface mismatch');
   if (request.workerCapacity !== undefined && !isAgentCapacity(request.workerCapacity)) throw new Error('invalid authored worker capacity');
@@ -78,6 +84,7 @@ try {
       flowGraph: loaded.graph,
       localAgentStream: request.localAgentStream, signal: controller.signal,
       ...(request.workerCapacity === undefined ? {} : { workerCapacity: request.workerCapacity }),
+      ...(agentEnvironment === undefined ? {} : { agentEnvironment: { ...process.env, ...agentEnvironment } }),
       onProgress: event => send({ type: 'progress', event }),
       onWait: event => send({ type: 'wait', event }),
     });

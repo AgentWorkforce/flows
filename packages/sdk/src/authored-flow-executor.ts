@@ -185,6 +185,8 @@ export interface ExecuteAuthoredFlowOptions {
   readonly onWait?: RunLifecycleOptions['onWait'];
   readonly onProgress?: (event: ProgressEvent) => void;
   readonly localAgentStream?: string;
+  /** Environment reserved for provider probes and local agent subprocesses. */
+  readonly agentEnvironment?: NodeJS.ProcessEnv;
   /**
    * How many agent (and, separately, LLM) dispatches the attached local
    * workers hold at once. Set, it caps this body's concurrent `f.agent` /
@@ -320,7 +322,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   const worker = authoredWorkerRunner(
     definition, journal, flowPath, journalSteps, waitOptions,
     localAgentStream, budget, definition.header.budget, options.rootRunId, options.workerCapacity, stepEdges,
-    options.workerSlots,
+    options.workerSlots, options.agentEnvironment,
   );
 
   /**
@@ -685,6 +687,7 @@ export async function executeAuthoredFlow<Input = undefined>(
             dataDir: options.dataDir,
             flowPath: child.path,
             ...(localAgentStream === undefined ? {} : { localAgentStream }),
+            ...(options.agentEnvironment === undefined ? {} : { agentEnvironment: options.agentEnvironment }),
             ...(options.workerCapacity === undefined ? {} : { workerCapacity: options.workerCapacity }),
             ...(options.rootRunId === undefined ? {} : { rootRunId: options.rootRunId }),
             flowGraph: options.flowGraph,

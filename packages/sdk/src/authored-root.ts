@@ -21,6 +21,7 @@ import { AuthoredFlowExecutionError, AuthoredHumanParked } from './authored-flow
 import { readOpenHumanWaits } from './authored-human.js';
 import { isSurfaceCompletionReason } from './authored-step-output.js';
 import { readSubscriptionPark } from './authored-subscription-park.js';
+import { localAgentCredentialEnvironment } from './local-agent-environment.js';
 
 export type DurableAuthoredFlowResult =
   | (AuthoredFlowExecutionResult & { readonly rootRunId: string })
@@ -67,6 +68,8 @@ export interface DurableAuthoredOptions {
   readonly localAgentStream?: string;
   /** Concurrency of the attached local workers; see `ExecuteAuthoredFlowOptions.workerCapacity`. */
   readonly workerCapacity?: number;
+  /** Provider-only environment consumed by preflight and local workers. */
+  readonly agentEnvironment?: NodeJS.ProcessEnv;
   readonly lifecycle?: RunLifecycleOptions;
 }
 
@@ -226,6 +229,9 @@ async function driveRoot(
       if (process.versions['bun'] !== undefined) {
         return runAuthoredInNode(metadata, journal.socketPath, dispatch.run_id, {
           dataDir: options.dataDir, localAgentStream: options.localAgentStream,
+          ...(options.agentEnvironment === undefined ? {} : {
+            agentEnvironment: localAgentCredentialEnvironment(options.agentEnvironment),
+          }),
           ...(options.workerCapacity === undefined ? {} : { workerCapacity: options.workerCapacity }),
           ...options.lifecycle, signal,
         });
@@ -239,6 +245,7 @@ async function driveRoot(
           dataDir: options.dataDir,
           flowPath: metadata.flowPath,
           localAgentStream: options.localAgentStream,
+          ...(options.agentEnvironment === undefined ? {} : { agentEnvironment: options.agentEnvironment }),
           ...(options.workerCapacity === undefined ? {} : { workerCapacity: options.workerCapacity }),
           rootRunId: dispatch.run_id,
           extensions: loaded.extensions,
