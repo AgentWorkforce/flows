@@ -273,6 +273,8 @@ describe('shipped-source worker invocation resolution', () => {
         `const box: any = {}; function key(value: any) { return value; } let alias: any; box[(alias = key({ name: 'run' })).name] = f.agent; box.run('review', { task: 'x' });`,
         `const box: any = {}; function key(value: any) { return value; } let alias: any; box[(alias ||= key({ name: 'run' })).name] = f.agent; box.run('review', { task: 'x' });`,
         `const box: any = {}; const source = flag ? { key: 'other' as const } : { key: 'run' as const }; const { key } = source; box[key] = f.agent; box.run('review', { task: 'x' });`,
+        `const source = flag ? { worker: () => undefined } : { worker: f.agent }; const { worker } = source; worker('review', { task: 'x' });`,
+        `const source = flag ? { nested: { worker: () => undefined } } : { nested: { worker: f.agent } }; const { nested: { worker } } = source; worker('review', { task: 'x' });`,
         `const box: any = {}, a: any = {}, b: any = {}; a.descriptors = b.descriptors; b.descriptors = a.descriptors; b.descriptors = { run: { value: f.agent } }; Object.defineProperties(box, a.descriptors); box.run('review', { task: 'x' });`,
         `const box: any = {}, a: any = {}, b: any = {}; a.getter = b.getter; b.getter = a.getter; b.getter = () => f.agent; Object.defineProperty(box, 'run', { get: a.getter }); box.run('review', { task: 'x' });`,
       ];

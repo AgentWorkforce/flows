@@ -2,7 +2,7 @@ import ts from 'typescript';
 import { bindingSource } from './shipped-source-binding-provenance.js';
 import { aggregateExpressionValues } from './shipped-source-aggregate-values.js';
 import {
-  aggregateValueAtPath,
+  aggregateValuesAtPath,
   bindingDefaultValues,
   staticMemberSegment,
   wrappedExpressionBranches,
@@ -60,9 +60,10 @@ function bindingValues(
   const source = bindingSource(binding, checker);
   if (!source) return [];
   return [
-    aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
+    ...aggregateValuesAtPath(source.initializer, source.path, checker, new Set(seen))
+      .map(value => ({ value })),
     ...bindingDefaultValues(source, checker, new Set(seen)),
-  ].filter((value): value is NonNullable<typeof value> => value !== undefined);
+  ];
 }
 
 function wrappedResult<T extends { auditable: boolean }>(

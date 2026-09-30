@@ -4,6 +4,7 @@ import { aggregateExpressionValues } from './shipped-source-aggregate-values.js'
 import {
   aggregateExpressionValue,
   aggregateValueAtPath,
+  aggregateValuesAtPath,
   assignedValues,
   bindingDefaultValues,
   staticArrayElements,
@@ -240,9 +241,15 @@ function flowConstructor(
   if (binding) {
     const source = bindingSource(binding, checker);
     if (source) {
-      const direct = aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen));
-      const constructor = direct ? flowConstructor(direct.value, checker, new Set(seen)) : undefined;
-      if (constructor) return { ...constructor, auditable: false };
+      for (const direct of aggregateValuesAtPath(
+        source.initializer,
+        source.path,
+        checker,
+        new Set(seen),
+      )) {
+        const constructor = flowConstructor(direct, checker, new Set(seen));
+        if (constructor) return { ...constructor, auditable: false };
+      }
       for (const fallback of bindingDefaultValues(source, checker, new Set(seen))) {
         const fallbackConstructor = flowConstructor(fallback.value, checker, new Set(seen));
         if (fallbackConstructor) return { ...fallbackConstructor, auditable: false };

@@ -264,7 +264,7 @@ export function aggregateValueAtPath(
   return current;
 }
 
-function aggregateValuesAtPath(
+export function aggregateValuesAtPath(
   expression: ts.Expression,
   path: readonly BindingPathSegment[],
   checker: ts.TypeChecker,
