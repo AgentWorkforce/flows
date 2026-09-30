@@ -140,14 +140,7 @@ export function authoredWorkerRunner(
         details,
       );
     }
-    return readCompletedStepOutput(
-      journal,
-      outcome.run_id,
-      id,
-      journalSteps,
-      context,
-      execution.report.status === 'suspended' ? undefined : execution.report.status,
-    );
+    return readCompletedStepOutput(journal, outcome.run_id, id, journalSteps, context, execution.report.status);
     };
     const admissionKey = authoredChildAdmissionKey(rootRunId, id);
     const admit = async () => budget === undefined
