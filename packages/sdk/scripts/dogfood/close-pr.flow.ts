@@ -149,10 +149,17 @@ export async function assertRepairPairReady(
 ): Promise<string> {
   let result;
   try {
-    const runtime = process.argv[1];
-    if (!runtime) throw new Error('authored Node runtime path is unavailable');
+    const authoredCli = process.env['FLOWS_AUTHORED_CLI'];
+    if (authoredCli !== undefined && !isAbsolute(authoredCli)) {
+      throw new Error('authored CLI path is not absolute');
+    }
+    const runtime = authoredCli === undefined ? process.argv[1] : undefined;
+    if (authoredCli === undefined && !runtime) throw new Error('authored Node runtime path is unavailable');
+    const probe = authoredCli === undefined
+      ? `${quote(process.execPath)} ${quote(runtime!)}`
+      : quote(authoredCli);
     const output = await f.run(
-      `${quote(process.execPath)} ${quote(runtime)} --probe-cli `
+      `${probe} --probe-cli `
         + `${quote(cli)} ${quote(model)} ${quote(directory)}`,
     );
     result = JSON.parse(output) as {

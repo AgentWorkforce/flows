@@ -151,10 +151,17 @@ export async function assertReviewerPairReady(
 ): Promise<string> {
   let result;
   try {
-    const runtime = process.argv[1];
-    if (!runtime) throw new Error('authored Node runtime path is unavailable');
+    const authoredCli = process.env['FLOWS_AUTHORED_CLI'];
+    if (authoredCli !== undefined && !isAbsolute(authoredCli)) {
+      throw new Error('authored CLI path is not absolute');
+    }
+    const runtime = authoredCli === undefined ? process.argv[1] : undefined;
+    if (authoredCli === undefined && !runtime) throw new Error('authored Node runtime path is unavailable');
+    const probe = authoredCli === undefined
+      ? `${shellWord(process.execPath)} ${shellWord(runtime!)}`
+      : shellWord(authoredCli);
     result = JSON.parse(await f.run(
-      `${shellWord(process.execPath)} ${shellWord(runtime)} --probe-cli `
+      `${probe} --probe-cli `
         + `${shellWord(cli)} ${shellWord(model)} ${shellWord(directory)}`,
     )) as {
       exists?: boolean;

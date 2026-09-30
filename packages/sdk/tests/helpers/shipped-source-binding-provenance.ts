@@ -113,26 +113,17 @@ function staticPropertySegment(
   const bindingCandidates: Array<BindingPathSegment | undefined> = [];
   if (binding) {
     const source = bindingSource(binding, checker, new Set(nextSeen));
+    const sourceValue = source ? staticPropertySegmentAtPath(
+      source.initializer,
+      source.path,
+      checker,
+      new Set(nextSeen),
+    ) : undefined;
     if (source?.immutable) {
-      const value = staticPropertySegmentAtPath(
-        source.initializer,
-        source.path,
-        checker,
-        new Set(nextSeen),
-      );
-      if (value !== undefined) return value;
-    }
-    if (binding.initializer && source?.immutable !== false) {
-      const value = staticPropertySegment(binding.initializer, checker, new Set(nextSeen));
-      if (value !== undefined) return value;
+      return sourceValue;
     }
     if (source && !source.immutable) {
-      bindingCandidates.push(staticPropertySegmentAtPath(
-        source.initializer,
-        source.path,
-        checker,
-        new Set(nextSeen),
-      ));
+      bindingCandidates.push(sourceValue);
       if (binding.initializer) {
         bindingCandidates.push(staticPropertySegment(
           binding.initializer,
@@ -421,6 +412,25 @@ export function assignedSources(symbol: ts.Symbol, checker: ts.TypeChecker): Ass
   const visit = (node: ts.Node): void => {
     if (ts.isBinaryExpression(node) && assignmentMayStoreRight(node.operatorToken.kind)) {
       values.push(...assignedSourcesAtTarget(node.left, node.right, symbol, checker));
+    }
+    if (ts.isForOfStatement(node) && !ts.isVariableDeclarationList(node.initializer)) {
+      const iterable = unwrap(node.expression);
+      if (ts.isArrayLiteralExpression(iterable)) {
+        for (const element of iterable.elements) {
+          if (ts.isOmittedExpression(element)) continue;
+          values.push(...assignedSourcesAtTarget(
+            node.initializer,
+            ts.isSpreadElement(element) ? element.expression : element,
+            symbol,
+            checker,
+          ));
+        }
+      } else {
+        values.push(...assignedSourcesAtTarget(node.initializer, node.expression, symbol, checker));
+      }
+    }
+    if (ts.isForInStatement(node) && !ts.isVariableDeclarationList(node.initializer)) {
+      values.push(...assignedSourcesAtTarget(node.initializer, node.expression, symbol, checker));
     }
     ts.forEachChild(node, visit);
   };

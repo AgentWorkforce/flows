@@ -23,6 +23,7 @@ test('the manifest declares exactly the subscription contract, family by family'
   const registered = subscriptions.map(s => `${s.trigger.name}:${s.id}`);
   assert.deepEqual(declared, registered);
   assert.equal(declared.length, 11);
+  assert.equal(manifest.config.properties.reviewerCli.minLength, 1);
 });
 
 test('merge-gate is a live-state predicate: no matching PR is a pass, a held gate throws the reason', async () => {

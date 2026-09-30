@@ -77,6 +77,20 @@ describe('shipped-source worker call forms', () => {
       expect(unresolvedDestructuredResult.calls).toBe(1);
       expect(unresolvedDestructuredResult.missing).toHaveLength(1);
 
+      const unresolvedComputedDefault = join(directory, 'unresolved-computed-default.flow.ts');
+      writeFileSync(unresolvedComputedDefault, `
+        declare const f: {
+          agent(name: string, options: { task: string }): void;
+          llm(prompt: string, options: { output: object }): void;
+        };
+        declare const runtimeKey: string;
+        const { [runtimeKey]: call = f.agent } = f;
+        call('review', { task: 'x' });
+      `);
+      const unresolvedComputedDefaultResult = scanTypeScript(unresolvedComputedDefault);
+      expect(unresolvedComputedDefaultResult.calls).toBe(1);
+      expect(unresolvedComputedDefaultResult.missing).toHaveLength(1);
+
       const loopCarriedKey = join(directory, 'loop-carried-key.flow.ts');
       writeFileSync(loopCarriedKey, `
         declare const f: {
@@ -127,6 +141,69 @@ describe('shipped-source worker call forms', () => {
       expect(chainedDestructuredResult.calls).toBe(1);
       expect(chainedDestructuredResult.missing).toHaveLength(1);
 
+      const arrayAlternativeCallable = join(directory, 'array-alternative-callable.flow.ts');
+      writeFileSync(arrayAlternativeCallable, `
+        declare const f: { agent(name: string, options: { task: string }): void };
+        declare const flag: boolean;
+        const [outer] = flag
+          ? [{ worker: () => undefined }]
+          : [{ worker: f.agent }];
+        const { worker } = outer;
+        worker('review', { task: 'x' });
+      `);
+      const arrayAlternativeResult = scanTypeScript(arrayAlternativeCallable);
+      expect(arrayAlternativeResult.calls).toBe(1);
+      expect(arrayAlternativeResult.missing).toHaveLength(1);
+
+      const mutableChainedCallable = join(directory, 'mutable-chained-callable.flow.ts');
+      writeFileSync(mutableChainedCallable, `
+        declare const f: { agent(name: string, options: { task: string }): void };
+        declare const flag: boolean;
+        let { outer } = flag
+          ? { outer: { worker: () => undefined } }
+          : { outer: { worker: f.agent } };
+        const { worker } = outer;
+        worker('review', { task: 'x' });
+      `);
+      const mutableChainedResult = scanTypeScript(mutableChainedCallable);
+      expect(mutableChainedResult.calls).toBe(1);
+      expect(mutableChainedResult.missing).toHaveLength(1);
+
+      const assignedAlternativeCallable = join(directory, 'assigned-alternative-callable.flow.ts');
+      writeFileSync(assignedAlternativeCallable, `
+        declare const f: { agent(name: string, options: { task: string }): void };
+        declare const flag: boolean;
+        let call: any;
+        ({ call } = flag ? { call: () => undefined } : { call: f.agent });
+        call('review', { task: 'x' });
+      `);
+      const assignedAlternativeResult = scanTypeScript(assignedAlternativeCallable);
+      expect(assignedAlternativeResult.calls).toBe(1);
+      expect(assignedAlternativeResult.missing).toHaveLength(1);
+
+      const forOfCallable = join(directory, 'for-of-callable.flow.ts');
+      writeFileSync(forOfCallable, `
+        declare const f: { agent(name: string, options: { task: string }): void };
+        let call: any;
+        for (call of [f.agent]) call('review', { task: 'x' });
+      `);
+      const forOfCallableResult = scanTypeScript(forOfCallable);
+      expect(forOfCallableResult.calls).toBe(1);
+      expect(forOfCallableResult.missing).toHaveLength(1);
+
+      const forInComputedCallable = join(directory, 'for-in-computed-callable.flow.ts');
+      writeFileSync(forInComputedCallable, `
+        declare const f: {
+          agent(name: string, options: { task: string }): void;
+          llm(prompt: string, options: { output: object }): void;
+        };
+        let key: string;
+        for (key in { agent: true, llm: true }) f[key]('review', { task: 'x' });
+      `);
+      const forInComputedResult = scanTypeScript(forInComputedCallable);
+      expect(forInComputedResult.calls).toBe(1);
+      expect(forInComputedResult.missing).toHaveLength(1);
+
       const alternateDestructuredWriter = join(directory, 'alternate-destructured-writer.flow.ts');
       writeFileSync(alternateDestructuredWriter, `
         declare const f: { agent(name: string, options: { task: string }): void };
@@ -157,6 +234,32 @@ describe('shipped-source worker call forms', () => {
       const alternateReflectApplyResult = scanTypeScript(alternateDestructuredReflectApply);
       expect(alternateReflectApplyResult.calls).toBe(1);
       expect(alternateReflectApplyResult.missing).toHaveLength(1);
+
+      const assignedAlternativeWriter = join(directory, 'assigned-alternative-writer.flow.ts');
+      writeFileSync(assignedAlternativeWriter, `
+        declare const f: { agent(name: string, options: { task: string }): void };
+        declare const flag: boolean;
+        const box: any = {};
+        let assign: any;
+        ({ assign } = flag ? { assign: () => undefined } : { assign: Object.assign });
+        assign(box, { run: f.agent });
+        box.run('review', { task: 'x' });
+      `);
+      const assignedAlternativeWriterResult = scanTypeScript(assignedAlternativeWriter);
+      expect(assignedAlternativeWriterResult.calls).toBe(1);
+      expect(assignedAlternativeWriterResult.missing).toHaveLength(1);
+
+      const forOfWriter = join(directory, 'for-of-writer.flow.ts');
+      writeFileSync(forOfWriter, `
+        declare const f: { agent(name: string, options: { task: string }): void };
+        const box: any = {};
+        let assign: any;
+        for (assign of [Object.assign]) assign(box, { run: f.agent });
+        box.run('review', { task: 'x' });
+      `);
+      const forOfWriterResult = scanTypeScript(forOfWriter);
+      expect(forOfWriterResult.calls).toBe(1);
+      expect(forOfWriterResult.missing).toHaveLength(1);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `

@@ -10,6 +10,7 @@ import {
 } from '../babysitter.flow.ts';
 import {
   LEGACY_REVIEWER_FLOW_DIRECTORY,
+  assertReviewerPairReady as assertLegacyReviewerPairReady,
   requiredReviewerModel as requiredLegacyReviewerModel,
   reviewer as legacyReviewer,
   reviewerExecutableFrom,
@@ -163,6 +164,24 @@ test('modern reviewer readiness returns the absolute executable selected by the 
     await assertReviewerPairReady(x.f, 'claude', 'claude-sonnet-5', BABYSITTER_FLOW_DIRECTORY),
     '/usr/bin/claude',
   );
+});
+test('reviewer probes use the stable authored CLI instead of a temporary Node payload', async () => {
+  const previous = process.env.FLOWS_AUTHORED_CLI;
+  process.env.FLOWS_AUTHORED_CLI = '/opt/flows-stable';
+  try {
+    for (const [ready, directory] of [
+      [assertReviewerPairReady, BABYSITTER_FLOW_DIRECTORY],
+      [assertLegacyReviewerPairReady, LEGACY_REVIEWER_FLOW_DIRECTORY],
+    ] as const) {
+      const x = context();
+      await ready(x.f, 'claude', 'claude-sonnet-5', directory);
+      assert.match(x.commands[0]!, /^'\/opt\/flows-stable' --probe-cli /);
+      assert.doesNotMatch(x.commands[0]!, /flows-authored-node-|runner\.mjs/);
+    }
+  } finally {
+    if (previous === undefined) delete process.env.FLOWS_AUTHORED_CLI;
+    else process.env.FLOWS_AUTHORED_CLI = previous;
+  }
 });
 test('approval-only legacy wakes do not probe an unused reviewer pair', async () => {
   const body = getFlowDefinition(legacyReviewer).body;

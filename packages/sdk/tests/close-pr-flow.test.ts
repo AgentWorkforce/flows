@@ -5,7 +5,11 @@ import { spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flow } from '@relayflows/surface';
-import closePr, { executableFrom, requiredRepairModel } from '../scripts/dogfood/close-pr.flow.js';
+import closePr, {
+  assertRepairPairReady,
+  executableFrom,
+  requiredRepairModel,
+} from '../scripts/dogfood/close-pr.flow.js';
 import {
   analyzeFindings, checksCommand, parseChecks, parseInput, parsePrNumber, quote,
   type BotComment, type Check, type ClosePrInput, type ReviewThread,
@@ -46,6 +50,7 @@ interface Snapshot { checks: Check[]; comments?: BotComment[]; threads?: ReviewT
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 
@@ -194,6 +199,23 @@ describe('close-pr journaled repair loop', () => {
     const executable = executableFrom('./tools/repair-wrapper', baseInput.worktree);
     expect(h.commands.find(command => command.includes('--probe-cli'))).toContain(`'${executable}'`);
     expect(h.agents()[0]).toMatchObject({ cli: executable, model: 'exact-model' });
+  });
+
+  it('uses the stable authored CLI for the readiness probe command', async () => {
+    vi.stubEnv('FLOWS_AUTHORED_CLI', '/opt/flows-stable');
+    let command = '';
+    const executable = await assertRepairPairReady({
+      run: async (value: string) => {
+        command = value;
+        return JSON.stringify({
+          exists: true, supported: true, authenticated: true,
+          modelAvailable: true, executable: '/usr/bin/codex',
+        });
+      },
+    } as never, 'codex', 'gpt-5.6-sol', '/tmp/worktree');
+    expect(executable).toBe('/usr/bin/codex');
+    expect(command).toMatch(/^'\/opt\/flows-stable' --probe-cli /u);
+    expect(command).not.toMatch(/flows-authored-node-|runner\.mjs/u);
   });
 
   it('lets an approval-only run merge without resolving an unused repair pair', async () => {

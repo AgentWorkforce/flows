@@ -4,6 +4,7 @@ import {
   assignedSources,
   bindingSource,
   type BindingPathSegment,
+  type BindingRest,
 } from './shipped-source-binding-provenance.js';
 import {
   canonicalArrayIndex,
@@ -58,13 +59,16 @@ export function staticPropertySegment(
   const bindingCandidates: Array<BindingPathSegment | undefined> = [];
   if (binding) {
     const source = bindingSource(binding, checker, new Set(seen));
+    const pathValues = source
+      ? aggregateValuesAtPath(source.initializer, source.path, checker, new Set(seen))
+      : [];
     const initialValues = source ? [
       ...(binding.initializer ? [{ value: binding.initializer }] : []),
-      ...aggregateValuesAtPath(source.initializer, source.path, checker, new Set(seen))
-        .map(value => ({ value })),
+      ...pathValues.map(value => ({ value })),
       ...bindingDefaultValues(source, checker, new Set(seen)),
     ].filter((value): value is { value: ts.Expression } => value !== undefined)
-      .map(value => staticPropertySegment(value.value, checker, new Set(seen))) : [];
+      .map(value => staticPropertySegment(value.value, checker, new Set(seen)))
+      .concat(pathValues.length === 0 ? [undefined] : []) : [];
     if (source?.immutable) {
       const first = initialValues[0];
       if (first !== undefined
@@ -190,33 +194,27 @@ export function objectMemberValue(
     const symbol = checker.getSymbolAtLocation(expression);
     if (!symbol || seen.has(symbol)) return undefined;
     seen.add(symbol);
+    const candidates: Array<{
+      auditable: boolean;
+      rest?: BindingRest;
+      value: ts.Expression;
+    }> = [];
     const binding = symbol.declarations?.find(ts.isBindingElement);
     if (binding) {
       const source = bindingSource(binding, checker);
-      if (source?.immutable) {
+      if (source) {
         if (source.rest?.kind === 'object' && source.rest.excluded.includes(name)) return undefined;
-        const candidates = [
+        candidates.push(
           ...aggregateValuesAtPath(source.initializer, source.path, checker, new Set(seen))
-            .map(value => ({ value, auditable: false })),
-          ...bindingDefaultValues(source, checker, new Set(seen)),
+            .map(value => ({ value, auditable: false, rest: source.rest })),
+          ...bindingDefaultValues(source, checker, new Set(seen))
+            .map(value => ({
+              value: value.value,
+              auditable: false,
+              ...(value.applyRest ? { rest: source.rest } : {}),
+            })),
           ...(binding.initializer ? [{ value: binding.initializer, auditable: false }] : []),
-        ];
-        const values = candidates.flatMap(candidate => {
-          const value = objectMemberValue(candidate.value, name, checker, new Set(seen));
-          return value ? [value] : [];
-        });
-        const [value, ...alternatives] = values;
-        if (value) return {
-          ...value,
-          auditable: false,
-          alternatives: [
-            ...(value.alternatives ?? []),
-            ...alternatives.flatMap(candidate => [
-              candidate.value,
-              ...(candidate.alternatives ?? []),
-            ]),
-          ],
-        };
+        );
       }
     }
     const variable = symbol.declarations?.find(ts.isVariableDeclaration);
@@ -224,30 +222,50 @@ export function objectMemberValue(
       ? variable.parent
       : undefined;
     if (variable?.initializer && variableList && (variableList.flags & ts.NodeFlags.Const) !== 0) {
-      const value = objectMemberValue(variable.initializer, name, checker, seen);
-      if (value) return value;
+      candidates.push({ value: variable.initializer, auditable: true });
     }
-    for (const source of [...assignedSources(symbol, checker)].reverse()) {
+    for (const source of assignedSources(symbol, checker)
+      .filter(candidate => assignedSourceMayPrecedeReference(candidate, symbol, expression))) {
       if (source.rest?.kind === 'object' && source.rest.excluded.includes(name)) continue;
-      const candidate = source.path.length === 0
-        ? { value: source.initializer, auditable: false }
-        : aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen));
-      if (!candidate) continue;
-      if (source.rest?.kind === 'array') {
+      const values = source.path.length === 0
+        ? [source.initializer]
+        : aggregateValuesAtPath(source.initializer, source.path, checker, new Set(seen));
+      candidates.push(...values.map(value => ({ value, auditable: false, rest: source.rest })));
+    }
+    if (variable?.initializer && variableList && (variableList.flags & ts.NodeFlags.Const) === 0) {
+      candidates.push({ value: variable.initializer, auditable: false });
+    }
+    const values: Array<{
+      value: ts.Expression;
+      auditable: boolean;
+      symbol?: ts.Symbol;
+      alternatives?: ts.Expression[];
+    }> = [];
+    for (const candidate of candidates) {
+      if (candidate.rest?.kind === 'array') {
         const index = canonicalArrayIndex(name);
-        const values = staticArrayElements(candidate.value, checker, new Set(seen))?.values;
-        const value = index === undefined ? undefined : values?.[source.rest.start + index];
-        if (value) return { value, auditable: false };
+        const start = candidate.rest.start;
+        const array = staticArrayElements(candidate.value, checker, new Set(seen));
+        if (index !== undefined && array) {
+          for (const elements of [array.values, ...(array.alternatives ?? [])]) {
+            const value = elements[start + index];
+            if (value) values.push({ value, auditable: false });
+          }
+        }
         continue;
       }
       const value = objectMemberValue(candidate.value, name, checker, new Set(seen));
-      if (value) return { ...value, auditable: false };
+      if (value) values.push({ ...value, auditable: candidate.auditable && value.auditable });
     }
-    if (variable?.initializer && variableList) {
-      const value = objectMemberValue(variable.initializer, name, checker, seen);
-      if (value) return { ...value, auditable: false };
-    }
-    return undefined;
+    const [value, ...alternatives] = values;
+    return value ? {
+      ...value,
+      auditable: candidates.length === 1 && alternatives.length === 0 && value.auditable,
+      alternatives: [
+        ...(value.alternatives ?? []),
+        ...alternatives.flatMap(candidate => [candidate.value, ...(candidate.alternatives ?? [])]),
+      ],
+    } : undefined;
   }
   const parent = aggregateExpressionValue(expression, checker, seen);
   if (!parent) return undefined;
@@ -341,10 +359,16 @@ export function aggregateMemberValue(
   if (index !== undefined) {
     const arraySeen = new Set(seen);
     const array = staticArrayElements(expression, checker, arraySeen);
-    const value = array?.values[index];
+    const candidates = array ? [array.values, ...(array.alternatives ?? [])]
+      .flatMap(values => values[index] ? [values[index]] : []) : [];
+    const [value, ...alternatives] = candidates;
     if (value) {
       arraySeen.forEach(symbol => seen.add(symbol));
-      return { value, auditable: array.auditable };
+      return {
+        value,
+        auditable: array!.auditable && alternatives.length === 0,
+        ...(alternatives.length > 0 ? { alternatives } : {}),
+      };
     }
   }
   return typeof segment === 'number'
@@ -372,8 +396,7 @@ export function assignedValues(symbol: ts.Symbol, checker: ts.TypeChecker): ts.E
   return assignedSources(symbol, checker).flatMap(source => {
     if (source.rest) return [];
     if (source.path.length === 0) return [source.initializer];
-    const value = aggregateValueAtPath(source.initializer, source.path, checker, new Set());
-    return value ? [value.value] : [];
+    return aggregateValuesAtPath(source.initializer, source.path, checker, new Set());
   });
 }
 

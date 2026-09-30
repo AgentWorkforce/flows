@@ -250,13 +250,19 @@ export async function assertReviewerPairReady(
 ): Promise<string> {
   let result;
   try {
-    // The SDK serves the same model-scoped probe from the ordinary flows CLI
-    // and the sealed authored Node payload. Re-enter the active Node entrypoint
-    // instead of guessing an installed package layout or requiring PATH lookup.
-    const runtime = process.argv[1];
-    if (!runtime) throw new Error("authored Node runtime path is unavailable");
+    // Bun supplies its stable standalone entrypoint; direct Node and hosted
+    // execution re-enter their stable authored payload path.
+    const authoredCli = process.env["FLOWS_AUTHORED_CLI"];
+    if (authoredCli !== undefined && !isAbsolute(authoredCli)) {
+      throw new Error("authored CLI path is not absolute");
+    }
+    const runtime = authoredCli === undefined ? process.argv[1] : undefined;
+    if (authoredCli === undefined && !runtime) throw new Error("authored Node runtime path is unavailable");
+    const probe = authoredCli === undefined
+      ? `${shellWord(process.execPath)} ${shellWord(runtime!)}`
+      : shellWord(authoredCli);
     const output = await f.run(
-      `${shellWord(process.execPath)} ${shellWord(runtime)} --probe-cli `
+      `${probe} --probe-cli `
         + `${shellWord(cli)} ${shellWord(model)} ${shellWord(directory)}`,
     );
     result = JSON.parse(output) as {

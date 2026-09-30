@@ -93,10 +93,10 @@ async function entries(directory: string, runId: string) {
 
 describe('Bun 1.4.0 standalone → native Node authored lifecycle', () => {
   it('re-enters the sealed runtime for an exact model probe without a flows binary on PATH', () => {
-    const f = fixture(`const runtime=process.argv[1];
-      if(!runtime) throw new Error('missing authored runtime');
+    const f = fixture(`const runtime=process.env.FLOWS_AUTHORED_CLI;
+      if(!runtime||!runtime.startsWith('/')) throw new Error('missing stable authored CLI');
       const quote=(value:string)=>JSON.stringify(value);
-      const output=await f.run([process.execPath,runtime,'--probe-cli','./agent.mjs','exact-model',process.cwd()].map(quote).join(' '));
+      const output=await f.run([runtime,'--probe-cli','./agent.mjs','exact-model',process.cwd()].map(quote).join(' '));
       const probe=JSON.parse(output);
       if(!probe.exists||!probe.supported||probe.authenticated!==true||probe.modelAvailable!==true) throw new Error('probe refused');
       f.done('success');`);

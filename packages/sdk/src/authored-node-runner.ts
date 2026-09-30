@@ -83,7 +83,8 @@ export async function runAuthoredInNode(
     await writeFile(entry, source, { mode: 0o400, flag: 'wx' });
     if (hash(await readFile(entry)) !== runtime.payloadSha256) throw refusal();
     const child = spawn(authority.path, ['--experimental-transform-types', entry, String(process.pid)], {
-      cwd: process.cwd(), env: process.env,
+      cwd: process.cwd(),
+      env: { ...process.env, FLOWS_AUTHORED_CLI: realpathSync(process.execPath) },
       stdio: ['pipe', 'inherit', 'inherit', 'pipe'],
     });
     const result = await new Promise<AuthoredFlowExecutionResult>((resolve, reject) => {
