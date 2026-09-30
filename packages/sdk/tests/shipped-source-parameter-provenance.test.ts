@@ -26,7 +26,7 @@ describe('shipped-source parameter provenance', () => {
       ];
       for (const [index, candidate] of flowCases.entries()) {
         const file = join(directory, `flow-${index}.flow.ts`);
-        writeFileSync(file, `import * as surface from '@relayflows/surface'; declare const flag: boolean; ${candidate}`);
+        writeFileSync(file, `declare const surface: { flow(name: string, header: object, body: () => void): void }; declare const flag: boolean; ${candidate}`);
         expect(scanTypeScript(file).invalidFlowHeaders, candidate).toHaveLength(1);
       }
     } finally {
