@@ -46,8 +46,7 @@ function member(
 
 function directObjectAssignSources(
   node: ts.CallExpression,
-  symbol: ts.Symbol,
-  checker: ts.TypeChecker,
+  isTarget: (candidate: ts.Expression) => boolean,
 ): AssignedSource[] {
   const target = unwrap(node.expression);
   const receiver = node.arguments[0] && unwrap(node.arguments[0]);
@@ -56,8 +55,7 @@ function directObjectAssignSources(
     || !ts.isIdentifier(unwrap(target.expression))
     || (unwrap(target.expression) as ts.Identifier).text !== 'Object'
     || !receiver
-    || !ts.isIdentifier(receiver)
-    || checker.getSymbolAtLocation(receiver) !== symbol) return [];
+    || !isTarget(receiver)) return [];
   return node.arguments.slice(1).map(initializer => ({ initializer, path: [] }));
 }
 
@@ -138,7 +136,7 @@ export function createStaticIterationSources(resolvers: IterationSourceResolvers
         }
       }
       if (ts.isCallExpression(node)) {
-        values.push(...directObjectAssignSources(node, symbol, checker));
+        values.push(...directObjectAssignSources(node, isTarget));
         const target = member(node.expression);
         if (target && (target.name === 'push' || target.name === 'unshift'
           || target.name === 'splice' || target.name === 'fill')

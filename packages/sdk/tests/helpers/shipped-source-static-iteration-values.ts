@@ -145,6 +145,10 @@ function arrayValues(
         : [element];
     });
   }
+  if (ts.isCallExpression(expression)) {
+    return expressionValues(expression, checker, seen).flatMap(value =>
+      arrayValues(value, checker, sources, new Set(seen)));
+  }
   if (ts.isElementAccessExpression(expression) && expression.argumentExpression
     && expressionSegment(expression.argumentExpression, checker) === undefined) {
     return allObjectMemberValues(expression.expression, checker, sources, new Set(seen))

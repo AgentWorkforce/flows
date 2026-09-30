@@ -92,6 +92,10 @@ describe('shipped-source flow provenance repairs', () => {
         `{ const holder = { flows: [surface.flow], other: [() => undefined] }; for (const define of holder[runtimeKey]) define('dynamic-member-iterable', { budget: '$2' }, () => {}); }`,
         `{ const box: any = {}, holder: any = {}; Object.assign(holder, { ops: [Object.assign] }); for (const op of holder.ops) op(box, { define: surface.flow }); box.define('reflective-member-writer', { budget: '$2' }, () => {}); }`,
         `{ const box: any = {}; function getHolder() { return { ops: [Object.assign] }; } for (const op of getHolder().ops) op(box, { define: surface.flow }); box.define('returned-member-writer', { budget: '$2' }, () => {}); }`,
+        `{ const holder: any = {}, alias = holder; Object.assign(alias, { flows: [surface.flow] }); for (const define of holder.flows) define('aliased-reflective-member', { budget: '$2' }, () => {}); }`,
+        `{ const box: any = {}, holder: any = {}, alias = holder; Object.assign(alias, { ops: [Object.assign] }); for (const op of holder.ops) op(box, { define: surface.flow }); box.define('aliased-reflective-member-writer', { budget: '$2' }, () => {}); }`,
+        `{ function inner() { return [surface.flow]; } function getHolder() { return { flows: inner() }; } for (const define of getHolder().flows) define('returned-call-array', { budget: '$2' }, () => {}); }`,
+        `{ const box: any = {}; function inner() { return [Object.assign]; } function getHolder() { return { ops: inner() }; } for (const op of getHolder().ops) op(box, { define: surface.flow }); box.define('returned-call-array-writer', { budget: '$2' }, () => {}); }`,
       ];
       for (const [index, candidate] of cases.entries()) {
         const file = join(directory, `repaired-flow-${index}.flow.ts`);
