@@ -104,6 +104,11 @@ describe('authored budget refusal names the limit it crossed', () => {
       .toBe("Flow budget exceeded before the next step: wallclock 120001ms used of 120000ms declared in the flow's budget header.");
     expect(budgetExceededMessage({max_wallclock_ms: 60_000}, {...zero, ms: 60_001n}))
       .toBe("Flow budget exceeded before the next step: wallclock 60001ms used of 60000ms declared in the flow's budget header.");
+    // Mixed units: the limit renders in hours, the spend in rounded minutes.
+    expect(budgetExceededMessage({max_wallclock_ms: 7_200_000}, {...zero, ms: 7_200_001n}))
+      .toBe("Flow budget exceeded before the next step: wallclock 7200001ms used of 7200000ms declared in the flow's budget header.");
+    expect(budgetExceededMessage({max_wallclock_ms: 7_200_000}, {...zero, ms: 7_206_000n}))
+      .toBe("Flow budget exceeded before the next step: wallclock 120.1m used of 2h declared in the flow's budget header.");
     expect(budgetExceededMessage({max_wallclock_ms: 10}, {...zero, ms: 20n}))
       .toBe("Flow budget exceeded before the next step: wallclock 20ms used of 10ms declared in the flow's budget header.");
   });

@@ -23,12 +23,13 @@ interface Charge {
 
 type Total = Omit<Charge, 'day'>;
 
-/** `ms` as the budget header writes durations: `45s`, `2h`, `132.9m`. */
-function duration(ms: bigint): string {
+/** `ms` as the budget header writes durations (`45s`, `2h`, `132.9m`), with the value that text denotes. */
+function duration(ms: bigint): {text: string; shown: number} {
   const n = Number(ms);
-  if (n < 60_000) return `${Number((n / 1000).toFixed(1))}s`;
-  if (n % 3_600_000 === 0) return `${n / 3_600_000}h`;
-  return `${Number((n / 60_000).toFixed(1))}m`;
+  if (n < 60_000) { const s = Number((n / 1000).toFixed(1)); return {text: `${s}s`, shown: s * 1000}; }
+  if (n % 3_600_000 === 0) return {text: `${n / 3_600_000}h`, shown: n};
+  const m = Number((n / 60_000).toFixed(1));
+  return {text: `${m}m`, shown: m * 60_000};
 }
 
 const usd = (micro: bigint): string => `$${micro / 1_000_000n}.${String(micro % 1_000_000n).padStart(6, '0').replace(/0{1,4}$/, '')}`;
@@ -47,10 +48,14 @@ function dollarsOver(micro: bigint, limit: string): boolean | undefined {
   return micro * 10n ** BigInt(scale - 6) > limitScaled;
 }
 
-/** Both durations, exact to the millisecond when rounding would print them equal. */
+/**
+ * Both durations, exact to the millisecond whenever rounding would make the
+ * overrun invisible: the displayed spend must itself read as over the
+ * displayed limit, compared as quantities so `120m` against `2h` counts too.
+ */
 function durations(used: bigint, limit: bigint): [string, string] {
   const [u, l] = [duration(used), duration(limit)];
-  return u === l ? [`${used}ms`, `${limit}ms`] : [u, l];
+  return u.shown > l.shown ? [u.text, l.text] : [`${used}ms`, `${limit}ms`];
 }
 
 /**
