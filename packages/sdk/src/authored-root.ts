@@ -274,8 +274,10 @@ async function driveRootFollowingRetries(
         { code: 'FLOWS_ROOT_LEASE_LOST' },
       );
       try {
-        dispatch = await next.wait(ROOT_REDISPATCH_TIMEOUT_MS);
-      } catch {
+        dispatch = await next.wait(ROOT_REDISPATCH_TIMEOUT_MS, options.lifecycle?.signal);
+      } catch (waitError) {
+        // A caller cancel while waiting is the caller's, not a lost lease.
+        if (aborted(options.lifecycle?.signal)) throw waitError;
         throw rootLeaseLost(dispatch, `${lost} The kernel did not re-dispatch the root within ${ROOT_REDISPATCH_TIMEOUT_MS / 1000}s; continue the run with: ${resume}`, error);
       }
       if (dispatch.run_id !== firstDispatch.run_id) {
@@ -283,6 +285,11 @@ async function driveRootFollowingRetries(
       }
     }
   }
+}
+
+/** Read at call time: `signal.aborted` changes while this function awaits. */
+function aborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
 }
 
 function sentence(text: string): string {
@@ -471,7 +478,7 @@ function hasRootStream(step: Record<string, unknown>): boolean {
  * timeout must not leave a rejected promise nobody awaits.
  */
 function rootRedispatch(peer: JournalClient): {
-  wait(timeoutMs: number): Promise<StepDispatchEvent>;
+  wait(timeoutMs: number, signal?: AbortSignal): Promise<StepDispatchEvent>;
   cancel(): void;
 } {
   let received: StepDispatchEvent | undefined;
@@ -486,13 +493,24 @@ function rootRedispatch(peer: JournalClient): {
   const cancel = (): void => { peer.off('step.dispatch', onDispatch); };
   return {
     cancel,
-    wait: timeoutMs => new Promise((resolve, reject) => {
+    wait: (timeoutMs, signal) => new Promise((resolve, reject) => {
       if (received !== undefined) { resolve(received); return; }
-      const timer = setTimeout(() => {
+      const settle = (): void => {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
         cancel();
+      };
+      const onAbort = (): void => {
+        settle();
+        reject(new Error('waiting for the authored root to be re-dispatched was canceled', { cause: signal?.reason }));
+      };
+      const timer = setTimeout(() => {
+        settle();
         reject(new Error('authored root was not re-dispatched'));
       }, timeoutMs);
-      deliver = dispatch => { clearTimeout(timer); resolve(dispatch); };
+      deliver = dispatch => { settle(); resolve(dispatch); };
+      if (signal?.aborted === true) onAbort();
+      else signal?.addEventListener('abort', onAbort, { once: true });
     }),
   };
 }

@@ -12,7 +12,7 @@ import {
   resumeDurableAuthoredFlow,
   type AuthoredRootMetadata,
 } from '../src/authored-root.js';
-import type { JournalClient } from '../src/journal-client.js';
+import { JournalProtocolError, type JournalClient } from '../src/journal-client.js';
 import type { RunOutcome, StepDispatchEvent } from '../src/protocol.js';
 import { AuthoredHumanParked } from '../src/authored-flow-error.js';
 
@@ -164,6 +164,28 @@ describe('durable authored root', () => {
     expect(metadata.sourceSha256).toMatch(/^[a-f0-9]{64}$/u);
     expect(metadata.extensions).toEqual([]);
     expect(journal.peer.completions).toEqual([{ attempt: 1, reason: 'success' }]);
+  });
+
+  it('stops waiting for a root re-dispatch when the caller cancels', async () => {
+    // The root lease is lost (the daemon refuses the renewal), so the driver
+    // waits up to 45s for the kernel to re-dispatch the root. A caller cancel
+    // during that wait must end it at once, as a cancel -- never a
+    // `root_lease_lost` report, and never after the timeout.
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    journal.peer.stepHeartbeat = async () => {
+      throw new JournalProtocolError('lease_conflict', 'attempt has no active worker lease');
+    };
+    const controller = new AbortController();
+    const started = Date.now();
+    const execution = executeDurableAuthoredFlow(
+      loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'cancel-while-redispatch', lifecycle: { signal: controller.signal } },
+    );
+    setTimeout(() => controller.abort(), 200);
+    await expect(execution).rejects.toThrow('re-dispatched was canceled');
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(journal.peer.completions).toEqual([]);
   });
 
   it('journals plugin digests from composed extensions', async () => {
