@@ -352,13 +352,19 @@ describe('foldRunState', () => {
     expect(view.reported_cost.complete).toBe(false);
   });
 
-  it('counts the authored root as free: its model calls are child runs', () => {
-    const rootSpec = { name: 'authored', steps: [{ id: 'authored-root', type: 'agent', depends_on: [], max_iterations: 1 }] };
-    const view = foldRunState(journal(
-      { entry_type: 'run.spawned', payload: { spec: rootSpec, spec_hash: 'h', parent_run_id: null, journal_version: 1, created_by: 't' } },
+  it('counts a real authored root as free, but not an ordinary step merely named authored-root', () => {
+    const rootView = (instruction?: string) => foldRunState(journal(
+      { entry_type: 'run.spawned', payload: { spec: { name: 'authored', steps: [{
+        id: 'authored-root', type: 'agent', depends_on: [], max_iterations: 1, ...(instruction === undefined ? {} : { instruction }),
+      }] }, spec_hash: 'h', parent_run_id: null, journal_version: 1, created_by: 't' } },
       completed('authored-root', 1, T0 + 1000, {}),
     ), T0 + 2000);
-    expect(view.reported_cost).toEqual({ dollars: '0', complete: true, source: null });
+    // Its model calls are child runs with journals of their own.
+    expect(rootView(JSON.stringify({ kind: 'relayflows.authored-root.v1' })).reported_cost)
+      .toEqual({ dollars: '0', complete: true, source: null });
+    // Without the discriminator it is an ordinary agent step: its cost is unknown.
+    expect(rootView().reported_cost).toEqual({ dollars: '0', complete: false, source: null });
+    expect(rootView('Do the work.').reported_cost).toEqual({ dollars: '0', complete: false, source: null });
   });
 
   it('keeps each step\'s cost across an epoch summary, since rollover keeps the earlier completions', () => {

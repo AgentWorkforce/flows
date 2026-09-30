@@ -67,7 +67,8 @@ export function authoredVerdictOf(events: readonly JournalEvent[]): AuthoredVerd
   return Object.freeze({ reason, ...(detail === undefined ? {} : { detail }) });
 }
 
-function declaresAuthoredRoot(spawned: JournalEvent): boolean {
+/** Whether a journal's spawned spec is a real authored root, not a step merely named `authored-root`. */
+export function declaresAuthoredRoot(spawned: JournalEvent): boolean {
   const spec = record(record(spawned.payload)?.['spec']);
   const steps = spec?.['steps'];
   if (!Array.isArray(steps)) return false;

@@ -10,6 +10,7 @@
 // No I/O, no clock: the caller passes `now_ms`, so a test folds a hand-built
 // journal against a fixed instant and asserts exact elapsed and overdue values.
 
+import { declaresAuthoredRoot } from './authored-verdict.js';
 import type { JournalEvent } from './journal-reader.js';
 
 export type RunStatus = 'running' | 'parked' | 'completed' | 'failed' | 'cancelling' | 'cancelled';
@@ -242,11 +243,12 @@ const NO_REPORTED_COST: ReportedCostTotal = { dollars: '0', complete: true, sour
  * - a deterministic step runs a command, not a model;
  * - a memoized reuse copied its output; the source run paid for the model;
  * - the authored root runs the flow body, whose model calls are child runs
- *   with journals of their own.
+ *   with journals of their own. Only a spec carrying the authored-root
+ *   discriminator counts: an ordinary flow may name a step `authored-root`.
  */
-function ranNoModel(completion: Payload, step: StepView): boolean {
+function ranNoModel(completion: Payload, step: StepView, authoredRoot: boolean): boolean {
   if (completion['reused_from'] !== undefined && completion['reused_from'] !== null) return true;
-  return step.type === 'deterministic' || step.id === 'authored-root';
+  return step.type === 'deterministic' || (authoredRoot && step.id === 'authored-root');
 }
 
 /**
@@ -254,10 +256,10 @@ function ranNoModel(completion: Payload, step: StepView): boolean {
  * attempt without one (older runtime, Codex, unpriced) leaves the sum unchanged
  * and marks it incomplete rather than counting an unknown cost as zero.
  */
-function addReportedCost(total: ReportedCostTotal, completion: Payload, step: StepView): ReportedCostTotal {
+function addReportedCost(total: ReportedCostTotal, completion: Payload, step: StepView, authoredRoot: boolean): ReportedCostTotal {
   const charge = completion['reported_cost'];
   const cost = charge !== null && typeof charge === 'object' && !Array.isArray(charge) ? charge as Payload : null;
-  if (cost === null && ranNoModel(completion, step)) return total;
+  if (cost === null && ranNoModel(completion, step, authoredRoot)) return total;
   const dollars = cost === null ? null : cost['dollars'];
   const source = cost === null ? null : cost['source'];
   if (typeof dollars !== 'string' || !/^\d+(?:\.\d+)?$/.test(dollars) || (source !== 'cli' && source !== 'priced')) {
@@ -331,6 +333,7 @@ export function foldRunState(events: readonly JournalEvent[], now_ms: number): R
   // the family (state.rs `prior_spend`); the view reports the same running total.
   let spend = addSpend(ZERO_SPEND, budget['prior_spend']);
   let reportedCost = NO_REPORTED_COST;
+  const authoredRoot = declaresAuthoredRoot(first);
   let completion: string | null = null;
   let cancelRequested = false;
 
@@ -361,8 +364,8 @@ export function foldRunState(events: readonly JournalEvent[], now_ms: number): R
         view.attempt = Math.max(view.attempt, attempt);
         spend = addSpend(spend, payload['budget']);
         view.spend = addSpend(view.spend, payload['budget']);
-        reportedCost = addReportedCost(reportedCost, payload, view);
-        view.reported_cost = addReportedCost(view.reported_cost ?? NO_REPORTED_COST, payload, view);
+        reportedCost = addReportedCost(reportedCost, payload, view, authoredRoot);
+        view.reported_cost = addReportedCost(view.reported_cost ?? NO_REPORTED_COST, payload, view, authoredRoot);
         const verification = payload['verification'] !== null && typeof payload['verification'] === 'object'
           ? payload['verification'] as Payload : undefined;
         view.last_attempt = {
