@@ -3,6 +3,7 @@ import { githubClient, linearClient, slackClient, type RelayTransport } from '@r
 import type { AgentStepSpec, KernelAgentStep, YamlHelperParams } from './spec.js';
 import { canonicalize } from './canonical.js';
 import { unknownKeyErrors } from './unknown-keys.js';
+import { HELPER_INSTRUCTION_PREFIX } from './helper-instruction.js';
 
 const string = { type: 'string', minLength: 1 };
 const text = { type: 'string' };
@@ -61,7 +62,7 @@ export type HelperCall = { [P in keyof YamlHelperParams]: { [V in keyof YamlHelp
   { type: 'effect'; provider: P; verb: V; params: YamlHelperParams[P][V] }
 }[keyof YamlHelperParams[P]] }[keyof YamlHelperParams];
 
-const prefix = 'relayflows:helper:v1\n';
+const prefix = HELPER_INSTRUCTION_PREFIX;
 const commonFields = ['id', 'dependsOn', 'maxIterations', 'verification', 'output'] as const;
 const isObject = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);

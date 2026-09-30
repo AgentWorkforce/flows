@@ -10,8 +10,12 @@
 // No I/O, no clock: the caller passes `now_ms`, so a test folds a hand-built
 // journal against a fixed instant and asserts exact elapsed and overdue values.
 
-import { declaresAuthoredRoot } from './authored-verdict.js';
+import { addDollars } from './decimal-dollars.js';
+import { addReportedCost, modelFreeSteps, NO_REPORTED_COST, type ReportedCostTotal } from './reported-cost-total.js';
 import type { JournalEvent } from './journal-reader.js';
+
+export { addDollars } from './decimal-dollars.js';
+export type { ReportedCostTotal } from './reported-cost-total.js';
 
 export type RunStatus = 'running' | 'parked' | 'completed' | 'failed' | 'cancelling' | 'cancelled';
 
@@ -26,21 +30,6 @@ export interface Spend {
   dollars_unmetered: boolean;
 }
 
-/**
- * What steps actually cost, summed from each attempt's journaled
- * `reported_cost` (the CLI's own total, or a full-usage estimate). Display
- * only: the kernel charges `spend` against `maxDollars`, never this. `complete`
- * is false when some completed model attempt reported no cost (e.g. Codex, or
- * an older runtime), so `dollars` is then a lower bound. Segment rollover keeps
- * earlier completions in the journal, so an epoch summary does not lose any.
- */
-export interface ReportedCostTotal {
-  /** Decimal string. */
-  dollars: string;
-  complete: boolean;
-  /** Where the summed figures came from; `mixed` when attempts differ. */
-  source: 'cli' | 'priced' | 'mixed' | null;
-}
 
 export interface StepCounts {
   total: number;
@@ -150,42 +139,6 @@ function text(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
 }
 
-/**
- * Sum two decimal dollar strings exactly, at whatever scale they carry — the
- * kernel's budget fold (`relayflowd-core/src/state/budget.rs`) aligns every
- * fractional digit before adding, and it accepts arbitrary precision. Scaling
- * to a fixed six fractional digits dropped a charge of `0.0000001` to zero, so
- * `flows status` underreported spend the kernel had totalled exactly.
- *
- * A value that is not a decimal number is left out of the sum rather than
- * counted as zero, and the caller is told by `malformed`.
- */
-export function addDollars(left: string, right: string): string {
-  const parsed = [left, right].map((value) => /^\d+(?:\.\d+)?$/.test(value) ? value : null);
-  const usable = parsed.filter((value): value is string => value !== null);
-  if (usable.length === 0) return '0';
-  if (usable.length === 1) return normalizeDollars(usable[0]!);
-  const scale = Math.max(...usable.map((value) => (value.split('.')[1] ?? '').length));
-  const scaled = usable.map((value) => {
-    const [whole, fraction = ''] = value.split('.');
-    return BigInt(`${whole}${fraction.padEnd(scale, '0')}`);
-  });
-  return fromScaled(scaled[0]! + scaled[1]!, scale);
-}
-
-/** `12.3400` -> `12.34`, `0.000` -> `0`; the journal's own spelling otherwise. */
-function normalizeDollars(value: string): string {
-  const [whole, fraction = ''] = value.split('.');
-  return fromScaled(BigInt(`${whole}${fraction}`), fraction.length);
-}
-
-function fromScaled(total: bigint, scale: number): string {
-  if (scale === 0) return String(total);
-  const digits = String(total).padStart(scale + 1, '0');
-  const whole = digits.slice(0, digits.length - scale);
-  const fraction = digits.slice(digits.length - scale).replace(/0+$/, '');
-  return fraction.length === 0 ? whole : `${whole}.${fraction}`;
-}
 
 /**
  * Reduce `trajectory_tail.transcript` (the digest flows#491 journals) to the
@@ -232,45 +185,6 @@ function addSpend(total: Spend, charge: unknown): Spend {
 
 const ZERO_SPEND: Spend = { tokens_in: 0, tokens_out: 0, dollars: '0', dollars_unmetered: false };
 
-const NO_REPORTED_COST: ReportedCostTotal = { dollars: '0', complete: true, source: null };
-
-/**
- * A completion that is known to have cost nothing because no model ran for it.
- * Deliberately narrow: a crash-recovered or cancelled model attempt journals a
- * default zero budget although the model ran, so metering nothing proves
- * nothing. Anything not listed here without a `reported_cost` stays unknown,
- * and the total reads as a lower bound rather than a false complete figure.
- * - a deterministic step runs a command, not a model;
- * - a memoized reuse copied its output; the source run paid for the model;
- * - the authored root runs the flow body, whose model calls are child runs
- *   with journals of their own. Only a spec carrying the authored-root
- *   discriminator counts: an ordinary flow may name a step `authored-root`.
- */
-function ranNoModel(completion: Payload, step: StepView, authoredRoot: boolean): boolean {
-  if (completion['reused_from'] !== undefined && completion['reused_from'] !== null) return true;
-  return step.type === 'deterministic' || (authoredRoot && step.id === 'authored-root');
-}
-
-/**
- * Add one completed attempt's journaled `reported_cost` to a total. A model
- * attempt without one (older runtime, Codex, unpriced) leaves the sum unchanged
- * and marks it incomplete rather than counting an unknown cost as zero.
- */
-function addReportedCost(total: ReportedCostTotal, completion: Payload, step: StepView, authoredRoot: boolean): ReportedCostTotal {
-  const charge = completion['reported_cost'];
-  const cost = charge !== null && typeof charge === 'object' && !Array.isArray(charge) ? charge as Payload : null;
-  if (cost === null && ranNoModel(completion, step, authoredRoot)) return total;
-  const dollars = cost === null ? null : cost['dollars'];
-  const source = cost === null ? null : cost['source'];
-  if (typeof dollars !== 'string' || !/^\d+(?:\.\d+)?$/.test(dollars) || (source !== 'cli' && source !== 'priced')) {
-    return { ...total, complete: false };
-  }
-  return {
-    dollars: addDollars(total.dollars, dollars),
-    complete: total.complete,
-    source: total.source === null || total.source === source ? source : 'mixed',
-  };
-}
 
 interface StepFold {
   view: StepView;
@@ -333,7 +247,7 @@ export function foldRunState(events: readonly JournalEvent[], now_ms: number): R
   // the family (state.rs `prior_spend`); the view reports the same running total.
   let spend = addSpend(ZERO_SPEND, budget['prior_spend']);
   let reportedCost = NO_REPORTED_COST;
-  const authoredRoot = declaresAuthoredRoot(first);
+  const modelFree = modelFreeSteps(first);
   let completion: string | null = null;
   let cancelRequested = false;
 
@@ -364,8 +278,8 @@ export function foldRunState(events: readonly JournalEvent[], now_ms: number): R
         view.attempt = Math.max(view.attempt, attempt);
         spend = addSpend(spend, payload['budget']);
         view.spend = addSpend(view.spend, payload['budget']);
-        reportedCost = addReportedCost(reportedCost, payload, view, authoredRoot);
-        view.reported_cost = addReportedCost(view.reported_cost ?? NO_REPORTED_COST, payload, view, authoredRoot);
+        reportedCost = addReportedCost(reportedCost, payload, modelFree.has(view.id));
+        view.reported_cost = addReportedCost(view.reported_cost ?? NO_REPORTED_COST, payload, modelFree.has(view.id));
         const verification = payload['verification'] !== null && typeof payload['verification'] === 'object'
           ? payload['verification'] as Payload : undefined;
         view.last_attempt = {

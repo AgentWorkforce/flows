@@ -341,6 +341,18 @@ describe('foldRunState', () => {
     expect(view.reported_cost).toEqual({ dollars: '0', complete: true, source: null });
   });
 
+  it('counts a provider helper step as free: it performs a relayfile write, not a model call', () => {
+    const helperSpec = { name: 'helpers', steps: [{
+      id: 'post', type: 'agent', depends_on: [], max_iterations: 1,
+      instruction: 'relayflows:helper:v1\n{"type":"effect","provider":"slack","verb":"postMessage","params":{}}',
+    }] };
+    const view = foldRunState(journal(
+      { entry_type: 'run.spawned', payload: { spec: helperSpec, spec_hash: 'h', parent_run_id: null, journal_version: 1, created_by: 't' } },
+      completed('post', 1, T0 + 1000, {}),
+    ), T0 + 2000);
+    expect(view.reported_cost).toEqual({ dollars: '0', complete: true, source: null });
+  });
+
   it('does not take a zero budget as proof no model ran: a recovered agent attempt stays unknown', () => {
     // Crash recovery and cancellation journal a default budget although the model ran.
     const view = foldRunState(journal(
