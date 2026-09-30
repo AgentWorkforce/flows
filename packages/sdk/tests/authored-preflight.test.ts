@@ -25,6 +25,9 @@ else process.exit(process.env.ANTHROPIC_API_KEY === 'house-key' ? 0 : 1);
 function spec(id: string, model = 'allowed'): FlowSpec {
   return { version: SPEC_SCHEMA_VERSION, name: 'test', steps: [{ id, type: 'llm', prompt: 'hello', model }] };
 }
+function agentSpec(id: string, model = 'allowed'): FlowSpec {
+  return { version: SPEC_SCHEMA_VERSION, name: 'test', steps: [{ id, type: 'agent', instruction: 'review', model }] };
+}
 
 it('refuses unknown models before launching any provider probe', async () => {
   const { check, calls } = setup();
@@ -53,7 +56,7 @@ it('shares failed facts across callers but retains each step identity', async ()
   expect(readFileSync(calls, 'utf8').trim().split('\n')).toHaveLength(3);
 });
 
-it('uses the isolated provider environment during authored preflight', async () => {
+it('uses the isolated provider environment during authored agent preflight', async () => {
   const { check } = setup({ ...process.env, ANTHROPIC_API_KEY: 'house-key' });
-  expect((await check(spec('one'))).report.ok).toBe(true);
+  expect((await check(agentSpec('one'))).report.ok).toBe(true);
 });

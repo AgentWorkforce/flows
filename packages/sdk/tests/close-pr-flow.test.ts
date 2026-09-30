@@ -6,7 +6,6 @@ import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flow } from '@relayflows/surface';
 import closePr, {
-  assertRepairPairReady,
   executableFrom,
   requiredRepairModel,
 } from '../scripts/dogfood/close-pr.flow.js';
@@ -57,7 +56,6 @@ afterEach(async () => {
 async function harness(snapshots: Snapshot[], options: {
   existing?: boolean; input?: Partial<ClosePrInput>; changeHead?: boolean;
   malformedChecks?: boolean; mergeState?: string; failTerminal?: boolean;
-  probe?: { exists: boolean; supported: boolean; authenticated: boolean; modelAvailable: boolean };
 } = {}) {
   const specs: KernelRunSpec[] = [];
   const entries = new Map<string, unknown>();
@@ -74,13 +72,6 @@ async function harness(snapshots: Snapshot[], options: {
     const command = step.command;
     commands.push(command);
     if (command.includes('$IMPL_CLOSE_INPUT')) return JSON.stringify(input);
-    if (command.includes('--probe-cli')) {
-      const requested = command.match(/--probe-cli '([^']+)'/)?.[1] ?? '';
-      const executable = requested.startsWith('/') ? requested : `/usr/bin/${requested}`;
-      return JSON.stringify({ ...(options.probe ?? {
-        exists: true, supported: true, authenticated: true, modelAvailable: true,
-      }), executable });
-    }
     if (command.includes('git rev-parse HEAD')) return head();
     if (command.includes('gh pr list')) return options.existing ? '[{"number":7}]' : '[]';
     if (command.includes('gh pr create')) return 'https://github.com/acme/repo/pull/7\n';
@@ -139,13 +130,11 @@ describe('close-pr journaled repair loop', () => {
     const result = await h.execute();
     expect(result.completionReason).toBe('success');
     expect(h.commands[0]).toContain('IMPL_CLOSE_INPUT');
-    expect(h.commands.filter(command => command.includes('--probe-cli'))).toHaveLength(1);
-    expect(h.commands.findIndex(command => command.includes('--probe-cli')))
-      .toBeGreaterThan(h.commands.findIndex(command => command.includes('gh pr checks')));
+    expect(h.commands.every(command => !command.includes('--probe-cli'))).toBe(true);
     expect(h.commands.some(command => command.includes('gh pr create'))).toBe(false);
     expect(h.agents()).toHaveLength(1);
     expect(h.agents()[0]).toMatchObject({
-      cli: '/usr/bin/codex', model: 'test-model', instruction: expect.stringContaining('Null access'),
+      cli: 'codex', model: 'test-model', instruction: expect.stringContaining('Null access'),
       surfaces: { workspace: [{ surface: baseInput.worktree }] },
     });
     expect(getAuthoredFlowDefinition(closePr).body.toString())
@@ -178,7 +167,7 @@ describe('close-pr journaled repair loop', () => {
       input: { cli, model: undefined },
     });
     expect((await h.execute()).completionReason).toBe('success');
-    expect(h.agents()[0]).toMatchObject({ cli: `/usr/bin/${cli}`, model });
+    expect(h.agents()[0]).toMatchObject({ cli, model });
   }, 15_000);
 
   it('requires an explicit model for a custom repair wrapper', () => {
@@ -193,40 +182,19 @@ describe('close-pr journaled repair loop', () => {
     expect(requiredRepairModel('./tools/claude.exe')).toBe('claude-sonnet-5');
   });
 
-  it('uses the same absolute executable for a slash-relative wrapper probe and repair step', async () => {
+  it('resolves a slash-relative wrapper before host-owned repair preflight', async () => {
     const h = await harness([{ checks: [failed, green[1]!] }, { checks: green }], {
       input: { cli: './tools/repair-wrapper', model: 'exact-model' },
     });
     expect((await h.execute()).completionReason).toBe('success');
     const executable = executableFrom('./tools/repair-wrapper', baseInput.worktree);
-    expect(h.commands.find(command => command.includes('--probe-cli'))).toContain(`'${executable}'`);
     expect(h.agents()[0]).toMatchObject({ cli: executable, model: 'exact-model' });
-  });
-
-  it('uses the stable authored CLI for the readiness probe command', async () => {
-    vi.stubEnv('FLOWS_AUTHORED_CLI', '/opt/flows-stable');
-    let command = '';
-    let runOptions: unknown;
-    const executable = await assertRepairPairReady({
-      run: async (value: string, options?: unknown) => {
-        command = value;
-        runOptions = options;
-        return JSON.stringify({
-          exists: true, supported: true, authenticated: true,
-          modelAvailable: true, executable: '/usr/bin/codex',
-        });
-      },
-    } as never, 'codex', 'gpt-5.6-sol', '/tmp/worktree');
-    expect(executable).toBe('/usr/bin/codex');
-    expect(command).toMatch(/^'\/opt\/flows-stable' --probe-cli /u);
-    expect(command).not.toMatch(/flows-authored-node-|runner\.mjs/u);
-    expect(runOptions).toEqual({ timeout: '2m' });
+    expect(h.commands.every(command => !command.includes('--probe-cli'))).toBe(true);
   });
 
   it('lets an approval-only run merge without resolving an unused repair pair', async () => {
     const h = await harness([{ checks: green }], {
       input: { cli: '/opt/custom-wrapper', model: undefined },
-      probe: { exists: false, supported: false, authenticated: false, modelAvailable: false },
     });
     expect((await h.execute()).completionReason).toBe('success');
     expect(h.commands.some(command => command.includes('--probe-cli'))).toBe(false);
@@ -240,18 +208,6 @@ describe('close-pr journaled repair loop', () => {
     await expect(h.execute()).rejects.toThrow(/requires input\.model|model: must not contain control characters/);
     expect(h.agents()).toHaveLength(0);
     expect(h.commands.some(command => command.includes('gh pr merge'))).toBe(false);
-  });
-
-  it('rejects an unavailable repair pair before invoking a repair agent', async () => {
-    const h = await harness([{ checks: [failed, green[1]!] }], {
-      input: { cli: '/opt/custom-wrapper', model: 'exact-model' },
-      probe: { exists: true, supported: true, authenticated: true, modelAvailable: false },
-    });
-    await expect(h.execute()).rejects.toThrow(/Repair model "exact-model" is unavailable/);
-    const probe = h.commands.find(command => command.includes('--probe-cli'));
-    expect(probe).toContain("'/opt/custom-wrapper' 'exact-model' '/tmp/slice worktree'");
-    expect(h.commands.some(command => command.includes('gh pr checks'))).toBe(true);
-    expect(h.agents()).toHaveLength(0);
   });
 
   it('parks after exactly three nonconverging repairs, with accumulated blockers', async () => {

@@ -13,7 +13,7 @@ import {
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
 import { reflectApplyArgumentCandidates } from './shipped-source-reflect-apply.js';
-import { staticCallArguments } from './shipped-source-static-call-arguments.js';
+import { staticCallArgumentCandidates } from './shipped-source-static-call-arguments.js';
 import {
   type FlowCallable,
   type FlowBindInvoker,
@@ -333,10 +333,14 @@ export function flowInvocation(
   if (!helper) {
     const declaration = checker.getResolvedSignature(node)?.declaration;
     if (declaration && ts.isFunctionLike(declaration) && 'body' in declaration && declaration.body) {
-      const forwardedArgs = staticCallArguments(node.arguments, checker)?.values ?? node.arguments;
-      for (const argument of forwardedArgs) {
-        const forwarded = flowConstructor(ts.isSpreadElement(argument) ? argument.expression : argument, checker);
-        if (forwarded) return { args: [], auditable: false };
+      const forwardedCandidates = staticCallArgumentCandidates(node.arguments, checker);
+      for (const forwardedArgs of forwardedCandidates.length > 0
+        ? forwardedCandidates.map(candidate => candidate.values)
+        : [node.arguments]) {
+        for (const argument of forwardedArgs) {
+          const forwarded = flowConstructor(ts.isSpreadElement(argument) ? argument.expression : argument, checker);
+          if (forwarded) return { args: [], auditable: false };
+        }
       }
     }
     return undefined;

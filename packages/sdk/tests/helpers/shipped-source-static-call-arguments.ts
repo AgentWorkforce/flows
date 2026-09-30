@@ -13,21 +13,24 @@ export function staticArrayElementCandidates(
   ] : [];
 }
 
-export function staticCallArguments(
+export function staticCallArgumentCandidates(
   args: readonly ts.Expression[],
   checker: ts.TypeChecker,
-): { values: ts.Expression[]; auditable: boolean } | undefined {
-  const values: ts.Expression[] = [];
-  let auditable = true;
+): Array<{ values: ts.Expression[]; auditable: boolean }> {
+  let candidates: Array<{ values: ts.Expression[]; auditable: boolean }> = [{ values: [], auditable: true }];
   for (const argument of args) {
     if (!ts.isSpreadElement(argument)) {
-      values.push(argument);
+      for (const candidate of candidates) candidate.values.push(argument);
       continue;
     }
-    const spread = staticArrayElements(argument.expression, checker, new Set());
-    if (!spread || spread.values.some(value => value === undefined)) return undefined;
-    values.push(...spread.values as ts.Expression[]);
-    auditable = false;
+    const spreads = staticArrayElementCandidates(argument.expression, checker, new Set())
+      .filter((candidate): candidate is { values: ts.Expression[]; auditable: boolean } =>
+        candidate.values.every((value): value is ts.Expression => value !== undefined));
+    if (spreads.length === 0) return [];
+    candidates = candidates.flatMap(prefix => spreads.map(spread => ({
+      values: [...prefix.values, ...spread.values],
+      auditable: false,
+    })));
   }
-  return { values, auditable };
+  return candidates;
 }

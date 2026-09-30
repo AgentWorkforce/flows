@@ -12,7 +12,7 @@ import {
 } from './shipped-source-binding-values.js';
 import { reflectApplyArgumentCandidates } from './shipped-source-reflect-apply.js';
 import { symbolHasWrites } from './shipped-source-receiver-writes.js';
-import { staticCallArguments } from './shipped-source-static-call-arguments.js';
+import { staticCallArgumentCandidates } from './shipped-source-static-call-arguments.js';
 
 type WorkerMethod = 'agent' | 'llm';
 
@@ -427,10 +427,14 @@ export function workerInvocation(
   if (!helper) {
     const declaration = checker.getResolvedSignature(node)?.declaration;
     if (declaration && ts.isFunctionLike(declaration) && 'body' in declaration && declaration.body) {
-      const forwardedArgs = staticCallArguments(node.arguments, checker)?.values ?? node.arguments;
-      for (const argument of forwardedArgs) {
-        const forwarded = workerCallable(ts.isSpreadElement(argument) ? argument.expression : argument, checker);
-        if (forwarded) return { method: forwarded.method, args: [], auditable: false };
+      const forwardedCandidates = staticCallArgumentCandidates(node.arguments, checker);
+      for (const forwardedArgs of forwardedCandidates.length > 0
+        ? forwardedCandidates.map(candidate => candidate.values)
+        : [node.arguments]) {
+        for (const argument of forwardedArgs) {
+          const forwarded = workerCallable(ts.isSpreadElement(argument) ? argument.expression : argument, checker);
+          if (forwarded) return { method: forwarded.method, args: [], auditable: false };
+        }
       }
     }
     return undefined;

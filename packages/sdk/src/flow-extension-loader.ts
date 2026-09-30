@@ -340,7 +340,9 @@ async function loadOne<Authority>(
   if (!manifest.extends.handlers && definition.handlers.length > 0) {
     throw new PluginError('plugin_manifest_invalid', `${manifest.name}: ${manifest.entry} declares handlers but extends.handlers is false.`);
   }
-  definition.handlers.forEach((handler, index) => assertDeclaredSubscription(manifest.name, manifest, handler, index));
+  for (let index = 0; index < definition.handlers.length; index += 1) {
+    assertDeclaredSubscription(manifest.name, manifest, definition.handlers[index]!, index);
+  }
   const hooks = imported.hooks;
   const exported = Object.keys(hooks).sort();
   const declared = [...manifest.extends.hooks].sort();
@@ -353,9 +355,13 @@ async function loadOne<Authority>(
       throw new PluginError('plugin_incompatible', `${manifest.name}: hook ${hook} is not declared by the base flow.`);
     }
   }
-  return Object.freeze({
+  const handlers: TriggerHandler[] = [];
+  for (let index = 0; index < definition.handlers.length; index += 1) {
+    appendIntrinsicArray(handlers, definition.handlers[index]!);
+  }
+  return OBJECT_FREEZE({
     name: manifest.name, version: manifest.version, ref, digest: lock.digest, directory, entryPath, manifest,
-    handle: imported.handle, getDefinition: imported.getDefinition, handlers: Object.freeze([...definition.handlers]),
+    handle: imported.handle, getDefinition: imported.getDefinition, handlers: OBJECT_FREEZE(handlers),
     hooks,
   });
 }

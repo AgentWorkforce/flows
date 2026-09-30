@@ -102,6 +102,10 @@ describe('shipped-source flow provenance repairs', () => {
         `{ function first(): any[] { return second(); } function second(): any[] { return flag ? first() : [surface.flow]; } for (const define of first()) define('recursive-call-array', { budget: '$2' }, () => {}); }`,
         `{ for (const define of [...items, surface.flow]) define('unknown-spread-callable', { budget: '$2' }, () => {}); }`,
         `{ const box: any = {}; for (const op of [...items, Object.assign]) op(box, { define: surface.flow }); box.define('unknown-spread-writer', { budget: '$2' }, () => {}); }`,
+        `{ const noop = () => undefined; Reflect.apply(...(flag ? [noop, null, []] as const : [surface.flow, surface, ['alternate-spread-callable', { budget: '$2' }, () => {}]] as const)); }`,
+        `{ const box: any = {}, noop = () => undefined; Reflect.apply(...(flag ? [noop, null, []] as const : [Object.assign, Object, [box, { define: surface.flow }]] as const)); box.define('alternate-spread-writer', { budget: '$2' }, () => {}); }`,
+        `{ function args() { return [surface.flow, surface, ['returned-spread-callable', { budget: '$2' }, () => {}]] as const; } Reflect.apply(...args()); }`,
+        `{ const box: any = {}; function args() { return [Object.assign, Object, [box, { define: surface.flow }]] as const; } Reflect.apply(...args()); box.define('returned-spread-writer', { budget: '$2' }, () => {}); }`,
       ];
       for (const [index, candidate] of cases.entries()) {
         const file = join(directory, `repaired-flow-${index}.flow.ts`);

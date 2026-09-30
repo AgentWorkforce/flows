@@ -9,6 +9,7 @@ import {
   unwrapExpression,
   wrappedExpressionBranches,
 } from './shipped-source-expression-values.js';
+import { returnedExpressions } from './shipped-source-return-values.js';
 
 type AggregateValue = {
   value: ts.Expression;
@@ -91,6 +92,27 @@ export function resolveStaticArrayElements(
     const values = candidates[0] ?? [];
     const alternatives = candidates.slice(1);
     return { values, auditable, ...(alternatives.length > 0 ? { alternatives } : {}) };
+  }
+  if (ts.isCallExpression(expression)) {
+    const declaration = checker.getResolvedSignature(expression)?.declaration;
+    if (declaration && ts.isFunctionLike(declaration) && 'body' in declaration) {
+      const callee = unwrapExpression(expression.expression);
+      const symbol = checker.getSymbolAtLocation(callee)
+        ?? (declaration.name ? checker.getSymbolAtLocation(declaration.name) : undefined);
+      if (symbol && seen.has(symbol)) return undefined;
+      const nextSeen = symbol ? new Set(seen).add(symbol) : new Set(seen);
+      const candidates: Array<Array<ts.Expression | undefined>> = [];
+      for (const returned of returnedExpressions(declaration.body)) {
+        const value = resolveStaticArrayElements(returned, checker, new Set(nextSeen), resolvers);
+        if (value) candidates.push(value.values, ...(value.alternatives ?? []));
+      }
+      const [values, ...alternatives] = candidates;
+      if (values) return {
+        values,
+        auditable: false,
+        ...(alternatives.length > 0 ? { alternatives } : {}),
+      };
+    }
   }
   const parentSeen = new Set(seen);
   const parent = resolvers.aggregateExpressionValue(expression, checker, parentSeen);

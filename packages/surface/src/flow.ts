@@ -5,6 +5,23 @@ import type { Ctx } from "./context.js";
 import { webhook, type TriggerSource } from "./triggers.js";
 import { schedule } from "./schedule.js";
 
+const ARRAY_IS_ARRAY = Array.isArray;
+const OBJECT_DEFINE_PROPERTY = Object.defineProperty;
+const OBJECT_FREEZE = Object.freeze;
+const OBJECT_IS_FROZEN = Object.isFrozen;
+
+/** Copy/append without consulting an authored Array iterator or prototype setter. */
+function appendIntrinsicArray<T>(target: T[], source: readonly T[]): void {
+  for (let index = 0; index < source.length; index += 1) {
+    OBJECT_DEFINE_PROPERTY(target, target.length, {
+      configurable: true,
+      enumerable: true,
+      value: source[index]!,
+      writable: true,
+    });
+  }
+}
+
 /** Optional escalation header; the empty header is the common case. */
 export interface FlowHeader {
   /** Relative paths to reusable authored flows composed by this body. */
@@ -83,18 +100,18 @@ export function flow<Input = unknown>(
   }
   assertFlowHeader(header, name);
 
-  const definition: AuthoredFlowDefinition<Input> = Object.freeze({
+  const definition: AuthoredFlowDefinition<Input> = OBJECT_FREEZE({
     name,
     header: freezeHeader(header),
     body: flowBody ?? (async () => { throw new TypeError(`flow "${name}" has no direct-run body`); }),
-    handlers: Object.freeze([]),
+    handlers: OBJECT_FREEZE([]),
   });
   return makeHandle(definition as AuthoredFlowDefinition);
 }
 
 function makeHandle(definition: AuthoredFlowDefinition): FlowHandle {
   const handle = { name: definition.name } as FlowHandle;
-  Object.defineProperty(handle, "on", {
+  OBJECT_DEFINE_PROPERTY(handle, "on", {
     value: <Event>(trigger: TriggerSource, body: FlowBody<Event>): TriggeredFlowHandle => {
       if (typeof body !== "function") throw new TypeError("trigger handler requires a body");
       assertHeaderObject(trigger, "trigger");
@@ -114,13 +131,16 @@ function makeHandle(definition: AuthoredFlowDefinition): FlowHandle {
         if (trigger.kind !== "webhook") throw new TypeError("unsupported trigger kind");
         source = webhook(trigger.name, trigger.filter);
       }
-      return makeHandle(Object.freeze({
+      const handlers: TriggerHandler[] = [];
+      appendIntrinsicArray(handlers, definition.handlers);
+      appendIntrinsicArray(handlers, [OBJECT_FREEZE({ trigger: source, body: body as FlowBody })]);
+      return makeHandle(OBJECT_FREEZE({
         ...definition,
-        handlers: Object.freeze([...definition.handlers, Object.freeze({ trigger: source, body: body as FlowBody })]),
+        handlers: OBJECT_FREEZE(handlers),
       }));
     },
   });
-  Object.freeze(handle);
+  OBJECT_FREEZE(handle);
   // One map holds definitions of many input types, so it is stored at the
   // default parameterisation and `getFlowDefinition<Input>` re-parameterises on
   // the way out. The cast is needed because `body` puts `Input` in a parameter
@@ -155,7 +175,7 @@ function isStoredDefinition(
   value: unknown,
   handleName: unknown,
 ): value is AuthoredFlowDefinition {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+  if (typeof value !== "object" || value === null || ARRAY_IS_ARRAY(value)) {
     return false;
   }
   const candidate = value as Partial<AuthoredFlowDefinition>;
@@ -164,9 +184,9 @@ function isStoredDefinition(
     && typeof candidate.body === "function"
     && typeof candidate.header === "object"
     && candidate.header !== null
-    && !Array.isArray(candidate.header)
-    && Object.isFrozen(candidate.header)
-    && Object.isFrozen(value);
+    && !ARRAY_IS_ARRAY(candidate.header)
+    && OBJECT_IS_FROZEN(candidate.header)
+    && OBJECT_IS_FROZEN(value);
 }
 
 const HEADER_FIELDS = [
@@ -297,8 +317,11 @@ function assertKnownKeys(
   allowed: readonly string[],
   at: string,
 ): void {
-  const allowedKeys = new Set<PropertyKey>(allowed);
-  for (const key of Reflect.ownKeys(value)) {
+  const allowedKeys = new Set<PropertyKey>();
+  for (let index = 0; index < allowed.length; index += 1) allowedKeys.add(allowed[index]!);
+  const keys = Reflect.ownKeys(value);
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index]!;
     if (!allowedKeys.has(key)) {
       throw new TypeError(`${at}: unknown field ${JSON.stringify(String(key))}`);
     }

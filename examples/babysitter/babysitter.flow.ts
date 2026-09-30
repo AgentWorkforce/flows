@@ -73,12 +73,10 @@ export async function babysitConfigured(f: Ctx, c: Config, wake: Wake, deliveryI
   }
   const authoredReviewerCli = c.reviewerCli ?? 'claude';
   const reviewerModel = requiredReviewerModel(authoredReviewerCli, c.reviewerModel);
-  const reviewerCli = await assertReviewerPairReady(
-    f,
-    reviewerExecutableFrom(authoredReviewerCli, BABYSITTER_FLOW_DIRECTORY),
-    reviewerModel,
-    BABYSITTER_FLOW_DIRECTORY,
-  );
+  // f.agent's host-owned preflight probes this exact pair with the isolated
+  // provider environment before admitting the worker. Authored f.run steps
+  // intentionally cannot receive that credential overlay.
+  const reviewerCli = reviewerExecutableFrom(authoredReviewerCli, BABYSITTER_FLOW_DIRECTORY);
   const dir = await capture(f, c, live, head);
   await Promise.all(lenses.map(lens => reviewLens(f, c, dir, head, lens, reviewerCli, reviewerModel)));
   await assertUntouched(f, dir, head);
@@ -142,50 +140,6 @@ export function reviewerExecutableFrom(cli: string, directory: string): string {
   return cli.includes('/') && !isAbsolute(cli) ? resolve(directory, cli) : cli;
 }
 
-export async function assertReviewerPairReady(
-  f: Pick<Ctx, 'run'>,
-  cli: string,
-  model: string,
-  directory: string,
-): Promise<string> {
-  let result;
-  try {
-    const authoredCli = process.env['FLOWS_AUTHORED_CLI'];
-    if (authoredCli !== undefined && !isAbsolute(authoredCli)) {
-      throw new Error('authored CLI path is not absolute');
-    }
-    const runtime = authoredCli === undefined ? process.argv[1] : undefined;
-    if (authoredCli === undefined && !runtime) throw new Error('authored Node runtime path is unavailable');
-    const probe = authoredCli === undefined
-      ? `${shellWord(process.execPath)} ${shellWord(runtime!)}`
-      : shellWord(authoredCli);
-    result = JSON.parse(await f.run(
-      `${probe} --probe-cli `
-        + `${shellWord(cli)} ${shellWord(model)} ${shellWord(directory)}`,
-      { timeout: '2m' },
-    )) as {
-      exists?: boolean;
-      supported?: boolean;
-      authenticated?: boolean | 'unverified';
-      modelAvailable?: boolean;
-      executable?: string;
-    };
-  } catch (error) {
-    throw new Error(`Reviewer CLI/model readiness probe failed: ${(error as Error).message}`);
-  }
-  if (!result.exists) throw new Error(`Reviewer CLI ${JSON.stringify(cli)} does not resolve as an executable`);
-  if (result.supported === false) {
-    throw new Error(`Reviewer CLI ${JSON.stringify(cli)} is not a supported provider or conforming Relayflows wrapper`);
-  }
-  if (result.authenticated !== true) throw new Error(`Reviewer CLI ${JSON.stringify(cli)} is not authenticated`);
-  if (result.modelAvailable !== true) {
-    throw new Error(`Reviewer model ${JSON.stringify(model)} is unavailable through ${JSON.stringify(cli)}`);
-  }
-  if (result.executable === undefined || !isAbsolute(result.executable)) {
-    throw new Error(`Reviewer CLI ${JSON.stringify(cli)} did not bind an absolute executable`);
-  }
-  return result.executable;
-}
 // The resident subscription contract is declared once, in subscriptions.ts, and
 // registered from that declaration. A handler cannot drift from the set the
 // input validator accepts and the liveness sweep expects.

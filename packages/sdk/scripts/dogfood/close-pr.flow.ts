@@ -92,12 +92,10 @@ export default flow<unknown>('close-pr', async (f, supplied) => {
     if (!repairPair) {
       const authoredCli = input.cli ?? 'codex';
       const model = requiredRepairModel(authoredCli, input.model);
-      const cli = await assertRepairPairReady(
-        f,
-        executableFrom(authoredCli, input.worktree),
-        model,
-        input.worktree,
-      );
+      // f.agent's host-owned preflight probes this exact pair with the
+      // isolated provider environment before admitting the worker. Authored
+      // f.run steps intentionally cannot receive that credential overlay.
+      const cli = executableFrom(authoredCli, input.worktree);
       repairPair = { cli, model };
     }
     const { cli: repairCli, model: repairModel } = repairPair;
@@ -137,52 +135,4 @@ export function requiredRepairModel(cli: string, override?: string): string {
 /** Resolve authored relative wrappers before the probe binds every CLI to an absolute executable. */
 export function executableFrom(cli: string, directory: string): string {
   return cli.includes('/') && !isAbsolute(cli) ? resolve(directory, cli) : cli;
-}
-
-export async function assertRepairPairReady(
-  f: Pick<Ctx, 'run'>,
-  cli: string,
-  model: string,
-  directory: string,
-): Promise<string> {
-  let result;
-  try {
-    const authoredCli = process.env['FLOWS_AUTHORED_CLI'];
-    if (authoredCli !== undefined && !isAbsolute(authoredCli)) {
-      throw new Error('authored CLI path is not absolute');
-    }
-    const runtime = authoredCli === undefined ? process.argv[1] : undefined;
-    if (authoredCli === undefined && !runtime) throw new Error('authored Node runtime path is unavailable');
-    const probe = authoredCli === undefined
-      ? `${quote(process.execPath)} ${quote(runtime!)}`
-      : quote(authoredCli);
-    const output = await f.run(
-      `${probe} --probe-cli `
-        + `${quote(cli)} ${quote(model)} ${quote(directory)}`,
-      { timeout: '2m' },
-    );
-    result = JSON.parse(output) as {
-      exists?: boolean;
-      supported?: boolean;
-      authenticated?: boolean | 'unverified';
-      modelAvailable?: boolean;
-      executable?: string;
-    };
-  } catch (error) {
-    throw new Error(`Repair CLI/model readiness probe failed: ${(error as Error).message}`);
-  }
-  if (!result.exists) throw new Error(`Repair CLI ${JSON.stringify(cli)} does not resolve as an executable`);
-  if (result.supported === false) {
-    throw new Error(`Repair CLI ${JSON.stringify(cli)} is not a supported provider or conforming Relayflows wrapper`);
-  }
-  if (result.authenticated !== true) {
-    throw new Error(`Repair CLI ${JSON.stringify(cli)} is not authenticated`);
-  }
-  if (result.modelAvailable !== true) {
-    throw new Error(`Repair model ${JSON.stringify(model)} is unavailable through ${JSON.stringify(cli)}`);
-  }
-  if (result.executable === undefined || !isAbsolute(result.executable)) {
-    throw new Error(`Repair CLI ${JSON.stringify(cli)} did not bind an absolute executable`);
-  }
-  return result.executable;
 }

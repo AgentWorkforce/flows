@@ -10,7 +10,7 @@ import {
 } from './shipped-source-binding-values.js';
 import {
   staticArrayElementCandidates,
-  staticCallArguments,
+  staticCallArgumentCandidates,
 } from './shipped-source-static-call-arguments.js';
 
 type CallableMatcher = (
@@ -77,15 +77,16 @@ function callableCandidates(
     const callOperation = staticMemberSegment(expression.expression, checker, new Set(seen));
     const callReceiver = memberReceiver(expression.expression);
     if (callOperation === 'bind' && callReceiver) {
-      const args = knownCallArguments(expression.arguments, checker);
-      for (const callable of callableCandidates(callReceiver, matcher, checker, new Set(seen))) {
-        candidates.push({
-          ...callable,
-          operations: [
-            ...callable.operations,
-            { kind: 'bind', args: args.slice(1) },
-          ],
-        });
+      for (const args of knownCallArgumentCandidates(expression.arguments, checker)) {
+        for (const callable of callableCandidates(callReceiver, matcher, checker, new Set(seen))) {
+          candidates.push({
+            ...callable,
+            operations: [
+              ...callable.operations,
+              { kind: 'bind', args: args.slice(1) },
+            ],
+          });
+        }
       }
     }
     return candidates;
@@ -139,13 +140,13 @@ function invokeCallableCandidate(
   return invoked;
 }
 
-function knownCallArguments(
+function knownCallArgumentCandidates(
   args: readonly ts.Expression[],
   checker: ts.TypeChecker,
-): ts.Expression[] {
-  const expanded = staticCallArguments(args, checker);
-  if (expanded) return expanded.values;
-  return args.flatMap(argument => ts.isSpreadElement(argument) ? [] : [argument]);
+): ts.Expression[][] {
+  const expanded = staticCallArgumentCandidates(args, checker);
+  if (expanded.length > 0) return expanded.map(candidate => candidate.values);
+  return [args.flatMap(argument => ts.isSpreadElement(argument) ? [] : [argument])];
 }
 
 export function callableArgumentCandidates(
@@ -154,8 +155,7 @@ export function callableArgumentCandidates(
   matcher: CallableMatcher,
   checker: ts.TypeChecker,
 ): Array<readonly ts.Expression[]> {
-  const expanded = knownCallArguments(args, checker);
-  return callableCandidates(expression, matcher, checker).flatMap(callable => {
-    return invokeCallableCandidate(callable, expanded, checker);
-  });
+  return knownCallArgumentCandidates(args, checker).flatMap(expanded =>
+    callableCandidates(expression, matcher, checker).flatMap(callable =>
+      invokeCallableCandidate(callable, expanded, checker)));
 }

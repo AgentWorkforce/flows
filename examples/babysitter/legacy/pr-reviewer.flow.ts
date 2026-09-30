@@ -108,15 +108,14 @@ const reviewerBody = flow<Input>(
       return f.done(merged ? "success" : "step_failed");
     }
 
-    // Approval-only wakes never dispatch the reviewer. Review wakes still
-    // prove the exact pair before their first GitHub or checkout effect.
+    // Approval-only wakes never dispatch the reviewer. Review wakes pin the
+    // exact pair here; the host-owned f.agent preflight proves it before the
+    // worker is admitted.
     const reviewerModel = requiredReviewerModel(reviewerCli, input.reviewerModel);
-    const reviewerExecutable = await assertReviewerPairReady(
-      f,
-      reviewerExecutableFrom(reviewerCli, LEGACY_REVIEWER_FLOW_DIRECTORY),
-      reviewerModel,
-      LEGACY_REVIEWER_FLOW_DIRECTORY,
-    );
+    // f.agent's host-owned preflight probes this exact pair with the isolated
+    // provider environment before admitting the worker. Authored f.run steps
+    // intentionally cannot receive that credential overlay.
+    const reviewerExecutable = reviewerExecutableFrom(reviewerCli, LEGACY_REVIEWER_FLOW_DIRECTORY);
 
     // ── review gate: merged/closed, draft, disabling label, author allowlist ──
     const meta = JSON.parse(await api(`/pulls/${pr.number}`)) as PrMeta;
@@ -240,53 +239,6 @@ export function reviewerExecutableFrom(cli: string, directory: string): string {
   return cli.includes("/") && !isAbsolute(cli) ? resolve(directory, cli) : cli;
 }
 
-export async function assertReviewerPairReady(
-  f: Pick<Ctx, "run">,
-  cli: string,
-  model: string,
-  directory: string,
-): Promise<string> {
-  let result;
-  try {
-    // Bun supplies its stable standalone entrypoint; direct Node and hosted
-    // execution re-enter their stable authored payload path.
-    const authoredCli = process.env["FLOWS_AUTHORED_CLI"];
-    if (authoredCli !== undefined && !isAbsolute(authoredCli)) {
-      throw new Error("authored CLI path is not absolute");
-    }
-    const runtime = authoredCli === undefined ? process.argv[1] : undefined;
-    if (authoredCli === undefined && !runtime) throw new Error("authored Node runtime path is unavailable");
-    const probe = authoredCli === undefined
-      ? `${shellWord(process.execPath)} ${shellWord(runtime!)}`
-      : shellWord(authoredCli);
-    const output = await f.run(
-      `${probe} --probe-cli `
-        + `${shellWord(cli)} ${shellWord(model)} ${shellWord(directory)}`,
-      { timeout: "2m" },
-    );
-    result = JSON.parse(output) as {
-      exists?: boolean;
-      supported?: boolean;
-      authenticated?: boolean | "unverified";
-      modelAvailable?: boolean;
-      executable?: string;
-    };
-  } catch (error) {
-    throw new Error(`Reviewer CLI/model readiness probe failed: ${(error as Error).message}`);
-  }
-  if (!result.exists) throw new Error(`Reviewer CLI ${JSON.stringify(cli)} does not resolve as an executable`);
-  if (result.supported === false) {
-    throw new Error(`Reviewer CLI ${JSON.stringify(cli)} is not a supported provider or conforming Relayflows wrapper`);
-  }
-  if (result.authenticated !== true) throw new Error(`Reviewer CLI ${JSON.stringify(cli)} is not authenticated`);
-  if (result.modelAvailable !== true) {
-    throw new Error(`Reviewer model ${JSON.stringify(model)} is unavailable through ${JSON.stringify(cli)}`);
-  }
-  if (result.executable === undefined || !isAbsolute(result.executable)) {
-    throw new Error(`Reviewer CLI ${JSON.stringify(cli)} did not bind an absolute executable`);
-  }
-  return result.executable;
-}
 
 function declarationStringError(value: string): string | undefined {
   if (!value) return "expected a non-empty string";

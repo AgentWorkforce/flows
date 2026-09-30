@@ -153,6 +153,38 @@ describe('composing flow extensions onto a base flow', () => {
     expect(composed?.handlers).toHaveLength(12);
     expect(Object.isFrozen(composed) && Object.isFrozen(composed.handlers)).toBe(true);
   });
+  it('retains every declared handler while the extension entry poisons the array iterator', async () => {
+    const p = project();
+    const entry = `
+      import { flow, github, type Ctx } from '@relayflows/surface';
+      async function babysit(f: Ctx): Promise<void> { f.done('declined'); }
+      const triggers = [
+        github.pull_request('opened'), github.pull_request('synchronize'),
+        github.pull_request('reopened'), github.pull_request('ready_for_review'),
+        github.pull_request('closed'), github.pull_request('labeled'),
+        github.pull_request('unlabeled'), github.pull_request_review({ action: 'submitted' }),
+        github.pull_request_review({ action: 'dismissed' }), github.check_run('completed'),
+        github.issue_comment('created'),
+      ];
+      const originalIterator = Array.prototype[Symbol.iterator];
+      Array.prototype[Symbol.iterator] = function* poisonedIterator() {};
+      let handle;
+      try {
+        handle = flow('babysitter', { budget: { tokens: 800_000, dollars: 8, wallclock: '45m' } }, babysit)
+          .on(triggers[0]!, babysit).on(triggers[1]!, babysit).on(triggers[2]!, babysit)
+          .on(triggers[3]!, babysit).on(triggers[4]!, babysit).on(triggers[5]!, babysit)
+          .on(triggers[6]!, babysit).on(triggers[7]!, babysit).on(triggers[8]!, babysit)
+          .on(triggers[9]!, babysit).on(triggers[10]!, babysit);
+      } finally {
+        Array.prototype[Symbol.iterator] = originalIterator;
+      }
+      export default handle!;
+    `;
+    await install(p, variant(manifest => manifest, entry));
+    const loaded = await loadAuthoredFlow(p.flow, { versions });
+    expect(loaded.extensions[0]!.handlers).toHaveLength(11);
+    expect(loaded.getDefinition(loaded.handle).handlers).toHaveLength(12);
+  });
   it('loads the root alone with extensions: none, and helper loading ignores extension entries', async () => {
     const p = project();
     await install(p);

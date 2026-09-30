@@ -158,6 +158,10 @@ describe('shipped-source worker invocation resolution', () => {
         function calledReflectApplyWorker() { Reflect.apply.call(Reflect, f.agent, f, ['review', { task: 'x' }]); }
         function appliedReflectApplyWorker() { Reflect.apply.apply(Reflect, [f.agent, f, ['review', { task: 'x' }]]); }
         function spreadReflectApplyWorker() { Reflect.apply(...[f.agent, f, ['review', { task: 'x' }]] as const); }
+        function alternateSpreadReflectApplyWorker() { const noop = () => undefined; Reflect.apply(...(flag ? [noop, null, []] as const : [f.agent, f, ['review', { task: 'x' }]] as const)); }
+        function returnedSpreadReflectApplyWorker() { function args() { return [f.agent, f, ['review', { task: 'x' }]] as const; } Reflect.apply(...args()); }
+        function alternateSpreadReflectApplyWriterWorker() { const box: any = {}, noop = () => undefined; Reflect.apply(...(flag ? [noop, null, []] as const : [Object.assign, Object, [box, { run: f.agent }]] as const)); box.run('review', { task: 'x' }); }
+        function returnedSpreadReflectApplyWriterWorker() { const box: any = {}; function args() { return [Object.assign, Object, [box, { run: f.agent }]] as const; } Reflect.apply(...args()); box.run('review', { task: 'x' }); }
         function boundReflectApplyWorker() { Reflect.apply.bind(Reflect)(f.agent, f, ['review', { task: 'x' }]); }
         function preboundReflectApplyWorker() { const invoke = Reflect.apply.bind(Reflect, f.agent, f); invoke(['review', { task: 'x' }]); }
         function composedCalledReflectApplyWorker() { const invoke = Reflect.apply.call.bind(Reflect.apply); invoke(Reflect, f.agent, f, ['review', { task: 'x' }]); }
@@ -251,8 +255,8 @@ describe('shipped-source worker invocation resolution', () => {
         async function wrappedWorkerAliases() { const conditionalRun = flag ? f.agent : f.agent, logicalRun = (flag && f.agent) || f.agent, nullishRun = f.agent ?? f.agent, commaRun = (flag, f.agent), awaitRun = await f.agent; conditionalRun('review', { task: 'x' }); logicalRun('review', { task: 'x' }); nullishRun('review', { task: 'x' }); commaRun('review', { task: 'x' }); awaitRun('review', { task: 'x' }); }
       `);
       const variableAliasResult = scanTypeScript(variableAliases);
-      expect(variableAliasResult.calls).toBe(226);
-      expect(variableAliasResult.missing).toHaveLength(226);
+      expect(variableAliasResult.calls).toBe(230);
+      expect(variableAliasResult.missing).toHaveLength(230);
       const repairedWorkerCases = [
         `const box: any = {}, helpers: any = {}; helpers.assign = Object.assign; helpers.assign(box, { run: f.agent }); box.run('review', { task: 'x' });`,
         `const box: any = {}, maps: any = {}; maps.descriptors = { run: { value: f.agent } }; Object.defineProperties(box, maps.descriptors); box.run('review', { task: 'x' });`,

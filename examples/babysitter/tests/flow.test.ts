@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   BABYSITTER_FLOW_DIRECTORY,
-  assertReviewerPairReady,
   babysit,
   generatedModelForCli,
   requiredReviewerModel,
@@ -10,7 +9,6 @@ import {
 } from '../babysitter.flow.ts';
 import {
   LEGACY_REVIEWER_FLOW_DIRECTORY,
-  assertReviewerPairReady as assertLegacyReviewerPairReady,
   requiredReviewerModel as requiredLegacyReviewerModel,
   reviewer as legacyReviewer,
   reviewerExecutableFrom,
@@ -24,21 +22,13 @@ const config = { owner: 'acme', repo: 'widgets', number: 7, testCommand: 'npm te
 const state = { state: 'open', merged: false, draft: false, headSha: sha, baseSha: 'b'.repeat(40), headRepo: 'acme/widgets', author: 'author', labels: [], mergeable: true, mergeState: 'clean', checks: [{ name: 'unit', sha, status: 'completed', conclusion: 'success' }], reviews: [{ login: 'alice', sha, state: 'APPROVED', id: 1 }], requestedReviewers: [] };
 function context(
   live: unknown = state,
-  probe: unknown = { exists: true, supported: true, authenticated: true, modelAvailable: true },
   captureAgent = false,
 ) {
   const commands: string[] = [], reasons: string[] = [], merges: string[] = [];
-  const runOptions: unknown[] = [];
   const agentCalls: Array<{ cli?: string; model?: string }> = [];
   let agents = 0;
-  const f = { run: async (command: string, options?: unknown) => {
+  const f = { run: async (command: string) => {
     commands.push(command);
-    runOptions.push(options);
-    if (command.includes('--probe-cli')) {
-      const requested = command.match(/--probe-cli '([^']+)'/)?.[1] ?? '';
-      const executable = requested.startsWith('/') ? requested : `/usr/bin/${requested}`;
-      return JSON.stringify({ ...(probe as object), executable });
-    }
     if (command.startsWith('curl ') && command.includes('/check-runs?')) return '{"check_runs":[]}';
     if (command.startsWith('curl ') && command.includes('/status')) return '{"statuses":[]}';
     if (command.startsWith('curl ') && command.includes('/reviews?')) return JSON.stringify([
@@ -55,7 +45,7 @@ function context(
     return { gate: async () => { throw new Error('captured agent dispatch'); } };
   },
   github: { mergePullRequest: async (input: { sha: string }) => { merges.push(input.sha); return { merged: true }; } } } as unknown as Ctx;
-  return { f, commands, runOptions, reasons, merges, agentCalls, agents: () => agents };
+  return { f, commands, reasons, merges, agentCalls, agents: () => agents };
 }
 test('only registered direct-probe providers receive generated model pins', () => {
   assert.deepEqual(
@@ -98,9 +88,9 @@ test('modern reviewer binds slash-relative wrappers before probing and dispatch'
   assert.equal(modernReviewerExecutableFrom('/opt/reviewer', '/tmp/flow root'), '/opt/reviewer');
   assert.equal(modernReviewerExecutableFrom('claude', '/tmp/flow root'), 'claude');
 });
-test('legacy reviewer probes and dispatches the same resolved wrapper', async () => {
+test('legacy reviewer dispatches the same resolved wrapper to host-owned preflight', async () => {
   const body = getFlowDefinition(legacyReviewer).body;
-  const x = context(state, undefined, true);
+  const x = context(state, true);
   await assert.rejects(
     body(x.f, {
       owner: 'acme', repo: 'widgets', number: 7, approvers: '',
@@ -109,19 +99,20 @@ test('legacy reviewer probes and dispatches the same resolved wrapper', async ()
     /captured agent dispatch/,
   );
   const executable = reviewerExecutableFrom('./tools/reviewer', LEGACY_REVIEWER_FLOW_DIRECTORY);
-  assert.match(x.commands[0]!, new RegExp(executable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.equal(x.agentCalls[0]?.cli, executable);
   assert.equal(x.agentCalls[0]?.model, 'exact-model');
+  assert.ok(x.commands.every(command => !command.includes('--probe-cli')));
 });
-test('legacy reviewer dispatches the absolute executable bound by the probe', async () => {
+test('legacy reviewer leaves provider basenames for host-owned preflight resolution', async () => {
   const body = getFlowDefinition(legacyReviewer).body;
-  const x = context(state, undefined, true);
+  const x = context(state, true);
   await assert.rejects(
     body(x.f, { owner: 'acme', repo: 'widgets', number: 7, approvers: '', reviewerCli: 'claude' }),
     /captured agent dispatch/,
   );
-  assert.equal(x.agentCalls[0]?.cli, '/usr/bin/claude');
+  assert.equal(x.agentCalls[0]?.cli, 'claude');
   assert.equal(x.agentCalls[0]?.model, 'claude-sonnet-5');
+  assert.ok(x.commands.every(command => !command.includes('--probe-cli')));
 });
 test('blank legacy reviewer overrides fail before GitHub or repository effects', async () => {
   const body = getFlowDefinition(legacyReviewer).body;
@@ -135,71 +126,9 @@ test('blank legacy reviewer overrides fail before GitHub or repository effects',
     assert.equal(x.agents(), 0);
   }
 });
-test('unavailable legacy reviewer pair fails before GitHub or repository effects', async () => {
-  const body = getFlowDefinition(legacyReviewer).body;
-  const x = context(state, {
-    exists: true, supported: true, authenticated: true, modelAvailable: false,
-  });
-  await assert.rejects(
-    body(x.f, {
-      owner: 'acme', repo: 'widgets', number: 7, approvers: '',
-      reviewerCli: 'claude', reviewerModel: 'unavailable-exact-model',
-    }),
-    /Reviewer model "unavailable-exact-model" is unavailable through "claude"/,
-  );
-  assert.equal(x.commands.length, 1);
-  assert.match(x.commands[0]!, /--probe-cli/);
-  assert.match(x.commands[0]!, /'claude' 'unavailable-exact-model'/);
-  assert.doesNotMatch(x.commands[0]!, /command -v flows|cli-probe\.js|curl|git fetch|git checkout|\.workforce/);
-  assert.equal(x.agents(), 0);
-});
-test('modern reviewer readiness fails closed before capture commands are possible', async () => {
-  const x = context(state, {
-    exists: true, supported: true, authenticated: true, modelAvailable: false,
-  });
-  await assert.rejects(
-    assertReviewerPairReady(x.f, 'claude', 'unavailable-exact-model', BABYSITTER_FLOW_DIRECTORY),
-    /Reviewer model "unavailable-exact-model" is unavailable through "claude"/,
-  );
-  assert.equal(x.commands.length, 1);
-  assert.match(x.commands[0]!, /--probe-cli/);
-  assert.match(x.commands[0]!, /'claude' 'unavailable-exact-model'/);
-  assert.match(x.commands[0]!, new RegExp(BABYSITTER_FLOW_DIRECTORY.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-  assert.ok(x.commands.every(command => !/mktemp|git clone|git fetch/.test(command)));
-  assert.equal(x.agents(), 0);
-});
-test('modern reviewer readiness returns the absolute executable selected by the probe', async () => {
-  const x = context();
-  assert.equal(
-    await assertReviewerPairReady(x.f, 'claude', 'claude-sonnet-5', BABYSITTER_FLOW_DIRECTORY),
-    '/usr/bin/claude',
-  );
-  assert.deepEqual(x.runOptions, [{ timeout: '2m' }]);
-});
-test('reviewer probes use the stable authored CLI instead of a temporary Node payload', async () => {
-  const previous = process.env.FLOWS_AUTHORED_CLI;
-  process.env.FLOWS_AUTHORED_CLI = '/opt/flows-stable';
-  try {
-    for (const [ready, directory] of [
-      [assertReviewerPairReady, BABYSITTER_FLOW_DIRECTORY],
-      [assertLegacyReviewerPairReady, LEGACY_REVIEWER_FLOW_DIRECTORY],
-    ] as const) {
-      const x = context();
-      await ready(x.f, 'claude', 'claude-sonnet-5', directory);
-      assert.match(x.commands[0]!, /^'\/opt\/flows-stable' --probe-cli /);
-      assert.doesNotMatch(x.commands[0]!, /flows-authored-node-|runner\.mjs/);
-      assert.deepEqual(x.runOptions, [{ timeout: '2m' }]);
-    }
-  } finally {
-    if (previous === undefined) delete process.env.FLOWS_AUTHORED_CLI;
-    else process.env.FLOWS_AUTHORED_CLI = previous;
-  }
-});
 test('approval-only legacy wakes do not probe an unused reviewer pair', async () => {
   const body = getFlowDefinition(legacyReviewer).body;
-  const x = context(state, {
-    exists: true, supported: true, authenticated: true, modelAvailable: false,
-  });
+  const x = context(state);
   await body(x.f, {
     owner: 'acme', repo: 'widgets', number: 7, approvers: 'alice',
     reviewerCli: '/opt/custom-wrapper',
