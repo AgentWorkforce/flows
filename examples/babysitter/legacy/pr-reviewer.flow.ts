@@ -39,6 +39,7 @@
 // `isAuthorizedConflictCommander`) and unit-tested, but nothing dispatches it.
 
 import { flow, github } from "@relayflows/surface";
+import { isAbsolute, resolve } from "node:path";
 
 // ── input ───────────────────────────────────────────────────────────────────
 
@@ -108,7 +109,8 @@ const reviewerBody = flow<Input>(
     // Approval-only wakes never dispatch the reviewer. Review wakes still
     // prove the exact pair before their first GitHub or checkout effect.
     const reviewerModel = requiredReviewerModel(reviewerCli, input.reviewerModel);
-    await assertReviewerPairReady(f, reviewerCli, reviewerModel, process.cwd());
+    const reviewerExecutable = reviewerExecutableFrom(reviewerCli, process.cwd());
+    await assertReviewerPairReady(f, reviewerExecutable, reviewerModel, process.cwd());
 
     // ── review gate: merged/closed, draft, disabling label, author allowlist ──
     const meta = JSON.parse(await api(`/pulls/${pr.number}`)) as PrMeta;
@@ -140,7 +142,7 @@ const reviewerBody = flow<Input>(
     // ── the review. One agent step, gated on the file it must write. ──
     await f
       .agent("review", {
-        cli: reviewerCli,
+        cli: reviewerExecutable,
         model: reviewerModel,
         task: reviewHarnessPrompt(pr) + `\nWrite the review to ${REVIEW_FILE}. Read .workforce/threads.json for the existing bot and reviewer comments.`,
       })
@@ -227,6 +229,11 @@ export function requiredReviewerModel(cli: string, override?: string): string {
   const modelProblem = declarationStringError(model);
   if (modelProblem !== undefined) throw new Error(`Invalid reviewer model: ${modelProblem}`);
   return model;
+}
+
+/** Bind slash-relative wrappers once so the explicit probe and agent step use identical bytes. */
+export function reviewerExecutableFrom(cli: string, directory: string): string {
+  return cli.includes("/") && !isAbsolute(cli) ? resolve(directory, cli) : cli;
 }
 
 export async function assertReviewerPairReady(

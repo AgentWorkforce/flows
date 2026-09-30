@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { babysit, generatedModelForCli, requiredReviewerModel } from '../babysitter.flow.ts';
-import { requiredReviewerModel as requiredLegacyReviewerModel, reviewer as legacyReviewer } from '../legacy/pr-reviewer.flow.ts';
+import {
+  requiredReviewerModel as requiredLegacyReviewerModel,
+  reviewer as legacyReviewer,
+  reviewerExecutableFrom,
+} from '../legacy/pr-reviewer.flow.ts';
 import { mergeExact } from '../github.ts';
 import { parseInput } from '../input.ts';
 import type { Ctx } from '@relayflows/surface';
@@ -12,8 +16,10 @@ const state = { state: 'open', merged: false, draft: false, headSha: sha, baseSh
 function context(
   live: unknown = state,
   probe: unknown = { exists: true, supported: true, authenticated: true, modelAvailable: true },
+  captureAgent = false,
 ) {
   const commands: string[] = [], reasons: string[] = [], merges: string[] = [];
+  const agentCalls: Array<{ cli?: string; model?: string }> = [];
   let agents = 0;
   const f = { run: async (command: string) => {
     commands.push(command);
@@ -27,9 +33,14 @@ function context(
       state: 'open', draft: false, mergeable: true, mergeable_state: 'clean', head: { sha }, labels: [],
     });
     return command.startsWith('node -e') ? JSON.stringify(live) : '';
-  }, done: (reason: string) => { reasons.push(reason); }, agent: () => { agents++; throw new Error('unsafe agent dispatch'); },
+  }, done: (reason: string) => { reasons.push(reason); }, agent: (_label: string, options: { cli?: string; model?: string }) => {
+    agents++;
+    agentCalls.push(options);
+    if (!captureAgent) throw new Error('unsafe agent dispatch');
+    return { gate: async () => { throw new Error('captured agent dispatch'); } };
+  },
   github: { mergePullRequest: async (input: { sha: string }) => { merges.push(input.sha); return { merged: true }; } } } as unknown as Ctx;
-  return { f, commands, reasons, merges, agents: () => agents };
+  return { f, commands, reasons, merges, agentCalls, agents: () => agents };
 }
 test('known first-party harnesses resolve to current explicit model pins', () => {
   assert.deepEqual(
@@ -51,6 +62,26 @@ test('custom reviewer wrappers require and preserve an explicit model', () => {
   assert.equal(parseInput({ ...config, reviewerCli: '/opt/custom-wrapper', reviewerModel: ' exact-model ' }).reviewerModel, 'exact-model');
   assert.throws(() => parseInput({ ...config, reviewerCli: 'bad\ncli', reviewerModel: 'exact-model' }), /control characters/);
   assert.throws(() => parseInput({ ...config, reviewerCli: '/opt/custom-wrapper', reviewerModel: 'bad\nmodel' }), /control characters/);
+});
+test('legacy reviewer binds slash-relative wrappers before probing and dispatch', () => {
+  assert.equal(reviewerExecutableFrom('./tools/reviewer', '/tmp/flow root'), '/tmp/flow root/tools/reviewer');
+  assert.equal(reviewerExecutableFrom('/opt/reviewer', '/tmp/flow root'), '/opt/reviewer');
+  assert.equal(reviewerExecutableFrom('claude', '/tmp/flow root'), 'claude');
+});
+test('legacy reviewer probes and dispatches the same resolved wrapper', async () => {
+  const body = getFlowDefinition(legacyReviewer).body;
+  const x = context(state, undefined, true);
+  await assert.rejects(
+    body(x.f, {
+      owner: 'acme', repo: 'widgets', number: 7, approvers: '',
+      reviewerCli: './tools/reviewer', reviewerModel: 'exact-model',
+    }),
+    /captured agent dispatch/,
+  );
+  const executable = reviewerExecutableFrom('./tools/reviewer', process.cwd());
+  assert.match(x.commands[0]!, new RegExp(executable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.equal(x.agentCalls[0]?.cli, executable);
+  assert.equal(x.agentCalls[0]?.model, 'exact-model');
 });
 test('blank legacy reviewer overrides fail before GitHub or repository effects', async () => {
   const body = getFlowDefinition(legacyReviewer).body;

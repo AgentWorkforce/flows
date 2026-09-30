@@ -52,30 +52,34 @@ function directMemberPaths(
   expression: ts.Expression,
   checker: ts.TypeChecker,
   seen = new Set<ts.Symbol>(),
+  callerPath: readonly BindingPathSegment[] = [],
 ): Array<{ path: BindingPathSegment[]; symbol: ts.Symbol }> {
   expression = unwrap(expression);
   const branches = wrappedExpressionBranches(expression);
   if (branches) return branches.flatMap(candidate =>
-    directMemberPaths(candidate, checker, new Set(seen)));
+    directMemberPaths(candidate, checker, new Set(seen), callerPath));
   if (ts.isBinaryExpression(expression) && assignmentMayStoreRight(expression.operatorToken.kind)) {
     const candidates = expression.operatorToken.kind === ts.SyntaxKind.EqualsToken
       ? [expression.right]
       : [expression.left, expression.right];
-    return candidates.flatMap(candidate => directMemberPaths(candidate, checker, new Set(seen)));
+    return candidates.flatMap(candidate =>
+      directMemberPaths(candidate, checker, new Set(seen), callerPath));
   }
   if (ts.isIdentifier(expression)) {
     const symbol = checker.getSymbolAtLocation(expression);
     if (!symbol) return [];
-    const paths = [{ path: [] as BindingPathSegment[], symbol }];
+    const paths = [{ path: [...callerPath], symbol }];
     if (seen.has(symbol)) return paths;
     const nextSeen = new Set(seen).add(symbol);
     const add = (candidate: ts.Expression | undefined, suffix: BindingPathSegment[] = []): void => {
       if (!candidate) return;
       const candidates = wrappedExpressionBranches(candidate) ?? [candidate];
-      for (const parent of candidates.flatMap(value =>
-        directMemberPaths(value, checker, new Set(nextSeen)))) {
-        paths.push({ ...parent, path: [...parent.path, ...suffix] });
-      }
+      paths.push(...candidates.flatMap(value => directMemberPaths(
+        value,
+        checker,
+        new Set(nextSeen),
+        [...suffix, ...callerPath],
+      )));
     };
     const binding = symbol.declarations?.find(ts.isBindingElement);
     if (binding) {
@@ -106,6 +110,7 @@ function directMemberPaths(
       checker,
       seen,
       (candidate, nextSeen) => directMemberPaths(candidate, checker, nextSeen),
+      callerPath,
     );
   }
   if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return [];
@@ -115,18 +120,7 @@ function directMemberPaths(
       ? staticPropertySegment(expression.argumentExpression, checker, new Set(seen))
       : undefined;
   if (segment === undefined) return [];
-  const receiver = unwrap(expression.expression);
-  if (ts.isCallExpression(receiver)) {
-    return localCallTargetPaths(
-      receiver,
-      checker,
-      seen,
-      (candidate, nextSeen) => directMemberPaths(candidate, checker, nextSeen),
-      [segment],
-    );
-  }
-  return directMemberPaths(expression.expression, checker, seen)
-    .map(parent => ({ ...parent, path: [...parent.path, segment] }));
+  return directMemberPaths(expression.expression, checker, seen, [segment, ...callerPath]);
 }
 
 function directWriteMemberPaths(

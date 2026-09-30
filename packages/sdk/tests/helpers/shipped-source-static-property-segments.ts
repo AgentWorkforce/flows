@@ -124,7 +124,7 @@ function cloneSeenMemberPaths(seen: SeenMemberPaths): SeenMemberPaths {
 }
 
 function memberPathKey(path: readonly BindingPathSegment[]): string {
-  return path.map(segment => `${typeof segment}:${String(segment)}`).join('/');
+  return JSON.stringify(path.map(segment => [typeof segment, segment]));
 }
 
 export function staticPropertySegments(

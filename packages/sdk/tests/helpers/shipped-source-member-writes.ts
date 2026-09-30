@@ -51,35 +51,39 @@ function memberAssignmentPaths(
   expression: ts.Expression,
   checker: ts.TypeChecker,
   seen = new Set<ts.Symbol>(),
+  callerPath: readonly BindingPathSegment[] = [],
 ): Array<{ path: BindingPathSegment[]; symbol: ts.Symbol }> {
   expression = unwrap(expression);
   const branches = wrappedExpressionBranches(expression);
   if (branches) return branches.flatMap(branch =>
-    memberAssignmentPaths(branch, checker, new Set(seen)));
+    memberAssignmentPaths(branch, checker, new Set(seen), callerPath));
   if (ts.isIdentifier(expression)) {
     const symbol = checker.getSymbolAtLocation(expression);
     if (!symbol) return [];
-    const paths = [{ path: [] as BindingPathSegment[], symbol }];
+    const paths = [{ path: [...callerPath], symbol }];
     if (seen.has(symbol)) return paths;
     seen.add(symbol);
     const binding = symbol.declarations?.find(ts.isBindingElement);
     if (binding) {
       const source = bindingSource(binding, checker, new Set(seen));
       if (source) {
-        for (const parent of memberAssignmentPaths(source.initializer, checker, new Set(seen))) {
-          paths.push({ ...parent, path: [...parent.path, ...source.path] });
-        }
+        paths.push(...memberAssignmentPaths(
+          source.initializer,
+          checker,
+          new Set(seen),
+          [...source.path, ...callerPath],
+        ));
       }
       if (binding.initializer) {
-        paths.push(...memberAssignmentPaths(binding.initializer, checker, new Set(seen)));
+        paths.push(...memberAssignmentPaths(binding.initializer, checker, new Set(seen), callerPath));
       }
     }
     for (const assigned of assignedValues(symbol, checker)) {
-      paths.push(...memberAssignmentPaths(assigned, checker, new Set(seen)));
+      paths.push(...memberAssignmentPaths(assigned, checker, new Set(seen), callerPath));
     }
     const variable = symbol.declarations?.find(ts.isVariableDeclaration);
     if (variable?.initializer) {
-      paths.push(...memberAssignmentPaths(variable.initializer, checker, new Set(seen)));
+      paths.push(...memberAssignmentPaths(variable.initializer, checker, new Set(seen), callerPath));
     }
     return paths;
   }
@@ -89,6 +93,7 @@ function memberAssignmentPaths(
       checker,
       seen,
       (candidate, nextSeen) => memberAssignmentPaths(candidate, checker, nextSeen),
+      callerPath,
     );
   }
   if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return [];
@@ -98,18 +103,14 @@ function memberAssignmentPaths(
       ? staticPropertySegment(expression.argumentExpression, checker, new Set(seen))
       : undefined;
   if (segment === undefined) return [];
-  const receiver = unwrap(expression.expression);
-  const paths = ts.isCallExpression(receiver)
-    ? localCallTargetPaths(
-        receiver,
-        checker,
-        seen,
-        (candidate, nextSeen) => memberAssignmentPaths(candidate, checker, nextSeen),
-        [segment],
-      )
-    : memberAssignmentPaths(expression.expression, checker, seen)
-      .map(parent => ({ ...parent, path: [...parent.path, segment] }));
-  paths.push(...directMemberAliasPaths(expression, checker));
+  const paths = memberAssignmentPaths(
+    expression.expression,
+    checker,
+    seen,
+    [segment, ...callerPath],
+  );
+  paths.push(...directMemberAliasPaths(expression, checker)
+    .map(parent => ({ ...parent, path: [...parent.path, ...callerPath] })));
   return paths;
 }
 
