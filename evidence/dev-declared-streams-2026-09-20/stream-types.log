@@ -1,0 +1,8 @@
+$ cd /home/khaliqgant/.cache/dev-pr-proof/flows-dev-stream-pins/packages/sdk
+$ npm run typecheck:tests
+
+> @relayflows/sdk@2.0.22 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+
+exit=0

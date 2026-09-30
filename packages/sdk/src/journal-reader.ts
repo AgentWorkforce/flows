@@ -8,6 +8,8 @@ import { journalRecordOffset } from './journal-offset.js';
 // Journal version 1's closed vocabulary (relayflowd-core/src/entry.rs).
 const ENTRY_TYPES = new Set([
   'run.spawned', 'run.cancel.requested', 'event.received', 'subscription.registered',
+  'subscription.prepared', 'subscription.opened', 'subscription.closed',
+  'subscription.overflow.fenced', 'subscription.acknowledged',
   'subscription.matched', 'subscription.stale', 'step.routed', 'step.attempt.started',
   'step.completed', 'wait.event', 'wait.human', 'sleep.until', 'wait.completed',
   'stream.appended', 'memory.injected', 'channel.appended', 'channel.delivered',

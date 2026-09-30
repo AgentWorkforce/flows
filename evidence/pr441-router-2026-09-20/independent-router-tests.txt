@@ -1,0 +1,29 @@
+$ cd /tmp/flows-pr-followup/pr441/kernel && git rev-parse HEAD
+a217c3f65fef4d9e9883b3c8e1ff3ce702934efb
+$ cargo test -p relayflowd --test subscription_router_delivery
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.47s
+     Running tests/subscription_router_delivery.rs (/tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/target-pr441/debug/deps/subscription_router_delivery-1e0031de1ef580ec)
+
+running 2 tests
+test targeted_ingress_is_fenced_deduplicated_and_isolated_after_restart ... ok
+test router_snapshots_keep_absolute_timers_and_overflow_fence_across_restart ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+exit_code=0
+$ cargo test -p relayflowd --lib -- server::tests::subscription_router
+test server::tests::subscription_router::targeted_router_verbs_validate_receipts_and_preserve_wire_metadata ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 53 filtered out; finished in 0.02s
+$ cargo test -p relayflowd --test event_activities
+test prepared_open_response_replays_the_immutable_binding_snapshot ... ok
+test cancel_closes_an_open_activity_before_the_terminal_run_record ... ok
+test exact_deadline_tie_wins_and_reports_unread_range ... ok
+test accepted_append_is_buffered_deduplicated_and_survives_a_restart_before_next ... ok
+test overflow_of_a_parked_next_returns_overflow_after_recovery ... ok
+test idle_wait_is_durable_and_fires_without_an_event ... ok
+test immediate_event_wakes_have_durable_distinct_wait_boundaries ... ok
+test prepared_binding_stays_invisible_across_a_crash_until_activation_then_next_suspends ... ok
+test normal_wake_is_not_acknowledged_until_the_following_next ... ok
+test remaining_event_await_acceptance_cases_use_the_real_journal ... ok
+test overflow_closes_before_the_1001st_unread_frame_and_recovery_never_reopens_it ... ok
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.20s

@@ -28,6 +28,7 @@ describe('flows run digest input', () => {
     await rm(join(f.root, 'dist'), { recursive: true }); await rm(join(f.root, 'hello.yaml'));
     const dataDir = join(f.root, 'data'); let submitted: unknown;
     const server = startLoopback(socketPathFor(dataDir), { hello: sendOk,
+      'subscription.inspect': (ctx) => sendResult(ctx, { subscriptions: [] }),
       'run.start': (ctx, params) => { submitted = params['spec']; sendResult(ctx, {
         run_id: 'digest-run', status: 'completed', completion_reason: 'success', completed_steps: 1,
       }); },

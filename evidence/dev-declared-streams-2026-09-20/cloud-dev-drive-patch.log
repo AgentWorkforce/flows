@@ -1,0 +1,6 @@
+
+# 2026-09-20T17:14:12.803842+00:00
+$ python3 /tmp/dev-read.py /api/v1/workflows/runs/46041b32-e6c8-488d-9c42-226bd356bf0d/patch
+{"path": "/api/v1/workflows/runs/46041b32-e6c8-488d-9c42-226bd356bf0d/patch", "http": 200, "response": {"patch": "", "hasChanges": false}}
+
+exit=0

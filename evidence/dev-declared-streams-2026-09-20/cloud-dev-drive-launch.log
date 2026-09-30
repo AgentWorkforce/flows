@@ -1,0 +1,22 @@
+$ python3 /tmp/cloud-dev-run-cli.py cloud run workflows/drive-cloud-v2.yaml --relayflow-version v2 --sync-code --json
+
+Agent Relay collects usage telemetry to improve the product.
+Run `agent-relay telemetry disable` to opt out.
+Learn more: https://agentrelay.com/telemetry
+
+Validating workflow...
+Preparing run...
+  Prepared in 5.1s
+Creating tarball...
+  Tarball: 2729KB in 0.2s
+Uploading to workflow storage...
+  Uploaded in 2.4s
+Launching workflow...
+  Launched in 1.9s
+{
+  "runId": "46041b32-e6c8-488d-9c42-226bd356bf0d",
+  "status": "pending",
+  "launchJobId": "9cd2c631-4681-4fdd-9a60-1144bdcbcc70"
+}
+
+exit=0

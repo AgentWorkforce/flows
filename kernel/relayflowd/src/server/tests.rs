@@ -15,6 +15,7 @@ use super::*;
 use crate::worker::{JournalObserver, LeaseProbe};
 
 mod agent;
+mod subscription_router;
 
 fn shared_writer() -> (SharedWriter, UnixStream) {
     let (writer, peer) = UnixStream::pair().unwrap();
