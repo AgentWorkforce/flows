@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { probeCli, probeCliAsync } from '../src/cli/cli-probe.js';
-import { authoredNodeUtility } from '../src/authored-node-utility.js';
 import * as adapters from '../src/cli-adapter.js';
 import { runCli } from '../src/cli.js';
 
@@ -24,17 +23,15 @@ const identify = `if (process.argv[2] === '--relayflows-adapter-v1') {
   console.log('relayflows-agent-cli-v1'); process.exit(0);
 }`;
 
-it('serves the exact model-scoped probe from the sealed authored runtime utility', async () => {
-  const { path, directory } = wrapper(identify + 'process.exit(0)');
-  await expect(authoredNodeUtility(['--probe-cli', path, 'exact-model', directory])).resolves.toMatchObject({
-    exists: true,
-    supported: true,
-    authenticated: true,
-    modelAvailable: true,
-    executable: path,
-  });
-  await expect(authoredNodeUtility(['--probe-cli', path])).rejects.toThrow('requires exactly');
-  await expect(authoredNodeUtility(['ordinary-authored-start'])).resolves.toBeUndefined();
+it('does not expose the removed authored readiness probe through the public CLI', async () => {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  await expect(runCli(['--probe-cli', 'provider', 'model', '/tmp'], {
+    stdout: line => stdout.push(line),
+    stderr: line => stderr.push(line),
+  })).resolves.toBe(2);
+  expect(stdout).toEqual([]);
+  expect(stderr.join('\n')).toContain('invalid_invocation');
 });
 
 it('returns the absolute executable selected for a bare CLI name', async () => {
@@ -87,24 +84,6 @@ it('normalizes a relative executable returned by PATH lookup', async () => {
     if (previousPath === undefined) delete process.env.PATH;
     else process.env.PATH = previousPath;
   }
-});
-
-it('routes the exact model-scoped probe through the ordinary Node CLI entry', async () => {
-  const { path, directory } = wrapper(identify + 'process.exit(0)');
-  const stdout: string[] = [];
-  const stderr: string[] = [];
-  await expect(runCli(['--probe-cli', path, 'exact-model', directory], {
-    stdout: line => stdout.push(line),
-    stderr: line => stderr.push(line),
-  })).resolves.toBe(0);
-  expect(stderr).toEqual([]);
-  expect(JSON.parse(stdout.join('\n'))).toMatchObject({
-    exists: true,
-    supported: true,
-    authenticated: true,
-    modelAvailable: true,
-    executable: path,
-  });
 });
 
 it.each([

@@ -92,24 +92,6 @@ async function entries(directory: string, runId: string) {
 }
 
 describe('Bun 1.4.0 standalone → native Node authored lifecycle', () => {
-  it('re-enters the sealed runtime for an exact model probe without a flows binary on PATH', () => {
-    const f = fixture(`const runtime=process.env.FLOWS_AUTHORED_CLI;
-      if(!runtime||!runtime.startsWith('/')) throw new Error('missing stable authored CLI');
-      const quote=(value:string)=>JSON.stringify(value);
-      const output=await f.run([runtime,'--probe-cli','./agent.mjs','exact-model',process.cwd()].map(quote).join(' '));
-      const probe=JSON.parse(output);
-      if(!probe.exists||!probe.supported||probe.authenticated!==true||probe.modelAvailable!==true) throw new Error('probe refused');
-      f.done('success');`);
-    const nodeOnlyPath = join(f.directory, 'node-only-path');
-    mkdirSync(nodeOnlyPath);
-    symlinkSync(process.execPath, join(nodeOnlyPath, 'node'));
-    const result = f.invoke(['run', 'case.flow.ts', '--input', '{}'], {
-      PATH: `${nodeOnlyPath}:/usr/bin:/bin`,
-    });
-    expect(result.status, result.stderr + result.stdout).toBe(0);
-    expect(JSON.parse(result.stdout)).toMatchObject({ ok: true, completionReason: 'success' });
-  }, 90_000);
-
   it('serializes the immutable prepared binding facts through the Node and CLI boundary', () => {
     const f = fixture(`const activity=f.on(webhook('github_pull_request',{action:'opened',repository:{id:7}}),{settle:'2m',idle:'1h',deadline:'1d',includeSelf:true});await activity.next();f.done('success');`);
     const result = f.run(); expect(result.status, result.stderr + result.stdout).toBe(4);
