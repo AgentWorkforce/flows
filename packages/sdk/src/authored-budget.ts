@@ -33,10 +33,24 @@ function duration(ms: bigint): string {
 
 const usd = (micro: bigint): string => `$${micro / 1_000_000n}.${String(micro % 1_000_000n).padStart(6, '0').replace(/0{1,4}$/, '')}`;
 
-/** A header dollar amount in microdollars, or undefined if it is not an exact decimal. */
-function microOf(value: string): bigint | undefined {
-  const match = /^(\d+)(?:\.(\d{1,6}))?$/.exec(value);
-  return match === null ? undefined : BigInt(match[1]!) * 1_000_000n + BigInt((match[2] ?? '').padEnd(6, '0'));
+/**
+ * Whether `micro` microdollars exceeds the decimal `limit`, compared exactly at
+ * the limit's own precision (legacy `maxDollars` may carry more than six
+ * decimals, which the kernel compares as written). Undefined if the limit is
+ * not a plain decimal.
+ */
+function dollarsOver(micro: bigint, limit: string): boolean | undefined {
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(limit);
+  if (match === null) return undefined;
+  const scale = Math.max(6, match[2]?.length ?? 0);
+  const limitScaled = BigInt(match[1]! + (match[2] ?? '').padEnd(scale, '0'));
+  return micro * 10n ** BigInt(scale - 6) > limitScaled;
+}
+
+/** Both durations, exact to the millisecond when rounding would print them equal. */
+function durations(used: bigint, limit: bigint): [string, string] {
+  const [u, l] = [duration(used), duration(limit)];
+  return u === l ? [`${used}ms`, `${limit}ms`] : [u, l];
 }
 
 /**
@@ -48,11 +62,14 @@ function microOf(value: string): bigint | undefined {
 export function budgetExceededMessage(limit: KernelBudgetSpec, total: Total, spec?: KernelRunSpec): string {
   const crossed: string[] = [];
   if (limit.max_wallclock_ms !== undefined && total.ms > BigInt(limit.max_wallclock_ms)) {
-    crossed.push(`wallclock ${duration(total.ms)} used of ${duration(BigInt(limit.max_wallclock_ms))} declared`);
+    const [used, declared] = durations(total.ms, BigInt(limit.max_wallclock_ms));
+    crossed.push(`wallclock ${used} used of ${declared} declared`);
   }
-  const dollarLimit = limit.max_dollars === undefined ? undefined : microOf(limit.max_dollars);
-  if (dollarLimit !== undefined && total.micro > dollarLimit) {
-    crossed.push(`dollars ${usd(total.micro)}${total.unmetered ? ' metered (some steps unmetered)' : ''} used of ${usd(dollarLimit)} declared`);
+  if (limit.max_dollars !== undefined && dollarsOver(total.micro, limit.max_dollars) === true) {
+    const exact = /^(\d+)(?:\.(\d{1,6}))?$/.exec(limit.max_dollars);
+    const declared = exact === null ? `$${limit.max_dollars}`
+      : usd(BigInt(exact[1]!) * 1_000_000n + BigInt((exact[2] ?? '').padEnd(6, '0')));
+    crossed.push(`dollars ${usd(total.micro)}${total.unmetered ? ' metered (some steps unmetered)' : ''} used of ${declared} declared`);
   }
   if (limit.max_tokens !== undefined && total.input + total.output > BigInt(limit.max_tokens)) {
     crossed.push(`tokens ${total.input + total.output} used of ${limit.max_tokens} declared`);

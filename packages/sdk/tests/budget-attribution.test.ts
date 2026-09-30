@@ -98,6 +98,24 @@ describe('authored budget refusal names the limit it crossed', () => {
     expect(budgetExceededMessage({max_tokens_in: 800, max_tokens_out: 300}, total))
       .toBe("Flow budget exceeded before the next step: input tokens 900 used of 800 declared in the flow's budget header.");
   });
+  it('prints exact milliseconds when rounding would show a strict overrun as equal (PR #594 review)', () => {
+    const zero = {input: 0n, output: 0n, micro: 0n, unmetered: false};
+    expect(budgetExceededMessage({max_wallclock_ms: 120_000}, {...zero, ms: 120_001n}))
+      .toBe("Flow budget exceeded before the next step: wallclock 120001ms used of 120000ms declared in the flow's budget header.");
+    expect(budgetExceededMessage({max_wallclock_ms: 60_000}, {...zero, ms: 60_001n}))
+      .toBe("Flow budget exceeded before the next step: wallclock 60001ms used of 60000ms declared in the flow's budget header.");
+    expect(budgetExceededMessage({max_wallclock_ms: 10}, {...zero, ms: 20n}))
+      .toBe("Flow budget exceeded before the next step: wallclock 20ms used of 10ms declared in the flow's budget header.");
+  });
+  it('names a legacy sub-microdollar dollar limit, compared at its own precision (PR #594 review)', () => {
+    const spent = {input: 0n, output: 0n, micro: 1n, ms: 0n, unmetered: false};
+    expect(budgetExceededMessage({max_dollars: '0.0000005'}, spent))
+      .toBe("Flow budget exceeded before the next step: dollars $0.000001 used of $0.0000005 declared in the flow's budget header.");
+    // Redundant trailing zeros are still the same limit, and equal is not over.
+    expect(budgetExceededMessage({max_dollars: '0.0000010000'}, spent)).toBe('Flow budget exceeded before the next step.');
+    expect(budgetExceededMessage({max_dollars: '0.0000009999'}, spent))
+      .toBe("Flow budget exceeded before the next step: dollars $0.000001 used of $0.0000009999 declared in the flow's budget header.");
+  });
   it('keeps the generic wording when the carried totals do not explain the kernel refusal', () => {
     // Equal is not over: the kernel compares strictly, so this total alone
     // did not trip it and the accumulator must not invent a reason.
