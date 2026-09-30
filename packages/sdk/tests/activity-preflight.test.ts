@@ -31,11 +31,17 @@ it.each([
   });
 });
 
-it('ignores .on calls on values that are not a flow context', async () => {
+it.each([
+  ['a differently named helper parameter', 'function wire(emitter) { emitter.on("data", handler); }\n', 'ctx', ''],
+  ['a helper reusing the context name', 'function wire(ctx) { ctx.on("data", handler); }\n', 'ctx', ''],
+  ['an imported on outside the body', 'import { on } from "node:events";\nasync function drain(e) { for await (const x of on(e, "data")) use(x); }\n', '{ on }', ''],
+  ['a nested callback shadowing the context', '', 'ctx', '  emitters.forEach((ctx) => ctx.on("data", handler));\n'],
+])('ignores .on calls that are not the flow context: %s', async (_case, prefix, parameter, inner) => {
   const directory = mkdtempSync(join(tmpdir(), 'flows-activity-check-'));
   directories.push(directory);
   const path = join(directory, 'emitter.flow.ts');
-  writeFileSync(path, 'function wire(emitter) { emitter.on("data", handler); }\n'
-    + 'export default flow("x", async (ctx) => { ctx.on(source, { idle: "1h", deadline: "1d" }); });');
+  const call = parameter === 'ctx' ? 'ctx.on' : 'on';
+  writeFileSync(path, `${prefix}export default flow("x", async (${parameter}) => {\n`
+    + `  ${call}(source, { idle: "1h", deadline: "1d" });\n${inner}});`);
   await expect(checkAuthoredActivities(path)).resolves.toMatchObject({ report: { ok: true } });
 });
