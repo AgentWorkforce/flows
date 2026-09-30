@@ -39,6 +39,8 @@ describe('shipped-source flow provenance repairs', () => {
         `{ const box: any = {}; let key = 'other'; for (const item of items) { box[key] = surface.flow; key = 'define'; } box.define('loop-carried-key', { budget: '$2' }, () => {}); }`,
         `{ const box: any = {}; let key = 'other'; function install() { box[key] = surface.flow; key = 'define'; } install(); install(); box.define('repeated-function-key', { budget: '$2' }, () => {}); }`,
         `{ const source = flag ? { outer: { define: () => undefined } } : { outer: { define: surface.flow } }; const { outer } = source; const { define } = outer; define('chained-destructured-callable', { budget: '$2' }, () => {}); }`,
+        `{ const box: any = {}; const source = flag ? { assign: () => undefined } : { assign: Object.assign }; const { assign } = source; assign(box, { define: surface.flow }); box.define('alternate-destructured-writer', { budget: '$2' }, () => {}); }`,
+        `{ const box: any = {}; const source = flag ? { apply: () => undefined } : { apply: Reflect.apply }; const { apply } = source; apply(Object.assign, Object, [box, { define: surface.flow }]); box.define('alternate-destructured-reflect-apply', { budget: '$2' }, () => {}); }`,
         `{ const box: any = {}, a: any = {}, b: any = {}; a.descriptors = b.descriptors; b.descriptors = a.descriptors; b.descriptors = { define: { value: surface.flow } }; Object.defineProperties(box, a.descriptors); box.define('cyclic-descriptor-map', { budget: '$2' }, () => {}); }`,
         `{ const box: any = {}, a: any = {}, b: any = {}; a.getter = b.getter; b.getter = a.getter; b.getter = () => surface.flow; Object.defineProperty(box, 'define', { get: a.getter }); box.define('cyclic-getter-alias', { budget: '$2' }, () => {}); }`,
       ];

@@ -5,7 +5,7 @@ import {
 } from './shipped-source-binding-provenance.js';
 import { baseAggregateExpressionValues } from './shipped-source-base-aggregate-values.js';
 import {
-  aggregateValueAtPath,
+  aggregateValuesAtPath,
   assignedValues,
   bindingDefaultValues,
   staticMemberSegment,
@@ -59,9 +59,10 @@ function referencesIntrinsicIdentifier(
     const source = bindingSource(binding, checker, new Set(seen));
     if (source) {
       const values = [
-        aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
+        ...aggregateValuesAtPath(source.initializer, source.path, checker, new Set(seen))
+          .map(value => ({ value })),
         ...bindingDefaultValues(source, checker, new Set(seen)),
-      ].filter((value): value is NonNullable<typeof value> => value !== undefined);
+      ];
       if (values.some(value => referencesIntrinsicIdentifier(
         value.value,
         intrinsic,
@@ -70,15 +71,15 @@ function referencesIntrinsicIdentifier(
       ))) return true;
       if (source.path.at(-1) === intrinsic) {
         const receiverPath = source.path.slice(0, -1);
-        const sourceReceiver = receiverPath.length === 0
-          ? source.initializer
-          : aggregateValueAtPath(source.initializer, receiverPath, checker, new Set(seen))?.value;
-        if (sourceReceiver && referencesIntrinsicIdentifier(
+        const sourceReceivers = receiverPath.length === 0
+          ? [source.initializer]
+          : aggregateValuesAtPath(source.initializer, receiverPath, checker, new Set(seen));
+        if (sourceReceivers.some(sourceReceiver => referencesIntrinsicIdentifier(
           sourceReceiver,
           'globalThis',
           checker,
           new Set(seen),
-        )) return true;
+        ))) return true;
       }
     }
   }
@@ -133,20 +134,21 @@ export function referencesIntrinsicMember(
     const source = bindingSource(binding, checker, new Set(seen));
     if (source?.path.at(-1) === name) {
       const receiverPath = source.path.slice(0, -1);
-      const sourceReceiver = receiverPath.length === 0
-        ? source.initializer
-        : aggregateValueAtPath(source.initializer, receiverPath, checker, new Set(seen))?.value;
-      if (sourceReceiver && referencesIntrinsicIdentifier(
+      const sourceReceivers = receiverPath.length === 0
+        ? [source.initializer]
+        : aggregateValuesAtPath(source.initializer, receiverPath, checker, new Set(seen));
+      if (sourceReceivers.some(sourceReceiver => referencesIntrinsicIdentifier(
         sourceReceiver,
         intrinsic,
         checker,
         new Set(seen),
-      )) return true;
+      ))) return true;
     }
     const values = source ? [
-      aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
+      ...aggregateValuesAtPath(source.initializer, source.path, checker, new Set(seen))
+        .map(value => ({ value })),
       ...bindingDefaultValues(source, checker, new Set(seen)),
-    ].filter((value): value is NonNullable<typeof value> => value !== undefined) : [];
+    ] : [];
     if (values.some(value => referencesIntrinsicMember(
       value.value,
       intrinsic,
@@ -158,15 +160,15 @@ export function referencesIntrinsicMember(
   for (const source of assignedSources(symbol, checker)) {
     if (source.rest || source.path.at(-1) !== name) continue;
     const receiverPath = source.path.slice(0, -1);
-    const sourceReceiver = receiverPath.length === 0
-      ? source.initializer
-      : aggregateValueAtPath(source.initializer, receiverPath, checker, new Set(seen))?.value;
-    if (sourceReceiver && referencesIntrinsicIdentifier(
+    const sourceReceivers = receiverPath.length === 0
+      ? [source.initializer]
+      : aggregateValuesAtPath(source.initializer, receiverPath, checker, new Set(seen));
+    if (sourceReceivers.some(sourceReceiver => referencesIntrinsicIdentifier(
       sourceReceiver,
       intrinsic,
       checker,
       new Set(seen),
-    )) return true;
+    ))) return true;
   }
   if (assignedValues(symbol, checker).some(value => referencesIntrinsicMember(
     value,

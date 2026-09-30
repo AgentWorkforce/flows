@@ -127,6 +127,37 @@ describe('shipped-source worker call forms', () => {
       expect(chainedDestructuredResult.calls).toBe(1);
       expect(chainedDestructuredResult.missing).toHaveLength(1);
 
+      const alternateDestructuredWriter = join(directory, 'alternate-destructured-writer.flow.ts');
+      writeFileSync(alternateDestructuredWriter, `
+        declare const f: { agent(name: string, options: { task: string }): void };
+        declare const flag: boolean;
+        const box: any = {};
+        const source = flag ? { assign: () => undefined } : { assign: Object.assign };
+        const { assign } = source;
+        assign(box, { run: f.agent });
+        box.run('review', { task: 'x' });
+      `);
+      const alternateDestructuredWriterResult = scanTypeScript(alternateDestructuredWriter);
+      expect(alternateDestructuredWriterResult.calls).toBe(1);
+      expect(alternateDestructuredWriterResult.missing).toHaveLength(1);
+
+      const alternateDestructuredReflectApply = join(
+        directory,
+        'alternate-destructured-reflect-apply.flow.ts',
+      );
+      writeFileSync(alternateDestructuredReflectApply, `
+        declare const f: { agent(name: string, options: { task: string }): void };
+        declare const flag: boolean;
+        const box: any = {};
+        const source = flag ? { apply: () => undefined } : { apply: Reflect.apply };
+        const { apply } = source;
+        apply(Object.assign, Object, [box, { run: f.agent }]);
+        box.run('review', { task: 'x' });
+      `);
+      const alternateReflectApplyResult = scanTypeScript(alternateDestructuredReflectApply);
+      expect(alternateReflectApplyResult.calls).toBe(1);
+      expect(alternateReflectApplyResult.missing).toHaveLength(1);
+
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `
         declare const f: {
