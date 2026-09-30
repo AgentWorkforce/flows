@@ -56,8 +56,12 @@ export function authoredWorkerRunner(
         (diagnostic): diagnostic is PreflightDiagnostic & { severity: 'refusal' } =>
           diagnostic.severity === 'refusal',
       );
+      // Environment refusals keep their own kind: folding a usage limit or an
+      // outdated CLI into `*_cli_unresolved` reported them as `invalid_spec`,
+      // telling the author to fix a flow that was never wrong.
       throw new AuthoredFlowExecutionError(
-        refusal?.kind === 'budget_syntax_invalid' ? refusal.kind
+        refusal?.kind === 'budget_syntax_invalid' || refusal?.kind === 'cli_outdated'
+          || refusal?.kind === 'provider_usage_limited' ? refusal.kind
           : step.type === 'llm' ? 'llm_cli_unresolved' : 'agent_cli_unresolved',
         refusal?.message
           ?? `flow "${definition.name}" step "${id}": no CLI could be resolved for f.${step.type} `

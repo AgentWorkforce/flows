@@ -11,6 +11,10 @@ export type AuthoredFlowExecutionErrorCode =
   | 'helper_slack.credential_missing'
   | 'helper_slack.mount_required'
   | 'budget_syntax_invalid'
+  /** The step's CLI is too old for its model — an environment refusal, not a spec error. */
+  | 'cli_outdated'
+  /** The step's credential hit a provider usage/rate limit during preflight. */
+  | 'provider_usage_limited'
   | 'agent_cli_unresolved'
   | 'agent_parked'
   | 'llm_cli_unresolved'

@@ -2,8 +2,8 @@ import { accessSync, constants } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { execFile, spawnSync } from 'node:child_process';
 import { agentEnvironment, brokerEnvironment } from '../communication/environment.js';
-import { adapterIdentification, authenticationProbe, cliAdapterKind, displayInvocation,
-  modelReadinessProbe, type CliInvocation } from '../cli-adapter.js';
+import { adapterIdentification, authenticationProbe, classifyModelProbeFailure, cliAdapterKind,
+  displayInvocation, modelReadinessProbe, type CliInvocation } from '../cli-adapter.js';
 import { MODEL_ENV } from '../worker-cli.js';
 import { CliProbeError, type CliProbeResult } from '../preflight.js';
 
@@ -117,7 +117,8 @@ function* probeSequence(
   // A successful real provider round trip (or identified wrapper probe)
   // proves both auth and exact-model access. On failure, run the adapter's
   // actual auth command solely to classify auth vs model access truthfully.
-  if ((yield probe(scoped)).status === 0) {
+  const scopedProbe = yield probe(scoped);
+  if (scopedProbe.status === 0) {
     return {
       exists: true,
       supported: true,
@@ -129,6 +130,14 @@ function* probeSequence(
   }
   const authProbe = yield probe(auth);
   const authenticated = authProbe.status === 0;
+  // The scoped probe's own output is the only evidence of WHY it failed. A
+  // usage-limited credential or an outdated CLI exits non-zero exactly like an
+  // unknown model; discarding the output made all three "verify the model
+  // name". Classified on the raw text, surfaced redacted — stdout first,
+  // because Claude Code prints the provider's API error there and its own
+  // catalog warnings on stderr.
+  const failure = classifyModelProbeFailure(kind, `${scopedProbe.stdout}\n${scopedProbe.stderr}`);
+  const modelDetail = redactProbeOutput(scopedProbe.stdout.trim() || scopedProbe.stderr.trim()).slice(0, 500);
   return {
     exists: true,
     supported: true,
@@ -136,6 +145,9 @@ function* probeSequence(
     modelAvailable: false,
     authCommand,
     modelCommand,
+    modelExitCode: scopedProbe.status,
+    ...(failure === undefined ? {} : { modelFailure: failure }),
+    ...(modelDetail.length > 0 ? { modelFailureDetail: modelDetail } : {}),
     // Only on failure: on success there is nothing to explain, and the output
     // is the most identity-bearing thing this function touches.
     ...(authenticated

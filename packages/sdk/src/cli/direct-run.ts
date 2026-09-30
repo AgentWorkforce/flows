@@ -144,6 +144,8 @@ export async function runDirectFlow(
         && (error.code === 'helper_slack.credential_missing'
           || error.code === 'helper_slack.mount_required'
           || error.code === 'budget_syntax_invalid'
+          || error.code === 'cli_outdated'
+          || error.code === 'provider_usage_limited'
           || error.code === 'unsupported_promise_lifecycle'
           || error.code === 'unsupported_header'
           || error.code === 'agent_cli_unresolved'
@@ -157,6 +159,8 @@ export async function runDirectFlow(
               error.code === 'helper_slack.credential_missing'
               || error.code === 'helper_slack.mount_required'
               || error.code === 'budget_syntax_invalid'
+              || error.code === 'cli_outdated'
+              || error.code === 'provider_usage_limited'
             ) ? error.code : 'invalid_spec',
             message: error.message,
           }, path)),
