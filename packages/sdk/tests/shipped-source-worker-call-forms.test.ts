@@ -208,6 +208,7 @@ describe('shipped-source worker call forms', () => {
 
       const forOfIterableForms = [
         `const workers = [f.agent]; let call: any; for (call of workers) call('review', { task: 'x' });`,
+        `const holder = { workers: [f.agent] }; for (const call of holder.workers) call('review', { task: 'x' });`,
         `const { workers } = { workers: [f.agent] }; for (const call of workers) call('review', { task: 'x' });`,
         `const [workers] = [[f.agent]]; for (const call of workers) call('review', { task: 'x' });`,
         `let workers: any; ({ workers } = { workers: [f.agent] }); for (const call of workers) call('review', { task: 'x' });`,
@@ -217,6 +218,8 @@ describe('shipped-source worker call forms', () => {
         `for (const call of [f.agent]) call('review', { task: 'x' });`,
         `for (const [call] of [[f.agent]]) call('review', { task: 'x' });`,
         `for (const [, ...[, ...calls]] of [[0, () => undefined, f.agent]]) calls[0]('review', { task: 'x' });`,
+        `for (const calls of [[f.agent]]) for (const call of calls) call('review', { task: 'x' });`,
+        `for (const [, ...calls] of [[0, f.agent]]) for (const call of calls) call('review', { task: 'x' });`,
       ];
       for (const [index, source] of forOfIterableForms.entries()) {
         const file = join(directory, `for-of-iterable-${index}.flow.ts`);
@@ -266,6 +269,7 @@ describe('shipped-source worker call forms', () => {
 
       const forInAliasForms = [
         `const { box } = { box: { worker: f.agent } }; for (const key in box) box[key]('review', { task: 'x' });`,
+        `const holder = { box: { worker: f.agent } }; for (const key in holder.box) holder.box[key]('review', { task: 'x' });`,
         `let box: any; ({ box } = { box: { worker: f.agent } }); for (const key in box) box[key]('review', { task: 'x' });`,
         `let box: any; box ||= { worker: f.agent }; for (const key in box) box[key]('review', { task: 'x' });`,
       ];
@@ -347,6 +351,52 @@ describe('shipped-source worker call forms', () => {
       const forOfAliasWriterResult = scanTypeScript(forOfAliasWriter);
       expect(forOfAliasWriterResult.calls).toBe(1);
       expect(forOfAliasWriterResult.missing).toHaveLength(1);
+
+      const forOfMemberIterableWriter = join(directory, 'for-of-member-iterable-writer.flow.ts');
+      writeFileSync(forOfMemberIterableWriter, `
+        declare const f: { agent(name: string, options: { task: string }): void };
+        const box: any = {}, holder = { assigners: [Object.assign] };
+        for (const assign of holder.assigners) assign(box, { run: f.agent });
+        box.run('review', { task: 'x' });
+      `);
+      const forOfMemberIterableWriterResult = scanTypeScript(forOfMemberIterableWriter);
+      expect(forOfMemberIterableWriterResult.calls).toBe(1);
+      expect(forOfMemberIterableWriterResult.missing).toHaveLength(1);
+
+      const nestedForOfWriter = join(directory, 'nested-for-of-writer.flow.ts');
+      writeFileSync(nestedForOfWriter, `
+        declare const f: { agent(name: string, options: { task: string }): void };
+        const box: any = {};
+        for (const assigners of [[Object.assign]]) {
+          for (const assign of assigners) assign(box, { run: f.agent });
+        }
+        box.run('review', { task: 'x' });
+      `);
+      const nestedForOfWriterResult = scanTypeScript(nestedForOfWriter);
+      expect(nestedForOfWriterResult.calls).toBe(1);
+      expect(nestedForOfWriterResult.missing).toHaveLength(1);
+
+      const forOfMemberTarget = join(directory, 'for-of-member-target.flow.ts');
+      writeFileSync(forOfMemberTarget, `
+        declare const f: { agent(name: string, options: { task: string }): void };
+        const box: any = {};
+        for ({ fn: box.run } of [{ fn: f.agent }]) {}
+        box.run('review', { task: 'x' });
+      `);
+      const forOfMemberTargetResult = scanTypeScript(forOfMemberTarget);
+      expect(forOfMemberTargetResult.calls).toBe(1);
+      expect(forOfMemberTargetResult.missing).toHaveLength(1);
+
+      const forInMemberTarget = join(directory, 'for-in-member-target.flow.ts');
+      writeFileSync(forInMemberTarget, `
+        declare const f: { agent(name: string, options: { task: string }): void };
+        const state: any = {};
+        for (state.key in { agent: true }) {}
+        f[state.key]('review', { task: 'x' });
+      `);
+      const forInMemberTargetResult = scanTypeScript(forInMemberTarget);
+      expect(forInMemberTargetResult.calls).toBe(1);
+      expect(forInMemberTargetResult.missing).toHaveLength(1);
 
       const forOfDestructuredWriter = join(directory, 'for-of-destructured-writer.flow.ts');
       writeFileSync(forOfDestructuredWriter, `

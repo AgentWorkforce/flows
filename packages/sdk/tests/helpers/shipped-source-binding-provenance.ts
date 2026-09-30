@@ -407,7 +407,7 @@ function assignedSourcesAtTarget(
   });
 }
 
-const staticIterationSources = createStaticIterationSources({
+export const staticIterationSources = createStaticIterationSources({
   assignedSourcesAtTarget,
   assignmentMayStoreRight,
   propertyName,

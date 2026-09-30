@@ -74,6 +74,26 @@ function canonicalArrayIndex(segment: BindingPathSegment): number | undefined {
   return /^(?:0|[1-9]\d*)$/u.test(segment) ? Number(segment) : undefined;
 }
 
+function memberPath(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+): { path: BindingPathSegment[]; root: ts.Expression } | undefined {
+  expression = unwrap(expression);
+  if (ts.isPropertyAccessExpression(expression)) {
+    const parent = memberPath(expression.expression, checker)
+      ?? { path: [], root: expression.expression };
+    return { path: [...parent.path, expression.name.text], root: parent.root };
+  }
+  if (ts.isElementAccessExpression(expression) && expression.argumentExpression) {
+    const segment = expressionSegment(expression.argumentExpression, checker);
+    if (segment === undefined) return undefined;
+    const parent = memberPath(expression.expression, checker)
+      ?? { path: [], root: expression.expression };
+    return { path: [...parent.path, segment], root: parent.root };
+  }
+  return undefined;
+}
+
 function arrayValues(
   expression: ts.Expression,
   checker: ts.TypeChecker,
@@ -91,6 +111,14 @@ function arrayValues(
         : [element];
     });
   }
+  const member = memberPath(expression, checker);
+  if (member) return valuesAtPath(
+    member.root,
+    member.path,
+    checker,
+    sources,
+    new Set(seen),
+  ).flatMap(value => arrayValues(value, checker, sources, new Set(seen)));
   if (!ts.isIdentifier(expression)) return [];
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return [];
@@ -195,6 +223,14 @@ export function staticForInKeys(
       return [ts.isComputedPropertyName(member.name) ? member.name.expression : member.name];
     });
   }
+  const member = memberPath(expression, checker);
+  if (member) return valuesAtPath(
+    member.root,
+    member.path,
+    checker,
+    sources,
+    new Set(seen),
+  ).flatMap(value => staticForInKeys(value, checker, sources, new Set(seen)));
   if (!ts.isIdentifier(expression)) return [];
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return [];

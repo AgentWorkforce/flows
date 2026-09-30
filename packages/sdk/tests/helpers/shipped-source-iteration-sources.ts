@@ -4,6 +4,10 @@ import {
   type AssignedSource,
   type BindingPathSegment,
 } from './shipped-source-binding-targets.js';
+import {
+  staticForInKeys,
+  staticForOfValues,
+} from './shipped-source-static-iteration-values.js';
 
 interface IterationSourceResolvers {
   assignedSourcesAtTarget(
@@ -19,7 +23,7 @@ interface IterationSourceResolvers {
 
 export function createStaticIterationSources(resolvers: IterationSourceResolvers) {
   const cache = new WeakMap<ts.TypeChecker, WeakMap<ts.Symbol, AssignedSource[]>>();
-  return (expression: ts.Identifier, checker: ts.TypeChecker): AssignedSource[] => {
+  const resolve = (expression: ts.Identifier, checker: ts.TypeChecker): AssignedSource[] => {
     const symbol = checker.getSymbolAtLocation(expression);
     if (!symbol) return [];
     let checkerCache = cache.get(checker);
@@ -33,6 +37,24 @@ export function createStaticIterationSources(resolvers: IterationSourceResolvers
       ?? symbol.declarations?.[0]?.getSourceFile();
     if (!source) return [];
     const values: AssignedSource[] = [];
+    checkerCache.set(symbol, values);
+    const addIterationValues = (
+      initializer: ts.ForInitializer,
+      yielded: readonly ts.Expression[],
+    ): void => {
+      const targets = ts.isVariableDeclarationList(initializer)
+        ? initializer.declarations.map(declaration => declaration.name)
+        : [initializer];
+      for (const target of targets) {
+        for (const value of yielded) {
+          values.push(...(ts.isIdentifier(target)
+            || ts.isObjectBindingPattern(target)
+            || ts.isArrayBindingPattern(target)
+            ? assignedSourcesAtBindingName(target, value, symbol, checker, resolvers)
+            : resolvers.assignedSourcesAtTarget(target, value, symbol, checker)));
+        }
+      }
+    };
     const visit = (node: ts.Node): void => {
       if (ts.isVariableDeclaration(node) && node.initializer) {
         values.push(...assignedSourcesAtBindingName(
@@ -52,10 +74,22 @@ export function createStaticIterationSources(resolvers: IterationSourceResolvers
           checker,
         ));
       }
+      if (ts.isForOfStatement(node)) {
+        addIterationValues(
+          node.initializer,
+          staticForOfValues(node.expression, checker, resolve),
+        );
+      }
+      if (ts.isForInStatement(node)) {
+        addIterationValues(
+          node.initializer,
+          staticForInKeys(node.expression, checker, resolve),
+        );
+      }
       ts.forEachChild(node, visit);
     };
     visit(source);
-    checkerCache.set(symbol, values);
     return values;
   };
+  return resolve;
 }

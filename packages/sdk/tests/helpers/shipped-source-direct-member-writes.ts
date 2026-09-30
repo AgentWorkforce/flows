@@ -3,6 +3,7 @@ import {
   assignmentMayStoreRight,
   assignedSources,
   bindingSource,
+  staticIterationSources,
   type BindingPathSegment,
   type BindingRest,
 } from './shipped-source-binding-provenance.js';
@@ -13,6 +14,10 @@ import {
 } from './shipped-source-binding-values.js';
 import { localCallTargetPaths } from './shipped-source-local-call-targets.js';
 import { staticPropertySegments } from './shipped-source-static-property-segments.js';
+import {
+  staticForInKeys,
+  staticForOfValues,
+} from './shipped-source-static-iteration-values.js';
 
 interface DirectMemberAssignedSource {
   dynamic?: true;
@@ -307,12 +312,25 @@ function directMemberSourceIndex(
   if (cached) return cached;
   const index = new Map<ts.Symbol, DirectMemberAssignedSource[]>();
   checkerCache.set(source, index);
+  const add = (target: ts.Expression, value: ts.Expression): void => {
+    for (const { symbol, ...assigned } of sourcesAtTarget(target, value, checker)) {
+      const values = index.get(symbol) ?? [];
+      values.push(assigned);
+      index.set(symbol, values);
+    }
+  };
   const visit = (node: ts.Node): void => {
     if (ts.isBinaryExpression(node) && assignmentMayStoreRight(node.operatorToken.kind)) {
-      for (const { symbol, ...assigned } of sourcesAtTarget(node.left, node.right, checker)) {
-        const values = index.get(symbol) ?? [];
-        values.push(assigned);
-        index.set(symbol, values);
+      add(node.left, node.right);
+    }
+    if (ts.isForOfStatement(node) && !ts.isVariableDeclarationList(node.initializer)) {
+      for (const value of staticForOfValues(node.expression, checker, staticIterationSources)) {
+        add(node.initializer, value);
+      }
+    }
+    if (ts.isForInStatement(node) && !ts.isVariableDeclarationList(node.initializer)) {
+      for (const key of staticForInKeys(node.expression, checker, staticIterationSources)) {
+        add(node.initializer, key);
       }
     }
     ts.forEachChild(node, visit);
