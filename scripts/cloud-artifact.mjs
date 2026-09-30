@@ -22,6 +22,7 @@ import { pathToFileURL } from 'node:url';
 const SHA256 = /^[a-f0-9]{64}$/u;
 const SOURCE_COMMIT = /^[a-f0-9]{40}$/u;
 const REQUIRED_EXECUTABLES = ['bin/flows', 'bin/relayflowd'];
+const RUNTIME_CAPABILITIES = ['local-agent-env-fd-v1'];
 
 export async function buildCloudArtifact(options) {
   assertSourceCommit(options.sourceCommit);
@@ -125,6 +126,7 @@ async function createManifest(root, sourceCommit) {
   return {
     schemaVersion: 1,
     protocolVersion: '0',
+    capabilities: RUNTIME_CAPABILITIES,
     sourceCommit,
     platform: 'linux',
     arch: 'x64',
@@ -144,6 +146,9 @@ function parseManifest(value) {
     typeof value !== 'object' ||
     value.schemaVersion !== 1 ||
     value.protocolVersion !== '0' ||
+    !Array.isArray(value.capabilities) ||
+    value.capabilities.length !== RUNTIME_CAPABILITIES.length ||
+    !RUNTIME_CAPABILITIES.every((capability, index) => value.capabilities[index] === capability) ||
     value.platform !== 'linux' ||
     value.arch !== 'x64' ||
     !SOURCE_COMMIT.test(value.sourceCommit) ||
