@@ -357,10 +357,15 @@ describe('shipped-source worker invocation resolution', () => {
         { const box: any = {}; function key(value: any) { return (flag, value); } box[key('run')] = f.agent; box.run('review', { task: 'x' }); }
         { const box: any = {}; function id(value: any): any { if (flag) return value; return id(value); } Object.assign(id(box), { run: f.agent }); box.run('review', { task: 'x' }); }
         { const box: any = {}; function id(value: any) { return value; } Object.assign(id(id(box)), { run: f.agent }); box.run('review', { task: 'x' }); }
+        { const box: any = {}, other: any = {}; function target(value: any) { return value.slot; } Object.assign(target(flag ? { slot: other } : { slot: box }), { run: f.agent }); box.run('review', { task: 'x' }); }
+        { const box: any = {}, other: any = {}; function target({ holder }: any) { return holder.slot; } Object.assign(target(flag ? { holder: { slot: other } } : { holder: { slot: box } }), { run: f.agent }); box.run('review', { task: 'x' }); }
+        { const box: any = {}; function key(value: any) { return value; } box[key({ name: 'run' }).name] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; function key({ skip, ...rest }: any) { return rest; } box[key({ skip: 0, name: 'run' }).name] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; function key([skip, ...rest]: any[]) { return rest; } box[key([0, 'run'])[0]] = f.agent; box.run('review', { task: 'x' }); }
       `);
       const formalAndReceiverResult = scanTypeScript(formalAndReceiverRepairs);
-      expect(formalAndReceiverResult.calls).toBe(74);
-      expect(formalAndReceiverResult.missing).toHaveLength(74);
+      expect(formalAndReceiverResult.calls).toBe(79);
+      expect(formalAndReceiverResult.missing).toHaveLength(79);
 
       const recursiveLocalCallKey = join(directory, 'recursive-local-call-key.flow.ts');
       writeFileSync(recursiveLocalCallKey, `

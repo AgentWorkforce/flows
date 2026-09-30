@@ -5,7 +5,6 @@ import {
 } from './shipped-source-binding-provenance.js';
 import {
   aggregateMemberValue,
-  aggregateValueAtPath,
   staticPropertySegment,
   wrappedExpressionBranches,
 } from './shipped-source-binding-values.js';
@@ -42,13 +41,13 @@ function pathsAtActual(
   seen: Set<ts.Symbol>,
   resolve: ResolveTargetPaths,
 ): LocalCallTargetPath[] {
-  const value = sourcePath.length === 0
-    ? { value: actual }
-    : aggregateValueAtPath(actual, sourcePath, checker, new Set(seen));
-  return value
-    ? resolve(value.value, new Set(seen))
-      .map(parent => ({ ...parent, path: [...parent.path, ...suffix] }))
-    : [];
+  const selected = valuesAtPath(actual, sourcePath, checker, seen);
+  return selected.flatMap(value => [
+    ...resolve(value, new Set(seen))
+      .map(parent => ({ ...parent, path: [...parent.path, ...suffix] })),
+    ...(suffix.length === 0 ? [] : valuesAtPath(value, suffix, checker, seen)
+      .flatMap(candidate => resolve(candidate, new Set(seen)))),
+  ]);
 }
 
 function arrayBindingSelection(
@@ -166,6 +165,7 @@ export function localCallValueCandidates(
   expression: ts.CallExpression,
   checker: ts.TypeChecker,
   seen: Set<ts.Symbol>,
+  callerPath: readonly BindingPathSegment[] = [],
 ): LocalCallValueResolution | undefined {
   const declaration = checker.getResolvedSignature(expression)?.declaration;
   const callee = checker.getSymbolAtLocation(unwrap(expression.expression));
@@ -180,14 +180,28 @@ export function localCallValueCandidates(
         checker,
         returnedCandidate.seen,
       );
-      if (!returnedMember) return [returnedCandidate];
+      if (!returnedMember) {
+        const selected = valuesAtPath(
+          returnedCandidate.expression,
+          callerPath,
+          checker,
+          returnedCandidate.seen,
+        );
+        return selected.length > 0
+          ? selected.map(candidate => ({
+              expression: candidate,
+              seen: new Set(returnedCandidate.seen),
+            }))
+          : [returnedCandidate];
+      }
+      const returnedPath = [...returnedMember.path, ...callerPath];
       const mapped = declaration.parameters.flatMap((parameter, parameterIndex) =>
         bindingNamePaths(parameter.name, returnedMember.symbol, checker).flatMap(formal =>
           actualCandidates.flatMap(actuals => {
             if (parameter.dotDotDotToken) {
               const selection = arrayBindingSelection(
                 formal.path,
-                returnedMember.path,
+                returnedPath,
                 formal.rest?.kind === 'array'
                   ? formal.rest
                   : { prefixLength: 0, start: 0 },
@@ -207,14 +221,14 @@ export function localCallValueCandidates(
               : supplied;
             if (!actual || ts.isSpreadElement(actual)) return [];
             if (formal.rest?.kind === 'array') {
-              const selection = arrayBindingSelection(formal.path, returnedMember.path, formal.rest);
+              const selection = arrayBindingSelection(formal.path, returnedPath, formal.rest);
               return selection
                 ? valuesAtActual(actual, selection.sourcePath, selection.suffix, checker, seen)
                   .map(value => ({ expression: value, seen: new Set(seen) }))
                 : [];
             }
             if (formal.rest?.kind === 'object') {
-              const [member, ...suffix] = returnedMember.path;
+              const [member, ...suffix] = returnedPath;
               if (member === undefined || formal.rest.excluded.includes(String(member))) return [];
               return valuesAtActual(actual, [...formal.path, member], suffix, checker, seen)
                 .map(value => ({ expression: value, seen: new Set(seen) }));
@@ -222,7 +236,7 @@ export function localCallValueCandidates(
             return valuesAtActual(
               actual,
               formal.path,
-              returnedMember.path,
+              returnedPath,
               checker,
               seen,
             ).map(value => ({ expression: value, seen: new Set(seen) }));

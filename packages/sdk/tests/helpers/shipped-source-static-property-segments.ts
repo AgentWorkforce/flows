@@ -28,6 +28,28 @@ function unwrap(expression: ts.Expression): ts.Expression {
   return expression;
 }
 
+function localCallMembers(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+  path: readonly BindingPathSegment[] = [],
+): Array<{ call: ts.CallExpression; path: BindingPathSegment[] }> {
+  expression = unwrap(expression);
+  const branches = wrappedExpressionBranches(expression);
+  if (branches) return branches.flatMap(branch =>
+    localCallMembers(branch, checker, new Set(seen), path));
+  if (ts.isCallExpression(expression)) return [{ call: expression, path: [...path] }];
+  if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return [];
+  const segment = ts.isPropertyAccessExpression(expression)
+    ? expression.name.text
+    : expression.argumentExpression
+      ? staticPropertySegment(expression.argumentExpression, checker, new Set(seen))
+      : undefined;
+  return segment === undefined
+    ? []
+    : localCallMembers(expression.expression, checker, seen, [segment, ...path]);
+}
+
 function memberRootPaths(
   expression: ts.Expression,
   checker: ts.TypeChecker,
@@ -36,14 +58,15 @@ function memberRootPaths(
   expression = unwrap(expression);
   const branches = wrappedExpressionBranches(expression);
   if (branches) return branches.flatMap(branch => memberRootPaths(branch, checker, new Set(seen)));
+  const calls = localCallMembers(expression, checker, seen);
+  if (calls.length > 0) return calls.flatMap(({ call, path }) => {
+    const returned = localCallValueCandidates(call, checker, seen, path);
+    return returned?.candidates.flatMap(candidate =>
+      memberRootPaths(candidate.expression, checker, new Set(candidate.seen))) ?? [];
+  });
   if (ts.isIdentifier(expression)) {
     const symbol = checker.getSymbolAtLocation(expression);
     return symbol ? [{ path: [], symbol }] : [];
-  }
-  if (ts.isCallExpression(expression)) {
-    const returned = localCallValueCandidates(expression, checker, seen);
-    return returned?.candidates.flatMap(candidate =>
-      memberRootPaths(candidate.expression, checker, new Set(candidate.seen))) ?? [];
   }
   if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return [];
   const segment = ts.isPropertyAccessExpression(expression)
@@ -127,16 +150,20 @@ export function staticPropertySegments(
       memberValueCandidates,
       cloneSeenMemberPaths(seenMemberPaths),
     )))];
-  if (ts.isCallExpression(expression)) {
-    const returned = localCallValueCandidates(expression, checker, seen);
-    if (returned && returned.candidates.length > 0) return [...new Set(returned.candidates.flatMap(candidate =>
-      staticPropertySegments(
-        candidate.expression,
-        checker,
-        new Set(candidate.seen),
-        memberValueCandidates,
-        cloneSeenMemberPaths(seenMemberPaths),
-      )))];
+  const calls = localCallMembers(expression, checker, seen);
+  if (calls.length > 0) {
+    const values = calls.flatMap(({ call, path }) => {
+      const returned = localCallValueCandidates(call, checker, seen, path);
+      return returned?.candidates.flatMap(candidate =>
+        staticPropertySegments(
+          candidate.expression,
+          checker,
+          new Set(candidate.seen),
+          memberValueCandidates,
+          cloneSeenMemberPaths(seenMemberPaths),
+        )) ?? [];
+    });
+    if (values.length > 0) return [...new Set(values)];
   }
   if (!ts.isIdentifier(expression)) {
     const discoveredMembers = memberRootPaths(expression, checker, seen);

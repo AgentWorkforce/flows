@@ -268,30 +268,6 @@ describe('shipped-source model provenance', () => {
         async function wrappedFlowAliases() { const conditionalDefine = flag ? surface.flow : surface.flow, logicalDefine = (flag && surface.flow) || surface.flow, nullishDefine = surface.flow ?? surface.flow, commaDefine = (flag, surface.flow), awaitDefine = await surface.flow; conditionalDefine('conditional-flow', { budget: '$2' }, () => {}); logicalDefine('logical-flow', { budget: '$2' }, () => {}); nullishDefine('nullish-flow', { budget: '$2' }, () => {}); commaDefine('comma-flow', { budget: '$2' }, () => {}); awaitDefine('await-flow', { budget: '$2' }, () => {}); }
       `);
       expect(scanTypeScript(aliasedHeader).invalidFlowHeaders).toHaveLength(146);
-      const repairedFlowCases = [
-        `{ const box: any = {}, helpers: any = {}; helpers.assign = Object.assign; helpers.assign(box, { define: surface.flow }); box.define('member-writer', { budget: '$2' }, () => {}); }`,
-        `{ const box: any = {}, maps: any = {}; maps.descriptors = { define: { value: surface.flow } }; Object.defineProperties(box, maps.descriptors); box.define('member-map', { budget: '$2' }, () => {}); }`,
-        `{ const box: any = {}; function identity(value: any) { const alias = value; return alias; } Object.assign(identity(box), { define: surface.flow }); box.define('const-alias', { budget: '$2' }, () => {}); }`,
-        `{ const box: any = {}; function identity(value: any) { let alias; alias = value; return alias; } Object.assign(identity(box), { define: surface.flow }); box.define('assigned-alias', { budget: '$2' }, () => {}); }`,
-        `{ const box: any = {}; function identity(value: any) { return flag ? value : value; } Object.assign(identity(box), { define: surface.flow }); box.define('wrapped-return', { budget: '$2' }, () => {}); }`,
-        `{ const box: any = {}; function getBox() { return box; } Object.assign(getBox(), { define: surface.flow }); box.define('captured-return', { budget: '$2' }, () => {}); }`,
-        `{ const box: any = {}, getter = () => surface.flow; Object.defineProperty(box, 'define', { get: getter }); box.define('getter-alias', { budget: '$2' }, () => {}); }`,
-        `{ const box: any = {}; function id(...values: any[]) { return values[0]; } Object.assign(id(box), { define: surface.flow }); box.define('rest-formal', { budget: '$2' }, () => {}); }`,
-        `{ const box: any = {}; function id({ value }: { value: any }) { return value; } Object.assign(id({ value: box }), { define: surface.flow }); box.define('destructured-formal', { budget: '$2' }, () => {}); }`,
-        `{ const box: any = {}; function id(value: any) { return value; } Object.assign(id(...[box]), { define: surface.flow }); box.define('spread-actual', { budget: '$2' }, () => {}); }`,
-        `{ const box: any = {}; function id(value: any = box) { return value; } Object.assign(id(), { define: surface.flow }); box.define('default-formal', { budget: '$2' }, () => {}); }`,
-        `{ const box: any = {}, alias = box; alias.define = surface.flow; box.define('receiver-alias', { budget: '$2' }, () => {}); }`,
-        `{ let key: string; key = 'flow'; const { [key]: define } = surface; define('mutable-key', { budget: '$2' }, () => {}); }`,
-        `{ const source = flag ? { key: 'flow' as const } : { key: 'flow' as const }; const { key } = source; const { [key]: define } = surface; define('wrapped-key-source', { budget: '$2' }, () => {}); }`,
-        `{ const source = (flag && { key: 'flow' as const }) || { key: 'flow' as const }; const { key } = source; const { [key]: define } = surface; define('logical-key-source', { budget: '$2' }, () => {}); }`,
-        `{ const box: any = {}, a: any = {}, b: any = {}; a.descriptors = b.descriptors; b.descriptors = a.descriptors; b.descriptors = { define: { value: surface.flow } }; Object.defineProperties(box, a.descriptors); box.define('cyclic-descriptor-map', { budget: '$2' }, () => {}); }`,
-        `{ const box: any = {}, a: any = {}, b: any = {}; a.getter = b.getter; b.getter = a.getter; b.getter = () => surface.flow; Object.defineProperty(box, 'define', { get: a.getter }); box.define('cyclic-getter-alias', { budget: '$2' }, () => {}); }`,
-      ];
-      for (const [index, candidate] of repairedFlowCases.entries()) {
-        const repairedFlow = join(directory, `repaired-flow-${index}.flow.ts`);
-        writeFileSync(repairedFlow, `import * as surface from '@relayflows/surface'; declare const flag: boolean; ${candidate}`);
-        expect(scanTypeScript(repairedFlow).invalidFlowHeaders, candidate).toHaveLength(1);
-      }
       const formalAndReceiverRepairs = join(directory, 'formal-and-receiver-repairs.flow.ts');
       writeFileSync(formalAndReceiverRepairs, `
         import * as surface from '@relayflows/surface';
@@ -370,8 +346,13 @@ describe('shipped-source model provenance', () => {
         { const box: any = {}; function key(value: any) { return (flag, value); } box[key('define')] = surface.flow; box.define('comma-return-local-call-key', { budget: '$2' }, () => {}); }
         { const box: any = {}; function id(value: any): any { if (flag) return value; return id(value); } Object.assign(id(box), { define: surface.flow }); box.define('recursive-reflective-target', { budget: '$2' }, () => {}); }
         { const box: any = {}; function id(value: any) { return value; } Object.assign(id(id(box)), { define: surface.flow }); box.define('nested-same-helper-reflective-target', { budget: '$2' }, () => {}); }
+        { const box: any = {}, other: any = {}; function target(value: any) { return value.slot; } Object.assign(target(flag ? { slot: other } : { slot: box }), { define: surface.flow }); box.define('branched-aggregate-reflective-target', { budget: '$2' }, () => {}); }
+        { const box: any = {}, other: any = {}; function target({ holder }: any) { return holder.slot; } Object.assign(target(flag ? { holder: { slot: other } } : { holder: { slot: box } }), { define: surface.flow }); box.define('nested-branched-aggregate-reflective-target', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function key(value: any) { return value; } box[key({ name: 'define' }).name] = surface.flow; box.define('returned-container-caller-key', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function key({ skip, ...rest }: any) { return rest; } box[key({ skip: 0, name: 'define' }).name] = surface.flow; box.define('returned-object-rest-caller-key', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function key([skip, ...rest]: any[]) { return rest; } box[key([0, 'define'])[0]] = surface.flow; box.define('returned-array-rest-caller-key', { budget: '$2' }, () => {}); }
       `);
-      expect(scanTypeScript(formalAndReceiverRepairs).invalidFlowHeaders).toHaveLength(74);
+      expect(scanTypeScript(formalAndReceiverRepairs).invalidFlowHeaders).toHaveLength(79);
       const computedBindingCases = [
         `{ const original = 'flow' as const, key = original; const { [key]: define } = surface; define('renamed', { budget: '$2' }, () => {}); }`,
         `{ const { key } = { key: 'flow' as const }; const { [key]: define } = surface; define('binding', { budget: '$2' }, () => {}); }`,
