@@ -1,6 +1,14 @@
 import ts from 'typescript';
-import type { BindingPathSegment } from './shipped-source-binding-provenance.js';
-import { aggregateValueAtPath, staticPropertySegment } from './shipped-source-binding-values.js';
+import {
+  assignmentMayStoreRight,
+  type BindingPathSegment,
+} from './shipped-source-binding-provenance.js';
+import {
+  aggregateMemberValue,
+  aggregateValueAtPath,
+  staticPropertySegment,
+  wrappedExpressionBranches,
+} from './shipped-source-binding-values.js';
 import {
   bindingNamePaths,
   canonicalArrayIndex,
@@ -15,8 +23,10 @@ export interface LocalCallTargetPath {
 }
 
 export interface LocalCallValueResolution {
-  candidates: ts.Expression[];
-  seen: Set<ts.Symbol>;
+  candidates: Array<{
+    expression: ts.Expression;
+    seen: Set<ts.Symbol>;
+  }>;
 }
 
 type ResolveTargetPaths = (
@@ -99,20 +109,56 @@ function expressionRootPath(
   return segment === undefined ? undefined : { ...parent, path: [...parent.path, segment] };
 }
 
-function valueAtActual(
+function valuesAtPath(
+  expression: ts.Expression,
+  path: readonly BindingPathSegment[],
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): ts.Expression[] {
+  let values = [expression];
+  for (const segment of path) {
+    values = values.flatMap(value => {
+      const member = aggregateMemberValue(value, segment, checker, new Set(seen));
+      return member ? [member.value, ...(member.alternatives ?? [])] : [];
+    });
+  }
+  return values;
+}
+
+function valuesAtActual(
   actual: ts.Expression,
   sourcePath: readonly BindingPathSegment[],
   suffix: readonly BindingPathSegment[],
   checker: ts.TypeChecker,
   seen: Set<ts.Symbol>,
-): ts.Expression | undefined {
-  const selected = sourcePath.length === 0
-    ? { value: actual }
-    : aggregateValueAtPath(actual, sourcePath, checker, new Set(seen));
-  if (!selected) return undefined;
+): ts.Expression[] {
+  const selected = valuesAtPath(actual, sourcePath, checker, seen);
   return suffix.length === 0
-    ? selected.value
-    : aggregateValueAtPath(selected.value, suffix, checker, new Set(seen))?.value;
+    ? selected
+    : selected.flatMap(value => valuesAtPath(value, suffix, checker, seen));
+}
+
+function returnedValueCandidates(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): LocalCallValueResolution['candidates'] {
+  expression = unwrap(expression);
+  const branches = wrappedExpressionBranches(expression);
+  if (branches) return branches.flatMap(branch =>
+    returnedValueCandidates(branch, checker, new Set(seen)));
+  if (ts.isBinaryExpression(expression) && assignmentMayStoreRight(expression.operatorToken.kind)) {
+    const assignments = expression.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      ? [expression.right]
+      : [expression.left, expression.right];
+    return assignments.flatMap(candidate =>
+      returnedValueCandidates(candidate, checker, new Set(seen)));
+  }
+  if (ts.isCallExpression(expression)) {
+    const resolved = localCallValueCandidates(expression, checker, seen);
+    if (resolved) return resolved.candidates;
+  }
+  return [{ expression, seen: new Set(seen) }];
 }
 
 /** Resolve local return expressions to their call actuals for value analysis. */
@@ -128,58 +174,63 @@ export function localCallValueCandidates(
   const nextSeen = callee ? new Set(seen).add(callee) : new Set(seen);
   const actualCandidates = localCallArgumentCandidates(expression.arguments, checker);
   const candidates = returnedExpressions(declaration.body).flatMap(returned => {
-    const returnedMember = expressionRootPath(returned, checker, nextSeen);
-    if (!returnedMember) return [returned];
-    const mapped = declaration.parameters.flatMap((parameter, parameterIndex) =>
-      bindingNamePaths(parameter.name, returnedMember.symbol, checker).flatMap(formal =>
-        actualCandidates.flatMap(actuals => {
-          if (parameter.dotDotDotToken) {
-            const selection = arrayBindingSelection(
+    return returnedValueCandidates(returned, checker, nextSeen).flatMap(returnedCandidate => {
+      const returnedMember = expressionRootPath(
+        returnedCandidate.expression,
+        checker,
+        returnedCandidate.seen,
+      );
+      if (!returnedMember) return [returnedCandidate];
+      const mapped = declaration.parameters.flatMap((parameter, parameterIndex) =>
+        bindingNamePaths(parameter.name, returnedMember.symbol, checker).flatMap(formal =>
+          actualCandidates.flatMap(actuals => {
+            if (parameter.dotDotDotToken) {
+              const selection = arrayBindingSelection(
+                formal.path,
+                returnedMember.path,
+                formal.rest?.kind === 'array'
+                  ? formal.rest
+                  : { prefixLength: 0, start: 0 },
+              );
+              if (!selection) return [];
+              const [actualOffset, ...sourcePath] = selection.sourcePath;
+              const index = actualOffset === undefined ? undefined : canonicalArrayIndex(actualOffset);
+              const actual = index === undefined ? undefined : actuals[parameterIndex + index];
+              return actual && !ts.isSpreadElement(actual)
+                ? valuesAtActual(actual, sourcePath, selection.suffix, checker, seen)
+                  .map(value => ({ expression: value, seen: new Set(seen) }))
+                : [];
+            }
+            const supplied = actuals[parameterIndex];
+            const actual = !supplied || isStaticallyUndefined(supplied, checker)
+              ? parameter.initializer
+              : supplied;
+            if (!actual || ts.isSpreadElement(actual)) return [];
+            if (formal.rest?.kind === 'array') {
+              const selection = arrayBindingSelection(formal.path, returnedMember.path, formal.rest);
+              return selection
+                ? valuesAtActual(actual, selection.sourcePath, selection.suffix, checker, seen)
+                  .map(value => ({ expression: value, seen: new Set(seen) }))
+                : [];
+            }
+            if (formal.rest?.kind === 'object') {
+              const [member, ...suffix] = returnedMember.path;
+              if (member === undefined || formal.rest.excluded.includes(String(member))) return [];
+              return valuesAtActual(actual, [...formal.path, member], suffix, checker, seen)
+                .map(value => ({ expression: value, seen: new Set(seen) }));
+            }
+            return valuesAtActual(
+              actual,
               formal.path,
               returnedMember.path,
-              formal.rest?.kind === 'array'
-                ? formal.rest
-                : { prefixLength: 0, start: 0 },
-            );
-            if (!selection) return [];
-            const [actualOffset, ...sourcePath] = selection.sourcePath;
-            const index = actualOffset === undefined ? undefined : canonicalArrayIndex(actualOffset);
-            const actual = index === undefined ? undefined : actuals[parameterIndex + index];
-            const value = actual && !ts.isSpreadElement(actual)
-              ? valueAtActual(actual, sourcePath, selection.suffix, checker, nextSeen)
-              : undefined;
-            return value ? [value] : [];
-          }
-          const supplied = actuals[parameterIndex];
-          const actual = !supplied || isStaticallyUndefined(supplied, checker)
-            ? parameter.initializer
-            : supplied;
-          if (!actual || ts.isSpreadElement(actual)) return [];
-          if (formal.rest?.kind === 'array') {
-            const selection = arrayBindingSelection(formal.path, returnedMember.path, formal.rest);
-            const value = selection
-              ? valueAtActual(actual, selection.sourcePath, selection.suffix, checker, nextSeen)
-              : undefined;
-            return value ? [value] : [];
-          }
-          if (formal.rest?.kind === 'object') {
-            const [member, ...suffix] = returnedMember.path;
-            if (member === undefined || formal.rest.excluded.includes(String(member))) return [];
-            const value = valueAtActual(actual, [...formal.path, member], suffix, checker, nextSeen);
-            return value ? [value] : [];
-          }
-          const value = valueAtActual(
-            actual,
-            formal.path,
-            returnedMember.path,
-            checker,
-            nextSeen,
-          );
-          return value ? [value] : [];
-        })));
-    return mapped.length > 0 ? mapped : [returned];
+              checker,
+              seen,
+            ).map(value => ({ expression: value, seen: new Set(seen) }));
+          })));
+      return mapped.length > 0 ? mapped : [returnedCandidate];
+    });
   });
-  return { candidates, seen: nextSeen };
+  return { candidates };
 }
 
 export function localCallTargetPaths(
@@ -190,10 +241,13 @@ export function localCallTargetPaths(
   callerPath: readonly BindingPathSegment[] = [],
 ): LocalCallTargetPath[] {
   const declaration = checker.getResolvedSignature(expression)?.declaration;
-  if (!declaration || !ts.isFunctionLike(declaration) || !('body' in declaration)) return [];
+  const callee = checker.getSymbolAtLocation(unwrap(expression.expression));
+  if (!declaration || !ts.isFunctionLike(declaration) || !('body' in declaration)
+    || (callee && seen.has(callee))) return [];
+  const nextSeen = callee ? new Set(seen).add(callee) : new Set(seen);
   const actualCandidates = localCallArgumentCandidates(expression.arguments, checker);
   return actualCandidates.flatMap(actuals => returnedExpressions(declaration.body).flatMap(returned =>
-    resolve(returned, new Set(seen)).flatMap(returnedMember => {
+    resolve(returned, new Set(nextSeen)).flatMap(returnedMember => {
       const returnedPath = [...returnedMember.path, ...callerPath];
       const mapped = declaration.parameters.flatMap((parameter, parameterIndex) =>
         bindingNamePaths(parameter.name, returnedMember.symbol, checker).flatMap(formal => {

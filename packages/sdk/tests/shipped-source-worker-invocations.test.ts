@@ -346,10 +346,43 @@ describe('shipped-source worker invocation resolution', () => {
         { const box: any = {}; function key([skip, ...rest]: any[]) { return rest[0]; } box[key([undefined, 'run'])] = f.agent; box.run('review', { task: 'x' }); }
         { const box: any = {}; function id(value: any) { return value; } let alias: any; Object.assign((alias = id(box)), { run: f.agent }); box.run('review', { task: 'x' }); }
         { const box: any = {}; function id(value: any) { return value; } let alias: any; Object.assign((alias ||= id(box)), { run: f.agent }); box.run('review', { task: 'x' }); }
+        { const box: any = {}; function id(value: any) { return value; } box[id(id('run'))] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; function key(value: any) { return value.name; } box[key(flag ? { name: 'other' } : { name: 'run' })] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; function key(value: any) { return flag ? value : value; } box[key('run')] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; function key(value: any) { return (flag && value) || value; } box[key('run')] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; async function key(value: any) { return await value; } async function repair() { box[await key('run')] = f.agent; box.run('review', { task: 'x' }); } repair(); }
+        { const box: any = {}; function key(value: any) { let alias; return alias = value; } box[key('run')] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; function key(value: any) { let alias; return alias ||= value; } box[key('run')] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; function id(value: any) { return value; } function key(value: any) { return id(value); } box[key('run')] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; function key(value: any) { return (flag, value); } box[key('run')] = f.agent; box.run('review', { task: 'x' }); }
       `);
       const formalAndReceiverResult = scanTypeScript(formalAndReceiverRepairs);
-      expect(formalAndReceiverResult.calls).toBe(63);
-      expect(formalAndReceiverResult.missing).toHaveLength(63);
+      expect(formalAndReceiverResult.calls).toBe(72);
+      expect(formalAndReceiverResult.missing).toHaveLength(72);
+
+      const recursiveLocalCallKey = join(directory, 'recursive-local-call-key.flow.ts');
+      writeFileSync(recursiveLocalCallKey, `
+        declare const f: { agent(name: string, options: { task: string }): void };
+        const box: any = {};
+        function key(value: any): any { return key(value); }
+        box[key('run')] = f.agent;
+        box.run('review', { task: 'x' });
+      `);
+      expect(scanTypeScript(recursiveLocalCallKey).calls).toBe(0);
+
+      const unresolvedComputedBinding = join(directory, 'unresolved-computed-binding.flow.ts');
+      writeFileSync(unresolvedComputedBinding, `
+        declare const f: {
+          agent(name: string, options: { task: string }): void;
+          llm(prompt: string, options: { output: object }): void;
+        };
+        declare const flag: boolean, other: string;
+        const { [flag ? 'agent' : other]: run } = f;
+        run('review', { task: 'x' });
+      `);
+      const unresolvedComputedBindingResult = scanTypeScript(unresolvedComputedBinding);
+      expect(unresolvedComputedBindingResult.calls).toBe(1);
+      expect(unresolvedComputedBindingResult.missing).toHaveLength(1);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `

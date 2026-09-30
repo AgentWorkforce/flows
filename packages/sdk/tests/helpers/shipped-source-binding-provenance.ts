@@ -58,11 +58,13 @@ function staticPropertySegment(
       ? [expression.left, expression.right]
       : undefined;
   if (branches) {
-    const values = branches
-      .map(branch => staticPropertySegment(branch, checker, new Set(seen)))
-      .filter((value): value is BindingPathSegment => value !== undefined);
+    const values = branches.map(branch =>
+      staticPropertySegment(branch, checker, new Set(seen)));
     const first = values[0];
-    return first !== undefined && values.every(value => value === first) ? first : undefined;
+    return first !== undefined
+      && values.every(value => value !== undefined && value === first)
+      ? first
+      : undefined;
   }
   if (!ts.isIdentifier(expression)) return undefined;
   const symbol = checker.getSymbolAtLocation(expression);
@@ -116,11 +118,13 @@ function staticPropertySegmentAtPath(
       ? [expression.left, expression.right]
       : undefined;
   if (branches) {
-    const values = branches
-      .map(branch => staticPropertySegmentAtPath(branch, path, checker, new Set(seen)))
-      .filter((value): value is BindingPathSegment => value !== undefined);
+    const values = branches.map(branch =>
+      staticPropertySegmentAtPath(branch, path, checker, new Set(seen)));
     const first = values[0];
-    return first !== undefined && values.every(value => value === first) ? first : undefined;
+    return first !== undefined
+      && values.every(value => value !== undefined && value === first)
+      ? first
+      : undefined;
   }
   if (path.length === 0) return staticPropertySegment(expression, checker, seen);
   if (ts.isIdentifier(expression)) {

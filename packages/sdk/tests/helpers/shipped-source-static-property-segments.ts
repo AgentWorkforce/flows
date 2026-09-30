@@ -43,7 +43,7 @@ function memberRootPaths(
   if (ts.isCallExpression(expression)) {
     const returned = localCallValueCandidates(expression, checker, seen);
     return returned?.candidates.flatMap(candidate =>
-      memberRootPaths(candidate, checker, new Set(returned.seen))) ?? [];
+      memberRootPaths(candidate.expression, checker, new Set(candidate.seen))) ?? [];
   }
   if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return [];
   const segment = ts.isPropertyAccessExpression(expression)
@@ -131,9 +131,9 @@ export function staticPropertySegments(
     const returned = localCallValueCandidates(expression, checker, seen);
     if (returned && returned.candidates.length > 0) return [...new Set(returned.candidates.flatMap(candidate =>
       staticPropertySegments(
-        candidate,
+        candidate.expression,
         checker,
-        new Set(returned.seen),
+        new Set(candidate.seen),
         memberValueCandidates,
         cloneSeenMemberPaths(seenMemberPaths),
       )))];
