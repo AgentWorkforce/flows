@@ -121,6 +121,9 @@ pub fn next_actions_with_reuse(
                             seq: prior.seq,
                         });
                         payload.budget = Budget::default();
+                        // The model did not run for this completion: the
+                        // source's actual cost belongs to the source run.
+                        payload.reported_cost = None;
                         payload.completed_by = "kernel:reuse".into();
                         result.push(Action::Append(JournalEntry::new(
                             EntryType::StepCompleted,

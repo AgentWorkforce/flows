@@ -92,12 +92,14 @@ it.each(['none', 'record', 'confirm', 'complete'] as const)('journals one post a
   expect(dm).toHaveBeenCalledTimes(boundary === 'confirm' ? 2 : 1);
   if (boundary === 'confirm') expect(dm.mock.calls[0]).toEqual(dm.mock.calls[1]);
   const entries = (await active.client.journalRead(run.run_id, 1)).entries as Array<{
-    entry_type: string; payload: { output?: { messageId: string }; completionReason?: string };
+    entry_type: string; payload: { output?: { messageId: string }; completionReason?: string; reported_cost?: unknown };
   }>;
   expect(entries.filter(e => e.entry_type === 'effect.confirmed')).toHaveLength(1);
   const completed = entries.filter(e => e.entry_type === 'step.completed' && e.payload.completionReason === 'success');
   expect(completed).toHaveLength(1);
   expect(completed[0]!.payload.completionReason).toBe('success');
   expect(completed[0]!.payload.output!.messageId).toBe([...delivered.keys()][0]);
+  // A channel post is a broker effect: no model ran, and the completion says so.
+  expect(completed[0]!.payload.reported_cost).toEqual({ dollars: '0.000000', source: 'no_model' });
   expect(JSON.stringify(entries)).not.toContain('must-not-leak');
 }, 15_000);

@@ -364,6 +364,7 @@ fn all_backing_off_steps_return_timers() {
         trajectory_tail: None,
         failure_reason: Some(CompletionReason::WorkerError),
         failure_detail: Some("stub rejection".to_owned()),
+        reported_cost: None,
     };
     let mut entries = Vec::new();
     for step in &spec.steps {
@@ -475,6 +476,7 @@ fn inspect_recovery_injects_the_dirty_pin_completion_reason_and_tail() {
         trajectory_tail: Some(json!(["edited file"])),
         failure_reason: Some(CompletionReason::WorkerError),
         failure_detail: Some("stub rejection".to_owned()),
+        reported_cost: None,
     };
     let completed = completion_actions(
         "run",
@@ -595,6 +597,7 @@ fn worker_reported_failure_without_detail_still_records_a_verification() {
         // The point of the case: the worker reported a failure and sent no
         // detail with it.
         failure_detail: None,
+        reported_cost: None,
     };
     let entries: Vec<_> = completion_actions("run", &spec.steps[0], 1, 0, result, 1_000)
         .into_iter()

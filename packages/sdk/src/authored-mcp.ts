@@ -12,6 +12,7 @@ import type { AuthoredFlowJournalStep } from './authored-flow-executor.js';
 import { readCompletedStepOutput } from './authored-step-output.js';
 import { withWorkerLease } from './worker-lease.js';
 import { authoredChildAdmissionKey } from './authored-admission.js';
+import { NO_MODEL_COST } from './reported-cost.js';
 
 /** Own keys expose precisely the preflight inventory, including prototype-like names. */
 export function buildMcpProxy(
@@ -116,6 +117,7 @@ export async function runMcpEffect(
         output: { ...receipt, output: output ?? null, ...(diagnostic ? { diagnostic } : {}) },
         started_pins: event.pins, end_pins: event.pins,
         ...(diagnostic ? { trajectory_tail: { ...receipt, diagnostic } } : {}),
+        reported_cost: NO_MODEL_COST,
         effects: confirmed ? [{ surface_path: surfacePath, idempotency_key: event.idempotency_key }] : [],
       });
   }

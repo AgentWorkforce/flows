@@ -3,7 +3,8 @@ use relayflowd::{
     worker::{DispatchOutcome, JournalObserver, StepDispatch, StepDispatcher},
 };
 use relayflowd_core::{
-    Budget, CompletionReason, EntryType, JournalEntry, RunCompletionReason, RunSpec, StepType,
+    Budget, CompletionReason, EntryType, JournalEntry, ReportedCost, ReportedCostSource,
+    RunCompletionReason, RunSpec, StepType,
 };
 use serde_json::json;
 use std::sync::{Arc, Mutex};
@@ -58,6 +59,7 @@ fn crossing_completion_is_durable_and_next_step_is_refused() {
                 end_pins: None,
                 effects: vec![],
                 trajectory_tail: None,
+                reported_cost: None,
             },
         )
         .unwrap();
@@ -197,6 +199,7 @@ fn complete_first(
             end_pins: None,
             effects: vec![],
             trajectory_tail: None,
+            reported_cost: None,
         },
     )
 }
@@ -427,4 +430,140 @@ fn prior_spend_metering_flag_is_additive_and_fails_closed_for_older_kernels() {
             "steps":[{"id":"first","type":"deterministic","command":"printf ran"}]}))
         .is_err()
     );
+}
+
+#[test]
+fn reported_cost_is_journaled_but_never_charged_to_the_budget() {
+    let dir = tempfile::tempdir().unwrap();
+    let worker = Arc::new(Worker::default());
+    let engine = Engine::with_runtime(dir.path(), worker.clone(), worker.clone());
+    // A tight dollar cap the reported cost alone would cross many times over.
+    let spec = RunSpec::parse(&json!({"budget":{"max_dollars":"0.01"},"steps":[
+        {"id":"first","type":"llm","prompt":"work"},
+        {"id":"second","type":"llm","prompt":"answer","depends_on":["first"]}
+    ]}))
+    .unwrap();
+    let started = engine.start(spec, "test", None).unwrap();
+    let d = worker.0.lock().unwrap()[0].clone();
+    let outcome = engine
+        .complete_out_of_band(
+            &started.run_id,
+            "first",
+            OutOfBandCompletion {
+                human_intervention: false,
+                attempt: d.attempt,
+                idempotency_key: d.idempotency_key,
+                completion_reason: CompletionReason::Success,
+                output: json!("done"),
+                budget: Budget {
+                    tokens_in: 100,
+                    tokens_out: 10,
+                    dollars: "0.001000".into(),
+                    dollars_unmetered: false,
+                },
+                completed_by: "mock".into(),
+                started_pins: None,
+                end_pins: None,
+                effects: vec![],
+                trajectory_tail: None,
+                reported_cost: Some(ReportedCost {
+                    dollars: "7.169405".into(),
+                    source: ReportedCostSource::Cli,
+                }),
+            },
+        )
+        .unwrap();
+    // Admission is decided by metered dollars only: the next step runs.
+    assert_eq!(outcome.completion_reason, None);
+    assert!(
+        worker
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|d| d.step_id == "second")
+    );
+    let entries = Engine::new(dir.path())
+        .journal_entries(&started.run_id, 1, 100)
+        .unwrap();
+    let completed = entries
+        .iter()
+        .find(|e| e.entry_type == EntryType::StepCompleted)
+        .unwrap();
+    assert_eq!(
+        completed.payload["reported_cost"],
+        json!({"dollars": "7.169405", "source": "cli"})
+    );
+    assert_eq!(completed.payload["budget"]["dollars"], "0.001000");
+    assert_eq!(completed.payload["spend"]["dollars"], json!(0.001));
+}
+
+#[test]
+fn a_malformed_reported_cost_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let worker = Arc::new(Worker::default());
+    let engine = Engine::with_runtime(dir.path(), worker.clone(), worker.clone());
+    let spec =
+        RunSpec::parse(&json!({"steps":[{"id":"first","type":"llm","prompt":"a"}]})).unwrap();
+    let started = engine.start(spec, "test", None).unwrap();
+    let d = worker.0.lock().unwrap()[0].clone();
+    let error = engine
+        .complete_out_of_band(
+            &started.run_id,
+            "first",
+            OutOfBandCompletion {
+                human_intervention: false,
+                attempt: d.attempt,
+                idempotency_key: d.idempotency_key,
+                completion_reason: CompletionReason::Success,
+                output: json!("a"),
+                budget: Budget::default(),
+                completed_by: "mock".into(),
+                started_pins: None,
+                end_pins: None,
+                effects: vec![],
+                trajectory_tail: None,
+                reported_cost: Some(ReportedCost {
+                    dollars: "-1".into(),
+                    source: ReportedCostSource::Cli,
+                }),
+            },
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("reported_cost"), "{error}");
+}
+
+#[test]
+fn a_no_model_cost_must_be_zero() {
+    let dir = tempfile::tempdir().unwrap();
+    let worker = Arc::new(Worker::default());
+    let engine = Engine::with_runtime(dir.path(), worker.clone(), worker.clone());
+    let spec =
+        RunSpec::parse(&json!({"steps":[{"id":"first","type":"llm","prompt":"a"}]})).unwrap();
+    let started = engine.start(spec, "test", None).unwrap();
+    let d = worker.0.lock().unwrap()[0].clone();
+    let completion = |dollars: &str| OutOfBandCompletion {
+        human_intervention: false,
+        attempt: d.attempt,
+        idempotency_key: d.idempotency_key.clone(),
+        completion_reason: CompletionReason::Success,
+        output: json!("a"),
+        budget: Budget::default(),
+        completed_by: "mock".into(),
+        started_pins: None,
+        end_pins: None,
+        effects: vec![],
+        trajectory_tail: None,
+        reported_cost: Some(ReportedCost {
+            dollars: dollars.into(),
+            source: ReportedCostSource::NoModel,
+        }),
+    };
+    let error = engine
+        .complete_out_of_band(&started.run_id, "first", completion("5"))
+        .unwrap_err();
+    assert!(error.to_string().contains("no_model"), "{error}");
+    engine
+        .complete_out_of_band(&started.run_id, "first", completion("0.000000"))
+        .unwrap();
 }

@@ -91,6 +91,44 @@ describe('unmetered budget spend through the live kernel', () => {
     expect(failures).toEqual([]);
   });
 
+  it('journals an unpriced claude step\'s reported cost beside unchanged metered usage, and the verdict is unchanged', async () => {
+    const { fixture, client, failures } = await setup();
+    const claude = join(fixture.root, 'claude');
+    // A model with no frozen price: metered dollars stay unknown, exactly as before.
+    writeFileSync(join(fixture.root, 'flows.json'), JSON.stringify({ models: ['claude-unpriced-9'] }));
+    writeFileSync(claude, `#!/usr/bin/env node
+if (process.argv[2] === 'auth') process.exit(0);
+if (process.argv.includes('Reply with exactly RELAYFLOWS_MODEL_READY and nothing else.')) {
+  process.stdout.write('RELAYFLOWS_MODEL_READY\\n'); process.exit(0);
+}
+process.stdout.write(JSON.stringify({ type: 'result', result: JSON.stringify({ message: 'reported-ok' }), total_cost_usd: 12.5,
+  usage: { input_tokens: 40, output_tokens: 9, cache_read_input_tokens: 900000, cache_creation_input_tokens: 50000 } }) + '\\n');
+`);
+    chmodSync(claude, 0o755);
+    const runIds: string[] = [];
+    // A dollar cap the reported $12.50 would cross many times over.
+    const handle = flow('reported-cost', { budget: '$0.000001/run' }, async f => {
+      expect(await f.llm('Answer.', { output: schema, cli: claude, model: 'claude-unpriced-9' })).toEqual({ message: 'reported-ok' });
+      await f.run('printf after-reported');
+      f.done('success');
+    });
+    const start = client.runStart.bind(client);
+    client.runStart = (async (...args: Parameters<JournalClient['runStart']>) => {
+      const outcome = await start(...args);
+      runIds.push(outcome.run_id);
+      return outcome;
+    }) as JournalClient['runStart'];
+    const result = await executeAuthoredFlow(handle, client, undefined, { flowPath: fixture.flowPath });
+    // Same verdict as any unmetered step: the run is not stopped on dollars.
+    expect(result.completionReason).toBe('success');
+    const completed = (await entries(client, runIds[0]!)).find(e => e.entry_type === 'step.completed')!;
+    expect(completed.payload.reported_cost).toEqual({ dollars: '12.500000', source: 'cli' });
+    // Metered usage is exactly what it was without reported_cost.
+    expect(completed.payload.budget).toEqual({ tokens_in: 40, tokens_out: 9, dollars: '0', dollars_unmetered: true });
+    expect(completed.payload.spend).toMatchObject({ dollars: 0, dollars_unmetered: true });
+    expect(failures).toEqual([]);
+  });
+
   it('still counts an unpriced step toward a token budget', async () => {
     const { fixture, client, failures } = await setup();
     const handle = flow('unmetered-tokens', { budget: { tokens: 100, dollars: 1 } }, async f => {

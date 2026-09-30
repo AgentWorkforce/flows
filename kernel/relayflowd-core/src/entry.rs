@@ -391,8 +391,33 @@ pub struct StepCompletedPayload {
     pub trajectory_tail: Option<Value>,
     #[serde(default)]
     pub budget: Budget,
+    /// What the step actually cost, as reported by the CLI or estimated from
+    /// its full token usage. Display only: it is never folded into the run's
+    /// budget, so `budget` alone decides `maxDollars`. Absent when unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reported_cost: Option<ReportedCost>,
     pub completed_by: String,
     pub next_attempt_at_ms: Option<i64>,
+}
+
+/// A step attempt's actual cost, kept apart from the metered `Budget`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReportedCost {
+    /// Non-negative decimal string, like `Budget::dollars`.
+    pub dollars: String,
+    pub source: ReportedCostSource,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReportedCostSource {
+    /// The agent CLI's own reported total (e.g. Claude `total_cost_usd`).
+    Cli,
+    /// Estimated from the step's full token usage at a frozen price.
+    Priced,
+    /// No model ran: an internal effect worker (provider helper, plugin, MCP)
+    /// completed the step. `dollars` is zero.
+    NoModel,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -690,4 +715,26 @@ pub struct RunCompletedPayload {
     pub completion_reason: RunCompletionReason,
     pub failed_step_id: Option<String>,
     pub budget_total: Budget,
+}
+
+#[cfg(test)]
+mod reported_cost_tests {
+    use super::*;
+
+    #[test]
+    fn step_completed_without_reported_cost_round_trips_unchanged() {
+        // A journal written before `reported_cost` existed must still decode,
+        // and a payload without one must serialize exactly as it always did.
+        let legacy = serde_json::json!({
+            "completionReason": "success", "disposition": "step_done", "output": null,
+            "verification": null, "end_pins": null, "effects": [],
+            "budget": {"tokens_in": 1, "tokens_out": 2, "dollars": "0.1"},
+            "completed_by": "w", "next_attempt_at_ms": null
+        });
+        let payload: StepCompletedPayload = serde_json::from_value(legacy.clone()).unwrap();
+        assert_eq!(payload.reported_cost, None);
+        let reserialized = serde_json::to_value(&payload).unwrap();
+        assert!(reserialized.get("reported_cost").is_none());
+        assert_eq!(reserialized["budget"], legacy["budget"]);
+    }
 }

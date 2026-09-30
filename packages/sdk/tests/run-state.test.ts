@@ -298,6 +298,113 @@ describe('foldRunState', () => {
     expect(fetch.elapsed_ms).toBe(10_000);
   });
 
+  it('shows each step\'s metered spend and actual reported cost, and the run total, without charging it', () => {
+    const view = foldRunState(journal(
+      spawned,
+      completed('fetch', 1, T0 + 1000, {}),
+      completed('analyze', 1, T0 + 2000, {
+        completionReason: 'verification_failed', disposition: 'retry', next_attempt_at_ms: T0 + 3000,
+        budget: { tokens_in: 100, tokens_out: 10, dollars: '0.001000' },
+        reported_cost: { dollars: '4.500000', source: 'cli' },
+      }),
+      completed('analyze', 2, T0 + 4000, {
+        budget: { tokens_in: 100, tokens_out: 10, dollars: '0.001000' },
+        reported_cost: { dollars: '2.669405', source: 'cli' },
+      }),
+      completed('post', 1, T0 + 5000, { budget: { tokens_in: 5, tokens_out: 5, dollars_unmetered: true, dollars: '0' } }),
+    ), T0 + 6000);
+    const [fetch, analyze, post] = view.steps;
+    // A shell step costs nothing and does not make the total a lower bound.
+    expect(fetch!.reported_cost).toEqual({ dollars: '0', complete: true, source: null });
+    expect(analyze!.spend).toEqual({ tokens_in: 200, tokens_out: 20, dollars: '0.002', dollars_unmetered: false });
+    expect(analyze!.reported_cost).toEqual({ dollars: '7.169405', complete: true, source: 'cli' });
+    // A model step with no reported cost (Codex, older runtime) is unknown, not $0.
+    expect(post!.reported_cost).toEqual({ dollars: '0', complete: false, source: null });
+    expect(view.reported_cost).toEqual({ dollars: '7.169405', complete: false, source: 'cli' });
+    // The budget total is the metered charges alone.
+    expect(view.spend.dollars).toBe('0.002');
+  });
+
+  it('counts only steps known to run no model as free: shell steps and memoized reuse', () => {
+    const view = foldRunState(journal(
+      spawned,
+      completed('fetch', 1, T0 + 1000, {}),
+      // A memoized completion copies the source's output; the source run paid.
+      completed('analyze', 1, T0 + 2000, {
+        reused_from: { run_id: 'old', step_id: 'analyze', seq: 7 }, completed_by: 'kernel:reuse',
+      }),
+    ), T0 + 3000);
+    expect(view.steps.slice(0, 2).map((step) => step.reported_cost)).toEqual([
+      { dollars: '0', complete: true, source: null },
+      { dollars: '0', complete: true, source: null },
+    ]);
+    expect(view.reported_cost).toEqual({ dollars: '0', complete: true, source: null });
+  });
+
+  it('counts a provider helper step as free: it performs a relayfile write, not a model call', () => {
+    const helperSpec = { name: 'helpers', steps: [{
+      id: 'post', type: 'agent', depends_on: [], max_iterations: 1,
+      instruction: 'relayflows:helper:v1\n{"type":"effect","provider":"slack","verb":"postMessage","params":{}}',
+    }] };
+    const view = foldRunState(journal(
+      { entry_type: 'run.spawned', payload: { spec: helperSpec, spec_hash: 'h', parent_run_id: null, journal_version: 1, created_by: 't' } },
+      completed('post', 1, T0 + 1000, {}),
+    ), T0 + 2000);
+    expect(view.reported_cost).toEqual({ dollars: '0', complete: true, source: null });
+  });
+
+  it('counts an internal effect worker\'s no_model report as a known $0 that names no cost source', () => {
+    const view = foldRunState(journal(
+      spawned,
+      completed('fetch', 1, T0 + 1000, {}),
+      completed('analyze', 1, T0 + 2000, { reported_cost: { dollars: '1.500000', source: 'cli' } }),
+      completed('post', 1, T0 + 3000, { reported_cost: { dollars: '0.000000', source: 'no_model' } }),
+    ), T0 + 4000);
+    expect(view.steps[2]!.reported_cost).toEqual({ dollars: '0', complete: true, source: null });
+    expect(view.reported_cost).toEqual({ dollars: '1.5', complete: true, source: 'cli' });
+  });
+
+  it('does not take a zero budget as proof no model ran: a recovered agent attempt stays unknown', () => {
+    // Crash recovery and cancellation journal a default budget although the model ran.
+    const view = foldRunState(journal(
+      spawned,
+      completed('fetch', 1, T0 + 1000, {}),
+      completed('analyze', 1, T0 + 2000, { completionReason: 'crashed', disposition: 'retry', next_attempt_at_ms: T0 + 3000, completed_by: 'kernel' }),
+    ), T0 + 4000);
+    expect(view.steps[1]!.reported_cost).toEqual({ dollars: '0', complete: false, source: null });
+    expect(view.reported_cost.complete).toBe(false);
+  });
+
+  it('counts a real authored root as free, but not an ordinary step merely named authored-root', () => {
+    const rootView = (instruction?: string) => foldRunState(journal(
+      { entry_type: 'run.spawned', payload: { spec: { name: 'authored', steps: [{
+        id: 'authored-root', type: 'agent', depends_on: [], max_iterations: 1, ...(instruction === undefined ? {} : { instruction }),
+      }] }, spec_hash: 'h', parent_run_id: null, journal_version: 1, created_by: 't' } },
+      completed('authored-root', 1, T0 + 1000, {}),
+    ), T0 + 2000);
+    // Its model calls are child runs with journals of their own.
+    expect(rootView(JSON.stringify({ kind: 'relayflows.authored-root.v1' })).reported_cost)
+      .toEqual({ dollars: '0', complete: true, source: null });
+    // Without the discriminator it is an ordinary agent step: its cost is unknown.
+    expect(rootView().reported_cost).toEqual({ dollars: '0', complete: false, source: null });
+    expect(rootView('Do the work.').reported_cost).toEqual({ dollars: '0', complete: false, source: null });
+  });
+
+  it('keeps each step\'s cost across an epoch summary, since rollover keeps the earlier completions', () => {
+    const view = foldRunState(journal(
+      spawned,
+      completed('analyze', 1, T0 + 1000, {
+        budget: { tokens_in: 3, tokens_out: 4, dollars: '0.5' }, reported_cost: { dollars: '1.000000', source: 'priced' },
+      }),
+      { entry_type: 'epoch.summary', payload: { epoch: 1, budget_spent: { tokens_in: 3, tokens_out: 4, dollars: '0.5' },
+        steps_done: { analyze: { completionReason: 'success' } }, steps_open: {} } },
+    ), T0 + 3000);
+    const analyze = view.steps.find((step) => step.id === 'analyze')!;
+    expect(analyze.reported_cost).toEqual({ dollars: '1', complete: true, source: 'priced' });
+    expect(analyze.spend.dollars).toBe('0.5');
+    expect(view.reported_cost).toEqual({ dollars: '1', complete: true, source: 'priced' });
+  });
+
   it('adds decimal dollars at full precision, beyond six fractional digits', () => {
     // Microdollar scaling returned null past six digits and the nullish
     // fallback contributed zero, so `flows status` underreported spend.

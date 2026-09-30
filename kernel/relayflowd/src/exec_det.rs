@@ -136,6 +136,7 @@ pub(crate) fn execute_placed_with_input(
         failure_reason: timed_out.then_some(CompletionReason::Timeout),
         failure_detail: timed_out
             .then(|| format!("step exceeded its {} ms timeout", timeout.as_millis())),
+        reported_cost: None,
     }
 }
 
@@ -177,6 +178,7 @@ fn worker_error(detail: &str) -> AttemptResult {
         trajectory_tail: None,
         failure_reason: Some(CompletionReason::WorkerError),
         failure_detail: Some(detail.to_owned()),
+        reported_cost: None,
     }
 }
 
