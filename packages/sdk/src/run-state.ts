@@ -29,8 +29,9 @@ export interface Spend {
  * What steps actually cost, summed from each attempt's journaled
  * `reported_cost` (the CLI's own total, or a full-usage estimate). Display
  * only: the kernel charges `spend` against `maxDollars`, never this. `complete`
- * is false when some completed attempt reported no cost (e.g. Codex), or when
- * compaction dropped earlier attempts, so `dollars` is then a lower bound.
+ * is false when some completed model attempt reported no cost (e.g. Codex, or
+ * an older runtime), so `dollars` is then a lower bound. Segment rollover keeps
+ * earlier completions in the journal, so an epoch summary does not lose any.
  */
 export interface ReportedCostTotal {
   /** Decimal string. */
@@ -411,13 +412,14 @@ export function foldRunState(events: readonly JournalEvent[], now_ms: number): R
         // A new epoch restarts every step (state.rs `apply_epoch`); the
         // summary then restores the ones it carries forward.
         for (const step of steps.values()) {
-          const { id, type, max_iterations } = step.view;
+          const { id, type, max_iterations, spend: stepSpend, reported_cost: stepCost } = step.view;
           step.view = freshStep(id, type, max_iterations, step.depends_on).view;
+          // Rollover keeps the earlier segments' completions in the journal,
+          // and this fold has already read them: what the step cost stays.
+          step.view.spend = stepSpend;
+          step.view.reported_cost = stepCost;
         }
         spend = addSpend(ZERO_SPEND, payload['budget_spent']);
-        // Compaction drops the attempts behind the summary, and the summary
-        // carries no reported cost, so the total is now a lower bound.
-        reportedCost = { ...reportedCost, complete: false };
         const done = payload['steps_done'] !== null && typeof payload['steps_done'] === 'object' ? payload['steps_done'] as Payload : {};
         for (const [id, summary] of Object.entries(done)) {
           const view = steps.get(id)?.view;

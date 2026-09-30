@@ -24,6 +24,12 @@ describe('reportedCost', () => {
     expect(workerSpend(result, 'claude-opus-5').usage).toEqual({ tokens_in: 166, tokens_out: 38_861, dollars: '0.972355' });
   });
 
+  it('charges a Codex step\'s cached input once: its input total already includes it', () => {
+    const result = withDigest({ provider: 'codex', model: 'codex-medium', usage: { input: 1_000_000, output: 0, cache_read: 800_000 } });
+    // 200000 fresh * $2/M + 800000 cached * $2/M * 0.1
+    expect(reportedCost(result, 'codex-medium')).toEqual({ dollars: '0.560000', source: 'priced' });
+  });
+
   it('leaves an unknown cost unknown rather than reporting $0', () => {
     expect(reportedCost({ ...base }, 'claude-opus-5')).toBeUndefined();
     expect(reportedCost(withDigest({ provider: 'codex', usage: { input: 10, output: 10 } }), 'gpt-unpriced')).toBeUndefined();

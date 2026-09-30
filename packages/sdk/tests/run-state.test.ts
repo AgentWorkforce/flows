@@ -325,13 +325,19 @@ describe('foldRunState', () => {
     expect(view.spend.dollars).toBe('0.002');
   });
 
-  it('marks the reported total a lower bound after compaction', () => {
+  it('keeps each step\'s cost across an epoch summary, since rollover keeps the earlier completions', () => {
     const view = foldRunState(journal(
       spawned,
-      completed('fetch', 1, T0 + 1000, { reported_cost: { dollars: '1.000000', source: 'priced' } }),
-      { entry_type: 'epoch.summary', payload: { epoch: 1, budget_spent: {}, steps_done: { fetch: { completionReason: 'success' } }, steps_open: {} } },
+      completed('analyze', 1, T0 + 1000, {
+        budget: { tokens_in: 3, tokens_out: 4, dollars: '0.5' }, reported_cost: { dollars: '1.000000', source: 'priced' },
+      }),
+      { entry_type: 'epoch.summary', payload: { epoch: 1, budget_spent: { tokens_in: 3, tokens_out: 4, dollars: '0.5' },
+        steps_done: { analyze: { completionReason: 'success' } }, steps_open: {} } },
     ), T0 + 3000);
-    expect(view.reported_cost).toEqual({ dollars: '1', complete: false, source: 'priced' });
+    const analyze = view.steps.find((step) => step.id === 'analyze')!;
+    expect(analyze.reported_cost).toEqual({ dollars: '1', complete: true, source: 'priced' });
+    expect(analyze.spend.dollars).toBe('0.5');
+    expect(view.reported_cost).toEqual({ dollars: '1', complete: true, source: 'priced' });
   });
 
   it('adds decimal dollars at full precision, beyond six fractional digits', () => {

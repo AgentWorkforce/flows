@@ -16,7 +16,8 @@ import type { WorkerCliResult } from './worker-cli.js';
  * - `cli`: the CLI's own reported total (Claude `total_cost_usd`);
  * - `priced`: an estimate from the digest's full token usage at the frozen
  *   `MODEL_PRICING` rates, with cache writes at 1.25x and cache reads at 0.1x
- *   the input rate. Only for a model that already has a price.
+ *   the input rate (Codex's input total already includes its cached tokens, so
+ *   they are split out, not added). Only for a model that already has a price.
  * Otherwise undefined: an unknown cost is left unknown, never shown as $0.
  */
 export function reportedCost(result: WorkerCliResult, model: string | undefined): ReportedCost | undefined {
@@ -30,7 +31,11 @@ export function reportedCost(result: WorkerCliResult, model: string | undefined)
   if (usage === undefined || priceModel === undefined || !Object.hasOwn(MODEL_PRICING, priceModel)) return undefined;
   const counts = [usage.input, usage.output, usage.cache_read, usage.cache_creation].map(n => n ?? 0);
   if (!counts.every(n => Number.isSafeInteger(n) && n >= 0)) return undefined;
-  const [input, output, cacheRead, cacheCreation] = counts.map(BigInt) as [bigint, bigint, bigint, bigint];
+  const [reportedInput, output, cacheRead, cacheCreation] = counts.map(BigInt) as [bigint, bigint, bigint, bigint];
+  // Claude reports cache tokens beside `input_tokens`; Codex's `input_tokens`
+  // already includes its `cached_input_tokens`. Charge each token once.
+  const input = digest?.provider === 'codex'
+    ? (reportedInput > cacheRead ? reportedInput - cacheRead : 0n) : reportedInput;
   const price = MODEL_PRICING[priceModel]!;
   const inRate = BigInt(price.input);
   const micro = input * inRate + output * BigInt(price.output)
