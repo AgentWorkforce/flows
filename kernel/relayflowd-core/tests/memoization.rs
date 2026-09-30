@@ -60,6 +60,7 @@ fn source(state: &RunState) -> relayflowd_core::JournalEntry {
     entry.payload["step_spec_hash"] = step_spec_hash(step).into();
     entry.payload["input_hash"] = canonical_hash(&json!({})).into();
     entry.payload["budget"] = json!({"tokens_in":10,"tokens_out":20,"dollars":"1.25"});
+    entry.payload["reported_cost"] = json!({"dollars":"9.500000","source":"cli"});
     entry
 }
 #[test]
@@ -77,6 +78,8 @@ fn match_reuses_output_with_provenance_and_zero_cost_without_dispatch() {
         json!({"run_id":"old","step_id":"a","seq":7})
     );
     assert_eq!(entry.payload["budget"]["tokens_in"], 0);
+    // The source run paid for the model; the reusing run's completion did not.
+    assert!(entry.payload.get("reported_cost").is_none());
     let folded = RunState::fold("new", state.spec, &[entry.clone()]).unwrap();
     assert!(folded.all_steps_succeeded());
 }

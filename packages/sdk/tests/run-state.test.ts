@@ -325,6 +325,25 @@ describe('foldRunState', () => {
     expect(view.spend.dollars).toBe('0.002');
   });
 
+  it('counts steps where no model ran as free: memoized reuse, and agent steps that metered nothing', () => {
+    const view = foldRunState(journal(
+      spawned,
+      completed('fetch', 1, T0 + 1000, {}),
+      // A memoized completion copies the source's output; the source run paid.
+      completed('analyze', 1, T0 + 2000, {
+        reused_from: { run_id: 'old', step_id: 'analyze', seq: 7 }, completed_by: 'kernel:reuse',
+      }),
+      // An agent-typed step that called no model (authored root, helper) meters nothing.
+      completed('post', 1, T0 + 3000, {}),
+    ), T0 + 4000);
+    expect(view.steps.map((step) => step.reported_cost)).toEqual([
+      { dollars: '0', complete: true, source: null },
+      { dollars: '0', complete: true, source: null },
+      { dollars: '0', complete: true, source: null },
+    ]);
+    expect(view.reported_cost).toEqual({ dollars: '0', complete: true, source: null });
+  });
+
   it('keeps each step\'s cost across an epoch summary, since rollover keeps the earlier completions', () => {
     const view = foldRunState(journal(
       spawned,

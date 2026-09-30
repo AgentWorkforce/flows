@@ -234,14 +234,28 @@ const ZERO_SPEND: Spend = { tokens_in: 0, tokens_out: 0, dollars: '0', dollars_u
 const NO_REPORTED_COST: ReportedCostTotal = { dollars: '0', complete: true, source: null };
 
 /**
+ * A completion that cost nothing because no model ran for it: a memoized
+ * reuse (the source run paid), or an attempt that metered no tokens and no
+ * dollars and did not flag its dollars unknown (a shell command, an authored
+ * root, a helper). Every model attempt meters its tokens, so a missing
+ * `reported_cost` on one of those is an unknown cost, not a free one.
+ */
+function ranNoModel(completion: Payload): boolean {
+  if (completion['reused_from'] !== undefined && completion['reused_from'] !== null) return true;
+  const budget = completion['budget'] !== null && typeof completion['budget'] === 'object' ? completion['budget'] as Payload : {};
+  return (integer(budget['tokens_in']) ?? 0) === 0 && (integer(budget['tokens_out']) ?? 0) === 0
+    && budget['dollars_unmetered'] !== true && /^0*(?:\.0*)?$/.test(text(budget['dollars'], '0'));
+}
+
+/**
  * Add one completed attempt's journaled `reported_cost` to a total. A model
  * attempt without one (older runtime, Codex, unpriced) leaves the sum unchanged
  * and marks it incomplete rather than counting an unknown cost as zero.
  */
-function addReportedCost(total: ReportedCostTotal, charge: unknown, stepType: string): ReportedCostTotal {
+function addReportedCost(total: ReportedCostTotal, completion: Payload): ReportedCostTotal {
+  const charge = completion['reported_cost'];
   const cost = charge !== null && typeof charge === 'object' && !Array.isArray(charge) ? charge as Payload : null;
-  // A deterministic step runs a command, not a model: it costs nothing.
-  if (cost === null && stepType === 'deterministic') return total;
+  if (cost === null && ranNoModel(completion)) return total;
   const dollars = cost === null ? null : cost['dollars'];
   const source = cost === null ? null : cost['source'];
   if (typeof dollars !== 'string' || !/^\d+(?:\.\d+)?$/.test(dollars) || (source !== 'cli' && source !== 'priced')) {
@@ -345,8 +359,8 @@ export function foldRunState(events: readonly JournalEvent[], now_ms: number): R
         view.attempt = Math.max(view.attempt, attempt);
         spend = addSpend(spend, payload['budget']);
         view.spend = addSpend(view.spend, payload['budget']);
-        reportedCost = addReportedCost(reportedCost, payload['reported_cost'], view.type);
-        view.reported_cost = addReportedCost(view.reported_cost ?? NO_REPORTED_COST, payload['reported_cost'], view.type);
+        reportedCost = addReportedCost(reportedCost, payload);
+        view.reported_cost = addReportedCost(view.reported_cost ?? NO_REPORTED_COST, payload);
         const verification = payload['verification'] !== null && typeof payload['verification'] === 'object'
           ? payload['verification'] as Payload : undefined;
         view.last_attempt = {
