@@ -1,3 +1,4 @@
+import { basename } from 'node:path';
 import { actionsFor, subscriptionFor, type Family } from './subscriptions.ts';
 
 /** Operator configuration is separate from untrusted webhook data. */
@@ -72,7 +73,8 @@ export function parseInput(value: unknown): Config {
   if (reviewerCliProblem !== undefined || reviewerModelProblem !== undefined) {
     throw new Error(`Invalid Babysitter reviewer declaration: ${reviewerCliProblem ?? reviewerModelProblem}`);
   }
-  if (reviewerCli !== undefined && !['claude', 'codex', 'cursor-agent', 'grok'].includes(reviewerCli)
+  if (reviewerCli !== undefined
+    && !['claude', 'codex', 'cursor-agent', 'grok'].includes(basename(reviewerCli).replace(/\.exe$/iu, ''))
     && reviewerModel === undefined) {
     throw new Error('Invalid Babysitter configuration: a custom reviewerCli requires reviewerModel');
   }

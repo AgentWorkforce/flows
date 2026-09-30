@@ -196,14 +196,13 @@ function staticPropertySegmentAtPath(
     const binding = symbol.declarations?.find(ts.isBindingElement);
     if (binding) {
       const source = bindingSource(binding, checker, new Set(nextSeen));
-      if (source?.immutable) {
-        const value = staticPropertySegmentAtPath(
+      if (source) {
+        return staticPropertySegmentAtPath(
           source.initializer,
           [...source.path, ...path],
           checker,
           new Set(nextSeen),
         );
-        if (value !== undefined) return value;
       }
       if (binding.initializer) {
         const value = staticPropertySegmentAtPath(

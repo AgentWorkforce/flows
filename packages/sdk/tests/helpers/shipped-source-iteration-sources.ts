@@ -39,9 +39,26 @@ function member(
   }
   if (!ts.isElementAccessExpression(expression) || !expression.argumentExpression) return undefined;
   const name = unwrap(expression.argumentExpression);
-  return ts.isStringLiteralLike(name)
+  return ts.isStringLiteralLike(name) || ts.isNumericLiteral(name)
     ? { name: name.text, receiver: expression.expression }
     : undefined;
+}
+
+function directObjectAssignSources(
+  node: ts.CallExpression,
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+): AssignedSource[] {
+  const target = unwrap(node.expression);
+  const receiver = node.arguments[0] && unwrap(node.arguments[0]);
+  if (!ts.isPropertyAccessExpression(target)
+    || target.name.text !== 'assign'
+    || !ts.isIdentifier(unwrap(target.expression))
+    || (unwrap(target.expression) as ts.Identifier).text !== 'Object'
+    || !receiver
+    || !ts.isIdentifier(receiver)
+    || checker.getSymbolAtLocation(receiver) !== symbol) return [];
+  return node.arguments.slice(1).map(initializer => ({ initializer, path: [] }));
 }
 
 export function createStaticIterationSources(resolvers: IterationSourceResolvers) {
@@ -61,9 +78,17 @@ export function createStaticIterationSources(resolvers: IterationSourceResolvers
     if (!source) return [];
     const values: AssignedSource[] = [];
     checkerCache.set(symbol, values);
-    const isTarget = (candidate: ts.Expression): boolean => {
+    const isTarget = (candidate: ts.Expression, seen = new Set<ts.Symbol>()): boolean => {
       candidate = unwrap(candidate);
-      return ts.isIdentifier(candidate) && checker.getSymbolAtLocation(candidate) === symbol;
+      if (!ts.isIdentifier(candidate)) return false;
+      const candidateSymbol = checker.getSymbolAtLocation(candidate);
+      if (!candidateSymbol) return false;
+      if (candidateSymbol === symbol) return true;
+      if (seen.has(candidateSymbol)) return false;
+      const nextSeen = new Set(seen).add(candidateSymbol);
+      return resolve(candidate, checker).some(source => source.path.length === 0
+        && !source.rest
+        && isTarget(source.initializer, nextSeen));
     };
     const addMutationValues = (candidates: readonly ts.Expression[]): void => {
       for (const candidate of candidates) {
@@ -108,13 +133,16 @@ export function createStaticIterationSources(resolvers: IterationSourceResolvers
           checker,
         ));
         const target = member(node.left);
-        if (target && isTarget(target.receiver) && /^(?:0|[1-9]\d*)$/u.test(target.name)) {
+        if (target && /^(?:0|[1-9]\d*)$/u.test(target.name) && isTarget(target.receiver)) {
           addMutationValues([node.right]);
         }
       }
       if (ts.isCallExpression(node)) {
+        values.push(...directObjectAssignSources(node, symbol, checker));
         const target = member(node.expression);
-        if (target && isTarget(target.receiver)) {
+        if (target && (target.name === 'push' || target.name === 'unshift'
+          || target.name === 'splice' || target.name === 'fill')
+          && isTarget(target.receiver)) {
           if (target.name === 'push' || target.name === 'unshift') {
             addMutationValues(node.arguments);
           } else if (target.name === 'splice') {

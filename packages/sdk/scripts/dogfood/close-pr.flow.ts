@@ -1,5 +1,5 @@
 import { flow } from '@relayflows/surface';
-import { isAbsolute, resolve } from 'node:path';
+import { basename, isAbsolute, resolve } from 'node:path';
 import { modelNameError } from '../../src/model-name.js';
 import {
   analyzeFindings, checksCommand, failedRunId, MAX_REPAIR_ITERATIONS,
@@ -125,10 +125,10 @@ export function requiredRepairModel(cli: string, override?: string): string {
   const cliProblem = modelNameError(normalizedCli);
   if (cliProblem !== undefined) throw new Error(`Invalid repair CLI: ${cliProblem}`);
   const model = override === undefined
-    ? (normalizedCli === 'codex' ? 'gpt-5.6-sol'
-      : normalizedCli === 'claude' ? 'claude-sonnet-5'
-      : normalizedCli === 'cursor-agent' ? 'gpt-5.6-sol-high'
-      : normalizedCli === 'grok' ? 'grok-4.7' : undefined)
+    ? (basename(normalizedCli).replace(/\.exe$/iu, '') === 'codex' ? 'gpt-5.6-sol'
+      : basename(normalizedCli).replace(/\.exe$/iu, '') === 'claude' ? 'claude-sonnet-5'
+      : basename(normalizedCli).replace(/\.exe$/iu, '') === 'cursor-agent' ? 'gpt-5.6-sol-high'
+      : basename(normalizedCli).replace(/\.exe$/iu, '') === 'grok' ? 'grok-4.7' : undefined)
     : override.trim();
   if (model === undefined) throw new Error(`Custom repair CLI ${JSON.stringify(cli)} requires input.model`);
   const problem = modelNameError(model);
@@ -161,6 +161,7 @@ export async function assertRepairPairReady(
     const output = await f.run(
       `${probe} --probe-cli `
         + `${quote(cli)} ${quote(model)} ${quote(directory)}`,
+      { timeout: '2m' },
     );
     result = JSON.parse(output) as {
       exists?: boolean;

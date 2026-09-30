@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -48,6 +48,31 @@ it('returns the absolute executable selected for a bare CLI name', async () => {
       modelAvailable: true,
     });
   } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+  }
+});
+
+it('normalizes a relative executable returned by PATH lookup', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'relative-path-probe-'));
+  directories.push(root);
+  const bin = join(root, 'bin');
+  mkdirSync(bin);
+  const executable = join(bin, 'relative-wrapper');
+  writeFileSync(executable, '#!/usr/bin/env node\n' + identify + 'process.exit(0)');
+  chmodSync(executable, 0o755);
+  const previousCwd = process.cwd();
+  const previousPath = process.env.PATH;
+  process.chdir(root);
+  process.env.PATH = `./bin:${previousPath ?? ''}`;
+  try {
+    await expect(probeCliAsync('relative-wrapper', root, 'exact-model')).resolves.toMatchObject({
+      exists: true,
+      executable,
+      modelAvailable: true,
+    });
+  } finally {
+    process.chdir(previousCwd);
     if (previousPath === undefined) delete process.env.PATH;
     else process.env.PATH = previousPath;
   }

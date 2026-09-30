@@ -28,10 +28,12 @@ function context(
   captureAgent = false,
 ) {
   const commands: string[] = [], reasons: string[] = [], merges: string[] = [];
+  const runOptions: unknown[] = [];
   const agentCalls: Array<{ cli?: string; model?: string }> = [];
   let agents = 0;
-  const f = { run: async (command: string) => {
+  const f = { run: async (command: string, options?: unknown) => {
     commands.push(command);
+    runOptions.push(options);
     if (command.includes('--probe-cli')) {
       const requested = command.match(/--probe-cli '([^']+)'/)?.[1] ?? '';
       const executable = requested.startsWith('/') ? requested : `/usr/bin/${requested}`;
@@ -53,13 +55,19 @@ function context(
     return { gate: async () => { throw new Error('captured agent dispatch'); } };
   },
   github: { mergePullRequest: async (input: { sha: string }) => { merges.push(input.sha); return { merged: true }; } } } as unknown as Ctx;
-  return { f, commands, reasons, merges, agentCalls, agents: () => agents };
+  return { f, commands, runOptions, reasons, merges, agentCalls, agents: () => agents };
 }
 test('known first-party harnesses resolve to current explicit model pins', () => {
   assert.deepEqual(
     ['claude', 'codex', 'cursor-agent', 'grok', '/opt/custom-wrapper'].map(generatedModelForCli),
     ['claude-sonnet-5', 'gpt-5.6-sol', 'gpt-5.6-sol-high', 'grok-4.7', undefined],
   );
+});
+test('provider executable basenames retain generated model defaults', () => {
+  assert.equal(generatedModelForCli('/usr/local/bin/codex'), 'gpt-5.6-sol');
+  assert.equal(generatedModelForCli('./tools/claude.exe'), 'claude-sonnet-5');
+  assert.equal(requiredLegacyReviewerModel('/usr/local/bin/cursor-agent'), 'gpt-5.6-sol-high');
+  assert.equal(parseInput({ ...config, reviewerCli: '/usr/local/bin/grok' }).reviewerModel, undefined);
 });
 test('custom reviewer wrappers require and preserve an explicit model', () => {
   assert.equal(requiredReviewerModel(' claude '), 'claude-sonnet-5');
@@ -164,6 +172,7 @@ test('modern reviewer readiness returns the absolute executable selected by the 
     await assertReviewerPairReady(x.f, 'claude', 'claude-sonnet-5', BABYSITTER_FLOW_DIRECTORY),
     '/usr/bin/claude',
   );
+  assert.deepEqual(x.runOptions, [{ timeout: '2m' }]);
 });
 test('reviewer probes use the stable authored CLI instead of a temporary Node payload', async () => {
   const previous = process.env.FLOWS_AUTHORED_CLI;
@@ -177,6 +186,7 @@ test('reviewer probes use the stable authored CLI instead of a temporary Node pa
       await ready(x.f, 'claude', 'claude-sonnet-5', directory);
       assert.match(x.commands[0]!, /^'\/opt\/flows-stable' --probe-cli /);
       assert.doesNotMatch(x.commands[0]!, /flows-authored-node-|runner\.mjs/);
+      assert.deepEqual(x.runOptions, [{ timeout: '2m' }]);
     }
   } finally {
     if (previous === undefined) delete process.env.FLOWS_AUTHORED_CLI;

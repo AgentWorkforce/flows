@@ -1,5 +1,5 @@
 import { flow, type Ctx } from '@relayflows/surface';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { declarationStringError, parseInput, record, shaValid, shellWord, type Config } from './input.ts';
 import { eligible, ready, mergeAllowed } from './state.ts';
@@ -119,10 +119,11 @@ async function reviewLens(
 
 /** Current first-party pins; an operator-supplied wrapper must name its model explicitly upstream. */
 export function generatedModelForCli(cli: string): string | undefined {
-  if (cli === 'claude') return 'claude-sonnet-5';
-  if (cli === 'codex') return 'gpt-5.6-sol';
-  if (cli === 'cursor-agent') return 'gpt-5.6-sol-high';
-  if (cli === 'grok') return 'grok-4.7';
+  const provider = basename(cli).replace(/\.exe$/iu, '');
+  if (provider === 'claude') return 'claude-sonnet-5';
+  if (provider === 'codex') return 'gpt-5.6-sol';
+  if (provider === 'cursor-agent') return 'gpt-5.6-sol-high';
+  if (provider === 'grok') return 'grok-4.7';
   return undefined;
 }
 
@@ -163,6 +164,7 @@ export async function assertReviewerPairReady(
     result = JSON.parse(await f.run(
       `${probe} --probe-cli `
         + `${shellWord(cli)} ${shellWord(model)} ${shellWord(directory)}`,
+      { timeout: '2m' },
     )) as {
       exists?: boolean;
       supported?: boolean;

@@ -191,7 +191,7 @@ function* executableSequence(command: string, directory: string): Generator<Prob
   }
   const result = yield { executable: 'which', directory: process.cwd(),
     invocation: { args: [command], timeoutMs: 5_000 }, environment: process.env };
-  return result.status === 0 ? result.stdout.trim() : undefined;
+  return result.status === 0 ? resolve(process.cwd(), result.stdout.trim()) : undefined;
 }
 
 function classifySpawnFailure(

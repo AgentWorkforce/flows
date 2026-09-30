@@ -81,10 +81,21 @@ describe('shipped-source flow provenance repairs', () => {
         `{ const [, ...[, ...values]] = [undefined, undefined, surface.flow]; values[0]('nested-immutable-rest', { budget: '$2' }, () => {}); }`,
         `{ const box: any = {}, a: any = {}, b: any = {}; a.descriptors = b.descriptors; b.descriptors = a.descriptors; b.descriptors = { define: { value: surface.flow } }; Object.defineProperties(box, a.descriptors); box.define('cyclic-descriptor-map', { budget: '$2' }, () => {}); }`,
         `{ const box: any = {}, a: any = {}, b: any = {}; a.getter = b.getter; b.getter = a.getter; b.getter = () => surface.flow; Object.defineProperty(box, 'define', { get: a.getter }); box.define('cyclic-getter-alias', { budget: '$2' }, () => {}); }`,
+        `{ const key = 'flows' as const, holder = { flows: [surface.flow] }; for (const define of holder[key]) define('computed-member-iterable', { budget: '$2' }, () => {}); }`,
+        `{ const holder: any = {}; Object.assign(holder, { flows: [surface.flow] }); for (const define of holder.flows) define('reflective-member-iterable', { budget: '$2' }, () => {}); }`,
+        `{ function getHolder() { return { flows: [surface.flow] }; } for (const define of getHolder().flows) define('returned-member-iterable', { budget: '$2' }, () => {}); }`,
+        `{ const flows: any[] = []; flows[0] = surface.flow; for (const define of flows) define('numeric-index-mutation', { budget: '$2' }, () => {}); }`,
+        `{ const flows: any[] = [], alias = flows; alias.push(surface.flow); for (const define of flows) define('aliased-mutation', { budget: '$2' }, () => {}); }`,
+        `{ let rest: any[]; [, ...rest] = flag ? [0, () => undefined] : [0, surface.flow]; rest[0]('rest-alternative', { budget: '$2' }, () => {}); }`,
+        `{ const { o: obj = { k: 'flow' as const } } = unknown; const { [obj.k]: define } = surface; define('unresolved-nested-default', { budget: '$2' }, () => {}); }`,
+        `{ const holder: any = flag ? { flows: holder.flows } : { flows: [surface.flow] }; for (const define of holder.flows) define('cyclic-member-iterable', { budget: '$2' }, () => {}); }`,
+        `{ const holder = { flows: [surface.flow], other: [() => undefined] }; for (const define of holder[runtimeKey]) define('dynamic-member-iterable', { budget: '$2' }, () => {}); }`,
+        `{ const box: any = {}, holder: any = {}; Object.assign(holder, { ops: [Object.assign] }); for (const op of holder.ops) op(box, { define: surface.flow }); box.define('reflective-member-writer', { budget: '$2' }, () => {}); }`,
+        `{ const box: any = {}; function getHolder() { return { ops: [Object.assign] }; } for (const op of getHolder().ops) op(box, { define: surface.flow }); box.define('returned-member-writer', { budget: '$2' }, () => {}); }`,
       ];
       for (const [index, candidate] of cases.entries()) {
         const file = join(directory, `repaired-flow-${index}.flow.ts`);
-        writeFileSync(file, `import * as surface from '@relayflows/surface'; declare const flag: boolean, items: unknown[], runtimeKey: string; ${candidate}`);
+        writeFileSync(file, `import * as surface from '@relayflows/surface'; declare const flag: boolean, items: unknown[], runtimeKey: string, unknown: any; ${candidate}`);
         expect(scanTypeScript(file).invalidFlowHeaders, candidate).toHaveLength(1);
       }
     } finally {

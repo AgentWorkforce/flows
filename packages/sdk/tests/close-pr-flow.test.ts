@@ -189,6 +189,8 @@ describe('close-pr journaled repair loop', () => {
     expect(requiredRepairModel('/opt/custom-wrapper', ' custom-model ')).toBe('custom-model');
     expect(() => requiredRepairModel('codex', '   ')).toThrow(/non-empty string/);
     expect(() => requiredRepairModel('/opt/custom-wrapper', 'bad\nmodel')).toThrow(/control characters/);
+    expect(requiredRepairModel('/usr/local/bin/codex')).toBe('gpt-5.6-sol');
+    expect(requiredRepairModel('./tools/claude.exe')).toBe('claude-sonnet-5');
   });
 
   it('uses the same absolute executable for a slash-relative wrapper probe and repair step', async () => {
@@ -204,9 +206,11 @@ describe('close-pr journaled repair loop', () => {
   it('uses the stable authored CLI for the readiness probe command', async () => {
     vi.stubEnv('FLOWS_AUTHORED_CLI', '/opt/flows-stable');
     let command = '';
+    let runOptions: unknown;
     const executable = await assertRepairPairReady({
-      run: async (value: string) => {
+      run: async (value: string, options?: unknown) => {
         command = value;
+        runOptions = options;
         return JSON.stringify({
           exists: true, supported: true, authenticated: true,
           modelAvailable: true, executable: '/usr/bin/codex',
@@ -216,6 +220,7 @@ describe('close-pr journaled repair loop', () => {
     expect(executable).toBe('/usr/bin/codex');
     expect(command).toMatch(/^'\/opt\/flows-stable' --probe-cli /u);
     expect(command).not.toMatch(/flows-authored-node-|runner\.mjs/u);
+    expect(runOptions).toEqual({ timeout: '2m' });
   });
 
   it('lets an approval-only run merge without resolving an unused repair pair', async () => {

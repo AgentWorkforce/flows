@@ -39,7 +39,7 @@
 // `isAuthorizedConflictCommander`) and unit-tested, but nothing dispatches it.
 
 import { flow, github } from "@relayflows/surface";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // ── input ───────────────────────────────────────────────────────────────────
@@ -226,10 +226,10 @@ export function requiredReviewerModel(cli: string, override?: string): string {
   const cliProblem = declarationStringError(normalizedCli);
   if (cliProblem !== undefined) throw new Error(`Invalid reviewer CLI: ${cliProblem}`);
   const model = override === undefined
-    ? (normalizedCli === "claude" ? "claude-sonnet-5"
-      : normalizedCli === "codex" ? "gpt-5.6-sol"
-      : normalizedCli === "cursor-agent" ? "gpt-5.6-sol-high"
-      : normalizedCli === "grok" ? "grok-4.7" : undefined)
+    ? (basename(normalizedCli).replace(/\.exe$/iu, "") === "claude" ? "claude-sonnet-5"
+      : basename(normalizedCli).replace(/\.exe$/iu, "") === "codex" ? "gpt-5.6-sol"
+      : basename(normalizedCli).replace(/\.exe$/iu, "") === "cursor-agent" ? "gpt-5.6-sol-high"
+      : basename(normalizedCli).replace(/\.exe$/iu, "") === "grok" ? "grok-4.7" : undefined)
     : override.trim();
   if (model === undefined) throw new Error(`Custom reviewer CLI ${JSON.stringify(cli)} requires reviewerModel`);
   const modelProblem = declarationStringError(model);
@@ -264,6 +264,7 @@ export async function assertReviewerPairReady(
     const output = await f.run(
       `${probe} --probe-cli `
         + `${shellWord(cli)} ${shellWord(model)} ${shellWord(directory)}`,
+      { timeout: "2m" },
     );
     result = JSON.parse(output) as {
       exists?: boolean;

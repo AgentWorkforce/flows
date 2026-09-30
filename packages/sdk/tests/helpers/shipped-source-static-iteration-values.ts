@@ -3,6 +3,7 @@ import type {
   AssignedSource,
   BindingPathSegment,
 } from './shipped-source-binding-targets.js';
+import { returnedExpressions } from './shipped-source-return-values.js';
 
 export type StaticIterationSources = (
   expression: ts.Identifier,
@@ -49,7 +50,7 @@ function expressionSegment(
   checker: ts.TypeChecker,
 ): BindingPathSegment | undefined {
   expression = unwrap(expression);
-  if (ts.isIdentifier(expression) || ts.isStringLiteralLike(expression)) return expression.text;
+  if (ts.isStringLiteralLike(expression)) return expression.text;
   if (ts.isNumericLiteral(expression)) return Number(expression.text);
   const type = checker.getTypeAtLocation(expression);
   if (type.isStringLiteral()) return type.value;
@@ -62,9 +63,42 @@ function propertySegment(
   name: ts.PropertyName,
   checker: ts.TypeChecker,
 ): BindingPathSegment | undefined {
+  if (ts.isIdentifier(name)) return name.text;
   return ts.isComputedPropertyName(name)
     ? expressionSegment(name.expression, checker)
     : expressionSegment(name, checker);
+}
+
+function expressionValues(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): ts.Expression[] {
+  expression = unwrap(expression);
+  if (!ts.isCallExpression(expression)) return [expression];
+  const symbol = checker.getSymbolAtLocation(unwrap(expression.expression));
+  if (symbol && seen.has(symbol)) return [];
+  const declaration = checker.getResolvedSignature(expression)?.declaration;
+  if (!declaration || !ts.isFunctionLike(declaration) || !('body' in declaration)) return [];
+  const nextSeen = symbol ? new Set(seen).add(symbol) : new Set(seen);
+  return returnedExpressions(declaration.body).flatMap(value => {
+    const wrapped = branches(value);
+    return wrapped
+      ? wrapped.flatMap(branch => expressionValues(branch, checker, new Set(nextSeen)))
+      : [value];
+  });
+}
+
+function memberSeen(
+  root: ts.Expression,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): Set<ts.Symbol> | undefined {
+  root = unwrap(root);
+  if (!ts.isIdentifier(root)) return new Set(seen);
+  const symbol = checker.getSymbolAtLocation(root);
+  if (!symbol) return new Set(seen);
+  return seen.has(symbol) ? undefined : new Set(seen).add(symbol);
 }
 
 function canonicalArrayIndex(segment: BindingPathSegment): number | undefined {
@@ -111,14 +145,23 @@ function arrayValues(
         : [element];
     });
   }
+  if (ts.isElementAccessExpression(expression) && expression.argumentExpression
+    && expressionSegment(expression.argumentExpression, checker) === undefined) {
+    return allObjectMemberValues(expression.expression, checker, sources, new Set(seen))
+      .flatMap(value => arrayValues(value, checker, sources, new Set(seen)));
+  }
   const member = memberPath(expression, checker);
-  if (member) return valuesAtPath(
-    member.root,
-    member.path,
-    checker,
-    sources,
-    new Set(seen),
-  ).flatMap(value => arrayValues(value, checker, sources, new Set(seen)));
+  if (member) {
+    const nextSeen = memberSeen(member.root, checker, seen);
+    if (!nextSeen) return [];
+    return expressionValues(member.root, checker, nextSeen).flatMap(root => valuesAtPath(
+      root,
+      member.path,
+      checker,
+      sources,
+      new Set(seen),
+    )).flatMap(value => arrayValues(value, checker, sources, new Set(nextSeen)));
+  }
   if (!ts.isIdentifier(expression)) return [];
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return [];
@@ -146,6 +189,10 @@ function objectMemberValues(
   seen: Set<ts.Symbol>,
 ): ts.Expression[] {
   expression = unwrap(expression);
+  if (ts.isCallExpression(expression)) {
+    return expressionValues(expression, checker, seen).flatMap(value =>
+      objectMemberValues(value, segment, checker, sources, new Set(seen)));
+  }
   const wrapped = branches(expression);
   if (wrapped) return wrapped.flatMap(branch =>
     objectMemberValues(branch, segment, checker, sources, new Set(seen)));
@@ -173,6 +220,45 @@ function objectMemberValues(
       sources,
       new Set(nextSeen),
     );
+  });
+}
+
+function allObjectMemberValues(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  sources: StaticIterationSources,
+  seen: Set<ts.Symbol>,
+): ts.Expression[] {
+  expression = unwrap(expression);
+  const wrapped = branches(expression);
+  if (wrapped) return wrapped.flatMap(branch =>
+    allObjectMemberValues(branch, checker, sources, new Set(seen)));
+  if (ts.isObjectLiteralExpression(expression)) {
+    return expression.properties.flatMap(member => {
+      if (ts.isSpreadAssignment(member)) {
+        return allObjectMemberValues(member.expression, checker, sources, new Set(seen));
+      }
+      if (ts.isPropertyAssignment(member)) return [member.initializer];
+      return ts.isShorthandPropertyAssignment(member) ? [member.name] : [];
+    });
+  }
+  if (ts.isCallExpression(expression)) {
+    return expressionValues(expression, checker, seen).flatMap(value =>
+      allObjectMemberValues(value, checker, sources, new Set(seen)));
+  }
+  if (!ts.isIdentifier(expression)) return [];
+  const symbol = checker.getSymbolAtLocation(expression);
+  if (!symbol || seen.has(symbol)) return [];
+  const nextSeen = new Set(seen).add(symbol);
+  return sources(expression, checker).flatMap(source => {
+    if (source.rest) return [];
+    return valuesAtPath(
+      source.initializer,
+      source.path,
+      checker,
+      sources,
+      new Set(nextSeen),
+    ).flatMap(value => allObjectMemberValues(value, checker, sources, new Set(nextSeen)));
   });
 }
 
@@ -224,14 +310,23 @@ export function staticForInKeys(
       return [ts.isComputedPropertyName(member.name) ? member.name.expression : member.name];
     });
   }
+  if (ts.isElementAccessExpression(expression) && expression.argumentExpression
+    && expressionSegment(expression.argumentExpression, checker) === undefined) {
+    return allObjectMemberValues(expression.expression, checker, sources, new Set(seen))
+      .flatMap(value => staticForInKeys(value, checker, sources, new Set(seen)));
+  }
   const member = memberPath(expression, checker);
-  if (member) return valuesAtPath(
-    member.root,
-    member.path,
-    checker,
-    sources,
-    new Set(seen),
-  ).flatMap(value => staticForInKeys(value, checker, sources, new Set(seen)));
+  if (member) {
+    const nextSeen = memberSeen(member.root, checker, seen);
+    if (!nextSeen) return [];
+    return expressionValues(member.root, checker, nextSeen).flatMap(root => valuesAtPath(
+      root,
+      member.path,
+      checker,
+      sources,
+      new Set(seen),
+    )).flatMap(value => staticForInKeys(value, checker, sources, new Set(nextSeen)));
+  }
   if (!ts.isIdentifier(expression)) return [];
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return [];

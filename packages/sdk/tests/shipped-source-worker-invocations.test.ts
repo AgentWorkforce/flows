@@ -277,6 +277,17 @@ describe('shipped-source worker invocation resolution', () => {
         `const source = flag ? { nested: { worker: () => undefined } } : { nested: { worker: f.agent } }; const { nested: { worker } } = source; worker('review', { task: 'x' });`,
         `const box: any = {}, a: any = {}, b: any = {}; a.descriptors = b.descriptors; b.descriptors = a.descriptors; b.descriptors = { run: { value: f.agent } }; Object.defineProperties(box, a.descriptors); box.run('review', { task: 'x' });`,
         `const box: any = {}, a: any = {}, b: any = {}; a.getter = b.getter; b.getter = a.getter; b.getter = () => f.agent; Object.defineProperty(box, 'run', { get: a.getter }); box.run('review', { task: 'x' });`,
+        `const key = 'workers' as const, holder = { workers: [f.agent] }; for (const run of holder[key]) run('review', { task: 'x' });`,
+        `const holder: any = {}; Object.assign(holder, { workers: [f.agent] }); for (const run of holder.workers) run('review', { task: 'x' });`,
+        `function getHolder() { return { workers: [f.agent] }; } for (const run of getHolder().workers) run('review', { task: 'x' });`,
+        `const workers: any[] = []; workers[0] = f.agent; for (const run of workers) run('review', { task: 'x' });`,
+        `const workers: any[] = [], alias = workers; alias.push(f.agent); for (const run of workers) run('review', { task: 'x' });`,
+        `let rest: any[]; [, ...rest] = flag ? [0, () => undefined] : [0, f.agent]; rest[0]('review', { task: 'x' });`,
+        `declare const unknown: any; const { o: obj = { k: 'agent' as const } } = unknown; const { [obj.k]: run } = f; run('review', { task: 'x' });`,
+        `const holder: any = flag ? { workers: holder.workers } : { workers: [f.agent] }; for (const run of holder.workers) run('review', { task: 'x' });`,
+        `declare const runtimeKey: string; const holder = { workers: [f.agent], other: [() => undefined] }; for (const run of holder[runtimeKey]) run('review', { task: 'x' });`,
+        `const box: any = {}, holder: any = {}; Object.assign(holder, { ops: [Object.assign] }); for (const op of holder.ops) op(box, { run: f.agent }); box.run('review', { task: 'x' });`,
+        `const box: any = {}; function getHolder() { return { ops: [Object.assign] }; } for (const op of getHolder().ops) op(box, { run: f.agent }); box.run('review', { task: 'x' });`,
       ];
       for (const [index, candidate] of repairedWorkerCases.entries()) {
         const repairedWorker = join(directory, `repaired-worker-${index}.flow.ts`);
