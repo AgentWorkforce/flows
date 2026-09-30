@@ -13,7 +13,7 @@ import { EventEmitter } from 'node:events';
 export { walkJournal, JournalReadError, type JournalEvent, type JournalReadFailure } from './journal-reader.js';
 import { randomUUID } from 'node:crypto';
 import { createConnection, type Socket } from 'node:net';
-import type { VerbContract, EventEmitParams, EventSubmitParams } from './protocol.js';
+import type { VerbContract, EventEmitParams, EventSubmitParams, ReportedCost } from './protocol.js';
 import {
   PROTOCOL_VERSION,
   type CompletionReason,
@@ -403,6 +403,7 @@ export class JournalClient extends EventEmitter {
       effects?: EffectRef[];
       trajectory_tail?: unknown;
       human_intervention?: boolean;
+      reported_cost?: ReportedCost;
     } = {},
   ): Promise<VerbContract['step.complete']['result']> {
     return this.request('step.complete', {

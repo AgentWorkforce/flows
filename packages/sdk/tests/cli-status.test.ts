@@ -112,12 +112,15 @@ describe('flows status', () => {
       v: 1, run_id: RUN_ID, name: 'journal-close-repro', status: 'completed', completion_reason: 'success',
       spawned_at_ms: EVENTS[0]!.at_ms, now_ms: T_END + 60_000, this_step: null, partial: [],
       spend: { tokens_in: 0, tokens_out: 0, dollars: '0', dollars_unmetered: false },
+      // This journal predates reported_cost: nothing is reported, and the
+      // total says so instead of claiming a measured $0.
+      reported_cost: { dollars: '0', complete: false, source: null },
       counts: { total: 3, done: 3, running: 0, pending: 0, backoff: 0, waiting: 0, needs_human: 0 },
     });
     expect(view.steps).toHaveLength(3);
     expect(Object.keys(view.steps[0]).sort()).toEqual([
       'artifacts', 'attempt', 'backoff_until_ms', 'completion_reason', 'elapsed_ms', 'id',
-      'last_attempt', 'lease', 'max_iterations', 'started_at_ms', 'state', 'tails', 'type', 'wait',
+      'last_attempt', 'lease', 'max_iterations', 'reported_cost', 'spend', 'started_at_ms', 'state', 'tails', 'type', 'wait',
     ]);
     expect(view.steps[0].tails).toBeNull();
     // A run that journals no authored-step index keeps its original shape.

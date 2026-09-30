@@ -25,6 +25,21 @@ export interface Spend {
   dollars_unmetered: boolean;
 }
 
+/**
+ * What steps actually cost, summed from each attempt's journaled
+ * `reported_cost` (the CLI's own total, or a full-usage estimate). Display
+ * only: the kernel charges `spend` against `maxDollars`, never this. `complete`
+ * is false when some completed attempt reported no cost (e.g. Codex), or when
+ * compaction dropped earlier attempts, so `dollars` is then a lower bound.
+ */
+export interface ReportedCostTotal {
+  /** Decimal string. */
+  dollars: string;
+  complete: boolean;
+  /** Where the summed figures came from; `mixed` when attempts differ. */
+  source: 'cli' | 'priced' | 'mixed' | null;
+}
+
 export interface StepCounts {
   total: number;
   done: number;
@@ -91,6 +106,10 @@ export interface StepView {
   completion_reason: string | null;
   /** Paths the worker journaled for the last attempt, when its output carried them. */
   artifacts: { paths: string[]; journaled: boolean };
+  /** Metered charges of this step's attempts: what counted toward the budget. */
+  spend: Spend;
+  /** Actual cost of this step's attempts. Null until an attempt completes. */
+  reported_cost: ReportedCostTotal | null;
 }
 
 export interface RunView {
@@ -101,6 +120,8 @@ export interface RunView {
   spawned_at_ms: number;
   now_ms: number;
   spend: Spend;
+  /** Actual cost of this run's own attempts; see {@link ReportedCostTotal}. */
+  reported_cost: ReportedCostTotal;
   counts: StepCounts;
   steps: StepView[];
 }
@@ -209,6 +230,29 @@ function addSpend(total: Spend, charge: unknown): Spend {
 
 const ZERO_SPEND: Spend = { tokens_in: 0, tokens_out: 0, dollars: '0', dollars_unmetered: false };
 
+const NO_REPORTED_COST: ReportedCostTotal = { dollars: '0', complete: true, source: null };
+
+/**
+ * Add one completed attempt's journaled `reported_cost` to a total. A model
+ * attempt without one (older runtime, Codex, unpriced) leaves the sum unchanged
+ * and marks it incomplete rather than counting an unknown cost as zero.
+ */
+function addReportedCost(total: ReportedCostTotal, charge: unknown, stepType: string): ReportedCostTotal {
+  const cost = charge !== null && typeof charge === 'object' && !Array.isArray(charge) ? charge as Payload : null;
+  // A deterministic step runs a command, not a model: it costs nothing.
+  if (cost === null && stepType === 'deterministic') return total;
+  const dollars = cost === null ? null : cost['dollars'];
+  const source = cost === null ? null : cost['source'];
+  if (typeof dollars !== 'string' || !/^\d+(?:\.\d+)?$/.test(dollars) || (source !== 'cli' && source !== 'priced')) {
+    return { ...total, complete: false };
+  }
+  return {
+    dollars: addDollars(total.dollars, dollars),
+    complete: total.complete,
+    source: total.source === null || total.source === source ? source : 'mixed',
+  };
+}
+
 interface StepFold {
   view: StepView;
   depends_on: string[];
@@ -221,6 +265,7 @@ function freshStep(id: string, type: string, maxIterations: number | null, depen
       id, type, state: 'pending', attempt: 0, max_iterations: maxIterations,
       started_at_ms: null, elapsed_ms: null, lease: null, backoff_until_ms: null, wait: null,
       last_attempt: null, completion_reason: null, artifacts: { paths: [], journaled: false },
+      spend: ZERO_SPEND, reported_cost: null,
     },
   };
 }
@@ -268,6 +313,7 @@ export function foldRunState(events: readonly JournalEvent[], now_ms: number): R
   // An authored child run carries its parent's totals so ceilings hold across
   // the family (state.rs `prior_spend`); the view reports the same running total.
   let spend = addSpend(ZERO_SPEND, budget['prior_spend']);
+  let reportedCost = NO_REPORTED_COST;
   let completion: string | null = null;
   let cancelRequested = false;
 
@@ -297,6 +343,9 @@ export function foldRunState(events: readonly JournalEvent[], now_ms: number): R
         const attempt = event.attempt ?? view.attempt;
         view.attempt = Math.max(view.attempt, attempt);
         spend = addSpend(spend, payload['budget']);
+        view.spend = addSpend(view.spend, payload['budget']);
+        reportedCost = addReportedCost(reportedCost, payload['reported_cost'], view.type);
+        view.reported_cost = addReportedCost(view.reported_cost ?? NO_REPORTED_COST, payload['reported_cost'], view.type);
         const verification = payload['verification'] !== null && typeof payload['verification'] === 'object'
           ? payload['verification'] as Payload : undefined;
         view.last_attempt = {
@@ -366,6 +415,9 @@ export function foldRunState(events: readonly JournalEvent[], now_ms: number): R
           step.view = freshStep(id, type, max_iterations, step.depends_on).view;
         }
         spend = addSpend(ZERO_SPEND, payload['budget_spent']);
+        // Compaction drops the attempts behind the summary, and the summary
+        // carries no reported cost, so the total is now a lower bound.
+        reportedCost = { ...reportedCost, complete: false };
         const done = payload['steps_done'] !== null && typeof payload['steps_done'] === 'object' ? payload['steps_done'] as Payload : {};
         for (const [id, summary] of Object.entries(done)) {
           const view = steps.get(id)?.view;
@@ -462,6 +514,7 @@ export function foldRunState(events: readonly JournalEvent[], now_ms: number): R
     spawned_at_ms: first.at_ms,
     now_ms,
     spend,
+    reported_cost: reportedCost,
     counts,
     steps: views,
   };

@@ -28,6 +28,8 @@ pub struct OutOfBandCompletion {
     pub end_pins: Option<Pins>,
     pub effects: Vec<EffectRef>,
     pub trajectory_tail: Option<Value>,
+    /// Display-only actual cost. Journaled with the completion; never charged.
+    pub reported_cost: Option<relayflowd_core::ReportedCost>,
 }
 
 /// A human question a leased attempt parks on. The worker names the wait so
@@ -136,6 +138,12 @@ impl Engine<WallClock> {
         {
             bail!("step completion usage.dollars_unmetered must not carry non-zero dollars");
         }
+        if let Some(cost) = &completion.reported_cost
+            && (!relayflowd_core::memory::valid_decimal(&cost.dollars)
+                || relayflowd_core::journal_dollars(&cost.dollars).is_err())
+        {
+            bail!("step completion reported_cost.dollars must be a non-negative decimal string");
+        }
         let mut journal = self.open_run(run_id)?;
         let spec = journal.run_spec().context("read run spec")?;
         let state = self.load_state(&journal, spec.clone())?;
@@ -238,6 +246,7 @@ impl Engine<WallClock> {
             trajectory_tail: completion.trajectory_tail,
             failure_reason,
             failure_detail,
+            reported_cost: completion.reported_cost,
         };
         for action in completion_actions(
             run_id,

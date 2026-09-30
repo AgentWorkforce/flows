@@ -177,6 +177,7 @@ fn complete(engine: &Engine, run_id: &str, dispatch: &StepDispatch) -> RunStatus
                 end_pins: None,
                 effects: Vec::new(),
                 trajectory_tail: None,
+                reported_cost: None,
             },
         )
         .unwrap()

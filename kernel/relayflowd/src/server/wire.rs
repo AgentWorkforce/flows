@@ -112,6 +112,8 @@ pub(super) struct StepCompleteParams {
     pub effects: Vec<EffectRef>,
     #[serde(default)]
     pub trajectory_tail: Option<Value>,
+    #[serde(default)]
+    pub reported_cost: Option<relayflowd_core::ReportedCost>,
 }
 
 #[derive(Deserialize)]

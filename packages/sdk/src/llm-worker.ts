@@ -1,4 +1,5 @@
 import { workerSpend } from './worker-spend.js';
+import { reportedCost } from './reported-cost.js';
 import { DEFAULT_LOCAL_AGENT_CAPACITY } from './worker-slots.js';
 import type { WorkerCliResult } from './worker-cli.js';
 import { EventEmitter } from 'node:events';
@@ -62,6 +63,7 @@ export class LlmWorker extends EventEmitter {
         ? runAgentCli(spec.cli, workerInstruction(prompt, dispatch), dispatch.wake_context, effectiveModel, undefined, signal, 'llm')
         : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'llm step has no declared CLI' }));
     const { result, usage } = workerSpend(completed, effectiveModel);
+    const cost = reportedCost(completed, effectiveModel);
     let reason: CompletionReason = result.exit_code === 0 ? 'success' : 'worker_error';
     let output: unknown = result.stdout_tail;
     let detail = result.stderr_tail;
@@ -94,6 +96,7 @@ export class LlmWorker extends EventEmitter {
       dispatch.idempotency_key, reason, {
         output,
         ...(usage !== undefined ? { usage } : {}),
+        ...(cost === undefined ? {} : { reported_cost: cost }),
         ...(Object.keys(trajectoryTail).length === 0 ? {} : { trajectory_tail: trajectoryTail }),
       });
   }

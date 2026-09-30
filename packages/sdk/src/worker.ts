@@ -1,5 +1,6 @@
 import { communicationInstruction } from './communication/spec.js';
 import { workerSpend } from './worker-spend.js';
+import { reportedCost } from './reported-cost.js';
 import type { WorkerCliResult } from './worker-cli.js';
 import { EventEmitter } from 'node:events';
 import type { JournalClient } from './journal-client.js';
@@ -145,6 +146,7 @@ export class AgentWorker extends EventEmitter {
               dataDir: this.options.dataDir, resultSchema: spec.verification?.json_schema })
           : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' }));
     const { result, usage } = workerSpend(completed, effectiveModel);
+    const cost = reportedCost(completed, effectiveModel);
     const completionReason = result.exit_code === 0 ? 'success' : 'worker_error';
 
     // Output shape: if the CLI's stdout parses as JSON, promote THAT
@@ -195,6 +197,7 @@ export class AgentWorker extends EventEmitter {
         ...(Object.keys(trajectoryTail).length === 0 ? {} : { trajectory_tail: trajectoryTail }),
         ...(humanIntervention ? { human_intervention: true } : {}),
         ...(usage !== undefined ? { usage } : {}),
+        ...(cost === undefined ? {} : { reported_cost: cost }),
         started_pins: dispatch.pins,
         end_pins: dispatch.pins,
       },

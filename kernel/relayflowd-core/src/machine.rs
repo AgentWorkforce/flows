@@ -57,6 +57,8 @@ pub struct AttemptResult {
     pub end_pins: Option<Pins>,
     pub effects: Vec<EffectRef>,
     pub trajectory_tail: Option<Value>,
+    /// Display-only actual cost; journaled beside `budget`, never charged.
+    pub reported_cost: Option<crate::entry::ReportedCost>,
     /// Execution failures bypass verification but still follow retry policy.
     pub failure_reason: Option<CompletionReason>,
     /// Why the attempt was rejected, in the vocabulary of whoever rejected it.
@@ -76,6 +78,7 @@ impl AttemptResult {
             end_pins: None,
             effects: Vec::new(),
             trajectory_tail: None,
+            reported_cost: None,
             failure_reason: None,
             failure_detail: None,
         }
@@ -421,6 +424,7 @@ pub fn completion_actions(
             budget: result.budget,
             completed_by: result.completed_by,
             next_attempt_at_ms,
+            reported_cost: result.reported_cost,
         },
     );
     let mut actions = vec![Action::Append(completed)];

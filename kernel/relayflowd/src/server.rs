@@ -432,6 +432,7 @@ fn handle_request(
                         end_pins: params.end_pins,
                         effects: params.effects,
                         trajectory_tail: params.trajectory_tail,
+                        reported_cost: params.reported_cost,
                     },
                 )
                 .map_err(internal_error)?;

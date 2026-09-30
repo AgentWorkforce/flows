@@ -298,6 +298,42 @@ describe('foldRunState', () => {
     expect(fetch.elapsed_ms).toBe(10_000);
   });
 
+  it('shows each step\'s metered spend and actual reported cost, and the run total, without charging it', () => {
+    const view = foldRunState(journal(
+      spawned,
+      completed('fetch', 1, T0 + 1000, {}),
+      completed('analyze', 1, T0 + 2000, {
+        completionReason: 'verification_failed', disposition: 'retry', next_attempt_at_ms: T0 + 3000,
+        budget: { tokens_in: 100, tokens_out: 10, dollars: '0.001000' },
+        reported_cost: { dollars: '4.500000', source: 'cli' },
+      }),
+      completed('analyze', 2, T0 + 4000, {
+        budget: { tokens_in: 100, tokens_out: 10, dollars: '0.001000' },
+        reported_cost: { dollars: '2.669405', source: 'cli' },
+      }),
+      completed('post', 1, T0 + 5000, { budget: { tokens_in: 5, tokens_out: 5, dollars_unmetered: true, dollars: '0' } }),
+    ), T0 + 6000);
+    const [fetch, analyze, post] = view.steps;
+    // A shell step costs nothing and does not make the total a lower bound.
+    expect(fetch!.reported_cost).toEqual({ dollars: '0', complete: true, source: null });
+    expect(analyze!.spend).toEqual({ tokens_in: 200, tokens_out: 20, dollars: '0.002', dollars_unmetered: false });
+    expect(analyze!.reported_cost).toEqual({ dollars: '7.169405', complete: true, source: 'cli' });
+    // A model step with no reported cost (Codex, older runtime) is unknown, not $0.
+    expect(post!.reported_cost).toEqual({ dollars: '0', complete: false, source: null });
+    expect(view.reported_cost).toEqual({ dollars: '7.169405', complete: false, source: 'cli' });
+    // The budget total is the metered charges alone.
+    expect(view.spend.dollars).toBe('0.002');
+  });
+
+  it('marks the reported total a lower bound after compaction', () => {
+    const view = foldRunState(journal(
+      spawned,
+      completed('fetch', 1, T0 + 1000, { reported_cost: { dollars: '1.000000', source: 'priced' } }),
+      { entry_type: 'epoch.summary', payload: { epoch: 1, budget_spent: {}, steps_done: { fetch: { completionReason: 'success' } }, steps_open: {} } },
+    ), T0 + 3000);
+    expect(view.reported_cost).toEqual({ dollars: '1', complete: false, source: 'priced' });
+  });
+
   it('adds decimal dollars at full precision, beyond six fractional digits', () => {
     // Microdollar scaling returned null past six digits and the nullish
     // fallback contributed zero, so `flows status` underreported spend.
