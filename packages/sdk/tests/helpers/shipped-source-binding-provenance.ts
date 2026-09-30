@@ -276,10 +276,16 @@ export function bindingSource(
     if (current.dotDotDotToken) {
       if (ts.isArrayBindingPattern(current.parent) && current !== binding) {
         const start = current.parent.elements.indexOf(current);
-        const index = path[0] === undefined ? undefined : canonicalArrayIndex(path[0]);
-        if (start < 0 || index === undefined) return undefined;
         defaultPath = path.slice();
-        path[0] = index + start;
+        const index = path[0] === undefined ? undefined : canonicalArrayIndex(path[0]);
+        if (start < 0) return undefined;
+        if (index !== undefined) {
+          path[0] = index + start;
+        } else if (path.length === 0 && rest?.kind === 'array') {
+          rest = { kind: 'array', start: start + rest.start };
+        } else {
+          return undefined;
+        }
       } else if (rest) {
         return undefined;
       } else if (ts.isObjectBindingPattern(current.parent)) {

@@ -8,6 +8,7 @@ export type BindingRest =
 
 export interface AssignedSource {
   initializer: ts.Expression;
+  iterationValue?: boolean;
   path: BindingPathSegment[];
   rest?: BindingRest;
 }

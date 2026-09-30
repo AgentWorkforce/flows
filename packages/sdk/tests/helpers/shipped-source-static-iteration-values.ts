@@ -131,6 +131,7 @@ function arrayValues(
       sources,
       new Set(nextSeen),
     );
+    if (source.iterationValue) return values;
     if (source.rest?.kind === 'object') return [];
     const elements = values.flatMap(value => arrayValues(value, checker, sources, new Set(nextSeen)));
     return source.rest?.kind === 'array' ? elements.slice(source.rest.start) : elements;

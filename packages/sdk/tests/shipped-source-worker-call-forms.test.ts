@@ -184,6 +184,16 @@ describe('shipped-source worker call forms', () => {
         expect(result.missing, source).toHaveLength(1);
       }
 
+      const nestedImmutableRest = join(directory, 'nested-immutable-rest.flow.ts');
+      writeFileSync(nestedImmutableRest, `
+        declare const f: { agent(name: string, options: { task: string }): void };
+        const [, ...[, ...workers]] = [undefined, undefined, f.agent];
+        workers[0]('review', { task: 'x' });
+      `);
+      const nestedImmutableRestResult = scanTypeScript(nestedImmutableRest);
+      expect(nestedImmutableRestResult.calls).toBe(1);
+      expect(nestedImmutableRestResult.missing).toHaveLength(1);
+
       const assignedAlternativeCallable = join(directory, 'assigned-alternative-callable.flow.ts');
       writeFileSync(assignedAlternativeCallable, `
         declare const f: { agent(name: string, options: { task: string }): void };
@@ -220,6 +230,7 @@ describe('shipped-source worker call forms', () => {
         `for (const [, ...[, ...calls]] of [[0, () => undefined, f.agent]]) calls[0]('review', { task: 'x' });`,
         `for (const calls of [[f.agent]]) for (const call of calls) call('review', { task: 'x' });`,
         `for (const [, ...calls] of [[0, f.agent]]) for (const call of calls) call('review', { task: 'x' });`,
+        `const workers: any[] = []; workers.push(f.agent); for (const call of workers) call('review', { task: 'x' });`,
       ];
       for (const [index, source] of forOfIterableForms.entries()) {
         const file = join(directory, `for-of-iterable-${index}.flow.ts`);
@@ -375,6 +386,18 @@ describe('shipped-source worker call forms', () => {
       const nestedForOfWriterResult = scanTypeScript(nestedForOfWriter);
       expect(nestedForOfWriterResult.calls).toBe(1);
       expect(nestedForOfWriterResult.missing).toHaveLength(1);
+
+      const pushedForOfWriter = join(directory, 'pushed-for-of-writer.flow.ts');
+      writeFileSync(pushedForOfWriter, `
+        declare const f: { agent(name: string, options: { task: string }): void };
+        const box: any = {}, assigners: any[] = [];
+        assigners.push(Object.assign);
+        for (const assign of assigners) assign(box, { run: f.agent });
+        box.run('review', { task: 'x' });
+      `);
+      const pushedForOfWriterResult = scanTypeScript(pushedForOfWriter);
+      expect(pushedForOfWriterResult.calls).toBe(1);
+      expect(pushedForOfWriterResult.missing).toHaveLength(1);
 
       const forOfMemberTarget = join(directory, 'for-of-member-target.flow.ts');
       writeFileSync(forOfMemberTarget, `

@@ -21,6 +21,29 @@ interface IterationSourceResolvers {
   propertyName(name: ts.PropertyName | undefined, checker: ts.TypeChecker): string | undefined;
 }
 
+function unwrap(expression: ts.Expression): ts.Expression {
+  while (ts.isParenthesizedExpression(expression)
+    || ts.isAsExpression(expression)
+    || ts.isSatisfiesExpression(expression)
+    || ts.isNonNullExpression(expression)
+    || ts.isTypeAssertionExpression(expression)) expression = expression.expression;
+  return expression;
+}
+
+function member(
+  expression: ts.Expression,
+): { name: string; receiver: ts.Expression } | undefined {
+  expression = unwrap(expression);
+  if (ts.isPropertyAccessExpression(expression)) {
+    return { name: expression.name.text, receiver: expression.expression };
+  }
+  if (!ts.isElementAccessExpression(expression) || !expression.argumentExpression) return undefined;
+  const name = unwrap(expression.argumentExpression);
+  return ts.isStringLiteralLike(name)
+    ? { name: name.text, receiver: expression.expression }
+    : undefined;
+}
+
 export function createStaticIterationSources(resolvers: IterationSourceResolvers) {
   const cache = new WeakMap<ts.TypeChecker, WeakMap<ts.Symbol, AssignedSource[]>>();
   const resolve = (expression: ts.Identifier, checker: ts.TypeChecker): AssignedSource[] => {
@@ -38,6 +61,17 @@ export function createStaticIterationSources(resolvers: IterationSourceResolvers
     if (!source) return [];
     const values: AssignedSource[] = [];
     checkerCache.set(symbol, values);
+    const isTarget = (candidate: ts.Expression): boolean => {
+      candidate = unwrap(candidate);
+      return ts.isIdentifier(candidate) && checker.getSymbolAtLocation(candidate) === symbol;
+    };
+    const addMutationValues = (candidates: readonly ts.Expression[]): void => {
+      for (const candidate of candidates) {
+        values.push(ts.isSpreadElement(candidate)
+          ? { initializer: candidate.expression, path: [] }
+          : { initializer: candidate, iterationValue: true, path: [] });
+      }
+    };
     const addIterationValues = (
       initializer: ts.ForInitializer,
       yielded: readonly ts.Expression[],
@@ -73,6 +107,22 @@ export function createStaticIterationSources(resolvers: IterationSourceResolvers
           symbol,
           checker,
         ));
+        const target = member(node.left);
+        if (target && isTarget(target.receiver) && /^(?:0|[1-9]\d*)$/u.test(target.name)) {
+          addMutationValues([node.right]);
+        }
+      }
+      if (ts.isCallExpression(node)) {
+        const target = member(node.expression);
+        if (target && isTarget(target.receiver)) {
+          if (target.name === 'push' || target.name === 'unshift') {
+            addMutationValues(node.arguments);
+          } else if (target.name === 'splice') {
+            addMutationValues(node.arguments.slice(2));
+          } else if (target.name === 'fill') {
+            addMutationValues(node.arguments.slice(0, 1));
+          }
+        }
       }
       if (ts.isForOfStatement(node)) {
         addIterationValues(
