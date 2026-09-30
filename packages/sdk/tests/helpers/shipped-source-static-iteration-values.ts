@@ -1,4 +1,13 @@
 import ts from 'typescript';
+import type {
+  AssignedSource,
+  BindingPathSegment,
+} from './shipped-source-binding-targets.js';
+
+export type StaticIterationSources = (
+  expression: ts.Identifier,
+  checker: ts.TypeChecker,
+) => AssignedSource[];
 
 function unwrap(expression: ts.Expression): ts.Expression {
   while (ts.isParenthesizedExpression(expression)
@@ -22,41 +31,63 @@ function branches(expression: ts.Expression): readonly ts.Expression[] | undefin
   return ts.isAwaitExpression(expression) ? [expression.expression] : undefined;
 }
 
-function variableInitializers(
+function directVariableSources(
   expression: ts.Identifier,
   checker: ts.TypeChecker,
-): ts.Expression[] {
+): AssignedSource[] {
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol) return [];
-  const values = symbol.declarations
+  return symbol.declarations
     ?.filter(ts.isVariableDeclaration)
-    .flatMap(declaration => declaration.initializer ? [declaration.initializer] : []) ?? [];
-  const source = symbol.valueDeclaration?.getSourceFile() ?? symbol.declarations?.[0]?.getSourceFile();
-  if (!source) return values;
-  const visit = (node: ts.Node): void => {
-    if (ts.isBinaryExpression(node)
-      && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
-      && ts.isIdentifier(unwrap(node.left))
-      && checker.getSymbolAtLocation(unwrap(node.left)) === symbol) values.push(node.right);
-    ts.forEachChild(node, visit);
-  };
-  visit(source);
-  return values;
+    .flatMap(declaration => declaration.initializer
+      ? [{ initializer: declaration.initializer, path: [] }]
+      : []) ?? [];
 }
 
-export function staticForOfValues(
+function expressionSegment(
   expression: ts.Expression,
   checker: ts.TypeChecker,
-  seen = new Set<ts.Symbol>(),
+): BindingPathSegment | undefined {
+  expression = unwrap(expression);
+  if (ts.isIdentifier(expression) || ts.isStringLiteralLike(expression)) return expression.text;
+  if (ts.isNumericLiteral(expression)) return Number(expression.text);
+  const type = checker.getTypeAtLocation(expression);
+  if (type.isStringLiteral()) return type.value;
+  return (type.flags & ts.TypeFlags.NumberLiteral) !== 0
+    ? (type as ts.NumberLiteralType).value
+    : undefined;
+}
+
+function propertySegment(
+  name: ts.PropertyName,
+  checker: ts.TypeChecker,
+): BindingPathSegment | undefined {
+  return ts.isComputedPropertyName(name)
+    ? expressionSegment(name.expression, checker)
+    : expressionSegment(name, checker);
+}
+
+function canonicalArrayIndex(segment: BindingPathSegment): number | undefined {
+  if (typeof segment === 'number') {
+    return Number.isInteger(segment) && segment >= 0 ? segment : undefined;
+  }
+  return /^(?:0|[1-9]\d*)$/u.test(segment) ? Number(segment) : undefined;
+}
+
+function arrayValues(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  sources: StaticIterationSources,
+  seen: Set<ts.Symbol>,
 ): ts.Expression[] {
   expression = unwrap(expression);
   const wrapped = branches(expression);
-  if (wrapped) return wrapped.flatMap(branch => staticForOfValues(branch, checker, new Set(seen)));
+  if (wrapped) return wrapped.flatMap(branch => arrayValues(branch, checker, sources, new Set(seen)));
   if (ts.isArrayLiteralExpression(expression)) {
     return expression.elements.flatMap(element => {
       if (ts.isOmittedExpression(element)) return [];
       return ts.isSpreadElement(element)
-        ? staticForOfValues(element.expression, checker, new Set(seen))
+        ? arrayValues(element.expression, checker, sources, new Set(seen))
         : [element];
     });
   }
@@ -64,31 +95,127 @@ export function staticForOfValues(
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return [];
   const nextSeen = new Set(seen).add(symbol);
-  return variableInitializers(expression, checker)
-    .flatMap(initializer => staticForOfValues(initializer, checker, new Set(nextSeen)));
+  return sources(expression, checker).flatMap(source => {
+    const values = valuesAtPath(
+      source.initializer,
+      source.path,
+      checker,
+      sources,
+      new Set(nextSeen),
+    );
+    if (source.rest?.kind === 'object') return [];
+    const elements = values.flatMap(value => arrayValues(value, checker, sources, new Set(nextSeen)));
+    return source.rest?.kind === 'array' ? elements.slice(source.rest.start) : elements;
+  });
 }
 
-export function staticForInKeys(
+function objectMemberValues(
   expression: ts.Expression,
+  segment: BindingPathSegment,
   checker: ts.TypeChecker,
-  seen = new Set<ts.Symbol>(),
+  sources: StaticIterationSources,
+  seen: Set<ts.Symbol>,
 ): ts.Expression[] {
   expression = unwrap(expression);
   const wrapped = branches(expression);
-  if (wrapped) return wrapped.flatMap(branch => staticForInKeys(branch, checker, new Set(seen)));
+  if (wrapped) return wrapped.flatMap(branch =>
+    objectMemberValues(branch, segment, checker, sources, new Set(seen)));
   if (ts.isObjectLiteralExpression(expression)) {
-    return expression.properties.flatMap(property => {
-      if (ts.isSpreadAssignment(property)) {
-        return staticForInKeys(property.expression, checker, new Set(seen));
+    return expression.properties.flatMap(member => {
+      if (ts.isSpreadAssignment(member)) {
+        return objectMemberValues(member.expression, segment, checker, sources, new Set(seen));
       }
-      if (!property.name) return [];
-      return [ts.isComputedPropertyName(property.name) ? property.name.expression : property.name];
+      if (!member.name || propertySegment(member.name, checker) !== segment) return [];
+      if (ts.isPropertyAssignment(member)) return [member.initializer];
+      if (ts.isShorthandPropertyAssignment(member)) return [member.name];
+      return [];
     });
   }
   if (!ts.isIdentifier(expression)) return [];
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return [];
   const nextSeen = new Set(seen).add(symbol);
-  return variableInitializers(expression, checker)
-    .flatMap(initializer => staticForInKeys(initializer, checker, new Set(nextSeen)));
+  return sources(expression, checker).flatMap(source => {
+    if (source.rest) return [];
+    return valuesAtPath(
+      source.initializer,
+      [...source.path, segment],
+      checker,
+      sources,
+      new Set(nextSeen),
+    );
+  });
+}
+
+function valuesAtPath(
+  expression: ts.Expression,
+  path: readonly BindingPathSegment[],
+  checker: ts.TypeChecker,
+  sources: StaticIterationSources,
+  seen: Set<ts.Symbol>,
+): ts.Expression[] {
+  if (path.length === 0) return [expression];
+  const [head, ...tail] = path;
+  const index = canonicalArrayIndex(head!);
+  const values = [
+    ...objectMemberValues(expression, head!, checker, sources, seen),
+    ...(index === undefined
+      ? []
+      : arrayValues(expression, checker, sources, seen).slice(index, index + 1)),
+  ];
+  return tail.length === 0 ? values : values.flatMap(value =>
+    valuesAtPath(value, tail, checker, sources, new Set(seen)));
+}
+
+export function staticForOfValues(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  sources: StaticIterationSources = directVariableSources,
+  seen = new Set<ts.Symbol>(),
+): ts.Expression[] {
+  return arrayValues(expression, checker, sources, seen);
+}
+
+export function staticForInKeys(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  sources: StaticIterationSources = directVariableSources,
+  seen = new Set<ts.Symbol>(),
+): ts.Expression[] {
+  expression = unwrap(expression);
+  const wrapped = branches(expression);
+  if (wrapped) return wrapped.flatMap(branch =>
+    staticForInKeys(branch, checker, sources, new Set(seen)));
+  if (ts.isObjectLiteralExpression(expression)) {
+    return expression.properties.flatMap(member => {
+      if (ts.isSpreadAssignment(member)) {
+        return staticForInKeys(member.expression, checker, sources, new Set(seen));
+      }
+      if (!member.name) return [];
+      return [ts.isComputedPropertyName(member.name) ? member.name.expression : member.name];
+    });
+  }
+  if (!ts.isIdentifier(expression)) return [];
+  const symbol = checker.getSymbolAtLocation(expression);
+  if (!symbol || seen.has(symbol)) return [];
+  const nextSeen = new Set(seen).add(symbol);
+  return sources(expression, checker).flatMap(source => {
+    const values = valuesAtPath(
+      source.initializer,
+      source.path,
+      checker,
+      sources,
+      new Set(nextSeen),
+    );
+    const keys = values.flatMap(value =>
+      staticForInKeys(value, checker, sources, new Set(nextSeen)));
+    const rest = source.rest;
+    if (rest?.kind === 'array') return [];
+    return rest?.kind === 'object'
+      ? keys.filter(key => {
+          const name = expressionSegment(key, checker);
+          return name === undefined || !rest.excluded.includes(String(name));
+        })
+      : keys;
+  });
 }

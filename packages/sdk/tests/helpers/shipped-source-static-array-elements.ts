@@ -102,10 +102,32 @@ export function resolveStaticArrayElements(
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return undefined;
   seen.add(symbol);
+  const candidates: Array<Array<ts.Expression | undefined>> = [];
+  const addValue = (
+    candidate: AggregateValue | undefined,
+    restStart?: number,
+  ): void => {
+    if (!candidate) return;
+    for (const expression of [candidate.value, ...(candidate.alternatives ?? [])]) {
+      const value = resolveStaticArrayElements(expression, checker, new Set(seen), resolvers);
+      if (!value) continue;
+      for (const elements of [value.values, ...(value.alternatives ?? [])]) {
+        candidates.push(restStart === undefined ? elements : elements.slice(restStart));
+      }
+    }
+  };
+  const result = (): StaticArrayElementsResult | undefined => {
+    const [values, ...alternatives] = candidates;
+    return values ? {
+      values,
+      auditable: false,
+      ...(alternatives.length > 0 ? { alternatives } : {}),
+    } : undefined;
+  };
   const binding = symbol.declarations?.find(ts.isBindingElement);
   if (binding) {
     const source = bindingSource(binding, checker);
-    if (source?.immutable) {
+    if (source) {
       const values = [
         { candidate: resolvers.aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)), applyRest: true },
         ...resolvers.bindingDefaultValues(source, checker, new Set(seen))
@@ -115,15 +137,12 @@ export function resolveStaticArrayElements(
           : []),
       ];
       for (const { candidate, applyRest } of values) {
-        if (!candidate) continue;
-        const value = resolveStaticArrayElements(candidate.value, checker, new Set(seen), resolvers);
-        if (value) return {
-          auditable: false,
-          values: applyRest && source.rest?.kind === 'array'
-            ? value.values.slice(source.rest.start)
-            : value.values,
-        };
+        addValue(
+          candidate,
+          applyRest && source.rest?.kind === 'array' ? source.rest.start : undefined,
+        );
       }
+      if (source.immutable) return result();
     }
   }
   const variable = symbol.declarations?.find(ts.isVariableDeclaration);
@@ -139,17 +158,11 @@ export function resolveStaticArrayElements(
       ? { value: source.initializer, auditable: false }
       : resolvers.aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen));
     if (!candidate || source.rest?.kind === 'object') continue;
-    const value = resolveStaticArrayElements(candidate.value, checker, new Set(seen), resolvers);
-    if (value) return {
-      auditable: false,
-      values: source.rest?.kind === 'array'
-        ? value.values.slice(source.rest.start)
-        : value.values,
-    };
+    addValue(candidate, source.rest?.kind === 'array' ? source.rest.start : undefined);
   }
   if (variable?.initializer && variableList) {
     const value = resolveStaticArrayElements(variable.initializer, checker, seen, resolvers);
-    if (value) return { ...value, auditable: false };
+    if (value) candidates.push(value.values, ...(value.alternatives ?? []));
   }
-  return undefined;
+  return result();
 }

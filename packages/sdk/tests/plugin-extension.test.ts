@@ -238,6 +238,11 @@ describe('schema-2 manifest validation', () => {
   ])('refuses %s', (_, patch, code) => {
     expect(() => validateFlowExtensionManifest(patch(structuredClone(manifestJson)))).toThrow(expect.objectContaining({ code }));
   });
+  it('accepts a zero-token extension ceiling', () => {
+    const value = structuredClone(manifestJson) as Record<string, unknown>;
+    value.permissions = { ...(value.permissions as object), budget: { tokens: 0 } };
+    expect(validateFlowExtensionManifest(value).permissions.budget).toEqual({ tokens: 0 });
+  });
   it('keeps the helper validator helper-only and the extension validator extension-only', () => {
     expect(() => validatePluginManifest(manifestJson)).toThrow(expect.objectContaining({ code: 'plugin_kind_invalid' }));
     const helper = JSON.parse(readFileSync(join(fixtureRoot, 'helper-datadog/flows-plugin.json'), 'utf8'));

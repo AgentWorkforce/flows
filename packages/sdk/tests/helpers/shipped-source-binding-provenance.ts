@@ -9,6 +9,7 @@ import {
   staticForInKeys,
   staticForOfValues,
 } from './shipped-source-static-iteration-values.js';
+import { createStaticIterationSources } from './shipped-source-iteration-sources.js';
 
 export type { AssignedSource, BindingPathSegment, BindingRest } from './shipped-source-binding-targets.js';
 
@@ -406,6 +407,12 @@ function assignedSourcesAtTarget(
   });
 }
 
+const staticIterationSources = createStaticIterationSources({
+  assignedSourcesAtTarget,
+  assignmentMayStoreRight,
+  propertyName,
+});
+
 export function assignedSources(symbol: ts.Symbol, checker: ts.TypeChecker): AssignedSource[] {
   let checkerCache = assignedSourceCache.get(checker);
   if (!checkerCache) {
@@ -422,7 +429,7 @@ export function assignedSources(symbol: ts.Symbol, checker: ts.TypeChecker): Ass
       values.push(...assignedSourcesAtTarget(node.left, node.right, symbol, checker));
     }
     if (ts.isForOfStatement(node)) {
-      const yielded = staticForOfValues(node.expression, checker);
+      const yielded = staticForOfValues(node.expression, checker, staticIterationSources);
       const targets = ts.isVariableDeclarationList(node.initializer)
         ? node.initializer.declarations.map(declaration => declaration.name)
         : [node.initializer];
@@ -440,7 +447,7 @@ export function assignedSources(symbol: ts.Symbol, checker: ts.TypeChecker): Ass
       }
     }
     if (ts.isForInStatement(node)) {
-      const keys = staticForInKeys(node.expression, checker);
+      const keys = staticForInKeys(node.expression, checker, staticIterationSources);
       const targets = ts.isVariableDeclarationList(node.initializer)
         ? node.initializer.declarations.map(declaration => declaration.name)
         : [node.initializer];

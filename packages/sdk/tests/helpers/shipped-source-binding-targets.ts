@@ -23,6 +23,36 @@ interface BindingTargetResolvers {
   propertyName(name: ts.PropertyName | undefined, checker: ts.TypeChecker): string | undefined;
 }
 
+function canonicalArrayIndex(segment: BindingPathSegment): number | undefined {
+  if (typeof segment === 'number') {
+    return Number.isInteger(segment) && segment >= 0 ? segment : undefined;
+  }
+  return /^(?:0|[1-9]\d*)$/u.test(segment) ? Number(segment) : undefined;
+}
+
+function prefixArrayRest(
+  source: AssignedSource,
+  value: ts.Expression,
+  path: BindingPathSegment[],
+  start: number,
+): AssignedSource[] {
+  if (source.initializer !== value) return [source];
+  if (source.path.length === 0) return [{
+    ...source,
+    path: [...path],
+    rest: {
+      kind: 'array',
+      start: start + (source.rest?.kind === 'array' ? source.rest.start : 0),
+    },
+  }];
+  const [first, ...tail] = source.path;
+  const relative = canonicalArrayIndex(first!);
+  return relative === undefined ? [] : [{
+    ...source,
+    path: [...path, start + relative, ...tail],
+  }];
+}
+
 export function assignedSourcesAtBindingName(
   target: ts.BindingName,
   value: ts.Expression,
@@ -45,12 +75,8 @@ export function assignedSourcesAtBindingName(
         ...defaults,
       ];
       return [
-        ...recurse(element.name, value).map(source =>
-          source.initializer !== value || source.path.length > 0 ? source : {
-            ...source,
-            path: [...path],
-            rest: { kind: 'array' as const, start: index },
-          }),
+        ...recurse(element.name, value)
+          .flatMap(source => prefixArrayRest(source, value, path, index)),
         ...defaults,
       ];
     });

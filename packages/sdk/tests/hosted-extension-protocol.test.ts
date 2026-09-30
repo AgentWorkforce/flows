@@ -56,6 +56,12 @@ it.each([
     .toThrow(expect.objectContaining({ code: 'plugin_manifest_invalid' }));
 });
 
+it('accepts a zero-token hosted extension ceiling', () => {
+  const base = manifest();
+  const value = { ...base, permissions: { ...base.permissions, budget: { tokens: 0 } } };
+  expect(validateHostedFlowExtensionManifest(value).permissions.budget).toEqual({ tokens: 0 });
+});
+
 function descriptor() {
   return {
     event: { provider: 'github', eventType: 'pull_request.labeled', deliveryId: 'delivery-1' },

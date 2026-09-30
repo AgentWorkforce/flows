@@ -179,8 +179,8 @@ function permissionsShape(value: unknown): FlowExtensionPermissions {
     }
     if (value.budget.tokens !== undefined
       && (typeof value.budget.tokens !== 'number'
-        || !NUMBER_IS_SAFE_INTEGER(value.budget.tokens) || value.budget.tokens <= 0)) {
-      return invalid('permissions.budget.tokens must be a positive safe integer.');
+        || !NUMBER_IS_SAFE_INTEGER(value.budget.tokens) || value.budget.tokens < 0)) {
+      return invalid('permissions.budget.tokens must be a non-negative safe integer.');
     }
     if (value.budget.dollars !== undefined
       && (typeof value.budget.dollars !== 'number' || value.budget.dollars <= 0
