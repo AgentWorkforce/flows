@@ -24,6 +24,7 @@ test('builds and verifies the exact Linux x64 Cloud artifact contract', async ()
     });
     const verified = await verifyCloudArtifact(built.archivePath, built.archiveSha256);
     assert.equal(verified.sourceCommit, 'a'.repeat(40));
+    assert.deepEqual(verified.capabilities, ['local-agent-env-fd-v1']);
     assert.deepEqual(
       verified.files.map((file) => file.path),
       ['bin/flows', 'bin/relayflowd'],
@@ -181,6 +182,18 @@ test('manifest pins journal protocol version zero', async () => {
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
+});
+
+test('verification rejects an artifact without the agent credential isolation capability', async () => {
+  await withUnpackedArtifact('7', async (unpacked) => {
+    const manifest = await readManifest(unpacked);
+    manifest.capabilities = [];
+    await writeManifest(unpacked, manifest);
+    await assert.rejects(
+      verifyArtifactDirectory(unpacked),
+      /unsupported schema or target/u,
+    );
+  });
 });
 
 test('CLI rejects a misspelled build option in artifact vocabulary', () => {

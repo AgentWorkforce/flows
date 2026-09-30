@@ -31,6 +31,8 @@ export interface AgentWorkerOptions {
    * the root a dispatch is measured against is a value, not an assumption.
    */
   runRoot?: string;
+  /** Environment inherited by provider CLIs, including agent-only secrets. */
+  environment?: NodeJS.ProcessEnv;
 }
 
 /**
@@ -122,7 +124,8 @@ export class AgentWorker extends EventEmitter {
     if (communication) {
       if (!this.options.dataDir) throw new Error('Agent communication requires a worker data directory');
       const { completeCommunicationDispatch } = await import('./communication/worker.js');
-      await completeCommunicationDispatch(this.client, dispatch, communication, this.options.dataDir, this.options.runRoot);
+      await completeCommunicationDispatch(this.client, dispatch, communication, this.options.dataDir,
+        this.options.runRoot, this.options.environment);
       return;
     }
     let humanIntervention = false;
@@ -142,7 +145,8 @@ export class AgentWorker extends EventEmitter {
           }, cwd.directory ?? (spec.transport === 'relay' ? undefined : this.options.runRoot),
             spec.transport === 'relay' ? 'relay' : 'direct',
             { runId: dispatch.run_id, stepId: dispatch.step_id, idempotencyKey: dispatch.idempotency_key,
-              dataDir: this.options.dataDir, resultSchema: spec.verification?.json_schema })
+              dataDir: this.options.dataDir, resultSchema: spec.verification?.json_schema },
+            this.options.environment)
           : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' }));
     const { result, usage } = workerSpend(completed, effectiveModel);
     const completionReason = result.exit_code === 0 ? 'success' : 'worker_error';

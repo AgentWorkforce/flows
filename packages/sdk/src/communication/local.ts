@@ -8,7 +8,8 @@ import { loadRelayModules } from './relay.js';
 import { checkCommunicationEnvironment, CommunicationEnvironmentError } from './preflight.js';
 import { requireCommunicationCli } from './worker.js';
 
-export async function attachCommunicationWorkers(spec: KernelRunSpec, socketPath: string, dataDir: string) {
+export async function attachCommunicationWorkers(spec: KernelRunSpec, socketPath: string, dataDir: string,
+  environment?: NodeJS.ProcessEnv) {
   const steps = spec.steps.filter(step => step.type === 'agent' && communicationInstruction(step.instruction));
   checkCommunicationEnvironment(spec);
   try { await loadRelayModules(); }
@@ -28,7 +29,7 @@ export async function attachCommunicationWorkers(spec: KernelRunSpec, socketPath
       requireCommunicationCli(step.cli ?? spec.cli);
       if (step.surfaces?.workspace?.length) throw new Error('Local communication workers support stream surfaces only');
       const client = new JournalClient(socketPath);
-      const worker = new AgentWorker(client, { workerId: `communication-${randomUUID()}`, dataDir,
+      const worker = new AgentWorker(client, { workerId: `communication-${randomUUID()}`, dataDir, environment,
         requiredStreams: [channelName(step.id, '$receipts')],
         pins: { workspace: [], streams: step.surfaces?.streams?.map(({ stream }) => ({ stream, read_offset: 0 })) ?? [] } });
       workers.push({ client, worker });

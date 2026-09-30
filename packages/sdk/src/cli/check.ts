@@ -123,6 +123,8 @@ type CliProbeOutcomeMap = Map<string, CliProbeOutcome>;
  * anything that depends on how the flow is about to be invoked opts in here.
  */
 export interface CheckInvocation {
+  /** Environment used only by provider executable/auth/model probes. */
+  environment?: NodeJS.ProcessEnv;
   /**
    * Report `agent_worker_unresolved` when the spec has `agent` steps.
    *
@@ -202,7 +204,7 @@ export function checkAuthoredFlow(
       : projectConfigOrOptions as ProjectConfig | undefined;
     const effectiveProbeCache = cliProbeCache ?? options?.probeCache;
     const config = projectConfig ?? readProjectConfig(dirname(absolutePath));
-    const probes = systemProbes(dirname(absolutePath), config);
+    const probes = systemProbes(dirname(absolutePath), config, invocation.environment);
     const result = preflight(authoring, {
       ...(effectiveProbeCache === undefined ? {} : { cliProbeCache: effectiveProbeCache }),
       projectCli: config.cli,
@@ -450,10 +452,11 @@ function findConfig(start: string): string | undefined {
   }
 }
 
-function systemProbes(flowDirectory: string, config: ProjectConfig): PreflightProbes {
+function systemProbes(flowDirectory: string, config: ProjectConfig, environment?: NodeJS.ProcessEnv): PreflightProbes {
   return {
     helper: helperReady,
-    cli: (cli, source, model, execution) => probeCli(cli, source === 'project' ? config.directory : flowDirectory, model, execution),
+    cli: (cli, source, model, execution) => probeCli(cli,
+      source === 'project' ? config.directory : flowDirectory, model, execution, environment),
     executor: (trigger) => config.executors.includes(trigger.executor),
     // A deterministic step runs in the daemon's working directory — the
     // directory `flows run` was invoked from, or Cloud's code mount — not in

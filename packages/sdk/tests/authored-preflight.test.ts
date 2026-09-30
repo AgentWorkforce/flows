@@ -7,7 +7,7 @@ import { SPEC_SCHEMA_VERSION, type FlowSpec } from '../src/spec.js';
 
 const directories: string[] = [];
 afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }); });
-function setup() {
+function setup(environment?: NodeJS.ProcessEnv) {
   const directory = mkdtempSync(join(tmpdir(), 'authored-preflight-'));
   directories.push(directory);
   const calls = join(directory, 'calls');
@@ -16,11 +16,11 @@ function setup() {
 import { appendFileSync } from 'node:fs';
 appendFileSync(${JSON.stringify(calls)}, 'probe\\n');
 if (process.argv[2] === '--relayflows-adapter-v1') console.log('relayflows-agent-cli-v1');
-else process.exit(1);
+else process.exit(process.env.ANTHROPIC_API_KEY === 'house-key' ? 0 : 1);
 `);
   chmodSync(cli, 0o755);
   writeFileSync(join(directory, 'flows.json'), JSON.stringify({ cli, models: ['allowed'] }));
-  return { calls, check: authoredPreflight(join(directory, 'test.flow.ts')) };
+  return { calls, check: authoredPreflight(join(directory, 'test.flow.ts'), environment) };
 }
 function spec(id: string, model = 'allowed'): FlowSpec {
   return { version: SPEC_SCHEMA_VERSION, name: 'test', steps: [{ id, type: 'llm', prompt: 'hello', model }] };
@@ -51,4 +51,9 @@ it('shares failed facts across callers but retains each step identity', async ()
   }
   // One identification, one exact-model probe, one auth classification.
   expect(readFileSync(calls, 'utf8').trim().split('\n')).toHaveLength(3);
+});
+
+it('uses the isolated provider environment during authored preflight', async () => {
+  const { check } = setup({ ...process.env, ANTHROPIC_API_KEY: 'house-key' });
+  expect((await check(spec('one'))).report.ok).toBe(true);
 });

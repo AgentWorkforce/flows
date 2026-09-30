@@ -27,8 +27,8 @@ export async function probeCliAsync(...args: Parameters<typeof probeSequence>): 
   return next.value;
 }
 
-export function resolveExecutable(command: string, directory: string): string | undefined {
-  return driveSync(executableSequence(command, directory));
+export function resolveExecutable(command: string, directory: string, environment: NodeJS.ProcessEnv = process.env): string | undefined {
+  return driveSync(executableSequence(command, directory, environment));
 }
 
 function driveSync<T>(sequence: Generator<ProbeRequest, T, ProbeOutput>): T {
@@ -79,8 +79,9 @@ function* probeSequence(
   directory: string,
   model?: string,
   execution?: 'managed',
+  sourceEnvironment: NodeJS.ProcessEnv = process.env,
 ): Generator<ProbeRequest, CliProbeResult, ProbeOutput> {
-  const executable = yield* executableSequence(cli, directory);
+  const executable = yield* executableSequence(cli, directory, sourceEnvironment);
   if (executable === undefined) return { exists: false, authenticated: false };
   const kind = cliAdapterKind(executable);
   // Relay owns interactive CLI launch/injection. Its generic PTY path is not
@@ -90,7 +91,8 @@ function* probeSequence(
     return { exists: true, supported: true, authenticated: 'unverified', executable };
   }
   const environment = execution === 'managed'
-    ? { ...brokerEnvironment(process.env), ...agentEnvironment(executable) } : process.env;
+    ? { ...brokerEnvironment(sourceEnvironment), ...agentEnvironment(executable, sourceEnvironment) }
+    : sourceEnvironment;
   const probe = (invocation: CliInvocation): ProbeRequest => ({ executable, directory, invocation, environment });
   const identification = adapterIdentification(kind);
   const identified = yield probe(identification.invocation);
@@ -179,7 +181,7 @@ function redactProbeOutput(text: string): string {
     .replace(/\b[A-Fa-f0-9]{32,}\b/g, '<redacted-hex>');
 }
 
-function* executableSequence(command: string, directory: string): Generator<ProbeRequest, string | undefined, ProbeOutput> {
+function* executableSequence(command: string, directory: string, environment: NodeJS.ProcessEnv): Generator<ProbeRequest, string | undefined, ProbeOutput> {
   if (command.includes('/') || isAbsolute(command)) {
     const path = isAbsolute(command) ? command : resolve(directory, command);
     try {
@@ -190,7 +192,7 @@ function* executableSequence(command: string, directory: string): Generator<Prob
     }
   }
   const result = yield { executable: 'which', directory: process.cwd(),
-    invocation: { args: [command], timeoutMs: 5_000 }, environment: process.env };
+    invocation: { args: [command], timeoutMs: 5_000 }, environment };
   return result.status === 0 ? resolve(process.cwd(), result.stdout.trim()) : undefined;
 }
 

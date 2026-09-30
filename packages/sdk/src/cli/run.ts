@@ -39,6 +39,7 @@ import {
   type LoweredCompletionReason,
 } from '../authored-completion.js';
 import { DEFAULT_LOCAL_AGENT_CAPACITY } from '../worker-slots.js';
+import { localAgentEnvironment } from '../local-agent-environment.js';
 import {
   checkFlow,
   type CheckReport,
@@ -176,20 +177,22 @@ export async function runFlow(
   dataDir: string,
   options: RunLifecycleOptions = {},
 ): Promise<RunExecution> {
+  const agentEnvironment = localAgentEnvironment();
   const prepared = parseDigestReference(path) ? await prepareDigestRun(path, options.bucket) : undefined;
   if (prepared && 'exitCode' in prepared) return prepared;
-  const checked = prepared ?? checkFlow(path);
+  const checked = prepared ?? checkFlow(path, { environment: agentEnvironment });
   if (!checked.report.ok || checked.flow === undefined) {
     return { exitCode: 2, report: fromCheckReport('run', checked.report) };
   }
 
-  return executeCheckedFlow(checked, dataDir, options);
+  return executeCheckedFlow(checked, dataDir, options, agentEnvironment);
 }
 
 async function executeCheckedFlow(
   checked: ReturnType<typeof checkFlow>,
   dataDir: string,
   options: RunLifecycleOptions,
+  agentEnvironment?: NodeJS.ProcessEnv,
 ): Promise<RunExecution> {
   const socketPath = socketFor(dataDir);
   // Carry the preflight's diagnostics as a RunReport from here on, so the
@@ -213,12 +216,12 @@ async function executeCheckedFlow(
     if (options.localAgent) {
       localAgent = await attachLocalAgent(
         client, dataDir, options.onPtyReady, undefined, options.agentCapacity,
-        undefined, declaredLocalAgentStreams(spec),
+        undefined, declaredLocalAgentStreams(spec), agentEnvironment,
       );
     }
     if (options.localAgent && spec.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
       const { attachCommunicationWorkers } = await import('../communication/local.js');
-      communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir);
+      communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir, agentEnvironment);
     }
     if (options.onJournalEntry !== undefined) client.on('entry', options.onJournalEntry);
     const outcome = await startWatched(client, spec, options);
@@ -281,6 +284,9 @@ export async function resumeFlow(
   dataDir: string,
   options: RunLifecycleOptions = {},
 ): Promise<RunExecution> {
+  // Resume can load authored source; consume the descriptor before reading the
+  // journal so no source evaluation can race credential pickup.
+  const agentEnvironment = localAgentEnvironment();
   const socketPath = socketFor(dataDir);
   const base = emptyReport('resume');
   const client = new JournalClient(socketPath);
@@ -323,11 +329,12 @@ export async function resumeFlow(
       if (options.localAgent) {
         authoredAgent = await attachLocalAgent(
           client, dataDir, options.onPtyReady, authoredRoot.localAgentStream, workerCapacity,
+          undefined, [], agentEnvironment,
         );
         authoredLlmClient = new JournalClient(socketPath);
         await authoredLlmClient.connect();
         await authoredLlmClient.hello('flows-authored-resume-llm');
-        authoredLlm = new LlmWorker(authoredLlmClient, `${authoredAgent.stream}-llm`, workerCapacity);
+        authoredLlm = new LlmWorker(authoredLlmClient, `${authoredAgent.stream}-llm`, workerCapacity, agentEnvironment);
         authoredLlm.on('error', onWorkerFailure('resume-llm', error => {
           llmFailure = error;
           client.close();
@@ -338,6 +345,7 @@ export async function resumeFlow(
         dataDir,
         localAgentStream: authoredAgent?.stream,
         ...(authoredAgent === undefined ? {} : { workerCapacity }),
+        ...(agentEnvironment === undefined ? {} : { agentEnvironment }),
         lifecycle: options,
       });
       if (result === undefined) throw new Error('authored root disappeared during resume');
@@ -356,11 +364,11 @@ export async function resumeFlow(
       if (!spec) throw new Error('Cannot attach a local worker: the journaled run spec is missing');
       authoredAgent = await attachLocalAgent(
         client, dataDir, options.onPtyReady, undefined, options.agentCapacity,
-        undefined, declaredLocalAgentStreams(spec),
+        undefined, declaredLocalAgentStreams(spec), agentEnvironment,
       );
       if (spec?.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
         const { attachCommunicationWorkers } = await import('../communication/local.js');
-        communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir);
+        communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir, agentEnvironment);
       }
     }
     const onEntry = options.onJournalEntry;

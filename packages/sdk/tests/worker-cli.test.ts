@@ -77,6 +77,28 @@ process.stdout.write(JSON.stringify({ type: 'result', result: 'default-model-ok'
       '--output-format', 'stream-json', '--verbose', 'do the task',
     ]);
   });
+
+  it('uses the explicitly supplied agent environment for the provider subprocess', async () => {
+    const directory = makeDirectory();
+    const observed = join(directory, 'environment.json');
+    const claude = makeWrapper(directory, 'claude', `
+const fs = require('node:fs');
+fs.writeFileSync(${JSON.stringify(observed)}, JSON.stringify({
+  secret: process.env.HOUSE_PROVIDER_KEY ?? null,
+  ambient: process.env.AMBIENT_ONLY ?? null,
+}));
+process.stdout.write(JSON.stringify({ type: 'result', result: 'ok',
+  usage: { input_tokens: 2, output_tokens: 1 } }) + '\\n');
+`);
+
+    const result = await withEnvironment({ AMBIENT_ONLY: 'must-not-leak' }, () =>
+      runAgentCli(claude, 'do the task', undefined, undefined, undefined, undefined,
+        'agent', undefined, undefined, 'direct', undefined,
+        { PATH: process.env.PATH, HOUSE_PROVIDER_KEY: 'house-secret' }));
+
+    expect(result.exit_code).toBe(0);
+    expect(JSON.parse(readFileSync(observed, 'utf8'))).toEqual({ secret: 'house-secret', ambient: null });
+  });
 });
 
 describe('step discovery environment', () => {

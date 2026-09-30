@@ -27,6 +27,7 @@ export function authoredWorkerRunner(
   localAgentStream?: string, budget?: AuthoredBudget, headerBudget?: unknown,
   rootRunId?: string, workerCapacity?: number, stepEdges?: AuthoredStepContext['stepEdges'],
   sharedSlots?: AuthoredWorkerSlots,
+  agentEnvironment?: NodeJS.ProcessEnv,
 ) {
   // Sized to the attached local workers, so concurrent calls wait here for a
   // slot instead of being admitted and parked for want of a free worker.
@@ -36,7 +37,7 @@ export function authoredWorkerRunner(
     agent: slots.agent.scope(),
     llm: slots.llm.scope(),
   };
-  const check = authoredPreflight(flowPath);
+  const check = authoredPreflight(flowPath, agentEnvironment);
   const context: AuthoredStepContext = {
     ...(rootRunId === undefined ? {} : { rootRunId }),
     ...(waitOptions.dataDir === undefined ? {} : { dataDir: waitOptions.dataDir }),
