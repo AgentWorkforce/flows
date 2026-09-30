@@ -1,16 +1,16 @@
 import ts from 'typescript';
+import {
+  assignedSourcesAtBindingName,
+  type AssignedSource,
+  type BindingPathSegment,
+  type BindingRest,
+} from './shipped-source-binding-targets.js';
+import {
+  staticForInKeys,
+  staticForOfValues,
+} from './shipped-source-static-iteration-values.js';
 
-export type BindingPathSegment = string | number;
-
-export type BindingRest =
-  | { excluded: string[]; kind: 'object' }
-  | { kind: 'array'; start: number };
-
-export interface AssignedSource {
-  initializer: ts.Expression;
-  path: BindingPathSegment[];
-  rest?: BindingRest;
-}
+export type { AssignedSource, BindingPathSegment, BindingRest } from './shipped-source-binding-targets.js';
 
 function unwrap(expression: ts.Expression): ts.Expression {
   while (ts.isParenthesizedExpression(expression)
@@ -81,6 +81,14 @@ function staticPropertySegment(
   expression = unwrap(expression);
   if (ts.isAwaitExpression(expression)) {
     return staticPropertySegment(expression.expression, checker, new Set(seen));
+  }
+  if (ts.isIdentifier(expression)
+    && ((ts.isPropertyAssignment(expression.parent) && expression.parent.name === expression)
+      || (ts.isShorthandPropertyAssignment(expression.parent) && expression.parent.name === expression)
+      || (ts.isMethodDeclaration(expression.parent) && expression.parent.name === expression)
+      || (ts.isGetAccessorDeclaration(expression.parent) && expression.parent.name === expression)
+      || (ts.isSetAccessorDeclaration(expression.parent) && expression.parent.name === expression))) {
+    return expression.text;
   }
   if (ts.isStringLiteralLike(expression)) return expression.text;
   if (ts.isNumericLiteral(expression)) return Number(expression.text);
@@ -413,24 +421,41 @@ export function assignedSources(symbol: ts.Symbol, checker: ts.TypeChecker): Ass
     if (ts.isBinaryExpression(node) && assignmentMayStoreRight(node.operatorToken.kind)) {
       values.push(...assignedSourcesAtTarget(node.left, node.right, symbol, checker));
     }
-    if (ts.isForOfStatement(node) && !ts.isVariableDeclarationList(node.initializer)) {
-      const iterable = unwrap(node.expression);
-      if (ts.isArrayLiteralExpression(iterable)) {
-        for (const element of iterable.elements) {
-          if (ts.isOmittedExpression(element)) continue;
-          values.push(...assignedSourcesAtTarget(
-            node.initializer,
-            ts.isSpreadElement(element) ? element.expression : element,
-            symbol,
-            checker,
-          ));
+    if (ts.isForOfStatement(node)) {
+      const yielded = staticForOfValues(node.expression, checker);
+      const targets = ts.isVariableDeclarationList(node.initializer)
+        ? node.initializer.declarations.map(declaration => declaration.name)
+        : [node.initializer];
+      for (const target of targets) {
+        for (const value of yielded) {
+          values.push(...(ts.isIdentifier(target)
+            || ts.isObjectBindingPattern(target)
+            || ts.isArrayBindingPattern(target)
+            ? assignedSourcesAtBindingName(target, value, symbol, checker, {
+                assignedSourcesAtTarget,
+                propertyName,
+              })
+            : assignedSourcesAtTarget(target, value, symbol, checker)));
         }
-      } else {
-        values.push(...assignedSourcesAtTarget(node.initializer, node.expression, symbol, checker));
       }
     }
-    if (ts.isForInStatement(node) && !ts.isVariableDeclarationList(node.initializer)) {
-      values.push(...assignedSourcesAtTarget(node.initializer, node.expression, symbol, checker));
+    if (ts.isForInStatement(node)) {
+      const keys = staticForInKeys(node.expression, checker);
+      const targets = ts.isVariableDeclarationList(node.initializer)
+        ? node.initializer.declarations.map(declaration => declaration.name)
+        : [node.initializer];
+      for (const target of targets) {
+        for (const key of keys) {
+          values.push(...(ts.isIdentifier(target)
+            || ts.isObjectBindingPattern(target)
+            || ts.isArrayBindingPattern(target)
+            ? assignedSourcesAtBindingName(target, key, symbol, checker, {
+                assignedSourcesAtTarget,
+                propertyName,
+              })
+            : assignedSourcesAtTarget(target, key, symbol, checker)));
+        }
+      }
     }
     ts.forEachChild(node, visit);
   };

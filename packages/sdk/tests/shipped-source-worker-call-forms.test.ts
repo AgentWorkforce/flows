@@ -191,6 +191,25 @@ describe('shipped-source worker call forms', () => {
       expect(forOfCallableResult.calls).toBe(1);
       expect(forOfCallableResult.missing).toHaveLength(1);
 
+      const forOfIterableForms = [
+        `const workers = [f.agent]; let call: any; for (call of workers) call('review', { task: 'x' });`,
+        `let call: any; for (call of [...[f.agent]]) call('review', { task: 'x' });`,
+        `let call: any; for (call of flag ? [() => undefined] : [f.agent]) call('review', { task: 'x' });`,
+        `for (const call of [f.agent]) call('review', { task: 'x' });`,
+        `for (const [call] of [[f.agent]]) call('review', { task: 'x' });`,
+      ];
+      for (const [index, source] of forOfIterableForms.entries()) {
+        const file = join(directory, `for-of-iterable-${index}.flow.ts`);
+        writeFileSync(file, `
+          declare const f: { agent(name: string, options: { task: string }): void };
+          declare const flag: boolean;
+          ${source}
+        `);
+        const result = scanTypeScript(file);
+        expect(result.calls, source).toBe(1);
+        expect(result.missing, source).toHaveLength(1);
+      }
+
       const forInComputedCallable = join(directory, 'for-in-computed-callable.flow.ts');
       writeFileSync(forInComputedCallable, `
         declare const f: {
@@ -203,6 +222,27 @@ describe('shipped-source worker call forms', () => {
       const forInComputedResult = scanTypeScript(forInComputedCallable);
       expect(forInComputedResult.calls).toBe(1);
       expect(forInComputedResult.missing).toHaveLength(1);
+
+      const forInObjectCallable = join(directory, 'for-in-object-callable.flow.ts');
+      writeFileSync(forInObjectCallable, `
+        declare const f: { agent(name: string, options: { task: string }): void };
+        const box: any = { worker: f.agent };
+        let key: string;
+        for (key in box) box[key]('review', { task: 'x' });
+      `);
+      const forInObjectResult = scanTypeScript(forInObjectCallable);
+      expect(forInObjectResult.calls).toBe(1);
+      expect(forInObjectResult.missing).toHaveLength(1);
+
+      const forInDeclaredObjectCallable = join(directory, 'for-in-declared-object-callable.flow.ts');
+      writeFileSync(forInDeclaredObjectCallable, `
+        declare const f: { agent(name: string, options: { task: string }): void };
+        const box: any = { worker: f.agent };
+        for (const key in box) box[key]('review', { task: 'x' });
+      `);
+      const forInDeclaredObjectResult = scanTypeScript(forInDeclaredObjectCallable);
+      expect(forInDeclaredObjectResult.calls).toBe(1);
+      expect(forInDeclaredObjectResult.missing).toHaveLength(1);
 
       const alternateDestructuredWriter = join(directory, 'alternate-destructured-writer.flow.ts');
       writeFileSync(alternateDestructuredWriter, `
@@ -260,6 +300,17 @@ describe('shipped-source worker call forms', () => {
       const forOfWriterResult = scanTypeScript(forOfWriter);
       expect(forOfWriterResult.calls).toBe(1);
       expect(forOfWriterResult.missing).toHaveLength(1);
+
+      const forOfAliasWriter = join(directory, 'for-of-alias-writer.flow.ts');
+      writeFileSync(forOfAliasWriter, `
+        declare const f: { agent(name: string, options: { task: string }): void };
+        const box: any = {}, assigners = [Object.assign];
+        for (const assign of assigners) assign(box, { run: f.agent });
+        box.run('review', { task: 'x' });
+      `);
+      const forOfAliasWriterResult = scanTypeScript(forOfAliasWriter);
+      expect(forOfAliasWriterResult.calls).toBe(1);
+      expect(forOfAliasWriterResult.missing).toHaveLength(1);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `

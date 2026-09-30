@@ -40,6 +40,14 @@ export function staticPropertySegment(
   seen: Set<ts.Symbol>,
 ): BindingPathSegment | undefined {
   expression = unwrap(expression);
+  if (ts.isIdentifier(expression)
+    && ((ts.isPropertyAssignment(expression.parent) && expression.parent.name === expression)
+      || (ts.isShorthandPropertyAssignment(expression.parent) && expression.parent.name === expression)
+      || (ts.isMethodDeclaration(expression.parent) && expression.parent.name === expression)
+      || (ts.isGetAccessorDeclaration(expression.parent) && expression.parent.name === expression)
+      || (ts.isSetAccessorDeclaration(expression.parent) && expression.parent.name === expression))) {
+    return expression.text;
+  }
   if (ts.isStringLiteralLike(expression)) return expression.text;
   if (ts.isNumericLiteral(expression)) return Number(expression.text);
   const type = checker.getTypeAtLocation(expression);
