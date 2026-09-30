@@ -11,10 +11,11 @@ export async function checkAuthoredActivities(path: string): Promise<CheckExecut
   try {
     const source = await readFile(path, 'utf8');
     const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true);
+    const context = bodyContextNames(file);
     let diagnostic: string | undefined;
     const visit = (node: ts.Node): void => {
       if (diagnostic !== undefined) return;
-      if (ts.isCallExpression(node) && isContextOn(node.expression)) {
+      if (ts.isCallExpression(node) && isContextOn(node.expression, context)) {
         const options = node.arguments[1];
         if (options === undefined || !ts.isObjectLiteralExpression(options)) {
           diagnostic = 'body-level f.on() requires literal idle and deadline bounds (unbounded_subscription)';
@@ -42,9 +43,66 @@ export async function checkAuthoredActivities(path: string): Promise<CheckExecut
   }
 }
 
-function isContextOn(expression: ts.LeftHandSideExpression): boolean {
+interface ContextNames {
+  /** Identifiers bound to a body's flow context, e.g. `f` or `ctx`. */
+  readonly objects: Set<string>;
+  /** Local names bound to a destructured `on`, e.g. `({ on }) => on(...)`. */
+  readonly on: Set<string>;
+}
+
+type BodyFunction = ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclaration;
+
+/**
+ * Resolve the context parameter of every authored body in this file: the last
+ * function argument of a `flow(...)` call and the default export, inline or
+ * named by an identifier declared in the same file.
+ */
+function bodyContextNames(file: ts.SourceFile): ContextNames {
+  const functions = new Map<string, BodyFunction>();
+  const bodies: BodyFunction[] = [];
+  const references: string[] = [];
+  const addBody = (node: ts.Node | undefined): void => {
+    if (node === undefined) return;
+    if (ts.isArrowFunction(node) || ts.isFunctionExpression(node) || ts.isFunctionDeclaration(node)) bodies.push(node);
+    else if (ts.isIdentifier(node)) references.push(node.text);
+  };
+  const visit = (node: ts.Node): void => {
+    if (ts.isFunctionDeclaration(node) && node.name !== undefined) functions.set(node.name.text, node);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined
+      && (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))) {
+      functions.set(node.name.text, node.initializer);
+    }
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'flow') {
+      addBody(node.arguments[node.arguments.length - 1]);
+    }
+    if (ts.isExportAssignment(node) && !node.isExportEquals) addBody(node.expression);
+    if (ts.isFunctionDeclaration(node) && node.modifiers?.some(m => m.kind === ts.SyntaxKind.DefaultKeyword)) addBody(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  for (const name of references) {
+    const body = functions.get(name);
+    if (body !== undefined) bodies.push(body);
+  }
+  const names: ContextNames = { objects: new Set(), on: new Set() };
+  for (const body of bodies) {
+    const parameter = body.parameters[0]?.name;
+    if (parameter === undefined) continue;
+    if (ts.isIdentifier(parameter)) names.objects.add(parameter.text);
+    else if (ts.isObjectBindingPattern(parameter)) {
+      for (const element of parameter.elements) {
+        const key = element.propertyName ?? element.name;
+        if (ts.isIdentifier(key) && key.text === 'on' && ts.isIdentifier(element.name)) names.on.add(element.name.text);
+      }
+    }
+  }
+  return names;
+}
+
+function isContextOn(expression: ts.LeftHandSideExpression, context: ContextNames): boolean {
+  if (ts.isIdentifier(expression)) return context.on.has(expression.text);
   return ts.isPropertyAccessExpression(expression)
     && ts.isIdentifier(expression.expression)
-    && expression.expression.text === 'f'
+    && context.objects.has(expression.expression.text)
     && expression.name.text === 'on';
 }
