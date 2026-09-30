@@ -99,6 +99,9 @@ describe('shipped-source flow provenance repairs', () => {
         `{ function defineFlow({ o = { k: 'flow' as const } }: any) { const { [o.k]: define } = surface; define('parameter-default-key', { budget: '$2' }, () => {}); } defineFlow({ o: { k: 'task' } }); }`,
         `{ const [, defines] = [, [surface.flow]]; for (const define of defines) define('positional-hole', { budget: '$2' }, () => {}); }`,
         `{ const [defines] = flag ? [[() => undefined]] : [[surface.flow]]; for (const define of defines) define('positional-alternative', { budget: '$2' }, () => {}); }`,
+        `{ function first(): any[] { return second(); } function second(): any[] { return flag ? first() : [surface.flow]; } for (const define of first()) define('recursive-call-array', { budget: '$2' }, () => {}); }`,
+        `{ for (const define of [...items, surface.flow]) define('unknown-spread-callable', { budget: '$2' }, () => {}); }`,
+        `{ const box: any = {}; for (const op of [...items, Object.assign]) op(box, { define: surface.flow }); box.define('unknown-spread-writer', { budget: '$2' }, () => {}); }`,
       ];
       for (const [index, candidate] of cases.entries()) {
         const file = join(directory, `repaired-flow-${index}.flow.ts`);

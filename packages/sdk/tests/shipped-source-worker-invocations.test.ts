@@ -295,6 +295,9 @@ describe('shipped-source worker invocation resolution', () => {
         `function worker({ o = { k: 'agent' as const } }: any) { const { [o.k]: run } = f; run('review', { task: 'x' }); } worker({ o: { k: 'llm' } });`,
         `const [, workers] = [, [f.agent]]; for (const run of workers) run('review', { task: 'x' });`,
         `const [workers] = flag ? [[() => undefined]] : [[f.agent]]; for (const run of workers) run('review', { task: 'x' });`,
+        `function first(): any[] { return second(); } function second(): any[] { return flag ? first() : [f.agent]; } for (const run of first()) run('review', { task: 'x' });`,
+        `declare const unknownItems: any[]; for (const run of [...unknownItems, f.agent]) run('review', { task: 'x' });`,
+        `declare const unknownItems: any[]; const box: any = {}; for (const op of [...unknownItems, Object.assign]) op(box, { run: f.agent }); box.run('review', { task: 'x' });`,
       ];
       for (const [index, candidate] of repairedWorkerCases.entries()) {
         const repairedWorker = join(directory, `repaired-worker-${index}.flow.ts`);

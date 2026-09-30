@@ -10,6 +10,11 @@ export type StaticIterationSources = (
   checker: ts.TypeChecker,
 ) => AssignedSource[];
 
+interface ArrayCandidate {
+  unknownSpreads: ts.Expression[];
+  values: Array<ts.Expression | undefined>;
+}
+
 function unwrap(expression: ts.Expression): ts.Expression {
   while (ts.isParenthesizedExpression(expression)
     || ts.isAsExpression(expression)
@@ -133,31 +138,41 @@ function arrayCandidates(
   checker: ts.TypeChecker,
   sources: StaticIterationSources,
   seen: Set<ts.Symbol>,
-): Array<Array<ts.Expression | undefined>> {
+): ArrayCandidate[] {
   expression = unwrap(expression);
   const wrapped = branches(expression);
   if (wrapped) return wrapped.flatMap(branch =>
     arrayCandidates(branch, checker, sources, new Set(seen)));
   if (ts.isArrayLiteralExpression(expression)) {
-    let candidates: Array<Array<ts.Expression | undefined>> = [[]];
+    let candidates: ArrayCandidate[] = [{ unknownSpreads: [], values: [] }];
     for (const element of expression.elements) {
       if (ts.isOmittedExpression(element)) {
-        candidates.forEach(candidate => candidate.push(undefined));
+        candidates.forEach(candidate => candidate.values.push(undefined));
         continue;
       }
       if (!ts.isSpreadElement(element)) {
-        candidates.forEach(candidate => candidate.push(element));
+        candidates.forEach(candidate => candidate.values.push(element));
         continue;
       }
       const spread = arrayCandidates(element.expression, checker, sources, new Set(seen));
-      candidates = candidates.flatMap(prefix =>
-        spread.map(values => [...prefix, ...values]));
+      candidates = spread.length === 0
+        ? candidates.map(candidate => ({
+            unknownSpreads: [...candidate.unknownSpreads, element.expression],
+            values: [...candidate.values],
+          }))
+        : candidates.flatMap(prefix => spread.map(candidate => ({
+            unknownSpreads: [...prefix.unknownSpreads, ...candidate.unknownSpreads],
+            values: [...prefix.values, ...candidate.values],
+          })));
     }
     return candidates;
   }
   if (ts.isCallExpression(expression)) {
+    const symbol = checker.getSymbolAtLocation(unwrap(expression.expression));
+    if (symbol && seen.has(symbol)) return [];
+    const nextSeen = symbol ? new Set(seen).add(symbol) : new Set(seen);
     return expressionValues(expression, checker, seen).flatMap(value =>
-      arrayCandidates(value, checker, sources, new Set(seen)));
+      arrayCandidates(value, checker, sources, new Set(nextSeen)));
   }
   if (ts.isElementAccessExpression(expression) && expression.argumentExpression
     && expressionSegment(expression.argumentExpression, checker) === undefined) {
@@ -188,13 +203,20 @@ function arrayCandidates(
       sources,
       new Set(nextSeen),
     );
-    if (source.iterationValue) return values.map(value => [value]);
+    if (source.iterationValue) {
+      return values.map(value => ({ unknownSpreads: [], values: [value] }));
+    }
     if (source.rest?.kind === 'object') return [];
     const candidates = values.flatMap(value =>
       arrayCandidates(value, checker, sources, new Set(nextSeen)));
     const restStart = source.rest?.kind === 'array' ? source.rest.start : undefined;
     return restStart !== undefined
-      ? candidates.map(elements => elements.slice(restStart))
+      ? candidates.map(candidate => ({
+          ...candidate,
+          values: candidate.unknownSpreads.length > 0
+            ? candidate.values
+            : candidate.values.slice(restStart),
+        }))
       : candidates;
   });
 }
@@ -206,7 +228,10 @@ function arrayValues(
   seen: Set<ts.Symbol>,
 ): ts.Expression[] {
   return arrayCandidates(expression, checker, sources, seen)
-    .flatMap(candidate => candidate.filter((value): value is ts.Expression => value !== undefined));
+    .flatMap(candidate => [
+      ...candidate.values.filter((value): value is ts.Expression => value !== undefined),
+      ...candidate.unknownSpreads,
+    ]);
 }
 
 function objectMemberValues(
@@ -305,7 +330,14 @@ function valuesAtPath(
     ...(index === undefined
       ? []
       : arrayCandidates(expression, checker, sources, seen)
-        .flatMap(candidate => candidate[index] ? [candidate[index]!] : [])),
+        .flatMap(candidate => {
+          const selected = candidate.values[index] ? [candidate.values[index]!] : [];
+          return candidate.unknownSpreads.length === 0 ? selected : [
+            ...selected,
+            ...candidate.values.filter((value): value is ts.Expression => value !== undefined),
+            ...candidate.unknownSpreads,
+          ];
+        })),
   ];
   return tail.length === 0 ? values : values.flatMap(value =>
     valuesAtPath(value, tail, checker, sources, new Set(seen)));
