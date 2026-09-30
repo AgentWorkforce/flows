@@ -67,6 +67,10 @@ export function staticPropertySegment(
   const bindingCandidates: Array<BindingPathSegment | undefined> = [];
   if (binding) {
     const source = bindingSource(binding, checker, new Set(seen));
+    // A binding element owned by a parameter has no statically provable
+    // source. Its default applies only when the caller supplies undefined, so
+    // the caller-controlled value must remain an unknown alternative.
+    if (!source) bindingCandidates.push(undefined);
     const pathValues = source
       ? aggregateValuesAtPath(source.initializer, source.path, checker, new Set(seen))
       : [];
@@ -89,8 +93,10 @@ export function staticPropertySegment(
     .filter(source => !source.rest
       && assignedSourceMayPrecedeReference(source, symbol, expression));
   const declaration = symbol.declarations?.find(ts.isVariableDeclaration);
+  const parameter = symbol.declarations?.some(ts.isParameter);
   const candidates = [
     ...bindingCandidates,
+    ...(parameter ? [undefined] : []),
     ...(declaration?.initializer && declaration.initializer.getStart() < expression.getStart()
       ? [staticPropertySegment(declaration.initializer, checker, new Set(seen))]
       : []),

@@ -1,4 +1,5 @@
 import { communicationInstruction } from '../communication/spec.js';
+import { rememberResolvedCliIdentities } from '../resolved-cli-identity.js';
 import { checkCommunicationEnvironment } from '../communication/preflight.js';
 import { accessSync, constants, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, parse as parsePath, resolve } from 'node:path';
@@ -481,7 +482,8 @@ function bindResolvedCliPaths(
   probeCache: ReadonlyMap<string, CliProbeOutcome>,
 ): FlowSpec {
   const byStep = new Map(resolutions.map((resolution) => [resolution.stepId, resolution]));
-  return {
+  const identities = new Map<string, string>();
+  const bound: FlowSpec = {
     ...flow,
     steps: flow.steps.map((step) => {
       if (step.type === 'deterministic') return step;
@@ -496,11 +498,15 @@ function bindResolvedCliPaths(
       const boundCli = executable !== undefined && isAbsolute(executable)
         ? executable
         : canonicalCli(resolution.cli, directory);
+      if (executable !== undefined && isAbsolute(executable)) {
+        identities.set(step.id, resolution.cli);
+      }
       return { ...step, cli: boundCli,
         ...(resolution.modelSource === 'adapter' && resolution.model !== undefined
           ? { model: resolution.model } : {}) };
     }),
   };
+  return rememberResolvedCliIdentities(bound, identities);
 }
 
 function canonicalCli(cli: string, directory: string): string {

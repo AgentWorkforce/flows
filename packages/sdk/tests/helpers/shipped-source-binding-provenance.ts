@@ -122,6 +122,10 @@ function staticPropertySegment(
   const bindingCandidates: Array<BindingPathSegment | undefined> = [];
   if (binding) {
     const source = bindingSource(binding, checker, new Set(nextSeen));
+    // Parameter destructuring is initialized by the caller. Without a
+    // provable source, a default or later assignment cannot erase that
+    // unknown initial alternative.
+    if (!source) bindingCandidates.push(undefined);
     const sourceValue = source ? staticPropertySegmentAtPath(
       source.initializer,
       source.path,
@@ -143,8 +147,10 @@ function staticPropertySegment(
     }
   }
   const declaration = symbol.declarations?.find(ts.isVariableDeclaration);
+  const parameter = symbol.declarations?.some(ts.isParameter);
   const candidates = [
     ...bindingCandidates,
+    ...(parameter ? [undefined] : []),
     ...(declaration?.initializer && declaration.initializer.getStart() < expression.getStart()
       ? [staticPropertySegment(declaration.initializer, checker, new Set(nextSeen))]
       : []),

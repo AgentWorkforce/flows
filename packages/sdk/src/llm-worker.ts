@@ -58,11 +58,13 @@ export class LlmWorker extends EventEmitter {
     const schema = spec.verification?.json_schema;
     const prompt = schema === undefined ? spec.prompt
       : `${spec.prompt}\n\nReturn only a JSON value matching this JSON Schema (no Markdown fences):\n${JSON.stringify(schema)}`;
-    const effectiveModel = typeof spec.cli === 'string' ? resolveCliModel(spec.cli, spec.model) : spec.model;
+    const effectiveModel = typeof spec.cli === 'string'
+      ? resolveCliModel(spec.cli_identity ?? spec.cli, spec.model)
+      : spec.model;
     const completed: WorkerCliResult = await withWorkerLease(this.client, dispatch, signal =>
       typeof spec.cli === 'string' && typeof spec.prompt === 'string'
         ? runAgentCli(spec.cli, workerInstruction(prompt, dispatch), dispatch.wake_context, effectiveModel, undefined, signal, 'llm',
-          undefined, undefined, 'direct', undefined, this.environment)
+          undefined, undefined, 'direct', undefined, this.environment, spec.cli_identity)
         : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'llm step has no declared CLI' }));
     const { result, usage } = workerSpend(completed, effectiveModel);
     const cost = reportedCost(completed, effectiveModel);

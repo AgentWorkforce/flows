@@ -99,6 +99,37 @@ process.stdout.write(JSON.stringify({ type: 'result', result: 'ok',
     expect(result.exit_code).toBe(0);
     expect(JSON.parse(readFileSync(observed, 'utf8'))).toEqual({ secret: 'house-secret', ambient: null });
   });
+
+  it('dispatches canonical generic bytes with the preflight-proved adapter identity', async () => {
+    const directory = makeDirectory();
+    const calls = join(directory, 'canonical-calls.json');
+    const canonical = makeWrapper(directory, 'provider-cli.js', `
+const fs = require('node:fs');
+fs.writeFileSync(${JSON.stringify(calls)}, JSON.stringify(process.argv.slice(2)));
+process.stdout.write(JSON.stringify({ type: 'result', result: 'canonical-ok',
+  usage: { input_tokens: 2, output_tokens: 1 } }) + '\\n');
+`);
+    const result = await runAgentCli(
+      canonical,
+      'do the task',
+      undefined,
+      'claude-sonnet-5',
+      undefined,
+      undefined,
+      'agent',
+      undefined,
+      undefined,
+      'direct',
+      undefined,
+      process.env,
+      'claude',
+    );
+    expect(result).toMatchObject({ exit_code: 0, stdout_tail: 'canonical-ok' });
+    expect(JSON.parse(readFileSync(calls, 'utf8'))).toEqual([
+      '-p', '--dangerously-skip-permissions', '--model', 'claude-sonnet-5',
+      '--output-format', 'stream-json', '--verbose', 'do the task',
+    ]);
+  });
 });
 
 describe('step discovery environment', () => {

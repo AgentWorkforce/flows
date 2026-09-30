@@ -153,6 +153,30 @@ describe('composing flow extensions onto a base flow', () => {
     expect(composed?.handlers).toHaveLength(12);
     expect(Object.isFrozen(composed) && Object.isFrozen(composed.handlers)).toBe(true);
   });
+  it('ignores inherited budget fields installed during extension entry evaluation', async () => {
+    const p = project(`
+      import { flow, github } from '@relayflows/surface';
+      export default flow('software-factory', { budget: { wallclock: '1h' } }, async f => { f.done('success'); })
+        .on(github.issues({ action: 'opened' }), async f => { f.done('success'); });
+    `);
+    const originalEntry = readFileSync(join(fixtureRoot, 'extension-babysitter/babysitter.flow.ts'), 'utf8');
+    const entry = originalEntry
+      .replace("import { flow, github, type Ctx } from '@relayflows/surface';", `import { flow, github, type Ctx } from '@relayflows/surface';
+Object.defineProperty(Object.prototype, 'tokens', { configurable: true, value: 1 });
+Object.defineProperty(Object.prototype, 'dollars', { configurable: true, value: 1 });`)
+      .replace("{ tokens: 800_000, dollars: 8, wallclock: '45m' }", "{ wallclock: '30m' }");
+    try {
+      await install(p, variant(manifest => ({
+        ...manifest,
+        permissions: { ...(manifest.permissions as object), budget: { wallclock: '45m' } },
+      }), entry));
+      const loaded = await loadAuthoredFlow(p.flow, { versions });
+      expect(loaded.getDefinition(loaded.handle).header.budget).toEqual({ wallclock: '30m' });
+    } finally {
+      delete (Object.prototype as { tokens?: unknown }).tokens;
+      delete (Object.prototype as { dollars?: unknown }).dollars;
+    }
+  });
   it('retains every declared handler while the extension entry poisons the array iterator', async () => {
     const p = project();
     const entry = `

@@ -14,6 +14,7 @@ const JSON_PARSE = JSON.parse;
 const ARRAY_IS_ARRAY = Array.isArray;
 const JSON_STRINGIFY = JSON.stringify;
 const NUMBER = Number;
+const OBJECT_GET_OWN_PROPERTY_DESCRIPTOR = Object.getOwnPropertyDescriptor;
 const OBJECT_FREEZE = Object.freeze;
 const POSITIVE_INFINITY = Number.POSITIVE_INFINITY;
 const REGEXP_EXEC = Function.prototype.call.bind(RegExp.prototype.exec) as (
@@ -79,6 +80,17 @@ export interface LoadFlowExtensionsOptions<Authority> {
 
 const EXTENSION_HEADER_FIELDS = new Set(['budget', 'tools']);
 const WALLCLOCK_MS = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
+type StructuredFlowBudget = Exclude<NonNullable<AuthoredFlowDefinition['header']['budget']>, string>;
+
+function ownBudgetField<K extends keyof StructuredFlowBudget>(
+  budget: StructuredFlowBudget,
+  field: K,
+): StructuredFlowBudget[K] | undefined {
+  const descriptor = OBJECT_GET_OWN_PROPERTY_DESCRIPTOR(budget, field);
+  return descriptor !== undefined && 'value' in descriptor
+    ? descriptor.value as StructuredFlowBudget[K]
+    : undefined;
+}
 
 function wallclockMs(value: string): number | undefined {
   const match = REGEXP_EXEC(/^(\d+)(ms|s|m|h|d)$/, value);
@@ -120,12 +132,15 @@ function composeBudget(
   let wallclockLimit = POSITIVE_INFINITY;
   for (let index = 0; index < budgets.length; index += 1) {
     const budget = budgets[index]!;
-    if (budget.tokens !== undefined && (tokens === undefined || budget.tokens < tokens)) tokens = budget.tokens;
-    if (budget.dollars !== undefined && (dollars === undefined || budget.dollars < dollars)) dollars = budget.dollars;
-    if (budget.wallclock !== undefined) {
-      const candidate = wallclockMs(budget.wallclock) ?? POSITIVE_INFINITY;
+    const budgetTokens = ownBudgetField(budget, 'tokens');
+    const budgetDollars = ownBudgetField(budget, 'dollars');
+    const budgetWallclock = ownBudgetField(budget, 'wallclock');
+    if (budgetTokens !== undefined && (tokens === undefined || budgetTokens < tokens)) tokens = budgetTokens;
+    if (budgetDollars !== undefined && (dollars === undefined || budgetDollars < dollars)) dollars = budgetDollars;
+    if (budgetWallclock !== undefined) {
+      const candidate = wallclockMs(budgetWallclock) ?? POSITIVE_INFINITY;
       if (wallclock === undefined || candidate < wallclockLimit) {
-        wallclock = budget.wallclock;
+        wallclock = budgetWallclock;
         wallclockLimit = candidate;
       }
     }
@@ -311,17 +326,23 @@ async function loadOne<Authority>(
   if (ceiling !== undefined && typeof baseBudget === 'string') {
     throw new PluginError('plugin_incompatible', `${manifest.name} declares a structured budget ceiling that cannot compose with the base flow's shorthand budget.`);
   }
-  if (ceiling?.tokens !== undefined && typeof baseBudget === 'object' && baseBudget.tokens !== undefined && ceiling.tokens > baseBudget.tokens) {
-    throw new PluginError('plugin_incompatible', `${manifest.name} declares a ${ceiling.tokens}-token budget ceiling above the base flow's ${baseBudget.tokens}-token ceiling.`);
+  const ceilingTokens = ceiling === undefined ? undefined : ownBudgetField(ceiling, 'tokens');
+  const ceilingDollars = ceiling === undefined ? undefined : ownBudgetField(ceiling, 'dollars');
+  const ceilingWallclock = ceiling === undefined ? undefined : ownBudgetField(ceiling, 'wallclock');
+  const baseTokens = typeof baseBudget === 'object' ? ownBudgetField(baseBudget, 'tokens') : undefined;
+  const baseDollars = typeof baseBudget === 'object' ? ownBudgetField(baseBudget, 'dollars') : undefined;
+  const baseWallclock = typeof baseBudget === 'object' ? ownBudgetField(baseBudget, 'wallclock') : undefined;
+  if (ceilingTokens !== undefined && baseTokens !== undefined && ceilingTokens > baseTokens) {
+    throw new PluginError('plugin_incompatible', `${manifest.name} declares a ${ceilingTokens}-token budget ceiling above the base flow's ${baseTokens}-token ceiling.`);
   }
-  if (ceiling?.dollars !== undefined && typeof baseBudget === 'object' && baseBudget.dollars !== undefined && ceiling.dollars > baseBudget.dollars) {
-    throw new PluginError('plugin_incompatible', `${manifest.name} declares a $${ceiling.dollars} budget ceiling above the base flow's $${baseBudget.dollars}.`);
+  if (ceilingDollars !== undefined && baseDollars !== undefined && ceilingDollars > baseDollars) {
+    throw new PluginError('plugin_incompatible', `${manifest.name} declares a $${ceilingDollars} budget ceiling above the base flow's $${baseDollars}.`);
   }
-  if (ceiling?.wallclock !== undefined && typeof baseBudget === 'object' && baseBudget.wallclock !== undefined) {
-    const pluginMs = wallclockMs(ceiling.wallclock);
-    const baseMs = wallclockMs(baseBudget.wallclock);
+  if (ceilingWallclock !== undefined && baseWallclock !== undefined) {
+    const pluginMs = wallclockMs(ceilingWallclock);
+    const baseMs = wallclockMs(baseWallclock);
     if (pluginMs !== undefined && baseMs !== undefined && pluginMs > baseMs) {
-      throw new PluginError('plugin_incompatible', `${manifest.name} declares a ${ceiling.wallclock} wallclock ceiling above the base flow's ${baseBudget.wallclock}.`);
+      throw new PluginError('plugin_incompatible', `${manifest.name} declares a ${ceilingWallclock} wallclock ceiling above the base flow's ${baseWallclock}.`);
     }
   }
   const entryPath = join(directory, manifest.entry);

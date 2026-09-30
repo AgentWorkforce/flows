@@ -163,10 +163,17 @@ function flowConstructor(
   seen = new Set<ts.Symbol>(),
 ): FlowCallable | undefined {
   expression = unwrap(expression);
-  if (memberName(expression, checker, new Set(seen)) === 'flow') {
+  const direct = memberName(expression, checker, new Set(seen));
+  if (direct === 'flow') {
     const receiver = memberReceiver(expression);
     const auditable = receiver ? namespaceAuditable(receiver, checker) : undefined;
     if (auditable !== undefined) return { args: [], auditable };
+  }
+  if (ts.isElementAccessExpression(expression) && direct === undefined) {
+    const receiver = expression.expression;
+    if (checker.getTypeAtLocation(receiver).getProperty('flow')) {
+      return { args: [], auditable: false };
+    }
   }
   if (ts.isCallExpression(expression)
     && memberName(expression.expression, checker, new Set(seen)) === 'bind') {

@@ -92,13 +92,14 @@ export async function runAgentCli(
   transport: AgentTransport = 'direct',
   relayContext?: AgentRelayContext,
   processEnvironment: NodeJS.ProcessEnv = process.env,
+  cliIdentity?: string,
 ): Promise<WorkerCliResult> {
   signal?.throwIfAborted();
   if (signal !== undefined && process.platform === 'win32') {
     throw new Error('Lease-bound agent execution requires macOS or Linux process-group cancellation; Windows is unsupported.');
   }
-  const kind = cliAdapterKind(cli);
-  const effectiveModel = resolveCliModel(cli, model);
+  const kind = cliAdapterKind(cliIdentity ?? cli);
+  const effectiveModel = resolveCliModel(cliIdentity ?? cli, model);
 
   if (mode === 'agent' && transport === 'relay') {
     return runViaAgentRelay(kind, instruction, wakeContext, effectiveModel, relayContext, cwd, signal);

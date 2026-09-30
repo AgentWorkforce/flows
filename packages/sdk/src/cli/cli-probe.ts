@@ -83,7 +83,11 @@ function* probeSequence(
 ): Generator<ProbeRequest, CliProbeResult, ProbeOutput> {
   const executable = yield* executableSequence(cli, directory, sourceEnvironment);
   if (executable === undefined) return { exists: false, authenticated: false };
-  const kind = cliAdapterKind(executable);
+  // The declaration selects the adapter; the canonical executable selects
+  // the bytes. Package-manager links commonly name `claude` or `codex` while
+  // targeting a generic `cli.js`, whose basename must not rewrite the adapter
+  // contract after resolution.
+  const kind = cliAdapterKind(cli);
   // Relay owns interactive CLI launch/injection. Its generic PTY path is not
   // the headless wrapper protocol; do not demand that protocol from Gemini,
   // Cursor, OpenCode, or other interactive tools. Never invent an auth pass.
@@ -91,7 +95,7 @@ function* probeSequence(
     return { exists: true, supported: true, authenticated: 'unverified', executable };
   }
   const environment = execution === 'managed'
-    ? { ...brokerEnvironment(sourceEnvironment), ...agentEnvironment(executable, sourceEnvironment) }
+    ? { ...brokerEnvironment(sourceEnvironment), ...agentEnvironment(cli, sourceEnvironment) }
     : sourceEnvironment;
   const probe = (invocation: CliInvocation): ProbeRequest => ({ executable, directory, invocation, environment });
   const identification = adapterIdentification(kind);

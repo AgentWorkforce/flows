@@ -160,6 +160,53 @@ fn the_full_ladder_parses_in_the_one_dialect() {
 }
 
 #[test]
+fn cli_identity_is_internal_to_provider_steps() {
+    for step in [
+        json!({
+            "id": "llm",
+            "type": "llm",
+            "prompt": "plan",
+            "cli": "/store/provider-cli.js",
+            "cli_identity": "claude"
+        }),
+        json!({
+            "id": "agent",
+            "type": "agent",
+            "instruction": "edit",
+            "cli": "/store/provider-cli.js",
+            "cli_identity": "codex"
+        }),
+    ] {
+        let spec = RunSpec::parse(&json!({ "steps": [step] })).unwrap();
+        assert!(spec.validate().is_ok());
+    }
+
+    assert!(matches!(
+        RunSpec::parse(&json!({
+            "steps": [{
+                "id": "shell",
+                "type": "deterministic",
+                "command": "true",
+                "cli_identity": "claude"
+            }]
+        })),
+        Err(SpecError::UnknownField { field, .. }) if field == "cli_identity"
+    ));
+    let empty = RunSpec::parse(&json!({
+        "steps": [{
+            "id": "agent",
+            "type": "agent",
+            "instruction": "edit",
+            "cli": "/store/provider-cli.js",
+            "cli_identity": " "
+        }]
+    }))
+    .unwrap();
+    assert!(matches!(empty.validate(), Err(SpecError::Malformed(message))
+        if message.contains("cli_identity")));
+}
+
+#[test]
 fn external_surface_paths_must_have_one_canonical_spelling() {
     for path in [
         "",
