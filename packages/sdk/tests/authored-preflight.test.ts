@@ -7,7 +7,7 @@ import { SPEC_SCHEMA_VERSION, type FlowSpec } from '../src/spec.js';
 
 const directories: string[] = [];
 afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }); });
-function setup(environment?: NodeJS.ProcessEnv) {
+function setup(environment?: NodeJS.ProcessEnv, bareCli = false) {
   const directory = mkdtempSync(join(tmpdir(), 'authored-preflight-'));
   directories.push(directory);
   const calls = join(directory, 'calls');
@@ -19,8 +19,11 @@ if (process.argv[2] === '--relayflows-adapter-v1') console.log('relayflows-agent
 else process.exit(process.env.ANTHROPIC_API_KEY === 'house-key' ? 0 : 1);
 `);
   chmodSync(cli, 0o755);
-  writeFileSync(join(directory, 'flows.json'), JSON.stringify({ cli, models: ['allowed'] }));
-  return { calls, check: authoredPreflight(join(directory, 'test.flow.ts'), environment) };
+  writeFileSync(join(directory, 'flows.json'), JSON.stringify({ cli: bareCli ? 'wrapper' : cli, models: ['allowed'] }));
+  const probeEnvironment = bareCli
+    ? { ...environment, PATH: `${directory}:${environment?.PATH ?? process.env.PATH ?? ''}` }
+    : environment;
+  return { calls, cli, check: authoredPreflight(join(directory, 'test.flow.ts'), probeEnvironment) };
 }
 function spec(id: string, model = 'allowed'): FlowSpec {
   return { version: SPEC_SCHEMA_VERSION, name: 'test', steps: [{ id, type: 'llm', prompt: 'hello', model }] };
@@ -57,6 +60,8 @@ it('shares failed facts across callers but retains each step identity', async ()
 });
 
 it('uses the isolated provider environment during authored agent preflight', async () => {
-  const { check } = setup({ ...process.env, ANTHROPIC_API_KEY: 'house-key' });
-  expect((await check(agentSpec('one'))).report.ok).toBe(true);
+  const { check, cli } = setup({ ...process.env, ANTHROPIC_API_KEY: 'house-key' }, true);
+  const result = await check(agentSpec('one'));
+  expect(result.report.ok).toBe(true);
+  expect(result.flow?.steps[0]).toEqual(expect.objectContaining({ cli }));
 });
