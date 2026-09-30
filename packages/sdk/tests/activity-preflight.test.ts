@@ -21,6 +21,10 @@ it.each([
   ['a renamed context', 'flow("x", async (ctx) => { ctx.on(source, { idle: "1h" }); })'],
   ['a destructured on', 'flow("x", { use: [] }, async ({ on: listen }) => { listen(source, { deadline: "1d" }); })'],
   ['a named body', 'async function body(context) { context.on(source, options); }\nexport default flow("x", body);'],
+  ['a trigger handler', 'export default flow("x", async (f) => f.done("success"))\n'
+    + '  .on(webhook("push"), async (ctx) => { ctx.on(source, { idle: "1h" }); });'],
+  ['a chained trigger handler on a stored handle', 'const handle = flow("x", async (f) => f.done("success")).on(a, async () => {});\n'
+    + 'export default handle.on(webhook("push"), async ({ on }) => { on(source, {}); });'],
 ])('refuses an unbounded f.on through %s', async (_case, body) => {
   const directory = mkdtempSync(join(tmpdir(), 'flows-activity-check-'));
   directories.push(directory);

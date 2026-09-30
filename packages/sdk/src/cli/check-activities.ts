@@ -57,11 +57,20 @@ type BodyFunction = ts.ArrowFunction | ts.FunctionExpression | ts.FunctionDeclar
 
 /**
  * Every authored body in this file: the last function argument of a
- * `flow(...)` call and the default export, inline or named by an identifier
+ * `flow(...)` call, each trigger handler registered with `.on(trigger, body)`
+ * on a flow handle, and the default export, inline or named by an identifier
  * declared in the same file. Only these bodies are checked.
  */
 function authoredBodies(file: ts.SourceFile): Set<BodyFunction> {
   const functions = new Map<string, BodyFunction>();
+  const handles = new Set<string>();
+  const isFlowHandle = (node: ts.Expression): boolean => {
+    if (ts.isIdentifier(node)) return handles.has(node.text);
+    if (!ts.isCallExpression(node)) return false;
+    if (ts.isIdentifier(node.expression)) return node.expression.text === 'flow';
+    return ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'on'
+      && isFlowHandle(node.expression.expression);
+  };
   const bodies = new Set<BodyFunction>();
   const references: string[] = [];
   const addBody = (node: ts.Node | undefined): void => {
@@ -75,8 +84,16 @@ function authoredBodies(file: ts.SourceFile): Set<BodyFunction> {
       && (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))) {
       functions.set(node.name.text, node.initializer);
     }
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined
+      && isFlowHandle(node.initializer)) {
+      handles.add(node.name.text);
+    }
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'flow') {
       addBody(node.arguments[node.arguments.length - 1]);
+    }
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+      && node.expression.name.text === 'on' && isFlowHandle(node.expression.expression)) {
+      addBody(node.arguments[1]);
     }
     if (ts.isExportAssignment(node) && !node.isExportEquals) addBody(node.expression);
     if (ts.isFunctionDeclaration(node) && node.modifiers?.some(m => m.kind === ts.SyntaxKind.DefaultKeyword)) addBody(node);
