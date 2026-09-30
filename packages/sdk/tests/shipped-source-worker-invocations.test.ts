@@ -344,10 +344,12 @@ describe('shipped-source worker invocation resolution', () => {
         { const box: any = {}; function key(...values: any[]) { return values[0]; } box[key('run')] = f.agent; box.run('review', { task: 'x' }); }
         { const box: any = {}; function key({ name }: any) { return name; } box[key({ name: 'run' })] = f.agent; box.run('review', { task: 'x' }); }
         { const box: any = {}; function key([skip, ...rest]: any[]) { return rest[0]; } box[key([undefined, 'run'])] = f.agent; box.run('review', { task: 'x' }); }
+        { const box: any = {}; function id(value: any) { return value; } let alias: any; Object.assign((alias = id(box)), { run: f.agent }); box.run('review', { task: 'x' }); }
+        { const box: any = {}; function id(value: any) { return value; } let alias: any; Object.assign((alias ||= id(box)), { run: f.agent }); box.run('review', { task: 'x' }); }
       `);
       const formalAndReceiverResult = scanTypeScript(formalAndReceiverRepairs);
-      expect(formalAndReceiverResult.calls).toBe(61);
-      expect(formalAndReceiverResult.missing).toHaveLength(61);
+      expect(formalAndReceiverResult.calls).toBe(63);
+      expect(formalAndReceiverResult.missing).toHaveLength(63);
 
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `

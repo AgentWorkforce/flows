@@ -357,8 +357,10 @@ describe('shipped-source model provenance', () => {
         { const box: any = {}; function key(...values: any[]) { return values[0]; } box[key('define')] = surface.flow; box.define('rest-parameter-local-call-key', { budget: '$2' }, () => {}); }
         { const box: any = {}; function key({ name }: any) { return name; } box[key({ name: 'define' })] = surface.flow; box.define('object-binding-local-call-key', { budget: '$2' }, () => {}); }
         { const box: any = {}; function key([skip, ...rest]: any[]) { return rest[0]; } box[key([undefined, 'define'])] = surface.flow; box.define('array-rest-local-call-key', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function id(value: any) { return value; } let alias: any; Object.assign((alias = id(box)), { define: surface.flow }); box.define('reflective-assignment-local-call-receiver', { budget: '$2' }, () => {}); }
+        { const box: any = {}; function id(value: any) { return value; } let alias: any; Object.assign((alias ||= id(box)), { define: surface.flow }); box.define('reflective-logical-assignment-local-call-receiver', { budget: '$2' }, () => {}); }
       `);
-      expect(scanTypeScript(formalAndReceiverRepairs).invalidFlowHeaders).toHaveLength(61);
+      expect(scanTypeScript(formalAndReceiverRepairs).invalidFlowHeaders).toHaveLength(63);
       const computedBindingCases = [
         `{ const original = 'flow' as const, key = original; const { [key]: define } = surface; define('renamed', { budget: '$2' }, () => {}); }`,
         `{ const { key } = { key: 'flow' as const }; const { [key]: define } = surface; define('binding', { budget: '$2' }, () => {}); }`,

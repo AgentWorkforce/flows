@@ -39,7 +39,8 @@
 // `isAuthorizedConflictCommander`) and unit-tested, but nothing dispatches it.
 
 import { flow, github } from "@relayflows/surface";
-import { isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // ── input ───────────────────────────────────────────────────────────────────
 
@@ -76,6 +77,7 @@ export interface Input {
 
 export const REVIEW_FILE = ".workforce/review.md";
 export const DEFAULT_SKIP_LABEL = "no-agent-relay-review";
+export const LEGACY_REVIEWER_FLOW_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 
 // ── the flow ────────────────────────────────────────────────────────────────
 
@@ -109,8 +111,8 @@ const reviewerBody = flow<Input>(
     // Approval-only wakes never dispatch the reviewer. Review wakes still
     // prove the exact pair before their first GitHub or checkout effect.
     const reviewerModel = requiredReviewerModel(reviewerCli, input.reviewerModel);
-    const reviewerExecutable = reviewerExecutableFrom(reviewerCli, process.cwd());
-    await assertReviewerPairReady(f, reviewerExecutable, reviewerModel, process.cwd());
+    const reviewerExecutable = reviewerExecutableFrom(reviewerCli, LEGACY_REVIEWER_FLOW_DIRECTORY);
+    await assertReviewerPairReady(f, reviewerExecutable, reviewerModel, LEGACY_REVIEWER_FLOW_DIRECTORY);
 
     // ── review gate: merged/closed, draft, disabling label, author allowlist ──
     const meta = JSON.parse(await api(`/pulls/${pr.number}`)) as PrMeta;

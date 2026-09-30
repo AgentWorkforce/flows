@@ -1,5 +1,6 @@
 import ts from 'typescript';
 import {
+  assignmentMayStoreRight,
   bindingSource,
   type BindingPathSegment,
 } from './shipped-source-binding-provenance.js';
@@ -57,6 +58,13 @@ function memberAssignmentPaths(
   const branches = wrappedExpressionBranches(expression);
   if (branches) return branches.flatMap(branch =>
     memberAssignmentPaths(branch, checker, new Set(seen), callerPath));
+  if (ts.isBinaryExpression(expression) && assignmentMayStoreRight(expression.operatorToken.kind)) {
+    const candidates = expression.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      ? [expression.right]
+      : [expression.left, expression.right];
+    return candidates.flatMap(candidate =>
+      memberAssignmentPaths(candidate, checker, new Set(seen), callerPath));
+  }
   if (ts.isIdentifier(expression)) {
     const symbol = checker.getSymbolAtLocation(expression);
     if (!symbol) return [];

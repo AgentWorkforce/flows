@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { babysit, generatedModelForCli, requiredReviewerModel } from '../babysitter.flow.ts';
 import {
+  LEGACY_REVIEWER_FLOW_DIRECTORY,
   requiredReviewerModel as requiredLegacyReviewerModel,
   reviewer as legacyReviewer,
   reviewerExecutableFrom,
@@ -78,7 +79,7 @@ test('legacy reviewer probes and dispatches the same resolved wrapper', async ()
     }),
     /captured agent dispatch/,
   );
-  const executable = reviewerExecutableFrom('./tools/reviewer', process.cwd());
+  const executable = reviewerExecutableFrom('./tools/reviewer', LEGACY_REVIEWER_FLOW_DIRECTORY);
   assert.match(x.commands[0]!, new RegExp(executable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.equal(x.agentCalls[0]?.cli, executable);
   assert.equal(x.agentCalls[0]?.model, 'exact-model');
