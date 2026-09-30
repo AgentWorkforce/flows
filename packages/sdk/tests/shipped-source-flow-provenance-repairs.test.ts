@@ -31,6 +31,7 @@ describe('shipped-source flow provenance repairs', () => {
         `{ const box: any = {}; function id(value: any) { return value; } box[id(id({ name: 'define' })).name] = surface.flow; box.define('nested-same-helper-caller-path', { budget: '$2' }, () => {}); }`,
         `{ const box: any = {}; const source = flag ? { key: 'other' as const } : { key: runtimeKey }; declare const runtimeKey: string; const { key } = source; box[key] = surface.flow; box.define('unresolved-aggregate-key', { budget: '$2' }, () => {}); }`,
         `{ const box: any = {}; const captured = flag ? { keys: { value: 'other' as const } } : { keys: { value: 'define' as const } }; function get() { return captured.keys; } box[get().value] = surface.flow; box.define('captured-parent-alternatives', { budget: '$2' }, () => {}); }`,
+        `{ const box: any = {}; let key = 'other'; if (flag) key = 'define'; box[key] = surface.flow; box.define('mutable-initializer-key', { budget: '$2' }, () => {}); }`,
         `{ const box: any = {}, a: any = {}, b: any = {}; a.descriptors = b.descriptors; b.descriptors = a.descriptors; b.descriptors = { define: { value: surface.flow } }; Object.defineProperties(box, a.descriptors); box.define('cyclic-descriptor-map', { budget: '$2' }, () => {}); }`,
         `{ const box: any = {}, a: any = {}, b: any = {}; a.getter = b.getter; b.getter = a.getter; b.getter = () => surface.flow; Object.defineProperty(box, 'define', { get: a.getter }); box.define('cyclic-getter-alias', { budget: '$2' }, () => {}); }`,
       ];

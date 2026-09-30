@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { babysit, generatedModelForCli, requiredReviewerModel } from '../babysitter.flow.ts';
+import {
+  BABYSITTER_FLOW_DIRECTORY,
+  assertReviewerPairReady,
+  babysit,
+  generatedModelForCli,
+  requiredReviewerModel,
+  reviewerExecutableFrom as modernReviewerExecutableFrom,
+} from '../babysitter.flow.ts';
 import {
   LEGACY_REVIEWER_FLOW_DIRECTORY,
   requiredReviewerModel as requiredLegacyReviewerModel,
@@ -69,6 +76,11 @@ test('legacy reviewer binds slash-relative wrappers before probing and dispatch'
   assert.equal(reviewerExecutableFrom('/opt/reviewer', '/tmp/flow root'), '/opt/reviewer');
   assert.equal(reviewerExecutableFrom('claude', '/tmp/flow root'), 'claude');
 });
+test('modern reviewer binds slash-relative wrappers before probing and dispatch', () => {
+  assert.equal(modernReviewerExecutableFrom('./tools/reviewer', '/tmp/flow root'), '/tmp/flow root/tools/reviewer');
+  assert.equal(modernReviewerExecutableFrom('/opt/reviewer', '/tmp/flow root'), '/opt/reviewer');
+  assert.equal(modernReviewerExecutableFrom('claude', '/tmp/flow root'), 'claude');
+});
 test('legacy reviewer probes and dispatches the same resolved wrapper', async () => {
   const body = getFlowDefinition(legacyReviewer).body;
   const x = context(state, undefined, true);
@@ -112,6 +124,21 @@ test('unavailable legacy reviewer pair fails before GitHub or repository effects
   assert.match(x.commands[0]!, /--probe-cli/);
   assert.match(x.commands[0]!, /'claude' 'unavailable-exact-model'/);
   assert.doesNotMatch(x.commands[0]!, /command -v flows|cli-probe\.js|curl|git fetch|git checkout|\.workforce/);
+  assert.equal(x.agents(), 0);
+});
+test('modern reviewer readiness fails closed before capture commands are possible', async () => {
+  const x = context(state, {
+    exists: true, supported: true, authenticated: true, modelAvailable: false,
+  });
+  await assert.rejects(
+    assertReviewerPairReady(x.f, 'claude', 'unavailable-exact-model', BABYSITTER_FLOW_DIRECTORY),
+    /Reviewer model "unavailable-exact-model" is unavailable through "claude"/,
+  );
+  assert.equal(x.commands.length, 1);
+  assert.match(x.commands[0]!, /--probe-cli/);
+  assert.match(x.commands[0]!, /'claude' 'unavailable-exact-model'/);
+  assert.match(x.commands[0]!, new RegExp(BABYSITTER_FLOW_DIRECTORY.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.ok(x.commands.every(command => !/mktemp|git clone|git fetch/.test(command)));
   assert.equal(x.agents(), 0);
 });
 test('approval-only legacy wakes do not probe an unused reviewer pair', async () => {

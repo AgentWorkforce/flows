@@ -87,16 +87,20 @@ function staticPropertySegment(
       if (value !== undefined) return value;
     }
   }
-  const assigned = assignedSources(symbol, checker)
-    .filter(source => source.path.length === 0)
-    .map(source => staticPropertySegment(source.initializer, checker, new Set(nextSeen)));
-  const firstAssigned = assigned[0];
-  if (firstAssigned !== undefined
-    && assigned.every(value => value !== undefined && value === firstAssigned)) return firstAssigned;
   const declaration = symbol.declarations?.find(ts.isVariableDeclaration);
-  if (!declaration?.initializer || !ts.isVariableDeclarationList(declaration.parent)
-    || (declaration.parent.flags & ts.NodeFlags.Const) === 0) return undefined;
-  return staticPropertySegment(declaration.initializer, checker, nextSeen);
+  const candidates = [
+    ...(declaration?.initializer && declaration.initializer.getStart() < expression.getStart()
+      ? [staticPropertySegment(declaration.initializer, checker, new Set(nextSeen))]
+      : []),
+    ...assignedSources(symbol, checker)
+      .filter(source => source.path.length === 0 && source.initializer.getStart() < expression.getStart())
+      .map(source => staticPropertySegment(source.initializer, checker, new Set(nextSeen))),
+  ];
+  const first = candidates[0];
+  return first !== undefined
+    && candidates.every(value => value !== undefined && value === first)
+    ? first
+    : undefined;
 }
 
 function staticPropertySegmentAtPath(

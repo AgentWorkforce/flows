@@ -10,6 +10,10 @@ import {
   wrappedExpressionBranches,
 } from './shipped-source-expression-values.js';
 import { returnedExpressions } from './shipped-source-return-values.js';
+import {
+  resolveStaticArrayElements,
+  type StaticArrayElementsResult,
+} from './shipped-source-static-array-elements.js';
 
 export { wrappedExpressionBranches } from './shipped-source-expression-values.js';
 
@@ -65,21 +69,25 @@ export function staticPropertySegment(
   }
   const preceding = assignedSources(symbol, checker)
     .filter(source => !source.rest && source.initializer.getStart() < expression.getStart());
-  const assigned = preceding.flatMap(source => {
-    const values = source.path.length === 0
-      ? [source.initializer]
-      : aggregateValuesAtPath(source.initializer, source.path, checker, new Set(seen));
-    return values.length > 0
-      ? values.map(value => staticPropertySegment(value, checker, new Set(seen)))
-      : [undefined];
-  });
-  const firstAssigned = assigned[0];
-  if (firstAssigned !== undefined
-    && assigned.every(value => value !== undefined && value === firstAssigned)) return firstAssigned;
   const declaration = symbol.declarations?.find(ts.isVariableDeclaration);
-  if (!declaration?.initializer || !ts.isVariableDeclarationList(declaration.parent)
-    || (declaration.parent.flags & ts.NodeFlags.Const) === 0) return undefined;
-  return staticPropertySegment(declaration.initializer, checker, seen);
+  const candidates = [
+    ...(declaration?.initializer && declaration.initializer.getStart() < expression.getStart()
+      ? [staticPropertySegment(declaration.initializer, checker, new Set(seen))]
+      : []),
+    ...preceding.flatMap(source => {
+      const values = source.path.length === 0
+        ? [source.initializer]
+        : aggregateValuesAtPath(source.initializer, source.path, checker, new Set(seen));
+      return values.length > 0
+        ? values.map(value => staticPropertySegment(value, checker, new Set(seen)))
+        : [undefined];
+    }),
+  ];
+  const first = candidates[0];
+  return first !== undefined
+    && candidates.every(value => value !== undefined && value === first)
+    ? first
+    : undefined;
 }
 
 function memberReceiver(expression: ts.Expression): ts.Expression | undefined {
@@ -353,116 +361,10 @@ export function staticArrayElements(
   expression: ts.Expression,
   checker: ts.TypeChecker,
   seen: Set<ts.Symbol>,
-): {
-  values: Array<ts.Expression | undefined>;
-  auditable: boolean;
-  alternatives?: Array<Array<ts.Expression | undefined>>;
-} | undefined {
-  expression = unwrap(expression);
-  const branches = wrappedExpressionBranches(expression);
-  if (branches) {
-    const candidates = [];
-    for (const branch of branches) {
-      const value = staticArrayElements(branch, checker, new Set(seen));
-      if (value) candidates.push(value);
-    }
-    const [value, ...alternatives] = candidates;
-    return value ? {
-      ...value,
-      auditable: false,
-      alternatives: [
-        ...(value.alternatives ?? []),
-        ...alternatives.flatMap(candidate => [candidate.values, ...(candidate.alternatives ?? [])]),
-      ],
-    } : undefined;
-  }
-  if (ts.isArrayLiteralExpression(expression)) {
-    let candidates: Array<Array<ts.Expression | undefined>> = [[]];
-    let auditable = true;
-    for (const element of expression.elements) {
-      if (ts.isOmittedExpression(element)) {
-        candidates.forEach(values => values.push(undefined));
-        continue;
-      }
-      if (!ts.isSpreadElement(element)) {
-        candidates.forEach(values => values.push(element));
-        continue;
-      }
-      const spread = staticArrayElements(element.expression, checker, new Set(seen));
-      if (!spread) {
-        auditable = false;
-        continue;
-      }
-      const spreadCandidates = [spread.values, ...(spread.alternatives ?? [])];
-      candidates = candidates.flatMap(prefix => spreadCandidates.map(values => [...prefix, ...values]));
-      auditable &&= spread.auditable && spreadCandidates.length === 1;
-    }
-    const values = candidates[0] ?? [];
-    const alternatives = candidates.slice(1);
-    return {
-      values,
-      auditable,
-      ...(alternatives.length > 0 ? { alternatives } : {}),
-    };
-  }
-  const parentSeen = new Set(seen);
-  const parent = aggregateExpressionValue(expression, checker, parentSeen);
-  if (parent) {
-    const value = staticArrayElements(parent.value, checker, parentSeen);
-    return value ? { ...value, auditable: false } : undefined;
-  }
-  if (!ts.isIdentifier(expression)) return undefined;
-  const symbol = checker.getSymbolAtLocation(expression);
-  if (!symbol || seen.has(symbol)) return undefined;
-  seen.add(symbol);
-  const binding = symbol.declarations?.find(ts.isBindingElement);
-  if (binding) {
-    const source = bindingSource(binding, checker);
-    if (source?.immutable) {
-      const values = [
-        { candidate: aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)), applyRest: true },
-        ...bindingDefaultValues(source, checker, new Set(seen))
-          .map(candidate => ({ candidate, applyRest: candidate.applyRest })),
-        ...(binding.initializer
-          ? [{ candidate: { value: binding.initializer, auditable: false }, applyRest: false }]
-          : []),
-      ];
-      for (const { candidate, applyRest } of values) {
-        if (!candidate) continue;
-        const value = staticArrayElements(candidate.value, checker, new Set(seen));
-        if (value) return {
-          auditable: false,
-          values: applyRest && source.rest?.kind === 'array'
-            ? value.values.slice(source.rest.start)
-            : value.values,
-        };
-      }
-    }
-  }
-  const variable = symbol.declarations?.find(ts.isVariableDeclaration);
-  const variableList = variable && ts.isVariableDeclarationList(variable.parent)
-    ? variable.parent
-    : undefined;
-  if (variable?.initializer && variableList && (variableList.flags & ts.NodeFlags.Const) !== 0) {
-    const value = staticArrayElements(variable.initializer, checker, seen);
-    if (value) return value;
-  }
-  for (const source of [...assignedSources(symbol, checker)].reverse()) {
-    const candidate = source.path.length === 0
-      ? { value: source.initializer, auditable: false }
-      : aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen));
-    if (!candidate || source.rest?.kind === 'object') continue;
-    const value = staticArrayElements(candidate.value, checker, new Set(seen));
-    if (value) return {
-      auditable: false,
-      values: source.rest?.kind === 'array'
-        ? value.values.slice(source.rest.start)
-        : value.values,
-    };
-  }
-  if (variable?.initializer && variableList) {
-    const value = staticArrayElements(variable.initializer, checker, seen);
-    if (value) return { ...value, auditable: false };
-  }
-  return undefined;
+): StaticArrayElementsResult | undefined {
+  return resolveStaticArrayElements(expression, checker, seen, {
+    aggregateExpressionValue,
+    aggregateValueAtPath,
+    bindingDefaultValues,
+  });
 }
