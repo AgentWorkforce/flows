@@ -606,6 +606,8 @@ describe('preflight: CLI resolution and refusal predicates', () => {
         models: ['known-model'], modelRegistryPath: '/project/flows.json', probes: probes(),
       }),
       preflight(flow({ id: 'a', type: 'agent', instruction: 'i', cli: 'x', model: 'known-model' }), { models: ['known-model'], probes: probes({ cli: () => ({ exists: true, authenticated: true, modelAvailable: false }) }) }),
+      preflight(flow({ id: 'a', type: 'agent', instruction: 'i', cli: 'x', model: 'known-model' }), { models: ['known-model'], probes: probes({ cli: () => ({ exists: true, authenticated: true, modelAvailable: false, modelFailure: { cause: 'cli_outdated' } }) }) }),
+      preflight(flow({ id: 'a', type: 'agent', instruction: 'i', cli: 'x', model: 'known-model' }), { models: ['known-model'], probes: probes({ cli: () => ({ exists: true, authenticated: true, modelAvailable: false, modelFailure: { cause: 'provider_usage_limited' } }) }) }),
       preflight({ ...flow({ id: 'a', type: 'deterministic', command: 'x' }), triggers: [{ id: 't', executor: 'e' }] }, { probes: probes({ executor: () => false, command: () => false }) }),
       preflight(flow({ id: 'a', type: 'llm', prompt: 'p', cli: 'x' }), { probes: probes({ cli: () => { throw new Error('raw secret'); } }) }),
       preflight(
@@ -1169,5 +1171,45 @@ describe('preflight: CLI resolution and refusal predicates', () => {
       message: `${prefix}, but its model-scoped "claude -p --model ${model}" probe exited non-zero;`
         + " verify the model name and this credential's access.",
     }]);
+  });
+});
+
+describe('preflight: a failed model probe names its cause', () => {
+  const step = flow({ id: 'review', type: 'agent', cli: 'claude', model: 'claude-opus-5-5', instruction: 'Review.' });
+  const refuse = (result: Partial<CliProbeResult>) => preflight(step, {
+    models: ['claude-opus-5-5'],
+    probes: probes({ cli: () => ({ exists: true, authenticated: true, modelAvailable: false,
+      modelCommand: 'claude -p --model claude-opus-5-5', modelExitCode: 1, ...result }) }),
+  }).diagnostics;
+
+  it('refuses an outdated CLI as cli_outdated with the required version, not as a model-name problem', () => {
+    const [diagnostic] = refuse({
+      modelFailure: { cause: 'cli_outdated', requiredVersion: '2.1.280' },
+      modelFailureDetail: 'API Error: 400 Claude Code 2.1.278 does not support this model; version 2.1.280 or newer is required.',
+    });
+    expect(diagnostic).toMatchObject({ severity: 'refusal', kind: 'cli_outdated', stepId: 'review', model: 'claude-opus-5-5' });
+    expect(diagnostic!.message).toContain('version 2.1.280 or newer is required');
+    expect(diagnostic!.message).not.toContain('verify the model name');
+  });
+
+  it('refuses a usage-limited credential as provider_usage_limited, not invalid_spec or a model-name problem', () => {
+    const [diagnostic] = refuse({
+      modelFailure: { cause: 'provider_usage_limited' },
+      modelFailureDetail: "You've hit your limit · resets 3pm (UTC)",
+    });
+    expect(diagnostic).toMatchObject({ severity: 'refusal', kind: 'provider_usage_limited' });
+    expect(diagnostic!.message).toContain("It reported: You've hit your limit");
+    expect(diagnostic!.message).not.toContain('verify the model name');
+  });
+
+  it('tells the author to verify the model name only when the provider says the model is unknown', () => {
+    const [unknown] = refuse({ modelFailure: { cause: 'model_unknown' }, modelFailureDetail: "There's an issue with the selected model." });
+    expect(unknown).toMatchObject({ kind: 'model_unavailable' });
+    expect(unknown!.message).toContain('verify the model name');
+
+    const [unrecognised] = refuse({ modelFailureDetail: 'API Error: 529 Overloaded' });
+    expect(unrecognised).toMatchObject({ kind: 'model_unavailable' });
+    expect(unrecognised!.message).not.toContain('verify the model name');
+    expect(unrecognised!.message).toContain('It reported: API Error: 529 Overloaded');
   });
 });

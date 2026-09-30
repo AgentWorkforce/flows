@@ -19,6 +19,19 @@ export interface CliInvocation {
   modelEnv?: string;
 }
 
+/**
+ * Why a model-scoped readiness probe exited non-zero, when the CLI's own
+ * output says so. `model_unknown` is the only cause that means the model name
+ * or the credential's access to it is wrong; the others are the environment.
+ */
+export type ModelProbeFailureCause = 'model_unknown' | 'cli_outdated' | 'provider_usage_limited';
+
+export interface ModelProbeFailure {
+  cause: ModelProbeFailureCause;
+  /** Minimum CLI version the provider named, for `cli_outdated`. */
+  requiredVersion?: string;
+}
+
 export interface CliAdapterIdentification {
   invocation: CliInvocation;
   expectedStdout?: string;
@@ -51,6 +64,12 @@ export interface HeadlessAdapter {
    * contract on `modelEnv`.
    */
   buildModelReadinessProbe(model: string): CliInvocation;
+
+  /**
+   * Classify a failed readiness probe from its combined output. Absent, or an
+   * `undefined` answer, means the output named no cause this adapter knows.
+   */
+  classifyModelProbeFailure?(output: string): ModelProbeFailure | undefined;
 
   /** Agent-step worker argv for an instruction under an optional model. */
   buildAgentInvocation(instruction: string, model?: string): CliInvocation;
