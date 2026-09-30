@@ -317,7 +317,11 @@ projection: identity, prepared/active/closed state, closing reason, binding and
 activation cursor, unread frame/byte counts, settle duration, and absolute idle
 and deadline instants. Idle is taken from the durable wait or the last journaled
 wake, never the time of this query. The projection holds exactly one snapshot
-per subscription id, in its latest lifecycle state, sorted by id. This gives Cloud a protocol surface for
+per subscription id, in its latest lifecycle state, sorted by id. A binding
+still awaiting activation when the run becomes terminal is closed with the run
+(`run_completed` or `canceled`) and reported as `closed`, so Cloud's prepared
+row always receives a terminal signal. A pull outstanding when its subscription
+closes is canceled: live or replayed, it reports the subscription as closed. This gives Cloud a protocol surface for
 scheduling and cleanup without reading sandbox SQLite files. A delivery response
 alone does not authorize Cloud to advance its durable ingress acknowledgment:
 the containing journal must first cross the durable publication barrier.

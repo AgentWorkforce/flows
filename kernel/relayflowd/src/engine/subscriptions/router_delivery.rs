@@ -84,6 +84,14 @@ impl<C: Clock> Engine<C> {
                 "settleMs": prepared.settle_ms, "deadlineAtMs": prepared.deadline_at_ms,
             }));
         }
+        for (id, (prepared, reason)) in closed_prepared_subscriptions(&journal)? {
+            result.push(json!({
+                "subscriptionId": id, "state": "closed",
+                "completionReason": serde_json::to_value(reason)?,
+                "unreadFrames": 0, "unreadBytes": 0,
+                "settleMs": prepared.settle_ms, "deadlineAtMs": prepared.deadline_at_ms,
+            }));
+        }
         for (id, state) in subscriptions(&journal)? {
             let unread = unread_frames(&entries, &state)?;
             let mut snapshot = json!({

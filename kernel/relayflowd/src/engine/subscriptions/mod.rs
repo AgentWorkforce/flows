@@ -97,6 +97,11 @@ impl<C: Clock> Engine<C> {
     pub(super) fn close_subscriptions_for_terminal(&self, journal: &mut SqliteJournal, reason: SubscriptionCompletionReason, now: i64) -> Result<()> {
         let ids = subscriptions(journal)?.into_iter().filter_map(|(id, state)| state.closed.is_none().then_some(id)).collect::<Vec<_>>();
         for id in ids { self.close_subscription_in_journal(journal, &id, reason, now)?; }
+        // A binding still awaiting Cloud activation also ends with the run.
+        for id in prepared_subscriptions(journal)?.into_keys() {
+            self.append(journal, &JournalEntry::new(EntryType::SubscriptionClosed, journal.run_id(), None, None, now,
+                SubscriptionClosedPayload { subscription_id: id, completion_reason: reason }))?;
+        }
         Ok(())
     }
 

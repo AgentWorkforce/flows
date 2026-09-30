@@ -370,3 +370,31 @@ fn inspect_reports_exactly_one_snapshot_per_subscription_across_its_lifecycle() 
     let restored = Engine::with_clock(dir.path(), SimClock::new(110));
     assert_eq!(states(&restored), [pair("one", "closed"), pair("two", "prepared")]);
 }
+
+/// A binding canceled before Cloud activates it must still reach a durable,
+/// observable close; otherwise Cloud's prepared row has no terminal signal.
+#[test]
+fn canceling_a_run_closes_a_prepared_only_subscription_once_and_reports_it_closed() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Engine::with_clock(dir.path(), SimClock::new(100));
+    let spec =
+        RunSpec::parse(&json!({"steps":[{"id":"body","type":"llm","prompt":"body"}]})).unwrap();
+    let id = engine.start(spec, "router-test", Some(0)).unwrap().run_id;
+    engine
+        .open_subscription(&id, "pending", vec!["github".into()], None, 0, 100, 1000, false)
+        .unwrap();
+    engine.cancel(&id, "router-test").unwrap();
+
+    let closes = engine
+        .journal_entries(&id, 1, 500)
+        .unwrap()
+        .into_iter()
+        .filter(|entry| entry.entry_type == EntryType::SubscriptionClosed)
+        .count();
+    assert_eq!(closes, 1);
+    let snapshots = engine.inspect_subscriptions(&id).unwrap();
+    assert_eq!(snapshots.len(), 1);
+    assert_eq!(snapshots[0]["subscriptionId"], "pending");
+    assert_eq!(snapshots[0]["state"], "closed");
+    assert_eq!(snapshots[0]["completionReason"], "canceled");
+}

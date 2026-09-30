@@ -356,3 +356,21 @@ fn normal_wake_is_not_acknowledged_until_the_following_next() {
     let entries = resumed.journal_entries(&run_id, 1, 100).unwrap();
     assert_eq!(entries.iter().filter(|entry| entry.entry_type == EntryType::SubscriptionAcknowledged).count(), 1);
 }
+
+#[test]
+fn closing_over_a_suspended_pull_reports_closed_live_and_on_replay() {
+    let directory = tempfile::tempdir().unwrap();
+    let engine = Engine::with_clock(directory.path(), SimClock::new(0));
+    let run_id = parked_run(&engine);
+    open(&engine, &run_id, 1_000);
+    assert!(matches!(engine.next_subscription_outcome(&run_id, "pr-42", None).unwrap().0,
+        SubscriptionNext::Suspended { .. }));
+    assert!(engine.close_subscription(&run_id, "pr-42", relayflowd_core::SubscriptionCompletionReason::Closed).unwrap());
+
+    let live = engine.next_subscription_outcome(&run_id, "pr-42", None).unwrap_err().to_string();
+    assert_eq!(live, "subscription pr-42 is closed");
+    drop(engine);
+    let resumed = Engine::with_clock(directory.path(), SimClock::new(1));
+    let replayed = resumed.replay_subscription_wake(&run_id, "pr-42", 0).unwrap_err().to_string();
+    assert_eq!(replayed, "subscription pr-42 is closed");
+}

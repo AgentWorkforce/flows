@@ -5,7 +5,8 @@ use std::collections::BTreeMap;
 use anyhow::{Context, Result, bail};
 use relayflowd_core::{
     EntryType, JournalEntry, StreamAppendedPayload, SubscriptionAcknowledgedPayload,
-    SubscriptionClosedPayload, SubscriptionOpenedPayload, SubscriptionOverflowFencedPayload,
+    SubscriptionClosedPayload, SubscriptionCompletionReason, SubscriptionOpenedPayload,
+    SubscriptionOverflowFencedPayload,
     SubscriptionPreparedPayload, WaitCompletedPayload, WaitEventPayload,
 };
 use relayflowd_journal::SqliteJournal;
@@ -118,6 +119,34 @@ pub(super) fn prepared_subscriptions(
     Ok(prepared)
 }
 
+/// Prepared bindings closed before activation, keyed by id with their reason.
+pub(super) fn closed_prepared_subscriptions(
+    journal: &SqliteJournal,
+) -> Result<BTreeMap<String, (SubscriptionPreparedPayload, SubscriptionCompletionReason)>> {
+    let mut prepared = BTreeMap::new();
+    let mut closed = BTreeMap::new();
+    for entry in journal.scan_all()? {
+        match entry.entry_type {
+            EntryType::SubscriptionPrepared => {
+                let value: SubscriptionPreparedPayload = serde_json::from_value(entry.payload)?;
+                prepared.insert(value.subscription_id.clone(), value);
+            }
+            EntryType::SubscriptionOpened => {
+                let opened: SubscriptionOpenedPayload = serde_json::from_value(entry.payload)?;
+                prepared.remove(&opened.subscription_id);
+            }
+            EntryType::SubscriptionClosed => {
+                let value: SubscriptionClosedPayload = serde_json::from_value(entry.payload)?;
+                if let Some(snapshot) = prepared.remove(&value.subscription_id) {
+                    closed.insert(value.subscription_id, (snapshot, value.completion_reason));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(closed)
+}
+
 pub(super) fn activity_wait(state: &SubscriptionState, _now: i64) -> WaitEventPayload {
     let idle_at_ms = state.last_wake_at_ms.saturating_add(state.opened.idle_ms);
     WaitEventPayload {
@@ -192,6 +221,10 @@ pub(super) fn wake_from_completed(
     state: &SubscriptionState,
     completed: &WaitCompletedPayload,
 ) -> Result<SubscriptionWake> {
+    // A close over an outstanding pull cancels it; that pull has no wake.
+    if completed.result.get("closed").and_then(Value::as_bool) == Some(true) {
+        bail!("subscription {} is closed", state.opened.subscription_id);
+    }
     if completed.result.get("wake").and_then(Value::as_str) == Some("overflow") {
         let unread = unread_frames(&journal.scan_all()?, state)?;
         let fence = state.overflow_fence.as_ref();
