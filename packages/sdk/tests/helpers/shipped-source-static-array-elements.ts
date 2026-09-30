@@ -20,6 +20,12 @@ type AggregateValue = {
 
 type BindingDefaultValue = AggregateValue & { applyRest: boolean };
 
+type ReturnedParameter = {
+  parameter: ts.ParameterDeclaration;
+  parameterIndex: number;
+  path: BindingPathSegment[];
+};
+
 interface StaticArrayResolvers {
   aggregateExpressionValue(
     expression: ts.Expression,
@@ -43,6 +49,61 @@ export interface StaticArrayElementsResult {
   values: Array<ts.Expression | undefined>;
   auditable: boolean;
   alternatives?: Array<Array<ts.Expression | undefined>>;
+}
+
+function returnedParameter(
+  expression: ts.Expression,
+  declaration: ts.SignatureDeclaration,
+  checker: ts.TypeChecker,
+): ReturnedParameter | undefined {
+  expression = unwrapExpression(expression);
+  const path: BindingPathSegment[] = [];
+  while (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
+    if (ts.isPropertyAccessExpression(expression)) path.unshift(expression.name.text);
+    else {
+      const argument = expression.argumentExpression && unwrapExpression(expression.argumentExpression);
+      const segment = argument && (ts.isStringLiteralLike(argument) || ts.isNumericLiteral(argument))
+        ? argument.text
+        : undefined;
+      if (segment === undefined) return undefined;
+      path.unshift(segment);
+    }
+    expression = unwrapExpression(expression.expression);
+  }
+  if (!ts.isIdentifier(expression)) return undefined;
+  const symbol = checker.getSymbolAtLocation(expression);
+  if (!symbol) return undefined;
+  const parameterIndex = declaration.parameters.findIndex(parameter =>
+    ts.isIdentifier(parameter.name) && checker.getSymbolAtLocation(parameter.name) === symbol);
+  const parameter = declaration.parameters[parameterIndex];
+  return parameter ? { parameter, parameterIndex, path } : undefined;
+}
+
+function callArgumentCandidates(
+  args: readonly ts.Expression[],
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+  resolvers: StaticArrayResolvers,
+): ts.Expression[][] {
+  let candidates: ts.Expression[][] = [[]];
+  for (const argument of args) {
+    if (!ts.isSpreadElement(argument)) {
+      candidates.forEach(values => values.push(argument));
+      continue;
+    }
+    const spread = resolveStaticArrayElements(
+      argument.expression,
+      checker,
+      new Set(seen),
+      resolvers,
+    );
+    if (!spread) return [];
+    const branches = [spread.values, ...(spread.alternatives ?? [])]
+      .filter(values => values.every((value): value is ts.Expression => value !== undefined));
+    if (branches.length === 0 || candidates.length * branches.length > 64) return [];
+    candidates = candidates.flatMap(prefix => branches.map(values => [...prefix, ...values]));
+  }
+  return candidates;
 }
 
 export function resolveStaticArrayElements(
@@ -102,7 +163,45 @@ export function resolveStaticArrayElements(
       if (symbol && seen.has(symbol)) return undefined;
       const nextSeen = symbol ? new Set(seen).add(symbol) : new Set(seen);
       const candidates: Array<Array<ts.Expression | undefined>> = [];
+      const actualCandidates = callArgumentCandidates(
+        expression.arguments,
+        checker,
+        nextSeen,
+        resolvers,
+      );
       for (const returned of returnedExpressions(declaration.body)) {
+        const branches = wrappedExpressionBranches(unwrapExpression(returned)) ?? [returned];
+        for (const branch of branches) {
+          const mapped = returnedParameter(branch, declaration, checker);
+          if (!mapped) continue;
+          for (const actuals of actualCandidates) {
+            if (mapped.parameter.dotDotDotToken && mapped.path.length === 0) {
+              candidates.push(actuals.slice(mapped.parameterIndex));
+              continue;
+            }
+            const supplied = actuals[mapped.parameterIndex];
+            const actual = supplied ?? mapped.parameter.initializer;
+            if (!actual || ts.isSpreadElement(actual)) continue;
+            const selected = mapped.path.length === 0
+              ? { value: actual, auditable: false }
+              : resolvers.aggregateValueAtPath(
+                  actual,
+                  mapped.path,
+                  checker,
+                  new Set(nextSeen),
+                );
+            if (!selected) continue;
+            for (const value of [selected.value, ...(selected.alternatives ?? [])]) {
+              const array = resolveStaticArrayElements(
+                value,
+                checker,
+                new Set(nextSeen),
+                resolvers,
+              );
+              if (array) candidates.push(array.values, ...(array.alternatives ?? []));
+            }
+          }
+        }
         const value = resolveStaticArrayElements(returned, checker, new Set(nextSeen), resolvers);
         if (value) candidates.push(value.values, ...(value.alternatives ?? []));
       }

@@ -302,6 +302,8 @@ describe('shipped-source worker invocation resolution', () => {
         `function first(): any[] { return second(); } function second(): any[] { return flag ? first() : [f.agent]; } for (const run of first()) run('review', { task: 'x' });`,
         `declare const unknownItems: any[]; for (const run of [...unknownItems, f.agent]) run('review', { task: 'x' });`,
         `declare const unknownItems: any[]; const box: any = {}; for (const op of [...unknownItems, Object.assign]) op(box, { run: f.agent }); box.run('review', { task: 'x' });`,
+        `function pass(args: any) { return args; } Reflect.apply(...pass([f.agent, f, ['review', { task: 'x' }]]));`,
+        `const box: any = {}; function pass(args: any) { return args; } Reflect.apply(...pass([Object.assign, Object, [box, { run: f.agent }]])); box.run('review', { task: 'x' });`,
       ];
       for (const [index, candidate] of repairedWorkerCases.entries()) {
         const repairedWorker = join(directory, `repaired-worker-${index}.flow.ts`);
@@ -310,6 +312,24 @@ describe('shipped-source worker invocation resolution', () => {
         expect(result.calls, candidate).toBe(1);
         expect(result.missing, candidate).toHaveLength(1);
       }
+
+      const dynamicMutableReceivers = join(directory, 'dynamic-mutable-receivers.flow.ts');
+      writeFileSync(dynamicMutableReceivers, `
+        declare const key: string;
+        declare const f: {
+          agent(name: string, options: object): void;
+          llm(...args: unknown[]): void;
+          [key: string]: (...args: any[]) => void;
+        };
+        let worker = f;
+        worker = f;
+        worker[key]('review', { cli: 'claude', model: 'claude-sonnet-5' });
+        const { [key]: run } = worker;
+        run('review', { cli: 'claude', model: 'claude-sonnet-5' });
+      `);
+      const dynamicMutableResult = scanTypeScript(dynamicMutableReceivers);
+      expect(dynamicMutableResult.calls).toBe(2);
+      expect(dynamicMutableResult.missing).toHaveLength(2);
 
       const formalAndReceiverRepairs = join(directory, 'formal-and-receiver-repairs.flow.ts');
       writeFileSync(formalAndReceiverRepairs, `

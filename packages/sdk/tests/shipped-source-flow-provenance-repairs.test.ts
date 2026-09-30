@@ -106,6 +106,8 @@ describe('shipped-source flow provenance repairs', () => {
         `{ const box: any = {}, noop = () => undefined; Reflect.apply(...(flag ? [noop, null, []] as const : [Object.assign, Object, [box, { define: surface.flow }]] as const)); box.define('alternate-spread-writer', { budget: '$2' }, () => {}); }`,
         `{ function args() { return [surface.flow, surface, ['returned-spread-callable', { budget: '$2' }, () => {}]] as const; } Reflect.apply(...args()); }`,
         `{ const box: any = {}; function args() { return [Object.assign, Object, [box, { define: surface.flow }]] as const; } Reflect.apply(...args()); box.define('returned-spread-writer', { budget: '$2' }, () => {}); }`,
+        `{ function pass(args: any) { return args; } Reflect.apply(...pass([surface.flow, surface, ['forwarded-spread-callable', { budget: '$2' }, () => {}]])); }`,
+        `{ const box: any = {}; function pass(args: any) { return args; } Reflect.apply(...pass([Object.assign, Object, [box, { define: surface.flow }]])); box.define('forwarded-spread-writer', { budget: '$2' }, () => {}); }`,
       ];
       for (const [index, candidate] of cases.entries()) {
         const file = join(directory, `repaired-flow-${index}.flow.ts`);

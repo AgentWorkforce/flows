@@ -294,7 +294,7 @@ function workerCallable(
     const receiver = expression.expression;
     const type = checker.getTypeAtLocation(receiver);
     const method = type.getProperty('agent') ? 'agent' : type.getProperty('llm') ? 'llm' : undefined;
-    if (method && receiverAuditable(receiver, checker)) {
+    if (method) {
       return { method, args: [], auditable: false };
     }
   }
@@ -387,7 +387,7 @@ function workerCallable(
       return { method: name, args: [], auditable: immutable && !!receiver && receiverAuditable(receiver, checker) };
     }
     return binding.propertyName && ts.isComputedPropertyName(binding.propertyName)
-      && !!receiver && receiverAuditable(receiver, checker)
+      && !!receiver
       ? { method: 'agent', args: [], auditable: false }
       : undefined;
   }
