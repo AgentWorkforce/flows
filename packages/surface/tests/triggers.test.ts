@@ -35,6 +35,18 @@ describe("webhook declarations", () => {
     expect(JSON.parse(JSON.stringify(source))).toEqual(source);
   });
 
+  it("does not consult a poisoned Number global while snapshotting filters", () => {
+    const originalNumber = globalThis.Number;
+    try {
+      globalThis.Number = (() => 0) as unknown as NumberConstructor;
+      const source = webhook("release", { values: ["first", "second"], count: 2 });
+      expect(source.filter).toEqual({ values: ["first", "second"], count: 2 });
+      expect(Object.isFrozen(source.filter?.values)).toBe(true);
+    } finally {
+      globalThis.Number = originalNumber;
+    }
+  });
+
   it("refuses paths, non-data filters, and invalid handlers", () => {
     for (const name of ["", ".", "..", "a/b", "a%2fb", "a\\b", "a b"]) {
       expect(() => webhook(name)).toThrow();

@@ -1,6 +1,7 @@
 import type { ScheduleTriggerSource } from "./schedule.js";
 
 const ARRAY_IS_ARRAY = Array.isArray;
+const NUMBER_IS_FINITE = Number.isFinite.bind(Number);
 const OBJECT_DEFINE_PROPERTY = Object.defineProperty;
 const OBJECT_FREEZE = Object.freeze;
 const OBJECT_GET_OWN_PROPERTY_DESCRIPTOR = Object.getOwnPropertyDescriptor;
@@ -36,7 +37,7 @@ export function webhook(name: string, filter?: WebhookFilter): WebhookTriggerSou
 
 function snapshot(value: unknown, ancestors = new Set<object>()): WebhookValue {
   if (value === null || typeof value === "string" || typeof value === "boolean") return value;
-  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "number" && NUMBER_IS_FINITE(value)) return value;
   if (typeof value !== "object" || value === null || ancestors.has(value)) {
     throw new TypeError("webhook filter must contain finite, acyclic JSON data");
   }
@@ -69,7 +70,7 @@ function snapshot(value: unknown, ancestors = new Set<object>()): WebhookValue {
     const entry = entries[index]!;
     const key = entry[0];
     const item = entry[1];
-    OBJECT_DEFINE_PROPERTY(result, array ? Number(key) : key, {
+    OBJECT_DEFINE_PROPERTY(result, key, {
       configurable: true,
       enumerable: true,
       value: item,

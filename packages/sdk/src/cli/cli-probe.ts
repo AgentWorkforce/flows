@@ -1,4 +1,4 @@
-import { accessSync, constants } from 'node:fs';
+import { accessSync, constants, realpathSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { execFile, spawnSync } from 'node:child_process';
 import { agentEnvironment, brokerEnvironment } from '../communication/environment.js';
@@ -184,16 +184,25 @@ function redactProbeOutput(text: string): string {
 function* executableSequence(command: string, directory: string, environment: NodeJS.ProcessEnv): Generator<ProbeRequest, string | undefined, ProbeOutput> {
   if (command.includes('/') || isAbsolute(command)) {
     const path = isAbsolute(command) ? command : resolve(directory, command);
-    try {
-      accessSync(path, constants.X_OK);
-      return path;
-    } catch {
-      return undefined;
-    }
+    return canonicalExecutable(path);
   }
   const result = yield { executable: 'which', directory: process.cwd(),
     invocation: { args: [command], timeoutMs: 5_000 }, environment };
-  return result.status === 0 ? resolve(process.cwd(), result.stdout.trim()) : undefined;
+  return result.status === 0
+    ? canonicalExecutable(resolve(process.cwd(), result.stdout.trim()))
+    : undefined;
+}
+
+function canonicalExecutable(path: string): string | undefined {
+  try {
+    accessSync(path, constants.X_OK);
+    // Dispatch must retain the exact target that readiness probed. Keeping a
+    // symlink path would allow the link to be retargeted between admission and
+    // worker spawn even though the compiled step carries an absolute path.
+    return realpathSync(path);
+  } catch {
+    return undefined;
+  }
 }
 
 function classifySpawnFailure(

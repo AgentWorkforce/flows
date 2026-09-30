@@ -175,27 +175,46 @@ export function resolveStaticArrayElements(
           const mapped = returnedParameter(branch, declaration, checker);
           if (!mapped) continue;
           for (const actuals of actualCandidates) {
-            if (mapped.parameter.dotDotDotToken && mapped.path.length === 0) {
-              candidates.push(actuals.slice(mapped.parameterIndex));
-              continue;
+            let path = mapped.path;
+            let actual: ts.Expression | undefined;
+            if (mapped.parameter.dotDotDotToken) {
+              if (path.length === 0) {
+                candidates.push(actuals.slice(mapped.parameterIndex));
+                continue;
+              }
+              const restIndex = canonicalArrayIndex(path[0]!);
+              if (restIndex === undefined) continue;
+              actual = actuals[mapped.parameterIndex + restIndex];
+              path = path.slice(1);
+            } else {
+              actual = actuals[mapped.parameterIndex] ?? mapped.parameter.initializer;
             }
-            const supplied = actuals[mapped.parameterIndex];
-            const actual = supplied ?? mapped.parameter.initializer;
             if (!actual || ts.isSpreadElement(actual)) continue;
-            const selected = mapped.path.length === 0
+            const selected = path.length === 0
               ? { value: actual, auditable: false }
               : resolvers.aggregateValueAtPath(
                   actual,
-                  mapped.path,
+                  path,
                   checker,
                   new Set(nextSeen),
                 );
             if (!selected) continue;
             for (const value of [selected.value, ...(selected.alternatives ?? [])]) {
+              const valueSeen = new Set(nextSeen);
+              const nested = unwrapExpression(value);
+              if (symbol && ts.isCallExpression(nested)) {
+                const nestedCallee = unwrapExpression(nested.expression);
+                const nestedSymbol = checker.getSymbolAtLocation(nestedCallee);
+                // A same-helper call supplied by the caller is finite source
+                // syntax, not recursion in the callee body. Permit that one
+                // nested call while keeping the callee marked for returned
+                // calls such as `return pass(args)`.
+                if (nestedSymbol === symbol) valueSeen.delete(symbol);
+              }
               const array = resolveStaticArrayElements(
                 value,
                 checker,
-                new Set(nextSeen),
+                valueSeen,
                 resolvers,
               );
               if (array) candidates.push(array.values, ...(array.alternatives ?? []));

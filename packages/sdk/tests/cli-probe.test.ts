@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -51,6 +51,17 @@ it('returns the absolute executable selected for a bare CLI name', async () => {
     if (previousPath === undefined) delete process.env.PATH;
     else process.env.PATH = previousPath;
   }
+});
+
+it('binds the canonical target of a probed executable symlink', async () => {
+  const { path, directory } = wrapper(identify + 'process.exit(0)');
+  const link = join(directory, 'wrapper-link');
+  symlinkSync(path, link);
+  await expect(probeCliAsync(link, directory, 'exact-model')).resolves.toMatchObject({
+    exists: true,
+    executable: realpathSync(path),
+    modelAvailable: true,
+  });
 });
 
 it('normalizes a relative executable returned by PATH lookup', async () => {
