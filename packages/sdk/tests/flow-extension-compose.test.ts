@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadAuthoredFlow } from '../src/authored-flow-loader.js';
 import { deployToCloud, parseTriggerSource } from '../src/cloud-deploy.js';
+import { composeDefinition } from '../src/flow-extension-loader.js';
 import { collectExtensionSubmissions } from '../src/flow-extension-submit.js';
 import { addExtensionPlugin } from '../src/cli/add-extension.js';
 import { checkAuthoredTriggers } from '../src/cli/check-triggers.js';
@@ -111,6 +112,46 @@ describe('composing flow extensions onto a base flow', () => {
       dollars: 8,
       wallclock: '45m',
     });
+  });
+  it('retains extension budgets and handlers when entry evaluation poisons array intrinsics', async () => {
+    const p = project();
+    await install(p);
+    const loaded = await loadAuthoredFlow(p.flow, { versions });
+    const base = loaded.graph[0]!.getDefinition(loaded.handle);
+    const originals = {
+      exec: RegExp.prototype.exec,
+      filter: Array.prototype.filter,
+      flatMap: Array.prototype.flatMap,
+      freeze: Object.freeze,
+      iterator: Array.prototype[Symbol.iterator],
+      min: Math.min,
+      reduce: Array.prototype.reduce,
+      some: Array.prototype.some,
+    };
+    let composed: ReturnType<typeof composeDefinition> | undefined;
+    try {
+      RegExp.prototype.exec = (() => null) as typeof RegExp.prototype.exec;
+      Array.prototype.filter = (() => []) as typeof Array.prototype.filter;
+      Array.prototype.flatMap = (() => []) as typeof Array.prototype.flatMap;
+      Object.freeze = (value => value) as typeof Object.freeze;
+      Array.prototype[Symbol.iterator] = function* poisonedIterator() {};
+      Math.min = (() => Number.MAX_SAFE_INTEGER) as typeof Math.min;
+      Array.prototype.reduce = (() => undefined) as typeof Array.prototype.reduce;
+      Array.prototype.some = (() => false) as typeof Array.prototype.some;
+      composed = composeDefinition(base, loaded.extensions);
+    } finally {
+      RegExp.prototype.exec = originals.exec;
+      Array.prototype.filter = originals.filter;
+      Array.prototype.flatMap = originals.flatMap;
+      Object.freeze = originals.freeze;
+      Array.prototype[Symbol.iterator] = originals.iterator;
+      Math.min = originals.min;
+      Array.prototype.reduce = originals.reduce;
+      Array.prototype.some = originals.some;
+    }
+    expect(composed?.header.budget).toEqual({ tokens: 800_000, dollars: 8, wallclock: '45m' });
+    expect(composed?.handlers).toHaveLength(12);
+    expect(Object.isFrozen(composed) && Object.isFrozen(composed.handlers)).toBe(true);
   });
   it('loads the root alone with extensions: none, and helper loading ignores extension entries', async () => {
     const p = project();

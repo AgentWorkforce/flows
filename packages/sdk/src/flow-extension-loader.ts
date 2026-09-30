@@ -13,7 +13,12 @@ import { pluginStoreDirectory, readStoredPluginFiles } from './plugin-store.js';
 const JSON_PARSE = JSON.parse;
 const ARRAY_IS_ARRAY = Array.isArray;
 const JSON_STRINGIFY = JSON.stringify;
+const NUMBER = Number;
 const OBJECT_FREEZE = Object.freeze;
+const POSITIVE_INFINITY = Number.POSITIVE_INFINITY;
+const REGEXP_EXEC = Function.prototype.call.bind(RegExp.prototype.exec) as (
+  regexp: RegExp, value: string,
+) => RegExpExecArray | null;
 const REGEXP_TEST = Function.prototype.call.bind(RegExp.prototype.test) as (
   regexp: RegExp, value: string,
 ) => boolean;
@@ -76,41 +81,58 @@ const EXTENSION_HEADER_FIELDS = new Set(['budget', 'tools']);
 const WALLCLOCK_MS = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
 
 function wallclockMs(value: string): number | undefined {
-  const match = /^(\d+)(ms|s|m|h|d)$/.exec(value);
+  const match = REGEXP_EXEC(/^(\d+)(ms|s|m|h|d)$/, value);
   if (!match) return undefined;
   const unit = match[2] as keyof typeof WALLCLOCK_MS;
-  return Number(match[1]) * WALLCLOCK_MS[unit];
+  return NUMBER(match[1]) * WALLCLOCK_MS[unit];
 }
 
 function composeBudget(
   base: AuthoredFlowDefinition['header']['budget'],
   extensions: readonly LoadedFlowExtension[],
 ): AuthoredFlowDefinition['header']['budget'] {
-  const ceilings = extensions
-    .flatMap(extension => [
-      extension.manifest.permissions.budget,
-      extension.getDefinition(extension.handle).header.budget,
-    ])
-    .filter((budget): budget is NonNullable<typeof budget> => budget !== undefined);
+  type Budget = NonNullable<AuthoredFlowDefinition['header']['budget']>;
+  type StructuredBudget = Exclude<Budget, string>;
+  const ceilings: Budget[] = [];
+  for (let index = 0; index < extensions.length; index += 1) {
+    const extension = extensions[index]!;
+    const manifestBudget = extension.manifest.permissions.budget;
+    const entryBudget = extension.getDefinition(extension.handle).header.budget;
+    if (manifestBudget !== undefined) appendIntrinsicArray(ceilings, manifestBudget);
+    if (entryBudget !== undefined) appendIntrinsicArray(ceilings, entryBudget);
+  }
   if (ceilings.length === 0) return base;
-  if (typeof base === 'string' || ceilings.some(budget => typeof budget === 'string')) {
+  let shorthand = typeof base === 'string';
+  for (let index = 0; index < ceilings.length; index += 1) {
+    if (typeof ceilings[index] === 'string') shorthand = true;
+  }
+  if (shorthand) {
     throw new PluginError('plugin_incompatible', 'A shorthand budget cannot compose with structured base-flow or extension budget ceilings.');
   }
-  const budgets = [
-    ...(base === undefined ? [] : [base]),
-    ...ceilings.filter((budget): budget is Exclude<typeof budget, string> => typeof budget !== 'string'),
-  ];
-  const tokens = budgets.flatMap(budget => budget.tokens === undefined ? [] : [budget.tokens]);
-  const dollars = budgets.flatMap(budget => budget.dollars === undefined ? [] : [budget.dollars]);
-  const wallclocks = budgets.flatMap(budget => budget.wallclock === undefined ? [] : [budget.wallclock]);
-  const wallclock = wallclocks.reduce<string | undefined>((strictest, candidate) => {
-    if (strictest === undefined) return candidate;
-    return (wallclockMs(candidate) ?? Number.POSITIVE_INFINITY)
-      < (wallclockMs(strictest) ?? Number.POSITIVE_INFINITY) ? candidate : strictest;
-  }, undefined);
-  return Object.freeze({
-    ...(tokens.length === 0 ? {} : { tokens: Math.min(...tokens) }),
-    ...(dollars.length === 0 ? {} : { dollars: Math.min(...dollars) }),
+  const budgets: StructuredBudget[] = [];
+  if (base !== undefined) appendIntrinsicArray(budgets, base as StructuredBudget);
+  for (let index = 0; index < ceilings.length; index += 1) {
+    appendIntrinsicArray(budgets, ceilings[index] as StructuredBudget);
+  }
+  let tokens: number | undefined;
+  let dollars: number | undefined;
+  let wallclock: string | undefined;
+  let wallclockLimit = POSITIVE_INFINITY;
+  for (let index = 0; index < budgets.length; index += 1) {
+    const budget = budgets[index]!;
+    if (budget.tokens !== undefined && (tokens === undefined || budget.tokens < tokens)) tokens = budget.tokens;
+    if (budget.dollars !== undefined && (dollars === undefined || budget.dollars < dollars)) dollars = budget.dollars;
+    if (budget.wallclock !== undefined) {
+      const candidate = wallclockMs(budget.wallclock) ?? POSITIVE_INFINITY;
+      if (wallclock === undefined || candidate < wallclockLimit) {
+        wallclock = budget.wallclock;
+        wallclockLimit = candidate;
+      }
+    }
+  }
+  return OBJECT_FREEZE({
+    ...(tokens === undefined ? {} : { tokens }),
+    ...(dollars === undefined ? {} : { dollars }),
     ...(wallclock === undefined ? {} : { wallclock }),
   });
 }
@@ -372,11 +394,19 @@ export async function loadFlowExtensions<Authority>(
 export function composeDefinition<Input>(base: AuthoredFlowDefinition<Input>, extensions: readonly LoadedFlowExtension[]): AuthoredFlowDefinition<Input> {
   if (extensions.length === 0) return base;
   const budget = composeBudget(base.header.budget, extensions);
-  return Object.freeze({
+  const handlers: TriggerHandler[] = [];
+  for (let index = 0; index < base.handlers.length; index += 1) appendIntrinsicArray(handlers, base.handlers[index]!);
+  for (let extensionIndex = 0; extensionIndex < extensions.length; extensionIndex += 1) {
+    const extensionHandlers = extensions[extensionIndex]!.handlers;
+    for (let handlerIndex = 0; handlerIndex < extensionHandlers.length; handlerIndex += 1) {
+      appendIntrinsicArray(handlers, extensionHandlers[handlerIndex]!);
+    }
+  }
+  return OBJECT_FREEZE({
     ...base,
     header: budget === base.header.budget
       ? base.header
-      : Object.freeze({ ...base.header, budget }),
-    handlers: Object.freeze([...base.handlers, ...extensions.flatMap(extension => extension.handlers)]),
+      : OBJECT_FREEZE({ ...base.header, budget }),
+    handlers: OBJECT_FREEZE(handlers),
   });
 }
