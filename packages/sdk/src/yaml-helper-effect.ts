@@ -8,6 +8,7 @@ import type { StepDispatchEvent } from './protocol.js';
 import { atomicJson, readSlackReceipt, receiptPath, slackWriteback } from './slack-writeback.js';
 import { invokeHelper, type HelperCall } from './yaml-helpers.js';
 import { withWorkerLease } from './worker-lease.js';
+import { NO_MODEL_COST } from './reported-cost.js';
 
 export function helperMount(provider: string, env = process.env): string | undefined {
   const root = [env.RELAYFILE_MOUNT_PATH, env.WORKSPACE_ROOT, env.WORKFORCE_SANDBOX_ROOT,
@@ -73,6 +74,6 @@ export async function completeHelperDispatch(
     return { ...call, idempotencyKey: `${dispatch.run_id}:${dispatch.step_id}`, receipt };
   });
   await client.stepComplete(dispatch.run_id, dispatch.step_id, dispatch.attempt,
-    dispatch.idempotency_key, 'success', { output, started_pins: dispatch.pins, end_pins: dispatch.pins,
+    dispatch.idempotency_key, 'success', { output, started_pins: dispatch.pins, end_pins: dispatch.pins, reported_cost: NO_MODEL_COST,
       effects: [{ surface_path: surfacePath, idempotency_key: dispatch.idempotency_key }] });
 }

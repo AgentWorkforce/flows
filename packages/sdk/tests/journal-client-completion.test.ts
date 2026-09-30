@@ -56,3 +56,33 @@ it.each(['rejection', 'disconnect', 'caller close'] as const)(
     }
   },
 );
+
+it.each([
+  ['a daemon that predates the feature', undefined, false],
+  ['a daemon that advertises it', ['reported_cost'], true],
+] as const)('sends reported_cost only to %s', async (_name, features, sent) => {
+  const path = sockPath();
+  const received: Record<string, unknown>[] = [];
+  const server = startLoopback(path, {
+    hello: ctx => sendResult(ctx, { protocol: 0, server: 'relayflowd', ...(features === undefined ? {} : { features }) }),
+    'step.complete': (ctx, params) => { received.push(params); sendResult(ctx, { status: 'running' }); },
+  });
+  const client = new JournalClient(path);
+  try {
+    await client.connect();
+    await client.hello('feature-gate');
+    await client.stepComplete('run', 'agent', 1, 'key', 'success', {
+      usage: { tokens_in: 1, tokens_out: 1, dollars: '0.1' },
+      reported_cost: { dollars: '7.169405', source: 'cli' },
+    });
+    // An older daemon refuses unknown completion fields; the display-only cost
+    // is dropped for it rather than failing the step. Metered usage is always sent.
+    expect(received[0]!['usage']).toEqual({ tokens_in: 1, tokens_out: 1, dollars: '0.1' });
+    if (sent) expect(received[0]!['reported_cost']).toEqual({ dollars: '7.169405', source: 'cli' });
+    else expect(received[0]).not.toHaveProperty('reported_cost');
+  } finally {
+    client.close();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    rmSync(path, { force: true });
+  }
+});

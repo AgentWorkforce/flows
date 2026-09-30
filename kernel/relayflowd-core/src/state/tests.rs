@@ -40,6 +40,7 @@ fn journal_replays_data_gate_verdict_without_rerunning_completed_code() {
             budget: Budget::default(),
             completed_by: "kernel".to_owned(),
             next_attempt_at_ms: None,
+            reported_cost: None,
         },
     );
     let state = RunState::fold("run", spec(), &[completion]).unwrap();

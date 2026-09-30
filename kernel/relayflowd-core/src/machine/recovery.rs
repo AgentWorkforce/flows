@@ -134,6 +134,7 @@ pub fn abandonment_actions(
             budget: Budget::default(),
             completed_by: "kernel".to_owned(),
             next_attempt_at_ms,
+            reported_cost: None,
         },
     ))];
     if manual {

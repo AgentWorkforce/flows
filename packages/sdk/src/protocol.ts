@@ -79,6 +79,11 @@ export interface HelloParams {
 export interface HelloResult {
   protocol: 0;
   server: string;
+  /**
+   * Additive request capabilities within protocol 0. Absent from daemons that
+   * predate it, which then accept none of the optional fields it gates.
+   */
+  features?: string[];
 }
 
 export interface StepSpend {
@@ -97,6 +102,21 @@ export interface StepSpend {
  * `dollars_unmetered: true` and no dollar amount, so unknown cost is never
  * journaled as a measured $0. See `workerSpend` for the full contract.
  */
+/**
+ * A step attempt's actual cost (`reported-cost.ts`), journaled beside the
+ * metered `usage` as `reported_cost`. Display only: the kernel never charges it
+ * against `maxDollars`.
+ */
+export interface ReportedCost {
+  /** Non-negative decimal string, six places. */
+  dollars: string;
+  /**
+   * `cli`: the CLI's own reported total. `priced`: estimated from full token
+   * usage. `no_model`: an internal effect worker completed the step; $0.
+   */
+  source: 'cli' | 'priced' | 'no_model';
+}
+
 export type StepUsage =
   | { tokens_in: number; tokens_out: number; dollars: string; dollars_unmetered?: never }
   | { tokens_in: number; tokens_out: number; dollars_unmetered: true; dollars?: never };
@@ -342,6 +362,8 @@ export interface StepCompleteParams {
   effects?: EffectRef[];
   /** `inspect` evidence for the next attempt. Rejected over 16 KiB of JSON. */
   trajectory_tail?: unknown;
+  /** Display-only actual cost; never charged to the budget. */
+  reported_cost?: ReportedCost;
 }
 export type StepCompleteResult = RunOutcome;
 

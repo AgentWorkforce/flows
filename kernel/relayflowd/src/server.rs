@@ -163,7 +163,14 @@ fn handle_request(
                     format!("relayflowd supports protocol {PROTOCOL_VERSION}"),
                 ));
             }
-            Ok(json!({"protocol": PROTOCOL_VERSION, "server": "relayflowd"}))
+            // Additive capabilities within protocol 0. A client sends an
+            // optional request field only when the daemon lists it, so a newer
+            // SDK never trips an older daemon's `deny_unknown_fields`.
+            Ok(json!({
+                "protocol": PROTOCOL_VERSION,
+                "server": "relayflowd",
+                "features": ["reported_cost"],
+            }))
         }
         "run.start" => {
             let params: RunStartParams = decode_params(request.params)?;
@@ -432,6 +439,7 @@ fn handle_request(
                         end_pins: params.end_pins,
                         effects: params.effects,
                         trajectory_tail: params.trajectory_tail,
+                        reported_cost: params.reported_cost,
                     },
                 )
                 .map_err(internal_error)?;

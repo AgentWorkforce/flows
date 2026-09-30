@@ -10,7 +10,12 @@
 // No I/O, no clock: the caller passes `now_ms`, so a test folds a hand-built
 // journal against a fixed instant and asserts exact elapsed and overdue values.
 
+import { addDollars } from './decimal-dollars.js';
+import { addReportedCost, modelFreeSteps, NO_REPORTED_COST, type ReportedCostTotal } from './reported-cost-total.js';
 import type { JournalEvent } from './journal-reader.js';
+
+export { addDollars } from './decimal-dollars.js';
+export type { ReportedCostTotal } from './reported-cost-total.js';
 
 export type RunStatus = 'running' | 'parked' | 'completed' | 'failed' | 'cancelling' | 'cancelled';
 
@@ -24,6 +29,7 @@ export interface Spend {
   dollars: string;
   dollars_unmetered: boolean;
 }
+
 
 export interface StepCounts {
   total: number;
@@ -91,6 +97,10 @@ export interface StepView {
   completion_reason: string | null;
   /** Paths the worker journaled for the last attempt, when its output carried them. */
   artifacts: { paths: string[]; journaled: boolean };
+  /** Metered charges of this step's attempts: what counted toward the budget. */
+  spend: Spend;
+  /** Actual cost of this step's attempts. Null until an attempt completes. */
+  reported_cost: ReportedCostTotal | null;
 }
 
 export interface RunView {
@@ -101,6 +111,8 @@ export interface RunView {
   spawned_at_ms: number;
   now_ms: number;
   spend: Spend;
+  /** Actual cost of this run's own attempts; see {@link ReportedCostTotal}. */
+  reported_cost: ReportedCostTotal;
   counts: StepCounts;
   steps: StepView[];
 }
@@ -127,42 +139,6 @@ function text(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
 }
 
-/**
- * Sum two decimal dollar strings exactly, at whatever scale they carry — the
- * kernel's budget fold (`relayflowd-core/src/state/budget.rs`) aligns every
- * fractional digit before adding, and it accepts arbitrary precision. Scaling
- * to a fixed six fractional digits dropped a charge of `0.0000001` to zero, so
- * `flows status` underreported spend the kernel had totalled exactly.
- *
- * A value that is not a decimal number is left out of the sum rather than
- * counted as zero, and the caller is told by `malformed`.
- */
-export function addDollars(left: string, right: string): string {
-  const parsed = [left, right].map((value) => /^\d+(?:\.\d+)?$/.test(value) ? value : null);
-  const usable = parsed.filter((value): value is string => value !== null);
-  if (usable.length === 0) return '0';
-  if (usable.length === 1) return normalizeDollars(usable[0]!);
-  const scale = Math.max(...usable.map((value) => (value.split('.')[1] ?? '').length));
-  const scaled = usable.map((value) => {
-    const [whole, fraction = ''] = value.split('.');
-    return BigInt(`${whole}${fraction.padEnd(scale, '0')}`);
-  });
-  return fromScaled(scaled[0]! + scaled[1]!, scale);
-}
-
-/** `12.3400` -> `12.34`, `0.000` -> `0`; the journal's own spelling otherwise. */
-function normalizeDollars(value: string): string {
-  const [whole, fraction = ''] = value.split('.');
-  return fromScaled(BigInt(`${whole}${fraction}`), fraction.length);
-}
-
-function fromScaled(total: bigint, scale: number): string {
-  if (scale === 0) return String(total);
-  const digits = String(total).padStart(scale + 1, '0');
-  const whole = digits.slice(0, digits.length - scale);
-  const fraction = digits.slice(digits.length - scale).replace(/0+$/, '');
-  return fraction.length === 0 ? whole : `${whole}.${fraction}`;
-}
 
 /**
  * Reduce `trajectory_tail.transcript` (the digest flows#491 journals) to the
@@ -209,6 +185,7 @@ function addSpend(total: Spend, charge: unknown): Spend {
 
 const ZERO_SPEND: Spend = { tokens_in: 0, tokens_out: 0, dollars: '0', dollars_unmetered: false };
 
+
 interface StepFold {
   view: StepView;
   depends_on: string[];
@@ -221,6 +198,7 @@ function freshStep(id: string, type: string, maxIterations: number | null, depen
       id, type, state: 'pending', attempt: 0, max_iterations: maxIterations,
       started_at_ms: null, elapsed_ms: null, lease: null, backoff_until_ms: null, wait: null,
       last_attempt: null, completion_reason: null, artifacts: { paths: [], journaled: false },
+      spend: ZERO_SPEND, reported_cost: null,
     },
   };
 }
@@ -268,6 +246,8 @@ export function foldRunState(events: readonly JournalEvent[], now_ms: number): R
   // An authored child run carries its parent's totals so ceilings hold across
   // the family (state.rs `prior_spend`); the view reports the same running total.
   let spend = addSpend(ZERO_SPEND, budget['prior_spend']);
+  let reportedCost = NO_REPORTED_COST;
+  const modelFree = modelFreeSteps(first);
   let completion: string | null = null;
   let cancelRequested = false;
 
@@ -297,6 +277,9 @@ export function foldRunState(events: readonly JournalEvent[], now_ms: number): R
         const attempt = event.attempt ?? view.attempt;
         view.attempt = Math.max(view.attempt, attempt);
         spend = addSpend(spend, payload['budget']);
+        view.spend = addSpend(view.spend, payload['budget']);
+        reportedCost = addReportedCost(reportedCost, payload, modelFree.has(view.id));
+        view.reported_cost = addReportedCost(view.reported_cost ?? NO_REPORTED_COST, payload, modelFree.has(view.id));
         const verification = payload['verification'] !== null && typeof payload['verification'] === 'object'
           ? payload['verification'] as Payload : undefined;
         view.last_attempt = {
@@ -362,8 +345,12 @@ export function foldRunState(events: readonly JournalEvent[], now_ms: number): R
         // A new epoch restarts every step (state.rs `apply_epoch`); the
         // summary then restores the ones it carries forward.
         for (const step of steps.values()) {
-          const { id, type, max_iterations } = step.view;
+          const { id, type, max_iterations, spend: stepSpend, reported_cost: stepCost } = step.view;
           step.view = freshStep(id, type, max_iterations, step.depends_on).view;
+          // Rollover keeps the earlier segments' completions in the journal,
+          // and this fold has already read them: what the step cost stays.
+          step.view.spend = stepSpend;
+          step.view.reported_cost = stepCost;
         }
         spend = addSpend(ZERO_SPEND, payload['budget_spent']);
         const done = payload['steps_done'] !== null && typeof payload['steps_done'] === 'object' ? payload['steps_done'] as Payload : {};
@@ -462,6 +449,7 @@ export function foldRunState(events: readonly JournalEvent[], now_ms: number): R
     spawned_at_ms: first.at_ms,
     now_ms,
     spend,
+    reported_cost: reportedCost,
     counts,
     steps: views,
   };

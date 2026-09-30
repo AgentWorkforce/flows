@@ -13,7 +13,7 @@ import { EventEmitter } from 'node:events';
 export { walkJournal, JournalReadError, type JournalEvent, type JournalReadFailure } from './journal-reader.js';
 import { randomUUID } from 'node:crypto';
 import { createConnection, type Socket } from 'node:net';
-import type { VerbContract, EventEmitParams, EventSubmitParams } from './protocol.js';
+import type { VerbContract, EventEmitParams, EventSubmitParams, ReportedCost } from './protocol.js';
 import {
   PROTOCOL_VERSION,
   type CompletionReason,
@@ -61,6 +61,8 @@ export class JournalProtocolError extends Error {
 }
 
 export class JournalClient extends EventEmitter {
+  /** Additive request capabilities the daemon advertised at `hello`; none until then. */
+  private features: ReadonlySet<string> = new Set();
   private socket: Socket | null = null;
   /** Why the connection ended, so a later "not connected" names its cause rather than hiding it. */
   private disconnectCause: Error | undefined;
@@ -215,9 +217,11 @@ export class JournalClient extends EventEmitter {
 
   // --- Typed verb methods (gate 1 minimal set, kernel DESIGN.md §5) --------
 
-  /** Handshake; version mismatch is a hard error. */
-  hello(client: string): Promise<VerbContract['hello']['result']> {
-    return this.request('hello', { protocol: PROTOCOL_VERSION, client });
+  /** Handshake; version mismatch is a hard error. Records the daemon's additive features. */
+  async hello(client: string): Promise<VerbContract['hello']['result']> {
+    const result = await this.request('hello', { protocol: PROTOCOL_VERSION, client });
+    this.features = new Set(Array.isArray(result.features) ? result.features.filter(f => typeof f === 'string') : []);
+    return result;
   }
 
   /**
@@ -403,15 +407,20 @@ export class JournalClient extends EventEmitter {
       effects?: EffectRef[];
       trajectory_tail?: unknown;
       human_intervention?: boolean;
+      reported_cost?: ReportedCost;
     } = {},
   ): Promise<VerbContract['step.complete']['result']> {
+    // `reported_cost` is display-only, and a daemon that predates it refuses
+    // unknown completion fields: drop it rather than fail the completion.
+    const { reported_cost: reportedCost, ...rest } = extra;
     return this.request('step.complete', {
       run_id: runId,
       step_id: stepId,
       attempt,
       idempotency_key: idempotencyKey,
       completionReason,
-      ...extra,
+      ...rest,
+      ...(reportedCost !== undefined && this.features.has('reported_cost') ? { reported_cost: reportedCost } : {}),
     }, null).catch(error => {
       if (error instanceof JournalProtocolError) error.verb = 'step.complete';
       throw error;
