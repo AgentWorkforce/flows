@@ -18,6 +18,7 @@ import type {
 } from './failure-kinds.js';
 import { HUMAN_WAIT_ID } from './authored-human.js';
 import { assertAuthoredPromiseHooks } from './authored-runtime-capability.js';
+import { settlingCompletion } from './step-settling.js';
 
 let embeddedSource: string | undefined;
 /** Installed by the standalone build; never fetched or resolved from a workspace. */
@@ -342,15 +343,17 @@ export async function verifyAuthoredNodeResult(
       // step a child spec may carry, and it must have completed too.
       const lowered = spec?.steps ?? [];
       const specShape = lowered.length === 1 || (lowered.length === 2 && lowered[1]?.id === `${claimed.id}.gate`);
-      const completed = entries.filter(entry => entry.entry_type === 'step.completed' && entry.step_id === claimed.id);
-      const gateCompleted = lowered.length === 2
-        ? entries.filter(entry => entry.entry_type === 'step.completed' && entry.step_id === `${claimed.id}.gate`) : [];
+      // Judged against the step's SETTLING completion, the same one the
+      // authored reader returned: a retried attempt (`disposition: retry`,
+      // e.g. crash recovery's `crashed`) journals a completion of its own
+      // ahead of it, so neither a count nor the first entry is the verdict.
+      const completed = settlingCompletion(entries, claimed.id);
+      const gateCompleted = lowered.length === 2 ? settlingCompletion(entries, `${claimed.id}.gate`) : undefined;
       const terminalFacts = entries.filter(entry => entry.entry_type === 'run.completed');
       if (spec?.name !== `${metadata.flowName}/${claimed.id}` || !specShape
-        || step?.id !== claimed.id || completed.length !== 1
-        || completed[0]?.payload?.completionReason !== 'success'
-        || (lowered.length === 2 && (gateCompleted.length !== 1 || gateCompleted[0]?.payload?.completionReason !== 'success'))
-        || terminalFacts.length !== 1 || terminalFacts[0]?.payload?.completionReason !== 'success') invalid(`evidence ${claimed.id} spec=${spec?.name} step=${step?.id} completed=${completed.length}`);
+        || step?.id !== claimed.id || completed?.payload?.completionReason !== 'success'
+        || (lowered.length === 2 && gateCompleted?.payload?.completionReason !== 'success')
+        || terminalFacts.length !== 1 || terminalFacts[0]?.payload?.completionReason !== 'success') invalid(`evidence ${claimed.id} spec=${spec?.name} step=${step?.id} completed=${completed?.payload?.completionReason}`);
       if (claimed === terminal) {
         // The claimed verdict must match the marker the journal actually
         // recorded, so an IPC frame cannot claim `success` over a run whose

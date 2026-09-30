@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readCompletedStepOutput } from '../src/authored-step-output.js';
 import type { AuthoredFlowJournalStep } from '../src/authored-flow-executor.js';
 import type { JournalClient } from '../src/journal-client.js';
@@ -188,3 +188,112 @@ describe('readCompletedStepOutput on an adopted child that is not terminal yet',
     expect(child.resumes()).toBe(0);
   });
 });
+
+/** A named gate lowers to a dependent `<step>.gate` step in the child's own spec. */
+const gateStarted: Entry = { entry_type: 'step.attempt.started', step_id: 'run-2.gate', attempt: 1, payload: { max_iterations: 1 } };
+const gateCompleted = (completionReason: string): Entry => ({
+  entry_type: 'step.completed', step_id: 'run-2.gate', attempt: 1,
+  payload: { completionReason, disposition: 'step_done', output: null },
+});
+const snapshotOf = (status: RunGetResult['status'], gate: RunGetResult['steps'][string]): RunGetResult => ({
+  run_id: 'child-1', status,
+  steps: { 'run-2': { type: 'deterministic', state: 'done' }, 'run-2.gate': gate },
+  budget: { tokens_in: 0, tokens_out: 0, dollars: '0' },
+});
+
+describe('readCompletedStepOutput on an adopted gated child whose gate has not started', () => {
+  // The producer's success is journaled; its named gate is still `runnable`
+  // (not started), so the child has neither `run.completed` nor an open
+  // attempt. The gate's verdict, arriving later, is the operation's.
+  function gatedChild(gateVerdict: 'success' | 'verification_failed') {
+    let polls = 0;
+    const child = childJournal([started(1), completed(1, 'success', 'step_done', ok)], () => {
+      polls += 1;
+      if (polls === 3) child.append(gateStarted);
+      if (polls === 5) {
+        child.append(gateCompleted(gateVerdict));
+        child.append(runCompleted(gateVerdict === 'success' ? 'success' : 'step_failed'));
+        return snapshotOf(gateVerdict === 'success' ? 'completed' : 'failed', { type: 'deterministic', state: 'done' });
+      }
+      return snapshotOf('running', polls < 3
+        ? { type: 'deterministic', state: 'runnable' }
+        : { type: 'deterministic', state: 'running', lease_deadline_ms: Date.now() + 60_000 });
+    });
+    return child;
+  }
+
+  it('fails the authored step when the gate later fails', async () => {
+    const child = gatedChild('verification_failed');
+    const failure = await readCompletedStepOutput(child.journal, 'child-1', 'run-2', [])
+      .then(() => undefined, (error: Error & { code?: string }) => error);
+
+    expect(failure?.code).toBe('step_failed');
+    expect(failure?.message).toContain('journal run for step "run-2" completed with step_failed');
+    expect(child.resumes()).toBe(0);
+  });
+
+  it('resolves the producer output when the gate later passes', async () => {
+    const child = gatedChild('success');
+    await expect(readCompletedStepOutput(child.journal, 'child-1', 'run-2', [])).resolves.toEqual(ok);
+    expect(child.resumes()).toBe(0);
+  });
+
+  it('refuses a producer success when the wait ends with the run still not terminal', async () => {
+    // Nothing ever starts the gate: after the settling window the run is
+    // still `running`, so there is no verdict to read — not a success.
+    const child = childJournal([started(1), completed(1, 'success', 'step_done', ok)],
+      () => snapshotOf('running', { type: 'deterministic', state: 'runnable' }));
+    const failure = await readCompletedStepOutput(child.journal, 'child-1', 'run-2', [])
+      .then(() => undefined, (error: Error & { code?: string }) => error);
+
+    expect(failure?.code).toBe('journal_protocol_violation');
+    expect(failure?.message).toContain('is not terminal (status: running)');
+    expect(child.resumes()).toBe(0);
+  });
+});
+
+describe('waiting on a retry backoff whose wake passes mid-poll', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('keeps polling through the elapsed wake and resolves when the next attempt completes', async () => {
+    // Fake clock: the wake is still ahead when the backoff deadline is read,
+    // and has passed by the time the waiter compares against it — the
+    // kernel's driver is folding the timer, not failing.
+    let now = 1_000_000;
+    const wake = now + 10;
+    // Armed by the journal read that finds the `sleep.until`: the NEXT clock
+    // read (the backoff's own "has it woken?" check) still sees the wake
+    // ahead; every read after it — the waiter's deadline check — sees it past.
+    let readsBeforeWake: number | undefined;
+    vi.spyOn(Date, 'now').mockImplementation(() => {
+      if (readsBeforeWake !== undefined && readsBeforeWake-- === 0) { now = wake + 1; readsBeforeWake = undefined; }
+      return now;
+    });
+    let polls = 0;
+    let passWakeOnRead = false;
+    const child = childJournal([started(1), completed(1, 'crashed', 'retry'), backoff(1, wake)], entries => {
+      polls += 1;
+      if (polls === 1) {
+        passWakeOnRead = true;
+        return { ...terminalSnapshot(entries), steps: { 'run-2': { type: 'deterministic', state: 'backoff' } } };
+      }
+      if (polls === 2) child.append(started(2));
+      if (polls === 3) { child.append(completed(2, 'success', 'step_done', ok)); child.append(runCompleted('success')); }
+      const snapshot = terminalSnapshot(entries);
+      return snapshot.status === 'running'
+        ? { ...snapshot, steps: { 'run-2': { type: 'deterministic', state: 'running', lease_deadline_ms: now + 60_000 } } }
+        : snapshot;
+    });
+    const read = child.journal.journalRead.bind(child.journal);
+    child.journal.journalRead = (async (...args: Parameters<typeof read>) => {
+      const page = await read(...args);
+      if (passWakeOnRead) { passWakeOnRead = false; readsBeforeWake = 1; }
+      return page;
+    }) as typeof read;
+
+    await expect(readCompletedStepOutput(child.journal, 'child-1', 'run-2', [])).resolves.toEqual(ok);
+    expect(polls).toBe(3);
+    expect(child.resumes()).toBe(0);
+  });
+});
+

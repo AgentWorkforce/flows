@@ -80,6 +80,23 @@ describe('authored IPC result durable verification',()=>{
       {entry_type:'step.completed',step_id:'run-1',payload:{completionReason:'success'}},{entry_type:'run.completed',payload:{completionReason:'success'}}]);
     await expect(verifyAuthoredNodeResult(result(),metadata,'root','socket')).rejects.toThrow('no matching durable completion');
   });
+  it('judges a retried child by its settling completion, as the authored reader does',async()=>{
+    const retried=(terminalReason:string)=>[
+      {entry_type:'run.spawned',payload:{spec:{name:'example/run-1',steps:[{id:'run-1',type:'deterministic',command:':'}]}}},
+      {entry_type:'step.completed',step_id:'run-1',payload:{completionReason:'crashed',disposition:'retry'}},
+      {entry_type:'step.completed',step_id:'run-1',payload:{completionReason:terminalReason,disposition:'step_done'}},
+      {entry_type:'run.completed',payload:{completionReason:'success'}},
+    ];
+    // Crash recovery's `crashed`/`retry`, then the attempt that settled it.
+    records.set('child-1',retried('success'));
+    await verifyAuthoredNodeResult(result(),metadata,'root','socket');
+    // The settling completion, not the first, is the verdict a claim meets.
+    records.set('child-1',retried('retries_exhausted'));
+    await expect(verifyAuthoredNodeResult(result(),metadata,'root','socket')).rejects.toThrow('no matching durable completion');
+    // A retried attempt alone never settled the step.
+    records.set('child-1',[retried('success')[0]!,{entry_type:'step.completed',step_id:'run-1',payload:{completionReason:'success',disposition:'retry'}},retried('success')[3]!]);
+    await expect(verifyAuthoredNodeResult(result(),metadata,'root','socket')).rejects.toThrow('no matching durable completion');
+  });
   it('refuses a gate id as the terminal marker, and a count that includes gates',async()=>{
     const base=result();
     await expect(verifyAuthoredNodeResult({...base,journalSteps:[base.journalSteps[0]!,{id:'complete-2.gate',runId:'x',completionReason:'success'}]},metadata,'root','socket')).rejects.toThrow('no matching durable completion');

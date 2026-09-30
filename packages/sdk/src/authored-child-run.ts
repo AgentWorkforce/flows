@@ -49,8 +49,9 @@ export async function readChildJournal(journal: JournalClient, runId: string): P
  *
  * Bounded by the child's own journaled deadlines, never a fixed one: a running
  * attempt by its lease (renewed as the lease renews) plus the kernel's
- * lease-sweep grace, a backoff by the `sleep.until` it journaled. With nothing
- * in flight, only the short settling window above; a child parked on a worker
+ * lease-sweep grace, a backoff by the `sleep.until` it journaled (once that
+ * wake has passed, by the settling window). With nothing in flight, only the
+ * short settling window above; a child parked on a worker
  * returns at once. Either way the caller gets the status and decides.
  */
 export async function waitForTerminalChildRun(
@@ -65,15 +66,19 @@ export async function waitForTerminalChildRun(
     if (snapshot.status === 'completed' || snapshot.status === 'failed') return snapshot.status;
     const inFlight = await inFlightDeadline(journal, runId, snapshot);
     if (inFlight === 'parked') return snapshot.status;
-    if (inFlight !== undefined) {
+    const remainingMs = inFlight === undefined ? 0 : inFlight.deadlineMs + inFlight.graceMs - Date.now();
+    if (inFlight !== undefined && remainingMs > 0) {
       idlePolls = 0;
-      const remainingMs = inFlight.deadlineMs + inFlight.graceMs - Date.now();
-      if (remainingMs <= 0) {
-        throw new Error(`child run "${runId}" step "${inFlight.stepId}" passed its ${inFlight.what}`
-          + ` (${inFlight.deadlineMs}) without reaching a terminal state`);
-      }
       await delay(Math.min(POLL_MS, remainingMs), signal);
       continue;
+    }
+    // Only a lease past its sweep grace is proof nothing is running the
+    // attempt. An elapsed retry wake is the kernel's normal transition to the
+    // next attempt — its driver may be folding the timer right now — so it is
+    // re-polled inside the settling window like any other in-between state.
+    if (inFlight?.what === 'lease') {
+      throw new Error(`child run "${runId}" step "${inFlight.stepId}" passed its lease`
+        + ` (${inFlight.deadlineMs}) without reaching a terminal state`);
     }
     if (idlePolls >= MAX_IDLE_POLLS) return snapshot.status;
     idlePolls += 1;

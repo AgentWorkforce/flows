@@ -136,7 +136,7 @@ export function authoredWorkerRunner(
         details,
       );
     }
-    return readCompletedStepOutput(journal, outcome.run_id, id, journalSteps, context);
+    return readCompletedStepOutput(journal, outcome.run_id, id, journalSteps, context, execution.report.status);
     };
     const admissionKey = authoredChildAdmissionKey(rootRunId, id);
     const admit = async () => budget === undefined

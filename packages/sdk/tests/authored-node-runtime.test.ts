@@ -132,6 +132,41 @@ f.done('success');`);
     const resumed = f.invoke(['resume', report.runId]); expect(resumed.status, resumed.stderr + resumed.stdout).toBe(0);
   }, 90_000);
 
+  it('resumes a run killed mid-step: the retried child passes the durable result verifier', async () => {
+    // Kill the standalone CLI and relayflowd while `run-2` executes, then
+    // resume. Crash recovery journals `crashed`/`retry` and a second attempt
+    // succeeds; the Node body's claim for `run-2` must be verified against
+    // that settling completion, not the first one.
+    const f = fixture(`await f.run('echo ran >> count');
+await f.run('test -f marker || { touch marker; sleep 120; }', { timeout: '5m' });
+f.done('success');`);
+    const child = spawn(cli, ['run', 'case.flow.ts', '--input', '{}', ...f.flags], { cwd: f.directory, env: f.env, stdio: 'ignore' });
+    const exited = new Promise<void>(resolveExit => child.once('exit', () => resolveExit()));
+    const deadline = Date.now() + 60_000;
+    while (!existsSync(join(f.directory, 'marker'))) {
+      if (Date.now() > deadline) throw new Error('run-2 never started');
+      await new Promise(resolveWait => setTimeout(resolveWait, 25));
+    }
+    child.kill('SIGKILL'); await exited;
+    const { pid } = JSON.parse(readFileSync(join(f.directory, 'data/connection.json'), 'utf8'));
+    try { process.kill(pid, 'SIGKILL'); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+    }
+    const rootRunId = readdirSync(join(f.directory, 'data/runs')).filter(name => name.endsWith('.sqlite3'))
+      .map(name => name.slice(0, -'.sqlite3'.length)).sort()[0]!;
+    const resumed = f.invoke(['resume', rootRunId]);
+    expect(resumed.status, resumed.stderr + resumed.stdout).toBe(0);
+    expect(JSON.parse(resumed.stdout)).toMatchObject({ ok: true, completionReason: 'success' });
+    expect(readFileSync(join(f.directory, 'count'), 'utf8')).toBe('ran\n');
+    const output = (await entries(f.directory, rootRunId)).filter(e => e.entry_type === 'step.completed').at(-1)!.payload['output'];
+    const run2 = output.journalSteps.find((s: {id: string}) => s.id === 'run-2');
+    expect(run2).toMatchObject({ completionReason: 'success' });
+    const childEntries = await entries(f.directory, run2.runId);
+    expect(childEntries.filter(e => e.entry_type === 'step.completed')
+      .map(e => [e.payload['completionReason'], e.payload['disposition']]))
+      .toEqual([['crashed', 'retry'], ['success', 'step_done']]);
+  }, 120_000);
+
   it('parks an f.human across the IPC boundary, answers it, and resumes the Node body with the answer', async () => {
     const f = fixture(`await f.agent('worker',{task:'local fixture'});
 const ok = await f.human('Ship it?', { to: 'khaliq' });
