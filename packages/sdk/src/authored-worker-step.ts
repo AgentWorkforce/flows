@@ -41,6 +41,7 @@ export function authoredWorkerRunner(
     ...(rootRunId === undefined ? {} : { rootRunId }),
     ...(waitOptions.dataDir === undefined ? {} : { dataDir: waitOptions.dataDir }),
     ...(stepEdges === undefined ? {} : { stepEdges }),
+    ...(waitOptions.signal === undefined ? {} : { signal: waitOptions.signal }),
   };
   async function run(step: StepSpec): Promise<unknown> {
     const id = step.id;
@@ -139,7 +140,7 @@ export function authoredWorkerRunner(
         details,
       );
     }
-    return readCompletedStepOutput(journal, outcome.run_id, id, journalSteps, context);
+    return readCompletedStepOutput(journal, outcome.run_id, id, journalSteps, context, execution.report.status);
     };
     const admissionKey = authoredChildAdmissionKey(rootRunId, id);
     const admit = async () => budget === undefined

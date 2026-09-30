@@ -193,7 +193,7 @@ describe('reading a recorded outcome from a malformed envelope', () => {
   }
 
   const read = (output: unknown) => readRecordedOutcome(
-    completedWith(output), { run_id: 'child-1' } as RunOutcome, 'run-1', []);
+    completedWith(output), { run_id: 'child-1', status: 'completed' } as RunOutcome, 'run-1', []);
 
   it('accepts a well-formed envelope', async () => {
     await expect(read({ exit_code: 2, stdout_tail: 'out', stderr_tail: 'err' }))
