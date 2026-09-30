@@ -23,7 +23,7 @@ const DYNAMIC_PAIR_SOURCE_WAIVERS = new Map([
   ],
   [
     'packages/sdk/scripts/dogfood/close-pr.flow.ts',
-    ['repairCli'],
+    ["'close-pr-repair'"],
   ],
 ]);
 

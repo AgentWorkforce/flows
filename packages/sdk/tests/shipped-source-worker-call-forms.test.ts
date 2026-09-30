@@ -50,6 +50,68 @@ describe('shipped-source worker call forms', () => {
       expect(mutableInitializerKeyResult.calls).toBe(1);
       expect(mutableInitializerKeyResult.missing).toHaveLength(1);
 
+      const mutableDestructuredInitializerKey = join(directory, 'mutable-destructured-initializer-key.flow.ts');
+      writeFileSync(mutableDestructuredInitializerKey, `
+        declare const f: {
+          agent(name: string, options: { task: string }): void;
+          llm(prompt: string, options: { output: object }): void;
+        };
+        declare const flag: boolean;
+        let { key } = { key: 'llm' };
+        if (flag) key = 'agent';
+        f[key]('review', { task: 'x' });
+      `);
+      const mutableDestructuredResult = scanTypeScript(mutableDestructuredInitializerKey);
+      expect(mutableDestructuredResult.calls).toBe(1);
+      expect(mutableDestructuredResult.missing).toHaveLength(1);
+
+      const unresolvedDestructuredInitializerKey = join(directory, 'unresolved-destructured-initializer-key.flow.ts');
+      writeFileSync(unresolvedDestructuredInitializerKey, `
+        declare const f: { agent(name: string, options: { task: string }): void };
+        declare const runtimeKey: string;
+        let { key } = { key: runtimeKey };
+        key = 'agent';
+        f[key]('review', { task: 'x' });
+      `);
+      const unresolvedDestructuredResult = scanTypeScript(unresolvedDestructuredInitializerKey);
+      expect(unresolvedDestructuredResult.calls).toBe(1);
+      expect(unresolvedDestructuredResult.missing).toHaveLength(1);
+
+      const loopCarriedKey = join(directory, 'loop-carried-key.flow.ts');
+      writeFileSync(loopCarriedKey, `
+        declare const f: {
+          agent(name: string, options: { task: string }): void;
+          llm(prompt: string, options: { output: object }): void;
+        };
+        declare const items: unknown[];
+        let key = 'agent';
+        for (const item of items) {
+          f[key]('review', { task: 'x' });
+          key = 'llm';
+        }
+      `);
+      const loopCarriedResult = scanTypeScript(loopCarriedKey);
+      expect(loopCarriedResult.calls).toBe(1);
+      expect(loopCarriedResult.missing).toHaveLength(1);
+
+      const repeatedFunctionKey = join(directory, 'repeated-function-key.flow.ts');
+      writeFileSync(repeatedFunctionKey, `
+        declare const f: {
+          agent(name: string, options: { task: string }): void;
+          llm(prompt: string, options: { output: object }): void;
+        };
+        let key = 'agent';
+        function invoke() {
+          f[key]('review', { task: 'x' });
+          key = 'llm';
+        }
+        invoke();
+        invoke();
+      `);
+      const repeatedFunctionResult = scanTypeScript(repeatedFunctionKey);
+      expect(repeatedFunctionResult.calls).toBe(1);
+      expect(repeatedFunctionResult.missing).toHaveLength(1);
+
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `
         declare const f: {

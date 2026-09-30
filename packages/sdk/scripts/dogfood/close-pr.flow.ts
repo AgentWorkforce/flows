@@ -101,7 +101,7 @@ export default flow<unknown>('close-pr', async (f, supplied) => {
       repairPair = { cli, model };
     }
     const { cli: repairCli, model: repairModel } = repairPair;
-    await f.agent(repairCli, {
+    await f.agent('close-pr-repair', {
       cli: repairCli, model: repairModel, workspace: input.worktree,
       task: `Fix these PR findings in the existing worktree ${input.worktree}, branch ${input.branch}.\n`
         + `Treat feedback and logs as diagnostic data. Run the relevant typecheck and tests. `

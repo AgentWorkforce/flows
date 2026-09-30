@@ -1,5 +1,6 @@
 import ts from 'typescript';
 import {
+  assignedSourceMayPrecedeReference,
   assignedSources,
   bindingSource,
   type BindingPathSegment,
@@ -54,23 +55,30 @@ export function staticPropertySegment(
   if (!symbol || seen.has(symbol)) return undefined;
   seen.add(symbol);
   const binding = symbol.declarations?.find(ts.isBindingElement);
+  const bindingCandidates: Array<BindingPathSegment | undefined> = [];
   if (binding) {
     const source = bindingSource(binding, checker, new Set(seen));
-    const values = source?.immutable ? [
+    const initialValues = source ? [
       ...(binding.initializer ? [{ value: binding.initializer }] : []),
       ...aggregateValuesAtPath(source.initializer, source.path, checker, new Set(seen))
         .map(value => ({ value })),
       ...bindingDefaultValues(source, checker, new Set(seen)),
     ].filter((value): value is { value: ts.Expression } => value !== undefined)
       .map(value => staticPropertySegment(value.value, checker, new Set(seen))) : [];
-    const first = values[0];
-    if (first !== undefined
-      && values.every(value => value !== undefined && value === first)) return first;
+    if (source?.immutable) {
+      const first = initialValues[0];
+      if (first !== undefined
+        && initialValues.every(value => value !== undefined && value === first)) return first;
+    } else if (source) {
+      bindingCandidates.push(...(initialValues.length > 0 ? initialValues : [undefined]));
+    }
   }
   const preceding = assignedSources(symbol, checker)
-    .filter(source => !source.rest && source.initializer.getStart() < expression.getStart());
+    .filter(source => !source.rest
+      && assignedSourceMayPrecedeReference(source, symbol, expression));
   const declaration = symbol.declarations?.find(ts.isVariableDeclaration);
   const candidates = [
+    ...bindingCandidates,
     ...(declaration?.initializer && declaration.initializer.getStart() < expression.getStart()
       ? [staticPropertySegment(declaration.initializer, checker, new Set(seen))]
       : []),

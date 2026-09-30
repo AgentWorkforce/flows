@@ -21,6 +21,45 @@ function unwrap(expression: ts.Expression): ts.Expression {
   return expression;
 }
 
+function enclosingFunction(node: ts.Node | undefined): ts.SignatureDeclaration | undefined {
+  for (let current = node?.parent; current; current = current.parent) {
+    if (ts.isFunctionLike(current)) return current;
+  }
+  return undefined;
+}
+
+function isIteration(node: ts.Node): boolean {
+  return ts.isForStatement(node)
+    || ts.isForInStatement(node)
+    || ts.isForOfStatement(node)
+    || ts.isWhileStatement(node)
+    || ts.isDoStatement(node);
+}
+
+function sharesIteration(left: ts.Node, right: ts.Node): boolean {
+  const iterations = new Set<ts.Node>();
+  for (let current: ts.Node | undefined = left.parent; current; current = current.parent) {
+    if (isIteration(current)) iterations.add(current);
+  }
+  for (let current: ts.Node | undefined = right.parent; current; current = current.parent) {
+    if (iterations.has(current)) return true;
+  }
+  return false;
+}
+
+export function assignedSourceMayPrecedeReference(
+  source: AssignedSource,
+  symbol: ts.Symbol,
+  reference: ts.Expression,
+): boolean {
+  if (source.initializer.getStart() < reference.getStart()) return true;
+  if (sharesIteration(source.initializer, reference)) return true;
+  const sourceFunction = enclosingFunction(source.initializer);
+  if (!sourceFunction) return false;
+  const declaration = symbol.valueDeclaration ?? symbol.declarations?.[0];
+  return sourceFunction !== enclosingFunction(declaration);
+}
+
 function propertyName(
   name: ts.PropertyName | undefined,
   checker?: ts.TypeChecker,
@@ -71,6 +110,7 @@ function staticPropertySegment(
   if (!symbol || seen.has(symbol)) return undefined;
   const nextSeen = new Set(seen).add(symbol);
   const binding = symbol.declarations?.find(ts.isBindingElement);
+  const bindingCandidates: Array<BindingPathSegment | undefined> = [];
   if (binding) {
     const source = bindingSource(binding, checker, new Set(nextSeen));
     if (source?.immutable) {
@@ -82,18 +122,35 @@ function staticPropertySegment(
       );
       if (value !== undefined) return value;
     }
-    if (binding.initializer) {
+    if (binding.initializer && source?.immutable !== false) {
       const value = staticPropertySegment(binding.initializer, checker, new Set(nextSeen));
       if (value !== undefined) return value;
+    }
+    if (source && !source.immutable) {
+      bindingCandidates.push(staticPropertySegmentAtPath(
+        source.initializer,
+        source.path,
+        checker,
+        new Set(nextSeen),
+      ));
+      if (binding.initializer) {
+        bindingCandidates.push(staticPropertySegment(
+          binding.initializer,
+          checker,
+          new Set(nextSeen),
+        ));
+      }
     }
   }
   const declaration = symbol.declarations?.find(ts.isVariableDeclaration);
   const candidates = [
+    ...bindingCandidates,
     ...(declaration?.initializer && declaration.initializer.getStart() < expression.getStart()
       ? [staticPropertySegment(declaration.initializer, checker, new Set(nextSeen))]
       : []),
     ...assignedSources(symbol, checker)
-      .filter(source => source.path.length === 0 && source.initializer.getStart() < expression.getStart())
+      .filter(source => source.path.length === 0
+        && assignedSourceMayPrecedeReference(source, symbol, expression))
       .map(source => staticPropertySegment(source.initializer, checker, new Set(nextSeen))),
   ];
   const first = candidates[0];

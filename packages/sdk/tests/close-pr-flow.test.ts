@@ -11,6 +11,7 @@ import {
   type BotComment, type Check, type ClosePrInput, type ReviewThread,
 } from '../scripts/dogfood/close-pr-state.js';
 import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
+import { getAuthoredFlowDefinition } from '../src/authored-flow.js';
 import { runDirectFlow } from '../src/cli/direct-run.js';
 import * as runOperations from '../src/cli/run.js';
 import { JournalClient } from '../src/journal-client.js';
@@ -142,6 +143,8 @@ describe('close-pr journaled repair loop', () => {
       cli: '/usr/bin/codex', model: 'test-model', instruction: expect.stringContaining('Null access'),
       surfaces: { workspace: [{ surface: baseInput.worktree }] },
     });
+    expect(getAuthoredFlowDefinition(closePr).body.toString())
+      .toMatch(/f\.agent\(["']close-pr-repair["']/u);
     const push = h.commands.findIndex(command => command.includes('git push --force-with-lease'));
     const merge = h.commands.findIndex(command => command.includes('gh pr merge'));
     expect(push).toBeGreaterThan(0);

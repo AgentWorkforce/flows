@@ -34,12 +34,16 @@ describe('shipped-source flow provenance repairs', () => {
         `{ const box: any = {}; const source = flag ? { key: 'other' as const } : { key: runtimeKey }; declare const runtimeKey: string; const { key } = source; box[key] = surface.flow; box.define('unresolved-aggregate-key', { budget: '$2' }, () => {}); }`,
         `{ const box: any = {}; const captured = flag ? { keys: { value: 'other' as const } } : { keys: { value: 'define' as const } }; function get() { return captured.keys; } box[get().value] = surface.flow; box.define('captured-parent-alternatives', { budget: '$2' }, () => {}); }`,
         `{ const box: any = {}; let key = 'other'; if (flag) key = 'define'; box[key] = surface.flow; box.define('mutable-initializer-key', { budget: '$2' }, () => {}); }`,
+        `{ const box: any = {}; let { key } = { key: 'other' }; if (flag) key = 'define'; box[key] = surface.flow; box.define('mutable-destructured-initializer-key', { budget: '$2' }, () => {}); }`,
+        `{ const box: any = {}; let { key } = { key: runtimeKey }; key = 'define'; box[key] = surface.flow; box.define('unresolved-destructured-initializer-key', { budget: '$2' }, () => {}); }`,
+        `{ const box: any = {}; let key = 'other'; for (const item of items) { box[key] = surface.flow; key = 'define'; } box.define('loop-carried-key', { budget: '$2' }, () => {}); }`,
+        `{ const box: any = {}; let key = 'other'; function install() { box[key] = surface.flow; key = 'define'; } install(); install(); box.define('repeated-function-key', { budget: '$2' }, () => {}); }`,
         `{ const box: any = {}, a: any = {}, b: any = {}; a.descriptors = b.descriptors; b.descriptors = a.descriptors; b.descriptors = { define: { value: surface.flow } }; Object.defineProperties(box, a.descriptors); box.define('cyclic-descriptor-map', { budget: '$2' }, () => {}); }`,
         `{ const box: any = {}, a: any = {}, b: any = {}; a.getter = b.getter; b.getter = a.getter; b.getter = () => surface.flow; Object.defineProperty(box, 'define', { get: a.getter }); box.define('cyclic-getter-alias', { budget: '$2' }, () => {}); }`,
       ];
       for (const [index, candidate] of cases.entries()) {
         const file = join(directory, `repaired-flow-${index}.flow.ts`);
-        writeFileSync(file, `import * as surface from '@relayflows/surface'; declare const flag: boolean; ${candidate}`);
+        writeFileSync(file, `import * as surface from '@relayflows/surface'; declare const flag: boolean, items: unknown[], runtimeKey: string; ${candidate}`);
         expect(scanTypeScript(file).invalidFlowHeaders, candidate).toHaveLength(1);
       }
     } finally {
