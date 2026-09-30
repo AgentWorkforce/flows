@@ -112,6 +112,21 @@ describe('shipped-source worker call forms', () => {
       expect(repeatedFunctionResult.calls).toBe(1);
       expect(repeatedFunctionResult.missing).toHaveLength(1);
 
+      const chainedDestructuredCallable = join(directory, 'chained-destructured-callable.flow.ts');
+      writeFileSync(chainedDestructuredCallable, `
+        declare const f: { agent(name: string, options: { task: string }): void };
+        declare const flag: boolean;
+        const source = flag
+          ? { outer: { worker: () => undefined } }
+          : { outer: { worker: f.agent } };
+        const { outer } = source;
+        const { worker } = outer;
+        worker('review', { task: 'x' });
+      `);
+      const chainedDestructuredResult = scanTypeScript(chainedDestructuredCallable);
+      expect(chainedDestructuredResult.calls).toBe(1);
+      expect(chainedDestructuredResult.missing).toHaveLength(1);
+
       const assertedAliases = join(directory, 'asserted-aliases.flow.ts');
       writeFileSync(assertedAliases, `
         declare const f: {

@@ -195,16 +195,28 @@ export function objectMemberValue(
       const source = bindingSource(binding, checker);
       if (source?.immutable) {
         if (source.rest?.kind === 'object' && source.rest.excluded.includes(name)) return undefined;
-        const values = [
-          aggregateValueAtPath(source.initializer, source.path, checker, new Set(seen)),
+        const candidates = [
+          ...aggregateValuesAtPath(source.initializer, source.path, checker, new Set(seen))
+            .map(value => ({ value, auditable: false })),
           ...bindingDefaultValues(source, checker, new Set(seen)),
           ...(binding.initializer ? [{ value: binding.initializer, auditable: false }] : []),
         ];
-        for (const candidate of values) {
-          if (!candidate) continue;
+        const values = candidates.flatMap(candidate => {
           const value = objectMemberValue(candidate.value, name, checker, new Set(seen));
-          if (value) return { ...value, auditable: false };
-        }
+          return value ? [value] : [];
+        });
+        const [value, ...alternatives] = values;
+        if (value) return {
+          ...value,
+          auditable: false,
+          alternatives: [
+            ...(value.alternatives ?? []),
+            ...alternatives.flatMap(candidate => [
+              candidate.value,
+              ...(candidate.alternatives ?? []),
+            ]),
+          ],
+        };
       }
     }
     const variable = symbol.declarations?.find(ts.isVariableDeclaration);
