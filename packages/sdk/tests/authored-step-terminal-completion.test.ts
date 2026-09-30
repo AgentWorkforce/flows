@@ -252,6 +252,36 @@ describe('readCompletedStepOutput on an adopted gated child whose gate has not s
   });
 });
 
+describe('readCompletedStepOutput given a suspended known status (#441)', () => {
+  // `suspended` is the authored root's Event Await boundary (exit 4). It is
+  // never a terminal verdict: a caller that hands it through must not have a
+  // producer success read as final.
+  it('keeps waiting and resolves only once the child run is terminal', async () => {
+    let polls = 0;
+    const child = childJournal([started(1), completed(1, 'success', 'step_done', ok)], () => {
+      polls += 1;
+      if (polls === 2) {
+        child.append(runCompleted('success'));
+        return snapshotOf('completed', { type: 'deterministic', state: 'done' });
+      }
+      return snapshotOf('running', { type: 'deterministic', state: 'runnable' });
+    });
+    await expect(readCompletedStepOutput(child.journal, 'child-1', 'run-2', [], {}, 'suspended'))
+      .resolves.toEqual(ok);
+    expect(polls).toBeGreaterThanOrEqual(2);
+    expect(child.resumes()).toBe(0);
+  });
+
+  it('refuses a producer success while the child is still not terminal', async () => {
+    const child = childJournal([started(1), completed(1, 'success', 'step_done', ok)],
+      () => snapshotOf('running', { type: 'deterministic', state: 'runnable' }));
+    const failure = await readCompletedStepOutput(child.journal, 'child-1', 'run-2', [], {}, 'suspended')
+      .then(() => undefined, (error: Error & { code?: string }) => error);
+    expect(failure?.code).toBe('journal_protocol_violation');
+    expect(child.resumes()).toBe(0);
+  });
+});
+
 describe('waiting on a retry backoff whose wake passes mid-poll', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 

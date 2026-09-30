@@ -74,7 +74,9 @@ export async function readCompletedStepOutput(
   stepId: string,
   journalSteps: AuthoredFlowJournalStep[],
   context: AuthoredStepContext = {},
-  knownStatus?: RunStatus,
+  // `suspended` (an Event Await boundary, `RunReport.status`) is not terminal:
+  // it is judged exactly like a run still in flight.
+  knownStatus?: RunStatus | 'suspended',
 ): Promise<unknown> {
   let entries = await readChildJournal(journal, runId);
   let completed = terminalCompletion(entries, stepId);
