@@ -2,6 +2,7 @@ import { rmSync } from 'node:fs';
 import type { Server } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { flow, schedule, webhook } from '@relayflows/surface';
+import { getFlowDefinition } from '@relayflows/surface/runtime';
 import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
 import { AuthoredFlowExecutionError } from '../src/authored-flow-error.js';
 import { decodeWake } from '../src/authored-activity.js';
@@ -101,6 +102,24 @@ describe('authored event activities', () => {
       f.done('success');
     }), journal, undefined, { rootRunId: 'root-schedule' }))
       .rejects.toMatchObject({ code: 'unsupported_header' });
+  });
+
+  it('refuses activities inside a dispatched child flow before journal contact', async () => {
+    const journal = new JournalClient('/journal-must-not-be-contacted');
+    const child = flow('child', async (f) => {
+      f.on(webhook('pull_request'), { idle: '1h', deadline: '1d' });
+      f.done('success');
+    });
+    const root = flow('root', { use: ['./child.flow.ts'] }, async (f) => {
+      await f.dispatch('child', {});
+      f.done('success');
+    });
+    const graph = [
+      { path: '/child.flow.ts', handle: child, getDefinition: getFlowDefinition, use: [] },
+      { path: '/root.flow.ts', handle: root, getDefinition: getFlowDefinition, use: ['/child.flow.ts'] },
+    ];
+    await expect(executeAuthoredFlow(root, journal, undefined, { rootRunId: 'root-child-activity', flowGraph: graph as never }))
+      .rejects.toMatchObject({ code: 'dispatch_invalid', message: expect.stringContaining('child flow "child" cannot call f.on') });
   });
 
   it('keeps an active subscription open when the body suspends for an event', async () => {

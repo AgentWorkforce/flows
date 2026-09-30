@@ -581,6 +581,13 @@ export async function executeAuthoredFlow<Input = undefined>(
     },
     on(source, activityOptions) {
       assertOperationAllowed('on', definition.name, requestedCompletion);
+      // Activity ids are root-scoped (`activity-N`); a child's own counter would collide.
+      if ((options.dispatchDepth ?? 0) > 0) {
+        throw new AuthoredFlowExecutionError(
+          'dispatch_invalid',
+          `child flow "${definition.name}" cannot call f.on in this release; activities are root-scoped`,
+        );
+      }
       return activities.open(source, activityOptions);
     },
     /**

@@ -327,3 +327,46 @@ fn a_fence_torn_from_its_close_refuses_ingress_and_is_completed_once_on_retry_or
             .is_err()
     );
 }
+
+/// Cloud mirrors lifecycle by `find`ing a subscription's snapshot, so inspect
+/// must report exactly one entry per subscription at every lifecycle stage.
+#[test]
+fn inspect_reports_exactly_one_snapshot_per_subscription_across_its_lifecycle() {
+    let dir = tempfile::tempdir().unwrap();
+    let engine = Engine::with_clock(dir.path(), SimClock::new(100));
+    let spec =
+        RunSpec::parse(&json!({"steps":[{"id":"body","type":"llm","prompt":"body"}]})).unwrap();
+    let id = engine.start(spec, "router-test", Some(0)).unwrap().run_id;
+    for subscription in ["one", "two"] {
+        engine
+            .open_subscription(&id, subscription, vec!["github".into()], None, 0, 100, 1000, false)
+            .unwrap();
+    }
+    let states = |engine: &Engine<SimClock>| -> Vec<(String, String)> {
+        engine
+            .inspect_subscriptions(&id)
+            .unwrap()
+            .iter()
+            .map(|s| {
+                (
+                    s["subscriptionId"].as_str().unwrap().to_owned(),
+                    s["state"].as_str().unwrap().to_owned(),
+                )
+            })
+            .collect()
+    };
+    let pair = |id: &str, state: &str| (id.to_owned(), state.to_owned());
+    assert_eq!(states(&engine), [pair("one", "prepared"), pair("two", "prepared")]);
+
+    engine
+        .activate_subscription(&id, "one", 0, json!({"binding_id":"one","generation":1}))
+        .unwrap();
+    assert_eq!(states(&engine), [pair("one", "active"), pair("two", "prepared")]);
+
+    engine
+        .close_subscription(&id, "one", SubscriptionCompletionReason::Closed)
+        .unwrap();
+    drop(engine);
+    let restored = Engine::with_clock(dir.path(), SimClock::new(110));
+    assert_eq!(states(&restored), [pair("one", "closed"), pair("two", "prepared")]);
+}

@@ -25,7 +25,9 @@ Subscription handles are run-scoped call ordinals (`activity-1`, `activity-2`,
 step call order must be stable. These ids are not derived from source locations:
 reordering declarations or branching on unjournaled external state does not
 preserve an activity's identity. The pinned body and replayed results provide
-the supported deterministic ordering.
+the supported deterministic ordering. Because the ordinal is root-scoped, a
+child flow run through `f.dispatch` cannot call `f.on()`; it is refused with
+`dispatch_invalid` before any journal contact, as `f.human` is.
 
 Cloud's durable binding registry, ingress fencing, suspended-result handling,
 and wake scheduling remain integration work. The CLI integration probe uses a
@@ -314,7 +316,8 @@ persisted overflow fence idempotently under the per-run sequencer.
 projection: identity, prepared/active/closed state, closing reason, binding and
 activation cursor, unread frame/byte counts, settle duration, and absolute idle
 and deadline instants. Idle is taken from the durable wait or the last journaled
-wake, never the time of this query. This gives Cloud a protocol surface for
+wake, never the time of this query. The projection holds exactly one snapshot
+per subscription id, in its latest lifecycle state, sorted by id. This gives Cloud a protocol surface for
 scheduling and cleanup without reading sandbox SQLite files. A delivery response
 alone does not authorize Cloud to advance its durable ingress acknowledgment:
 the containing journal must first cross the durable publication barrier.
