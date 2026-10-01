@@ -231,6 +231,32 @@ process.stdin.on('end', () => {
 });
 
 describe('custom wrapper execution identity', () => {
+  it('returns a fail-closed result when the authored invocation alias cannot be pinned', async () => {
+    const directory = makeDirectory();
+    const wrapper = makeWrapper(directory, 'provider-cli.js', `
+process.stdout.write('relayflows-agent-cli-v1\\n');
+`);
+
+    const result = await runAgentCli(
+      wrapper,
+      'instruction',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'agent',
+      undefined,
+      directory,
+      'direct',
+      undefined,
+      process.env,
+      '.',
+    );
+
+    expect(result.exit_code).toBeNull();
+    expect(result.stderr_tail).toMatch(/wrapper invocation alias could not be pinned.*invalid cli identity basename/i);
+  });
+
   it('passes an explicit safe environment at identification and execution', async () => {
     const directory = makeDirectory();
     const wrapper = makeWrapper(directory, 'environment-wrapper', `

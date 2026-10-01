@@ -117,7 +117,14 @@ async function executePinnedWrapper(
   cwd?: string,
   argv0?: string,
 ): Promise<WrapperSessionResult> {
-  const pinned = await pinCliAlias(identity.executable, argv0 ?? basename(cli));
+  let pinned: Awaited<ReturnType<typeof pinCliAlias>>;
+  try {
+    pinned = await pinCliAlias(identity.executable, argv0 ?? basename(cli));
+  } catch (error) {
+    return failure(
+      `CLI ${JSON.stringify(cli)} wrapper invocation alias could not be pinned: ${String(error)}`,
+    );
+  }
   if (signal?.aborted) {
     pinned.release();
     return failure('Agent execution aborted: lease ownership lost.');

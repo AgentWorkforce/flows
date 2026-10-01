@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -136,16 +136,30 @@ it('uses an explicit provider environment for every probe process', async () => 
 });
 
 it('reports timeout in both drivers while the async driver leaves the loop free', async () => {
-  const { path, directory } = wrapper(identify + 'setTimeout(() => {}, 10_000);');
+  const observed = join(tmpdir(), `probe-alias-timeout-${process.pid}-${Date.now()}`);
+  const { path: canonical, directory } = wrapper(identify + `
+const { appendFileSync, existsSync } = require('node:fs');
+process.on('SIGTERM', () => {
+  appendFileSync(${JSON.stringify(observed)}, String(existsSync(process.argv[1])));
+  process.removeAllListeners('SIGTERM');
+  process.kill(process.pid, 'SIGTERM');
+});
+setTimeout(() => {}, 10_000);
+`);
+  directories.push(observed);
+  const path = join(directory, 'timed-wrapper');
+  symlinkSync(canonical, path);
   const original = adapters.modelReadinessProbe;
   vi.spyOn(adapters, 'modelReadinessProbe').mockImplementation((kind, model) =>
     ({ ...original(kind, model), timeoutMs: 100 }));
   expect(() => probeCli(path, directory, 'test-model')).toThrow(expect.objectContaining({ detail: 'timeout:100ms' }));
+  expect(readFileSync(observed, 'utf8')).toBe('true');
   let ticked = false;
   const timer = setTimeout(() => { ticked = true; }, 20);
   await expect(probeCliAsync(path, directory, 'test-model')).rejects.toMatchObject({ detail: 'timeout:100ms' });
   clearTimeout(timer);
   expect(ticked).toBe(true);
+  expect(readFileSync(observed, 'utf8')).toBe('truetrue');
 });
 
 it('reports signal termination in both drivers', async () => {
