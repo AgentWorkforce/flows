@@ -143,7 +143,6 @@ async function executePinnedWrapper(
     pinned.release();
     throw error;
   }
-  const stop = childStop(child, ownsGroup, undefined, pinned.release);
   return new Promise((resolve) => {
     const stdout: string[] = [];
     const stderr: Buffer[] = [];
@@ -179,6 +178,13 @@ async function executePinnedWrapper(
       signal?.removeEventListener('abort', onAbort);
       resolve(result);
     };
+    const stop = childStop(child, ownsGroup, undefined, () => {
+      try {
+        pinned.release();
+      } catch (error) {
+        finish(failure(`CLI ${JSON.stringify(cli)} wrapper invocation alias cleanup failed: ${String(error)}`));
+      }
+    });
     /**
      * INVARIANT: a session may not settle until either the process group is
      * confirmed dead or the escalation has actually run.

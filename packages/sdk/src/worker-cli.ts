@@ -347,11 +347,13 @@ async function spawnInvocation(
   let tails: ReturnType<typeof openTails>;
   const closeBeforeSpawn = async (): Promise<void> => {
     channel?.close();
-    await Promise.allSettled([
+    const closing = Promise.allSettled([
       ...(writer === undefined ? [] : [writer.close()]),
       ...(tails === undefined ? [] : [tails.stdout.close(), tails.stderr.close()]),
     ]);
     pinned.release();
+    const deadline = new Promise<void>((done) => setTimeout(done, TAIL_CLOSE_TIMEOUT_MS).unref?.());
+    await Promise.race([closing, deadline]);
   };
   try {
     writer = sidechannel?.attempt === undefined ? undefined
@@ -386,7 +388,6 @@ async function spawnInvocation(
     await closeBeforeSpawn();
     throw error;
   }
-  const stop = childStop(child, ownsGroup, undefined, pinned.release);
   return new Promise((resolve) => {
     child.stdin.on('error', () => {});
     if (channel === undefined) child.stdin.end();
@@ -402,7 +403,7 @@ async function spawnInvocation(
       // until they flush; the sidechannel pauses its reader in the meantime.
       child.stdin.write(bytes, error => resolve(!error));
     });
-    const release = ownsGroup ? reapOnExit(stop) : () => {};
+    let release = () => {};
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     let settled = false;
@@ -451,6 +452,18 @@ async function spawnInvocation(
           ? result : { ...result, transcript: { file: transcriptFile } });
       }, () => resolve(result));
     };
+    const stop = childStop(child, ownsGroup, undefined, () => {
+      try {
+        pinned.release();
+      } catch (error) {
+        finish({
+          exit_code: null,
+          stdout_tail: '',
+          stderr_tail: `CLI invocation alias cleanup failed: ${String(error)}`,
+        }, true);
+      }
+    });
+    release = ownsGroup ? reapOnExit(stop) : () => {};
     const onAbort = (): void => {
       stop.kill();
       finish({ exit_code: null, stdout_tail: '', stderr_tail: 'Agent execution aborted: lease ownership lost.' }, true);

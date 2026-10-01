@@ -46,8 +46,8 @@ export async function pinCliAlias(executable: string, identity: string): Promise
   let released = false;
   return { executable: alias, release: () => {
     if (released) return;
-    released = true;
     rmSync(directory, { recursive: true, force: true });
+    released = true;
   } };
 }
 
@@ -68,7 +68,7 @@ export function pinCliAliasSync(executable: string, identity: string): PinnedCli
   let released = false;
   return { executable: alias, release: () => {
     if (released) return;
-    released = true;
     rmSync(directory, { recursive: true, force: true });
+    released = true;
   } };
 }

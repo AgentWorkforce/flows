@@ -75,6 +75,8 @@ export function childStop(
   // which is exactly the window both of those need to address.
   const pid = child.pid;
   let forceTimer: NodeJS.Timeout | undefined;
+  let groupPoll: NodeJS.Timeout | undefined;
+  let forced = false;
   let stopped = false;
   const notifyStopped = (): void => {
     if (stopped) return;
@@ -113,6 +115,17 @@ export function childStop(
       }
     });
   };
+  const awaitGroupExit = (): void => {
+    if (!groupAnswers()) {
+      notifyStopped();
+      return;
+    }
+    if (groupPoll !== undefined) return;
+    groupPoll = setTimeout(() => {
+      groupPoll = undefined;
+      awaitGroupExit();
+    }, 10);
+  };
   const signalTree = (name: NodeJS.Signals): void => {
     if (ownsGroup && pid !== undefined) {
       escapedGroups ??= descendantGroups(pid);
@@ -134,7 +147,8 @@ export function childStop(
     kill: (): void => {
       cancel();
       signalTree('SIGKILL');
-      notifyStopped();
+      forced = true;
+      awaitGroupExit();
     },
     terminate: (): void => {
       cancel();
@@ -142,7 +156,8 @@ export function childStop(
       forceTimer = setTimeout(() => {
         forceTimer = undefined;
         signalTree('SIGKILL');
-        notifyStopped();
+        forced = true;
+        awaitGroupExit();
       }, forceKillDelayMs);
       // Deliberately REFERENCED, unlike every other timer we arm. The survivor
       // this escalation exists for is the one that ignored `SIGTERM` and holds
@@ -153,7 +168,7 @@ export function childStop(
       // `maySettleOnChildExit` confirms the group is empty.
     },
     maySettleOnChildExit: (): boolean => {
-      if (forceTimer === undefined) {
+      if (forceTimer === undefined && !forced) {
         notifyStopped();
         return true;
       }

@@ -410,6 +410,37 @@ setInterval(() => {}, 1000);
       stop.kill();
     }
   }, 30_000);
+
+  it('reports a forced stop only after the process group is gone', async () => {
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      stdio: 'ignore',
+      detached: true,
+    });
+    const pid = child.pid;
+    expect(pid).toBeTypeOf('number');
+    let reports = 0;
+    let groupAliveWhenReported = true;
+    let reportStopped!: () => void;
+    const stopped = new Promise<void>(resolveStopped => { reportStopped = resolveStopped; });
+    const stop = childStop(child, true, 200, () => {
+      reports += 1;
+      try {
+        process.kill(-(pid as number), 0);
+      } catch {
+        groupAliveWhenReported = false;
+      }
+      reportStopped();
+    });
+    try {
+      await new Promise(wait => setTimeout(wait, 50));
+      stop.kill();
+      await stopped;
+      expect(groupAliveWhenReported).toBe(false);
+      expect(reports).toBe(1);
+    } finally {
+      stop.kill();
+    }
+  }, 10_000);
 });
 
 /**
