@@ -1,0 +1,259 @@
+import ts from 'typescript';
+import {
+  assignmentMayStoreRight,
+  assignedSources,
+  bindingSource,
+  type BindingPathSegment,
+} from './shipped-source-binding-provenance.js';
+import {
+  aggregateMemberValue,
+  aggregateValueAtPath,
+  staticPropertySegment,
+  wrappedExpressionBranches,
+} from './shipped-source-binding-values.js';
+import { localCallValueCandidates } from './shipped-source-local-call-targets.js';
+
+type MemberValueCandidates = (
+  expression: ts.Expression,
+  seen: Set<ts.Symbol>,
+) => ts.Expression[];
+
+type SeenMemberPaths = Map<ts.Symbol, Set<string>>;
+
+function unwrap(expression: ts.Expression): ts.Expression {
+  while (ts.isParenthesizedExpression(expression)
+    || ts.isAsExpression(expression)
+    || ts.isSatisfiesExpression(expression)
+    || ts.isNonNullExpression(expression)
+    || ts.isTypeAssertionExpression(expression)) expression = expression.expression;
+  return expression;
+}
+
+function localCallMembers(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+  path: readonly BindingPathSegment[] = [],
+): Array<{ call: ts.CallExpression; path: BindingPathSegment[] }> {
+  expression = unwrap(expression);
+  const branches = wrappedExpressionBranches(expression);
+  if (branches) return branches.flatMap(branch =>
+    localCallMembers(branch, checker, new Set(seen), path));
+  if (ts.isBinaryExpression(expression) && assignmentMayStoreRight(expression.operatorToken.kind)) {
+    const results = expression.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      ? [expression.right]
+      : [expression.left, expression.right];
+    return results.flatMap(result =>
+      localCallMembers(result, checker, new Set(seen), path));
+  }
+  if (ts.isCallExpression(expression)) return [{ call: expression, path: [...path] }];
+  if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return [];
+  const segment = ts.isPropertyAccessExpression(expression)
+    ? expression.name.text
+    : expression.argumentExpression
+      ? staticPropertySegment(expression.argumentExpression, checker, new Set(seen))
+      : undefined;
+  return segment === undefined
+    ? []
+    : localCallMembers(expression.expression, checker, seen, [segment, ...path]);
+}
+
+function memberRootPaths(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): Array<{ path: BindingPathSegment[]; symbol: ts.Symbol }> {
+  expression = unwrap(expression);
+  const branches = wrappedExpressionBranches(expression);
+  if (branches) return branches.flatMap(branch => memberRootPaths(branch, checker, new Set(seen)));
+  const calls = localCallMembers(expression, checker, seen);
+  if (calls.length > 0) return calls.flatMap(({ call, path }) => {
+    const returned = localCallValueCandidates(call, checker, seen, path);
+    return returned?.candidates.flatMap(candidate =>
+      memberRootPaths(candidate.expression, checker, new Set(candidate.seen))) ?? [];
+  });
+  if (ts.isIdentifier(expression)) {
+    const symbol = checker.getSymbolAtLocation(expression);
+    return symbol ? [{ path: [], symbol }] : [];
+  }
+  if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return [];
+  const segment = ts.isPropertyAccessExpression(expression)
+    ? expression.name.text
+    : expression.argumentExpression
+      ? staticPropertySegment(expression.argumentExpression, checker, new Set(seen))
+      : undefined;
+  return segment === undefined ? [] : memberRootPaths(expression.expression, checker, seen)
+    .map(parent => ({ ...parent, path: [...parent.path, segment] }));
+}
+
+function aggregateValuesAtPath(
+  expression: ts.Expression,
+  path: readonly BindingPathSegment[],
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): ts.Expression[] {
+  let values = [expression];
+  for (const segment of path) {
+    values = values.flatMap(value => {
+      const member = aggregateMemberValue(value, segment, checker, new Set(seen));
+      return member ? [member.value, ...(member.alternatives ?? [])] : [];
+    });
+  }
+  return values;
+}
+
+function aggregateMemberCandidates(
+  expression: ts.Expression,
+  member: { path: BindingPathSegment[]; symbol: ts.Symbol },
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): ts.Expression[] {
+  const nextSeen = new Set(seen).add(member.symbol);
+  const values: ts.Expression[] = [];
+  const add = (
+    initializer: ts.Expression | undefined,
+    path: readonly BindingPathSegment[] = member.path,
+  ): void => {
+    if (!initializer) return;
+    values.push(...aggregateValuesAtPath(initializer, path, checker, new Set(nextSeen)));
+  };
+  const precedingSources = assignedSources(member.symbol, checker)
+    .filter(source => !source.rest && source.initializer.getStart() < expression.getStart());
+  if (precedingSources.some(source => source.initializer.parent !== undefined
+    && ts.isBinaryExpression(source.initializer.parent)
+    && source.initializer.parent.right === source.initializer
+    && source.initializer.parent.operatorToken.kind !== ts.SyntaxKind.EqualsToken)) return [];
+  for (const source of precedingSources) {
+    add(source.initializer, [...source.path, ...member.path]);
+  }
+  const binding = member.symbol.declarations?.find(ts.isBindingElement);
+  if (binding) {
+    const source = bindingSource(binding, checker, new Set(nextSeen));
+    if (source) add(source.initializer, [...source.path, ...member.path]);
+    add(binding.initializer);
+  }
+  const variableInitializer = member.symbol.declarations?.find(ts.isVariableDeclaration)?.initializer;
+  if (variableInitializer && variableInitializer.getStart() < expression.getStart()) add(variableInitializer);
+  return values;
+}
+
+function cloneSeenMemberPaths(seen: SeenMemberPaths): SeenMemberPaths {
+  return new Map([...seen].map(([symbol, paths]) => [symbol, new Set(paths)]));
+}
+
+function memberPathKey(path: readonly BindingPathSegment[]): string {
+  return JSON.stringify(path.map(segment => [typeof segment, segment]));
+}
+
+export function staticPropertySegments(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+  memberValueCandidates?: MemberValueCandidates,
+  seenMemberPaths: SeenMemberPaths = new Map(),
+): BindingPathSegment[] {
+  const exact = staticPropertySegment(expression, checker, new Set(seen));
+  if (exact !== undefined) return [exact];
+  expression = unwrap(expression);
+  const branches = wrappedExpressionBranches(expression);
+  if (branches) return [...new Set(branches.flatMap(branch =>
+    staticPropertySegments(
+      branch,
+      checker,
+      new Set(seen),
+      memberValueCandidates,
+      cloneSeenMemberPaths(seenMemberPaths),
+    )))];
+  const calls = localCallMembers(expression, checker, seen);
+  if (calls.length > 0) {
+    const values = calls.flatMap(({ call, path }) => {
+      const returned = localCallValueCandidates(call, checker, seen, path);
+      return returned?.candidates.flatMap(candidate =>
+        staticPropertySegments(
+          candidate.expression,
+          checker,
+          new Set(candidate.seen),
+          memberValueCandidates,
+          cloneSeenMemberPaths(seenMemberPaths),
+        )) ?? [];
+    });
+    if (values.length > 0) return [...new Set(values)];
+  }
+  if (!ts.isIdentifier(expression)) {
+    const discoveredMembers = memberRootPaths(expression, checker, seen);
+    const members = discoveredMembers.filter(member =>
+      !seenMemberPaths.get(member.symbol)?.has(memberPathKey(member.path)));
+    if (discoveredMembers.length > 0 && members.length === 0) return [];
+    const candidates = [
+      ...members.flatMap(member => aggregateMemberCandidates(expression, member, checker, seen)),
+      ...(memberValueCandidates?.(expression, new Set(seen)) ?? []),
+    ];
+    const nextSeenMembers = cloneSeenMemberPaths(seenMemberPaths);
+    for (const member of members) {
+      const key = memberPathKey(member.path);
+      const paths = nextSeenMembers.get(member.symbol) ?? new Set<string>();
+      paths.add(key);
+      nextSeenMembers.set(member.symbol, paths);
+    }
+    return [...new Set(candidates.flatMap(candidate =>
+      staticPropertySegments(
+        candidate,
+        checker,
+        new Set(seen),
+        memberValueCandidates,
+        cloneSeenMemberPaths(nextSeenMembers),
+      )))];
+  }
+  const symbol = checker.getSymbolAtLocation(expression);
+  if (!symbol || seen.has(symbol)) return [];
+  const nextSeen = new Set(seen).add(symbol);
+  const values: BindingPathSegment[] = [];
+  const add = (candidate: ts.Expression | undefined): void => {
+    if (!candidate) return;
+    for (const value of staticPropertySegments(
+      candidate,
+      checker,
+      new Set(nextSeen),
+      memberValueCandidates,
+      cloneSeenMemberPaths(seenMemberPaths),
+    )) {
+      if (!values.includes(value)) values.push(value);
+    }
+  };
+  const addAggregate = (
+    initializer: ts.Expression,
+    path: readonly BindingPathSegment[],
+  ): void => {
+    for (const candidate of aggregateValuesAtPath(
+      initializer,
+      path,
+      checker,
+      new Set(nextSeen),
+    )) add(candidate);
+  };
+  const precedingSources = assignedSources(symbol, checker)
+    .filter(source => !source.rest && source.initializer.getStart() < expression.getStart());
+  if (precedingSources.some(source => source.initializer.parent !== undefined
+    && ts.isBinaryExpression(source.initializer.parent)
+    && source.initializer.parent.right === source.initializer
+    && source.initializer.parent.operatorToken.kind !== ts.SyntaxKind.EqualsToken)) return [];
+  for (const source of precedingSources) {
+    if (source.path.length === 0) add(source.initializer);
+    else addAggregate(
+      source.initializer,
+      source.path,
+    );
+  }
+  const binding = symbol.declarations?.find(ts.isBindingElement);
+  if (binding) {
+    const source = bindingSource(binding, checker, new Set(nextSeen));
+    if (source?.immutable) addAggregate(
+      source.initializer,
+      source.path,
+    );
+    add(binding.initializer);
+  }
+  const variableInitializer = symbol.declarations?.find(ts.isVariableDeclaration)?.initializer;
+  if (variableInitializer && variableInitializer.getStart() < expression.getStart()) add(variableInitializer);
+  return values;
+}

@@ -3,6 +3,8 @@ import type { MemoryHelper } from "./memory.js";
 import type { CloudCapabilities, CloudHelper } from "./cloud.js";
 import type { FlowCompletionReason } from "./completion.js";
 import type { Step } from "./step.js";
+import type { Activity, ActivityOptions } from "./activity.js";
+import type { TriggerSource } from "./triggers.js";
 
 export interface AgentResult {
   summary: string;
@@ -107,6 +109,16 @@ export interface LlmOptions {
   model?: string;
 }
 
+/** Durable receipt returned after a statically declared child flow succeeds. */
+export interface DispatchResult {
+  /** The child flow's declared name. */
+  name: string;
+  /** `success`; every other child verdict rejects the dispatch. */
+  completionReason: 'success';
+  /** The child's journaled completion detail, when it supplied one. */
+  completionDetail?: string;
+}
+
 /** The optional second argument to {@link Ctx.done}. */
 export interface DoneOptions {
   /** Why the flow reached this verdict; redacted, bounded, and journaled. */
@@ -141,6 +153,8 @@ export interface Ctx extends Helpers {
   /** JSON Schema validates the value at runtime; narrow unknown in author code. */
   llm(prompt: string, options: LlmOptions): Step<unknown>;
   agent(name: string, options: AgentOptions): Step<AgentResult>;
+  /** Open a durable, bounded event subscription for this running body. */
+  on(source: TriggerSource, options: ActivityOptions): Activity;
   /**
    * Ask a person a yes/no question and park until they answer. The run
    * parks durably (kernel `wait.human`); `flows answer <run> <wait> yes|no`
@@ -149,7 +163,12 @@ export interface Ctx extends Helpers {
    * recorded with the question; it is not a delivery address.
    */
   human(question: string, options: { to: string }): Step<boolean>;
-  dispatch<T>(flow: string, input: unknown): Promise<T>;
+  /**
+   * Run a direct child declared in this flow's `use` header. The child shares
+   * this durable root, budget, worker capacity and Cloud graph; arbitrary
+   * paths and undeclared flow names are refused before the child body runs.
+   */
+  dispatch(flow: string, input: unknown): Step<DispatchResult>;
   /**
    * Run every installed implementation of a named hook in lock order and
    * AND-compose the booleans. With no implementations this is a journaled

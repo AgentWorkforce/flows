@@ -1,8 +1,9 @@
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { runAgentCli } from '../src/worker-cli.js';
+import { GROUP_EXIT_CONFIRM_TIMEOUT_MS } from '../src/child-stop.js';
 
 it.each(['claude', 'wrapper.mjs'])('stops %s and its process group when lease ownership is lost', async name => {
   const root = mkdtempSync(join(tmpdir(), 'lease-abort-'));
@@ -38,6 +39,50 @@ setInterval(() => {}, 1000);
     }
   } finally {
     controller.abort();
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 10_000);
+
+it.skipIf(process.platform === 'win32')('fails closed when abort cannot prove the process group is gone', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'lease-abort-unprovable-'));
+  const controller = new AbortController();
+  const parentPid = join(root, 'parent-pid');
+  const executable = join(root, 'claude');
+  writeFileSync(executable, `#!/usr/bin/env node
+require('node:fs').writeFileSync(${JSON.stringify(parentPid)}, String(process.pid));
+setInterval(() => {}, 1000);
+`);
+  chmodSync(executable, 0o755);
+  const actualKill = process.kill.bind(process);
+  const permissionDenied = Object.assign(new Error('not permitted'), { code: 'EPERM' });
+  const kill = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+    if (typeof pid === 'number' && pid < 0 && signal === 0) throw permissionDenied;
+    return actualKill(pid, signal);
+  });
+  let running: ReturnType<typeof runAgentCli> | undefined;
+  try {
+    running = runAgentCli(executable, 'hello', undefined, undefined, undefined, controller.signal, 'llm');
+    const deadline = Date.now() + 5_000;
+    while (!existsSync(parentPid) && Date.now() < deadline) await new Promise(wait => setTimeout(wait, 10));
+    expect(existsSync(parentPid)).toBe(true);
+    const started = Date.now();
+    controller.abort(new Error('lease rejected'));
+    await expect(running).resolves.toMatchObject({
+      exit_code: null,
+      stderr_tail: expect.stringMatching(new RegExp(
+        `did not stop answering within ${GROUP_EXIT_CONFIRM_TIMEOUT_MS}ms`,
+        'i',
+      )),
+    });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(GROUP_EXIT_CONFIRM_TIMEOUT_MS);
+    expect(Date.now() - started).toBeLessThan(3 * GROUP_EXIT_CONFIRM_TIMEOUT_MS);
+  } finally {
+    controller.abort();
+    await running?.catch(() => undefined);
+    if (existsSync(parentPid)) {
+      try { actualKill(Number(readFileSync(parentPid, 'utf8')), 'SIGKILL'); } catch { /* already gone */ }
+    }
+    kill.mockRestore();
     rmSync(root, { recursive: true, force: true });
   }
 }, 10_000);

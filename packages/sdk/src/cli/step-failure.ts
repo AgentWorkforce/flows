@@ -64,6 +64,8 @@ export async function stepFailureDetails(
   // Keyed by step, so interleaved steps never pool their attempts and a page
   // boundary never splits one step's history.
   const histories = new Map<string, AttemptHistory>();
+  // Attempts the kernel itself declared dead (see `unchargedAttempts`).
+  const uncharged = new Map<string, number>();
   while (true) {
     const { entries } = await client.journalRead(runId, fromSeq, 100);
     if (entries.length === 0) break;
@@ -98,6 +100,7 @@ export async function stepFailureDetails(
       // holds every entry; only this diagnostic's candidate is cleared.
       if (payload === undefined || typeof completionReason !== 'string' || completionReason === 'success') {
         histories.delete(stepId);
+        uncharged.delete(stepId);
         continue;
       }
       const history = histories.get(stepId) ?? { records: [], causes: [] };
@@ -106,6 +109,10 @@ export async function stepFailureDetails(
       history.records.push(attemptFailure(entry['attempt'], completionReason, payload['disposition'], payload));
       history.causes.push(failureCause(completionReason, payload));
       histories.set(stepId, history);
+      if (payload['disposition'] !== 'step_done' && payload['completed_by'] === 'kernel'
+        && (completionReason === 'crashed' || completionReason === 'lease_expired')) {
+        uncharged.set(stepId, (uncharged.get(stepId) ?? 0) + 1);
+      }
       // A terminal completion that is not a success is the failure, whatever
       // its step type. The old predicate also demanded a non-zero `exit_code`,
       // which no agent completion carries and which a deterministic step that
@@ -123,6 +130,7 @@ export async function stepFailureDetails(
         ...(typeof attempt === 'number' && Number.isSafeInteger(attempt) && attempt > 0 ? { attempt } : {}),
         ...(maxIterations === undefined ? {} : { maxIterations }),
         ...(transportRetries === undefined ? {} : { transportRetries }),
+        ...((uncharged.get(stepId) ?? 0) > 0 ? { unchargedAttempts: uncharged.get(stepId) } : {}),
         ...terminalEvidence(payload),
         // A single failed attempt is already fully described by the scalars
         // above; repeating it as a one-element history would add a clause to
@@ -182,6 +190,16 @@ export function renderStepEvidence(details: StepFailedDetails): string {
 
 function renderAttempt(details: StepFailedDetails): string {
   if (details.attempt === undefined) return '';
+  const uncharged = details.unchargedAttempts ?? 0;
+  // `attempt=N/M` compares like with like only when every attempt was charged.
+  // A worker that died (crashed / lease_expired) costs no iteration, so a
+  // one-iteration step can legitimately run attempt 2 -- printed as
+  // `attempt=2/1` it read as the budget being overrun. Say which is which.
+  if (uncharged > 0 && uncharged < details.attempt) {
+    return ` attempt=${details.attempt}`
+      + ` (iteration ${details.attempt - uncharged}${details.maxIterations === undefined ? '' : `/${details.maxIterations}`};`
+      + ` ${uncharged} earlier attempt${uncharged === 1 ? '' : 's'} lost to a dead worker, not charged)`;
+  }
   return ` attempt=${details.attempt}`
     + (details.maxIterations === undefined ? '' : `/${details.maxIterations}`);
 }

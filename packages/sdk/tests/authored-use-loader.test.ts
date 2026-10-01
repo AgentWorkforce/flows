@@ -55,6 +55,15 @@ describe('authored use graph loader', () => {
     await expect(loadAuthoredFlow(join(directory, 'root.flow.ts'))).rejects.toMatchObject({ kind: 'use_not_found' });
   });
 
+  it('refuses two direct children with the same dispatch name', async () => {
+    const directory = fixture({ root: ['./one.flow.ts', './two.flow.ts'], one: [], two: [] });
+    writeFileSync(join(directory, 'two.flow.ts'), `
+      import { flow } from '@relayflows/surface';
+      export default flow('one', async f => { f.done('success'); });
+    `);
+    await expect(loadAuthoredFlow(join(directory, 'root.flow.ts'))).rejects.toMatchObject({ kind: 'use_invalid' });
+  });
+
   it.each([
     'throw new Error("import failed");',
     'export default { name: "forged" };',

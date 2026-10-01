@@ -1,0 +1,8 @@
+$ cd /home/khaliqgant/.cache/dev-pr-proof/flows-dev-stream-pins/packages/sdk
+$ npm run build
+
+> @relayflows/sdk@2.0.22 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+exit=0

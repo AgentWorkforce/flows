@@ -57,6 +57,7 @@ pub(super) fn cancel_run_actions(state: &RunState, now_ms: i64) -> Vec<Action> {
                         budget: Budget::default(),
                         completed_by: "kernel".to_owned(),
                         next_attempt_at_ms: None,
+                        reported_cost: None,
                     },
                 )));
             }

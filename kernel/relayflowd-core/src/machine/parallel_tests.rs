@@ -456,6 +456,7 @@ fn failed_run_drains_open_siblings_before_terminal_entry() {
             budget: Budget::default(),
             completed_by: "late-worker".to_owned(),
             next_attempt_at_ms: None,
+            reported_cost: None,
         },
     ));
     assert!(matches!(

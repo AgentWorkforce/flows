@@ -98,12 +98,10 @@ def translate_step(v1_step, agents_by_name, channel):
 
     if step_type == "agent":
         step["instruction"] = step.pop("task")
-        # Inline the roster entry's cli instead of emitting an `agents` map.
-        # The v2 roster (NamedAgentSpec) requires BOTH cli and model, and
-        # drive.yaml declares no model -- emitting one would mean inventing a
-        # model pin for the lead and builder here, which is a behaviour change
-        # disguised as a port. An inline cli is what the already-ported
-        # workflows/drive-local.yaml does, and it carries v1's mapping exactly.
+        # Inline the roster entry's exact cli/model pair instead of emitting an
+        # `agents` map. Cloud does not receive a repository flows.json, so both
+        # values must travel with every generated step and preflight must prove
+        # that exact pair before agent work starts.
         agent_name = step.pop("agent", None)
         if agent_name is not None:
             agent = agents_by_name.get(agent_name)
@@ -112,6 +110,12 @@ def translate_step(v1_step, agents_by_name, channel):
                     f"step {step['id']}: references undeclared agent {agent_name!r}"
                 )
             step["cli"] = agent["cli"]
+            model = agent.get("model")
+            if not model:
+                raise SystemExit(
+                    f"step {step['id']}: agent {agent_name!r} has no explicit model"
+                )
+            step["model"] = model
             # `preset` has no v2 equivalent. `role` does not either, but it is
             # load-bearing prose -- it is how drive.yaml tells the lead it is
             # the Lead -- so it is carried into the instruction rather than
@@ -199,6 +203,7 @@ def assert_equivalent_to_v1(v2, v1):
         elif old["type"] == "agent":
             agent = agents_by_name[old["agent"]]
             assert new["cli"] == agent["cli"], where
+            assert new["model"] == agent["model"], where
             expected = old["task"]
             role = agent.get("role")
             if role:

@@ -11,7 +11,8 @@ import {
   type TranscriptFile,
   type TranscriptWriter,
 } from './agent-transcript.js';
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { redactRelayError } from './redact.js';
 import { StringDecoder } from 'node:string_decoder';
 import { childStop } from './child-stop.js';
 import { reapOnExit } from './agent-reaper.js';
@@ -30,18 +31,21 @@ import {
 import { wrapperEnvironment } from './wrapper-runtime.js';
 import { applyStepEnvironment } from './step-env.js';
 import { TAIL_CLOSE_TIMEOUT_MS, openTranscriptTail, type TranscriptTailWriter } from './transcript-tail.js';
-import type { AgentTransport } from './agent-relay-transport.js';
 import {
   isRetryableSpawnError,
   transportEvidence,
   type CliTransportCause,
   type CliTransportEvidence,
 } from './cli-transport-evidence.js';
-import { runViaAgentRelay, type AgentRelayContext } from './worker-cli-relay.js';
+import {
+  runAgentRelayTask,
+  AgentRelayTransportError,
+  type AgentTransport,
+} from './agent-relay-transport.js';
+import { pinCliAlias } from './cli/pinned-cli-alias.js';
 
 export type { CliTransportCause, CliTransportEvidence, CliTransportPhase } from './cli-transport-evidence.js';
 export { agentCompletionReason } from './cli-transport-evidence.js';
-export type { AgentRelayContext } from './worker-cli-relay.js';
 
 /** Present only when a dispatched agent step carries a journaled wake context. */
 export const WAKE_CONTEXT_ENV = 'RELAYFLOW_WAKE_CONTEXT';
@@ -52,6 +56,11 @@ export const WAKE_CONTEXT_ENV = 'RELAYFLOW_WAKE_CONTEXT';
  * Raw Claude/Codex adapters receive provider-native model flags.
  */
 export const MODEL_ENV = 'RELAYFLOW_MODEL';
+
+/** Preserve a multicall adapter's authored basename while executing pinned bytes. */
+export function cliInvocationArgv0(cli: string, cliIdentity?: string): string {
+  return basename(cliIdentity ?? cli);
+}
 
 export interface WorkerCliResult {
   relay_task?: import('./agent-relay-receipt.js').RelayTaskReceipt;
@@ -87,6 +96,17 @@ export interface WorkerCliResult {
   transcript?: TranscriptDigest;
 }
 
+/**
+ * Journal identity and durable dispatch storage used by the Relay task transport.
+ */
+export interface AgentRelayContext {
+  runId: string;
+  stepId: string;
+  idempotencyKey: string;
+  dataDir?: string;
+  resultSchema?: unknown;
+}
+
 export async function runAgentCli(
   cli: string,
   instruction: string,
@@ -99,13 +119,16 @@ export async function runAgentCli(
   cwd?: string,
   transport: AgentTransport = 'direct',
   relayContext?: AgentRelayContext,
+  processEnvironment: NodeJS.ProcessEnv = process.env,
+  cliIdentity?: string,
 ): Promise<WorkerCliResult> {
   signal?.throwIfAborted();
   if (signal !== undefined && process.platform === 'win32') {
     throw new Error('Lease-bound agent execution requires macOS or Linux process-group cancellation; Windows is unsupported.');
   }
-  const kind = cliAdapterKind(cli);
-  const effectiveModel = resolveCliModel(cli, model);
+  const kind = cliAdapterKind(cliIdentity ?? cli);
+  const effectiveModel = resolveCliModel(cliIdentity ?? cli, model);
+  const argv0 = cliInvocationArgv0(cli, cliIdentity);
 
   if (mode === 'agent' && transport === 'relay') {
     return runViaAgentRelay(kind, instruction, wakeContext, effectiveModel, relayContext, cwd, signal);
@@ -142,7 +165,7 @@ export async function runAgentCli(
   if (kind === 'relayflows-wrapper-v1') {
     // The closed allowlist admits no ambient RELAYFLOW_* value; the four
     // discovery names are set from this dispatch, exactly as for a direct spawn.
-    const wrapperEnv = wrapperEnvironment(process.env);
+    const wrapperEnv = wrapperEnvironment(processEnvironment);
     applyStepEnvironment(wrapperEnv, sidechannel);
     return requirePricedUsage(decodeWrapperResult(await runWrapperSession(
       cli,
@@ -153,10 +176,11 @@ export async function runAgentCli(
       wrapperLimits,
       signal,
       cwd,
+      argv0,
     )), effectiveModel);
   }
 
-  const env: NodeJS.ProcessEnv = { ...process.env };
+  const env: NodeJS.ProcessEnv = { ...processEnvironment };
   delete env[WAKE_CONTEXT_ENV];
   delete env[MODEL_ENV];
   // Where this attempt's journal is, so the agent can run `flows status` on
@@ -184,7 +208,7 @@ export async function runAgentCli(
   args.splice(args.length - 1, 0, ...(kind === 'claude' ? ['--output-format', 'stream-json', '--verbose'] : ['--json']));
   const completion = kind === 'claude' ? claudeResultOutcome : undefined;
   return requirePricedUsage(decodeProviderResult(await spawnInvocation(
-    cli, { ...invocation, args }, env, signal, sidechannel, cwd, completion, kind,
+    cli, { ...invocation, args }, env, signal, sidechannel, cwd, completion, argv0, kind,
   ), kind, env), effectiveModel);
   }
 }
@@ -273,6 +297,40 @@ function serializedByDirectory<T>(directory: string, task: () => Promise<T>): Pr
   return run;
 }
 
+/** Wait under the same worker lease for an authoritative task receipt. */
+async function runViaAgentRelay(
+  kind: CliAdapterKind, instruction: string, wakeContext: unknown,
+  model: string | undefined, context: AgentRelayContext | undefined,
+  worker_cwd: string | undefined, signal: AbortSignal | undefined,
+): Promise<WorkerCliResult> {
+  try {
+    if (kind === 'relayflows-wrapper-v1') throw new Error('Relay task transport does not support same-process wrappers.');
+    if (!context?.dataDir) throw new Error('Relay task transport requires a durable data directory and journal dispatch identity.');
+    const task = instruction + (wakeContext === undefined ? '' : `\n\nWake context (journaled):\n${JSON.stringify(wakeContext)}`)
+      + '\n\nReport the final task output with the injected agent_result tool and final=true. Wait for its successful durable acknowledgment before exiting.';
+    const received = await runAgentRelayTask({
+      cli: kind, task, model, worker_cwd, result_schema: context.resultSchema,
+      runId: context.runId, stepId: context.stepId, idempotencyKey: context.idempotencyKey,
+      dataDir: context.dataDir,
+    }, { signal });
+    const receipt = { ...received, error: received.error === null ? null : redactRelayError(received.error) };
+    const accounting = receipt.task_execution.accounting;
+    const result: WorkerCliResult = {
+      relay_task: receipt, exit_code: receipt.status === 'completed' ? 0 : 1,
+      stdout_tail: receipt.status === 'completed' ? JSON.stringify(receipt.output) : '',
+      stderr_tail: receipt.status === 'failed' ? `Relay task failed: ${receipt.error}` : '',
+      ...(accounting?.tokens_input === undefined ? {} : { tokens_input: accounting.tokens_input }),
+      ...(accounting?.tokens_output === undefined ? {} : { tokens_output: accounting.tokens_output }),
+    };
+    return requirePricedUsage(result, model);
+  } catch (error) {
+    signal?.throwIfAborted();
+    const detail = error instanceof AgentRelayTransportError ? error.message
+      : error instanceof Error ? error.message : 'Relay task transport failed';
+    return { exit_code: null, stdout_tail: '', stderr_tail: redactRelayError(detail) };
+  }
+}
+
 /**
  * How long a CLI that has reported its final result may take to exit. Claude
  * Code in print mode waits, after its result, for every background task it
@@ -290,6 +348,7 @@ async function spawnInvocation(
   sidechannel?: SidechannelContext,
   cwd?: string,
   completion?: (line: string) => { failed: boolean } | undefined,
+  argv0?: string,
   kind?: CliAdapterKind,
 ): Promise<WorkerCliResult> {
   const pendingInput: Buffer[] = [];
@@ -300,42 +359,72 @@ async function spawnInvocation(
   };
   let canDrive = () => acceptingDrive;
   let driven = false;
+  // Prove and pin the authored identity before opening any per-attempt
+  // resources. If pinning fails there is then nothing else to unwind.
+  const pinned = await pinCliAlias(cli, argv0 ?? basename(cli));
+  if (signal?.aborted) {
+    pinned.release();
+    signal.throwIfAborted();
+  }
   // The transcript file lives beside the PTY socket and is named by attempt.
   // Its absence (no data dir, no attempt, unwritable dir) costs the step
   // nothing: the digest is built from the buffered frames regardless. Opened
   // BEFORE the sidechannel: once `onReady` has fired, a drive peer's HELLO may
   // arrive at any time, and nothing may sit between that and the spawn that
   // arms `canDrive`.
-  const writer: TranscriptWriter | undefined = sidechannel?.attempt === undefined ? undefined
-    : await openTranscriptWriter(transcriptPath(sidechannel, sidechannel.attempt), env);
-  const channel = sidechannel === undefined ? undefined : await openSidechannel({
-    ...sidechannel,
-    onDrive() { driven = true; sidechannel.onDrive(); },
-  }, bytes => writeInput(bytes), () => canDrive());
-  // Decide the child's stdin shape before spawn. An unattended Codex process
-  // gets `/dev/null` from `ignore`, so it never enters the "additional input
-  // from stdin" path. Only an already-enrolled drive peer gets a writable
-  // pipe. View/passthrough retain live output without changing stdin.
-  driven = channel === undefined ? false : await channel.waitForDrive(100);
-  acceptingDrive = false;
-  // Tee the transcript into bounded tail files beside the socket. Evidence
-  // for `flows status --tail`, never the record; a failure here is a warning.
-  const tails = sidechannel === undefined ? undefined : openTails(sidechannel);
-  if (signal?.aborted) {
+  let writer: TranscriptWriter | undefined;
+  let channel: Awaited<ReturnType<typeof openSidechannel>> | undefined;
+  let tails: ReturnType<typeof openTails>;
+  const closeBeforeSpawn = async (): Promise<void> => {
     channel?.close();
-    void writer?.close();
-    void tails?.stdout.close(); void tails?.stderr.close();
+    const closing = Promise.allSettled([
+      ...(writer === undefined ? [] : [writer.close()]),
+      ...(tails === undefined ? [] : [tails.stdout.close(), tails.stderr.close()]),
+    ]);
+    pinned.release();
+    const deadline = new Promise<void>((done) => setTimeout(done, TAIL_CLOSE_TIMEOUT_MS).unref?.());
+    await Promise.race([closing, deadline]);
+  };
+  try {
+    writer = sidechannel?.attempt === undefined ? undefined
+      : await openTranscriptWriter(transcriptPath(sidechannel, sidechannel.attempt), env);
+    channel = sidechannel === undefined ? undefined : await openSidechannel({
+      ...sidechannel,
+      onDrive() { driven = true; sidechannel.onDrive(); },
+    }, bytes => writeInput(bytes), () => canDrive());
+    // Decide the child's stdin shape before spawn. An unattended Codex process
+    // gets `/dev/null` from `ignore`, so it never enters the "additional input
+    // from stdin" path. Only an already-enrolled drive peer gets a writable
+    // pipe. View/passthrough retain live output without changing stdin.
+    driven = channel === undefined ? false : await channel.waitForDrive(100);
+    acceptingDrive = false;
+    // Tee the transcript into bounded tail files beside the socket. Evidence
+    // for `flows status --tail`, never the record; a failure here is a warning.
+    tails = sidechannel === undefined ? undefined : openTails(sidechannel);
+  } catch (error) {
+    await closeBeforeSpawn();
+    throw error;
+  }
+  if (signal?.aborted) {
+    await closeBeforeSpawn();
     signal.throwIfAborted();
   }
-  return new Promise((resolve) => {
-    // Always a group of its own off Windows, so every stop — and
-    // `reapOnExit` — reaches the whole agent tree, lease-bound or not.
-    const ownsGroup = process.platform !== 'win32';
-    const child = spawn(cli, invocation.args, {
+  // Always a group of its own off Windows, so every stop — and
+  // `reapOnExit` — reaches the whole agent tree, lease-bound or not.
+  const ownsGroup = process.platform !== 'win32';
+  let child: ChildProcess;
+  try {
+    child = spawn(pinned.executable, invocation.args, {
       stdio: [driven ? 'pipe' : 'ignore', 'pipe', 'pipe'], env,
       detached: ownsGroup,
+      ...(argv0 === undefined ? {} : { argv0 }),
       ...(cwd === undefined ? {} : { cwd }),
     });
+  } catch (error) {
+    await closeBeforeSpawn();
+    throw error;
+  }
+  return new Promise((resolve) => {
     const stdin = child.stdin;
     stdin?.on('error', () => {});
     canDrive = () => stdin !== null && !stdin.destroyed && !stdin.writableEnded;
@@ -352,8 +441,7 @@ async function spawnInvocation(
       return inputQueue;
     };
     for (const bytes of pendingInput.splice(0)) void writeInput(bytes);
-    const stop = childStop(child, ownsGroup);
-    const release = ownsGroup ? reapOnExit(stop) : () => {};
+    let release = () => {};
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     let settled = false;
@@ -401,21 +489,70 @@ async function spawnInvocation(
           ? result : { ...result, transcript: { file: transcriptFile } });
       }, () => resolve(result));
     };
+    let pendingStopResult: {
+      result: WorkerCliResult;
+      discardTranscript: boolean;
+      priority: 'normal' | 'abort';
+    } | undefined;
+    const stop = childStop(child, ownsGroup, undefined, (stopError) => {
+      if (stopError !== undefined) {
+        finish({ exit_code: null, stdout_tail: '', stderr_tail: stopError.message }, true);
+        return;
+      }
+      try {
+        pinned.release();
+      } catch (error) {
+        finish({
+          exit_code: null,
+          stdout_tail: '',
+          stderr_tail: `CLI invocation alias cleanup failed: ${String(error)}`,
+        }, true);
+        return;
+      }
+      if (pendingStopResult !== undefined) {
+        finish(pendingStopResult.result, pendingStopResult.discardTranscript);
+      }
+    });
+    release = ownsGroup ? reapOnExit(stop, () => {
+      try { pinned.release(); } catch { /* host exit cannot report another result */ }
+    }) : () => {};
+    const finishAfterStop = (
+      result: WorkerCliResult,
+      action: 'kill' | 'terminate',
+      discardTranscript = false,
+      priority: 'normal' | 'abort' = 'normal',
+    ): void => {
+      // Lease loss may replace an earlier result while its stop is pending;
+      // once it does, no later result-grace or execution timer may replace it.
+      if (pendingStopResult !== undefined) {
+        if (pendingStopResult.priority === 'abort' || priority === 'normal') return;
+      }
+      pendingStopResult = { result, discardTranscript, priority };
+      stop[action]();
+    };
     const onAbort = (): void => {
-      stop.kill();
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+      if (graceTimer !== undefined) clearTimeout(graceTimer);
+      graceTimer = undefined;
       const transport = transportEvidence({
         phase: 'abort', cause: 'lease_lost', exitCode: null, signal: null,
         stderr: 'Agent execution aborted: lease ownership lost.', retryable: false,
       }, env);
-      finish({ exit_code: null, stdout_tail: '', stderr_tail: 'Agent execution aborted: lease ownership lost.', transport }, true);
+      finishAfterStop(
+        { exit_code: null, stdout_tail: '', stderr_tail: 'Agent execution aborted: lease ownership lost.', transport },
+        'kill',
+        true,
+        'abort',
+      );
     };
     /**
      * Same invariant as `wrapper-session.ts`: `'close'` and `'error'` are
      * evidence about the DIRECT CHILD, so they may not settle over a pending
      * escalation, and only `maySettleOnChildExit` may drop one. This settle
-     * carries no deadline of its own because it needs none — the timeout below
-     * settles on the spot and lets its escalation outlive that, so refusing
-     * here can only defer to a `'close'` we are still going to get.
+     * carries no deadline of its own because it needs none — a stop-owned
+     * result now settles from the shared confirmation callback, while a normal
+     * child exit can only defer to a `'close'` we are still going to get.
      */
     const finishOnChildExit = (result: WorkerCliResult): void => {
       if (!stop.maySettleOnChildExit()) return;
@@ -433,7 +570,6 @@ async function spawnInvocation(
     const onResult = (outcome: { failed: boolean }): void => {
       if (graceTimer !== undefined || settled) return;
       graceTimer = setTimeout(() => {
-        stop.terminate();
         const exitCode = outcome.failed ? 1 : 0;
         const stderrText = `${Buffer.concat(stderr).toString('utf8')}\nCLI reported its final result but had not exited ${RESULT_EXIT_GRACE_MS}ms later; its process tree was stopped.`.trim();
         const transport = transportEvidence({
@@ -441,12 +577,12 @@ async function spawnInvocation(
           stderr: stderrText,
           retryable: false,
         }, env);
-        finish({
+        finishAfterStop({
           exit_code: exitCode,
           stdout_tail: Buffer.concat(stdout).toString('utf8'),
           stderr_tail: redactText(stderrText, env),
           transport,
-        });
+        }, 'terminate');
       }, RESULT_EXIT_GRACE_MS);
     };
     child.stdout!.on('data', (chunk: Buffer) => {
@@ -507,22 +643,21 @@ async function spawnInvocation(
     });
     if (invocation.timeoutMs > 0) {
       timer = setTimeout(() => {
-        // The stop outlives this settle on purpose: `finish` resolves the step,
-        // but only the forced group kill releases the pipes a leaked descendant
-        // is holding, and until they are released `flows run` cannot exit.
-        stop.terminate();
+        // The stop owns this settle: a direct-child event is not proof that its
+        // group is gone, and an unprovable forced stop must fail the step rather
+        // than arriving after a successful result has already won the race.
         const timeoutMessage = `CLI invocation timed out after ${invocation.timeoutMs}ms.`;
         const transport = transportEvidence({
           phase: 'timeout', cause: 'timeout', exitCode: null, signal: null,
           stderr: `${Buffer.concat(stderr).toString('utf8')}\n${timeoutMessage}`,
           retryable: false,
         }, env);
-        finish({
+        finishAfterStop({
           exit_code: null,
           stdout_tail: Buffer.concat(stdout).toString('utf8'),
           stderr_tail: timeoutMessage,
           transport,
-        });
+        }, 'terminate');
       }, invocation.timeoutMs);
     }
   });

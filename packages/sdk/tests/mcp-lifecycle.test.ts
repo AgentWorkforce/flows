@@ -25,7 +25,8 @@ function fixture() {
     runStart: vi.fn(async (spec: any) => { started.resolve(spec); return { run_id: 'mcp-run' }; }),
     runCancel: vi.fn(async () => ({ run_id: 'mcp-run', state: 'canceled' as const })),
     journalRead: vi.fn(async () => ({ entries: [{ entry_type: 'step.completed', step_id: 'mcp-1',
-      payload: { completionReason: 'success', output: { type: 'mcp', output: { ok: true } } } }] })),
+      payload: { completionReason: 'success', output: { type: 'mcp', output: { ok: true } } } },
+      { entry_type: 'run.completed', payload: { completionReason: 'success' } }] })),
   };
   const run = () => runMcpEffect(journal as unknown as JournalClient, 'test', 'mcp-1', 'foo', 'echo', {}, true, { command: 'unused' }, []);
   return { peer, journal, started, run };

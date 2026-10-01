@@ -2,7 +2,9 @@ import type {
   CliAdapterIdentification,
   CliInvocation,
   HeadlessAdapter,
+  ModelProbeFailure,
 } from './base.js';
+import { providerUsageLimited } from './usage-limit.js';
 
 const MODEL_PROBE_PROMPT = 'Reply with exactly RELAYFLOWS_MODEL_READY and nothing else.';
 
@@ -27,6 +29,10 @@ export const codexAdapter: HeadlessAdapter = {
       ],
       timeoutMs: 60_000,
     };
+  },
+
+  classifyModelProbeFailure(output: string): ModelProbeFailure | undefined {
+    return providerUsageLimited(output) ? { cause: 'provider_usage_limited' } : undefined;
   },
 
   buildAgentInvocation(instruction: string, model?: string): CliInvocation {

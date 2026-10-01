@@ -35,6 +35,8 @@ export interface CliResolution {
 export interface CliProbeResult {
   exists: boolean;
   authenticated: boolean | 'unverified';
+  /** Absolute executable selected once for both this probe and later dispatch. */
+  executable?: string;
   /** False when a custom executable did not identify as a wrapper adapter. */
   supported?: boolean;
   /** Exact declared model passed the CLI's model-scoped readiness probe. */
@@ -52,6 +54,12 @@ export interface CliProbeResult {
    * unauthenticated CLI.
    */
   authFailureDetail?: string;
+  /** Exit code of a FAILED model-scoped readiness probe. */
+  modelExitCode?: number | null;
+  /** Cause the adapter read from a failed readiness probe's output, if any. */
+  modelFailure?: import('./adapters/base.js').ModelProbeFailure;
+  /** Redacted output of a FAILED model-scoped readiness probe. */
+  modelFailureDetail?: string;
 }
 
 export type CliProbeFailureDetail =
@@ -603,17 +611,47 @@ function probeResolvedCli(
       message: `Step "${resolution.stepId}" declares CLI "${resolution.cli}", but "${command}" exited non-zero${exitCode}; authenticate it or repair that adapter's authentication probe.${detail}`,
     });
   } else if (resolution.model !== undefined && result.modelAvailable !== true) {
-    diagnostics.push({
-      severity: 'refusal',
-      kind: 'model_unavailable',
-      stepId: resolution.stepId,
-      cli: resolution.cli,
-      model: resolution.model,
-      message: describeEffectiveModel(resolution.stepId, resolution.model, resolution.cli, resolution.modelSource)
-        + `, but its model-scoped "${result.modelCommand ?? `${resolution.cli} auth status`}" probe exited non-zero;`
-        + ` verify the model name and this credential's access.`,
-    });
+    diagnostics.push(modelProbeRefusal(resolution as CliResolution & { model: string }, result));
   }
+}
+
+// Only a probe whose output says the model is unknown (or the adapter gave no
+// output to read) is told to check the model name. An outdated CLI and a
+// usage-limited credential name a different remedy, and "verify the model
+// name" sends the author after a typo that is not there.
+function modelProbeRefusal(
+  resolution: CliResolution & { model: string },
+  result: CliProbeResult,
+): PreflightDiagnostic {
+  const { stepId, cli, model } = resolution;
+  const effective = describeEffectiveModel(stepId, model, cli, resolution.modelSource);
+  const command = `"${result.modelCommand ?? `${cli} auth status`}"`;
+  const exit = result.modelExitCode === undefined || result.modelExitCode === null ? '' : ` (exit ${result.modelExitCode})`;
+  const reported = result.modelFailureDetail === undefined ? '' : ` It reported: ${result.modelFailureDetail}`;
+  const base = { severity: 'refusal' as const, stepId, cli, model };
+  const cause = result.modelFailure?.cause;
+  if (cause === 'cli_outdated') {
+    const required = result.modelFailure?.requiredVersion;
+    return { ...base, kind: 'cli_outdated',
+      message: `${effective}, but this "${cli}" is too old to use that model`
+        + (required === undefined ? '' : `; version ${required} or newer is required`)
+        + `. Upgrade the CLI in the environment that runs this flow; the model name is not the problem.${reported}` };
+  }
+  if (cause === 'provider_usage_limited') {
+    return { ...base, kind: 'provider_usage_limited',
+      message: `${effective}, but the provider refused the model-scoped ${command} probe${exit} because this credential`
+        + ` has reached a usage or rate limit. Retry after the limit resets or use a credential with capacity;`
+        + ` the model name is not the problem.${reported}` };
+  }
+  // A probe that printed nothing is judged on its exit code alone, which is
+  // how a wrapper refuses a model it cannot serve.
+  const unknownModel = cause === 'model_unknown' || result.modelFailureDetail === undefined;
+  return { ...base, kind: 'model_unavailable',
+    message: `${effective}, but its model-scoped ${command} probe exited non-zero${exit}`
+      + (unknownModel
+        ? `; verify the model name and this credential's access.`
+        : ` for a reason Relayflows does not recognise.`)
+      + reported };
 }
 
 function probeFailedMessage(

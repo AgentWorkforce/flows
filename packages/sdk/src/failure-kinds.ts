@@ -15,6 +15,7 @@ const PREFLIGHT_ENVIRONMENT_FAILURE_KINDS = [
   'mcp_unreachable',
   'budget_syntax_invalid',
   'cli_missing',
+  'cli_outdated',
   'cli_unauthenticated',
   'cli_unresolved',
   'cli_unsupported',
@@ -24,6 +25,7 @@ const PREFLIGHT_ENVIRONMENT_FAILURE_KINDS = [
   'memory_unreachable',
   'no_executor',
   'probe_failed',
+  'provider_usage_limited',
   'scope_syntax_invalid',
   'mount_unknown',
   'scope_ungrantable',
@@ -142,6 +144,12 @@ export const RUN_FAILURE_KINDS = [
    * attaches and before the resume touches the journal.
    */
   'local_agent_unavailable',
+  /**
+   * The authored root's worker lease was lost and the kernel's retry did not
+   * reach this process. The run is NOT failed (`status: running`): its
+   * completed steps are journaled and `flows resume <rootRunId>` continues it.
+   */
+  'root_lease_lost',
 ] as const;
 
 /**
@@ -271,6 +279,14 @@ export interface StepFailedDetails {
   maxIterations?: number;
   /** Additional classified infrastructure retries declared for the step. */
   transportRetries?: number;
+  /**
+   * Attempts before this one that died without a result -- the kernel
+   * journaled them `crashed` or `lease_expired` itself -- and so, by design,
+   * consumed none of `maxIterations` (relayflowd-core recovery.rs). Present
+   * only when non-zero. Without it `attempt` can exceed `maxIterations`
+   * (`attempt=2/1`) and read as the kernel overrunning its own budget.
+   */
+  unchargedAttempts?: number;
   exitCode?: number;
   transportPhase?: string;
   transportCause?: string;

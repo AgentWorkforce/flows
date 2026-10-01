@@ -1,3 +1,4 @@
+import { basename } from 'node:path';
 import { actionsFor, subscriptionFor, type Family } from './subscriptions.ts';
 
 /** Operator configuration is separate from untrusted webhook data. */
@@ -5,7 +6,7 @@ export interface Config {
   owner: string; repo: string; number: number; testCommand: string;
   approvers: string[]; organizations: string[]; merge: boolean;
   reviewAuthors: string[]; skipLabels: string[]; requiredChecks: string[];
-  botLogin: string; reviewerCli?: string;
+  botLogin: string; reviewerCli?: string; reviewerModel?: string;
   /**
    * Optional operator pin. Present, it *constrains* the run to one head: the
    * run declines when live state has moved past it. Absent — the resident
@@ -18,6 +19,14 @@ export interface Config {
 export const record = (x: unknown): Record<string, unknown> => x !== null && typeof x === 'object' && !Array.isArray(x) ? x as Record<string, unknown> : {};
 export const shaValid = (x: unknown): x is string => typeof x === 'string' && /^[a-f0-9]{40}$/.test(x);
 export const text = (x: unknown): x is string => typeof x === 'string' && x.trim().length > 0;
+export const declarationStringError = (value: string): string | undefined => {
+  if (!value) return 'expected a non-empty string';
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (code < 0x20 || code === 0x7f) return 'must not contain control characters';
+  }
+  return undefined;
+};
 const list = (x: unknown, fallback: string[] = []): string[] => {
   if (x === undefined) return fallback;
   if (!Array.isArray(x) || !x.every(text)) throw new Error('Babysitter lists must contain nonempty strings');
@@ -55,14 +64,28 @@ export function parseInput(value: unknown): Config {
     || (x.headSha !== undefined && !shaValid(x.headSha))
     || !text(x.testCommand) || /[\0\r\n]/.test(x.testCommand)
     || !text(x.botLogin) || (x.merge !== undefined && typeof x.merge !== 'boolean')
-    || (x.reviewerCli !== undefined && !text(x.reviewerCli))) throw new Error('Invalid Babysitter configuration: pin repository, PR, bot identity and validation command');
+    || (x.reviewerCli !== undefined && !text(x.reviewerCli))
+    || (x.reviewerModel !== undefined && !text(x.reviewerModel))) throw new Error('Invalid Babysitter configuration: pin repository, PR, bot identity and validation command');
+  const reviewerCli = typeof x.reviewerCli === 'string' ? x.reviewerCli.trim() : undefined;
+  const reviewerModel = typeof x.reviewerModel === 'string' ? x.reviewerModel.trim() : undefined;
+  const reviewerCliProblem = reviewerCli === undefined ? undefined : declarationStringError(reviewerCli);
+  const reviewerModelProblem = reviewerModel === undefined ? undefined : declarationStringError(reviewerModel);
+  if (reviewerCliProblem !== undefined || reviewerModelProblem !== undefined) {
+    throw new Error(`Invalid Babysitter reviewer declaration: ${reviewerCliProblem ?? reviewerModelProblem}`);
+  }
+  if (reviewerCli !== undefined
+    && !['claude', 'codex'].includes(basename(reviewerCli).replace(/\.exe$/iu, ''))
+    && reviewerModel === undefined) {
+    throw new Error('Invalid Babysitter configuration: a custom reviewerCli requires reviewerModel');
+  }
   const config: Config = {
     owner: x.owner, repo: x.repo, number: Number(x.number),
     testCommand: x.testCommand, botLogin: x.botLogin, merge: x.merge === true,
     approvers: list(x.approvers), organizations: list(x.organizations), reviewAuthors: list(x.reviewAuthors),
     skipLabels: list(x.skipLabels, ['no-agent-relay-review']), requiredChecks: list(x.requiredChecks),
     ...(typeof x.headSha === 'string' ? { headSha: x.headSha } : {}),
-    ...(typeof x.reviewerCli === 'string' ? { reviewerCli: x.reviewerCli } : {}),
+    ...(reviewerCli === undefined ? {} : { reviewerCli }),
+    ...(reviewerModel === undefined ? {} : { reviewerModel }),
   };
   if (x.event !== undefined) config.event = parseEvent(x.event, config);
   return config;

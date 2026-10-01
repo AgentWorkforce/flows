@@ -11,11 +11,18 @@ export type AuthoredFlowExecutionErrorCode =
   | 'helper_slack.credential_missing'
   | 'helper_slack.mount_required'
   | 'budget_syntax_invalid'
+  /** The step's CLI is too old for its model — an environment refusal, not a spec error. */
+  | 'cli_outdated'
+  /** The step's credential hit a provider usage/rate limit during preflight. */
+  | 'provider_usage_limited'
   | 'agent_cli_unresolved'
   | 'agent_parked'
   | 'llm_cli_unresolved'
   | 'llm_parked'
   | 'duplicate_completion'
+  | 'dispatch_depth_exceeded'
+  | 'dispatch_invalid'
+  | 'dispatch_unknown'
   | 'journal_protocol_violation'
   | 'missing_completion'
   | 'memory_unreachable'
@@ -23,6 +30,12 @@ export type AuthoredFlowExecutionErrorCode =
   | 'operation_callback_failed'
   | 'step_failed'
   | 'lease_exceeded'
+  /**
+   * The CLI lost the authored root's worker lease and the kernel did not
+   * re-dispatch the root to it. The run is not failed: completed steps are
+   * journaled and `flows resume <rootRunId>` continues it.
+   */
+  | 'root_lease_lost'
   | 'unsupported_completion'
   | 'unsupported_gate'
   | 'gate_failed'
@@ -36,6 +49,9 @@ export type AuthoredFlowExecutionErrorCode =
   | 'unsettled_derived_work'
   | 'unsupported_promise_lifecycle'
   | 'unsupported_workspace_permission'
+  | 'unbounded_subscription'
+  | 'activity_closed'
+  | 'subscription_suspended'
   | 'unawaited_step'
   | 'unsupported_verb';
 
@@ -73,12 +89,38 @@ export class AuthoredFlowExecutionError extends Error {
      * Node-child error frame — can forward it instead of dropping it.
      */
     readonly details?: StepFailedDetails,
+    readonly suspension?: AuthoredFlowSuspension,
   ) {
     super(`${code}: ${message}`);
     this.name = 'AuthoredFlowExecutionError';
   }
 }
 
+/** Serialized into the CLI report so Cloud can atomically finish activation or wait for a wake. */
+export type AuthoredFlowSuspension =
+  /**
+   * Exact durable `subscription.prepared` facts Cloud must persist before it
+   * fences provider ingress and invokes `subscription.activate`. Binding
+   * generation and ingress cursor are Cloud-assigned receipts, deliberately
+   * absent from the authored request.
+   */
+  | {
+    readonly kind: 'activation';
+    readonly subscriptionId: string;
+    readonly eventTypes: readonly string[];
+    readonly pattern?: Readonly<Record<string, unknown>>;
+    readonly stream: string;
+    readonly settleMs: number;
+    readonly idleMs: number;
+    readonly deadlineAtMs: number;
+    readonly includeSelf: boolean;
+  }
+  | {
+    readonly kind: 'event_wait';
+    readonly subscriptionId: string;
+    readonly stream: string;
+    readonly deadlineAtMs: number;
+  };
 /** The question an authored body parked on, as the kernel journals it. */
 export interface AuthoredHumanWait {
   readonly waitId: string;

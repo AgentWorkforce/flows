@@ -1,0 +1,14 @@
+cwd: /tmp/flows-pr-followup/pr441/kernel
+$ cargo test -p relayflowd --test subscription_router_delivery
+   Compiling relayflowd v0.1.0 (/tmp/flows-pr-followup/pr441/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.64s
+     Running tests/subscription_router_delivery.rs (target/debug/deps/subscription_router_delivery-1e0031de1ef580ec)
+
+running 2 tests
+test targeted_ingress_is_fenced_deduplicated_and_isolated_after_restart ... ok
+test router_snapshots_keep_absolute_timers_and_overflow_fence_across_restart ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+exit status: 0

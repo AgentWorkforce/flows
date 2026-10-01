@@ -34,6 +34,7 @@ export default flow("chief", {
   identity: "chief",                          // gate 8 — a principal
   memory: { script: true, agent: true },      // gate 5 — relayhistory-backed
   budget: "$20/day",
+  use: ["./garden/implement.flow.ts"],         // direct child allowlist
 })
 .on(slack.mention("#exec"), async (f, event) => {          // gate 2 — trigger = entry condition
   const intent = await f.llm`Extract the work request, if any: ${event.text}`
@@ -49,8 +50,8 @@ export default flow("chief", {
   const ok = await f.human(`Ship this?\n${plan.summary}`, { to: "khaliq" });
   if (!ok) return f.done("declined"); // choose not to proceed after a negative answer
 
-  const pr = await f.dispatch("garden/implement", plan);   // gate 3 — child flow
-  await f.slack.reply(event, `Shipped: ${pr.url}`);
+  const child = await f.dispatch("garden/implement", plan); // gate 3 — child flow
+  await f.slack.reply(event, `Shipped: ${child.name} (${child.completionReason})`);
 });
 ```
 
@@ -140,7 +141,7 @@ No process runs between events: the handler wakes, executes to its next await, p
    ```yaml
    - agent: Review this diff for security issues.        # 1. anonymous
    agents:
-     reviewer: { cli: claude, model: claude-sonnet-4-6 } # 2. named — explicit and reusable
+     reviewer: { cli: claude, model: claude-sonnet-5 }   # 2. named — explicit and reusable
    ```
    The declarative named-agent schema in this slice is exactly `{ cli, model }`;
    unknown fields fail closed. Defining a richer team reviewer means writing
@@ -188,7 +189,11 @@ No process runs between events: the handler wakes, executes to its next await, p
    wrong identification is `cli_unsupported`, never
    mislabeled as `cli_unauthenticated`. If a model-scoped probe fails, the
    adapter's real unscoped authentication command distinguishes
-   `model_unavailable` from `cli_unauthenticated`. At execution the worker
+   `model_unavailable` from `cli_unauthenticated`, and the adapter reads the
+   failed probe's own output to split out `cli_outdated` (the CLI is too old
+   for the model) and `provider_usage_limited` (the credential hit a usage or
+   rate limit). Only `model_unavailable` asks the author to verify the model
+   name; all three carry the probe's redacted output. At execution the worker
    starts one wrapper process with only `--relayflows-adapter-v1` and a scrubbed
    environment, waits for the exact identity token, then sends one JSON line
    containing instruction plus any declared model/wake context over that
@@ -1483,12 +1488,14 @@ The exit codes are part of the surface contract:
 | `1` | The run failed with a declared `completionReason`, or a transport, runtime, or daemon protocol error left the outcome unknown. A `step_failed` run names the failing step and its per-step `completionReason`, plus the exit code and output tails the journal recorded for it. An authored `done("step_failed")` exits `1` as well, and says so without naming a step, because no step failed — the body declared the verdict. With a `detail`, that detail replaces the generic sentence and is reported as `completionDetail`. |
 | `2` | The command was refused before a journal write: invalid input, failed preflight, unreachable daemon, a `run_not_found` resume target, or a `--local-agent` the named run cannot honour (`local_agent_unavailable`, below). |
 | `3` | The run parked. `PARKED [run_parked]` names the step and its `llm` or `agent` type, and distinguishes an unavailable worker from a `needs_human` recovery wait. An authored body parked on `f.human` reports the question, who it is for, and the `flows answer` invocation that records the decision (see *Human gates* below). |
+| `4` | An authored body suspended at `f.on(...).next()` for subscription activation or event delivery. JSON reports `status: "suspended"` and the durable `suspension` boundary. The root releases its worker lease; unchanged waits can be resumed without consuming crash retries. This local SDK/daemon contract still requires Cloud router integration before hosted use; see [EVENT-AWAIT.md](EVENT-AWAIT.md). |
 
 Without an attached worker, reaching an `llm` or `agent` step returns a durable
 parked outcome. For authored TypeScript, `--local-agent` attaches both local
-workers as described above. Event, deployed-digest, HTTP, SDK-call, and
-flow-to-flow invocation remain later-gate surface work; they are not shipped
-by this CLI. Schedules are: `schedule.cron(...)` / `schedule.every(...)` are
+workers as described above. Direct, statically declared child-flow invocation
+is shipped through `use` / `f.dispatch`; event, deployed-digest, HTTP, SDK-call,
+and arbitrary public-flow invocation remain later-gate surface work. Schedules
+are: `schedule.cron(...)` / `schedule.every(...)` are
 declared on a flow, lowered to the `flows.tick` subscription, printed by
 `flows check` with the `flows tick start` invocation that drives a fixed
 interval locally, and registered on Cloud by `flows schedule` (see
@@ -1547,6 +1554,48 @@ naming the new run to start. A resume that drops the flag a root *was* pinned
 with is refused the same way, naming the resume that keeps it. On a declarative
 run the flag is honoured rather than refused: it attaches a worker and drives
 the parked step. The flag is never accepted and ignored.
+
+### Child flows: `f.dispatch`
+
+```ts
+export default flow("release", {
+  use: ["./implement.flow.ts"],
+  budget: { tokens: 50_000 },
+}, async (f, input) => {
+  await f.run("printf '%s' prepare");
+  const child = await f.dispatch("implement", { issue: input.issue });
+  await f.run("printf '%s' publish");
+  f.done(child.completionReason);
+});
+```
+
+`f.dispatch(name, input)` runs one **direct** child named by the current
+flow's static `use` header. `use` entries are relative `.flow.ts` paths; the
+loader resolves their complete graph before any authored body runs and refuses
+missing files, cycles, repeated paths, and two direct children with the same
+declared flow name. A computed path or an undeclared/transitive-only child name
+cannot widen that graph at runtime.
+
+The input is snapshotted as JSON before admission. Child operations share the
+parent's durable root and receive qualified identities such as
+`dispatch-2--run-1`. The first child operation depends on the parent's current
+predecessors; the journaled `dispatch-2` receipt joins the child's leaves; the
+next parent operation depends on that receipt. Resume replays those identities,
+so neither parent nor child effects repeat. A successful call returns
+`{ name, completionReason: "success", completionDetail? }`; any other child
+verdict fails the dispatch rather than turning failure into a value.
+
+Authority narrows down the tree. All descendants share the root budget
+accumulator and worker-capacity pool. In this release a child may not declare a
+second budget, require a tool capability its parent did not grant, or call
+`f.human`; the root owns the budget ceiling and approval authority. Static
+`use` cycles are refused and runtime child depth is capped at three. These are
+local/hosted authored-flow composition semantics, not permission for arbitrary
+public Flow Tools to call one another.
+
+With `--cloud-mirror`, the root, child operations and dispatch receipts are
+projected as one flattened, connected dashboard graph. Internal `complete-N`
+verdict receipts stay in the journal as evidence but are hidden from the graph.
 
 ### Human gates: `f.human`
 
@@ -1612,8 +1661,8 @@ answer, and `answeredBy` records the OS user who did. On Cloud the same wait is
 answered through the run's answer route — by the delivered channel above, or
 `POST /api/v1/workflows/runs/<id>/answer` — with the answerer's identity
 (`slack:@handle`, `github:@login`, or the Cloud user). `timeout` is not yet
-enforced (DESIGN.md §1.4). `f.dispatch` still fails closed as
-`unsupported_verb`.
+enforced (DESIGN.md §1.4). A child flow cannot call `f.human`; approval
+authority remains with the root flow.
 
 `flows resume` reports `run_unavailable` only when relayflowd returns the
 typed `run_not_found` refusal. A dropped connection, request failure, or

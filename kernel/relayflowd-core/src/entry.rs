@@ -25,6 +25,26 @@ pub enum EntryType {
     /// "Native silent-death" answer at the journal level.
     #[serde(rename = "subscription.stale")]
     SubscriptionStale,
+    /// The cell has recorded the exact subscription request but Cloud has not
+    /// yet fenced its provider binding.  A prepared record is intentionally
+    /// invisible to the authored body and never accepts frames.
+    #[serde(rename = "subscription.prepared")]
+    SubscriptionPrepared,
+    /// A body-local event cursor. This is distinct from trigger-plane
+    /// `subscription.registered`: it never creates a run.
+    #[serde(rename = "subscription.opened")]
+    SubscriptionOpened,
+    #[serde(rename = "subscription.closed")]
+    SubscriptionClosed,
+    /// Local durable mirror of the router's `closing: overflow` fence. Cloud
+    /// owns its provider binding; recovery uses this journal fact to finish
+    /// the already-submitted close without ever reopening the cursor.
+    #[serde(rename = "subscription.overflow.fenced")]
+    SubscriptionOverflowFenced,
+    /// The body has observed a normal activity wake. This advances only that
+    /// cursor's unread boundary; it is not a provider acknowledgement.
+    #[serde(rename = "subscription.acknowledged")]
+    SubscriptionAcknowledged,
     #[serde(rename = "step.routed")]
     StepRouted,
     #[serde(rename = "step.attempt.started")]
@@ -70,6 +90,11 @@ impl EntryType {
             Self::SubscriptionRegistered => "subscription.registered",
             Self::SubscriptionMatched => "subscription.matched",
             Self::SubscriptionStale => "subscription.stale",
+            Self::SubscriptionPrepared => "subscription.prepared",
+            Self::SubscriptionOpened => "subscription.opened",
+            Self::SubscriptionClosed => "subscription.closed",
+            Self::SubscriptionOverflowFenced => "subscription.overflow.fenced",
+            Self::SubscriptionAcknowledged => "subscription.acknowledged",
             Self::StepRouted => "step.routed",
             Self::StepAttemptStarted => "step.attempt.started",
             Self::StepCompleted => "step.completed",
@@ -98,6 +123,11 @@ impl EntryType {
             "subscription.registered" => Self::SubscriptionRegistered,
             "subscription.matched" => Self::SubscriptionMatched,
             "subscription.stale" => Self::SubscriptionStale,
+            "subscription.prepared" => Self::SubscriptionPrepared,
+            "subscription.opened" => Self::SubscriptionOpened,
+            "subscription.closed" => Self::SubscriptionClosed,
+            "subscription.overflow.fenced" => Self::SubscriptionOverflowFenced,
+            "subscription.acknowledged" => Self::SubscriptionAcknowledged,
             "step.routed" => Self::StepRouted,
             "step.attempt.started" => Self::StepAttemptStarted,
             "step.completed" => Self::StepCompleted,
@@ -417,8 +447,33 @@ pub struct StepCompletedPayload {
     pub trajectory_tail: Option<Value>,
     #[serde(default)]
     pub budget: Budget,
+    /// What the step actually cost, as reported by the CLI or estimated from
+    /// its full token usage. Display only: it is never folded into the run's
+    /// budget, so `budget` alone decides `maxDollars`. Absent when unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reported_cost: Option<ReportedCost>,
     pub completed_by: String,
     pub next_attempt_at_ms: Option<i64>,
+}
+
+/// A step attempt's actual cost, kept apart from the metered `Budget`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReportedCost {
+    /// Non-negative decimal string, like `Budget::dollars`.
+    pub dollars: String,
+    pub source: ReportedCostSource,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReportedCostSource {
+    /// The agent CLI's own reported total (e.g. Claude `total_cost_usd`).
+    Cli,
+    /// Estimated from the step's full token usage at a frozen price.
+    Priced,
+    /// No model ran: an internal effect worker (provider helper, plugin, MCP)
+    /// completed the step. `dollars` is zero.
+    NoModel,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -492,6 +547,18 @@ pub struct WaitEventPayload {
     pub wait_id: String,
     pub event_key: String,
     pub timeout_at_ms: Option<i64>,
+    /// Body activities use a stream cursor; old exact-match event waits leave
+    /// these additive fields absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_offset: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settle_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_at_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deadline_at_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -528,6 +595,81 @@ pub struct StreamAppendedPayload {
     pub offset: u64,
     pub producer: String,
     pub message: Value,
+    /// Provider delivery id for body-subscription frames. It is optional so
+    /// existing generic streams retain their protocol shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_delivery_id: Option<String>,
+}
+
+/// The kernel records the immutable, tenant-neutral part of an activity
+/// opening. Cloud owns the provider installation/resource binding and fences
+/// it before asking the cell to append this fact; `router_binding` is an opaque
+/// receipt, never policy interpreted by the kernel.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SubscriptionOpenedPayload {
+    pub subscription_id: String,
+    pub event_types: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<Value>,
+    pub stream: String,
+    pub settle_ms: i64,
+    pub idle_ms: i64,
+    pub deadline_at_ms: i64,
+    pub include_self: bool,
+    #[serde(default)]
+    pub ingress_offset: u64,
+    #[serde(default)]
+    pub router_binding: Value,
+}
+
+/// Immutable request handed to the Cloud router before it creates the
+/// provider binding.  `subscription.opened` is appended only after Cloud
+/// returns its fenced binding receipt and ingress offset.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SubscriptionPreparedPayload {
+    pub subscription_id: String,
+    pub event_types: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<Value>,
+    pub stream: String,
+    pub settle_ms: i64,
+    pub idle_ms: i64,
+    pub deadline_at_ms: i64,
+    pub include_self: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SubscriptionCompletionReason {
+    Closed,
+    RunCompleted,
+    Canceled,
+    Deadline,
+    Overflow,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SubscriptionClosedPayload {
+    pub subscription_id: String,
+    #[serde(rename = "completionReason")]
+    pub completion_reason: SubscriptionCompletionReason,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SubscriptionOverflowFencedPayload {
+    pub subscription_id: String,
+    pub retained: u64,
+    pub bytes: u64,
+    pub from: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SubscriptionAcknowledgedPayload {
+    pub subscription_id: String,
+    pub wait_id: String,
+    /// Present only for an event wake; idle has no stream range to advance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_offset: Option<u64>,
 }
 
 /// Appendix A rule 5. The record *elects* one attempt to perform the
@@ -629,4 +771,26 @@ pub struct RunCompletedPayload {
     pub completion_reason: RunCompletionReason,
     pub failed_step_id: Option<String>,
     pub budget_total: Budget,
+}
+
+#[cfg(test)]
+mod reported_cost_tests {
+    use super::*;
+
+    #[test]
+    fn step_completed_without_reported_cost_round_trips_unchanged() {
+        // A journal written before `reported_cost` existed must still decode,
+        // and a payload without one must serialize exactly as it always did.
+        let legacy = serde_json::json!({
+            "completionReason": "success", "disposition": "step_done", "output": null,
+            "verification": null, "end_pins": null, "effects": [],
+            "budget": {"tokens_in": 1, "tokens_out": 2, "dollars": "0.1"},
+            "completed_by": "w", "next_attempt_at_ms": null
+        });
+        let payload: StepCompletedPayload = serde_json::from_value(legacy.clone()).unwrap();
+        assert_eq!(payload.reported_cost, None);
+        let reserialized = serde_json::to_value(&payload).unwrap();
+        assert!(reserialized.get("reported_cost").is_none());
+        assert_eq!(reserialized["budget"], legacy["budget"]);
+    }
 }

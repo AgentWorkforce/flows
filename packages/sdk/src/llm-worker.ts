@@ -1,10 +1,11 @@
 import { workerSpend } from './worker-spend.js';
+import { reportedCost } from './reported-cost.js';
 import { DEFAULT_LOCAL_AGENT_CAPACITY } from './worker-slots.js';
 import type { WorkerCliResult } from './worker-cli.js';
 import { EventEmitter } from 'node:events';
 import type { JournalClient } from './journal-client.js';
 import type { CompletionReason, StepDispatchEvent } from './protocol.js';
-import type { KernelLlmStep } from './spec.js';
+import type { ResolvedKernelLlmStep } from './resolved-cli-identity.js';
 import { runAgentCli } from './worker-cli.js';
 import { resolveCliModel } from './cli-adapter.js';
 import { withWorkerLease } from './worker-lease.js';
@@ -22,6 +23,7 @@ export class LlmWorker extends EventEmitter {
     private readonly client: JournalClient,
     private readonly workerId: string,
     private readonly capacity: number = DEFAULT_LOCAL_AGENT_CAPACITY,
+    private readonly environment?: NodeJS.ProcessEnv,
   ) {
     super();
   }
@@ -52,16 +54,20 @@ export class LlmWorker extends EventEmitter {
   };
 
   private async execute(dispatch: StepDispatchEvent): Promise<void> {
-    const spec = dispatch.spec as KernelLlmStep;
+    const spec = dispatch.spec as ResolvedKernelLlmStep;
     const schema = spec.verification?.json_schema;
     const prompt = schema === undefined ? spec.prompt
       : `${spec.prompt}\n\nReturn only a JSON value matching this JSON Schema (no Markdown fences):\n${JSON.stringify(schema)}`;
-    const effectiveModel = typeof spec.cli === 'string' ? resolveCliModel(spec.cli, spec.model) : spec.model;
+    const effectiveModel = typeof spec.cli === 'string'
+      ? resolveCliModel(spec.cli_identity ?? spec.cli, spec.model)
+      : spec.model;
     const completed: WorkerCliResult = await withWorkerLease(this.client, dispatch, signal =>
       typeof spec.cli === 'string' && typeof spec.prompt === 'string'
-        ? runAgentCli(spec.cli, workerInstruction(prompt, dispatch), dispatch.wake_context, effectiveModel, undefined, signal, 'llm')
+        ? runAgentCli(spec.cli, workerInstruction(prompt, dispatch), dispatch.wake_context, effectiveModel, undefined, signal, 'llm',
+          undefined, undefined, 'direct', undefined, this.environment, spec.cli_identity)
         : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'llm step has no declared CLI' }));
     const { result, usage } = workerSpend(completed, effectiveModel);
+    const cost = reportedCost(completed, effectiveModel);
     let reason: CompletionReason = result.exit_code === 0 ? 'success' : 'worker_error';
     let output: unknown = result.stdout_tail;
     let detail = result.stderr_tail;
@@ -94,6 +100,7 @@ export class LlmWorker extends EventEmitter {
       dispatch.idempotency_key, reason, {
         output,
         ...(usage !== undefined ? { usage } : {}),
+        ...(cost === undefined ? {} : { reported_cost: cost }),
         ...(Object.keys(trajectoryTail).length === 0 ? {} : { trajectory_tail: trajectoryTail }),
       });
   }

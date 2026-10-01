@@ -23,13 +23,15 @@ import {
 import type { ParkCause, RunFailureKind, RunWarningKind, StepFailedDetails } from '../failure-kinds.js';
 import { inspectionHint, renderInspection, renderStepEvidence, stepFailureDetails } from './step-failure.js';
 import { JournalClient, JournalProtocolError } from '../journal-client.js';
-import { attachLocalAgent } from '../local-agent.js';
+import { attachLocalAgent, declaredLocalAgentStreams } from '../local-agent.js';
 import { LlmWorker } from '../llm-worker.js';
 import { readAuthoredRootMetadata, resumeDurableAuthoredFlow, type AuthoredRootMetadata } from '../authored-root.js';
+import type { AuthoredFlowSuspendedResult } from '../authored-flow-executor.js';
 import type {
   RunCompletionReason,
   RunOutcome,
   RunStatus,
+  SubscriptionSnapshot,
 } from '../protocol.js';
 import type { StepType } from '../spec.js';
 import {
@@ -37,12 +39,13 @@ import {
   type LoweredCompletionReason,
 } from '../authored-completion.js';
 import { DEFAULT_LOCAL_AGENT_CAPACITY } from '../worker-slots.js';
+import { localAgentEnvironment } from '../local-agent-environment.js';
 import {
   checkFlow,
   type CheckReport,
 } from './check.js';
 
-export type RunExitCode = 0 | 1 | 2 | 3;
+export type RunExitCode = 0 | 1 | 2 | 3 | 4;
 export type RunCommand = 'run' | 'resume' | 'answer';
 
 export interface ParkedStep {
@@ -52,7 +55,7 @@ export interface ParkedStep {
 
 export interface RunDiagnostic extends StepFailedDetails {
   severity: 'refusal' | 'failure' | 'parked' | 'warning' | 'declined';
-  kind: RunFailureKind | RunWarningKind | RunCompletionReason;
+  kind: RunFailureKind | RunWarningKind | RunCompletionReason | 'subscription_suspended';
   message: string;
 }
 
@@ -61,10 +64,14 @@ export interface RunReport {
   command: RunCommand;
   path?: string;
   runId?: string;
-  /** Authored root to resume/collect when runId identifies a failed child. */
+  /** Authored root owning subscriptions when runId names a failed child. */
   rootRunId?: string;
   socketPath?: string;
-  status?: RunStatus;
+  status?: RunStatus | 'suspended';
+  /** Cloud consumes this exact durable boundary before launching a resume. */
+  suspension?: AuthoredFlowSuspendedResult['suspension'] & { settleMs?: number; idleAtMs?: number };
+  /** Durable subscription projection for Cloud routing and cleanup. */
+  subscriptions?: SubscriptionSnapshot[];
   completionReason?: RunCompletionReason;
   /**
    * What the body passed to `done(reason, { detail })`, normalized: redacted,
@@ -103,6 +110,26 @@ export interface RunExecution {
   report: RunReport;
 }
 
+export function suspendedExecution(
+  command: RunCommand,
+  base: CheckReport | RunReport,
+  socketPath: string,
+  runId: string,
+  result: AuthoredFlowSuspendedResult & { readonly rootRunId: string },
+): RunExecution {
+  return {
+    exitCode: 4,
+    report: {
+      ...fromBase(command, base), ok: false, runId, socketPath, status: 'suspended',
+      suspension: result.suspension, completedSteps: result.journalSteps.length,
+      diagnostics: [...base.diagnostics, {
+        severity: 'warning', kind: 'subscription_suspended',
+        message: `Flow "${result.name}" suspended for ${result.suspension.kind}.`,
+      }],
+    },
+  };
+}
+
 export interface RunProgress {
   runId: string;
   stepId: string;
@@ -122,6 +149,8 @@ export interface RunLifecycleOptions {
   onJournalEntry?: (entry: JournalEvent) => void;
   /** An authored root was admitted: its id is known before its body runs. */
   onRunStarted?: (run: { runId: string; flow: string; resumed?: boolean }) => void;
+  /** A declarative root returned its admission receipt, even if no watched entry arrived. */
+  onRunReceipt?: (run: { runId: string; flow: string }) => void;
   localAgent?: boolean;
   /** `--agent-capacity`: the local workers' concurrency; the default is `DEFAULT_LOCAL_AGENT_CAPACITY`. */
   agentCapacity?: number;
@@ -148,20 +177,22 @@ export async function runFlow(
   dataDir: string,
   options: RunLifecycleOptions = {},
 ): Promise<RunExecution> {
+  const agentEnvironment = localAgentEnvironment();
   const prepared = parseDigestReference(path) ? await prepareDigestRun(path, options.bucket) : undefined;
   if (prepared && 'exitCode' in prepared) return prepared;
-  const checked = prepared ?? checkFlow(path);
+  const checked = prepared ?? checkFlow(path, { environment: agentEnvironment });
   if (!checked.report.ok || checked.flow === undefined) {
     return { exitCode: 2, report: fromCheckReport('run', checked.report) };
   }
 
-  return executeCheckedFlow(checked, dataDir, options);
+  return executeCheckedFlow(checked, dataDir, options, agentEnvironment);
 }
 
 async function executeCheckedFlow(
   checked: ReturnType<typeof checkFlow>,
   dataDir: string,
   options: RunLifecycleOptions,
+  agentEnvironment?: NodeJS.ProcessEnv,
 ): Promise<RunExecution> {
   const socketPath = socketFor(dataDir);
   // Carry the preflight's diagnostics as a RunReport from here on, so the
@@ -183,14 +214,25 @@ async function executeCheckedFlow(
     // Use the checked CLI/model and declared surfaces unchanged. The worker
     // advertises its existing pins; the daemon still owns surface matching.
     if (options.localAgent) {
-      localAgent = await attachLocalAgent(client, dataDir, options.onPtyReady, undefined, options.agentCapacity);
+      localAgent = await attachLocalAgent(
+        client, dataDir, options.onPtyReady, undefined, options.agentCapacity,
+        undefined, declaredLocalAgentStreams(spec), agentEnvironment,
+      );
     }
     if (options.localAgent && spec.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
       const { attachCommunicationWorkers } = await import('../communication/local.js');
-      communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir);
+      communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir, agentEnvironment);
     }
     if (options.onJournalEntry !== undefined) client.on('entry', options.onJournalEntry);
     const outcome = await startWatched(client, spec, options);
+    // `run.start { watch: true }` is an event stream, not the source of the
+    // root identity. A short deterministic run can finish before its first
+    // watched entry is delivered (and an older daemon may refuse `watch`), so
+    // receipt consumers such as the Cloud mirror need the admitted id too.
+    // This stays separate from `onRunStarted`: opening the observer without a
+    // streamed journal would manufacture an empty projection and suppress its
+    // truthful "not projected" diagnostic.
+    options.onRunReceipt?.({ runId: outcome.run_id, flow: spec.name ?? 'flow' });
     const execution = await classifyOutcome(client, 'run', outcome, base, socketPath, { ...options, dataDir });
     if (options.reuseFromRunId !== undefined) {
       execution.report.reuse = await reuseSummary(client, outcome.run_id, options.reuseFromRunId);
@@ -242,6 +284,9 @@ export async function resumeFlow(
   dataDir: string,
   options: RunLifecycleOptions = {},
 ): Promise<RunExecution> {
+  // Resume can load authored source; consume the descriptor before reading the
+  // journal so no source evaluation can race credential pickup.
+  const agentEnvironment = localAgentEnvironment();
   const socketPath = socketFor(dataDir);
   const base = emptyReport('resume');
   const client = new JournalClient(socketPath);
@@ -261,6 +306,7 @@ export async function resumeFlow(
   try {
     authoredRoot = await readAuthoredRootMetadata(client, runId);
     if (authoredRoot !== undefined) {
+      base.rootRunId = runId;
       // Both worker-surface mismatches are refusals, not protocol failures.
       // They used to throw bare `Error`s, which landed on `protocol_error`
       // ("RUN <id> unknown") and told nobody what to do instead; and the
@@ -283,11 +329,12 @@ export async function resumeFlow(
       if (options.localAgent) {
         authoredAgent = await attachLocalAgent(
           client, dataDir, options.onPtyReady, authoredRoot.localAgentStream, workerCapacity,
+          undefined, [], agentEnvironment,
         );
         authoredLlmClient = new JournalClient(socketPath);
         await authoredLlmClient.connect();
         await authoredLlmClient.hello('flows-authored-resume-llm');
-        authoredLlm = new LlmWorker(authoredLlmClient, `${authoredAgent.stream}-llm`, workerCapacity);
+        authoredLlm = new LlmWorker(authoredLlmClient, `${authoredAgent.stream}-llm`, workerCapacity, agentEnvironment);
         authoredLlm.on('error', onWorkerFailure('resume-llm', error => {
           llmFailure = error;
           client.close();
@@ -298,9 +345,13 @@ export async function resumeFlow(
         dataDir,
         localAgentStream: authoredAgent?.stream,
         ...(authoredAgent === undefined ? {} : { workerCapacity }),
+        ...(agentEnvironment === undefined ? {} : { agentEnvironment }),
         lifecycle: options,
       });
       if (result === undefined) throw new Error('authored root disappeared during resume');
+      if (result.state === 'suspended') {
+        return suspendedExecution('resume', base, socketPath, runId, result);
+      }
       return authoredCompletion('resume', base, socketPath, result, runId);
     }
     // resumeHelperEffect subsumes the old resumeSlackEffect: it handles the
@@ -308,12 +359,16 @@ export async function resumeFlow(
     // second call the earlier rebase left is a stale reference from before
     // the helper fanout renamed the API.
     if (options.localAgent) {
-      authoredAgent = await attachLocalAgent(client, dataDir, options.onPtyReady, undefined, options.agentCapacity);
       const entries = (await client.journalRead(runId, 1)).entries as Array<{ entry_type: string; payload?: { spec?: import('../spec.js').KernelRunSpec } }>;
       const spec = entries.find(entry => entry.entry_type === 'run.spawned')?.payload?.spec;
+      if (!spec) throw new Error('Cannot attach a local worker: the journaled run spec is missing');
+      authoredAgent = await attachLocalAgent(
+        client, dataDir, options.onPtyReady, undefined, options.agentCapacity,
+        undefined, declaredLocalAgentStreams(spec), agentEnvironment,
+      );
       if (spec?.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
         const { attachCommunicationWorkers } = await import('../communication/local.js');
-        communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir);
+        communicationWorkers = await attachCommunicationWorkers(spec, socketPath, dataDir, agentEnvironment);
       }
     }
     const onEntry = options.onJournalEntry;
@@ -352,6 +407,9 @@ export async function resumeFlow(
     // `RUN <id> unknown` for the identical failure.
     if (error instanceof AuthoredFlowExecutionError && (error.code === 'step_failed' || error.code === 'gate_failed')) {
       return authoredStepFailure('resume', base, socketPath, error, runId);
+    }
+    if (error instanceof AuthoredFlowExecutionError && error.code === 'root_lease_lost') {
+      return rootLeaseLostReport('resume', base, socketPath, error, runId);
     }
     // An authored resume that parks for want of a worker is a park, reported
     // like the run path's — and with the same remedy, because an authored root
@@ -467,6 +525,38 @@ function authoredInputArgument(metadata: AuthoredRootMetadata | undefined): Auth
  * drove correctly, and it produces a report with no `status`, which is the
  * whole of what `RUN <id> unknown` ever meant.
  */
+/**
+ * The authored root's lease was lost and not re-dispatched to this process
+ * (authored-root.ts driveRootFollowingRetries). Exit 1 because this CLI did
+ * not finish the run, but the report says what is true of it: still
+ * `running` in the journal, and resumable -- never `protocol_error` with the
+ * generic "worker wait canceled" and no run id, which is what it was.
+ */
+export function rootLeaseLostReport(
+  command: RunCommand,
+  base: CheckReport | RunReport,
+  socketPath: string,
+  error: AuthoredFlowExecutionError,
+  fallbackRunId?: string,
+): RunExecution {
+  const rootRunId = error.rootRunId ?? fallbackRunId;
+  return {
+    exitCode: 1,
+    report: {
+      ...fromBase(command, base),
+      ok: false,
+      ...(rootRunId === undefined ? {} : { runId: rootRunId, rootRunId }),
+      socketPath,
+      status: 'running',
+      diagnostics: [...base.diagnostics, {
+        severity: 'failure',
+        kind: 'root_lease_lost',
+        message: error.message.replace(/^root_lease_lost: /, ''),
+      }],
+    },
+  };
+}
+
 export function authoredStepFailure(
   command: RunCommand,
   base: CheckReport | RunReport,
@@ -743,17 +833,45 @@ export async function classifyOutcome(
   let parkedStep: ParkedStep | undefined;
   let needsHuman = false;
   let unclassifiedPolls = 0;
-  while (current.status === 'parked') {
+  // `running` too: an authored body re-driven after a lost root lease re-admits
+  // its child by admission key and gets the EXISTING run back, mid-attempt.
+  // Only `parked` was followed, so that child -- on the attempt 2 the kernel
+  // retried it to -- fell straight through to "status running without a
+  // classifiable completion" and failed the flow (customer rw_3a0fcb71).
+  while (current.status === 'parked' || current.status === 'running') {
     const inspection = await inspectOutOfBandStep(client, current.run_id);
     // A runnable sibling may only be waiting for capacity held by a live
-    // attempt. Keep driving until that lease releases before declaring a park.
-    if (inspection?.parkedStep !== undefined && (inspection.needsHuman || inspection.runningStep === undefined)) {
+    // attempt or by a retry in backoff. Keep driving until that active work
+    // settles before declaring a park.
+    if (inspection?.parkedStep !== undefined && (inspection.needsHuman
+      || (inspection.runningStep === undefined && inspection.backoffStep === undefined))) {
       parkedStep = inspection.parkedStep;
       needsHuman = inspection.needsHuman;
+      // `run.get` reports the live snapshot as `running` for an ordinary
+      // runnable worker wait, even when `run.start`/`run.resume` already
+      // classified the outcome as parked. Conversely, a re-admitted run can
+      // arrive here with a stale `running` outcome after its worker vanished.
+      // The step-level inspection is authoritative that this is a park; do
+      // not copy its broader run status and lose that classification.
+      current = { ...current, status: 'parked' };
       break;
     }
     if (inspection?.runningStep !== undefined) {
       await waitForRunningStep(client, current.run_id, inspection.runningStep, options);
+      current = await client.runResume(current.run_id, command === 'run' || options.allowHumanInfluenced);
+      continue;
+    }
+    // A step in `backoff` is between attempts: the kernel has scheduled the
+    // next one (a dead worker's retry is due at once, but waits for the
+    // worker slot the dead attempt held; a failed attempt waits out the
+    // retry policy's delay, bounded by its max_backoff_ms). That is progress,
+    // not an unclassifiable state -- treating it as one gave up after 2s on a
+    // child whose attempt 2 then succeeded (customer rw_3a0fcb71). Once due,
+    // the step is dispatched (`running`, followed above) or, with no worker,
+    // left `runnable` and reported as a park.
+    if (inspection?.backoffStep !== undefined && inspection.runningStep === undefined) {
+      throwIfCanceled(options.signal, inspection.backoffStep.id);
+      await delay(EXPIRED_LEASE_POLL_MS, options.signal);
       current = await client.runResume(current.run_id, command === 'run' || options.allowHumanInfluenced);
       continue;
     }
@@ -899,6 +1017,8 @@ interface OutOfBandInspection {
   parkedStep?: ParkedStep;
   needsHuman: boolean;
   runningStep?: RunningStep;
+  /** A step waiting out a retry backoff: its next attempt is scheduled. */
+  backoffStep?: ParkedStep;
 }
 
 interface RunningStep extends ParkedStep {
@@ -926,6 +1046,9 @@ async function inspectOutOfBandStep(
   const runningEntry = entries.find(([, step]) =>
     step.type !== 'deterministic' && step.state === 'running',
   );
+  const backoffEntry = entries.find(([, step]) =>
+    step.type !== 'deterministic' && step.state === 'backoff',
+  );
   const parkedEntry = humanEntry ?? runnableEntry;
   const parkedStep = parkedEntry === undefined ? undefined : {
     id: parkedEntry[0],
@@ -941,11 +1064,21 @@ async function inspectOutOfBandStep(
     needsHuman: humanEntry !== undefined,
     ...(parkedStep !== undefined ? { parkedStep } : {}),
     ...(runningStep !== undefined ? { runningStep } : {}),
+    ...(backoffEntry !== undefined ? { backoffStep: {
+      id: backoffEntry[0],
+      type: backoffEntry[1].type as Extract<StepType, 'llm' | 'agent'>,
+    } } : {}),
   };
 }
 
 // Match kernel/relayflowd/src/server/client.rs: allow the lease sweep to dispatch a retry.
-const LEASE_SWEEP_GRACE_MS = 5_000;
+export const LEASE_SWEEP_GRACE_MS = 5_000;
+// How often to re-ask the daemon about a step whose lease looks expired here.
+const EXPIRED_LEASE_POLL_MS = 250;
+// A deadline unchanged for a whole lease (relayflowd LEASE_RENEWAL_MS, 30s)
+// plus the sweep grace was renewed by nobody: the attempt is dead and the
+// daemon never swept it. Fail rather than hang.
+const STALE_LEASE_MS = 30_000 + LEASE_SWEEP_GRACE_MS;
 
 async function waitForRunningStep(
   client: JournalClient,
@@ -963,20 +1096,29 @@ async function waitForRunningStep(
     stepType: runningStep.type,
     leaseDeadlineMs,
   });
+  // When the lease deadline last changed, on this process's monotonic clock.
+  // A live worker renews every ~10s, moving the deadline; a dead lease the
+  // daemon has not swept keeps it. That -- not a comparison of the daemon's
+  // deadline with our wall clock -- is what separates the two under skew.
+  let deadlineSeenAt = performance.now();
   while (true) {
     throwIfCanceled(options.signal, runningStep.id);
     const remainingMs = leaseDeadlineMs + LEASE_SWEEP_GRACE_MS - Date.now();
-    if (remainingMs <= 0) {
+    if (performance.now() - deadlineSeenAt > STALE_LEASE_MS) {
       throw new Error(
         `worker lease for step "${runningStep.id}" expired at ${leaseDeadlineMs} without completion`,
       );
     }
-    await delay(Math.min(50, remainingMs), options.signal);
+    // Past the deadline by THIS clock alone is not an expiry: the daemon may
+    // still hold the lease (skew) or be sweeping it into a retry. Keep
+    // following the step, at a slower poll, until the daemon says otherwise.
+    await delay(remainingMs <= 0 ? EXPIRED_LEASE_POLL_MS : Math.min(50, remainingMs), options.signal);
     const snapshot = await client.runGet(runId);
     const step = snapshot.steps[runningStep.id];
     if (step?.state !== 'running') return;
     if (step.lease_deadline_ms !== undefined && step.lease_deadline_ms !== leaseDeadlineMs) {
       leaseDeadlineMs = step.lease_deadline_ms;
+      deadlineSeenAt = performance.now();
       options.onWait?.({
         runId,
         stepId: runningStep.id,
@@ -1043,10 +1185,17 @@ function errorMessage(error: unknown): string {
 }
 
 function throwIfCanceled(signal: AbortSignal | undefined, stepId: string): void {
-  if (signal?.aborted === true) throw new Error(`waiting for running step "${stepId}" was canceled`);
+  if (signal?.aborted === true) {
+    throw new Error(`waiting for running step "${stepId}" was canceled${cancelCause(signal)}`, { cause: signal.reason });
+  }
 }
 
-function delay(ms: number, signal?: AbortSignal): Promise<void> {
+/** Why a wait was canceled, when whoever aborted it said (a lost lease does). */
+function cancelCause(signal: AbortSignal): string {
+  return signal.reason instanceof Error && signal.reason.name !== 'AbortError' ? `: ${signal.reason.message}` : '';
+}
+
+export function delay(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolveDelay, rejectDelay) => {
     const finish = (): void => {
       signal?.removeEventListener('abort', cancel);
@@ -1057,7 +1206,9 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
     const cancel = (): void => {
       clearTimeout(timer);
       signal.removeEventListener('abort', cancel);
-      rejectDelay(new Error('worker wait canceled'));
+      // Carries the abort reason: a bare "worker wait canceled" was all a
+      // lost root lease ever reported (customer rw_3a0fcb71).
+      rejectDelay(new Error(`worker wait canceled${cancelCause(signal)}`, { cause: signal.reason }));
     };
     if (signal.aborted) cancel();
     else signal.addEventListener('abort', cancel, { once: true });

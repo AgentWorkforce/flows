@@ -8,7 +8,7 @@
 //
 // Local HTTPS only. No hosted run is claimed and nothing leaves this machine.
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync, symlinkSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:https';
 import { homedir, tmpdir } from 'node:os';
@@ -78,6 +78,8 @@ beforeAll(async () => {
   expect(existsSync(BUILT_CLI), `built CLI at ${BUILT_CLI} — build it with (cd packages/sdk && npm run build)`).toBe(true);
 
   work = await mkdtemp(join(tmpdir(), 'cloud-mirror-live-'));
+  symlinkSync(join(ROOT, 'packages', 'sdk', 'node_modules'), join(work, 'node_modules'));
+  await writeFile(join(work, 'package.json'), '{"type":"module"}');
   const config = join(work, 'openssl.cnf');
   await writeFile(config, '[req]\ndistinguished_name=dn\nx509_extensions=ext\n[dn]\n[ext]\n'
     + 'subjectAltName=IP:127.0.0.1\nbasicConstraints=critical,CA:TRUE\n');
@@ -127,12 +129,12 @@ describe('a local run on the Cloud dashboard', () => {
     seen = [];
     const run = await runCli(['run', '--cloud-mirror', '--no-observer-link', '--data-dir', join(work, 'data'), FLOW]);
     expect(run.code).toBe(0);
-    expect(run.stderr).toContain(`Dashboard: ${origin}/dashboard/workflow/live-cloud-run/runner`);
 
     // Registration is the operator's call; everything after it is the run's.
     expect(seen[0]).toMatchObject({
       method: 'POST', url: '/api/v1/workflows/local-run', authorization: 'Bearer operator-token',
     });
+    expect(run.stderr).toContain(`Dashboard: ${origin}/dashboard/workflow/live-cloud-run/runner`);
     const registration = seen[0]!.body as { workflow: string; fileType: string; relayflowVersion: string };
     expect(registration.fileType).toBe('yaml');
     expect(registration.relayflowVersion).toBe('v2');
@@ -184,4 +186,45 @@ describe('a local run on the Cloud dashboard', () => {
     expect(shell.stderr).toContain('Dashboard:');
     expect(seen.some((call) => call.url === '/api/v1/workflows/local-run')).toBe(true);
   }, 180_000);
+
+  it('publishes a composed authored flow as one connected dashboard DAG', async () => {
+    seen = [];
+    await writeFile(join(work, 'child.flow.ts'), `import { flow } from '@relayflows/surface';
+export default flow('child', async f => {
+  await f.run("printf '%s' child");
+  f.done('success');
+});
+`);
+    const parent = join(work, 'parent.flow.ts');
+    await writeFile(parent, `import { flow } from '@relayflows/surface';
+export default flow('parent', { use: ['./child.flow.ts'] }, async f => {
+  await f.run("printf '%s' before");
+  await f.dispatch('child', {});
+  await f.run("printf '%s' after");
+  f.done('success');
+});
+`);
+    const run = await runCli(['run', '--cloud-mirror', '--no-observer-link', '--data-dir',
+      join(work, 'child-data'), parent, '--input', '{}']);
+    expect(run.code, run.stderr).toBe(0);
+
+    const final = seen.find(call => call.url === '/api/v1/workflows/runs/live-cloud-run/steps')!;
+    const rows = (final.body as { steps: Array<{ stepName: string; label?: string; dependsOn?: string[] }> }).steps;
+    expect(rows.map(row => row.stepName)).toEqual([
+      'run-1', 'dispatch-2--run-1', 'dispatch-2', 'run-3',
+    ]);
+    expect(Object.fromEntries(rows.map(row => [row.stepName, {
+      label: row.label, dependsOn: row.dependsOn,
+    }]))).toEqual({
+      'run-1': { label: undefined, dependsOn: [] },
+      'dispatch-2--run-1': { label: undefined, dependsOn: ['run-1'] },
+      'dispatch-2': { label: 'child', dependsOn: ['dispatch-2--run-1'] },
+      'run-3': { label: undefined, dependsOn: ['dispatch-2'] },
+    });
+    expect(rows.some(row => /(?:^|--)complete-/.test(row.stepName))).toBe(false);
+
+    const snapshot = seen.filter(call => call.url.endsWith('/steps/snapshot')).at(-1)!;
+    const live = (snapshot.body as { steps: Array<{ stepName: string; dependsOn?: string[] }> }).steps;
+    expect(live.map(step => step.stepName).sort()).toEqual(rows.map(row => row.stepName).sort());
+  }, 120_000);
 });

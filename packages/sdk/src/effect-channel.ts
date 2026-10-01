@@ -4,6 +4,7 @@ import type { JournalClient } from './journal-client.js';
 import type { StepDispatchEvent } from './protocol.js';
 import { SPEC_SCHEMA_VERSION } from './spec.js';
 import { withWorkerLease } from './worker-lease.js';
+import { NO_MODEL_COST } from './reported-cost.js';
 import { snapshotJsonValue } from './json-value.js';
 
 /** Structural subset of Agent Relay's messages.dm; credentials stay in the client. */
@@ -93,5 +94,6 @@ export async function completeChannelPost(
         messageId, channel: call.channel, to: call.to, text: call.text },
       started_pins: dispatch.pins, end_pins: dispatch.pins,
       effects: [{ surface_path: surfacePath, idempotency_key: dispatch.idempotency_key }],
+      reported_cost: NO_MODEL_COST,
     });
 }

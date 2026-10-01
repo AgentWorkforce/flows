@@ -874,6 +874,7 @@ describe('flows run/resume CLI over the journal protocol', () => {
     let dialectError: string | null | undefined;
     await startCliLoopback(dataDir, {
       hello: sendOk,
+      'subscription.inspect': (ctx) => sendResult(ctx, { subscriptions: [] }),
       'run.start': (ctx, params) => {
         dialectError = kernelDialectError(params['spec']);
         sendResult(ctx, {
@@ -1048,7 +1049,11 @@ describe('flows run/resume CLI over the journal protocol', () => {
     expect(output.stderr.join('\n')).not.toContain('protocol_error');
   });
 
-  it('bounds a worker wait by its lease plus sweep grace and reports what it is waiting for', async () => {
+  // A deadline already past by this process's clock is not the daemon's
+  // verdict (clock skew, a sweep in progress): the CLI keeps following the
+  // step until the daemon settles it, instead of exiting 1 over a run that
+  // then completed. The never-swept bound is in worker-lease-sweep.test.ts.
+  it('follows a worker wait past a locally expired lease until the daemon settles it', async () => {
     const dataDir = temporaryProject('flows-run-lease-');
     const leaseDeadlineMs = Date.now() - 5_001;
     let snapshots = 0;
@@ -1086,10 +1091,11 @@ describe('flows run/resume CLI over the journal protocol', () => {
       'run', '--data-dir', dataDir, join(TESTDATA, 'hello-llm.flow.yaml'),
     ], output.io);
 
-    expect(code).toBe(1);
+    expect(code).toBe(0);
     expect(output.stderr.join('\n')).toContain('WAITING [worker_lease]');
     expect(output.stderr.join('\n')).toContain(`until ${leaseDeadlineMs}`);
-    expect(output.stderr.join('\n')).toContain('worker lease for step "answer" expired');
+    expect(output.stderr.join('\n')).not.toContain('worker lease for step "answer" expired');
+    expect(snapshots).toBeGreaterThan(4);
   });
 
   it('allows a caller to cancel a worker-lease wait', async () => {
@@ -1124,6 +1130,29 @@ describe('flows run/resume CLI over the journal protocol', () => {
       kind: 'protocol_error',
       message: expect.stringContaining('was canceled'),
     }));
+  });
+
+  it('reports a declarative admission receipt when no watched journal entry arrives', async () => {
+    const dataDir = temporaryProject('flows-run-receipt-');
+    await startCliLoopback(dataDir, {
+      hello: sendOk,
+      'run.start': (ctx) => sendResult(ctx, {
+        run_id: 'run-fast-receipt',
+        status: 'completed',
+        completion_reason: 'success',
+        completed_steps: 2,
+      }),
+    });
+    const receipts: Array<{ runId: string; flow: string }> = [];
+
+    const execution = await runFlow(
+      join(TESTDATA, 'hello-deterministic.flow.yaml'),
+      dataDir,
+      { onJournalEntry: () => {}, onRunReceipt: receipt => receipts.push(receipt) },
+    );
+
+    expect(execution.exitCode).toBe(0);
+    expect(receipts).toEqual([{ runId: 'run-fast-receipt', flow: 'hello-deterministic' }]);
   });
 
   it('resumes a parked run from snapshot step types without reading journal sequence one', async () => {
@@ -1174,6 +1203,7 @@ describe('flows run/resume CLI over the journal protocol', () => {
     const dataDir = temporaryProject('flows-resume-');
     await startCliLoopback(dataDir, {
       hello: sendOk,
+      'subscription.inspect': ctx => sendResult(ctx, { subscriptions: [] }),
       'run.resume': (ctx, params) => {
         if (params['run_id'] === 'known-run') {
           sendResult(ctx, {

@@ -1,4 +1,5 @@
 import { it, expect, vi, beforeEach } from 'vitest';
+import { readlinkSync } from 'node:fs';
 import type { JournalClient } from '../src/journal-client.js';
 import type { StepDispatchEvent } from '../src/protocol.js';
 import { completeCommunicationDispatch } from '../src/communication/worker.js';
@@ -23,13 +24,15 @@ beforeEach(() => {
     return { name: 'managed-agent', generation: 'generation', release: mocks.release, waitForReady: mocks.ready };
   });
 });
-function fixture(cli = 'claude') {
+function fixture(cli = 'claude', environment?: NodeJS.ProcessEnv, cliIdentity?: string) {
   const client = { stepHeartbeat: vi.fn(async () => ({ lease_deadline_ms: Date.now() + 30000 })),
     stepComplete: vi.fn(async () => ({})), channelReceive: vi.fn(async () => null) };
   const dispatch = { run_id: 'run', step_id: 'agent', attempt: 1, idempotency_key: 'key', pins: {},
-    lease_id: 'lease', lease_deadline_ms: Date.now() + 30000, spec: { type: 'agent', cli, instruction: '' } } as StepDispatchEvent;
+    lease_id: 'lease', lease_deadline_ms: Date.now() + 30000,
+    spec: { type: 'agent', cli, ...(cliIdentity === undefined ? {} : { cli_identity: cliIdentity }), instruction: '' } } as StepDispatchEvent;
   return { client, execute: () => completeCommunicationDispatch(client as unknown as JournalClient, dispatch,
-    { type: 'relayflows.communication.v1', instruction: 'test', incoming: ['peer'], outgoing: [], timeoutMs: 1000 }, '/tmp/data') };
+    { type: 'relayflows.communication.v1', instruction: 'test', incoming: ['peer'], outgoing: [], timeoutMs: 1000 },
+    '/tmp/data', undefined, environment) };
 }
 it('releases the exact owned identity and runtime before successful completion; never fabricates measured usage', async () => {
   const f = fixture(); await f.execute();
@@ -62,4 +65,30 @@ it.each(['claude', 'codex', 'gemini', 'cursor-agent', 'droid', 'opencode', 'aide
 it('quotes an executable path as one command without losing spaces or apostrophes', async () => {
   const f = fixture("/opt/agent tools/tool's cli"); await f.execute();
   expect(mocks.spawn.mock.calls[0]![0].harnessConfig.command).toBe("'/opt/agent tools/tool'\"'\"'s cli'");
+});
+
+it('launches communication agents with the isolated provider credential', async () => {
+  const f = fixture('codex', { ...process.env, OPENAI_API_KEY: 'house-key' });
+  await f.execute();
+  expect(mocks.spawn.mock.calls[0]![0].harnessConfig.env).toMatchObject({ OPENAI_API_KEY: 'house-key' });
+});
+
+it('uses the proved identity for a canonical generic communication executable', async () => {
+  let linkedTarget: string | undefined;
+  mocks.spawn.mockImplementationOnce(async input => {
+    const quotedCommand = (input as { harnessConfig: { command: string } }).harnessConfig.command;
+    linkedTarget = readlinkSync(quotedCommand.slice(1, -1));
+    setTimeout(() => void mocks.invoke!({ operation: 'complete', values: ['done'] }), 5);
+    return { name: 'managed-agent', generation: 'generation', release: mocks.release, waitForReady: mocks.ready };
+  });
+  const f = fixture('/store/provider-cli.js', { ...process.env, OPENAI_API_KEY: 'house-key' }, 'codex');
+  await f.execute();
+  expect(linkedTarget).toBe('/store/provider-cli.js');
+  expect(mocks.spawn).toHaveBeenCalledWith(expect.objectContaining({
+    cli: 'codex',
+    harnessConfig: expect.objectContaining({
+      command: expect.stringMatching(/^'\/tmp\/data\/communication\/cli-[^/]+\/codex'$/u),
+      env: expect.objectContaining({ OPENAI_API_KEY: 'house-key' }),
+    }),
+  }));
 });

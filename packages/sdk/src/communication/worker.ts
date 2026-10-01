@@ -1,9 +1,10 @@
 import { communicationHistory } from './history.js';
-import { basename } from 'node:path';
+import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { JournalClient } from '../journal-client.js';
 import type { StepDispatchEvent } from '../protocol.js';
-import type { KernelAgentStep } from '../spec.js';
+import type { ResolvedKernelAgentStep } from '../resolved-cli-identity.js';
 import { withWorkerLease } from '../worker-lease.js';
 import { workerInstruction } from '../worker-input.js';
 import { resolveCliModel } from '../cli-adapter.js';
@@ -18,13 +19,15 @@ export function requireCommunicationCli(cli: string | undefined): void {
   if (!cli?.trim()) throw new Error('Agent communication requires a declared CLI executable');
 }
 export async function completeCommunicationDispatch(client: JournalClient, dispatch: StepDispatchEvent,
-  instruction: CommunicationInstruction, dataDir: string, runRoot?: string): Promise<void> {
-  const spec = dispatch.spec as KernelAgentStep;
+  instruction: CommunicationInstruction, dataDir: string, runRoot?: string,
+  environment?: NodeJS.ProcessEnv): Promise<void> {
+  const spec = dispatch.spec as ResolvedKernelAgentStep;
   requireCommunicationCli(spec.cli);
   let output: unknown;
   let completionReason: 'success' | 'worker_error' = 'success';
   try {
-    output = await withWorkerLease(client, dispatch, signal => run(client, dispatch, instruction, spec, dataDir, signal, runRoot));
+    output = await withWorkerLease(client, dispatch, signal =>
+      run(client, dispatch, instruction, spec, dataDir, signal, runRoot, environment));
   } catch (error) {
     completionReason = 'worker_error';
     output = { error: error instanceof Error ? error.message : String(error) };
@@ -34,7 +37,8 @@ export async function completeCommunicationDispatch(client: JournalClient, dispa
       started_pins: dispatch.pins, end_pins: dispatch.pins });
 }
 async function run(client: JournalClient, dispatch: StepDispatchEvent, instruction: CommunicationInstruction,
-  spec: KernelAgentStep, dataDir: string, lease: AbortSignal, runRoot?: string): Promise<unknown> {
+  spec: ResolvedKernelAgentStep, dataDir: string, lease: AbortSignal, runRoot?: string,
+  environment?: NodeJS.ProcessEnv): Promise<unknown> {
   // Same contract as the CLI worker: a declared directory is resolved and held
   // inside the same run root the CLI worker measures against, before anything
   // is spawned. Thrown, not reported, because `completeCommunicationDispatch`
@@ -50,6 +54,7 @@ async function run(client: JournalClient, dispatch: StepDispatchEvent, instructi
   let pumping: Promise<void> | undefined;
   let receipts = Promise.resolve();
   let unsubscribe: (() => void) | undefined;
+  let cliLinkDirectory: string | undefined;
   try {
     let resolve!: (value: unknown) => void;
     let reject!: (reason: unknown) => void;
@@ -77,10 +82,20 @@ async function run(client: JournalClient, dispatch: StepDispatchEvent, instructi
       void receipts.catch(reject);
     });
     // Relay supplies each CLI's launch flags and injection behavior.
-    handle = await relay.broker.spawnPty({ name, cli: basename(spec.cli!).replace(/\.exe$/i, ''), task: prompt, channels: [], skipRelayPrompt: true,
-      model: resolveCliModel(spec.cli!, spec.model), cwd: directory,
-      harnessConfig: { runtime: 'pty', command: quote(spec.cli!), args: [],
-        cwd: directory, env: { ...agentEnvironment(spec.cli!),
+    const cliIdentity = spec.cli_identity ?? spec.cli!;
+    const argv0 = basename(cliIdentity);
+    let command = spec.cli!;
+    if (basename(command) !== argv0) {
+      const linkRoot = join(dataDir, 'communication');
+      await mkdir(linkRoot, { recursive: true, mode: 0o700 });
+      cliLinkDirectory = await mkdtemp(join(linkRoot, 'cli-'));
+      command = join(cliLinkDirectory, argv0);
+      await symlink(spec.cli!, command, 'file');
+    }
+    handle = await relay.broker.spawnPty({ name, cli: basename(cliIdentity).replace(/\.exe$/i, ''), task: prompt, channels: [], skipRelayPrompt: true,
+      model: resolveCliModel(cliIdentity, spec.model), cwd: directory,
+      harnessConfig: { runtime: 'pty', command: quote(command), args: [],
+        cwd: directory, env: { ...agentEnvironment(cliIdentity, environment ?? process.env),
           RELAYFLOW_COMMUNICATION_SOCKET: tools.path, RELAYFLOW_COMMUNICATION_TOKEN: tools.token },
         delivery: { mode: 'pty-injection', format: 'relay-block' } } });
     const ready = await handle.waitForReady(Math.min(instruction.timeoutMs, 90_000));
@@ -97,7 +112,10 @@ async function run(client: JournalClient, dispatch: StepDispatchEvent, instructi
     finally {
       try { await receipts; }
       finally { try { await handle?.release('Flow communication attempt ended', { deleteIdentity: true }); }
-        finally { try { await tools?.close(); } finally { await relay.close(); } } }
+        finally { try { await tools?.close(); } finally {
+          try { await relay.close(); }
+          finally { if (cliLinkDirectory) await rm(cliLinkDirectory, { recursive: true, force: true }); }
+        } } }
     }
   }
 }

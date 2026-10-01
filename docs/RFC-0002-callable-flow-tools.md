@@ -296,16 +296,17 @@ authored `flow<Input>` has a validated public input schema until the author
 supplies one (or it is generated and reviewed from a trusted source). An input
 schema must be snapshot into the built bundle and verified again at admission.
 
-**Nested calls:** do not allow arbitrary Flow Tools to call arbitrary Flow
-Tools in MVP. `f.dispatch` is a promising composition surface but is not a
-publicly implemented durable child-flow capability in the current SDK. Phase 2
-may allow only statically declared child digests with a parent-issued,
-attenuated capability token, a depth limit (recommend 3), a descendant budget
-reservation, a run-tree concurrency limit, and cycle detection over flow
-digests. A child may never inherit wider credentials, write scope, human
-approval authority, or the ability to alter its parent’s gates. A model calling
-the external tool endpoint from inside an agent step is prohibited by default;
-it bypasses those controls and makes recursion unaccounted for.
+**Nested calls:** do not allow arbitrary public Flow Tools to call arbitrary
+Flow Tools in MVP. The SDK now implements the narrower authored-flow
+`f.dispatch` slice: a child must be a direct static `use`, the loader rejects
+path cycles and ambiguous child names, depth is capped at three, capabilities
+attenuate, and the root budget and worker pool are shared. Children cannot
+declare their own budget or acquire human approval authority in this release.
+This is durable local/hosted run-tree composition, not a public catalog call,
+an immutable child-digest admission contract, or a cross-run capability token.
+A model calling the external tool endpoint from inside an agent step remains
+prohibited by default; it bypasses those controls and makes recursion
+unaccounted for.
 
 ## What exists today, and the exact gap
 
@@ -316,11 +317,12 @@ it bypasses those controls and makes recursion unaccounted for.
   `run.cancel` / `run.resume` protocol verbs. See
   `kernel/relayflowd-core/src/{journal.rs,machine.rs,retry.rs,state.rs}` and
   `kernel/relayflowd/src/{engine.rs,server.rs}`.
-* The authoring surface has `run`, `llm`, `agent`, `human`, `done`, headers for
-  budgets, identity, tools and workspace, and a TypeScript flow loader. See
-  `packages/surface/src/{context.ts,flow.ts}`. `f.human` is presently a
-  yes/no wait and `Ctx.dispatch` is typed but lacks a corresponding SDK
-  implementation.
+* The authoring surface has `run`, `llm`, `agent`, `human`, `dispatch`, `done`,
+  headers for budgets, identity, tools, workspace and static `use`, and a
+  TypeScript flow loader. See `packages/surface/src/{context.ts,flow.ts}` and
+  `packages/sdk/src/{authored-flow-loader.ts,authored-flow-executor.ts}`.
+  `f.dispatch` executes a direct declared child in the same durable run tree;
+  it is intentionally narrower than a public Flow Tool invocation.
 * Declarative step outputs can be gated with JSON Schema; SDK and kernel share
   bounded schema validation. See `packages/sdk/src/{json-schema.ts,
   json-schema-bound.ts,output-schema.ts,validate.ts}` and
@@ -381,8 +383,9 @@ it bypasses those controls and makes recursion unaccounted for.
    spend guarantee in that state.
 8. Existing evidence/status is strong for a run but lacks a policy-controlled,
    tenant-safe external evidence envelope and artifact retention/ACL contract.
-9. `f.dispatch`, general typed human forms, public channels, and durable
-   cross-run composition are not ready to support arbitrary nested tool calls.
+9. Authored `f.dispatch` does not make general typed human forms, public
+   channels, immutable child-digest admission, or durable cross-run/public-tool
+   composition ready for arbitrary nested tool calls.
 
 ## Target architecture
 
@@ -421,7 +424,7 @@ see a compiled spec and journal protocol, not a customer/tool identity.
 | Budgets | Tool declares non-escalatable token/dollar/wallclock ceilings; reserve descendant budget; terminal `budget_exceeded` | `surface/flow.ts`, `sdk/authored-budget.ts`, kernel budget tests | Block/label unmetered-dollar deployments or use a conservative policy |
 | Audit and evidence | Immutable journal digest + invocation/authorization/effect decision records; scoped redacted artifact URLs; retention policy | journal, `cli/status.ts`, Cloud logs/status rendering | New evidence projection, ACL and retention contract |
 | Prompt injection | Schema separates untrusted data; catalog metadata is signed/operator-owned; agents receive explicit data boundaries; verifier/gates decide effects | Babysitter explicitly treats PR input as untrusted in `examples/babysitter/babysitter.flow.ts` | Enforced surfaces/credentials, taint-aware templates or review rules, adversarial E2E |
-| Recursion | Static child digests, depth/cycle/concurrency/budget limits, attenuation; prohibit raw outward tool calls in steps | `Ctx.dispatch` type only | Implement deliberately after MVP, not a loophole |
+| Recursion | Static child digests, depth/cycle/concurrency/budget limits, attenuation; prohibit raw outward tool calls in steps | Direct authored `use`/`f.dispatch` has cycle/depth/attenuation and shared root limits | Add immutable digest admission and public/cross-run capability policy; do not turn the authored slice into a loophole |
 | Failures | Canonical status/reason taxonomy, retry policy per failure class, event replay, human wait expiry, cancel semantics | `failure-kinds.ts`, `protocol.ts`, `run-state.ts`, kernel retry/cancel | Map host API failures precisely; no “completed” without a valid terminal verdict |
 
 ## MVP and phased delivery
@@ -473,8 +476,9 @@ declared surface.
 
 ### Phase 3 — composition and catalog scale (4–6 weeks)
 
-* Implement durable `f.dispatch`/child tool policy with static digest graph,
-  depth/cycle/budget/concurrency limits and capability attenuation.
+* Harden authored `f.dispatch` into a public child-tool policy with immutable
+  static digests, descendant budget reservation, and cross-run capability
+  tokens; retain its existing cycle/depth/shared-concurrency/attenuation gates.
 * Add dynamic MCP tools for small catalogs, catalog search/ranking for large
   ones, policy/approval templates, and version rollout/rollback controls.
 * Add organization analytics that aggregate declared outcomes without exposing

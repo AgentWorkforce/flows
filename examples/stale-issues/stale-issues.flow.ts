@@ -48,7 +48,7 @@ const FINDING_SCHEMA = {
 // integer issue number only.
 const mrkdwn = (text: string): string => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-export default flow<Input>("stale-issues", { budget: { dollars: 2, wallclock: "10m" }, tools: { slack: true } }, async (f, input) => {
+export default flow<Input>("stale-issues", { budget: { tokens: 200_000, dollars: 2, wallclock: "10m" }, tools: { slack: true } }, async (f, input) => {
   if (!REPO.test(input.repo)) {
     await f.run("echo 'Stopped: repo must be owner/name.' >&2");
     return f.done("needs_human");
@@ -64,7 +64,7 @@ export default flow<Input>("stale-issues", { budget: { dollars: 2, wallclock: "1
     `An issue is stale if it has had no update for ${staleDays}+ days and no clear owner or next step. ` +
     `An issue needs attention if it is recent but blocked, unanswered, or contradicts another. ` +
     `Return JSON { stale: [{number,title,reason}], attention: [{number,title,reason}] }; keep reasons to one sentence.`,
-    { cli: "claude", // pinned: a Cloud sandbox has no flows.json to resolve the CLI from
+    { cli: "claude", model: "claude-sonnet-5", // pinned: a Cloud sandbox has no flows.json to resolve either value
       output: { type: "object", required: ["stale", "attention"], additionalProperties: false, properties: {
       stale: { type: "array", maxItems: 50, items: FINDING_SCHEMA }, attention: { type: "array", maxItems: 50, items: FINDING_SCHEMA } } } },
   ) as Triage;

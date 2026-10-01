@@ -22,14 +22,17 @@ swarm:
 agents:
 - name: lead
   cli: claude
+  model: claude-sonnet-5
   preset: analyst
   role: The Relayflow Lead. Assesses state, plans one work package, reports honestly.
 - name: builder
   cli: codex
+  model: gpt-5.6-sol
   preset: worker
   role: Implements the work package. Rust for kernel/, TypeScript for packages/sdk/.
 - name: adversary
   cli: claude
+  model: claude-sonnet-5
   preset: reviewer
   role: Adversarial reviewer against RFC-0001 and AGENTS.md.
 workflows:

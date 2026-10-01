@@ -22,7 +22,7 @@
     "harnesses": ["claude"],
     "mcp": [],
     "writes": ["github:pull_request:comment"],
-    "budget": { "dollars": 8, "wallclock": "45m" }
+    "budget": { "tokens": 800000, "dollars": 8, "wallclock": "45m" }
   },
   "preflight": { "credentials": [], "servers": ["https://api.github.com"] },
   "config": {
@@ -36,7 +36,8 @@
       "skipLabels": { "type": "array", "items": { "type": "string" }, "default": ["no-agent-relay-review"] },
       "requiredChecks": { "type": "array", "items": { "type": "string" } },
       "merge": { "type": "boolean", "default": false },
-      "reviewerCli": { "type": "string" }
+      "reviewerCli": { "type": "string", "minLength": 1 },
+      "reviewerModel": { "type": "string", "minLength": 1 }
     },
     "required": ["testCommand", "botLogin", "approvers"],
     "additionalProperties": false

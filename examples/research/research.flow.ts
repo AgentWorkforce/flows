@@ -114,7 +114,7 @@ export interface ResearchFlowContext {
 
 export interface ResearchFlowHeader {
   agents: Record<AgentName, AgentDefinition>;
-  budget: string;
+  budget: { tokens: number; dollars: number };
 }
 
 export interface ResearchFlowDefinition {
@@ -152,12 +152,12 @@ export default flow(
     // inherited from the host is not recoverable from the journal and has
     // broken runs before). Preflight verifies each (cli, model) pair live.
     agents: {
-      claude: { cli: "claude", model: "sonnet" },
+      claude: { cli: "claude", model: "claude-sonnet-5" },
       codex: { cli: "codex", model: "gpt-5.6-sol" },
-      grok: { cli: "grok", model: "grok-4.6" },
-      synthesizer: { cli: "claude", model: "opus" },
+      grok: { cli: "grok", model: "grok-4.7" },
+      synthesizer: { cli: "claude", model: "claude-opus-5" },
     },
-    budget: "$15/run",
+    budget: { tokens: 1_500_000, dollars: 15 },
   },
   async (f, input) => {
     // Fan-out. Every lane is independent, so all three are dispatched at

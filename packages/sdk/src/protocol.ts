@@ -53,8 +53,16 @@ export type Verb =
   | 'effect.confirm'
   | 'step.complete'
   | 'step.wait'
+  | 'subscription.park'
   | 'event.emit'
   | 'event.submit'
+  | 'subscription.open'
+  | 'subscription.activate'
+  | 'subscription.deliver'
+  | 'subscription.inspect'
+  | 'subscription.fence_overflow'
+  | 'subscription.next'
+  | 'subscription.close'
   | 'channel.append'
   | 'channel.receive'
   | 'channel.ack'
@@ -71,6 +79,11 @@ export interface HelloParams {
 export interface HelloResult {
   protocol: 0;
   server: string;
+  /**
+   * Additive request capabilities within protocol 0. Absent from daemons that
+   * predate it, which then accept none of the optional fields it gates.
+   */
+  features?: string[];
 }
 
 export interface StepSpend {
@@ -89,6 +102,21 @@ export interface StepSpend {
  * `dollars_unmetered: true` and no dollar amount, so unknown cost is never
  * journaled as a measured $0. See `workerSpend` for the full contract.
  */
+/**
+ * A step attempt's actual cost (`reported-cost.ts`), journaled beside the
+ * metered `usage` as `reported_cost`. Display only: the kernel never charges it
+ * against `maxDollars`.
+ */
+export interface ReportedCost {
+  /** Non-negative decimal string, six places. */
+  dollars: string;
+  /**
+   * `cli`: the CLI's own reported total. `priced`: estimated from full token
+   * usage. `no_model`: an internal effect worker completed the step; $0.
+   */
+  source: 'cli' | 'priced' | 'no_model';
+}
+
 export type StepUsage =
   | { tokens_in: number; tokens_out: number; dollars: string; dollars_unmetered?: never }
   | { tokens_in: number; tokens_out: number; dollars_unmetered: true; dollars?: never };
@@ -225,6 +253,8 @@ export interface StepDispatchEvent {
   lease_id: string;
   idempotency_key: string;
   pins: Pins;
+  /** Remaining lease duration at dispatch; `lease_deadline_ms` stays absolute. */
+  lease_ttl_ms?: number;
   /**
    * The `wake_context` payload from the run's `subscription.matched`
    * journal entry — carries the triggering event and any epoch summary
@@ -263,6 +293,13 @@ export interface StepHeartbeatParams {
 }
 export interface StepHeartbeatResult {
   lease_deadline_ms: number;
+  /**
+   * The renewed lease as a duration on the daemon's clock. Absent from older
+   * daemons; a worker that has it times the lease on its own monotonic clock
+   * instead of comparing the absolute deadline with a wall clock that may
+   * disagree with the daemon's.
+   */
+  lease_ttl_ms?: number;
 }
 
 /** completionReason mirrors kernel DESIGN.md §1.3. */
@@ -334,6 +371,8 @@ export interface StepCompleteParams {
   effects?: EffectRef[];
   /** `inspect` evidence for the next attempt. Rejected over 16 KiB of JSON. */
   trajectory_tail?: unknown;
+  /** Display-only actual cost; never charged to the budget. */
+  reported_cost?: ReportedCost;
 }
 export type StepCompleteResult = RunOutcome;
 
@@ -362,6 +401,10 @@ export interface EventEmitParams {
   run_id: string;
   event_key: string;
   payload: unknown;
+  /** Provider delivery id for body activities. Required by Cloud; optional for legacy exact waits. */
+  delivery_id?: string;
+  /** Provider actor identity, used by the local router adapter for self filtering. */
+  actor?: string;
 }
 export interface EventEmitResult {
   matched: number;
@@ -386,6 +429,111 @@ export interface EventSubmitResult {
   deduped: boolean;
   subscription_id?: string | null;
   run?: unknown;
+}
+
+/** Body-level activity open; the server acknowledges only after its fenced binding is durable. */
+export interface SubscriptionOpenParams {
+  run_id: string;
+  subscription_id: string;
+  event_types: string[];
+  pattern?: Record<string, unknown>;
+  settle_ms: number;
+  idle_ms: number;
+  deadline_ms: number;
+  include_self: boolean;
+}
+export type SubscriptionOpenResult =
+  | {
+    /** Immutable snapshot from the durable `subscription.prepared` entry. */
+    state: 'prepared';
+    subscription_id: string;
+    event_types: string[];
+    pattern?: Record<string, unknown>;
+    stream: string;
+    settle_ms: number;
+    idle_ms: number;
+    deadline_at_ms: number;
+    include_self: boolean;
+  }
+  | {
+    state: 'active';
+    subscription_id: string;
+    stream: string;
+    deadline_at_ms: number;
+  };
+
+/** Cloud supplies this receipt only after it has durably fenced its binding. */
+export interface SubscriptionActivateParams {
+  run_id: string;
+  subscription_id: string;
+  ingress_offset: number;
+  router_binding: Record<string, unknown>;
+}
+export interface SubscriptionActivateResult {
+  state: 'active';
+  subscription_id: string;
+  stream: string;
+  deadline_at_ms: number;
+}
+
+/** Targeted Cloud ingress; receipt must equal the journaled activation receipt. */
+export interface SubscriptionDeliverParams {
+  run_id: string;
+  subscription_id: string;
+  router_binding: Record<string, unknown>;
+  delivery_id: string;
+  frame: unknown;
+}
+export interface SubscriptionDeliverResult {
+  /** False for an idempotent duplicate or a frame that closes on overflow. */
+  appended: boolean;
+  reason?: 'duplicate' | 'overflow';
+}
+
+/** Read-only projection of the kernel's durable subscription records. */
+export interface SubscriptionSnapshot {
+  subscriptionId: string;
+  state: 'prepared' | 'active' | 'closed';
+  completionReason?: 'closed' | 'run_completed' | 'canceled' | 'deadline' | 'overflow';
+  routerBinding?: Record<string, unknown>;
+  ingressOffset?: number;
+  unreadFrames: number;
+  unreadBytes: number;
+  settleMs: number;
+  idleAtMs?: number;
+  deadlineAtMs: number;
+}
+export interface SubscriptionInspectParams { run_id: string }
+export interface SubscriptionInspectResult { subscriptions: SubscriptionSnapshot[] }
+export interface SubscriptionFenceOverflowParams {
+  run_id: string;
+  subscription_id: string;
+  router_binding: Record<string, unknown>;
+}
+export interface SubscriptionFenceOverflowResult { fenced: true }
+
+export interface SubscriptionNextParams {
+  run_id: string;
+  subscription_id: string;
+  /** Internal durable receipt for the prior normal wake, supplied with the next pull. */
+  acknowledge_wait_id?: string;
+  /** Body call ordinal: replay this pull's durable wake across process restarts. */
+  sequence?: number;
+}
+export type SubscriptionNextResult =
+  | { kind: 'suspended'; subscription_id: string; stream: string; deadline_at_ms: number }
+  | { kind: 'events'; events: unknown[]; offset: number; acknowledge_wait_id?: string }
+  | { kind: 'idle'; acknowledge_wait_id?: string }
+  | { kind: 'deadline'; pending: { from: number; to: number } | null }
+  | { kind: 'overflow'; retained: number; bytes: number; from: number };
+
+export interface SubscriptionCloseParams {
+  run_id: string;
+  subscription_id: string;
+  completion_reason: 'closed' | 'run_completed' | 'canceled';
+}
+export interface SubscriptionCloseResult {
+  closed: string;
 }
 
 export interface StreamAppendParams {
@@ -441,8 +589,20 @@ export interface VerbContract {
   'effect.confirm': { params: EffectConfirmParams; result: EffectConfirmResult };
   'step.complete': { params: StepCompleteParams; result: StepCompleteResult };
   'step.wait': { params: StepWaitParams; result: StepWaitResult };
+  'subscription.park': {
+    params: { run_id: string; step_id: string; attempt: number; idempotency_key: string;
+      subscription_id: string; phase: 'activation' | 'event_wait' };
+    result: RunOutcome;
+  };
   'event.emit': { params: EventEmitParams; result: EventEmitResult };
   'event.submit': { params: EventSubmitParams; result: EventSubmitResult };
+  'subscription.open': { params: SubscriptionOpenParams; result: SubscriptionOpenResult };
+  'subscription.activate': { params: SubscriptionActivateParams; result: SubscriptionActivateResult };
+  'subscription.deliver': { params: SubscriptionDeliverParams; result: SubscriptionDeliverResult };
+  'subscription.inspect': { params: SubscriptionInspectParams; result: SubscriptionInspectResult };
+  'subscription.fence_overflow': { params: SubscriptionFenceOverflowParams; result: SubscriptionFenceOverflowResult };
+  'subscription.next': { params: SubscriptionNextParams; result: SubscriptionNextResult };
+  'subscription.close': { params: SubscriptionCloseParams; result: SubscriptionCloseResult };
   'stream.append': { params: StreamAppendParams; result: StreamAppendResult };
   'stream.read': { params: StreamReadParams; result: StreamReadResult };
   'journal.read': { params: JournalReadParams; result: JournalReadResult };

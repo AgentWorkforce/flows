@@ -28,6 +28,8 @@ pub struct OutOfBandCompletion {
     pub end_pins: Option<Pins>,
     pub effects: Vec<EffectRef>,
     pub trajectory_tail: Option<Value>,
+    /// Display-only actual cost. Journaled with the completion; never charged.
+    pub reported_cost: Option<relayflowd_core::ReportedCost>,
 }
 
 /// A human question a leased attempt parks on. The worker names the wait so
@@ -136,6 +138,20 @@ impl Engine<WallClock> {
         {
             bail!("step completion usage.dollars_unmetered must not carry non-zero dollars");
         }
+        if let Some(cost) = &completion.reported_cost
+            && (!relayflowd_core::memory::valid_decimal(&cost.dollars)
+                || relayflowd_core::journal_dollars(&cost.dollars).is_err())
+        {
+            bail!("step completion reported_cost.dollars must be a non-negative decimal string");
+        }
+        // `no_model` asserts nothing ran that could cost money; a non-zero
+        // amount contradicts it and would be dropped by every reader.
+        if let Some(cost) = &completion.reported_cost
+            && cost.source == relayflowd_core::ReportedCostSource::NoModel
+            && cost.dollars.bytes().any(|b| b.is_ascii_digit() && b != b'0')
+        {
+            bail!("step completion reported_cost.source no_model must carry zero dollars");
+        }
         let mut journal = self.open_run(run_id)?;
         let spec = journal.run_spec().context("read run spec")?;
         let state = self.load_state(&journal, spec.clone())?;
@@ -238,6 +254,7 @@ impl Engine<WallClock> {
             trajectory_tail: completion.trajectory_tail,
             failure_reason,
             failure_detail,
+            reported_cost: completion.reported_cost,
         };
         for action in completion_actions(
             run_id,
@@ -347,6 +364,7 @@ impl Engine<WallClock> {
                     offset,
                     producer: producer.to_owned(),
                     message,
+                    provider_delivery_id: None,
                 },
             ),
         )?;
@@ -376,7 +394,14 @@ impl Engine<WallClock> {
         Ok((messages, next_offset))
     }
 
-    pub fn emit_event(&self, run_id: &str, event_key: &str, payload: Value) -> Result<usize> {
+    pub fn emit_event(
+        &self,
+        run_id: &str,
+        event_key: &str,
+        payload: Value,
+        delivery_id: Option<&str>,
+        actor: Option<&str>,
+    ) -> Result<usize> {
         let mut journal = self.open_run(run_id)?;
         let spec = journal.run_spec().context("read run spec")?;
         let entries = journal.scan_all().context("read event waits")?;
@@ -388,7 +413,9 @@ impl Engine<WallClock> {
         for entry in &entries {
             if entry.entry_type == EntryType::WaitEvent {
                 let wait: WaitEventPayload = serde_json::from_value(entry.payload.clone())?;
-                if wait.event_key == event_key {
+                if wait.stream.is_none()
+                    && !wait.event_key.starts_with(super::subscriptions::PARK_PREFIX)
+                    && wait.event_key == event_key {
                     open.push((
                         wait.wait_id,
                         entry.step_id.clone(),
@@ -459,10 +486,17 @@ impl Engine<WallClock> {
                 ),
             )?;
         }
+        let activity_matches = self.append_local_subscription_event(
+            run_id,
+            event_key,
+            payload.clone(),
+            delivery_id,
+            actor,
+        )?;
         if !open.is_empty() {
             let _ = self.drive(journal, spec, DriveOptions::default())?;
         }
-        Ok(open.len())
+        Ok(open.len() + activity_matches)
     }
 }
 

@@ -18,6 +18,7 @@ import type {
 } from './failure-kinds.js';
 import { HUMAN_WAIT_ID } from './authored-human.js';
 import { assertAuthoredPromiseHooks } from './authored-runtime-capability.js';
+import { settlingCompletion } from './step-settling.js';
 
 let embeddedSource: string | undefined;
 /** Installed by the standalone build; never fetched or resolved from a workspace. */
@@ -82,7 +83,7 @@ export async function runAuthoredInNode(
     await writeFile(entry, source, { mode: 0o400, flag: 'wx' });
     if (hash(await readFile(entry)) !== runtime.payloadSha256) throw refusal();
     const child = spawn(authority.path, ['--experimental-transform-types', entry, String(process.pid)], {
-      cwd: process.cwd(), env: process.env,
+      cwd: process.cwd(),
       stdio: ['pipe', 'inherit', 'inherit', 'pipe'],
     });
     const result = await new Promise<AuthoredFlowExecutionResult>((resolve, reject) => {
@@ -133,7 +134,8 @@ export async function runAuthoredInNode(
               // Keep stdin open: EOF tells the child its lease-owning parent died.
               child.stdin!.write(JSON.stringify({ channelKey, metadata, socketPath, rootRunId,
                 dataDir: options.dataDir, localAgentStream: options.localAgentStream,
-                workerCapacity: options.workerCapacity }) + '\n');
+                workerCapacity: options.workerCapacity,
+                agentEnvironment: options.agentEnvironment }) + '\n');
             } else if (!ready || result) throw new Error('unexpected authored runtime message');
             else if (message.type === 'progress') options.onProgress?.(message.event);
             else if (message.type === 'wait') options.onWait?.(message.event);
@@ -144,7 +146,8 @@ export async function runAuthoredInNode(
               } else if (typeof message.code === 'string') {
                 const authored = new AuthoredFlowExecutionError(message.code as AuthoredFlowExecutionErrorCode,
                   message.message, message.completionReason, message.runId,
-                  stepFailedFrame(message.details));
+                  stepFailedFrame(message.details),
+                  isSuspension(message.suspension) ? message.suspension : undefined);
                 // Validated, not trusted, like `details`: an unrecognised cause
                 // is dropped so the boundary says nothing about workers rather
                 // than acting on a value this frame could have invented.
@@ -170,6 +173,35 @@ export async function runAuthoredInNode(
     await verifyAuthoredNodeResult(result, metadata, rootRunId, socketPath);
     return result;
   } finally { await rm(directory, { recursive: true, force: true }); }
+}
+
+function isSuspension(value: unknown): value is import('./authored-flow-error.js').AuthoredFlowSuspension {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  const common = typeof record['subscriptionId'] === 'string' && record['subscriptionId'].length > 0
+    && typeof record['stream'] === 'string' && record['stream'].length > 0
+    && Number.isSafeInteger(record['deadlineAtMs']) && (record['deadlineAtMs'] as number) >= 0;
+  if (!common) return false;
+  if (record['kind'] === 'event_wait') return true;
+  return record['kind'] === 'activation'
+    && Array.isArray(record['eventTypes']) && record['eventTypes'].length > 0
+    && record['eventTypes'].every(type => typeof type === 'string' && type.length > 0)
+    && (record['pattern'] === undefined || isJsonRecord(record['pattern']))
+    && Number.isSafeInteger(record['settleMs']) && (record['settleMs'] as number) >= 0
+    && Number.isSafeInteger(record['idleMs']) && (record['idleMs'] as number) > 0
+    && typeof record['includeSelf'] === 'boolean';
+}
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    && Object.values(value).every(isJsonValue);
+}
+
+function isJsonValue(value: unknown): boolean {
+  return value === null || typeof value === 'boolean' || typeof value === 'string'
+    || (typeof value === 'number' && Number.isFinite(value))
+    || (Array.isArray(value) && value.every(isJsonValue))
+    || isJsonRecord(value);
 }
 
 /** A park signal from the child names the question the parent must journal. */
@@ -208,7 +240,8 @@ export function stepFailedFrame(value: unknown): StepFailedDetails | undefined {
   for (const [key, parsed] of [
     ['stepId', frameText(frame, 'stepId')], ['stepType', frameText(frame, 'stepType')],
     ['completionReason', frameText(frame, 'completionReason')], ['attempt', frameCount(frame, 'attempt')],
-    ['maxIterations', frameCount(frame, 'maxIterations')], ['exitCode', frameCount(frame, 'exitCode')],
+    ['maxIterations', frameCount(frame, 'maxIterations')],
+    ['unchargedAttempts', frameCount(frame, 'unchargedAttempts')], ['exitCode', frameCount(frame, 'exitCode')],
     ['stdoutTail', frameText(frame, 'stdoutTail')], ['stderrTail', frameText(frame, 'stderrTail')],
     ['detail', frameText(frame, 'detail')], ['transcriptPath', frameText(frame, 'transcriptPath')],
     ['attempts', attemptFrames(frame['attempts'])],
@@ -342,15 +375,17 @@ export async function verifyAuthoredNodeResult(
       // step a child spec may carry, and it must have completed too.
       const lowered = spec?.steps ?? [];
       const specShape = lowered.length === 1 || (lowered.length === 2 && lowered[1]?.id === `${claimed.id}.gate`);
-      const completed = entries.filter(entry => entry.entry_type === 'step.completed' && entry.step_id === claimed.id);
-      const gateCompleted = lowered.length === 2
-        ? entries.filter(entry => entry.entry_type === 'step.completed' && entry.step_id === `${claimed.id}.gate`) : [];
+      // Judged against the step's SETTLING completion, the same one the
+      // authored reader returned: a retried attempt (`disposition: retry`,
+      // e.g. crash recovery's `crashed`) journals a completion of its own
+      // ahead of it, so neither a count nor the first entry is the verdict.
+      const completed = settlingCompletion(entries, claimed.id);
+      const gateCompleted = lowered.length === 2 ? settlingCompletion(entries, `${claimed.id}.gate`) : undefined;
       const terminalFacts = entries.filter(entry => entry.entry_type === 'run.completed');
       if (spec?.name !== `${metadata.flowName}/${claimed.id}` || !specShape
-        || step?.id !== claimed.id || completed.length !== 1
-        || completed[0]?.payload?.completionReason !== 'success'
-        || (lowered.length === 2 && (gateCompleted.length !== 1 || gateCompleted[0]?.payload?.completionReason !== 'success'))
-        || terminalFacts.length !== 1 || terminalFacts[0]?.payload?.completionReason !== 'success') invalid(`evidence ${claimed.id} spec=${spec?.name} step=${step?.id} completed=${completed.length}`);
+        || step?.id !== claimed.id || completed?.payload?.completionReason !== 'success'
+        || (lowered.length === 2 && gateCompleted?.payload?.completionReason !== 'success')
+        || terminalFacts.length !== 1 || terminalFacts[0]?.payload?.completionReason !== 'success') invalid(`evidence ${claimed.id} spec=${spec?.name} step=${step?.id} completed=${completed?.payload?.completionReason}`);
       if (claimed === terminal) {
         // The claimed verdict must match the marker the journal actually
         // recorded, so an IPC frame cannot claim `success` over a run whose

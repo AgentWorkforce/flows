@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { runAgentCli } from '../src/worker-cli.js';
 
 /**
@@ -29,6 +29,7 @@ const SETTLE_BOUND_MS = 2_000;
 const directories: string[] = [];
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const directory of directories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -181,6 +182,7 @@ process.stdout.write('relayflows-agent-cli-v1-execute');
 process.exit(0);
 `);
 
+  const started = Date.now();
   const result = await runAgentCli(wrapper, 'instruction', undefined, undefined, undefined, undefined, 'agent', undefined, directory);
 
   // No newline, so the frame is only recognisable once the buffer is spent —
@@ -188,6 +190,7 @@ process.exit(0);
   expect(result.exit_code).toBeNull();
   expect(result.stdout_tail).toBe('');
   expect(result.stderr_tail).toMatch(/emitted a duplicate execute protocol frame/i);
+  expect(Date.now() - started).toBeLessThan(SETTLE_BOUND_MS);
 }, 20_000);
 
 /**
@@ -248,6 +251,46 @@ process.exit(0);
     expect(result.exit_code).toBeNull();
     expect(result.stdout_tail).toBe('');
     expect(result.stderr_tail).toBe('Agent execution aborted: lease ownership lost.');
+  } finally {
+    if (!controller.signal.aborted) controller.abort();
+    await running?.catch(() => undefined);
+  }
+}, 20_000);
+
+it('does not let a later drain overwrite abort while group confirmation is pending', async () => {
+  const directory = makeDirectory();
+  const exited = join(directory, 'exited');
+  const controller = new AbortController();
+  const wrapper = makeWrapper(directory, 'drain-abort-pending', `
+process.stdout.write('{"ok":"must not replace abort"}\\n');
+`, `${pipeHolder('inherit', { detached: false })}
+require('node:fs').writeFileSync(${JSON.stringify(exited)}, 'gone');
+process.exit(0);
+`);
+  const actualKill = process.kill.bind(process);
+  let probesAnswerUntil = 0;
+  vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+    if (typeof pid === 'number' && pid < 0 && signal === 0 && Date.now() < probesAnswerUntil) return true;
+    return actualKill(pid, signal);
+  });
+
+  let running: Promise<unknown> | undefined;
+  try {
+    running = runAgentCli(wrapper, 'instruction', undefined, undefined, undefined, controller.signal, 'agent', undefined, directory);
+    const deadline = Date.now() + 10_000;
+    while (!existsSync(exited) && Date.now() < deadline) {
+      await new Promise(resume => setTimeout(resume, 5));
+    }
+    expect(existsSync(exited), 'the wrapper never exited').toBe(true);
+    probesAnswerUntil = Date.now() + 600;
+    controller.abort(new Error('lease rejected'));
+
+    const result = await running as { exit_code: number | null; stdout_tail: string; stderr_tail: string };
+    expect(result).toMatchObject({
+      exit_code: null,
+      stdout_tail: '',
+      stderr_tail: 'Agent execution aborted: lease ownership lost.',
+    });
   } finally {
     if (!controller.signal.aborted) controller.abort();
     await running?.catch(() => undefined);

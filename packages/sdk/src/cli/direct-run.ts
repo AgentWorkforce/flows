@@ -6,6 +6,7 @@ import { McpPreflightError } from './check-typescript.js';
 import { attachLocalAgent } from '../local-agent.js';
 import { LlmWorker } from '../llm-worker.js';
 import { DEFAULT_LOCAL_AGENT_CAPACITY } from '../worker-slots.js';
+import { localAgentEnvironment } from '../local-agent-environment.js';
 import {
   AuthoredFlowExecutionError,
 } from '../authored-flow-executor.js';
@@ -20,11 +21,12 @@ import { authoredInput, authoredWorkerRemedy, localAgentRemedy } from './local-a
 import {
   authoredCompletion,
   authoredHumanParked,
-  authoredStepFailure,
+  authoredStepFailure, rootLeaseLostReport,
   connect,
   emptyReport,
   fromCheckReport,
   protocolFailure,
+  suspendedExecution,
   socketFor,
   type RunExecution,
   type RunLifecycleOptions,
@@ -37,6 +39,9 @@ export async function runDirectFlow(
   dataDir: string,
   options: RunLifecycleOptions = {},
 ): Promise<RunExecution> {
+  // Consume and close the agent-only descriptor before authored source is
+  // imported by trigger preflight. Authored code never receives this object.
+  const agentEnvironment = localAgentEnvironment();
   let input: unknown;
   try {
     input = parseDirectInput(inputArgument);
@@ -77,13 +82,14 @@ export async function runDirectFlow(
     if (options.localAgent) {
       localAgent = await attachLocalAgent(
         client, dataDir, options.onPtyReady, authoredLocalAgentStream(admissionIdentity), workerCapacity,
+        undefined, [], agentEnvironment,
       );
       // A session owns one worker registration. Keep the workspace-free LLM
       // worker on its own connection so it cannot replace the agent worker.
       llmClient = new JournalClient(socketPath);
       await llmClient.connect();
       await llmClient.hello('flows-local-llm');
-      localLlm = new LlmWorker(llmClient, `${localAgent.stream}-llm`, workerCapacity);
+      localLlm = new LlmWorker(llmClient, `${localAgent.stream}-llm`, workerCapacity, agentEnvironment);
       localLlm.on('error', onWorkerFailure('local-llm', error => { llmFailure = error; client.close(); }));
       await localLlm.attach();
     }
@@ -92,8 +98,10 @@ export async function runDirectFlow(
       {
         dataDir,
         admissionKey: admissionIdentity,
+        onAdmitted: runId => { base.rootRunId = runId; },
         localAgentStream: localAgent?.stream,
         ...(localAgent === undefined ? {} : { workerCapacity }),
+        ...(agentEnvironment === undefined ? {} : { agentEnvironment }),
         lifecycle: {
           onProgress: options.onProgress,
           ...(options.onRunStarted !== undefined ? { onRunStarted: options.onRunStarted } : {}),
@@ -102,6 +110,9 @@ export async function runDirectFlow(
         },
       },
     );
+    if (result.state === 'suspended') {
+      return suspendedExecution('run', base, socketPath, result.rootRunId, result);
+    }
     const terminal = result.journalSteps.at(-1);
     if (terminal === undefined) {
       return protocolFailure('run', base, socketPath, new Error(
@@ -139,6 +150,8 @@ export async function runDirectFlow(
         && (error.code === 'helper_slack.credential_missing'
           || error.code === 'helper_slack.mount_required'
           || error.code === 'budget_syntax_invalid'
+          || error.code === 'cli_outdated'
+          || error.code === 'provider_usage_limited'
           || error.code === 'unsupported_promise_lifecycle'
           || error.code === 'unsupported_header'
           || error.code === 'agent_cli_unresolved'
@@ -152,6 +165,8 @@ export async function runDirectFlow(
               error.code === 'helper_slack.credential_missing'
               || error.code === 'helper_slack.mount_required'
               || error.code === 'budget_syntax_invalid'
+              || error.code === 'cli_outdated'
+              || error.code === 'provider_usage_limited'
             ) ? error.code : 'invalid_spec',
             message: error.message,
           }, path)),
@@ -196,6 +211,9 @@ export async function runDirectFlow(
     // terminal. `resumeFlow` takes the same branch, through the same helper.
     if (error instanceof AuthoredFlowExecutionError && (error.code === 'step_failed' || error.code === 'gate_failed')) {
       return authoredStepFailure('run', base, socketPath, error);
+    }
+    if (error instanceof AuthoredFlowExecutionError && error.code === 'root_lease_lost') {
+      return rootLeaseLostReport('run', base, socketPath, error);
     }
     if (error instanceof AuthoredHumanParked) {
       return authoredHumanParked('run', base, socketPath, error, { dataDir, localAgent: options.localAgent === true });

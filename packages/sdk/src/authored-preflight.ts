@@ -6,7 +6,7 @@ import { cliProbeKey, CliProbeError, resolvePreflight, type CliProbeOutcome } fr
 import type { FlowSpec } from './spec.js';
 
 /** Auth/model facts belong to one execution, including concurrent cold callers. */
-export function authoredPreflight(path: string) {
+export function authoredPreflight(path: string, environment?: NodeJS.ProcessEnv) {
   const probeCache = new Map<string, CliProbeOutcome>();
   const pending = new Map<string, Promise<void>>();
   const directory = dirname(resolve(path));
@@ -30,7 +30,7 @@ export function authoredPreflight(path: string) {
           try {
             probeCache.set(key, { result: await probeCliAsync(resolution.cli,
               resolution.source === 'project' ? config.directory : directory,
-              resolution.model, managed ? 'managed' : undefined) });
+              resolution.model, managed ? 'managed' : undefined, environment) });
           } catch (error) {
             probeCache.set(key, { failure: error instanceof CliProbeError ? error.detail : null });
           }

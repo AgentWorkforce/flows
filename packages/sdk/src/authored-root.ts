@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { canonicalize } from './canonical.js';
 import { compileSpec, toKernelSpec } from './compile.js';
-import { executeAuthoredFlow, type AuthoredFlowExecutionResult } from './authored-flow-executor.js';
+import { executeAuthoredFlow, type AuthoredFlowExecutionResult, type AuthoredFlowSuspendedResult } from './authored-flow-executor.js';
 import { isDurableCompletionDetail, isLoweredCompletion } from './authored-completion.js';
 import { AUTHORED_ROOT_KIND } from './authored-verdict.js';
 import {
@@ -12,14 +12,20 @@ import {
   type LoadedAuthoredFlow,
   type SurfaceModuleAuthority,
 } from './authored-flow-loader.js';
-import { JournalClient } from './journal-client.js';
+import { JournalClient, JournalProtocolError } from './journal-client.js';
 import type { RunOutcome, StepDispatchEvent } from './protocol.js';
 import { SPEC_SCHEMA_VERSION } from './spec.js';
 import type { RunLifecycleOptions } from './cli/run.js';
-import { withWorkerLease } from './worker-lease.js';
+import { isLeaseLost, withWorkerLease } from './worker-lease.js';
 import { AuthoredFlowExecutionError, AuthoredHumanParked } from './authored-flow-error.js';
-import { readOpenHumanWaits } from './authored-human.js';
+import { readOpenHumanWaits, resumeCommand } from './authored-human.js';
 import { isSurfaceCompletionReason } from './authored-step-output.js';
+import { readSubscriptionPark } from './authored-subscription-park.js';
+import { localAgentCredentialEnvironment } from './local-agent-environment.js';
+
+export type DurableAuthoredFlowResult =
+  | (AuthoredFlowExecutionResult & { readonly rootRunId: string })
+  | (AuthoredFlowSuspendedResult & { readonly rootRunId: string });
 
 /**
  * Taken from the projection module rather than spelled twice: `flows status`
@@ -55,11 +61,15 @@ export interface AuthoredRootSourceAuthority {
 }
 
 export interface DurableAuthoredOptions {
+  /** Preserve root authority even if a child later fails or parks. */
+  readonly onAdmitted?: (runId: string) => void;
   readonly dataDir: string;
   readonly admissionKey?: string;
   readonly localAgentStream?: string;
   /** Concurrency of the attached local workers; see `ExecuteAuthoredFlowOptions.workerCapacity`. */
   readonly workerCapacity?: number;
+  /** Provider-only environment consumed by preflight and local workers. */
+  readonly agentEnvironment?: NodeJS.ProcessEnv;
   readonly lifecycle?: RunLifecycleOptions;
 }
 
@@ -69,7 +79,7 @@ export async function executeDurableAuthoredFlow(
   journal: JournalClient,
   input: unknown,
   options: DurableAuthoredOptions,
-): Promise<AuthoredFlowExecutionResult & { readonly rootRunId: string }> {
+): Promise<DurableAuthoredFlowResult> {
   assertAuthoredRuntimeAvailable();
   const source = await readFile(loaded.sourcePath);
   const sources = await Promise.all(loaded.graph.map(async node => Object.freeze({
@@ -106,6 +116,7 @@ export async function executeDurableAuthoredFlow(
       workspace: [], streams: [{ stream, read_offset: 0 }],
     });
     const outcome = await journal.runStart(spec, undefined, admissionKey);
+    options.onAdmitted?.(outcome.run_id);
     if (outcome.status === 'completed') {
       dispatchWait.cancel();
       return await completedRootResult(journal, outcome.run_id);
@@ -119,8 +130,11 @@ export async function executeDurableAuthoredFlow(
     // redelivers only when the former worker connection is gone.
     const resumed = await journal.runResume(outcome.run_id);
     await assertNoOpenHumanWait(journal, resumed);
+    const parked = await readSubscriptionPark(journal, outcome.run_id);
+    if (parked !== undefined) return { state: 'suspended', name: metadata.flowName,
+      suspension: parked, journalSteps: [], rootRunId: outcome.run_id };
     const dispatch = await dispatchWait.promise;
-    return await driveRoot(loaded, metadata, journal, peer, dispatch, options);
+    return await driveRootFollowingRetries(loaded, metadata, journal, peer, dispatch, options);
   } finally {
     cancelDispatch();
     peer.close();
@@ -132,7 +146,7 @@ export async function resumeDurableAuthoredFlow(
   rootRunId: string,
   journal: JournalClient,
   options: Omit<DurableAuthoredOptions, 'admissionKey'>,
-): Promise<(AuthoredFlowExecutionResult & { readonly rootRunId: string }) | undefined> {
+): Promise<DurableAuthoredFlowResult | undefined> {
   const metadata = await readAuthoredRootMetadata(journal, rootRunId);
   if (metadata === undefined) return undefined;
   assertAuthoredRuntimeAvailable();
@@ -159,8 +173,11 @@ export async function resumeDurableAuthoredFlow(
     assertRootCanDispatch(outcome);
     await assertNoOpenHumanWait(journal, outcome);
     options.lifecycle?.onRunStarted?.({ runId: rootRunId, flow: metadata.flowName, resumed: true });
+    const parked = await readSubscriptionPark(journal, rootRunId);
+    if (parked !== undefined) return { state: 'suspended', name: metadata.flowName,
+      suspension: parked, journalSteps: [], rootRunId };
     const dispatch = await dispatchWait.promise;
-    return await driveRoot(loaded, metadata, journal, peer, dispatch, options);
+    return await driveRootFollowingRetries(loaded, metadata, journal, peer, dispatch, options);
   } finally {
     cancelDispatch();
     peer.close();
@@ -197,6 +214,102 @@ export async function readAuthoredRootMetadata(
   return Object.freeze({ ...value, extensions: value.extensions ?? [] });
 }
 
+/**
+ * How many times one CLI re-drives a root whose lease it lost. Each re-drive
+ * replays completed steps from their journaled receipts, so the bound guards a
+ * lease that keeps being lost, not the cost of the work.
+ */
+const MAX_ROOT_REDRIVES = 3;
+/**
+ * How long to wait for the kernel to re-dispatch a root whose lease was lost:
+ * a full lease (30s, relayflowd LEASE_RENEWAL_MS) in case the daemon still
+ * held it, plus its sweep and grace.
+ */
+const ROOT_REDISPATCH_TIMEOUT_MS = 45_000;
+
+/**
+ * Drive the root, and FOLLOW the kernel when it retries the root attempt.
+ *
+ * A lost root lease is not a failed flow. The kernel journals the attempt
+ * `lease_expired` with `disposition: retry` without charging an iteration
+ * (relayflowd-core recovery.rs) and re-dispatches the root to the worker
+ * still attached on `peer` -- this process. Exiting there with
+ * "worker wait canceled" (customer rw_3a0fcb71) threw away a run the kernel
+ * was about to continue, including a child agent already on its second
+ * attempt: the re-driven body replays completed steps from their receipts and
+ * adopts that in-flight child (authored-step-output.ts). Only when no retry
+ * arrives does the error leave, as `root_lease_lost` naming the resume.
+ */
+async function driveRootFollowingRetries(
+  loaded: LoadedAuthoredFlow,
+  metadata: AuthoredRootMetadata,
+  journal: JournalClient,
+  peer: JournalClient,
+  firstDispatch: StepDispatchEvent,
+  options: Omit<DurableAuthoredOptions, 'admissionKey'>,
+): Promise<DurableAuthoredFlowResult> {
+  let dispatch = firstDispatch;
+  for (let redrives = 0; ; redrives += 1) {
+    // Listen before driving: the retry can be dispatched the moment the
+    // daemon sweeps the lease, before the aborted body has unwound. The
+    // timeout starts only once there is a lost lease to wait on.
+    const next = rootRedispatch(peer);
+    try {
+      const result = await driveRoot(loaded, metadata, journal, peer, dispatch, options);
+      next.cancel();
+      return result;
+    } catch (error) {
+      // `run_terminal` from a step verb means the run has already reached a
+      // terminal state. It is lease-shaped for worker cleanup, but the kernel
+      // cannot re-dispatch this root, so do not turn it into a 45s retry wait.
+      const terminal = error instanceof JournalProtocolError && error.code === 'run_terminal';
+      if (!isLeaseLost(error) || terminal || options.lifecycle?.signal?.aborted === true) {
+        next.cancel();
+        throw error;
+      }
+      const lost = sentence(error instanceof Error ? error.message : String(error));
+      const resume = resumeCommand(dispatch.run_id, options.dataDir, options.localAgentStream !== undefined);
+      if (redrives >= MAX_ROOT_REDRIVES) {
+        next.cancel();
+        throw rootLeaseLost(dispatch, `${lost} It was lost ${redrives + 1} times in this process; continue the run with: ${resume}`, error);
+      }
+      process.emitWarning(
+        `authored root run_id=${dispatch.run_id} attempt=${dispatch.attempt}: ${lost} Waiting for the kernel to retry it.`,
+        { code: 'FLOWS_ROOT_LEASE_LOST' },
+      );
+      try {
+        dispatch = await next.wait(ROOT_REDISPATCH_TIMEOUT_MS, options.lifecycle?.signal);
+      } catch (waitError) {
+        // A caller cancel while waiting is the caller's, not a lost lease.
+        if (aborted(options.lifecycle?.signal)) throw waitError;
+        throw rootLeaseLost(dispatch, `${lost} The kernel did not re-dispatch the root within ${ROOT_REDISPATCH_TIMEOUT_MS / 1000}s; continue the run with: ${resume}`, error);
+      }
+      if (dispatch.run_id !== firstDispatch.run_id) {
+        throw new Error('authored root retry was dispatched for a different run');
+      }
+    }
+  }
+}
+
+/** Read at call time: `signal.aborted` changes while this function awaits. */
+function aborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
+}
+
+function sentence(text: string): string {
+  return /[.!?]$/.test(text) ? text : `${text}.`;
+}
+
+function rootLeaseLost(dispatch: StepDispatchEvent, message: string, cause: unknown): AuthoredFlowExecutionError {
+  const error = new AuthoredFlowExecutionError('root_lease_lost',
+    `authored root run ${dispatch.run_id} lost its worker lease on attempt ${dispatch.attempt}. ${message}`
+      + ' Completed steps are journaled and are not re-run.',
+    'lease_expired');
+  error.rootRunId = dispatch.run_id;
+  (error as { cause?: unknown }).cause = cause;
+  return error;
+}
+
 async function driveRoot(
   loaded: LoadedAuthoredFlow,
   metadata: AuthoredRootMetadata,
@@ -204,7 +317,7 @@ async function driveRoot(
   peer: JournalClient,
   dispatch: StepDispatchEvent,
   options: Omit<DurableAuthoredOptions, 'admissionKey'>,
-): Promise<AuthoredFlowExecutionResult & { readonly rootRunId: string }> {
+): Promise<DurableAuthoredFlowResult> {
   try {
     const result = await withWorkerLease(peer, dispatch, async rootSignal => {
       const callerSignal = options.lifecycle?.signal;
@@ -212,6 +325,9 @@ async function driveRoot(
       if (process.versions['bun'] !== undefined) {
         return runAuthoredInNode(metadata, journal.socketPath, dispatch.run_id, {
           dataDir: options.dataDir, localAgentStream: options.localAgentStream,
+          ...(options.agentEnvironment === undefined ? {} : {
+            agentEnvironment: localAgentCredentialEnvironment(options.agentEnvironment),
+          }),
           ...(options.workerCapacity === undefined ? {} : { workerCapacity: options.workerCapacity }),
           ...options.lifecycle, signal,
         });
@@ -225,9 +341,11 @@ async function driveRoot(
           dataDir: options.dataDir,
           flowPath: metadata.flowPath,
           localAgentStream: options.localAgentStream,
+          ...(options.agentEnvironment === undefined ? {} : { agentEnvironment: options.agentEnvironment }),
           ...(options.workerCapacity === undefined ? {} : { workerCapacity: options.workerCapacity }),
           rootRunId: dispatch.run_id,
           extensions: loaded.extensions,
+          flowGraph: loaded.graph,
           ...options.lifecycle,
           signal: callerSignal === undefined
             ? rootSignal
@@ -247,6 +365,18 @@ async function driveRoot(
     );
     return Object.freeze({ ...result, rootRunId: dispatch.run_id });
   } catch (error) {
+    // A lost lease is owned by the kernel's retry path, not by this attempt's
+    // terminalization or suspension handling.
+    if (isLeaseLost(error)) throw error;
+    if (error instanceof AuthoredFlowExecutionError
+      && error.code === 'subscription_suspended'
+      && error.suspension !== undefined) {
+      await peer.subscriptionPark({ run_id: dispatch.run_id, step_id: dispatch.step_id,
+        attempt: dispatch.attempt, idempotency_key: dispatch.idempotency_key,
+        subscription_id: error.suspension.subscriptionId, phase: error.suspension.kind });
+      return Object.freeze({ state: 'suspended' as const, name: metadata.flowName,
+        suspension: error.suspension, journalSteps: Object.freeze([]), rootRunId: dispatch.run_id });
+    }
     if (error instanceof AuthoredHumanParked) {
       // Not a failure: the body reached a question nobody has answered. Park
       // THIS attempt on the kernel's `wait.human` under the body's own wait
@@ -344,7 +474,51 @@ function hasRootStream(step: Record<string, unknown>): boolean {
   try { rootStreamFromMetadata(step); return true; } catch { return false; }
 }
 
-function nextRootDispatch(peer: JournalClient): {
+/**
+ * Buffers the next root dispatch from the moment it is created; `wait`
+ * bounds only the time spent waiting for it. Unlike `nextRootDispatch`, no
+ * timer runs while the body is being driven -- a body longer than the
+ * timeout must not leave a rejected promise nobody awaits.
+ */
+function rootRedispatch(peer: JournalClient): {
+  wait(timeoutMs: number, signal?: AbortSignal): Promise<StepDispatchEvent>;
+  cancel(): void;
+} {
+  let received: StepDispatchEvent | undefined;
+  let deliver: ((dispatch: StepDispatchEvent) => void) | undefined;
+  const onDispatch = (dispatch: StepDispatchEvent): void => {
+    if (dispatch.step_id !== 'authored-root') return;
+    peer.off('step.dispatch', onDispatch);
+    if (deliver === undefined) received = dispatch;
+    else deliver(dispatch);
+  };
+  peer.on('step.dispatch', onDispatch);
+  const cancel = (): void => { peer.off('step.dispatch', onDispatch); };
+  return {
+    cancel,
+    wait: (timeoutMs, signal) => new Promise((resolve, reject) => {
+      if (received !== undefined) { resolve(received); return; }
+      const settle = (): void => {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
+        cancel();
+      };
+      const onAbort = (): void => {
+        settle();
+        reject(new Error('waiting for the authored root to be re-dispatched was canceled', { cause: signal?.reason }));
+      };
+      const timer = setTimeout(() => {
+        settle();
+        reject(new Error('authored root was not re-dispatched'));
+      }, timeoutMs);
+      deliver = dispatch => { settle(); resolve(dispatch); };
+      if (signal?.aborted === true) onAbort();
+      else signal?.addEventListener('abort', onAbort, { once: true });
+    }),
+  };
+}
+
+function nextRootDispatch(peer: JournalClient, timeoutMs = 30_000): {
   promise: Promise<StepDispatchEvent>;
   cancel(): void;
 } {
@@ -353,7 +527,7 @@ function nextRootDispatch(peer: JournalClient): {
     const timer = setTimeout(() => {
       peer.off('step.dispatch', onDispatch);
       reject(new Error('authored root was not dispatched'));
-    }, 30_000);
+    }, timeoutMs);
     const onDispatch = (dispatch: StepDispatchEvent) => {
       if (dispatch.step_id !== 'authored-root') return;
       clearTimeout(timer);

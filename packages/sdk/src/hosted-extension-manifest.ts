@@ -12,6 +12,7 @@ import { PluginError } from './plugin-manifest.js';
 
 const ARRAY_IS_ARRAY = Array.isArray;
 const NUMBER_IS_FINITE = Number.isFinite;
+const NUMBER_IS_SAFE_INTEGER = Number.isSafeInteger;
 const OBJECT_CREATE = Object.create;
 const OBJECT_FREEZE = Object.freeze;
 const OBJECT_HAS_OWN = Object.hasOwn;
@@ -20,6 +21,10 @@ const REGEXP_TEST = Function.prototype.call.bind(RegExp.prototype.test) as (
   regexp: RegExp,
   value: string,
 ) => boolean;
+const REGEXP_EXEC = Function.prototype.call.bind(RegExp.prototype.exec) as (
+  regexp: RegExp,
+  value: string,
+) => RegExpExecArray | null;
 const STRING_ENDS_WITH = Function.prototype.call.bind(String.prototype.endsWith) as (
   value: string,
   search: string,
@@ -38,7 +43,8 @@ const NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const PROVIDER = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const WRITE_CLASS = /^[a-z0-9-]+(?::[a-z0-9_-]+)+$/;
-const WALLCLOCK = /^\d+(?:ms|s|m|h|d)$/;
+const DOLLARS = /^\d+(?:\.\d{1,6})?$/;
+const WALLCLOCK = /^(\d+)(ms|s|m|h|d)$/;
 const VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const VERSION_RANGE = /^(?:\*|(?:[\^~]|>=)?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?: <\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)?)$/;
 const MAX_DESCRIPTION = 500;
@@ -168,19 +174,36 @@ function permissionsShape(value: unknown): FlowExtensionPermissions {
   }
   let budget: FlowExtensionPermissions['budget'];
   if (value.budget !== undefined) {
-    if (!record(value.budget) || !hasOnlyKeys(value.budget, ['dollars', 'wallclock'])) {
-      return invalid('permissions.budget expects dollars and/or wallclock.');
+    if (!record(value.budget) || !hasOnlyKeys(value.budget, ['tokens', 'dollars', 'wallclock'])) {
+      return invalid('permissions.budget expects tokens, dollars, and/or wallclock.');
+    }
+    if (value.budget.tokens !== undefined
+      && (typeof value.budget.tokens !== 'number'
+        || !NUMBER_IS_SAFE_INTEGER(value.budget.tokens) || value.budget.tokens < 0)) {
+      return invalid('permissions.budget.tokens must be a non-negative safe integer.');
     }
     if (value.budget.dollars !== undefined
       && (typeof value.budget.dollars !== 'number' || value.budget.dollars <= 0
-        || !NUMBER_IS_FINITE(value.budget.dollars))) {
+        || !NUMBER_IS_FINITE(value.budget.dollars)
+        || !matches(DOLLARS, `${value.budget.dollars}`))) {
       return invalid('permissions.budget.dollars must be a positive number.');
     }
     if (value.budget.wallclock !== undefined
       && (typeof value.budget.wallclock !== 'string' || !matches(WALLCLOCK, value.budget.wallclock))) {
       return invalid('permissions.budget.wallclock must be a duration such as 45m.');
     }
-    const projected = OBJECT_CREATE(null) as { dollars?: number; wallclock?: string };
+    if (value.budget.wallclock !== undefined) {
+      const match = REGEXP_EXEC(WALLCLOCK, value.budget.wallclock)!;
+      const multiplier = match[2] === 'ms' ? 1
+        : match[2] === 's' ? 1_000
+        : match[2] === 'm' ? 60_000
+        : match[2] === 'h' ? 3_600_000 : 86_400_000;
+      if (!NUMBER_IS_SAFE_INTEGER(+match[1]! * multiplier)) {
+        return invalid('permissions.budget.wallclock must fit the runtime duration range.');
+      }
+    }
+    const projected = OBJECT_CREATE(null) as { tokens?: number; dollars?: number; wallclock?: string };
+    if (value.budget.tokens !== undefined) projected.tokens = value.budget.tokens;
     if (value.budget.dollars !== undefined) projected.dollars = value.budget.dollars;
     if (value.budget.wallclock !== undefined) projected.wallclock = value.budget.wallclock;
     budget = OBJECT_FREEZE(projected);

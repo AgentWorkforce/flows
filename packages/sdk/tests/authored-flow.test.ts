@@ -289,24 +289,129 @@ describe('authored flow journal executor', () => {
     }
   });
 
-  it('refuses unsupported promise verbs synchronously even when their results are ignored', async () => {
+  it('refuses undeclared dispatches and unsupported promise verbs synchronously even when ignored', async () => {
     const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
-    const cases = [
-      flow('unawaited-dispatch', async (f) => {
-        f.dispatch('child', {});
-        f.done('success');
-      }),
-      flow('unawaited-cloud', async (f) => {
-        f.cloud.workers.list({ workspaceId: 'workspace', as: 'principal' });
-        f.done('success');
-      }),
+    await expect(executeAuthoredFlow(flow('unawaited-dispatch', async (f) => {
+      f.dispatch('child', {});
+      f.done('success');
+    }), disconnectedJournal)).rejects.toMatchObject({ code: 'dispatch_unknown' });
+
+    await expect(executeAuthoredFlow(flow('unawaited-cloud', async (f) => {
+      f.cloud.workers.list({ workspaceId: 'workspace', as: 'principal' });
+      f.done('success');
+    }), disconnectedJournal)).rejects.toMatchObject({ code: 'unsupported_verb' });
+  });
+
+  it('attenuates child capabilities and keeps the run-tree budget at the root', async () => {
+    const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
+    const wider = flow('wider', { tools: { slack: true } }, async (f) => f.done('success'));
+    const visibleHelper = flow('visible-helper', async (f) => {
+      await f.slack.post('#ops', 'must not send');
+      f.done('success');
+    });
+    const hiddenSlack = (f: Ctx) => f.slack.post('#ops', 'must not send');
+    const hiddenHelper = flow('hidden-helper', async (f) => {
+      await hiddenSlack(f);
+      f.done('success');
+    });
+    const budgeted = flow('budgeted', { budget: { tokens: 1 } }, async (f) => f.done('success'));
+    const parent = flow('parent', { use: ['./wider.flow.ts', './budgeted.flow.ts'] }, async (f) => {
+      await f.dispatch('wider', {});
+      f.done('success');
+    });
+    const graph = [
+      { path: '/wider.flow.ts', handle: wider, getDefinition: getFlowDefinition, use: [] },
+      { path: '/budgeted.flow.ts', handle: budgeted, getDefinition: getFlowDefinition, use: [] },
+      { path: '/parent.flow.ts', handle: parent, getDefinition: getFlowDefinition,
+        use: ['/wider.flow.ts', '/budgeted.flow.ts'] },
     ];
 
-    for (const handle of cases) {
-      await expect(executeAuthoredFlow(handle, disconnectedJournal)).rejects.toMatchObject({
-        code: 'unsupported_verb',
+    await expect(executeAuthoredFlow(parent, disconnectedJournal, undefined, { flowGraph: graph as never }))
+      .rejects.toMatchObject({ code: 'dispatch_invalid', message: expect.stringContaining('requires tools.slack') });
+
+    for (const child of [visibleHelper, hiddenHelper]) {
+      const childName = getFlowDefinition(child).name;
+      const helperParent = flow(`parent-${childName}`, { use: ['./helper.flow.ts'] }, async (f) => {
+        await f.dispatch(childName, {});
+        f.done('success');
       });
+      const helperGraph = [
+        { path: '/helper.flow.ts', handle: child, getDefinition: getFlowDefinition, use: [] },
+        { path: '/parent.flow.ts', handle: helperParent, getDefinition: getFlowDefinition, use: ['/helper.flow.ts'] },
+      ];
+      await expect(executeAuthoredFlow(helperParent, disconnectedJournal, undefined, { flowGraph: helperGraph as never }))
+        .rejects.toMatchObject({ code: 'dispatch_invalid', message: expect.stringContaining('slack') });
     }
+
+    const budgetParent = flow('budget-parent', { use: ['./budgeted.flow.ts'] }, async (f) => {
+      await f.dispatch('budgeted', {});
+      f.done('success');
+    });
+    const budgetGraph = [graph[1],
+      { path: '/budget-parent.flow.ts', handle: budgetParent, getDefinition: getFlowDefinition,
+        use: ['/budgeted.flow.ts'] },
+    ];
+    await expect(executeAuthoredFlow(budgetParent, disconnectedJournal, undefined, { flowGraph: budgetGraph as never }))
+      .rejects.toMatchObject({ code: 'dispatch_invalid', message: expect.stringContaining('declares its own budget') });
+  });
+
+  it('caps nested dispatch at three child levels before contacting the journal', async () => {
+    const disconnectedJournal = new JournalClient('/journal-must-not-be-contacted');
+    const four = flow('four', async (f) => f.done('success'));
+    const three = flow('three', { use: ['./four.flow.ts'] }, async (f) => {
+      await f.dispatch('four', {}); f.done('success');
+    });
+    const two = flow('two', { use: ['./three.flow.ts'] }, async (f) => {
+      await f.dispatch('three', {}); f.done('success');
+    });
+    const one = flow('one', { use: ['./two.flow.ts'] }, async (f) => {
+      await f.dispatch('two', {}); f.done('success');
+    });
+    const root = flow('root', { use: ['./one.flow.ts'] }, async (f) => {
+      await f.dispatch('one', {}); f.done('success');
+    });
+    const graph = [
+      { path: '/four.flow.ts', handle: four, getDefinition: getFlowDefinition, use: [] },
+      { path: '/three.flow.ts', handle: three, getDefinition: getFlowDefinition, use: ['/four.flow.ts'] },
+      { path: '/two.flow.ts', handle: two, getDefinition: getFlowDefinition, use: ['/three.flow.ts'] },
+      { path: '/one.flow.ts', handle: one, getDefinition: getFlowDefinition, use: ['/two.flow.ts'] },
+      { path: '/root.flow.ts', handle: root, getDefinition: getFlowDefinition, use: ['/one.flow.ts'] },
+    ];
+
+    await expect(executeAuthoredFlow(root, disconnectedJournal, undefined, { flowGraph: graph as never }))
+      .rejects.toMatchObject({ code: 'dispatch_depth_exceeded' });
+  });
+
+  it('passes project hook implementations into a dispatched child', async () => {
+    let hookRuns = 0;
+    const child = flow('child', { hooks: ['policy'] }, async (f) => {
+      const allowed = await f.hook('policy', { target: 'child' });
+      f.done(allowed ? 'success' : 'step_failed');
+    });
+    const parent = flow('parent', { use: ['./child.flow.ts'] }, async (f) => {
+      await f.dispatch('child', {});
+      f.done('success');
+    });
+    const graph = [
+      { path: '/child.flow.ts', handle: child, getDefinition: getFlowDefinition, use: [] },
+      { path: '/parent.flow.ts', handle: parent, getDefinition: getFlowDefinition, use: ['/child.flow.ts'] },
+    ];
+    const base = loadedExtension('policy-extension', flow('policy-extension', async f => f.done('success')));
+    const extension: LoadedFlowExtension = {
+      ...base,
+      manifest: { ...base.manifest, extends: { ...base.manifest.extends, hooks: ['policy'] } },
+      hooks: Object.freeze({ policy: async () => { hookRuns += 1; return true; } }),
+    };
+    const client = await connectedClient('authored-child-hook-test');
+    try {
+      await expect(executeAuthoredFlow(parent, client, undefined, {
+        flowGraph: graph as never,
+        extensions: [extension],
+      })).resolves.toMatchObject({ completionReason: 'success' });
+    } finally {
+      client.close();
+    }
+    expect(hookRuns).toBe(1);
   });
 
   it('treats done as terminal and rejects later operations before journal contact', async () => {
@@ -743,5 +848,7 @@ function loadedExtension(name: string, handle: ReturnType<typeof flow>): LoadedF
 
 function outputFor(command: string): string {
   if (command.startsWith('emit:')) return command.slice('emit:'.length);
+  const literal = /^printf '%s' '(\{.*\})'$/u.exec(command)?.[1];
+  if (literal?.startsWith('{"name":')) return literal;
   return command === 'printf authored-journal-ok' ? 'authored-journal-ok' : '';
 }

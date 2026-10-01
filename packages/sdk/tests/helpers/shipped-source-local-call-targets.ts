@@ -1,0 +1,455 @@
+import ts from 'typescript';
+import {
+  assignmentMayStoreRight,
+  assignedSources,
+  type BindingPathSegment,
+} from './shipped-source-binding-provenance.js';
+import {
+  aggregateMemberValue,
+  staticPropertySegment,
+  wrappedExpressionBranches,
+} from './shipped-source-binding-values.js';
+import {
+  bindingNamePaths,
+  canonicalArrayIndex,
+  isStaticallyUndefined,
+  localCallArgumentCandidates,
+} from './shipped-source-local-call-arguments.js';
+import { returnedExpressions } from './shipped-source-return-values.js';
+import { runtimeParameters } from './shipped-source-runtime-parameters.js';
+
+export interface LocalCallTargetPath {
+  path: BindingPathSegment[];
+  symbol: ts.Symbol;
+}
+
+export interface LocalCallValueResolution {
+  auditable: boolean;
+  candidates: Array<{
+    auditable: boolean;
+    expression: ts.Expression;
+    seen: Set<ts.Symbol>;
+  }>;
+}
+
+type ResolveTargetPaths = (
+  expression: ts.Expression,
+  seen: Set<ts.Symbol>,
+) => LocalCallTargetPath[];
+
+function pathsAtActual(
+  actual: ts.Expression,
+  sourcePath: readonly BindingPathSegment[],
+  suffix: readonly BindingPathSegment[],
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+  resolve: ResolveTargetPaths,
+): LocalCallTargetPath[] {
+  const selected = valuesAtPath(actual, sourcePath, checker, seen);
+  return selected.flatMap(value => [
+    ...resolve(value, new Set(seen))
+      .map(parent => ({ ...parent, path: [...parent.path, ...suffix] })),
+    ...(suffix.length === 0 ? [] : valuesAtPath(value, suffix, checker, seen)
+      .flatMap(candidate => resolve(candidate, new Set(seen)))),
+  ]);
+}
+
+function arrayBindingSelection(
+  formalPath: readonly BindingPathSegment[],
+  returnedPath: readonly BindingPathSegment[],
+  rest: { prefixLength: number; start: number },
+): {
+  sourcePath: BindingPathSegment[];
+  suffix: BindingPathSegment[];
+} | undefined {
+  const prefix = formalPath.slice(0, rest.prefixLength);
+  const relativeFormal = formalPath.slice(rest.prefixLength);
+  const formalOffset = relativeFormal[0];
+  const returnedOffset = returnedPath[0];
+  const relativeOffset = formalOffset ?? returnedOffset;
+  if (relativeOffset === undefined) return undefined;
+  const index = canonicalArrayIndex(relativeOffset);
+  if (index === undefined) return undefined;
+  return {
+    sourcePath: [
+      ...prefix,
+      rest.start + index,
+      ...(formalOffset === undefined ? [] : relativeFormal.slice(1)),
+    ],
+    suffix: formalOffset === undefined && returnedOffset !== undefined
+      ? [...returnedPath.slice(1)]
+      : [...returnedPath],
+  };
+}
+
+function unwrap(expression: ts.Expression): ts.Expression {
+  while (ts.isParenthesizedExpression(expression)
+    || ts.isAsExpression(expression)
+    || ts.isSatisfiesExpression(expression)
+    || ts.isNonNullExpression(expression)
+    || ts.isTypeAssertionExpression(expression)) expression = expression.expression;
+  return expression;
+}
+
+function expressionRootPath(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): LocalCallTargetPath | undefined {
+  expression = unwrap(expression);
+  if (ts.isIdentifier(expression)) {
+    const symbol = checker.getSymbolAtLocation(expression);
+    return symbol ? { path: [], symbol } : undefined;
+  }
+  if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return undefined;
+  const parent = expressionRootPath(expression.expression, checker, seen);
+  if (!parent) return undefined;
+  const segment = ts.isPropertyAccessExpression(expression)
+    ? expression.name.text
+    : expression.argumentExpression
+      ? staticPropertySegment(expression.argumentExpression, checker, new Set(seen))
+      : undefined;
+  return segment === undefined ? undefined : { ...parent, path: [...parent.path, segment] };
+}
+
+function valuesAtPath(
+  expression: ts.Expression,
+  path: readonly BindingPathSegment[],
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): ts.Expression[] {
+  expression = unwrap(expression);
+  if (ts.isCallExpression(expression)) {
+    const resolved = localCallValueCandidates(expression, checker, seen, path);
+    if (resolved) return resolved.candidates.map(candidate => candidate.expression);
+  }
+  let values = [expression];
+  for (const segment of path) {
+    values = values.flatMap(value => {
+      const member = aggregateMemberValue(value, segment, checker, new Set(seen));
+      return member ? [member.value, ...(member.alternatives ?? [])] : [];
+    });
+  }
+  return values;
+}
+
+function valuesAtActual(
+  actual: ts.Expression,
+  sourcePath: readonly BindingPathSegment[],
+  suffix: readonly BindingPathSegment[],
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): ts.Expression[] {
+  const selected = valuesAtPath(actual, sourcePath, checker, seen);
+  return suffix.length === 0
+    ? selected
+    : selected.flatMap(value => valuesAtPath(value, suffix, checker, seen));
+}
+
+function returnedValueCandidates(
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+): LocalCallValueResolution['candidates'] {
+  expression = unwrap(expression);
+  const branches = wrappedExpressionBranches(expression);
+  if (branches) return branches.flatMap(branch =>
+    returnedValueCandidates(branch, checker, new Set(seen))
+      .map(candidate => ({ ...candidate, auditable: false })));
+  if (ts.isBinaryExpression(expression) && assignmentMayStoreRight(expression.operatorToken.kind)) {
+    const assignments = expression.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      ? [expression.right]
+      : [expression.left, expression.right];
+    return assignments.flatMap(candidate =>
+      returnedValueCandidates(candidate, checker, new Set(seen))
+        .map(value => ({ ...value, auditable: false })));
+  }
+  if (ts.isCallExpression(expression)) {
+    const resolved = localCallValueCandidates(expression, checker, seen);
+    if (resolved) return resolved.candidates.map(candidate => ({
+      ...candidate,
+      auditable: candidate.auditable && resolved.auditable,
+    }));
+  }
+  return [{ auditable: true, expression, seen: new Set(seen) }];
+}
+
+function isParameterSymbol(
+  declaration: ts.SignatureDeclaration,
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+): boolean {
+  return declaration.parameters.some(parameter =>
+    bindingNamePaths(parameter.name, symbol, checker).length > 0);
+}
+
+function localCalleeIsStable(
+  expression: ts.CallExpression,
+  checker: ts.TypeChecker,
+): boolean {
+  const callee = unwrap(expression.expression);
+  if (!ts.isIdentifier(callee)) return false;
+  const symbol = checker.getSymbolAtLocation(callee);
+  return symbol !== undefined && assignedSources(symbol, checker).length === 0;
+}
+
+function locallyPureExpression(expression: ts.Expression, allowRootCall: boolean): boolean {
+  let pure = true;
+  const root = unwrap(expression);
+  const visit = (node: ts.Node): void => {
+    if (!pure) return;
+    if (node !== root && ts.isFunctionLike(node)) return;
+    if (ts.isBinaryExpression(node) && assignmentMayStoreRight(node.operatorToken.kind)
+      || ts.isPrefixUnaryExpression(node) && (node.operator === ts.SyntaxKind.PlusPlusToken
+        || node.operator === ts.SyntaxKind.MinusMinusToken)
+      || ts.isPostfixUnaryExpression(node)
+      || ts.isDeleteExpression(node)
+      || ts.isNewExpression(node)
+      || ts.isAwaitExpression(node)
+      || ts.isYieldExpression(node)
+      || ts.isCallExpression(node) && (!allowRootCall || node !== root)) {
+      pure = false;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(root);
+  return pure;
+}
+
+function localCallBodyIsPure(declaration: ts.SignatureDeclaration): boolean {
+  if (!('body' in declaration) || !declaration.body) return false;
+  if (!ts.isBlock(declaration.body)) return locallyPureExpression(declaration.body, true);
+  return declaration.body.statements.every(statement => {
+    if (ts.isEmptyStatement(statement) || ts.isFunctionDeclaration(statement)) return true;
+    if (ts.isReturnStatement(statement)) {
+      return statement.expression === undefined
+        || locallyPureExpression(statement.expression, true);
+    }
+    if (!ts.isVariableStatement(statement)
+      || (statement.declarationList.flags & ts.NodeFlags.Const) === 0) return false;
+    return statement.declarationList.declarations.every(variable =>
+      variable.initializer !== undefined && locallyPureExpression(variable.initializer, false));
+  });
+}
+
+/** Resolve local return expressions to their call actuals for value analysis. */
+export function localCallValueCandidates(
+  expression: ts.CallExpression,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+  callerPath: readonly BindingPathSegment[] = [],
+): LocalCallValueResolution | undefined {
+  const declaration = checker.getResolvedSignature(expression)?.declaration;
+  const callee = checker.getSymbolAtLocation(unwrap(expression.expression));
+  if (!declaration || !ts.isFunctionLike(declaration) || !('body' in declaration)
+    || (callee && seen.has(callee))) return undefined;
+  const nextSeen = callee ? new Set(seen).add(callee) : new Set(seen);
+  const actualCandidates = localCallArgumentCandidates(expression.arguments, checker);
+  const fallbackAtCallerPath = (
+    candidate: LocalCallValueResolution['candidates'][number],
+  ): LocalCallValueResolution['candidates'] => {
+    if (callerPath.length === 0) return [candidate];
+    return valuesAtPath(candidate.expression, callerPath, checker, candidate.seen)
+      .map(value => ({ ...candidate, expression: value, seen: new Set(candidate.seen) }));
+  };
+  if (actualCandidates.length === 0) {
+    const candidates = returnedExpressions(declaration.body).flatMap(returned =>
+      returnedValueCandidates(returned, checker, nextSeen).flatMap(candidate => {
+        const root = expressionRootPath(candidate.expression, checker, candidate.seen);
+        return root && isParameterSymbol(declaration, root.symbol, checker)
+          ? []
+          : fallbackAtCallerPath(candidate);
+      }));
+    return { auditable: false, candidates };
+  }
+  let parameterMappingComplete = true;
+  const candidates = returnedExpressions(declaration.body).flatMap(returned => {
+    return returnedValueCandidates(returned, checker, nextSeen).flatMap(returnedCandidate => {
+      const returnedMember = expressionRootPath(
+        returnedCandidate.expression,
+        checker,
+        returnedCandidate.seen,
+      );
+      if (!returnedMember) {
+        const selected = valuesAtPath(
+          returnedCandidate.expression,
+          callerPath,
+          checker,
+          returnedCandidate.seen,
+        );
+        return selected.map(candidate => ({
+          auditable: returnedCandidate.auditable,
+          expression: candidate,
+          seen: new Set(returnedCandidate.seen),
+        }));
+      }
+      const returnedPath = [...returnedMember.path, ...callerPath];
+      const parameterDerived = isParameterSymbol(declaration, returnedMember.symbol, checker);
+      const mapped = runtimeParameters(declaration).flatMap((parameter, parameterIndex) =>
+        bindingNamePaths(parameter.name, returnedMember.symbol, checker).flatMap(formal =>
+          actualCandidates.flatMap(actuals => {
+            if (parameter.dotDotDotToken) {
+              const selection = arrayBindingSelection(
+                formal.path,
+                returnedPath,
+                formal.rest?.kind === 'array'
+                  ? formal.rest
+                  : { prefixLength: 0, start: 0 },
+              );
+              if (!selection) return [];
+              const [actualOffset, ...sourcePath] = selection.sourcePath;
+              const index = actualOffset === undefined ? undefined : canonicalArrayIndex(actualOffset);
+              const actual = index === undefined ? undefined : actuals[parameterIndex + index];
+              return actual && !ts.isSpreadElement(actual)
+                ? valuesAtActual(actual, sourcePath, selection.suffix, checker, seen)
+                  .map(value => ({ auditable: returnedCandidate.auditable,
+                    expression: value, seen: new Set(seen) }))
+                : [];
+            }
+            const supplied = actuals[parameterIndex];
+            const actual = !supplied || isStaticallyUndefined(supplied, checker)
+              ? parameter.initializer
+              : supplied;
+            if (!actual || ts.isSpreadElement(actual)) return [];
+            if (formal.rest?.kind === 'array') {
+              const selection = arrayBindingSelection(formal.path, returnedPath, formal.rest);
+              return selection
+                ? valuesAtActual(actual, selection.sourcePath, selection.suffix, checker, seen)
+                  .map(value => ({ auditable: returnedCandidate.auditable,
+                    expression: value, seen: new Set(seen) }))
+                : [];
+            }
+            if (formal.rest?.kind === 'object') {
+              const [member, ...suffix] = returnedPath;
+              if (member === undefined || formal.rest.excluded.includes(String(member))) return [];
+              return valuesAtActual(actual, [...formal.path, member], suffix, checker, seen)
+                .map(value => ({ auditable: returnedCandidate.auditable,
+                  expression: value, seen: new Set(seen) }));
+            }
+            return valuesAtActual(
+              actual,
+              formal.path,
+              returnedPath,
+              checker,
+              seen,
+            ).map(value => ({ auditable: returnedCandidate.auditable,
+              expression: value, seen: new Set(seen) }));
+          })));
+      if (mapped.length > 0) return mapped;
+      if (parameterDerived) parameterMappingComplete = false;
+      return fallbackAtCallerPath(returnedCandidate)
+        .map(candidate => ({ ...candidate, auditable: false }));
+    });
+  });
+  return {
+    auditable: actualCandidates.length === 1
+      && candidates.length === 1
+      && candidates[0]?.auditable === true
+      && parameterMappingComplete
+      && localCalleeIsStable(expression, checker)
+      && localCallBodyIsPure(declaration)
+      && !expression.arguments.some(ts.isSpreadElement),
+    candidates,
+  };
+}
+
+export function localCallTargetPaths(
+  expression: ts.CallExpression,
+  checker: ts.TypeChecker,
+  seen: Set<ts.Symbol>,
+  resolve: ResolveTargetPaths,
+  callerPath: readonly BindingPathSegment[] = [],
+): LocalCallTargetPath[] {
+  const declaration = checker.getResolvedSignature(expression)?.declaration;
+  const callee = checker.getSymbolAtLocation(unwrap(expression.expression));
+  if (!declaration || !ts.isFunctionLike(declaration) || !('body' in declaration)
+    || (callee && seen.has(callee))) return [];
+  const nextSeen = callee ? new Set(seen).add(callee) : new Set(seen);
+  const actualCandidates = localCallArgumentCandidates(expression.arguments, checker);
+  if (actualCandidates.length === 0) {
+    return returnedExpressions(declaration.body).flatMap(returned =>
+      resolve(returned, new Set(nextSeen)).flatMap(returnedMember =>
+        isParameterSymbol(declaration, returnedMember.symbol, checker)
+          ? []
+          : [{ ...returnedMember, path: [...returnedMember.path, ...callerPath] }]));
+  }
+  return actualCandidates.flatMap(actuals => returnedExpressions(declaration.body).flatMap(returned =>
+    resolve(returned, new Set(nextSeen)).flatMap(returnedMember => {
+      const returnedPath = [...returnedMember.path, ...callerPath];
+      const mapped = runtimeParameters(declaration).flatMap((parameter, parameterIndex) =>
+        bindingNamePaths(parameter.name, returnedMember.symbol, checker).flatMap(formal => {
+          if (parameter.dotDotDotToken) {
+            const selection = arrayBindingSelection(
+              formal.path,
+              returnedPath,
+              formal.rest?.kind === 'array'
+                ? formal.rest
+                : { prefixLength: 0, start: 0 },
+            );
+            if (!selection) return [];
+            const [actualOffset, ...sourcePath] = selection.sourcePath;
+            const index = actualOffset === undefined ? undefined : canonicalArrayIndex(actualOffset);
+            const actual = index === undefined ? undefined : actuals[parameterIndex + index];
+            return actual && !ts.isSpreadElement(actual)
+              ? pathsAtActual(
+                  actual,
+                  sourcePath,
+                  selection.suffix,
+                  checker,
+                  seen,
+                  resolve,
+                )
+              : [];
+          }
+          const supplied = actuals[parameterIndex];
+          const actual = !supplied || isStaticallyUndefined(supplied, checker)
+            ? parameter.initializer
+            : supplied;
+          if (formal.rest?.kind === 'array') {
+            if (!actual || ts.isSpreadElement(actual)) return [];
+            const selection = arrayBindingSelection(
+              formal.path,
+              returnedPath,
+              formal.rest,
+            );
+            return !selection
+              ? []
+              : pathsAtActual(
+                  actual,
+                  selection.sourcePath,
+                  selection.suffix,
+                  checker,
+                  seen,
+                  resolve,
+                );
+          }
+          if (formal.rest?.kind === 'object') {
+            const [member, ...suffix] = returnedPath;
+            return actual && member !== undefined
+              && !formal.rest.excluded.includes(String(member))
+              && !ts.isSpreadElement(actual)
+              ? pathsAtActual(
+                  actual,
+                  [...formal.path, member],
+                  suffix,
+                  checker,
+                  seen,
+                  resolve,
+                )
+              : [];
+          }
+          return actual && !ts.isSpreadElement(actual)
+            ? pathsAtActual(
+                actual,
+                formal.path,
+                returnedPath,
+                checker,
+                seen,
+                resolve,
+              )
+            : [];
+        }));
+      return mapped.length > 0 ? mapped : [{ ...returnedMember, path: returnedPath }];
+    })));
+}

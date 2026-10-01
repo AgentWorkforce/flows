@@ -8,6 +8,7 @@ swarm:
 agents:
   - name: watchdog
     cli: claude
+    model: claude-sonnet-5
     preset: analyst
     role: Liveness auditor and digest writer for the flows drive loop.
 workflows:

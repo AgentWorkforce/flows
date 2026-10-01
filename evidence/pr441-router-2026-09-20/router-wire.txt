@@ -1,0 +1,145 @@
+cwd: /tmp/flows-pr-followup/pr441/kernel
+$ cargo test -p relayflowd targeted_router_verbs
+   Compiling relayflowd v0.1.0 (/tmp/flows-pr-followup/pr441/kernel/relayflowd)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.91s
+     Running unittests src/lib.rs (target/debug/deps/relayflowd-f043db0bb3534a16)
+
+running 1 test
+test server::tests::subscription_router::targeted_router_verbs_validate_receipts_and_preserve_wire_metadata ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 51 filtered out; finished in 0.02s
+
+     Running unittests src/main.rs (target/debug/deps/relayflowd-6e3681176306c99e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/budget_gate.rs (target/debug/deps/budget_gate-9607ae7c2db11b74)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
+
+     Running tests/crash_resume.rs (target/debug/deps/crash_resume-d2d102ec3e89b705)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 40 filtered out; finished in 0.00s
+
+     Running tests/daemon_lifecycle.rs (target/debug/deps/daemon_lifecycle-b705da9761b2a254)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+     Running tests/event_activities.rs (target/debug/deps/event_activities-ed1739dfa94f36b5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.00s
+
+     Running tests/event_activity_corruption.rs (target/debug/deps/event_activity_corruption-e16548e9ab56b153)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/event_activity_parking.rs (target/debug/deps/event_activity_parking-d8e0d6eeb684776f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/event_wake.rs (target/debug/deps/event_wake-b98778c1ad4de872)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/hn_monitor_integration.rs (target/debug/deps/hn_monitor_integration-059c38eb4828898f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/input_binding.rs (target/debug/deps/input_binding-4f132e6302508de8)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/invalid_schema_preflight.rs (target/debug/deps/invalid_schema_preflight-9c08869ea58d283f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/memoization.rs (target/debug/deps/memoization-e5537edfeea8b814)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/memory.rs (target/debug/deps/memory-fe5dbc6738ee15ff)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/memory_epoch.rs (target/debug/deps/memory_epoch-627e50d1c86c39e4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/parallel_driver.rs (target/debug/deps/parallel_driver-7a554ae88aa529f9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/placement_pins.rs (target/debug/deps/placement_pins-839e136752b4e5af)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/placement_routing.rs (target/debug/deps/placement_routing-9cb694324a7d7bf1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/routing_diagnostics.rs (target/debug/deps/routing_diagnostics-7807262e1a1167ec)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/spec_review_routing.rs (target/debug/deps/spec_review_routing-032df51688a72750)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/subscription_liveness.rs (target/debug/deps/subscription_liveness-c3bbfd58dcafb336)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+     Running tests/subscription_router_delivery.rs (target/debug/deps/subscription_router_delivery-1e0031de1ef580ec)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/trigger_watcher.rs (target/debug/deps/trigger_watcher-0504d7ed791030e6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+
+exit status: 0

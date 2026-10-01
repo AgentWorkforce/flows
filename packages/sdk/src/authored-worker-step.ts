@@ -16,7 +16,7 @@ import { snapshotJsonValue } from './json-value.js';
 import { authoredChildAdmissionKey } from './authored-admission.js';
 import { alsoRecord, recordAuthoredChild } from './authored-step-index.js';
 import type { StepFailedDetails } from './failure-kinds.js';
-import { WorkerSlots } from './worker-slots.js';
+import { authoredWorkerSlots, type AuthoredWorkerSlots } from './worker-slots.js';
 
 const WORKSPACE_PERMISSION_ANNOTATION = /:\s*(readonly|readwrite)\s*$/i;
 
@@ -26,16 +26,23 @@ export function authoredWorkerRunner(
   journalSteps: AuthoredFlowJournalStep[], waitOptions: RunLifecycleOptions,
   localAgentStream?: string, budget?: AuthoredBudget, headerBudget?: unknown,
   rootRunId?: string, workerCapacity?: number, stepEdges?: AuthoredStepContext['stepEdges'],
+  sharedSlots?: AuthoredWorkerSlots,
+  agentEnvironment?: NodeJS.ProcessEnv,
 ) {
   // Sized to the attached local workers, so concurrent calls wait here for a
   // slot instead of being admitted and parked for want of a free worker.
-  const slots = workerCapacity === undefined ? undefined
-    : { agent: new WorkerSlots(workerCapacity), llm: new WorkerSlots(workerCapacity) };
-  const check = authoredPreflight(flowPath);
+  const ownsSlots = sharedSlots === undefined;
+  const slots = sharedSlots ?? (workerCapacity === undefined ? undefined : authoredWorkerSlots(workerCapacity));
+  const slotScopes = slots === undefined ? undefined : {
+    agent: slots.agent.scope(),
+    llm: slots.llm.scope(),
+  };
+  const check = authoredPreflight(flowPath, agentEnvironment);
   const context: AuthoredStepContext = {
     ...(rootRunId === undefined ? {} : { rootRunId }),
     ...(waitOptions.dataDir === undefined ? {} : { dataDir: waitOptions.dataDir }),
     ...(stepEdges === undefined ? {} : { stepEdges }),
+    ...(waitOptions.signal === undefined ? {} : { signal: waitOptions.signal }),
   };
   async function run(step: StepSpec): Promise<unknown> {
     const id = step.id;
@@ -51,8 +58,12 @@ export function authoredWorkerRunner(
         (diagnostic): diagnostic is PreflightDiagnostic & { severity: 'refusal' } =>
           diagnostic.severity === 'refusal',
       );
+      // Environment refusals keep their own kind: folding a usage limit or an
+      // outdated CLI into `*_cli_unresolved` reported them as `invalid_spec`,
+      // telling the author to fix a flow that was never wrong.
       throw new AuthoredFlowExecutionError(
-        refusal?.kind === 'budget_syntax_invalid' ? refusal.kind
+        refusal?.kind === 'budget_syntax_invalid' || refusal?.kind === 'cli_outdated'
+          || refusal?.kind === 'provider_usage_limited' ? refusal.kind
           : step.type === 'llm' ? 'llm_cli_unresolved' : 'agent_cli_unresolved',
         refusal?.message
           ?? `flow "${definition.name}" step "${id}": no CLI could be resolved for f.${step.type} `
@@ -130,20 +141,26 @@ export function authoredWorkerRunner(
         details,
       );
     }
-    return readCompletedStepOutput(journal, outcome.run_id, id, journalSteps, context);
+    return readCompletedStepOutput(journal, outcome.run_id, id, journalSteps, context, execution.report.status);
     };
     const admissionKey = authoredChildAdmissionKey(rootRunId, id);
     const admit = async () => budget === undefined
       ? consume(await journal.runStart(spec, undefined, admissionKey))
       : budget.execute(journal, spec, consume, admissionKey);
-    return slots === undefined ? admit() : slots[step.type === 'llm' ? 'llm' : 'agent'].run(admit);
+    return slotScopes === undefined ? admit() : slotScopes[step.type === 'llm' ? 'llm' : 'agent'].run(admit);
   }
 
   return {
+    slots,
     /** Refuse every agent/LLM call still waiting for a worker slot (body teardown). */
     stop(reason: unknown): void {
-      slots?.agent.close(reason);
-      slots?.llm.close(reason);
+      if (ownsSlots) {
+        slots?.agent.close(reason);
+        slots?.llm.close(reason);
+      } else {
+        slotScopes?.agent.close(reason);
+        slotScopes?.llm.close(reason);
+      }
     },
     async agent(id: string, options: AgentOptions, verification?: NamedGate): Promise<AgentResult> {
       if (options.workspace !== undefined && localAgentStream !== undefined) {
@@ -353,6 +370,7 @@ function stepDetails(
     ...(found.attempt === undefined ? {} : { attempt: found.attempt }),
     ...(found.maxIterations === undefined ? {} : { maxIterations: found.maxIterations }),
     ...(found.transportRetries === undefined ? {} : { transportRetries: found.transportRetries }),
+    ...(found.unchargedAttempts === undefined ? {} : { unchargedAttempts: found.unchargedAttempts }),
     ...(found.exitCode === undefined ? {} : { exitCode: found.exitCode }),
     ...(found.transportPhase === undefined ? {} : { transportPhase: found.transportPhase }),
     ...(found.transportCause === undefined ? {} : { transportCause: found.transportCause }),

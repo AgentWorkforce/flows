@@ -10,10 +10,11 @@ import {
   registeredAdapters,
 } from './adapters/index.js';
 import type { CliAdapterKind } from './adapters/index.js';
-import type { CliInvocation, CliAdapterIdentification } from './adapters/base.js';
+import type { CliInvocation, CliAdapterIdentification, ModelProbeFailure } from './adapters/base.js';
 
 export type { CliAdapterKind } from './adapters/index.js';
-export type { CliInvocation, CliAdapterIdentification, HeadlessAdapter } from './adapters/base.js';
+export type { CliInvocation, CliAdapterIdentification, HeadlessAdapter, ModelProbeFailure,
+  ModelProbeFailureCause } from './adapters/base.js';
 
 export {
   WRAPPER_IDENTIFY_ARG,
@@ -71,6 +72,11 @@ export function authenticationProbe(kind: CliAdapterKind): CliInvocation {
  */
 export function modelReadinessProbe(kind: CliAdapterKind, model: string): CliInvocation {
   return registeredAdapters()[kind].buildModelReadinessProbe(model);
+}
+
+/** Why a failed readiness probe failed, when the adapter recognises its output. */
+export function classifyModelProbeFailure(kind: CliAdapterKind, output: string): ModelProbeFailure | undefined {
+  return registeredAdapters()[kind].classifyModelProbeFailure?.(output);
 }
 
 /** Build the actual worker argv; this is shared contract, not probe-only lore. */

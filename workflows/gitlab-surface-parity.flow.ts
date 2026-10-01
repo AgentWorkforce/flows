@@ -63,6 +63,7 @@ const PROBE = "parity/probe.json";
 const REPORT = "parity/report.md";
 const SURFACE_PKG = "packages/surface/package.json";
 const CLI = "claude";
+const MODEL = "claude-sonnet-5";
 
 /** A published version string, as npm would print it. Interpolated into a shell command. */
 function validVersion(value: string): boolean {
@@ -71,7 +72,7 @@ function validVersion(value: string): boolean {
 
 export default flow<GitlabSurfaceParityInput>(
   "gitlab-surface-parity",
-  { budget: "$2/run" },
+  { budget: { tokens: 200_000, dollars: 2 } },
   async (f, input) => {
     const branch = input.branch ?? "feat/gitlab-surface-parity";
     if (!/^[A-Za-z0-9][A-Za-z0-9._\/-]*$/u.test(branch)) {
@@ -193,6 +194,7 @@ export default flow<GitlabSurfaceParityInput>(
     await f
       .agent("docs", {
         cli: CLI,
+        model: MODEL,
         task:
           `@relayfile/relay-helpers was just bumped in ${SURFACE_PKG} and packages/surface/src/helpers/gitlab.ts `
           + `was regenerated, so the gitlab helper now exposes ${REQUIRED.join(", ")} with read/list/write/path (previously `

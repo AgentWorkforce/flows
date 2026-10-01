@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -66,7 +66,7 @@ if(request){appendFileSync('agent-effects','once\\n');await new Promise(r=>setTi
 `);
   chmodSync(wrapper, 0o755);
   writeFileSync(join(directory, 'flows.json'), JSON.stringify({ cli: wrapper }));
-  writeFileSync(join(directory, 'case.flow.ts'), `import {flow} from '@relayflows/surface';
+  writeFileSync(join(directory, 'case.flow.ts'), `import {flow,webhook} from '@relayflows/surface';
 import {appendFileSync,existsSync,writeFileSync,writeSync} from 'node:fs';
 export default flow('runtime-case',async f=>{${body}});
 `);
@@ -92,6 +92,15 @@ async function entries(directory: string, runId: string) {
 }
 
 describe('Bun 1.4.0 standalone → native Node authored lifecycle', () => {
+  it('serializes the immutable prepared binding facts through the Node and CLI boundary', () => {
+    const f = fixture(`const activity=f.on(webhook('github_pull_request',{action:'opened',repository:{id:7}}),{settle:'2m',idle:'1h',deadline:'1d',includeSelf:true});await activity.next();f.done('success');`);
+    const result = f.run(); expect(result.status, result.stderr + result.stdout).toBe(4);
+    expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, status: 'suspended', suspension: {
+      kind: 'activation', subscriptionId: 'activity-1', eventTypes: ['github_pull_request'],
+      pattern: { action: 'opened', repository: { id: 7 } }, settleMs: 120_000,
+      idleMs: 3_600_000, includeSelf: true,
+    } });
+  }, 60_000);
   it('suppresses the loader warning while preserving authored experimental warnings', () => {
     const f = fixture(`process.emitWarning('authored warning remains visible', 'ExperimentalWarning');
       await f.run('printf ok'); f.done('success');`);
@@ -131,6 +140,41 @@ f.done('success');`);
     expect(output.journalSteps.map((s:{id:string})=>s.id)).toEqual(['run-1','run-1.gate','run-2','complete-3']);
     const resumed = f.invoke(['resume', report.runId]); expect(resumed.status, resumed.stderr + resumed.stdout).toBe(0);
   }, 90_000);
+
+  it('resumes a run killed mid-step: the retried child passes the durable result verifier', async () => {
+    // Kill the standalone CLI and relayflowd while `run-2` executes, then
+    // resume. Crash recovery journals `crashed`/`retry` and a second attempt
+    // succeeds; the Node body's claim for `run-2` must be verified against
+    // that settling completion, not the first one.
+    const f = fixture(`await f.run('echo ran >> count');
+await f.run('test -f marker || { touch marker; sleep 120; }', { timeout: '5m' });
+f.done('success');`);
+    const child = spawn(cli, ['run', 'case.flow.ts', '--input', '{}', ...f.flags], { cwd: f.directory, env: f.env, stdio: 'ignore' });
+    const exited = new Promise<void>(resolveExit => child.once('exit', () => resolveExit()));
+    const deadline = Date.now() + 60_000;
+    while (!existsSync(join(f.directory, 'marker'))) {
+      if (Date.now() > deadline) throw new Error('run-2 never started');
+      await new Promise(resolveWait => setTimeout(resolveWait, 25));
+    }
+    child.kill('SIGKILL'); await exited;
+    const { pid } = JSON.parse(readFileSync(join(f.directory, 'data/connection.json'), 'utf8'));
+    try { process.kill(pid, 'SIGKILL'); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+    }
+    const rootRunId = readdirSync(join(f.directory, 'data/runs')).filter(name => name.endsWith('.sqlite3'))
+      .map(name => name.slice(0, -'.sqlite3'.length)).sort()[0]!;
+    const resumed = f.invoke(['resume', rootRunId]);
+    expect(resumed.status, resumed.stderr + resumed.stdout).toBe(0);
+    expect(JSON.parse(resumed.stdout)).toMatchObject({ ok: true, completionReason: 'success' });
+    expect(readFileSync(join(f.directory, 'count'), 'utf8')).toBe('ran\n');
+    const output = (await entries(f.directory, rootRunId)).filter(e => e.entry_type === 'step.completed').at(-1)!.payload['output'];
+    const run2 = output.journalSteps.find((s: {id: string}) => s.id === 'run-2');
+    expect(run2).toMatchObject({ completionReason: 'success' });
+    const childEntries = await entries(f.directory, run2.runId);
+    expect(childEntries.filter(e => e.entry_type === 'step.completed')
+      .map(e => [e.payload['completionReason'], e.payload['disposition']]))
+      .toEqual([['crashed', 'retry'], ['success', 'step_done']]);
+  }, 120_000);
 
   it('parks an f.human across the IPC boundary, answers it, and resumes the Node body with the answer', async () => {
     const f = fixture(`await f.agent('worker',{task:'local fixture'});
@@ -241,8 +285,8 @@ f.done('${reason}');`);
     expect(existsSync(join(f.directory,'forbidden-effects'))).toBe(false);
   }, 60_000);
 
-  it('loads captured graph bytes before preserving the unsupported-use refusal', () => {
-    const f=fixture(`f.done('success');`);
+  it('dispatches the captured child graph even when the source changes before execution', () => {
+    const f=fixture(`await f.dispatch('child',{});f.done('success');`);
     const original=`import {flow} from '@relayflows/surface';import {writeFileSync} from 'node:fs';if(!process.versions.bun)writeFileSync('loaded-source','original');export default flow('child',async f=>{f.done('success')});`;
     const modified=original.replace("'original'", "'modified'");
     writeFileSync(join(f.directory,'child.flow.ts'),original);
@@ -250,8 +294,7 @@ f.done('${reason}');`);
       .replace("flow('runtime-case',async", "flow('runtime-case',{use:['./child.flow.ts']},async");
     writeFileSync(join(f.directory,'case.flow.ts'),
       `if(!process.versions.bun)writeFileSync('child.flow.ts',${JSON.stringify(modified)});\n`+root);
-    const result=f.run();expect(result.status,result.stderr+result.stdout).toBe(2);
-    expect(result.stderr+result.stdout).toContain('unsupported_header');
+    const result=f.run();expect(result.status,result.stderr+result.stdout).toBe(0);
     expect(readFileSync(join(f.directory,'child.flow.ts'),'utf8')).toBe(modified);
     expect(readFileSync(join(f.directory,'loaded-source'),'utf8')).toBe('original');
   },30_000);
