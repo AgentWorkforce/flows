@@ -73,4 +73,29 @@ describe('hosted data directory isolation', () => {
       join(installed.root, '.relayflowd'),
     )).rejects.toMatchObject({ code: 'plugin_source_invalid' });
   });
+
+  it('refuses a regular file at the receipt-directory path', async () => {
+    const installed = await project();
+    await mkdir(join(installed.root, '.relayflowd'));
+    await writeFile(join(installed.root, '.relayflowd', 'hosted-extension-receipts'), 'not a directory\n');
+
+    await expect(assertHostedDataDirectoryIsolated(
+      installed.flowPath,
+      join(installed.root, '.relayflowd'),
+    )).rejects.toMatchObject({ code: 'plugin_source_invalid' });
+  });
+
+  it('refuses a dangling symlink at the receipt-directory path', async () => {
+    const installed = await project();
+    await mkdir(join(installed.root, '.relayflowd'));
+    await symlink(
+      join(installed.root, 'missing-receipt-target'),
+      join(installed.root, '.relayflowd', 'hosted-extension-receipts'),
+    );
+
+    await expect(assertHostedDataDirectoryIsolated(
+      installed.flowPath,
+      join(installed.root, '.relayflowd'),
+    )).rejects.toMatchObject({ code: 'plugin_source_invalid' });
+  });
 });

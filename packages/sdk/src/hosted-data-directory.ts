@@ -35,8 +35,14 @@ export async function assertHostedDataDirectoryIsolated(
   // Recheck the derived path so an existing symlink cannot redirect that
   // write from the excluded data tree back into reviewed project source.
   const receiptPath = PATH_RESOLVE(target, 'hosted-extension-receipts');
-  await MKDIR(receiptPath, { recursive: true });
-  const receiptEntry = await LSTAT(receiptPath);
+  let receiptEntry: Awaited<ReturnType<typeof LSTAT>>;
+  try {
+    receiptEntry = await LSTAT(receiptPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    await MKDIR(receiptPath, { recursive: true });
+    receiptEntry = await LSTAT(receiptPath);
+  }
   if (receiptEntry.isSymbolicLink() || !receiptEntry.isDirectory()) {
     throw new PluginError(
       'plugin_source_invalid',
