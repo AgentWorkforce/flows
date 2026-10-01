@@ -45,7 +45,7 @@ const alive = (pid: number): boolean => {
  * two writes, mid multi-byte character — and then runs `tail`.
  */
 function fakeClaude(root: string, frames: unknown[], tail: string, backgroundTask = false, aliasSensitive = false): {
-  claude: string; workspace: string; claudePid: string; taskPid: string; aliasObserved: string;
+  claude: string; workspace: string; claudePid: string; taskPid: string; aliasObserved: string; aliasPath: string;
 } {
   const bin = join(root, 'bin');
   const workspace = join(root, 'workspace');
@@ -55,12 +55,14 @@ function fakeClaude(root: string, frames: unknown[], tail: string, backgroundTas
   const claudePid = join(root, 'claude-pid');
   const taskPid = join(root, 'task-pid');
   const aliasObserved = join(root, 'alias-observed');
+  const aliasPath = join(root, 'alias-path');
   // Deaf to SIGTERM, so only the escalation to SIGKILL can end it.
   const task = `process.on('SIGTERM', () => {}); require('node:fs').writeFileSync(${JSON.stringify(taskPid)}, String(process.pid)); setInterval(() => {}, 1000);`;
   writeFileSync(claude, `#!/usr/bin/env node
 const { existsSync, writeFileSync } = require('node:fs');
 const { spawn } = require('node:child_process');
 writeFileSync(${JSON.stringify(claudePid)}, String(process.pid));
+${aliasSensitive ? `writeFileSync(${JSON.stringify(aliasPath)}, process.argv[1]);` : ''}
 ${aliasSensitive ? `process.on('SIGTERM', () => setTimeout(() => writeFileSync(${JSON.stringify(aliasObserved)}, String(existsSync(process.argv[1]))), 50));` : ''}
 ${backgroundTask ? `spawn(process.execPath, ['-e', ${JSON.stringify(task)}], { detached: true, stdio: 'ignore' });` : ''}
 const lines = ${JSON.stringify(frames)}.map(frame => JSON.stringify(frame) + '\\n');
@@ -74,7 +76,7 @@ setTimeout(() => {
 }, 50);
 `);
   chmodSync(claude, 0o755);
-  return { claude, workspace, claudePid, taskPid, aliasObserved };
+  return { claude, workspace, claudePid, taskPid, aliasObserved, aliasPath };
 }
 
 const usage = { input_tokens: 7, output_tokens: 3 };
@@ -150,18 +152,23 @@ describe('an agent tree does not outlive the process that spawned it', () => {
   it('kills the agent group when the run process is terminated by SIGTERM', async () => {
     expect(existsSync(BUILT_WORKER_CLI), `${BUILT_WORKER_CLI} is missing; run \`npm run build\``).toBe(true);
     const root = makeDirectory();
-    const fake = fakeClaude(root, [init, assistant], hang);
+    const fake = fakeClaude(root, [init, assistant], hang, false, true);
     const harness = join(root, 'harness.mjs');
     writeFileSync(harness, `
 import { runAgentCli } from ${JSON.stringify(BUILT_WORKER_CLI)};
 await runAgentCli(${JSON.stringify(fake.claude)}, 'implement', undefined, undefined, undefined,
-  new AbortController().signal, 'agent', undefined, ${JSON.stringify(fake.workspace)});
+  new AbortController().signal, 'agent', undefined, ${JSON.stringify(fake.workspace)},
+  'direct', undefined, process.env, 'claude');
 `);
     const run = spawn(process.execPath, [harness], { stdio: 'ignore' });
     const deadline = Date.now() + 5_000;
-    while (!existsSync(fake.claudePid) && Date.now() < deadline) await new Promise(settle => setTimeout(settle, 20));
+    while ((!existsSync(fake.claudePid) || !existsSync(fake.aliasPath)) && Date.now() < deadline) {
+      await new Promise(settle => setTimeout(settle, 20));
+    }
     const claudePid = Number(readFileSync(fake.claudePid, 'utf8'));
+    const aliasPath = readFileSync(fake.aliasPath, 'utf8');
     expect(alive(claudePid)).toBe(true);
+    expect(existsSync(aliasPath)).toBe(true);
 
     // Past the fake's last write: a write into a dead pipe would kill it with
     // EPIPE, and the test would prove nothing about the reaper.
@@ -171,5 +178,6 @@ await runAgentCli(${JSON.stringify(fake.claude)}, 'implement', undefined, undefi
     expect(await exited).toBe('SIGTERM');
     await new Promise(settle => setTimeout(settle, 200));
     expect(alive(claudePid)).toBe(false);
+    expect(existsSync(aliasPath)).toBe(false);
   }, 15_000);
 });
