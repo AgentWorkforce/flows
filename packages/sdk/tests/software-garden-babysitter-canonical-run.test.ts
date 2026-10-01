@@ -316,13 +316,25 @@ describe('canonical run dispatches the installed Software Garden Babysitter', ()
       let settled = false;
       const pending = run(installed.flowPath, input('pull_request.labeled', deliveryId), authority);
       void pending.then(() => { settled = true; }, () => { settled = true; });
-      await started;
-      await delay(3_050);
-      expect(settled).toBe(false);
-      expect(calls).toBe(1);
-
-      release();
-      const result = await pending;
+      let result: Awaited<typeof pending> | undefined;
+      try {
+        const startState = await Promise.race([
+          started.then(() => 'started' as const),
+          pending.then(() => 'settled' as const, () => 'settled' as const),
+          delay(5_000).then(() => 'watchdog' as const),
+        ]);
+        if (startState !== 'started') {
+          throw new Error(startState === 'settled'
+            ? 'Hosted run settled before the capability started.'
+            : 'Hosted capability did not start within 5 seconds.');
+        }
+        await delay(3_500);
+        expect(settled).toBe(false);
+        expect(calls).toBe(1);
+      } finally {
+        release();
+        result = await pending;
+      }
       expect(result).toMatchObject({
         exitCode: 1,
         report: {
@@ -342,7 +354,7 @@ describe('canonical run dispatches the installed Software Garden Babysitter', ()
       expect(readdirSync(receipts).map(file => readFileSync(join(receipts, file), 'utf8'))).toEqual(afterCompletion);
       expect(calls).toBe(1);
     },
-    10_000,
+    15_000,
   );
 
   it.skipIf(process.platform !== 'linux' || !existsSync('/usr/bin/bwrap'))(
