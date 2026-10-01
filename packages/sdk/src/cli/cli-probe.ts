@@ -6,6 +6,7 @@ import { adapterIdentification, authenticationProbe, classifyModelProbeFailure, 
   displayInvocation, modelReadinessProbe, type CliInvocation } from '../cli-adapter.js';
 import { MODEL_ENV } from '../worker-cli.js';
 import { CliProbeError, type CliProbeResult } from '../preflight.js';
+import { pinCliAlias, pinCliAliasSync } from './pinned-cli-alias.js';
 
 interface ProbeRequest {
   argv0?: string;
@@ -36,12 +37,19 @@ function driveSync<T>(sequence: Generator<ProbeRequest, T, ProbeOutput>): T {
   let next = sequence.next();
   while (!next.done) {
     const request = next.value;
-    const result = spawnSync(request.executable, request.invocation.args, {
-      ...probeOptions(request),
-      // Preserve the old synchronous probe contract: provider CLIs must not
-      // inherit a readable stdin that can block auth/identify probes.
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const pinned = pinCliAliasSync(request.executable, request.argv0 ?? basename(request.executable));
+    const result = (() => {
+      try {
+        return spawnSync(pinned.executable, request.invocation.args, {
+          ...probeOptions(request),
+          // Preserve the old synchronous probe contract: provider CLIs must not
+          // inherit a readable stdin that can block auth/identify probes.
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+      } finally {
+        pinned.release();
+      }
+    })();
     const failure = classifySpawnFailure(result.error, result.signal, request.invocation.timeoutMs);
     if (failure !== undefined) throw failure;
     next = sequence.next({ status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' });
@@ -57,22 +65,27 @@ function probeOptions({ argv0, directory, invocation, environment }: ProbeReques
     maxBuffer: 1024 * 1024, env, ...(argv0 === undefined ? {} : { argv0 }) };
 }
 
-function runProbeAsync(request: ProbeRequest): Promise<ProbeOutput> {
-  return new Promise((resolve, reject) => {
-    const child = execFile(request.executable, request.invocation.args, probeOptions(request),
-      (error, stdout, stderr) => {
-        // Numeric exit codes are probe results; launch, timeout, signal and buffer
-        // errors are failures to collect a fact, just as in the synchronous driver.
-        if (error?.killed && typeof error.code !== 'string') return reject(new CliProbeError(`timeout:${request.invocation.timeoutMs}ms`));
-        const failure = classifySpawnFailure(
-          error !== null && typeof error.code !== 'number' && error.signal == null ? error : undefined,
-          error?.signal ?? null, request.invocation.timeoutMs);
-        if (failure !== undefined) return reject(failure);
-        resolve({ status: error === null ? 0 : typeof error.code === 'number' ? error.code : null,
-          stdout, stderr });
-      });
-    child.stdin?.end();
-  });
+async function runProbeAsync(request: ProbeRequest): Promise<ProbeOutput> {
+  const pinned = await pinCliAlias(request.executable, request.argv0 ?? basename(request.executable));
+  try {
+    return await new Promise((resolve, reject) => {
+      const child = execFile(pinned.executable, request.invocation.args, probeOptions(request),
+        (error, stdout, stderr) => {
+          // Numeric exit codes are probe results; launch, timeout, signal and buffer
+          // errors are failures to collect a fact, just as in the synchronous driver.
+          if (error?.killed && typeof error.code !== 'string') return reject(new CliProbeError(`timeout:${request.invocation.timeoutMs}ms`));
+          const failure = classifySpawnFailure(
+            error !== null && typeof error.code !== 'number' && error.signal == null ? error : undefined,
+            error?.signal ?? null, request.invocation.timeoutMs);
+          if (failure !== undefined) return reject(failure);
+          resolve({ status: error === null ? 0 : typeof error.code === 'number' ? error.code : null,
+            stdout, stderr });
+        });
+      child.stdin?.end();
+    });
+  } finally {
+    await pinned.release();
+  }
 }
 
 function* probeSequence(

@@ -1,6 +1,7 @@
 import ts from 'typescript';
 import {
   assignmentMayStoreRight,
+  assignedSources,
   type BindingPathSegment,
 } from './shipped-source-binding-provenance.js';
 import {
@@ -182,6 +183,56 @@ function isParameterSymbol(
     bindingNamePaths(parameter.name, symbol, checker).length > 0);
 }
 
+function localCalleeIsStable(
+  expression: ts.CallExpression,
+  checker: ts.TypeChecker,
+): boolean {
+  const callee = unwrap(expression.expression);
+  if (!ts.isIdentifier(callee)) return false;
+  const symbol = checker.getSymbolAtLocation(callee);
+  return symbol !== undefined && assignedSources(symbol, checker).length === 0;
+}
+
+function locallyPureExpression(expression: ts.Expression, allowRootCall: boolean): boolean {
+  let pure = true;
+  const root = unwrap(expression);
+  const visit = (node: ts.Node): void => {
+    if (!pure) return;
+    if (node !== root && ts.isFunctionLike(node)) return;
+    if (ts.isBinaryExpression(node) && assignmentMayStoreRight(node.operatorToken.kind)
+      || ts.isPrefixUnaryExpression(node) && (node.operator === ts.SyntaxKind.PlusPlusToken
+        || node.operator === ts.SyntaxKind.MinusMinusToken)
+      || ts.isPostfixUnaryExpression(node)
+      || ts.isDeleteExpression(node)
+      || ts.isNewExpression(node)
+      || ts.isAwaitExpression(node)
+      || ts.isYieldExpression(node)
+      || ts.isCallExpression(node) && (!allowRootCall || node !== root)) {
+      pure = false;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(root);
+  return pure;
+}
+
+function localCallBodyIsPure(declaration: ts.SignatureDeclaration): boolean {
+  if (!('body' in declaration) || !declaration.body) return false;
+  if (!ts.isBlock(declaration.body)) return locallyPureExpression(declaration.body, true);
+  return declaration.body.statements.every(statement => {
+    if (ts.isEmptyStatement(statement) || ts.isFunctionDeclaration(statement)) return true;
+    if (ts.isReturnStatement(statement)) {
+      return statement.expression === undefined
+        || locallyPureExpression(statement.expression, true);
+    }
+    if (!ts.isVariableStatement(statement)
+      || (statement.declarationList.flags & ts.NodeFlags.Const) === 0) return false;
+    return statement.declarationList.declarations.every(variable =>
+      variable.initializer !== undefined && locallyPureExpression(variable.initializer, false));
+  });
+}
+
 /** Resolve local return expressions to their call actuals for value analysis. */
 export function localCallValueCandidates(
   expression: ts.CallExpression,
@@ -212,6 +263,7 @@ export function localCallValueCandidates(
       }));
     return { auditable: false, candidates };
   }
+  let parameterMappingComplete = true;
   const candidates = returnedExpressions(declaration.body).flatMap(returned => {
     return returnedValueCandidates(returned, checker, nextSeen).flatMap(returnedCandidate => {
       const returnedMember = expressionRootPath(
@@ -233,6 +285,7 @@ export function localCallValueCandidates(
         }));
       }
       const returnedPath = [...returnedMember.path, ...callerPath];
+      const parameterDerived = isParameterSymbol(declaration, returnedMember.symbol, checker);
       const mapped = runtimeParameters(declaration).flatMap((parameter, parameterIndex) =>
         bindingNamePaths(parameter.name, returnedMember.symbol, checker).flatMap(formal =>
           actualCandidates.flatMap(actuals => {
@@ -283,13 +336,19 @@ export function localCallValueCandidates(
             ).map(value => ({ auditable: returnedCandidate.auditable,
               expression: value, seen: new Set(seen) }));
           })));
-      return mapped.length > 0 ? mapped : fallbackAtCallerPath(returnedCandidate);
+      if (mapped.length > 0) return mapped;
+      if (parameterDerived) parameterMappingComplete = false;
+      return fallbackAtCallerPath(returnedCandidate)
+        .map(candidate => ({ ...candidate, auditable: false }));
     });
   });
   return {
     auditable: actualCandidates.length === 1
       && candidates.length === 1
       && candidates[0]?.auditable === true
+      && parameterMappingComplete
+      && localCalleeIsStable(expression, checker)
+      && localCallBodyIsPure(declaration)
       && !expression.arguments.some(ts.isSpreadElement),
     candidates,
   };

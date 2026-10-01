@@ -61,6 +61,23 @@ it('binds the canonical target of a probed executable symlink', async () => {
   });
 });
 
+it('executes a canonical shebang target through its authored alias in both probe drivers', async () => {
+  const { path, directory } = wrapper(`
+const { basename } = require('node:path');
+process.exit(basename(process.argv[1]) === 'claude' ? 0 : 23);
+`);
+  const link = join(directory, 'claude');
+  symlinkSync(path, link);
+  const expected = {
+    exists: true,
+    executable: realpathSync(path),
+    authenticated: true,
+    modelAvailable: true,
+  };
+  expect(probeCli(link, directory, 'exact-model')).toMatchObject(expected);
+  await expect(probeCliAsync(link, directory, 'exact-model')).resolves.toMatchObject(expected);
+});
+
 it('normalizes a relative executable returned by PATH lookup', async () => {
   const root = mkdtempSync(join(tmpdir(), 'relative-path-probe-'));
   directories.push(root);

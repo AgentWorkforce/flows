@@ -29,6 +29,7 @@ import {
   AgentRelayTransportError,
   type AgentTransport,
 } from './agent-relay-transport.js';
+import { pinCliAlias } from './cli/pinned-cli-alias.js';
 
 /** Present only when a dispatched agent step carries a journaled wake context. */
 export const WAKE_CONTEXT_ENV = 'RELAYFLOW_WAKE_CONTEXT';
@@ -349,11 +350,13 @@ async function spawnInvocation(
     void tails?.stdout.close(); void tails?.stderr.close();
     signal.throwIfAborted();
   }
-  return new Promise((resolve) => {
+  const pinned = await pinCliAlias(cli, argv0 ?? basename(cli));
+  try {
+    return await new Promise((resolve) => {
     // Always a group of its own off Windows, so every stop — and
     // `reapOnExit` — reaches the whole agent tree, lease-bound or not.
     const ownsGroup = process.platform !== 'win32';
-    const child = spawn(cli, invocation.args, {
+    const child = spawn(pinned.executable, invocation.args, {
       stdio: ['pipe', 'pipe', 'pipe'], env,
       detached: ownsGroup,
       ...(argv0 === undefined ? {} : { argv0 }),
@@ -504,5 +507,8 @@ async function spawnInvocation(
         });
       }, invocation.timeoutMs);
     }
-  });
+    });
+  } finally {
+    await pinned.release();
+  }
 }

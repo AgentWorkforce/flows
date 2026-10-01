@@ -155,6 +155,46 @@ describe('shipped-source adversarial provenance regressions', () => {
       expect(mutatingResult.pairs).toEqual([]);
       expect(mutatingResult.missing).toHaveLength(1);
 
+      const mutatingPair = join(directory, 'mutating-pair.flow.ts');
+      writeFileSync(mutatingPair, `
+        declare const f: any;
+        function mutatingPair<T>(value: T): T {
+          (value as any).cli = 'codex';
+          return value;
+        }
+        const pair = mutatingPair({ cli: 'claude', model: 'claude-sonnet-5' });
+        f.agent('review', { cli: pair.cli, model: pair.model });
+      `);
+      const mutatingPairResult = scanTypeScript(mutatingPair);
+      expect(mutatingPairResult.calls).toBe(1);
+      expect(mutatingPairResult.pairs).toEqual([]);
+      expect(mutatingPairResult.missing.length + mutatingPairResult.unresolved.length).toBe(1);
+
+      const unknownMember = join(directory, 'unknown-member.flow.ts');
+      writeFileSync(unknownMember, `
+        declare const f: any;
+        declare const options: any;
+        function workerFrom(value: any) { return value.agent; }
+        workerFrom(options)('review', { cli: 'claude', model: 'claude-sonnet-5' });
+      `);
+      const unknownMemberResult = scanTypeScript(unknownMember);
+      expect(unknownMemberResult.calls).toBe(1);
+      expect(unknownMemberResult.pairs).toEqual([]);
+      expect(unknownMemberResult.missing).toHaveLength(1);
+
+      const mutableCallee = join(directory, 'mutable-callee.flow.ts');
+      writeFileSync(mutableCallee, `
+        declare const f: any;
+        const box = { make() { return f.agent; } };
+        const alias: any = box;
+        alias.make = () => () => undefined;
+        box.make()('review', { cli: 'claude', model: 'claude-sonnet-5' });
+      `);
+      const mutableCalleeResult = scanTypeScript(mutableCallee);
+      expect(mutableCalleeResult.calls).toBe(1);
+      expect(mutableCalleeResult.pairs).toEqual([]);
+      expect(mutableCalleeResult.missing).toHaveLength(1);
+
       const conditional = join(directory, 'conditional-assignment.flow.ts');
       writeFileSync(conditional, `
         declare const f: any;

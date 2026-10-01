@@ -105,6 +105,8 @@ process.stdout.write(JSON.stringify({ type: 'result', result: 'ok',
     const calls = join(directory, 'canonical-calls.json');
     const canonical = makeWrapper(directory, 'provider-cli.js', `
 const fs = require('node:fs');
+const path = require('node:path');
+if (path.basename(process.argv[1]) !== 'claude') process.exit(23);
 fs.writeFileSync(${JSON.stringify(calls)}, JSON.stringify(process.argv.slice(2)));
 process.stdout.write(JSON.stringify({ type: 'result', result: 'canonical-ok',
   usage: { input_tokens: 2, output_tokens: 1 } }) + '\\n');

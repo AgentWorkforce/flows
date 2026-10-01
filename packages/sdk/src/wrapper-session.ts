@@ -10,6 +10,8 @@ import {
   sameWrapperIdentity,
   type WrapperIdentity,
 } from './wrapper-runtime.js';
+import { basename } from 'node:path';
+import { pinCliAlias } from './cli/pinned-cli-alias.js';
 
 export interface WrapperSessionLimits {
   handshakeTimeoutMs: number;
@@ -105,7 +107,7 @@ export function runWrapperSession(
   return executePinnedWrapper(cli, identity, request, env, limits, signal, cwd, argv0);
 }
 
-function executePinnedWrapper(
+async function executePinnedWrapper(
   cli: string,
   identity: WrapperIdentity,
   request: string,
@@ -115,9 +117,11 @@ function executePinnedWrapper(
   cwd?: string,
   argv0?: string,
 ): Promise<WrapperSessionResult> {
-  return new Promise((resolve) => {
+  const pinned = await pinCliAlias(identity.executable, argv0 ?? basename(cli));
+  try {
+    return await new Promise((resolve) => {
     const ownsGroup = ownsProcessGroup(signal);
-    const child = spawn(identity.executable, [WRAPPER_IDENTIFY_ARG], {
+    const child = spawn(pinned.executable, [WRAPPER_IDENTIFY_ARG], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env,
       detached: ownsGroup,
@@ -431,7 +435,10 @@ function executePinnedWrapper(
       startDrainGrace();
     });
     child.once('close', (code) => finishOnChildExit(executionResult(code)));
-  });
+    });
+  } finally {
+    await pinned.release();
+  }
 }
 
 function sessionLimits(overrides: Partial<WrapperSessionLimits>): WrapperSessionLimits {
