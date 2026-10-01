@@ -37,6 +37,6 @@ export function createHostedBabysitter(policy: unknown) {
   };
   return subscriptions.reduce<ReturnType<typeof flow>>(
     (handle, subscription) => handle.on(subscription.trigger, body),
-    flow<unknown>('Babysitter', { budget: { dollars: 8, wallclock: '45m' } }, body),
+    flow<unknown>('Babysitter', { budget: { tokens: 800_000, dollars: 8, wallclock: '45m' } }, body),
   );
 }

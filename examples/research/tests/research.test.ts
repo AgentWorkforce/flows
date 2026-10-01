@@ -115,15 +115,15 @@ test("the header pins every agent's CLI and model exactly; a changed or dropped 
   // synthesizer, or changing any lane, is a budget-relevant change that
   // must not pass silently.
   assert.deepEqual(researchFlow.header.agents, {
-    claude: { cli: "claude", model: "sonnet" },
+    claude: { cli: "claude", model: "claude-sonnet-5" },
     codex: { cli: "codex", model: "gpt-5.6-sol" },
-    grok: { cli: "grok", model: "grok-4.6" },
-    synthesizer: { cli: "claude", model: "opus" },
+    grok: { cli: "grok", model: "grok-4.7" },
+    synthesizer: { cli: "claude", model: "claude-opus-5" },
   });
   for (const [name, agent] of Object.entries(researchFlow.header.agents)) {
     assert.ok(agent.model, `${name} declares a model; none is inherited from the host`);
   }
-  assert.equal(researchFlow.header.budget, "$15/run");
+  assert.deepEqual(researchFlow.header.budget, { tokens: 1_500_000, dollars: 15 });
 });
 
 test("every failure class reports a completionReason from COMPLETION_REASONS, and the set is exactly the documented one", () => {

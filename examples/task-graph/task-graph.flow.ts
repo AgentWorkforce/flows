@@ -101,6 +101,7 @@ export default flow<Input>("task-graph", async (f, input) => {
     const before = (await f.run("git rev-parse HEAD")).trim();
     await f.agent("planner", {
       cli: "claude",
+      model: "claude-sonnet-5",
       task:
         `Read this repository, then split the task below into 3-${MAX_SUBTASKS / 2} subtasks that each ` +
         `fit one focused agent session. Make dependsOn honest: only list a dependency when the subtask ` +
@@ -165,6 +166,7 @@ export default flow<Input>("task-graph", async (f, input) => {
       const mayPropose = parent === undefined && followupBudget > 0;
       await f.agent(s.id, {
         cli: "claude",
+        model: "claude-sonnet-5",
         cwd: tree,
         task:
           `You are one subtask of a larger task, working in your own git worktree (${tree}, branch ${branch}). ` +
@@ -192,6 +194,7 @@ export default flow<Input>("task-graph", async (f, input) => {
       if (outcome !== "merged") {
         await onRunBranch(() => f.agent(`${s.id}-merge`, {
           cli: "claude",
+          model: "claude-sonnet-5",
           task: `Merge branch ${branch} into the current branch and resolve every conflict so both sides' intent survives. ` +
             `Run the affected tests, then commit the merge.`,
         }).gate({ type: "subprocess_gate", command: `git merge-base --is-ancestor ${shellWord(branch)} HEAD` }));

@@ -1,13 +1,15 @@
-import { accessSync, constants } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
+import { accessSync, constants, realpathSync } from 'node:fs';
+import { basename, isAbsolute, resolve } from 'node:path';
 import { execFile, spawnSync } from 'node:child_process';
 import { agentEnvironment, brokerEnvironment } from '../communication/environment.js';
 import { adapterIdentification, authenticationProbe, classifyModelProbeFailure, cliAdapterKind,
   displayInvocation, modelReadinessProbe, type CliInvocation } from '../cli-adapter.js';
 import { MODEL_ENV } from '../worker-cli.js';
 import { CliProbeError, type CliProbeResult } from '../preflight.js';
+import { pinCliAlias, pinCliAliasSync } from './pinned-cli-alias.js';
 
 interface ProbeRequest {
+  argv0?: string;
   executable: string;
   directory: string;
   invocation: CliInvocation;
@@ -35,12 +37,19 @@ function driveSync<T>(sequence: Generator<ProbeRequest, T, ProbeOutput>): T {
   let next = sequence.next();
   while (!next.done) {
     const request = next.value;
-    const result = spawnSync(request.executable, request.invocation.args, {
-      ...probeOptions(request),
-      // Preserve the old synchronous probe contract: provider CLIs must not
-      // inherit a readable stdin that can block auth/identify probes.
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const pinned = pinCliAliasSync(request.executable, request.argv0 ?? basename(request.executable));
+    const result = (() => {
+      try {
+        return spawnSync(pinned.executable, request.invocation.args, {
+          ...probeOptions(request),
+          // Preserve the old synchronous probe contract: provider CLIs must not
+          // inherit a readable stdin that can block auth/identify probes.
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+      } finally {
+        pinned.release();
+      }
+    })();
     const failure = classifySpawnFailure(result.error, result.signal, request.invocation.timeoutMs);
     if (failure !== undefined) throw failure;
     next = sequence.next({ status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' });
@@ -48,30 +57,35 @@ function driveSync<T>(sequence: Generator<ProbeRequest, T, ProbeOutput>): T {
   return next.value;
 }
 
-function probeOptions({ directory, invocation, environment }: ProbeRequest) {
+function probeOptions({ argv0, directory, invocation, environment }: ProbeRequest) {
   const env = { ...environment };
   delete env[MODEL_ENV];
   if (invocation.modelEnv !== undefined) env[MODEL_ENV] = invocation.modelEnv;
   return { cwd: directory, encoding: 'utf8' as const, timeout: invocation.timeoutMs,
-    maxBuffer: 1024 * 1024, env };
+    maxBuffer: 1024 * 1024, env, ...(argv0 === undefined ? {} : { argv0 }) };
 }
 
-function runProbeAsync(request: ProbeRequest): Promise<ProbeOutput> {
-  return new Promise((resolve, reject) => {
-    const child = execFile(request.executable, request.invocation.args, probeOptions(request),
-      (error, stdout, stderr) => {
-        // Numeric exit codes are probe results; launch, timeout, signal and buffer
-        // errors are failures to collect a fact, just as in the synchronous driver.
-        if (error?.killed && typeof error.code !== 'string') return reject(new CliProbeError(`timeout:${request.invocation.timeoutMs}ms`));
-        const failure = classifySpawnFailure(
-          error !== null && typeof error.code !== 'number' && error.signal == null ? error : undefined,
-          error?.signal ?? null, request.invocation.timeoutMs);
-        if (failure !== undefined) return reject(failure);
-        resolve({ status: error === null ? 0 : typeof error.code === 'number' ? error.code : null,
-          stdout, stderr });
-      });
-    child.stdin?.end();
-  });
+async function runProbeAsync(request: ProbeRequest): Promise<ProbeOutput> {
+  const pinned = await pinCliAlias(request.executable, request.argv0 ?? basename(request.executable));
+  try {
+    return await new Promise((resolve, reject) => {
+      const child = execFile(pinned.executable, request.invocation.args, probeOptions(request),
+        (error, stdout, stderr) => {
+          // Numeric exit codes are probe results; launch, timeout, signal and buffer
+          // errors are failures to collect a fact, just as in the synchronous driver.
+          if (error?.killed && typeof error.code !== 'string') return reject(new CliProbeError(`timeout:${request.invocation.timeoutMs}ms`));
+          const failure = classifySpawnFailure(
+            error !== null && typeof error.code !== 'number' && error.signal == null ? error : undefined,
+            error?.signal ?? null, request.invocation.timeoutMs);
+          if (failure !== undefined) return reject(failure);
+          resolve({ status: error === null ? 0 : typeof error.code === 'number' ? error.code : null,
+            stdout, stderr });
+        });
+      child.stdin?.end();
+    });
+  } finally {
+    await pinned.release();
+  }
 }
 
 function* probeSequence(
@@ -83,17 +97,27 @@ function* probeSequence(
 ): Generator<ProbeRequest, CliProbeResult, ProbeOutput> {
   const executable = yield* executableSequence(cli, directory, sourceEnvironment);
   if (executable === undefined) return { exists: false, authenticated: false };
-  const kind = cliAdapterKind(executable);
+  // The declaration selects the adapter; the canonical executable selects
+  // the bytes. Package-manager links commonly name `claude` or `codex` while
+  // targeting a generic `cli.js`, whose basename must not rewrite the adapter
+  // contract after resolution.
+  const kind = cliAdapterKind(cli);
   // Relay owns interactive CLI launch/injection. Its generic PTY path is not
   // the headless wrapper protocol; do not demand that protocol from Gemini,
   // Cursor, OpenCode, or other interactive tools. Never invent an auth pass.
   if (execution === 'managed' && kind === 'relayflows-wrapper-v1') {
-    return { exists: true, supported: true, authenticated: 'unverified' };
+    return { exists: true, supported: true, authenticated: 'unverified', executable };
   }
   const environment = execution === 'managed'
-    ? { ...brokerEnvironment(sourceEnvironment), ...agentEnvironment(executable, sourceEnvironment) }
+    ? { ...brokerEnvironment(sourceEnvironment), ...agentEnvironment(cli, sourceEnvironment) }
     : sourceEnvironment;
-  const probe = (invocation: CliInvocation): ProbeRequest => ({ executable, directory, invocation, environment });
+  const probe = (invocation: CliInvocation): ProbeRequest => ({
+    executable,
+    argv0: basename(cli),
+    directory,
+    invocation,
+    environment,
+  });
   const identification = adapterIdentification(kind);
   const identified = yield probe(identification.invocation);
   if (
@@ -110,6 +134,7 @@ function* probeSequence(
       exists: true,
       supported: true,
       authenticated: (yield probe(auth)).status === 0,
+      executable,
       authCommand,
     };
   }
@@ -126,6 +151,7 @@ function* probeSequence(
       supported: true,
       authenticated: true,
       modelAvailable: true,
+      executable,
       authCommand,
       modelCommand,
     };
@@ -145,6 +171,7 @@ function* probeSequence(
     supported: true,
     authenticated,
     modelAvailable: false,
+    executable,
     authCommand,
     modelCommand,
     modelExitCode: scopedProbe.status,
@@ -181,16 +208,25 @@ function redactProbeOutput(text: string): string {
 function* executableSequence(command: string, directory: string, environment: NodeJS.ProcessEnv): Generator<ProbeRequest, string | undefined, ProbeOutput> {
   if (command.includes('/') || isAbsolute(command)) {
     const path = isAbsolute(command) ? command : resolve(directory, command);
-    try {
-      accessSync(path, constants.X_OK);
-      return path;
-    } catch {
-      return undefined;
-    }
+    return canonicalExecutable(path);
   }
   const result = yield { executable: 'which', directory: process.cwd(),
     invocation: { args: [command], timeoutMs: 5_000 }, environment };
-  return result.status === 0 ? result.stdout.trim() : undefined;
+  return result.status === 0
+    ? canonicalExecutable(resolve(process.cwd(), result.stdout.trim()))
+    : undefined;
+}
+
+function canonicalExecutable(path: string): string | undefined {
+  try {
+    accessSync(path, constants.X_OK);
+    // Dispatch must retain the exact target that readiness probed. Keeping a
+    // symlink path would allow the link to be retargeted between admission and
+    // worker spawn even though the compiled step carries an absolute path.
+    return realpathSync(path);
+  } catch {
+    return undefined;
+  }
 }
 
 function classifySpawnFailure(

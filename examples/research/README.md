@@ -1,10 +1,11 @@
 # examples/research — a fan-out research relayflow, authored on flows v2
 
-**PASS — 690.935s with the documented default budget**, using authenticated
-Claude, Codex and Grok CLIs. The run produced three lane reports and a synthesis,
-with `completionReason: synthesized` and exit 0.
-[Command and full output](../../docs/evidence/ws13/followup/default-budget/gallery-research.txt),
-[generated reports](../../docs/evidence/ws13/followup/default-budget/reports/).
+**Historical run record — 690.935s with the then-current default budget.** The
+archived run used authenticated Claude, Codex and Grok CLIs and produced three
+lane reports plus a synthesis with `completionReason: synthesized` and exit 0.
+It is not verification of the current model pins.
+[Archived command and output](../../docs/evidence/ws13/followup/default-budget/gallery-research.txt),
+[archived reports](../../docs/evidence/ws13/followup/default-budget/reports/).
 An earlier verification attempt used a three-minute step limit and timed out;
 that shorter limit was not enough for this multi-agent research workload.
 
@@ -53,7 +54,7 @@ entry point preflights every declared (CLI, model) pair before creating
 anything, printing each check and its timeout to stderr: a cheap auth probe where one exists (`claude auth status`,
 `codex login status`), then a live one-line round-trip with the declared
 model flag that must answer exactly `OK` (trimmed; "NOT OK" and "OK." fail). An authenticated CLI that cannot resolve a
-declared model (`opus` on a host that does not know the alias) is refused as
+declared model (`claude-opus-5` on a host that does not know that model) is refused as
 `model_unavailable` at minute zero, never discovered after other lanes have
 spent. Four pairs, a few tokens each; typically under a minute of wall-clock
 before the run starts, capped at 90 s per pair. Preflight is asynchronous, so
@@ -179,8 +180,11 @@ to widen the kernel vocabulary.
   exactly two subagents; the CLIs (Claude's Agent tool, Codex `multi_agent`,
   Grok subagents) do so in their own way, and the transcript in `<lane>.log`
   is the evidence. Nothing in the shim can count them.
-- **No budget enforcement.** The header declares `$15/run`; nothing meters
-  it until the kernel's budget envelope lands.
+- **Declared token and dollar budget.** The header declares 1.5M tokens / $15,
+  but the research shim does not enforce either limit. It records
+  provider-reported usage for every step and requires a usage record from each
+  lane and the synthesizer; it does not journal dollar-unmetered usage. Exact
+  provider/model preflight remains fail-closed.
 - **Lane failure fails the whole run.** There is no partial synthesis over
   two of three reports. Re-run with a **new `--slug`** (or move the failed
   run's directory aside): the run dir is `<date>-<slug>` and a non-empty one
@@ -196,8 +200,8 @@ to widen the kernel vocabulary.
 - **No trajectory for Grok beyond its final object.** `grok --output-format
   json` returns one object; its `streaming-json` mode was not adopted because
   it was not verified to end with a usage record.
-- **Models are declared, never inherited.** Claude lanes use the CLI aliases
-  `sonnet` / `opus`; Codex is pinned to `gpt-5.6-sol` and Grok to
-  `grok-4.6`, the models those CLIs resolved in the first run.
+- **Models are declared, never inherited.** Claude lanes use
+  `claude-sonnet-5` / `claude-opus-5`; Codex is pinned to `gpt-5.6-sol`
+  and Grok to `grok-4.7`, the models those CLIs resolve today.
   Preflight round-trips each pair, so a host that cannot resolve one refuses
   at minute zero; change the header, not the host, to move a lane.

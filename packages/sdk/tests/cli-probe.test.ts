@@ -1,9 +1,10 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { probeCli, probeCliAsync } from '../src/cli/cli-probe.js';
 import * as adapters from '../src/cli-adapter.js';
+import { runCli } from '../src/cli.js';
 
 const directories: string[] = [];
 afterEach(() => {
@@ -21,6 +22,86 @@ function wrapper(body: string) {
 const identify = `if (process.argv[2] === '--relayflows-adapter-v1') {
   console.log('relayflows-agent-cli-v1'); process.exit(0);
 }`;
+
+it('does not expose the removed authored readiness probe through the public CLI', async () => {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  await expect(runCli(['--probe-cli', 'provider', 'model', '/tmp'], {
+    stdout: line => stdout.push(line),
+    stderr: line => stderr.push(line),
+  })).resolves.toBe(2);
+  expect(stdout).toEqual([]);
+  expect(stderr.join('\n')).toContain('invalid_invocation');
+});
+
+it('returns the absolute executable selected for a bare CLI name', async () => {
+  const { path, directory } = wrapper(identify + 'process.exit(0)');
+  const previousPath = process.env.PATH;
+  process.env.PATH = `${directory}:${previousPath ?? ''}`;
+  try {
+    await expect(probeCliAsync('wrapper', directory, 'exact-model')).resolves.toMatchObject({
+      exists: true,
+      executable: realpathSync(path),
+      modelAvailable: true,
+    });
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+  }
+});
+
+it('binds the canonical target of a probed executable symlink', async () => {
+  const { path, directory } = wrapper(identify + 'process.exit(0)');
+  const link = join(directory, 'wrapper-link');
+  symlinkSync(path, link);
+  await expect(probeCliAsync(link, directory, 'exact-model')).resolves.toMatchObject({
+    exists: true,
+    executable: realpathSync(path),
+    modelAvailable: true,
+  });
+});
+
+it('executes a canonical shebang target through its authored alias in both probe drivers', async () => {
+  const { path, directory } = wrapper(`
+const { basename } = require('node:path');
+process.exit(basename(process.argv[1]) === 'claude' ? 0 : 23);
+`);
+  const link = join(directory, 'claude');
+  symlinkSync(path, link);
+  const expected = {
+    exists: true,
+    executable: realpathSync(path),
+    authenticated: true,
+    modelAvailable: true,
+  };
+  expect(probeCli(link, directory, 'exact-model')).toMatchObject(expected);
+  await expect(probeCliAsync(link, directory, 'exact-model')).resolves.toMatchObject(expected);
+});
+
+it('normalizes a relative executable returned by PATH lookup', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'relative-path-probe-'));
+  directories.push(root);
+  const bin = join(root, 'bin');
+  mkdirSync(bin);
+  const executable = join(bin, 'relative-wrapper');
+  writeFileSync(executable, '#!/usr/bin/env node\n' + identify + 'process.exit(0)');
+  chmodSync(executable, 0o755);
+  const previousCwd = process.cwd();
+  const previousPath = process.env.PATH;
+  process.chdir(root);
+  process.env.PATH = `./bin:${previousPath ?? ''}`;
+  try {
+    await expect(probeCliAsync('relative-wrapper', root, 'exact-model')).resolves.toMatchObject({
+      exists: true,
+      executable: realpathSync(executable),
+      modelAvailable: true,
+    });
+  } finally {
+    process.chdir(previousCwd);
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+  }
+});
 
 it.each([
   ['success', 'process.exit(0)', { authenticated: true, modelAvailable: true }],
@@ -55,16 +136,30 @@ it('uses an explicit provider environment for every probe process', async () => 
 });
 
 it('reports timeout in both drivers while the async driver leaves the loop free', async () => {
-  const { path, directory } = wrapper(identify + 'setTimeout(() => {}, 10_000);');
+  const observed = join(tmpdir(), `probe-alias-timeout-${process.pid}-${Date.now()}`);
+  const { path: canonical, directory } = wrapper(identify + `
+const { appendFileSync, existsSync } = require('node:fs');
+process.on('SIGTERM', () => {
+  appendFileSync(${JSON.stringify(observed)}, String(existsSync(process.argv[1])));
+  process.removeAllListeners('SIGTERM');
+  process.kill(process.pid, 'SIGTERM');
+});
+setTimeout(() => {}, 10_000);
+`);
+  directories.push(observed);
+  const path = join(directory, 'timed-wrapper');
+  symlinkSync(canonical, path);
   const original = adapters.modelReadinessProbe;
   vi.spyOn(adapters, 'modelReadinessProbe').mockImplementation((kind, model) =>
     ({ ...original(kind, model), timeoutMs: 100 }));
   expect(() => probeCli(path, directory, 'test-model')).toThrow(expect.objectContaining({ detail: 'timeout:100ms' }));
+  expect(readFileSync(observed, 'utf8')).toBe('true');
   let ticked = false;
   const timer = setTimeout(() => { ticked = true; }, 20);
   await expect(probeCliAsync(path, directory, 'test-model')).rejects.toMatchObject({ detail: 'timeout:100ms' });
   clearTimeout(timer);
   expect(ticked).toBe(true);
+  expect(readFileSync(observed, 'utf8')).toBe('truetrue');
 });
 
 it('reports signal termination in both drivers', async () => {

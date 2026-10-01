@@ -163,6 +163,16 @@ impl RunSpec {
             if cli.as_ref().is_some_and(|value| value.trim().is_empty()) {
                 return Err(SpecError::EmptyStepCli(step.id.clone()));
             }
+            if step
+                .cli_identity
+                .as_ref()
+                .is_some_and(|value| value.trim().is_empty())
+            {
+                return Err(SpecError::Malformed(format!(
+                    "step {}: cli_identity must be a non-empty string",
+                    step.id
+                )));
+            }
             if let StepKind::Agent { surfaces, cwd, .. } = &step.kind {
                 if let Some(cwd) = cwd
                     && !is_run_root_relative_path(cwd)
@@ -338,10 +348,11 @@ const STEP_COMMON_FIELDS: &[&str] = &[
     "requirements",
 ];
 const STEP_DETERMINISTIC_FIELDS: &[&str] = &["command", "timeout_ms", "lease_ms", "on_non_zero"];
-const STEP_LLM_FIELDS: &[&str] = &["prompt", "model", "cli"];
+const STEP_LLM_FIELDS: &[&str] = &["prompt", "model", "cli", "cli_identity"];
 const STEP_AGENT_FIELDS: &[&str] = &[
     "instruction",
     "cli",
+    "cli_identity",
     "model",
     "cwd",
     "transport",
@@ -428,6 +439,10 @@ pub struct StepSpec {
     pub memory: Option<crate::memory::MemorySpec>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requirements: Option<crate::PlacementRequirements>,
+    /// Host-proved authored name used to select an adapter when `cli` is the
+    /// canonical target of a symlink with a generic basename.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cli_identity: Option<String>,
     #[serde(flatten)]
     pub kind: StepKind,
 }

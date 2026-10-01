@@ -277,7 +277,7 @@ describe('native Babysitter extension', () => {
       prototype.update = function poisonedUpdate() { poisonCalls += 1; return this; } as typeof prototype.update;
       prototype.digest = (() => {
         poisonCalls += 1;
-        return '8bbcf0e42f47d6bc6491a129935f96b791be03c8a5ed5b73d651c4e77913e2d7';
+        return '4339c0c45a4fc928092a3e32275c061000887ed95acdc2f898966c35aca91a2d';
       }) as typeof prototype.digest;
       await expect(loadHostedExtensionRuntime(racing.flowPath))
         .rejects.toMatchObject({ code: 'plugin_source_invalid' });

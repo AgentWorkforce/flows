@@ -24,10 +24,7 @@ import type {
   AgentStepSpec,
   DeterministicStepSpec,
   FlowSpec,
-  KernelAgentStep,
   KernelRunSpec,
-  KernelStepCommon,
-  KernelStepSpec,
   KernelTriggerSpec,
   KernelVerificationSpec,
   LlmStepSpec,
@@ -45,6 +42,13 @@ import { validateSpec, type ValidationResult } from './validate.js';
 import { snapshotJsonValue } from './json-value.js';
 import { expandYamlHelpers } from './yaml-helpers.js';
 import { expandCommunication, validateCommunicationTopology } from './communication/spec.js';
+import {
+  inheritResolvedCliIdentities,
+  resolvedCliIdentities,
+  type ResolvedKernelAgentStep,
+  type ResolvedKernelStepCommon,
+  type ResolvedKernelStepSpec,
+} from './resolved-cli-identity.js';
 
 export class CompileError extends Error {
   readonly errors: string[];
@@ -173,7 +177,7 @@ export function compileSpec(spec: unknown): CompiledFlowSpec {
     ...(input.workspace !== undefined ? { workspace: input.workspace } : {}),
     ...(input.tools !== undefined ? { tools: input.tools } : {}),
   };
-  return flow;
+  return inheritResolvedCliIdentities(spec, flow);
 }
 
 function compileStep(step: StepSpec): StepSpec {
@@ -325,6 +329,7 @@ export function toKernelSpec(flow: FlowSpec): KernelRunSpec {
   // This public boundary is callable without compileSpec. Compile again so
   // runtime casts are validated and all returned schema data is snapshotted.
   const compiled = compileSpec(flow);
+  const cliIdentities = resolvedCliIdentities(compiled);
 
   return {
     version: compiled.version,
@@ -347,7 +352,10 @@ export function toKernelSpec(flow: FlowSpec): KernelRunSpec {
     // reverse order would hand the green gate a source whose barrier it does
     // not wait for.
     steps: lowerNamedGates(lowerStepsGreenGates(compiled.steps))
-      .map((step) => toKernelStep(resolveNamedAgent(step, compiled.agents))),
+      .map((step) => toKernelStep(
+        resolveNamedAgent(step, compiled.agents),
+        cliIdentities?.get(step.id),
+      )),
     ...(compiled.budget !== undefined ? { budget: toKernelBudget(compiled.budget) } : {}),
   };
 }
@@ -374,7 +382,7 @@ export function kernelToAuthoring(value: unknown): unknown {
   const steps = requireKernelArray(root['steps'], 'spec.steps')
     .map((step, index) => kernelStepToAuthoring(step, `spec.steps[${index}]`));
   const triggers = root['triggers'];
-  return {
+  const authoring: FlowSpec = {
     ...copyDefined(root, ['version', 'name', 'description', 'cli']),
     ...(triggers !== undefined
       ? {
@@ -386,7 +394,8 @@ export function kernelToAuthoring(value: unknown): unknown {
     ...(root['budget'] !== undefined
       ? { budget: kernelBudgetToAuthoring(root['budget'], 'spec.budget') }
       : {}),
-  };
+  } as FlowSpec;
+  return authoring;
 }
 
 /**
@@ -443,17 +452,22 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
   const unionKeys = [
     'id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements', 'input',
     'command', 'timeout_ms', 'lease_ms', 'on_non_zero', 'prompt', 'model', 'cli', 'instruction',
-    'cwd', 'recovery_mode', 'surfaces', 'permissions',
+    'cwd', 'recovery_mode', 'surfaces', 'permissions', 'cli_identity',
   ] as const;
   const step = requireKernelObject(value, unionKeys, at);
+  if (step['cli_identity'] !== undefined) {
+    throw new CompileError([
+      `${at}.cli_identity: host-proved adapter identity is not accepted from serialized input`,
+    ], 'untrusted_cli_identity');
+  }
   const type = step['type'];
   const commonKeys = ['id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements', 'input'] as const;
   const typeKeys = type === 'deterministic'
     ? ['command', 'timeout_ms', 'lease_ms', 'on_non_zero'] as const
     : type === 'llm'
-      ? ['prompt', 'model', 'cli'] as const
+      ? ['prompt', 'model', 'cli', 'cli_identity'] as const
       : type === 'agent'
-        ? ['instruction', 'cli', 'model', 'cwd', 'recovery_mode', 'surfaces', 'permissions'] as const
+        ? ['instruction', 'cli', 'model', 'cwd', 'recovery_mode', 'surfaces', 'permissions', 'cli_identity'] as const
         : [];
   assertKernelKeys(step, [...commonKeys, ...typeKeys], at);
   if (step['retry'] !== undefined) validateAuthoringRetryDefaults(step['retry'], `${at}.retry`);
@@ -596,8 +610,8 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function toKernelStep(step: StepSpec): KernelStepSpec {
-  const common: KernelStepCommon = {
+function toKernelStep(step: StepSpec, cliIdentity?: string): ResolvedKernelStepSpec {
+  const common: ResolvedKernelStepCommon = {
     id: step.id,
     depends_on: step.input === undefined ? step.dependsOn ?? []
       : [...new Set([...(step.dependsOn ?? []), ...bindingDependencies(step.input)])],
@@ -605,6 +619,7 @@ function toKernelStep(step: StepSpec): KernelStepSpec {
     max_iterations: step.maxIterations ?? 1,
     retry: { ...KERNEL_RETRY_DEFAULTS },
     verification: toKernelVerification(step),
+    ...(cliIdentity !== undefined ? { cli_identity: cliIdentity } : {}),
     ...(step.requirements !== undefined ? { requirements: {
       ...Object.fromEntries(Object.entries(step.requirements).filter(([key]) => key !== 'expectedDurationMs')),
       ...(step.requirements.expectedDurationMs !== undefined ? { expected_duration_ms: step.requirements.expectedDurationMs } : {}),
@@ -643,7 +658,7 @@ function toKernelStep(step: StepSpec): KernelStepSpec {
       };
     }
     case 'agent': {
-      const out: KernelAgentStep = {
+      const out: ResolvedKernelAgentStep = {
         ...common,
         type: 'agent',
         instruction: step.instruction,

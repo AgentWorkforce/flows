@@ -1,4 +1,5 @@
 import { communicationInstruction } from '../communication/spec.js';
+import { rememberResolvedCliIdentities } from '../resolved-cli-identity.js';
 import { checkCommunicationEnvironment } from '../communication/preflight.js';
 import { accessSync, constants, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, parse as parsePath, resolve } from 'node:path';
@@ -15,6 +16,7 @@ import { parseMcpConfig } from '../mcp-config.js';
 import type { StepGateInspection } from '../gate-contract.js';
 import type { CheckFailureKind, CheckWarningKind } from '../failure-kinds.js';
 import {
+  cliProbeKey,
   preflight,
   type CliResolution,
   type CliProbeResult,
@@ -202,11 +204,15 @@ export function checkAuthoredFlow(
     const projectConfig = options !== undefined
       ? options.projectConfig
       : projectConfigOrOptions as ProjectConfig | undefined;
-    const effectiveProbeCache = cliProbeCache ?? options?.probeCache;
+    // Keep the exact probe result so the executable identity selected during
+    // readiness is the one written onto the admitted step. Without an
+    // explicit map, preflight would allocate a private cache and a bare CLI
+    // name could be resolved again under the later worker cwd.
+    const effectiveProbeCache = cliProbeCache ?? options?.probeCache ?? new Map<string, CliProbeOutcome>();
     const config = projectConfig ?? readProjectConfig(dirname(absolutePath));
     const probes = systemProbes(dirname(absolutePath), config, invocation.environment);
     const result = preflight(authoring, {
-      ...(effectiveProbeCache === undefined ? {} : { cliProbeCache: effectiveProbeCache }),
+      cliProbeCache: effectiveProbeCache,
       projectCli: config.cli,
       projectConfigPath: config.path,
       projectSearchStart: dirname(absolutePath),
@@ -220,6 +226,7 @@ export function checkAuthoredFlow(
           result.resolutions,
           dirname(absolutePath),
           config.directory,
+          effectiveProbeCache,
         )
       : undefined;
     if (flow?.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
@@ -472,20 +479,34 @@ function bindResolvedCliPaths(
   resolutions: readonly CliResolution[],
   flowDirectory: string,
   configDirectory: string,
+  probeCache: ReadonlyMap<string, CliProbeOutcome>,
 ): FlowSpec {
   const byStep = new Map(resolutions.map((resolution) => [resolution.stepId, resolution]));
-  return {
+  const identities = new Map<string, string>();
+  const bound: FlowSpec = {
     ...flow,
     steps: flow.steps.map((step) => {
       if (step.type === 'deterministic') return step;
       const resolution = byStep.get(step.id);
       if (resolution === undefined) return step;
       const directory = resolution.source === 'project' ? configDirectory : flowDirectory;
-      return { ...step, cli: canonicalCli(resolution.cli, directory),
+      const managed = step.type === 'agent' && communicationInstruction(step.instruction) !== undefined;
+      const outcome = probeCache.get(cliProbeKey(resolution, managed));
+      const executable = outcome !== undefined && 'result' in outcome
+        ? outcome.result.executable
+        : undefined;
+      const boundCli = executable !== undefined && isAbsolute(executable)
+        ? executable
+        : canonicalCli(resolution.cli, directory);
+      if (executable !== undefined && isAbsolute(executable)) {
+        identities.set(step.id, resolution.cli);
+      }
+      return { ...step, cli: boundCli,
         ...(resolution.modelSource === 'adapter' && resolution.model !== undefined
           ? { model: resolution.model } : {}) };
     }),
   };
+  return rememberResolvedCliIdentities(bound, identities);
 }
 
 function canonicalCli(cli: string, directory: string): string {

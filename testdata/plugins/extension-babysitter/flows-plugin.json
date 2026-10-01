@@ -68,6 +68,7 @@
       "github:pull_request:comment"
     ],
     "budget": {
+      "tokens": 800000,
       "dollars": 8,
       "wallclock": "45m"
     }

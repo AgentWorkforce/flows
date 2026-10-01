@@ -22,6 +22,13 @@ A missing price never refuses a run. What is and is not enforced:
   unmetered.
 - **Tokens and wallclock** are enforced for every step, priced or not.
 
+First-party example flows that pin a current model alias without a verified
+frozen price pair their nominal dollar budget with an explicit token ceiling.
+The examples use 100,000 tokens per nominal budget dollar (for example, a
+$10 example also declares 1,000,000 tokens). The dollar field remains useful
+when a verified rate is added, while the token field is the enforceable bound
+today; an unknown price is never guessed or treated as zero.
+
 The project model allowlist (`flows.json` `models`) is a separate preflight
 check and still refuses an unlisted model as `model_unknown`, before and
 independent of pricing.

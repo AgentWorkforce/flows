@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { JournalClient } from '../src/journal-client.js';
 import type { Pins } from '../src/protocol.js';
 import { AgentWorker } from '../src/worker.js';
-import { runAgentCli } from '../src/worker-cli.js';
+import { cliInvocationArgv0, runAgentCli } from '../src/worker-cli.js';
 
 const directories: string[] = [];
 
@@ -98,6 +98,40 @@ process.stdout.write(JSON.stringify({ type: 'result', result: 'ok',
 
     expect(result.exit_code).toBe(0);
     expect(JSON.parse(readFileSync(observed, 'utf8'))).toEqual({ secret: 'house-secret', ambient: null });
+  });
+
+  it('dispatches canonical generic bytes with the preflight-proved adapter identity', async () => {
+    const directory = makeDirectory();
+    const calls = join(directory, 'canonical-calls.json');
+    const canonical = makeWrapper(directory, 'provider-cli.js', `
+const fs = require('node:fs');
+const path = require('node:path');
+if (path.basename(process.argv[1]) !== 'claude') process.exit(23);
+fs.writeFileSync(${JSON.stringify(calls)}, JSON.stringify(process.argv.slice(2)));
+process.stdout.write(JSON.stringify({ type: 'result', result: 'canonical-ok',
+  usage: { input_tokens: 2, output_tokens: 1 } }) + '\\n');
+`);
+    const result = await runAgentCli(
+      canonical,
+      'do the task',
+      undefined,
+      'claude-sonnet-5',
+      undefined,
+      undefined,
+      'agent',
+      undefined,
+      undefined,
+      'direct',
+      undefined,
+      process.env,
+      'claude',
+    );
+    expect(result).toMatchObject({ exit_code: 0, stdout_tail: 'canonical-ok' });
+    expect(cliInvocationArgv0(canonical, 'claude')).toBe('claude');
+    expect(JSON.parse(readFileSync(calls, 'utf8'))).toEqual([
+      '-p', '--dangerously-skip-permissions', '--model', 'claude-sonnet-5',
+      '--output-format', 'stream-json', '--verbose', 'do the task',
+    ]);
   });
 });
 
@@ -197,6 +231,32 @@ process.stdin.on('end', () => {
 });
 
 describe('custom wrapper execution identity', () => {
+  it('returns a fail-closed result when the authored invocation alias cannot be pinned', async () => {
+    const directory = makeDirectory();
+    const wrapper = makeWrapper(directory, 'provider-cli.js', `
+process.stdout.write('relayflows-agent-cli-v1\\n');
+`);
+
+    const result = await runAgentCli(
+      wrapper,
+      'instruction',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'agent',
+      undefined,
+      directory,
+      'direct',
+      undefined,
+      process.env,
+      '.',
+    );
+
+    expect(result.exit_code).toBeNull();
+    expect(result.stderr_tail).toMatch(/wrapper invocation alias could not be pinned.*invalid cli identity basename/i);
+  });
+
   it('passes an explicit safe environment at identification and execution', async () => {
     const directory = makeDirectory();
     const wrapper = makeWrapper(directory, 'environment-wrapper', `

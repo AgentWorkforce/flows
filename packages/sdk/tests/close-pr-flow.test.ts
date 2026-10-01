@@ -5,12 +5,16 @@ import { spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flow } from '@relayflows/surface';
-import closePr from '../scripts/dogfood/close-pr.flow.js';
+import closePr, {
+  executableFrom,
+  requiredRepairModel,
+} from '../scripts/dogfood/close-pr.flow.js';
 import {
   analyzeFindings, checksCommand, parseChecks, parseInput, parsePrNumber, quote,
   type BotComment, type Check, type ClosePrInput, type ReviewThread,
 } from '../scripts/dogfood/close-pr-state.js';
 import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
+import { getAuthoredFlowDefinition } from '../src/authored-flow.js';
 import { runDirectFlow } from '../src/cli/direct-run.js';
 import * as runOperations from '../src/cli/run.js';
 import { JournalClient } from '../src/journal-client.js';
@@ -45,6 +49,7 @@ interface Snapshot { checks: Check[]; comments?: BotComment[]; threads?: ReviewT
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 
@@ -124,12 +129,16 @@ describe('close-pr journaled repair loop', () => {
     ], { existing: true });
     const result = await h.execute();
     expect(result.completionReason).toBe('success');
+    expect(h.commands[0]).toContain('IMPL_CLOSE_INPUT');
+    expect(h.commands.every(command => !command.includes('--probe-cli'))).toBe(true);
     expect(h.commands.some(command => command.includes('gh pr create'))).toBe(false);
     expect(h.agents()).toHaveLength(1);
     expect(h.agents()[0]).toMatchObject({
       cli: 'codex', model: 'test-model', instruction: expect.stringContaining('Null access'),
       surfaces: { workspace: [{ surface: baseInput.worktree }] },
     });
+    expect(getAuthoredFlowDefinition(closePr).body.toString())
+      .toMatch(/f\.agent\(["']close-pr-repair["']/u);
     const push = h.commands.findIndex(command => command.includes('git push --force-with-lease'));
     const merge = h.commands.findIndex(command => command.includes('gh pr merge'));
     expect(push).toBeGreaterThan(0);
@@ -140,7 +149,7 @@ describe('close-pr journaled repair loop', () => {
     expect(new Set(result.journalSteps.map(step => step.id)).size).toBe(h.specs.length);
     expect(h.reads).toHaveLength(h.specs.length);
     expect(h.commands.filter(command => command.includes('/comments'))).toHaveLength(2);
-  });
+  }, 15_000);
 
   it('opens a PR and feeds failed CI logs into the repair agent', async () => {
     const h = await harness([{ checks: [failed, green[1]!] }, { checks: green }]);
@@ -148,6 +157,57 @@ describe('close-pr journaled repair loop', () => {
     expect(h.commands.some(command => command.includes('gh pr create'))).toBe(true);
     expect(h.commands.some(command => command.includes('gh run view 42') && command.includes('--log-failed'))).toBe(true);
     expect(h.agents()[0]?.instruction).toContain('error TS1005: syntax error');
+  }, 15_000);
+
+  it.each([
+    ['codex', 'gpt-5.6-sol'],
+    ['claude', 'claude-sonnet-5'],
+  ])('pins the current generated model for %s when no override is supplied', async (cli, model) => {
+    const h = await harness([{ checks: [failed, green[1]!] }, { checks: green }], {
+      input: { cli, model: undefined },
+    });
+    expect((await h.execute()).completionReason).toBe('success');
+    expect(h.agents()[0]).toMatchObject({ cli, model });
+  }, 15_000);
+
+  it('requires an explicit model for a custom repair wrapper', () => {
+    expect(() => requiredRepairModel('/opt/custom-wrapper')).toThrow(/requires input\.model/);
+    expect(() => requiredRepairModel('cursor-agent')).toThrow(/requires input\.model/);
+    expect(() => requiredRepairModel('grok')).toThrow(/requires input\.model/);
+    expect(requiredRepairModel(' codex ')).toBe('gpt-5.6-sol');
+    expect(requiredRepairModel('/opt/custom-wrapper', ' custom-model ')).toBe('custom-model');
+    expect(() => requiredRepairModel('codex', '   ')).toThrow(/non-empty string/);
+    expect(() => requiredRepairModel('/opt/custom-wrapper', 'bad\nmodel')).toThrow(/control characters/);
+    expect(requiredRepairModel('/usr/local/bin/codex')).toBe('gpt-5.6-sol');
+    expect(requiredRepairModel('./tools/claude.exe')).toBe('claude-sonnet-5');
+  });
+
+  it('resolves a slash-relative wrapper before host-owned repair preflight', async () => {
+    const h = await harness([{ checks: [failed, green[1]!] }, { checks: green }], {
+      input: { cli: './tools/repair-wrapper', model: 'exact-model' },
+    });
+    expect((await h.execute()).completionReason).toBe('success');
+    const executable = executableFrom('./tools/repair-wrapper', baseInput.worktree);
+    expect(h.agents()[0]).toMatchObject({ cli: executable, model: 'exact-model' });
+    expect(h.commands.every(command => !command.includes('--probe-cli'))).toBe(true);
+  });
+
+  it('lets an approval-only run merge without resolving an unused repair pair', async () => {
+    const h = await harness([{ checks: green }], {
+      input: { cli: '/opt/custom-wrapper', model: undefined },
+    });
+    expect((await h.execute()).completionReason).toBe('success');
+    expect(h.commands.some(command => command.includes('--probe-cli'))).toBe(false);
+    expect(h.agents()).toHaveLength(0);
+  });
+
+  it.each([undefined, 'bad\nmodel'])('rejects an invalid custom repair model %j before invoking a repair agent', async model => {
+    const h = await harness([{ checks: [failed, green[1]!] }], {
+      input: { cli: '/opt/custom-wrapper', model },
+    });
+    await expect(h.execute()).rejects.toThrow(/requires input\.model|model: must not contain control characters/);
+    expect(h.agents()).toHaveLength(0);
+    expect(h.commands.some(command => command.includes('gh pr merge'))).toBe(false);
   });
 
   it('parks after exactly three nonconverging repairs, with accumulated blockers', async () => {
@@ -160,7 +220,7 @@ describe('close-pr journaled repair loop', () => {
     expect(h.commands.at(-2)).toContain('TypeScript failed');
     expect(h.commands.at(-2)).toContain('"iterations":3');
     expect(h.commands.at(-1)).toBe(`printf '%s' '{"completionReason":"needs_human"}'`);
-  });
+  }, 15_000);
 
   it('can converge on the third repair', async () => {
     const h = await harness([
@@ -169,7 +229,7 @@ describe('close-pr journaled repair loop', () => {
     ]);
     expect((await h.execute()).completionReason).toBe('success');
     expect(h.agents()).toHaveLength(3);
-  });
+  }, 15_000);
 
   it('polls pending checks without spending repair attempts or reading incomplete logs', async () => {
     const h = await harness([
@@ -287,8 +347,12 @@ describe('PR state parsing and shell boundaries', () => {
   });
   it('validates input and PR identity', () => {
     expect(parseInput(JSON.stringify(baseInput))).toEqual(baseInput);
+    expect(parseInput(JSON.stringify({ ...baseInput, cli: ' codex ', model: ' exact-model ' })))
+      .toMatchObject({ cli: 'codex', model: 'exact-model' });
     expect(() => parseInput(JSON.stringify({ ...baseInput, worktree: '.' }))).toThrow();
     expect(() => parseInput(JSON.stringify({ ...baseInput, maxPolls: 0 }))).toThrow();
+    expect(() => parseInput(JSON.stringify({ ...baseInput, cli: 'bad\ncli' }))).toThrow(/cli:.*control/);
+    expect(() => parseInput(JSON.stringify({ ...baseInput, model: 'bad\nmodel' }))).toThrow(/model:.*control/);
     expect(parsePrNumber('https://github.com/acme/repo/pull/7\n')).toBe(7);
     expect(() => parsePrNumber('failed: 7')).toThrow();
   });

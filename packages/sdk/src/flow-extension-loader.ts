@@ -13,7 +13,18 @@ import { pluginStoreDirectory, readStoredPluginFiles } from './plugin-store.js';
 const JSON_PARSE = JSON.parse;
 const ARRAY_IS_ARRAY = Array.isArray;
 const JSON_STRINGIFY = JSON.stringify;
+const NUMBER = Number;
+const NUMBER_IS_FINITE = Number.isFinite.bind(Number);
+const NUMBER_IS_SAFE_INTEGER = Number.isSafeInteger.bind(Number);
+const NUMBER_TO_STRING = Function.prototype.call.bind(Number.prototype.toString) as (
+  value: number,
+) => string;
+const OBJECT_GET_OWN_PROPERTY_DESCRIPTOR = Object.getOwnPropertyDescriptor;
 const OBJECT_FREEZE = Object.freeze;
+const POSITIVE_INFINITY = Number.POSITIVE_INFINITY;
+const REGEXP_EXEC = Function.prototype.call.bind(RegExp.prototype.exec) as (
+  regexp: RegExp, value: string,
+) => RegExpExecArray | null;
 const REGEXP_TEST = Function.prototype.call.bind(RegExp.prototype.test) as (
   regexp: RegExp, value: string,
 ) => boolean;
@@ -74,12 +85,111 @@ export interface LoadFlowExtensionsOptions<Authority> {
 
 const EXTENSION_HEADER_FIELDS = new Set(['budget', 'tools']);
 const WALLCLOCK_MS = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
+type StructuredFlowBudget = Exclude<NonNullable<AuthoredFlowDefinition['header']['budget']>, string>;
+
+function ownBudgetField<K extends keyof StructuredFlowBudget>(
+  budget: StructuredFlowBudget,
+  field: K,
+): StructuredFlowBudget[K] | undefined {
+  const descriptor = OBJECT_GET_OWN_PROPERTY_DESCRIPTOR(budget, field);
+  return descriptor !== undefined && 'value' in descriptor
+    ? descriptor.value as StructuredFlowBudget[K]
+    : undefined;
+}
 
 function wallclockMs(value: string): number | undefined {
-  const match = /^(\d+)(ms|s|m|h|d)$/.exec(value);
+  const match = REGEXP_EXEC(/^(\d+)(ms|s|m|h|d)$/, value);
   if (!match) return undefined;
   const unit = match[2] as keyof typeof WALLCLOCK_MS;
-  return Number(match[1]) * WALLCLOCK_MS[unit];
+  const milliseconds = NUMBER(match[1]) * WALLCLOCK_MS[unit];
+  return NUMBER_IS_FINITE(milliseconds) ? milliseconds : undefined;
+}
+
+function hasBudgetCeiling(budget: StructuredFlowBudget): boolean {
+  return ownBudgetField(budget, 'tokens') !== undefined
+    || ownBudgetField(budget, 'dollars') !== undefined
+    || ownBudgetField(budget, 'wallclock') !== undefined;
+}
+
+function validateStructuredBudget(budget: StructuredFlowBudget): void {
+  const tokens = ownBudgetField(budget, 'tokens');
+  if (tokens !== undefined && (!NUMBER_IS_SAFE_INTEGER(tokens) || tokens < 0)) {
+    throw new PluginError('plugin_incompatible', `Malformed token budget ceiling ${JSON_STRINGIFY(tokens)}.`);
+  }
+  const dollars = ownBudgetField(budget, 'dollars');
+  if (dollars !== undefined && (!NUMBER_IS_FINITE(dollars) || dollars < 0
+    || REGEXP_EXEC(/^\d+(?:\.\d{1,6})?$/, NUMBER_TO_STRING(dollars)) === null)) {
+    throw new PluginError('plugin_incompatible', `Malformed dollar budget ceiling ${JSON_STRINGIFY(dollars)}.`);
+  }
+}
+
+function composeBudget(
+  base: AuthoredFlowDefinition['header']['budget'],
+  extensions: readonly LoadedFlowExtension[],
+): AuthoredFlowDefinition['header']['budget'] {
+  type Budget = NonNullable<AuthoredFlowDefinition['header']['budget']>;
+  type StructuredBudget = Exclude<Budget, string>;
+  const effectiveBase = typeof base === 'object' && !hasBudgetCeiling(base)
+    ? undefined
+    : base;
+  const ceilings: Budget[] = [];
+  for (let index = 0; index < extensions.length; index += 1) {
+    const extension = extensions[index]!;
+    const manifestBudget = extension.manifest.permissions.budget;
+    const entryBudget = extension.getDefinition(extension.handle).header.budget;
+    if (manifestBudget !== undefined
+      && (typeof manifestBudget === 'string' || hasBudgetCeiling(manifestBudget))) {
+      appendIntrinsicArray(ceilings, manifestBudget);
+    }
+    if (entryBudget !== undefined
+      && (typeof entryBudget === 'string' || hasBudgetCeiling(entryBudget))) {
+      appendIntrinsicArray(ceilings, entryBudget);
+    }
+  }
+  if (ceilings.length === 0) return base;
+  if (effectiveBase === undefined && ceilings.length === 1 && typeof ceilings[0] === 'string') {
+    return ceilings[0];
+  }
+  let shorthand = typeof effectiveBase === 'string';
+  for (let index = 0; index < ceilings.length; index += 1) {
+    if (typeof ceilings[index] === 'string') shorthand = true;
+  }
+  if (shorthand) {
+    throw new PluginError('plugin_incompatible', 'A shorthand budget cannot compose with structured base-flow or extension budget ceilings.');
+  }
+  const budgets: StructuredBudget[] = [];
+  if (effectiveBase !== undefined) appendIntrinsicArray(budgets, effectiveBase as StructuredBudget);
+  for (let index = 0; index < ceilings.length; index += 1) {
+    appendIntrinsicArray(budgets, ceilings[index] as StructuredBudget);
+  }
+  let tokens: number | undefined;
+  let dollars: number | undefined;
+  let wallclock: string | undefined;
+  let wallclockLimit = POSITIVE_INFINITY;
+  for (let index = 0; index < budgets.length; index += 1) {
+    const budget = budgets[index]!;
+    const budgetTokens = ownBudgetField(budget, 'tokens');
+    const budgetDollars = ownBudgetField(budget, 'dollars');
+    const budgetWallclock = ownBudgetField(budget, 'wallclock');
+    validateStructuredBudget(budget);
+    if (budgetTokens !== undefined && (tokens === undefined || budgetTokens < tokens)) tokens = budgetTokens;
+    if (budgetDollars !== undefined && (dollars === undefined || budgetDollars < dollars)) dollars = budgetDollars;
+    if (budgetWallclock !== undefined) {
+      const candidate = wallclockMs(budgetWallclock);
+      if (candidate === undefined) {
+        throw new PluginError('plugin_incompatible', `Malformed wallclock budget ceiling ${JSON_STRINGIFY(budgetWallclock)}.`);
+      }
+      if (wallclock === undefined || candidate < wallclockLimit) {
+        wallclock = budgetWallclock;
+        wallclockLimit = candidate;
+      }
+    }
+  }
+  return OBJECT_FREEZE({
+    ...(tokens === undefined ? {} : { tokens }),
+    ...(dollars === undefined ? {} : { dollars }),
+    ...(wallclock === undefined ? {} : { wallclock }),
+  });
 }
 
 /** Credentials and servers declared on a flow-extension, probed before the base body starts. */
@@ -253,14 +363,26 @@ async function loadOne<Authority>(
   assertBaseCompatible(manifest, { name: base.definition.name, version: base.definition.header.version });
   const baseBudget = base.definition.header.budget;
   const ceiling = manifest.permissions.budget;
-  if (ceiling?.dollars !== undefined && typeof baseBudget === 'object' && baseBudget.dollars !== undefined && ceiling.dollars > baseBudget.dollars) {
-    throw new PluginError('plugin_incompatible', `${manifest.name} declares a $${ceiling.dollars} budget ceiling above the base flow's $${baseBudget.dollars}.`);
+  if (ceiling !== undefined && hasBudgetCeiling(ceiling) && typeof baseBudget === 'string') {
+    throw new PluginError('plugin_incompatible', `${manifest.name} declares a structured budget ceiling that cannot compose with the base flow's shorthand budget.`);
   }
-  if (ceiling?.wallclock !== undefined && typeof baseBudget === 'object' && baseBudget.wallclock !== undefined) {
-    const pluginMs = wallclockMs(ceiling.wallclock);
-    const baseMs = wallclockMs(baseBudget.wallclock);
+  const ceilingTokens = ceiling === undefined ? undefined : ownBudgetField(ceiling, 'tokens');
+  const ceilingDollars = ceiling === undefined ? undefined : ownBudgetField(ceiling, 'dollars');
+  const ceilingWallclock = ceiling === undefined ? undefined : ownBudgetField(ceiling, 'wallclock');
+  const baseTokens = typeof baseBudget === 'object' ? ownBudgetField(baseBudget, 'tokens') : undefined;
+  const baseDollars = typeof baseBudget === 'object' ? ownBudgetField(baseBudget, 'dollars') : undefined;
+  const baseWallclock = typeof baseBudget === 'object' ? ownBudgetField(baseBudget, 'wallclock') : undefined;
+  if (ceilingTokens !== undefined && baseTokens !== undefined && ceilingTokens > baseTokens) {
+    throw new PluginError('plugin_incompatible', `${manifest.name} declares a ${ceilingTokens}-token budget ceiling above the base flow's ${baseTokens}-token ceiling.`);
+  }
+  if (ceilingDollars !== undefined && baseDollars !== undefined && ceilingDollars > baseDollars) {
+    throw new PluginError('plugin_incompatible', `${manifest.name} declares a $${ceilingDollars} budget ceiling above the base flow's $${baseDollars}.`);
+  }
+  if (ceilingWallclock !== undefined && baseWallclock !== undefined) {
+    const pluginMs = wallclockMs(ceilingWallclock);
+    const baseMs = wallclockMs(baseWallclock);
     if (pluginMs !== undefined && baseMs !== undefined && pluginMs > baseMs) {
-      throw new PluginError('plugin_incompatible', `${manifest.name} declares a ${ceiling.wallclock} wallclock ceiling above the base flow's ${baseBudget.wallclock}.`);
+      throw new PluginError('plugin_incompatible', `${manifest.name} declares a ${ceilingWallclock} wallclock ceiling above the base flow's ${baseWallclock}.`);
     }
   }
   const entryPath = join(directory, manifest.entry);
@@ -279,7 +401,9 @@ async function loadOne<Authority>(
   if (!manifest.extends.handlers && definition.handlers.length > 0) {
     throw new PluginError('plugin_manifest_invalid', `${manifest.name}: ${manifest.entry} declares handlers but extends.handlers is false.`);
   }
-  definition.handlers.forEach((handler, index) => assertDeclaredSubscription(manifest.name, manifest, handler, index));
+  for (let index = 0; index < definition.handlers.length; index += 1) {
+    assertDeclaredSubscription(manifest.name, manifest, definition.handlers[index]!, index);
+  }
   const hooks = imported.hooks;
   const exported = Object.keys(hooks).sort();
   const declared = [...manifest.extends.hooks].sort();
@@ -292,9 +416,13 @@ async function loadOne<Authority>(
       throw new PluginError('plugin_incompatible', `${manifest.name}: hook ${hook} is not declared by the base flow.`);
     }
   }
-  return Object.freeze({
+  const handlers: TriggerHandler[] = [];
+  for (let index = 0; index < definition.handlers.length; index += 1) {
+    appendIntrinsicArray(handlers, definition.handlers[index]!);
+  }
+  return OBJECT_FREEZE({
     name: manifest.name, version: manifest.version, ref, digest: lock.digest, directory, entryPath, manifest,
-    handle: imported.handle, getDefinition: imported.getDefinition, handlers: Object.freeze([...definition.handlers]),
+    handle: imported.handle, getDefinition: imported.getDefinition, handlers: OBJECT_FREEZE(handlers),
     hooks,
   });
 }
@@ -329,11 +457,23 @@ export async function loadFlowExtensions<Authority>(
   return Object.freeze(loaded);
 }
 
-/** The base definition with extension handlers appended in lock order; the base's own fields are untouched. */
+/** The base definition with extension handlers appended and every declared budget ceiling retained. */
 export function composeDefinition<Input>(base: AuthoredFlowDefinition<Input>, extensions: readonly LoadedFlowExtension[]): AuthoredFlowDefinition<Input> {
   if (extensions.length === 0) return base;
-  return Object.freeze({
+  const budget = composeBudget(base.header.budget, extensions);
+  const handlers: TriggerHandler[] = [];
+  for (let index = 0; index < base.handlers.length; index += 1) appendIntrinsicArray(handlers, base.handlers[index]!);
+  for (let extensionIndex = 0; extensionIndex < extensions.length; extensionIndex += 1) {
+    const extensionHandlers = extensions[extensionIndex]!.handlers;
+    for (let handlerIndex = 0; handlerIndex < extensionHandlers.length; handlerIndex += 1) {
+      appendIntrinsicArray(handlers, extensionHandlers[handlerIndex]!);
+    }
+  }
+  return OBJECT_FREEZE({
     ...base,
-    handlers: Object.freeze([...base.handlers, ...extensions.flatMap(extension => extension.handlers)]),
+    header: budget === base.header.budget
+      ? base.header
+      : OBJECT_FREEZE({ ...base.header, budget }),
+    handlers: OBJECT_FREEZE(handlers),
   });
 }

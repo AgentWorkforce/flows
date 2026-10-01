@@ -6,6 +6,7 @@ import { PluginError, pluginKindOf } from './plugin-manifest.js';
 import { safePath } from './bundle.js';
 import { SHA, parsePluginSource, type PluginSourceInput } from './plugin-source.js';
 import { isVersionRange, parseVersion } from './semver-range.js';
+import { parseBudget } from './budget.js';
 
 /**
  * Schema 2, `kind: "flow-extension"`: a plugin whose `entry` default-exports
@@ -29,7 +30,7 @@ export interface FlowExtensionPermissions {
   readonly mcp: readonly string[];
   /** Declared effect classes, shown for review; not enforced by this runtime (gate 8 / #442). */
   readonly writes: readonly string[];
-  readonly budget?: { readonly dollars?: number; readonly wallclock?: string };
+  readonly budget?: { readonly tokens?: number; readonly dollars?: number; readonly wallclock?: string };
 }
 export interface FlowExtensionManifest {
   readonly schema: 2;
@@ -117,10 +118,12 @@ function permissions(value: unknown): FlowExtensionPermissions {
   for (const harness of harnesses) if (!(FLOW_HARNESSES as readonly string[]).includes(harness)) return invalid(`permissions.harnesses: unknown harness ${harness}.`);
   let budget: FlowExtensionPermissions['budget'];
   if (value.budget !== undefined) {
-    if (!object(value.budget) || Object.keys(value.budget).some(k => !['dollars', 'wallclock'].includes(k))) return invalid('permissions.budget expects dollars and/or wallclock.');
+    if (!object(value.budget) || Object.keys(value.budget).some(k => !['tokens', 'dollars', 'wallclock'].includes(k))) return invalid('permissions.budget expects tokens, dollars, and/or wallclock.');
+    if (value.budget.tokens !== undefined && (typeof value.budget.tokens !== 'number' || !Number.isSafeInteger(value.budget.tokens) || value.budget.tokens < 0)) return invalid('permissions.budget.tokens must be a non-negative safe integer.');
     if (value.budget.dollars !== undefined && (typeof value.budget.dollars !== 'number' || !(value.budget.dollars > 0) || !Number.isFinite(value.budget.dollars))) return invalid('permissions.budget.dollars must be a positive number.');
     if (value.budget.wallclock !== undefined && (typeof value.budget.wallclock !== 'string' || !WALLCLOCK.test(value.budget.wallclock))) return invalid('permissions.budget.wallclock must be a duration such as 45m.');
-    budget = Object.freeze({ ...(value.budget.dollars === undefined ? {} : { dollars: value.budget.dollars }), ...(value.budget.wallclock === undefined ? {} : { wallclock: value.budget.wallclock }) });
+    try { parseBudget(value.budget); } catch { return invalid('permissions.budget must use runtime budget syntax.'); }
+    budget = Object.freeze({ ...(value.budget.tokens === undefined ? {} : { tokens: value.budget.tokens }), ...(value.budget.dollars === undefined ? {} : { dollars: value.budget.dollars }), ...(value.budget.wallclock === undefined ? {} : { wallclock: value.budget.wallclock }) });
   }
   return Object.freeze({
     integrations: stringList(value.integrations, 'permissions.integrations', PROVIDER),

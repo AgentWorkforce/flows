@@ -61,7 +61,7 @@ const TEST = 'if [ -f package.json ] && node -e \'p=require("./package.json");pr
 export default flow<Input>("software-factory", {
   version: "2.0.23",
   hooks: ["pre-implement", "post-review", "merge-gate"],
-  budget: { dollars: 10, wallclock: "1h" },
+  budget: { tokens: 1_000_000, dollars: 10, wallclock: "1h" },
 }, async (f, input) => {
   const { issue } = input;
   if (!issue || typeof issue.source !== "string" || !issue.source.trim() || typeof issue.title !== "string" || !issue.title.trim()) {
@@ -147,6 +147,7 @@ export default flow<Input>("software-factory", {
 
   await f.agent("implementer", {
     cli: "claude",
+    model: "claude-sonnet-5",
     task: `Implement this ticket in the current repository, on the current branch, with regression tests. Commit as you go.\n` +
       `Write a PR description to ${WORK}/summary.md (what changed, how it was verified). Do not touch ${WORK}/ otherwise.\n\nTicket:\n${ticket}`,
   }).gate({ type: "subprocess_gate", command: `test -s ${WORK}/summary.md` });
@@ -157,6 +158,7 @@ export default flow<Input>("software-factory", {
   // what it finds; it must end with an explicit verdict file, not prose.
   await f.agent("adversary", {
     cli: "claude",
+    model: "claude-sonnet-5",
     task: `Review the diff against the base branch as an adversary: find bugs, missing tests, unsafe defaults, and scope creep. ` +
       `Fix what is mechanical and re-run the tests. Write ${WORK}/review.md with your findings, then write ${WORK}/review.passed ` +
       `ONLY if the change is ready for a human to merge; write ${WORK}/review.blocked with any blocking defects. ` +

@@ -39,6 +39,8 @@
 // `isAuthorizedConflictCommander`) and unit-tested, but nothing dispatches it.
 
 import { flow, github } from "@relayflows/surface";
+import { basename, dirname, isAbsolute, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // ── input ───────────────────────────────────────────────────────────────────
 
@@ -61,6 +63,8 @@ export interface Input {
   githubTransport?: "helper" | "curl";
   /** The coding-agent CLI that writes the review. Default `claude`; `codex`, or a custom wrapper path. */
   reviewerCli?: string;
+  /** Required exact model when reviewerCli names a custom wrapper. */
+  reviewerModel?: string;
   /**
    * The repository's verification command, pinned by the operator BEFORE the
    * agent runs. Default `npm test`. It is never read from the checkout, so an
@@ -73,14 +77,18 @@ export interface Input {
 
 export const REVIEW_FILE = ".workforce/review.md";
 export const DEFAULT_SKIP_LABEL = "no-agent-relay-review";
+export const LEGACY_REVIEWER_FLOW_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 
 // ── the flow ────────────────────────────────────────────────────────────────
 
 const reviewerBody = flow<Input>(
   "pr-reviewer",
-  { budget: { dollars: 8, wallclock: "45m" } },
+  { budget: { tokens: 800_000, dollars: 8, wallclock: "45m" } },
   async (f, input) => {
     const pr = prFromInput(input);
+    const reviewerCli = input.reviewerCli === undefined ? "claude" : input.reviewerCli.trim();
+    const cliProblem = declarationStringError(reviewerCli);
+    if (cliProblem !== undefined) throw new Error(`Invalid reviewer CLI: ${cliProblem}`);
     const api = (path: string) =>
       f.run(`curl -sf -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" ${shellWord(`https://api.github.com/repos/${pr.owner}/${pr.repo}${path}`)}`);
 
@@ -99,6 +107,15 @@ const reviewerBody = flow<Input>(
       await f.run(`printf '%s\\n' ${shellWord(merged ? `merged #${pr.number} at ${pr.headSha}` : `GitHub did not confirm the merge of #${pr.number}`)}`);
       return f.done(merged ? "success" : "step_failed");
     }
+
+    // Approval-only wakes never dispatch the reviewer. Review wakes pin the
+    // exact pair here; the host-owned f.agent preflight proves it before the
+    // worker is admitted.
+    const reviewerModel = requiredReviewerModel(reviewerCli, input.reviewerModel);
+    // f.agent's host-owned preflight probes this exact pair with the isolated
+    // provider environment before admitting the worker. Authored f.run steps
+    // intentionally cannot receive that credential overlay.
+    const reviewerExecutable = reviewerExecutableFrom(reviewerCli, LEGACY_REVIEWER_FLOW_DIRECTORY);
 
     // ── review gate: merged/closed, draft, disabling label, author allowlist ──
     const meta = JSON.parse(await api(`/pulls/${pr.number}`)) as PrMeta;
@@ -130,7 +147,8 @@ const reviewerBody = flow<Input>(
     // ── the review. One agent step, gated on the file it must write. ──
     await f
       .agent("review", {
-        cli: input.reviewerCli ?? "claude",
+        cli: reviewerExecutable,
+        model: reviewerModel,
         task: reviewHarnessPrompt(pr) + `\nWrite the review to ${REVIEW_FILE}. Read .workforce/threads.json for the existing bot and reviewer comments.`,
       })
       .gate({ type: "subprocess_gate", command: `test -s ${REVIEW_FILE}` });
@@ -201,6 +219,35 @@ const reviewer = reviewerBody
 
 export { reviewer };
 export default reviewer;
+
+export function requiredReviewerModel(cli: string, override?: string): string {
+  const normalizedCli = cli.trim();
+  const cliProblem = declarationStringError(normalizedCli);
+  if (cliProblem !== undefined) throw new Error(`Invalid reviewer CLI: ${cliProblem}`);
+  const model = override === undefined
+    ? (basename(normalizedCli).replace(/\.exe$/iu, "") === "claude" ? "claude-sonnet-5"
+      : basename(normalizedCli).replace(/\.exe$/iu, "") === "codex" ? "gpt-5.6-sol" : undefined)
+    : override.trim();
+  if (model === undefined) throw new Error(`Custom reviewer CLI ${JSON.stringify(cli)} requires reviewerModel`);
+  const modelProblem = declarationStringError(model);
+  if (modelProblem !== undefined) throw new Error(`Invalid reviewer model: ${modelProblem}`);
+  return model;
+}
+
+/** Resolve authored relative wrappers before the probe binds every CLI to an absolute executable. */
+export function reviewerExecutableFrom(cli: string, directory: string): string {
+  return (cli.includes("/") || cli.includes("\\")) && !isAbsolute(cli) ? resolve(directory, cli) : cli;
+}
+
+
+function declarationStringError(value: string): string | undefined {
+  if (!value) return "expected a non-empty string";
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (code < 0x20 || code === 0x7f) return "must not contain control characters";
+  }
+  return undefined;
+}
 
 // ── GitHub writes ───────────────────────────────────────────────────────────
 // Kept outside the body on purpose: `flows check` discovers `f.github` by

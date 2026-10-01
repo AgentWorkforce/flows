@@ -124,11 +124,11 @@ const NODE_EXECUTABLE = captureNodeExecutable();
 const ADDRESS_SPACE_BYTES = 16 * 1024 * 1024 * 1024;
 const DATA_BYTES = 3 * 1024 * 1024 * 1024;
 const SURFACE_RUNTIME_SHA256 = OBJECT_FREEZE({
-  'flow.js': '4aaeacc55de3074f4d121ce7253c3be50a93757e6540ba8159889a9450d1c05c',
+  'flow.js': '2ba972849bf435bba36b918c348efeab71ec34d180cec7a722e535f482687a6a',
   'helpers/providers.js': '4eb06d0d85ca0a3434bb2dbba7407e3d95eef2dfbedaeb0e2de0c0c0ea812457',
   'provider-trigger.js': 'e2664c65397f93fb486eb6f1e756c7cec3f88b3851d79c23567cad986f80f1ff',
   'schedule.js': '8fe72f176a75ec0b5f26e12db7a597575c259a2e2cbb59690f9dc20a5e63940b',
-  'triggers.js': '4a3515b571a318f6c7a5661f9310bc9af43e3faf20ea39903a9b363c51258e4c',
+  'triggers.js': '421609a6ea6d2ea77051dd4826a32e773b7db81dedd1dde91f4187b382cd46e3',
   'triggers/github.js': 'e312994320f82aad0af00d09c504175d929cc6c601dfe1bc522632462ad9a48b',
 });
 const SURFACE_PACKAGE_JSON = '{"name":"@relayflows/surface","type":"module","exports":{".":"./index.js","./runtime":"./runtime.js"}}';
