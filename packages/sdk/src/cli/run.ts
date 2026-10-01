@@ -847,7 +847,13 @@ export async function classifyOutcome(
       || (inspection.runningStep === undefined && inspection.backoffStep === undefined))) {
       parkedStep = inspection.parkedStep;
       needsHuman = inspection.needsHuman;
-      current = { ...current, status: inspection.status };
+      // `run.get` reports the live snapshot as `running` for an ordinary
+      // runnable worker wait, even when `run.start`/`run.resume` already
+      // classified the outcome as parked. Conversely, a re-admitted run can
+      // arrive here with a stale `running` outcome after its worker vanished.
+      // The step-level inspection is authoritative that this is a park; do
+      // not copy its broader run status and lose that classification.
+      current = { ...current, status: 'parked' };
       break;
     }
     if (inspection?.runningStep !== undefined) {

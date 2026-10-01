@@ -94,6 +94,11 @@ const parkedOnAgent: RunGetResult = {
   budget: { tokens_in: 0, tokens_out: 0, dollars: '0' },
 };
 
+const runningOnRunnableAgent: RunGetResult = {
+  ...parkedOnAgent,
+  status: 'running',
+};
+
 async function classifyPark(
   command: 'run' | 'resume',
   report: Partial<typeof base>,
@@ -211,6 +216,17 @@ describe('the remedy on a worker park', () => {
 
     const result = await classifyOutcome(client, 'run',
       { ...parked, status: 'running' }, base, '/unused', {});
+
+    expect(result.exitCode).toBe(3);
+    expect(result.report.status).toBe('parked');
+    expect(result.report.parkCause).toBe('worker_unavailable');
+    expect(result.report.parkedStep?.id).toBe('work');
+  });
+
+  it('preserves a parked outcome when its runnable snapshot still says running', async () => {
+    const { client } = clientReturning([runningOnRunnableAgent]);
+
+    const result = await classifyOutcome(client, 'run', parked, base, '/unused', {});
 
     expect(result.exitCode).toBe(3);
     expect(result.report.status).toBe('parked');
