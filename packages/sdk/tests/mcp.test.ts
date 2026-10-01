@@ -12,6 +12,7 @@ import { preflight, type PreflightProbes } from '../src/preflight.js';
 import { openMcpSession } from '../src/mcp-client.js';
 import { parseMcpConfig } from '../src/mcp-config.js';
 import { McpStdioTransport } from '../src/mcp-stdio.js';
+import { FORCE_KILL_DELAY_MS, GROUP_EXIT_CONFIRM_TIMEOUT_MS } from '../src/child-stop.js';
 import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
 import { buildMcpProxy } from '../src/authored-mcp.js';
 import { JournalClient } from '../src/journal-client.js';
@@ -153,15 +154,42 @@ ${stdio === 'inherit' ? `await import(${JSON.stringify(pathToFileURL(mock('ok'))
       await transport.start();
       await vi.waitFor(() => expect(existsSync(marker)).toBe(true));
       const started = Date.now();
-      await expect(transport.close()).rejects.toThrow(/did not stop answering within 1000ms/i);
-      expect(Date.now() - started).toBeGreaterThanOrEqual(2_000);
-      expect(Date.now() - started).toBeLessThan(4_000);
+      await expect(transport.close()).rejects.toThrow(
+        new RegExp(`did not stop answering within ${GROUP_EXIT_CONFIRM_TIMEOUT_MS}ms`, 'i'),
+      );
+      const stopBound = FORCE_KILL_DELAY_MS + GROUP_EXIT_CONFIRM_TIMEOUT_MS;
+      expect(Date.now() - started).toBeGreaterThanOrEqual(stopBound);
+      expect(Date.now() - started).toBeLessThan(stopBound + (2 * Math.max(
+        FORCE_KILL_DELAY_MS,
+        GROUP_EXIT_CONFIRM_TIMEOUT_MS,
+      )));
       gone(marker);
     } finally {
       kill.mockRestore();
       if (existsSync(marker)) {
         try { actualKill(JSON.parse(readFileSync(marker, 'utf8')).pid, 'SIGKILL'); } catch { /* already gone */ }
       }
+    }
+  }, 10_000);
+  it.skipIf(process.platform === 'win32')('cancels force escalation when close follows an exited child', async () => {
+    const transport = new McpStdioTransport({ command: process.execPath, args: ['-e', ''] });
+    let observedEnd!: () => void;
+    const ended = new Promise<void>(resolveEnd => { observedEnd = resolveEnd; });
+    transport.onclose = observedEnd;
+    await transport.start();
+    await ended;
+    // stdout end precedes the child close event; let close and its
+    // `maySettleOnChildExit` observation enter the transport first.
+    await delay(50);
+    const actualKill = process.kill.bind(process);
+    const kill = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => actualKill(pid, signal));
+    try {
+      await transport.close();
+      const callsAtClose = kill.mock.calls.length;
+      await delay(FORCE_KILL_DELAY_MS + 100);
+      expect(kill.mock.calls.slice(callsAtClose).some(([, signal]) => signal === 'SIGKILL')).toBe(false);
+    } finally {
+      kill.mockRestore();
     }
   }, 10_000);
   it('classifies a mid-call stdout drop without retry and closes the child', async () => {

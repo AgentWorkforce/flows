@@ -168,7 +168,7 @@ async function executePinnedWrapper(
       signal?.removeEventListener('abort', onAbort);
       resolve(result);
     };
-    let pendingStopResult: WrapperSessionResult | undefined;
+    let pendingStopResult: { result: WrapperSessionResult; priority: 'normal' | 'abort' } | undefined;
     let releaseReaper = (): void => {};
     const stop = childStop(child, ownsGroup, undefined, (stopError) => {
       if (stopError !== undefined) {
@@ -182,13 +182,22 @@ async function executePinnedWrapper(
         finish(failure(`CLI ${JSON.stringify(cli)} wrapper invocation alias cleanup failed: ${String(error)}`));
         return;
       }
-      if (pendingStopResult !== undefined) finish(pendingStopResult);
+      if (pendingStopResult !== undefined) finish(pendingStopResult.result);
     });
     releaseReaper = ownsGroup ? reapOnExit(stop, () => {
       try { pinned.release(); } catch { /* host exit cannot report another result */ }
     }) : () => {};
-    const finishAfterStop = (result: WrapperSessionResult, action: 'kill' | 'terminate'): void => {
-      pendingStopResult = result;
+    const finishAfterStop = (
+      result: WrapperSessionResult,
+      action: 'kill' | 'terminate',
+      priority: 'normal' | 'abort' = 'normal',
+    ): void => {
+      // Lease loss is authoritative. It may replace a protocol/drain result
+      // whose stop is still being proved, but no later timer may replace it.
+      if (pendingStopResult !== undefined) {
+        if (pendingStopResult.priority === 'abort' || priority === 'normal') return;
+      }
+      pendingStopResult = { result, priority };
       stop[action]();
     };
     /**
@@ -202,20 +211,23 @@ async function executePinnedWrapper(
      * one. Every child-level settle therefore goes through
      * `maySettleOnChildExit`, which is the one place that asks the GROUP.
      *
-     * When it says no, `terminate`'s own deadline settles instead, with a
-     * byte-identical `failure(protocolError)` result. That deadline is armed
-     * whenever an escalation is — both come from the single `terminate` below —
-     * so refusing here can defer a settle but can never strand one.
+     * When it says no, the shared stop callback settles instead, with the
+     * pending result or a fail-closed group-confirmation error. Every stop is
+     * bounded, so refusing here can defer a settle but can never strand one.
      */
     const finishOnChildExit = (result: WrapperSessionResult): void => {
       // Asked before `finish`, and asked even once we have already settled:
       // this is also the only place a pointless escalation is refunded, and a
-      // session that settled on `terminate`'s deadline still owes that refund.
+      // session whose result is pending on `terminate` still owes that refund.
       if (!stop.maySettleOnChildExit()) return;
       finish(result);
     };
     const onAbort = (): void => {
-      finishAfterStop(failure('Agent execution aborted: lease ownership lost.'), 'kill');
+      if (lifecycleTimer !== undefined) clearTimeout(lifecycleTimer);
+      lifecycleTimer = undefined;
+      if (drainTimer !== undefined) clearTimeout(drainTimer);
+      drainTimer = undefined;
+      finishAfterStop(failure('Agent execution aborted: lease ownership lost.'), 'kill', 'abort');
     };
     signal?.addEventListener('abort', onAbort, { once: true });
     if (signal?.aborted) { onAbort(); return; }
@@ -352,18 +364,18 @@ async function executePinnedWrapper(
     const drainExpired = (): void => {
       drainTimer = undefined;
       if (settled) return;
+      // A protocol stop or lease abort already owns settlement. In particular,
+      // a drain timer armed before abort may not replace the abort while group
+      // death is still being confirmed.
+      if (pendingStopResult !== undefined) return;
       const result = executionResult(exitCode);
-      // Finalizing can itself refuse the session — an over-limit final line —
-      // and `terminate` has then already stopped the tree. Do not replace that
-      // refusal with the exit result or stop the tree a second time.
-      if (protocolError !== undefined) return;
       // The wrapper is gone and `'close'` has still not arrived, so something
       // it left behind is holding stdio it inherited. Stop what is reachable —
       // a settle that releases no pipes lets the step complete while
       // `flows run` never exits. A descendant that escaped into its own group
       // before the wrapper died is not traceable to this spawn, but every
       // group the stop can address must be proved gone before this result wins.
-      finishAfterStop(executionResult(exitCode), 'terminate');
+      finishAfterStop(result, 'terminate');
       // Settle now if the stop turned out to have nothing to reach; otherwise
       // its confirmation callback owns the result, and a `'close'` that arrives
       // once the group is empty may still settle earlier.

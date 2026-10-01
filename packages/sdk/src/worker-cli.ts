@@ -452,7 +452,11 @@ async function spawnInvocation(
           ? result : { ...result, transcript: { file: transcriptFile } });
       }, () => resolve(result));
     };
-    let pendingStopResult: { result: WorkerCliResult; discardTranscript: boolean } | undefined;
+    let pendingStopResult: {
+      result: WorkerCliResult;
+      discardTranscript: boolean;
+      priority: 'normal' | 'abort';
+    } | undefined;
     const stop = childStop(child, ownsGroup, undefined, (stopError) => {
       if (stopError !== undefined) {
         finish({ exit_code: null, stdout_tail: '', stderr_tail: stopError.message }, true);
@@ -479,15 +483,26 @@ async function spawnInvocation(
       result: WorkerCliResult,
       action: 'kill' | 'terminate',
       discardTranscript = false,
+      priority: 'normal' | 'abort' = 'normal',
     ): void => {
-      pendingStopResult = { result, discardTranscript };
+      // Lease loss may replace an earlier result while its stop is pending;
+      // once it does, no later result-grace or execution timer may replace it.
+      if (pendingStopResult !== undefined) {
+        if (pendingStopResult.priority === 'abort' || priority === 'normal') return;
+      }
+      pendingStopResult = { result, discardTranscript, priority };
       stop[action]();
     };
     const onAbort = (): void => {
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+      if (graceTimer !== undefined) clearTimeout(graceTimer);
+      graceTimer = undefined;
       finishAfterStop(
         { exit_code: null, stdout_tail: '', stderr_tail: 'Agent execution aborted: lease ownership lost.' },
         'kill',
         true,
+        'abort',
       );
     };
     /**

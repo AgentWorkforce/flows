@@ -72,6 +72,11 @@ export class McpStdioTransport implements Transport {
     if (!child) return;
     child.stdin.end();
     this.stopTree!.terminate();
+    // `close()` may be called after the direct child already emitted close and
+    // resolved `stopped`. Refund the just-armed escalation in that case before
+    // awaiting the already-settled promise; otherwise its referenced timer can
+    // fire later against a captured, potentially reused process-group id.
+    this.stopTree!.maySettleOnChildExit();
     try {
       // A direct-child close is insufficient: wrappers can leave descendants
       // alive with either inherited pipes or completely detached stdio. The

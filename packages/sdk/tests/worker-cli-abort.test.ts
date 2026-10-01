@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { expect, it, vi } from 'vitest';
 import { runAgentCli } from '../src/worker-cli.js';
+import { GROUP_EXIT_CONFIRM_TIMEOUT_MS } from '../src/child-stop.js';
 
 it.each(['claude', 'wrapper.mjs'])('stops %s and its process group when lease ownership is lost', async name => {
   const root = mkdtempSync(join(tmpdir(), 'lease-abort-'));
@@ -68,10 +69,13 @@ setInterval(() => {}, 1000);
     controller.abort(new Error('lease rejected'));
     await expect(running).resolves.toMatchObject({
       exit_code: null,
-      stderr_tail: expect.stringMatching(/did not stop answering within 1000ms/i),
+      stderr_tail: expect.stringMatching(new RegExp(
+        `did not stop answering within ${GROUP_EXIT_CONFIRM_TIMEOUT_MS}ms`,
+        'i',
+      )),
     });
-    expect(Date.now() - started).toBeGreaterThanOrEqual(1_000);
-    expect(Date.now() - started).toBeLessThan(3_000);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(GROUP_EXIT_CONFIRM_TIMEOUT_MS);
+    expect(Date.now() - started).toBeLessThan(3 * GROUP_EXIT_CONFIRM_TIMEOUT_MS);
   } finally {
     controller.abort();
     await running?.catch(() => undefined);

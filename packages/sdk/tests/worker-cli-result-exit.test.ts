@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { RESULT_EXIT_GRACE_MS, runAgentCli } from '../src/worker-cli.js';
+import { GROUP_EXIT_CONFIRM_TIMEOUT_MS } from '../src/child-stop.js';
 
 /**
  * Claude Code in print mode reports its final result and then waits for every
@@ -22,8 +23,19 @@ const directories: string[] = [];
 // A failed assertion must not leave a fake running, so kill what survives.
 afterAll(() => {
   for (const directory of directories.splice(0)) {
-    for (const file of ['claude-pid', 'task-pid']) {
-      try { process.kill(Number(readFileSync(join(directory, file), 'utf8')), 'SIGKILL'); } catch { /* gone */ }
+    for (const file of ['claude-pid', 'task-pid', 'wrapper-pid']) {
+      try {
+        const pid = Number(readFileSync(join(directory, file), 'utf8'));
+        if (file === 'wrapper-pid') process.kill(-pid, 'SIGKILL');
+        else process.kill(pid, 'SIGKILL');
+      } catch { /* gone */ }
+    }
+    const aliasFile = join(directory, 'wrapper-alias');
+    if (existsSync(aliasFile)) {
+      const aliasDirectory = dirname(readFileSync(aliasFile, 'utf8'));
+      if (dirname(aliasDirectory) === tmpdir() && basename(aliasDirectory).startsWith('relayflow-cli-')) {
+        rmSync(aliasDirectory, { recursive: true, force: true });
+      }
     }
     rmSync(directory, { recursive: true, force: true });
   }
@@ -187,10 +199,12 @@ await runAgentCli(${JSON.stringify(fake.claude)}, 'implement', undefined, undefi
     const root = makeDirectory();
     const aliasFile = join(root, 'wrapper-alias');
     const resultFile = join(root, 'wrapper-result');
+    const wrapperPid = join(root, 'wrapper-pid');
     const wrapper = join(root, 'provider-wrapper.mjs');
     writeFileSync(wrapper, `#!/usr/bin/env node
 import { writeFileSync } from 'node:fs';
 import { receiveWrapperRequest } from ${JSON.stringify(WRAPPER_HELPER)};
+writeFileSync(${JSON.stringify(wrapperPid)}, String(process.pid));
 writeFileSync(${JSON.stringify(aliasFile)}, process.argv[1]);
 await receiveWrapperRequest();
 setInterval(() => {}, 1000);
@@ -213,31 +227,60 @@ const controller = new AbortController();
 const running = runAgentCli(${JSON.stringify(wrapper)}, 'implement', undefined, undefined, undefined,
   controller.signal, 'agent', undefined, ${JSON.stringify(root)},
   'direct', undefined, process.env, 'wrapper.mjs');
-while (!existsSync(${JSON.stringify(aliasFile)})) await new Promise(wait => setTimeout(wait, 10));
+const aliasDeadline = Date.now() + 5_000;
+while (!existsSync(${JSON.stringify(aliasFile)}) && Date.now() < aliasDeadline) {
+  await new Promise(wait => setTimeout(wait, 10));
+}
+if (!existsSync(${JSON.stringify(aliasFile)})) throw new Error('wrapper alias was not observed');
 await new Promise(wait => setTimeout(wait, 250));
 controller.abort(new Error('lease rejected'));
 writeFileSync(${JSON.stringify(resultFile)}, JSON.stringify(await running));
 `);
     const run = spawn(process.execPath, [harness], { stdio: 'ignore' });
-    const deadline = Date.now() + 5_000;
-    while (!existsSync(aliasFile) && Date.now() < deadline) await new Promise(wait => setTimeout(wait, 20));
-    expect(existsSync(aliasFile)).toBe(true);
-    const alias = readFileSync(aliasFile, 'utf8');
-    expect(alias).toMatch(/relayflow-cli-/);
-    expect(existsSync(alias)).toBe(true);
-    const code = await new Promise<number | null>((resolveExit, rejectExit) => {
-      const bound = setTimeout(() => {
+    let alias: string | undefined;
+    try {
+      const deadline = Date.now() + 5_000;
+      while (!existsSync(aliasFile) && Date.now() < deadline) await new Promise(wait => setTimeout(wait, 20));
+      expect(existsSync(aliasFile)).toBe(true);
+      alias = readFileSync(aliasFile, 'utf8');
+      expect(alias).toMatch(/relayflow-cli-/);
+      expect(existsSync(alias)).toBe(true);
+      const code = await new Promise<number | null>((resolveExit, rejectExit) => {
+        const bound = setTimeout(() => {
+          run.kill('SIGKILL');
+          rejectExit(new Error('wrapper harness did not exit'));
+        }, 10_000);
+        run.once('error', rejectExit);
+        run.once('exit', exitCode => { clearTimeout(bound); resolveExit(exitCode); });
+      });
+      expect(code).toBe(0);
+      expect(JSON.parse(readFileSync(resultFile, 'utf8'))).toMatchObject({
+        exit_code: null,
+        stderr_tail: expect.stringMatching(new RegExp(
+          `did not stop answering within ${GROUP_EXIT_CONFIRM_TIMEOUT_MS}ms`,
+          'i',
+        )),
+      });
+      expect(existsSync(alias)).toBe(false);
+    } finally {
+      if (run.exitCode === null && run.signalCode === null) {
+        const exited = new Promise<void>(resolveExit => run.once('exit', () => resolveExit()));
         run.kill('SIGKILL');
-        rejectExit(new Error('wrapper harness did not exit'));
-      }, 10_000);
-      run.once('error', rejectExit);
-      run.once('exit', exitCode => { clearTimeout(bound); resolveExit(exitCode); });
-    });
-    expect(code).toBe(0);
-    expect(JSON.parse(readFileSync(resultFile, 'utf8'))).toMatchObject({
-      exit_code: null,
-      stderr_tail: expect.stringMatching(/did not stop answering within 1000ms/i),
-    });
-    expect(existsSync(alias)).toBe(false);
+        await Promise.race([exited, new Promise<void>(resolveWait => setTimeout(resolveWait, 1_000))]);
+      }
+      if (existsSync(wrapperPid)) {
+        const pid = Number(readFileSync(wrapperPid, 'utf8'));
+        try { process.kill(-pid, 'SIGKILL'); } catch {
+          try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+        }
+      }
+      alias ??= existsSync(aliasFile) ? readFileSync(aliasFile, 'utf8') : undefined;
+      if (alias !== undefined) {
+        const aliasDirectory = dirname(alias);
+        if (dirname(aliasDirectory) === tmpdir() && basename(aliasDirectory).startsWith('relayflow-cli-')) {
+          rmSync(aliasDirectory, { recursive: true, force: true });
+        }
+      }
+    }
   }, 15_000);
 });
