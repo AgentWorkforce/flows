@@ -13,7 +13,7 @@ import { basename, join } from 'node:path';
 
 export interface PinnedCliAlias {
   executable: string;
-  release(): Promise<void>;
+  release(): void;
 }
 
 export interface PinnedCliAliasSync {
@@ -33,7 +33,7 @@ function aliasName(identity: string): string {
 export async function pinCliAlias(executable: string, identity: string): Promise<PinnedCliAlias> {
   const name = aliasName(identity);
   if (basename(executable) === name) {
-    return { executable, async release() {} };
+    return { executable, release() {} };
   }
   const directory = await mkdtemp(join(tmpdir(), 'relayflow-cli-'));
   const alias = join(directory, name);
@@ -43,10 +43,12 @@ export async function pinCliAlias(executable: string, identity: string): Promise
     await rm(directory, { recursive: true, force: true });
     throw error;
   }
-  return {
-    executable: alias,
-    release: async () => rm(directory, { recursive: true, force: true }),
-  };
+  let released = false;
+  return { executable: alias, release: () => {
+    if (released) return;
+    released = true;
+    rmSync(directory, { recursive: true, force: true });
+  } };
 }
 
 /** Synchronous counterpart for the synchronous preflight contract. */
@@ -63,8 +65,10 @@ export function pinCliAliasSync(executable: string, identity: string): PinnedCli
     rmSync(directory, { recursive: true, force: true });
     throw error;
   }
-  return {
-    executable: alias,
-    release: () => rmSync(directory, { recursive: true, force: true }),
-  };
+  let released = false;
+  return { executable: alias, release: () => {
+    if (released) return;
+    released = true;
+    rmSync(directory, { recursive: true, force: true });
+  } };
 }

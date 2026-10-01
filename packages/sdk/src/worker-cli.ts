@@ -4,7 +4,7 @@ import { diffWorkspaceFiles, snapshotWorkspaceFiles } from './agent-artifacts.js
 import { claudeResultOutcome, decodeProviderResult, decodeWrapperResult, requirePricedUsage } from './worker-usage.js';
 import { openSidechannel, type SidechannelContext } from './pty-sidechannel.js';
 import { openTranscriptWriter, transcriptPath, type TranscriptDigest, type TranscriptFile, type TranscriptWriter } from './agent-transcript.js';
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { childStop } from './child-stop.js';
 import { reapOnExit } from './agent-reaper.js';
@@ -329,39 +329,65 @@ async function spawnInvocation(
   let writeInput: (bytes: Buffer) => Promise<boolean> = async () => false;
   let canDrive = () => false;
   let driven = false;
+  // Prove and pin the authored identity before opening any per-attempt
+  // resources. If pinning fails there is then nothing else to unwind.
+  const pinned = await pinCliAlias(cli, argv0 ?? basename(cli));
+  if (signal?.aborted) {
+    pinned.release();
+    signal.throwIfAborted();
+  }
   // The transcript file lives beside the PTY socket and is named by attempt.
   // Its absence (no data dir, no attempt, unwritable dir) costs the step
   // nothing: the digest is built from the buffered frames regardless. Opened
   // BEFORE the sidechannel: once `onReady` has fired, a drive peer's HELLO may
   // arrive at any time, and nothing may sit between that and the spawn that
   // arms `canDrive`.
-  const writer: TranscriptWriter | undefined = sidechannel?.attempt === undefined ? undefined
-    : await openTranscriptWriter(transcriptPath(sidechannel, sidechannel.attempt), env);
-  const channel = sidechannel === undefined ? undefined : await openSidechannel({
-    ...sidechannel,
-    onDrive() { driven = true; sidechannel.onDrive(); },
-  }, bytes => writeInput(bytes), () => canDrive());
-  // Tee the transcript into bounded tail files beside the socket. Evidence
-  // for `flows status --tail`, never the record; a failure here is a warning.
-  const tails = sidechannel === undefined ? undefined : openTails(sidechannel);
-  if (signal?.aborted) {
+  let writer: TranscriptWriter | undefined;
+  let channel: Awaited<ReturnType<typeof openSidechannel>> | undefined;
+  let tails: ReturnType<typeof openTails>;
+  const closeBeforeSpawn = async (): Promise<void> => {
     channel?.close();
-    void writer?.close();
-    void tails?.stdout.close(); void tails?.stderr.close();
+    await Promise.allSettled([
+      ...(writer === undefined ? [] : [writer.close()]),
+      ...(tails === undefined ? [] : [tails.stdout.close(), tails.stderr.close()]),
+    ]);
+    pinned.release();
+  };
+  try {
+    writer = sidechannel?.attempt === undefined ? undefined
+      : await openTranscriptWriter(transcriptPath(sidechannel, sidechannel.attempt), env);
+    channel = sidechannel === undefined ? undefined : await openSidechannel({
+      ...sidechannel,
+      onDrive() { driven = true; sidechannel.onDrive(); },
+    }, bytes => writeInput(bytes), () => canDrive());
+    // Tee the transcript into bounded tail files beside the socket. Evidence
+    // for `flows status --tail`, never the record; a failure here is a warning.
+    tails = sidechannel === undefined ? undefined : openTails(sidechannel);
+  } catch (error) {
+    await closeBeforeSpawn();
+    throw error;
+  }
+  if (signal?.aborted) {
+    await closeBeforeSpawn();
     signal.throwIfAborted();
   }
-  const pinned = await pinCliAlias(cli, argv0 ?? basename(cli));
+  // Always a group of its own off Windows, so every stop — and
+  // `reapOnExit` — reaches the whole agent tree, lease-bound or not.
+  const ownsGroup = process.platform !== 'win32';
+  let child: ChildProcessWithoutNullStreams;
   try {
-    return await new Promise((resolve) => {
-    // Always a group of its own off Windows, so every stop — and
-    // `reapOnExit` — reaches the whole agent tree, lease-bound or not.
-    const ownsGroup = process.platform !== 'win32';
-    const child = spawn(pinned.executable, invocation.args, {
+    child = spawn(pinned.executable, invocation.args, {
       stdio: ['pipe', 'pipe', 'pipe'], env,
       detached: ownsGroup,
       ...(argv0 === undefined ? {} : { argv0 }),
       ...(cwd === undefined ? {} : { cwd }),
     });
+  } catch (error) {
+    await closeBeforeSpawn();
+    throw error;
+  }
+  const stop = childStop(child, ownsGroup, undefined, pinned.release);
+  return new Promise((resolve) => {
     child.stdin.on('error', () => {});
     if (channel === undefined) child.stdin.end();
     canDrive = () => !child.stdin.destroyed && !child.stdin.writableEnded;
@@ -376,7 +402,6 @@ async function spawnInvocation(
       // until they flush; the sidechannel pauses its reader in the meantime.
       child.stdin.write(bytes, error => resolve(!error));
     });
-    const stop = childStop(child, ownsGroup);
     const release = ownsGroup ? reapOnExit(stop) : () => {};
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
@@ -507,8 +532,5 @@ async function spawnInvocation(
         });
       }, invocation.timeoutMs);
     }
-    });
-  } finally {
-    await pinned.release();
-  }
+  });
 }

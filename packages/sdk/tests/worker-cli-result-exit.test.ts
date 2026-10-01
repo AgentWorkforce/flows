@@ -44,22 +44,24 @@ const alive = (pid: number): boolean => {
  * `run_in_background` Bash does), streams `frames` — the last one split across
  * two writes, mid multi-byte character — and then runs `tail`.
  */
-function fakeClaude(root: string, frames: unknown[], tail: string, backgroundTask = false): {
-  claude: string; workspace: string; claudePid: string; taskPid: string;
+function fakeClaude(root: string, frames: unknown[], tail: string, backgroundTask = false, aliasSensitive = false): {
+  claude: string; workspace: string; claudePid: string; taskPid: string; aliasObserved: string;
 } {
   const bin = join(root, 'bin');
   const workspace = join(root, 'workspace');
   mkdirSync(bin);
   mkdirSync(workspace);
-  const claude = join(bin, 'claude');
+  const claude = join(bin, aliasSensitive ? 'provider-cli.js' : 'claude');
   const claudePid = join(root, 'claude-pid');
   const taskPid = join(root, 'task-pid');
+  const aliasObserved = join(root, 'alias-observed');
   // Deaf to SIGTERM, so only the escalation to SIGKILL can end it.
   const task = `process.on('SIGTERM', () => {}); require('node:fs').writeFileSync(${JSON.stringify(taskPid)}, String(process.pid)); setInterval(() => {}, 1000);`;
   writeFileSync(claude, `#!/usr/bin/env node
-const { writeFileSync } = require('node:fs');
+const { existsSync, writeFileSync } = require('node:fs');
 const { spawn } = require('node:child_process');
 writeFileSync(${JSON.stringify(claudePid)}, String(process.pid));
+${aliasSensitive ? `process.on('SIGTERM', () => setTimeout(() => writeFileSync(${JSON.stringify(aliasObserved)}, String(existsSync(process.argv[1]))), 50));` : ''}
 ${backgroundTask ? `spawn(process.execPath, ['-e', ${JSON.stringify(task)}], { detached: true, stdio: 'ignore' });` : ''}
 const lines = ${JSON.stringify(frames)}.map(frame => JSON.stringify(frame) + '\\n');
 const last = Buffer.from(lines.pop());
@@ -72,7 +74,7 @@ setTimeout(() => {
 }, 50);
 `);
   chmodSync(claude, 0o755);
-  return { claude, workspace, claudePid, taskPid };
+  return { claude, workspace, claudePid, taskPid, aliasObserved };
 }
 
 const usage = { input_tokens: 7, output_tokens: 3 };
@@ -85,11 +87,11 @@ describe('a Claude agent step completes on its result, not only on process exit'
     const root = makeDirectory();
     const fake = fakeClaude(root, [init, assistant,
       { type: 'result', subtype: 'success', is_error: false, result: 'Done. Committed as 37d4294 — café', usage }],
-    hang, true);
+    hang, true, true);
     const controller = new AbortController();
     const started = Date.now();
     const result = await runAgentCli(fake.claude, 'implement', undefined, undefined, undefined,
-      controller.signal, 'agent', undefined, fake.workspace);
+      controller.signal, 'agent', undefined, fake.workspace, 'direct', undefined, process.env, 'claude');
     const elapsed = Date.now() - started;
 
     expect(result).toMatchObject({ exit_code: 0, stdout_tail: 'Done. Committed as 37d4294 — café',
@@ -98,6 +100,7 @@ describe('a Claude agent step completes on its result, not only on process exit'
     expect(elapsed).toBeGreaterThanOrEqual(RESULT_EXIT_GRACE_MS);
     expect(elapsed).toBeLessThan(RESULT_EXIT_GRACE_MS + 5_000);
     await new Promise(settle => setTimeout(settle, 1_500));
+    expect(readFileSync(fake.aliasObserved, 'utf8')).toBe('true');
     expect(alive(Number(readFileSync(fake.claudePid, 'utf8')))).toBe(false);
     expect(alive(Number(readFileSync(fake.taskPid, 'utf8')))).toBe(false);
   }, RESULT_EXIT_GRACE_MS + 15_000);

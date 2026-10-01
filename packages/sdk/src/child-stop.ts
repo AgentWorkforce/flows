@@ -65,6 +65,7 @@ export function childStop(
   child: ChildProcess,
   ownsGroup: boolean,
   forceKillDelayMs: number = FORCE_KILL_DELAY_MS,
+  onStopped: () => void = () => {},
 ): ChildStop {
   // Pinned at the spawn rather than read per signal. Every interesting use of
   // this id happens AFTER the direct child has been reaped — the escalation
@@ -74,6 +75,12 @@ export function childStop(
   // which is exactly the window both of those need to address.
   const pid = child.pid;
   let forceTimer: NodeJS.Timeout | undefined;
+  let stopped = false;
+  const notifyStopped = (): void => {
+    if (stopped) return;
+    stopped = true;
+    onStopped();
+  };
   const cancel = (): void => {
     if (forceTimer !== undefined) clearTimeout(forceTimer);
     forceTimer = undefined;
@@ -127,6 +134,7 @@ export function childStop(
     kill: (): void => {
       cancel();
       signalTree('SIGKILL');
+      notifyStopped();
     },
     terminate: (): void => {
       cancel();
@@ -134,6 +142,7 @@ export function childStop(
       forceTimer = setTimeout(() => {
         forceTimer = undefined;
         signalTree('SIGKILL');
+        notifyStopped();
       }, forceKillDelayMs);
       // Deliberately REFERENCED, unlike every other timer we arm. The survivor
       // this escalation exists for is the one that ignored `SIGTERM` and holds
@@ -144,9 +153,13 @@ export function childStop(
       // `maySettleOnChildExit` confirms the group is empty.
     },
     maySettleOnChildExit: (): boolean => {
-      if (forceTimer === undefined) return true;
+      if (forceTimer === undefined) {
+        notifyStopped();
+        return true;
+      }
       if (groupAnswers()) return false;
       cancel();
+      notifyStopped();
       return true;
     },
   };

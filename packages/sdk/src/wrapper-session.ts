@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { FORCE_KILL_DELAY_MS, childStop, ownsProcessGroup } from './child-stop.js';
 import {
   WRAPPER_EXECUTE_TOKEN,
@@ -118,17 +118,26 @@ async function executePinnedWrapper(
   argv0?: string,
 ): Promise<WrapperSessionResult> {
   const pinned = await pinCliAlias(identity.executable, argv0 ?? basename(cli));
+  if (signal?.aborted) {
+    pinned.release();
+    return failure('Agent execution aborted: lease ownership lost.');
+  }
+  const ownsGroup = ownsProcessGroup(signal);
+  let child: ChildProcessWithoutNullStreams;
   try {
-    return await new Promise((resolve) => {
-    const ownsGroup = ownsProcessGroup(signal);
-    const child = spawn(pinned.executable, [WRAPPER_IDENTIFY_ARG], {
+    child = spawn(pinned.executable, [WRAPPER_IDENTIFY_ARG], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env,
       detached: ownsGroup,
       ...(argv0 === undefined ? {} : { argv0 }),
       ...(cwd === undefined ? {} : { cwd }),
     });
-    const stop = childStop(child, ownsGroup);
+  } catch (error) {
+    pinned.release();
+    throw error;
+  }
+  const stop = childStop(child, ownsGroup, undefined, pinned.release);
+  return new Promise((resolve) => {
     const stdout: string[] = [];
     const stderr: Buffer[] = [];
     let handshakePending = '';
@@ -435,10 +444,7 @@ async function executePinnedWrapper(
       startDrainGrace();
     });
     child.once('close', (code) => finishOnChildExit(executionResult(code)));
-    });
-  } finally {
-    await pinned.release();
-  }
+  });
 }
 
 function sessionLimits(overrides: Partial<WrapperSessionLimits>): WrapperSessionLimits {
