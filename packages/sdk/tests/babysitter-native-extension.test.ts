@@ -147,6 +147,7 @@ describe('native Babysitter extension', () => {
         expect(authority.dispatch).toBe(dispatch);
         expect(authority.extension).toEqual({
           name: 'babysitter', version: '0.2.0', ref: REF, digest: DIGEST,
+          manifestSha256: MANIFEST_SHA256,
         });
         return { receiptId: `bst_${'a'.repeat(64)}`, status: 'queued' };
       } },

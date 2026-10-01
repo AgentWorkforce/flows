@@ -126,8 +126,8 @@ describe('canonical Software Garden + Babysitter composition', () => {
       expect(calls.map(call => (call as { authority: { dispatch: { deliveryId: string } } }).authority.dispatch.deliveryId))
         .toEqual([deliveryId, deliveryId]);
       expect(calls.map(call => (call as { authority: { extension: unknown } }).authority.extension)).toEqual([
-        { name: 'babysitter', version: '0.2.0', ref: REF, digest: DIGEST },
-        { name: 'babysitter', version: '0.2.0', ref: REF, digest: DIGEST },
+        { name: 'babysitter', version: '0.2.0', ref: REF, digest: DIGEST, manifestSha256: MANIFEST_SHA256 },
+        { name: 'babysitter', version: '0.2.0', ref: REF, digest: DIGEST, manifestSha256: MANIFEST_SHA256 },
       ]);
     },
   );

@@ -124,13 +124,20 @@ export async function runHostedSoftwareGardenFlow(
   let capabilityFailed = false;
   let capabilityFailure: unknown;
   let workerFailure: unknown;
+  let signalWorkerFailure!: (error: unknown) => void;
+  const workerFailureSignal = new Promise<unknown>(resolve => { signalWorkerFailure = resolve; });
+
+  const recordWorkerFailure = (error: unknown): void => {
+    workerFailure ??= error;
+    signalWorkerFailure(workerFailure);
+  };
 
   const dispatch = (event: StepDispatchEvent): void => {
     const dispatched = event.spec as { instruction?: string; surfaces?: { streams?: { stream: string }[] } };
     if (work !== undefined || event.step_id !== STEP_ID || event.step_type !== 'agent'
       || dispatched.instruction !== instruction
       || !dispatched.surfaces?.streams?.some(pin => pin.stream === stream)) {
-      workerFailure = new Error('Hosted Babysitter worker received an unexpected dispatch.');
+      recordWorkerFailure(new Error('Hosted Babysitter worker received an unexpected dispatch.'));
       peer.close(workerFailure);
       return;
     }
@@ -143,12 +150,12 @@ export async function runHostedSoftwareGardenFlow(
         capabilityFailure = completion.failure;
       }
     }, error => {
-      workerFailure ??= error;
+      recordWorkerFailure(error);
     });
   };
 
   peer.on('step.dispatch', dispatch);
-  peer.on('error', error => { workerFailure ??= error; });
+  peer.on('error', recordWorkerFailure);
   if (lifecycle.onJournalEntry !== undefined) client.on('entry', lifecycle.onJournalEntry);
   try {
     await peer.connect();
@@ -170,14 +177,19 @@ export async function runHostedSoftwareGardenFlow(
     const outcome = started.status === 'running'
       ? await client.runResume(started.run_id, true)
       : started;
-    let execution = await classifyOutcome(
-      client,
-      'run',
-      outcome,
-      base,
-      socketPath,
-      { ...lifecycle, dataDir },
-    );
+    const classified = await Promise.race([
+      classifyOutcome(
+        client,
+        'run',
+        outcome,
+        base,
+        socketPath,
+        { ...lifecycle, dataDir },
+      ).then(execution => ({ type: 'execution' as const, execution })),
+      workerFailureSignal.then(failure => ({ type: 'worker-failure' as const, failure })),
+    ]);
+    if (classified.type === 'worker-failure') throw classified.failure;
+    let execution = classified.execution;
     // The generic classifier may observe a transient parked/protocol shape
     // after the isolated child is killed even though this dedicated worker is
     // still holding the authoritative, uncancellable capability call. Never
