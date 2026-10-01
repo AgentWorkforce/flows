@@ -222,10 +222,10 @@ function subscriptionOf(handler: TriggerHandler): { provider: string; event: str
 }
 
 /**
- * Server-authenticated integration delivery metadata. This is executor
- * authority, not authored input: a caller must derive it from its verified
- * delivery record and pass it out of band. User-controlled `input.event`
- * objects never become this value.
+ * Host-asserted integration delivery metadata. This is executor authority,
+ * not authored input: the trusted embedding host must derive it from its
+ * authenticated delivery record and pass it out of band with the capability.
+ * User-controlled `input.event` objects never become this value.
  */
 const HOSTED_EXTENSION_DISPATCH_AUTHORITY = Symbol('hosted-extension-dispatch-authority');
 
@@ -273,9 +273,11 @@ export function hostedExtensionDispatchIdentity(dispatch: unknown): HostedEventI
 }
 
 /**
- * Brand metadata only after the host has authenticated the integration
- * delivery. The symbol is deliberately not serializable, so copying a direct
- * run's JSON into executor options cannot mint dispatch authority.
+ * Brand metadata only after the embedding host has authenticated the
+ * integration delivery. This constructor validates shape; it is not itself an
+ * authenticator. Code able to construct the non-serializable hosted options
+ * and supply the queue capability is inside the host trust boundary. The
+ * symbol prevents authored JSON from becoming dispatch authority.
  */
 export function hostedExtensionDispatchFromVerifiedDelivery(
   delivery: Omit<HostedExtensionDispatch, typeof HOSTED_EXTENSION_DISPATCH_AUTHORITY | 'provenance'>,

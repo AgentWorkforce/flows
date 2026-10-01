@@ -57,10 +57,11 @@ export async function runHostedSoftwareGardenFlow(
   let normalizedInput: unknown;
   let runtime: Awaited<ReturnType<typeof loadHostedExtensionRuntime>>;
   let selected: Awaited<ReturnType<typeof selectHostedExtensionForRuntime>>;
+  let receiptDirectory: string;
   try {
     identity = hostedExtensionDispatchIdentity(hosted.dispatch);
     normalizedInput = normalizeHostedBabysitterInput(input, hosted.dispatch);
-    await assertHostedDataDirectoryIsolated(path, dataDir);
+    ({ dataDir, receiptDirectory } = await assertHostedDataDirectoryIsolated(path, dataDir));
     runtime = await loadHostedExtensionRuntime(path);
     selected = await selectHostedExtensionForRuntime(
       runtime.installation,
@@ -141,7 +142,7 @@ export async function runHostedSoftwareGardenFlow(
       peer.close(workerFailure);
       return;
     }
-    const attempt = completeHostedDispatch(peer, event, runtime, normalizedInput, hosted, dataDir);
+    const attempt = completeHostedDispatch(peer, event, runtime, normalizedInput, hosted, receiptDirectory);
     work = attempt;
     void attempt.then(completion => {
       completedWork = completion;
@@ -267,7 +268,7 @@ async function completeHostedDispatch(
   runtime: Awaited<ReturnType<typeof loadHostedExtensionRuntime>>,
   input: unknown,
   hosted: HostedSoftwareGardenRunOptions,
-  dataDir: string,
+  receiptDirectory: string,
 ): Promise<HostedCompletion> {
   let result: unknown;
   let effectRecorded = false;
@@ -283,7 +284,7 @@ async function completeHostedDispatch(
         ...(hosted.timeoutMs === undefined ? {} : { timeoutMs: hosted.timeoutMs }),
         babysitterTurn: {
           queue: async (request, authority) => {
-            const file = hostedReceiptPath(dataDir, dispatch);
+            const file = hostedReceiptPath(receiptDirectory, dispatch);
             let receipt: unknown;
             const performed = await peer.performEffect({
               runId: dispatch.run_id,
@@ -350,11 +351,11 @@ async function completeHostedDispatch(
   return failed ? { outcome, failed: true, failure } : { outcome, failed: false };
 }
 
-function hostedReceiptPath(dataDir: string, dispatch: StepDispatchEvent): string {
+function hostedReceiptPath(receiptDirectory: string, dispatch: StepDispatchEvent): string {
   const name = createHash('sha256')
     .update(`${dispatch.run_id}:${dispatch.step_id}:${dispatch.idempotency_key}`)
     .digest('hex');
-  return join(dataDir, 'hosted-extension-receipts', `${name}.json`);
+  return join(receiptDirectory, `${name}.json`);
 }
 
 function pluginRefusal(base: RunReport, error: PluginError): RunExecution {

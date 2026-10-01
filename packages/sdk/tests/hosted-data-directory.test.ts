@@ -28,8 +28,14 @@ describe('hosted data directory isolation', () => {
     await expect(assertHostedDataDirectoryIsolated(
       installed.flowPath,
       join(installed.root, '.relayflowd', 'nested'),
-    )).resolves.toBeUndefined();
-    await expect(assertHostedDataDirectoryIsolated(installed.flowPath, external)).resolves.toBeUndefined();
+    )).resolves.toEqual({
+      dataDir: join(installed.root, '.relayflowd', 'nested'),
+      receiptDirectory: join(installed.root, '.relayflowd', 'nested', 'hosted-extension-receipts'),
+    });
+    await expect(assertHostedDataDirectoryIsolated(installed.flowPath, external)).resolves.toEqual({
+      dataDir: await realpath(external),
+      receiptDirectory: join(await realpath(external), 'hosted-extension-receipts'),
+    });
   });
 
   it('refuses a custom in-project directory even when it does not exist', async () => {
@@ -50,6 +56,21 @@ describe('hosted data directory isolation', () => {
     await expect(assertHostedDataDirectoryIsolated(
       installed.flowPath,
       join(outside, 'journal-link', 'nested'),
+    )).rejects.toMatchObject({ code: 'plugin_source_invalid' });
+  });
+
+  it('refuses a receipt-directory symlink back into hosted project source', async () => {
+    const installed = await project();
+    await mkdir(join(installed.root, '.relayflowd'));
+    await mkdir(join(installed.root, 'source-state'));
+    await symlink(
+      join(installed.root, 'source-state'),
+      join(installed.root, '.relayflowd', 'hosted-extension-receipts'),
+    );
+
+    await expect(assertHostedDataDirectoryIsolated(
+      installed.flowPath,
+      join(installed.root, '.relayflowd'),
     )).rejects.toMatchObject({ code: 'plugin_source_invalid' });
   });
 });

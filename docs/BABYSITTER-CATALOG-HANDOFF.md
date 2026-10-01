@@ -17,16 +17,22 @@ imports tenant JavaScript in the host. An owning exact-target Relay/Flows action
 must instead use the normal embedded `runCli(["run", flowPath, "--input", ...])`
 surface and inject `RunCliOptions.hostedSoftwareGardenBabysitter`. That
 non-serializable option carries the host-verified dispatch and the single queue
-capability; no CLI flag or flow input can mint either. The canonical authored
+capability; no CLI flag or flow input can mint either. The dispatch constructor
+validates shape but does not authenticate a delivery: the embedding process is
+the trust boundary and must call it only after authenticating the integration
+delivery. Code able to construct this option and supply the queue capability is
+therefore trusted host code. The canonical authored
 run preflights the reviewed Software Garden base and complete lock-backed
 installation as one generation before trigger inspection, tenant import, or
 daemon attachment. It then admits one journaled effect step under a delivery-
 and-pin-bound key and runs the exact matched native handler in the capability
 sandbox. The queue write uses the journal's record/perform/confirm protocol;
 the returned run ID, terminal reason, and completed-step count come from that
-journal rather than an in-memory synthetic result. Every other command or path
-surface refuses the hosted authority. Keep enabled activation blocked with zero
-writes until that action is released and deployed.
+journal rather than an in-memory synthetic result. Ordinary command and authored
+flow paths refuse the hosted authority. The exported low-level sandbox helper is
+available to trusted embedders and verifier tests, but it performs no journal
+admission and is not an owning action path. Keep enabled activation blocked with
+zero writes until that action is released and deployed.
 
 The native handler must consume host-verified delivery authority, normalize the
 repository/PR event, and call the Cloud lineage path. Cloud must recheck the

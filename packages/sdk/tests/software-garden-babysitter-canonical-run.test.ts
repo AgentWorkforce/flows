@@ -363,7 +363,7 @@ describe('canonical run dispatches the installed Software Garden Babysitter', ()
       const deliveryId = 'delivery-reclaimed-receipt';
       let calls = 0;
       const replay = vi.spyOn(JournalClient.prototype, 'performEffect').mockImplementationOnce(
-        async function (effect, perform) {
+        async function (this: JournalClient, effect, perform) {
           const { deduped } = await this.effectRecord(
             effect.runId,
             effect.stepId,
