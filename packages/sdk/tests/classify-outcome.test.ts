@@ -172,6 +172,40 @@ describe('the remedy on a worker park', () => {
     expect(resumes).toBeGreaterThan(1);
   }, 20_000);
 
+  it('follows a backoff retry instead of parking on a runnable sibling', async () => {
+    const retrying: RunGetResult = {
+      run_id: RUN_ID,
+      status: 'running',
+      steps: {
+        waitingForWorker: { type: 'agent', state: 'runnable' } as never,
+        retrying: { type: 'agent', state: 'backoff' } as never,
+      },
+      budget: { tokens_in: 0, tokens_out: 0, dollars: '0' },
+    };
+    const completed: RunGetResult = {
+      ...retrying,
+      status: 'completed',
+      steps: {
+        waitingForWorker: { type: 'agent', state: 'done' } as never,
+        retrying: { type: 'agent', state: 'done' } as never,
+      },
+    };
+    let resumed = false;
+    const client = {
+      runGet: async () => (resumed ? completed : retrying),
+      runResume: async (): Promise<RunOutcome> => {
+        resumed = true;
+        return { run_id: RUN_ID, status: 'completed', completion_reason: 'success', completed_steps: 2 };
+      },
+    } as unknown as JournalClient;
+
+    const result = await classifyOutcome(client, 'run', parked, base, '/unused', {});
+
+    expect(result.exitCode).toBe(0);
+    expect(result.report.completionReason).toBe('success');
+    expect(result.report.parkCause).toBeUndefined();
+  });
+
   /// The re-admitted child: `run.start` on an existing admission key returns
   /// the run as it is -- `running`, its retried attempt leased to a worker.
   it('follows a run.start outcome that is already running on a retried attempt', async () => {

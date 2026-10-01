@@ -841,8 +841,10 @@ export async function classifyOutcome(
   while (current.status === 'parked' || current.status === 'running') {
     const inspection = await inspectOutOfBandStep(client, current.run_id);
     // A runnable sibling may only be waiting for capacity held by a live
-    // attempt. Keep driving until that lease releases before declaring a park.
-    if (inspection?.parkedStep !== undefined && (inspection.needsHuman || inspection.runningStep === undefined)) {
+    // attempt or by a retry in backoff. Keep driving until that active work
+    // settles before declaring a park.
+    if (inspection?.parkedStep !== undefined && (inspection.needsHuman
+      || (inspection.runningStep === undefined && inspection.backoffStep === undefined))) {
       parkedStep = inspection.parkedStep;
       needsHuman = inspection.needsHuman;
       break;

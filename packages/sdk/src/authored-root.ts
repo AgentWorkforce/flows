@@ -12,7 +12,7 @@ import {
   type LoadedAuthoredFlow,
   type SurfaceModuleAuthority,
 } from './authored-flow-loader.js';
-import { JournalClient } from './journal-client.js';
+import { JournalClient, JournalProtocolError } from './journal-client.js';
 import type { RunOutcome, StepDispatchEvent } from './protocol.js';
 import { SPEC_SCHEMA_VERSION } from './spec.js';
 import type { RunLifecycleOptions } from './cli/run.js';
@@ -259,7 +259,11 @@ async function driveRootFollowingRetries(
       next.cancel();
       return result;
     } catch (error) {
-      if (!isLeaseLost(error) || options.lifecycle?.signal?.aborted === true) {
+      // `run_terminal` from a step verb means the run has already reached a
+      // terminal state. It is lease-shaped for worker cleanup, but the kernel
+      // cannot re-dispatch this root, so do not turn it into a 45s retry wait.
+      const terminal = error instanceof JournalProtocolError && error.code === 'run_terminal';
+      if (!isLeaseLost(error) || terminal || options.lifecycle?.signal?.aborted === true) {
         next.cancel();
         throw error;
       }
