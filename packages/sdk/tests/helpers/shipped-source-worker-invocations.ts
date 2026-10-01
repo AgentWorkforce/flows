@@ -13,6 +13,7 @@ import {
 import { reflectApplyArgumentCandidates } from './shipped-source-reflect-apply.js';
 import { symbolHasWrites } from './shipped-source-receiver-writes.js';
 import { staticCallArgumentCandidates } from './shipped-source-static-call-arguments.js';
+import { localCallValueCandidates } from './shipped-source-local-call-targets.js';
 
 type WorkerMethod = 'agent' | 'llm';
 
@@ -347,6 +348,11 @@ function workerCallable(
         args: [...target.args, ...expression.arguments.slice(2)],
         auditable: helper.auditable && target.auditable && !expression.arguments.some(ts.isSpreadElement),
       };
+    }
+    const returned = localCallValueCandidates(expression, checker, seen);
+    for (const candidate of returned?.candidates ?? []) {
+      const callable = workerCallable(candidate.expression, checker, candidate.seen);
+      if (callable) return { ...callable, auditable: false };
     }
   }
   const wrapped = wrappedResult(expression, seen,

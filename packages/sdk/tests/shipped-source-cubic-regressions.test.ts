@@ -19,6 +19,7 @@ describe('shipped-source adversarial provenance regressions', () => {
         `const { Reflect: reflect } = globalThis; const box: any = {}; reflect.set(box, 'define', surface.flow); box.define('global-binding', { budget: '$2' }, () => {});`,
         `let invoke: any; invoke = surface.flow.call; invoke(surface, 'assigned-call-helper', { budget: '$2' }, () => {});`,
         `let invoke: any; invoke = surface.flow.apply; invoke(surface, ['assigned-apply-helper', { budget: '$2' }, () => {}]);`,
+        `declare const unknownArgs: any[]; function constant(..._args: any[]) { return surface.flow; } constant(...unknownArgs)('constant-after-spread', { budget: '$2' }, () => {});`,
         `const operations = [surface.flow]; for (const key in operations) operations[key]('array-for-in', { budget: '$2' }, () => {});`,
         `function operations() { return { define: surface.flow }; } for (const key in operations()) operations()[key]('call-for-in', { budget: '$2' }, () => {});`,
         `const box: any = {}; let key: any = flag ? 'define' : 'other'; key ||= 'define'; box[key] = surface.flow; box.define('logical-assignment', { budget: '$2' }, () => {});`,
@@ -77,6 +78,18 @@ describe('shipped-source adversarial provenance regressions', () => {
       const opaqueResult = scanTypeScript(opaque);
       expect(opaqueResult.calls).toBe(1);
       expect(opaqueResult.missing).toEqual([
+        expect.stringContaining('statically unauditable arguments'),
+      ]);
+
+      const returnedWorker = join(directory, 'returned-worker-after-spread.flow.ts');
+      writeFileSync(returnedWorker, `
+        declare const f: any, unknownArgs: any[];
+        function constant(..._args: any[]) { return f.agent; }
+        constant(...unknownArgs)('review', { task: 'x' });
+      `);
+      const returnedWorkerResult = scanTypeScript(returnedWorker);
+      expect(returnedWorkerResult.calls).toBe(1);
+      expect(returnedWorkerResult.missing).toEqual([
         expect.stringContaining('statically unauditable arguments'),
       ]);
     } finally {

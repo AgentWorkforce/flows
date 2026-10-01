@@ -14,6 +14,7 @@ import {
 } from './shipped-source-binding-values.js';
 import { reflectApplyArgumentCandidates } from './shipped-source-reflect-apply.js';
 import { staticCallArgumentCandidates } from './shipped-source-static-call-arguments.js';
+import { localCallValueCandidates } from './shipped-source-local-call-targets.js';
 import {
   type FlowCallable,
   type FlowBindInvoker,
@@ -222,6 +223,11 @@ function flowConstructor(
         args: [...target.args, ...expression.arguments.slice(2)],
         auditable: helper.auditable && target.auditable && !expression.arguments.some(ts.isSpreadElement),
       };
+    }
+    const returned = localCallValueCandidates(expression, checker, seen);
+    for (const candidate of returned?.candidates ?? []) {
+      const constructor = flowConstructor(candidate.expression, checker, candidate.seen);
+      if (constructor) return { ...constructor, auditable: false };
     }
   }
   const wrapped = wrappedResult(expression, seen,

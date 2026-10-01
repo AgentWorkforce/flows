@@ -165,6 +165,15 @@ function returnedValueCandidates(
   return [{ expression, seen: new Set(seen) }];
 }
 
+function isParameterSymbol(
+  declaration: ts.SignatureDeclaration,
+  symbol: ts.Symbol,
+  checker: ts.TypeChecker,
+): boolean {
+  return declaration.parameters.some(parameter =>
+    bindingNamePaths(parameter.name, symbol, checker).length > 0);
+}
+
 /** Resolve local return expressions to their call actuals for value analysis. */
 export function localCallValueCandidates(
   expression: ts.CallExpression,
@@ -178,7 +187,6 @@ export function localCallValueCandidates(
     || (callee && seen.has(callee))) return undefined;
   const nextSeen = callee ? new Set(seen).add(callee) : new Set(seen);
   const actualCandidates = localCallArgumentCandidates(expression.arguments, checker);
-  if (actualCandidates.length === 0) return { candidates: [] };
   const fallbackAtCallerPath = (
     candidate: LocalCallValueResolution['candidates'][number],
   ): LocalCallValueResolution['candidates'] => {
@@ -186,6 +194,16 @@ export function localCallValueCandidates(
     return valuesAtPath(candidate.expression, callerPath, checker, candidate.seen)
       .map(value => ({ expression: value, seen: new Set(candidate.seen) }));
   };
+  if (actualCandidates.length === 0) {
+    const candidates = returnedExpressions(declaration.body).flatMap(returned =>
+      returnedValueCandidates(returned, checker, nextSeen).flatMap(candidate => {
+        const root = expressionRootPath(candidate.expression, checker, candidate.seen);
+        return root && isParameterSymbol(declaration, root.symbol, checker)
+          ? []
+          : fallbackAtCallerPath(candidate);
+      }));
+    return { candidates };
+  }
   const candidates = returnedExpressions(declaration.body).flatMap(returned => {
     return returnedValueCandidates(returned, checker, nextSeen).flatMap(returnedCandidate => {
       const returnedMember = expressionRootPath(
@@ -271,7 +289,13 @@ export function localCallTargetPaths(
     || (callee && seen.has(callee))) return [];
   const nextSeen = callee ? new Set(seen).add(callee) : new Set(seen);
   const actualCandidates = localCallArgumentCandidates(expression.arguments, checker);
-  if (actualCandidates.length === 0) return [];
+  if (actualCandidates.length === 0) {
+    return returnedExpressions(declaration.body).flatMap(returned =>
+      resolve(returned, new Set(nextSeen)).flatMap(returnedMember =>
+        isParameterSymbol(declaration, returnedMember.symbol, checker)
+          ? []
+          : [{ ...returnedMember, path: [...returnedMember.path, ...callerPath] }]));
+  }
   return actualCandidates.flatMap(actuals => returnedExpressions(declaration.body).flatMap(returned =>
     resolve(returned, new Set(nextSeen)).flatMap(returnedMember => {
       const returnedPath = [...returnedMember.path, ...callerPath];
