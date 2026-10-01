@@ -192,6 +192,22 @@ ${stdio === 'inherit' ? `await import(${JSON.stringify(pathToFileURL(mock('ok'))
       kill.mockRestore();
     }
   }, 10_000);
+  it.skipIf(process.platform === 'win32')('waits for child close when the transport cannot own a process group', async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    Object.defineProperty(process, 'platform', { ...platform, value: 'win32' });
+    const marker = join(temp(), 'ready');
+    const source = `process.on('SIGTERM',()=>{}); require('node:fs').writeFileSync(${JSON.stringify(marker)},''); setInterval(()=>{},100);`;
+    const transport = new McpStdioTransport({ command: process.execPath, args: ['-e', source] });
+    try {
+      await transport.start();
+      await vi.waitFor(() => expect(existsSync(marker)).toBe(true));
+      const started = Date.now();
+      await transport.close();
+      expect(Date.now() - started).toBeGreaterThanOrEqual(FORCE_KILL_DELAY_MS);
+    } finally {
+      Object.defineProperty(process, 'platform', platform);
+    }
+  }, 10_000);
   it('classifies a mid-call stdout drop without retry and closes the child', async () => {
     const marker = join(temp(), 'pid');
     const session = await openMcpSession(config('drop', marker), 1000);

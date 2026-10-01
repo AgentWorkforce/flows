@@ -13,6 +13,7 @@ export class McpStdioTransport implements Transport {
   onmessage?: Transport['onmessage'];
   private child?: ChildProcessWithoutNullStreams;
   private stopTree?: ChildStop;
+  private ownsGroup = false;
   private readonly buffer = new ReadBuffer({ maxBufferSize: 1_048_576 });
   private stopped?: Promise<void>;
   private closing?: Promise<void>;
@@ -23,8 +24,9 @@ export class McpStdioTransport implements Transport {
     for (const name of this.config.env ?? []) {
       if (process.env[name] !== undefined) env[name] = process.env[name];
     }
+    const ownsGroup = this.ownsGroup = process.platform !== 'win32';
     const child = this.child = spawn(this.config.command, this.config.args ?? [], {
-      env, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32',
+      env, stdio: ['pipe', 'pipe', 'pipe'], detached: ownsGroup,
     });
     let resolveStopped!: () => void;
     let rejectStopped!: (error: Error) => void;
@@ -32,7 +34,7 @@ export class McpStdioTransport implements Transport {
       resolveStopped = resolve;
       rejectStopped = reject;
     });
-    this.stopTree = childStop(child, process.platform !== 'win32', undefined, error => {
+    this.stopTree = childStop(child, ownsGroup, undefined, error => {
       if (error === undefined) resolveStopped();
       else rejectStopped(error);
     });
@@ -76,7 +78,7 @@ export class McpStdioTransport implements Transport {
     // resolved `stopped`. Refund the just-armed escalation in that case before
     // awaiting the already-settled promise; otherwise its referenced timer can
     // fire later against a captured, potentially reused process-group id.
-    this.stopTree!.maySettleOnChildExit();
+    if (this.ownsGroup) this.stopTree!.maySettleOnChildExit();
     try {
       // A direct-child close is insufficient: wrappers can leave descendants
       // alive with either inherited pipes or completely detached stdio. The

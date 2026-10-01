@@ -18,6 +18,11 @@ const BUILT_WORKER_CLI = join(SDK, 'dist', 'worker-cli.js');
 const WRAPPER_HELPER = join(SDK, '..', '..', 'testdata', 'preflight', 'wrapper-session.mjs');
 const directories: string[] = [];
 
+function readPositivePid(path: string): number | undefined {
+  const pid = Number(readFileSync(path, 'utf8'));
+  return Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
+}
+
 // Once, at the end: the concurrent cases below would otherwise remove each
 // other's directories out from under a still-running fake.
 // A failed assertion must not leave a fake running, so kill what survives.
@@ -25,7 +30,8 @@ afterAll(() => {
   for (const directory of directories.splice(0)) {
     for (const file of ['claude-pid', 'task-pid', 'wrapper-pid']) {
       try {
-        const pid = Number(readFileSync(join(directory, file), 'utf8'));
+        const pid = readPositivePid(join(directory, file));
+        if (pid === undefined) continue;
         if (file === 'wrapper-pid') process.kill(-pid, 'SIGKILL');
         else process.kill(pid, 'SIGKILL');
       } catch { /* gone */ }
@@ -269,9 +275,11 @@ writeFileSync(${JSON.stringify(resultFile)}, JSON.stringify(await running));
         await Promise.race([exited, new Promise<void>(resolveWait => setTimeout(resolveWait, 1_000))]);
       }
       if (existsSync(wrapperPid)) {
-        const pid = Number(readFileSync(wrapperPid, 'utf8'));
-        try { process.kill(-pid, 'SIGKILL'); } catch {
-          try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+        const pid = readPositivePid(wrapperPid);
+        if (pid !== undefined) {
+          try { process.kill(-pid, 'SIGKILL'); } catch {
+            try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+          }
         }
       }
       alias ??= existsSync(aliasFile) ? readFileSync(aliasFile, 'utf8') : undefined;
@@ -283,4 +291,15 @@ writeFileSync(${JSON.stringify(resultFile)}, JSON.stringify(await running));
       }
     }
   }, 15_000);
+
+  it('ignores empty and partial wrapper PID records during cleanup', () => {
+    const root = makeDirectory();
+    const pidFile = join(root, 'wrapper-pid');
+    for (const value of ['', '0', '-1', '12x']) {
+      writeFileSync(pidFile, value);
+      expect(readPositivePid(pidFile)).toBeUndefined();
+    }
+    writeFileSync(pidFile, '123');
+    expect(readPositivePid(pidFile)).toBe(123);
+  });
 });
