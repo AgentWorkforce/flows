@@ -399,7 +399,10 @@ fn handle_request(
                 .map_err(internal_error)?;
             // `lease_ttl_ms`: the same deadline as a duration, so the worker can
             // time it on its own clock (see the dispatch frame in assignments.rs).
-            Ok(json!({"lease_deadline_ms": deadline, "lease_ttl_ms": deadline.saturating_sub(now)}))
+            Ok(json!({
+                "lease_deadline_ms": deadline,
+                "lease_ttl_ms": deadline.saturating_sub(now_ms()).max(0),
+            }))
         }
         "step.complete" => {
             let params: StepCompleteParams = decode_params(request.params)?;

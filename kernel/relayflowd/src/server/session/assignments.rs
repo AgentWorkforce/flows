@@ -28,6 +28,13 @@ impl ProtocolHub {
             if assignment.connection_id != connection_id || assignment.lease_id != lease_id {
                 bail!("heartbeat does not match the active worker lease")
             }
+            // A late heartbeat cannot revive ownership after the daemon-side
+            // deadline. In particular, this closes the transport-delay gap
+            // between a dispatch TTL being written and the worker receiving
+            // it; workers heartbeat before beginning effectful execution.
+            if now_ms >= assignment.lease_deadline_ms {
+                bail!("attempt worker lease expired before heartbeat")
+            }
             assignment.lease_deadline_ms = now_ms.saturating_add(LEASE_RENEWAL_MS);
             assignment.lease_deadline_ms
         };

@@ -253,7 +253,7 @@ export interface StepDispatchEvent {
   lease_id: string;
   idempotency_key: string;
   pins: Pins;
-  /** `lease_deadline_ms` as a duration at dispatch; see StepHeartbeatResult. */
+  /** Remaining lease duration at dispatch; `lease_deadline_ms` stays absolute. */
   lease_ttl_ms?: number;
   /**
    * The `wake_context` payload from the run's `subscription.matched`

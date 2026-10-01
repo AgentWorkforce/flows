@@ -847,6 +847,7 @@ export async function classifyOutcome(
       || (inspection.runningStep === undefined && inspection.backoffStep === undefined))) {
       parkedStep = inspection.parkedStep;
       needsHuman = inspection.needsHuman;
+      current = { ...current, status: inspection.status };
       break;
     }
     if (inspection?.runningStep !== undefined) {
@@ -1097,7 +1098,7 @@ async function waitForRunningStep(
   while (true) {
     throwIfCanceled(options.signal, runningStep.id);
     const remainingMs = leaseDeadlineMs + LEASE_SWEEP_GRACE_MS - Date.now();
-    if (remainingMs <= 0 && performance.now() - deadlineSeenAt > STALE_LEASE_MS) {
+    if (performance.now() - deadlineSeenAt > STALE_LEASE_MS) {
       throw new Error(
         `worker lease for step "${runningStep.id}" expired at ${leaseDeadlineMs} without completion`,
       );

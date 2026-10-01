@@ -6,7 +6,7 @@ import { AgentWorker } from '../src/worker.js';
 import { runAgentCli } from '../src/worker-cli.js';
 
 vi.mock('../src/worker-cli.js', () => ({ runAgentCli: vi.fn() }));
-afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.resetAllMocks(); });
+afterEach(() => { vi.restoreAllMocks(); vi.resetAllMocks(); vi.useRealTimers(); });
 
 // A stalled event loop: both clocks jump while queued timer callbacks wait.
 // The lease is timed on the monotonic clock (worker-lease.ts), so a stall

@@ -99,8 +99,11 @@ export async function withWorkerLease<T>(
       // is the cause, and callers branch on it (isLeaseLost): an attempt the
       // kernel will retry must not be recorded as the body's own failure.
       const lost = controller.signal.reason;
-      if (lost instanceof WorkerLeaseLostError && error !== lost) {
-        throw new WorkerLeaseLostError(lost.reason, lost.message, { cause: error });
+      if (isLeaseLost(lost) && error !== lost) {
+        if (lost instanceof WorkerLeaseLostError) {
+          throw new WorkerLeaseLostError(lost.reason, lost.message, { cause: error });
+        }
+        throw lost;
       }
       throw error;
     }

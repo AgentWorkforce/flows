@@ -206,6 +206,18 @@ describe('the remedy on a worker park', () => {
     expect(result.report.parkCause).toBeUndefined();
   });
 
+  it('uses the inspected parked status after a running outcome loses its worker', async () => {
+    const { client } = clientReturning([parkedOnAgent]);
+
+    const result = await classifyOutcome(client, 'run',
+      { ...parked, status: 'running' }, base, '/unused', {});
+
+    expect(result.exitCode).toBe(3);
+    expect(result.report.status).toBe('parked');
+    expect(result.report.parkCause).toBe('worker_unavailable');
+    expect(result.report.parkedStep?.id).toBe('work');
+  });
+
   /// The re-admitted child: `run.start` on an existing admission key returns
   /// the run as it is -- `running`, its retried attempt leased to a worker.
   it('follows a run.start outcome that is already running on a retried attempt', async () => {

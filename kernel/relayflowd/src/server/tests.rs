@@ -583,17 +583,74 @@ fn dispatch_carries_the_lease_as_a_duration() {
     let hub = Arc::new(ProtocolHub::default());
     let worker_peer = attach_llm_worker(data_dir, &hub, 1);
     let mut worker_reader = BufReader::new(worker_peer);
-    let before = now_ms();
     start_llm_run(data_dir, &hub);
     let dispatch = read_frame(&mut worker_reader);
+    let after = now_ms();
     assert_eq!(dispatch["event"], "step.dispatch");
     let ttl = dispatch["data"]["lease_ttl_ms"]
         .as_i64()
         .expect("lease_ttl_ms");
     let deadline = dispatch["data"]["lease_deadline_ms"].as_i64().unwrap();
+    let observed_remaining = deadline.saturating_sub(after).max(0);
     assert!(
-        ttl > 0 && ttl <= deadline - before,
-        "ttl {ttl} deadline {deadline} before {before}"
+        ttl > 0 && ttl >= observed_remaining && ttl - observed_remaining <= 1_000,
+        "ttl {ttl} deadline {deadline} after {after} observed {observed_remaining}"
+    );
+}
+
+#[test]
+fn heartbeat_cannot_revive_an_expired_assignment() {
+    let directory = tempdir().unwrap();
+    let data_dir = directory.path();
+    let hub = Arc::new(ProtocolHub::default());
+    let worker_peer = attach_llm_worker(data_dir, &hub, 1);
+    let mut worker_reader = BufReader::new(worker_peer);
+    let run_id = start_llm_run(data_dir, &hub);
+    let dispatch = read_frame(&mut worker_reader);
+    let step_id = dispatch["data"]["step_id"].as_str().unwrap().to_owned();
+    let attempt = dispatch["data"]["attempt"].as_u64().unwrap() as u32;
+    let lease_id = dispatch["data"]["lease_id"].as_str().unwrap();
+    let deadline = dispatch["data"]["lease_deadline_ms"].as_i64().unwrap();
+
+    let error = hub
+        .heartbeat(1, &(run_id, step_id, attempt), lease_id, deadline)
+        .unwrap_err();
+
+    assert!(error.to_string().contains("lease expired"), "{error:#}");
+}
+
+#[test]
+fn heartbeat_carries_the_remaining_lease_as_a_duration() {
+    let directory = tempdir().unwrap();
+    let data_dir = directory.path();
+    let hub = Arc::new(ProtocolHub::default());
+    let worker_peer = attach_llm_worker(data_dir, &hub, 1);
+    let mut worker_reader = BufReader::new(worker_peer);
+    let run_id = start_llm_run(data_dir, &hub);
+    let dispatch = read_frame(&mut worker_reader);
+    let (writer, _peer) = shared_writer();
+    let response = request(
+        data_dir,
+        &hub,
+        1,
+        &writer,
+        &json!({"id":"heartbeat","verb":"step.heartbeat","params":{
+            "run_id":run_id,
+            "step_id":dispatch["data"]["step_id"],
+            "attempt":dispatch["data"]["attempt"],
+            "lease_id":dispatch["data"]["lease_id"],
+        }})
+        .to_string(),
+    );
+    let after = now_ms();
+    assert!(response.ok, "heartbeat failed: {:?}", response.error);
+    let result = response.result.unwrap();
+    let ttl = result["lease_ttl_ms"].as_i64().expect("lease_ttl_ms");
+    let deadline = result["lease_deadline_ms"].as_i64().unwrap();
+    let observed_remaining = deadline.saturating_sub(after).max(0);
+    assert!(
+        ttl > 0 && ttl >= observed_remaining && ttl - observed_remaining <= 1_000,
+        "ttl {ttl} deadline {deadline} after {after} observed {observed_remaining}"
     );
 }
 

@@ -42,6 +42,14 @@ it('still fails when the kernel never resolves an expired lease after sweep grac
   await assertion;
 });
 
+it('bounds an unchanged lease when the CLI clock is behind the daemon', async () => {
+  const { client, snapshot, run } = fixture();
+  client.runGet.mockResolvedValue(snapshot('running', Date.now() + 75_000));
+  const assertion = expect(run()).rejects.toThrow('without completion');
+  await vi.advanceTimersByTimeAsync(35_500);
+  await assertion;
+});
+
 it('follows a live step whose renewed deadline looks expired on a skewed CLI clock', async () => {
   // The CLI's wall clock runs 60s ahead of the daemon: every deadline the
   // worker renews reads as already past here. It used to throw
