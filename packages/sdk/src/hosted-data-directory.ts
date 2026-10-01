@@ -29,7 +29,8 @@ export async function assertHostedDataDirectoryIsolated(
 ): Promise<{ readonly dataDir: string; readonly receiptDirectory: string }> {
   const origin = await REALPATH(PATH_RESOLVE(flowPath));
   const projectRoot = await REALPATH(findHostedProject(PATH_DIRNAME(origin)) ?? PATH_DIRNAME(origin));
-  const target = await canonicalFuturePath(PATH_RESOLVE(dataDir));
+  const requestedDataDir = PATH_RESOLVE(dataDir);
+  const target = await canonicalFuturePath(requestedDataDir);
   assertOutsideHostedSource(projectRoot, target);
   // The hosted worker writes its durable provider receipt below this child.
   // Recheck the derived path so an existing symlink cannot redirect that
@@ -51,7 +52,10 @@ export async function assertHostedDataDirectoryIsolated(
   }
   const receipts = await REALPATH(receiptPath);
   assertInsideDataDirectory(target, receipts);
-  return { dataDir: target, receiptDirectory: receipts };
+  // Socket identity is intentionally based on the caller's lexical absolute
+  // path. A running daemon started through a symlink ancestor hashes that same
+  // spelling, while receipt I/O uses the separately validated canonical path.
+  return { dataDir: requestedDataDir, receiptDirectory: receipts };
 }
 
 function assertOutsideHostedSource(projectRoot: string, target: string): void {

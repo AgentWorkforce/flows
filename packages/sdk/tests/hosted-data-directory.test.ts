@@ -1,7 +1,8 @@
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { socketPathFor } from '../src/daemon-connection.js';
 import { assertHostedDataDirectoryIsolated } from '../src/hosted-data-directory.js';
 
 const roots: string[] = [];
@@ -33,9 +34,28 @@ describe('hosted data directory isolation', () => {
       receiptDirectory: join(installed.root, '.relayflowd', 'nested', 'hosted-extension-receipts'),
     });
     await expect(assertHostedDataDirectoryIsolated(installed.flowPath, external)).resolves.toEqual({
-      dataDir: await realpath(external),
+      dataDir: resolve(external),
       receiptDirectory: join(await realpath(external), 'hosted-extension-receipts'),
     });
+  });
+
+  it('preserves lexical daemon identity while canonicalizing receipt storage', async () => {
+    const installed = await project();
+    const external = await mkdtemp(join(tmpdir(), 'hosted-data-target-'));
+    const aliases = await mkdtemp(join(tmpdir(), 'hosted-data-alias-'));
+    roots.push(external, aliases);
+    await symlink(external, join(aliases, 'journal-link'));
+    const lexicalDataDir = join(aliases, 'journal-link', 'state');
+
+    const validated = await assertHostedDataDirectoryIsolated(
+      installed.flowPath,
+      lexicalDataDir,
+    );
+    expect(validated).toEqual({
+      dataDir: resolve(lexicalDataDir),
+      receiptDirectory: join(await realpath(external), 'state', 'hosted-extension-receipts'),
+    });
+    expect(socketPathFor(validated.dataDir)).toBe(socketPathFor(lexicalDataDir));
   });
 
   it('refuses a custom in-project directory even when it does not exist', async () => {
