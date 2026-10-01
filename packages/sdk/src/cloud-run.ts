@@ -98,6 +98,7 @@ export async function prepareCloudSubmission(
   options: { input?: JsonValue; signal?: AbortSignal } = {},
 ): Promise<CloudSubmission> {
   let spec: FlowSpec | undefined;
+  let compiledKernelInput = false;
   let authored: { source: string; authority: CloudAuthoredAuthority; name: string; schedules: ScheduleTriggerSource[]; extensions: readonly FlowExtensionSubmission[] } | undefined;
   const inputPresent = Object.prototype.hasOwnProperty.call(options, 'input');
   let authoredInput: JsonValue | undefined;
@@ -150,6 +151,7 @@ export async function prepareCloudSubmission(
           // compatibility. If both fail, retain the original authoring diagnostic.
           try {
             spec = compileSpec(kernelToAuthoring(parsed));
+            compiledKernelInput = true;
           } catch {
             throw error;
           }
@@ -176,7 +178,10 @@ export async function prepareCloudSubmission(
     const kernel = toKernelSpec(spec!);
     // JSON is a YAML subset. Sending canonical data preserves the exact spec
     // while using the server's existing YAML-to-config admission path.
-    return { workflow: canonicalize(spec), fileType: 'yaml', inputPresent: false, specHash: specHash(kernel),
+    // A compiled input must stay compiled: its host-proved cli_identity is
+    // deliberately out of band from the authoring schema and would otherwise
+    // disappear while the hash continued to cover it.
+    return { workflow: canonicalize(compiledKernelInput ? kernel : spec), fileType: 'yaml', inputPresent: false, specHash: specHash(kernel),
       name: spec!.name ?? "flow", schedules: [] };
   }
   return {

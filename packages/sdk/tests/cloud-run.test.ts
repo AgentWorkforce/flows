@@ -146,14 +146,33 @@ describe('hosted v2 submission', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('accepts compiled kernel JSON using the existing compiler conversion', async () => {
+  it('preserves proved CLI identity when submitting compiled kernel JSON', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'cloud-spec-'));
     dirs.push(dir);
     const path = join(dir, 'spec.json');
-    const compiled = toKernelSpec(compileSpec(flow));
+    const kernel = toKernelSpec(compileSpec({
+      version: '0.1.0',
+      steps: [{
+        id: 'review', type: 'agent', instruction: 'review',
+        cli: '/opt/provider/cli.js', model: 'claude-sonnet-5',
+      }],
+    }));
+    const compiled = {
+      ...kernel,
+      steps: kernel.steps.map(step => ({ ...step, cli_identity: 'claude' })),
+    };
     await writeFile(path, JSON.stringify(compiled));
-    const options = await cloud(() => ({ runId: 'compiled-run', status: 'pending' }));
-    expect((await runInCloud({ path }, options)).specHash).toBe(specHash(compiled));
+    let workflow: string | undefined;
+    const options = await cloud((_path, body) => {
+      workflow = (body as { workflow: string }).workflow;
+      return { runId: 'compiled-run', status: 'pending' };
+    });
+    const receipt = await runInCloud({ path }, options);
+    expect(workflow).toBe(canonicalize(compiled));
+    expect(JSON.parse(workflow!).steps[0]).toMatchObject({
+      cli: '/opt/provider/cli.js', cli_identity: 'claude', model: 'claude-sonnet-5',
+    });
+    expect(receipt.specHash).toBe(specHash(compiled));
   });
 
   it('refuses unsafe origins and Relay keys without sending credentials', async () => {

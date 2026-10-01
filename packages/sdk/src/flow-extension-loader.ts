@@ -114,6 +114,9 @@ function composeBudget(
     if (entryBudget !== undefined) appendIntrinsicArray(ceilings, entryBudget);
   }
   if (ceilings.length === 0) return base;
+  if (base === undefined && ceilings.length === 1 && typeof ceilings[0] === 'string') {
+    return ceilings[0];
+  }
   let shorthand = typeof base === 'string';
   for (let index = 0; index < ceilings.length; index += 1) {
     if (typeof ceilings[index] === 'string') shorthand = true;

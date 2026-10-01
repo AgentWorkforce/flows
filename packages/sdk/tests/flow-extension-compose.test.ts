@@ -113,6 +113,22 @@ describe('composing flow extensions onto a base flow', () => {
       wallclock: '45m',
     });
   });
+  it('retains a lone shorthand extension budget on an unbudgeted base', async () => {
+    const p = project(`
+      import { flow, github } from '@relayflows/surface';
+      export default flow('software-factory', async f => { f.done('success'); })
+        .on(github.issues({ action: 'opened' }), async f => { f.done('success'); });
+    `);
+    const entry = readFileSync(join(fixtureRoot, 'extension-babysitter/babysitter.flow.ts'), 'utf8')
+      .replace("{ tokens: 800_000, dollars: 8, wallclock: '45m' }", "'$5/run'");
+    await install(p, variant(manifest => {
+      const permissions = { ...(manifest.permissions as Record<string, unknown>) };
+      delete permissions.budget;
+      return { ...manifest, permissions };
+    }, entry));
+    const loaded = await loadAuthoredFlow(p.flow, { versions });
+    expect(loaded.getDefinition(loaded.handle).header.budget).toBe('$5/run');
+  });
   it('retains extension budgets and handlers when entry evaluation poisons array intrinsics', async () => {
     const p = project();
     await install(p);
