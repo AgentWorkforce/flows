@@ -178,7 +178,11 @@ async function executePinnedWrapper(
       signal?.removeEventListener('abort', onAbort);
       resolve(result);
     };
-    const stop = childStop(child, ownsGroup, undefined, () => {
+    const stop = childStop(child, ownsGroup, undefined, (stopError) => {
+      if (stopError !== undefined) {
+        finish(failure(stopError.message));
+        return;
+      }
       try {
         pinned.release();
       } catch (error) {

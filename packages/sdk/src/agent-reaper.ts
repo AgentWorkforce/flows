@@ -16,11 +16,14 @@ import type { ChildStop } from './child-stop.js';
  *
  * Nothing survives a SIGKILL of this process; that needs a supervisor.
  */
-const live = new Set<ChildStop>();
+const live = new Map<ChildStop, () => void>();
 const FATAL_SIGNALS: readonly NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP'];
 
 function killAll(): void {
-  for (const stop of live) stop.kill();
+  for (const [stop, releaseOnExit] of live) {
+    stop.kill();
+    releaseOnExit();
+  }
   live.clear();
 }
 
@@ -42,9 +45,9 @@ function uninstall(): void {
 }
 
 /** Kill this agent tree if the process ends first. Returns the release. */
-export function reapOnExit(stop: ChildStop): () => void {
+export function reapOnExit(stop: ChildStop, releaseOnExit: () => void = () => {}): () => void {
   if (live.size === 0) install();
-  live.add(stop);
+  live.set(stop, releaseOnExit);
   return () => {
     if (!live.delete(stop)) return;
     if (live.size === 0) uninstall();

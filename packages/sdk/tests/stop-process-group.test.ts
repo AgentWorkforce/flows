@@ -10,7 +10,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { childStop } from '../src/child-stop.js';
 
 /**
@@ -35,6 +35,7 @@ const WRAPPER_HELPER = resolve(SDK, '..', '..', 'testdata', 'preflight', 'wrappe
 const directories: string[] = [];
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const directory of directories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -441,6 +442,28 @@ setInterval(() => {}, 1000);
       stop.kill();
     }
   }, 10_000);
+
+  it('bounds forced-stop confirmation when a group remains unprovable', async () => {
+    const permissionDenied = Object.assign(new Error('not permitted'), { code: 'EPERM' });
+    vi.spyOn(process, 'kill').mockImplementation((_pid, signal) => {
+      if (signal === 0) throw permissionDenied;
+      return true;
+    });
+    const child = {
+      pid: 987_654,
+      kill: vi.fn(() => true),
+    } as unknown as Parameters<typeof childStop>[0];
+    const started = Date.now();
+    const stopped = new Promise<Error | undefined>(resolveStopped => {
+      childStop(child, true, 10, resolveStopped).kill();
+    });
+
+    await expect(stopped).resolves.toMatchObject({
+      message: expect.stringMatching(/did not stop answering within 1000ms/i),
+    });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(1_000);
+    expect(Date.now() - started).toBeLessThan(3_000);
+  }, 5_000);
 });
 
 /**

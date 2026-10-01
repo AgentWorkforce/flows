@@ -452,7 +452,11 @@ async function spawnInvocation(
           ? result : { ...result, transcript: { file: transcriptFile } });
       }, () => resolve(result));
     };
-    const stop = childStop(child, ownsGroup, undefined, () => {
+    const stop = childStop(child, ownsGroup, undefined, (stopError) => {
+      if (stopError !== undefined) {
+        finish({ exit_code: null, stdout_tail: '', stderr_tail: stopError.message }, true);
+        return;
+      }
       try {
         pinned.release();
       } catch (error) {
@@ -463,7 +467,9 @@ async function spawnInvocation(
         }, true);
       }
     });
-    release = ownsGroup ? reapOnExit(stop) : () => {};
+    release = ownsGroup ? reapOnExit(stop, () => {
+      try { pinned.release(); } catch { /* host exit cannot report another result */ }
+    }) : () => {};
     const onAbort = (): void => {
       stop.kill();
       finish({ exit_code: null, stdout_tail: '', stderr_tail: 'Agent execution aborted: lease ownership lost.' }, true);

@@ -6,6 +6,8 @@ import { execFileSync, type ChildProcess } from 'node:child_process';
  * the `flows run` event loop alive long after the step itself has settled.
  */
 export const FORCE_KILL_DELAY_MS = 1_000;
+/** Bound for proving that a forced process group has actually disappeared. */
+export const GROUP_EXIT_CONFIRM_TIMEOUT_MS = 1_000;
 
 /**
  * The one stop path for a spawned agent process.
@@ -65,7 +67,7 @@ export function childStop(
   child: ChildProcess,
   ownsGroup: boolean,
   forceKillDelayMs: number = FORCE_KILL_DELAY_MS,
-  onStopped: () => void = () => {},
+  onStopped: (error?: Error) => void = () => {},
 ): ChildStop {
   // Pinned at the spawn rather than read per signal. Every interesting use of
   // this id happens AFTER the direct child has been reaped — the escalation
@@ -77,11 +79,14 @@ export function childStop(
   let forceTimer: NodeJS.Timeout | undefined;
   let groupPoll: NodeJS.Timeout | undefined;
   let forced = false;
+  let forcedAt: number | undefined;
   let stopped = false;
-  const notifyStopped = (): void => {
+  const notifyStopped = (error?: Error): void => {
     if (stopped) return;
     stopped = true;
-    onStopped();
+    if (groupPoll !== undefined) clearTimeout(groupPoll);
+    groupPoll = undefined;
+    onStopped(error);
   };
   const cancel = (): void => {
     if (forceTimer !== undefined) clearTimeout(forceTimer);
@@ -120,6 +125,10 @@ export function childStop(
       notifyStopped();
       return;
     }
+    if (forcedAt !== undefined && Date.now() - forcedAt >= GROUP_EXIT_CONFIRM_TIMEOUT_MS) {
+      notifyStopped(new Error(`Process groups did not stop answering within ${GROUP_EXIT_CONFIRM_TIMEOUT_MS}ms after SIGKILL.`));
+      return;
+    }
     if (groupPoll !== undefined) return;
     groupPoll = setTimeout(() => {
       groupPoll = undefined;
@@ -148,6 +157,7 @@ export function childStop(
       cancel();
       signalTree('SIGKILL');
       forced = true;
+      forcedAt ??= Date.now();
       awaitGroupExit();
     },
     terminate: (): void => {
@@ -157,6 +167,7 @@ export function childStop(
         forceTimer = undefined;
         signalTree('SIGKILL');
         forced = true;
+        forcedAt ??= Date.now();
         awaitGroupExit();
       }, forceKillDelayMs);
       // Deliberately REFERENCED, unlike every other timer we arm. The survivor
