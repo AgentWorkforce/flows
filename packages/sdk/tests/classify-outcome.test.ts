@@ -94,6 +94,11 @@ const parkedOnAgent: RunGetResult = {
   budget: { tokens_in: 0, tokens_out: 0, dollars: '0' },
 };
 
+const runningOnRunnableAgent: RunGetResult = {
+  ...parkedOnAgent,
+  status: 'running',
+};
+
 async function classifyPark(
   command: 'run' | 'resume',
   report: Partial<typeof base>,
@@ -139,5 +144,115 @@ describe('the remedy on a worker park', () => {
       'resume', { specPath: 'spec.yaml' }, { dataDir: '/tmp/d', localAgent: true });
     expect(message).toContain('no attached worker was eligible');
     expect(message).not.toMatch(/flows (run|resume)/);
+  });
+
+  /// Customer rw_3a0fcb71. A worker died, the kernel journaled `lease_expired`
+  /// with `disposition: retry`, and the step sat in `backoff` waiting for the
+  /// worker slot the dead attempt held. That lasted longer than the 2s
+  /// unclassified bound, so the CLI reported `status running without a
+  /// classifiable completion` over a child whose attempt 2 then succeeded.
+  it('follows a step through a retry backoff longer than the unclassified bound', async () => {
+    const backoff: RunGetResult = {
+      run_id: RUN_ID,
+      status: 'running',
+      steps: { answer: { type: 'agent', state: 'backoff' } as never },
+      budget: { tokens_in: 0, tokens_out: 0, dollars: '0' },
+    };
+    const completed: RunGetResult = { ...backoff, status: 'completed', steps: { answer: { type: 'agent', state: 'done' } as never } };
+    // 3s of backoff by the clock, past the 2s unclassified bound.
+    const until = Date.now() + 3_000;
+    let resumes = 0;
+    const client = {
+      runGet: async () => (Date.now() < until ? backoff : completed),
+      runResume: async (): Promise<RunOutcome> => {
+        resumes += 1;
+        return Date.now() < until
+          ? parked
+          : { run_id: RUN_ID, status: 'completed', completion_reason: 'success', completed_steps: 2 };
+      },
+    } as unknown as JournalClient;
+    const result = await classifyOutcome(client, 'run', parked, base, '/unused', {});
+    expect(result.exitCode).toBe(0);
+    expect(result.report.completionReason).toBe('success');
+    expect(resumes).toBeGreaterThan(1);
+  }, 20_000);
+
+  it('follows a backoff retry instead of parking on a runnable sibling', async () => {
+    const retrying: RunGetResult = {
+      run_id: RUN_ID,
+      status: 'running',
+      steps: {
+        waitingForWorker: { type: 'agent', state: 'runnable' } as never,
+        retrying: { type: 'agent', state: 'backoff' } as never,
+      },
+      budget: { tokens_in: 0, tokens_out: 0, dollars: '0' },
+    };
+    const completed: RunGetResult = {
+      ...retrying,
+      status: 'completed',
+      steps: {
+        waitingForWorker: { type: 'agent', state: 'done' } as never,
+        retrying: { type: 'agent', state: 'done' } as never,
+      },
+    };
+    let resumed = false;
+    const client = {
+      runGet: async () => (resumed ? completed : retrying),
+      runResume: async (): Promise<RunOutcome> => {
+        resumed = true;
+        return { run_id: RUN_ID, status: 'completed', completion_reason: 'success', completed_steps: 2 };
+      },
+    } as unknown as JournalClient;
+
+    const result = await classifyOutcome(client, 'run', parked, base, '/unused', {});
+
+    expect(result.exitCode).toBe(0);
+    expect(result.report.completionReason).toBe('success');
+    expect(result.report.parkCause).toBeUndefined();
+  });
+
+  it('uses the inspected parked status after a running outcome loses its worker', async () => {
+    const { client } = clientReturning([parkedOnAgent]);
+
+    const result = await classifyOutcome(client, 'run',
+      { ...parked, status: 'running' }, base, '/unused', {});
+
+    expect(result.exitCode).toBe(3);
+    expect(result.report.status).toBe('parked');
+    expect(result.report.parkCause).toBe('worker_unavailable');
+    expect(result.report.parkedStep?.id).toBe('work');
+  });
+
+  it('preserves a parked outcome when its runnable snapshot still says running', async () => {
+    const { client } = clientReturning([runningOnRunnableAgent]);
+
+    const result = await classifyOutcome(client, 'run', parked, base, '/unused', {});
+
+    expect(result.exitCode).toBe(3);
+    expect(result.report.status).toBe('parked');
+    expect(result.report.parkCause).toBe('worker_unavailable');
+    expect(result.report.parkedStep?.id).toBe('work');
+  });
+
+  /// The re-admitted child: `run.start` on an existing admission key returns
+  /// the run as it is -- `running`, its retried attempt leased to a worker.
+  it('follows a run.start outcome that is already running on a retried attempt', async () => {
+    const until = Date.now() + 500;
+    const running: RunGetResult = {
+      run_id: RUN_ID,
+      status: 'running',
+      steps: { answer: { type: 'agent', state: 'running', lease_deadline_ms: Date.now() + 30_000 } as never },
+      budget: { tokens_in: 0, tokens_out: 0, dollars: '0' },
+    };
+    const client = {
+      runGet: async () => (Date.now() < until ? running
+        : { ...running, status: 'completed', steps: { answer: { type: 'agent', state: 'done' } } }),
+      runResume: async (): Promise<RunOutcome> =>
+        ({ run_id: RUN_ID, status: 'completed', completion_reason: 'success', completed_steps: 1 }),
+    } as unknown as JournalClient;
+    const result = await classifyOutcome(client, 'run',
+      { run_id: RUN_ID, status: 'running', completion_reason: null, completed_steps: 0 }, base, '/unused', {});
+    expect(result.exitCode).toBe(0);
+    expect(result.report.completionReason).toBe('success');
   });
 });

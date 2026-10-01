@@ -28,6 +28,13 @@ impl ProtocolHub {
             if assignment.connection_id != connection_id || assignment.lease_id != lease_id {
                 bail!("heartbeat does not match the active worker lease")
             }
+            // A late heartbeat cannot revive ownership after the daemon-side
+            // deadline. In particular, this closes the transport-delay gap
+            // between a dispatch TTL being written and the worker receiving
+            // it; workers heartbeat before beginning effectful execution.
+            if now_ms >= assignment.lease_deadline_ms {
+                bail!("attempt worker lease expired before heartbeat")
+            }
             assignment.lease_deadline_ms = now_ms.saturating_add(LEASE_RENEWAL_MS);
             assignment.lease_deadline_ms
         };
@@ -243,11 +250,20 @@ impl StepDispatcher for ProtocolHub {
             sessions.reservations.remove(&key);
             return Ok(DispatchOutcome::PinMismatch { detail });
         }
-        if let Err(error) = write_frame(
-            &worker.writer,
-            &json!({"event": "step.dispatch", "data": dispatch}),
-        )
-        .with_context(|| format!("dispatch step to worker {}", worker.worker_id))
+        // `lease_ttl_ms` restates the deadline as a duration on this daemon's
+        // clock. The worker times its lease against its OWN clock, so an
+        // absolute deadline alone is only as good as the two clocks' agreement
+        // -- a skew of one lease length refused every dispatch locally as
+        // already expired, or renewed after the daemon had swept the lease.
+        let mut frame = json!({"event": "step.dispatch", "data": dispatch});
+        frame["data"]["lease_ttl_ms"] = json!(
+            dispatch
+                .lease_deadline_ms
+                .saturating_sub(super::super::protocol::now_ms())
+                .max(0)
+        );
+        if let Err(error) = write_frame(&worker.writer, &frame)
+            .with_context(|| format!("dispatch step to worker {}", worker.worker_id))
         {
             sessions.reservations.remove(&key);
             return Err(error);

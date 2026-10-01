@@ -1049,7 +1049,11 @@ describe('flows run/resume CLI over the journal protocol', () => {
     expect(output.stderr.join('\n')).not.toContain('protocol_error');
   });
 
-  it('bounds a worker wait by its lease plus sweep grace and reports what it is waiting for', async () => {
+  // A deadline already past by this process's clock is not the daemon's
+  // verdict (clock skew, a sweep in progress): the CLI keeps following the
+  // step until the daemon settles it, instead of exiting 1 over a run that
+  // then completed. The never-swept bound is in worker-lease-sweep.test.ts.
+  it('follows a worker wait past a locally expired lease until the daemon settles it', async () => {
     const dataDir = temporaryProject('flows-run-lease-');
     const leaseDeadlineMs = Date.now() - 5_001;
     let snapshots = 0;
@@ -1087,10 +1091,11 @@ describe('flows run/resume CLI over the journal protocol', () => {
       'run', '--data-dir', dataDir, join(TESTDATA, 'hello-llm.flow.yaml'),
     ], output.io);
 
-    expect(code).toBe(1);
+    expect(code).toBe(0);
     expect(output.stderr.join('\n')).toContain('WAITING [worker_lease]');
     expect(output.stderr.join('\n')).toContain(`until ${leaseDeadlineMs}`);
-    expect(output.stderr.join('\n')).toContain('worker lease for step "answer" expired');
+    expect(output.stderr.join('\n')).not.toContain('worker lease for step "answer" expired');
+    expect(snapshots).toBeGreaterThan(4);
   });
 
   it('allows a caller to cancel a worker-lease wait', async () => {

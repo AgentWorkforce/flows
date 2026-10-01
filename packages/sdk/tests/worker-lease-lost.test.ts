@@ -94,6 +94,21 @@ it('preserves the heartbeat rejection through abort and finally', async () => {
   await assertion;
 });
 
+it('preserves a protocol lease loss over the body cancellation error', async () => {
+  const { client, dispatch } = setup('llm');
+  const lost = Object.assign(new JournalProtocolError('lease_conflict', 'lost'), {
+    verb: 'step.heartbeat',
+  });
+  const canceled = new Error('worker wait canceled');
+  client.stepHeartbeat.mockResolvedValueOnce({ lease_deadline_ms: Date.now() + 30_000 })
+    .mockRejectedValueOnce(lost);
+  const result = withWorkerLease(client as unknown as JournalClient, dispatch, signal =>
+    new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(canceled))));
+  const assertion = expect(result).rejects.toBe(lost);
+  await vi.advanceTimersByTimeAsync(10_000);
+  await assertion;
+});
+
 it.each(['step.heartbeat', 'step.complete', 'step.wait'])('tags %s refusals at the client wrapper', async verb => {
   const client = new JournalClient('/unused');
   const error = new JournalProtocolError('run_terminal', 'finished');

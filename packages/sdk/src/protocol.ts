@@ -253,6 +253,8 @@ export interface StepDispatchEvent {
   lease_id: string;
   idempotency_key: string;
   pins: Pins;
+  /** Remaining lease duration at dispatch; `lease_deadline_ms` stays absolute. */
+  lease_ttl_ms?: number;
   /**
    * The `wake_context` payload from the run's `subscription.matched`
    * journal entry — carries the triggering event and any epoch summary
@@ -291,6 +293,13 @@ export interface StepHeartbeatParams {
 }
 export interface StepHeartbeatResult {
   lease_deadline_ms: number;
+  /**
+   * The renewed lease as a duration on the daemon's clock. Absent from older
+   * daemons; a worker that has it times the lease on its own monotonic clock
+   * instead of comparing the absolute deadline with a wall clock that may
+   * disagree with the daemon's.
+   */
+  lease_ttl_ms?: number;
 }
 
 /** completionReason mirrors kernel DESIGN.md §1.3. */

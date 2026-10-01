@@ -12,7 +12,7 @@ import {
   resumeDurableAuthoredFlow,
   type AuthoredRootMetadata,
 } from '../src/authored-root.js';
-import type { JournalClient } from '../src/journal-client.js';
+import { JournalProtocolError, type JournalClient } from '../src/journal-client.js';
 import type { RunOutcome, StepDispatchEvent } from '../src/protocol.js';
 import { AuthoredHumanParked } from '../src/authored-flow-error.js';
 
@@ -79,6 +79,7 @@ class RootJournal {
   startStatus: RunOutcome = outcome(this.runId, 'parked', null);
   resumeStatus: RunOutcome = outcome(this.runId, 'parked', null);
   dispatchOnStart = true;
+  dispatchLeaseMs = 30;
   resumeCalls = 0;
   entries: Array<Record<string, unknown>> = [];
   readonly childEntries = new Map<string, Array<Record<string, unknown>>>();
@@ -98,14 +99,14 @@ class RootJournal {
     }
     if (this.dispatchOnStart
       && (this.startStatus.status === 'running' || this.startStatus.status === 'parked')) {
-      queueMicrotask(() => this.peer.emit('step.dispatch', dispatch(this.runId, 1)));
+      queueMicrotask(() => this.peer.emit('step.dispatch', dispatch(this.runId, 1, this.dispatchLeaseMs)));
     }
     return this.startStatus;
   }
   async runResume(runId: string): Promise<RunOutcome> {
     this.resumeCalls += 1;
     if (this.resumeStatus.status === 'running' || this.resumeStatus.status === 'parked') {
-      queueMicrotask(() => this.peer.emit('step.dispatch', dispatch(runId, 2)));
+      queueMicrotask(() => this.peer.emit('step.dispatch', dispatch(runId, 2, this.dispatchLeaseMs)));
     }
     return this.resumeStatus;
   }
@@ -164,6 +165,49 @@ describe('durable authored root', () => {
     expect(metadata.sourceSha256).toMatch(/^[a-f0-9]{64}$/u);
     expect(metadata.extensions).toEqual([]);
     expect(journal.peer.completions).toEqual([{ attempt: 1, reason: 'success' }]);
+  });
+
+  it('stops waiting for a root re-dispatch when the caller cancels', async () => {
+    // The root lease is lost (the daemon refuses the renewal), so the driver
+    // waits up to 45s for the kernel to re-dispatch the root. A caller cancel
+    // during that wait must end it at once, as a cancel -- never a
+    // `root_lease_lost` report, and never after the timeout.
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    journal.peer.stepHeartbeat = async () => {
+      throw new JournalProtocolError('lease_conflict', 'attempt has no active worker lease');
+    };
+    const controller = new AbortController();
+    const started = Date.now();
+    const execution = executeDurableAuthoredFlow(
+      loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'cancel-while-redispatch', lifecycle: { signal: controller.signal } },
+    );
+    setTimeout(() => controller.abort(), 200);
+    await expect(execution).rejects.toThrow('re-dispatched was canceled');
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(journal.peer.completions).toEqual([]);
+  });
+
+  it('does not wait for a re-dispatch after the root run is terminal', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    journal.dispatchLeaseMs = 30_000;
+    const terminal = Object.assign(new JournalProtocolError('run_terminal', 'run is already terminal'), {
+      verb: 'step.complete',
+    });
+    journal.peer.stepHeartbeat = async () => ({ lease_deadline_ms: Date.now() + 30_000 });
+    journal.peer.stepComplete = async () => { throw terminal; };
+    const controller = new AbortController();
+    const abort = setTimeout(() => controller.abort(), 2_000);
+    try {
+      await expect(executeDurableAuthoredFlow(
+        loaded, journal as unknown as JournalClient, undefined,
+        { dataDir: '/unused', admissionKey: 'terminal-root', lifecycle: { signal: controller.signal } },
+      )).rejects.toBe(terminal);
+    } finally {
+      clearTimeout(abort);
+    }
   });
 
   it('journals plugin digests from composed extensions', async () => {
@@ -485,11 +529,11 @@ async function fixture(
   };
 }
 
-function dispatch(runId: string, attempt: number): StepDispatchEvent {
+function dispatch(runId: string, attempt: number, leaseMs = 30): StepDispatchEvent {
   return {
     run_id: runId, step_id: 'authored-root', attempt, step_type: 'agent', spec: {},
     lease_id: `lease-${attempt}`, idempotency_key: `key-${attempt}`,
-    lease_deadline_ms: Date.now() + 30,
+    lease_deadline_ms: Date.now() + leaseMs,
     pins: { workspace: [], streams: [{ stream: 'authored-root-stream', read_offset: 0 }] },
   };
 }
