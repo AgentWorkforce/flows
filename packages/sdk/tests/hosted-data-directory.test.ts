@@ -1,8 +1,7 @@
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { socketPathFor } from '../src/daemon-connection.js';
 import { assertHostedDataDirectoryIsolated } from '../src/hosted-data-directory.js';
 
 const roots: string[] = [];
@@ -25,6 +24,7 @@ describe('hosted data directory isolation', () => {
     const installed = await project();
     const external = await mkdtemp(join(tmpdir(), 'hosted-data-external-'));
     roots.push(external);
+    const canonicalExternal = await realpath(external);
 
     await expect(assertHostedDataDirectoryIsolated(
       installed.flowPath,
@@ -33,13 +33,13 @@ describe('hosted data directory isolation', () => {
       dataDir: join(installed.root, '.relayflowd', 'nested'),
       receiptDirectory: join(installed.root, '.relayflowd', 'nested', 'hosted-extension-receipts'),
     });
-    await expect(assertHostedDataDirectoryIsolated(installed.flowPath, external)).resolves.toEqual({
-      dataDir: resolve(external),
-      receiptDirectory: join(await realpath(external), 'hosted-extension-receipts'),
+    await expect(assertHostedDataDirectoryIsolated(installed.flowPath, canonicalExternal)).resolves.toEqual({
+      dataDir: canonicalExternal,
+      receiptDirectory: join(canonicalExternal, 'hosted-extension-receipts'),
     });
   });
 
-  it('preserves lexical daemon identity while canonicalizing receipt storage', async () => {
+  it('refuses a data directory with a symlink ancestor', async () => {
     const installed = await project();
     const external = await mkdtemp(join(tmpdir(), 'hosted-data-target-'));
     const aliases = await mkdtemp(join(tmpdir(), 'hosted-data-alias-'));
@@ -47,15 +47,10 @@ describe('hosted data directory isolation', () => {
     await symlink(external, join(aliases, 'journal-link'));
     const lexicalDataDir = join(aliases, 'journal-link', 'state');
 
-    const validated = await assertHostedDataDirectoryIsolated(
+    await expect(assertHostedDataDirectoryIsolated(
       installed.flowPath,
       lexicalDataDir,
-    );
-    expect(validated).toEqual({
-      dataDir: resolve(lexicalDataDir),
-      receiptDirectory: join(await realpath(external), 'state', 'hosted-extension-receipts'),
-    });
-    expect(socketPathFor(validated.dataDir)).toBe(socketPathFor(lexicalDataDir));
+    )).rejects.toMatchObject({ code: 'plugin_source_invalid' });
   });
 
   it('refuses a custom in-project directory even when it does not exist', async () => {

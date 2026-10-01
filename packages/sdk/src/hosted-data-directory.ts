@@ -32,6 +32,12 @@ export async function assertHostedDataDirectoryIsolated(
   const requestedDataDir = PATH_RESOLVE(dataDir);
   const target = await canonicalFuturePath(requestedDataDir);
   assertOutsideHostedSource(projectRoot, target);
+  if (requestedDataDir !== target) {
+    throw new PluginError(
+      'plugin_source_invalid',
+      'Hosted Software Garden data directories must not use symlink path components.',
+    );
+  }
   // The hosted worker writes its durable provider receipt below this child.
   // Recheck the derived path so an existing symlink cannot redirect that
   // write from the excluded data tree back into reviewed project source.
@@ -52,9 +58,8 @@ export async function assertHostedDataDirectoryIsolated(
   }
   const receipts = await REALPATH(receiptPath);
   assertInsideDataDirectory(target, receipts);
-  // Socket identity is intentionally based on the caller's lexical absolute
-  // path. A running daemon started through a symlink ancestor hashes that same
-  // spelling, while receipt I/O uses the separately validated canonical path.
+  // The equality check above makes daemon storage and lexical socket identity
+  // the same immutable preflight target; receipt I/O uses its validated child.
   return { dataDir: requestedDataDir, receiptDirectory: receipts };
 }
 
