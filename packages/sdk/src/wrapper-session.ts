@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { FORCE_KILL_DELAY_MS, childStop, ownsProcessGroup } from './child-stop.js';
+import { childStop, ownsProcessGroup } from './child-stop.js';
+import { reapOnExit } from './agent-reaper.js';
 import {
   WRAPPER_EXECUTE_TOKEN,
   WRAPPER_IDENTIFY_ARG,
@@ -45,7 +46,6 @@ const HANDSHAKE_OUTPUT_LIMIT = 8_192;
  * descendant of the wrapper can withhold forever. Resolution therefore may
  * not depend on `'close'`: past this point the reader settles regardless.
  */
-const SETTLE_AFTER_KILL_MS = 250;
 /**
  * How long a session with NO execution deadline waits, after the wrapper
  * process itself is gone, for its stdio to finish draining.
@@ -157,27 +157,19 @@ async function executePinnedWrapper(
     let exitCode: number | null = null;
     /** The handshake deadline, then the execution deadline if there is one. */
     let lifecycleTimer: NodeJS.Timeout | undefined;
-    /** `terminate`'s own settle deadline. */
-    let settleTimer: NodeJS.Timeout | undefined;
     /** The post-exit drain grace, armed only when execution is unlimited. */
     let drainTimer: NodeJS.Timeout | undefined;
-    /** The settle deadline the drain's own stop owes, after its escalation. */
-    let drainSettleTimer: NodeJS.Timeout | undefined;
-    // Each deadline owns its own handle. They can be armed at the same time —
-    // a drain grace can be running when an over-limit final line terminates
-    // the session — and a shared variable would drop the only reference to
-    // one of them and leave it pending past the settle.
 
     const finish = (result: WrapperSessionResult): void => {
       if (settled) return;
       settled = true;
       if (lifecycleTimer !== undefined) clearTimeout(lifecycleTimer);
-      if (settleTimer !== undefined) clearTimeout(settleTimer);
       if (drainTimer !== undefined) clearTimeout(drainTimer);
-      if (drainSettleTimer !== undefined) clearTimeout(drainSettleTimer);
       signal?.removeEventListener('abort', onAbort);
       resolve(result);
     };
+    let pendingStopResult: WrapperSessionResult | undefined;
+    let releaseReaper = (): void => {};
     const stop = childStop(child, ownsGroup, undefined, (stopError) => {
       if (stopError !== undefined) {
         finish(failure(stopError.message));
@@ -185,10 +177,20 @@ async function executePinnedWrapper(
       }
       try {
         pinned.release();
+        releaseReaper();
       } catch (error) {
         finish(failure(`CLI ${JSON.stringify(cli)} wrapper invocation alias cleanup failed: ${String(error)}`));
+        return;
       }
+      if (pendingStopResult !== undefined) finish(pendingStopResult);
     });
+    releaseReaper = ownsGroup ? reapOnExit(stop, () => {
+      try { pinned.release(); } catch { /* host exit cannot report another result */ }
+    }) : () => {};
+    const finishAfterStop = (result: WrapperSessionResult, action: 'kill' | 'terminate'): void => {
+      pendingStopResult = result;
+      stop[action]();
+    };
     /**
      * INVARIANT: a session may not settle until either the process group is
      * confirmed dead or the escalation has actually run.
@@ -213,8 +215,7 @@ async function executePinnedWrapper(
       finish(result);
     };
     const onAbort = (): void => {
-      stop.kill();
-      finish(failure('Agent execution aborted: lease ownership lost.'));
+      finishAfterStop(failure('Agent execution aborted: lease ownership lost.'), 'kill');
     };
     signal?.addEventListener('abort', onAbort, { once: true });
     if (signal?.aborted) { onAbort(); return; }
@@ -224,26 +225,17 @@ async function executePinnedWrapper(
       if (lifecycleTimer !== undefined) clearTimeout(lifecycleTimer);
       lifecycleTimer = undefined;
       // A refusal wins over a drain that was going to report the wrapper's own
-      // exit as a success: from here this settle belongs to the deadline armed
-      // below, and a drain that still fired would stop the tree a second time.
+      // exit as a success: from here this settle belongs to the shared stop
+      // callback, and a drain that still fired would stop the tree a second time.
       if (drainTimer !== undefined) clearTimeout(drainTimer);
       drainTimer = undefined;
       // Same reach as an abort, only gentler first: this stop must find the
       // whole group, or a descendant outlives the session still holding the
       // stdio it inherited.
-      stop.terminate();
-      // The reader owns the bound. `'close'` is emitted only after every
-      // inherited stdio pipe closes, so a wrapper that leaves a descendant
-      // holding one withholds it forever and strands the step with no
-      // `completionReason` at all. Settle on our own deadline instead — the
-      // same shape `spawnInvocation` uses in worker-cli.ts, where the timer
-      // resolves rather than delegating to a child-controlled event. The
-      // result is byte-identical to the one the `'close'` path would build
-      // for this `protocolError`, so this changes only WHEN we settle.
-      settleTimer = setTimeout(
-        () => finish(failure(message)),
-        FORCE_KILL_DELAY_MS + SETTLE_AFTER_KILL_MS,
-      );
+      // The shared stop owns both the liveness bound and settlement. Its
+      // callback preserves this refusal once group death is proved, or
+      // replaces it with a fail-closed confirmation error when it is not.
+      finishAfterStop(failure(message), 'terminate');
     };
     const startExecutionTimer = (): void => {
       if (lifecycleTimer !== undefined) clearTimeout(lifecycleTimer);
@@ -362,24 +354,19 @@ async function executePinnedWrapper(
       if (settled) return;
       const result = executionResult(exitCode);
       // Finalizing can itself refuse the session — an over-limit final line —
-      // and `terminate` has then already stopped the tree and armed its own
-      // settle deadline. Stopping or arming a second time here would leave two
-      // deadlines racing for one settle.
-      if (settleTimer !== undefined) return;
+      // and `terminate` has then already stopped the tree. Do not replace that
+      // refusal with the exit result or stop the tree a second time.
+      if (protocolError !== undefined) return;
       // The wrapper is gone and `'close'` has still not arrived, so something
       // it left behind is holding stdio it inherited. Stop what is reachable —
       // a settle that releases no pipes lets the step complete while
-      // `flows run` never exits — and then own the settle regardless: the
-      // force kill has no callback, and a descendant that escaped into its own
-      // group before the wrapper died is not traceable to this spawn at all.
-      stop.terminate();
-      drainSettleTimer = setTimeout(
-        () => finish(executionResult(exitCode)),
-        FORCE_KILL_DELAY_MS + SETTLE_AFTER_KILL_MS,
-      );
+      // `flows run` never exits. A descendant that escaped into its own group
+      // before the wrapper died is not traceable to this spawn, but every
+      // group the stop can address must be proved gone before this result wins.
+      finishAfterStop(executionResult(exitCode), 'terminate');
       // Settle now if the stop turned out to have nothing to reach; otherwise
-      // the deadline above owns it, and a `'close'` that arrives once the
-      // group is empty may still settle earlier.
+      // its confirmation callback owns the result, and a `'close'` that arrives
+      // once the group is empty may still settle earlier.
       finishOnChildExit(result);
     };
     /**

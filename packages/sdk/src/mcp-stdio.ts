@@ -14,7 +14,7 @@ export class McpStdioTransport implements Transport {
   private child?: ChildProcessWithoutNullStreams;
   private stopTree?: ChildStop;
   private readonly buffer = new ReadBuffer({ maxBufferSize: 1_048_576 });
-  private closed?: Promise<void>;
+  private stopped?: Promise<void>;
   private closing?: Promise<void>;
   constructor(private readonly config: Extract<McpServerConfig, { command: string }>) {}
 
@@ -26,8 +26,17 @@ export class McpStdioTransport implements Transport {
     const child = this.child = spawn(this.config.command, this.config.args ?? [], {
       env, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32',
     });
-    this.stopTree = childStop(child, process.platform !== 'win32');
-    this.closed = new Promise(resolve => child.once('close', () => resolve()));
+    let resolveStopped!: () => void;
+    let rejectStopped!: (error: Error) => void;
+    this.stopped = new Promise<void>((resolve, reject) => {
+      resolveStopped = resolve;
+      rejectStopped = reject;
+    });
+    this.stopTree = childStop(child, process.platform !== 'win32', undefined, error => {
+      if (error === undefined) resolveStopped();
+      else rejectStopped(error);
+    });
+    child.once('close', () => { this.stopTree?.maySettleOnChildExit(); });
     child.stderr.resume();
     child.stdout.on('data', (chunk: Buffer) => {
       if (this.closing) return;
@@ -63,22 +72,17 @@ export class McpStdioTransport implements Transport {
     if (!child) return;
     child.stdin.end();
     this.stopTree!.terminate();
-    // A direct-child close is insufficient: wrappers can leave descendants
-    // alive with either inherited pipes or completely detached stdio.
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const deadline = new Promise<void>(resolve => { timer = setTimeout(resolve, 1000); });
-    await Promise.race([this.closed, deadline]);
-    if (!this.stopTree!.maySettleOnChildExit()) await deadline;
-    clearTimeout(timer);
-    if (child.exitCode === null && child.signalCode === null && child.pid !== undefined) {
-      const exited = new Promise<void>(resolve => child.once('exit', () => resolve()));
-      this.stopTree!.kill();
-      await exited;
+    try {
+      // A direct-child close is insufficient: wrappers can leave descendants
+      // alive with either inherited pipes or completely detached stdio. The
+      // shared stop owns the bound and rejects when group death is unprovable.
+      await this.stopped;
+    } finally {
+      child.stdin.destroy();
+      child.stdout.destroy();
+      child.stderr.destroy();
+      this.buffer.clear();
+      this.onclose?.();
     }
-    child.stdin.destroy();
-    child.stdout.destroy();
-    child.stderr.destroy();
-    this.buffer.clear();
-    this.onclose?.();
   }
 }

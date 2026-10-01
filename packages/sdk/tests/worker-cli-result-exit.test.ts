@@ -14,6 +14,7 @@ import { RESULT_EXIT_GRACE_MS, runAgentCli } from '../src/worker-cli.js';
  */
 const SDK = join(dirname(fileURLToPath(import.meta.url)), '..');
 const BUILT_WORKER_CLI = join(SDK, 'dist', 'worker-cli.js');
+const WRAPPER_HELPER = join(SDK, '..', '..', 'testdata', 'preflight', 'wrapper-session.mjs');
 const directories: string[] = [];
 
 // Once, at the end: the concurrent cases below would otherwise remove each
@@ -179,5 +180,64 @@ await runAgentCli(${JSON.stringify(fake.claude)}, 'implement', undefined, undefi
     await new Promise(settle => setTimeout(settle, 200));
     expect(alive(claudePid)).toBe(false);
     expect(existsSync(aliasPath)).toBe(false);
+  }, 15_000);
+
+  it('removes a wrapper alias on host exit after group death stays unprovable', async () => {
+    expect(existsSync(BUILT_WORKER_CLI), `${BUILT_WORKER_CLI} is missing; run \`npm run build\``).toBe(true);
+    const root = makeDirectory();
+    const aliasFile = join(root, 'wrapper-alias');
+    const resultFile = join(root, 'wrapper-result');
+    const wrapper = join(root, 'provider-wrapper.mjs');
+    writeFileSync(wrapper, `#!/usr/bin/env node
+import { writeFileSync } from 'node:fs';
+import { receiveWrapperRequest } from ${JSON.stringify(WRAPPER_HELPER)};
+writeFileSync(${JSON.stringify(aliasFile)}, process.argv[1]);
+await receiveWrapperRequest();
+setInterval(() => {}, 1000);
+`);
+    chmodSync(wrapper, 0o755);
+    const harness = join(root, 'wrapper-harness.mjs');
+    writeFileSync(harness, `
+import { existsSync, writeFileSync } from 'node:fs';
+import { runAgentCli } from ${JSON.stringify(BUILT_WORKER_CLI)};
+const actualKill = process.kill.bind(process);
+process.kill = (pid, signal) => {
+  if (typeof pid === 'number' && pid < 0 && signal === 0) {
+    const error = new Error('not permitted');
+    error.code = 'EPERM';
+    throw error;
+  }
+  return actualKill(pid, signal);
+};
+const controller = new AbortController();
+const running = runAgentCli(${JSON.stringify(wrapper)}, 'implement', undefined, undefined, undefined,
+  controller.signal, 'agent', undefined, ${JSON.stringify(root)},
+  'direct', undefined, process.env, 'wrapper.mjs');
+while (!existsSync(${JSON.stringify(aliasFile)})) await new Promise(wait => setTimeout(wait, 10));
+await new Promise(wait => setTimeout(wait, 250));
+controller.abort(new Error('lease rejected'));
+writeFileSync(${JSON.stringify(resultFile)}, JSON.stringify(await running));
+`);
+    const run = spawn(process.execPath, [harness], { stdio: 'ignore' });
+    const deadline = Date.now() + 5_000;
+    while (!existsSync(aliasFile) && Date.now() < deadline) await new Promise(wait => setTimeout(wait, 20));
+    expect(existsSync(aliasFile)).toBe(true);
+    const alias = readFileSync(aliasFile, 'utf8');
+    expect(alias).toMatch(/relayflow-cli-/);
+    expect(existsSync(alias)).toBe(true);
+    const code = await new Promise<number | null>((resolveExit, rejectExit) => {
+      const bound = setTimeout(() => {
+        run.kill('SIGKILL');
+        rejectExit(new Error('wrapper harness did not exit'));
+      }, 10_000);
+      run.once('error', rejectExit);
+      run.once('exit', exitCode => { clearTimeout(bound); resolveExit(exitCode); });
+    });
+    expect(code).toBe(0);
+    expect(JSON.parse(readFileSync(resultFile, 'utf8'))).toMatchObject({
+      exit_code: null,
+      stderr_tail: expect.stringMatching(/did not stop answering within 1000ms/i),
+    });
+    expect(existsSync(alias)).toBe(false);
   }, 15_000);
 });

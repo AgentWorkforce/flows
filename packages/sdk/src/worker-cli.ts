@@ -452,6 +452,7 @@ async function spawnInvocation(
           ? result : { ...result, transcript: { file: transcriptFile } });
       }, () => resolve(result));
     };
+    let pendingStopResult: { result: WorkerCliResult; discardTranscript: boolean } | undefined;
     const stop = childStop(child, ownsGroup, undefined, (stopError) => {
       if (stopError !== undefined) {
         finish({ exit_code: null, stdout_tail: '', stderr_tail: stopError.message }, true);
@@ -465,22 +466,37 @@ async function spawnInvocation(
           stdout_tail: '',
           stderr_tail: `CLI invocation alias cleanup failed: ${String(error)}`,
         }, true);
+        return;
+      }
+      if (pendingStopResult !== undefined) {
+        finish(pendingStopResult.result, pendingStopResult.discardTranscript);
       }
     });
     release = ownsGroup ? reapOnExit(stop, () => {
       try { pinned.release(); } catch { /* host exit cannot report another result */ }
     }) : () => {};
+    const finishAfterStop = (
+      result: WorkerCliResult,
+      action: 'kill' | 'terminate',
+      discardTranscript = false,
+    ): void => {
+      pendingStopResult = { result, discardTranscript };
+      stop[action]();
+    };
     const onAbort = (): void => {
-      stop.kill();
-      finish({ exit_code: null, stdout_tail: '', stderr_tail: 'Agent execution aborted: lease ownership lost.' }, true);
+      finishAfterStop(
+        { exit_code: null, stdout_tail: '', stderr_tail: 'Agent execution aborted: lease ownership lost.' },
+        'kill',
+        true,
+      );
     };
     /**
      * Same invariant as `wrapper-session.ts`: `'close'` and `'error'` are
      * evidence about the DIRECT CHILD, so they may not settle over a pending
      * escalation, and only `maySettleOnChildExit` may drop one. This settle
-     * carries no deadline of its own because it needs none — the timeout below
-     * settles on the spot and lets its escalation outlive that, so refusing
-     * here can only defer to a `'close'` we are still going to get.
+     * carries no deadline of its own because it needs none — a stop-owned
+     * result now settles from the shared confirmation callback, while a normal
+     * child exit can only defer to a `'close'` we are still going to get.
      */
     const finishOnChildExit = (result: WorkerCliResult): void => {
       if (!stop.maySettleOnChildExit()) return;
@@ -498,12 +514,11 @@ async function spawnInvocation(
     const onResult = (outcome: { failed: boolean }): void => {
       if (graceTimer !== undefined || settled) return;
       graceTimer = setTimeout(() => {
-        stop.terminate();
-        finish({
+        finishAfterStop({
           exit_code: outcome.failed ? 1 : 0,
           stdout_tail: Buffer.concat(stdout).toString('utf8'),
           stderr_tail: `${Buffer.concat(stderr).toString('utf8')}\nCLI reported its final result but had not exited ${RESULT_EXIT_GRACE_MS}ms later; its process tree was stopped.`.trim(),
-        });
+        }, 'terminate');
       }, RESULT_EXIT_GRACE_MS);
     };
     child.stdout.on('data', (chunk: Buffer) => {
@@ -540,15 +555,14 @@ async function spawnInvocation(
     }));
     if (invocation.timeoutMs > 0) {
       timer = setTimeout(() => {
-        // The stop outlives this settle on purpose: `finish` resolves the step,
-        // but only the forced group kill releases the pipes a leaked descendant
-        // is holding, and until they are released `flows run` cannot exit.
-        stop.terminate();
-        finish({
+        // The stop owns this settle: a direct-child event is not proof that its
+        // group is gone, and an unprovable forced stop must fail the step rather
+        // than arriving after a successful result has already won the race.
+        finishAfterStop({
           exit_code: null,
           stdout_tail: Buffer.concat(stdout).toString('utf8'),
           stderr_tail: `CLI invocation timed out after ${invocation.timeoutMs}ms.`,
-        });
+        }, 'terminate');
       }, invocation.timeoutMs);
     }
   });

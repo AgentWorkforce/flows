@@ -11,6 +11,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { preflight, type PreflightProbes } from '../src/preflight.js';
 import { openMcpSession } from '../src/mcp-client.js';
 import { parseMcpConfig } from '../src/mcp-config.js';
+import { McpStdioTransport } from '../src/mcp-stdio.js';
 import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
 import { buildMcpProxy } from '../src/authored-mcp.js';
 import { JournalClient } from '../src/journal-client.js';
@@ -138,6 +139,31 @@ ${stdio === 'inherit' ? `await import(${JSON.stringify(pathToFileURL(mock('ok'))
       }
     }
   });
+  it.skipIf(process.platform === 'win32')('rejects close when forced group death remains unprovable', async () => {
+    const marker = join(temp(), 'pid');
+    const source = `require('node:fs').writeFileSync(${JSON.stringify(marker)},JSON.stringify({pid:process.pid})); process.on('SIGTERM',()=>{}); setInterval(()=>{},100);`;
+    const transport = new McpStdioTransport({ command: process.execPath, args: ['-e', source] });
+    const actualKill = process.kill.bind(process);
+    const permissionDenied = Object.assign(new Error('not permitted'), { code: 'EPERM' });
+    const kill = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      if (typeof pid === 'number' && pid < 0 && signal === 0) throw permissionDenied;
+      return actualKill(pid, signal);
+    });
+    try {
+      await transport.start();
+      await vi.waitFor(() => expect(existsSync(marker)).toBe(true));
+      const started = Date.now();
+      await expect(transport.close()).rejects.toThrow(/did not stop answering within 1000ms/i);
+      expect(Date.now() - started).toBeGreaterThanOrEqual(2_000);
+      expect(Date.now() - started).toBeLessThan(4_000);
+      gone(marker);
+    } finally {
+      kill.mockRestore();
+      if (existsSync(marker)) {
+        try { actualKill(JSON.parse(readFileSync(marker, 'utf8')).pid, 'SIGKILL'); } catch { /* already gone */ }
+      }
+    }
+  }, 10_000);
   it('classifies a mid-call stdout drop without retry and closes the child', async () => {
     const marker = join(temp(), 'pid');
     const session = await openMcpSession(config('drop', marker), 1000);
