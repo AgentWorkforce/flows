@@ -251,6 +251,7 @@ describe('canonical run dispatches the installed Software Garden Babysitter', ()
           version: '0.2.0',
           ref: REF,
           digest: DIGEST,
+          manifestSha256: MANIFEST_SHA256,
         });
         expect(request).toEqual({ delivery: {
           deliveryId,

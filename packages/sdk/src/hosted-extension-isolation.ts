@@ -80,6 +80,7 @@ export interface HostedCapabilityAuthority {
     version: string;
     ref: string;
     digest: string;
+    manifestSha256: string;
   }>;
 }
 
@@ -195,7 +196,7 @@ export async function runVerifiedNativeExtensionSandbox(
   assertCapabilityOnlyManifest(options.manifest);
   const identity = hostedExtensionDispatchIdentity(options.dispatch);
   assertManifestRoutes(options.manifest, identity);
-  const normalizedInput = babysitterInput(options.input, options.dispatch);
+  const normalizedInput = normalizeHostedBabysitterInput(options.input, options.dispatch);
   const versions = runtimeVersions();
   const authority: HostedCapabilityAuthority = OBJECT_FREEZE({
     dispatch: options.dispatch,
@@ -204,6 +205,7 @@ export async function runVerifiedNativeExtensionSandbox(
       version: options.manifest.version,
       ref: options.artifact.ref,
       digest: options.artifact.digest,
+      manifestSha256: options.artifact.manifestSha256,
     }),
   });
   return await runHostedExtensionSandbox({
@@ -361,7 +363,8 @@ export function hostedManifestRoutes(
   return false;
 }
 
-function babysitterInput(input: unknown, dispatch: HostedExtensionDispatch): unknown {
+/** @internal Validate and snapshot hosted input before journal admission. */
+export function normalizeHostedBabysitterInput(input: unknown, dispatch: HostedExtensionDispatch): unknown {
   const snapshot = boundedJsonSnapshot(input, 'hosted extension input');
   const top = exactRecord(snapshot, 'Hosted extension input', ['event', 'pullRequest']);
   const event = exactRecord(top.event, 'Hosted extension event', ['provider', 'eventType', 'deliveryId']);

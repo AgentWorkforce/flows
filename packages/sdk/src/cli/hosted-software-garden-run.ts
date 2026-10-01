@@ -6,14 +6,16 @@ import {
   hostedExtensionDispatchIdentity,
   type HostedEventIdentity,
 } from '../flow-extension-loader.js';
+import { assertHostedDataDirectoryIsolated } from '../hosted-data-directory.js';
 import {
   loadHostedExtensionRuntime,
+  normalizeHostedBabysitterInput,
   runHostedCapabilityExtension,
   selectHostedExtensionForRuntime,
   type RunHostedSoftwareGardenBabysitterOptions,
 } from '../hosted-extension-isolation.js';
 import { atomicJson, readHelperReceipt } from '../helper-storage.js';
-import { JournalClient } from '../journal-client.js';
+import { JournalClient, JournalProtocolError } from '../journal-client.js';
 import { PluginError } from '../plugin-manifest.js';
 import type { RunOutcome, StepDispatchEvent } from '../protocol.js';
 import { SPEC_SCHEMA_VERSION } from '../spec.js';
@@ -52,10 +54,13 @@ export async function runHostedSoftwareGardenFlow(
 ): Promise<RunExecution> {
   const base: RunReport = { ...emptyReport('run'), path };
   let identity: HostedEventIdentity;
+  let normalizedInput: unknown;
   let runtime: Awaited<ReturnType<typeof loadHostedExtensionRuntime>>;
   let selected: Awaited<ReturnType<typeof selectHostedExtensionForRuntime>>;
   try {
     identity = hostedExtensionDispatchIdentity(hosted.dispatch);
+    normalizedInput = normalizeHostedBabysitterInput(input, hosted.dispatch);
+    await assertHostedDataDirectoryIsolated(path, dataDir);
     runtime = await loadHostedExtensionRuntime(path);
     selected = await selectHostedExtensionForRuntime(
       runtime.installation,
@@ -96,7 +101,7 @@ export async function runHostedSoftwareGardenFlow(
     verb: 'babysitter-turn',
     identity,
     authority: admissionIdentity,
-    input,
+    input: normalizedInput,
   });
   const spec = toKernelSpec(compileSpec({
     version: SPEC_SCHEMA_VERSION,
@@ -129,7 +134,7 @@ export async function runHostedSoftwareGardenFlow(
       peer.close(workerFailure);
       return;
     }
-    const attempt = completeHostedDispatch(peer, event, runtime, input, hosted, dataDir);
+    const attempt = completeHostedDispatch(peer, event, runtime, normalizedInput, hosted, dataDir);
     work = attempt;
     void attempt.then(completion => {
       completedWork = completion;
@@ -139,8 +144,6 @@ export async function runHostedSoftwareGardenFlow(
       }
     }, error => {
       workerFailure ??= error;
-    }).finally(() => {
-      if (work === attempt) work = undefined;
     });
   };
 
@@ -153,7 +156,12 @@ export async function runHostedSoftwareGardenFlow(
     const pins = { workspace: [], streams: [{ stream, read_offset: 0 }] };
     await peer.workerAttach(`hosted-babysitter-${randomUUID()}`, ['agent'], pins, 1, [stream]);
     const admissionKey = `hosted-babysitter:${admissionDigest}`;
-    const started = await client.runStart(spec, undefined, admissionKey, lifecycle.onJournalEntry !== undefined);
+    const started = await startHostedRun(
+      client,
+      spec,
+      admissionKey,
+      lifecycle.onJournalEntry !== undefined,
+    );
     lifecycle.onRunStarted?.({ runId: started.run_id, flow: path });
     // An idempotent concurrent start can observe the original admission while
     // its leased attempt is still running. Resume is live-lease-aware and
@@ -204,6 +212,23 @@ export async function runHostedSoftwareGardenFlow(
     peer.off('step.dispatch', dispatch);
     peer.close();
     client.close();
+  }
+}
+
+/** @internal Compatibility seam for deterministic protocol tests. */
+export async function startHostedRun(
+  client: JournalClient,
+  spec: Parameters<JournalClient['runStart']>[0],
+  admissionKey: string,
+  watch: boolean,
+): Promise<RunOutcome> {
+  if (!watch) return await client.runStart(spec, undefined, admissionKey);
+  try {
+    return await client.runStart(spec, undefined, admissionKey, true);
+  } catch (error) {
+    if (!(error instanceof JournalProtocolError) || error.code !== 'bad_request'
+      || !/unknown field `watch`/.test(error.message)) throw error;
+    return await client.runStart(spec, undefined, admissionKey);
   }
 }
 
