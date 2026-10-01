@@ -196,7 +196,7 @@ ${stdio === 'inherit' ? `await import(${JSON.stringify(pathToFileURL(mock('ok'))
     const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
     Object.defineProperty(process, 'platform', { ...platform, value: 'win32' });
     const marker = join(temp(), 'ready');
-    const source = `process.on('SIGTERM',()=>{}); require('node:fs').writeFileSync(${JSON.stringify(marker)},''); setInterval(()=>{},100);`;
+    const source = `process.on('SIGTERM',()=>{}); require('node:fs').writeFileSync(${JSON.stringify(marker)},JSON.stringify({pid:process.pid})); setInterval(()=>{},100);`;
     const transport = new McpStdioTransport({ command: process.execPath, args: ['-e', source] });
     try {
       await transport.start();
@@ -206,6 +206,9 @@ ${stdio === 'inherit' ? `await import(${JSON.stringify(pathToFileURL(mock('ok'))
       expect(Date.now() - started).toBeGreaterThanOrEqual(FORCE_KILL_DELAY_MS);
     } finally {
       Object.defineProperty(process, 'platform', platform);
+      if (existsSync(marker)) {
+        try { process.kill(JSON.parse(readFileSync(marker, 'utf8')).pid, 'SIGKILL'); } catch { /* already gone */ }
+      }
     }
   }, 10_000);
   it.skipIf(process.platform === 'win32')('cancels force escalation for an already-closed child without a process group', async () => {
