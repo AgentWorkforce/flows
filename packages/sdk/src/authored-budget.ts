@@ -21,6 +21,76 @@ interface Charge {
   unmetered: boolean;
 }
 
+type Total = Omit<Charge, 'day'>;
+
+/** `ms` as the budget header writes durations (`45s`, `2h`, `132.9m`), with the value that text denotes. */
+function duration(ms: bigint): {text: string; shown: number} {
+  const n = Number(ms);
+  if (n < 60_000) { const s = Number((n / 1000).toFixed(1)); return {text: `${s}s`, shown: s * 1000}; }
+  if (n % 3_600_000 === 0) return {text: `${n / 3_600_000}h`, shown: n};
+  const m = Number((n / 60_000).toFixed(1));
+  return {text: `${m}m`, shown: m * 60_000};
+}
+
+const usd = (micro: bigint): string => `$${micro / 1_000_000n}.${String(micro % 1_000_000n).padStart(6, '0').replace(/0{1,4}$/, '')}`;
+
+/**
+ * Whether `micro` microdollars exceeds the decimal `limit`, compared exactly at
+ * the limit's own precision (legacy `maxDollars` may carry more than six
+ * decimals, which the kernel compares as written). Undefined if the limit is
+ * not a plain decimal.
+ */
+function dollarsOver(micro: bigint, limit: string): boolean | undefined {
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(limit);
+  if (match === null) return undefined;
+  const scale = Math.max(6, match[2]?.length ?? 0);
+  const limitScaled = BigInt(match[1]! + (match[2] ?? '').padEnd(scale, '0'));
+  return micro * 10n ** BigInt(scale - 6) > limitScaled;
+}
+
+/**
+ * Both durations, exact to the millisecond whenever rounding would make the
+ * overrun invisible: the displayed spend must itself read as over the
+ * displayed limit, compared as quantities so `120m` against `2h` counts too.
+ */
+function durations(used: bigint, limit: bigint): [string, string] {
+  const [u, l] = [duration(used), duration(limit)];
+  return u.shown > l.shown ? [u.text, l.text] : [`${used}ms`, `${limit}ms`];
+}
+
+/**
+ * The kernel refuses admission with only `budget_exceeded`; name which
+ * declared limit the carried spend crossed and by how much, using the same
+ * strict comparisons as `machine/budget.rs`. The kernel stays the authority: a
+ * refusal this accumulator cannot explain keeps the generic wording.
+ */
+export function budgetExceededMessage(limit: KernelBudgetSpec, total: Total, spec?: KernelRunSpec): string {
+  const crossed: string[] = [];
+  if (limit.max_wallclock_ms !== undefined && total.ms > BigInt(limit.max_wallclock_ms)) {
+    const [used, declared] = durations(total.ms, BigInt(limit.max_wallclock_ms));
+    crossed.push(`wallclock ${used} used of ${declared} declared`);
+  }
+  if (limit.max_dollars !== undefined && dollarsOver(total.micro, limit.max_dollars) === true) {
+    const exact = /^(\d+)(?:\.(\d{1,6}))?$/.exec(limit.max_dollars);
+    const declared = exact === null ? `$${limit.max_dollars}`
+      : usd(BigInt(exact[1]!) * 1_000_000n + BigInt((exact[2] ?? '').padEnd(6, '0')));
+    crossed.push(`dollars ${usd(total.micro)}${total.unmetered ? ' metered (some steps unmetered)' : ''} used of ${declared} declared`);
+  }
+  if (limit.max_tokens !== undefined && total.input + total.output > BigInt(limit.max_tokens)) {
+    crossed.push(`tokens ${total.input + total.output} used of ${limit.max_tokens} declared`);
+  }
+  if (limit.max_tokens_in !== undefined && total.input > BigInt(limit.max_tokens_in)) {
+    crossed.push(`input tokens ${total.input} used of ${limit.max_tokens_in} declared`);
+  }
+  if (limit.max_tokens_out !== undefined && total.output > BigInt(limit.max_tokens_out)) {
+    crossed.push(`output tokens ${total.output} used of ${limit.max_tokens_out} declared`);
+  }
+  const next = spec?.steps.length === 1 && typeof spec.steps[0]?.id === 'string' ? `step "${spec.steps[0].id}"` : 'the next step';
+  if (crossed.length === 0) return `Flow budget exceeded before ${next}.`;
+  const scope = limit.window === 'day' ? "in today's window of the flow's budget header" : "in the flow's budget header";
+  return `Flow budget exceeded before ${next}: ${crossed.join('; ')} ${scope}.`;
+}
+
 /** Serialized admission for the internal authored runner's separate step runs. */
 export class AuthoredBudget {
   private readonly limit: KernelBudgetSpec | undefined;
@@ -66,7 +136,9 @@ export class AuthoredBudget {
       };
       const outcome = await journal.runStart({ ...spec, budget: { ...this.limit, prior_spend: priorSpend } }, undefined, admissionKey);
       try {
-        if (outcome.completion_reason === 'budget_exceeded') throw new AuthoredFlowExecutionError('step_failed', 'Flow budget exceeded before the next step.', 'budget_exceeded', outcome.run_id);
+        if (outcome.completion_reason === 'budget_exceeded') {
+          throw new AuthoredFlowExecutionError('step_failed', budgetExceededMessage(this.limit!, total, spec), 'budget_exceeded', outcome.run_id);
+        }
         return await consume(outcome);
       } finally {
         let seq = 1;
