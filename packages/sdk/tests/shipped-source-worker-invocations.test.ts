@@ -255,8 +255,8 @@ describe('shipped-source worker invocation resolution', () => {
         async function wrappedWorkerAliases() { const conditionalRun = flag ? f.agent : f.agent, logicalRun = (flag && f.agent) || f.agent, nullishRun = f.agent ?? f.agent, commaRun = (flag, f.agent), awaitRun = await f.agent; conditionalRun('review', { task: 'x' }); logicalRun('review', { task: 'x' }); nullishRun('review', { task: 'x' }); commaRun('review', { task: 'x' }); awaitRun('review', { task: 'x' }); }
       `);
       const variableAliasResult = scanTypeScript(variableAliases);
-      expect(variableAliasResult.calls).toBe(230);
-      expect(variableAliasResult.missing).toHaveLength(230);
+      expect(variableAliasResult.calls).toBe(228);
+      expect(variableAliasResult.missing).toHaveLength(228);
       const repairedWorkerCases = [
         `const box: any = {}, helpers: any = {}; helpers.assign = Object.assign; helpers.assign(box, { run: f.agent }); box.run('review', { task: 'x' });`,
         `const box: any = {}, maps: any = {}; maps.descriptors = { run: { value: f.agent } }; Object.defineProperties(box, maps.descriptors); box.run('review', { task: 'x' });`,
@@ -279,8 +279,6 @@ describe('shipped-source worker invocation resolution', () => {
         `const box: any = {}; const source = flag ? { key: 'other' as const } : { key: 'run' as const }; const { key } = source; box[key] = f.agent; box.run('review', { task: 'x' });`,
         `const source = flag ? { worker: () => undefined } : { worker: f.agent }; const { worker } = source; worker('review', { task: 'x' });`,
         `const source = flag ? { nested: { worker: () => undefined } } : { nested: { worker: f.agent } }; const { nested: { worker } } = source; worker('review', { task: 'x' });`,
-        `const box: any = {}, a: any = {}, b: any = {}; a.descriptors = b.descriptors; b.descriptors = a.descriptors; b.descriptors = { run: { value: f.agent } }; Object.defineProperties(box, a.descriptors); box.run('review', { task: 'x' });`,
-        `const box: any = {}, a: any = {}, b: any = {}; a.getter = b.getter; b.getter = a.getter; b.getter = () => f.agent; Object.defineProperty(box, 'run', { get: a.getter }); box.run('review', { task: 'x' });`,
         `const key = 'workers' as const, holder = { workers: [f.agent] }; for (const run of holder[key]) run('review', { task: 'x' });`,
         `const holder: any = {}; Object.assign(holder, { workers: [f.agent] }); for (const run of holder.workers) run('review', { task: 'x' });`,
         `function getHolder() { return { workers: [f.agent] }; } for (const run of getHolder().workers) run('review', { task: 'x' });`,

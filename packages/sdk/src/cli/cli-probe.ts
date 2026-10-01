@@ -1,5 +1,5 @@
 import { accessSync, constants, realpathSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
+import { basename, isAbsolute, resolve } from 'node:path';
 import { execFile, spawnSync } from 'node:child_process';
 import { agentEnvironment, brokerEnvironment } from '../communication/environment.js';
 import { adapterIdentification, authenticationProbe, classifyModelProbeFailure, cliAdapterKind,
@@ -8,6 +8,7 @@ import { MODEL_ENV } from '../worker-cli.js';
 import { CliProbeError, type CliProbeResult } from '../preflight.js';
 
 interface ProbeRequest {
+  argv0?: string;
   executable: string;
   directory: string;
   invocation: CliInvocation;
@@ -48,12 +49,12 @@ function driveSync<T>(sequence: Generator<ProbeRequest, T, ProbeOutput>): T {
   return next.value;
 }
 
-function probeOptions({ directory, invocation, environment }: ProbeRequest) {
+function probeOptions({ argv0, directory, invocation, environment }: ProbeRequest) {
   const env = { ...environment };
   delete env[MODEL_ENV];
   if (invocation.modelEnv !== undefined) env[MODEL_ENV] = invocation.modelEnv;
   return { cwd: directory, encoding: 'utf8' as const, timeout: invocation.timeoutMs,
-    maxBuffer: 1024 * 1024, env };
+    maxBuffer: 1024 * 1024, env, ...(argv0 === undefined ? {} : { argv0 }) };
 }
 
 function runProbeAsync(request: ProbeRequest): Promise<ProbeOutput> {
@@ -97,7 +98,13 @@ function* probeSequence(
   const environment = execution === 'managed'
     ? { ...brokerEnvironment(sourceEnvironment), ...agentEnvironment(cli, sourceEnvironment) }
     : sourceEnvironment;
-  const probe = (invocation: CliInvocation): ProbeRequest => ({ executable, directory, invocation, environment });
+  const probe = (invocation: CliInvocation): ProbeRequest => ({
+    executable,
+    argv0: basename(cli),
+    directory,
+    invocation,
+    environment,
+  });
   const identification = adapterIdentification(kind);
   const identified = yield probe(identification.invocation);
   if (

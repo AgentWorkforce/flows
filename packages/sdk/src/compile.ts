@@ -44,7 +44,6 @@ import { expandYamlHelpers } from './yaml-helpers.js';
 import { expandCommunication, validateCommunicationTopology } from './communication/spec.js';
 import {
   inheritResolvedCliIdentities,
-  rememberResolvedCliIdentities,
   resolvedCliIdentities,
   type ResolvedKernelAgentStep,
   type ResolvedKernelStepCommon,
@@ -396,13 +395,7 @@ export function kernelToAuthoring(value: unknown): unknown {
       ? { budget: kernelBudgetToAuthoring(root['budget'], 'spec.budget') }
       : {}),
   } as FlowSpec;
-  const identities = new Map<string, string>();
-  for (const raw of requireKernelArray(root['steps'], 'spec.steps')) {
-    if (isObject(raw) && typeof raw['id'] === 'string' && typeof raw['cli_identity'] === 'string') {
-      identities.set(raw['id'], raw['cli_identity']);
-    }
-  }
-  return identities.size === 0 ? authoring : rememberResolvedCliIdentities(authoring, identities);
+  return authoring;
 }
 
 /**
@@ -462,6 +455,11 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
     'cwd', 'recovery_mode', 'surfaces', 'permissions', 'cli_identity',
   ] as const;
   const step = requireKernelObject(value, unionKeys, at);
+  if (step['cli_identity'] !== undefined) {
+    throw new CompileError([
+      `${at}.cli_identity: host-proved adapter identity is not accepted from serialized input`,
+    ]);
+  }
   const type = step['type'];
   const commonKeys = ['id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements', 'input'] as const;
   const typeKeys = type === 'deterministic'

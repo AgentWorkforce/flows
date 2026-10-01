@@ -178,9 +178,8 @@ export async function prepareCloudSubmission(
     const kernel = toKernelSpec(spec!);
     // JSON is a YAML subset. Sending canonical data preserves the exact spec
     // while using the server's existing YAML-to-config admission path.
-    // A compiled input must stay compiled: its host-proved cli_identity is
-    // deliberately out of band from the authoring schema and would otherwise
-    // disappear while the hash continued to cover it.
+    // A compiled input stays in the kernel dialect. kernelToAuthoring refuses
+    // serialized cli_identity: only local preflight may mint that proof.
     return { workflow: canonicalize(compiledKernelInput ? kernel : spec), fileType: 'yaml', inputPresent: false, specHash: specHash(kernel),
       name: spec!.name ?? "flow", schedules: [] };
   }

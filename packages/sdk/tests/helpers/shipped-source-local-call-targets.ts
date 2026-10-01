@@ -178,6 +178,7 @@ export function localCallValueCandidates(
     || (callee && seen.has(callee))) return undefined;
   const nextSeen = callee ? new Set(seen).add(callee) : new Set(seen);
   const actualCandidates = localCallArgumentCandidates(expression.arguments, checker);
+  if (actualCandidates.length === 0) return { candidates: [] };
   const fallbackAtCallerPath = (
     candidate: LocalCallValueResolution['candidates'][number],
   ): LocalCallValueResolution['candidates'] => {
@@ -270,6 +271,7 @@ export function localCallTargetPaths(
     || (callee && seen.has(callee))) return [];
   const nextSeen = callee ? new Set(seen).add(callee) : new Set(seen);
   const actualCandidates = localCallArgumentCandidates(expression.arguments, checker);
+  if (actualCandidates.length === 0) return [];
   return actualCandidates.flatMap(actuals => returnedExpressions(declaration.body).flatMap(returned =>
     resolve(returned, new Set(nextSeen)).flatMap(returnedMember => {
       const returnedPath = [...returnedMember.path, ...callerPath];

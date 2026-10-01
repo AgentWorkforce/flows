@@ -1,10 +1,11 @@
 # examples/research — a fan-out research relayflow, authored on flows v2
 
-**PASS — 690.935s with the documented default budget**, using authenticated
-Claude, Codex and Grok CLIs. The run produced three lane reports and a synthesis,
-with `completionReason: synthesized` and exit 0.
-[Command and full output](../../docs/evidence/ws13/followup/default-budget/gallery-research.txt),
-[generated reports](../../docs/evidence/ws13/followup/default-budget/reports/).
+**Historical run record — 690.935s with the then-current default budget.** The
+archived run used authenticated Claude, Codex and Grok CLIs and produced three
+lane reports plus a synthesis with `completionReason: synthesized` and exit 0.
+It is not verification of the current model pins.
+[Archived command and output](../../docs/evidence/ws13/followup/default-budget/gallery-research.txt),
+[archived reports](../../docs/evidence/ws13/followup/default-budget/reports/).
 An earlier verification attempt used a three-minute step limit and timed out;
 that shorter limit was not enough for this multi-agent research workload.
 
@@ -53,7 +54,7 @@ entry point preflights every declared (CLI, model) pair before creating
 anything, printing each check and its timeout to stderr: a cheap auth probe where one exists (`claude auth status`,
 `codex login status`), then a live one-line round-trip with the declared
 model flag that must answer exactly `OK` (trimmed; "NOT OK" and "OK." fail). An authenticated CLI that cannot resolve a
-declared model (`opus` on a host that does not know the alias) is refused as
+declared model (`claude-opus-5` on a host that does not know that model) is refused as
 `model_unavailable` at minute zero, never discovered after other lanes have
 spent. Four pairs, a few tokens each; typically under a minute of wall-clock
 before the run starts, capped at 90 s per pair. Preflight is asynchronous, so

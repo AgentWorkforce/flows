@@ -1,6 +1,7 @@
 import ts from 'typescript';
 import {
   assignmentMayStoreRight,
+  assignedSourceMayPrecedeReference,
   assignedSources,
   bindingSource,
   staticIterationSources,
@@ -50,11 +51,14 @@ function propertyName(name: ts.PropertyName | undefined, checker: ts.TypeChecker
 }
 
 function canonicalArrayIndex(segment: BindingPathSegment): number | undefined {
-  if (typeof segment === 'number') return Number.isInteger(segment) && segment >= 0 ? segment : undefined;
-  return /^(?:0|[1-9]\d*)$/u.test(segment) ? Number(segment) : undefined;
+  if (typeof segment === 'number') return Number.isInteger(segment) && segment >= 0 && segment <= 4_294_967_294 ? segment : undefined;
+  return /^(?:0|[1-9]\d*)$/u.test(segment)
+    && (segment.length < 10 || (segment.length === 10 && segment <= '4294967294'))
+    ? Number(segment)
+    : undefined;
 }
 
-function directMemberPaths(
+export function directMemberPaths(
   expression: ts.Expression,
   checker: ts.TypeChecker,
   seen = new Set<ts.Symbol>(),
@@ -70,6 +74,16 @@ function directMemberPaths(
       : [expression.left, expression.right];
     return candidates.flatMap(candidate =>
       directMemberPaths(candidate, checker, new Set(seen), callerPath));
+  }
+  if (expression.kind === ts.SyntaxKind.ThisKeyword) {
+    for (let current: ts.Node | undefined = expression.parent; current; current = current.parent) {
+      if (!ts.isVariableDeclaration(current) || !ts.isIdentifier(current.name)
+        || !current.initializer || expression.getStart() < current.initializer.getStart()
+        || expression.getEnd() > current.initializer.getEnd()) continue;
+      const symbol = checker.getSymbolAtLocation(current.name);
+      return symbol ? [{ path: [...callerPath], symbol }] : [];
+    }
+    return [];
   }
   if (ts.isIdentifier(expression)) {
     const symbol = checker.getSymbolAtLocation(expression);
@@ -219,6 +233,12 @@ function sourcesAtTarget(
   sourcePath: BindingPathSegment[] = [],
 ): IndexedDirectMemberAssignedSource[] {
   target = unwrap(target);
+  if (ts.isBinaryExpression(target) && target.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+    return [
+      ...sourcesAtTarget(target.left, value, checker, sourcePath),
+      ...sourcesAtTarget(target.left, target.right, checker),
+    ];
+  }
   const members = directWriteMemberPaths(target, checker).filter(member => member.path.length > 0);
   const dynamicParents = ts.isElementAccessExpression(target) && target.argumentExpression
     && staticPropertySegment(target.argumentExpression, checker, new Set()) === undefined
@@ -239,12 +259,6 @@ function sourcesAtTarget(
         sourcePath,
         symbol: parent.symbol,
       })),
-    ];
-  }
-  if (ts.isBinaryExpression(target) && target.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-    return [
-      ...sourcesAtTarget(target.left, value, checker, sourcePath),
-      ...sourcesAtTarget(target.left, target.right, checker),
     ];
   }
   if (ts.isArrayLiteralExpression(target)) return target.elements.flatMap((element, index) => {
@@ -356,6 +370,11 @@ export function directAssignedMemberValues(
   return directMemberPaths(expression, checker).flatMap(target => {
     if (target.path.length === 0 || seen.has(target.symbol)) return [];
     return directMemberAssignedSources(target.symbol, checker).flatMap(source => {
+      if (!assignedSourceMayPrecedeReference(
+        { initializer: source.initializer, path: [] },
+        target.symbol,
+        expression,
+      )) return [];
       if (source.path.length > target.path.length
         || source.path.some((segment, index) => String(segment) !== String(target.path[index]))) return [];
       const sourceValue = source.sourcePath.length === 0

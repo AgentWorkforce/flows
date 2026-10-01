@@ -132,10 +132,13 @@ function invokeCallableCandidate(
       invoked = invoked.map(candidate => candidate.slice(1));
       continue;
     }
-    invoked = invoked.flatMap(candidate => candidate[1]
-      ? staticArrayElementCandidates(candidate[1], checker, new Set())
-        .map(applied => applied.values.filter((value): value is ts.Expression => value !== undefined))
-      : []);
+    invoked = invoked.flatMap(candidate => {
+      if (!candidate[1]) return [];
+      const applied = staticArrayElementCandidates(candidate[1], checker, new Set());
+      return applied.length > 0
+        ? applied.map(value => value.values.filter((item): item is ts.Expression => item !== undefined))
+        : [[candidate[1]]];
+    });
   }
   return invoked;
 }
@@ -146,7 +149,8 @@ function knownCallArgumentCandidates(
 ): ts.Expression[][] {
   const expanded = staticCallArgumentCandidates(args, checker);
   if (expanded.length > 0) return expanded.map(candidate => candidate.values);
-  return [args.flatMap(argument => ts.isSpreadElement(argument) ? [] : [argument])];
+  const unresolved = args.find(ts.isSpreadElement);
+  return unresolved ? [[unresolved.expression]] : [[...args]];
 }
 
 export function callableArgumentCandidates(

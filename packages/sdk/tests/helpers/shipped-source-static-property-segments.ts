@@ -127,7 +127,8 @@ function aggregateMemberCandidates(
     if (source) add(source.initializer, [...source.path, ...member.path]);
     add(binding.initializer);
   }
-  add(member.symbol.declarations?.find(ts.isVariableDeclaration)?.initializer);
+  const variableInitializer = member.symbol.declarations?.find(ts.isVariableDeclaration)?.initializer;
+  if (variableInitializer && variableInitializer.getStart() < expression.getStart()) add(variableInitializer);
   return values;
 }
 
@@ -225,8 +226,13 @@ export function staticPropertySegments(
       new Set(nextSeen),
     )) add(candidate);
   };
-  for (const source of assignedSources(symbol, checker)) {
-    if (source.rest || source.initializer.getStart() >= expression.getStart()) continue;
+  const precedingSources = assignedSources(symbol, checker)
+    .filter(source => !source.rest && source.initializer.getStart() < expression.getStart());
+  if (precedingSources.some(source => source.initializer.parent !== undefined
+    && ts.isBinaryExpression(source.initializer.parent)
+    && source.initializer.parent.right === source.initializer
+    && source.initializer.parent.operatorToken.kind !== ts.SyntaxKind.EqualsToken)) return [];
+  for (const source of precedingSources) {
     if (source.path.length === 0) add(source.initializer);
     else addAggregate(
       source.initializer,
@@ -242,6 +248,7 @@ export function staticPropertySegments(
     );
     add(binding.initializer);
   }
-  add(symbol.declarations?.find(ts.isVariableDeclaration)?.initializer);
+  const variableInitializer = symbol.declarations?.find(ts.isVariableDeclaration)?.initializer;
+  if (variableInitializer && variableInitializer.getStart() < expression.getStart()) add(variableInitializer);
   return values;
 }

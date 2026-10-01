@@ -137,7 +137,7 @@ export function requiredReviewerModel(cli: string, override?: string): string {
 
 /** Resolve authored relative wrappers before the probe binds every CLI to an absolute executable. */
 export function reviewerExecutableFrom(cli: string, directory: string): string {
-  return cli.includes('/') && !isAbsolute(cli) ? resolve(directory, cli) : cli;
+  return (cli.includes('/') || cli.includes('\\')) && !isAbsolute(cli) ? resolve(directory, cli) : cli;
 }
 
 // The resident subscription contract is declared once, in subscriptions.ts, and

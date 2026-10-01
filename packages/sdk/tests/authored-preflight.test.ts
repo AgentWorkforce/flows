@@ -64,7 +64,7 @@ it('uses the isolated provider environment during authored agent preflight', asy
   const { check, cli } = setup({ ...process.env, ANTHROPIC_API_KEY: 'house-key' }, true);
   const result = await check(agentSpec('one'));
   expect(result.report.ok).toBe(true);
-  expect(result.flow?.steps[0]).toEqual(expect.objectContaining({ cli }));
+  expect(result.flow?.steps[0]).toEqual(expect.objectContaining({ cli: realpathSync(cli) }));
 });
 
 it('carries a symlink declaration identity beside its canonical executable', async () => {
@@ -93,9 +93,6 @@ process.exit(process.argv[2] === '--relayflows-adapter-v1' ? 9 : 0);
     cli: realpathSync(target),
     cli_identity: 'claude',
   });
-  expect(toKernelSpec(compileSpec(kernelToAuthoring(kernel))).steps[0]).toMatchObject({
-    cli: realpathSync(target),
-    cli_identity: 'claude',
-  });
+  expect(() => kernelToAuthoring(kernel)).toThrow(/cli_identity: host-proved adapter identity/);
   expect(readFileSync(calls, 'utf8')).not.toContain('--relayflows-adapter-v1');
 });

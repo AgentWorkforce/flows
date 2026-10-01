@@ -11,6 +11,8 @@ export interface AssignedSource {
   iterationValue?: boolean;
   path: BindingPathSegment[];
   rest?: BindingRest;
+  /** Destination member path for an in-place aggregate mutation. */
+  targetPath?: BindingPathSegment[];
 }
 
 interface BindingTargetResolvers {
@@ -26,9 +28,12 @@ interface BindingTargetResolvers {
 
 function canonicalArrayIndex(segment: BindingPathSegment): number | undefined {
   if (typeof segment === 'number') {
-    return Number.isInteger(segment) && segment >= 0 ? segment : undefined;
+    return Number.isInteger(segment) && segment >= 0 && segment <= 4_294_967_294 ? segment : undefined;
   }
-  return /^(?:0|[1-9]\d*)$/u.test(segment) ? Number(segment) : undefined;
+  return /^(?:0|[1-9]\d*)$/u.test(segment)
+    && (segment.length < 10 || (segment.length === 10 && segment <= '4294967294'))
+    ? Number(segment)
+    : undefined;
 }
 
 function prefixArrayRest(

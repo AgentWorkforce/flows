@@ -28,6 +28,17 @@ function memberReceiver(expression: ts.Expression): ts.Expression | undefined {
     : undefined;
 }
 
+function isUnshadowedGlobal(
+  expression: ts.Identifier,
+  name: string,
+  checker: ts.TypeChecker,
+): boolean {
+  if (expression.text !== name) return false;
+  const symbol = checker.getSymbolAtLocation(expression);
+  return !symbol || (symbol.declarations?.every(declaration =>
+    declaration.getSourceFile().isDeclarationFile) ?? true);
+}
+
 function referencesGlobalIdentifier(
   expression: ts.Expression,
   globalName: string,
@@ -35,7 +46,7 @@ function referencesGlobalIdentifier(
   seen: Set<ts.Symbol>,
 ): boolean {
   expression = unwrap(expression);
-  if (ts.isIdentifier(expression) && expression.text === globalName) return true;
+  if (ts.isIdentifier(expression) && isUnshadowedGlobal(expression, globalName, checker)) return true;
   const globalReceiver = memberReceiver(expression);
   if (staticMemberSegment(expression, checker, new Set(seen)) === globalName
     && globalReceiver

@@ -33,6 +33,17 @@ function memberReceiver(expression: ts.Expression): ts.Expression | undefined {
     : undefined;
 }
 
+function isUnshadowedGlobal(
+  expression: ts.Identifier,
+  name: string,
+  checker: ts.TypeChecker,
+): boolean {
+  if (expression.text !== name) return false;
+  const symbol = checker.getSymbolAtLocation(expression);
+  return !symbol || (symbol.declarations?.every(declaration =>
+    declaration.getSourceFile().isDeclarationFile) ?? true);
+}
+
 const REFLECTIVE_WRITERS = {
   Object: new Set(['assign', 'defineProperty', 'defineProperties', 'setPrototypeOf']),
   Reflect: new Set(['set', 'defineProperty', 'deleteProperty', 'setPrototypeOf']),
@@ -46,7 +57,7 @@ function referencesIntrinsic(
 ): boolean {
   expression = unwrap(expression);
   if (ts.isIdentifier(expression)) {
-    if (expression.text === intrinsic) return true;
+    if (isUnshadowedGlobal(expression, intrinsic, checker)) return true;
     const symbol = checker.getSymbolAtLocation(expression);
     if (!symbol || seen.has(symbol)) return false;
     seen.add(symbol);

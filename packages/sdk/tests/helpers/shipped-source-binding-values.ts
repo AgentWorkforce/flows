@@ -50,6 +50,7 @@ export function staticPropertySegment(
   }
   if (ts.isStringLiteralLike(expression)) return expression.text;
   if (ts.isNumericLiteral(expression)) return Number(expression.text);
+  if (ts.isVoidExpression(expression) || ts.isOmittedExpression(expression)) return 'undefined';
   const type = checker.getTypeAtLocation(expression);
   if (type.isStringLiteral()) return type.value;
   if ((type.flags & ts.TypeFlags.NumberLiteral) !== 0) return (type as ts.NumberLiteralType).value;
@@ -104,9 +105,14 @@ export function staticPropertySegment(
       const values = source.path.length === 0
         ? [source.initializer]
         : aggregateValuesAtPath(source.initializer, source.path, checker, new Set(seen));
-      return values.length > 0
+      const conditional = source.initializer.parent !== undefined
+        && ts.isBinaryExpression(source.initializer.parent)
+        && source.initializer.parent.right === source.initializer
+        && source.initializer.parent.operatorToken.kind !== ts.SyntaxKind.EqualsToken;
+      const resolved = values.length > 0
         ? values.map(value => staticPropertySegment(value, checker, new Set(seen)))
         : [undefined];
+      return conditional ? [...resolved, undefined] : resolved;
     }),
   ];
   const first = candidates[0];
@@ -163,6 +169,30 @@ export function objectMemberValue(
       ],
     } : undefined;
   }
+  if (ts.isCallExpression(expression)) {
+    const declaration = checker.getResolvedSignature(expression)?.declaration;
+    const callee = unwrap(expression.expression);
+    const symbol = checker.getSymbolAtLocation(callee)
+      ?? (declaration && 'name' in declaration && declaration.name
+        ? checker.getSymbolAtLocation(declaration.name)
+        : undefined);
+    if (!declaration || !ts.isFunctionLike(declaration) || !('body' in declaration)
+      || !declaration.body || (symbol && seen.has(symbol))) return undefined;
+    const nextSeen = symbol ? new Set(seen).add(symbol) : new Set(seen);
+    const candidates = returnedExpressions(declaration.body).flatMap(returned => {
+      const value = objectMemberValue(returned, name, checker, new Set(nextSeen));
+      return value ? [value, ...(value.alternatives ?? []).map(alternative => ({
+        value: alternative,
+        auditable: false,
+      }))] : [];
+    });
+    const [value, ...alternatives] = candidates;
+    return value ? {
+      ...value,
+      auditable: false,
+      alternatives: alternatives.map(candidate => candidate.value),
+    } : undefined;
+  }
   if (ts.isObjectLiteralExpression(expression)) {
     let obscured = false;
     let setterSeen = false;
@@ -213,14 +243,21 @@ export function objectMemberValue(
       rest?: BindingRest;
       value: ts.Expression;
     }> = [];
+    let unresolvedBindingSource: ts.Expression | undefined;
     const binding = symbol.declarations?.find(ts.isBindingElement);
     if (binding) {
       const source = bindingSource(binding, checker);
       if (source) {
         if (source.rest?.kind === 'object' && source.rest.excluded.includes(name)) return undefined;
+        const pathValues = aggregateValuesAtPath(
+          source.initializer,
+          source.path,
+          checker,
+          new Set(seen),
+        );
+        if (pathValues.length === 0) unresolvedBindingSource = source.initializer;
         candidates.push(
-          ...aggregateValuesAtPath(source.initializer, source.path, checker, new Set(seen))
-            .map(value => ({ value, auditable: false, rest: source.rest })),
+          ...pathValues.map(value => ({ value, auditable: false, rest: source.rest })),
           ...bindingDefaultValues(source, checker, new Set(seen))
             .map(value => ({
               value: value.value,
@@ -270,6 +307,9 @@ export function objectMemberValue(
       }
       const value = objectMemberValue(candidate.value, name, checker, new Set(seen));
       if (value) values.push({ ...value, auditable: candidate.auditable && value.auditable });
+    }
+    if (unresolvedBindingSource) {
+      values.push({ value: unresolvedBindingSource, auditable: false });
     }
     const [value, ...alternatives] = values;
     return value ? {

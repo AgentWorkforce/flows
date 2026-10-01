@@ -121,13 +121,39 @@ describe('composing flow extensions onto a base flow', () => {
     `);
     const entry = readFileSync(join(fixtureRoot, 'extension-babysitter/babysitter.flow.ts'), 'utf8')
       .replace("{ tokens: 800_000, dollars: 8, wallclock: '45m' }", "'$5/run'");
+    await install(p, variant(manifest => ({
+      ...manifest,
+      permissions: { ...(manifest.permissions as Record<string, unknown>), budget: {} },
+    }), entry));
+    const loaded = await loadAuthoredFlow(p.flow, { versions });
+    expect(loaded.getDefinition(loaded.handle).header.budget).toBe('$5/run');
+  });
+  it('omits empty structured extension budgets beside a shorthand base', async () => {
+    const p = project(`
+      import { flow, github } from '@relayflows/surface';
+      export default flow('software-factory', { budget: '$10/run' }, async f => { f.done('success'); })
+        .on(github.issues({ action: 'opened' }), async f => { f.done('success'); });
+    `);
+    const entry = readFileSync(join(fixtureRoot, 'extension-babysitter/babysitter.flow.ts'), 'utf8')
+      .replace("{ tokens: 800_000, dollars: 8, wallclock: '45m' }", '{}');
+    await install(p, variant(manifest => ({
+      ...manifest,
+      permissions: { ...(manifest.permissions as Record<string, unknown>), budget: {} },
+    }), entry));
+    const loaded = await loadAuthoredFlow(p.flow, { versions });
+    expect(loaded.getDefinition(loaded.handle).header.budget).toBe('$10/run');
+  });
+  it('fails closed on a malformed extension wallclock ceiling', async () => {
+    const p = project();
+    const entry = readFileSync(join(fixtureRoot, 'extension-babysitter/babysitter.flow.ts'), 'utf8')
+      .replace("{ tokens: 800_000, dollars: 8, wallclock: '45m' }", "{ wallclock: 'soon' }");
     await install(p, variant(manifest => {
       const permissions = { ...(manifest.permissions as Record<string, unknown>) };
       delete permissions.budget;
       return { ...manifest, permissions };
     }, entry));
-    const loaded = await loadAuthoredFlow(p.flow, { versions });
-    expect(loaded.getDefinition(loaded.handle).header.budget).toBe('$5/run');
+    await expect(loadAuthoredFlow(p.flow, { versions }))
+      .rejects.toThrow('Malformed wallclock budget ceiling "soon"');
   });
   it('retains extension budgets and handlers when entry evaluation poisons array intrinsics', async () => {
     const p = project();

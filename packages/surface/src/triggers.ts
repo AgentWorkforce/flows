@@ -7,6 +7,17 @@ const OBJECT_FREEZE = Object.freeze;
 const OBJECT_GET_OWN_PROPERTY_DESCRIPTOR = Object.getOwnPropertyDescriptor;
 const OBJECT_GET_PROTOTYPE_OF = Object.getPrototypeOf;
 const REFLECT_OWN_KEYS = Reflect.ownKeys;
+const MAX_ARRAY_INDEX = "4294967294";
+
+function isArrayIndexKey(key: string): boolean {
+  if (key === "0") return true;
+  if (key.length === 0 || key[0]! < "1" || key[0]! > "9") return false;
+  for (let index = 1; index < key.length; index += 1) {
+    if (key[index]! < "0" || key[index]! > "9") return false;
+  }
+  return key.length < MAX_ARRAY_INDEX.length
+    || (key.length === MAX_ARRAY_INDEX.length && key <= MAX_ARRAY_INDEX);
+}
 
 export type WebhookValue = null | boolean | number | string
   | readonly WebhookValue[] | { readonly [key: string]: WebhookValue };
@@ -55,7 +66,7 @@ function snapshot(value: unknown, ancestors = new Set<object>()): WebhookValue {
     if (typeof key !== "string" || !descriptor.enumerable || !("value" in descriptor)) {
       throw new TypeError("webhook filter must contain JSON data properties");
     }
-    if (array && !/^(0|[1-9][0-9]*)$/.test(key)) throw new TypeError("invalid JSON array property");
+    if (array && !isArrayIndexKey(key)) throw new TypeError("invalid JSON array property");
     OBJECT_DEFINE_PROPERTY(entries, entries.length, {
       configurable: true,
       enumerable: true,

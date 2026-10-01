@@ -41,7 +41,7 @@ it('returns the absolute executable selected for a bare CLI name', async () => {
   try {
     await expect(probeCliAsync('wrapper', directory, 'exact-model')).resolves.toMatchObject({
       exists: true,
-      executable: path,
+      executable: realpathSync(path),
       modelAvailable: true,
     });
   } finally {
@@ -76,7 +76,7 @@ it('normalizes a relative executable returned by PATH lookup', async () => {
   try {
     await expect(probeCliAsync('relative-wrapper', root, 'exact-model')).resolves.toMatchObject({
       exists: true,
-      executable,
+      executable: realpathSync(executable),
       modelAvailable: true,
     });
   } finally {

@@ -340,11 +340,44 @@ export function flowInvocation(
   if (!helper) {
     const declaration = checker.getResolvedSignature(node)?.declaration;
     if (declaration && ts.isFunctionLike(declaration) && 'body' in declaration && declaration.body) {
+      const body = declaration.body;
+      const parameterIsUsed = (index: number): boolean => {
+        const parameter = declaration.parameters[index]
+          ?? (declaration.parameters.at(-1)?.dotDotDotToken ? declaration.parameters.at(-1) : undefined);
+        if (!parameter) return false;
+        const symbols = new Set<ts.Symbol>();
+        const collect = (name: ts.BindingName): void => {
+          if (ts.isIdentifier(name)) {
+            const symbol = checker.getSymbolAtLocation(name);
+            if (symbol) symbols.add(symbol);
+            return;
+          }
+          for (const element of name.elements) {
+            if (!ts.isOmittedExpression(element)) collect(element.name);
+          }
+        };
+        collect(parameter.name);
+        let used = false;
+        const visit = (candidate: ts.Node): void => {
+          if (used) return;
+          if (ts.isIdentifier(candidate)) {
+            const symbol = checker.getSymbolAtLocation(candidate);
+            if (symbol && symbols.has(symbol)) {
+              used = true;
+              return;
+            }
+          }
+          ts.forEachChild(candidate, visit);
+        };
+        visit(body);
+        return used;
+      };
       const forwardedCandidates = staticCallArgumentCandidates(node.arguments, checker);
       for (const forwardedArgs of forwardedCandidates.length > 0
         ? forwardedCandidates.map(candidate => candidate.values)
         : [node.arguments]) {
-        for (const argument of forwardedArgs) {
+        for (const [index, argument] of forwardedArgs.entries()) {
+          if (!parameterIsUsed(index)) continue;
           const forwarded = flowConstructor(ts.isSpreadElement(argument) ? argument.expression : argument, checker);
           if (forwarded) return { args: [], auditable: false };
         }

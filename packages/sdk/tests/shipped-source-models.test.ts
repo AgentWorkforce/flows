@@ -1,11 +1,12 @@
 import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
 import { scanDeclarative } from './helpers/shipped-source-declarative-models.js';
 import { scanTypeScript } from './helpers/shipped-source-typescript.js';
 
-const ROOT = resolve('../..');
+const ROOT = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 const MODELS: Record<string, ReadonlySet<string>> = {
   claude: new Set(['claude-sonnet-5', 'claude-opus-5']),
   codex: new Set(['gpt-5.6-sol']),
@@ -101,7 +102,9 @@ describe('first-party shipped source model pins', () => {
   it('gives every current declarative and active v1 Cloud agent/LLM an effective supported CLI/model pair', () => {
     const paths = [
       ...filesBelow(resolve(ROOT, 'examples'), '.yaml'),
+      ...filesBelow(resolve(ROOT, 'examples'), '.yml'),
       ...filesBelow(resolve(ROOT, 'workflows'), '.yaml'),
+      ...filesBelow(resolve(ROOT, 'workflows'), '.yml'),
     ];
     let currentFiles = 0;
     let modelSteps = 0;

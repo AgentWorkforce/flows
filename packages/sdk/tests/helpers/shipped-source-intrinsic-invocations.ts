@@ -14,7 +14,7 @@ function invocationArguments(
   checker: ts.TypeChecker,
   depth: number,
 ): Array<readonly ts.Expression[]> {
-  if (depth > 8) return [];
+  if (depth > 8) return [[...args]];
   const candidates = callableArgumentCandidates(
     expression,
     args,

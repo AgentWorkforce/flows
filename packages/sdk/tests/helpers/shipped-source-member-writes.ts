@@ -1,6 +1,7 @@
 import ts from 'typescript';
 import {
   assignmentMayStoreRight,
+  assignedSourceMayPrecedeReference,
   bindingSource,
   type BindingPathSegment,
 } from './shipped-source-binding-provenance.js';
@@ -16,6 +17,7 @@ import {
   directMemberAliasPaths,
   directAssignedMemberValues,
   directMemberPath,
+  directMemberPaths,
 } from './shipped-source-direct-member-writes.js';
 import { intrinsicInvocationArgumentCandidates } from './shipped-source-intrinsic-invocations.js';
 import { localCallTargetPaths } from './shipped-source-local-call-targets.js';
@@ -286,9 +288,14 @@ export function assignedMemberValues(
   seen: Set<ts.Symbol>,
 ): Array<{ value: ts.Expression; auditable: false }> {
   const direct = directAssignedMemberValues(expression, checker, new Set(seen));
-  const target = directMemberPath(expression, checker);
-  if (!target || target.path.length === 0) return direct;
-  return [...direct, ...memberAssignedSources(target.symbol, checker).flatMap(source => {
+  const targets = directMemberPaths(expression, checker)
+    .filter(target => target.path.length > 0);
+  return [...direct, ...targets.flatMap(target => memberAssignedSources(target.symbol, checker).flatMap(source => {
+    if (!assignedSourceMayPrecedeReference(
+      { initializer: source.initializer, path: [] },
+      target.symbol,
+      expression,
+    )) return [];
     if (source.path.length > target.path.length
       || source.path.some((segment, index) => String(segment) !== String(target.path[index]))) return [];
     const sourceValue = source.sourcePath.length === 0
@@ -309,7 +316,7 @@ export function assignedMemberValues(
       new Set(seen).add(target.symbol),
     );
     return candidate ? [{ value: candidate.value, auditable: false as const }] : [];
-  })];
+  }))];
 }
 
 export function reflectiveMemberAssignedSources(

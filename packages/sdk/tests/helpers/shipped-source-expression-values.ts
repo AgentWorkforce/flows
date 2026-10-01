@@ -15,9 +15,11 @@ export function wrappedExpressionBranches(
 ): readonly ts.Expression[] | undefined {
   expression = unwrapExpression(expression);
   if (ts.isConditionalExpression(expression)) return [expression.whenTrue, expression.whenFalse];
+  if (ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.CommaToken) {
+    return [expression.right];
+  }
   if (ts.isBinaryExpression(expression)
-    && (expression.operatorToken.kind === ts.SyntaxKind.CommaToken
-      || expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+    && (expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
       || expression.operatorToken.kind === ts.SyntaxKind.BarBarToken
       || expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)) {
     return [expression.left, expression.right];
@@ -26,6 +28,9 @@ export function wrappedExpressionBranches(
 }
 
 export function canonicalArrayIndex(segment: BindingPathSegment): number | undefined {
-  if (typeof segment === 'number') return Number.isInteger(segment) && segment >= 0 ? segment : undefined;
-  return /^(?:0|[1-9]\d*)$/u.test(segment) ? Number(segment) : undefined;
+  if (typeof segment === 'number') return Number.isInteger(segment) && segment >= 0 && segment <= 4_294_967_294 ? segment : undefined;
+  return /^(?:0|[1-9]\d*)$/u.test(segment)
+    && (segment.length < 10 || (segment.length === 10 && segment <= '4294967294'))
+    ? Number(segment)
+    : undefined;
 }

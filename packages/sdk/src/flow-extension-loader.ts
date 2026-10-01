@@ -14,6 +14,7 @@ const JSON_PARSE = JSON.parse;
 const ARRAY_IS_ARRAY = Array.isArray;
 const JSON_STRINGIFY = JSON.stringify;
 const NUMBER = Number;
+const NUMBER_IS_FINITE = Number.isFinite.bind(Number);
 const OBJECT_GET_OWN_PROPERTY_DESCRIPTOR = Object.getOwnPropertyDescriptor;
 const OBJECT_FREEZE = Object.freeze;
 const POSITIVE_INFINITY = Number.POSITIVE_INFINITY;
@@ -96,7 +97,14 @@ function wallclockMs(value: string): number | undefined {
   const match = REGEXP_EXEC(/^(\d+)(ms|s|m|h|d)$/, value);
   if (!match) return undefined;
   const unit = match[2] as keyof typeof WALLCLOCK_MS;
-  return NUMBER(match[1]) * WALLCLOCK_MS[unit];
+  const milliseconds = NUMBER(match[1]) * WALLCLOCK_MS[unit];
+  return NUMBER_IS_FINITE(milliseconds) ? milliseconds : undefined;
+}
+
+function hasBudgetCeiling(budget: StructuredFlowBudget): boolean {
+  return ownBudgetField(budget, 'tokens') !== undefined
+    || ownBudgetField(budget, 'dollars') !== undefined
+    || ownBudgetField(budget, 'wallclock') !== undefined;
 }
 
 function composeBudget(
@@ -110,8 +118,14 @@ function composeBudget(
     const extension = extensions[index]!;
     const manifestBudget = extension.manifest.permissions.budget;
     const entryBudget = extension.getDefinition(extension.handle).header.budget;
-    if (manifestBudget !== undefined) appendIntrinsicArray(ceilings, manifestBudget);
-    if (entryBudget !== undefined) appendIntrinsicArray(ceilings, entryBudget);
+    if (manifestBudget !== undefined
+      && (typeof manifestBudget === 'string' || hasBudgetCeiling(manifestBudget))) {
+      appendIntrinsicArray(ceilings, manifestBudget);
+    }
+    if (entryBudget !== undefined
+      && (typeof entryBudget === 'string' || hasBudgetCeiling(entryBudget))) {
+      appendIntrinsicArray(ceilings, entryBudget);
+    }
   }
   if (ceilings.length === 0) return base;
   if (base === undefined && ceilings.length === 1 && typeof ceilings[0] === 'string') {
@@ -141,7 +155,10 @@ function composeBudget(
     if (budgetTokens !== undefined && (tokens === undefined || budgetTokens < tokens)) tokens = budgetTokens;
     if (budgetDollars !== undefined && (dollars === undefined || budgetDollars < dollars)) dollars = budgetDollars;
     if (budgetWallclock !== undefined) {
-      const candidate = wallclockMs(budgetWallclock) ?? POSITIVE_INFINITY;
+      const candidate = wallclockMs(budgetWallclock);
+      if (candidate === undefined) {
+        throw new PluginError('plugin_incompatible', `Malformed wallclock budget ceiling ${JSON_STRINGIFY(budgetWallclock)}.`);
+      }
       if (wallclock === undefined || candidate < wallclockLimit) {
         wallclock = budgetWallclock;
         wallclockLimit = candidate;
@@ -326,7 +343,7 @@ async function loadOne<Authority>(
   assertBaseCompatible(manifest, { name: base.definition.name, version: base.definition.header.version });
   const baseBudget = base.definition.header.budget;
   const ceiling = manifest.permissions.budget;
-  if (ceiling !== undefined && typeof baseBudget === 'string') {
+  if (ceiling !== undefined && hasBudgetCeiling(ceiling) && typeof baseBudget === 'string') {
     throw new PluginError('plugin_incompatible', `${manifest.name} declares a structured budget ceiling that cannot compose with the base flow's shorthand budget.`);
   }
   const ceilingTokens = ceiling === undefined ? undefined : ownBudgetField(ceiling, 'tokens');

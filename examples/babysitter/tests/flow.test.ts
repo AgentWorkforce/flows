@@ -85,6 +85,7 @@ test('legacy reviewer binds slash-relative wrappers before probing and dispatch'
 });
 test('modern reviewer binds slash-relative wrappers before probing and dispatch', () => {
   assert.equal(modernReviewerExecutableFrom('./tools/reviewer', '/tmp/flow root'), '/tmp/flow root/tools/reviewer');
+  assert.equal(modernReviewerExecutableFrom('.\\tools\\reviewer.exe', '/tmp/flow root'), '/tmp/flow root/.\\tools\\reviewer.exe');
   assert.equal(modernReviewerExecutableFrom('/opt/reviewer', '/tmp/flow root'), '/opt/reviewer');
   assert.equal(modernReviewerExecutableFrom('claude', '/tmp/flow root'), 'claude');
 });

@@ -81,14 +81,18 @@ export function bindingNamePaths(
 }
 
 export function canonicalArrayIndex(segment: BindingPathSegment): number | undefined {
-  if (typeof segment === 'number') return Number.isInteger(segment) && segment >= 0 ? segment : undefined;
-  return /^(?:0|[1-9]\d*)$/u.test(segment) ? Number(segment) : undefined;
+  if (typeof segment === 'number') return Number.isInteger(segment) && segment >= 0 && segment <= 4_294_967_294 ? segment : undefined;
+  return /^(?:0|[1-9]\d*)$/u.test(segment)
+    && (segment.length < 10 || (segment.length === 10 && segment <= '4294967294'))
+    ? Number(segment)
+    : undefined;
 }
 
 export function isStaticallyUndefined(expression: ts.Expression, checker: ts.TypeChecker): boolean {
   expression = unwrap(expression);
-  return ts.isVoidExpression(expression)
-    || (ts.isIdentifier(expression) && expression.text === 'undefined')
+  return ts.isVoidExpression(expression) || ts.isOmittedExpression(expression)
+    || (ts.isIdentifier(expression) && expression.text === 'undefined'
+      && checker.getSymbolAtLocation(expression) === undefined)
     || (checker.getTypeAtLocation(expression).flags & ts.TypeFlags.Undefined) !== 0;
 }
 
@@ -103,9 +107,10 @@ export function localCallArgumentCandidates(
       continue;
     }
     const spread = staticArrayElements(argument.expression, checker, new Set());
-    if (!spread) return [[...args]];
+    if (!spread) return [];
     const branches = [spread.values, ...(spread.alternatives ?? [])]
-      .filter(values => values.every((value): value is ts.Expression => value !== undefined));
+      .filter(values => values.every((value): value is ts.Expression =>
+        value !== undefined && !ts.isSpreadElement(value)));
     if (branches.length === 0 || candidates.length * branches.length > 64) return [[...args]];
     candidates = candidates.flatMap(prefix => branches.map(values => [...prefix, ...values]));
   }

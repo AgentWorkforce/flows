@@ -72,6 +72,8 @@ export function runWrapperSession(
   signal?: AbortSignal,
   /** Working directory for the wrapper process; the artifact scanner uses the same root. */
   cwd?: string,
+  /** Authored invocation basename retained while executing pinned canonical bytes. */
+  argv0?: string,
 ): Promise<WrapperSessionResult> {
   if (signal?.aborted) return Promise.reject(signal.reason);
   if (signal !== undefined && process.platform === 'win32') {
@@ -100,7 +102,7 @@ export function runWrapperSession(
     ));
   }
 
-  return executePinnedWrapper(cli, identity, request, env, limits, signal, cwd);
+  return executePinnedWrapper(cli, identity, request, env, limits, signal, cwd, argv0);
 }
 
 function executePinnedWrapper(
@@ -111,6 +113,7 @@ function executePinnedWrapper(
   limits: WrapperSessionLimits,
   signal?: AbortSignal,
   cwd?: string,
+  argv0?: string,
 ): Promise<WrapperSessionResult> {
   return new Promise((resolve) => {
     const ownsGroup = ownsProcessGroup(signal);
@@ -118,6 +121,7 @@ function executePinnedWrapper(
       stdio: ['pipe', 'pipe', 'pipe'],
       env,
       detached: ownsGroup,
+      ...(argv0 === undefined ? {} : { argv0 }),
       ...(cwd === undefined ? {} : { cwd }),
     });
     const stop = childStop(child, ownsGroup);

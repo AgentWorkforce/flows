@@ -24,9 +24,12 @@ export function scanDeclarative(document: Record<string, unknown>, where: string
     }
   }
   const workflows = Array.isArray(document.workflows) ? document.workflows as Array<Record<string, unknown>> : [];
-  const steps = Array.isArray(document.steps)
-    ? document.steps as Array<Record<string, unknown>>
-    : workflows.flatMap(workflow => Array.isArray(workflow.steps) ? workflow.steps as Array<Record<string, unknown>> : []);
+  const steps = [
+    ...(Array.isArray(document.steps) ? document.steps as Array<Record<string, unknown>> : []),
+    ...workflows.flatMap(workflow => Array.isArray(workflow.steps)
+      ? workflow.steps as Array<Record<string, unknown>>
+      : []),
+  ];
   const modelSteps = steps.filter(candidate => candidate.type === 'agent'
     || candidate.type === 'llm'
     || (candidate.type === undefined

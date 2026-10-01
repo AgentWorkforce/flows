@@ -146,7 +146,7 @@ describe('hosted v2 submission', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('preserves proved CLI identity when submitting compiled kernel JSON', async () => {
+  it('refuses forged CLI identity in compiled kernel JSON before HTTP', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'cloud-spec-'));
     dirs.push(dir);
     const path = join(dir, 'spec.json');
@@ -162,17 +162,10 @@ describe('hosted v2 submission', () => {
       steps: kernel.steps.map(step => ({ ...step, cli_identity: 'claude' })),
     };
     await writeFile(path, JSON.stringify(compiled));
-    let workflow: string | undefined;
-    const options = await cloud((_path, body) => {
-      workflow = (body as { workflow: string }).workflow;
-      return { runId: 'compiled-run', status: 'pending' };
-    });
-    const receipt = await runInCloud({ path }, options);
-    expect(workflow).toBe(canonicalize(compiled));
-    expect(JSON.parse(workflow!).steps[0]).toMatchObject({
-      cli: '/opt/provider/cli.js', cli_identity: 'claude', model: 'claude-sonnet-5',
-    });
-    expect(receipt.specHash).toBe(specHash(compiled));
+    const fetch = vi.spyOn(globalThis, 'fetch');
+    await expect(runInCloud({ path }, { token: 'test' }))
+      .rejects.toMatchObject({ code: 'invalid_input' });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('refuses unsafe origins and Relay keys without sending credentials', async () => {

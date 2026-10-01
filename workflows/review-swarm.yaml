@@ -1,7 +1,8 @@
 version: '1.0'
 name: flows-review-swarm
 description: >
-  Three independent reviewers, three lenses, three model families — the review
+  Three independent reviewers with three distinct lenses across two provider
+  families — the review
   team RFC-0001 §2 rule 7 requires. Exists because external bots are not
   review signal: on PR #8 CodeRabbit was rate-limited into skipping and Devin's
   trial expired, both reporting SUCCESS. Our own review must not depend on
@@ -59,8 +60,8 @@ agents:
   # Step liveness checks observe the agent's chat output. The aggregate opens
   # its persisted transcript file and applies the binding parser there; chat
   # output containing REVIEW_ cannot make a malformed transcript pass.
-  # Deliberately three different model families: a shared blind spot in one
-  # harness must not become the whole team's blind spot.
+  # Deliberately three different review lenses: a shared blind spot in one
+  # lens must not become the whole team's blind spot.
   - name: maintainability
     cli: claude
     model: claude-sonnet-5

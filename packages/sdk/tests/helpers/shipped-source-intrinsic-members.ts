@@ -28,6 +28,17 @@ function memberReceiver(expression: ts.Expression): ts.Expression | undefined {
     : undefined;
 }
 
+function isUnshadowedGlobal(
+  expression: ts.Identifier,
+  name: string,
+  checker: ts.TypeChecker,
+): boolean {
+  if (expression.text !== name) return false;
+  const symbol = checker.getSymbolAtLocation(expression);
+  return !symbol || (symbol.declarations?.every(declaration =>
+    declaration.getSourceFile().isDeclarationFile) ?? true);
+}
+
 function referencesIntrinsicIdentifier(
   expression: ts.Expression,
   intrinsic: 'Object' | 'Reflect' | 'globalThis',
@@ -35,7 +46,7 @@ function referencesIntrinsicIdentifier(
   seen = new Set<ts.Symbol>(),
 ): boolean {
   expression = unwrap(expression);
-  if (ts.isIdentifier(expression) && expression.text === intrinsic) return true;
+  if (ts.isIdentifier(expression) && isUnshadowedGlobal(expression, intrinsic, checker)) return true;
   const receiver = memberReceiver(expression);
   if (intrinsic !== 'globalThis'
     && staticMemberSegment(expression, checker, new Set(seen)) === intrinsic
@@ -44,6 +55,15 @@ function referencesIntrinsicIdentifier(
   const branches = wrappedExpressionBranches(expression);
   if (branches) return branches.some(branch =>
     referencesIntrinsicIdentifier(branch, intrinsic, checker, new Set(seen)));
+  const aggregateSeen = new Set(seen);
+  for (const aggregate of baseAggregateExpressionValues(expression, checker, aggregateSeen)) {
+    if (referencesIntrinsicIdentifier(
+      aggregate.value,
+      intrinsic,
+      checker,
+      new Set(aggregateSeen),
+    )) return true;
+  }
   if (!ts.isIdentifier(expression)) return false;
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return false;

@@ -19,8 +19,8 @@ cat > flows.json <<'JSON'
 JSON
 ```
 
-To use an authenticated Codex CLI instead, change `"claude"` to `"codex"` in
-`flows.json`. The LLM step uses that CLI's configured model and credentials.
+The checked-in LLM step pins `claude` with `claude-sonnet-5`; changing the
+project-level `flows.json` CLI does not override that authored pair.
 
 Point to your existing relayfile mount and configure the observer workspace:
 

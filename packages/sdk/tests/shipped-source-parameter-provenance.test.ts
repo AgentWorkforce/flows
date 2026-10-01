@@ -17,7 +17,9 @@ describe('shipped-source parameter provenance', () => {
         writeFileSync(file, `declare const f: { agent(name: string, options: object): void; llm(...args: unknown[]): void }; declare const flag: boolean; ${candidate}`);
         const result = scanTypeScript(file);
         expect(result.calls, candidate).toBe(1);
-        expect(result.missing, candidate).toHaveLength(1);
+        expect(result.missing, candidate).toEqual([
+          expect.stringContaining('statically unauditable arguments'),
+        ]);
       }
 
       const flowCases = [
@@ -27,7 +29,9 @@ describe('shipped-source parameter provenance', () => {
       for (const [index, candidate] of flowCases.entries()) {
         const file = join(directory, `flow-${index}.flow.ts`);
         writeFileSync(file, `declare const surface: { flow(name: string, header: object, body: () => void): void }; declare const flag: boolean; ${candidate}`);
-        expect(scanTypeScript(file).invalidFlowHeaders, candidate).toHaveLength(1);
+        expect(scanTypeScript(file).invalidFlowHeaders, candidate).toEqual([
+          expect.stringContaining('flow arguments must be statically auditable'),
+        ]);
       }
     } finally {
       rmSync(directory, { recursive: true, force: true });

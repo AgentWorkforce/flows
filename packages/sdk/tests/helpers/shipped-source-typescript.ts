@@ -1,9 +1,19 @@
 import { relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { flowHeader, flowInvocation } from './shipped-source-flow-invocations.js';
 import { workerInvocation, workerMethodName } from './shipped-source-worker-invocations.js';
 
-const ROOT = resolve('../..');
+const ROOT = resolve(fileURLToPath(new URL('../../../..', import.meta.url)));
+
+function unwrap(expression: ts.Expression): ts.Expression {
+  while (ts.isParenthesizedExpression(expression)
+    || ts.isAsExpression(expression)
+    || ts.isSatisfiesExpression(expression)
+    || ts.isNonNullExpression(expression)
+    || ts.isTypeAssertionExpression(expression)) expression = expression.expression;
+  return expression;
+}
 
 function propertyName(name: ts.PropertyName | undefined): string | undefined {
   if (name === undefined) return undefined;
@@ -38,12 +48,13 @@ function identifierSymbol(expression: ts.Identifier, checker: ts.TypeChecker): t
 }
 
 function constInitializer(expression: ts.Expression | undefined, checker: ts.TypeChecker): ts.Expression | undefined {
+  if (expression) expression = unwrap(expression);
   if (!expression || !ts.isIdentifier(expression)) return expression;
   const symbol = identifierSymbol(expression, checker);
   const declaration = symbol?.declarations?.find(ts.isVariableDeclaration);
   if (!declaration?.initializer || !ts.isVariableDeclarationList(declaration.parent)
     || (declaration.parent.flags & ts.NodeFlags.Const) === 0) return expression;
-  return declaration.initializer;
+  return unwrap(declaration.initializer);
 }
 
 function literal(expression: ts.Expression | undefined, checker: ts.TypeChecker): string | undefined {
@@ -144,7 +155,8 @@ export function scanTypeScript(path: string): TypeScriptModelInventory {
         ts.forEachChild(node, collectFlowHeaders);
         return;
       }
-      const header = flowHeader(invocation.args, checker);
+      const rawHeader = flowHeader(invocation.args, checker);
+      const header = rawHeader && unwrap(rawHeader);
       if (header === undefined) {
         ts.forEachChild(node, collectFlowHeaders);
         return;
@@ -178,7 +190,8 @@ export function scanTypeScript(path: string): TypeScriptModelInventory {
         }
       }
 
-      const agentsExpression = property(header, 'agents');
+      const rawAgentsExpression = property(header, 'agents');
+      const agentsExpression = rawAgentsExpression && unwrap(rawAgentsExpression);
       const namedAgents = new Set<string>();
       namedAgentsByFlow.set(node, namedAgents);
       if (agentsExpression !== undefined && !ts.isObjectLiteralExpression(agentsExpression)) {
@@ -188,15 +201,16 @@ export function scanTypeScript(path: string): TypeScriptModelInventory {
         for (const agent of agentsExpression.properties) {
           const agentLine = file.getLineAndCharacterOfPosition(agent.getStart(file)).line + 1;
           const name = propertyName(agent.name);
-          if (!ts.isPropertyAssignment(agent) || !ts.isObjectLiteralExpression(agent.initializer)
+          const agentInitializer = ts.isPropertyAssignment(agent) ? unwrap(agent.initializer) : undefined;
+          if (!ts.isPropertyAssignment(agent) || !agentInitializer || !ts.isObjectLiteralExpression(agentInitializer)
             || name === undefined || agentNames.has(name)
-            || hasUnprovableOverrides(agent.initializer, new Set(['cli', 'model']))) {
+            || hasUnprovableOverrides(agentInitializer, new Set(['cli', 'model']))) {
             incompleteNamed.push(`${relative(ROOT, path)}:${agentLine}`);
             continue;
           }
           agentNames.add(name);
-          const cli = literal(property(agent.initializer, 'cli'), checker);
-          const model = literal(property(agent.initializer, 'model'), checker);
+          const cli = literal(property(agentInitializer, 'cli'), checker);
+          const model = literal(property(agentInitializer, 'model'), checker);
           if (cli && model) {
             namedPairs.push(`${cli}/${model}`);
             namedAgents.add(name);
@@ -229,7 +243,7 @@ export function scanTypeScript(path: string): TypeScriptModelInventory {
       }
       const { method, args, auditable } = invocation;
       calls += 1;
-      const options = args[1];
+      const options = args[1] && unwrap(args[1]);
       const line = file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1;
       if (!auditable) {
         missing.push(`${relative(ROOT, path)}:${line} has statically unauditable arguments`);

@@ -236,16 +236,49 @@ function functionReturnsSymbol(
   return found;
 }
 
+function functionWritesThis(declaration: ts.SignatureDeclaration): boolean {
+  if (!('body' in declaration) || !declaration.body) return false;
+  let found = false;
+  const rootedAtThis = (expression: ts.Expression): boolean => {
+    expression = unwrap(expression);
+    while (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
+      expression = unwrap(expression.expression);
+    }
+    return expression.kind === ts.SyntaxKind.ThisKeyword;
+  };
+  const visit = (node: ts.Node): void => {
+    if (found) return;
+    if (node !== declaration.body && ts.isFunctionLike(node)) return;
+    if (ts.isBinaryExpression(node)
+      && node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment
+      && node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+      && rootedAtThis(node.left)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(declaration.body);
+  return found;
+}
+
 function ordinaryCallMayWriteSymbol(
-  node: ts.CallExpression,
+  node: ts.CallExpression | ts.NewExpression,
   symbol: ts.Symbol,
   checker: ts.TypeChecker,
   seen: Set<ts.Symbol>,
 ): boolean {
-  const argumentIndexes = node.arguments.flatMap((argument, index) =>
+  const callArguments = node.arguments ?? [];
+  const declaration = checker.getResolvedSignature(node)?.declaration;
+  if (ts.isCallExpression(node) && declaration && ts.isFunctionLike(declaration)) {
+    const receiver = memberReceiver(node.expression);
+    if (receiver && expressionMayAliasSymbol(receiver, symbol, checker)
+      && functionWritesThis(declaration)) return true;
+  }
+  const argumentIndexes = callArguments.flatMap((argument, index) =>
     expressionMayExposeSymbol(argument, symbol, checker) ? [index] : []);
   if (argumentIndexes.length === 0) return false;
-  if (argumentIndexes.some(index => ts.isSpreadElement(node.arguments[index]!))) {
+  if (argumentIndexes.some(index => ts.isSpreadElement(callArguments[index]!))) {
     // A spread's AST position does not identify the formal parameter that
     // receives the exposed receiver after runtime expansion.
     return true;
@@ -260,7 +293,6 @@ function ordinaryCallMayWriteSymbol(
     : argumentIndexes;
   if (filteredIndexes.length === 0) return false;
 
-  const declaration = checker.getResolvedSignature(node)?.declaration;
   if (!declaration || !ts.isFunctionLike(declaration)
     || !('body' in declaration) || !declaration.body) return true;
   for (const index of filteredIndexes) {
@@ -324,7 +356,8 @@ export function symbolHasWrites(
       found = true;
       return;
     }
-    if (ts.isCallExpression(node) && ordinaryCallMayWriteSymbol(node, symbol, checker, seen)) {
+    if ((ts.isCallExpression(node) || ts.isNewExpression(node))
+      && ordinaryCallMayWriteSymbol(node, symbol, checker, seen)) {
       // Passing a receiver to an ordinary callable lets that callable replace
       // agent/llm before a later syntactically pinned invocation. Without
       // whole-program effect analysis, treat the escape as a possible write.

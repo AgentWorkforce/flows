@@ -1,5 +1,6 @@
 import ts from 'typescript';
 import {
+  assignedSourceMayPrecedeReference,
   assignedSources,
   type BindingPathSegment,
 } from './shipped-source-binding-provenance.js';
@@ -41,8 +42,11 @@ function memberReceiver(expression: ts.Expression): ts.Expression | undefined {
 }
 
 function canonicalArrayIndex(segment: BindingPathSegment): number | undefined {
-  if (typeof segment === 'number') return Number.isInteger(segment) && segment >= 0 ? segment : undefined;
-  return /^(?:0|[1-9]\d*)$/u.test(segment) ? Number(segment) : undefined;
+  if (typeof segment === 'number') return Number.isInteger(segment) && segment >= 0 && segment <= 4_294_967_294 ? segment : undefined;
+  return /^(?:0|[1-9]\d*)$/u.test(segment)
+    && (segment.length < 10 || (segment.length === 10 && segment <= '4294967294'))
+    ? Number(segment)
+    : undefined;
 }
 
 export function resolveAggregateReceiverValues(
@@ -73,6 +77,7 @@ export function resolveAggregateReceiverValues(
     if (symbol && !seen.has(symbol)) {
       const sourceSeen = new Set(seen).add(symbol);
       for (const source of assignedSources(symbol, checker)) {
+        if (!assignedSourceMayPrecedeReference(source, symbol, expression)) continue;
         const candidates = source.path.length === 0
           ? [source.initializer]
           : aggregateValuesAtPath(source.initializer, source.path, checker, new Set(sourceSeen));

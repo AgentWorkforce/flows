@@ -46,17 +46,37 @@ function member(
 
 function directObjectAssignSources(
   node: ts.CallExpression,
-  isTarget: (candidate: ts.Expression) => boolean,
+  checker: ts.TypeChecker,
+  targetPath: (candidate: ts.Expression) => BindingPathSegment[] | undefined,
+  expandSpread: (candidate: ts.Expression) => readonly ts.Expression[],
 ): AssignedSource[] {
   const target = unwrap(node.expression);
   const receiver = node.arguments[0] && unwrap(node.arguments[0]);
+  const objectIdentifier = ts.isPropertyAccessExpression(target)
+    ? unwrap(target.expression)
+    : undefined;
+  const objectSymbol = objectIdentifier && ts.isIdentifier(objectIdentifier)
+    ? checker.getSymbolAtLocation(objectIdentifier)
+    : undefined;
   if (!ts.isPropertyAccessExpression(target)
     || target.name.text !== 'assign'
-    || !ts.isIdentifier(unwrap(target.expression))
-    || (unwrap(target.expression) as ts.Identifier).text !== 'Object'
-    || !receiver
-    || !isTarget(receiver)) return [];
-  return node.arguments.slice(1).map(initializer => ({ initializer, path: [] }));
+    || !objectIdentifier || !ts.isIdentifier(objectIdentifier)
+    || objectIdentifier.text !== 'Object'
+    || (objectSymbol?.declarations?.some(declaration => !declaration.getSourceFile().isDeclarationFile) ?? false)
+    || !receiver) return [];
+  const path = targetPath(receiver);
+  if (!path) return [];
+  return node.arguments.slice(1).flatMap(argument => {
+    const expanded = ts.isSpreadElement(argument) ? expandSpread(argument.expression) : [];
+    const initializers = ts.isSpreadElement(argument)
+      ? expanded.length > 0 ? expanded : [argument.expression]
+      : [argument];
+    return initializers.map(initializer => ({
+      initializer,
+      path: [],
+      ...(path.length === 0 ? {} : { targetPath: path }),
+    }));
+  });
 }
 
 export function createStaticIterationSources(resolvers: IterationSourceResolvers) {
@@ -76,23 +96,37 @@ export function createStaticIterationSources(resolvers: IterationSourceResolvers
     if (!source) return [];
     const values: AssignedSource[] = [];
     checkerCache.set(symbol, values);
-    const isTarget = (candidate: ts.Expression, seen = new Set<ts.Symbol>()): boolean => {
+    const targetPath = (
+      candidate: ts.Expression,
+      seen = new Set<ts.Symbol>(),
+    ): BindingPathSegment[] | undefined => {
       candidate = unwrap(candidate);
-      if (!ts.isIdentifier(candidate)) return false;
+      const targetMember = member(candidate);
+      if (targetMember) {
+        const parent = targetPath(targetMember.receiver, new Set(seen));
+        return parent ? [...parent, targetMember.name] : undefined;
+      }
+      if (!ts.isIdentifier(candidate)) return undefined;
       const candidateSymbol = checker.getSymbolAtLocation(candidate);
-      if (!candidateSymbol) return false;
-      if (candidateSymbol === symbol) return true;
-      if (seen.has(candidateSymbol)) return false;
+      if (!candidateSymbol) return undefined;
+      if (candidateSymbol === symbol) return [];
+      if (seen.has(candidateSymbol)) return undefined;
       const nextSeen = new Set(seen).add(candidateSymbol);
-      return resolve(candidate, checker).some(source => source.path.length === 0
-        && !source.rest
-        && isTarget(source.initializer, nextSeen));
+      for (const source of resolve(candidate, checker)) {
+        if (source.path.length > 0 || source.rest || source.targetPath) continue;
+        const aliased = targetPath(source.initializer, nextSeen);
+        if (aliased) return aliased;
+      }
+      return undefined;
     };
-    const addMutationValues = (candidates: readonly ts.Expression[]): void => {
+    const addMutationValues = (
+      candidates: readonly ts.Expression[],
+      path: BindingPathSegment[],
+    ): void => {
       for (const candidate of candidates) {
         values.push(ts.isSpreadElement(candidate)
-          ? { initializer: candidate.expression, path: [] }
-          : { initializer: candidate, iterationValue: true, path: [] });
+          ? { initializer: candidate.expression, path: [], ...(path.length ? { targetPath: path } : {}) }
+          : { initializer: candidate, iterationValue: true, path: [], ...(path.length ? { targetPath: path } : {}) });
       }
     };
     const addIterationValues = (
@@ -131,22 +165,29 @@ export function createStaticIterationSources(resolvers: IterationSourceResolvers
           checker,
         ));
         const target = member(node.left);
-        if (target && /^(?:0|[1-9]\d*)$/u.test(target.name) && isTarget(target.receiver)) {
-          addMutationValues([node.right]);
+        const path = target ? targetPath(target.receiver) : undefined;
+        if (target && path && /^(?:0|[1-9]\d*)$/u.test(target.name)) {
+          addMutationValues([node.right], path);
         }
       }
       if (ts.isCallExpression(node)) {
-        values.push(...directObjectAssignSources(node, isTarget));
+        values.push(...directObjectAssignSources(
+          node,
+          checker,
+          targetPath,
+          candidate => staticForOfValues(candidate, checker, resolve),
+        ));
         const target = member(node.expression);
+        const path = target ? targetPath(target.receiver) : undefined;
         if (target && (target.name === 'push' || target.name === 'unshift'
           || target.name === 'splice' || target.name === 'fill')
-          && isTarget(target.receiver)) {
+          && path) {
           if (target.name === 'push' || target.name === 'unshift') {
-            addMutationValues(node.arguments);
+            addMutationValues(node.arguments, path);
           } else if (target.name === 'splice') {
-            addMutationValues(node.arguments.slice(2));
+            addMutationValues(node.arguments.slice(2), path);
           } else if (target.name === 'fill') {
-            addMutationValues(node.arguments.slice(0, 1));
+            addMutationValues(node.arguments.slice(0, 1), path);
           }
         }
       }

@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { JournalClient } from '../src/journal-client.js';
 import type { Pins } from '../src/protocol.js';
 import { AgentWorker } from '../src/worker.js';
-import { runAgentCli } from '../src/worker-cli.js';
+import { cliInvocationArgv0, runAgentCli } from '../src/worker-cli.js';
 
 const directories: string[] = [];
 
@@ -125,6 +125,7 @@ process.stdout.write(JSON.stringify({ type: 'result', result: 'canonical-ok',
       'claude',
     );
     expect(result).toMatchObject({ exit_code: 0, stdout_tail: 'canonical-ok' });
+    expect(cliInvocationArgv0(canonical, 'claude')).toBe('claude');
     expect(JSON.parse(readFileSync(calls, 'utf8'))).toEqual([
       '-p', '--dangerously-skip-permissions', '--model', 'claude-sonnet-5',
       '--output-format', 'stream-json', '--verbose', 'do the task',

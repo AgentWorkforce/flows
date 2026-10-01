@@ -27,9 +27,11 @@ function unwrap(expression: ts.Expression): ts.Expression {
 function branches(expression: ts.Expression): readonly ts.Expression[] | undefined {
   expression = unwrap(expression);
   if (ts.isConditionalExpression(expression)) return [expression.whenTrue, expression.whenFalse];
+  if (ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.CommaToken) {
+    return [expression.right];
+  }
   if (ts.isBinaryExpression(expression)
-    && (expression.operatorToken.kind === ts.SyntaxKind.CommaToken
-      || expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+    && (expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
       || expression.operatorToken.kind === ts.SyntaxKind.BarBarToken
       || expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)) {
     return [expression.left, expression.right];
@@ -57,6 +59,7 @@ function expressionSegment(
   expression = unwrap(expression);
   if (ts.isStringLiteralLike(expression)) return expression.text;
   if (ts.isNumericLiteral(expression)) return Number(expression.text);
+  if (ts.isVoidExpression(expression) || ts.isOmittedExpression(expression)) return 'undefined';
   const type = checker.getTypeAtLocation(expression);
   if (type.isStringLiteral()) return type.value;
   return (type.flags & ts.TypeFlags.NumberLiteral) !== 0
@@ -108,9 +111,12 @@ function memberSeen(
 
 function canonicalArrayIndex(segment: BindingPathSegment): number | undefined {
   if (typeof segment === 'number') {
-    return Number.isInteger(segment) && segment >= 0 ? segment : undefined;
+    return Number.isInteger(segment) && segment >= 0 && segment <= 4_294_967_294 ? segment : undefined;
   }
-  return /^(?:0|[1-9]\d*)$/u.test(segment) ? Number(segment) : undefined;
+  return /^(?:0|[1-9]\d*)$/u.test(segment)
+    && (segment.length < 10 || (segment.length === 10 && segment <= '4294967294'))
+    ? Number(segment)
+    : undefined;
 }
 
 function memberPath(
@@ -183,13 +189,21 @@ function arrayCandidates(
   if (member) {
     const nextSeen = memberSeen(member.root, checker, seen);
     if (!nextSeen) return [];
-    return expressionValues(member.root, checker, nextSeen).flatMap(root => valuesAtPath(
+    const aggregateValues = expressionValues(member.root, checker, nextSeen).flatMap(root => valuesAtPath(
       root,
       member.path,
       checker,
       sources,
       new Set(seen),
     )).flatMap(value => arrayCandidates(value, checker, sources, new Set(nextSeen)));
+    const mutationValues = ts.isIdentifier(unwrap(member.root))
+      ? sources(unwrap(member.root) as ts.Identifier, checker)
+        .filter(source => source.targetPath
+          && source.targetPath.length === member.path.length
+          && source.targetPath.every((segment, index) => String(segment) === String(member.path[index])))
+        .map(source => ({ unknownSpreads: [], values: [source.initializer] }))
+      : [];
+    return [...aggregateValues, ...mutationValues];
   }
   if (!ts.isIdentifier(expression)) return [];
   const symbol = checker.getSymbolAtLocation(expression);
@@ -254,7 +268,7 @@ function objectMemberValues(
       if (ts.isSpreadAssignment(member)) {
         return objectMemberValues(member.expression, segment, checker, sources, new Set(seen));
       }
-      if (!member.name || propertySegment(member.name, checker) !== segment) return [];
+      if (!member.name || String(propertySegment(member.name, checker)) !== String(segment)) return [];
       if (ts.isPropertyAssignment(member)) return [member.initializer];
       if (ts.isShorthandPropertyAssignment(member)) return [member.name];
       return [];
@@ -370,6 +384,18 @@ export function staticForInKeys(
       if (!member.name) return [];
       return [ts.isComputedPropertyName(member.name) ? member.name.expression : member.name];
     });
+  }
+  if (ts.isArrayLiteralExpression(expression)) {
+    return expression.elements.flatMap((element, index) => {
+      if (ts.isOmittedExpression(element)) return [];
+      return ts.isSpreadElement(element)
+        ? [element.expression]
+        : [ts.setTextRange(ts.factory.createStringLiteral(String(index)), element)];
+    });
+  }
+  if (ts.isCallExpression(expression)) {
+    return expressionValues(expression, checker, seen).flatMap(value =>
+      staticForInKeys(value, checker, sources, new Set(seen)));
   }
   if (ts.isElementAccessExpression(expression) && expression.argumentExpression
     && expressionSegment(expression.argumentExpression, checker) === undefined) {

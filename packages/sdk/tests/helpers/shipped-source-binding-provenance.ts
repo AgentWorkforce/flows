@@ -53,7 +53,7 @@ export function assignedSourceMayPrecedeReference(
   symbol: ts.Symbol,
   reference: ts.Expression,
 ): boolean {
-  if (source.initializer.getStart() < reference.getStart()) return true;
+  if (source.initializer.pos >= 0 && source.initializer.pos < reference.getStart()) return true;
   if (sharesIteration(source.initializer, reference)) return true;
   const sourceFunction = enclosingFunction(source.initializer);
   if (!sourceFunction) return false;
@@ -93,14 +93,16 @@ function staticPropertySegment(
   }
   if (ts.isStringLiteralLike(expression)) return expression.text;
   if (ts.isNumericLiteral(expression)) return Number(expression.text);
+  if (ts.isVoidExpression(expression) || ts.isOmittedExpression(expression)) return 'undefined';
   const type = checker.getTypeAtLocation(expression);
   if (type.isStringLiteral()) return type.value;
   if ((type.flags & ts.TypeFlags.NumberLiteral) !== 0) return (type as ts.NumberLiteralType).value;
   const branches = ts.isConditionalExpression(expression)
     ? [expression.whenTrue, expression.whenFalse]
+    : ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.CommaToken
+      ? [expression.right]
     : ts.isBinaryExpression(expression)
-      && (expression.operatorToken.kind === ts.SyntaxKind.CommaToken
-        || expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+      && (expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
         || expression.operatorToken.kind === ts.SyntaxKind.BarBarToken
         || expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)
       ? [expression.left, expression.right]
@@ -157,7 +159,15 @@ function staticPropertySegment(
     ...assignedSources(symbol, checker)
       .filter(source => source.path.length === 0
         && assignedSourceMayPrecedeReference(source, symbol, expression))
-      .map(source => staticPropertySegment(source.initializer, checker, new Set(nextSeen))),
+      .flatMap(source => {
+        const resolved = staticPropertySegment(source.initializer, checker, new Set(nextSeen));
+        return source.initializer.parent !== undefined
+          && ts.isBinaryExpression(source.initializer.parent)
+          && source.initializer.parent.right === source.initializer
+          && source.initializer.parent.operatorToken.kind !== ts.SyntaxKind.EqualsToken
+          ? [resolved, undefined]
+          : [resolved];
+      }),
   ];
   const first = candidates[0];
   return first !== undefined
@@ -178,9 +188,10 @@ function staticPropertySegmentAtPath(
   }
   const branches = ts.isConditionalExpression(expression)
     ? [expression.whenTrue, expression.whenFalse]
+    : ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.CommaToken
+      ? [expression.right]
     : ts.isBinaryExpression(expression)
-      && (expression.operatorToken.kind === ts.SyntaxKind.CommaToken
-        || expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+      && (expression.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
         || expression.operatorToken.kind === ts.SyntaxKind.BarBarToken
         || expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)
       ? [expression.left, expression.right]
@@ -226,7 +237,9 @@ function staticPropertySegmentAtPath(
       if (ts.isSpreadAssignment(property)) {
         const value = staticPropertySegmentAtPath(property.expression, path, checker, new Set(seen));
         if (value !== undefined) return value;
-        continue;
+        // A later spread may override an earlier explicit property. Unless its
+        // value at this path is provable, the result is not provable either.
+        return undefined;
       }
       const name = propertyName(property.name, checker, new Set(seen));
       if (name === undefined || String(head) !== name) continue;
@@ -247,8 +260,11 @@ function staticPropertySegmentAtPath(
 }
 
 function canonicalArrayIndex(segment: BindingPathSegment): number | undefined {
-  if (typeof segment === 'number') return Number.isInteger(segment) && segment >= 0 ? segment : undefined;
-  return /^(?:0|[1-9]\d*)$/u.test(segment) ? Number(segment) : undefined;
+  if (typeof segment === 'number') return Number.isInteger(segment) && segment >= 0 && segment <= 4_294_967_294 ? segment : undefined;
+  return /^(?:0|[1-9]\d*)$/u.test(segment)
+    && (segment.length < 10 || (segment.length === 10 && segment <= '4294967294'))
+    ? Number(segment)
+    : undefined;
 }
 
 export function bindingSource(

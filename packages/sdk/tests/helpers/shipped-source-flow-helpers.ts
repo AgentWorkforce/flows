@@ -1,5 +1,9 @@
 import ts from 'typescript';
-import { bindingSource } from './shipped-source-binding-provenance.js';
+import {
+  assignedSourceMayPrecedeReference,
+  assignedSources,
+  bindingSource,
+} from './shipped-source-binding-provenance.js';
 import { aggregateExpressionValues } from './shipped-source-aggregate-values.js';
 import {
   aggregateValuesAtPath,
@@ -150,6 +154,17 @@ export function resolveFlowInvocationHelper(
       if (helper) return { ...helper, args: [], auditable: false };
     }
   }
+  for (const source of assignedSources(symbol, checker)) {
+    if (source.rest || source.path.length > 0
+      || !assignedSourceMayPrecedeReference(source, symbol, expression)) continue;
+    const helper = resolveFlowInvocationHelper(
+      source.initializer,
+      checker,
+      resolveConstructor,
+      new Set(seen),
+    );
+    if (helper) return { ...helper, args: [], auditable: false };
+  }
   const variable = symbol.declarations?.find(ts.isVariableDeclaration);
   if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)) return undefined;
   const helper = resolveFlowInvocationHelper(variable.initializer, checker, resolveConstructor, seen);
@@ -195,6 +210,17 @@ export function resolveFlowBindHelper(
       const helper = resolveFlowBindHelper(value.value, checker, resolveConstructor, new Set(seen));
       if (helper) return { args: [], auditable: false };
     }
+  }
+  for (const source of assignedSources(symbol, checker)) {
+    if (source.rest || source.path.length > 0
+      || !assignedSourceMayPrecedeReference(source, symbol, expression)) continue;
+    const helper = resolveFlowBindHelper(
+      source.initializer,
+      checker,
+      resolveConstructor,
+      new Set(seen),
+    );
+    if (helper) return { args: [], auditable: false };
   }
   const variable = symbol.declarations?.find(ts.isVariableDeclaration);
   if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)) return undefined;
@@ -270,6 +296,17 @@ export function resolveFlowBindInvoker(
       );
       if (invoker) return { ...invoker, args: [], prebound: [], auditable: false };
     }
+  }
+  for (const source of assignedSources(symbol, checker)) {
+    if (source.rest || source.path.length > 0
+      || !assignedSourceMayPrecedeReference(source, symbol, expression)) continue;
+    const invoker = resolveFlowBindInvoker(
+      source.initializer,
+      checker,
+      resolveConstructor,
+      new Set(seen),
+    );
+    if (invoker) return { ...invoker, args: [], prebound: [], auditable: false };
   }
   const variable = symbol.declarations?.find(ts.isVariableDeclaration);
   if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)) return undefined;

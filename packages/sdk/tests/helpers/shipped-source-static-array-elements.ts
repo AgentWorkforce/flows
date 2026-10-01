@@ -134,7 +134,7 @@ export function resolveStaticArrayElements(
     let auditable = true;
     for (const element of expression.elements) {
       if (ts.isOmittedExpression(element)) {
-        candidates.forEach(values => values.push(undefined));
+        candidates.forEach(values => values.push(element));
         continue;
       }
       if (!ts.isSpreadElement(element)) {
@@ -143,10 +143,14 @@ export function resolveStaticArrayElements(
       }
       const spread = resolveStaticArrayElements(element.expression, checker, new Set(seen), resolvers);
       if (!spread) {
+        // Preserve a positional marker. Removing it shifts every later
+        // argument/member and can manufacture a different call shape.
+        candidates.forEach(values => values.push(element));
         auditable = false;
         continue;
       }
       const spreadCandidates = [spread.values, ...(spread.alternatives ?? [])];
+      if (candidates.length * spreadCandidates.length > 64) return undefined;
       candidates = candidates.flatMap(prefix => spreadCandidates.map(values => [...prefix, ...values]));
       auditable &&= spread.auditable && spreadCandidates.length === 1;
     }

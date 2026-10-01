@@ -40,6 +40,11 @@ export const WAKE_CONTEXT_ENV = 'RELAYFLOW_WAKE_CONTEXT';
  */
 export const MODEL_ENV = 'RELAYFLOW_MODEL';
 
+/** Preserve a multicall adapter's authored basename while executing pinned bytes. */
+export function cliInvocationArgv0(cli: string, cliIdentity?: string): string {
+  return basename(cliIdentity ?? cli);
+}
+
 export interface WorkerCliResult {
   relay_task?: import('./agent-relay-receipt.js').RelayTaskReceipt;
   tokens_input?: number;
@@ -100,6 +105,7 @@ export async function runAgentCli(
   }
   const kind = cliAdapterKind(cliIdentity ?? cli);
   const effectiveModel = resolveCliModel(cliIdentity ?? cli, model);
+  const argv0 = cliInvocationArgv0(cli, cliIdentity);
 
   if (mode === 'agent' && transport === 'relay') {
     return runViaAgentRelay(kind, instruction, wakeContext, effectiveModel, relayContext, cwd, signal);
@@ -147,6 +153,7 @@ export async function runAgentCli(
       wrapperLimits,
       signal,
       cwd,
+      argv0,
     )), effectiveModel);
   }
 
@@ -177,7 +184,7 @@ export async function runAgentCli(
   const args = [...invocation.args];
   args.splice(args.length - 1, 0, ...(kind === 'claude' ? ['--output-format', 'stream-json', '--verbose'] : ['--json']));
   const completion = kind === 'claude' ? claudeResultOutcome : undefined;
-  return requirePricedUsage(decodeProviderResult(await spawnInvocation(cli, { ...invocation, args }, env, signal, sidechannel, cwd, completion), kind, env), effectiveModel);
+  return requirePricedUsage(decodeProviderResult(await spawnInvocation(cli, { ...invocation, args }, env, signal, sidechannel, cwd, completion, argv0), kind, env), effectiveModel);
   }
 }
 
@@ -316,6 +323,7 @@ async function spawnInvocation(
   sidechannel?: SidechannelContext,
   cwd?: string,
   completion?: (line: string) => { failed: boolean } | undefined,
+  argv0?: string,
 ): Promise<WorkerCliResult> {
   let writeInput: (bytes: Buffer) => Promise<boolean> = async () => false;
   let canDrive = () => false;
@@ -348,6 +356,7 @@ async function spawnInvocation(
     const child = spawn(cli, invocation.args, {
       stdio: ['pipe', 'pipe', 'pipe'], env,
       detached: ownsGroup,
+      ...(argv0 === undefined ? {} : { argv0 }),
       ...(cwd === undefined ? {} : { cwd }),
     });
     child.stdin.on('error', () => {});

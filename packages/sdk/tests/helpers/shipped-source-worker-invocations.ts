@@ -386,10 +386,16 @@ function workerCallable(
     if (name === 'agent' || name === 'llm') {
       return { method: name, args: [], auditable: immutable && !!receiver && receiverAuditable(receiver, checker) };
     }
-    return binding.propertyName && ts.isComputedPropertyName(binding.propertyName)
-      && !!receiver
-      ? { method: 'agent', args: [], auditable: false }
-      : undefined;
+    if (binding.propertyName && ts.isComputedPropertyName(binding.propertyName) && receiver) {
+      const type = checker.getTypeAtLocation(receiver);
+      const opaque = (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) !== 0;
+      const method = type.getProperty('agent') ? 'agent'
+        : type.getProperty('llm') ? 'llm'
+          : opaque ? 'agent'
+            : undefined;
+      return method ? { method, args: [], auditable: false } : undefined;
+    }
+    return undefined;
   }
   const initializer = variableInitializer(expression, checker, seen);
   if (!initializer) return undefined;

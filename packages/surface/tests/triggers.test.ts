@@ -47,6 +47,13 @@ describe("webhook declarations", () => {
     }
   });
 
+  it("refuses enumerable array properties outside the JSON index range", () => {
+    const values = ["first"];
+    Object.defineProperty(values, "4294967295", { enumerable: true, value: "lost" });
+    expect(() => webhook("release", { values } as WebhookFilter))
+      .toThrow("invalid JSON array property");
+  });
+
   it("refuses paths, non-data filters, and invalid handlers", () => {
     for (const name of ["", ".", "..", "a/b", "a%2fb", "a\\b", "a b"]) {
       expect(() => webhook(name)).toThrow();

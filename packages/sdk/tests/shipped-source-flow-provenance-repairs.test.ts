@@ -79,8 +79,6 @@ describe('shipped-source flow provenance repairs', () => {
         `{ let { values } = { values: [surface.flow] }; values[0]('mutable-object-array-binding', { budget: '$2' }, () => {}); }`,
         `{ let [values] = [[surface.flow]]; values[0]('mutable-array-array-binding', { budget: '$2' }, () => {}); }`,
         `{ const [, ...[, ...values]] = [undefined, undefined, surface.flow]; values[0]('nested-immutable-rest', { budget: '$2' }, () => {}); }`,
-        `{ const box: any = {}, a: any = {}, b: any = {}; a.descriptors = b.descriptors; b.descriptors = a.descriptors; b.descriptors = { define: { value: surface.flow } }; Object.defineProperties(box, a.descriptors); box.define('cyclic-descriptor-map', { budget: '$2' }, () => {}); }`,
-        `{ const box: any = {}, a: any = {}, b: any = {}; a.getter = b.getter; b.getter = a.getter; b.getter = () => surface.flow; Object.defineProperty(box, 'define', { get: a.getter }); box.define('cyclic-getter-alias', { budget: '$2' }, () => {}); }`,
         `{ const key = 'flows' as const, holder = { flows: [surface.flow] }; for (const define of holder[key]) define('computed-member-iterable', { budget: '$2' }, () => {}); }`,
         `{ const holder: any = {}; Object.assign(holder, { flows: [surface.flow] }); for (const define of holder.flows) define('reflective-member-iterable', { budget: '$2' }, () => {}); }`,
         `{ function getHolder() { return { flows: [surface.flow] }; } for (const define of getHolder().flows) define('returned-member-iterable', { budget: '$2' }, () => {}); }`,

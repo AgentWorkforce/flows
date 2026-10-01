@@ -25,8 +25,9 @@ export function staticCallArgumentCandidates(
     }
     const spreads = staticArrayElementCandidates(argument.expression, checker, new Set())
       .filter((candidate): candidate is { values: ts.Expression[]; auditable: boolean } =>
-        candidate.values.every((value): value is ts.Expression => value !== undefined));
-    if (spreads.length === 0) return [];
+        candidate.values.every((value): value is ts.Expression =>
+          value !== undefined && !ts.isSpreadElement(value)));
+    if (spreads.length === 0 || candidates.length * spreads.length > 64) return [];
     candidates = candidates.flatMap(prefix => spreads.map(spread => ({
       values: [...prefix.values, ...spread.values],
       auditable: false,
