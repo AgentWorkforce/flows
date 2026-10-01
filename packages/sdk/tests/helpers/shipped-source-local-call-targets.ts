@@ -15,6 +15,7 @@ import {
   localCallArgumentCandidates,
 } from './shipped-source-local-call-arguments.js';
 import { returnedExpressions } from './shipped-source-return-values.js';
+import { runtimeParameters } from './shipped-source-runtime-parameters.js';
 
 export interface LocalCallTargetPath {
   path: BindingPathSegment[];
@@ -22,7 +23,9 @@ export interface LocalCallTargetPath {
 }
 
 export interface LocalCallValueResolution {
+  auditable: boolean;
   candidates: Array<{
+    auditable: boolean;
     expression: ts.Expression;
     seen: Set<ts.Symbol>;
   }>;
@@ -150,19 +153,24 @@ function returnedValueCandidates(
   expression = unwrap(expression);
   const branches = wrappedExpressionBranches(expression);
   if (branches) return branches.flatMap(branch =>
-    returnedValueCandidates(branch, checker, new Set(seen)));
+    returnedValueCandidates(branch, checker, new Set(seen))
+      .map(candidate => ({ ...candidate, auditable: false })));
   if (ts.isBinaryExpression(expression) && assignmentMayStoreRight(expression.operatorToken.kind)) {
     const assignments = expression.operatorToken.kind === ts.SyntaxKind.EqualsToken
       ? [expression.right]
       : [expression.left, expression.right];
     return assignments.flatMap(candidate =>
-      returnedValueCandidates(candidate, checker, new Set(seen)));
+      returnedValueCandidates(candidate, checker, new Set(seen))
+        .map(value => ({ ...value, auditable: false })));
   }
   if (ts.isCallExpression(expression)) {
     const resolved = localCallValueCandidates(expression, checker, seen);
-    if (resolved) return resolved.candidates;
+    if (resolved) return resolved.candidates.map(candidate => ({
+      ...candidate,
+      auditable: candidate.auditable && resolved.auditable,
+    }));
   }
-  return [{ expression, seen: new Set(seen) }];
+  return [{ auditable: true, expression, seen: new Set(seen) }];
 }
 
 function isParameterSymbol(
@@ -192,7 +200,7 @@ export function localCallValueCandidates(
   ): LocalCallValueResolution['candidates'] => {
     if (callerPath.length === 0) return [candidate];
     return valuesAtPath(candidate.expression, callerPath, checker, candidate.seen)
-      .map(value => ({ expression: value, seen: new Set(candidate.seen) }));
+      .map(value => ({ ...candidate, expression: value, seen: new Set(candidate.seen) }));
   };
   if (actualCandidates.length === 0) {
     const candidates = returnedExpressions(declaration.body).flatMap(returned =>
@@ -202,7 +210,7 @@ export function localCallValueCandidates(
           ? []
           : fallbackAtCallerPath(candidate);
       }));
-    return { candidates };
+    return { auditable: false, candidates };
   }
   const candidates = returnedExpressions(declaration.body).flatMap(returned => {
     return returnedValueCandidates(returned, checker, nextSeen).flatMap(returnedCandidate => {
@@ -219,12 +227,13 @@ export function localCallValueCandidates(
           returnedCandidate.seen,
         );
         return selected.map(candidate => ({
+          auditable: returnedCandidate.auditable,
           expression: candidate,
           seen: new Set(returnedCandidate.seen),
         }));
       }
       const returnedPath = [...returnedMember.path, ...callerPath];
-      const mapped = declaration.parameters.flatMap((parameter, parameterIndex) =>
+      const mapped = runtimeParameters(declaration).flatMap((parameter, parameterIndex) =>
         bindingNamePaths(parameter.name, returnedMember.symbol, checker).flatMap(formal =>
           actualCandidates.flatMap(actuals => {
             if (parameter.dotDotDotToken) {
@@ -241,7 +250,8 @@ export function localCallValueCandidates(
               const actual = index === undefined ? undefined : actuals[parameterIndex + index];
               return actual && !ts.isSpreadElement(actual)
                 ? valuesAtActual(actual, sourcePath, selection.suffix, checker, seen)
-                  .map(value => ({ expression: value, seen: new Set(seen) }))
+                  .map(value => ({ auditable: returnedCandidate.auditable,
+                    expression: value, seen: new Set(seen) }))
                 : [];
             }
             const supplied = actuals[parameterIndex];
@@ -253,14 +263,16 @@ export function localCallValueCandidates(
               const selection = arrayBindingSelection(formal.path, returnedPath, formal.rest);
               return selection
                 ? valuesAtActual(actual, selection.sourcePath, selection.suffix, checker, seen)
-                  .map(value => ({ expression: value, seen: new Set(seen) }))
+                  .map(value => ({ auditable: returnedCandidate.auditable,
+                    expression: value, seen: new Set(seen) }))
                 : [];
             }
             if (formal.rest?.kind === 'object') {
               const [member, ...suffix] = returnedPath;
               if (member === undefined || formal.rest.excluded.includes(String(member))) return [];
               return valuesAtActual(actual, [...formal.path, member], suffix, checker, seen)
-                .map(value => ({ expression: value, seen: new Set(seen) }));
+                .map(value => ({ auditable: returnedCandidate.auditable,
+                  expression: value, seen: new Set(seen) }));
             }
             return valuesAtActual(
               actual,
@@ -268,12 +280,19 @@ export function localCallValueCandidates(
               returnedPath,
               checker,
               seen,
-            ).map(value => ({ expression: value, seen: new Set(seen) }));
+            ).map(value => ({ auditable: returnedCandidate.auditable,
+              expression: value, seen: new Set(seen) }));
           })));
       return mapped.length > 0 ? mapped : fallbackAtCallerPath(returnedCandidate);
     });
   });
-  return { candidates };
+  return {
+    auditable: actualCandidates.length === 1
+      && candidates.length === 1
+      && candidates[0]?.auditable === true
+      && !expression.arguments.some(ts.isSpreadElement),
+    candidates,
+  };
 }
 
 export function localCallTargetPaths(
@@ -299,7 +318,7 @@ export function localCallTargetPaths(
   return actualCandidates.flatMap(actuals => returnedExpressions(declaration.body).flatMap(returned =>
     resolve(returned, new Set(nextSeen)).flatMap(returnedMember => {
       const returnedPath = [...returnedMember.path, ...callerPath];
-      const mapped = declaration.parameters.flatMap((parameter, parameterIndex) =>
+      const mapped = runtimeParameters(declaration).flatMap((parameter, parameterIndex) =>
         bindingNamePaths(parameter.name, returnedMember.symbol, checker).flatMap(formal => {
           if (parameter.dotDotDotToken) {
             const selection = arrayBindingSelection(

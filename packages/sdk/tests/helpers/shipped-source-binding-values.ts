@@ -12,6 +12,7 @@ import {
   wrappedExpressionBranches,
 } from './shipped-source-expression-values.js';
 import { returnedExpressions } from './shipped-source-return-values.js';
+import { localCallValueCandidates } from './shipped-source-local-call-targets.js';
 import {
   resolveStaticArrayElements,
   type StaticArrayElementsResult,
@@ -170,17 +171,10 @@ export function objectMemberValue(
     } : undefined;
   }
   if (ts.isCallExpression(expression)) {
-    const declaration = checker.getResolvedSignature(expression)?.declaration;
-    const callee = unwrap(expression.expression);
-    const symbol = checker.getSymbolAtLocation(callee)
-      ?? (declaration && 'name' in declaration && declaration.name
-        ? checker.getSymbolAtLocation(declaration.name)
-        : undefined);
-    if (!declaration || !ts.isFunctionLike(declaration) || !('body' in declaration)
-      || !declaration.body || (symbol && seen.has(symbol))) return undefined;
-    const nextSeen = symbol ? new Set(seen).add(symbol) : new Set(seen);
-    const candidates = returnedExpressions(declaration.body).flatMap(returned => {
-      const value = objectMemberValue(returned, name, checker, new Set(nextSeen));
+    const returned = localCallValueCandidates(expression, checker, seen);
+    if (!returned) return undefined;
+    const candidates = returned.candidates.flatMap(candidate => {
+      const value = objectMemberValue(candidate.expression, name, checker, candidate.seen);
       return value ? [value, ...(value.alternatives ?? []).map(alternative => ({
         value: alternative,
         auditable: false,
@@ -189,7 +183,7 @@ export function objectMemberValue(
     const [value, ...alternatives] = candidates;
     return value ? {
       ...value,
-      auditable: false,
+      auditable: returned.auditable && value.auditable && alternatives.length === 0,
       alternatives: alternatives.map(candidate => candidate.value),
     } : undefined;
   }

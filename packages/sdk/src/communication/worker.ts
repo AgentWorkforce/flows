@@ -1,5 +1,6 @@
 import { communicationHistory } from './history.js';
-import { basename } from 'node:path';
+import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { JournalClient } from '../journal-client.js';
 import type { StepDispatchEvent } from '../protocol.js';
@@ -53,6 +54,7 @@ async function run(client: JournalClient, dispatch: StepDispatchEvent, instructi
   let pumping: Promise<void> | undefined;
   let receipts = Promise.resolve();
   let unsubscribe: (() => void) | undefined;
+  let cliLinkDirectory: string | undefined;
   try {
     let resolve!: (value: unknown) => void;
     let reject!: (reason: unknown) => void;
@@ -81,9 +83,18 @@ async function run(client: JournalClient, dispatch: StepDispatchEvent, instructi
     });
     // Relay supplies each CLI's launch flags and injection behavior.
     const cliIdentity = spec.cli_identity ?? spec.cli!;
+    const argv0 = basename(cliIdentity);
+    let command = spec.cli!;
+    if (basename(command) !== argv0) {
+      const linkRoot = join(dataDir, 'communication');
+      await mkdir(linkRoot, { recursive: true, mode: 0o700 });
+      cliLinkDirectory = await mkdtemp(join(linkRoot, 'cli-'));
+      command = join(cliLinkDirectory, argv0);
+      await symlink(spec.cli!, command, 'file');
+    }
     handle = await relay.broker.spawnPty({ name, cli: basename(cliIdentity).replace(/\.exe$/i, ''), task: prompt, channels: [], skipRelayPrompt: true,
       model: resolveCliModel(cliIdentity, spec.model), cwd: directory,
-      harnessConfig: { runtime: 'pty', command: quote(spec.cli!), args: [],
+      harnessConfig: { runtime: 'pty', command: quote(command), args: [],
         cwd: directory, env: { ...agentEnvironment(cliIdentity, environment ?? process.env),
           RELAYFLOW_COMMUNICATION_SOCKET: tools.path, RELAYFLOW_COMMUNICATION_TOKEN: tools.token },
         delivery: { mode: 'pty-injection', format: 'relay-block' } } });
@@ -101,7 +112,10 @@ async function run(client: JournalClient, dispatch: StepDispatchEvent, instructi
     finally {
       try { await receipts; }
       finally { try { await handle?.release('Flow communication attempt ended', { deleteIdentity: true }); }
-        finally { try { await tools?.close(); } finally { await relay.close(); } } }
+        finally { try { await tools?.close(); } finally {
+          try { await relay.close(); }
+          finally { if (cliLinkDirectory) await rm(cliLinkDirectory, { recursive: true, force: true }); }
+        } } }
     }
   }
 }

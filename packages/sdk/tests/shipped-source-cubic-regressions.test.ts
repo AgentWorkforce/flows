@@ -10,8 +10,10 @@ describe('shipped-source adversarial provenance regressions', () => {
     try {
       const cases = [
         `const state: any = { workers: [] }; state.workers.push(surface.flow); for (const define of state.workers) define('member-push', { budget: '$2' }, () => {});`,
+        `const values = [surface.flow]; const state: any = { workers: [] }; state.workers.push(...values); for (const define of state.workers) define('spread-push', { budget: '$2' }, () => {});`,
         `const holder: any = {}; Object.assign(holder, ...[{ flows: [surface.flow] }]); for (const define of holder.flows) define('assign-spread', { budget: '$2' }, () => {});`,
         `const box: any = { install() { this.define = surface.flow; } }; box.install(); box.define('this-write', { budget: '$2' }, () => {});`,
+        `declare function cb(fn: () => void): void; const box: any = { install() { cb(() => { this.define = surface.flow; }); } }; box.install(); box.define('arrow-this-write', { budget: '$2' }, () => {});`,
         `const box: any = {}; ({ define: box.define = surface.flow } = {}); box.define('default-target', { budget: '$2' }, () => {});`,
         `const left: any = {}, right: any = {}; const box = flag ? left : right; Object.assign(box, { define: surface.flow }); left.define('alternate-target', { budget: '$2' }, () => {});`,
         `const box: any = {}; Reflect.apply(Reflect.set, Reflect, [box, , surface.flow]); box.undefined('hole-key', { budget: '$2' }, () => {});`,
@@ -19,6 +21,8 @@ describe('shipped-source adversarial provenance regressions', () => {
         `const { Reflect: reflect } = globalThis; const box: any = {}; reflect.set(box, 'define', surface.flow); box.define('global-binding', { budget: '$2' }, () => {});`,
         `let invoke: any; invoke = surface.flow.call; invoke(surface, 'assigned-call-helper', { budget: '$2' }, () => {});`,
         `let invoke: any; invoke = surface.flow.apply; invoke(surface, ['assigned-apply-helper', { budget: '$2' }, () => {}]);`,
+        `let invoke: any; ({ invoke } = { invoke: surface.flow.call }); const bound = invoke.bind(surface.flow); bound('destructured-call-helper', { budget: '$2' }, () => {});`,
+        `function invoke(this: void, define: any) { define('this-parameter', { budget: '$2' }, () => {}); } invoke(surface.flow);`,
         `declare const unknownArgs: any[]; function constant(..._args: any[]) { return surface.flow; } constant(...unknownArgs)('constant-after-spread', { budget: '$2' }, () => {});`,
         `const operations = [surface.flow]; for (const key in operations) operations[key]('array-for-in', { budget: '$2' }, () => {});`,
         `function operations() { return { define: surface.flow }; } for (const key in operations()) operations()[key]('call-for-in', { budget: '$2' }, () => {});`,
@@ -118,6 +122,50 @@ describe('shipped-source adversarial provenance regressions', () => {
           expect.stringContaining('statically unauditable arguments'),
         ]);
       }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('maps pure helper parameters and refuses mutations or conditional assignments as proofs', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'shipped-cubic-call-values-'));
+    try {
+      const identity = join(directory, 'identity.flow.ts');
+      writeFileSync(identity, `
+        declare const f: any;
+        function identity<T>(this: void, value: T): T { return value; }
+        identity(f).agent('review', { cli: 'claude', model: 'claude-sonnet-5' });
+      `);
+      const identityResult = scanTypeScript(identity);
+      expect(identityResult.calls).toBe(1);
+      expect(identityResult.pairs).toEqual(['claude/claude-sonnet-5']);
+      expect(identityResult.missing).toEqual([]);
+
+      const mutating = join(directory, 'mutating-identity.flow.ts');
+      writeFileSync(mutating, `
+        declare const f: any;
+        function mutatingIdentity<T>(value: T): T {
+          (value as any).agent = () => undefined;
+          return value;
+        }
+        mutatingIdentity(f).agent('review', { cli: 'claude', model: 'claude-sonnet-5' });
+      `);
+      const mutatingResult = scanTypeScript(mutating);
+      expect(mutatingResult.calls).toBe(1);
+      expect(mutatingResult.pairs).toEqual([]);
+      expect(mutatingResult.missing).toHaveLength(1);
+
+      const conditional = join(directory, 'conditional-assignment.flow.ts');
+      writeFileSync(conditional, `
+        declare const f: any;
+        let pair: any;
+        pair ??= { cli: 'claude', model: 'claude-sonnet-5' };
+        f.agent('review', { cli: pair.cli, model: pair.model });
+      `);
+      const conditionalResult = scanTypeScript(conditional);
+      expect(conditionalResult.calls).toBe(1);
+      expect(conditionalResult.pairs).toEqual([]);
+      expect(conditionalResult.missing).toHaveLength(1);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

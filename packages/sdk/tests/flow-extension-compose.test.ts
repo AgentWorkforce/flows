@@ -128,6 +128,21 @@ describe('composing flow extensions onto a base flow', () => {
     const loaded = await loadAuthoredFlow(p.flow, { versions });
     expect(loaded.getDefinition(loaded.handle).header.budget).toBe('$5/run');
   });
+  it('treats an empty structured base budget as unbudgeted for a lone shorthand extension', async () => {
+    const p = project(`
+      import { flow, github } from '@relayflows/surface';
+      export default flow('software-factory', { budget: {} }, async f => { f.done('success'); })
+        .on(github.issues({ action: 'opened' }), async f => { f.done('success'); });
+    `);
+    const entry = readFileSync(join(fixtureRoot, 'extension-babysitter/babysitter.flow.ts'), 'utf8')
+      .replace("{ tokens: 800_000, dollars: 8, wallclock: '45m' }", "'$5/run'");
+    await install(p, variant(manifest => ({
+      ...manifest,
+      permissions: { ...(manifest.permissions as Record<string, unknown>), budget: {} },
+    }), entry));
+    const loaded = await loadAuthoredFlow(p.flow, { versions });
+    expect(loaded.getDefinition(loaded.handle).header.budget).toBe('$5/run');
+  });
   it('omits empty structured extension budgets beside a shorthand base', async () => {
     const p = project(`
       import { flow, github } from '@relayflows/surface';
@@ -154,6 +169,20 @@ describe('composing flow extensions onto a base flow', () => {
     }, entry));
     await expect(loadAuthoredFlow(p.flow, { versions }))
       .rejects.toThrow('Malformed wallclock budget ceiling "soon"');
+  });
+  it.each([
+    ['tokens', 'NaN', 'Malformed token budget ceiling null'],
+    ['dollars', 'Infinity', 'Malformed dollar budget ceiling null'],
+  ])('fails closed on a malformed extension %s ceiling', async (_field, value, message) => {
+    const p = project();
+    const entry = readFileSync(join(fixtureRoot, 'extension-babysitter/babysitter.flow.ts'), 'utf8')
+      .replace("{ tokens: 800_000, dollars: 8, wallclock: '45m' }", `{ ${_field}: ${value} }`);
+    await install(p, variant(manifest => {
+      const permissions = { ...(manifest.permissions as Record<string, unknown>) };
+      delete permissions.budget;
+      return { ...manifest, permissions };
+    }, entry));
+    await expect(loadAuthoredFlow(p.flow, { versions })).rejects.toThrow(message);
   });
   it('retains extension budgets and handlers when entry evaluation poisons array intrinsics', async () => {
     const p = project();

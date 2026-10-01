@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { runtimeParameters } from './shipped-source-runtime-parameters.js';
 import {
   assignmentMayStoreRight,
   bindingSource,
@@ -248,7 +249,7 @@ function functionWritesThis(declaration: ts.SignatureDeclaration): boolean {
   };
   const visit = (node: ts.Node): void => {
     if (found) return;
-    if (node !== declaration.body && ts.isFunctionLike(node)) return;
+    if (node !== declaration.body && ts.isFunctionLike(node) && !ts.isArrowFunction(node)) return;
     if (ts.isBinaryExpression(node)
       && node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment
       && node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
@@ -267,6 +268,7 @@ function ordinaryCallMayWriteSymbol(
   symbol: ts.Symbol,
   checker: ts.TypeChecker,
   seen: Set<ts.Symbol>,
+  allowReturnedAlias = false,
 ): boolean {
   const callArguments = node.arguments ?? [];
   const declaration = checker.getResolvedSignature(node)?.declaration;
@@ -296,15 +298,16 @@ function ordinaryCallMayWriteSymbol(
   if (!declaration || !ts.isFunctionLike(declaration)
     || !('body' in declaration) || !declaration.body) return true;
   for (const index of filteredIndexes) {
-    const rest = declaration.parameters.at(-1)?.dotDotDotToken
-      ? declaration.parameters.at(-1)
+    const parameters = runtimeParameters(declaration);
+    const rest = parameters.at(-1)?.dotDotDotToken
+      ? parameters.at(-1)
       : undefined;
-    const parameter = declaration.parameters[index] ?? rest;
+    const parameter = parameters[index] ?? rest;
     if (!parameter || !ts.isIdentifier(parameter.name)) return true;
     const parameterSymbol = checker.getSymbolAtLocation(parameter.name);
     if (!parameterSymbol
       || symbolHasWrites(parameterSymbol, checker, new Set(seen))
-      || functionReturnsSymbol(declaration, parameterSymbol, checker)) return true;
+      || !allowReturnedAlias && functionReturnsSymbol(declaration, parameterSymbol, checker)) return true;
   }
   return false;
 }
@@ -313,6 +316,7 @@ export function symbolHasWrites(
   symbol: ts.Symbol,
   checker: ts.TypeChecker,
   seen = new Set<ts.Symbol>(),
+  excludedCall?: ts.CallExpression,
 ): boolean {
   if (seen.has(symbol)) return false;
   seen.add(symbol);
@@ -357,7 +361,7 @@ export function symbolHasWrites(
       return;
     }
     if ((ts.isCallExpression(node) || ts.isNewExpression(node))
-      && ordinaryCallMayWriteSymbol(node, symbol, checker, seen)) {
+      && ordinaryCallMayWriteSymbol(node, symbol, checker, seen, node === excludedCall)) {
       // Passing a receiver to an ordinary callable lets that callable replace
       // agent/llm before a later syntactically pinned invocation. Without
       // whole-program effect analysis, treat the escape as a possible write.

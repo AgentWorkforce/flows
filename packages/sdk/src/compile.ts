@@ -458,7 +458,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
   if (step['cli_identity'] !== undefined) {
     throw new CompileError([
       `${at}.cli_identity: host-proved adapter identity is not accepted from serialized input`,
-    ]);
+    ], 'untrusted_cli_identity');
   }
   const type = step['type'];
   const commonKeys = ['id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements', 'input'] as const;

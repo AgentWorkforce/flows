@@ -261,8 +261,16 @@ function receiverAuditable(
   checker: ts.TypeChecker,
   seen = new Set<ts.Symbol>(),
   allowOpaqueRoot = true,
+  excludedCall?: ts.CallExpression,
 ): boolean {
   expression = unwrap(expression);
+  if (ts.isCallExpression(expression)) {
+    const returned = localCallValueCandidates(expression, checker, seen);
+    return returned?.auditable === true
+      && returned.candidates.length > 0
+      && returned.candidates.every(candidate =>
+        receiverAuditable(candidate.expression, checker, candidate.seen, allowOpaqueRoot, expression));
+  }
   if (!ts.isIdentifier(expression)) {
     const receiver = memberReceiver(expression);
     return receiver ? receiverAuditable(receiver, checker, seen, false) : false;
@@ -270,14 +278,14 @@ function receiverAuditable(
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol || seen.has(symbol)) return false;
   seen.add(symbol);
-  if (symbolHasWrites(symbol, checker)) return false;
+  if (symbolHasWrites(symbol, checker, new Set(), excludedCall)) return false;
   if (symbol.declarations?.some(ts.isBindingElement)) return false;
   const variable = symbol.declarations?.find(ts.isVariableDeclaration);
   if (!variable) return allowOpaqueRoot;
   if (!ts.isVariableDeclarationList(variable.parent)
     || (variable.parent.flags & ts.NodeFlags.Const) === 0) return false;
   if (!variable.initializer) return allowOpaqueRoot;
-  return receiverAuditable(variable.initializer, checker, seen, allowOpaqueRoot);
+  return receiverAuditable(variable.initializer, checker, seen, allowOpaqueRoot, excludedCall);
 }
 
 function workerCallable(
@@ -352,7 +360,10 @@ function workerCallable(
     const returned = localCallValueCandidates(expression, checker, seen);
     for (const candidate of returned?.candidates ?? []) {
       const callable = workerCallable(candidate.expression, checker, candidate.seen);
-      if (callable) return { ...callable, auditable: false };
+      if (callable) return {
+        ...callable,
+        auditable: callable.auditable && returned?.auditable === true,
+      };
     }
   }
   const wrapped = wrappedResult(expression, seen,

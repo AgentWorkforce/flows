@@ -146,8 +146,30 @@ describe('hosted v2 submission', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('refuses forged CLI identity in compiled kernel JSON before HTTP', async () => {
+  it('submits compiled kernel JSON without host-only CLI identity using matching canonical bytes and hash', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'cloud-spec-'));
+    dirs.push(dir);
+    const path = join(dir, 'spec.json');
+    const kernel = toKernelSpec(compileSpec({
+      version: '0.1.0',
+      steps: [{
+        id: 'review', type: 'agent', instruction: 'review',
+        cli: '/opt/provider/cli.js', model: 'claude-sonnet-5',
+      }],
+    }));
+    await writeFile(path, JSON.stringify(kernel));
+    let request: { workflow: string } | undefined;
+    const options = await cloud((_url, body) => {
+      request = body as typeof request;
+      return { runId: 'compiled-kernel-run', status: 'pending' };
+    });
+    const receipt = await runInCloud({ path }, options);
+    expect(request!.workflow).toBe(canonicalize(kernel));
+    expect(receipt.specHash).toBe(specHash(kernel));
+  });
+
+  it('refuses forged CLI identity in compiled kernel JSON before HTTP', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cloud-spec-forged-'));
     dirs.push(dir);
     const path = join(dir, 'spec.json');
     const kernel = toKernelSpec(compileSpec({
@@ -164,7 +186,10 @@ describe('hosted v2 submission', () => {
     await writeFile(path, JSON.stringify(compiled));
     const fetch = vi.spyOn(globalThis, 'fetch');
     await expect(runInCloud({ path }, { token: 'test' }))
-      .rejects.toMatchObject({ code: 'invalid_input' });
+      .rejects.toMatchObject({
+        code: 'invalid_input',
+        message: expect.stringContaining('host-proved adapter identity is not accepted from serialized input'),
+      });
     expect(fetch).not.toHaveBeenCalled();
   });
 

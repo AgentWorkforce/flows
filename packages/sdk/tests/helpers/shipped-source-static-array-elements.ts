@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { runtimeParameters } from './shipped-source-runtime-parameters.js';
 import {
   assignedSources,
   bindingSource,
@@ -73,9 +74,10 @@ function returnedParameter(
   if (!ts.isIdentifier(expression)) return undefined;
   const symbol = checker.getSymbolAtLocation(expression);
   if (!symbol) return undefined;
-  const parameterIndex = declaration.parameters.findIndex(parameter =>
+  const parameters = runtimeParameters(declaration);
+  const parameterIndex = parameters.findIndex(parameter =>
     ts.isIdentifier(parameter.name) && checker.getSymbolAtLocation(parameter.name) === symbol);
-  const parameter = declaration.parameters[parameterIndex];
+  const parameter = parameters[parameterIndex];
   return parameter ? { parameter, parameterIndex, path } : undefined;
 }
 

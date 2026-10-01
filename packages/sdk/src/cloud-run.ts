@@ -152,7 +152,10 @@ export async function prepareCloudSubmission(
           try {
             spec = compileSpec(kernelToAuthoring(parsed));
             compiledKernelInput = true;
-          } catch {
+          } catch (kernelError) {
+            if (kernelError instanceof CompileError && kernelError.kind === 'untrusted_cli_identity') {
+              throw new CloudFlowError('invalid_input', kernelError.message);
+            }
             throw error;
           }
         }

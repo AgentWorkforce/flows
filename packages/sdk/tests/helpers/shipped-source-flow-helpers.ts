@@ -155,15 +155,21 @@ export function resolveFlowInvocationHelper(
     }
   }
   for (const source of assignedSources(symbol, checker)) {
-    if (source.rest || source.path.length > 0
-      || !assignedSourceMayPrecedeReference(source, symbol, expression)) continue;
-    const helper = resolveFlowInvocationHelper(
+    if (source.rest || !assignedSourceMayPrecedeReference(source, symbol, expression)) continue;
+    for (const value of aggregateValuesAtPath(
       source.initializer,
+      source.path,
       checker,
-      resolveConstructor,
       new Set(seen),
-    );
-    if (helper) return { ...helper, args: [], auditable: false };
+    )) {
+      const helper = resolveFlowInvocationHelper(
+        value,
+        checker,
+        resolveConstructor,
+        new Set(seen),
+      );
+      if (helper) return { ...helper, args: [], auditable: false };
+    }
   }
   const variable = symbol.declarations?.find(ts.isVariableDeclaration);
   if (!variable?.initializer || !ts.isVariableDeclarationList(variable.parent)) return undefined;

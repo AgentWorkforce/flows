@@ -1,4 +1,5 @@
 import { it, expect, vi, beforeEach } from 'vitest';
+import { readlinkSync } from 'node:fs';
 import type { JournalClient } from '../src/journal-client.js';
 import type { StepDispatchEvent } from '../src/protocol.js';
 import { completeCommunicationDispatch } from '../src/communication/worker.js';
@@ -73,12 +74,20 @@ it('launches communication agents with the isolated provider credential', async 
 });
 
 it('uses the proved identity for a canonical generic communication executable', async () => {
+  let linkedTarget: string | undefined;
+  mocks.spawn.mockImplementationOnce(async input => {
+    const quotedCommand = (input as { harnessConfig: { command: string } }).harnessConfig.command;
+    linkedTarget = readlinkSync(quotedCommand.slice(1, -1));
+    setTimeout(() => void mocks.invoke!({ operation: 'complete', values: ['done'] }), 5);
+    return { name: 'managed-agent', generation: 'generation', release: mocks.release, waitForReady: mocks.ready };
+  });
   const f = fixture('/store/provider-cli.js', { ...process.env, OPENAI_API_KEY: 'house-key' }, 'codex');
   await f.execute();
+  expect(linkedTarget).toBe('/store/provider-cli.js');
   expect(mocks.spawn).toHaveBeenCalledWith(expect.objectContaining({
     cli: 'codex',
     harnessConfig: expect.objectContaining({
-      command: "'/store/provider-cli.js'",
+      command: expect.stringMatching(/^'\/tmp\/data\/communication\/cli-[^/]+\/codex'$/u),
       env: expect.objectContaining({ OPENAI_API_KEY: 'house-key' }),
     }),
   }));

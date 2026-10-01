@@ -125,7 +125,8 @@ export function createStaticIterationSources(resolvers: IterationSourceResolvers
     ): void => {
       for (const candidate of candidates) {
         values.push(ts.isSpreadElement(candidate)
-          ? { initializer: candidate.expression, path: [], ...(path.length ? { targetPath: path } : {}) }
+          ? { initializer: candidate.expression, path: [], spreadValue: true,
+              ...(path.length ? { targetPath: path } : {}) }
           : { initializer: candidate, iterationValue: true, path: [], ...(path.length ? { targetPath: path } : {}) });
       }
     };

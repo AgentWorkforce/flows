@@ -201,7 +201,9 @@ function arrayCandidates(
         .filter(source => source.targetPath
           && source.targetPath.length === member.path.length
           && source.targetPath.every((segment, index) => String(segment) === String(member.path[index])))
-        .map(source => ({ unknownSpreads: [], values: [source.initializer] }))
+        .flatMap(source => source.spreadValue
+          ? arrayCandidates(source.initializer, checker, sources, new Set(nextSeen))
+          : [{ unknownSpreads: [], values: [source.initializer] }])
       : [];
     return [...aggregateValues, ...mutationValues];
   }

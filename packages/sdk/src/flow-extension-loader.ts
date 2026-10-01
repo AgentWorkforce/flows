@@ -15,6 +15,10 @@ const ARRAY_IS_ARRAY = Array.isArray;
 const JSON_STRINGIFY = JSON.stringify;
 const NUMBER = Number;
 const NUMBER_IS_FINITE = Number.isFinite.bind(Number);
+const NUMBER_IS_SAFE_INTEGER = Number.isSafeInteger.bind(Number);
+const NUMBER_TO_STRING = Function.prototype.call.bind(Number.prototype.toString) as (
+  value: number,
+) => string;
 const OBJECT_GET_OWN_PROPERTY_DESCRIPTOR = Object.getOwnPropertyDescriptor;
 const OBJECT_FREEZE = Object.freeze;
 const POSITIVE_INFINITY = Number.POSITIVE_INFINITY;
@@ -107,12 +111,27 @@ function hasBudgetCeiling(budget: StructuredFlowBudget): boolean {
     || ownBudgetField(budget, 'wallclock') !== undefined;
 }
 
+function validateStructuredBudget(budget: StructuredFlowBudget): void {
+  const tokens = ownBudgetField(budget, 'tokens');
+  if (tokens !== undefined && (!NUMBER_IS_SAFE_INTEGER(tokens) || tokens < 0)) {
+    throw new PluginError('plugin_incompatible', `Malformed token budget ceiling ${JSON_STRINGIFY(tokens)}.`);
+  }
+  const dollars = ownBudgetField(budget, 'dollars');
+  if (dollars !== undefined && (!NUMBER_IS_FINITE(dollars) || dollars < 0
+    || REGEXP_EXEC(/^\d+(?:\.\d{1,6})?$/, NUMBER_TO_STRING(dollars)) === null)) {
+    throw new PluginError('plugin_incompatible', `Malformed dollar budget ceiling ${JSON_STRINGIFY(dollars)}.`);
+  }
+}
+
 function composeBudget(
   base: AuthoredFlowDefinition['header']['budget'],
   extensions: readonly LoadedFlowExtension[],
 ): AuthoredFlowDefinition['header']['budget'] {
   type Budget = NonNullable<AuthoredFlowDefinition['header']['budget']>;
   type StructuredBudget = Exclude<Budget, string>;
+  const effectiveBase = typeof base === 'object' && !hasBudgetCeiling(base)
+    ? undefined
+    : base;
   const ceilings: Budget[] = [];
   for (let index = 0; index < extensions.length; index += 1) {
     const extension = extensions[index]!;
@@ -128,10 +147,10 @@ function composeBudget(
     }
   }
   if (ceilings.length === 0) return base;
-  if (base === undefined && ceilings.length === 1 && typeof ceilings[0] === 'string') {
+  if (effectiveBase === undefined && ceilings.length === 1 && typeof ceilings[0] === 'string') {
     return ceilings[0];
   }
-  let shorthand = typeof base === 'string';
+  let shorthand = typeof effectiveBase === 'string';
   for (let index = 0; index < ceilings.length; index += 1) {
     if (typeof ceilings[index] === 'string') shorthand = true;
   }
@@ -139,7 +158,7 @@ function composeBudget(
     throw new PluginError('plugin_incompatible', 'A shorthand budget cannot compose with structured base-flow or extension budget ceilings.');
   }
   const budgets: StructuredBudget[] = [];
-  if (base !== undefined) appendIntrinsicArray(budgets, base as StructuredBudget);
+  if (effectiveBase !== undefined) appendIntrinsicArray(budgets, effectiveBase as StructuredBudget);
   for (let index = 0; index < ceilings.length; index += 1) {
     appendIntrinsicArray(budgets, ceilings[index] as StructuredBudget);
   }
@@ -152,6 +171,7 @@ function composeBudget(
     const budgetTokens = ownBudgetField(budget, 'tokens');
     const budgetDollars = ownBudgetField(budget, 'dollars');
     const budgetWallclock = ownBudgetField(budget, 'wallclock');
+    validateStructuredBudget(budget);
     if (budgetTokens !== undefined && (tokens === undefined || budgetTokens < tokens)) tokens = budgetTokens;
     if (budgetDollars !== undefined && (dollars === undefined || budgetDollars < dollars)) dollars = budgetDollars;
     if (budgetWallclock !== undefined) {

@@ -15,6 +15,7 @@ import {
 import { reflectApplyArgumentCandidates } from './shipped-source-reflect-apply.js';
 import { staticCallArgumentCandidates } from './shipped-source-static-call-arguments.js';
 import { localCallValueCandidates } from './shipped-source-local-call-targets.js';
+import { runtimeParameters } from './shipped-source-runtime-parameters.js';
 import {
   type FlowCallable,
   type FlowBindInvoker,
@@ -227,7 +228,10 @@ function flowConstructor(
     const returned = localCallValueCandidates(expression, checker, seen);
     for (const candidate of returned?.candidates ?? []) {
       const constructor = flowConstructor(candidate.expression, checker, candidate.seen);
-      if (constructor) return { ...constructor, auditable: false };
+      if (constructor) return {
+        ...constructor,
+        auditable: constructor.auditable && returned?.auditable === true,
+      };
     }
   }
   const wrapped = wrappedResult(expression, seen,
@@ -347,9 +351,10 @@ export function flowInvocation(
     const declaration = checker.getResolvedSignature(node)?.declaration;
     if (declaration && ts.isFunctionLike(declaration) && 'body' in declaration && declaration.body) {
       const body = declaration.body;
+      const parameters = runtimeParameters(declaration);
       const parameterIsUsed = (index: number): boolean => {
-        const parameter = declaration.parameters[index]
-          ?? (declaration.parameters.at(-1)?.dotDotDotToken ? declaration.parameters.at(-1) : undefined);
+        const parameter = parameters[index]
+          ?? (parameters.at(-1)?.dotDotDotToken ? parameters.at(-1) : undefined);
         if (!parameter) return false;
         const symbols = new Set<ts.Symbol>();
         const collect = (name: ts.BindingName): void => {

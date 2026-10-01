@@ -117,8 +117,13 @@ function aggregateMemberCandidates(
     if (!initializer) return;
     values.push(...aggregateValuesAtPath(initializer, path, checker, new Set(nextSeen)));
   };
-  for (const source of assignedSources(member.symbol, checker)) {
-    if (source.rest || source.initializer.getStart() >= expression.getStart()) continue;
+  const precedingSources = assignedSources(member.symbol, checker)
+    .filter(source => !source.rest && source.initializer.getStart() < expression.getStart());
+  if (precedingSources.some(source => source.initializer.parent !== undefined
+    && ts.isBinaryExpression(source.initializer.parent)
+    && source.initializer.parent.right === source.initializer
+    && source.initializer.parent.operatorToken.kind !== ts.SyntaxKind.EqualsToken)) return [];
+  for (const source of precedingSources) {
     add(source.initializer, [...source.path, ...member.path]);
   }
   const binding = member.symbol.declarations?.find(ts.isBindingElement);

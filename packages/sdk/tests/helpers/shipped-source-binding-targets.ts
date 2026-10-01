@@ -9,6 +9,8 @@ export type BindingRest =
 export interface AssignedSource {
   initializer: ts.Expression;
   iterationValue?: boolean;
+  /** The initializer contributes every array element, not one array-valued element. */
+  spreadValue?: boolean;
   path: BindingPathSegment[];
   rest?: BindingRest;
   /** Destination member path for an in-place aggregate mutation. */
