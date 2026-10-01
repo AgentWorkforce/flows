@@ -1,9 +1,11 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { runCli, type RunCliOptions } from '../src/cli.js';
 import { addExtensionPlugin } from '../src/cli/add-extension.js';
+import { runDirectFlow } from '../src/cli/direct-run.js';
 import { startHostedRun } from '../src/cli/hosted-software-garden-run.js';
 import { hostedExtensionDispatchFromVerifiedDelivery } from '../src/flow-extension-loader.js';
 import { JournalClient, JournalProtocolError } from '../src/journal-client.js';
@@ -166,6 +168,56 @@ describe('hosted Software Garden admission boundaries', () => {
       } finally {
         rejected.mockRestore();
       }
+    },
+  );
+
+  it.skipIf(process.platform !== 'linux' || !existsSync('/usr/bin/bwrap'))(
+    'drains an in-flight capability before returning a classification cancellation', async () => {
+      const installed = await project();
+      const dataDir = join(installed.root, '.relayflowd');
+      const controller = new AbortController();
+      let calls = 0;
+      let release!: () => void;
+      let started!: () => void;
+      const capabilityStarted = new Promise<void>(resolveStarted => { started = resolveStarted; });
+      const capabilityRelease = new Promise<void>(resolveRelease => { release = resolveRelease; });
+      const authority = hosted(async () => {
+        calls += 1;
+        started();
+        await capabilityRelease;
+        return { receiptId: `bst_${'5'.repeat(64)}`, status: 'queued' };
+      });
+
+      let settled = false;
+      const first = runDirectFlow(
+        installed.flowPath,
+        JSON.stringify(input()),
+        dataDir,
+        { hostedSoftwareGardenBabysitter: authority, signal: controller.signal },
+      ).finally(() => { settled = true; });
+      await capabilityStarted;
+      controller.abort(new Error('embedded caller canceled'));
+      await delay(100);
+      expect(settled).toBe(false);
+
+      release();
+      await expect(first).resolves.toMatchObject({
+        exitCode: 1,
+        report: {
+          ok: false,
+          diagnostics: [expect.objectContaining({
+            kind: 'protocol_error',
+            message: expect.stringContaining('canceled'),
+          })],
+        },
+      });
+      await expect(runDirectFlow(
+        installed.flowPath,
+        JSON.stringify(input()),
+        dataDir,
+        { hostedSoftwareGardenBabysitter: authority },
+      )).resolves.toMatchObject({ exitCode: 0, report: { ok: true } });
+      expect(calls).toBe(1);
     },
   );
 });

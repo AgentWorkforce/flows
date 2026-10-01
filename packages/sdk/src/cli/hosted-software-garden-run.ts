@@ -206,7 +206,20 @@ export async function runHostedSoftwareGardenFlow(
       },
     };
   } catch (error) {
-    return protocolFailure('run', base, socketPath, workerFailure ?? error);
+    // Classification/control failure does not cancel an external capability
+    // that has already started. Drain its journal completion before closing
+    // the peer, otherwise an immediate same-delivery retry can reclaim the
+    // recorded-but-unconfirmed election while the first provider write is
+    // still in flight.
+    let failure = error;
+    if (work !== undefined) {
+      try {
+        await work;
+      } catch (settlementError) {
+        failure = settlementError;
+      }
+    }
+    return protocolFailure('run', base, socketPath, workerFailure ?? failure);
   } finally {
     if (lifecycle.onJournalEntry !== undefined) client.off('entry', lifecycle.onJournalEntry);
     peer.off('step.dispatch', dispatch);
