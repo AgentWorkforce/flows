@@ -208,6 +208,31 @@ ${stdio === 'inherit' ? `await import(${JSON.stringify(pathToFileURL(mock('ok'))
       Object.defineProperty(process, 'platform', platform);
     }
   }, 10_000);
+  it.skipIf(process.platform === 'win32')('cancels force escalation for an already-closed child without a process group', async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+    Object.defineProperty(process, 'platform', { ...platform, value: 'win32' });
+    const transport = new McpStdioTransport({ command: process.execPath, args: ['-e', ''] });
+    let observedEnd!: () => void;
+    const ended = new Promise<void>(resolveEnd => { observedEnd = resolveEnd; });
+    transport.onclose = observedEnd;
+    try {
+      await transport.start();
+      await ended;
+      await delay(50);
+      const actualKill = process.kill.bind(process);
+      const kill = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => actualKill(pid, signal));
+      try {
+        await transport.close();
+        const callsAtClose = kill.mock.calls.length;
+        await delay(FORCE_KILL_DELAY_MS + 100);
+        expect(kill.mock.calls.slice(callsAtClose).some(([, signal]) => signal === 'SIGKILL')).toBe(false);
+      } finally {
+        kill.mockRestore();
+      }
+    } finally {
+      Object.defineProperty(process, 'platform', platform);
+    }
+  }, 10_000);
   it('classifies a mid-call stdout drop without retry and closes the child', async () => {
     const marker = join(temp(), 'pid');
     const session = await openMcpSession(config('drop', marker), 1000);
