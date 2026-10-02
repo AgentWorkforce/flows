@@ -419,8 +419,12 @@ impl RunState {
                 .ok_or_else(|| StateError::UnknownStep(id.clone()))?;
             step.attempts = open.attempt;
             // The epoch summary predates the semantic counter; assume every
-            // prior attempt was semantic. Conservative: a squashed journal can
-            // grant fewer iterations than the live one, never more.
+            // prior attempt was semantic. Conservative for `max_iterations`
+            // only: the transport budget is `attempt - semantic_executions`,
+            // so this assumption hands an open step its full transport budget
+            // again. No production path writes an epoch summary yet (the only
+            // `rollover` callers are tests); the writer that adds one must
+            // carry the semantic count per open step and read it here.
             step.semantic_executions = open.attempt.saturating_sub(1);
             step.state = match open.state.as_str() {
                 "running" => StepState::Running {

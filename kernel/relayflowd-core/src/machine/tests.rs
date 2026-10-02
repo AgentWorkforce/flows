@@ -583,39 +583,76 @@ fn ordinary_worker_error_is_not_retried_by_either_budget() {
 /// worker ran it. It is journaled `worker_error`, but the step is re-elected
 /// against the same journaled pins under `max_iterations` -- and only there,
 /// so a worker that never reaches those pins ends the step with the reason.
+/// The bound depends on the fold charging the refusal, so the second refusal
+/// is settled on the counter the journal itself produces.
 #[test]
 fn refused_dispatch_is_re_elected_within_max_iterations_only() {
     let mut spec = agent_spec("manual");
     spec.steps[0].max_iterations = 2;
     spec.steps[0].retry.max_transport_retries = 4;
-    let pins = Pins::default();
-    let disposition = |semantic_executions: u32, attempt: u32| {
-        let actions = refused_dispatch_actions(
+    let refuse = |state: &RunState, attempt: u32| {
+        let runtime = &state.steps["agent"];
+        refused_dispatch_actions(
             "run",
             &spec.steps[0],
             attempt,
-            semantic_executions,
-            Some(&pins),
+            runtime.semantic_executions,
+            runtime.last_start_pins.as_ref(),
             "pin mismatch".to_owned(),
             20,
-        );
+        )
+    };
+    let settled = |actions: &[Action]| {
         let Action::Append(completed) = &actions[0] else {
-            panic!()
+            panic!("a refusal must journal its completion")
         };
-        let completed: StepCompletedPayload =
+        let payload: StepCompletedPayload =
             serde_json::from_value(completed.payload.clone()).unwrap();
-        assert_eq!(completed.completion_reason, CompletionReason::WorkerError);
+        assert_eq!(payload.completion_reason, CompletionReason::WorkerError);
         assert!(
-            completed
+            payload
                 .verification
                 .is_some_and(|record| record.detail == "pin mismatch")
         );
-        (completed.disposition, actions.len())
+        (payload.disposition, actions.len())
     };
+    let appended = |actions: &[Action]| {
+        actions
+            .iter()
+            .filter_map(|action| match action {
+                Action::Append(entry) => Some(entry.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let fresh = RunState::fold("run", spec.clone(), &[]).unwrap();
+    let Action::Append(first_start) = next_actions(&fresh, 10).remove(0) else {
+        panic!("attempt 1 must journal its lease")
+    };
+    let mut journal = vec![first_start];
+    let state = RunState::fold("run", spec.clone(), &journal).unwrap();
+    let first = refuse(&state, 1);
     // Re-elected, even under `manual`: nothing ran, so there is nothing to park.
-    assert_eq!(disposition(0, 1), (Disposition::Retry, 3));
-    // The fold charged the first refusal; the second exhausts the step.
-    assert_eq!(disposition(1, 2), (Disposition::StepDone, 1));
+    assert_eq!(settled(&first), (Disposition::Retry, 3));
+    journal.extend(appended(&first));
+
+    let state = RunState::fold("run", spec.clone(), &journal).unwrap();
+    assert_eq!(
+        state.steps["agent"].semantic_executions, 1,
+        "the fold charges a refused dispatch an iteration"
+    );
+    // The retry timer fires first, then the step is re-elected.
+    journal.extend(appended(&next_actions(&state, 1_000)));
+    let state = RunState::fold("run", spec.clone(), &journal).unwrap();
+    let second_start = appended(&next_actions(&state, 1_000))
+        .into_iter()
+        .find(|entry| entry.entry_type == EntryType::StepAttemptStarted)
+        .expect("the refused step must be re-elected");
+    assert_eq!(second_start.attempt, Some(2));
+    journal.push(second_start);
+    let state = RunState::fold("run", spec.clone(), &journal).unwrap();
+    assert_eq!(settled(&refuse(&state, 2)), (Disposition::StepDone, 1));
 }
 
 #[test]
