@@ -1,93 +1,77 @@
-# PR #501 review follow-up — `manual` recovery for worker-reported transport loss
+# PR #501 evidence — regenerated at `05ab5849`
 
-Review-swarm history lens and Cursor Bugbot both found the same defect in
-`f3bd47fe`: `completion_actions` retried every budget-eligible `crashed` /
-`lease_expired` completion without reading the agent step's `recovery_mode`.
-Only the kernel-noticed death (`abandonment_actions`) honoured `manual`, so
-the same dead attempt parked or redispatched depending on who noticed it
-first — contradicting RFC-0001 Appendix A rule 4.
+Every log in this directory except the one marked historical was produced
+from commit `05ab5849bf63cef0710fb6d6410033dd55d320dc` (each log prints the
+`git rev-parse HEAD` it ran at). That commit is the PR head after the review
+follow-ups below; the commit that adds this directory changes nothing outside
+`kernel/evidence/501/`, so the logs describe the code under review.
 
-## What changed
+The previous logs in this directory did not: `green-kernel.txt` reported 53 and
+72 lib tests where the tree had 64 and 85, `sdk-typecheck-build.txt` named a
+`2.0.22` surface that never existed on this branch, the authored-node log
+listed a test that was never committed and omitted two that were, the clippy
+header claimed a filter it did not apply, and the mutation transcript was run
+over an uncommitted working tree with commands that could not be replayed.
+They were replaced, not edited.
 
-1. **`completion_actions` parks a `manual` agent step on a worker-reported
-   `crashed` / `lease_expired`** (`Disposition::Park` + `wait.human`), for any
-   transport budget including zero. The `wait.human` construction is one
-   function, `recovery::manual_park_wait`, shared with `abandonment_actions`
-   so the two producers cannot drift. `completion_actions` gained a
-   `start_pins` parameter so the `diff_ref` is anchored on the journaled
-   start pin, never the worker's `end_pins` claim.
-2. **Torn parks are repaired on resume.** A park is two appends, each its own
-   transaction (raised by the independent reviewer, confirmed by external
-   probe). A step folded to the placeholder `park-<step>-<attempt>`
-   (`state::park_placeholder_wait_id`) with no `wait.human` after it now has
-   the wait journaled by `recovery_actions_filtered` — once, from the same
-   journaled facts. This closes the same latent gap on the pre-existing
-   abandonment path.
-3. **`all_backing_off_steps_return_timers`** regained a retryable failure
-   precondition (`Crashed`; `worker_error` is terminal since the budget
-   split) so it exercises failure backoff again.
-4. **`step.attempt.started.max_transport_retries` is always journaled**
-   (`entry.rs` dropped `skip_serializing_if = is_zero_u32`). `kernel/DESIGN.md`
-   said "omitted at default (1)"; the code omitted zero — the one value that
-   explains why a lost process was not retried. Now it matches its sibling
-   `max_iterations`: always present. DESIGN.md updated, plus a paragraph tying
-   the SDK classifier, the completion-reason alphabet and the kernel
-   disposition together.
+Captured output is verbatim except that trailing whitespace on captured lines
+was stripped (`sed 's/[ \t]*$//'`) so `git diff --check` passes. Absolute
+scratch paths are left as they were.
 
-## Evidence (literal commands + full output)
+| file | command | result |
+|---|---|---|
+| `green-kernel.txt` | `cd kernel && cargo test --workspace --no-run`, then `cargo test --workspace` | both exit 0; every test target compiles; 332 passed, 0 failed (`relayflowd` lib 64, `relayflowd_core` lib 86, `relayflowd_journal` lib 32, …) |
+| `clippy.txt` | `cd kernel && cargo clippy --workspace --all-targets -- -D warnings` | exit 101 on pre-existing findings |
+| `clippy-all-targets-warn.txt` | `cd kernel && cargo clippy --workspace --all-targets` (warnings not denied, so every crate and target is reached) | exit 0; the full, **unfiltered** workspace warning log. It includes files this PR does not touch. None of its 21 warning locations is on a line this PR adds or changes relative to `main` |
+| `mutation.sh`, `mutations/*.patch`, `mutation-transcript.txt` | `sh kernel/evidence/501/mutation.sh` from the repository root | see below |
+| `sdk-typecheck-build.txt` | documented gate (`.github/workflows/publish.yml`): build + pack the local surface (`@relayflows/surface@2.0.38`), install it `--no-save` into the SDK, `npm run typecheck && npm run typecheck:tests && npm run build` | every step exit 0 |
+| `sdk-full-darwin.txt` | `cd packages/sdk && RELAYFLOWD_BIN=<kernel/target/debug/relayflowd> npx vitest run` on macOS (darwin-arm64) | **not green**: 3485 passed, 170 failed, 71 skipped; exit 1. See below. The authoritative full SDK suite is CI `linux-x64-artifact` at the pushed head |
+| `green-sdk-bundle-pristine.txt` | dist built through the documented override, deps restored with `npm ci --ignore-scripts`, then `npx vitest run tests/bundle.test.ts` | 26/26, exit 0 |
+| `green-sdk-authored-node-runtime.txt` | the standalone suite under bun 1.4.0 and Node 22.23.2 (`mise`), `FLOWS_BUILD_BUN` / `FLOWS_AUTHORED_NODE` absolute | 16/16 — the committed suite's 16 tests by name, exit 0 |
+| `historical-139690f7-codex-live-probe.txt` | **historical, not re-run.** One bounded live run of `codex-cli 0.154.0` recorded at `139690f7` | It needs a live, credentialed Codex session and was not reproduced at `05ab5849`. Kept for its account of the direct-transport behaviour at that commit; it is not evidence about this head |
 
-| file | what |
-|---|---|
-| `mutation-transcript.txt` | one literal transcript, every command echoed: pre-mutation `sha256sum` of `machine.rs` + `recovery.rs`; mutation A+B applied (`manual_park = false && …`, repair guard `false && …`, shown as `git diff -U0`); RED — 5 regression tests fail with the original symptom (`disposition: retry`, second dispatch); restore via `cp` and `sha256sum -c` → `OK` for both files; mutation B alone (repair off); RED — the two torn-park tests fail (0 `wait.human` where 1 expected); restore + `sha256sum -c` → `OK`; GREEN — same commands pass |
-| `green-kernel.txt` | `cargo test --workspace`, exit 0 |
-| `clippy.txt` | `cargo clippy --workspace --all-targets -- -D warnings`: exits 101 on pre-existing findings only (`schema.rs:125`, `spec.rs:77`, `memoization.rs:102` as in the PR body, plus pre-existing test-target findings); `clippy-all-targets-warn.txt` lists every warning location — none on lines this change added |
-| `sdk-typecheck-build.txt` | surface built + packed + installed `--no-save` into sdk (documented flow), then `npm run typecheck && npm run typecheck:tests && npm run build`, exit 0 |
-| `green-sdk.txt` | `RELAYFLOWD_BIN=<built relayflowd> npx vitest run`: 154 files / 2410 tests pass; 2 environmental failures explained below |
-| `green-sdk-bundle-pristine.txt` | `tests/bundle.test.ts` re-run from a pristine `npm ci`: 23/23 pass, exit 0 |
-| `green-sdk-authored-node-runtime.txt` | the standalone suite under an isolated `mise install bun@1.4.0` (global config untouched) + Node 22.23.2 via `mise exec`, `FLOWS_BUILD_BUN` / `FLOWS_AUTHORED_NODE` absolute: 14/14 pass, exit 0 |
-| `codex-live-probe.txt` | one bounded live run of the installed `codex-cli 0.154.0` through the direct unattended transport (`flows check` + `flows run --local-agent`, output-only instruction, disposable cwd verified unchanged): `success`, exit 0, verified output, journal facts incl. the transport evidence. First attempt refused by the kernel on `cwd` — pre-existing preflight/run mismatch, see below |
+## Mutation check
 
+`mutation.sh` is replayable as written: every command is printed exactly as
+it runs and is followed by its own exit code (cargo's, not a pipe's). Each
+mutation is a committed patch applied with `git apply` and undone with
+`git checkout`; `git diff --exit-code` proves the tree identical to the commit
+before the first run and after every restore.
 
-Pre-existing defect observed while probing (not fixed here, out of scope):
-`flows check` accepts a step-level `cwd:` (compiled into the kernel spec since
-#358) but `relayflowd` rejects the spec at `run.start` with
-`invalid_spec: unknown field "cwd"` — a Covenant 2 preflight/run mismatch.
+| mutation | what it disables | caught by |
+|---|---|---|
+| `a-manual-park-off` | a worker-reported `crashed` / `lease_expired` parks a `manual` step | 2 `machine::recovery_tests` fail, exit 101 |
+| `b-torn-park-repair-off` | resume journals the `wait.human` a torn park never wrote | `recovery_journals_the_wait_human_a_torn_manual_park_never_wrote` fails, exit 101 |
+| `c-refused-dispatch-retry-off` | a `PinMismatch` refusal re-elects the step | `refused_dispatch_is_re_elected_within_max_iterations_only` and `parallel_driver::backpressured_or_mismatched_lane_does_not_drop_a_later_dispatch` fail, exit 101 |
 
-The two failures in `green-sdk.txt` are environmental, not from this change:
+GREEN before the first mutation and after the last restore.
 
-- `tests/bundle.test.ts` — `REFUSED [bundle_invalid] package-lock.json:
-  node_modules/@agent-relay/cli-surface does not match its pinned version`.
-  The documented `--no-save` surface override resolved `cli-surface` to
-  12.4.0 over the lockfile's 12.2.4; the bundle builder refuses a non-pristine
-  tree by design. Green from a pristine `npm ci` (file above).
-- `tests/authored-node-runtime.test.ts` — `beforeAll` pins `bun --version`
-  to exactly `1.4.0`; this machine has 1.4.2. The PR body excluded this
-  standalone suite for a different toolchain reason (node flag).
+## The full SDK suite on this host (`sdk-full-darwin.txt`)
 
-Regression tests added:
+It is committed as run, failures included, because it is not a green record
+and the previous `green-sdk.txt` (154 files / 2410 tests at an older commit)
+was not evidence about this head either. The run shared the machine with
+other agents at load averages of 15-32. What the failures are:
 
-- `relayflowd-core/src/machine/recovery_tests.rs` (focused module; owner asked
-  for it split out of the general `tests.rs`):
-  `manual_recovery_parks_a_worker_reported_transport_loss_instead_of_redispatching`
-  (crashed + lease_expired), `reset_recovery_still_retries_a_worker_reported_transport_loss`,
-  `recovery_journals_the_wait_human_a_torn_manual_park_never_wrote` (both producers)
-- `relayflowd-core/src/machine/tests.rs`: `all_backing_off_steps_return_timers`
-  precondition restored (stays in the general file)
-- `relayflowd-core/src/entry.rs`: `max_transport_retries_is_always_journaled`,
-  `a_pre_field_attempt_started_still_reads`
-- `relayflowd/tests/manual_recovery.rs` (in-process engine, mock worker):
-  park survives reopen + resume with no redispatch and answers to a human on
-  the pinned revision (crashed / lease_expired / budget 0); crash injected
-  between the park's two appends is repaired on resume, idempotently
-- `relayflowd/tests/crash_resume/manual_recovery.rs` (real `relayflowd serve`
-  binary over the protocol socket): same three cases, silence probe for
-  `step.dispatch`, daemon SIGKILL + restart + `resume`, journal unchanged,
-  `event.emit` answer redispatches attempt 2 on `rev-0` with the same
-  idempotency key
+- 29 failures state `Hosted base source snapshotting requires Linux` or
+  `hosted extension isolation requires Linux`: Linux-only paths, run in CI.
+- The rest are timeouts, `ENOENT`/`ENOTEMPTY` temp-directory races and
+  process-reaping deadlines.
+- The 45 failing files were re-run at load ~4 on this head and on the merged
+  base without the review commits (`ffefb6f7`), same binary: 120 failed on this
+  head, 128 on the base. The failure sets differ run to run in both.
+- The 11 files whose failures appeared only on this head were re-run serially:
+  158/160 pass; the 2 failures are different tests from the first run.
+- `pty-sidechannel`, `wrapper-exit-drain` and `named-gate-journal` (the PR-only
+  names nearest the changed code) pass twice on both trees: 28/28 here
+  (one new test), 27/27 on the base.
+- The known `named-gate-diagnostics` EPIPE flake (#598) did not occur: 17/17.
 
-`rustfmt --check` drift is unchanged from the PR head (20 files, none touched
-by this change beyond formatting the lines it added).
+## Pre-existing, observed, not fixed here
 
-Captured logs are verbatim except that trailing whitespace on captured lines
-was stripped (`sed 's/[ \t]*$//'`) so `git diff --check` passes; no other
-byte was edited.
+- `flows check` accepts a step-level `cwd:` that `relayflowd` refuses at
+  `run.start` (`invalid_spec: unknown field "cwd"`), recorded in the
+  historical codex probe.
+- The SDK does not compile against the *published* `@relayflows/surface`
+  (`AgentOptions.recoveryMode`); the documented gate builds it against the
+  locally packed surface, as `publish.yml` does.

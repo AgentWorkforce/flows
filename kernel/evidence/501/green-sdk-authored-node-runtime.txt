@@ -1,28 +1,36 @@
-# Isolated toolchain: `mise install bun@1.4.0` (global config untouched: `bun --version` on PATH is still 1.4.2). Node 22.23.2 from mise.
-$ mise where bun@1.4.0  -> /home/khaliqgant/.local/share/mise/installs/bun/1.4.0
-$ /home/khaliqgant/.local/share/mise/installs/bun/1.4.0/bin/bun --version -> 1.4.0
-$ /home/khaliqgant/.local/share/mise/installs/node/22.23.2/bin/node --version -> v22.23.2
-$ cd packages/sdk && FLOWS_BUILD_BUN=/home/khaliqgant/.local/share/mise/installs/bun/1.4.0/bin/bun FLOWS_AUTHORED_NODE=/home/khaliqgant/.local/share/mise/installs/node/22.23.2/bin/node RELAYFLOWD_BIN=/tmp/claude-1000/-tmp-flows-fleet-501/144d3b43-0019-4de3-988a-7cd9ba4fc148/scratchpad/target/debug/relayflowd mise exec node@22.23.2 -- npx vitest run tests/authored-node-runtime.test.ts
+$ git rev-parse HEAD
+05ab5849bf63cef0710fb6d6410033dd55d320dc
+$ /Users/khaliqgant/.local/share/mise/installs/bun/1.4.0/bin/bun --version
+1.4.0
+$ /Users/khaliqgant/.local/share/mise/installs/node/22.23.2/bin/node --version
+v22.23.2
+$ grep -cE "^\s*(it|it\.each)\(" tests/authored-node-runtime.test.ts
+12
+$ cd packages/sdk && FLOWS_BUILD_BUN=/Users/khaliqgant/.local/share/mise/installs/bun/1.4.0/bin/bun FLOWS_AUTHORED_NODE=/Users/khaliqgant/.local/share/mise/installs/node/22.23.2/bin/node RELAYFLOWD_BIN=<flows/kernel/target/debug/relayflowd @ 05ab5849> mise exec node@22.23.2 -- npx vitest run tests/authored-node-runtime.test.ts
 
- RUN  v2.1.9 /tmp/flows-fleet-501/packages/sdk
+ RUN  v2.1.9 /private/tmp/claude-501/-Users-khaliqgant--agentworkforce-relay-dogpatch-mini-node/f23c1658-cfa4-4896-9a9f-e594827c496d/scratchpad/flows-mut/packages/sdk
 
- ✓ tests/authored-node-runtime.test.ts (14 tests) 25718ms
-   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > suppresses the loader warning while preserving authored experimental warnings 1049ms
-   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > awaits agent plus three run steps and resumes without repeating effects 1713ms
-   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > accepts a predicate-gated flow: the `<step>.gate` child is journaled, verified, and not counted as an authored step 1516ms
-   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > parks an f.human across the IPC boundary, answers it, and resumes the Node body with the answer 3809ms
-   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGKILL and replays completed children before success 3321ms
-   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGTERM and replays completed children before success 3050ms
-   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent blocked-SIGKILL and replays completed children before success 3300ms
-   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGKILL and replays completed children before declined 3074ms
-   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses unawaited rather than reporting terminal success 1091ms
-   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses manual then rather than reporting terminal success 1158ms
-   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > loads captured graph bytes before preserving the unsupported-use refusal 893ms
-   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > rejects a forged result frame without durable completion 980ms
+ ✓ tests/authored-node-runtime.test.ts (16 tests) 93366ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > serializes the immutable prepared binding facts through the Node and CLI boundary 4531ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > suppresses the loader warning while preserving authored experimental warnings 3833ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > awaits agent plus three run steps and resumes without repeating effects 6376ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > accepts a predicate-gated flow: the `<step>.gate` child is journaled, verified, and not counted as an authored step 5796ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > resumes a run killed mid-step: the retried child passes the durable result verifier 7643ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > parks an f.human across the IPC boundary, answers it, and resumes the Node body with the answer 9429ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGKILL and replays completed children before success 7605ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGTERM and replays completed children before success 8640ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent blocked-SIGKILL and replays completed children before success 8558ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGKILL and replays completed children before declined 8879ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses unawaited rather than reporting terminal success 3660ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses manual then rather than reporting terminal success 3760ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > dispatches the captured child graph even when the source changes before execution 4296ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > rejects a forged result frame without durable completion 3825ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses missing Node before body effects or root admission 1427ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses an old Node candidate before body effects 1676ms
 
  Test Files  1 passed (1)
-      Tests  14 passed (14)
-   Start at  02:56:04
-   Duration  26.84s (transform 485ms, setup 0ms, collect 866ms, tests 25.72s, environment 0ms, prepare 40ms)
+      Tests  16 passed (16)
+   Start at  14:30:30
+   Duration  98.87s (transform 2.02s, setup 42ms, collect 3.39s, tests 93.37s, environment 0ms, prepare 460ms)
 
 exit_code=0

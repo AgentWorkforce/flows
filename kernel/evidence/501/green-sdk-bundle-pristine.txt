@@ -1,22 +1,43 @@
-# The full-suite run (green-sdk.txt) had node_modules overridden with the locally packed surface (--no-save), which resolved @agent-relay/cli-surface to 12.4.0 against the lockfile pin 12.2.4; bundle.test.ts refuses to build from a non-pristine tree. Re-run that file from a pristine `npm ci`:
-$ cd packages/sdk && npm ci --ignore-scripts && npx vitest run tests/bundle.test.ts
-added 193 packages in 985ms
+# bundle.test.ts refuses to build bundles from installed deps that differ from the lockfile. The documented
+# --no-save surface override (sdk-typecheck-build.txt) is such a difference, so: build dist through the documented
+# override (the SDK needs the unpublished surface API to compile), then restore pristine deps with npm ci and run the file.
 
- RUN  v2.1.9 /tmp/flows-fleet-501/packages/sdk
-
- ✓ tests/bundle.test.ts (23 tests) 5279ms
-   ✓ immutable bundles > verifies with --verify in any position and answers --json with one object 528ms
-   ✓ immutable bundles > builds and verifies the canonical YAML fixture through the compiled CLI 711ms
-   ✓ immutable bundles > emits the ephemeral warning on CLI stderr and uses the default output directory 414ms
-   ✓ immutable bundles > builds a standalone TS fixture twice with identical executable hashes 1422ms
-
- Test Files  1 passed (1)
-      Tests  23 passed (23)
-   Start at  02:51:18
-   Duration  6.00s (transform 289ms, setup 0ms, collect 526ms, tests 5.28s, environment 0ms, prepare 89ms)
-
+$ git rev-parse HEAD
+05ab5849bf63cef0710fb6d6410033dd55d320dc
 exit_code=0
 
-# authored-node-runtime.test.ts pins bun --version to exactly 1.4.0; this machine has:
-$ bun --version
-1.4.2
+$ cd packages/sdk && rm -rf dist && npm ci --ignore-scripts && npm install --no-save --package-lock=false --ignore-scripts ../../dist/publish/relayflows-surface-2.0.38.tgz && npm run build
+
+> @relayflows/sdk@2.0.38 build
+> tsc && node scripts/make-cli-executable.mjs
+exit_code=0
+
+$ cd packages/sdk && npm ci --ignore-scripts
+Run `npm audit` for details.
+exit_code=0
+
+$ cd packages/sdk && RELAYFLOWD_BIN=<flows/kernel/target/debug/relayflowd @ 05ab5849> npx vitest run tests/bundle.test.ts
+
+ RUN  v2.1.9 /private/tmp/claude-501/-Users-khaliqgant--agentworkforce-relay-dogpatch-mini-node/f23c1658-cfa4-4896-9a9f-e594827c496d/scratchpad/flows-mut/packages/sdk
+
+ ✓ tests/bundle.test.ts (26 tests) 24620ms
+   ✓ immutable bundles > returns exit 2 naming a byte-flipped payload and refuses to reuse corruption 1114ms
+   ✓ immutable bundles > verifies with --verify in any position and answers --json with one object 2250ms
+   ✓ immutable bundles > refuses --out with --verify rather than ignoring the destination 1170ms
+   ✓ immutable bundles > builds and verifies the canonical YAML fixture through the compiled CLI 3418ms
+   ✓ immutable bundles > emits the ephemeral warning on CLI stderr and uses the default output directory 2291ms
+   ✓ immutable bundles > refuses build-provable CLI resolution errors without environment probes 1134ms
+   ✓ immutable bundles > builds a standalone TS fixture twice with identical executable hashes 5918ms
+   ✓ immutable bundles > refuses to label installed dependency drift with lockfile pins 1124ms
+   ✓ immutable bundles > refuses invalid CLI arguments %j 1113ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--out" 1099ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--verify" 1089ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--verify" 1144ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--out" 1151ms
+
+ Test Files  1 passed (1)
+      Tests  26 passed (26)
+   Start at  14:34:41
+   Duration  29.03s (transform 1.29s, setup 50ms, collect 2.46s, tests 24.62s, environment 0ms, prepare 447ms)
+
+exit_code=0

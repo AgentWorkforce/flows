@@ -1,0 +1,13 @@
+diff --git a/kernel/relayflowd-core/src/machine.rs b/kernel/relayflowd-core/src/machine.rs
+index c59fe8fd..5e9f4877 100644
+--- a/kernel/relayflowd-core/src/machine.rs
++++ b/kernel/relayflowd-core/src/machine.rs
+@@ -437,7 +437,7 @@ fn settle_attempt(
+     // semantic iteration.
+     let transport_failures = attempt.saturating_sub(semantic_executions);
+     let may_retry_transport = transport_failures <= step.retry.max_transport_retries;
+-    let semantic_failure = refused_dispatch
++    let semantic_failure = false && refused_dispatch
+         || matches!(
+             result.failure_reason,
+             None | Some(CompletionReason::VerificationFailed)
