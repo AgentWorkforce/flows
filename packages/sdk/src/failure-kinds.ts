@@ -207,6 +207,12 @@ export interface StepAttemptFailure {
   /** `retry`, `step_done` or `park`: what the kernel did next, not why it failed. */
   disposition?: string;
   exitCode?: number;
+  /** This attempt's own transport evidence; see `StepFailedDetails`. */
+  transportPhase?: string;
+  transportCause?: string;
+  signal?: string;
+  errorCode?: string;
+  retryableTransport?: boolean;
   /** Redacted, terminal-safe UTF-8 excerpt, at most 256 bytes. */
   stdoutTail?: string;
   /** Redacted, terminal-safe UTF-8 excerpt, at most 256 bytes. */

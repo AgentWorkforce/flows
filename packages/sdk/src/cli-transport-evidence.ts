@@ -1,4 +1,4 @@
-import { boundedText, redactText } from './agent-transcript.js';
+import { boundedTail, redactText } from './agent-transcript.js';
 
 export type CliTransportPhase = 'spawn' | 'close' | 'abort' | 'timeout' | 'result_exit_grace';
 export type CliTransportCause =
@@ -55,7 +55,7 @@ export function transportEvidence(
   },
   env: NodeJS.ProcessEnv,
 ): CliTransportEvidence {
-  const bounded = boundedText(redactText(value.stderr, env), TRANSPORT_STDERR_MAX_BYTES, 'transport stderr: ');
+  const bounded = boundedTail(redactText(value.stderr, env), TRANSPORT_STDERR_MAX_BYTES, 'transport stderr: ');
   const errorCode = value.errorCode !== undefined && /^[A-Z0-9_-]{1,64}$/.test(value.errorCode)
     ? value.errorCode : undefined;
   return {

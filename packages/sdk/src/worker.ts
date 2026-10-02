@@ -17,7 +17,7 @@ import { completeHelperDispatch } from './yaml-helper-effect.js';
 import {
   ARTIFACT_PATHS_MAX,
   boundTranscriptDigest,
-  boundedText,
+  boundedTail,
   redactText,
   type TranscriptDigest,
 } from './agent-transcript.js';
@@ -190,10 +190,13 @@ export class AgentWorker extends EventEmitter {
     // alike, where the kernel already accepts and bounds it (16 KiB).
     const { transcript, transport, ...rawWrapper } = result;
     // `stderr_tail` is evidence, not authored output. Redact and bound it
-    // before it reaches either the worker-failure render or the journal.
+    // before it reaches either the worker-failure render or the journal --
+    // against the environment the CLI ran with as well as this host's, since a
+    // secret supplied only to the CLI is the one most likely to be echoed.
+    const redacted = redactText(redactText(rawWrapper.stderr_tail), this.options.environment ?? process.env);
     const wrapper = {
       ...rawWrapper,
-      stderr_tail: boundedText(redactText(rawWrapper.stderr_tail), 2 * 1024, 'worker stderr: ').text,
+      stderr_tail: boundedTail(redacted, 2 * 1024, 'worker stderr: ').text,
     };
     const output = result.relay_task?.status === 'completed' && result.exit_code === 0
       ? result.relay_task.output : parseJsonOutput(result.stdout_tail) ?? wrapper;

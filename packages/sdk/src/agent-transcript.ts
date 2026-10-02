@@ -220,6 +220,18 @@ export function boundedText(text: string, maxBytes: number, label = ''): { text:
   return { text: `${head}…[${label}${total - Buffer.byteLength(head, 'utf8')} bytes truncated]`, truncated: true };
 }
 
+/**
+ * Tail-cut with the truncation stated, in front, in the value itself. For
+ * stderr: a process says why it died at the end of its output, so a head-cut
+ * keeps the noise and drops the reason.
+ */
+export function boundedTail(text: string, maxBytes: number, label = ''): { text: string; truncated: boolean } {
+  const total = Buffer.byteLength(text, 'utf8');
+  if (total <= maxBytes) return { text, truncated: false };
+  const tail = utf8Tail(text, maxBytes);
+  return { text: `[${label}${total - Buffer.byteLength(tail, 'utf8')} bytes truncated]…${tail}`, truncated: true };
+}
+
 // ---------------------------------------------------------------------------
 // Frame reduction
 // ---------------------------------------------------------------------------

@@ -18,6 +18,13 @@ export const ATTEMPT_TAIL_BYTES = 256;
 const PRODUCER_TRUNCATED = /…\s*\((?:render bounded|[\d,]+ bytes truncated)\)$/u;
 
 /**
+ * What the worker puts in front of a stderr it cut to its tail (`boundedTail`
+ * in worker.ts and cli-transport-evidence.ts). The same rule applies: equal
+ * surviving tails cannot establish equal failures.
+ */
+const STDERR_TRUNCATED = /^\[(?:worker|transport) stderr: [\d,]+ bytes truncated\]…/u;
+
+/**
  * The evidence fields a step failure reports, as the journal held them.
  *
  * Extraction and display bounds are separated deliberately. The terminal
@@ -168,6 +175,13 @@ export function attemptFailure(
     completionReason,
     ...(typeof disposition === 'string' && disposition.length > 0 ? { disposition } : {}),
     ...(selected.exitCode === undefined ? {} : { exitCode: selected.exitCode }),
+    // Closed-vocabulary scalars, so a crash that left no stderr still says how
+    // it died (`signal=SIGKILL`) rather than reading as no evidence at all.
+    ...(selected.signal === undefined ? {} : { signal: bound(selected.signal) }),
+    ...(selected.transportCause === undefined ? {} : { transportCause: bound(selected.transportCause) }),
+    ...(selected.transportPhase === undefined ? {} : { transportPhase: bound(selected.transportPhase) }),
+    ...(selected.errorCode === undefined ? {} : { errorCode: bound(selected.errorCode) }),
+    ...(selected.retryableTransport === undefined ? {} : { retryableTransport: selected.retryableTransport }),
     ...(selected.stdoutTail === undefined ? {} : { stdoutTail: bound(selected.stdoutTail) }),
     ...(selected.stderrTail === undefined ? {} : { stderrTail: bound(selected.stderrTail) }),
     ...(selected.detail === undefined ? {} : { detail: bound(selected.detail) }),
@@ -224,6 +238,8 @@ export function failureCause(
     recorded: exitCodes.length > 0 || accounts.some(account => account !== undefined),
     producerTruncated: (verificationDetail !== undefined
       && PRODUCER_TRUNCATED.test(verificationDetail))
+      || [output?.['stderr_tail'], trajectory?.['stderr_tail'], transport?.['stderr_tail']]
+        .some(stderr => typeof stderr === 'string' && STDERR_TRUNCATED.test(stderr))
       // The transcript digest's own flag (`boundTranscriptDigest`,
       // agent-transcript.ts): the worker already cut this excerpt, so equal
       // survivors cannot establish identical failures either.
@@ -275,8 +291,16 @@ export function renderAttemptHistory(details: StepFailedDetails): string {
 }
 
 function renderAttempt(attempt: StepAttemptFailure): string {
+  const transport = [
+    attempt.signal === undefined ? '' : ` signal=${attempt.signal}`,
+    attempt.transportCause === undefined ? '' : ` transport=${attempt.transportCause}`,
+    attempt.transportPhase === undefined ? '' : ` phase=${attempt.transportPhase}`,
+    attempt.errorCode === undefined ? '' : ` error_code=${attempt.errorCode}`,
+    attempt.retryableTransport === undefined ? '' : ` retryable=${attempt.retryableTransport}`,
+  ].join('');
   const head = `  attempt ${attempt.attempt ?? '?'}: ${attempt.completionReason ?? 'unknown'}`
     + (attempt.exitCode === undefined ? '' : ` exit=${attempt.exitCode}`)
+    + transport
     + (attempt.truncated ? ' (excerpt truncated)' : '');
   // An empty `stderrTail` is a journaled fact but not an account of anything,
   // so it never displaces useful stdout the way `detail ?? stderr ?? stdout`
@@ -284,7 +308,7 @@ function renderAttempt(attempt: StepAttemptFailure): string {
   const accounts: Array<[string, string]> = [
     ['detail', attempt.detail], ['stderr', attempt.stderrTail], ['stdout', attempt.stdoutTail],
   ].filter((pair): pair is [string, string] => typeof pair[1] === 'string' && pair[1].length > 0);
-  if (accounts.length === 0) return `${head} — no failure evidence recorded`;
+  if (accounts.length === 0) return transport === '' ? `${head} — no failure evidence recorded` : head;
   const [only] = accounts;
   if (accounts.length === 1 && !only![1].includes('\n')) return `${head} — ${only![0]}: ${only![1]}`;
   return [head, ...accounts.map(([label, value]) => indent(`${label}: ${value}`))].join('\n');
