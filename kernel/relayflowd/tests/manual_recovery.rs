@@ -124,6 +124,7 @@ fn transport_loss(dispatch: &StepDispatch, reason: CompletionReason) -> OutOfBan
         end_pins: None,
         effects: vec![],
         trajectory_tail: Some(json!({"transport": {"cause": "signal_close"}})),
+        reported_cost: None,
     }
 }
 
@@ -156,6 +157,8 @@ fn answer_retry(engine: &Engine, run_id: &str, wait_id: &str) {
             run_id,
             wait_id,
             json!({"answer": "retry", "answeredBy": "khaliq"}),
+            None,
+            None,
         )
         .unwrap();
     assert_eq!(matched, 1, "the human answer must close the park's wait");
