@@ -57,6 +57,8 @@ One-click deploy buttons for these live at the top of [`examples/`](examples/).
 `--on` takes `github`, `linear`, `jira`, `shortcut` or `slack` with optional filters
 (`github:labels=agent`, `jira:project=OPS`, `slack:channel=#eng`). `flows deployments` lists what is
 listening; `flows undeploy <id>` stops it. Sign in once with `agent-relay cloud login`.
+To ship a change to a deployed flow, run `flows deploy <file> --flow <name>`: it makes the next
+version and keeps the listener's settings. `flows versions` and `flows rollback` show and move it.
 
 # How Can I Run It?
 

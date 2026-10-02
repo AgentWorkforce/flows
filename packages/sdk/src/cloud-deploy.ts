@@ -11,6 +11,7 @@ import {
 } from './flow-requirements.js';
 import { readProjectConfig } from './cli/check.js';
 import { assertNoUseDependencies, collectExtensionSubmissions } from './flow-extension-submit.js';
+import { parseVersionChange, type CloudFlowVersionChange } from './cloud-versions-wire.js';
 
 /**
  * Hosted listener deployment: the CLI form of the agentrelay.com onboarding's
@@ -104,6 +105,8 @@ export interface CloudDeployment {
   requirements: FlowRequirements;
   /** Integrations connected through the prompt during this deploy. */
   connected: string[];
+  /** The listener's active version after this deploy; absent from a Cloud without versions. */
+  version?: CloudFlowVersionChange;
 }
 
 export function parseRepository(value: string): { owner: string; name: string } {
@@ -165,9 +168,18 @@ export function parseTriggerSource(value: string): FlowTriggerSource {
   return { provider: provider as FlowTriggerProvider, settings };
 }
 
-export async function deployToCloud(
-  input: DeployToCloudInput, options: CloudConnectionOptions = {},
-): Promise<CloudDeployment> {
+/** One authored source, read and loaded the way every hosted deploy sends it. */
+export interface DeploySource {
+  bytes: Buffer;
+  source: string;
+  definition: ReturnType<Awaited<ReturnType<typeof loadAuthoredFlow>>['getDefinition']>;
+  extensions: Awaited<ReturnType<typeof collectExtensionSubmissions>>;
+  projectCli: string | undefined;
+}
+
+export async function loadDeploySource(
+  input: { path: string; plugins?: readonly string[] },
+): Promise<DeploySource> {
   if (!/\.flow\.ts$/iu.test(input.path)) {
     throw new CloudFlowError('unsupported_source', 'flows deploy takes one authored .flow.ts source.');
   }
@@ -204,6 +216,13 @@ export async function deployToCloud(
   } catch {
     projectCli = undefined;
   }
+  return { bytes, source, definition, extensions, projectCli };
+}
+
+export async function deployToCloud(
+  input: DeployToCloudInput, options: CloudConnectionOptions = {},
+): Promise<CloudDeployment> {
+  const { bytes, source, definition, extensions, projectCli } = await loadDeploySource(input);
   if (input.sources.length === 0 || input.sources.length > 10) {
     throw new CloudFlowError('invalid_input', 'Give between one and ten --on trigger sources.');
   }
@@ -274,11 +293,13 @@ export async function deployToCloud(
   if (!isCloudRecord(result) || typeof result.agentId !== 'string' || typeof result.status !== 'string') {
     throw new CloudFlowError('invalid_response', 'Cloud did not return a deployment.');
   }
+  const version = parseVersionChange(result.version);
   return {
     agentId: result.agentId, name, status: result.status,
     repository: input.repository, sources,
     sourceSha256: createHash('sha256').update(bytes).digest('hex'),
     requirements, connected,
+    ...(version === undefined ? {} : { version }),
   };
 }
 
