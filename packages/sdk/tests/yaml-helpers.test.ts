@@ -48,6 +48,20 @@ describe('YAML helper expansion', () => {
     expect(compileSpec(flow)).toEqual(flow);
   });
 
+  // A helper lowers to an ordinary agent step, so the kernel's transport
+  // budget already governs it (default 1). An effect is exactly where an
+  // author needs to say 0: do not re-dispatch a post after the worker died.
+  it('carries a declared transport retry budget onto the lowered step', () => {
+    const input: YamlFlowSpec = { version: '0.1.0', steps: [
+      { id: 'notify', transportRetries: 0, slack: { post: { channel: '#test', text: 'hi' } } },
+    ] };
+    const flow = compileSpec(input);
+    expect(flow.steps[0]).toMatchObject({ id: 'notify', type: 'agent', transportRetries: 0 });
+    expect(toKernelSpec(flow).steps[0]!.retry.max_transport_retries).toBe(0);
+    expect(() => compile({ id: 'notify', transportRetries: -1, slack: { post: { channel: '#test', text: 'hi' } } }))
+      .toThrow('transportRetries');
+  });
+
   it.each<Record<string, unknown>>([
     { slack: null }, { slack: [] }, { slack: {} },
     { slack: { post: {}, dm: {} } }, { slack: { unknown: {} } },

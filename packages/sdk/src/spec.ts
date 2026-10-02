@@ -354,7 +354,7 @@ export interface YamlHelperParams {
 type OneKey<T> = { [K in keyof T]: Pick<T, K> & Partial<Record<Exclude<keyof T, K>, never>> }[keyof T];
 
 /** Helper sugar is removed before validation of the three kernel step types. */
-export type YamlHelperStepSpec = Pick<BaseStepSpec, 'id' | 'dependsOn' | 'maxIterations'> & {
+export type YamlHelperStepSpec = Pick<BaseStepSpec, 'id' | 'dependsOn' | 'maxIterations' | 'transportRetries'> & {
   verification?: OutputVerificationSpec;
   output?: JsonOutputSchema;
 } & OneKey<{ [P in keyof YamlHelperParams]: OneKey<YamlHelperParams[P]> }>;
