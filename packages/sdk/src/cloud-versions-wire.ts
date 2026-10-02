@@ -21,7 +21,7 @@ export interface CloudFlowVersion {
 const CHANGES = ['created', 'reactivated', 'unchanged'] as const;
 
 function isVersionNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 1;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1;
 }
 
 /** Undefined for a Cloud that predates versions or a malformed field. */

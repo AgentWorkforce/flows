@@ -88,7 +88,8 @@ export async function runCloudRollbackCli(
   { flow, version, json }: { flow: string; version: string; json: boolean }, io: CliIo,
 ): Promise<0 | 1 | 2> {
   try {
-    if (!/^[1-9][0-9]*$/u.test(version)) {
+    // Cloud numbers versions up to nine digits; anything longer cannot exist.
+    if (!/^[1-9][0-9]{0,8}$/u.test(version)) {
       throw new CloudFlowError('invalid_input', `A version is a positive whole number, got "${version}".`);
     }
     const result = await activateCloudFlowVersion(flow, Number(version));

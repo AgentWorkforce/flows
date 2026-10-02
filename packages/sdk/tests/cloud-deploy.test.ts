@@ -425,6 +425,36 @@ describe('flow versions (cloud#4115)', () => {
     expect(calls).toHaveLength(0);
   });
 
+  it('refuses a source declaring a harness Cloud cannot run, before posting a version', async () => {
+    const dir = await tempDir('cloud-deploy-gemini-');
+    await symlink(join(process.cwd(), 'node_modules'), join(dir, 'node_modules'), 'dir');
+    const path = join(dir, 'gemini.flow.ts');
+    await writeFile(path, "import { flow } from '@relayflows/surface';\n"
+      + "export default flow('gemini', { budget: '$5/run' }, async (f) => {\n"
+      + "  await f.agent('review', { cli: 'gemini', task: 'review' });\n  f.done('success');\n});\n");
+    const calls = cloud({
+      [`/api/v1/flows/listeners/${LISTENER}`]: () => LISTENER_DETAIL,
+      '/api/v1/auth/whoami': () => WHOAMI,
+    });
+    const { out, io: cliIo } = io();
+    expect(await runCli(['deploy', path, '--flow', LISTENER], cliIo)).toBe(2);
+    expect(out[0]).toContain('declares gemini');
+    expect(out[0]).toContain('Cloud deployments cannot run');
+    expect(calls.some(call => call.method === 'POST')).toBe(false);
+  });
+
+  it('addresses a listener by a non-uuid id the workspace lists', async () => {
+    cloud({
+      '/api/v1/agents/flow-deployments': () => ({ deployments: [{ agentId: 'agent-9', name: 'Garden', status: 'listening', sources: [] }] }),
+      '/api/v1/flows/listeners/agent-9/versions/2/activate': () => ({
+        listenerId: 'agent-9', status: 'listening', version: { versionId: 'v2', version: 2, previousVersion: 3, change: 'reactivated' },
+      }),
+    });
+    const { out, io: cliIo } = io();
+    expect(await runCli(['rollback', 'agent-9', '2'], cliIo), out.join('\n')).toBe(0);
+    expect(out[0]).toContain('ACTIVATED agent-9 listening');
+  });
+
   it('names an unknown or ambiguous flow', async () => {
     const path = await authoredFlow('garden');
     cloud({ '/api/v1/agents/flow-deployments': () => ({ deployments: [
@@ -467,7 +497,9 @@ describe('flow versions (cloud#4115)', () => {
     expect(await runCli(['rollback', 'Cloud Software Garden', '2'], rolled.io)).toBe(0);
     expect(rolled.out[0]).toBe(`ACTIVATED ${LISTENER} listening · re-activated version 2 (was 3; active version went down)`);
     expect(calls.at(-1)).toMatchObject({ method: 'POST', path: `/api/v1/flows/listeners/${LISTENER}/versions/2/activate` });
-    const bad = io();
-    expect(await runCli(['rollback', 'Cloud Software Garden', 'two'], bad.io)).toBe(2);
+    for (const version of ['two', '0', '9007199254740993']) {
+      const bad = io();
+      expect(await runCli(['rollback', 'Cloud Software Garden', version], bad.io)).toBe(2);
+    }
   });
 });

@@ -3,7 +3,9 @@ import { ensureIntegrationsConnected, type ConnectPrompt } from './cloud-connect
 import {
   CloudFlowError, cloudFetch, cloudRequest, isCloudRecord, type CloudConnectionOptions,
 } from './cloud-http.js';
-import { listCloudDeployments, loadDeploySource, type FlowTriggerSource } from './cloud-deploy.js';
+import {
+  FLOW_AGENT_HARNESSES, listCloudDeployments, loadDeploySource, type FlowTriggerSource,
+} from './cloud-deploy.js';
 import {
   parseVersion, parseVersionChange, type CloudFlowVersion, type CloudFlowVersionChange,
 } from './cloud-versions-wire.js';
@@ -34,8 +36,11 @@ export async function resolveCloudFlow(flow: string, options: CloudConnectionOpt
   const wanted = flow.trim();
   if (!wanted) throw new CloudFlowError('invalid_input', '--flow needs a flow name or listener id.');
   if (LISTENER_UUID.test(wanted)) return wanted.toLowerCase();
-  const matches = (await listCloudDeployments(options))
-    .filter(deployment => deployment.name.toLowerCase() === wanted.toLowerCase());
+  const deployments = await listCloudDeployments(options);
+  // Any listener id the workspace lists, before names: ids are not all uuids.
+  const byId = deployments.find(deployment => deployment.agentId === wanted);
+  if (byId) return byId.agentId;
+  const matches = deployments.filter(deployment => deployment.name.toLowerCase() === wanted.toLowerCase());
   if (matches.length === 1) return matches[0]!.agentId;
   if (matches.length === 0) {
     throw new CloudFlowError('invalid_input', `No flow named "${wanted}" in this workspace; list them with: flows deployments`);
@@ -110,6 +115,15 @@ export async function deployVersionToCloud(
     }),
     extensions.map(extension => ({ name: extension.name, permissions: extension.manifest.permissions })),
   );
+  // As on create: a harness Cloud cannot run is refused here, not deployed.
+  // There is no --agents override beside --flow; the listener's agents stay.
+  const unsupported = requirements.harnessUses
+    .filter(use => !(FLOW_AGENT_HARNESSES as readonly string[]).includes(use.harness));
+  if (unsupported.length > 0) {
+    throw new CloudFlowError('unsupported_source',
+      `This flow declares ${unsupported.map(use => `${use.harness} (${use.detail})`).join(', ')}, which Cloud deployments cannot run yet; `
+      + `Cloud runs ${FLOW_AGENT_HARNESSES.join(' and ')}. Change the declaration before deploying a new version.`);
+  }
   const whoami = await cloudRequest('/api/v1/auth/whoami', options);
   const workspace = isCloudRecord(whoami) && isCloudRecord(whoami.currentWorkspace) ? whoami.currentWorkspace : undefined;
   if (workspace === undefined || typeof workspace.id !== 'string' || !workspace.id) {
@@ -149,7 +163,7 @@ export async function deployVersionToCloud(
 export async function activateCloudFlowVersion(
   flow: string, version: number, options: CloudConnectionOptions = {},
 ): Promise<{ agentId: string; status: string; version: CloudFlowVersionChange }> {
-  if (!Number.isInteger(version) || version < 1) {
+  if (!Number.isSafeInteger(version) || version < 1) {
     throw new CloudFlowError('invalid_input', `A version is a positive whole number, got "${version}".`);
   }
   const agentId = await resolveCloudFlow(flow, options);
