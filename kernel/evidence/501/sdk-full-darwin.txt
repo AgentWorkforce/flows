@@ -1,5 +1,5 @@
 $ git rev-parse HEAD  # 05ab5849bf63cef0710fb6d6410033dd55d320dc
-$ cd packages/sdk && RELAYFLOWD_BIN=<kernel/target/debug/relayflowd> npx vitest run
+$ cd packages/sdk && RELAYFLOWD_BIN=/private/tmp/claude-501/-Users-khaliqgant--agentworkforce-relay-dogpatch-mini-node/f23c1658-cfa4-4896-9a9f-e594827c496d/scratchpad/flows/kernel/target/debug/relayflowd npx vitest run
 
  RUN  v2.1.9 /private/tmp/claude-501/-Users-khaliqgant--agentworkforce-relay-dogpatch-mini-node/f23c1658-cfa4-4896-9a9f-e594827c496d/scratchpad/flows/packages/sdk
 

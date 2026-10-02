@@ -1,5 +1,5 @@
 $ git rev-parse HEAD
-05ab5849bf63cef0710fb6d6410033dd55d320dc
+921a69d28ad874e8c1050941749e96c774263d9b
 $ cd kernel && cargo clippy --workspace --all-targets   # warnings not denied, so every crate and target is reached; unfiltered
     Checking relayflowd-core v0.1.0 (/private/tmp/claude-501/-Users-khaliqgant--agentworkforce-relay-dogpatch-mini-node/f23c1658-cfa4-4896-9a9f-e594827c496d/scratchpad/flows-mut/kernel/relayflowd-core)
 warning: this `if` statement can be collapsed
@@ -72,17 +72,6 @@ help: collapse nested if block
 
 warning: `relayflowd-core` (lib) generated 3 warnings (run `cargo clippy --fix --lib -p relayflowd-core -- ` to apply 3 suggestions)
     Checking relayflowd-journal v0.1.0 (/private/tmp/claude-501/-Users-khaliqgant--agentworkforce-relay-dogpatch-mini-node/f23c1658-cfa4-4896-9a9f-e594827c496d/scratchpad/flows-mut/kernel/relayflowd-journal)
-warning: unnecessary use of `clone` to create a slice from a reference
-  --> relayflowd-core/tests/memoization.rs:84:52
-   |
-84 |     let folded = RunState::fold("new", state.spec, &[entry.clone()]).unwrap();
-   |                                                    ^^^^^^^^^^^^^^^^ help: try: `std::slice::from_ref(entry)`
-   |
-   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#cloned_ref_to_slice_refs
-   = note: `#[warn(clippy::cloned_ref_to_slice_refs)]` on by default
-
-warning: `relayflowd-core` (test "memoization") generated 1 warning (run `cargo clippy --fix --test "memoization" -p relayflowd-core -- ` to apply 1 suggestion)
-    Checking relayflowd v0.1.0 (/private/tmp/claude-501/-Users-khaliqgant--agentworkforce-relay-dogpatch-mini-node/f23c1658-cfa4-4896-9a9f-e594827c496d/scratchpad/flows-mut/kernel/relayflowd)
 warning: using `chunks_exact` with a constant chunk size
    --> relayflowd-core/src/machine/parallel_tests.rs:118:42
     |
@@ -100,6 +89,15 @@ warning: using `chunks_exact` with a constant chunk size
     |
     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
 
+warning: unnecessary use of `clone` to create a slice from a reference
+  --> relayflowd-core/tests/memoization.rs:84:52
+   |
+84 |     let folded = RunState::fold("new", state.spec, &[entry.clone()]).unwrap();
+   |                                                    ^^^^^^^^^^^^^^^^ help: try: `std::slice::from_ref(entry)`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#cloned_ref_to_slice_refs
+   = note: `#[warn(clippy::cloned_ref_to_slice_refs)]` on by default
+
 warning: items after a test module
    --> relayflowd-core/src/state/budget.rs:88:1
     |
@@ -113,7 +111,9 @@ warning: items after a test module
     = note: `#[warn(clippy::items_after_test_module)]` on by default
     = help: move the items to before the test module was defined
 
+warning: `relayflowd-core` (test "memoization") generated 1 warning (run `cargo clippy --fix --test "memoization" -p relayflowd-core -- ` to apply 1 suggestion)
 warning: `relayflowd-core` (lib test) generated 6 warnings (3 duplicates) (run `cargo clippy --fix --lib -p relayflowd-core --tests -- ` to apply 3 suggestions)
+    Checking relayflowd v0.1.0 (/private/tmp/claude-501/-Users-khaliqgant--agentworkforce-relay-dogpatch-mini-node/f23c1658-cfa4-4896-9a9f-e594827c496d/scratchpad/flows-mut/kernel/relayflowd)
 warning: match can be simplified with `.unwrap_or_default()`
    --> relayflowd/src/engine/remote.rs:646:13
     |
@@ -256,6 +256,22 @@ help: collapse nested if block
     |
 
 warning: `relayflowd` (lib) generated 10 warnings (run `cargo clippy --fix --lib -p relayflowd -- ` to apply 6 suggestions)
+warning: `relayflowd` (lib test) generated 10 warnings (10 duplicates)
+warning: unnecessary closure used with `bool::then`
+   --> relayflowd/tests/event_activities.rs:226:21
+    |
+226 |         let prior = (number > 1).then(|| "pr-42/next/0");
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_lazy_evaluations
+    = note: `#[warn(clippy::unnecessary_lazy_evaluations)]` on by default
+help: use `then_some` instead
+    |
+226 -         let prior = (number > 1).then(|| "pr-42/next/0");
+226 +         let prior = (number > 1).then_some("pr-42/next/0");
+    |
+
+warning: `relayflowd` (test "event_activities") generated 1 warning (run `cargo clippy --fix --test "event_activities" -p relayflowd -- ` to apply 1 suggestion)
 warning: this `if` statement can be collapsed
   --> relayflowd/tests/daemon_lifecycle.rs:62:9
    |
@@ -324,21 +340,5 @@ help: collapse nested if block
    |
 
 warning: `relayflowd` (test "daemon_lifecycle") generated 3 warnings (run `cargo clippy --fix --test "daemon_lifecycle" -p relayflowd -- ` to apply 3 suggestions)
-warning: unnecessary closure used with `bool::then`
-   --> relayflowd/tests/event_activities.rs:226:21
-    |
-226 |         let prior = (number > 1).then(|| "pr-42/next/0");
-    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-    |
-    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#unnecessary_lazy_evaluations
-    = note: `#[warn(clippy::unnecessary_lazy_evaluations)]` on by default
-help: use `then_some` instead
-    |
-226 -         let prior = (number > 1).then(|| "pr-42/next/0");
-226 +         let prior = (number > 1).then_some("pr-42/next/0");
-    |
-
-warning: `relayflowd` (test "event_activities") generated 1 warning (run `cargo clippy --fix --test "event_activities" -p relayflowd -- ` to apply 1 suggestion)
-warning: `relayflowd` (lib test) generated 10 warnings (10 duplicates)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 06s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.22s
 exit_code=0

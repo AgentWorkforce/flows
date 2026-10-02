@@ -6,7 +6,7 @@ $ /Users/khaliqgant/.local/share/mise/installs/node/22.23.2/bin/node --version
 v22.23.2
 $ grep -cE "^\s*(it|it\.each)\(" tests/authored-node-runtime.test.ts
 12
-$ cd packages/sdk && FLOWS_BUILD_BUN=/Users/khaliqgant/.local/share/mise/installs/bun/1.4.0/bin/bun FLOWS_AUTHORED_NODE=/Users/khaliqgant/.local/share/mise/installs/node/22.23.2/bin/node RELAYFLOWD_BIN=<flows/kernel/target/debug/relayflowd @ 05ab5849> mise exec node@22.23.2 -- npx vitest run tests/authored-node-runtime.test.ts
+$ cd packages/sdk && FLOWS_BUILD_BUN=/Users/khaliqgant/.local/share/mise/installs/bun/1.4.0/bin/bun FLOWS_AUTHORED_NODE=/Users/khaliqgant/.local/share/mise/installs/node/22.23.2/bin/node RELAYFLOWD_BIN=/private/tmp/claude-501/-Users-khaliqgant--agentworkforce-relay-dogpatch-mini-node/f23c1658-cfa4-4896-9a9f-e594827c496d/scratchpad/flows/kernel/target/debug/relayflowd mise exec node@22.23.2 -- npx vitest run tests/authored-node-runtime.test.ts
 
  RUN  v2.1.9 /private/tmp/claude-501/-Users-khaliqgant--agentworkforce-relay-dogpatch-mini-node/f23c1658-cfa4-4896-9a9f-e594827c496d/scratchpad/flows-mut/packages/sdk
 

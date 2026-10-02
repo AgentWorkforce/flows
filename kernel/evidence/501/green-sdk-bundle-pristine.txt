@@ -3,7 +3,7 @@
 # override (the SDK needs the unpublished surface API to compile), then restore pristine deps with npm ci and run the file.
 
 $ git rev-parse HEAD
-05ab5849bf63cef0710fb6d6410033dd55d320dc
+921a69d28ad874e8c1050941749e96c774263d9b
 exit_code=0
 
 $ cd packages/sdk && rm -rf dist && npm ci --ignore-scripts && npm install --no-save --package-lock=false --ignore-scripts ../../dist/publish/relayflows-surface-2.0.38.tgz && npm run build
@@ -13,31 +13,32 @@ $ cd packages/sdk && rm -rf dist && npm ci --ignore-scripts && npm install --no-
 exit_code=0
 
 $ cd packages/sdk && npm ci --ignore-scripts
+  npm audit fix --force
+
 Run `npm audit` for details.
 exit_code=0
 
-$ cd packages/sdk && RELAYFLOWD_BIN=<flows/kernel/target/debug/relayflowd @ 05ab5849> npx vitest run tests/bundle.test.ts
+$ cd packages/sdk && npx vitest run tests/bundle.test.ts
 
  RUN  v2.1.9 /private/tmp/claude-501/-Users-khaliqgant--agentworkforce-relay-dogpatch-mini-node/f23c1658-cfa4-4896-9a9f-e594827c496d/scratchpad/flows-mut/packages/sdk
 
- ✓ tests/bundle.test.ts (26 tests) 24620ms
-   ✓ immutable bundles > returns exit 2 naming a byte-flipped payload and refuses to reuse corruption 1114ms
-   ✓ immutable bundles > verifies with --verify in any position and answers --json with one object 2250ms
-   ✓ immutable bundles > refuses --out with --verify rather than ignoring the destination 1170ms
-   ✓ immutable bundles > builds and verifies the canonical YAML fixture through the compiled CLI 3418ms
-   ✓ immutable bundles > emits the ephemeral warning on CLI stderr and uses the default output directory 2291ms
-   ✓ immutable bundles > refuses build-provable CLI resolution errors without environment probes 1134ms
-   ✓ immutable bundles > builds a standalone TS fixture twice with identical executable hashes 5918ms
-   ✓ immutable bundles > refuses to label installed dependency drift with lockfile pins 1124ms
-   ✓ immutable bundles > refuses invalid CLI arguments %j 1113ms
-   ✓ immutable bundles > refuses invalid CLI arguments "--out" 1099ms
-   ✓ immutable bundles > refuses invalid CLI arguments "--verify" 1089ms
-   ✓ immutable bundles > refuses invalid CLI arguments "--verify" 1144ms
-   ✓ immutable bundles > refuses invalid CLI arguments "--out" 1151ms
+ ✓ tests/bundle.test.ts (26 tests) 24210ms
+   ✓ immutable bundles > returns exit 2 naming a byte-flipped payload and refuses to reuse corruption 1424ms
+   ✓ immutable bundles > verifies with --verify in any position and answers --json with one object 2134ms
+   ✓ immutable bundles > refuses --out with --verify rather than ignoring the destination 1125ms
+   ✓ immutable bundles > builds and verifies the canonical YAML fixture through the compiled CLI 3664ms
+   ✓ immutable bundles > emits the ephemeral warning on CLI stderr and uses the default output directory 2350ms
+   ✓ immutable bundles > refuses build-provable CLI resolution errors without environment probes 1101ms
+   ✓ immutable bundles > builds a standalone TS fixture twice with identical executable hashes 5497ms
+   ✓ immutable bundles > refuses to label installed dependency drift with lockfile pins 1098ms
+   ✓ immutable bundles > refuses invalid CLI arguments %j 1046ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--out" 1012ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--verify" 1056ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--verify" 1041ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--out" 1016ms
 
  Test Files  1 passed (1)
       Tests  26 passed (26)
-   Start at  14:34:41
-   Duration  29.03s (transform 1.29s, setup 50ms, collect 2.46s, tests 24.62s, environment 0ms, prepare 447ms)
-
+   Start at  15:48:13
+   Duration  29.18s (transform 1.88s, setup 51ms, collect 3.11s, tests 24.21s, environment 0ms, prepare 367ms)
 exit_code=0
