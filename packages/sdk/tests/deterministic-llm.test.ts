@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compileYaml } from '../src/compile.js';
+import { compileYaml, toKernelSpec } from '../src/compile.js';
 import type { AgentStepSpec, DeterministicStepSpec, LlmStepSpec } from '../src/spec.js';
 
 // Ladder rung (b): the same flow plus a bare `llm` step with a verification
@@ -112,7 +112,10 @@ describe('compile: agent step (ladder rung c, Appendix A surface)', () => {
     expect(act.instruction).toBe('Edit the repo per the plan.');
     expect(act.recoveryMode).toBe('inspect');
     expect(act.maxIterations).toBe(2);
-    expect(act.transportRetries).toBe(1);
+    // 1 is the kernel default, which spec.rs serializes as absent; the SDK
+    // normalizes it away too so both sides hash the same spec.
+    expect(act.transportRetries).toBeUndefined();
+    expect(toKernelSpec(spec).steps[2]!.retry).not.toHaveProperty('max_transport_retries');
     expect(act.surfaces?.workspace).toEqual([{ surface: 'repo' }]);
     expect(act.surfaces?.streams).toEqual([{ stream: 'results' }]);
     expect(act.surfaces?.external).toEqual(['pr://github/example']);
