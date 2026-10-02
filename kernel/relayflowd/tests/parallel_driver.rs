@@ -359,16 +359,20 @@ fn backpressured_or_mismatched_lane_does_not_drop_a_later_dispatch() {
             .start(parallel_llm_spec(), "test", None)
             .unwrap()
             .status,
-        RunStatus::Failed
+        RunStatus::Parked
     );
+    // Appendix A rule 2 / `DispatchOutcome::PinMismatch`: the refused attempt
+    // never reached a worker, so it fails closed and the step is re-elected
+    // against its journaled pins under `max_iterations` -- not ended as if a
+    // worker had reported `worker_error`.
     assert_eq!(
         dispatcher
             .calls()
             .iter()
             .map(|dispatch| (dispatch.step_id.as_str(), dispatch.attempt))
             .collect::<Vec<_>>(),
-        [("lane-b", 1), ("lane-a", 1)],
-        "a pin mismatch must reach the later lane, then fail closed without a blind retry"
+        [("lane-b", 1), ("lane-a", 1), ("lane-b", 2), ("lane-a", 2)],
+        "a compatible replacement must receive due retries without an external resume"
     );
 }
 

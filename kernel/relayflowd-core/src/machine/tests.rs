@@ -579,6 +579,45 @@ fn ordinary_worker_error_is_not_retried_by_either_budget() {
     assert_eq!(completed.disposition, Disposition::StepDone);
 }
 
+/// `DispatchOutcome::PinMismatch`: the kernel refused the dispatch, so no
+/// worker ran it. It is journaled `worker_error`, but the step is re-elected
+/// against the same journaled pins under `max_iterations` -- and only there,
+/// so a worker that never reaches those pins ends the step with the reason.
+#[test]
+fn refused_dispatch_is_re_elected_within_max_iterations_only() {
+    let mut spec = agent_spec("manual");
+    spec.steps[0].max_iterations = 2;
+    spec.steps[0].retry.max_transport_retries = 4;
+    let pins = Pins::default();
+    let disposition = |semantic_executions: u32, attempt: u32| {
+        let actions = refused_dispatch_actions(
+            "run",
+            &spec.steps[0],
+            attempt,
+            semantic_executions,
+            Some(&pins),
+            "pin mismatch".to_owned(),
+            20,
+        );
+        let Action::Append(completed) = &actions[0] else {
+            panic!()
+        };
+        let completed: StepCompletedPayload =
+            serde_json::from_value(completed.payload.clone()).unwrap();
+        assert_eq!(completed.completion_reason, CompletionReason::WorkerError);
+        assert!(
+            completed
+                .verification
+                .is_some_and(|record| record.detail == "pin mismatch")
+        );
+        (completed.disposition, actions.len())
+    };
+    // Re-elected, even under `manual`: nothing ran, so there is nothing to park.
+    assert_eq!(disposition(0, 1), (Disposition::Retry, 3));
+    // The fold charged the first refusal; the second exhausts the step.
+    assert_eq!(disposition(1, 2), (Disposition::StepDone, 1));
+}
+
 #[test]
 fn inspect_recovery_injects_the_dirty_pin_completion_reason_and_tail() {
     let spec = agent_spec("inspect");

@@ -351,6 +351,60 @@ pub fn completion_actions(
     result: AttemptResult,
     now_ms: i64,
 ) -> Vec<Action> {
+    settle_attempt(
+        run_id,
+        step,
+        attempt,
+        semantic_executions,
+        start_pins,
+        result,
+        now_ms,
+        false,
+    )
+}
+
+/// A dispatch the kernel itself refused before any worker ran it: the
+/// attached worker stands at revisions other than the attempt's journaled
+/// pins (Appendix A rule 2). It is journaled `worker_error` with the reason,
+/// but it is not a worker's error -- nothing ran, so nothing can have had a
+/// side effect -- and the step is re-elected against the same journaled pins
+/// under `max_iterations`, which the fold charges for it. A worker-reported
+/// `worker_error` stays terminal.
+pub fn refused_dispatch_actions(
+    run_id: &str,
+    step: &StepSpec,
+    attempt: u32,
+    semantic_executions: u32,
+    start_pins: Option<&Pins>,
+    detail: String,
+    now_ms: i64,
+) -> Vec<Action> {
+    let mut result = AttemptResult::successful(Value::Null, "kernel");
+    result.failure_reason = Some(CompletionReason::WorkerError);
+    result.failure_detail = Some(detail);
+    settle_attempt(
+        run_id,
+        step,
+        attempt,
+        semantic_executions,
+        start_pins,
+        result,
+        now_ms,
+        true,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn settle_attempt(
+    run_id: &str,
+    step: &StepSpec,
+    attempt: u32,
+    semantic_executions: u32,
+    start_pins: Option<&Pins>,
+    result: AttemptResult,
+    now_ms: i64,
+    refused_dispatch: bool,
+) -> Vec<Action> {
     // A rejected attempt records why it was rejected. `output` is nulled for
     // every non-success, so without this the reason exists only in the
     // taxonomy label and the diagnostic is gone.
@@ -383,10 +437,11 @@ pub fn completion_actions(
     // semantic iteration.
     let transport_failures = attempt.saturating_sub(semantic_executions);
     let may_retry_transport = transport_failures <= step.retry.max_transport_retries;
-    let semantic_failure = matches!(
-        result.failure_reason,
-        None | Some(CompletionReason::VerificationFailed)
-    );
+    let semantic_failure = refused_dispatch
+        || matches!(
+            result.failure_reason,
+            None | Some(CompletionReason::VerificationFailed)
+        );
     let transport_failure = matches!(
         result.failure_reason,
         Some(CompletionReason::Crashed | CompletionReason::LeaseExpired)

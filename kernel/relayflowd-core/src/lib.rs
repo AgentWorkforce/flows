@@ -26,7 +26,7 @@ pub use journal::{Journal, JournalError, MemoryJournal};
 pub use machine::{
     Action, AttemptResult, RecoveryInstruction, abandonment_actions, carried_pins_for,
     completion_actions, next_actions, recovery_actions, recovery_actions_filtered,
-    request_cancel_action,
+    refused_dispatch_actions, request_cancel_action,
 };
 pub use memory::{MemoryInjectedPayload, MemoryScope, MemorySpec};
 pub use placement::{ExecutionMode, PlacementRequirements, RoutingDecision};

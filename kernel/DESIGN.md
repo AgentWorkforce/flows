@@ -299,6 +299,11 @@ single process loss remains resumable; set zero to disable).
 Only `crashed` and `lease_expired` consume it. `worker_error`, timeout, budget,
 cancellation, and an ordinary nonzero CLI exit are terminal regardless of the
 budget; semantic verification retry remains bounded only by `max_iterations`.
+One kernel-side `worker_error` is not terminal: a dispatch the kernel refuses
+because the attached worker does not hold the attempt's journaled pins
+(Appendix A rule 2, `DispatchOutcome::PinMismatch`) ran nothing, so the step is
+re-elected against those same pins under `max_iterations`
+(`refused_dispatch_actions`).
 
 The kernel learns of a dead attempt two ways, and the recovery mode applies to
 both: the kernel notices an abandoned lease (`abandonment_actions`), or the
