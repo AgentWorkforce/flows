@@ -403,11 +403,8 @@ class Validator {
     if (st['maxIterations'] !== undefined && !isPosInt(st['maxIterations'])) {
       this.fail(`${at}.maxIterations: expected a positive integer`);
     }
-    if (st['transportRetries'] !== undefined
-      && (typeof st['transportRetries'] !== 'number'
-        || !Number.isSafeInteger(st['transportRetries'])
-        || st['transportRetries'] < 0)) {
-      this.fail(`${at}.transportRetries: expected a non-negative integer`);
+    if (st['transportRetries'] !== undefined && !isTransportRetries(st['transportRetries'])) {
+      this.fail(`${at}.transportRetries: expected a non-negative integer no greater than ${KERNEL_U32_MAX}`);
     }
 
     if (type === 'deterministic') {
@@ -610,6 +607,14 @@ export function validateSpec(spec: unknown): ValidationResult {
 }
 
 // --- predicates -------------------------------------------------------------
+
+/** spec.rs `max_transport_retries: u32`. */
+const KERNEL_U32_MAX = 4_294_967_295;
+
+/** A transport retry budget the kernel can deserialize. */
+export function isTransportRetries(v: unknown): v is number {
+  return isNonNegInt(v) && v <= KERNEL_U32_MAX;
+}
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);

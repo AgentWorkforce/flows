@@ -1065,7 +1065,8 @@
           "title": "transportRetries",
           "description": "Additional attempts after classified infrastructure loss. Default 1.",
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 4294967295
         }
       },
       "required": [
@@ -1138,7 +1139,8 @@
           "title": "transportRetries",
           "description": "Additional attempts after classified infrastructure loss. Default 1.",
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 4294967295
         },
         "command": {
           "title": "command",
@@ -1258,7 +1260,8 @@
           "title": "transportRetries",
           "description": "Additional attempts after classified infrastructure loss. Default 1.",
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 4294967295
         },
         "prompt": {
           "title": "prompt",
@@ -1383,7 +1386,8 @@
           "title": "transportRetries",
           "description": "Additional attempts after classified infrastructure loss. Default 1.",
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 4294967295
         },
         "instruction": {
           "title": "instruction",
@@ -1984,7 +1988,8 @@
           "title": "max_transport_retries",
           "description": "max_transport_retries in the Relayflows spec.",
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 4294967295
         }
       },
       "required": [

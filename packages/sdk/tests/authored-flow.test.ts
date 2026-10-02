@@ -234,6 +234,7 @@ describe('authored flow journal executor', () => {
     for (const [field, value, message] of [
       ['maxIterations', 0, 'positive integer'],
       ['transportRetries', -1, 'non-negative integer'],
+      ['transportRetries', 4294967296, 'non-negative integer'],
       ['recoveryMode', 'continue', "'reset', 'inspect', or 'manual'"],
     ] as const) {
       await expect(executeAuthoredFlow(flow(`agent-invalid-${field}`, async f => {

@@ -38,7 +38,7 @@ import type {
 import { SPEC_SCHEMA_VERSION } from './spec.js';
 import { canonicalize, specHash } from './canonical.js';
 import { validateOutputDeclaration } from './output-schema.js';
-import { validateSpec, type ValidationResult } from './validate.js';
+import { isTransportRetries, validateSpec, type ValidationResult } from './validate.js';
 import { snapshotJsonValue } from './json-value.js';
 import { expandYamlHelpers } from './yaml-helpers.js';
 import { expandCommunication, validateCommunicationTopology } from './communication/spec.js';
@@ -190,7 +190,8 @@ function compileStep(step: StepSpec): StepSpec {
       ? { dependsOn: step.input === undefined ? step.dependsOn : [...new Set([...(step.dependsOn ?? []), ...bindingDependencies(step.input)])] } : {}),
     ...(step.input !== undefined ? { input: step.input } : {}),
     maxIterations,
-    ...(step.transportRetries !== undefined ? { transportRetries: step.transportRetries } : {}),
+    ...(step.transportRetries !== undefined && step.transportRetries !== DEFAULT_TRANSPORT_RETRIES
+      ? { transportRetries: step.transportRetries } : {}),
     ...(step.memory !== undefined ? { memory: step.memory } : {}),
     ...(step.requirements !== undefined ? { requirements: step.requirements } : {}),
   };
@@ -320,6 +321,10 @@ const KERNEL_RETRY_DEFAULTS = {
   multiplier: 2,
   jitter_percent: 20,
 } as const;
+
+// spec.rs `default_max_transport_retries`. The kernel serializes this value as
+// absent, so the SDK must too, or an explicit default changes the spec hash.
+const DEFAULT_TRANSPORT_RETRIES = 1;
 
 /**
  * Map an authoring `FlowSpec` to the kernel spec dialect — the single shape at
@@ -526,10 +531,10 @@ function validateAuthoringRetryDefaults(value: unknown, at: string): number | un
   }
   const transportRetries = retry['max_transport_retries'];
   if (transportRetries === undefined) return undefined;
-  if (typeof transportRetries !== 'number' || !Number.isSafeInteger(transportRetries) || transportRetries < 0) {
-    throw new CompileError([`${at}.max_transport_retries must be a non-negative integer`]);
+  if (!isTransportRetries(transportRetries)) {
+    throw new CompileError([`${at}.max_transport_retries must be a non-negative u32 integer`]);
   }
-  return transportRetries;
+  return transportRetries === DEFAULT_TRANSPORT_RETRIES ? undefined : transportRetries;
 }
 
 function kernelVerificationToAuthoring(
@@ -628,7 +633,7 @@ function toKernelStep(step: StepSpec, cliIdentity?: string): ResolvedKernelStepS
     max_iterations: step.maxIterations ?? 1,
     retry: {
       ...KERNEL_RETRY_DEFAULTS,
-      ...(step.transportRetries !== undefined
+      ...(step.transportRetries !== undefined && step.transportRetries !== DEFAULT_TRANSPORT_RETRIES
         ? { max_transport_retries: step.transportRetries } : {}),
     },
     verification: toKernelVerification(step),

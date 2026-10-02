@@ -3,6 +3,7 @@ import type { AuthoredBudget } from './authored-budget.js';
 import { parseBudget } from './budget.js';
 import type { AgentOptions, AgentResult, LlmOptions, NamedGate } from '@relayflows/surface';
 import { compileSpec, toKernelSpec } from './compile.js';
+import { isTransportRetries } from './validate.js';
 import { authoredPreflight } from './authored-preflight.js';
 import { classifyOutcome, type RunLifecycleOptions, type RunReport } from './cli/run.js';
 import type { PreflightDiagnostic } from './preflight.js';
@@ -224,8 +225,7 @@ export function authoredWorkerRunner(
           `f.agent options.maxIterations must be a positive integer (got ${JSON.stringify(options.maxIterations)}).`,
         );
       }
-      if (options.transportRetries !== undefined
-        && (!Number.isSafeInteger(options.transportRetries) || options.transportRetries < 0)) {
+      if (options.transportRetries !== undefined && !isTransportRetries(options.transportRetries)) {
         throw new AuthoredFlowExecutionError(
           'agent_cli_unresolved',
           `f.agent options.transportRetries must be a non-negative integer (got ${JSON.stringify(options.transportRetries)}).`,

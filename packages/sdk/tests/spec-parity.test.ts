@@ -122,6 +122,38 @@ steps:
     expect(kernelToAuthoring(kernel).steps.find(step => step.type === 'agent')!.transportRetries).toBe(0);
   });
 
+  // spec.rs `max_transport_retries: u32`: a larger budget must be refused at
+  // the SDK, not discovered when relayflowd refuses the whole spec.
+  it('refuses a transport retry budget outside the kernel u32 range', () => {
+    const flow = compileYaml(fixture('hello-ladder.flow.yaml'));
+    const agent = flow.steps.find(step => step.type === 'agent')!;
+    agent.transportRetries = 4_294_967_295;
+    expect(toKernelSpec(flow).steps.find(step => step.type === 'agent')!.retry.max_transport_retries).toBe(4_294_967_295);
+    agent.transportRetries = 4_294_967_296;
+    expect(() => compileSpec(flow)).toThrow('transportRetries');
+    expect(() => toKernelSpec(flow)).toThrow('transportRetries');
+    const kernel = toKernelSpec(compileYaml(fixture('hello-ladder.flow.yaml')));
+    kernel.steps.find(step => step.type === 'agent')!.retry.max_transport_retries = 4_294_967_296;
+    expect(() => kernelToAuthoring(kernel)).toThrow('max_transport_retries');
+  });
+
+  // spec.rs `skip_serializing_if = is_default_max_transport_retries`: the
+  // kernel re-serializes an explicit 1 as absent before it stamps spec_hash.
+  // An author who spells out the default must land on the legacy bytes, or
+  // the SDK's specHash and the kernel's spec_hash disagree for one spec.
+  it('leaves the default transport retry budget out of the canonical bytes and the hash', () => {
+    const yaml = fixture('hello-ladder.flow.yaml');
+    const flow = compileYaml(yaml);
+    const agent = flow.steps.find(step => step.type === 'agent')!;
+    agent.transportRetries = 1;
+    expect(canonicalize(toKernelSpec(flow))).toBe(fixture('hello-ladder.spec.canonical.json').trim());
+    expect(specHash(toKernelSpec(flow))).toBe(fixture('hello-ladder.spec.sha256').trim());
+    expect(kernelToAuthoring(toKernelSpec(flow))).toEqual(compileYaml(yaml));
+    const kernel = toKernelSpec(compileYaml(yaml));
+    kernel.steps.find(step => step.type === 'agent')!.retry.max_transport_retries = 1;
+    expect(kernelToAuthoring(kernel)).toEqual(compileYaml(yaml));
+  });
+
   // The trigger dialect. `toKernelSpec` used to spread `flow.triggers` through
   // untouched, so an event subscription reached the kernel in camelCase and
   // `relayflowd` -- `#[serde(deny_unknown_fields)]` over snake_case -- refused

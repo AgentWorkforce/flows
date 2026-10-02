@@ -58,6 +58,8 @@ const cases: Array<[string, unknown, boolean]> = [
   ['negative transport retry', flow({ transportRetries: -1 }), false],
   ['fractional transport retry', flow({ transportRetries: 1.5 }), false],
   ['zero transport retry', flow({ transportRetries: 0 }), true],
+  ['u32 max transport retry', flow({ transportRetries: 4294967295 }), true],
+  ['transport retry above u32', flow({ transportRetries: 4294967296 }), false],
   ['wrong step field', flow({ prompt: 'hello' }), false],
   ['nonzero exit gate', flow({ verification: { type: 'exit_code', expect: 1 } }), false],
   ['legacy zero exit gate', flow({ verification: { type: 'exit_code', expect: 0 } }), true],
