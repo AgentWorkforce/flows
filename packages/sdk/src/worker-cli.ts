@@ -441,6 +441,16 @@ async function spawnInvocation(
       return inputQueue;
     };
     for (const bytes of pendingInput.splice(0)) void writeInput(bytes);
+    // The last driver leaving is the end of input: flush what it sent, then
+    // EOF. Without it a driven Codex waits on its stdin lifecycle forever.
+    if (driven) {
+      channel?.whenDriveIdle(() => {
+        inputQueue = inputQueue.then(() => {
+          if (canDrive()) stdin!.end();
+          return false;
+        });
+      });
+    }
     let release = () => {};
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];

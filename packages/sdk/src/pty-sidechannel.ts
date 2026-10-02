@@ -32,6 +32,7 @@ export async function openSidechannel(
 ) {
   const peers = new Map<Socket, boolean>();
   const drivePeers = new Set<Socket>();
+  const driveIdle: Array<() => void> = [];
   let closed = false;
   const server = createServer(socket => {
     if (peers.size >= 16) { socket.destroy(); return; }
@@ -42,7 +43,9 @@ export async function openSidechannel(
     socket.on('error', () => socket.destroy());
     socket.on('close', () => {
       peers.delete(socket);
-      drivePeers.delete(socket);
+      if (drivePeers.delete(socket) && drivePeers.size === 0) {
+        for (const listener of driveIdle.splice(0)) listener();
+      }
     });
     socket.on('data', (bytes: Buffer) => {
       if (mode === undefined) {
@@ -111,6 +114,16 @@ export async function openSidechannel(
       // spawn cannot leave the child with piped stdin and nobody to close it.
       if (timeoutMs > 0) await new Promise<void>(resolve => setTimeout(resolve, timeoutMs));
       return drivePeers.size > 0;
+    },
+    /**
+     * Run `listener` once no drive peer is live: now, or when the last one
+     * disconnects. `waitForDrive` is a snapshot, and a peer can leave the
+     * moment after it is taken; the caller that chose `pipe` on it closes the
+     * child's stdin here, so the child never waits on a pipe nobody holds.
+     */
+    whenDriveIdle(listener: () => void): void {
+      if (drivePeers.size === 0) listener();
+      else driveIdle.push(listener);
     },
     close() {
       if (closed) return;
