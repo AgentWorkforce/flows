@@ -64,6 +64,10 @@ test('without originContext the run ends needs_human with zero f.agent calls and
   for (const babysitter of [undefined, { pullRequest: { owner: 'acme', repo: 'widgets', number: 7 } },
     { pullRequest: { owner: 'acme', repo: 'widgets', number: 7 }, originContext: { status: 'missing', reason: 'digest_mismatch' } },
     { pullRequest: { owner: 'acme', repo: 'widgets', number: 7 }, originContext: { ...originContext, firstPrompt: '' } },
+    // Malformed events are a malformed context, not a smaller one.
+    { pullRequest: { owner: 'acme', repo: 'widgets', number: 7 }, originContext: { ...originContext, events: 'not-a-list' } },
+    { pullRequest: { owner: 'acme', repo: 'widgets', number: 7 }, originContext: { ...originContext, events: [42] } },
+    { pullRequest: { owner: 'acme', repo: 'widgets', number: 7 }, originContext: { ...originContext, events: [{ ...originContext.events[0], content: 7 }] } },
     // A `missing` verdict refuses even if a prompt rides along with it.
     { pullRequest: { owner: 'acme', repo: 'widgets', number: 7 }, originContext: { ...originContext, status: 'missing', reason: 'digest_mismatch' } }]) {
     const { f, commands, reasons, agents } = context();

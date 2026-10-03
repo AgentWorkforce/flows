@@ -68,20 +68,24 @@ the live-label check and once-per-head reporting as defense in depth.
 
 ## Why no agent-sessions MCP
 
-The woken agent does not get `ai-hist-mcp` or any relayhistory credential:
+The woken agent does not get `ai-hist-mcp` or any relayhistory credential.
+The paths below are in other repositories, read at these commits:
+AgentWorkforce/relayhistory-cloud `6c1e33e` (under `packages/relayhistory/src/`),
+AgentWorkforce/relayhistory `6d635f2`, AgentWorkforce/cloud `377aa10`.
 
 - **relayhistory-cloud has no token scoped to one session.** Its scopes are
-  `rth:read` and `rth:sync` (`auth/tokens.ts:27`). `auth_sessions` holds only
+  `rth:read` and `rth:sync` (relayhistory-cloud `auth/tokens.ts:27`). `auth_sessions` holds only
   user, org and workspace. RelayAuth JWTs supply only those claims plus
-  `scope` (`auth/relayauth.ts:231-281`). Read routes take the session id from
+  `scope` (relayhistory-cloud `auth/relayauth.ts:231-281`). Read routes take the session id from
   the URL and filter by org only, e.g. `GET /v1/sessions/:id/turns` →
-  `listConversationTurns(db, auth.orgId, sessionId)` (`routes/turns.ts`). A
+  `listConversationTurns(db, auth.orgId, sessionId)` (relayhistory-cloud
+  `routes/turns.ts`). A
   prompt-injected agent holding `rth:read` could read every session in the
   org.
-- **`ai-hist-mcp` reads the local SQLite only.** `sdk-ts/src/mcp-server.ts`
+- **`ai-hist-mcp` reads the local SQLite only.** relayhistory `sdk-ts/src/mcp-server.ts`
   imports the local SDK, not the cloud client. Its `remote` scope means
   provider source plugins, and the base distribution "never reads
-  credentials" (`crates/ai-hist/src/remote.rs:1-3`). In a sandbox it would
+  credentials" (relayhistory `crates/ai-hist/src/remote.rs:1-3`). In a sandbox it would
   have no data.
 
 So Cloud's already-fetched, bounded origin context is inlined instead.
@@ -103,11 +107,11 @@ Follow-up needed to wire the MCP safely:
 
 - Cloud gives the flows CLI process, which runs coding agents in-process, the
   repository grant's environment, including `GH_CONFIG_DIR` and the `GIT_*`
-  askpass credentials that can push (cloud
+  askpass credentials that can push (AgentWorkforce/cloud `377aa10`,
   `packages/core/src/bootstrap/lib/relayflow-v2-step-env.ts`,
   `relayflowV2ChildEnvironments`: `cliEnv = { ...daemonEnv, … }`).
 - The flows worker passes its whole environment to the agent
-  (`packages/sdk/src/worker-cli.ts`).
+  (this repository, `packages/sdk/src/worker-cli.ts`).
 - `permissions: { accessPreset: 'readonly' }` is recorded but not enforced
   (#442; `packages/sdk/src/permissions-preflight.ts`).
 
@@ -120,7 +124,8 @@ to prove the body that runs once the gate opens.
 
 ```bash
 node --experimental-strip-types --test examples/babysitter/tests/standalone.test.ts
-node examples/babysitter/build-standalone.mjs policy.json
+echo '{"botLogin":"agent-relay[bot]"}' > /tmp/babysitter-policy.json   # outside the tree: policy is operator-owned
+node examples/babysitter/build-standalone.mjs /tmp/babysitter-policy.json  # writes examples/babysitter/dist/ (gitignored)
 (cd examples/babysitter && node ../../packages/sdk/dist/cli.js check dist/babysitter-standalone.flow.ts)
 ```
 

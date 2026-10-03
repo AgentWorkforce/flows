@@ -29,11 +29,17 @@ export function parseOrigin(value: unknown): OriginContext | undefined {
   if (x.status !== 'ok' && x.status !== 'degraded') return undefined;
   if (x.source !== 'claude' && x.source !== 'codex') return undefined;
   if (!text(x.sessionId) || !text(x.rootSessionId) || !text(x.firstPrompt)) return undefined;
-  const events = Array.isArray(x.events) ? x.events.map(record).map(e => ({
+  // Present-but-malformed events make the whole context malformed, not smaller.
+  if (x.events !== undefined && !Array.isArray(x.events)) return undefined;
+  const raw = (x.events ?? []) as unknown[];
+  const optional = (v: unknown) => v === undefined || v === null || typeof v === 'string';
+  if (!raw.every(e => e !== null && typeof e === 'object' && !Array.isArray(e)
+    && optional(record(e).actorRole) && optional(record(e).toolName) && optional(record(e).content))) return undefined;
+  const events = raw.map(record).map(e => ({
     actorRole: typeof e.actorRole === 'string' ? e.actorRole : null,
     toolName: typeof e.toolName === 'string' ? e.toolName : null,
     content: typeof e.content === 'string' ? e.content : null,
-  })) : [];
+  }));
   return {
     source: x.source, sessionId: x.sessionId, rootSessionId: x.rootSessionId,
     firstPrompt: x.firstPrompt, firstPromptTruncated: x.firstPromptTruncated === true,
