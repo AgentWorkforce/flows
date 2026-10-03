@@ -125,7 +125,7 @@ export function createStandaloneBabysitter(policy: unknown, runtime: { enforcedA
     const skip = outOfScope(live, c, configured.label);
     if (skip) { await report(`${wake.id}: ${skip}`); return f.done('declined'); }
     const signals = await readSignalsAt(f, pr, head, configured.botLogin);
-    if (signals.reportedHeads.includes(head)) {
+    if (signals.reported) {
       await report(`${wake.id}: head ${head} already reported`); return f.done('declined');
     }
     const changed = whatChanged(signals, String(live.author));

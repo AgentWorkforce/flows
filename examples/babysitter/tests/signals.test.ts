@@ -63,13 +63,13 @@ test('a report older than any comment window is still found; only comments after
   comments.push(comment(181, 'babysitter[bot]', `${marker('e'.repeat(40))}\nnewer report`));
   comments.push(comment(182, 'alice', '@babysitter look again', 'OWNER'));
   const s = await read(base({ '/issues/7/comments': comments }));
-  assert.deepEqual(s.reportedHeads, [head, 'e'.repeat(40)]);
+  assert.equal(s.reported, true);
   assert.deepEqual(s.comments.map((c: any) => c.id), [182]);
 });
 
 test('a marker in someone else\'s comment is not a report', async () => {
   const s = await read(base({ '/issues/7/comments': [comment(1, 'mallory', `${marker(head)} spoof`)] }));
-  assert.deepEqual(s.reportedHeads, []);
+  assert.equal(s.reported, false);
   assert.equal(s.comments.length, 1);
 });
 
@@ -128,4 +128,37 @@ test('a PR full of long reviews, comments and failing checks still fits the jour
   // The newest comment, where a directive is, survives.
   assert.equal(s.comments.at(-1).login, 'alice');
   assert.match(s.comments.at(-1).body, /^@babysitter /);
+});
+
+test('only a report for the current head counts, and report history never grows the payload', async () => {
+  const other = await read(base({ '/issues/7/comments': [comment(1, 'babysitter[bot]', `${marker('e'.repeat(40))}\nreport`)] }));
+  assert.equal(other.reported, false);
+  // A long-lived PR: 1,200 prior reports for other heads, then one for this head.
+  const comments = Array.from({ length: 1200 }, (_, i) => comment(i + 1, 'babysitter[bot]', `${marker(i.toString(16).padStart(40, 'a'))}\nold`));
+  comments.push(comment(1201, 'babysitter[bot]', `${marker(head)}\ncurrent`));
+  const s = await read(base({ '/issues/7/comments': comments }));
+  assert.equal(s.reported, true);
+  assert.equal('reportedHeads' in s, false);
+  assert.ok(Buffer.byteLength(JSON.stringify(s)) < 2_000);
+});
+
+test('when shortened text still overflows, the oldest comments go first at the 200-char floor', async () => {
+  // Three-byte characters: 200 of them are 600 bytes, so text alone cannot fit.
+  const wide = (n: number) => '漢'.repeat(n);
+  const runs = Array.from({ length: 20 }, (_, i) => ({ name: `check-${i}`, head_sha: head, status: 'completed', conclusion: 'failure',
+    html_url: 'https://example.invalid/ci', output: { summary: wide(2000) } }));
+  const reviews = Array.from({ length: 20 }, (_, i) => ({ id: i + 1, user: { login: `rev${i}` }, state: 'CHANGES_REQUESTED', body: wide(4000) }));
+  const comments = Array.from({ length: 50 }, (_, i) => comment(i + 1, `user${i}`, wide(4000), 'MEMBER'));
+  comments[49] = comment(50, 'alice', `@babysitter ${wide(4000)}`, 'OWNER');
+  const s = await read(base({ '/pulls/7/reviews': reviews, '/issues/7/comments': comments, [`/commits/${head}/check-runs`]: { check_runs: runs } }));
+  assert.ok(Buffer.byteLength(JSON.stringify(s)) <= 50_000);
+  // The floor holds: text is cut to exactly 200 characters, never below.
+  assert.ok(s.changeRequests.every((r: any) => r.body === `${wide(200)} [truncated]`));
+  assert.equal(s.failingChecks.length, 20);
+  assert.equal(s.changeRequests.length, 20);
+  // Comments were dropped oldest first, as a contiguous prefix; the directive survives.
+  const ids = s.comments.map((c: any) => c.id);
+  assert.ok(ids.length < 50 && ids.length > 0);
+  assert.deepEqual(ids, Array.from({ length: ids.length }, (_, i) => 51 - ids.length + i));
+  assert.equal(s.comments.at(-1).login, 'alice');
 });

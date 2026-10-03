@@ -15,8 +15,8 @@ export interface Signals {
   headSha: string;
   failingChecks: { name: string; conclusion: string; summary: string; url: string }[];
   changeRequests: { login: string; id: number; body: string }[];
-  /** Heads this bot has already reported on, from its own comments' markers. */
-  reportedHeads: string[];
+  /** Whether this bot already reported this head, from its own comments' markers. */
+  reported: boolean;
   /** Comments after the bot's last comment, newest 50: where a new directive can be. */
   comments: { id: number; login: string; association: string; body: string; createdAt: string }[];
 }
@@ -67,16 +67,14 @@ export async function readSignals(c: { owner: string; repo: string; number: numb
     if (!prior || r.id > prior.id) standing.set(r.user.login.toLowerCase(), r);
   }
   const bot = c.botLogin.toLowerCase();
-  const prefix = `<!-- babysitter:report ${c.owner.toLowerCase()}/${c.repo.toLowerCase()}#${c.number}@`;
+  // A boolean for this head, not a history: report count must not grow the payload.
+  const marker = `<!-- babysitter:report ${c.owner.toLowerCase()}/${c.repo.toLowerCase()}#${c.number}@${c.head} -->`;
   const own = (m: any) => String(m.user?.login ?? '').toLowerCase() === bot;
-  const reportedHeads: string[] = [];
-  let lastOwn = -1;
+  let reported = false, lastOwn = -1;
   comments.forEach((m: any, i: number) => {
     if (!own(m)) return;
     lastOwn = i;
-    const body = String(m.body ?? '');
-    const at = body.indexOf(prefix);
-    if (at >= 0) reportedHeads.push(body.slice(at + prefix.length, at + prefix.length + 40));
+    if (String(m.body ?? '').includes(marker)) reported = true;
   });
   const checks = [
     ...runs.filter((r: any) => r.head_sha === c.head && r.status === 'completed' && bad.includes(r.conclusion))
@@ -93,13 +91,13 @@ export async function readSignals(c: { owner: string; repo: string; number: numb
     headSha: c.head,
     failingChecks: checks.map(r => ({ name: cut(r.name, 200), conclusion: r.conclusion, summary: clip(r.summary, text), url: cut(r.url, 500) })),
     changeRequests: requests.map(r => ({ login: r.user.login, id: r.id, body: clip(r.body, text) })),
-    reportedHeads,
+    reported,
     comments: recent.map((m: any) => ({
       id: m.id, login: m.user?.login ?? '', association: m.author_association ?? 'NONE', body: clip(m.body, text), createdAt: m.created_at,
     })),
   });
   let text = 4000, out = shape(text);
-  while (Buffer.byteLength(out) > BUDGET && text > 200) out = shape(text = Math.floor(text / 2));
+  while (Buffer.byteLength(out) > BUDGET && text > 200) out = shape(text = Math.max(200, Math.floor(text / 2)));
   while (Buffer.byteLength(out) > BUDGET && recent.length > 1) { recent = recent.slice(1); out = shape(text); }
   const final = await get(`/pulls/${c.number}`);
   if (final.head?.sha !== c.head) throw new Error('Live PR head moved during signal capture');

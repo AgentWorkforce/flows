@@ -27,7 +27,7 @@ const live = (over: Record<string, unknown> = {}) => ({
 const signals = (over: Record<string, unknown> = {}) => ({
   headSha: head,
   failingChecks: [{ name: 'ci', conclusion: 'failure', summary: 'queue.test.ts: expected 3 retries, got 1', url: 'https://example.invalid/ci' }],
-  changeRequests: [], comments: [], reportedHeads: [], ...over,
+  changeRequests: [], comments: [], reported: false, ...over,
 });
 function input(over: { deliveryId?: string; eventType?: string; babysitter?: unknown; pullRequest?: unknown } = {}) {
   return {
@@ -171,7 +171,7 @@ test('a change request or an authorised directive is actionable; an outsider dir
 });
 
 test('a head already reported by Babysitter declines before the agent', async () => {
-  const ctx = context({ signals: signals({ reportedHeads: [head] }) });
+  const ctx = context({ signals: signals({ reported: true }) });
   await body()(ctx.f, input());
   assert.deepEqual(ctx.reasons, ['declined']);
   assert.equal(ctx.agents.length, 0);
