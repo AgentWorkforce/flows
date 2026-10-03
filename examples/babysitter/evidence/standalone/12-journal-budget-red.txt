@@ -1,0 +1,30 @@
+# Code at 9c348393, tests at 2f1f7841 (the red before the fix commit).
+$ node --experimental-strip-types --test examples/babysitter/tests/signals.test.ts
+✔ a failing commit status is a failing check; a newer success on the same context clears an older failure (10.163834ms)
+✔ reviews are paginated before standing verdicts are derived (2.708042ms)
+✔ a report older than any comment window is still found; only comments after the last report are returned (2.412792ms)
+✔ a marker in someone else's comment is not a report (0.940917ms)
+✔ a head that moves during the read refuses (2.492208ms)
+✔ failing check runs at the head are failing checks; running, passing and other-head runs are not (1.58625ms)
+✔ settleReport keeps the earliest report for a head and deletes a later duplicate of its own (5.779625ms)
+✖ a PR full of long reviews, comments and failing checks still fits the journal and keeps every actor (7.753459ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 7
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 819.341041
+
+✖ failing tests:
+
+test at examples/babysitter/tests/signals.test.ts:115:1
+✖ a PR full of long reviews, comments and failing checks still fits the journal and keeps every actor (7.753459ms)
+  Error: PR signals exceed safe journal output size
+      at readSignals (file://<repo>/examples/babysitter/signals.ts:95:45)
+      at async read (file://<repo>/examples/babysitter/tests/signals.test.ts:24:9)
+      at async TestContext.<anonymous> (file://<repo>/examples/babysitter/tests/signals.test.ts:122:13)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+exit=1

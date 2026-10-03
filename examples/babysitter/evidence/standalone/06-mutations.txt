@@ -3,38 +3,38 @@ $ bash examples/babysitter/evidence/standalone/mutations.sh
 ℹ tests 18
 ℹ pass 17
 ℹ fail 1
-✖ without originContext the run ends needs_human with zero f.agent calls and no live read (18.99975ms)
+✖ without originContext the run ends needs_human with zero f.agent calls and no live read (91.764625ms)
 restored byte-for-byte: yes
 === mutation: skip the reread-before-report check
 ℹ tests 18
 ℹ pass 16
 ℹ fail 2
-✖ withdrawing the opt-in label during diagnosis stops the report (3.217125ms)
-✖ a head that moves while the agent runs declines instead of reporting on a stale head (2.601625ms)
+✖ withdrawing the opt-in label during diagnosis stops the report (7.287291ms)
+✖ a head that moves while the agent runs declines instead of reporting on a stale head (3.741709ms)
 restored byte-for-byte: yes
 === mutation: bare delimiter the prompt can close
 ℹ tests 18
 ℹ pass 17
 ℹ fail 1
-✖ with originContext the agent task carries the first prompt verbatim, delimited as the task definition (13.214083ms)
+✖ with originContext the agent task carries the first prompt verbatim, delimited as the task definition (17.237583ms)
 restored byte-for-byte: yes
 === mutation: decision key from the delivery id
 ℹ tests 18
 ℹ pass 17
 ℹ fail 1
-✖ two deliveries with different ids and the same live state log the same decision key (7.65075ms)
+✖ two deliveries with different ids and the same live state log the same decision key (7.864666ms)
 restored byte-for-byte: yes
 === mutation: publish the prompt the agent echoes
 ℹ tests 18
 ℹ pass 17
 ℹ fail 1
-✖ the agent echoing the original prompt does not publish it (12.647708ms)
+✖ the agent echoing the original prompt does not publish it (22.430917ms)
 restored byte-for-byte: yes
 === mutation: keep a duplicate report for the same head
 ℹ tests 18
 ℹ pass 17
 ℹ fail 1
-✖ a concurrent run that already reported this head wins: the later comment removes itself (20.525167ms)
+✖ a concurrent run that already reported this head wins: the later comment removes itself (13.054208ms)
 restored byte-for-byte: yes
 all mutations caught and restored: yes
 exit=0

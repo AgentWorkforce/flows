@@ -48,7 +48,10 @@ both work.
    already reported by `botLogin` (its own comments' markers, all pages); or no
    failing check run or commit status, standing change request (all review
    pages), or new authorised `@babysitter` directive (PR author, or
-   `OWNER`/`MEMBER`/`COLLABORATOR`, after Babysitter's last comment).
+   `OWNER`/`MEMBER`/`COLLABORATOR`, after Babysitter's last comment). The
+   signal read always fits the journal (50KB): long text is shortened and
+   marked `[truncated]`, then the oldest comments are dropped. Failing checks
+   and change requests are never dropped.
 5. **One agent with the original scope.** The task opens with the origin
    session's first prompt verbatim, between fence lines the prompt cannot
    contain, as the task definition. Then the bounded origin events and what
@@ -140,9 +143,10 @@ node examples/babysitter/build-standalone.mjs /tmp/babysitter-policy.json  # wri
 
 Literal output: `evidence/standalone/`. Every file is the unedited output of
 the command it shows.
-- `01-red.txt`: the first red. `07-review-red.txt`, `09-events-red.txt` and
-  `11-round3-red.txt`: the red for each review round, captured with the code
-  from before that fix and the tests from the fix commit.
+- `01-red.txt`: the first red. `07-review-red.txt`, `09-events-red.txt`,
+  `11-round3-red.txt` and `12-journal-budget-red.txt`: the red for each review
+  round, captured with the code from before that fix and the tests from the
+  fix commit.
 - `02-green.txt`: the standalone and reader suites at this head.
 - `03-all-babysitter-tests.txt`: every babysitter suite.
 - `04-typecheck.txt` and `05-bundle-flows-check.txt`: typecheck, and the
