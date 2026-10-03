@@ -233,7 +233,7 @@ async function executePinnedWrapper(
     };
     signal?.addEventListener('abort', onAbort, { once: true });
     if (signal?.aborted) { onAbort(); return; }
-    const terminate = (message: string, transport?: WrapperSessionResult['transport']): void => {
+    const terminate = (message: string, transport?: WrapperSessionResult['transport'], captured = ''): void => {
       if (protocolError !== undefined) return;
       protocolError = message;
       if (lifecycleTimer !== undefined) clearTimeout(lifecycleTimer);
@@ -249,7 +249,7 @@ async function executePinnedWrapper(
       // The shared stop owns both the liveness bound and settlement. Its
       // callback preserves this refusal once group death is proved, or
       // replaces it with a fail-closed confirmation error when it is not.
-      finishAfterStop({ ...failure(message), ...(transport === undefined ? {} : { transport }) }, 'terminate');
+      finishAfterStop({ ...failure(message), stdout_tail: captured, ...(transport === undefined ? {} : { transport }) }, 'terminate');
     };
     const startExecutionTimer = (): void => {
       if (lifecycleTimer !== undefined) clearTimeout(lifecycleTimer);
@@ -264,6 +264,10 @@ async function executePinnedWrapper(
         `CLI ${JSON.stringify(cli)} execution timed out after ${limits.executionTimeoutMs}ms.`,
         transportEvidence({ phase: 'timeout', cause: 'timeout', retryable: false, exitCode: null, signal: null,
           stderr: `CLI execution timed out after ${limits.executionTimeoutMs}ms.` }, env),
+        // What the wrapper wrote before its deadline, so a result envelope it
+        // already emitted still reports its usage. Only the caller decides
+        // what of it, if anything, is output.
+        stdout.join('') + executionPending,
       ), limits.executionTimeoutMs);
     };
     const exceedsOutputLimit = (additionalBytes: number): boolean => {

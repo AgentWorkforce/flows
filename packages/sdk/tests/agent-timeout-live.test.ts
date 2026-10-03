@@ -21,12 +21,16 @@ if (request?.instruction.includes('TIMEOUT_TEST')) {
   appendFileSync(${JSON.stringify(f.calls)}, 'executed\\n');
   writeFileSync(${JSON.stringify(join(f.root, 'work.txt'))}, 'keep this work');
   writeFileSync(${JSON.stringify(join(f.root, 'agent.pid'))}, String(process.pid));
+  // A complete, priced result envelope, then a process that never exits.
+  process.stdout.write(JSON.stringify({ protocol: 'relayflows-agent-cli-v1-result', output: 'partial',
+    usage: { input_tokens: 100, output_tokens: 20 } }));
   setInterval(() => {}, 1000);
 } else if (request) process.stdout.write('probe ok');
 `);
+  writeFileSync(join(f.root, 'flows.json'), JSON.stringify({ cli: f.wrapper, models: ['claude-opus-5'] }));
   writeFileSync(f.flowPath, `import { flow } from '@relayflows/surface';
 export default flow('timeout-test', { budget: { wallclock: '2m' } }, async f => {
-  const result = await f.agent('repair', { task: 'TIMEOUT_TEST', timeout: '300ms' })
+  const result = await f.agent('repair', { task: 'TIMEOUT_TEST', timeout: '300ms', model: 'claude-opus-5' })
     .gate(r => r.completionReason === 'timeout' && ${gate});
   if (result.completionReason === 'timeout') {
     await f.run(${JSON.stringify(pause ? 'test -f paused || { touch paused; sleep 120; }; cat work.txt > published' : 'cat work.txt > published')});
@@ -48,6 +52,10 @@ async function evidence(f: ReturnType<typeof fixture>) {
     expect(child).toBeDefined();
     const entries = (await client.journalRead(child.runId as string, 1, 1000)).entries as any[];
     expect(entries.filter(e => e.entry_type === 'step.completed').map(e => e.payload.completionReason)).toEqual(['timeout']);
+    // The usage the wrapper reported before its deadline is charged, priced:
+    // claude-opus-5 at 100 * $5/M + 20 * $25/M = $0.001000.
+    expect(entries.find(e => e.entry_type === 'step.completed').payload.budget)
+      .toEqual({ tokens_in: 100, tokens_out: 20, dollars: '0.001000' });
     expect(entries.find(e => e.entry_type === 'run.spawned').payload.spec.steps[0].timeout_ms).toBe(300);
     expect((await client.runGet(child.runId as string)).status).toBe('failed');
   } finally { client.close(); }

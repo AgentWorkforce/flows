@@ -169,7 +169,7 @@ export async function runAgentCli(
     // discovery names are set from this dispatch, exactly as for a direct spawn.
     const wrapperEnv = wrapperEnvironment(processEnvironment);
     applyStepEnvironment(wrapperEnv, sidechannel);
-    return requirePricedUsage(decodeWrapperResult(await runWrapperSession(
+    const session = await runWrapperSession(
       cli,
       instruction,
       wakeContext,
@@ -179,7 +179,11 @@ export async function runAgentCli(
       signal,
       cwd,
       argv0,
-    )), effectiveModel);
+    );
+    const decoded = decodeWrapperResult(session);
+    // A wrapper that hit its deadline after reporting usage is still charged
+    // for it; what it wrote is not the step's output.
+    return requirePricedUsage(session.transport?.cause === 'timeout' ? { ...decoded, stdout_tail: '' } : decoded, effectiveModel);
   }
 
   const env: NodeJS.ProcessEnv = { ...processEnvironment };

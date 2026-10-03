@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { runAgentCli } from '../src/worker-cli.js';
 import { agentCompletionReason } from '../src/cli-transport-evidence.js';
+import { workerSpend } from '../src/worker-spend.js';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -52,6 +53,22 @@ process.stdout.write('relayflows-agent-cli-v1-execute\\n'); setInterval(() => {}
     new AbortController().signal, 'agent', undefined, f.root, 'direct', undefined, process.env, undefined, 50);
   expect(agentCompletionReason(result)).toBe('timeout');
   expect(result.stderr_tail).toMatch(/usage/i);
+  // Never measured, so never journaled as a measured $0.
+  expect(workerSpend(result, 'claude-sonnet-4-6').usage).toEqual({ tokens_in: 0, tokens_out: 0, dollars_unmetered: true });
+});
+
+it('keeps the usage a wrapper reported before it hung past its deadline', async () => {
+  const envelope = JSON.stringify({ protocol: 'relayflows-agent-cli-v1-result', output: 'partial', usage: { input_tokens: 100, output_tokens: 20 } });
+  const f = cli('wrapper', `process.stdout.write('relayflows-agent-cli-v1\\n');
+process.stdin.resume(); process.stdin.on('end', () => {
+process.stdout.write('relayflows-agent-cli-v1-execute\\n' + ${JSON.stringify(envelope)}); setInterval(() => {}, 1000);
+});`);
+  const result = await runAgentCli(f.path, 'repair', undefined, 'claude-opus-5', undefined,
+    new AbortController().signal, 'agent', undefined, f.root, 'direct', undefined, process.env, undefined, 200);
+  expect(agentCompletionReason(result)).toBe('timeout');
+  expect(result).toMatchObject({ tokens_input: 100, tokens_output: 20, stdout_tail: '' });
+  // claude-opus-5: 100 * $5/M + 20 * $25/M = $0.001000.
+  expect(workerSpend(result, 'claude-opus-5').usage).toEqual({ tokens_in: 100, tokens_out: 20, dollars: '0.001000' });
 });
 
 it.each([

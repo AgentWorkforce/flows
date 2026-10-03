@@ -680,12 +680,15 @@ On timeout, `summary` contains journaled timeout evidence and `artifacts` is
 `[]`. Native CLI partial output is retained in transport failure evidence;
 native artifact paths remain under `trajectory_tail.transcript.artifacts.paths`
 in the journal (a bounded list). Wrappers discard partial stdout on timeout
-and provide the deadline message; they have no transcript artifact list.
+and provide the deadline message; they have no transcript artifact list. A
+wrapper result envelope emitted before the deadline still supplies its usage.
 No workspace reset occurs: committed work and uncommitted edits remain, and
 the following step sees that potentially dirty tree even with
 `recoveryMode: 'reset'`. Unlike crash/lease recovery in RFC Appendix A, timeout
 settles the step with no successor attempt. Resume replays the recorded timeout
-and does not execute that agent again. Incurred spend remains charged.
+and does not execute that agent again. Incurred spend remains charged:
+reported usage is priced as usual, and usage never reported before the deadline
+is journaled as dollar-unmetered rather than as a measured $0.
 
 `timeout` with `maxIterations > 1` is refused, so semantic iterations cannot
 multiply the limit. Transport recovery before a timeout can start a new CLI
