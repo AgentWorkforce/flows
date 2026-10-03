@@ -37,6 +37,23 @@ beforeEach(()=>{
   }));
 });
 describe('authored IPC result durable verification',()=>{
+  it('accepts only a declared, durably settled agent timeout', async () => {
+    const claimed = result();
+    claimed.journalSteps[0]!.completionReason = 'timeout';
+    const step = { id: 'run-1', type: 'agent', timeout_ms: 1000 };
+    records.set('child-1', [
+      { entry_type: 'run.spawned', payload: { spec: { name: 'example/run-1', steps: [step] } } },
+      { entry_type: 'step.completed', step_id: 'run-1', payload: { completionReason: 'timeout', disposition: 'step_done' } },
+      { entry_type: 'run.completed', payload: { completionReason: 'step_failed' } },
+    ]);
+    mocks.runGet.mockImplementation(async (run_id: string) => ({ run_id,
+      status: run_id === 'child-1' ? 'failed' : 'completed',
+      steps: { [run_id === 'child-1' ? 'run-1' : 'complete-2']: { state: 'done' } },
+    }));
+    await expect(verifyAuthoredNodeResult(claimed, metadata, 'root', 'socket')).resolves.toBeUndefined();
+    delete (step as { timeout_ms?: number }).timeout_ms;
+    await expect(verifyAuthoredNodeResult(claimed, metadata, 'root', 'socket')).rejects.toThrow('no matching durable completion');
+  });
   it('accepts a predicate-gated flow: the `<step>.gate` child is verified but does not consume an ordinal',async()=>{
     const claimed:AuthoredFlowExecutionResult={rootRunId:'root',name:'example',completionReason:'success',journalSteps:[
       {id:'run-1',runId:'child-1',completionReason:'success'},

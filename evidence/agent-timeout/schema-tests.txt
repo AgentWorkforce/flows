@@ -1,0 +1,99 @@
+
+> @relayflows/schema@0.1.0 test
+> bun test tests
+
+bun test v1.3.6 (d530ed99)
+
+tests/parity.test.ts:
+(pass) flows check fixture parity: advisory-repair.flow.yaml [72.00ms]
+(pass) flows check fixture parity: agent-cwd.flow.yaml [11.00ms]
+(pass) flows check fixture parity: agent-timeout.flow.yaml [6.00ms]
+(pass) flows check fixture parity: backlog-picker.flow.yaml [10.00ms]
+(pass) flows check fixture parity: budget-guarded.flow.yaml [5.00ms]
+(pass) flows check fixture parity: dir-watcher.flow.yaml [29.00ms]
+(pass) flows check fixture parity: hello-agent.flow.yaml [12.00ms]
+(pass) flows check fixture parity: hello-deterministic.flow.yaml [6.00ms]
+(pass) flows check fixture parity: hello-ladder.flow.yaml [40.00ms]
+(pass) flows check fixture parity: hello-llm.flow.yaml [26.00ms]
+(pass) flows check fixture parity: hn-monitor.flow.yaml [59.00ms]
+(pass) flows check fixture parity: json-schema-invalid.flow.yaml [12.00ms]
+(pass) flows check fixture parity: step-memory.flow.yaml [8.00ms]
+(pass) flows check fixture parity: step-placement.flow.yaml [4.00ms]
+(pass) flows check fixture parity: tick-heartbeat.flow.yaml [56.00ms]
+(pass) structural parity: unknown root key [2.00ms]
+(pass) structural parity: unsupported version
+(pass) structural parity: no steps
+(pass) structural parity: step typo
+(pass) structural parity: empty command
+(pass) structural parity: positive timeout
+(pass) structural parity: fractional retry [1.00ms]
+(pass) structural parity: negative transport retry
+(pass) structural parity: fractional transport retry
+(pass) structural parity: zero transport retry
+(pass) structural parity: u32 max transport retry
+(pass) structural parity: transport retry above u32
+(pass) structural parity: wrong step field [1.00ms]
+(pass) structural parity: nonzero exit gate
+(pass) structural parity: legacy zero exit gate
+(pass) structural parity: boolean schema [2.00ms]
+(pass) structural parity: nested invalid schema [12.00ms]
+(pass) structural parity: bad memory budget [1.00ms]
+(pass) structural parity: unsafe memory budget
+(pass) structural parity: empty memory query
+(pass) structural parity: unsafe duration
+(pass) structural parity: bad money
+(pass) structural parity: bad input index
+(pass) structural parity: blank input name
+(pass) structural parity: trigger silence budget [1.00ms]
+(pass) structural parity: workspace: single grant
+(pass) structural parity: tools.fs: single grant
+(pass) structural parity: workspace: grant array
+(pass) structural parity: tools.fs: grant array
+(pass) structural parity: workspace: non-string item
+(pass) structural parity: tools.fs: non-string item
+(pass) structural parity: workspace: nested array
+(pass) structural parity: tools.fs: nested array
+(pass) structural parity: llm: output object [16.00ms]
+(pass) structural parity: llm: boolean output [1.00ms]
+(pass) structural parity: llm: output and verification [7.00ms]
+(pass) structural parity: llm: exit gate [1.00ms]
+(pass) structural parity: llm: trimmed model
+(pass) structural parity: llm: control in model
+(pass) structural parity: agent: output object [15.00ms]
+(pass) structural parity: agent: boolean output [1.00ms]
+(pass) structural parity: agent: output and verification [17.00ms]
+(pass) structural parity: agent: exit gate [1.00ms]
+(pass) structural parity: agent: trimmed model
+(pass) structural parity: agent: control in model
+(pass) step examples compile and validate [1.00ms]
+(pass) generated schema satisfies the existing bounded-reference rule [9.00ms]
+(pass) semantic checks remain explicit runtime responsibilities
+(pass) embedded dialect http://json-schema.org/draft-04/schema# [17.00ms]
+(pass) embedded dialect http://json-schema.org/draft-06/schema# [15.00ms]
+(pass) embedded dialect http://json-schema.org/draft-07/schema# [15.00ms]
+(pass) embedded dialect https://json-schema.org/draft/2019-09/schema [28.00ms]
+(pass) embedded dialect https://json-schema.org/draft/2020-12/schema [29.00ms]
+(pass) header hint is warning-only, first-line aware, and never edits input [18.00ms]
+(pass) canonical surface parity: "repo"
+(pass) canonical surface parity: "/repo/src"
+(pass) canonical surface parity: "pr://github/example"
+(pass) canonical surface parity: "/"
+(pass) canonical surface parity: "pr://"
+(pass) canonical surface parity: ""
+(pass) canonical surface parity: " repo"
+(pass) canonical surface parity: "repo "
+(pass) canonical surface parity: "repo//src"
+(pass) canonical surface parity: "repo/../src"
+(pass) canonical surface parity: "repo/."
+(pass) canonical surface parity: ":/bad//path"
+(pass) named declarations and selected input paths use authoring shapes [43.00ms]
+
+tests/smoke.test.ts:
+(pass) all exported spec type nodes have documented definitions [24.00ms]
+(pass) regeneration is byte-stable and committed schema has not drifted [485.00ms]
+(pass) npm tarball contains only data and documentation with no runtime dependencies [304.00ms]
+
+ 85 pass
+ 0 fail
+ 4019 expect() calls
+Ran 85 tests across 2 files. [2.31s]

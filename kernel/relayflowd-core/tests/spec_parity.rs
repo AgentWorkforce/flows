@@ -305,3 +305,26 @@ fn agent_cwd_is_not_accepted_on_other_verbs_or_under_another_name() {
         );
     }
 }
+
+#[test]
+fn agent_timeout_has_identical_canonical_bytes_and_hash() {
+    assert_parity(
+        include_str!("../../../testdata/agent-timeout.spec.canonical.json"),
+        include_str!("../../../testdata/agent-timeout.spec.sha256"),
+    );
+}
+
+#[test]
+fn agent_timeout_bounds_match_the_kernel_corpus() {
+    let cases: Vec<Value> = serde_json::from_str(include_str!("../../../testdata/agent-timeout-cases.json")).unwrap();
+    for case in cases {
+        let value = serde_json::json!({"steps":[{
+            "id":"a", "type":"agent", "instruction":"repair", "timeout_ms":case["timeoutMs"]
+        }]});
+        assert_eq!(RunSpec::parse(&value).and_then(|s| s.validate()).is_ok(),
+            case["kernelValid"].as_bool().unwrap(), "{}", case["name"]);
+    }
+    let value = serde_json::json!({"steps":[{"id":"a", "type":"agent", "instruction":"repair"}]});
+    let parsed = RunSpec::parse(&value).unwrap();
+    assert!(serde_json::to_value(parsed).unwrap()["steps"][0].get("timeout_ms").is_none());
+}

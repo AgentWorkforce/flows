@@ -1,0 +1,5 @@
+
+> @relayflows/schema@0.1.0 generate
+> node ../../scripts/generate-json-schema.mjs
+
+Generated packages/schema/flows.schema.json (74 definitions)

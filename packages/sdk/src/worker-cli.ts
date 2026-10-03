@@ -121,6 +121,8 @@ export async function runAgentCli(
   relayContext?: AgentRelayContext,
   processEnvironment: NodeJS.ProcessEnv = process.env,
   cliIdentity?: string,
+  // Trailing parameter preserves existing positional callers.
+  stepTimeoutMs?: number,
 ): Promise<WorkerCliResult> {
   signal?.throwIfAborted();
   if (signal !== undefined && process.platform === 'win32') {
@@ -167,17 +169,21 @@ export async function runAgentCli(
     // discovery names are set from this dispatch, exactly as for a direct spawn.
     const wrapperEnv = wrapperEnvironment(processEnvironment);
     applyStepEnvironment(wrapperEnv, sidechannel);
-    return requirePricedUsage(decodeWrapperResult(await runWrapperSession(
+    const session = await runWrapperSession(
       cli,
       instruction,
       wakeContext,
       effectiveModel,
       wrapperEnv,
-      wrapperLimits,
+      stepTimeoutMs === undefined ? wrapperLimits : { ...wrapperLimits, executionTimeoutMs: stepTimeoutMs },
       signal,
       cwd,
       argv0,
-    )), effectiveModel);
+    );
+    const decoded = decodeWrapperResult(session);
+    // A wrapper that hit its deadline after reporting usage is still charged
+    // for it; what it wrote is not the step's output.
+    return requirePricedUsage(session.transport?.cause === 'timeout' ? { ...decoded, stdout_tail: '' } : decoded, effectiveModel);
   }
 
   const env: NodeJS.ProcessEnv = { ...processEnvironment };
@@ -187,6 +193,8 @@ export async function runAgentCli(
   // itself. Only a worker with a data dir knows; an ad-hoc spawn exports nothing.
   applyStepEnvironment(env, sidechannel);
   const invocation = mode === 'llm' ? llmExecution(kind, instruction, effectiveModel) : agentExecution(kind, instruction, effectiveModel);
+
+  if (stepTimeoutMs !== undefined) invocation.timeoutMs = stepTimeoutMs;
 
   if (wakeContext !== undefined) {
     try {

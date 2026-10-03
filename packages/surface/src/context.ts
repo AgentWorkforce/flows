@@ -7,6 +7,7 @@ import type { Activity, ActivityOptions } from "./activity.js";
 import type { TriggerSource } from "./triggers.js";
 
 export interface AgentResult {
+  completionReason: 'success' | 'timeout';
   summary: string;
   /**
    * Files the agent created or changed under its working directory,
@@ -28,6 +29,9 @@ export interface PermissionsSpec {
 }
 
 export interface AgentOptions {
+  /** CLI time limit: milliseconds or ms/s/m duration, at most 60m.
+   * Resolves with completionReason: timeout. No default; direct transport only, maxIterations 1. */
+  timeout?: string | number;
   task: string;
   workspace?: string;
   /** Validated declaration only; not currently enforced (gate 8 / #442). */

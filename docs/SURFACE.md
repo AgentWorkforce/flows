@@ -246,7 +246,8 @@ No process runs between events: the handler wakes, executes to its next await, p
    one, while a worker that dies stops renewing and the lease expires. The run's
    wallclock budget is separate and stops *new* work, draining whatever is
    already running rather than cancelling a step mid-flight. A wrapper step and
-   a native step therefore get the same duration.
+   a native step therefore get the same duration by default. Agent steps may
+   declare the per-step `timeout` described below, enforced on both paths.
 
    `flows check` resolves the binary (a path is relative to the declaring flow
    or project config; a bare name resolves via `PATH`) and caches each resolved
@@ -347,7 +348,8 @@ authoring-time narrowing, not a kernel guarantee.
 
 ### Per-agent permissions in TypeScript
 
-Supported `f.agent` calls accept an optional `permissions` declaration:
+Supported `f.agent` calls accept an optional `timeout` (see Agent step timeouts)
+and an optional `permissions` declaration:
 
 ```ts
 const draft = await f.agent("writer", {
@@ -641,6 +643,68 @@ the kernel kills the command's process group and journals `completionReason: tim
 `f.run` refuses with code `lease_exceeded`. The override applies only to that
 invocation; calls without options retain the default.
 
+### Agent step timeouts
+
+`f.agent(name, { task, timeout?: string | number })` accepts the same duration
+syntax as `f.run`: numeric milliseconds or strings with `ms`, `s`, or `m`
+(including `'1.5s'`). Omitting `timeout` keeps the existing unlimited CLI
+execution duration. The authoring/`flows check` ceiling is **60 minutes**
+(3600000 ms), inclusive: measured repair work reached 44m09s, so 60m allows
+about 35% headroom and leaves room in a 2h flow for publishing. This is a
+compiler/SDK validation limit; the kernel validates positive milliseconds
+fitting in `i64` and carries the declaration to the worker.
+
+```ts
+const repair = await f.agent('repair', { task: 'Repair failing checks.', timeout: '45m' });
+if (repair.completionReason === 'timeout') {
+  await f.run('git push'); // publish what the agent already committed
+}
+f.done('success');
+```
+
+**A declared timeout resolves; it does not throw.** `AgentResult` includes
+`completionReason: 'success' | 'timeout'`. Handle the timeout by branching on
+that field, not with `catch`. The worker stops the CLI process group at the
+execution deadline, using the existing graceful stop and forced-kill escalation,
+then journals `step.completed` with `completionReason: 'timeout'`. Settlement
+includes process-stop confirmation, so it can occur shortly after the deadline.
+Failure to confirm the stop remains a failure, not a recoverable timeout.
+The agent child run remains failed (`step_failed`) in status/dashboard views;
+the authored flow may continue and succeed. Other failures still throw.
+A predicate `.gate(result => ...)` still runs on this result; returning false
+lets an author fail the flow on timeout. Named data gates require successful
+producer output; a timeout that prevents such a gate from running still fails
+the operation, rather than bypassing the declared check.
+
+On timeout, `summary` contains journaled timeout evidence and `artifacts` is
+`[]`. Native CLI partial output is retained in transport failure evidence;
+native artifact paths remain under `trajectory_tail.transcript.artifacts.paths`
+in the journal (a bounded list). Wrappers discard partial stdout on timeout
+and provide the deadline message; they have no transcript artifact list. A
+wrapper result envelope emitted before the deadline still supplies its usage.
+No workspace reset occurs: committed work and uncommitted edits remain, and
+the following step sees that potentially dirty tree even with
+`recoveryMode: 'reset'`. Unlike crash/lease recovery in RFC Appendix A, timeout
+settles the step with no successor attempt. Resume replays the recorded timeout
+and does not execute that agent again. Incurred spend remains charged:
+reported usage is priced as usual, and usage never reported before the deadline
+is journaled as dollar-unmetered rather than as a measured $0.
+
+`timeout` with `maxIterations > 1` is refused, so semantic iterations cannot
+multiply the limit. Transport recovery before a timeout can start a new CLI
+execution with its own timer; this is an execution deadline, not a total flow
+budget. `transport: 'relay'` with a timeout is refused because the local worker
+cannot stop the remote process. Authored option errors use the existing
+`agent_cli_unresolved` refusal, before child admission.
+
+Declarative YAML/JSON uses `timeoutMs: 2700000` on agent steps: **integer
+milliseconds only**, no duration strings. It lowers to journal spec
+`timeout_ms`. This enforced duration is separate from
+`requirements.expectedDurationMs`, which is only a placement estimate.
+Use matching SDK, daemon, and worker versions: older daemons refuse the new
+field, while older workers do not enforce it. The native and wrapper paths
+both honor the declaration; no default wrapper duration cap is introduced.
+
 ### Repair before failure: `onNonZero: 'record'`
 
 A deterministic step is gated on its exit code by default: a nonzero exit fails
@@ -781,7 +845,9 @@ vocabulary:
    recorded before author code can reach the operation, so a `catch` cannot hide
    it. `done("step_failed")` does not change that: it declares a verdict about
    checks the body ran and read for itself, and is not a way to continue past a
-   step that failed.
+   step that failed. A declared agent timeout is the explicit exception:
+   it journals a failed step but resolves with `completionReason: 'timeout'`,
+   allowing the flow to continue (see Agent step timeouts).
 3. **Finish your derived work before `done()`.** If a handler chained onto a step
    is still in flight when the body returns, the run is refused with
    `unsettled_derived_work` rather than recorded as a success nobody can prove.

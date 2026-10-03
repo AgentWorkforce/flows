@@ -183,7 +183,7 @@ describe('closed per-verb step fields', () => {
       'workspace', 'tools',
     ]);
     expect(AGENT_DECLARATION_FIELDS).toEqual(['cli', 'model']);
-    // `timeoutMs` is deliberately absent: it is a deterministic-only authoring
+    // `timeoutMs` is deliberately absent: it is a per-verb authoring
     // field, not a common one. Pinned so the move cannot be silently undone.
     expect(STEP_COMMON_FIELDS).toEqual([
       'id',
@@ -205,14 +205,13 @@ describe('closed per-verb step fields', () => {
     expect(STEP_FIELDS_BY_TYPE).toEqual({
       deterministic: ['command', 'timeoutMs', 'lease_ms', 'onNonZero'],
       llm: ['prompt', 'model', 'cli', 'output'],
-      agent: ['instruction', 'agent', 'cli', 'model', 'cwd', 'transport', 'surfaces', 'recoveryMode', 'permissions', 'output'],
+      agent: ['timeoutMs', 'instruction', 'agent', 'cli', 'model', 'cwd', 'transport', 'surfaces', 'recoveryMode', 'permissions', 'output'],
     });
     expect(CROSS_VERB_STEP_FIELDS.map(({ label }) => label).sort()).toEqual([
       'agent foreign command',
       'agent foreign lease_ms',
       'agent foreign onNonZero',
       'agent foreign prompt',
-      'agent foreign timeoutMs',
       'deterministic foreign agent',
       'deterministic foreign cli',
       'deterministic foreign cwd',

@@ -38,5 +38,5 @@ export const STEP_COMMON_FIELDS = [
 export const STEP_FIELDS_BY_TYPE = {
   deterministic: ['command', 'timeoutMs', 'lease_ms', 'onNonZero'],
   llm: ['prompt', 'model', 'cli', 'output'],
-  agent: ['instruction', 'agent', 'cli', 'model', 'cwd', 'transport', 'surfaces', 'recoveryMode', 'permissions', 'output'],
+  agent: ['timeoutMs', 'instruction', 'agent', 'cli', 'model', 'cwd', 'transport', 'surfaces', 'recoveryMode', 'permissions', 'output'],
 } as const satisfies Record<StepType, readonly string[]>;

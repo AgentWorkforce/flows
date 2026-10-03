@@ -1,0 +1,4 @@
+   Compiling relayflowd-core v0.1.0 (/home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/relayflowd-core)
+   Compiling relayflowd-journal v0.1.0 (/home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/relayflowd-journal)
+   Compiling relayflowd v0.1.0 (/home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/relayflowd)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.00s

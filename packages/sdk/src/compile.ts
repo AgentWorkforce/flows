@@ -74,7 +74,12 @@ export class CompileError extends Error {
  * survives float-precision (`1.1 * 1000 = 1100.0000000000002`) rather than
  * being rejected by `isSafeInteger`.
  */
-export function parseStepTimeout(timeout: unknown): number {
+export const AGENT_STEP_TIMEOUT_MAX_MS = 60 * 60_000;
+export function parseAgentStepTimeout(timeout: unknown): number {
+  return parseStepTimeout(timeout, true);
+}
+
+export function parseStepTimeout(timeout: unknown, agent = false): number {
   const unitToMs: Record<'ms' | 's' | 'm', number> = { ms: 1, s: 1000, m: 60_000 };
   let milliseconds: number;
   if (typeof timeout === 'number') {
@@ -96,10 +101,10 @@ export function parseStepTimeout(timeout: unknown): number {
     milliseconds = NaN;
   }
   if (!Number.isSafeInteger(milliseconds) || milliseconds <= 0) {
-    throw new CompileError(['f.run timeout must be a positive whole number of milliseconds or a duration such as "10s" or "5m".'], 'timeout_invalid');
+    throw new CompileError([`${agent ? 'f.agent' : 'f.run'} timeout must be a positive whole number of milliseconds or a duration such as "10s" or "5m".`], 'timeout_invalid');
   }
-  if (milliseconds > 15 * 60_000) {
-    throw new CompileError(['f.run timeout exceeds the maximum of 15 minutes declared in SURFACE.md.'], 'lease_exceeded');
+  if (milliseconds > (agent ? AGENT_STEP_TIMEOUT_MAX_MS : 15 * 60_000)) {
+    throw new CompileError([`${agent ? 'f.agent' : 'f.run'} timeout exceeds the maximum of ${agent ? 60 : 15} minutes declared in SURFACE.md.`], 'lease_exceeded');
   }
   return milliseconds;
 }
@@ -211,7 +216,7 @@ function compileStep(step: StepSpec): StepSpec {
         type: 'deterministic',
         command: s.command,
         verification: verification ?? { type: 'exit_code' as const },
-        // #138: `timeoutMs` is deterministic-only — worker-backed verbs own
+        // Timeout fields stay per-verb — worker-backed verbs own
         // their dispatch timeout. It must be spread HERE and nowhere in `base`.
         ...(s.timeoutMs !== undefined ? { timeoutMs: s.timeoutMs } : {}),
         ...(s.lease_ms !== undefined ? { lease_ms: parseStepTimeout(s.lease_ms) } : {}),
@@ -242,6 +247,7 @@ function compileStep(step: StepSpec): StepSpec {
         ...base,
         type: 'agent',
         instruction: s.instruction,
+        ...(s.timeoutMs === undefined ? {} : { timeoutMs: s.timeoutMs }),
         ...(verification !== undefined ? { verification: outputGate(verification, s.id) } : {}),
         ...(s.agent !== undefined ? { agent: s.agent } : {}),
         ...(s.cli !== undefined ? { cli: s.cli } : {}),
@@ -473,7 +479,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
     : type === 'llm'
       ? ['prompt', 'model', 'cli', 'cli_identity'] as const
       : type === 'agent'
-        ? ['instruction', 'cli', 'model', 'recovery_mode', 'surfaces', 'permissions', 'cwd', 'transport', 'cli_identity'] as const
+        ? ['timeout_ms', 'instruction', 'cli', 'model', 'recovery_mode', 'surfaces', 'permissions', 'cwd', 'transport', 'cli_identity'] as const
         : [];
   assertKernelKeys(step, [...commonKeys, ...typeKeys], at);
   const transportRetries = step['retry'] === undefined
@@ -508,6 +514,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
     return {
       ...common,
       instruction: step['instruction'],
+      ...(step['timeout_ms'] === undefined ? {} : { timeoutMs: step['timeout_ms'] }),
       ...(step['recovery_mode'] !== undefined ? { recoveryMode: step['recovery_mode'] } : {}),
       ...copyDefined(step, ['cli', 'model', 'surfaces', 'cwd', 'transport']),
       ...(step['permissions'] !== undefined
@@ -680,6 +687,7 @@ function toKernelStep(step: StepSpec, cliIdentity?: string): ResolvedKernelStepS
         ...common,
         type: 'agent',
         instruction: step.instruction,
+        ...(step.timeoutMs === undefined ? {} : { timeout_ms: step.timeoutMs }),
         ...(step.cli !== undefined ? { cli: step.cli } : {}),
         ...(step.model !== undefined ? { model: step.model } : {}),
         ...(step.cwd !== undefined ? { cwd: step.cwd } : {}),

@@ -1,0 +1,73 @@
+
+ RUN  v2.1.9 /tmp/agent-timeout-baseline/packages/sdk
+
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd
+LIVE_KERNEL flows=/tmp/agent-timeout-baseline/packages/sdk/dist/cli.js
+
+stdout | tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI
+LIVE_ANALYZER ready: claude -p --model claude-haiku-4-5-20251001 round-trip OK
+
+stdout | tests/live-kernel.test.ts > surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once
+LIVE_KERNEL kill -9 pid=23748 run=01M41RDPD3E4N5M9G1G9MFVMHV while step=two state=Running
+
+ ❯ tests/live-kernel.test.ts (32 tests | 1 failed) 63296ms
+   ✓ built flows CLI against live relayflowd > twenty-six-step reuses 25 durable completions after editing the failed final step 2390ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 2885ms
+   ✓ built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 32583ms
+   ✓ built flows CLI against live relayflowd > follows a live worker dispatch through flows run 609ms
+   ✓ built flows CLI against live relayflowd > runs an agent CLI end to end through the SDK worker 629ms
+   ✓ built flows CLI against live relayflowd > f.agent lowers to a real agent step and dispatches through a live worker 660ms
+   ✓ built flows CLI against live relayflowd > can always get a parked run to a late-attaching worker 5586ms
+   ✓ built flows CLI against live relayflowd > reports a real manual-recovery NeedsHuman state as parked 494ms
+   ✓ built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo) 611ms
+   ✓ built flows CLI against live relayflowd > hn-monitor analyze-story FAILS verification when the CLI omits required schema fields 607ms
+   ✓ built flows CLI against live relayflowd > agent step preserves the CliResult wrapper as output when the CLI emits non-JSON text 561ms
+   ✓ built flows CLI against live relayflowd > AgentWorker exposes wake_context to the CLI via RELAYFLOW_WAKE_CONTEXT env var (real analyzer prerequisite) 640ms
+   ✓ built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_WAKE_CONTEXT UNSET when the run has no wake_context (undefined-vs-null pin) 594ms
+   ✓ built flows CLI against live relayflowd > AgentWorker passes a declared model to an identified wrapper as RELAYFLOW_MODEL 656ms
+   ✓ built flows CLI against live relayflowd > AgentWorker refuses a nonconforming journal-submitted wrapper before exposing RELAYFLOW_MODEL 510ms
+   ✓ built flows CLI against live relayflowd > AgentWorker executes the raw claude adapter with its real model flag 1250ms
+   ✓ built flows CLI against live relayflowd > AgentWorker executes the raw codex adapter with its real model flag 595ms
+   ✓ built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_MODEL UNSET when the step declares no model 561ms
+   × built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI 4897ms
+     → expected { …(3) } to match object { Object (gate, verdict) }
+(1 matching property omitted from actual)
+   ✓ built flows CLI against live relayflowd > preflights before journaling and names an unreachable socket 897ms
+   ✓ built flows CLI against live relayflowd > starts exactly one daemon when two runs race for one empty data dir 531ms
+   ✓ subprocess_gate output capture against live relayflowd > journals the gate command output and reports both tails 1055ms
+   ✓ surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once 980ms
+   ✓ a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant 631ms
+   ✓ a relayflow can be scheduled: tick source against live relayflowd > TWO ticks for ONE scheduled instant produce exactly ONE run 1135ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI
+AssertionError: expected { …(3) } to match object { Object (gate, verdict) }
+(1 matching property omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "gate": "json_schema",
+-   "verdict": "pass",
++   "gate": "execution",
++   "verdict": "fail",
+  }
+
+ ❯ tests/live-kernel.test.ts:1317:49
+    1315|     // the promoted output, not the test re-deriving it: the spec is
+    1316|     // the unmodified canonical one, so this record is the gate.
+    1317|     expect(stepCompleted!.payload.verification).toMatchObject({
+       |                                                 ^
+    1318|       gate: 'json_schema',
+    1319|       verdict: 'pass',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 31 passed (32)
+   Start at  20:47:49
+   Duration  65.28s (transform 1.10s, setup 17ms, collect 1.79s, tests 63.30s, environment 0ms, prepare 46ms)
+
