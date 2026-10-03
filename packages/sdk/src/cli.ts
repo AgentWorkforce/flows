@@ -44,6 +44,7 @@ import { checkTypeScriptFlow } from './cli/check-typescript.js';
 import { runCloudCli } from './cli/cloud-run.js';
 import { runCloudSyncCli } from './cli/cloud-sync.js';
 import { parseCloudDeployArgs, runCloudDeployCli, runCloudDeploymentsCli, runCloudUndeployCli, type CloudDeployArgs } from './cli/cloud-deploy.js';
+import { runCloudRollbackCli, runCloudVersionsCli } from './cli/cloud-versions.js';
 import { parseCloudScheduleArgs, runCloudScheduleCli, runCloudSchedulesCli, runCloudUnscheduleCli, type CloudScheduleArgs } from './cli/cloud-schedule.js';
 import { isAuthoredFlowPath } from './direct-input.js';
 import { parseDeployArgs, runDeploy, type DeployArgs } from './cli/deploy.js';
@@ -97,6 +98,8 @@ export type ParsedArgs =
   | CloudDeployArgs
   | { command: 'deployments'; json: boolean }
   | { command: 'undeploy'; agentId: string; json: boolean }
+  | { command: 'versions'; flow: string; json: boolean }
+  | { command: 'rollback'; flow: string; version: string; json: boolean }
   | CloudScheduleArgs
   | { command: 'schedules'; json: boolean }
   | { command: 'unschedule'; scheduleId: string; json: boolean }
@@ -123,7 +126,10 @@ const USAGE = [
   'flows build [--out <dir>] <flow.yaml|flow.ts>',
   'flows build --verify <bundle-dir>',
   'flows deploy <flow.ts> --repo <owner/name> --on <provider>[:key=value,...] [--on ...] --approver <handle> [--agents claude[,codex]] [--name <name>] [--draft] [--plugin <ref>] [--no-connect] [--json]',
+  'flows deploy <flow.ts> --flow <name|listener-id> [--plugin <ref>] [--no-connect] [--json]',
   'flows deployments [--json]',
+  'flows versions [--json] <name|listener-id>',
+  'flows rollback [--json] <name|listener-id> <version>',
   'flows undeploy [--json] <deployment-id>',
   'flows schedule <flow.yaml|flow.ts> [--cron "<expr>" | --every <n><s|m|h|d>] [--tz <IANA>] [--input <inline-json-or-file>] [--name <name>] [--no-connect] [--json]',
   'flows schedules [--json]',
@@ -244,6 +250,8 @@ export async function runCli(
   if (parsed.command === 'cloud-deploy') return runCloudDeployCli(parsed, io);
   if (parsed.command === 'deployments') return runCloudDeploymentsCli(parsed, io);
   if (parsed.command === 'undeploy') return runCloudUndeployCli(parsed, io);
+  if (parsed.command === 'versions') return runCloudVersionsCli(parsed, io);
+  if (parsed.command === 'rollback') return runCloudRollbackCli(parsed, io);
   if (parsed.command === 'schedule') return runCloudScheduleCli(parsed, io);
   if (parsed.command === 'schedules') return runCloudSchedulesCli(parsed, io);
   if (parsed.command === 'unschedule') return runCloudUnscheduleCli(parsed, io);
@@ -630,6 +638,13 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
     const json = args.length - 1 - rest.length;
     if (json > 1 || rest.length !== 1 || rest[0]!.startsWith('-')) return undefined;
     return { command: 'undeploy', agentId: rest[0]!, json: json === 1 };
+  }
+  if (command === 'versions' || command === 'rollback') {
+    const rest = args.slice(1).filter(a => a !== '--json');
+    const json = args.length - 1 - rest.length;
+    if (json > 1 || rest.some(a => a.startsWith('-'))) return undefined;
+    if (command === 'versions') return rest.length === 1 ? { command, flow: rest[0]!, json: json === 1 } : undefined;
+    return rest.length === 2 ? { command, flow: rest[0]!, version: rest[1]!, json: json === 1 } : undefined;
   }
   if (command === 'deployments') {
     const rest = args.slice(1);

@@ -93,7 +93,18 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
       '--plugin', 'github:o/r@main#path', '--no-connect', '--json'],
     variant: 'cloud-deploy',
   },
+  // The update form: the source becomes the next version of an existing flow.
+  { verb: 'deploy', argv: ['deploy', 'review.flow.ts', '--flow', 'review-listener'], variant: 'cloud-deploy' },
+  {
+    verb: 'deploy',
+    argv: ['deploy', 'review.flow.ts', '--flow', 'review-listener', '--plugin', 'github:o/r@main#path', '--no-connect', '--json'],
+    variant: 'cloud-deploy',
+  },
   { verb: 'deployments', argv: ['deployments', '--json'], variant: 'deployments' },
+  { verb: 'versions', argv: ['versions', 'review-listener'], variant: 'versions' },
+  { verb: 'versions', argv: ['versions', '--json', 'review-listener'], variant: 'versions' },
+  { verb: 'rollback', argv: ['rollback', 'review-listener', '2'], variant: 'rollback' },
+  { verb: 'rollback', argv: ['rollback', '--json', 'review-listener', '2'], variant: 'rollback' },
   { verb: 'hn-monitor', argv: ['hn-monitor', 'start', 'spec.json'], variant: 'hn-monitor' },
   {
     verb: 'hn-monitor',

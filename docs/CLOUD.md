@@ -544,6 +544,32 @@ flows undeploy <deployment-id>
 Optional flags: `--agents claude,codex`, `--name "Issue triage"`, `--draft`,
 `--no-connect`, `--json`, and further `--on` sources.
 
+### Versions: changing a deployed flow's source
+
+A deployed flow's source is immutable. Changing it makes the next version, and
+the listener points at it from then on. Its repository, triggers, approver,
+agents and run budget stay as they are:
+
+```sh
+flows deploy issue-triage.flow.ts --flow 'Issue triage'   # or --flow <listener-id>
+# DEPLOYED <id> listening · version 4 (was 3)
+flows versions 'Issue triage'                             # newest first, the active one marked
+flows rollback 'Issue triage' 2                           # move the pointer; nothing is rewritten
+```
+
+`--flow` takes the flow's name in the current workspace or its listener id.
+`--repo`, `--on`, `--approver`, `--agents`, `--name` and `--draft` are refused
+beside it, by name, because they belong to the listener rather than to a
+version; change those in the Cloud dashboard. The create form redeployed
+under the same name, by the same owner and with the same settings, also makes
+a new version instead of refusing.
+
+Bytes that match an earlier version re-activate that version rather than
+adding one: `DEPLOYED <id> listening · re-activated version 2 (was 4; active
+version went down)`. Identical bytes report `version 4 (unchanged)`. New runs
+launch on the active version, and runs already started, including ones parked
+on `f.human`, finish on the version they started with.
+
 `flows deploy <flow.ts>` is the CLI form of the agentrelay.com onboarding's
 deploy wizard: `POST /api/v1/flows/deploy` stores one self-contained authored
 source and creates a proactive listener whose watch rules match the chosen

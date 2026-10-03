@@ -4,13 +4,17 @@ import {
   type FlowTriggerSource,
 } from '../cloud-deploy.js';
 import { describeFlowRequirements } from '../flow-requirements.js';
+import { describeVersionChange } from '../cloud-versions-wire.js';
+import { runCloudDeployVersionCli } from './cloud-versions.js';
 import { cliConnectPrompt, flowRequirementsForPath, harnessRemedy } from './cloud-connect-cli.js';
 import type { CliIo } from '../cli.js';
 
 export interface CloudDeployArgs {
   command: 'cloud-deploy';
   value: string;
-  repo: string;
+  /** Update form: the flow (name or listener id) this source becomes the next version of. */
+  flow: string | undefined;
+  repo: string | undefined;
   on: string[];
   approver: string | undefined;
   name: string | undefined;
@@ -25,6 +29,11 @@ export interface CloudDeployArgs {
 /**
  * `flows deploy <flow.ts> --repo <owner/name> --on <provider>[:k=v,…] [--on …]
  *   --approver <handle> [--name <n>] [--agents <list>] [--draft] [--no-connect] [--json]`
+ * `flows deploy <flow.ts> --flow <name-or-listener-id> [--plugin <ref>] [--no-connect] [--json]`
+ *
+ * The `--flow` form makes the source the next version of an existing flow and
+ * changes nothing else; listener settings given beside it are refused when run,
+ * by name, rather than silently ignored.
  *
  * Parsed here rather than in `parseDeployArgs` because the two `deploy` forms
  * share nothing but the word: the digest form copies a sealed bundle into a
@@ -32,6 +41,7 @@ export interface CloudDeployArgs {
  */
 export function parseCloudDeployArgs(args: readonly string[]): CloudDeployArgs | undefined {
   let value: string | undefined;
+  let flow: string | undefined;
   let repo: string | undefined;
   let approver: string | undefined;
   let name: string | undefined;
@@ -72,11 +82,12 @@ export function parseCloudDeployArgs(args: readonly string[]): CloudDeployArgs |
       i += 1;
       continue;
     }
-    if (arg === '--repo' || arg === '--approver' || arg === '--name' || arg === '--on') {
+    if (arg === '--repo' || arg === '--approver' || arg === '--name' || arg === '--on' || arg === '--flow') {
       const next = args[i + 1];
       if (next === undefined || next.startsWith('-')) return undefined;
       i += 1;
       if (arg === '--on') { on.push(next); continue; }
+      if (arg === '--flow') { if (flow !== undefined) return undefined; flow = next; continue; }
       if (arg === '--repo') { if (repo !== undefined) return undefined; repo = next; continue; }
       if (arg === '--approver') { if (approver !== undefined) return undefined; approver = next; continue; }
       if (name !== undefined) return undefined;
@@ -86,8 +97,9 @@ export function parseCloudDeployArgs(args: readonly string[]): CloudDeployArgs |
     if (arg.startsWith('-') || value !== undefined) return undefined;
     value = arg;
   }
-  if (value === undefined || repo === undefined || on.length === 0) return undefined;
-  return { command: 'cloud-deploy', value, repo, on, approver, name, agents, draft, noConnect, json, plugins };
+  if (value === undefined) return undefined;
+  if (flow === undefined && (repo === undefined || on.length === 0)) return undefined;
+  return { command: 'cloud-deploy', value, flow, repo, on, approver, name, agents, draft, noConnect, json, plugins };
 }
 
 function describeSource(source: FlowTriggerSource): string {
@@ -96,6 +108,7 @@ function describeSource(source: FlowTriggerSource): string {
 }
 
 export async function runCloudDeployCli(args: CloudDeployArgs, io: CliIo): Promise<0 | 1 | 2> {
+  if (args.flow !== undefined) return runCloudDeployVersionCli({ ...args, flow: args.flow }, io);
   const agents = args.agents === undefined ? undefined : parseAgentHarnessesOr(args.agents);
   // What the source declares, so a harness refusal names the right remedy
   // even when `--agents` was not given; the loader's own failure is reported
@@ -111,7 +124,7 @@ export async function runCloudDeployCli(args: CloudDeployArgs, io: CliIo): Promi
     if (agents === undefined) harnesses = (await flowRequirementsForPath(args.value))?.harnesses ?? [];
     const deployment = await deployToCloud({
       path: args.value,
-      repository: parseRepository(args.repo),
+      repository: parseRepository(args.repo!),
       sources: args.on.map(parseTriggerSource),
       approver: args.approver,
       draft: args.draft,
@@ -124,7 +137,8 @@ export async function runCloudDeployCli(args: CloudDeployArgs, io: CliIo): Promi
       io.stdout(JSON.stringify({ ok: true, ...deployment }));
       return 0;
     }
-    io.stdout(`${deployment.status === 'draft' ? 'SAVED' : 'DEPLOYED'} ${deployment.agentId} ${deployment.status}`);
+    io.stdout(`${deployment.status === 'draft' ? 'SAVED' : 'DEPLOYED'} ${deployment.agentId} ${deployment.status}`
+      + (deployment.version === undefined ? '' : ` · ${describeVersionChange(deployment.version)}`));
     io.stdout(`  flow: ${deployment.name} (${args.value}, sha256 ${deployment.sourceSha256.slice(0, 12)})`);
     io.stdout(`  repository: ${deployment.repository.owner}/${deployment.repository.name}`);
     for (const source of deployment.sources) io.stdout(`  on: ${describeSource(source)}`);
@@ -181,7 +195,7 @@ export async function runCloudUndeployCli({ agentId, json }: { agentId: string; 
   }
 }
 
-function reportCloudFailure(error: unknown, json: boolean, io: CliIo, harnesses: readonly string[] = []): 1 | 2 {
+export function reportCloudFailure(error: unknown, json: boolean, io: CliIo, harnesses: readonly string[] = []): 1 | 2 {
   const code = error instanceof CloudFlowError ? error.code : 'cloud_deploy_failed';
   let message = error instanceof Error ? error.message : 'Cloud deploy failed.';
   // Cloud names the missing coding-agent credential on activation; say how it is connected.

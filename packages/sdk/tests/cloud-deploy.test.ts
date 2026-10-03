@@ -358,3 +358,148 @@ describe('flows undeploy', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 });
+
+describe('flow versions (cloud#4115)', () => {
+  const LISTENER = '11111111-1111-4111-8111-111111111111';
+  const LISTENER_DETAIL = {
+    listener: {
+      listenerId: LISTENER, name: 'Cloud Software Garden', status: 'listening',
+      repository: { owner: 'acme', name: 'web' },
+      sources: [{ provider: 'github', settings: { repository: 'acme/web', labels: 'agent' } }],
+    },
+    activeVersion: { id: 'v3', version: 3, sourceSha256: 'c'.repeat(64), origin: 'cli', createdAt: '2026-10-02T09:00:00.000Z' },
+    versions: [
+      { id: 'v3', version: 3, sourceSha256: 'c'.repeat(64), origin: 'cli', createdAt: '2026-10-02T09:00:00.000Z' },
+      { id: 'v2', version: 2, sourceSha256: 'b'.repeat(64), origin: 'dashboard', createdAt: '2026-10-01T09:00:00.000Z' },
+    ],
+  };
+  const DEPLOYMENTS = { deployments: [
+    { agentId: LISTENER, name: 'Cloud Software Garden', status: 'listening', sources: [] },
+    { agentId: '22222222-2222-4222-8222-222222222222', name: 'Other', status: 'listening', sources: [] },
+  ] };
+  function io() {
+    const out: string[] = [];
+    return { out, io: { stdout: (line: string) => out.push(line), stderr: (line: string) => out.push(`ERR ${line}`) } };
+  }
+
+  it('deploys the next version by flow name without --repo, --on or --approver', async () => {
+    const path = await authoredFlow('garden');
+    const calls = cloud({
+      '/api/v1/agents/flow-deployments': () => DEPLOYMENTS,
+      [`/api/v1/flows/listeners/${LISTENER}`]: () => LISTENER_DETAIL,
+      '/api/v1/auth/whoami': () => WHOAMI,
+      [`/api/v1/flows/listeners/${LISTENER}/versions`]: () => ({
+        listenerId: LISTENER, status: 'listening', version: { versionId: 'v4', version: 4, previousVersion: 3, change: 'created' },
+      }),
+    });
+    const { out, io: cliIo } = io();
+    expect(await runCli(['deploy', path, '--flow', 'cloud software garden'], cliIo), out.join('\n')).toBe(0);
+    expect(out[0]).toBe(`DEPLOYED ${LISTENER} listening · version 4 (was 3)`);
+    const post = calls.find(call => call.method === 'POST' && call.path.endsWith('/versions'))!;
+    // Only the source and what derives from it: no listener settings.
+    expect(Object.keys(post.body as object).sort()).toEqual(['requirements', 'source', 'workspaceId']);
+    expect(calls.some(call => call.path === '/api/v1/flows/deploy')).toBe(false);
+  });
+
+  it('takes a listener id directly and says when the active version went down', async () => {
+    const path = await authoredFlow('garden');
+    const calls = cloud({
+      [`/api/v1/flows/listeners/${LISTENER}`]: () => LISTENER_DETAIL,
+      '/api/v1/auth/whoami': () => WHOAMI,
+      [`/api/v1/flows/listeners/${LISTENER}/versions`]: () => ({
+        listenerId: LISTENER, status: 'listening', version: { versionId: 'v2', version: 2, previousVersion: 4, change: 'reactivated' },
+      }),
+    });
+    const { out, io: cliIo } = io();
+    expect(await runCli(['deploy', path, '--flow', LISTENER], cliIo), out.join('\n')).toBe(0);
+    expect(out[0]).toBe(`DEPLOYED ${LISTENER} listening · re-activated version 2 (was 4; active version went down)`);
+    expect(calls.some(call => call.path === '/api/v1/agents/flow-deployments')).toBe(false);
+  });
+
+  it('refuses listener settings beside --flow by name, before any request', async () => {
+    const path = await authoredFlow('garden');
+    const calls = cloud({});
+    const { out, io: cliIo } = io();
+    expect(await runCli(['deploy', path, '--flow', 'x', '--repo', 'o/r', '--on', 'github', '--approver', 'k'], cliIo)).toBe(2);
+    expect(out[0]).toContain('--repo, --on, --approver stay on the listener');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('refuses a source declaring a harness Cloud cannot run, before posting a version', async () => {
+    const dir = await tempDir('cloud-deploy-gemini-');
+    await symlink(join(process.cwd(), 'node_modules'), join(dir, 'node_modules'), 'dir');
+    const path = join(dir, 'gemini.flow.ts');
+    await writeFile(path, "import { flow } from '@relayflows/surface';\n"
+      + "export default flow('gemini', { budget: '$5/run' }, async (f) => {\n"
+      + "  await f.agent('review', { cli: 'gemini', task: 'review' });\n  f.done('success');\n});\n");
+    const calls = cloud({
+      [`/api/v1/flows/listeners/${LISTENER}`]: () => LISTENER_DETAIL,
+      '/api/v1/auth/whoami': () => WHOAMI,
+    });
+    const { out, io: cliIo } = io();
+    expect(await runCli(['deploy', path, '--flow', LISTENER], cliIo)).toBe(2);
+    expect(out[0]).toContain('declares gemini');
+    expect(out[0]).toContain('Cloud deployments cannot run');
+    expect(calls.some(call => call.method === 'POST')).toBe(false);
+  });
+
+  it('addresses a listener by a non-uuid id the workspace lists', async () => {
+    cloud({
+      '/api/v1/agents/flow-deployments': () => ({ deployments: [{ agentId: 'agent-9', name: 'Garden', status: 'listening', sources: [] }] }),
+      '/api/v1/flows/listeners/agent-9/versions/2/activate': () => ({
+        listenerId: 'agent-9', status: 'listening', version: { versionId: 'v2', version: 2, previousVersion: 3, change: 'reactivated' },
+      }),
+    });
+    const { out, io: cliIo } = io();
+    expect(await runCli(['rollback', 'agent-9', '2'], cliIo), out.join('\n')).toBe(0);
+    expect(out[0]).toContain('ACTIVATED agent-9 listening');
+  });
+
+  it('names an unknown or ambiguous flow', async () => {
+    const path = await authoredFlow('garden');
+    cloud({ '/api/v1/agents/flow-deployments': () => ({ deployments: [
+      ...DEPLOYMENTS.deployments, { agentId: '33333333-3333-4333-8333-333333333333', name: 'Other', status: 'draft', sources: [] },
+    ] }) });
+    const missing = io();
+    expect(await runCli(['deploy', path, '--flow', 'Nope'], missing.io)).toBe(2);
+    expect(missing.out[0]).toContain('No flow named "Nope"');
+    const ambiguous = io();
+    expect(await runCli(['deploy', path, '--flow', 'other'], ambiguous.io)).toBe(2);
+    expect(ambiguous.out[0]).toContain('pass the listener id');
+  });
+
+  it('reports the version a create-form deploy made', async () => {
+    const path = await authoredFlow('triage');
+    cloud({
+      '/api/v1/auth/whoami': () => WHOAMI,
+      '/api/v1/flows/deploy': () => ({ status: 201, body: {
+        agentId: 'agent-9', status: 'listening', version: { versionId: 'v1', version: 1, previousVersion: null, change: 'created' },
+      } }),
+    });
+    const { out, io: cliIo } = io();
+    expect(await runCli(['deploy', path, '--repo', 'o/r', '--on', 'github', '--approver', 'k'], cliIo)).toBe(0);
+    expect(out[0]).toBe('DEPLOYED agent-9 listening · version 1');
+  });
+
+  it('lists versions with the active one marked, and rolls back', async () => {
+    const calls = cloud({
+      '/api/v1/agents/flow-deployments': () => DEPLOYMENTS,
+      [`/api/v1/flows/listeners/${LISTENER}`]: () => LISTENER_DETAIL,
+      [`/api/v1/flows/listeners/${LISTENER}/versions/2/activate`]: () => ({
+        listenerId: LISTENER, status: 'listening', version: { versionId: 'v2', version: 2, previousVersion: 3, change: 'reactivated' },
+      }),
+    });
+    const listed = io();
+    expect(await runCli(['versions', 'Cloud Software Garden'], listed.io)).toBe(0);
+    expect(listed.out[1]).toMatch(/^ {2}version 3 \(active\) /u);
+    expect(listed.out[2]).toMatch(/^ {2}version 2 {2}2026-10-01/u);
+    const rolled = io();
+    expect(await runCli(['rollback', 'Cloud Software Garden', '2'], rolled.io)).toBe(0);
+    expect(rolled.out[0]).toBe(`ACTIVATED ${LISTENER} listening · re-activated version 2 (was 3; active version went down)`);
+    expect(calls.at(-1)).toMatchObject({ method: 'POST', path: `/api/v1/flows/listeners/${LISTENER}/versions/2/activate` });
+    for (const version of ['two', '0', '9007199254740993']) {
+      const bad = io();
+      expect(await runCli(['rollback', 'Cloud Software Garden', version], bad.io)).toBe(2);
+    }
+  });
+});

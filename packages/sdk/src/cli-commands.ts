@@ -163,10 +163,28 @@ export const CLI_VERBS = [
       { flags: '--name <name>', description: 'Name for the hosted listener' },
       { flags: '--draft', description: 'Create the listener without activating it' },
       { flags: '--plugin <ref>', description: 'Send-only GitHub flow-extension ref; repeatable. Does not write flows.json' },
+      { flags: '--flow <name|listener-id>', description: 'Deploy the source as the next version of this flow; its settings stay unchanged' },
       NO_CONNECT_OPTION,
       JSON_OPTION,
     ],
     variants: ['deploy', 'cloud-deploy'],
+  },
+  {
+    name: 'versions',
+    description: 'List a hosted flow’s source versions, the active one marked',
+    args: [{ name: 'flow', description: 'Flow name or listener id', required: true }],
+    options: [JSON_OPTION],
+    variants: ['versions'],
+  },
+  {
+    name: 'rollback',
+    description: 'Make an earlier (or later) recorded version of a hosted flow the active one',
+    args: [
+      { name: 'flow', description: 'Flow name or listener id', required: true },
+      { name: 'version', description: 'Version number to activate', required: true },
+    ],
+    options: [JSON_OPTION],
+    variants: ['rollback'],
   },
   {
     name: 'deployments',
