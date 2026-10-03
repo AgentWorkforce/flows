@@ -50,8 +50,10 @@ both work.
    pages), or new authorised `@babysitter` directive (PR author, or
    `OWNER`/`MEMBER`/`COLLABORATOR`, after Babysitter's last comment). The
    signal read always fits the journal (50KB): long text is shortened and
-   marked `[truncated]`, then the oldest comments are dropped. Failing checks
-   and change requests are never dropped.
+   marked `[truncated]` (never below 200 characters), then the oldest
+   comments are dropped. Failing checks and change requests are never
+   dropped. Report history comes back as one boolean for this head, so it
+   cannot grow the payload.
 5. **One agent with the original scope.** The task opens with the origin
    session's first prompt verbatim, between fence lines the prompt cannot
    contain, as the task definition. Then the bounded origin events and what
@@ -144,7 +146,8 @@ node examples/babysitter/build-standalone.mjs /tmp/babysitter-policy.json  # wri
 Literal output: `evidence/standalone/`. Every file is the unedited output of
 the command it shows.
 - `01-red.txt`: the first red. `07-review-red.txt`, `09-events-red.txt`,
-  `11-round3-red.txt` and `12-journal-budget-red.txt`: the red for each review
+  `11-round3-red.txt`, `12-journal-budget-red.txt` and
+  `13-history-floor-red.txt`: the red for each review
   round, captured with the code from before that fix and the tests from the
   fix commit.
 - `02-green.txt`: the standalone and reader suites at this head.
