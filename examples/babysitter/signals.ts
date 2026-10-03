@@ -53,7 +53,7 @@ export async function readSignals(c: { owner: string; repo: string; number: numb
     pages(`/commits/${c.head}/check-runs?filter=latest`, 'check_runs'), pages(`/commits/${c.head}/statuses`),
     pages(`/pulls/${c.number}/reviews`), pages(`/issues/${c.number}/comments`),
   ]);
-  const bad = ['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure', 'error'];
+  const bad = ['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure', 'stale', 'error'];
   // Commit statuses are newest first; an old failure must not outlive a newer success.
   const latestStatus = new Map<string, any>();
   for (const s of statuses) if (!latestStatus.has(s.context)) latestStatus.set(s.context, s);
@@ -108,15 +108,45 @@ async function postComment(c: { owner: string; repo: string; number: number; bod
   process.stdout.write(JSON.stringify({ id: (await res.json()).id }));
 }
 
-/** Prefix a posted report when the head moved under it: the issue-comment API has no SHA precondition. */
-async function markSuperseded(c: { owner: string; repo: string; id: number; head: string; liveHead: string }): Promise<void> {
+/**
+ * Converge concurrent reports for one head without a provider claim: every run
+ * that posted lists this bot's reports carrying the same marker, and any run
+ * whose comment is not the earliest deletes its own. Two racing runs both see
+ * both comments, so exactly the lower id survives.
+ */
+export async function settleReport(c: { owner: string; repo: string; number: number; id: number; botLogin: string; marker: string }): Promise<void> {
+  if (!process.env.GH_TOKEN) throw new Error('GH_TOKEN required');
+  const api = `https://api.github.com/repos/${c.owner}/${c.repo}`;
+  const headers = { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json' };
+  const own: number[] = [];
+  for (let page = 1; ; page++) {
+    if (page > 50) throw new Error('Pagination exceeded; cannot settle report');
+    const res = await fetch(`${api}/issues/${c.number}/comments?per_page=100&page=${page}`, { headers });
+    if (!res.ok) throw new Error(`GitHub GET comments: ${res.status}`);
+    const batch = await res.json();
+    if (!Array.isArray(batch)) throw new Error('Malformed GitHub list');
+    for (const m of batch) {
+      if (String(m.user?.login ?? '').toLowerCase() === c.botLogin.toLowerCase() && String(m.body ?? '').includes(c.marker)) own.push(m.id);
+    }
+    if (batch.length < 100) break;
+  }
+  if (!own.includes(c.id)) throw new Error('Posted report is not visible; cannot settle');
+  const kept = Math.min(...own) === c.id;
+  if (!kept) {
+    const res = await fetch(`${api}/issues/comments/${c.id}`, { method: 'DELETE', headers });
+    if (!res.ok) throw new Error(`GitHub comment DELETE: ${res.status}`);
+  }
+  process.stdout.write(JSON.stringify({ kept }));
+}
+
+/** Prefix a posted report whose claim no longer holds: the comment API has no head or label precondition. */
+async function annotateReport(c: { owner: string; repo: string; id: number; note: string }): Promise<void> {
   if (!process.env.GH_TOKEN) throw new Error('GH_TOKEN required');
   const url = `https://api.github.com/repos/${c.owner}/${c.repo}/issues/comments/${c.id}`;
   const headers = { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' };
   const current = await fetch(url, { headers });
   if (!current.ok) throw new Error(`GitHub comment GET: ${current.status}`);
-  const note = `> **Superseded:** the head moved to \`${c.liveHead}\` while this was posted; this diagnosis is for \`${c.head}\` only.\n\n`;
-  const res = await fetch(url, { method: 'PATCH', headers, body: JSON.stringify({ body: note + (await current.json()).body }) });
+  const res = await fetch(url, { method: 'PATCH', headers, body: JSON.stringify({ body: `> ${c.note}\n\n${(await current.json()).body}` }) });
   if (!res.ok) throw new Error(`GitHub comment PATCH: ${res.status}`);
 }
 
@@ -133,6 +163,13 @@ export async function postReport(f: Ctx, pr: BoundPullRequest, body: string): Pr
   return posted.id;
 }
 
-export async function supersedeReport(f: Ctx, pr: BoundPullRequest, id: number, head: string, liveHead: string): Promise<void> {
-  await f.run(nodeCommand(markSuperseded, { owner: pr.owner, repo: pr.repo, id, head, liveHead }), { timeout: '2m' });
+/** True when this run's comment is the one report kept for its head. */
+export async function settle(f: Ctx, pr: BoundPullRequest, id: number, botLogin: string, marker: string): Promise<boolean> {
+  const value = JSON.parse(await f.run(nodeCommand(settleReport, { owner: pr.owner, repo: pr.repo, number: pr.number, id, botLogin, marker }), { timeout: '2m' }));
+  if (typeof value.kept !== 'boolean') throw new Error('Report settlement returned no verdict');
+  return value.kept;
+}
+
+export async function annotate(f: Ctx, pr: BoundPullRequest, id: number, note: string): Promise<void> {
+  await f.run(nodeCommand(annotateReport, { owner: pr.owner, repo: pr.repo, id, note }), { timeout: '2m' });
 }

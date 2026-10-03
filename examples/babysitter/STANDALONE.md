@@ -56,11 +56,20 @@ both work.
 6. **Reread before concluding.** If the head moved or the PR left scope,
    including the opt-in label being withdrawn, decline without reporting.
 7. **One comment.** It carries the `<!-- babysitter:report <pr>@<head> -->`
-   marker and names the inherited session ids, never the prompt text. Agent
-   output is bounded and `@`-mentions are neutralised. The comment API has no
-   head precondition, so the head is read again after the write; if a push
-   raced it, the comment is prefixed "Superseded" with both heads and the run
-   ends `declined`. Otherwise `f.done('success')`.
+   marker and names the inherited session ids. The agent's output is bounded,
+   `@`-mentions are neutralised, and the original prompt is redacted from it
+   (whole, and any identifying line of it), so the prompt text is never
+   published even if the agent quotes it. No provider claim or precondition
+   guards an issue comment (`capabilities.atomicPrPublication` is `false`), so
+   the write is settled after the fact:
+   - **Concurrent runs:** every run that posted lists this bot's reports with
+     the same marker, and any run whose comment is not the earliest deletes
+     its own and ends `declined`. Racing runs converge on one report.
+   - **Head or scope changed during the post:** the head and scope are read
+     again. If the head moved, the comment is prefixed "Superseded" with both
+     heads. If the PR left scope (closed, draft, skip label, opt-in label
+     removed), it is prefixed "Withdrawn". Either way the run ends `declined`.
+   - Otherwise `f.done('success')`.
 
 Caps (5 acting runs per PR, 2 per head, 30-day expiry), the opt-in label at
 bind time, and who may bind are Cloud's (lineage + drain). The flow adds
@@ -129,6 +138,14 @@ node examples/babysitter/build-standalone.mjs /tmp/babysitter-policy.json  # wri
 (cd examples/babysitter && node ../../packages/sdk/dist/cli.js check dist/babysitter-standalone.flow.ts)
 ```
 
-Literal output: `evidence/standalone/` (red first, green, all suites,
-typecheck, bundle + `flows check`, four mutations each caught, review-round
-red and green).
+Literal output: `evidence/standalone/`. Every file is the unedited output of
+the command it shows.
+- `01-red.txt`: the first red. `07-review-red.txt`, `09-events-red.txt` and
+  `11-round3-red.txt`: the red for each review round, captured with the code
+  from before that fix and the tests from the fix commit.
+- `02-green.txt`: the standalone and reader suites at this head.
+- `03-all-babysitter-tests.txt`: every babysitter suite.
+- `04-typecheck.txt` and `05-bundle-flows-check.txt`: typecheck, and the
+  bundle plus `flows check`.
+- `06-mutations.txt`: the output of `mutations.sh`. Six mutations, each
+  caught by a named test, each file restored byte-for-byte.

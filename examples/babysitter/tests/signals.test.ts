@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readSignals } from '../signals.ts';
+import { readSignals, settleReport } from '../signals.ts';
 
 const head = 'b'.repeat(40);
 const pr = { owner: 'acme', repo: 'widgets', number: 7, head, botLogin: 'babysitter[bot]' };
@@ -75,4 +75,39 @@ test('a marker in someone else\'s comment is not a report', async () => {
 
 test('a head that moves during the read refuses', async () => {
   await assert.rejects(read(base({ '/pulls/7': { head: { sha: 'f'.repeat(40) } } })), /head moved/);
+});
+
+test('failing check runs at the head are failing checks; running, passing and other-head runs are not', async () => {
+  const run = (name: string, sha: string, status: string, conclusion: string | null) =>
+    ({ name, head_sha: sha, status, conclusion, html_url: `https://example.invalid/${name}`, output: { summary: `${name} summary` } });
+  const s = await read(base({ [`/commits/${head}/check-runs`]: { check_runs: [
+    run('unit', head, 'completed', 'failure'), run('lint', head, 'completed', 'stale'),
+    run('e2e', head, 'in_progress', null), run('build', head, 'completed', 'success'),
+    run('old', 'e'.repeat(40), 'completed', 'failure'),
+  ] } }));
+  assert.deepEqual(s.failingChecks.map((c: any) => [c.name, c.conclusion, c.summary]), [['unit', 'failure', 'unit summary'], ['lint', 'stale', 'lint summary']]);
+});
+
+test('settleReport keeps the earliest report for a head and deletes a later duplicate of its own', async () => {
+  const g = globalThis as any, saved = { fetch: g.fetch, write: process.stdout.write, token: process.env.GH_TOKEN };
+  const calls: string[] = []; let out = '';
+  const comments = [comment(5, 'babysitter[bot]', `${marker(head)}\nfirst`), comment(9, 'babysitter[bot]', `${marker(head)}\nsecond`)];
+  g.fetch = async (url: string, init?: { method?: string }) => {
+    calls.push(`${init?.method ?? 'GET'} ${new URL(url).pathname}`);
+    return { ok: true, status: init?.method === 'DELETE' ? 204 : 200, json: async () => (new URL(url).searchParams.get('page') ?? '1') === '1' ? comments : [] };
+  };
+  process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+  process.env.GH_TOKEN = 'test';
+  try {
+    await settleReport({ owner: 'acme', repo: 'widgets', number: 7, id: 9, botLogin: 'babysitter[bot]', marker: marker(head) });
+    assert.deepEqual(JSON.parse(out), { kept: false });
+    assert.ok(calls.includes('DELETE /repos/acme/widgets/issues/comments/9'));
+    out = ''; calls.length = 0;
+    await settleReport({ owner: 'acme', repo: 'widgets', number: 7, id: 5, botLogin: 'babysitter[bot]', marker: marker(head) });
+    assert.deepEqual(JSON.parse(out), { kept: true });
+    assert.ok(calls.every(c => !c.startsWith('DELETE')));
+  } finally {
+    g.fetch = saved.fetch; process.stdout.write = saved.write;
+    if (saved.token === undefined) delete process.env.GH_TOKEN; else process.env.GH_TOKEN = saved.token;
+  }
 });

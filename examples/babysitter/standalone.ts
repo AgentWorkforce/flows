@@ -5,7 +5,7 @@ import { capabilities } from './capabilities.ts';
 import { readState } from './github.ts';
 import { parseInput, record, shellWord, text, type Config } from './input.ts';
 import { agentTask, parseOrigin, type WhatChanged } from './origin.ts';
-import { postReport, readSignalsAt, supersedeReport, type Signals } from './signals.ts';
+import { annotate, postReport, readSignalsAt, settle, type Signals } from './signals.ts';
 import { eligible, type State } from './state.ts';
 import { subscriptions } from './subscriptions.ts';
 import { bindHead, observation } from './wake.ts';
@@ -78,10 +78,22 @@ export function whatChanged(s: Signals, author: string): WhatChanged | undefined
   };
 }
 
-/** Agent output is untrusted: it may not ping people or break out of the report. */
-function neutralise(summary: string): string {
-  const bounded = summary.length > REPORT_MAX_CHARS ? `${summary.slice(0, REPORT_MAX_CHARS)}\n\n(truncated)` : summary;
-  return bounded.replace(/@(?=[A-Za-z0-9])/g, '@​').replace(/<!--/g, '&lt;!--');
+const PROMPT_LINE_MIN_CHARS = 24;
+
+/**
+ * Agent output is untrusted: it may not publish the original prompt, ping
+ * people or break out of the report. The prompt is redacted whole and line by
+ * line (any line long enough to be identifying), so an agent quoting it — by
+ * instruction or by injection — cannot leak it into the PR.
+ */
+export function neutralise(summary: string, firstPrompt: string): string {
+  const redacted = '[original prompt redacted]';
+  let out = summary.split(firstPrompt).join(redacted);
+  for (const line of firstPrompt.split('\n').map(l => l.trim()).filter(l => l.length >= PROMPT_LINE_MIN_CHARS)) {
+    out = out.split(line).join(redacted);
+  }
+  if (out.length > REPORT_MAX_CHARS) out = `${out.slice(0, REPORT_MAX_CHARS)}\n\n(truncated)`;
+  return out.replace(/@(?=[A-Za-z0-9])/g, '@\u200b').replace(/<!--/g, '&lt;!--');
 }
 
 export function createStandaloneBabysitter(policy: unknown, runtime: { enforcedAgentWriteScope: boolean } = capabilities) {
@@ -138,21 +150,31 @@ export function createStandaloneBabysitter(policy: unknown, runtime: { enforcedA
       return f.done('declined');
     }
     // (7) One owned comment naming the inherited session, never its prompt.
+    const marker = reportMarker(pr, head);
     const id = await postReport(f, pr, [
-      reportMarker(pr, head),
+      marker,
       `### Babysitter diagnosis for \`${head}\``,
       `Inherited the original scope of ${origin.source} session \`${origin.sessionId}\` (root \`${origin.rootSessionId}\`)`
         + `${origin.degraded.length ? `; origin context degraded: ${origin.degraded.join(', ')}` : ''}. Woken by \`${wake.id}\`.`,
       '',
-      neutralise(result.summary),
+      neutralise(result.summary, origin.firstPrompt),
       '',
       '_Diagnose-only: Babysitter made no changes to this PR._',
     ].join('\n'));
-    // The comment API has no head precondition, so check after the write: a
-    // report raced by a push is marked superseded rather than left standing.
+    // No provider claim or precondition guards the comment, so settle after
+    // the write: a concurrent run's earlier report for this head wins, and a
+    // report whose head moved or whose PR left scope is marked as such.
+    if (!await settle(f, pr, id, configured.botLogin, marker)) {
+      await report(`${wake.id}: an earlier run already reported ${head}; removed this duplicate`);
+      return f.done('declined');
+    }
     const after = await readState(f, c);
-    if (after.headSha !== head) {
-      await supersedeReport(f, pr, id, head, String(after.headSha));
+    const left = after.headSha === head ? outOfScope(after, c, configured.label) : undefined;
+    const stale = after.headSha !== head
+      ? `**Superseded:** the head moved to \`${String(after.headSha)}\` while this was posted; this diagnosis is for \`${head}\` only.`
+      : left ? `**Withdrawn:** this PR left Babysitter's scope (${left}) while this was posted.` : undefined;
+    if (stale) {
+      await annotate(f, pr, id, stale);
       return f.done('declined');
     }
     f.done('success');

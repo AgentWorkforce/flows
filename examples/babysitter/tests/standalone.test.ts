@@ -36,7 +36,7 @@ function input(over: { deliveryId?: string; eventType?: string; babysitter?: unk
     babysitter: 'babysitter' in over ? over.babysitter : { pullRequest: { owner: 'acme', repo: 'widgets', number: 7 }, originContext },
   };
 }
-function context(o: { states?: Record<string, unknown>[]; signals?: Record<string, unknown>; summary?: string } = {}) {
+function context(o: { states?: Record<string, unknown>[]; signals?: Record<string, unknown>; summary?: string; kept?: boolean } = {}) {
   const commands: string[] = [], reasons: string[] = [], agents: { name: string; options: Record<string, unknown> }[] = [];
   const states = [...(o.states ?? [live(), live()])];
   return {
@@ -47,6 +47,7 @@ function context(o: { states?: Record<string, unknown>[]; signals?: Record<strin
         if (command.includes('githubRead')) return JSON.stringify(states.length > 1 ? states.shift() : states[0]);
         if (command.includes('readSignals')) return JSON.stringify(o.signals ?? signals());
         if (command.includes('postComment')) return JSON.stringify({ id: 1 });
+        if (command.includes('settleReport')) return JSON.stringify({ kept: o.kept ?? true });
         return '';
       },
       agent: async (name: string, options: Record<string, unknown>) => {
@@ -196,8 +197,9 @@ test('a push racing the comment marks the posted report superseded for the new h
   const { f, reasons, commands } = context({ states: [live(), live(), live({ headSha: moved })] });
   await body()(f, input());
   assert.equal(posted(commands).length, 1);
-  const patch = commands.find(c => c.includes('markSuperseded'));
+  const patch = commands.find(c => c.includes('annotateReport'));
   assert.ok(patch, 'superseded patch issued');
+  assert.match(patch, /Superseded/);
   assert.ok(patch.includes(moved) && patch.includes(head));
   assert.match(patch, /"id":1/);
   assert.deepEqual(reasons, ['declined']);
@@ -249,4 +251,35 @@ test('by default no agent is dispatched: untrusted PR content needs enforced wri
 test('invalid policy is refused when the source loads', () => {
   assert.throws(() => createStandaloneBabysitter({}), /botLogin/);
   assert.throws(() => createStandaloneBabysitter({ botLogin: 'b', agentCli: './wrap' }), /agentModel/);
+});
+
+test('withdrawing the opt-in label while the comment posts marks the report withdrawn', async () => {
+  const { f, reasons, commands } = context({ states: [live(), live(), live({ labels: [] })] });
+  await body()(f, input());
+  assert.equal(posted(commands).length, 1);
+  const patch = commands.find(c => c.includes('annotateReport'));
+  assert.ok(patch, 'withdrawn patch issued');
+  assert.match(patch, /babysit/);
+  assert.deepEqual(reasons, ['declined']);
+});
+
+test('the agent echoing the original prompt does not publish it', async () => {
+  const { f, commands } = context({ summary: `Per the task:\n${firstPrompt}\nRoot cause: retry counter reset.` });
+  await body()(f, input());
+  const comment = posted(commands)[0]!;
+  assert.ok(!comment.includes('Fix the flaky retry in queue.ts.'));
+  assert.ok(!comment.includes('Do NOT touch the public API.'));
+  assert.ok(comment.includes('[original prompt redacted]'));
+  assert.ok(comment.includes('Root cause: retry counter reset.'));
+});
+
+test('a concurrent run that already reported this head wins: the later comment removes itself', async () => {
+  const { f, reasons, commands } = context({ kept: false });
+  await body()(f, input());
+  const settle = commands.find(c => c.includes('settleReport'));
+  assert.ok(settle);
+  assert.match(settle, /"id":1/);
+  assert.ok(settle.includes(`babysitter:report acme/widgets#7@${head}`));
+  assert.ok(commands.every(c => !c.includes('annotateReport')));
+  assert.deepEqual(reasons, ['declined']);
 });

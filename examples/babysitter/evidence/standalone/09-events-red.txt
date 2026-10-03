@@ -1,22 +1,49 @@
+# Code at 2b70cc26, tests at 4df2b0f6 (the red before the fix commit).
 $ node --experimental-strip-types --test examples/babysitter/tests/standalone.test.ts
-✖ without originContext the run ends needs_human with zero f.agent calls and no live read (22.902625ms)
-✔ with originContext the agent task carries the first prompt verbatim, delimited as the task definition (2.437709ms)
-✔ two deliveries with different ids and the same live state log the same decision key (1.636833ms)
-✔ anything that is not the bound PR is refused before any effect (9.123542ms)
-✔ live state decides: closed, draft, missing babysit label or nothing actionable decline without an agent (7.502ms)
-✔ a change request or an authorised directive is actionable; an outsider directive is not (7.016084ms)
-✔ a head already reported by Babysitter declines before the agent (6.32975ms)
-✔ the reader is asked for this bot's reports at the bound head (11.836042ms)
-✔ withdrawing the opt-in label during diagnosis stops the report (1.418417ms)
-✔ a push racing the comment marks the posted report superseded for the new head (4.047708ms)
-✔ a head that moves while the agent runs declines instead of reporting on a stale head (4.69225ms)
-✔ report is one owned PR comment naming the inherited session, never the prompt text, with mentions neutralised (5.693125ms)
-✔ the agent CLI follows the origin session: Claude and Codex both work (6.134958ms)
-✔ by default no agent is dispatched: untrusted PR content needs enforced write scope first (gate 8 / #442) (0.826167ms)
-✔ invalid policy is refused when the source loads (4.642917ms)
+✖ without originContext the run ends needs_human with zero f.agent calls and no live read (38.920417ms)
+✔ with originContext the agent task carries the first prompt verbatim, delimited as the task definition (23.118041ms)
+✔ two deliveries with different ids and the same live state log the same decision key (16.1675ms)
+✔ anything that is not the bound PR is refused before any effect (42.363417ms)
+✔ live state decides: closed, draft, missing babysit label or nothing actionable decline without an agent (32.54525ms)
+✔ a change request or an authorised directive is actionable; an outsider directive is not (29.089125ms)
+✔ a head already reported by Babysitter declines before the agent (7.070125ms)
+✔ the reader is asked for this bot's reports at the bound head (7.723167ms)
+✔ withdrawing the opt-in label during diagnosis stops the report (14.853792ms)
+✔ a push racing the comment marks the posted report superseded for the new head (26.888666ms)
+✔ a head that moves while the agent runs declines instead of reporting on a stale head (0.938541ms)
+✔ report is one owned PR comment naming the inherited session, never the prompt text, with mentions neutralised (8.426875ms)
+✔ the agent CLI follows the origin session: Claude and Codex both work (23.722084ms)
+✔ by default no agent is dispatched: untrusted PR content needs enforced write scope first (gate 8 / #442) (8.865416ms)
+✔ invalid policy is refused when the source loads (1.239917ms)
 ℹ tests 15
+ℹ suites 0
 ℹ pass 14
 ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2630.480375
+
 ✖ failing tests:
-✖ without originContext the run ends needs_human with zero f.agent calls and no live read (22.902625ms)
+
+test at examples/babysitter/tests/standalone.test.ts:63:1
+✖ without originContext the run ends needs_human with zero f.agent calls and no live read (38.920417ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   'success'
+  -   'needs_human'
+    ]
+  
+      at TestContext.<anonymous> (file://<repo>/examples/babysitter/tests/standalone.test.ts:75:12)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'success' ],
+    expected: [ 'needs_human' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
 exit=1
