@@ -1,3 +1,4 @@
+# Code at 4df2b0f6, tests at 34385e33 (the red before the fix commit).
 $ node --experimental-strip-types --test examples/babysitter/tests/standalone.test.ts examples/babysitter/tests/signals.test.ts
 file://<repo>/examples/babysitter/tests/signals.test.ts:3
 import { readSignals, settleReport } from '../signals.ts';
@@ -9,25 +10,25 @@ SyntaxError: The requested module '../signals.ts' does not provide an export nam
     at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
 
 Node.js v26.8.1
-✖ examples/babysitter/tests/signals.test.ts (902.388125ms)
-✔ without originContext the run ends needs_human with zero f.agent calls and no live read (18.380542ms)
-✔ with originContext the agent task carries the first prompt verbatim, delimited as the task definition (5.379875ms)
-✔ two deliveries with different ids and the same live state log the same decision key (3.774333ms)
-✔ anything that is not the bound PR is refused before any effect (6.398625ms)
-✔ live state decides: closed, draft, missing babysit label or nothing actionable decline without an agent (4.057167ms)
-✔ a change request or an authorised directive is actionable; an outsider directive is not (5.61775ms)
-✔ a head already reported by Babysitter declines before the agent (1.049ms)
-✔ the reader is asked for this bot's reports at the bound head (1.070125ms)
-✔ withdrawing the opt-in label during diagnosis stops the report (1.709083ms)
-✖ a push racing the comment marks the posted report superseded for the new head (2.544708ms)
-✔ a head that moves while the agent runs declines instead of reporting on a stale head (0.503833ms)
-✔ report is one owned PR comment naming the inherited session, never the prompt text, with mentions neutralised (0.902916ms)
-✔ the agent CLI follows the origin session: Claude and Codex both work (1.516125ms)
-✔ by default no agent is dispatched: untrusted PR content needs enforced write scope first (gate 8 / #442) (0.716417ms)
-✔ invalid policy is refused when the source loads (0.76775ms)
-✖ withdrawing the opt-in label while the comment posts marks the report withdrawn (2.85225ms)
-✖ the agent echoing the original prompt does not publish it (242.686792ms)
-✖ a concurrent run that already reported this head wins: the later comment removes itself (10.842167ms)
+✖ examples/babysitter/tests/signals.test.ts (3311.01125ms)
+✔ without originContext the run ends needs_human with zero f.agent calls and no live read (32.803042ms)
+✔ with originContext the agent task carries the first prompt verbatim, delimited as the task definition (13.195334ms)
+✔ two deliveries with different ids and the same live state log the same decision key (9.813792ms)
+✔ anything that is not the bound PR is refused before any effect (16.832875ms)
+✔ live state decides: closed, draft, missing babysit label or nothing actionable decline without an agent (10.553708ms)
+✔ a change request or an authorised directive is actionable; an outsider directive is not (11.266417ms)
+✔ a head already reported by Babysitter declines before the agent (3.626542ms)
+✔ the reader is asked for this bot's reports at the bound head (25.221417ms)
+✔ withdrawing the opt-in label during diagnosis stops the report (3.7335ms)
+✖ a push racing the comment marks the posted report superseded for the new head (26.105792ms)
+✔ a head that moves while the agent runs declines instead of reporting on a stale head (9.746ms)
+✔ report is one owned PR comment naming the inherited session, never the prompt text, with mentions neutralised (23.410584ms)
+✔ the agent CLI follows the origin session: Claude and Codex both work (5.757792ms)
+✔ by default no agent is dispatched: untrusted PR content needs enforced write scope first (gate 8 / #442) (1.603083ms)
+✔ invalid policy is refused when the source loads (7.653667ms)
+✖ withdrawing the opt-in label while the comment posts marks the report withdrawn (4.871625ms)
+✖ the agent echoing the original prompt does not publish it (87.228ms)
+✖ a concurrent run that already reported this head wins: the later comment removes itself (14.649167ms)
 ℹ tests 19
 ℹ suites 0
 ℹ pass 14
@@ -35,16 +36,16 @@ Node.js v26.8.1
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 1665.712416
+ℹ duration_ms 4684.094958
 
 ✖ failing tests:
 
 test at examples/babysitter/tests/signals.test.ts:1:1
-✖ examples/babysitter/tests/signals.test.ts (902.388125ms)
+✖ examples/babysitter/tests/signals.test.ts (3311.01125ms)
   'test failed'
 
 test at examples/babysitter/tests/standalone.test.ts:196:1
-✖ a push racing the comment marks the posted report superseded for the new head (2.544708ms)
+✖ a push racing the comment marks the posted report superseded for the new head (26.105792ms)
   AssertionError [ERR_ASSERTION]: superseded patch issued
       at TestContext.<anonymous> (file://<repo>/examples/babysitter/tests/standalone.test.ts:201:10)
       at async Test.run (node:internal/test_runner/test:1409:7)
@@ -58,7 +59,7 @@ test at examples/babysitter/tests/standalone.test.ts:196:1
   }
 
 test at examples/babysitter/tests/standalone.test.ts:256:1
-✖ withdrawing the opt-in label while the comment posts marks the report withdrawn (2.85225ms)
+✖ withdrawing the opt-in label while the comment posts marks the report withdrawn (4.871625ms)
   AssertionError [ERR_ASSERTION]: withdrawn patch issued
       at TestContext.<anonymous> (file://<repo>/examples/babysitter/tests/standalone.test.ts:261:10)
       at async Test.run (node:internal/test_runner/test:1409:7)
@@ -72,7 +73,7 @@ test at examples/babysitter/tests/standalone.test.ts:256:1
   }
 
 test at examples/babysitter/tests/standalone.test.ts:266:1
-✖ the agent echoing the original prompt does not publish it (242.686792ms)
+✖ the agent echoing the original prompt does not publish it (87.228ms)
   AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
   
     assert.ok(!comment.includes('Fix the flaky retry in queue.ts.'))
@@ -89,7 +90,7 @@ test at examples/babysitter/tests/standalone.test.ts:266:1
   }
 
 test at examples/babysitter/tests/standalone.test.ts:276:1
-✖ a concurrent run that already reported this head wins: the later comment removes itself (10.842167ms)
+✖ a concurrent run that already reported this head wins: the later comment removes itself (14.649167ms)
   AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
   
     assert.ok(settle)

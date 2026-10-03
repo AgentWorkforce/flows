@@ -148,4 +148,6 @@ the command it shows.
 - `04-typecheck.txt` and `05-bundle-flows-check.txt`: typecheck, and the
   bundle plus `flows check`.
 - `06-mutations.txt`: the output of `mutations.sh`. Six mutations, each
-  caught by a named test, each file restored byte-for-byte.
+  caught by a named test, each file restored byte-for-byte. The script exits
+  nonzero if a mutation survives or does not apply, and restores the file if
+  interrupted.
