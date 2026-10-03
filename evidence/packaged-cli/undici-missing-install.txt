@@ -1,0 +1,46 @@
+State: undici-missing
+$ npm exec --yes --package=node@22 -- bash scripts/packaged-cli-gate.sh
+v22.23.3
+npm warn deprecated whatwg-encoding@3.1.1: Use @exodus/bytes instead for a more spec-conformant and faster implementation
+
+added 187 packages in 2s
+
+> @relayflows/surface@2.0.39 build
+> tsc
+
+relayflows-surface-2.0.39.tgz
+npm warn deprecated whatwg-encoding@3.1.1: Use @exodus/bytes instead for a more spec-conformant and faster implementation
+
+added 195 packages in 2s
+
+added 3 packages, removed 3 packages, and changed 28 packages in 3s
+
+> @relayflows/sdk@2.0.39 build
+> tsc && node scripts/make-cli-executable.mjs
+
+relayflows-sdk-2.0.39.tgz
+relayflows-2.0.39.tgz
+npm warn deprecated whatwg-encoding@3.1.1: Use @exodus/bytes instead for a more spec-conformant and faster implementation
+npm warn deprecated whatwg-encoding@3.1.1: Use @exodus/bytes instead for a more spec-conformant and faster implementation
+
+added 350 packages in 3s
+PACKED_PROVENANCE_OK sdk and surface
+node:internal/modules/package_json_reader:314
+  throw new ERR_MODULE_NOT_FOUND(packageName, fileURLToPath(base), null);
+        ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'undici' imported from /tmp/relayflows-cli-consumer.AXhjkT/node_modules/@relayflows/sdk/dist/mcp-client.js
+    at Object.getPackageJSONURL (node:internal/modules/package_json_reader:314:9)
+    at packageResolve (node:internal/modules/esm/resolve:772:81)
+    at moduleResolve (node:internal/modules/esm/resolve:859:18)
+    at defaultResolve (node:internal/modules/esm/resolve:989:11)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:747:20)
+    at ModuleLoader.resolve (node:internal/modules/esm/loader:724:38)
+    at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:320:38)
+    at ModuleJob._link (node:internal/modules/esm/module_job:182:49) {
+  code: 'ERR_MODULE_NOT_FOUND'
+}
+
+Node.js v22.23.3
+
+EXIT_CODE=1

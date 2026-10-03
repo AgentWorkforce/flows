@@ -1,0 +1,25 @@
+After declaring typescript:
+$ npm install --prefix packages/sdk --package-lock-only --ignore-scripts --no-audit --no-fund
+
+up to date in 260ms
+
+$ npm ci --prefix packages/sdk --dry-run --ignore-scripts
+change @relayflows/surface 2.0.39 => 2.0.39
+
+changed 1 package in 374ms
+
+65 packages are looking for funding
+  run `npm fund` for details
+
+After declaring undici:
+$ npm install --prefix packages/sdk --package-lock-only --ignore-scripts --no-audit --no-fund
+
+up to date in 263ms
+
+$ npm ci --prefix packages/sdk --dry-run --ignore-scripts
+change @relayflows/surface 2.0.39 => 2.0.39
+
+changed 1 package in 363ms
+
+65 packages are looking for funding
+  run `npm fund` for details

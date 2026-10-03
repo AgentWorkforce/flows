@@ -1,0 +1,35 @@
+State: undici-restored
+$ npm exec --yes --package=node@22 -- bash scripts/packaged-cli-gate.sh
+v22.23.3
+npm warn deprecated whatwg-encoding@3.1.1: Use @exodus/bytes instead for a more spec-conformant and faster implementation
+
+added 187 packages in 2s
+
+> @relayflows/surface@2.0.39 build
+> tsc
+
+relayflows-surface-2.0.39.tgz
+npm warn deprecated whatwg-encoding@3.1.1: Use @exodus/bytes instead for a more spec-conformant and faster implementation
+
+added 195 packages in 2s
+
+added 3 packages, removed 3 packages, and changed 28 packages in 3s
+
+> @relayflows/sdk@2.0.39 build
+> tsc && node scripts/make-cli-executable.mjs
+
+relayflows-sdk-2.0.39.tgz
+relayflows-2.0.39.tgz
+npm warn deprecated whatwg-encoding@3.1.1: Use @exodus/bytes instead for a more spec-conformant and faster implementation
+npm warn deprecated whatwg-encoding@3.1.1: Use @exodus/bytes instead for a more spec-conformant and faster implementation
+
+added 350 packages in 3s
+PACKED_PROVENANCE_OK sdk and surface
+CHECK PASSED testdata/hello-authored.flow.ts
+PACKED_CHECK_JSON_OK
+REQUIRES claude (agent "${lens}-reviewer")
+CHECK PASSED examples/pr-review-pipeline/pr-review-pipeline.flow.ts
+PACKED_CHECK_JSON_OK
+PACKAGED_CLI_OK
+
+EXIT_CODE=0

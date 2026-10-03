@@ -1,0 +1,11 @@
+$ bash <<'SH'
+du -sh packages/sdk/node_modules/typescript
+node -e 'console.log("relayflows engines:", require("./packages/relayflows/package.json").engines)'
+rg -n 'js-yaml' packages/sdk/package.json packages/sdk/src || true
+SH
+23M	packages/sdk/node_modules/typescript
+relayflows engines: { node: '>=20' }
+packages/sdk/package.json:53:    "@types/js-yaml": "^4.0.9",
+packages/sdk/package.json:58:    "js-yaml": "^5.4.1",
+
+EXIT_CODE=0

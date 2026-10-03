@@ -1,0 +1,39 @@
+State: undici-missing
+$ cd packages/sdk && ../../packages/sdk/node_modules/.bin/vitest run tests/runtime-dependencies.test.ts
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/runtime-dependencies.test.ts (2 tests | 1 failed) 458ms
+   × runtime dependency declarations > declares every literal runtime import in src as a dependency or peer 450ms
+     → runtime imports missing dependencies/peerDependencies: expected [ 'undici (src/mcp-client.ts)' ] to deeply equal []
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/runtime-dependencies.test.ts > runtime dependency declarations > declares every literal runtime import in src as a dependency or peer
+AssertionError: runtime imports missing dependencies/peerDependencies: expected [ 'undici (src/mcp-client.ts)' ] to deeply equal []
+
+- Expected
++ Received
+
+- Array []
++ Array [
++   "undici (src/mcp-client.ts)",
++ ]
+
+ ❯ tests/runtime-dependencies.test.ts:75:90
+     73|       }
+     74|     }
+     75|     expect([...missing].sort(), 'runtime imports missing dependencies/…
+       |                                                                                          ^
+     76|   });
+     77| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  20:38:18
+   Duration  1.02s (transform 27ms, setup 16ms, collect 374ms, tests 458ms, environment 0ms, prepare 47ms)
+
+
+EXIT_CODE=1

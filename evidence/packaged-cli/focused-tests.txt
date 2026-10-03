@@ -1,0 +1,17 @@
+$ cd packages/sdk && ./node_modules/.bin/vitest run tests/runtime-dependencies.test.ts tests/activity-preflight.test.ts tests/authored-flow.test.ts tests/check-command-cwd.test.ts
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/runtime-dependencies.test.ts (2 tests) 531ms
+   ✓ runtime dependency declarations > declares every literal runtime import in src as a dependency or peer 523ms
+ ✓ tests/activity-preflight.test.ts (10 tests) 20ms
+ ✓ tests/check-command-cwd.test.ts (1 test) 19ms
+ ✓ tests/authored-flow.test.ts (38 tests) 812ms
+
+ Test Files  4 passed (4)
+      Tests  51 passed (51)
+   Start at  20:39:33
+   Duration  2.62s (transform 1.39s, setup 46ms, collect 3.76s, tests 1.38s, environment 1ms, prepare 185ms)
+
+
+EXIT_CODE=0

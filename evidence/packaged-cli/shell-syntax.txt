@@ -1,0 +1,3 @@
+$ bash -n scripts/packaged-cli-gate.sh scripts/surface-package-gate.sh
+
+EXIT_CODE=0

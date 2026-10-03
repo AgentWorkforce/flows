@@ -1,0 +1,15 @@
+State: typescript-restored
+$ cd packages/sdk && ../../packages/sdk/node_modules/.bin/vitest run tests/runtime-dependencies.test.ts
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/runtime-dependencies.test.ts (2 tests) 411ms
+   ✓ runtime dependency declarations > declares every literal runtime import in src as a dependency or peer 403ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  20:37:53
+   Duration  999ms (transform 35ms, setup 17ms, collect 404ms, tests 411ms, environment 0ms, prepare 47ms)
+
+
+EXIT_CODE=0

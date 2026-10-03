@@ -1,0 +1,49 @@
+Restored package.json and package-lock.json byte-for-byte from saved fixed bytes.
+$ npm install --prefix packages/sdk --package-lock-only --ignore-scripts --no-audit --no-fund
+
+up to date in 267ms
+
+EXIT_CODE=0
+$ npm ci --prefix packages/sdk --dry-run --ignore-scripts
+add @rollup/rollup-linux-x64-musl 4.63.0
+change @types/node 22.20.5 => 22.20.1
+change @rollup/rollup-linux-x64-gnu 4.64.0 => 4.63.0
+change @relayfile/sdk 0.10.70 => 0.10.69
+change @relayfile/core 0.10.70 => 0.10.69
+change @relayfile/mount-linux-x64 0.10.70 => 0.10.69
+change @relayfile/cli-linux-x64 0.10.70 => 0.10.69
+change @relayfile/adapter-linear 0.4.14 => 0.4.13
+remove @relayfile/adapter-core 0.6.4
+change @modelcontextprotocol/sdk 1.32.0 => 1.30.0
+change @jridgewell/sourcemap-codec 1.6.0 => 1.5.5
+change @hono/node-server 2.1.3 => 2.1.1
+change @agent-relay/cli-surface 12.4.1 => 12.2.4
+change zod 4.6.5 => 4.6.2
+change yaml 2.9.1 => 2.9.0
+add iconv-lite 0.6.3
+change undici 7.30.0 => 7.29.1
+change source-map-js 1.2.2 => 1.2.1
+change rollup 4.64.0 => 4.63.0
+change proxy-addr 2.0.8 => 2.0.7
+change postcss 8.5.28 => 8.5.26
+remove iconv-lite 0.7.3
+change nanoid 3.3.19 => 3.3.18
+change js-yaml 5.4.2 => 5.4.1
+change ip-address 10.7.3 => 10.7.0
+change ignore 7.0.12 => 7.0.9
+change iconv-lite 0.6.3 => 0.7.3
+change hono 4.13.12 => 4.13.7
+change fast-uri 3.1.8 => 3.1.7
+add iconv-lite 0.6.3
+change brace-expansion 5.0.12 => 5.0.9
+remove iconv-lite 0.7.3
+change ajv 8.20.0 => 8.17.1
+
+added 3 packages, removed 3 packages, and changed 27 packages in 339ms
+
+65 packages are looking for funding
+  run `npm fund` for details
+
+EXIT_CODE=0
+SHA256 packages/sdk/package.json db243fa979a16666d5404a1a754487829282aca79cab99516686dc5f055ddc6b (matches saved fixed bytes)
+SHA256 packages/sdk/package-lock.json 71a7ae98022662e9f352d1f81d281132783aa7883c52ed0d264fae402e744f27 (matches saved fixed bytes)

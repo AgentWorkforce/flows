@@ -1,0 +1,12 @@
+$ node --input-type=module - <<'NODE'
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { parse } from './packages/sdk/node_modules/yaml/dist/index.js';
+const workflow = parse(readFileSync('.github/workflows/packaged-cli.yml', 'utf8'));
+assert.ok(workflow.on.pull_request.paths.includes('packages/sdk/**'));
+assert.equal(workflow.jobs['packed-cli'].steps.at(-1).run, 'bash scripts/packaged-cli-gate.sh');
+console.log('PACKAGED_WORKFLOW_YAML_OK');
+NODE
+PACKAGED_WORKFLOW_YAML_OK
+
+EXIT_CODE=0

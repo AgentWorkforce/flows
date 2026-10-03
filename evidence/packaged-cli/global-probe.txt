@@ -1,0 +1,44 @@
+$ bash <<'SH'
+set -euo pipefail
+repo_root="$PWD"
+probe_dir="$(mktemp -d /tmp/relayflows-global-probe.XXXXXX)"
+trap 'rm -rf "$probe_dir"' EXIT
+for package in surface sdk relayflows; do
+  (cd "packages/$package" && npm pack --ignore-scripts --pack-destination "$probe_dir" --silent)
+done
+npm install -g --prefix "$probe_dir/global" "$probe_dir"/*.tgz --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund
+node --experimental-import-meta-resolve --input-type=module - "$probe_dir/global/lib/node_modules/relayflows/bin/flows.js" <<'NODE'
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+const actual = import.meta.resolve('@relayflows/sdk/cli', pathToFileURL(process.argv[2]).href);
+const hash = file => createHash('sha256').update(readFileSync(file)).digest('hex');
+assert.equal(hash(new URL(actual)), hash('packages/sdk/dist/cli.js'), 'global install resolved registry SDK');
+console.log('GLOBAL_SDK_PROVENANCE_OK');
+NODE
+mkdir "$probe_dir/consumer"
+cd "$probe_dir/consumer"
+printf '%s\n' '{"name":"global-cli-consumer","private":true,"type":"module"}' > package.json
+npm install "$probe_dir/relayflows-surface-2.0.39.tgz" --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund
+cp "$repo_root/testdata/hello-authored.flow.ts" .
+cp "$repo_root/examples/pr-review-pipeline/pr-review-pipeline.flow.ts" .
+"$probe_dir/global/bin/flows" check hello-authored.flow.ts
+"$probe_dir/global/bin/flows" check pr-review-pipeline.flow.ts
+SH
+relayflows-surface-2.0.39.tgz
+relayflows-sdk-2.0.39.tgz
+relayflows-2.0.39.tgz
+npm warn deprecated whatwg-encoding@3.1.1: Use @exodus/bytes instead for a more spec-conformant and faster implementation
+npm warn deprecated whatwg-encoding@3.1.1: Use @exodus/bytes instead for a more spec-conformant and faster implementation
+
+added 294 packages in 6s
+GLOBAL_SDK_PROVENANCE_OK
+npm warn deprecated whatwg-encoding@3.1.1: Use @exodus/bytes instead for a more spec-conformant and faster implementation
+
+added 140 packages in 2s
+CHECK PASSED hello-authored.flow.ts
+REQUIRES claude (agent "${lens}-reviewer")
+CHECK PASSED pr-review-pipeline.flow.ts
+
+EXIT_CODE=0
