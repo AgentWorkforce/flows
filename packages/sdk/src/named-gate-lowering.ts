@@ -128,9 +128,12 @@ process.exit(result.status===0?0:1);`;
       body = `const result=cp.spawnSync('wc',['-w'],{input:text,encoding:'utf8',env:{...process.env,LC_ALL:'C'}});
 const noise=(result.stderr||'').trim().slice(-200);
 const said=noise===''?'':': '+noise;
-if(result.error)fail('could not run wc -w: '+(result.error.code||result.error.message)+said);
 if(result.signal)fail('wc -w was terminated by '+result.signal+said);
+if(result.status!==null){
 if(result.status!==0)fail('wc -w exited '+result.status+said);
+}else if(result.error){
+fail('could not run wc -w: '+(result.error.code||result.error.message)+said);
+}
 const count=result.stdout.trim();
 if(!/^[0-9]+$/.test(count))fail('wc -w printed '+JSON.stringify(count.slice(0,80))+' instead of a word count'+said);
 process.stdout.write(BigInt(count).toString());`;
