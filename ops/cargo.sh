@@ -64,7 +64,7 @@ elif [ -x "$HOME/.cargo/bin/cargo" ] && "$HOME/.cargo/bin/cargo" --version >/dev
 elif [ -x /usr/local/cargo/bin/cargo ] && /usr/local/cargo/bin/cargo --version >/dev/null 2>&1; then
   cargo_bin=/usr/local/cargo/bin/cargo
 elif [ -x "$CARGO_HOME/bin/cargo" ]; then
-  export RUSTUP_HOME="${RUSTUP_HOME:-$toolchain_home/rustup}"
+  export RUSTUP_HOME="$toolchain_home/rustup"
   if "$CARGO_HOME/bin/cargo" --version >/dev/null 2>&1; then
     cargo_bin="$CARGO_HOME/bin/cargo"
   fi
@@ -78,7 +78,7 @@ if [ -z "$cargo_bin" ]; then
   #   artifact-skip: path ".cargo-home/bin/rustup" reason "size-cap"
   #   (20838840 bytes exceeds per-file cap)
   # So every step that needs cargo must be able to obtain it itself. Install
-  # into the repo-local CARGO_HOME, which is where this wrapper already points.
+  # into the private CARGO_HOME, which is outside the propagated workspace.
   if [ "${RELAYFLOWS_NO_TOOLCHAIN_INSTALL:-0}" = "1" ]; then
     echo "CARGO_NOT_FOUND: no toolchain, and install is disabled by RELAYFLOWS_NO_TOOLCHAIN_INSTALL=1." >&2
     echo "  PATH=$PATH" >&2
@@ -90,10 +90,7 @@ if [ -z "$cargo_bin" ]; then
     echo "CARGO_BOOTSTRAP_FAILED: curl is not available, so the toolchain cannot be fetched." >&2
     exit 127
   fi
-  export RUSTUP_HOME="${RUSTUP_HOME:-$toolchain_home/rustup}"
-  # Remove any partial toolchain first: a half-copied one reports
-  # "Missing manifest" rather than "not installed", and rustup will happily
-  # leave it in place.
+  export RUSTUP_HOME="$toolchain_home/rustup"
   rm -rf "$toolchain_home"
   mkdir -p "$toolchain_home"
   # Bound the install ourselves. On run 457a6102 verify-1 sat for 31 minutes
