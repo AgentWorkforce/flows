@@ -178,3 +178,4 @@ echo "PACKED_TYPESCRIPT_OK"
 
 cd "$repo_root/packages/sdk"
 ./node_modules/.bin/vitest run tests/authored-flow.test.ts
+bash "$repo_root/scripts/packaged-cli-gate.sh" "$tarball"
