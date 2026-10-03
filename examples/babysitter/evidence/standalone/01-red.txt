@@ -1,0 +1,27 @@
+$ node --experimental-strip-types --test examples/babysitter/tests/standalone.test.ts
+node:internal/modules/esm/resolve:272
+    throw new ERR_MODULE_NOT_FOUND(
+          ^
+
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module '<repo>/examples/babysitter/standalone.ts' imported from <repo>/examples/babysitter/tests/standalone.test.ts
+  code: 'ERR_MODULE_NOT_FOUND',
+  url: 'file://<repo>/examples/babysitter/standalone.ts'
+}
+
+Node.js v26.8.1
+✖ examples/babysitter/tests/standalone.test.ts (371.069542ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 390.585125
+
+✖ failing tests:
+
+test at examples/babysitter/tests/standalone.test.ts:1:1
+✖ examples/babysitter/tests/standalone.test.ts (371.069542ms)
+  'test failed'
+exit=1

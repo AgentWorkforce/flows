@@ -1,0 +1,157 @@
+# Code at 42f3828f, tests at 2b70cc26 (the red before the fix commit).
+$ node --experimental-strip-types --test examples/babysitter/tests/standalone.test.ts examples/babysitter/tests/signals.test.ts
+file://<repo>/examples/babysitter/tests/signals.test.ts:3
+import { readSignals } from '../signals.ts';
+         ^^^^^^^^^^^
+SyntaxError: The requested module '../signals.ts' does not provide an export named 'readSignals'
+    at #asyncInstantiate (node:internal/modules/esm/module_job:463:21)
+    at async ModuleJob.run (node:internal/modules/esm/module_job:561:5)
+    at async node:internal/modules/esm/loader:650:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v26.8.1
+✖ examples/babysitter/tests/signals.test.ts (1155.813791ms)
+✔ without originContext the run ends needs_human with zero f.agent calls and no live read (40.008875ms)
+✔ with originContext the agent task carries the first prompt verbatim, delimited as the task definition (3.7255ms)
+✔ two deliveries with different ids and the same live state log the same decision key (8.698834ms)
+✔ anything that is not the bound PR is refused before any effect (15.908125ms)
+✔ live state decides: closed, draft, missing babysit label or nothing actionable decline without an agent (29.753167ms)
+✔ a change request or an authorised directive is actionable; an outsider directive is not (13.120542ms)
+✖ a head already reported by Babysitter declines before the agent (10.902042ms)
+✖ the reader is asked for this bot's reports at the bound head (5.474125ms)
+✖ withdrawing the opt-in label during diagnosis stops the report (5.822583ms)
+✖ a push racing the comment marks the posted report superseded for the new head (5.933584ms)
+✔ a head that moves while the agent runs declines instead of reporting on a stale head (4.563167ms)
+✔ report is one owned PR comment naming the inherited session, never the prompt text, with mentions neutralised (6.607583ms)
+✔ the agent CLI follows the origin session: Claude and Codex both work (6.306917ms)
+✔ by default no agent is dispatched: untrusted PR content needs enforced write scope first (gate 8 / #442) (0.546625ms)
+✔ invalid policy is refused when the source loads (0.859ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 11
+ℹ fail 5
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2086.92075
+
+✖ failing tests:
+
+test at examples/babysitter/tests/signals.test.ts:1:1
+✖ examples/babysitter/tests/signals.test.ts (1155.813791ms)
+  'test failed'
+
+test at examples/babysitter/tests/standalone.test.ts:168:1
+✖ a head already reported by Babysitter declines before the agent (10.902042ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   'success'
+  -   'declined'
+    ]
+  
+      at TestContext.<anonymous> (file://<repo>/examples/babysitter/tests/standalone.test.ts:171:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'success' ],
+    expected: [ 'declined' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/standalone.test.ts:175:1
+✖ the reader is asked for this bot's reports at the bound head (5.474125ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /"botLogin":"babysitter\[bot\]"/. Input:
+  
+  "node -e '(async function readSignals(c                                                               )                {\n" +
+    '  const api = `https://api.github.com/repos/${c.owner}/${c.repo}`;\n' +
+    "  const cut = (s         , n        ) => typeof s === '\\''string'\\'' ? s.slice(0, n) : '\\'''\\'';\n" +
+    '  async function get(path        )               {\n' +
+    "    if (!process.env.GH_TOKEN) throw new Error('\\''GH_TOKEN required'\\'');\n" +
+    "    const res = await fetch(api + path, { headers: { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: '\\''application/vnd.github+json'\\'' } });\n" +
+    '    if (!res.ok) throw new Error(`GitHub GET ${path}: ${res.status}`);\n' +
+    '    return res.json();\n' +
+    '  }\n' +
+    '  const runs = (await get(`/commits/${c.head}/check-runs?filter=latest&per_page=100`)).check_runs;\n' +
+    '  const reviews = await get(`/pulls/${c.number}/reviews?per_page=100`);\n' +
+    '  const meta = await get(`/issues/${c.number}`);\n' +
+    '  // The newest comments: directives and our own reports are recent. Two pages,\n' +
+    '  // so a nearly empty last page cannot hide the report just before it.\n' +
+    '  const last = Math.max(1, Math.ceil(Number(meta.comments ?? 0) / 100));\n' +
+    '  const comments = [\n' +
+    '    ...(last > 1 ? await get(`/issues/${c.number}/comments?per_page=100&page=${last - 1}`) : []),\n' +
+    '    ...await get(`/issues/${c.number}/comments?per_page=100&page=${last}`),\n' +
+    '  ];\n' +
+    "  if (!Array.isArray(runs) || !Array.isArray(reviews)) throw new Error('\\''Malformed GitHub list'\\'');\n" +
+    "  const bad = ['\\''failure'\\'', '\\''timed_out'\\'', '\\''cancelled'\\'', '\\''action_required'\\'', '\\''startup_failure'\\''];\n" +
+    '  const standing = new Map             ();\n' +
+    '  for (const r of reviews) {\n' +
+    "    if (!['\\''APPROVED'\\'', '\\''CHANGES_REQUESTED'\\'', '\\''DISMISSED'\\''].includes(r.state) || typeof r.user?.login !== '\\''string'\\'') continue;\n" +
+    '    const prior = standing.get(r.user.login.toLowerCase());\n' +
+    '    if (!prior || r.id > prior.id) standing.set(r.user.login.toLowerCase(), r);\n' +
+    '  }\n' +
+    '  const out = JSON.stringify({\n' +
+    '    headSha: c.head,\n' +
+    "    failingChecks: runs.filter((r     ) => r.head_sha === c.head && r.status === '\\''completed'\\'' && bad.includes(r.conclusion))\n" +
+    '      .slice(0, 20).map((r     ) => ({ name: cut(r.name, 200), conclusion: r.conclusion, summary: cut(r.output?.summary, 2000), url: cut(r.html_url, 500) })),\n' +
+    "    changeRequests: [...standing.values()].filter(r => r.state === '\\''CHANGES_REQUESTED'\\'')\n" +
+    '      .slice(0, 20).map(r => ({ login: r.user.login, id: r.id, body: cut(r.body, 4000) })),\n' +
+    '    comments: comments.slice(-50).map((m     ) => ({\n' +
+    "      id: m.id, login: m.user?.login ?? '\\'''\\'', association: m.author_association ?? '\\''NONE'\\'', body: cut(m.body, 4000), createdAt: m.created_at,\n" +
+    '    })),\n' +
+    '  });\n' +
+    '  const final = await get(`/pulls/${c.number}`);\n' +
+    "  if (final.head?.sha !== c.head) throw new Error('\\''Live PR head moved during signal capture'\\'');\n" +
+    "  if (Buffer.byteLength(out) > 55000) throw new Error('\\''PR signals exceed safe journal output size'\\'');\n" +
+    '  process.stdout.write(out);\n' +
+    `})({"owner":"acme","repo":"widgets","number":7,"head":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}).catch(e => { console.error(e.message); process.exit(1); })'`
+  
+      at TestContext.<anonymous> (file://<repo>/examples/babysitter/tests/standalone.test.ts:179:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'node -e \'(async function readSignals(c                                                               )                {\n  const api = `https://api.github.com/repos/${c.owner}/${c.repo}`;\n  const cut = (s         , n        ) => typeof s === \'\\\'\'string\'\\\'\' ? s.slice(0, n) : \'\\\'\'\'\\\'\';\n  async function get(path        )               {\n    if (!process.env.GH_TOKEN) throw new Error(\'\\\'\'GH_TOKEN required\'\\\'\');\n    const res = await fetch(api + path, { headers: { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: \'\\\'\'application/vnd.github+json\'\\\'\' } });\n    if (!res.ok) throw new Error(`GitHub GET ${path}: ${res.status}`);\n    return res.json();\n  }\n  const runs = (await get(`/commits/${c.head}/check-runs?filter=latest&per_page=100`)).check_runs;\n  const reviews = await get(`/pulls/${c.number}/reviews?per_page=100`);\n  const meta = await get(`/issues/${c.number}`);\n  // The newest comments: directives and our own reports are recent. Two pages,\n  // so a nearly empty last page cannot hide the report just before it.\n  const last = Math.max(1, Math.ceil(Number(meta.comments ?? 0) / 100));\n  const comments = [\n    ...(last > 1 ? await get(`/issues/${c.number}/comments?per_page=100&page=${last - 1}`) : []),\n    ...await get(`/issues/${c.number}/comments?per_page=100&page=${last}`),\n  ];\n  if (!Array.isArray(runs) || !Array.isArray(reviews)) throw new Error(\'\\\'\'Malformed GitHub list\'\\\'\');\n  const bad = [\'\\\'\'failure\'\\\'\', \'\\\'\'timed_out\'\\\'\', \'\\\'\'cancelled\'\\\'\', \'\\\'\'action_required\'\\\'\', \'\\\'\'startup_failure\'\\\'\'];\n  const standing = new Map             ();\n  for (const r of reviews) {\n    if (![\'\\\'\'APPROVED\'\\\'\', \'\\\'\'CHANGES_REQUESTED\'\\\'\', \'\\\'\'DISMISSED\'\\\'\'].includes(r.state) || typeof r.user?.login !== \'\\\'\'string\'\\\'\') continue;\n    const prior = standing.get(r.user.login.toLowerCase());\n    if (!prior || r.id > prior.id) standing.set(r.user.login.toLowerCase(), r);\n  }\n  const out = JSON.stringify({\n    headSha: c.head,\n    failingChecks: runs.filter((r     ) => r.head_sha === c.head && r.status === \'\\\'\'completed\'\\\'\' && bad.includes(r.conclusion))\n      .slice(0, 20).map((r     ) => ({ name: cut(r.name, 200), conclusion: r.conclusion, summary: cut(r.output?.summary, 2000), url: cut(r.html_url, 500) })),\n    changeRequests: [...standing.values()].filter(r => r.state === \'\\\'\'CHANGES_REQUESTED\'\\\'\')\n      .slice(0, 20).map(r => ({ login: r.user.login, id: r.id, body: cut(r.body, 4000) })),\n    comments: comments.slice(-50).map((m     ) => ({\n      id: m.id, login: m.user?.login ?? \'\\\'\'\'\\\'\', association: m.author_association ?? \'\\\'\'NONE\'\\\'\', body: cut(m.body, 4000), createdAt: m.created_at,\n    })),\n  });\n  const final = await get(`/pulls/${c.number}`);\n  if (final.head?.sha !== c.head) throw new Error(\'\\\'\'Live PR head moved during signal capture\'\\\'\');\n  if (Buffer.byteLength(out) > 55000) throw new Error(\'\\\'\'PR signals exceed safe journal output size\'\\\'\');\n  process.stdout.write(out);\n})({"owner":"acme","repo":"widgets","number":7,"head":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}).catch(e => { console.error(e.message); process.exit(1); })\'',
+    expected: /"botLogin":"babysitter\[bot\]"/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/standalone.test.ts:183:1
+✖ withdrawing the opt-in label during diagnosis stops the report (5.822583ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   'success'
+  -   'declined'
+    ]
+  
+      at TestContext.<anonymous> (file://<repo>/examples/babysitter/tests/standalone.test.ts:187:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'success' ],
+    expected: [ 'declined' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at examples/babysitter/tests/standalone.test.ts:191:1
+✖ a push racing the comment marks the posted report superseded for the new head (5.933584ms)
+  AssertionError [ERR_ASSERTION]: superseded patch issued
+      at TestContext.<anonymous> (file://<repo>/examples/babysitter/tests/standalone.test.ts:196:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+exit=1

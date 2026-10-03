@@ -1,0 +1,13 @@
+$ echo '{"botLogin":"agent-relay[bot]"}' > /tmp/babysitter-policy.json
+$ node examples/babysitter/build-standalone.mjs /tmp/babysitter-policy.json
+Built examples/babysitter/dist/babysitter-standalone.flow.ts. Run flows check before deployment.
+exit=0
+$ grep -E "^import" examples/babysitter/dist/babysitter-standalone.flow.ts
+import { flow } from "@relayflows/surface";
+import { basename as basename2 } from "node:path";
+import { basename } from "node:path";
+import { github } from "@relayflows/surface";
+$ (cd examples/babysitter && node ../../packages/sdk/dist/cli.js check dist/babysitter-standalone.flow.ts)
+REQUIRES github (on github pull_request), claude (agent "babysitter-diagnose")
+CHECK PASSED dist/babysitter-standalone.flow.ts
+exit=0
