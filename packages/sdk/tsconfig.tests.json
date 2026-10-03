@@ -12,6 +12,7 @@
   "include": [
     "src/**/*.ts",
     "tests/isolate-workspace.ts",
+    "tests/runtime-dependencies.test.ts",
     "tests/run-projection.test.ts",
     "tests/observer-link.test.ts",
     "tests/bundle.test.ts",
