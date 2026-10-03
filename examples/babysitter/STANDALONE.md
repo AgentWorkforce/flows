@@ -45,18 +45,22 @@ both work.
    state.
 4. **Decline when nothing is actionable.** Closed, merged, draft or skip
    label (`eligible`); the `babysit` label absent from *live* labels; this head
-   already reported by `botLogin`; or no failing check, standing change
-   request, or new authorised `@babysitter` directive (PR author, or
+   already reported by `botLogin` (its own comments' markers, all pages); or no
+   failing check run or commit status, standing change request (all review
+   pages), or new authorised `@babysitter` directive (PR author, or
    `OWNER`/`MEMBER`/`COLLABORATOR`, after Babysitter's last comment).
 5. **One agent with the original scope.** The task opens with the origin
    session's first prompt verbatim, between fence lines the prompt cannot
    contain, as the task definition. Then the bounded origin events and what
    changed, marked as untrusted data, and the diagnose-only rules.
 6. **Reread before concluding.** If the head moved or the PR left scope,
-   decline without reporting.
+   including the opt-in label being withdrawn, decline without reporting.
 7. **One comment.** It carries the `<!-- babysitter:report <pr>@<head> -->`
    marker and names the inherited session ids, never the prompt text. Agent
-   output is bounded and `@`-mentions are neutralised. Then `f.done('success')`.
+   output is bounded and `@`-mentions are neutralised. The comment API has no
+   head precondition, so the head is read again after the write; if a push
+   raced it, the comment is prefixed "Superseded" with both heads and the run
+   ends `declined`. Otherwise `f.done('success')`.
 
 Caps (5 acting runs per PR, 2 per head, 30-day expiry), the opt-in label at
 bind time, and who may bind are Cloud's (lineage + drain). The flow adds
@@ -121,4 +125,5 @@ node examples/babysitter/build-standalone.mjs policy.json
 ```
 
 Literal output: `evidence/standalone/` (red first, green, all suites,
-typecheck, bundle + `flows check`, four mutations each caught).
+typecheck, bundle + `flows check`, four mutations each caught, review-round
+red and green).

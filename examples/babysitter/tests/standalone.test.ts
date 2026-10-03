@@ -27,7 +27,7 @@ const live = (over: Record<string, unknown> = {}) => ({
 const signals = (over: Record<string, unknown> = {}) => ({
   headSha: head,
   failingChecks: [{ name: 'ci', conclusion: 'failure', summary: 'queue.test.ts: expected 3 retries, got 1', url: 'https://example.invalid/ci' }],
-  changeRequests: [], comments: [], ...over,
+  changeRequests: [], comments: [], reportedHeads: [], ...over,
 });
 function input(over: { deliveryId?: string; eventType?: string; babysitter?: unknown; pullRequest?: unknown } = {}) {
   return {
@@ -165,23 +165,38 @@ test('a change request or an authorised directive is actionable; an outsider dir
   }
 });
 
-test('a directive already answered by a Babysitter comment is not actionable again', async () => {
-  const ctx = context({ signals: signals({ failingChecks: [], comments: [
-    { id: 9, login: 'alice', association: 'OWNER', body: '@babysitter look', createdAt: '2026-10-01T00:00:00Z' },
-    { id: 10, login: 'babysitter[bot]', association: 'NONE', body: 'earlier report', createdAt: '2026-10-01T01:00:00Z' },
-  ] }) });
-  await body()(ctx.f, input({ eventType: 'issue_comment.created' }));
+test('a head already reported by Babysitter declines before the agent', async () => {
+  const ctx = context({ signals: signals({ reportedHeads: [head] }) });
+  await body()(ctx.f, input());
   assert.deepEqual(ctx.reasons, ['declined']);
   assert.equal(ctx.agents.length, 0);
 });
 
-test('a head already reported by Babysitter declines before the agent', async () => {
-  const ctx = context({ signals: signals({ comments: [
-    { id: 10, login: 'babysitter[bot]', association: 'NONE', body: `<!-- babysitter:report acme/widgets#7@${head} -->\nold`, createdAt: '2026-10-01T01:00:00Z' },
-  ] }) });
-  await body()(ctx.f, input());
-  assert.deepEqual(ctx.reasons, ['declined']);
-  assert.equal(ctx.agents.length, 0);
+test('the reader is asked for this bot\'s reports at the bound head', async () => {
+  const { f, commands } = context();
+  await body()(f, input());
+  const read = commands.find(c => c.includes('readSignals'))!;
+  assert.match(read, /"botLogin":"babysitter\[bot\]"/);
+  assert.ok(read.includes(`"head":"${head}"`));
+});
+
+test('withdrawing the opt-in label during diagnosis stops the report', async () => {
+  const { f, reasons, agents, commands } = context({ states: [live(), live({ labels: [] })] });
+  await body()(f, input());
+  assert.equal(agents.length, 1);
+  assert.deepEqual(reasons, ['declined']);
+  assert.equal(posted(commands).length, 0);
+});
+
+test('a push racing the comment marks the posted report superseded for the new head', async () => {
+  const { f, reasons, commands } = context({ states: [live(), live(), live({ headSha: moved })] });
+  await body()(f, input());
+  assert.equal(posted(commands).length, 1);
+  const patch = commands.find(c => c.includes('markSuperseded'));
+  assert.ok(patch, 'superseded patch issued');
+  assert.ok(patch.includes(moved) && patch.includes(head));
+  assert.match(patch, /"id":1/);
+  assert.deepEqual(reasons, ['declined']);
 });
 
 test('a head that moves while the agent runs declines instead of reporting on a stale head', async () => {

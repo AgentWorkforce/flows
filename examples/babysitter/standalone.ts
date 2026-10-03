@@ -5,7 +5,7 @@ import { capabilities } from './capabilities.ts';
 import { readState } from './github.ts';
 import { parseInput, record, shellWord, text, type Config } from './input.ts';
 import { agentTask, parseOrigin, type WhatChanged } from './origin.ts';
-import { postReport, readSignalsAt, type Signals } from './signals.ts';
+import { postReport, readSignalsAt, supersedeReport, type Signals } from './signals.ts';
 import { eligible, type State } from './state.ts';
 import { subscriptions } from './subscriptions.ts';
 import { bindHead, observation } from './wake.ts';
@@ -54,11 +54,19 @@ function boundPullRequest(value: unknown): BoundPullRequest | undefined {
 export const reportMarker = (pr: BoundPullRequest, head: string): string =>
   `<!-- babysitter:report ${pr.owner.toLowerCase()}/${pr.repo.toLowerCase()}#${pr.number}@${head} -->`;
 
-/** What the live reread says changed; undefined when nothing is actionable. */
-export function whatChanged(s: Signals, botLogin: string, author: string): WhatChanged | undefined {
-  const bot = botLogin.toLowerCase();
-  const lastReport = s.comments.reduce((at, m, i) => m.login.toLowerCase() === bot ? i : at, -1);
-  const directive = s.comments.slice(lastReport + 1).reverse().find(m => {
+/** Why live state puts the PR out of scope, if it does: lifecycle, skip labels, or no opt-in label. */
+function outOfScope(s: State, c: Config, label: string): string | undefined {
+  return eligible(s, c)
+    ?? (Array.isArray(s.labels) && s.labels.some(l => String(l).toLowerCase() === label) ? undefined : `Live labels lack the "${label}" opt-in`);
+}
+
+/**
+ * What the live reread says changed; undefined when nothing is actionable.
+ * `s.comments` holds only comments after Babysitter's last one, so a
+ * directive it already answered cannot wake it again.
+ */
+export function whatChanged(s: Signals, author: string): WhatChanged | undefined {
+  const directive = [...s.comments].reverse().find(m => {
     const login = m.login.toLowerCase();
     return DIRECTIVE.test(m.body) && !login.endsWith('[bot]')
       && (login === author.toLowerCase() || AUTHORISED.includes(m.association));
@@ -102,15 +110,13 @@ export function createStandaloneBabysitter(policy: unknown, runtime: { enforcedA
     if ('refusal' in bound) return f.done('declined');
     const head = bound.head;
     // (4) Decline when live state leaves nothing to do.
-    const skip = eligible(live, c)
-      ?? (Array.isArray(live.labels) && live.labels.some(l => String(l).toLowerCase() === configured.label) ? undefined : `Live labels lack the "${configured.label}" opt-in`);
+    const skip = outOfScope(live, c, configured.label);
     if (skip) { await report(`${wake.id}: ${skip}`); return f.done('declined'); }
-    const signals = await readSignalsAt(f, pr, head);
-    const marker = reportMarker(pr, head);
-    if (signals.comments.some(m => m.login.toLowerCase() === configured.botLogin.toLowerCase() && m.body.includes(marker))) {
+    const signals = await readSignalsAt(f, pr, head, configured.botLogin);
+    if (signals.reportedHeads.includes(head)) {
       await report(`${wake.id}: head ${head} already reported`); return f.done('declined');
     }
-    const changed = whatChanged(signals, configured.botLogin, String(live.author));
+    const changed = whatChanged(signals, String(live.author));
     if (!changed) { await report(`${wake.id}: nothing actionable at ${head}`); return f.done('declined'); }
     // No agent over untrusted PR content until its write scope is enforced:
     // today the agent process inherits the run's repository credentials.
@@ -127,14 +133,14 @@ export function createStandaloneBabysitter(policy: unknown, runtime: { enforcedA
     });
     // (6) Never report on a head that no longer exists.
     const final = await readState(f, c);
-    if (final.headSha !== head || eligible(final, c)) {
+    if (final.headSha !== head || outOfScope(final, c, configured.label)) {
       await report(`${wake.id}: head moved or PR left scope during diagnosis; not reporting on ${head}`);
       return f.done('declined');
     }
     // (7) One owned comment naming the inherited session, never its prompt.
-    await postReport(f, pr, [
-      marker,
-      `### Babysitter diagnosis for \`${head.slice(0, 12)}\``,
+    const id = await postReport(f, pr, [
+      reportMarker(pr, head),
+      `### Babysitter diagnosis for \`${head}\``,
       `Inherited the original scope of ${origin.source} session \`${origin.sessionId}\` (root \`${origin.rootSessionId}\`)`
         + `${origin.degraded.length ? `; origin context degraded: ${origin.degraded.join(', ')}` : ''}. Woken by \`${wake.id}\`.`,
       '',
@@ -142,6 +148,13 @@ export function createStandaloneBabysitter(policy: unknown, runtime: { enforcedA
       '',
       '_Diagnose-only: Babysitter made no changes to this PR._',
     ].join('\n'));
+    // The comment API has no head precondition, so check after the write: a
+    // report raced by a push is marked superseded rather than left standing.
+    const after = await readState(f, c);
+    if (after.headSha !== head) {
+      await supersedeReport(f, pr, id, head, String(after.headSha));
+      return f.done('declined');
+    }
     f.done('success');
   };
   return subscriptions.reduce<ReturnType<typeof flow>>(

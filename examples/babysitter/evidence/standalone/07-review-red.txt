@@ -1,0 +1,33 @@
+$ node --experimental-strip-types --test examples/babysitter/tests/standalone.test.ts examples/babysitter/tests/signals.test.ts
+SyntaxError: The requested module '../signals.ts' does not provide an export named 'readSignals'
+✖ examples/babysitter/tests/signals.test.ts (399.255458ms)
+✔ without originContext the run ends needs_human with zero f.agent calls and no live read (10.738166ms)
+✔ with originContext the agent task carries the first prompt verbatim, delimited as the task definition (3.837875ms)
+✔ two deliveries with different ids and the same live state log the same decision key (3.308584ms)
+✔ anything that is not the bound PR is refused before any effect (5.886458ms)
+✔ live state decides: closed, draft, missing babysit label or nothing actionable decline without an agent (3.120625ms)
+✔ a change request or an authorised directive is actionable; an outsider directive is not (5.53025ms)
+✖ a head already reported by Babysitter declines before the agent (5.851458ms)
+✖ the reader is asked for this bot's reports at the bound head (2.908416ms)
+✖ withdrawing the opt-in label during diagnosis stops the report (3.18925ms)
+✖ a push racing the comment marks the posted report superseded for the new head (1.335209ms)
+✔ a head that moves while the agent runs declines instead of reporting on a stale head (1.718708ms)
+✔ report is one owned PR comment naming the inherited session, never the prompt text, with mentions neutralised (1.410292ms)
+✔ the agent CLI follows the origin session: Claude and Codex both work (0.888625ms)
+✔ by default no agent is dispatched: untrusted PR content needs enforced write scope first (gate 8 / #442) (0.840208ms)
+✔ invalid policy is refused when the source loads (0.603292ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 11
+ℹ fail 5
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 663.950792
+✖ failing tests:
+✖ examples/babysitter/tests/signals.test.ts (399.255458ms)
+✖ a head already reported by Babysitter declines before the agent (5.851458ms)
+✖ the reader is asked for this bot's reports at the bound head (2.908416ms)
+✖ withdrawing the opt-in label during diagnosis stops the report (3.18925ms)
+✖ a push racing the comment marks the posted report superseded for the new head (1.335209ms)
+exit=1
