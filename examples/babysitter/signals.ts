@@ -32,6 +32,9 @@ export interface Signals {
 export async function readSignals(c: { owner: string; repo: string; number: number; head: string; botLogin: string }): Promise<void> {
   const api = `https://api.github.com/repos/${c.owner}/${c.repo}`;
   const cut = (s: unknown, n: number) => typeof s === 'string' ? s.slice(0, n) : '';
+  // Under the 55KB journal output guard, with room for the step envelope.
+  const BUDGET = 50_000;
+  const clip = (s: unknown, n: number) => typeof s === 'string' && s.length > n ? `${s.slice(0, n)} [truncated]` : cut(s, n);
   async function get(path: string): Promise<any> {
     if (!process.env.GH_TOKEN) throw new Error('GH_TOKEN required');
     const res = await fetch(api + path, { headers: { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json' } });
@@ -75,24 +78,32 @@ export async function readSignals(c: { owner: string; repo: string; number: numb
     const at = body.indexOf(prefix);
     if (at >= 0) reportedHeads.push(body.slice(at + prefix.length, at + prefix.length + 40));
   });
-  const out = JSON.stringify({
+  const checks = [
+    ...runs.filter((r: any) => r.head_sha === c.head && r.status === 'completed' && bad.includes(r.conclusion))
+      .map((r: any) => ({ name: r.name, conclusion: r.conclusion, summary: r.output?.summary, url: r.html_url })),
+    ...[...latestStatus.values()].filter(s => bad.includes(s.state))
+      .map(s => ({ name: s.context, conclusion: s.state, summary: s.description, url: s.target_url })),
+  ].slice(0, 20);
+  const requests = [...standing.values()].filter(r => r.state === 'CHANGES_REQUESTED').slice(0, 20);
+  let recent = comments.slice(lastOwn + 1).slice(-50);
+  // Fit the journal: text shrinks first (halving its cap down to a floor),
+  // then the oldest comments go. Failing checks and change requests define
+  // actionability and are never dropped, only shortened.
+  const shape = (text: number) => JSON.stringify({
     headSha: c.head,
-    failingChecks: [
-      ...runs.filter((r: any) => r.head_sha === c.head && r.status === 'completed' && bad.includes(r.conclusion))
-        .map((r: any) => ({ name: cut(r.name, 200), conclusion: r.conclusion, summary: cut(r.output?.summary, 2000), url: cut(r.html_url, 500) })),
-      ...[...latestStatus.values()].filter(s => bad.includes(s.state))
-        .map(s => ({ name: cut(s.context, 200), conclusion: s.state, summary: cut(s.description, 2000), url: cut(s.target_url, 500) })),
-    ].slice(0, 20),
-    changeRequests: [...standing.values()].filter(r => r.state === 'CHANGES_REQUESTED')
-      .slice(0, 20).map(r => ({ login: r.user.login, id: r.id, body: cut(r.body, 4000) })),
+    failingChecks: checks.map(r => ({ name: cut(r.name, 200), conclusion: r.conclusion, summary: clip(r.summary, text), url: cut(r.url, 500) })),
+    changeRequests: requests.map(r => ({ login: r.user.login, id: r.id, body: clip(r.body, text) })),
     reportedHeads,
-    comments: comments.slice(lastOwn + 1).slice(-50).map((m: any) => ({
-      id: m.id, login: m.user?.login ?? '', association: m.author_association ?? 'NONE', body: cut(m.body, 4000), createdAt: m.created_at,
+    comments: recent.map((m: any) => ({
+      id: m.id, login: m.user?.login ?? '', association: m.author_association ?? 'NONE', body: clip(m.body, text), createdAt: m.created_at,
     })),
   });
+  let text = 4000, out = shape(text);
+  while (Buffer.byteLength(out) > BUDGET && text > 200) out = shape(text = Math.floor(text / 2));
+  while (Buffer.byteLength(out) > BUDGET && recent.length > 1) { recent = recent.slice(1); out = shape(text); }
   const final = await get(`/pulls/${c.number}`);
   if (final.head?.sha !== c.head) throw new Error('Live PR head moved during signal capture');
-  if (Buffer.byteLength(out) > 55000) throw new Error('PR signals exceed safe journal output size');
+  if (Buffer.byteLength(out) > BUDGET) throw new Error('PR signals exceed safe journal output size');
   process.stdout.write(out);
 }
 

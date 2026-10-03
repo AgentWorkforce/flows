@@ -111,3 +111,21 @@ test('settleReport keeps the earliest report for a head and deletes a later dupl
     if (saved.token === undefined) delete process.env.GH_TOKEN; else process.env.GH_TOKEN = saved.token;
   }
 });
+
+test('a PR full of long reviews, comments and failing checks still fits the journal and keeps every actor', async () => {
+  const long = (n: number) => `${'x'.repeat(n - 6)} [end]`;
+  const reviews = Array.from({ length: 20 }, (_, i) => ({ id: i + 1, user: { login: `rev${i}` }, state: 'CHANGES_REQUESTED', body: long(4000) }));
+  const comments = Array.from({ length: 60 }, (_, i) => comment(i + 1, `user${i}`, long(4000), 'MEMBER'));
+  comments[59] = comment(60, 'alice', `@babysitter ${long(4000)}`, 'OWNER');
+  const runs = Array.from({ length: 20 }, (_, i) => ({ name: `check-${i}`, head_sha: head, status: 'completed', conclusion: 'failure',
+    html_url: `https://example.invalid/${'u'.repeat(480)}`, output: { summary: long(2000) } }));
+  const s = await read(base({ '/pulls/7/reviews': reviews, '/issues/7/comments': comments, [`/commits/${head}/check-runs`]: { check_runs: runs } }));
+  assert.ok(Buffer.byteLength(JSON.stringify(s)) <= 50_000, 'within the journal budget');
+  // Truncation shortens text; it never drops a failing check or a change request.
+  assert.equal(s.failingChecks.length, 20);
+  assert.deepEqual(s.changeRequests.map((r: any) => r.login), reviews.map(r => r.user.login));
+  assert.ok(s.changeRequests.every((r: any) => r.body.endsWith('[truncated]')));
+  // The newest comment, where a directive is, survives.
+  assert.equal(s.comments.at(-1).login, 'alice');
+  assert.match(s.comments.at(-1).body, /^@babysitter /);
+});
