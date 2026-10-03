@@ -1,0 +1,2 @@
+$ (cd examples/babysitter && ../../packages/sdk/node_modules/.bin/tsc -p tsconfig.json)
+exit=0

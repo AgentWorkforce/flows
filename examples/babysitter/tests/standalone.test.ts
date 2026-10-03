@@ -63,7 +63,9 @@ const posted = (commands: string[]) => commands.filter(c => c.includes('postComm
 test('without originContext the run ends needs_human with zero f.agent calls and no live read', async () => {
   for (const babysitter of [undefined, { pullRequest: { owner: 'acme', repo: 'widgets', number: 7 } },
     { pullRequest: { owner: 'acme', repo: 'widgets', number: 7 }, originContext: { status: 'missing', reason: 'digest_mismatch' } },
-    { pullRequest: { owner: 'acme', repo: 'widgets', number: 7 }, originContext: { ...originContext, firstPrompt: '' } }]) {
+    { pullRequest: { owner: 'acme', repo: 'widgets', number: 7 }, originContext: { ...originContext, firstPrompt: '' } },
+    // A `missing` verdict refuses even if a prompt rides along with it.
+    { pullRequest: { owner: 'acme', repo: 'widgets', number: 7 }, originContext: { ...originContext, status: 'missing', reason: 'digest_mismatch' } }]) {
     const { f, commands, reasons, agents } = context();
     await body()(f, input({ babysitter }));
     assert.deepEqual(reasons, ['needs_human']);

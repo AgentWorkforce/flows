@@ -1,0 +1,29 @@
+=== mutation: fail-open without originContext (status check removed; test strengthened with a missing verdict that carries a prompt)
+$ sed -i '' 's/if (x.status !== .ok. \&\& x.status !== .degraded.) return undefined;/if (x.status === "never") return undefined;/' examples/babysitter/origin.ts
+(mutated)
+ℹ fail 1
+ℹ pass 12
+✖ failing tests:
+✖ without originContext the run ends needs_human with zero f.agent calls and no live read (21.795583ms)
+restored: identical
+=== mutation: skip the reread-before-report head check
+$ sed -i '' 's/if (final.headSha !== head || eligible(final, c)) {/if (false) {/' examples/babysitter/standalone.ts
+ℹ fail 1
+ℹ pass 12
+✖ a head that moves while the agent runs declines instead of reporting on a stale head (3.282125ms)
+✖ failing tests:
+restored: identical
+=== mutation: fixed delimiter the prompt can close
+$ sed -i '' "s/while (enclosed.includes(\`\${bar} \${label}\`)) bar += '=';//" examples/babysitter/origin.ts; sed -i '' 's/const begin = fence(.BEGIN ORIGINAL TASK., o.firstPrompt), end = fence(.END ORIGINAL TASK., o.firstPrompt);/const begin = "BEGIN ORIGINAL TASK", end = "END ORIGINAL TASK";/' examples/babysitter/origin.ts
+ℹ fail 1
+ℹ pass 12
+✖ failing tests:
+✖ with originContext the agent task carries the first prompt verbatim, delimited as the task definition (16.061958ms)
+restored: identical
+=== mutation: decision key from the delivery id
+$ sed -i '' 's/await report(`${observation(c, wake, bound)} delivery=${deliveryId}`);/await report(`${observation(c, { ...wake, id: wake.id + deliveryId }, bound)} delivery=${deliveryId}`);/' examples/babysitter/standalone.ts
+ℹ fail 1
+ℹ pass 12
+✖ failing tests:
+✖ two deliveries with different ids and the same live state log the same decision key (3.678792ms)
+restored: identical

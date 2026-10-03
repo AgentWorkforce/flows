@@ -1,0 +1,23 @@
+$ node --experimental-strip-types --test examples/babysitter/tests/standalone.test.ts
+✔ without originContext the run ends needs_human with zero f.agent calls and no live read (16.375917ms)
+✔ with originContext the agent task carries the first prompt verbatim, delimited as the task definition (25.594167ms)
+✔ two deliveries with different ids and the same live state log the same decision key (7.967334ms)
+✔ anything that is not the bound PR is refused before any effect (11.774417ms)
+✔ live state decides: closed, draft, missing babysit label or nothing actionable decline without an agent (7.604667ms)
+✔ a change request or an authorised directive is actionable; an outsider directive is not (21.629125ms)
+✔ a directive already answered by a Babysitter comment is not actionable again (3.17825ms)
+✔ a head already reported by Babysitter declines before the agent (2.621917ms)
+✔ a head that moves while the agent runs declines instead of reporting on a stale head (2.108083ms)
+✔ report is one owned PR comment naming the inherited session, never the prompt text, with mentions neutralised (5.186334ms)
+✔ the agent CLI follows the origin session: Claude and Codex both work (6.053459ms)
+✔ by default no agent is dispatched: untrusted PR content needs enforced write scope first (gate 8 / #442) (1.405875ms)
+✔ invalid policy is refused when the source loads (2.058ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 770.108916
+exit=0

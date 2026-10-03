@@ -259,6 +259,12 @@ and output — including three mutation verifications of the wake contract
 (`10-`, `11-`), which revert a specific behavior, capture the failure, restore
 byte-for-byte and capture the pass — and `SCOPE.md` for the requested scope.
 
+## Standalone webhook Babysitter
+
+`standalone.ts` is the v1 diagnose-and-comment Babysitter that Cloud launches
+from a webhook with the bound session's origin context. See
+[`STANDALONE.md`](STANDALONE.md).
+
 ## Running the tests
 
 The suites resolve `@relayflows/surface` from the repo root and the SDK's
