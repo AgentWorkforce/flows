@@ -40,6 +40,7 @@ fn verification_failure_schedules_a_durable_retry() {
         &spec.steps[0],
         1,
         0,
+        None,
         AttemptResult::successful(json!({"exit_code": 0, "stdout_tail": "wrong"}), "kernel"),
         1_000,
     );
@@ -63,8 +64,7 @@ fn verification_failure_schedules_a_durable_retry() {
 }
 
 #[test]
-fn failed_deterministic_completion_preserves_exit_code_and_stderr(
-) {
+fn failed_deterministic_completion_preserves_exit_code_and_stderr() {
     // #292: failed attempts used to journal `output: null`, so the CLI
     // could not surface the actual exit code or stderr excerpt. Both the
     // retry branch and the terminal branch must now preserve the captured
@@ -82,6 +82,7 @@ fn failed_deterministic_completion_preserves_exit_code_and_stderr(
         &retryable_step,
         1,
         0,
+        None,
         AttemptResult::successful(retry_output.clone(), "kernel"),
         1_000,
     );
@@ -109,6 +110,7 @@ fn failed_deterministic_completion_preserves_exit_code_and_stderr(
         &terminal_step,
         1,
         0,
+        None,
         AttemptResult::successful(terminal_output.clone(), "kernel"),
         2_000,
     );
@@ -146,11 +148,12 @@ fn every_failed_run_terminates_with_declared_completion_reasons() {
         let spec = retrying_spec();
         let mut step = spec.steps[0].clone();
         step.max_iterations = 1;
+        step.retry.max_transport_retries = 0;
         let mut result = AttemptResult::successful(Value::Null, "test");
         result.failure_reason = Some(reason);
         result.failure_detail = Some("declared test failure".to_owned());
         let Action::Append(completed) =
-            completion_actions("run", &step, 1, 0, result, 10).remove(0)
+            completion_actions("run", &step, 1, 0, None, result, 10).remove(0)
         else {
             panic!("failed attempt must append a typed completion");
         };
@@ -178,6 +181,7 @@ fn successful_memo_is_never_scheduled_again() {
         &spec.steps[0],
         1,
         0,
+        None,
         AttemptResult::successful(json!({"exit_code": 0, "stdout_tail": "hello"}), "kernel"),
         1_000,
     )
@@ -290,7 +294,8 @@ fn crashed_attempt_does_not_consume_an_iteration() {
     // max_iterations 2: crash attempt 1, verification-fail the replacement
     // (attempt 2) — one semantic iteration must remain, so the step retries
     // instead of exhausting after a single semantic result.
-    let spec = retrying_spec();
+    let mut spec = retrying_spec();
+    spec.steps[0].retry.max_transport_retries = 1;
     let fresh = RunState::fold("run", spec.clone(), &[]).unwrap();
     let Action::Append(started) = next_actions(&fresh, 10).remove(0) else {
         panic!("attempt 1 must journal its lease");
@@ -318,6 +323,7 @@ fn crashed_attempt_does_not_consume_an_iteration() {
         &spec.steps[0],
         2,
         state.steps["hello"].semantic_executions,
+        None,
         AttemptResult::successful(json!({"exit_code": 0, "stdout_tail": "wrong"}), "kernel"),
         2_000,
     );
@@ -362,14 +368,20 @@ fn all_backing_off_steps_return_timers() {
         end_pins: None,
         effects: Vec::new(),
         trajectory_tail: None,
-        failure_reason: Some(CompletionReason::WorkerError),
-        failure_detail: Some("stub rejection".to_owned()),
+        // A classified transport loss: retryable under the default transport
+        // budget without consuming a semantic iteration. `worker_error` is
+        // terminal since transport and semantic budgets were split, so it can
+        // no longer stand in for "a failure that backs off"; the case has to
+        // be a reason that still schedules a retry, or the assertion below
+        // stops exercising failure backoff at all.
+        failure_reason: Some(CompletionReason::Crashed),
+        failure_detail: Some("direct transport closed without a status".to_owned()),
         reported_cost: None,
     };
     let mut entries = Vec::new();
     for step in &spec.steps {
         entries.extend(
-            completion_actions("run", step, 1, 0, result.clone(), 1_000)
+            completion_actions("run", step, 1, 0, None, result.clone(), 1_000)
                 .into_iter()
                 .filter_map(|action| match action {
                     Action::Append(entry) => Some(entry),
@@ -388,7 +400,7 @@ fn all_backing_off_steps_return_timers() {
     );
 }
 
-fn agent_spec(mode: &str) -> crate::RunSpec {
+pub(super) fn agent_spec(mode: &str) -> crate::RunSpec {
     crate::RunSpec::parse(&json!({
         "steps": [{
             "id": "agent",
@@ -396,14 +408,14 @@ fn agent_spec(mode: &str) -> crate::RunSpec {
             "instruction": "edit the workspace",
             "recovery_mode": mode,
             "max_iterations": 2,
-            "retry": {"initial_backoff_ms": 0, "max_backoff_ms": 0, "multiplier": 1, "jitter_percent": 0},
+            "retry": {"initial_backoff_ms": 0, "max_backoff_ms": 0, "multiplier": 1, "jitter_percent": 0, "max_transport_retries": 1},
             "surfaces": {"workspace": [{"surface": "repo"}]}
         }]
     }))
     .unwrap()
 }
 
-fn workspace_pins(revision_id: &str) -> Pins {
+pub(super) fn workspace_pins(revision_id: &str) -> Pins {
     Pins {
         workspace: vec![crate::WorkspacePin {
             surface: "repo".to_owned(),
@@ -413,7 +425,7 @@ fn workspace_pins(revision_id: &str) -> Pins {
     }
 }
 
-fn started_agent(spec: &crate::RunSpec, pins: Pins) -> JournalEntry {
+pub(super) fn started_agent(spec: &crate::RunSpec, pins: Pins) -> JournalEntry {
     let state = RunState::fold("run", spec.clone(), &[]).unwrap();
     let Action::Append(mut started) = next_actions(&state, 10).remove(0) else {
         panic!("agent start must be journaled")
@@ -460,6 +472,190 @@ fn reset_recovery_dispatches_the_original_pinned_revision() {
 }
 
 #[test]
+fn classified_transport_retry_is_bounded_and_preserves_pin_and_idempotency() {
+    let spec = agent_spec("reset");
+    let pinned = workspace_pins("rev-clean");
+    let started = started_agent(&spec, pinned.clone());
+    let first_started: AttemptStartedPayload =
+        serde_json::from_value(started.payload.clone()).unwrap();
+    assert_eq!(first_started.max_transport_retries, 1);
+    let running = RunState::fold("run", spec.clone(), std::slice::from_ref(&started)).unwrap();
+
+    let mut crashed = AttemptResult::successful(Value::Null, "worker");
+    crashed.failure_reason = Some(CompletionReason::Crashed);
+    crashed.failure_detail = Some("direct transport closed without a status".to_owned());
+    crashed.trajectory_tail = Some(json!({"transport": {"cause": "close_without_status"}}));
+    let first_failure = completion_actions(
+        "run",
+        &spec.steps[0],
+        1,
+        running.steps["agent"].semantic_executions,
+        None,
+        crashed.clone(),
+        20,
+    );
+    let Action::Append(first_completed) = &first_failure[0] else {
+        panic!()
+    };
+    let first_payload: StepCompletedPayload =
+        serde_json::from_value(first_completed.payload.clone()).unwrap();
+    assert_eq!(first_payload.completion_reason, CompletionReason::Crashed);
+    assert_eq!(first_payload.disposition, Disposition::Retry);
+
+    let mut entries = vec![started];
+    entries.extend(first_failure.into_iter().filter_map(|action| match action {
+        Action::Append(entry) => Some(entry),
+        _ => None,
+    }));
+    let backoff = RunState::fold("run", spec.clone(), &entries).unwrap();
+    let Action::Append(woken) =
+        next_actions(&backoff, first_payload.next_attempt_at_ms.unwrap()).remove(0)
+    else {
+        panic!("transport retry timer must be journaled as completed")
+    };
+    entries.push(woken);
+    let ready = RunState::fold("run", spec.clone(), &entries).unwrap();
+    let retry = next_actions(&ready, first_payload.next_attempt_at_ms.unwrap());
+    let Action::Append(second_started) = &retry[0] else {
+        panic!()
+    };
+    let second_started: AttemptStartedPayload =
+        serde_json::from_value(second_started.payload.clone()).unwrap();
+    let Action::Dispatch {
+        idempotency_key,
+        pins,
+        recovery,
+        ..
+    } = &retry[1]
+    else {
+        panic!()
+    };
+    assert_eq!(idempotency_key, &first_started.idempotency_key);
+    assert_eq!(pins, &pinned);
+    assert_eq!(
+        recovery.as_ref().unwrap().restore_pins.as_ref(),
+        Some(&pinned)
+    );
+    assert_eq!(second_started.pins, pinned);
+
+    let terminal = completion_actions(
+        "run",
+        &spec.steps[0],
+        2,
+        ready.steps["agent"].semantic_executions,
+        None,
+        crashed,
+        40,
+    );
+    let Action::Append(terminal) = &terminal[0] else {
+        panic!()
+    };
+    let terminal: StepCompletedPayload = serde_json::from_value(terminal.payload.clone()).unwrap();
+    assert_eq!(terminal.completion_reason, CompletionReason::Crashed);
+    assert_eq!(terminal.disposition, Disposition::StepDone);
+    assert_eq!(terminal.next_attempt_at_ms, None);
+}
+
+#[test]
+fn ordinary_worker_error_is_not_retried_by_either_budget() {
+    let mut spec = agent_spec("reset");
+    spec.steps[0].max_iterations = 4;
+    spec.steps[0].retry.max_transport_retries = 4;
+    let mut failed = AttemptResult::successful(Value::Null, "worker");
+    failed.failure_reason = Some(CompletionReason::WorkerError);
+    failed.failure_detail = Some("CLI rejected the task".to_owned());
+    let actions = completion_actions("run", &spec.steps[0], 1, 0, None, failed, 20);
+    assert_eq!(
+        actions.len(),
+        1,
+        "a semantic worker error must not schedule a blind retry"
+    );
+    let Action::Append(completed) = &actions[0] else {
+        panic!()
+    };
+    let completed: StepCompletedPayload =
+        serde_json::from_value(completed.payload.clone()).unwrap();
+    assert_eq!(completed.completion_reason, CompletionReason::WorkerError);
+    assert_eq!(completed.disposition, Disposition::StepDone);
+}
+
+/// `DispatchOutcome::PinMismatch`: the kernel refused the dispatch, so no
+/// worker ran it. It is journaled `worker_error`, but the step is re-elected
+/// against the same journaled pins under `max_iterations` -- and only there,
+/// so a worker that never reaches those pins ends the step with the reason.
+/// The bound depends on the fold charging the refusal, so the second refusal
+/// is settled on the counter the journal itself produces.
+#[test]
+fn refused_dispatch_is_re_elected_within_max_iterations_only() {
+    let mut spec = agent_spec("manual");
+    spec.steps[0].max_iterations = 2;
+    spec.steps[0].retry.max_transport_retries = 4;
+    let refuse = |state: &RunState, attempt: u32| {
+        let runtime = &state.steps["agent"];
+        refused_dispatch_actions(
+            "run",
+            &spec.steps[0],
+            attempt,
+            runtime.semantic_executions,
+            runtime.last_start_pins.as_ref(),
+            "pin mismatch".to_owned(),
+            20,
+        )
+    };
+    let settled = |actions: &[Action]| {
+        let Action::Append(completed) = &actions[0] else {
+            panic!("a refusal must journal its completion")
+        };
+        let payload: StepCompletedPayload =
+            serde_json::from_value(completed.payload.clone()).unwrap();
+        assert_eq!(payload.completion_reason, CompletionReason::WorkerError);
+        assert!(
+            payload
+                .verification
+                .is_some_and(|record| record.detail == "pin mismatch")
+        );
+        (payload.disposition, actions.len())
+    };
+    let appended = |actions: &[Action]| {
+        actions
+            .iter()
+            .filter_map(|action| match action {
+                Action::Append(entry) => Some(entry.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let fresh = RunState::fold("run", spec.clone(), &[]).unwrap();
+    let Action::Append(first_start) = next_actions(&fresh, 10).remove(0) else {
+        panic!("attempt 1 must journal its lease")
+    };
+    let mut journal = vec![first_start];
+    let state = RunState::fold("run", spec.clone(), &journal).unwrap();
+    let first = refuse(&state, 1);
+    // Re-elected, even under `manual`: nothing ran, so there is nothing to park.
+    assert_eq!(settled(&first), (Disposition::Retry, 3));
+    journal.extend(appended(&first));
+
+    let state = RunState::fold("run", spec.clone(), &journal).unwrap();
+    assert_eq!(
+        state.steps["agent"].semantic_executions, 1,
+        "the fold charges a refused dispatch an iteration"
+    );
+    // The retry timer fires first, then the step is re-elected.
+    journal.extend(appended(&next_actions(&state, 1_000)));
+    let state = RunState::fold("run", spec.clone(), &journal).unwrap();
+    let second_start = appended(&next_actions(&state, 1_000))
+        .into_iter()
+        .find(|entry| entry.entry_type == EntryType::StepAttemptStarted)
+        .expect("the refused step must be re-elected");
+    assert_eq!(second_start.attempt, Some(2));
+    journal.push(second_start);
+    let state = RunState::fold("run", spec.clone(), &journal).unwrap();
+    assert_eq!(settled(&refuse(&state, 2)), (Disposition::StepDone, 1));
+}
+
+#[test]
 fn inspect_recovery_injects_the_dirty_pin_completion_reason_and_tail() {
     let spec = agent_spec("inspect");
     let clean = workspace_pins("rev-clean");
@@ -474,7 +670,7 @@ fn inspect_recovery_injects_the_dirty_pin_completion_reason_and_tail() {
         end_pins: Some(dirty.clone()),
         effects: vec![],
         trajectory_tail: Some(json!(["edited file"])),
-        failure_reason: Some(CompletionReason::WorkerError),
+        failure_reason: Some(CompletionReason::Crashed),
         failure_detail: Some("stub rejection".to_owned()),
         reported_cost: None,
     };
@@ -483,6 +679,7 @@ fn inspect_recovery_injects_the_dirty_pin_completion_reason_and_tail() {
         &spec.steps[0],
         1,
         running.steps["agent"].semantic_executions,
+        None,
         result,
         20,
     );
@@ -505,7 +702,7 @@ fn inspect_recovery_injects_the_dirty_pin_completion_reason_and_tail() {
     assert_eq!(pins, &dirty);
     assert_eq!(
         recovery.previous_completion_reason,
-        Some(CompletionReason::WorkerError)
+        Some(CompletionReason::Crashed)
     );
     assert_eq!(recovery.trajectory_tail, Some(json!(["edited file"])));
     assert!(recovery.restore_pins.is_none());
@@ -548,7 +745,7 @@ fn manual_recovery_parks_needs_human_and_never_redispatches() {
     assert!(next_actions(&parked, 30).is_empty());
 }
 
-trait AppendAction {
+pub(super) trait AppendAction {
     fn into_append(self) -> JournalEntry;
 }
 
@@ -599,7 +796,7 @@ fn worker_reported_failure_without_detail_still_records_a_verification() {
         failure_detail: None,
         reported_cost: None,
     };
-    let entries: Vec<_> = completion_actions("run", &spec.steps[0], 1, 0, result, 1_000)
+    let entries: Vec<_> = completion_actions("run", &spec.steps[0], 1, 0, None, result, 1_000)
         .into_iter()
         .filter_map(|action| match action {
             Action::Append(entry) => Some(entry),
@@ -725,6 +922,7 @@ fn each_failed_attempt_journals_its_own_output_beside_an_identical_verdict() {
         &step,
         1,
         0,
+        None,
         AttemptResult::successful(first_output.clone(), "kernel"),
         1_000,
     );
@@ -751,6 +949,7 @@ fn each_failed_attempt_journals_its_own_output_beside_an_identical_verdict() {
         &step,
         2,
         1,
+        None,
         AttemptResult::successful(second_output.clone(), "kernel"),
         2_000,
     );
@@ -797,6 +996,7 @@ fn the_exhaustion_label_replaces_verification_failed_over_identical_evidence() {
             &step,
             attempt,
             semantic_executions,
+            None,
             AttemptResult::successful(output.clone(), "kernel"),
             now_ms,
         );
@@ -821,38 +1021,37 @@ fn the_exhaustion_label_replaces_verification_failed_over_identical_evidence() {
     assert_eq!(payloads[0].verification, payloads[1].verification);
 }
 
-/// A worker-reported failure keeps its OWN label on both attempts.
+/// A retryable worker-reported transport failure keeps its OWN label.
 ///
-/// `failure_reason` is supplied, so neither fallback applies: the retry and
-/// the terminal completion both read `worker_error`, and each carries the
-/// worker's own detail. Only the `verification_failed` → `retries_exhausted`
-/// pair is a policy-only transition; every other label difference across
-/// attempts is a real difference in what the worker reported.
+/// `failure_reason` is supplied, so neither semantic fallback applies: the
+/// retry and terminal completion both read `crashed`, and each carries the
+/// worker's own detail. Ordinary `worker_error` is deliberately terminal;
+/// only classified transport loss reaches this retry path.
 #[test]
-fn a_worker_reported_reason_is_not_rewritten_by_the_retry_branch() {
+fn a_retryable_worker_reported_reason_is_not_rewritten_by_the_retry_branch() {
     let spec = retrying_spec();
     let mut step = spec.steps[0].clone();
     step.max_iterations = 2;
     let result = |detail: &str| AttemptResult {
-        failure_reason: Some(CompletionReason::WorkerError),
+        failure_reason: Some(CompletionReason::Crashed),
         failure_detail: Some(detail.to_owned()),
         ..AttemptResult::successful(Value::Null, "kernel")
     };
 
-    let retry = completion_actions("run", &step, 1, 0, result("push rejected"), 1_000);
+    let retry = completion_actions("run", &step, 1, 0, None, result("push rejected"), 1_000);
     let Action::Append(retry_entry) = &retry[0] else {
         panic!("a worker failure appends a completion");
     };
     let retry_payload: StepCompletedPayload =
         serde_json::from_value(retry_entry.payload.clone()).unwrap();
-    assert_eq!(retry_payload.completion_reason, CompletionReason::WorkerError);
+    assert_eq!(retry_payload.completion_reason, CompletionReason::Crashed);
     assert_eq!(retry_payload.disposition, Disposition::Retry);
     assert_eq!(
         retry_payload.verification.as_ref().map(|v| v.detail.as_str()),
         Some("push rejected")
     );
 
-    let terminal = completion_actions("run", &step, 2, 1, result("nothing staged"), 2_000);
+    let terminal = completion_actions("run", &step, 2, 0, None, result("nothing staged"), 2_000);
     let Action::Append(terminal_entry) = &terminal[0] else {
         panic!("the terminal worker failure appends a completion");
     };
@@ -860,7 +1059,7 @@ fn a_worker_reported_reason_is_not_rewritten_by_the_retry_branch() {
         serde_json::from_value(terminal_entry.payload.clone()).unwrap();
     assert_eq!(
         terminal_payload.completion_reason,
-        CompletionReason::WorkerError
+        CompletionReason::Crashed
     );
     assert_eq!(terminal_payload.disposition, Disposition::StepDone);
     assert_eq!(

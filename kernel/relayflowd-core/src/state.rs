@@ -83,6 +83,15 @@ pub struct RunState {
     pub routing: BTreeMap<String, crate::RoutingDecision>,
 }
 
+/// The wait id a parked step carries between its `step.completed` with
+/// `disposition: park` and the `wait.human` that names the wait a human can
+/// answer. The two are separate journal appends, so a process death between
+/// them leaves the step folded to this placeholder with nothing answerable;
+/// recovery recognises it and journals the missing wait (`recovery_actions`).
+pub(crate) fn park_placeholder_wait_id(step_id: &str, attempt: u32) -> String {
+    format!("park-{step_id}-{attempt}")
+}
+
 impl RunState {
     pub fn fold(
         run_id: impl Into<String>,
@@ -337,7 +346,7 @@ impl RunState {
                 wake_at_ms: payload.next_attempt_at_ms.unwrap_or(entry.at_ms),
             },
             Disposition::Park => StepState::NeedsHuman {
-                wait_id: format!("park-{step_id}-{attempt}"),
+                wait_id: park_placeholder_wait_id(&step_id, attempt),
             },
         };
         if payload.disposition == Disposition::StepDone
@@ -410,8 +419,12 @@ impl RunState {
                 .ok_or_else(|| StateError::UnknownStep(id.clone()))?;
             step.attempts = open.attempt;
             // The epoch summary predates the semantic counter; assume every
-            // prior attempt was semantic. Conservative: a squashed journal can
-            // grant fewer iterations than the live one, never more.
+            // prior attempt was semantic. Conservative for `max_iterations`
+            // only: the transport budget is `attempt - semantic_executions`,
+            // so this assumption hands an open step its full transport budget
+            // again. No production path writes an epoch summary yet (the only
+            // `rollover` callers are tests); the writer that adds one must
+            // carry the semantic count per open step and read it here.
             step.semantic_executions = open.attempt.saturating_sub(1);
             step.state = match open.state.as_str() {
                 "running" => StepState::Running {

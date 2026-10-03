@@ -228,6 +228,8 @@ export interface BaseStepSpec {
   dependsOn?: string[];
   /** Semantic retry bound (kernel DESIGN.md §1.2 `max_iterations`). Default 1. */
   maxIterations?: number;
+  /** Additional attempts after classified infrastructure loss. Default 1. */
+  transportRetries?: number;
 }
 
 export interface OutputBinding {
@@ -352,7 +354,7 @@ export interface YamlHelperParams {
 type OneKey<T> = { [K in keyof T]: Pick<T, K> & Partial<Record<Exclude<keyof T, K>, never>> }[keyof T];
 
 /** Helper sugar is removed before validation of the three kernel step types. */
-export type YamlHelperStepSpec = Pick<BaseStepSpec, 'id' | 'dependsOn' | 'maxIterations'> & {
+export type YamlHelperStepSpec = Pick<BaseStepSpec, 'id' | 'dependsOn' | 'maxIterations' | 'transportRetries'> & {
   verification?: OutputVerificationSpec;
   output?: JsonOutputSchema;
 } & OneKey<{ [P in keyof YamlHelperParams]: OneKey<YamlHelperParams[P]> }>;
@@ -453,6 +455,7 @@ export interface KernelRetryPolicy {
   max_backoff_ms: number;
   multiplier: number;
   jitter_percent: number;
+  max_transport_retries?: number;
 }
 
 /**

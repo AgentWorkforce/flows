@@ -207,6 +207,12 @@ export interface StepAttemptFailure {
   /** `retry`, `step_done` or `park`: what the kernel did next, not why it failed. */
   disposition?: string;
   exitCode?: number;
+  /** This attempt's own transport evidence; see `StepFailedDetails`. */
+  transportPhase?: string;
+  transportCause?: string;
+  signal?: string;
+  errorCode?: string;
+  retryableTransport?: boolean;
   /** Redacted, terminal-safe UTF-8 excerpt, at most 256 bytes. */
   stdoutTail?: string;
   /** Redacted, terminal-safe UTF-8 excerpt, at most 256 bytes. */
@@ -277,6 +283,8 @@ export interface StepFailedDetails {
    * `retries_exhausted`.
    */
   maxIterations?: number;
+  /** Additional classified infrastructure retries declared for the step. */
+  transportRetries?: number;
   /**
    * Attempts before this one that died without a result -- the kernel
    * journaled them `crashed` or `lease_expired` itself -- and so, by design,
@@ -286,6 +294,11 @@ export interface StepFailedDetails {
    */
   unchargedAttempts?: number;
   exitCode?: number;
+  transportPhase?: string;
+  transportCause?: string;
+  signal?: string;
+  errorCode?: string;
+  retryableTransport?: boolean;
   /**
    * Terminal-safe UTF-8 excerpt of the captured stdout, at most
    * `EXCERPT_BYTES` (cli/step-excerpt.ts). The field name is kept for

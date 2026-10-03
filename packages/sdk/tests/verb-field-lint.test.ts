@@ -192,6 +192,7 @@ describe('closed per-verb step fields', () => {
       'input',
       'verification',
       'maxIterations',
+      'transportRetries',
       // Added by #221 (gate 5 slice 1). `memory` is common rather than
       // verb-specific: any step kind may declare a pack, so it generates no
       // foreign-field pairs.

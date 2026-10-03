@@ -1,0 +1,42 @@
+# SDK typecheck + build gate, documented flow (.github/workflows/publish.yml): build and pack the
+# local surface, install it --no-save into the SDK, then typecheck, typecheck tests, build.
+# Each command shows the last lines of its output and its own exit code.
+
+$ git rev-parse HEAD
+05ab5849bf63cef0710fb6d6410033dd55d320dc
+exit_code=0
+
+$ node --version && npm --version
+v26.8.1
+11.19.0
+exit_code=0
+
+$ cd packages/surface && npm ci --ignore-scripts && ./node_modules/.bin/tsc
+Run `npm audit` for details.
+exit_code=0
+
+$ node scripts/pack-release.mjs surface
+PACK_OK @relayflows/surface@2.0.38: package/dist/index.js, package/dist/index.d.ts, package/dist/runtime.js, package/dist/runtime.d.ts
+exit_code=0
+
+$ cd packages/sdk && npm ci
+Run `npm audit` for details.
+exit_code=0
+
+$ cd packages/sdk && npm install --no-save --package-lock=false --ignore-scripts ../../dist/publish/relayflows-surface-2.0.38.tgz && test ! -L node_modules/@relayflows/surface
+Run `npm audit` for details.
+exit_code=0
+
+$ cd packages/sdk && npm run typecheck && npm run typecheck:tests && npm run build
+
+> @relayflows/sdk@2.0.38 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+
+> @relayflows/sdk@2.0.38 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+
+> @relayflows/sdk@2.0.38 build
+> tsc && node scripts/make-cli-executable.mjs
+exit_code=0

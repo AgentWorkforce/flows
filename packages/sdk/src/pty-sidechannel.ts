@@ -31,6 +31,8 @@ export async function openSidechannel(
   canDrive: () => boolean = () => true,
 ) {
   const peers = new Map<Socket, boolean>();
+  const drivePeers = new Set<Socket>();
+  const driveIdle: Array<() => void> = [];
   let closed = false;
   const server = createServer(socket => {
     if (peers.size >= 16) { socket.destroy(); return; }
@@ -39,7 +41,12 @@ export async function openSidechannel(
     let mode: string | undefined;
     socket.setTimeout(2_000, () => socket.destroy());
     socket.on('error', () => socket.destroy());
-    socket.on('close', () => peers.delete(socket));
+    socket.on('close', () => {
+      peers.delete(socket);
+      if (drivePeers.delete(socket) && drivePeers.size === 0) {
+        for (const listener of driveIdle.splice(0)) listener();
+      }
+    });
     socket.on('data', (bytes: Buffer) => {
       if (mode === undefined) {
         hello = Buffer.concat([hello, bytes]);
@@ -52,7 +59,10 @@ export async function openSidechannel(
         socket.setTimeout(0);
         peers.set(socket, true);
         // Passthrough is a passive raw-byte view in this initial slice.
-        if (mode === 'drive') context.onDrive();
+        if (mode === 'drive') {
+          drivePeers.add(socket);
+          context.onDrive();
+        }
         bytes = hello.subarray(end + 1);
         hello = Buffer.alloc(0);
       }
@@ -88,6 +98,32 @@ export async function openSidechannel(
       for (const [peer, ready] of peers) {
         if (ready && !peer.write(bytes)) peer.destroy();
       }
+    },
+    /**
+     * Wait for a drive peer before the CLI is spawned.
+     *
+     * A direct headless CLI must not be handed a pipe merely because a
+     * sidechannel exists: Codex treats any non-TTY stdin as an additional
+     * prompt source and waits for its lifecycle. The caller uses this bounded
+     * enrollment window to choose `pipe` only when a driver actually joined;
+     * view and passthrough peers never change the child's stdin contract.
+     */
+    async waitForDrive(timeoutMs: number): Promise<boolean> {
+      // Enrollment is a live state, not a sticky historical event. Hold the
+      // whole bounded window so a peer that greets and then disconnects before
+      // spawn cannot leave the child with piped stdin and nobody to close it.
+      if (timeoutMs > 0) await new Promise<void>(resolve => setTimeout(resolve, timeoutMs));
+      return drivePeers.size > 0;
+    },
+    /**
+     * Run `listener` once no drive peer is live: now, or when the last one
+     * disconnects. `waitForDrive` is a snapshot, and a peer can leave the
+     * moment after it is taken; the caller that chose `pipe` on it closes the
+     * child's stdin here, so the child never waits on a pipe nobody holds.
+     */
+    whenDriveIdle(listener: () => void): void {
+      if (drivePeers.size === 0) listener();
+      else driveIdle.push(listener);
     },
     close() {
       if (closed) return;

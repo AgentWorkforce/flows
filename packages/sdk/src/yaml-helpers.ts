@@ -63,7 +63,7 @@ export type HelperCall = { [P in keyof YamlHelperParams]: { [V in keyof YamlHelp
 }[keyof YamlHelperParams[P]] }[keyof YamlHelperParams];
 
 const prefix = HELPER_INSTRUCTION_PREFIX;
-const commonFields = ['id', 'dependsOn', 'maxIterations', 'verification', 'output'] as const;
+const commonFields = ['id', 'dependsOn', 'maxIterations', 'transportRetries', 'verification', 'output'] as const;
 const isObject = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 

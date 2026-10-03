@@ -7,6 +7,8 @@ export function applyConstraints(defs, version) {
   const positive = { type: 'integer', minimum: 1 };
   const safePositive = { ...positive, maximum: Number.MAX_SAFE_INTEGER };
   const integer = { type: 'integer', minimum: 0 };
+  // spec.rs deserializes retry budgets as u32.
+  const u32 = { ...integer, maximum: 4294967295 };
   const decimal = { pattern: '^\\d+(\\.\\d+)?$' };
   const canonicalPath = {
     minLength: 1,
@@ -23,9 +25,11 @@ export function applyConstraints(defs, version) {
   }
   for (const type of ['BaseStepSpec', 'DeterministicStepSpec', 'LlmStepSpec', 'AgentStepSpec']) {
     property(type, 'maxIterations', positive);
+    property(type, 'transportRetries', u32);
     Object.assign(defs[type].properties.dependsOn.items, nonempty);
     property(type, 'input', { propertyNames: { type: 'string', pattern: '\\S' } });
   }
+  property('KernelRetryPolicy', 'max_transport_retries', u32);
   property('DeterministicStepSpec', 'timeoutMs', positive);
   for (const field of ['maxTokensIn', 'maxTokensOut']) property('BudgetSpec', field, integer);
   property('BudgetSpec', 'maxDollars', decimal);

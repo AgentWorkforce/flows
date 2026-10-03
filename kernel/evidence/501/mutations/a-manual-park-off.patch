@@ -1,0 +1,13 @@
+diff --git a/kernel/relayflowd-core/src/machine.rs b/kernel/relayflowd-core/src/machine.rs
+index c59fe8fd..0072e2d2 100644
+--- a/kernel/relayflowd-core/src/machine.rs
++++ b/kernel/relayflowd-core/src/machine.rs
+@@ -452,7 +452,7 @@ fn settle_attempt(
+     // worker that reported its own crash through `step.complete` used to be
+     // redispatched under the transport budget instead, so the same dead
+     // attempt parked or continued depending on who noticed it first.
+-    let manual_park = transport_failure
++    let manual_park = false && transport_failure
+         && matches!(
+             step.kind,
+             StepKind::Agent {

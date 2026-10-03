@@ -19,6 +19,7 @@ import type {
 import { HUMAN_WAIT_ID } from './authored-human.js';
 import { assertAuthoredPromiseHooks } from './authored-runtime-capability.js';
 import { settlingCompletion } from './step-settling.js';
+import { isTransportRetries } from './validate.js';
 
 let embeddedSource: string | undefined;
 /** Installed by the standalone build; never fetched or resolved from a workspace. */
@@ -241,6 +242,8 @@ export function stepFailedFrame(value: unknown): StepFailedDetails | undefined {
     ['stepId', frameText(frame, 'stepId')], ['stepType', frameText(frame, 'stepType')],
     ['completionReason', frameText(frame, 'completionReason')], ['attempt', frameCount(frame, 'attempt')],
     ['maxIterations', frameCount(frame, 'maxIterations')],
+    ['transportRetries', isTransportRetries(frame['transportRetries']) ? frame['transportRetries'] : undefined],
+    ...transportFrames(frame),
     ['unchargedAttempts', frameCount(frame, 'unchargedAttempts')], ['exitCode', frameCount(frame, 'exitCode')],
     ['stdoutTail', frameText(frame, 'stdoutTail')], ['stderrTail', frameText(frame, 'stderrTail')],
     ['detail', frameText(frame, 'detail')], ['transcriptPath', frameText(frame, 'transcriptPath')],
@@ -272,6 +275,7 @@ function attemptFrames(value: unknown): StepAttemptFailure[] | undefined {
       ['completionReason', frameText(source, 'completionReason')],
       ['disposition', frameText(source, 'disposition')],
       ['exitCode', frameCount(source, 'exitCode')],
+      ...transportFrames(source),
       ['stdoutTail', frameText(source, 'stdoutTail')],
       ['stderrTail', frameText(source, 'stderrTail')],
       ['detail', frameText(source, 'detail')],
@@ -284,6 +288,17 @@ function attemptFrames(value: unknown): StepAttemptFailure[] | undefined {
     if (Object.keys(attempt).length > 0) attempts.push(attempt);
   }
   return attempts.length === 0 ? undefined : attempts;
+}
+
+/** The transport evidence fields shared by the terminal and historical frames. */
+function transportFrames(frame: Record<string, unknown>) {
+  return [
+    ['transportPhase', frameText(frame, 'transportPhase')],
+    ['transportCause', frameText(frame, 'transportCause')],
+    ['signal', frameText(frame, 'signal')],
+    ['errorCode', frameText(frame, 'errorCode')],
+    ['retryableTransport', typeof frame['retryableTransport'] === 'boolean' ? frame['retryableTransport'] : undefined],
+  ] as const;
 }
 
 /** An unrecognised verdict is dropped, and rendering then says `unknown`. */

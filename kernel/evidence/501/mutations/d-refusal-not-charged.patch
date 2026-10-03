@@ -1,0 +1,13 @@
+diff --git a/kernel/relayflowd-core/src/state.rs b/kernel/relayflowd-core/src/state.rs
+index 64c010fa..0c55346c 100644
+--- a/kernel/relayflowd-core/src/state.rs
++++ b/kernel/relayflowd-core/src/state.rs
+@@ -330,7 +330,7 @@ impl RunState {
+         }
+         if !matches!(
+             payload.completion_reason,
+-            CompletionReason::Crashed | CompletionReason::LeaseExpired
++            CompletionReason::Crashed | CompletionReason::LeaseExpired | CompletionReason::WorkerError
+         ) {
+             // The attempt ran to completion and produced a result the gate
+             // could judge; only these consume `max_iterations` allowance.

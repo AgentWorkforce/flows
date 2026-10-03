@@ -7,13 +7,20 @@ import type { JournalClient } from './journal-client.js';
 import type { Pins, StepDispatchEvent } from './protocol.js';
 import type { ResolvedKernelAgentStep } from './resolved-cli-identity.js';
 import { runAgentCli } from './worker-cli.js';
+import { agentCompletionReason } from './cli-transport-evidence.js';
 import { agentStepCwd } from './agent-cwd.js';
 import { resolveCliModel } from './cli-adapter.js';
 import { withWorkerLease } from './worker-lease.js';
 import { workerInstruction } from './worker-input.js';
 import { helperCall } from './yaml-helpers.js';
 import { completeHelperDispatch } from './yaml-helper-effect.js';
-import { ARTIFACT_PATHS_MAX, boundTranscriptDigest, type TranscriptDigest } from './agent-transcript.js';
+import {
+  ARTIFACT_PATHS_MAX,
+  boundTranscriptDigest,
+  boundedTail,
+  redactText,
+  type TranscriptDigest,
+} from './agent-transcript.js';
 
 export { MODEL_ENV, WAKE_CONTEXT_ENV } from './worker-cli.js';
 
@@ -153,7 +160,7 @@ export class AgentWorker extends EventEmitter {
           : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' }));
     const { result, usage } = workerSpend(completed, effectiveModel);
     const cost = reportedCost(completed, effectiveModel);
-    const completionReason = result.exit_code === 0 ? 'success' : 'worker_error';
+    const completionReason = agentCompletionReason(result);
 
     // Output shape: if the CLI's stdout parses as JSON, promote THAT
     // as the step's `output` value so `json_schema` verification
@@ -181,7 +188,16 @@ export class AgentWorker extends EventEmitter {
     // `transcript` is not part of the wrapper either: it is evidence about the
     // attempt, journaled in `trajectory_tail` below on success and failure
     // alike, where the kernel already accepts and bounds it (16 KiB).
-    const { transcript, ...wrapper } = result;
+    const { transcript, transport, ...rawWrapper } = result;
+    // `stderr_tail` is evidence, not authored output. Redact and bound it
+    // before it reaches either the worker-failure render or the journal --
+    // against the environment the CLI ran with as well as this host's, since a
+    // secret supplied only to the CLI is the one most likely to be echoed.
+    const redacted = redactText(redactText(rawWrapper.stderr_tail), this.options.environment ?? process.env);
+    const wrapper = {
+      ...rawWrapper,
+      stderr_tail: boundedTail(redacted, 2 * 1024, 'worker stderr: ').text,
+    };
     const output = result.relay_task?.status === 'completed' && result.exit_code === 0
       ? result.relay_task.output : parseJsonOutput(result.stdout_tail) ?? wrapper;
     const trajectoryTail = {
@@ -190,6 +206,7 @@ export class AgentWorker extends EventEmitter {
         task_execution: result.relay_task.task_execution, error: result.relay_task.error,
       } }),
       ...(transcript === undefined ? {} : { transcript: transcriptDigest(transcript, dispatch.attempt, result) }),
+      ...(transport === undefined ? {} : { transport }),
     };
 
     await this.client.stepComplete(

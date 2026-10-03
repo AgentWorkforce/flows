@@ -6,8 +6,8 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use relayflowd_core::{
-    Action, AttemptResult, Clock, CompletionReason, RunCompletionReason, RunSpec, RunState,
-    abandonment_actions, completion_actions, memoization::next_actions_with_reuse,
+    Action, Clock, CompletionReason, RunCompletionReason, RunSpec, RunState, abandonment_actions,
+    completion_actions, memoization::next_actions_with_reuse, refused_dispatch_actions,
 };
 use relayflowd_journal::SqliteJournal;
 
@@ -183,12 +183,13 @@ impl<C: Clock> Engine<C> {
                                 }
                             }
                         }
-                        let semantic_executions = state.steps[&step.id].semantic_executions;
+                        let runtime = &state.steps[&step.id];
                         for action in completion_actions(
                             journal.run_id(),
                             &step,
                             attempt,
-                            semantic_executions,
+                            runtime.semantic_executions,
+                            runtime.last_start_pins.as_ref(),
                             result,
                             self.clock.now_ms(),
                         ) {
@@ -419,11 +420,12 @@ impl<C: Clock> Engine<C> {
     }
 
     /// Journal a dispatch that could not be honored as a declared `worker_error`
-    /// completion of the attempt. It runs through the same completion path as
-    /// any other rejected attempt, so retry policy and the failure taxonomy
-    /// hold: the step retries against whatever a worker actually reports, and
-    /// exhausting `max_iterations` ends the run with a declared reason rather
-    /// than an expired lease nobody explained.
+    /// completion of the attempt (`refused_dispatch_actions`). Unlike a
+    /// worker-reported `worker_error`, which is terminal and consumes neither
+    /// retry budget, a refused dispatch ran nothing: the step is re-elected
+    /// against its journaled pins under `max_iterations`, and exhausting that
+    /// ends the run with a declared reason rather than an expired lease nobody
+    /// explained.
     fn fail_dispatch_closed(
         &self,
         journal: &mut SqliteJournal,
@@ -432,17 +434,16 @@ impl<C: Clock> Engine<C> {
         attempt: u32,
         detail: String,
     ) -> Result<()> {
-        let mut result = AttemptResult::successful(serde_json::Value::Null, "kernel");
-        result.failure_reason = Some(CompletionReason::WorkerError);
-        result.failure_detail = Some(format!(
-            "attempt was not dispatched: the attached worker does not hold its starting pins ({detail})"
-        ));
-        for action in completion_actions(
+        let runtime = &state.steps[&step.id];
+        for action in refused_dispatch_actions(
             journal.run_id(),
             step,
             attempt,
-            state.steps[&step.id].semantic_executions,
-            result,
+            runtime.semantic_executions,
+            runtime.last_start_pins.as_ref(),
+            format!(
+                "attempt was not dispatched: the attached worker does not hold its starting pins ({detail})"
+            ),
             self.clock.now_ms(),
         ) {
             self.interpret_non_execution(journal, action)?;

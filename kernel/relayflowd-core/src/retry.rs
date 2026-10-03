@@ -42,6 +42,7 @@ mod tests {
             max_backoff_ms: 5_000,
             multiplier: 2,
             jitter_percent: 20,
+            max_transport_retries: 1,
         };
         let first = backoff_delay_ms(&policy, "stable", 3);
         assert_eq!(first, backoff_delay_ms(&policy, "stable", 3));

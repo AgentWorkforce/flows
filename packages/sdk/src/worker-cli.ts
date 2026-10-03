@@ -3,8 +3,16 @@ import { basename, dirname, join, resolve, sep } from 'node:path';
 import { diffWorkspaceFiles, snapshotWorkspaceFiles } from './agent-artifacts.js';
 import { claudeResultOutcome, decodeProviderResult, decodeWrapperResult, requirePricedUsage } from './worker-usage.js';
 import { openSidechannel, type SidechannelContext } from './pty-sidechannel.js';
-import { openTranscriptWriter, transcriptPath, type TranscriptDigest, type TranscriptFile, type TranscriptWriter } from './agent-transcript.js';
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import {
+  openTranscriptWriter,
+  redactText,
+  transcriptPath,
+  type TranscriptDigest,
+  type TranscriptFile,
+  type TranscriptWriter,
+} from './agent-transcript.js';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { redactRelayError } from './redact.js';
 import { StringDecoder } from 'node:string_decoder';
 import { childStop } from './child-stop.js';
 import { reapOnExit } from './agent-reaper.js';
@@ -21,15 +29,23 @@ import {
   type WrapperSessionLimits,
 } from './wrapper-session.js';
 import { wrapperEnvironment } from './wrapper-runtime.js';
-import { redactRelayError } from './redact.js';
 import { applyStepEnvironment } from './step-env.js';
 import { TAIL_CLOSE_TIMEOUT_MS, openTranscriptTail, type TranscriptTailWriter } from './transcript-tail.js';
+import {
+  isRetryableSpawnError,
+  transportEvidence,
+  type CliTransportCause,
+  type CliTransportEvidence,
+} from './cli-transport-evidence.js';
 import {
   runAgentRelayTask,
   AgentRelayTransportError,
   type AgentTransport,
 } from './agent-relay-transport.js';
 import { pinCliAlias } from './cli/pinned-cli-alias.js';
+
+export type { CliTransportCause, CliTransportEvidence, CliTransportPhase } from './cli-transport-evidence.js';
+export { agentCompletionReason } from './cli-transport-evidence.js';
 
 /** Present only when a dispatched agent step carries a journaled wake context. */
 export const WAKE_CONTEXT_ENV = 'RELAYFLOW_WAKE_CONTEXT';
@@ -53,6 +69,12 @@ export interface WorkerCliResult {
   exit_code: number | null;
   stdout_tail: string;
   stderr_tail: string;
+  /**
+   * Bounded, redacted process-lifecycle evidence for a direct CLI spawn.
+   * This is journaled in `trajectory_tail`, including when parsed JSON output
+   * would otherwise discard the process wrapper.
+   */
+  transport?: CliTransportEvidence;
   /**
    * Files the agent created or changed under its working directory,
    * cwd-relative POSIX paths, sorted. Measured by the worker that spawned the
@@ -185,7 +207,9 @@ export async function runAgentCli(
   const args = [...invocation.args];
   args.splice(args.length - 1, 0, ...(kind === 'claude' ? ['--output-format', 'stream-json', '--verbose'] : ['--json']));
   const completion = kind === 'claude' ? claudeResultOutcome : undefined;
-  return requirePricedUsage(decodeProviderResult(await spawnInvocation(cli, { ...invocation, args }, env, signal, sidechannel, cwd, completion, argv0), kind, env), effectiveModel);
+  return requirePricedUsage(decodeProviderResult(await spawnInvocation(
+    cli, { ...invocation, args }, env, signal, sidechannel, cwd, completion, argv0, kind,
+  ), kind, env), effectiveModel);
   }
 }
 
@@ -325,9 +349,15 @@ async function spawnInvocation(
   cwd?: string,
   completion?: (line: string) => { failed: boolean } | undefined,
   argv0?: string,
+  kind?: CliAdapterKind,
 ): Promise<WorkerCliResult> {
-  let writeInput: (bytes: Buffer) => Promise<boolean> = async () => false;
-  let canDrive = () => false;
+  const pendingInput: Buffer[] = [];
+  let acceptingDrive = true;
+  let writeInput: (bytes: Buffer) => Promise<boolean> = async bytes => {
+    pendingInput.push(Buffer.from(bytes));
+    return true;
+  };
+  let canDrive = () => acceptingDrive;
   let driven = false;
   // Prove and pin the authored identity before opening any per-attempt
   // resources. If pinning fails there is then nothing else to unwind.
@@ -362,6 +392,12 @@ async function spawnInvocation(
       ...sidechannel,
       onDrive() { driven = true; sidechannel.onDrive(); },
     }, bytes => writeInput(bytes), () => canDrive());
+    // Decide the child's stdin shape before spawn. An unattended Codex process
+    // gets `/dev/null` from `ignore`, so it never enters the "additional input
+    // from stdin" path. Only an already-enrolled drive peer gets a writable
+    // pipe. View/passthrough retain live output without changing stdin.
+    driven = channel === undefined ? false : await channel.waitForDrive(100);
+    acceptingDrive = false;
     // Tee the transcript into bounded tail files beside the socket. Evidence
     // for `flows status --tail`, never the record; a failure here is a warning.
     tails = sidechannel === undefined ? undefined : openTails(sidechannel);
@@ -376,10 +412,10 @@ async function spawnInvocation(
   // Always a group of its own off Windows, so every stop — and
   // `reapOnExit` — reaches the whole agent tree, lease-bound or not.
   const ownsGroup = process.platform !== 'win32';
-  let child: ChildProcessWithoutNullStreams;
+  let child: ChildProcess;
   try {
     child = spawn(pinned.executable, invocation.args, {
-      stdio: ['pipe', 'pipe', 'pipe'], env,
+      stdio: [driven ? 'pipe' : 'ignore', 'pipe', 'pipe'], env,
       detached: ownsGroup,
       ...(argv0 === undefined ? {} : { argv0 }),
       ...(cwd === undefined ? {} : { cwd }),
@@ -389,20 +425,32 @@ async function spawnInvocation(
     throw error;
   }
   return new Promise((resolve) => {
-    child.stdin.on('error', () => {});
-    if (channel === undefined) child.stdin.end();
-    canDrive = () => !child.stdin.destroyed && !child.stdin.writableEnded;
-    // A pipe cannot be reopened after EOF. Give startup subscribers a bounded
-    // chance to opt into drive, then let unattended/view-only CLIs read EOF.
-    const inputTimer = channel === undefined ? undefined : setTimeout(() => {
-      if (!driven) child.stdin.end();
-    }, 100);
-    writeInput = bytes => new Promise(resolve => {
-      if (!canDrive()) { resolve(false); return; }
-      // write(false) still accepts the bytes. The completion callback waits
-      // until they flush; the sidechannel pauses its reader in the meantime.
-      child.stdin.write(bytes, error => resolve(!error));
-    });
+    const stdin = child.stdin;
+    stdin?.on('error', () => {});
+    canDrive = () => stdin !== null && !stdin.destroyed && !stdin.writableEnded;
+    let inputQueue = Promise.resolve(true);
+    writeInput = bytes => {
+      inputQueue = inputQueue.then(previousAccepted => {
+        if (!previousAccepted || !canDrive()) return false;
+        return new Promise<boolean>(resolve => {
+          // write(false) still accepts the bytes. The completion callback
+          // waits until they flush; the sidechannel pauses its reader.
+          stdin!.write(bytes, error => resolve(!error));
+        });
+      });
+      return inputQueue;
+    };
+    for (const bytes of pendingInput.splice(0)) void writeInput(bytes);
+    // The last driver leaving is the end of input: flush what it sent, then
+    // EOF. Without it a driven Codex waits on its stdin lifecycle forever.
+    if (driven) {
+      channel?.whenDriveIdle(() => {
+        inputQueue = inputQueue.then(() => {
+          if (canDrive()) stdin!.end();
+          return false;
+        });
+      });
+    }
     let release = () => {};
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
@@ -414,7 +462,6 @@ async function spawnInvocation(
     const finish = (result: WorkerCliResult, discardTranscript = false): void => {
       if (settled) return;
       settled = true;
-      if (inputTimer !== undefined) clearTimeout(inputTimer);
       channel?.close();
       if (timer !== undefined) clearTimeout(timer);
       if (graceTimer !== undefined) clearTimeout(graceTimer);
@@ -498,8 +545,12 @@ async function spawnInvocation(
       timer = undefined;
       if (graceTimer !== undefined) clearTimeout(graceTimer);
       graceTimer = undefined;
+      const transport = transportEvidence({
+        phase: 'abort', cause: 'lease_lost', exitCode: null, signal: null,
+        stderr: 'Agent execution aborted: lease ownership lost.', retryable: false,
+      }, env);
       finishAfterStop(
-        { exit_code: null, stdout_tail: '', stderr_tail: 'Agent execution aborted: lease ownership lost.' },
+        { exit_code: null, stdout_tail: '', stderr_tail: 'Agent execution aborted: lease ownership lost.', transport },
         'kill',
         true,
         'abort',
@@ -529,14 +580,22 @@ async function spawnInvocation(
     const onResult = (outcome: { failed: boolean }): void => {
       if (graceTimer !== undefined || settled) return;
       graceTimer = setTimeout(() => {
+        const exitCode = outcome.failed ? 1 : 0;
+        const stderrText = `${Buffer.concat(stderr).toString('utf8')}\nCLI reported its final result but had not exited ${RESULT_EXIT_GRACE_MS}ms later; its process tree was stopped.`.trim();
+        const transport = transportEvidence({
+          phase: 'result_exit_grace', cause: 'result_exit_timeout', exitCode, signal: null,
+          stderr: stderrText,
+          retryable: false,
+        }, env);
         finishAfterStop({
-          exit_code: outcome.failed ? 1 : 0,
+          exit_code: exitCode,
           stdout_tail: Buffer.concat(stdout).toString('utf8'),
-          stderr_tail: `${Buffer.concat(stderr).toString('utf8')}\nCLI reported its final result but had not exited ${RESULT_EXIT_GRACE_MS}ms later; its process tree was stopped.`.trim(),
+          stderr_tail: redactText(stderrText, env),
+          transport,
         }, 'terminate');
       }, RESULT_EXIT_GRACE_MS);
     };
-    child.stdout.on('data', (chunk: Buffer) => {
+    child.stdout!.on('data', (chunk: Buffer) => {
       stdout.push(chunk);
       channel?.publish(chunk);
       // The tails take raw bytes, so they are fed before any line splitting
@@ -555,28 +614,59 @@ async function spawnInvocation(
         if (outcome !== undefined) onResult(outcome);
       }
     });
-    child.stderr.on('data', (chunk: Buffer) => { stderr.push(chunk); channel?.publish(chunk); tails?.stderr.append(chunk); });
-    child.once('error', (error) => finishOnChildExit({
-      exit_code: null,
-      stdout_tail: Buffer.concat(stdout).toString('utf8'),
-      stderr_tail: error.message,
-    }));
+    child.stderr!.on('data', (chunk: Buffer) => { stderr.push(chunk); channel?.publish(chunk); tails?.stderr.append(chunk); });
+    child.once('error', (error) => {
+      const code = typeof (error as NodeJS.ErrnoException).code === 'string'
+        ? (error as NodeJS.ErrnoException).code : undefined;
+      const retryable = isRetryableSpawnError(code);
+      const transport = transportEvidence({
+        phase: 'spawn', cause: child.pid === undefined ? 'spawn_error' : 'process_error',
+        exitCode: null, signal: null, stderr: error.message, errorCode: code, retryable,
+      }, env);
+      finishOnChildExit({
+        exit_code: null,
+        stdout_tail: Buffer.concat(stdout).toString('utf8'),
+        stderr_tail: redactText(error.message, env),
+        transport,
+      });
+    });
     child.once('error', () => { if (child.pid === undefined) release(); });
     child.once('close', release);
-    child.once('close', (code) => finishOnChildExit({
-      exit_code: code,
-      stdout_tail: Buffer.concat(stdout).toString('utf8'),
-      stderr_tail: Buffer.concat(stderr).toString('utf8'),
-    }));
+    child.once('close', (code, signalName) => {
+      const stderrText = Buffer.concat(stderr).toString('utf8');
+      const codexStdinLifecycle = kind === 'codex' && code === 1
+        && stderrText.trim() === 'Reading additional input from stdin...';
+      const cause: CliTransportCause = codexStdinLifecycle ? 'codex_stdin_lifecycle'
+        : signalName !== null ? 'signal'
+          : code === null ? 'close_without_status'
+            : code === 0 ? 'exited' : 'nonzero_exit';
+      const retryable = codexStdinLifecycle || signalName !== null || code === null;
+      const transport = transportEvidence({
+        phase: 'close', cause, exitCode: code, signal: signalName, stderr: stderrText, retryable,
+      }, env);
+      finishOnChildExit({
+        exit_code: code,
+        stdout_tail: Buffer.concat(stdout).toString('utf8'),
+        stderr_tail: redactText(stderrText, env),
+        transport,
+      });
+    });
     if (invocation.timeoutMs > 0) {
       timer = setTimeout(() => {
         // The stop owns this settle: a direct-child event is not proof that its
         // group is gone, and an unprovable forced stop must fail the step rather
         // than arriving after a successful result has already won the race.
+        const timeoutMessage = `CLI invocation timed out after ${invocation.timeoutMs}ms.`;
+        const transport = transportEvidence({
+          phase: 'timeout', cause: 'timeout', exitCode: null, signal: null,
+          stderr: `${Buffer.concat(stderr).toString('utf8')}\n${timeoutMessage}`,
+          retryable: false,
+        }, env);
         finishAfterStop({
           exit_code: null,
           stdout_tail: Buffer.concat(stdout).toString('utf8'),
-          stderr_tail: `CLI invocation timed out after ${invocation.timeoutMs}ms.`,
+          stderr_tail: timeoutMessage,
+          transport,
         }, 'terminate');
       }, invocation.timeoutMs);
     }

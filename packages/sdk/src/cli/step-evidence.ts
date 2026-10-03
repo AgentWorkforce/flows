@@ -18,6 +18,13 @@ export const ATTEMPT_TAIL_BYTES = 256;
 const PRODUCER_TRUNCATED = /…\s*\((?:render bounded|[\d,]+ bytes truncated)\)$/u;
 
 /**
+ * What the worker puts in front of a stderr it cut to its tail (`boundedTail`
+ * in worker.ts and cli-transport-evidence.ts). The same rule applies: equal
+ * surviving tails cannot establish equal failures.
+ */
+const STDERR_TRUNCATED = /^\[(?:worker|transport) stderr: [\d,]+ bytes truncated\]…/u;
+
+/**
  * The evidence fields a step failure reports, as the journal held them.
  *
  * Extraction and display bounds are separated deliberately. The terminal
@@ -29,6 +36,11 @@ const PRODUCER_TRUNCATED = /…\s*\((?:render bounded|[\d,]+ bytes truncated)\)$
  */
 export interface SelectedEvidence {
   exitCode?: number;
+  transportPhase?: string;
+  transportCause?: string;
+  signal?: string;
+  errorCode?: string;
+  retryableTransport?: boolean;
   /** Present only when nonempty. */
   stdoutTail?: string;
   /** Present whenever the journal carried one, including the empty string. */
@@ -57,16 +69,18 @@ export interface SelectedEvidence {
 export function selectEvidence(payload: Record<string, unknown>): SelectedEvidence {
   const detail = record(payload['verification'])?.['detail'];
   const rendered = typeof detail === 'string' ? parsed(detail) : undefined;
+  const trajectory = record(payload['trajectory_tail']);
+  const transport = record(trajectory?.['transport']);
   const candidates = [
     record(payload['output']),
-    record(payload['trajectory_tail']),
+    trajectory,
     rendered,
   ].filter((candidate): candidate is Record<string, unknown> => candidate !== undefined);
   const structured = candidates.find(processShaped) ?? candidates[0];
-  const exitCode = structured?.['exit_code'];
+  const exitCode = structured?.['exit_code'] ?? transport?.['exit_code'];
   const stdout = structured?.['stdout_tail'];
-  const stderr = structured?.['stderr_tail'];
-  const transcript = record(record(payload['trajectory_tail'])?.['transcript']);
+  const stderr = structured?.['stderr_tail'] ?? transport?.['stderr_tail'];
+  const transcript = record(trajectory?.['transcript']);
   const failure = record(transcript?.['failure']);
   const excerpt = failure?.['excerpt'];
   const transcriptPath = record(transcript?.['file'])?.['path'];
@@ -77,6 +91,11 @@ export function selectEvidence(payload: Record<string, unknown>): SelectedEviden
     ? excerpt : undefined;
   return {
     ...(typeof exitCode === 'number' && Number.isSafeInteger(exitCode) ? { exitCode } : {}),
+    ...(typeof transport?.['phase'] === 'string' ? { transportPhase: transport['phase'] } : {}),
+    ...(typeof transport?.['cause'] === 'string' ? { transportCause: transport['cause'] } : {}),
+    ...(typeof transport?.['signal'] === 'string' ? { signal: transport['signal'] } : {}),
+    ...(typeof transport?.['error_code'] === 'string' ? { errorCode: transport['error_code'] } : {}),
+    ...(typeof transport?.['retryable'] === 'boolean' ? { retryableTransport: transport['retryable'] } : {}),
     ...(typeof stdout === 'string' && stdout.length > 0 ? { stdoutTail: stdout } : {}),
     ...(typeof stderr === 'string' ? { stderrTail: stderr } : {}),
     ...(excerptDetail !== undefined ? { detail: excerptDetail }
@@ -117,6 +136,11 @@ export function terminalEvidence(payload: Record<string, unknown>): Partial<Step
   const selected = selectEvidence(payload);
   return {
     ...(selected.exitCode === undefined ? {} : { exitCode: selected.exitCode }),
+    ...(selected.transportPhase === undefined ? {} : { transportPhase: formatStepExcerpt(selected.transportPhase) }),
+    ...(selected.transportCause === undefined ? {} : { transportCause: formatStepExcerpt(selected.transportCause) }),
+    ...(selected.signal === undefined ? {} : { signal: formatStepExcerpt(selected.signal) }),
+    ...(selected.errorCode === undefined ? {} : { errorCode: formatStepExcerpt(selected.errorCode) }),
+    ...(selected.retryableTransport === undefined ? {} : { retryableTransport: selected.retryableTransport }),
     ...(selected.stdoutTail === undefined ? {} : { stdoutTail: formatStepExcerpt(selected.stdoutTail) }),
     ...(selected.stderrTail === undefined ? {} : { stderrTail: formatStepExcerpt(selected.stderrTail) }),
     ...(selected.detail === undefined ? {} : { detail: formatStepExcerpt(selected.detail) }),
@@ -151,6 +175,13 @@ export function attemptFailure(
     completionReason,
     ...(typeof disposition === 'string' && disposition.length > 0 ? { disposition } : {}),
     ...(selected.exitCode === undefined ? {} : { exitCode: selected.exitCode }),
+    // Closed-vocabulary scalars, so a crash that left no stderr still says how
+    // it died (`signal=SIGKILL`) rather than reading as no evidence at all.
+    ...(selected.signal === undefined ? {} : { signal: bound(selected.signal) }),
+    ...(selected.transportCause === undefined ? {} : { transportCause: bound(selected.transportCause) }),
+    ...(selected.transportPhase === undefined ? {} : { transportPhase: bound(selected.transportPhase) }),
+    ...(selected.errorCode === undefined ? {} : { errorCode: bound(selected.errorCode) }),
+    ...(selected.retryableTransport === undefined ? {} : { retryableTransport: selected.retryableTransport }),
     ...(selected.stdoutTail === undefined ? {} : { stdoutTail: bound(selected.stdoutTail) }),
     ...(selected.stderrTail === undefined ? {} : { stderrTail: bound(selected.stderrTail) }),
     ...(selected.detail === undefined ? {} : { detail: bound(selected.detail) }),
@@ -177,15 +208,18 @@ export function failureCause(
   const verification = record(payload['verification']);
   const output = record(payload['output']);
   const trajectory = record(payload['trajectory_tail']);
+  const transport = record(trajectory?.['transport']);
   const failure = record(record(trajectory?.['transcript'])?.['failure']);
   const verificationDetail = text(verification?.['detail']);
   const accounts = [
     verificationDetail,
     text(output?.['stdout_tail']), text(output?.['stderr_tail']),
     text(trajectory?.['stdout_tail']), text(trajectory?.['stderr_tail']),
+    text(transport?.['phase']), text(transport?.['cause']), text(transport?.['signal']),
+    text(transport?.['error_code']), text(transport?.['stderr_tail']),
     text(failure?.['excerpt']),
   ];
-  const exitCodes = [output?.['exit_code'], trajectory?.['exit_code']]
+  const exitCodes = [output?.['exit_code'], trajectory?.['exit_code'], transport?.['exit_code']]
     .filter(value => typeof value === 'number');
   return {
     key: JSON.stringify([
@@ -197,13 +231,15 @@ export function failureCause(
       completionReason === 'verification_failed' || completionReason === 'retries_exhausted'
         ? 'kernel_rejected' : completionReason,
       text(verification?.['gate']), text(verification?.['verdict']), verificationDetail,
-      ...exitCodes, ...accounts, text(failure?.['kind']),
+      ...exitCodes, ...accounts, transport?.['retryable'], text(failure?.['kind']),
     ]),
     // An attempt that journaled nothing about itself cannot agree with
     // another one; it can only fail to disagree.
     recorded: exitCodes.length > 0 || accounts.some(account => account !== undefined),
     producerTruncated: (verificationDetail !== undefined
       && PRODUCER_TRUNCATED.test(verificationDetail))
+      || [output?.['stderr_tail'], trajectory?.['stderr_tail'], transport?.['stderr_tail']]
+        .some(stderr => typeof stderr === 'string' && STDERR_TRUNCATED.test(stderr))
       // The transcript digest's own flag (`boundTranscriptDigest`,
       // agent-transcript.ts): the worker already cut this excerpt, so equal
       // survivors cannot establish identical failures either.
@@ -255,8 +291,16 @@ export function renderAttemptHistory(details: StepFailedDetails): string {
 }
 
 function renderAttempt(attempt: StepAttemptFailure): string {
+  const transport = [
+    attempt.signal === undefined ? '' : ` signal=${attempt.signal}`,
+    attempt.transportCause === undefined ? '' : ` transport=${attempt.transportCause}`,
+    attempt.transportPhase === undefined ? '' : ` phase=${attempt.transportPhase}`,
+    attempt.errorCode === undefined ? '' : ` error_code=${attempt.errorCode}`,
+    attempt.retryableTransport === undefined ? '' : ` retryable=${attempt.retryableTransport}`,
+  ].join('');
   const head = `  attempt ${attempt.attempt ?? '?'}: ${attempt.completionReason ?? 'unknown'}`
     + (attempt.exitCode === undefined ? '' : ` exit=${attempt.exitCode}`)
+    + transport
     + (attempt.truncated ? ' (excerpt truncated)' : '');
   // An empty `stderrTail` is a journaled fact but not an account of anything,
   // so it never displaces useful stdout the way `detail ?? stderr ?? stdout`
@@ -264,7 +308,7 @@ function renderAttempt(attempt: StepAttemptFailure): string {
   const accounts: Array<[string, string]> = [
     ['detail', attempt.detail], ['stderr', attempt.stderrTail], ['stdout', attempt.stdoutTail],
   ].filter((pair): pair is [string, string] => typeof pair[1] === 'string' && pair[1].length > 0);
-  if (accounts.length === 0) return `${head} — no failure evidence recorded`;
+  if (accounts.length === 0) return transport === '' ? `${head} — no failure evidence recorded` : head;
   const [only] = accounts;
   if (accounts.length === 1 && !only![1].includes('\n')) return `${head} — ${only![0]}: ${only![1]}`;
   return [head, ...accounts.map(([label, value]) => indent(`${label}: ${value}`))].join('\n');

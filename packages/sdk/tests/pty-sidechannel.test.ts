@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { connect, type Socket } from 'node:net';
@@ -96,6 +97,113 @@ process.stdin.on('end', () => { clearTimeout(watchdog); process.stdout.write('eo
     expect(driven).toBe(false);
   } finally { peer?.destroy(); }
 });
+
+it('unattended Codex receives closed stdin before startup instead of entering its additional-input lifecycle', async () => {
+  const dataDir = dir();
+  const cli = join(dataDir, 'codex');
+  writeFileSync(cli, `#!/usr/bin/env node
+let ended = false;
+process.stdin.resume();
+process.stdin.on('end', () => {
+  ended = true;
+  process.stdout.write('stdin-closed-before-startup');
+});
+setTimeout(() => {
+  if (ended) process.exit(0);
+  process.stderr.write('Reading additional input from stdin...');
+  process.exit(1);
+}, 50);
+`, { mode: 0o755 });
+
+  const result = await runAgentCli(cli, 'test', undefined, 'pty-test-model', undefined, undefined, 'agent', {
+    dataDir, runId: 'r', stepId: 's', attempt: 1, onDrive() {},
+  });
+
+  expect(result).toMatchObject({
+    exit_code: 0,
+    stdout_tail: 'stdin-closed-before-startup',
+    transport: { phase: 'close', cause: 'exited', exit_code: 0, signal: null, retryable: false },
+  });
+});
+
+it('a drive that disconnects before spawn leaves an unattended CLI at EOF', async () => {
+  const dataDir = dir();
+  const cli = join(dataDir, 'claude');
+  writeFileSync(cli, `#!/usr/bin/env node
+const watchdog = setTimeout(() => process.exit(91), 2000);
+process.stdin.resume();
+process.stdin.on('end', () => {
+  clearTimeout(watchdog);
+  process.stdout.write('eof-after-drive-disconnect');
+});
+`, { mode: 0o755 });
+  let path = '';
+  let peer: Socket | undefined;
+  let greeted = false;
+  const channel = await openSidechannel({
+    dataDir, runId: 'r', stepId: 's', attempt: 1,
+    onDrive: () => { greeted = true; },
+    onReady: value => { path = value; },
+  }, () => true);
+  expect(channel).toBeDefined();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      peer = connect(path);
+      peer.once('error', reject);
+      peer.once('connect', () => peer!.end('HELLO drive\n'));
+      peer.once('close', resolve);
+    });
+    // The client's close can resolve before the server handles its own; one
+    // event-loop turn does not order them. Wait for the server to drop the
+    // peer. It greeted successfully, but is not live at the spawn decision.
+    await new Promise<void>(resolve => channel!.whenDriveIdle(resolve));
+    expect(greeted).toBe(true);
+    const driven = await channel!.waitForDrive(0);
+    expect(driven).toBe(false);
+
+    let stdout = '';
+    const child = spawn(cli, [], { stdio: [driven ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
+    child.stdout.on('data', bytes => { stdout += bytes.toString(); });
+    const exitCode = await new Promise<number | null>(resolve => child.once('close', resolve));
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('eof-after-drive-disconnect');
+  } finally { peer?.destroy(); channel?.close(); }
+});
+
+// The spawn-time enrollment check is a snapshot: a drive peer that is live
+// when the worker picks `pipe` can leave at any later point, including before
+// its close is even processed. Whenever that happens, the last drive peer
+// leaving must end the child's stdin, or a CLI that waits for its stdin
+// lifecycle (Codex, timeoutMs 0) hangs with nobody left to close the pipe.
+it('ends driven stdin when the last drive peer disconnects after spawn', async () => {
+  const dataDir = dir();
+  const cli = join(dataDir, 'codex');
+  writeFileSync(cli, `#!/usr/bin/env node
+const watchdog = setTimeout(() => process.exit(91), 1500);
+let input = '';
+process.stdin.on('data', b => { input += b; });
+process.stdin.on('end', () => {
+  clearTimeout(watchdog);
+  process.stdout.write('eof-after-driver-left:' + input);
+});
+process.stdout.write('spawned\\n');
+`, { mode: 0o755 });
+  let peer: Socket | undefined;
+  let driven = false;
+  try {
+    const result = await runAgentCli(cli, 'test', undefined, 'pty-test-model', undefined, undefined, 'agent', {
+      dataDir, runId: 'r', stepId: 's', attempt: 1, onDrive: () => { driven = true; },
+      onReady(path) {
+        peer = connect(path, () => peer!.write('HELLO drive\noperator'));
+        // Child output reaches this peer only after spawn chose `pipe`.
+        peer.once('data', () => peer!.destroy());
+      },
+    });
+    expect(driven).toBe(true);
+    expect(result.exit_code).toBe(0);
+    expect(result.stdout_tail).toContain('eof-after-driver-left:operator');
+  } finally { peer?.destroy(); }
+}, 15_000);
 
 it('rejects drive after EOF without marking human intervention', async () => {
   const dataDir = dir();

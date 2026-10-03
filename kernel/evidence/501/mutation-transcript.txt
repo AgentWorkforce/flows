@@ -1,0 +1,194 @@
+### 0. Revision under test
+
+$ git rev-parse HEAD
+921a69d28ad874e8c1050941749e96c774263d9b
+exit_code=0 expected=pass ok
+
+$ git diff --exit-code --stat -- kernel
+exit_code=0 expected=pass ok
+
+### 1. GREEN at the commit
+
+$ cd kernel && out=$(cargo test -p relayflowd-core --lib -- machine::recovery_tests machine::tests::refused_dispatch 2>&1); code=$?; printf '%s\n' "$out" | grep -E '^test |^test result'; exit $code
+test machine::recovery_tests::reset_recovery_still_retries_a_worker_reported_transport_loss ... ok
+test machine::tests::refused_dispatch_is_re_elected_within_max_iterations_only ... ok
+test machine::recovery_tests::manual_recovery_parks_a_worker_reported_transport_loss_instead_of_redispatching ... ok
+test machine::recovery_tests::recovery_journals_the_wait_human_a_torn_manual_park_never_wrote ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 82 filtered out; finished in 0.01s
+exit_code=0 expected=pass ok
+
+$ cd kernel && out=$(cargo test -p relayflowd --test parallel_driver 2>&1); code=$?; printf '%s\n' "$out" | grep -E '^test |^test result'; exit $code
+test stop_after_one_holds_for_an_independent_deterministic_batch ... ok
+test backpressured_or_mismatched_lane_does_not_drop_a_later_dispatch ... ok
+test crash_boundaries_resume_the_real_driver_with_one_effect_per_lane ... ok
+test pause_before_second_independent_step_holds_the_driver_boundary ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.67s
+exit_code=0 expected=pass ok
+
+### Mutation a-manual-park-off
+
+$ git apply kernel/evidence/501/mutations/a-manual-park-off.patch
+exit_code=0 expected=pass ok
+
+$ git diff -U0 -- kernel/relayflowd-core/src
+diff --git a/kernel/relayflowd-core/src/machine.rs b/kernel/relayflowd-core/src/machine.rs
+index c59fe8fd..0072e2d2 100644
+--- a/kernel/relayflowd-core/src/machine.rs
++++ b/kernel/relayflowd-core/src/machine.rs
+@@ -455 +455 @@ fn settle_attempt(
+-    let manual_park = transport_failure
++    let manual_park = false && transport_failure
+exit_code=0 expected=pass ok
+
+$ cd kernel && out=$(cargo test -p relayflowd-core --lib -- machine::recovery_tests machine::tests::refused_dispatch 2>&1); code=$?; printf '%s\n' "$out" | grep -E '^test |^test result'; exit $code
+test machine::recovery_tests::reset_recovery_still_retries_a_worker_reported_transport_loss ... ok
+test machine::tests::refused_dispatch_is_re_elected_within_max_iterations_only ... ok
+test machine::recovery_tests::manual_recovery_parks_a_worker_reported_transport_loss_instead_of_redispatching ... FAILED
+test machine::recovery_tests::recovery_journals_the_wait_human_a_torn_manual_park_never_wrote ... FAILED
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 82 filtered out; finished in 0.01s
+exit_code=101 expected=fail ok
+
+$ cd kernel && out=$(cargo test -p relayflowd --test parallel_driver 2>&1); code=$?; printf '%s\n' "$out" | grep -E '^test |^test result'; exit $code
+test stop_after_one_holds_for_an_independent_deterministic_batch ... ok
+test backpressured_or_mismatched_lane_does_not_drop_a_later_dispatch ... ok
+test crash_boundaries_resume_the_real_driver_with_one_effect_per_lane ... ok
+test pause_before_second_independent_step_holds_the_driver_boundary ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.93s
+exit_code=0 expected=pass ok
+
+$ git checkout -- kernel/relayflowd-core/src
+exit_code=0 expected=pass ok
+
+$ git diff --exit-code --stat -- kernel
+exit_code=0 expected=pass ok
+
+### Mutation b-torn-park-repair-off
+
+$ git apply kernel/evidence/501/mutations/b-torn-park-repair-off.patch
+exit_code=0 expected=pass ok
+
+$ git diff -U0 -- kernel/relayflowd-core/src
+diff --git a/kernel/relayflowd-core/src/machine/recovery.rs b/kernel/relayflowd-core/src/machine/recovery.rs
+index a4312cb2..9c67731d 100644
+--- a/kernel/relayflowd-core/src/machine/recovery.rs
++++ b/kernel/relayflowd-core/src/machine/recovery.rs
+@@ -57 +57 @@ pub fn recovery_actions_filtered(
+-                ) && *wait_id == park_placeholder_wait_id(&spec.id, runtime.attempts) =>
++                ) && false && *wait_id == park_placeholder_wait_id(&spec.id, runtime.attempts) =>
+exit_code=0 expected=pass ok
+
+$ cd kernel && out=$(cargo test -p relayflowd-core --lib -- machine::recovery_tests machine::tests::refused_dispatch 2>&1); code=$?; printf '%s\n' "$out" | grep -E '^test |^test result'; exit $code
+test machine::recovery_tests::reset_recovery_still_retries_a_worker_reported_transport_loss ... ok
+test machine::tests::refused_dispatch_is_re_elected_within_max_iterations_only ... ok
+test machine::recovery_tests::recovery_journals_the_wait_human_a_torn_manual_park_never_wrote ... FAILED
+test machine::recovery_tests::manual_recovery_parks_a_worker_reported_transport_loss_instead_of_redispatching ... ok
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 82 filtered out; finished in 0.01s
+exit_code=101 expected=fail ok
+
+$ cd kernel && out=$(cargo test -p relayflowd --test parallel_driver 2>&1); code=$?; printf '%s\n' "$out" | grep -E '^test |^test result'; exit $code
+test stop_after_one_holds_for_an_independent_deterministic_batch ... ok
+test backpressured_or_mismatched_lane_does_not_drop_a_later_dispatch ... ok
+test crash_boundaries_resume_the_real_driver_with_one_effect_per_lane ... ok
+test pause_before_second_independent_step_holds_the_driver_boundary ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.72s
+exit_code=0 expected=pass ok
+
+$ git checkout -- kernel/relayflowd-core/src
+exit_code=0 expected=pass ok
+
+$ git diff --exit-code --stat -- kernel
+exit_code=0 expected=pass ok
+
+### Mutation c-refused-dispatch-retry-off
+
+$ git apply kernel/evidence/501/mutations/c-refused-dispatch-retry-off.patch
+exit_code=0 expected=pass ok
+
+$ git diff -U0 -- kernel/relayflowd-core/src
+diff --git a/kernel/relayflowd-core/src/machine.rs b/kernel/relayflowd-core/src/machine.rs
+index c59fe8fd..5e9f4877 100644
+--- a/kernel/relayflowd-core/src/machine.rs
++++ b/kernel/relayflowd-core/src/machine.rs
+@@ -440 +440 @@ fn settle_attempt(
+-    let semantic_failure = refused_dispatch
++    let semantic_failure = false && refused_dispatch
+exit_code=0 expected=pass ok
+
+$ cd kernel && out=$(cargo test -p relayflowd-core --lib -- machine::recovery_tests machine::tests::refused_dispatch 2>&1); code=$?; printf '%s\n' "$out" | grep -E '^test |^test result'; exit $code
+test machine::recovery_tests::manual_recovery_parks_a_worker_reported_transport_loss_instead_of_redispatching ... ok
+test machine::recovery_tests::recovery_journals_the_wait_human_a_torn_manual_park_never_wrote ... ok
+test machine::recovery_tests::reset_recovery_still_retries_a_worker_reported_transport_loss ... ok
+test machine::tests::refused_dispatch_is_re_elected_within_max_iterations_only ... FAILED
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 82 filtered out; finished in 0.01s
+exit_code=101 expected=fail ok
+
+$ cd kernel && out=$(cargo test -p relayflowd --test parallel_driver 2>&1); code=$?; printf '%s\n' "$out" | grep -E '^test |^test result'; exit $code
+test stop_after_one_holds_for_an_independent_deterministic_batch ... ok
+test backpressured_or_mismatched_lane_does_not_drop_a_later_dispatch ... FAILED
+test crash_boundaries_resume_the_real_driver_with_one_effect_per_lane ... ok
+test pause_before_second_independent_step_holds_the_driver_boundary ... ok
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.93s
+exit_code=101 expected=fail ok
+
+$ git checkout -- kernel/relayflowd-core/src
+exit_code=0 expected=pass ok
+
+$ git diff --exit-code --stat -- kernel
+exit_code=0 expected=pass ok
+
+### Mutation d-refusal-not-charged
+
+$ git apply kernel/evidence/501/mutations/d-refusal-not-charged.patch
+exit_code=0 expected=pass ok
+
+$ git diff -U0 -- kernel/relayflowd-core/src
+diff --git a/kernel/relayflowd-core/src/state.rs b/kernel/relayflowd-core/src/state.rs
+index 64c010fa..0c55346c 100644
+--- a/kernel/relayflowd-core/src/state.rs
++++ b/kernel/relayflowd-core/src/state.rs
+@@ -333 +333 @@ impl RunState {
+-            CompletionReason::Crashed | CompletionReason::LeaseExpired
++            CompletionReason::Crashed | CompletionReason::LeaseExpired | CompletionReason::WorkerError
+exit_code=0 expected=pass ok
+
+$ cd kernel && out=$(cargo test -p relayflowd-core --lib -- machine::recovery_tests machine::tests::refused_dispatch 2>&1); code=$?; printf '%s\n' "$out" | grep -E '^test |^test result'; exit $code
+test machine::recovery_tests::reset_recovery_still_retries_a_worker_reported_transport_loss ... ok
+test machine::recovery_tests::manual_recovery_parks_a_worker_reported_transport_loss_instead_of_redispatching ... ok
+test machine::recovery_tests::recovery_journals_the_wait_human_a_torn_manual_park_never_wrote ... ok
+test machine::tests::refused_dispatch_is_re_elected_within_max_iterations_only ... FAILED
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 82 filtered out; finished in 0.01s
+exit_code=101 expected=fail ok
+
+$ cd kernel && out=$(cargo test -p relayflowd --test parallel_driver 2>&1); code=$?; printf '%s\n' "$out" | grep -E '^test |^test result'; exit $code
+test stop_after_one_holds_for_an_independent_deterministic_batch ... ok
+test backpressured_or_mismatched_lane_does_not_drop_a_later_dispatch ... ok
+test crash_boundaries_resume_the_real_driver_with_one_effect_per_lane ... ok
+test pause_before_second_independent_step_holds_the_driver_boundary ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.94s
+exit_code=0 expected=pass ok
+
+$ git checkout -- kernel/relayflowd-core/src
+exit_code=0 expected=pass ok
+
+$ git diff --exit-code --stat -- kernel
+exit_code=0 expected=pass ok
+
+### 2. GREEN again after restore
+
+$ cd kernel && out=$(cargo test -p relayflowd-core --lib -- machine::recovery_tests machine::tests::refused_dispatch 2>&1); code=$?; printf '%s\n' "$out" | grep -E '^test |^test result'; exit $code
+test machine::recovery_tests::reset_recovery_still_retries_a_worker_reported_transport_loss ... ok
+test machine::recovery_tests::manual_recovery_parks_a_worker_reported_transport_loss_instead_of_redispatching ... ok
+test machine::tests::refused_dispatch_is_re_elected_within_max_iterations_only ... ok
+test machine::recovery_tests::recovery_journals_the_wait_human_a_torn_manual_park_never_wrote ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 82 filtered out; finished in 0.01s
+exit_code=0 expected=pass ok
+
+$ cd kernel && out=$(cargo test -p relayflowd --test parallel_driver 2>&1); code=$?; printf '%s\n' "$out" | grep -E '^test |^test result'; exit $code
+test stop_after_one_holds_for_an_independent_deterministic_batch ... ok
+test backpressured_or_mismatched_lane_does_not_drop_a_later_dispatch ... ok
+test crash_boundaries_resume_the_real_driver_with_one_effect_per_lane ... ok
+test pause_before_second_independent_step_holds_the_driver_boundary ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.92s
+exit_code=0 expected=pass ok
+
+### Result: 0 expectation(s) missed

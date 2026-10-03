@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   compileAndHash,
+  compileSpec,
   compileYaml,
   compileYamlToCanonicalJson,
   toKernelSpec,
@@ -101,6 +102,56 @@ steps:
     const kernel = toKernelSpec(flow);
     kernel.steps[0]!.retry.initial_backoff_ms = 5;
     expect(() => kernelToAuthoring(kernel)).toThrow('retry.initial_backoff_ms');
+  });
+
+  it('round-trips the explicit transport retry budget without changing legacy defaults', () => {
+    const flow = compileYaml(fixture('hello-ladder.flow.yaml'));
+    const agent = flow.steps.find(step => step.type === 'agent')!;
+    agent.transportRetries = 2;
+    const kernel = toKernelSpec(flow);
+    expect(kernel.steps.find(step => step.type === 'agent')!.retry.max_transport_retries).toBe(2);
+    expect(kernelToAuthoring(kernel)).toEqual(compileSpec(flow));
+  });
+
+  it('preserves an explicit zero transport retry budget', () => {
+    const flow = compileYaml(fixture('hello-ladder.flow.yaml'));
+    const agent = flow.steps.find(step => step.type === 'agent')!;
+    agent.transportRetries = 0;
+    const kernel = toKernelSpec(flow);
+    expect(kernel.steps.find(step => step.type === 'agent')!.retry.max_transport_retries).toBe(0);
+    expect(kernelToAuthoring(kernel).steps.find(step => step.type === 'agent')!.transportRetries).toBe(0);
+  });
+
+  // spec.rs `max_transport_retries: u32`: a larger budget must be refused at
+  // the SDK, not discovered when relayflowd refuses the whole spec.
+  it('refuses a transport retry budget outside the kernel u32 range', () => {
+    const flow = compileYaml(fixture('hello-ladder.flow.yaml'));
+    const agent = flow.steps.find(step => step.type === 'agent')!;
+    agent.transportRetries = 4_294_967_295;
+    expect(toKernelSpec(flow).steps.find(step => step.type === 'agent')!.retry.max_transport_retries).toBe(4_294_967_295);
+    agent.transportRetries = 4_294_967_296;
+    expect(() => compileSpec(flow)).toThrow('transportRetries');
+    expect(() => toKernelSpec(flow)).toThrow('transportRetries');
+    const kernel = toKernelSpec(compileYaml(fixture('hello-ladder.flow.yaml')));
+    kernel.steps.find(step => step.type === 'agent')!.retry.max_transport_retries = 4_294_967_296;
+    expect(() => kernelToAuthoring(kernel)).toThrow('max_transport_retries');
+  });
+
+  // spec.rs `skip_serializing_if = is_default_max_transport_retries`: the
+  // kernel re-serializes an explicit 1 as absent before it stamps spec_hash.
+  // An author who spells out the default must land on the legacy bytes, or
+  // the SDK's specHash and the kernel's spec_hash disagree for one spec.
+  it('leaves the default transport retry budget out of the canonical bytes and the hash', () => {
+    const yaml = fixture('hello-ladder.flow.yaml');
+    const flow = compileYaml(yaml);
+    const agent = flow.steps.find(step => step.type === 'agent')!;
+    agent.transportRetries = 1;
+    expect(canonicalize(toKernelSpec(flow))).toBe(fixture('hello-ladder.spec.canonical.json').trim());
+    expect(specHash(toKernelSpec(flow))).toBe(fixture('hello-ladder.spec.sha256').trim());
+    expect(kernelToAuthoring(toKernelSpec(flow))).toEqual(compileYaml(yaml));
+    const kernel = toKernelSpec(compileYaml(yaml));
+    kernel.steps.find(step => step.type === 'agent')!.retry.max_transport_retries = 1;
+    expect(kernelToAuthoring(kernel)).toEqual(compileYaml(yaml));
   });
 
   // The trigger dialect. `toKernelSpec` used to spread `flow.triggers` through

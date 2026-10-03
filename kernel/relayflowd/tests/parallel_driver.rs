@@ -361,6 +361,10 @@ fn backpressured_or_mismatched_lane_does_not_drop_a_later_dispatch() {
             .status,
         RunStatus::Parked
     );
+    // Appendix A rule 2 / `DispatchOutcome::PinMismatch`: the refused attempt
+    // never reached a worker, so it fails closed and the step is re-elected
+    // against its journaled pins under `max_iterations` -- not ended as if a
+    // worker had reported `worker_error`.
     assert_eq!(
         dispatcher
             .calls()

@@ -1,0 +1,13 @@
+diff --git a/kernel/relayflowd-core/src/machine/recovery.rs b/kernel/relayflowd-core/src/machine/recovery.rs
+index a4312cb2..9c67731d 100644
+--- a/kernel/relayflowd-core/src/machine/recovery.rs
++++ b/kernel/relayflowd-core/src/machine/recovery.rs
+@@ -54,7 +54,7 @@ pub fn recovery_actions_filtered(
+                         recovery_mode: RecoveryMode::Manual,
+                         ..
+                     }
+-                ) && *wait_id == park_placeholder_wait_id(&spec.id, runtime.attempts) =>
++                ) && false && *wait_id == park_placeholder_wait_id(&spec.id, runtime.attempts) =>
+             {
+                 actions.push(Action::Append(manual_park_wait(
+                     &state.run_id,

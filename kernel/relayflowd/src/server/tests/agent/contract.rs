@@ -334,7 +334,7 @@ fn a_replacement_worker_that_never_reported_the_pinned_surface_is_not_dispatched
             "type": "agent",
             "instruction": "edit",
             "max_iterations": 3,
-            "retry": {"initial_backoff_ms": 0, "max_backoff_ms": 0, "multiplier": 1, "jitter_percent": 0},
+            "retry": {"initial_backoff_ms": 0, "max_backoff_ms": 0, "multiplier": 1, "jitter_percent": 0, "max_transport_retries": 1},
             "surfaces": {"workspace": [{"surface": "repo"}]}
         }]
     });
