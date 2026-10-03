@@ -1,0 +1,329 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd
+LIVE_KERNEL flows=/home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/dist/cli.js
+
+ ✓ tests/stop-process-group.test.ts (11 tests) 14744ms
+   ✓ every stop reaches the process group, not just the direct child > exits the run after an execution-timeout stop 990ms
+   ✓ every stop reaches the process group, not just the direct child > exits the run after a protocol terminate stop 547ms
+   ✓ every stop reaches the process group, not just the direct child > kills a SIGTERM-deaf grandchild after a protocol terminate stop 1544ms
+   ✓ every stop reaches the process group, not just the direct child > kills a SIGTERM-deaf grandchild after an execution-timeout stop 1928ms
+   ✓ every stop reaches the process group, not just the direct child > holds the loop open long enough for the escalation to run 1095ms
+   ✓ every stop reaches the process group, not just the direct child > terminate() forces a group that outlives SIGTERM 589ms
+   ✓ every stop reaches the process group, not just the direct child > bounds forced-stop confirmation when a group remains unprovable 1008ms
+   ✓ a wrapper that exits with no execution deadline still drains > reports the wrapper result and reaps a grandchild holding its pipes 778ms
+   ✓ a wrapper that exits with no execution deadline still drains > reaps a SIGTERM-deaf grandchild holding its pipes 1869ms
+   ✓ a wrapper that exits with no execution deadline still drains > settles on its own deadline when an escaped holder withholds close 4319ms
+ ✓ tests/authored-node-result.test.ts (45 tests) 22ms
+ ❯ tests/verb-field-lint.test.ts (99 tests | 1 failed) 345ms
+   × closed per-verb step fields > pins the per-verb descriptor and generates every foreign-field pair from it 7ms
+     → expected { …(3) } to deeply equal { …(3) }
+ ✓ tests/wrapper-execution-duration.test.ts (7 tests) 10873ms
+   ✓ keeps the handshake deadline independent of the removed execution deadline 10060ms
+   ✓ still lets a lease abort stop an unlimited wrapper before it produces output 513ms
+ ✓ tests/authored-agent-artifacts.test.ts (5 tests) 355ms
+ ✓ tests/spec-parity.test.ts (46 tests) 500ms
+ ✓ tests/worker-cli.test.ts (25 tests) 31000ms
+   ✓ registered CLI model defaults > passes the same priced Claude default to the real provider invocation 538ms
+   ✓ registered CLI model defaults > uses the explicitly supplied agent environment for the provider subprocess 535ms
+   ✓ registered CLI model defaults > dispatches canonical generic bytes with the preflight-proved adapter identity 495ms
+   ✓ direct transport lifecycle evidence > classifies only the exact Codex stdin lifecycle signature as retryable 493ms
+   ✓ direct transport lifecycle evidence > records a signal close separately from an ordinary nonzero exit 1031ms
+   ✓ direct transport lifecycle evidence > records a spawn error code without treating a missing executable as transient 411ms
+   ✓ direct transport lifecycle evidence > journals classified lifecycle evidence and reports crashed instead of generic worker_error 668ms
+   ✓ step discovery environment > names the run, step, attempt and an absolute data dir for a direct agent spawn 616ms
+   ✓ step discovery environment > exports none of the four without a data dir, even when the worker inherited them 500ms
+   ✓ wrapper discovery environment > sets the four names from the dispatch and still refuses ambient values and other secrets 630ms
+   ✓ wrapper discovery environment > exports none of the four to a wrapper without a data dir, even when the worker inherited them 520ms
+   ✓ custom wrapper execution identity > passes an explicit safe environment at identification and execution 513ms
+   ✓ custom wrapper execution identity > refuses a wrapper symlink retarget before delivering private values 469ms
+   ✓ custom wrapper execution identity > bounds wrapper execution after acknowledgement 562ms
+   ✓ custom wrapper execution identity > bounds captured wrapper output 469ms
+   ✓ custom wrapper execution identity > refuses a duplicate execute protocol frame 545ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a conforming wrapper leaks a stdio pipe to a background helper 1778ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when the leaked helper inherits stderr only 1824ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a wrapper leaks a stdio pipe and exits before identifying 3563ms
+   ✓ custom wrapper execution bounds are reader-owned > journals a completionReason at the default bound when a wrapper leaks a stdio pipe 11522ms
+   ✓ custom wrapper execution bounds are reader-owned > accepts an execute token and an over-8KiB payload flushed in one write 540ms
+   ✓ custom wrapper execution bounds are reader-owned > accepts the same over-8KiB payload whether or not it coalesces with the execute token 1720ms
+   ✓ custom wrapper execution bounds are reader-owned > still bounds an un-terminated handshake buffer and names the bound 513ms
+   ✓ delivers the journaled memory pack to the real wrapper and excludes its charge from completion usage 543ms
+ ✓ tests/authored-retried-child-resume-live.test.ts (2 tests) 1564ms
+   ✓ an authored step whose child run retried an attempt > resumes after a kill mid-step and reads the terminal completion, not the crashed one 1419ms
+ ✓ tests/agent-timeout-live.test.ts (3 tests) 4485ms
+   ✓ journals timeout, stops the process, runs a predicate gate and publishes under a budget header 1261ms
+   ✓ replays timeout after killing the root and daemon, without executing the agent again 1969ms
+   ✓ lets an author reject timeout through a predicate gate 1255ms
+ ✓ tests/agent-timeout-worker.test.ts (8 tests) 1975ms
+   ✓ stops claude at its declared limit, preserving work and stopping descendants 523ms
+   ✓ stops codex at its declared limit, preserving work and stopping descendants 516ms
+   ✓ stops wrapper at its declared limit, preserving work and stopping descendants 536ms
+ ✓ tests/agent-timeout.test.ts (23 tests) 37ms
+stdout | tests/live-kernel.test.ts > surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once
+LIVE_KERNEL kill -9 pid=18853 run=01M41R3AJWBNG7DZZCDAVFFQDC while step=two state=Running
+
+ ❯ tests/live-kernel.test.ts (32 tests | 9 failed) 57453ms
+   ✓ built flows CLI against live relayflowd > twenty-six-step reuses 25 durable completions after editing the failed final step 2651ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 3629ms
+   ✓ built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 32485ms
+   ✓ built flows CLI against live relayflowd > follows a live worker dispatch through flows run 636ms
+   ✓ built flows CLI against live relayflowd > runs an agent CLI end to end through the SDK worker 516ms
+   ✓ built flows CLI against live relayflowd > f.agent lowers to a real agent step and dispatches through a live worker 738ms
+   ✓ built flows CLI against live relayflowd > can always get a parked run to a late-attaching worker 5585ms
+   ✓ built flows CLI against live relayflowd > reports a real manual-recovery NeedsHuman state as parked 463ms
+   × built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo) 572ms
+     → expected { …(12) } to match object { output: { …(3) }, …(1) }
+(22 matching properties omitted from actual)
+   × built flows CLI against live relayflowd > hn-monitor analyze-story FAILS verification when the CLI omits required schema fields 655ms
+     → expected { …(12) } to match object { …(3) }
+(21 matching properties omitted from actual)
+   × built flows CLI against live relayflowd > agent step preserves the CliResult wrapper as output when the CLI emits non-JSON text 605ms
+     → expected null not to be null
+   × built flows CLI against live relayflowd > AgentWorker exposes wake_context to the CLI via RELAYFLOW_WAKE_CONTEXT env var (real analyzer prerequisite) 718ms
+     → Cannot read properties of null (reading 'story_title')
+   × built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_WAKE_CONTEXT UNSET when the run has no wake_context (undefined-vs-null pin) 562ms
+     → Cannot read properties of null (reading 'env_present')
+   ✓ built flows CLI against live relayflowd > AgentWorker passes a declared model to an identified wrapper as RELAYFLOW_MODEL 594ms
+   ✓ built flows CLI against live relayflowd > AgentWorker refuses a nonconforming journal-submitted wrapper before exposing RELAYFLOW_MODEL 566ms
+   ✓ built flows CLI against live relayflowd > AgentWorker executes the raw claude adapter with its real model flag 517ms
+   ✓ built flows CLI against live relayflowd > AgentWorker executes the raw codex adapter with its real model flag 580ms
+   × built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_MODEL UNSET when the step declares no model 642ms
+     → Cannot read properties of null (reading 'story_title')
+   × built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI 31ms
+     → LIVE_ANALYZER_UNAVAILABLE: "/home/daytona/.relayflow-v2-supervisor/durable/repository/testdata/preflight/analyze-story-claude-cli" does not identify as relayflows-agent-cli-v1 — failing because gate-2 acceptance requires the real analyzer to execute. Set RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 only if this run is not gate evidence.
+   ✓ built flows CLI against live relayflowd > preflights before journaling and names an unreachable socket 873ms
+   × built flows CLI against live relayflowd > starts exactly one daemon when two runs race for one empty data dir 505ms
+     → WARNING [unprovable_effects] Step "greet" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "shout" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [editor_schema_missing] For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+REFUSED [relayflowd_not_found] No relayflowd binary could be found. Install the runtime package for this host (@relayflows/runtime-linux-x64), or set RELAYFLOWD_BIN to a relayflowd executable. Tried: /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/dist/relayflowd.
+: expected 2 to be +0 // Object.is equality
+   ✓ subprocess_gate output capture against live relayflowd > journals the gate command output and reports both tails 1039ms
+   ✓ surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once 944ms
+   × a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant 610ms
+     → expected null to deeply equal { schedule_id: 'heartbeat-1m', …(3) }
+ ✓ tests/step-lease.test.ts (36 tests) 66623ms
+   ✓ f.run leases against the live kernel > enforces 10000 ms for 'sleep 5; printf ok' 5089ms
+   ✓ f.run leases against the live kernel > enforces 40000 ms for 'sleep 31; printf ok' 31170ms
+   ✓ f.run leases against the live kernel > enforces 30000 ms for 'sleep 31; printf ok' 30125ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo)
+AssertionError: expected { …(12) } to match object { output: { …(3) }, …(1) }
+(22 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "output": Object {
+-     "reasoning": "stub agent runtime — deterministic output for gate-2 clause-2 demo",
+-     "relevance_score": 5,
+-     "story_title": "stub",
+-   },
++   "output": null,
+    "verification": Object {
+-     "gate": "json_schema",
+-     "verdict": "pass",
++     "gate": "execution",
++     "verdict": "fail",
+    },
+  }
+
+ ❯ tests/live-kernel.test.ts:657:36
+    655|         && (entry as { step_id?: string }).step_id === 'analyze-story',
+    656|     ) as { payload: { output: unknown; verification: unknown } } | und…
+    657|     expect(stepCompleted?.payload).toMatchObject({
+       |                                    ^
+    658|       output: {
+    659|         story_title: 'stub',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/10]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story FAILS verification when the CLI omits required schema fields
+AssertionError: expected { …(12) } to match object { …(3) }
+(21 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "completionReason": "retries_exhausted",
++   "completionReason": "worker_error",
+    "output": null,
+    "verification": Object {
+-     "gate": "json_schema",
++     "gate": "execution",
+      "verdict": "fail",
+    },
+  }
+
+ ❯ tests/live-kernel.test.ts:752:36
+    750|     // its verification record names the json_schema rejection. The re…
+    751|     // parsed value is nulled before the completion is persisted.
+    752|     expect(stepCompleted?.payload).toMatchObject({
+       |                                    ^
+    753|       completionReason: 'retries_exhausted',
+    754|       output: null,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/10]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > agent step preserves the CliResult wrapper as output when the CLI emits non-JSON text
+AssertionError: expected null not to be null
+ ❯ tests/live-kernel.test.ts:823:24
+    821|     // here (parseJsonOutput returned null on non-JSON stdout) and
+    822|     // these assertions would all fail.
+    823|     expect(output).not.toBeNull();
+       |                        ^
+    824|     expect(output.exit_code).toBe(0);
+    825|     expect(output.stdout_tail).toContain('looked at the story');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/10]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker exposes wake_context to the CLI via RELAYFLOW_WAKE_CONTEXT env var (real analyzer prerequisite)
+TypeError: Cannot read properties of null (reading 'story_title')
+ ❯ tests/live-kernel.test.ts:891:42
+    889|     ) as { payload: { output: { story_title: string; reasoning: string…
+    890|     expect(stepCompleted).toBeDefined();
+    891|     expect(stepCompleted!.payload.output.story_title).toBe(`echoed:${s…
+       |                                          ^
+    892|     expect(stepCompleted!.payload.output.reasoning).toContain(String(s…
+    893| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/10]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_WAKE_CONTEXT UNSET when the run has no wake_context (undefined-vs-null pin)
+TypeError: Cannot read properties of null (reading 'env_present')
+ ❯ tests/live-kernel.test.ts:958:38
+    956|     ) as { payload: { output: { env_present: boolean } } } | undefined;
+    957|     expect(completed).toBeDefined();
+    958|     expect(completed!.payload.output.env_present).toBe(false);
+       |                                      ^
+    959| 
+    960|     delete process.env.RELAYFLOW_WAKE_CONTEXT;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/10]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_MODEL UNSET when the step declares no model
+TypeError: Cannot read properties of null (reading 'story_title')
+ ❯ tests/live-kernel.test.ts:1194:38
+    1192|     expect(completed).toBeDefined();
+    1193|     // UNSET, not EMPTY and not the leaked parent value.
+    1194|     expect(completed!.payload.output.story_title).toBe('model:UNSET');
+       |                                      ^
+    1195| 
+    1196|     delete process.env.RELAYFLOW_MODEL;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/10]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI
+Error: LIVE_ANALYZER_UNAVAILABLE: "/home/daytona/.relayflow-v2-supervisor/durable/repository/testdata/preflight/analyze-story-claude-cli" does not identify as relayflows-agent-cli-v1 — failing because gate-2 acceptance requires the real analyzer to execute. Set RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 only if this run is not gate evidence.
+ ❯ tests/live-kernel.test.ts:1223:15
+    1221|       const notice = `LIVE_ANALYZER_UNAVAILABLE: ${readiness.detail}`;
+    1222|       if (process.env['RELAYFLOWS_ALLOW_ANALYZER_SKIP'] !== '1') {
+    1223|         throw new Error(
+       |               ^
+    1224|           `${notice} — failing because gate-2 acceptance requires the …
+    1225|           + 'Set RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 only if this run is …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/10]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > starts exactly one daemon when two runs race for one empty data dir
+AssertionError: WARNING [unprovable_effects] Step "greet" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "shout" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [editor_schema_missing] For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+REFUSED [relayflowd_not_found] No relayflowd binary could be found. Install the runtime package for this host (@relayflows/runtime-linux-x64), or set RELAYFLOWD_BIN to a relayflowd executable. Tried: /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/dist/relayflowd.
+: expected 2 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 2
+
+ ❯ tests/live-kernel.test.ts:1388:40
+    1386|     ]);
+    1387| 
+    1388|     expect(first.status, first.stderr).toBe(0);
+       |                                        ^
+    1389|     expect(second.status, second.stderr).toBe(0);
+    1390|     expect(first.stdout).toContain('completionReason: success');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/10]⎯
+
+ FAIL  tests/live-kernel.test.ts > a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant
+AssertionError: expected null to deeply equal { schedule_id: 'heartbeat-1m', …(3) }
+
+- Expected: 
+Object {
+  "lag_ms": 43000,
+  "schedule_id": "heartbeat-1m",
+  "scheduled_for_ms": 1764000000000,
+  "slot": 29400000,
+}
+
++ Received: 
+null
+
+ ❯ tests/live-kernel.test.ts:1739:39
+    1737|     // The bound: the run reports the grid instant and its own lag, so…
+    1738|     // backfilled run can tell it is running for a slot from the past.
+    1739|     expect(completed!.payload.output).toEqual({
+       |                                       ^
+    1740|       schedule_id: 'heartbeat-1m',
+    1741|       slot: 29_400_000,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/10]⎯
+
+ FAIL  tests/verb-field-lint.test.ts > closed per-verb step fields > pins the per-verb descriptor and generates every foreign-field pair from it
+AssertionError: expected { …(3) } to deeply equal { …(3) }
+
+- Expected
++ Received
+
+  Object {
+    "agent": Array [
++     "timeoutMs",
+      "instruction",
+      "agent",
+      "cli",
+      "model",
+      "cwd",
+      "transport",
+      "surfaces",
+      "recoveryMode",
+      "permissions",
+      "output",
+    ],
+    "deterministic": Array [
+      "command",
+      "timeoutMs",
+      "lease_ms",
+      "onNonZero",
+    ],
+    "llm": Array [
+      "prompt",
+      "model",
+      "cli",
+      "output",
+    ],
+  }
+
+ ❯ tests/verb-field-lint.test.ts:205:33
+    203|       'requirements',
+    204|     ]);
+    205|     expect(STEP_FIELDS_BY_TYPE).toEqual({
+       |                                 ^
+    206|       deterministic: ['command', 'timeoutMs', 'lease_ms', 'onNonZero'],
+    207|       llm: ['prompt', 'model', 'cli', 'output'],
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/10]⎯
+
+ Test Files  2 failed | 11 passed (13)
+      Tests  10 failed | 332 passed (342)
+   Start at  20:42:14
+   Duration  99.23s (transform 1.66s, setup 81ms, collect 6.14s, tests 189.98s, environment 2ms, prepare 526ms)
+

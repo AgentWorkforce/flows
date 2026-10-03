@@ -1,0 +1,67 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/authored-node-result.test.ts (45 tests) 35ms
+ ✓ tests/verb-field-lint.test.ts (99 tests) 384ms
+ ✓ tests/wrapper-execution-duration.test.ts (7 tests) 10858ms
+   ✓ keeps the handshake deadline independent of the removed execution deadline 10062ms
+   ✓ still lets a lease abort stop an unlimited wrapper before it produces output 511ms
+ ✓ tests/stop-process-group.test.ts (11 tests) 14607ms
+   ✓ every stop reaches the process group, not just the direct child > exits the run after an execution-timeout stop 1003ms
+   ✓ every stop reaches the process group, not just the direct child > exits the run after a protocol terminate stop 653ms
+   ✓ every stop reaches the process group, not just the direct child > kills a SIGTERM-deaf grandchild after a protocol terminate stop 1584ms
+   ✓ every stop reaches the process group, not just the direct child > kills a SIGTERM-deaf grandchild after an execution-timeout stop 1944ms
+   ✓ every stop reaches the process group, not just the direct child > holds the loop open long enough for the escalation to run 1104ms
+   ✓ every stop reaches the process group, not just the direct child > bounds forced-stop confirmation when a group remains unprovable 1009ms
+   ✓ a wrapper that exits with no execution deadline still drains > reports the wrapper result and reaps a grandchild holding its pipes 797ms
+   ✓ a wrapper that exits with no execution deadline still drains > reaps a SIGTERM-deaf grandchild holding its pipes 1886ms
+   ✓ a wrapper that exits with no execution deadline still drains > settles on its own deadline when an escaped holder withholds close 4289ms
+ ✓ tests/authored-agent-artifacts.test.ts (5 tests) 356ms
+ ✓ tests/spec-parity.test.ts (46 tests) 538ms
+ ✓ tests/authored-retried-child-resume-live.test.ts (2 tests) 1499ms
+   ✓ an authored step whose child run retried an attempt > resumes after a kill mid-step and reads the terminal completion, not the crashed one 1361ms
+ ✓ tests/agent-timeout-live.test.ts (3 tests) 4486ms
+   ✓ journals timeout, stops the process, runs a predicate gate and publishes under a budget header 1231ms
+   ✓ replays timeout after killing the root and daemon, without executing the agent again 2078ms
+   ✓ lets an author reject timeout through a predicate gate 1176ms
+ ✓ tests/agent-timeout-worker.test.ts (8 tests) 1981ms
+   ✓ stops claude at its declared limit, preserving work and stopping descendants 523ms
+   ✓ stops codex at its declared limit, preserving work and stopping descendants 519ms
+   ✓ stops wrapper at its declared limit, preserving work and stopping descendants 540ms
+ ✓ tests/agent-timeout-outcome.test.ts (6 tests) 12ms
+ ✓ tests/agent-timeout.test.ts (23 tests) 38ms
+ ✓ tests/worker-cli.test.ts (25 tests) 30887ms
+   ✓ registered CLI model defaults > passes the same priced Claude default to the real provider invocation 532ms
+   ✓ registered CLI model defaults > uses the explicitly supplied agent environment for the provider subprocess 581ms
+   ✓ registered CLI model defaults > dispatches canonical generic bytes with the preflight-proved adapter identity 571ms
+   ✓ direct transport lifecycle evidence > classifies only the exact Codex stdin lifecycle signature as retryable 583ms
+   ✓ direct transport lifecycle evidence > records a signal close separately from an ordinary nonzero exit 1000ms
+   ✓ direct transport lifecycle evidence > records a spawn error code without treating a missing executable as transient 405ms
+   ✓ direct transport lifecycle evidence > journals classified lifecycle evidence and reports crashed instead of generic worker_error 554ms
+   ✓ step discovery environment > names the run, step, attempt and an absolute data dir for a direct agent spawn 624ms
+   ✓ step discovery environment > exports none of the four without a data dir, even when the worker inherited them 499ms
+   ✓ wrapper discovery environment > sets the four names from the dispatch and still refuses ambient values and other secrets 530ms
+   ✓ wrapper discovery environment > exports none of the four to a wrapper without a data dir, even when the worker inherited them 521ms
+   ✓ custom wrapper execution identity > passes an explicit safe environment at identification and execution 577ms
+   ✓ custom wrapper execution identity > refuses a wrapper symlink retarget before delivering private values 505ms
+   ✓ custom wrapper execution identity > bounds wrapper execution after acknowledgement 557ms
+   ✓ custom wrapper execution identity > bounds captured wrapper output 553ms
+   ✓ custom wrapper execution identity > refuses a duplicate execute protocol frame 552ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a conforming wrapper leaks a stdio pipe to a background helper 1867ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when the leaked helper inherits stderr only 1849ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a wrapper leaks a stdio pipe and exits before identifying 3464ms
+   ✓ custom wrapper execution bounds are reader-owned > journals a completionReason at the default bound when a wrapper leaks a stdio pipe 11584ms
+   ✓ custom wrapper execution bounds are reader-owned > accepts an execute token and an over-8KiB payload flushed in one write 506ms
+   ✓ custom wrapper execution bounds are reader-owned > accepts the same over-8KiB payload whether or not it coalesces with the execute token 1499ms
+   ✓ custom wrapper execution bounds are reader-owned > still bounds an un-terminated handshake buffer and names the bound 507ms
+   ✓ delivers the journaled memory pack to the real wrapper and excludes its charge from completion usage 466ms
+ ✓ tests/step-lease.test.ts (36 tests) 66522ms
+   ✓ f.run leases against the live kernel > enforces 10000 ms for 'sleep 5; printf ok' 5084ms
+   ✓ f.run leases against the live kernel > enforces 40000 ms for 'sleep 31; printf ok' 31086ms
+   ✓ f.run leases against the live kernel > enforces 30000 ms for 'sleep 31; printf ok' 30128ms
+
+ Test Files  13 passed (13)
+      Tests  316 passed (316)
+   Start at  20:46:54
+   Duration  83.60s (transform 1.76s, setup 138ms, collect 6.15s, tests 132.20s, environment 2ms, prepare 666ms)
+

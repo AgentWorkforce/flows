@@ -1,3 +1,4 @@
+import { transportEvidence, type CliTransportEvidence } from './cli-transport-evidence.js';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { childStop, ownsProcessGroup } from './child-stop.js';
 import { reapOnExit } from './agent-reaper.js';
@@ -29,6 +30,7 @@ export interface WrapperSessionLimits {
 }
 
 export interface WrapperSessionResult {
+  transport?: CliTransportEvidence;
   exit_code: number | null;
   stdout_tail: string;
   stderr_tail: string;
@@ -231,7 +233,7 @@ async function executePinnedWrapper(
     };
     signal?.addEventListener('abort', onAbort, { once: true });
     if (signal?.aborted) { onAbort(); return; }
-    const terminate = (message: string): void => {
+    const terminate = (message: string, transport?: WrapperSessionResult['transport']): void => {
       if (protocolError !== undefined) return;
       protocolError = message;
       if (lifecycleTimer !== undefined) clearTimeout(lifecycleTimer);
@@ -247,7 +249,7 @@ async function executePinnedWrapper(
       // The shared stop owns both the liveness bound and settlement. Its
       // callback preserves this refusal once group death is proved, or
       // replaces it with a fail-closed confirmation error when it is not.
-      finishAfterStop(failure(message), 'terminate');
+      finishAfterStop({ ...failure(message), ...(transport === undefined ? {} : { transport }) }, 'terminate');
     };
     const startExecutionTimer = (): void => {
       if (lifecycleTimer !== undefined) clearTimeout(lifecycleTimer);
@@ -260,6 +262,8 @@ async function executePinnedWrapper(
       if (limits.executionTimeoutMs <= 0) return;
       lifecycleTimer = setTimeout(() => terminate(
         `CLI ${JSON.stringify(cli)} execution timed out after ${limits.executionTimeoutMs}ms.`,
+        transportEvidence({ phase: 'timeout', cause: 'timeout', retryable: false, exitCode: null, signal: null,
+          stderr: `CLI execution timed out after ${limits.executionTimeoutMs}ms.` }, env),
       ), limits.executionTimeoutMs);
     };
     const exceedsOutputLimit = (additionalBytes: number): boolean => {

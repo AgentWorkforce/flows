@@ -33,7 +33,6 @@ const agent = {
   id: 'agent',
   type: 'agent',
   instruction: 'act',
-  // @ts-expect-error timeoutMs is a deterministic-step-only authoring field.
   timeoutMs: 1_000,
 } satisfies AgentStepSpec;
 

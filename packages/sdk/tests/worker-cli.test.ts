@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { JournalClient } from '../src/journal-client.js';
 import type { Pins } from '../src/protocol.js';
+import { agentCompletionReason } from '../src/cli-transport-evidence.js';
 import { AgentWorker } from '../src/worker.js';
 import { cliInvocationArgv0, runAgentCli } from '../src/worker-cli.js';
 
@@ -450,6 +451,7 @@ process.stdin.on('end', () => {
 
     expect(result.exit_code).toBeNull();
     expect(result.stderr_tail).toMatch(/identity changed/i);
+    expect(agentCompletionReason(result)).toBe('worker_error');
     expect(realpathSync(declared)).toBe(realpathSync(replacement));
     expect(existsSync(requestEvidence)).toBe(false);
     expect(existsSync(replacementEvidence)).toBe(false);

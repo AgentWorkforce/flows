@@ -290,6 +290,7 @@ export interface LlmStepSpec extends BaseStepSpec {
  */
 export interface AgentStepSpec extends BaseStepSpec {
   type: 'agent';
+  timeoutMs?: number;
   instruction: string;
   verification?: OutputVerificationSpec;
   /** Named authoring declaration selected from `FlowSpec.agents`. Compiled away. */
@@ -513,6 +514,7 @@ export interface KernelPermissionsSpec {
 
 export interface KernelAgentStep extends KernelStepCommon {
   type: 'agent';
+  timeout_ms?: number;
   instruction: string;
   cli?: string;
   model?: string;

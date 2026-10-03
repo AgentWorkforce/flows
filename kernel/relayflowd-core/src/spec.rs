@@ -156,6 +156,13 @@ impl RunSpec {
                     step.id
                 )));
             }
+            if let StepKind::Agent { timeout_ms: Some(ms), .. } = &step.kind
+                && (*ms == 0 || *ms > i64::MAX as u64)
+            {
+                return Err(SpecError::Malformed(format!(
+                    "step {}: timeout_ms must be positive and fit in i64", step.id
+                )));
+            }
             let cli = match &step.kind {
                 StepKind::Llm { cli, .. } | StepKind::Agent { cli, .. } => cli,
                 StepKind::Deterministic { .. } => &None,
@@ -350,6 +357,7 @@ const STEP_COMMON_FIELDS: &[&str] = &[
 const STEP_DETERMINISTIC_FIELDS: &[&str] = &["command", "timeout_ms", "lease_ms", "on_non_zero"];
 const STEP_LLM_FIELDS: &[&str] = &["prompt", "model", "cli", "cli_identity"];
 const STEP_AGENT_FIELDS: &[&str] = &[
+    "timeout_ms",
     "instruction",
     "cli",
     "cli_identity",
@@ -508,6 +516,9 @@ pub enum StepKind {
     },
     Agent {
         instruction: String,
+        /// CLI execution deadline, enforced by the attached worker.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout_ms: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cli: Option<String>,
         /// Model the declared CLI should use. The kernel never calls a model

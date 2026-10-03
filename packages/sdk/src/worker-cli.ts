@@ -121,6 +121,8 @@ export async function runAgentCli(
   relayContext?: AgentRelayContext,
   processEnvironment: NodeJS.ProcessEnv = process.env,
   cliIdentity?: string,
+  // Trailing parameter preserves existing positional callers.
+  stepTimeoutMs?: number,
 ): Promise<WorkerCliResult> {
   signal?.throwIfAborted();
   if (signal !== undefined && process.platform === 'win32') {
@@ -173,7 +175,7 @@ export async function runAgentCli(
       wakeContext,
       effectiveModel,
       wrapperEnv,
-      wrapperLimits,
+      stepTimeoutMs === undefined ? wrapperLimits : { ...wrapperLimits, executionTimeoutMs: stepTimeoutMs },
       signal,
       cwd,
       argv0,
@@ -187,6 +189,8 @@ export async function runAgentCli(
   // itself. Only a worker with a data dir knows; an ad-hoc spawn exports nothing.
   applyStepEnvironment(env, sidechannel);
   const invocation = mode === 'llm' ? llmExecution(kind, instruction, effectiveModel) : agentExecution(kind, instruction, effectiveModel);
+
+  if (stepTimeoutMs !== undefined) invocation.timeoutMs = stepTimeoutMs;
 
   if (wakeContext !== undefined) {
     try {

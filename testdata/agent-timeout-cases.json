@@ -1,0 +1,9 @@
+[
+  {"name":"one millisecond", "timeoutMs":1, "valid":true, "kernelValid":true},
+  {"name":"60 minute ceiling", "timeoutMs":3600000, "valid":true, "kernelValid":true},
+  {"name":"over authoring ceiling", "timeoutMs":3600001, "valid":false, "kernelValid":true},
+  {"name":"zero", "timeoutMs":0, "valid":false, "kernelValid":false},
+  {"name":"negative", "timeoutMs":-1, "valid":false, "kernelValid":false},
+  {"name":"fractional", "timeoutMs":1.5, "valid":false, "kernelValid":false},
+  {"name":"YAML duration strings are not milliseconds", "timeoutMs":"45m", "valid":false, "kernelValid":false}
+]

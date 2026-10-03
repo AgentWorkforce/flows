@@ -1,0 +1,11 @@
+version: '0.1.0'
+name: agent-timeout
+steps:
+  - id: repair
+    type: agent
+    instruction: Repair the workspace.
+    timeoutMs: 2700000
+  - id: review
+    type: agent
+    dependsOn: [repair]
+    instruction: Review the workspace without a deadline.
