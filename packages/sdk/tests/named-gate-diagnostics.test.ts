@@ -279,4 +279,19 @@ describe('word_count_bounds reports why its own child failed', () => {
     expect(capture.status).toBe(1);
     expect(capture.stderr).toContain('SIGKILL');
   });
+
+  it('does not report EPIPE when wc exits nonzero after closing stdin', () => {
+    const path = stubWordCount('exit 2');
+    const largeInput = 'x'.repeat(100_000);
+
+    const capture = runGate(
+      command(),
+      { output: deterministicEnvelope(largeInput) },
+      { path },
+    );
+
+    expect(capture.status).toBe(1);
+    expect(capture.stderr).toContain('exited 2');
+    expect(capture.stderr).not.toContain('EPIPE');
+  });
 });
