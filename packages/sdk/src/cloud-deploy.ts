@@ -46,10 +46,19 @@ const MAX_SOURCE_BYTES = 256_000;
 const MAX_SETTING_LENGTH = 500;
 const REPO_OWNER = /^[A-Za-z0-9-]{1,39}$/u;
 const REPO_NAME = /^[A-Za-z0-9_.-]{1,100}$/u;
-// Client-side shape check: unlike REPO_NAME, GitLab segments cannot start with . or -.
-const GITLAB_SEGMENT = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}$/u;
-// Client-side bound: one root group plus 20 subgroup levels; Cloud remains authoritative.
-const GITLAB_NAMESPACE_DEPTH = 21;
+// GitLab coordinates mirror Cloud's isValidFlowRepositoryCoordinates
+// (AgentWorkforce/cloud packages/web/lib/flows/flow-repository.ts): the owner
+// is the namespace path, at most 255 characters and 20 segments (the root
+// group counts; the project name does not), and every owner segment and the
+// project name match GITLAB_SEGMENT without a trailing ., .git or .atom.
+const GITLAB_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/u;
+const GITLAB_OWNER_SEGMENTS = 20;
+const GITLAB_OWNER_LENGTH = 255;
+
+function validGitlabSegment(segment: string): boolean {
+  return GITLAB_SEGMENT.test(segment)
+    && !segment.endsWith('.') && !segment.endsWith('.git') && !segment.endsWith('.atom');
+}
 
 export interface DeployRepository {
   owner: string;
@@ -129,11 +138,12 @@ export function parseRepository(value: string): DeployRepository {
   const name = parts.at(-1)!;
   const owner = parts.slice(0, -1).join('/');
   const valid = host === 'gitlab'
-    ? parts.length >= 2 && parts.length <= GITLAB_NAMESPACE_DEPTH + 1 && parts.every(p => GITLAB_SEGMENT.test(p))
+    ? parts.length >= 2 && parts.length - 1 <= GITLAB_OWNER_SEGMENTS
+      && owner.length <= GITLAB_OWNER_LENGTH && parts.every(validGitlabSegment)
     : parts.length === 2 && REPO_OWNER.test(owner) && REPO_NAME.test(name);
   if (!valid || (url && url[1]!.toLowerCase() !== host)) {
     throw new CloudFlowError('invalid_input',
-      `Expected --repo <owner/name> (GitHub) or gitlab:<group/project> (up to ${GITLAB_NAMESPACE_DEPTH} namespace segments), `
+      `Expected --repo <owner/name> (GitHub) or gitlab:<group/project> (up to ${GITLAB_OWNER_SEGMENTS} namespace segments), `
       + `or a github.com/gitlab.com HTTP(S) project URL, got "${value}".`);
   }
   return { owner, name, ...(host === 'gitlab' ? { host: 'gitlab' as const } : {}) };

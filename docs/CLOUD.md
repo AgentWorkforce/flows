@@ -544,7 +544,10 @@ flows undeploy <deployment-id>
 
 `--repo owner/name` (or `github:owner/name`) targets GitHub. Use
 `gitlab:group/sub/project` or `https://gitlab.com/group/sub/project.git` for
-GitLab, including nested namespaces. GitHub HTTP(S) URLs remain supported.
+GitLab, including nested namespaces. GitHub HTTP(S) URLs remain supported. The CLI applies Cloud's GitLab
+shape check before deploying: the namespace is at most 20 segments and 255
+characters, and each segment and the project name starts with a letter or
+digit and does not end in `.`, `.git` or `.atom`.
 
 Optional flags: `--agents claude,codex`, `--name "Issue triage"`, `--draft`,
 `--no-connect`, `--json`, and further `--on` sources.

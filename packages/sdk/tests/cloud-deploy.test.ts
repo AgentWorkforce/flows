@@ -95,18 +95,54 @@ describe('trigger source and repository parsing', () => {
     ['http://GITLAB.com/g/p', { owner: 'g', name: 'p', host: 'gitlab' }],
     ['GITLAB:g/p', { owner: 'g', name: 'p', host: 'gitlab' }],
     ['gitlab:https://gitlab.com/g/p', { owner: 'g', name: 'p', host: 'gitlab' }],
-    [`gitlab:${Array(21).fill('g').join('/')}/p`, { owner: Array(21).fill('g').join('/'), name: 'p', host: 'gitlab' }],
   ])('parses repository %s', (value, expected) => {
     expect(parseRepository(value)).toStrictEqual(expected);
   });
 
   it.each(['flows', 'a/b/c', 'bad owner/x', '', 'gitlab:project', 'gitlab:',
     'gitlab:a//b', 'gitlab:bad segment/p', 'gitlab:.leading/p', 'gitlab:-leading/p',
-    `gitlab:${Array(22).fill('g').join('/')}/p`, `gitlab:${'g'.repeat(101)}/p`,
+    `gitlab:${'g'.repeat(101)}/p`,
     'https://gitlab.com/group', 'gitlab:https://github.com/o/r', 'github:https://gitlab.com/g/p',
     'https://gitlab.example.com/g/p', 'git@gitlab.com:g/p.git', 'gitlab:g/p/',
   ])('refuses repository %s', (value) => {
     expect(() => parseRepository(value)).toThrow(expect.objectContaining({ code: 'invalid_input' }));
+  });
+
+  // Cloud's isValidFlowRepositoryCoordinates (AgentWorkforce/cloud
+  // packages/web/lib/flows/flow-repository.ts), pinned at each boundary.
+  describe('GitLab coordinates match Cloud', () => {
+    const owner = (segments: number) => Array(segments).fill('g').join('/');
+    // 100 + 1 + 100 + 1 + 53 = 255 characters.
+    const longOwner = (length: number) => `${'a'.repeat(100)}/${'b'.repeat(100)}/${'c'.repeat(length - 202)}`;
+
+    it.each([
+      ['20 owner segments', `gitlab:${owner(20)}/p`, owner(20), 'p'],
+      ['a 255-character owner', `gitlab:${longOwner(255)}/p`, longOwner(255), 'p'],
+      ['100-character segments', `gitlab:${'g'.repeat(100)}/${'p'.repeat(100)}`, 'g'.repeat(100), 'p'.repeat(100)],
+      ['a digit-led segment', 'gitlab:9g/0p', '9g', '0p'],
+      ['inner dots, dashes and underscores', 'gitlab:g.x-y_z/p.atomic', 'g.x-y_z', 'p.atomic'],
+      ['a stripped .git URL suffix', 'gitlab:g/p.git', 'g', 'p'],
+    ])('accepts %s', (_case, value, expectedOwner, expectedName) => {
+      expect(parseRepository(value)).toStrictEqual({ owner: expectedOwner, name: expectedName, host: 'gitlab' });
+    });
+
+    it.each([
+      ['21 owner segments', `gitlab:${owner(21)}/p`],
+      ['a 256-character owner', `gitlab:${longOwner(256)}/p`],
+      ['a 101-character name', `gitlab:g/${'p'.repeat(101)}`],
+      ['an underscore-led owner segment', 'gitlab:_g/p'],
+      ['an underscore-led name', 'gitlab:g/_p'],
+      ['a dot-led name', 'gitlab:g/.p'],
+      ['a dash-led name', 'gitlab:g/-p'],
+      ['an owner segment ending in .', 'gitlab:g./p'],
+      ['an owner segment ending in .git', 'gitlab:g/s.git/p'],
+      ['an owner segment ending in .atom', 'gitlab:g.atom/p'],
+      ['a name ending in .', 'gitlab:g/p.'],
+      ['a name ending in .git', 'gitlab:g/p.git.git'],
+      ['a name ending in .atom', 'gitlab:g/p.atom'],
+    ])('refuses %s', (_case, value) => {
+      expect(() => parseRepository(value)).toThrow(expect.objectContaining({ code: 'invalid_input' }));
+    });
   });
 
   it('omits the host key for GitHub', () => {
