@@ -24,6 +24,8 @@ on:
       - "scripts/cloud-artifact.mjs"
       - "scripts/build-standalone-cli.mjs"
       - "scripts/cloud-artifact.test.mjs"
+      - "scripts/cli-package-gate.mjs"
+      - "packages/relayflows/**"
       - "testdata/**"
 
 permissions:
