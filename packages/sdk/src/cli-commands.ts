@@ -156,7 +156,7 @@ export const CLI_VERBS = [
     args: [{ name: 'flow', description: 'flow.ts for a hosted listener, or <flow>@sha256:<digest> for a bundle', required: true }],
     options: [
       { flags: '--to <file-bucket-uri>', description: 'Destination file bucket for a sealed bundle' },
-      { flags: '--repo <owner/name>', description: 'Repository the hosted listener watches' },
+      { flags: '--repo <owner/name|gitlab:group/project>', description: 'Target repository: owner/name or github:owner/name for GitHub; gitlab:group/project (subgroups allowed) or a github.com/gitlab.com HTTP(S) URL' },
       { flags: '--on <provider>', description: 'Trigger source, as <provider>[:key=value,...]; repeatable' },
       { flags: '--approver <handle>', description: 'Handle delivered to every launched run as input.approver' },
       { flags: '--agents <list>', description: 'Agent harnesses to allow, as claude[,codex]' },

@@ -4,7 +4,7 @@ import {
   CloudFlowError, cloudFetch, cloudRequest, isCloudRecord, type CloudConnectionOptions,
 } from './cloud-http.js';
 import {
-  FLOW_AGENT_HARNESSES, listCloudDeployments, loadDeploySource, type FlowTriggerSource,
+  FLOW_AGENT_HARNESSES, listCloudDeployments, loadDeploySource, type DeployRepository, type FlowTriggerSource,
 } from './cloud-deploy.js';
 import {
   parseVersion, parseVersionChange, type CloudFlowVersion, type CloudFlowVersionChange,
@@ -25,7 +25,7 @@ export interface CloudListener {
   agentId: string;
   name: string;
   status: string;
-  repository: { owner: string; name: string; host?: 'gitlab' };
+  repository: DeployRepository;
   sources: FlowTriggerSource[];
   activeVersion: CloudFlowVersion | null;
   versions: CloudFlowVersion[];

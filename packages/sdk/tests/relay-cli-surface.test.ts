@@ -93,6 +93,7 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
       '--plugin', 'github:o/r@main#path', '--no-connect', '--json'],
     variant: 'cloud-deploy',
   },
+  { verb: 'deploy', argv: ['deploy', 'review.flow.ts', '--repo', 'gitlab:group/sub/project', '--on', 'gitlab', '--approver', 'someone'], variant: 'cloud-deploy' },
   // The update form: the source becomes the next version of an existing flow.
   { verb: 'deploy', argv: ['deploy', 'review.flow.ts', '--flow', 'review-listener'], variant: 'cloud-deploy' },
   {
@@ -280,6 +281,15 @@ describe('relay-cli surface: contract conformance', () => {
 describe('relay-cli surface: drift between `commands` and `run`', () => {
   const surface = createRelayCliSurface();
   const declaredTopLevel = surface.commands.map((command) => command.name);
+
+  it('documents both repository hosts and the explicit prefixes in deploy help', () => {
+    const repo = CLI_VERBS.find(verb => verb.name === 'deploy')!.options!
+      .find(option => option.flags.startsWith('--repo '))!;
+    expect(repo.flags).toBe('--repo <owner/name|gitlab:group/project>');
+    expect(repo.description).toContain('github:owner/name');
+    expect(repo.description).toContain('gitlab:group/project');
+    expect(repo.description).toContain('github.com/gitlab.com HTTP(S) URL');
+  });
 
   it('declares exactly the verbs the parser dispatches', () => {
     // Both sides read CLI_VERBS, so this pins the projection rather than a

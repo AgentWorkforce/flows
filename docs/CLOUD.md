@@ -537,9 +537,17 @@ flows deploy issue-triage.flow.ts \
   --repo AgentWorkforce/flows \
   --on github:labels=agent \
   --approver khaliqgant
+flows deploy issue-triage.flow.ts --repo gitlab:group/sub/project --on gitlab:labels=agent --approver khaliqgant
 flows deployments
 flows undeploy <deployment-id>
 ```
+
+`--repo owner/name` (or `github:owner/name`) targets GitHub. Use
+`gitlab:group/sub/project` or `https://gitlab.com/group/sub/project.git` for
+GitLab, including nested namespaces. GitHub HTTP(S) URLs remain supported. The CLI applies Cloud's GitLab
+shape check before deploying: the namespace is at most 20 segments and 255
+characters, and each segment and the project name starts with a letter or
+digit and does not end in `.`, `.git` or `.atom`.
 
 Optional flags: `--agents claude,codex`, `--name "Issue triage"`, `--draft`,
 `--no-connect`, `--json`, and further `--on` sources.
@@ -574,7 +582,7 @@ on `f.human`, finish on the version they started with.
 deploy wizard: `POST /api/v1/flows/deploy` stores one self-contained authored
 source and creates a proactive listener whose watch rules match the chosen
 ticket sources. There is no webhook to register. The workspace's GitHub App
-installation (or Slack, Linear, Jira or Shortcut connection) is the ingress;
+installation (or GitLab, Slack, Linear, Jira or Shortcut connection) is the ingress;
 Cloud ingests events into the workspace's relayfile projection and the
 listener's rules match them there. The digest form,
 `flows deploy <flow>@sha256:… --to file://…`, is unchanged; the positional
@@ -589,9 +597,12 @@ decides which form is meant.
 `team` matches the team's name or its key. A Linear `events` is `issues` (the
 default — `issue.create`), `assigned` — `AppUserNotification.issueAssignedToYou`,
 issues assigned to the connected app user, so assigning a ticket delegates it —
-or `all` for both. A GitHub source without
-`repository` is
-scoped to `--repo`. `events` is `issues` (the default: `issues.opened` and
+or `all` for both. A GitHub source without `repository` is scoped to a GitHub
+`--repo` target;
+a GitLab target requires an explicit `--on github:repository=owner/name`.
+A GitLab source without `project` is scoped to a GitLab target. With a GitHub
+target, a GitLab source remains unscoped unless you supply `project`.
+`events` is `issues` (the default: `issues.opened` and
 `issues.labeled`) or `pull_request` — `merge_request` for `gitlab` — which wakes on a pull request being
 opened, receiving commits, being reopened, or being reviewed; a
 pull-request run checks out the pull request's own head and receives
@@ -633,7 +644,8 @@ SDK; the same function reads a compiled YAML spec, where a helper step such as
 `tools.relayfile` mounts in the header, `f.<helper>` use in the default body
 (recognised exactly as helper preflight recognises it), provider triggers
 (`.on(github.issues())`), the `--on` sources and the deploy target (every
-launched run lands in `--repo`, so GitHub is always required), the `cli:` of
+launched run lands in `--repo`, so the target's GitHub or GitLab integration
+is required), the `cli:` of
 each `f.agent`/`f.llm` call in the default body (else the nearest `flows.json`
 `cli`, else `claude`), and `tools.mcp`. Handler bodies are not statically
 scanned for requirements. Authored input never selects an extension handler:

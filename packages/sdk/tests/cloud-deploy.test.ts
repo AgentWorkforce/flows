@@ -82,12 +82,71 @@ describe('trigger source and repository parsing', () => {
     expect(() => parseTriggerSource(value)).toThrow(expect.objectContaining({ code: 'invalid_input' }));
   });
 
-  it('accepts owner/name and GitHub URLs, refusing anything else', () => {
-    expect(parseRepository('AgentWorkforce/flows')).toEqual({ owner: 'AgentWorkforce', name: 'flows' });
-    expect(parseRepository('https://github.com/AgentWorkforce/flows.git')).toEqual({ owner: 'AgentWorkforce', name: 'flows' });
-    for (const bad of ['flows', 'a/b/c', 'bad owner/x', '']) {
-      expect(() => parseRepository(bad)).toThrow(expect.objectContaining({ code: 'invalid_input' }));
-    }
+  it.each([
+    ['AgentWorkforce/flows', { owner: 'AgentWorkforce', name: 'flows' }],
+    ['https://github.com/AgentWorkforce/flows.git', { owner: 'AgentWorkforce', name: 'flows' }],
+    ['github:owner/name', { owner: 'owner', name: 'name' }],
+    ['http://github.com/o/r', { owner: 'o', name: 'r' }],
+    ['gitlab/myrepo', { owner: 'gitlab', name: 'myrepo' }],
+    ['github/docs', { owner: 'github', name: 'docs' }],
+    ['gitlab:group/project', { owner: 'group', name: 'project', host: 'gitlab' }],
+    ['gitlab:group/sub/project', { owner: 'group/sub', name: 'project', host: 'gitlab' }],
+    ['https://gitlab.com/group/sub/project.git', { owner: 'group/sub', name: 'project', host: 'gitlab' }],
+    ['http://GITLAB.com/g/p', { owner: 'g', name: 'p', host: 'gitlab' }],
+    ['GITLAB:g/p', { owner: 'g', name: 'p', host: 'gitlab' }],
+    ['gitlab:https://gitlab.com/g/p', { owner: 'g', name: 'p', host: 'gitlab' }],
+  ])('parses repository %s', (value, expected) => {
+    expect(parseRepository(value)).toStrictEqual(expected);
+  });
+
+  it.each(['flows', 'a/b/c', 'bad owner/x', '', 'gitlab:project', 'gitlab:',
+    'gitlab:a//b', 'gitlab:bad segment/p', 'gitlab:.leading/p', 'gitlab:-leading/p',
+    `gitlab:${'g'.repeat(101)}/p`,
+    'https://gitlab.com/group', 'gitlab:https://github.com/o/r', 'github:https://gitlab.com/g/p',
+    'https://gitlab.example.com/g/p', 'git@gitlab.com:g/p.git', 'gitlab:g/p/',
+  ])('refuses repository %s', (value) => {
+    expect(() => parseRepository(value)).toThrow(expect.objectContaining({ code: 'invalid_input' }));
+  });
+
+  // Cloud's isValidFlowRepositoryCoordinates (AgentWorkforce/cloud
+  // packages/web/lib/flows/flow-repository.ts), pinned at each boundary.
+  describe('GitLab coordinates match Cloud', () => {
+    const owner = (segments: number) => Array(segments).fill('g').join('/');
+    // 100 + 1 + 100 + 1 + 53 = 255 characters.
+    const longOwner = (length: number) => `${'a'.repeat(100)}/${'b'.repeat(100)}/${'c'.repeat(length - 202)}`;
+
+    it.each([
+      ['20 owner segments', `gitlab:${owner(20)}/p`, owner(20), 'p'],
+      ['a 255-character owner', `gitlab:${longOwner(255)}/p`, longOwner(255), 'p'],
+      ['100-character segments', `gitlab:${'g'.repeat(100)}/${'p'.repeat(100)}`, 'g'.repeat(100), 'p'.repeat(100)],
+      ['a digit-led segment', 'gitlab:9g/0p', '9g', '0p'],
+      ['inner dots, dashes and underscores', 'gitlab:g.x-y_z/p.atomic', 'g.x-y_z', 'p.atomic'],
+      ['a stripped .git URL suffix', 'gitlab:g/p.git', 'g', 'p'],
+    ])('accepts %s', (_case, value, expectedOwner, expectedName) => {
+      expect(parseRepository(value)).toStrictEqual({ owner: expectedOwner, name: expectedName, host: 'gitlab' });
+    });
+
+    it.each([
+      ['21 owner segments', `gitlab:${owner(21)}/p`],
+      ['a 256-character owner', `gitlab:${longOwner(256)}/p`],
+      ['a 101-character name', `gitlab:g/${'p'.repeat(101)}`],
+      ['an underscore-led owner segment', 'gitlab:_g/p'],
+      ['an underscore-led name', 'gitlab:g/_p'],
+      ['a dot-led name', 'gitlab:g/.p'],
+      ['a dash-led name', 'gitlab:g/-p'],
+      ['an owner segment ending in .', 'gitlab:g./p'],
+      ['an owner segment ending in .git', 'gitlab:g/s.git/p'],
+      ['an owner segment ending in .atom', 'gitlab:g.atom/p'],
+      ['a name ending in .', 'gitlab:g/p.'],
+      ['a name ending in .git', 'gitlab:g/p.git.git'],
+      ['a name ending in .atom', 'gitlab:g/p.atom'],
+    ])('refuses %s', (_case, value) => {
+      expect(() => parseRepository(value)).toThrow(expect.objectContaining({ code: 'invalid_input' }));
+    });
+  });
+
+  it('omits the host key for GitHub', () => {
+    expect('host' in parseRepository('owner/name')).toBe(false);
   });
 });
 
@@ -124,12 +183,57 @@ describe('deployToCloud', () => {
       ],
       requirements: { integrations: ['github', 'slack'], harnesses: [], mcp: [] },
     });
+    expect(body.repository).toStrictEqual({ owner: 'AgentWorkforce', name: 'flows' });
     expect(body.handoffId).toMatch(/^flows-cli-[a-f0-9]{16}$/u);
     expect(body.source).toContain("flow<{ issue: { title: string }; approver: string }>('issue-triage'");
     expect(body.extensions).toBeUndefined();
     expect(deployment).toMatchObject({ agentId: 'agent-1', status: 'listening', name: 'issue-triage', connected: [] });
     expect(deployment.requirements.integrations.map(i => `${i.provider} (${i.detail})`)).toEqual(['github (--on github)', 'slack (--on slack)']);
     expect(deployment.sourceSha256).toMatch(/^[a-f0-9]{64}$/u);
+  });
+
+  it.each([
+    ['gitlab:labels=x', ['gitlab (--on gitlab)']],
+    ['linear:team=ENG', ['linear (--on linear)', 'gitlab (deploy target)']],
+  ])('requires the GitLab target integration with %s', async (trigger, details) => {
+    const path = await authoredFlow();
+    const calls = cloud({
+      '/api/v1/auth/whoami': () => WHOAMI,
+      '/api/v1/flows/deploy': () => ({ status: 201, body: { agentId: 'a', status: 'listening' } }),
+    });
+    const repository = parseRepository('gitlab:group/sub/web');
+    const deployment = await deployToCloud({ path, repository, sources: [parseTriggerSource(trigger)], approver: 'k' });
+    const body = calls.at(-1)!.body as Record<string, unknown>;
+    expect(body.repository).toStrictEqual({ owner: 'group/sub', name: 'web', host: 'gitlab' });
+    const providers = trigger.startsWith('gitlab') ? ['gitlab'] : ['linear', 'gitlab'];
+    expect(body.requirements).toStrictEqual({ integrations: providers, harnesses: [], mcp: [] });
+    expect(calls.map(c => c.path)).toEqual([
+      '/api/v1/auth/whoami', ...providers.map(p => `/api/v1/workspaces/ws-1/integrations/${p}/status`), '/api/v1/flows/deploy',
+    ]);
+    expect(deployment.requirements.integrations.map(i => `${i.provider} (${i.detail})`)).toEqual(details);
+    if (trigger.startsWith('gitlab')) {
+      expect(body.sources).toStrictEqual([{ provider: 'gitlab', settings: { labels: 'x', project: 'group/sub/web' } }]);
+    }
+  });
+
+  it('refuses an unscoped GitHub source for a GitLab target before HTTP', async () => {
+    const path = await authoredFlow();
+    const calls = cloud({});
+    await expect(deployToCloud({ path, repository: parseRepository('gitlab:g/p'), sources: [parseTriggerSource('github')], approver: 'k' }))
+      .rejects.toMatchObject({ code: 'invalid_input', message: expect.stringContaining('--on github:repository=owner/name') });
+    expect(calls).toEqual([]);
+  });
+
+  it.each([
+    ['gitlab:g/p', 'github:repository=other/repo', { repository: 'other/repo' }],
+    ['gitlab:g/p', 'gitlab:project=other/project', { project: 'other/project' }],
+    ['o/r', 'gitlab', {}],
+  ])('preserves explicit or cross-host source scope for %s %s', async (repo, trigger, settings) => {
+    const path = await authoredFlow();
+    cloud({ '/api/v1/auth/whoami': () => WHOAMI,
+      '/api/v1/flows/deploy': () => ({ status: 201, body: { agentId: 'a', status: 'listening' } }) });
+    const result = await deployToCloud({ path, repository: parseRepository(repo), sources: [parseTriggerSource(trigger)], approver: 'k' });
+    expect(result.sources[0]!.settings).toStrictEqual(settings);
   });
 
   it('refuses a declared harness Cloud cannot run instead of substituting Claude, unless --agents says so', async () => {
@@ -210,6 +314,29 @@ describe('flows deploy / flows deployments', () => {
     expect(out[0]).toBe('DEPLOYED agent-9 listening');
     expect(out).toContainEqual('  repository: AgentWorkforce/flows');
     expect(out).toContainEqual('  on: github labels=agent repository=AgentWorkforce/flows');
+  });
+
+  it.each([false, true])('deploys and lists GitLab repositories (json=%s)', async (json) => {
+    const path = await authoredFlow();
+    const repository = { owner: 'group/sub', name: 'web', host: 'gitlab' };
+    cloud({
+      '/api/v1/auth/whoami': () => WHOAMI,
+      '/api/v1/flows/deploy': () => ({ status: 201, body: { agentId: 'a', status: 'listening' } }),
+      '/api/v1/agents/flow-deployments': () => ({ deployments: [{ agentId: 'a', name: 'Garden', status: 'listening', repository, sources: [] }] }),
+    });
+    const out: string[] = [];
+    const io = { stdout: (line: string) => out.push(line), stderr: (line: string) => out.push(`ERR ${line}`) };
+    const flags = json ? ['--json'] : [];
+    expect(await runCli(['deploy', path, '--repo', 'gitlab:group/sub/web', '--on', 'gitlab:labels=x', '--approver', 'k', ...flags], io), out.join('\n')).toBe(0);
+    if (json) expect(JSON.parse(out[0]!).repository).toStrictEqual(repository);
+    else {
+      expect(out).toContain('  repository: gitlab:group/sub/web');
+      expect(out).toContain('  requires: gitlab (--on gitlab)');
+    }
+    out.length = 0;
+    expect(await runCli(['deployments', ...flags], io)).toBe(0);
+    if (json) expect(JSON.parse(out[0]!).deployments[0].repository).toStrictEqual(repository);
+    else expect(out).toEqual(['a listening "Garden" gitlab:group/sub/web']);
   });
 
   it('passes --agents and --draft through, and names a structured refusal', async () => {
@@ -399,6 +526,26 @@ describe('flow versions (cloud#4115)', () => {
     // Only the source and what derives from it: no listener settings.
     expect(Object.keys(post.body as object).sort()).toEqual(['requirements', 'source', 'workspaceId']);
     expect(calls.some(call => call.path === '/api/v1/flows/deploy')).toBe(false);
+  });
+
+  it('updates a GitLab listener without adding a target integration requirement', async () => {
+    const path = await authoredFlow();
+    const calls = cloud({
+      [`/api/v1/flows/listeners/${LISTENER}`]: () => ({ ...LISTENER_DETAIL, listener: {
+        ...LISTENER_DETAIL.listener, repository: { owner: 'group/sub', name: 'web', host: 'gitlab' },
+        sources: [{ provider: 'linear', settings: { team: 'ENG' } }],
+      } }),
+      '/api/v1/auth/whoami': () => WHOAMI,
+      [`/api/v1/flows/listeners/${LISTENER}/versions`]: () => ({ listenerId: LISTENER, status: 'listening',
+        version: { versionId: 'v4', version: 4, previousVersion: 3, change: 'created' } }),
+    });
+    const { out, io: cliIo } = io();
+    expect(await runCli(['deploy', path, '--flow', LISTENER], cliIo), out.join('\n')).toBe(0);
+    const post = calls.find(c => c.method === 'POST')!;
+    expect(Object.keys(post.body as object).sort()).toEqual(['requirements', 'source', 'workspaceId']);
+    expect(post.body).toMatchObject({ requirements: { integrations: ['linear'] } });
+    expect(calls.filter(c => c.path.includes('/integrations/')).map(c => c.path))
+      .toEqual(['/api/v1/workspaces/ws-1/integrations/linear/status']);
   });
 
   it('takes a listener id directly and says when the active version went down', async () => {

@@ -125,7 +125,7 @@ const USAGE = [
   'flows plugin update [--json] [--yes] [--to <ref>] [<name>]',
   'flows build [--out <dir>] <flow.yaml|flow.ts>',
   'flows build --verify <bundle-dir>',
-  'flows deploy <flow.ts> --repo <owner/name> --on <provider>[:key=value,...] [--on ...] --approver <handle> [--agents claude[,codex]] [--name <name>] [--draft] [--plugin <ref>] [--no-connect] [--json]',
+  'flows deploy <flow.ts> --repo <owner/name|gitlab:group/project> --on <provider>[:key=value,...] [--on ...] --approver <handle> [--agents claude[,codex]] [--name <name>] [--draft] [--plugin <ref>] [--no-connect] [--json]',
   'flows deploy <flow.ts> --flow <name|listener-id> [--plugin <ref>] [--no-connect] [--json]',
   'flows deployments [--json]',
   'flows versions [--json] <name|listener-id>',

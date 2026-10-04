@@ -51,8 +51,8 @@ export interface FlowRequirements {
 export interface FlowRequirementsContext {
   /** Trigger sources the deployment listens on (`--on`, or the wizard's chosen sources). */
   sources?: readonly { provider: string }[];
-  /** Set when the deployment targets a repository: every launched run needs GitHub. */
-  repository?: boolean | { owner: string; name: string };
+  /** Set when the deployment targets a repository: every launched run needs its host (true means GitHub). */
+  repository?: boolean | { owner: string; name: string; host?: 'gitlab' };
   /** The nearest `flows.json` `cli`, when one applies. */
   projectCli?: string;
 }
@@ -180,7 +180,10 @@ export function flowRequirements(
   for (const source of context.sources ?? []) {
     declare({ provider: source.provider, from: 'source', detail: `--on ${source.provider}` });
   }
-  if (context.repository) declare({ provider: 'github', from: 'source', detail: 'deploy target' });
+  if (context.repository) {
+    const provider = typeof context.repository === 'object' && context.repository.host === 'gitlab' ? 'gitlab' : 'github';
+    declare({ provider, from: 'source', detail: 'deploy target' });
+  }
 
   const uses = [...harnessUses.values()];
   return {
