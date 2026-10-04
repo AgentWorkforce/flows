@@ -1,0 +1,9 @@
+$ npm ci --prefix packages/sdk --dry-run --ignore-scripts
+change @relayflows/surface 2.0.39 => 2.0.39
+
+changed 1 package in 356ms
+
+65 packages are looking for funding
+  run `npm fund` for details
+
+exit=0

@@ -1,0 +1,7 @@
+$ npm run build --prefix packages/surface
+
+> @relayflows/surface@2.0.39 build
+> tsc
+
+
+exit=0

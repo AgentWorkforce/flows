@@ -1,0 +1,7 @@
+$ npm run typecheck:tests --prefix packages/sdk
+
+> @relayflows/sdk@2.0.39 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+
+exit=0
