@@ -45,6 +45,16 @@ const MAX_SOURCE_BYTES = 256_000;
 const MAX_SETTING_LENGTH = 500;
 const REPO_OWNER = /^[A-Za-z0-9-]{1,39}$/u;
 const REPO_NAME = /^[A-Za-z0-9_.-]{1,100}$/u;
+// Client-side shape check: unlike REPO_NAME, GitLab segments cannot start with . or -.
+const GITLAB_SEGMENT = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}$/u;
+// Client-side bound: one root group plus 20 subgroup levels; Cloud remains authoritative.
+const GITLAB_NAMESPACE_DEPTH = 21;
+
+export interface DeployRepository {
+  owner: string;
+  name: string;
+  host?: 'gitlab';
+}
 
 export interface FlowTriggerSource {
   provider: FlowTriggerProvider;
@@ -53,7 +63,7 @@ export interface FlowTriggerSource {
 
 export interface DeployToCloudInput {
   path: string;
-  repository: { owner: string; name: string };
+  repository: DeployRepository;
   sources: FlowTriggerSource[];
   /** The `f.human` approver handle every launched run receives as `input.approver`. */
   approver: string;
@@ -98,7 +108,7 @@ export interface CloudDeployment {
   agentId: string;
   name: string;
   status: string;
-  repository: { owner: string; name: string };
+  repository: DeployRepository;
   sources: FlowTriggerSource[];
   sourceSha256: string;
   /** What the source declared it needs; the harnesses became `inputs.agents` unless `agents` was given. */
@@ -109,12 +119,23 @@ export interface CloudDeployment {
   version?: CloudFlowVersionChange;
 }
 
-export function parseRepository(value: string): { owner: string; name: string } {
-  const [owner, name, extra] = value.replace(/^https?:\/\/github\.com\//iu, '').replace(/\.git$/iu, '').split('/');
-  if (!owner || !name || extra !== undefined || !REPO_OWNER.test(owner) || !REPO_NAME.test(name)) {
-    throw new CloudFlowError('invalid_input', `Expected --repo <owner>/<name>, got "${value}".`);
+export function parseRepository(value: string): DeployRepository {
+  const prefix = /^(github|gitlab):/iu.exec(value);
+  const path = prefix ? value.slice(prefix[0].length) : value;
+  const url = /^https?:\/\/(github|gitlab)\.com\//iu.exec(path);
+  const host = (prefix?.[1] ?? url?.[1] ?? 'github').toLowerCase();
+  const parts = (url ? path.slice(url[0].length) : path).replace(/\.git$/iu, '').split('/');
+  const name = parts.at(-1)!;
+  const owner = parts.slice(0, -1).join('/');
+  const valid = host === 'gitlab'
+    ? parts.length >= 2 && parts.length <= GITLAB_NAMESPACE_DEPTH + 1 && parts.every(p => GITLAB_SEGMENT.test(p))
+    : parts.length === 2 && REPO_OWNER.test(owner) && REPO_NAME.test(name);
+  if (!valid || (url && url[1]!.toLowerCase() !== host)) {
+    throw new CloudFlowError('invalid_input',
+      `Expected --repo <owner/name> (GitHub) or gitlab:<group/project> (up to ${GITLAB_NAMESPACE_DEPTH} namespace segments), `
+      + `or a github.com/gitlab.com HTTP(S) project URL, got "${value}".`);
   }
-  return { owner, name };
+  return { owner, name, ...(host === 'gitlab' ? { host: 'gitlab' as const } : {}) };
 }
 
 /** `github`, `github:labels=agent,contains=urgent`, `slack:channel=#eng`. */
@@ -233,11 +254,21 @@ export async function deployToCloud(
   if (!approver) throw new CloudFlowError('invalid_input', '--approver must name who approves f.human questions.');
   const name = (input.name ?? definition.name).trim();
   if (!name || name.length > 100) throw new CloudFlowError('invalid_input', 'Deployment name must be 1-100 characters.');
-  // A GitHub source scoped to nothing would wake on every repository the
-  // installation covers; default it to the deployment's own repository.
-  const sources = input.sources.map(s => s.provider === 'github' && s.settings['repository'] === undefined
-    ? { ...s, settings: { ...s.settings, repository: `${input.repository.owner}/${input.repository.name}` } }
-    : s);
+  // Scope same-host sources to the target rather than waking on every project.
+  const target = `${input.repository.owner}/${input.repository.name}`;
+  const sources = input.sources.map(s => {
+    if (s.provider === 'github' && s.settings['repository'] === undefined) {
+      if (input.repository.host === 'gitlab') {
+        throw new CloudFlowError('invalid_input',
+          'A GitLab target needs an explicit --on github:repository=owner/name for a GitHub source.');
+      }
+      return { ...s, settings: { ...s.settings, repository: target } };
+    }
+    if (s.provider === 'gitlab' && s.settings['project'] === undefined && input.repository.host === 'gitlab') {
+      return { ...s, settings: { ...s.settings, project: target } };
+    }
+    return s;
+  });
   options.signal?.throwIfAborted();
 
   const whoami = await cloudRequest('/api/v1/auth/whoami', options);
@@ -245,8 +276,7 @@ export async function deployToCloud(
   if (workspace === undefined || typeof workspace.id !== 'string' || !workspace.id) {
     throw new CloudFlowError('invalid_response', 'Cloud did not report a current workspace for this credential.');
   }
-  // Every launched run lands in the deployment's repository, so GitHub is
-  // required even when no GitHub source wakes it.
+  // Every launched run needs the target's host, even when another provider wakes it.
   const requirements = mergeFlowExtensionRequirements(
     flowRequirements(definition, {
       sources, repository: input.repository, ...(projectCli === undefined ? {} : { projectCli }),
@@ -307,7 +337,7 @@ export interface CloudDeploymentSummary {
   agentId: string;
   name: string;
   status: string;
-  repository?: { owner: string; name: string };
+  repository?: DeployRepository;
   sources: FlowTriggerSource[];
   createdAt?: string;
   updatedAt?: string;
@@ -323,7 +353,8 @@ export async function listCloudDeployments(options: CloudConnectionOptions = {})
       throw new CloudFlowError('invalid_response', 'Cloud returned a malformed deployment row.');
     }
     const repository = isCloudRecord(row.repository) && typeof row.repository.owner === 'string'
-      && typeof row.repository.name === 'string' ? { owner: row.repository.owner, name: row.repository.name } : undefined;
+      && typeof row.repository.name === 'string' ? { owner: row.repository.owner, name: row.repository.name,
+          ...(row.repository.host === 'gitlab' ? { host: 'gitlab' as const } : {}) } : undefined;
     const sources = Array.isArray(row.sources) ? row.sources.flatMap((s): FlowTriggerSource[] =>
       isCloudRecord(s) && typeof s.provider === 'string' && (FLOW_TRIGGER_PROVIDERS as readonly string[]).includes(s.provider)
         ? [{ provider: s.provider as FlowTriggerProvider,

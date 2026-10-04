@@ -107,7 +107,7 @@ export {
 export { prepareCloudSubmission, cloudSubmissionBody, type CloudSubmission } from './cloud-run.js';
 export {
   deployToCloud, listCloudDeployments, undeployFromCloud, parseRepository, parseTriggerSource, FLOW_TRIGGER_PROVIDERS,
-  type DeployToCloudInput, type CloudDeployment, type CloudDeploymentSummary, type FlowTriggerSource, type FlowTriggerProvider,
+  type DeployRepository, type DeployToCloudInput, type CloudDeployment, type CloudDeploymentSummary, type FlowTriggerSource, type FlowTriggerProvider,
 } from './cloud-deploy.js';
 export {
   ensureIntegrationsConnected, integrationConnected, providerLabel,

@@ -1,7 +1,7 @@
 import { CloudFlowError } from '../cloud-http.js';
 import {
   deployToCloud, listCloudDeployments, parseAgentHarnesses, parseRepository, parseTriggerSource, undeployFromCloud,
-  type FlowTriggerSource,
+  type DeployRepository, type FlowTriggerSource,
 } from '../cloud-deploy.js';
 import { describeFlowRequirements } from '../flow-requirements.js';
 import { describeVersionChange } from '../cloud-versions-wire.js';
@@ -27,7 +27,7 @@ export interface CloudDeployArgs {
 }
 
 /**
- * `flows deploy <flow.ts> --repo <owner/name> --on <provider>[:k=v,…] [--on …]
+ * `flows deploy <flow.ts> --repo <owner/name|gitlab:group/project> --on <provider>[:k=v,…] [--on …]
  *   --approver <handle> [--name <n>] [--agents <list>] [--draft] [--no-connect] [--json]`
  * `flows deploy <flow.ts> --flow <name-or-listener-id> [--plugin <ref>] [--no-connect] [--json]`
  *
@@ -102,6 +102,10 @@ export function parseCloudDeployArgs(args: readonly string[]): CloudDeployArgs |
   return { command: 'cloud-deploy', value, flow, repo, on, approver, name, agents, draft, noConnect, json, plugins };
 }
 
+function describeRepository(repo: DeployRepository): string {
+  return `${repo.host === 'gitlab' ? 'gitlab:' : ''}${repo.owner}/${repo.name}`;
+}
+
 function describeSource(source: FlowTriggerSource): string {
   const settings = Object.entries(source.settings).map(([k, v]) => `${k}=${v}`).join(' ');
   return settings ? `${source.provider} ${settings}` : source.provider;
@@ -140,7 +144,7 @@ export async function runCloudDeployCli(args: CloudDeployArgs, io: CliIo): Promi
     io.stdout(`${deployment.status === 'draft' ? 'SAVED' : 'DEPLOYED'} ${deployment.agentId} ${deployment.status}`
       + (deployment.version === undefined ? '' : ` · ${describeVersionChange(deployment.version)}`));
     io.stdout(`  flow: ${deployment.name} (${args.value}, sha256 ${deployment.sourceSha256.slice(0, 12)})`);
-    io.stdout(`  repository: ${deployment.repository.owner}/${deployment.repository.name}`);
+    io.stdout(`  repository: ${describeRepository(deployment.repository)}`);
     for (const source of deployment.sources) io.stdout(`  on: ${describeSource(source)}`);
     const requires = describeFlowRequirements(deployment.requirements);
     if (requires) io.stdout(`  requires: ${requires}`);
@@ -175,7 +179,7 @@ export async function runCloudDeploymentsCli({ json }: { json: boolean }, io: Cl
       return 0;
     }
     for (const d of deployments) {
-      const repo = d.repository ? ` ${d.repository.owner}/${d.repository.name}` : '';
+      const repo = d.repository ? ` ${describeRepository(d.repository)}` : '';
       io.stdout(`${d.agentId} ${d.status} ${JSON.stringify(d.name)}${repo}`);
       for (const source of d.sources) io.stdout(`  on: ${describeSource(source)}`);
     }
