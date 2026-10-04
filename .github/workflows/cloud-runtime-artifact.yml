@@ -24,8 +24,15 @@ on:
       - "scripts/cloud-artifact.mjs"
       - "scripts/build-standalone-cli.mjs"
       - "scripts/cloud-artifact.test.mjs"
+      # Every input of the CLI packaging gate (scripts/cli-package-gate.mjs,
+      # run by packages/sdk/tests/cli-package-gate.test.ts in the vitest run
+      # below): the script, the packer it calls, the three packages it packs
+      # and installs (packages/sdk/** is above), and the fixture it checks.
       - "scripts/cli-package-gate.mjs"
+      - "scripts/pack-release.mjs"
       - "packages/relayflows/**"
+      - "packages/surface/**"
+      - "examples/dependency-upgrade-bot/dependency-upgrade-bot.flow.ts"
       - "testdata/**"
 
 permissions:

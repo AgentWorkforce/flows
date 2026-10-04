@@ -9,8 +9,6 @@ on:
       - "packages/surface/**"
       - "regressions/**"
       - "packages/sdk/**"
-      - "scripts/cli-package-gate.mjs"
-      - "packages/relayflows/**"
   push:
     branches:
       - main
@@ -20,8 +18,6 @@ on:
       - "packages/surface/**"
       - "regressions/**"
       - "packages/sdk/**"
-      - "scripts/cli-package-gate.mjs"
-      - "packages/relayflows/**"
 
 permissions:
   contents: read
