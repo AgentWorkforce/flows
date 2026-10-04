@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { flow } from '@relayflows/surface';
@@ -19,12 +19,14 @@ async function slowAgents(capacity: number, failFirstSession = false) {
   const fixture = chainFixture();
   closes.push(() => fixture.close());
   const spans = join(fixture.root, 'spans.jsonl');
+  const started = join(fixture.root, 'started');
   writeFileSync(fixture.wrapper, `#!/usr/bin/env node
 import { receiveWrapperRequest } from ${JSON.stringify(resolve('../../testdata/preflight/wrapper-session.mjs'))};
 import { appendFileSync, existsSync, writeFileSync } from 'node:fs';
 if (process.argv[2] === 'auth') process.exit(0);
 const request = await receiveWrapperRequest();
 if (request) {
+  writeFileSync(${JSON.stringify(started)}, '');
   const start = Date.now();
   await new Promise(done => setTimeout(done, 400));
   appendFileSync(${JSON.stringify(spans)}, JSON.stringify({ start, end: Date.now() }) + '\\n');
@@ -50,7 +52,14 @@ if (request) {
   closes.push(() => llm.close());
   const readSpans = () => readFileSync(spans, 'utf8').trim().split('\n')
     .map(line => JSON.parse(line) as { start: number; end: number });
-  return { fixture, client, agent, readSpans };
+  /** Resolves once a session has received its request: an agent holds a slot and is running. */
+  const firstStarted = async () => {
+    for (const deadline = Date.now() + 5_000; !existsSync(started);) {
+      if (Date.now() > deadline) throw new Error('no agent session started within 5s');
+      await new Promise(done => setTimeout(done, 10));
+    }
+  };
+  return { fixture, client, agent, readSpans, firstStarted };
 }
 
 function peakOverlap(spans: Array<{ start: number; end: number }>): number {
@@ -135,11 +144,16 @@ describe('authored steps under local workers with capacity', () => {
   });
 
   it('never starts queued agents once the body has failed', async () => {
-    const { fixture, client, agent, readSpans } = await slowAgents(1);
+    const { fixture, client, agent, readSpans, firstStarted } = await slowAgents(1);
     const failing = flow('fails-while-queued', async f => {
       await Promise.all([
         ...['a', 'b', 'c'].map(lens => f.agent(`review-${lens}`, { task: `Review for ${lens}` })),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('body failed')), 100)),
+        // Fail once one agent is really running, not after a fixed delay. Each
+        // call runs its preflight before it asks for a slot; under load that
+        // outlasted 100ms, so the body failed while no agent held the slot,
+        // all three were (correctly) refused, and spans.jsonl was never
+        // written (#611).
+        firstStarted().then(() => { throw new Error('body failed'); }),
       ]);
       f.done('success');
     });

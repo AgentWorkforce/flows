@@ -125,10 +125,17 @@ process.exit(result.status===0?0:1);`;
       // The other gate that spawns a child. Its `wc` stderr was piped and then
       // discarded, so a broken or absent `wc` was reported as a word count out
       // of bounds. A bounded suffix of what it said travels with the cause.
+      //
+      // EPIPE is not "could not run": it means wc ran and exited before
+      // reading all of `input` (it crashed, was killed, or never reads
+      // stdin). spawnSync still reports its status, signal and output, so
+      // those decide the verdict. Whether the write raced wc's exit is
+      // timing, so it must not change the verdict; reporting it hid what wc
+      // did (#611).
       body = `const result=cp.spawnSync('wc',['-w'],{input:text,encoding:'utf8',env:{...process.env,LC_ALL:'C'}});
 const noise=(result.stderr||'').trim().slice(-200);
 const said=noise===''?'':': '+noise;
-if(result.error)fail('could not run wc -w: '+(result.error.code||result.error.message)+said);
+if(result.error&&result.error.code!=='EPIPE')fail('could not run wc -w: '+(result.error.code||result.error.message)+said);
 if(result.signal)fail('wc -w was terminated by '+result.signal+said);
 if(result.status!==0)fail('wc -w exited '+result.status+said);
 const count=result.stdout.trim();

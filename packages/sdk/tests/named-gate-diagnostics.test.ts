@@ -279,4 +279,37 @@ describe('word_count_bounds reports why its own child failed', () => {
     expect(capture.status).toBe(1);
     expect(capture.stderr).toContain('SIGKILL');
   });
+
+  // #611: a wc that exits without reading stdin made spawnSync's input write
+  // fail with EPIPE, reported as "could not run wc -w: EPIPE" in place of what
+  // wc did. With 'one two' that depended on who won the race. spawnSync's
+  // stdin is a socketpair: on macOS its buffer is small, so this input makes
+  // wc exit first every time; on Linux the buffer holds more than one env
+  // string can carry, so the race is not forced there. These hold either way.
+  describe('when wc exits before reading all of its input', () => {
+    // Below Linux's 128 KiB limit on one env string.
+    const longText = 'word '.repeat(20_000);
+    const run = (script: string) =>
+      runGate(command(), { output: deterministicEnvelope(longText) }, { path: stubWordCount(script) });
+
+    it('still reports output that is not a count', () => {
+      const capture = run("printf 'not a number'");
+      expect(capture.status).toBe(1);
+      expect(capture.stderr).toContain('not a number');
+      expect(capture.stderr).not.toContain('EPIPE');
+    });
+
+    it('still reports its exit status and what it said', () => {
+      const capture = run("printf 'wc: read error' >&2; exit 2");
+      expect(capture.status).toBe(1);
+      expect(capture.stderr).toContain('exited 2');
+      expect(capture.stderr).toContain('wc: read error');
+    });
+
+    it('still reports the signal that ended it', () => {
+      const capture = run('kill -9 $$');
+      expect(capture.status).toBe(1);
+      expect(capture.stderr).toContain('SIGKILL');
+    });
+  });
 });
