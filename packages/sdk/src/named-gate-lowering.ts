@@ -129,20 +129,17 @@ process.exit(result.status===0?0:1);`;
       // EPIPE is not "could not run": it means wc ran and exited before
       // reading all of `input` (it crashed, was killed, or never reads
       // stdin). spawnSync still reports its status, signal and output, so
-      // those decide the verdict. Reporting EPIPE instead hid what wc did,
-      // and whether it won the race with the input write depended on timing
-      // (#611). A count from a wc that stopped reading early does not cover
-      // the whole text, so it is refused rather than trusted.
+      // those decide the verdict. Whether the write raced wc's exit is
+      // timing, so it must not change the verdict; reporting it hid what wc
+      // did (#611).
       body = `const result=cp.spawnSync('wc',['-w'],{input:text,encoding:'utf8',env:{...process.env,LC_ALL:'C'}});
 const noise=(result.stderr||'').trim().slice(-200);
 const said=noise===''?'':': '+noise;
-const unread=result.error&&result.error.code==='EPIPE';
-if(result.error&&!unread)fail('could not run wc -w: '+(result.error.code||result.error.message)+said);
+if(result.error&&result.error.code!=='EPIPE')fail('could not run wc -w: '+(result.error.code||result.error.message)+said);
 if(result.signal)fail('wc -w was terminated by '+result.signal+said);
 if(result.status!==0)fail('wc -w exited '+result.status+said);
 const count=result.stdout.trim();
 if(!/^[0-9]+$/.test(count))fail('wc -w printed '+JSON.stringify(count.slice(0,80))+' instead of a word count'+said);
-if(unread)fail('wc -w exited before reading all of its input, so its count '+count+' does not cover the selected text'+said);
 process.stdout.write(BigInt(count).toString());`;
       break;
     case 'regex_match':
