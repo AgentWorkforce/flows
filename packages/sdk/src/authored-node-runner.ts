@@ -360,15 +360,15 @@ export async function verifyAuthoredNodeResult(
     await journal.hello('flows-authored-result-verifier');
     for (const [index, claimed] of [...ordered, ...gates].entries()) {
       if (!claimed || typeof claimed.id !== 'string' || typeof claimed.runId !== 'string'
-        || (index < ordered.length && ordinal(claimed.id) !== index+1) || claimed.completionReason !== 'success'
+        || (index < ordered.length && ordinal(claimed.id) !== index+1) || !['success', 'timeout'].includes(claimed.completionReason)
         || runs.has(claimed.runId)) invalid(`claim ${claimed?.id}`);
       runs.add(claimed.runId);
       const state = await journal.runGet(claimed.runId);
-      if (state.run_id !== claimed.runId || state.status !== 'completed'
+      if (state.run_id !== claimed.runId || state.status !== (claimed.completionReason === 'timeout' ? 'failed' : 'completed')
         || state.steps[claimed.id]?.state !== 'done') invalid(`state ${claimed.id} ${state.status} ${state.steps[claimed.id]?.state}`);
       const entries: Array<{
         seq: number; entry_type: string; step_id?: string; payload?: {
-          completionReason?: string; spec?: { name?: string; steps?: Array<{id?:string;type?:string;command?:string}> };
+          completionReason?: string; spec?: { name?: string; steps?: Array<{id?:string;type?:string;command?:string;timeout_ms?:number}> };
         };
       }> = [];
       let fromSeq = 1;
@@ -397,10 +397,13 @@ export async function verifyAuthoredNodeResult(
       const completed = settlingCompletion(entries, claimed.id);
       const gateCompleted = lowered.length === 2 ? settlingCompletion(entries, `${claimed.id}.gate`) : undefined;
       const terminalFacts = entries.filter(entry => entry.entry_type === 'run.completed');
+      const timedOut = claimed.completionReason === 'timeout';
+      if (timedOut && (claimed === terminal || lowered.length !== 1 || step?.type !== 'agent'
+        || !Number.isSafeInteger(step.timeout_ms) || step.timeout_ms! <= 0)) invalid(`timeout declaration ${claimed.id}`);
       if (spec?.name !== `${metadata.flowName}/${claimed.id}` || !specShape
-        || step?.id !== claimed.id || completed?.payload?.completionReason !== 'success'
+        || step?.id !== claimed.id || completed?.payload?.completionReason !== claimed.completionReason
         || (lowered.length === 2 && gateCompleted?.payload?.completionReason !== 'success')
-        || terminalFacts.length !== 1 || terminalFacts[0]?.payload?.completionReason !== 'success') invalid(`evidence ${claimed.id} spec=${spec?.name} step=${step?.id} completed=${completed?.payload?.completionReason}`);
+        || terminalFacts.length !== 1 || terminalFacts[0]?.payload?.completionReason !== (timedOut ? 'step_failed' : 'success')) invalid(`evidence ${claimed.id} spec=${spec?.name} step=${step?.id} completed=${completed?.payload?.completionReason}`);
       if (claimed === terminal) {
         // The claimed verdict must match the marker the journal actually
         // recorded, so an IPC frame cannot claim `success` over a run whose

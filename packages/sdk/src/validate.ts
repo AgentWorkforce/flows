@@ -490,6 +490,13 @@ class Validator {
   }
 
   private validateAgent(st: AgentStepSpec, at: string): void {
+    if (st.timeoutMs !== undefined) {
+      if (!isPosInt(st.timeoutMs) || st.timeoutMs > 60 * 60_000) {
+        this.fail(`${at}.timeoutMs: expected a positive integer at most 3600000 (60 minutes)`);
+      }
+      if (st.transport === 'relay') this.fail(`${at}.timeoutMs: unsupported with relay transport`);
+      if ((st.maxIterations ?? 1) > 1) this.fail(`${at}.timeoutMs: requires maxIterations 1`);
+    }
     if (!isNonEmptyString(st.instruction)) {
       this.fail(`${at}.instruction: expected a non-empty string`);
     }

@@ -35,7 +35,10 @@ function unmeteredUsage(input: number | undefined, output: number | undefined): 
  */
 export function workerSpend(result: WorkerCliResult, model?: string): { result: WorkerCliResult; usage: StepUsage | undefined } {
   try {
-    const usage = pricedUsage(model, result.tokens_input, result.tokens_output)
+    // Usage that was never reported is unknown, not a measured $0, even for a
+    // priced model (a step stopped before its CLI reported, for one).
+    const reported = result.tokens_input !== undefined && result.tokens_output !== undefined;
+    const usage = (reported ? pricedUsage(model, result.tokens_input, result.tokens_output) : undefined)
       ?? unmeteredUsage(result.tokens_input, result.tokens_output);
     return { result, usage };
   }

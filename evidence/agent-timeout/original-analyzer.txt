@@ -1,0 +1,46 @@
+
+ RUN  v2.1.9 /tmp/agent-timeout-original/packages/sdk
+
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd
+LIVE_KERNEL flows=/tmp/agent-timeout-original/packages/sdk/dist/cli.js
+
+stdout | tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI
+LIVE_ANALYZER ready: claude -p --model claude-haiku-4-5-20251001 round-trip OK
+
+ ❯ tests/live-kernel.test.ts (32 tests | 1 failed | 31 skipped) 4356ms
+   × built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI 4355ms
+     → expected { …(3) } to match object { Object (gate, verdict) }
+(1 matching property omitted from actual)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI
+AssertionError: expected { …(3) } to match object { Object (gate, verdict) }
+(1 matching property omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "gate": "json_schema",
+-   "verdict": "pass",
++   "gate": "execution",
++   "verdict": "fail",
+  }
+
+ ❯ tests/live-kernel.test.ts:1317:49
+    1315|     // the promoted output, not the test re-deriving it: the spec is
+    1316|     // the unmodified canonical one, so this record is the gate.
+    1317|     expect(stepCompleted!.payload.verification).toMatchObject({
+       |                                                 ^
+    1318|       gate: 'json_schema',
+    1319|       verdict: 'pass',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 31 skipped (32)
+   Start at  20:51:14
+   Duration  6.08s (transform 1000ms, setup 16ms, collect 1.54s, tests 4.36s, environment 0ms, prepare 43ms)
+

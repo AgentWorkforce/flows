@@ -31,6 +31,7 @@ export function applyConstraints(defs, version) {
   }
   property('KernelRetryPolicy', 'max_transport_retries', u32);
   property('DeterministicStepSpec', 'timeoutMs', positive);
+  property('AgentStepSpec', 'timeoutMs', { ...positive, maximum: 3600000 });
   for (const field of ['maxTokensIn', 'maxTokensOut']) property('BudgetSpec', field, integer);
   property('BudgetSpec', 'maxDollars', decimal);
   property('MemorySpec', 'query', { pattern: '\\S' });

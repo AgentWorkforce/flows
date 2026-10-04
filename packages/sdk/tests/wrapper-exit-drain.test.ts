@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import { runAgentCli } from '../src/worker-cli.js';
+import { agentCompletionReason, runAgentCli } from '../src/worker-cli.js';
 
 /**
  * What the 300 s execution deadline was really doing for a session that had
@@ -54,9 +54,9 @@ function makeDirectory(): string {
  */
 function pipeHolder(
   stdio: 'inherit' | readonly string[],
-  { deaf = false, detached = true }: { deaf?: boolean; detached?: boolean } = {},
+  { deaf = false, detached = true, holdMs = HOLD_MS }: { deaf?: boolean; detached?: boolean; holdMs?: number } = {},
 ): string {
-  const script = `${deaf ? 'process.on(\'SIGTERM\', () => {});' : ''}setTimeout(() => {}, ${HOLD_MS});`;
+  const script = `${deaf ? 'process.on(\'SIGTERM\', () => {});' : ''}setTimeout(() => {}, ${holdMs});`;
   return `
 const { spawn } = require('node:child_process');
 spawn(process.execPath, ['-e', ${JSON.stringify(script)}], {
@@ -105,6 +105,37 @@ process.exit(0);
  * `['ignore', 'inherit', 'ignore']` — that is stdout — so this path had no
  * coverage under its own name.
  */
+/**
+ * An agent `timeout` arms an execution deadline on every wrapper session. That
+ * deadline bounds a wrapper still RUNNING; it says nothing about one that has
+ * already exited. A clean exit whose descendant keeps the pipe open must still
+ * settle from the drain as the wrapper's own exit, not wait out the deadline
+ * and be journaled as a timeout.
+ */
+it('settles an exited wrapper from the drain even when an execution deadline is armed', async () => {
+  const directory = makeDirectory();
+  const wrapper = makeWrapper(directory, 'drain-with-deadline', `
+process.stdout.write('{"ok":"drained-before-deadline"}\\n');
+`, `${pipeHolder('inherit', { holdMs: 15_000 })}
+process.exit(0);
+`);
+  const stepTimeoutMs = 8_000;
+
+  const started = Date.now();
+  const result = await runAgentCli(
+    wrapper, 'instruction', undefined, undefined, undefined, undefined, 'agent', undefined, directory,
+    undefined, undefined, undefined, undefined, stepTimeoutMs,
+  );
+  const elapsed = Date.now() - started;
+
+  expect(result.transport?.cause).not.toBe('timeout');
+  expect(agentCompletionReason(result)).not.toBe('timeout');
+  expect(result.stderr_tail).toBe('');
+  expect(result.exit_code).toBe(0);
+  expect(result.stdout_tail).toBe('{"ok":"drained-before-deadline"}\n');
+  expect(elapsed).toBeLessThan(SETTLE_BOUND_MS);
+}, 30_000);
+
 it('settles a wrapper that exits leaving only stderr held open', async () => {
   const directory = makeDirectory();
   const wrapper = makeWrapper(directory, 'drain-stderr', `

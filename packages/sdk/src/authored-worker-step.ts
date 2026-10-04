@@ -2,7 +2,7 @@ import { dirname, resolve, isAbsolute, relative, sep } from 'node:path';
 import type { AuthoredBudget } from './authored-budget.js';
 import { parseBudget } from './budget.js';
 import type { AgentOptions, AgentResult, LlmOptions, NamedGate } from '@relayflows/surface';
-import { compileSpec, toKernelSpec } from './compile.js';
+import { compileSpec, toKernelSpec, parseAgentStepTimeout } from './compile.js';
 import { isTransportRetries } from './validate.js';
 import { authoredPreflight } from './authored-preflight.js';
 import { classifyOutcome, type RunLifecycleOptions, type RunReport } from './cli/run.js';
@@ -19,6 +19,7 @@ import { alsoRecord, recordAuthoredChild } from './authored-step-index.js';
 import type { StepFailedDetails } from './failure-kinds.js';
 import { authoredWorkerSlots, type AuthoredWorkerSlots } from './worker-slots.js';
 
+const AGENT_TIMEOUT = Symbol('declared agent timeout');
 const WORKSPACE_PERMISSION_ANNOTATION = /:\s*(readonly|readwrite)\s*$/i;
 
 /** Agent and LLM calls share the exact declarative preflight and lease wait. */
@@ -118,6 +119,7 @@ export function authoredWorkerRunner(
       const diagnostic = execution.report.diagnostics.at(-1);
       const details = stepDetails(diagnostic);
       const reason = execution.report.completionReason;
+      let indexFailure = '';
       let message = diagnostic?.message
         ?? `flow "${definition.name}" step "${id}" did not complete successfully `
           + `(status: ${execution.report.status ?? 'unknown'})`;
@@ -128,12 +130,20 @@ export function authoredWorkerRunner(
         journalSteps.push(Object.freeze({
           id, runId: outcome.run_id, completionReason: details.completionReason, ...stepEdges?.(id),
         }));
-        message += await alsoRecord(journal, rootRunId, {
+        indexFailure = await alsoRecord(journal, rootRunId, {
           step: id, runId: outcome.run_id, state: 'completed',
           completionReason: details.completionReason,
           ...(details.stepId === undefined ? {} : { kernelStep: details.stepId }),
           ...stepEdges?.(id),
         });
+      }
+      message += indexFailure;
+      // Resolve inside consume so budget accounting does not latch a failure.
+      // A failed index append must still fail closed, even for a tolerated timeout.
+      if (indexFailure === '' && reason === 'step_failed' && execution.report.status === 'failed'
+        && spec.steps.length === 1 && step.type === 'agent' && step.timeoutMs !== undefined
+        && details?.stepId === id && details.stepType === 'agent' && details.completionReason === 'timeout') {
+        return { [AGENT_TIMEOUT]: details.stderrTail ?? message };
       }
       throw new AuthoredFlowExecutionError(
         'step_failed', message,
@@ -244,11 +254,21 @@ export function authoredWorkerRunner(
       if (cwdTransport !== undefined) {
         throw new AuthoredFlowExecutionError('agent_cli_unresolved', `f.agent options.${cwdTransport}.`);
       }
+      let timeoutMs: number | undefined;
+      if (options.timeout !== undefined) {
+        try { timeoutMs = parseAgentStepTimeout(options.timeout); }
+        catch (error) { throw new AuthoredFlowExecutionError('agent_cli_unresolved', String(error)); }
+        if (options.transport === 'relay' || (options.maxIterations ?? 1) > 1) {
+          throw new AuthoredFlowExecutionError('agent_cli_unresolved',
+            'f.agent timeout requires direct transport and maxIterations 1.');
+        }
+      }
       const permissions = options.permissions;
       const permissionsSnapshot = permissions === undefined ? undefined
         : snapshotJsonValue(permissions, 'f.agent options.permissions') as unknown as PermissionsSpec;
       const output = await run({
         id, type: 'agent', instruction: options.task,
+        ...(timeoutMs === undefined ? {} : { timeoutMs }),
         ...(permissionsSnapshot === undefined ? {} : { permissions: permissionsSnapshot }),
         ...(localAgentStream === undefined ? {} : { surfaces: { streams: [{ stream: localAgentStream }] } }),
         ...(options.workspace === undefined ? {} : { surfaces: { workspace: [{ surface: options.workspace }] } }),
@@ -264,6 +284,9 @@ export function authoredWorkerRunner(
       if (typeof output !== 'object' || output === null || Array.isArray(output)) {
         throw new AuthoredFlowExecutionError('journal_protocol_violation', `step "${id}" produced a non-object output`);
       }
+      if (AGENT_TIMEOUT in output && timeoutMs !== undefined) {
+        return { completionReason: 'timeout', summary: String(output[AGENT_TIMEOUT]), artifacts: [] };
+      }
       const stdout = 'stdout_tail' in output ? output.stdout_tail : undefined;
       // The worker that ran the CLI measured the artifacts and journaled them
       // in the step's output; read that fact back rather than re-scanning a
@@ -271,7 +294,7 @@ export function authoredWorkerRunner(
       const journaled = 'artifacts' in output ? output.artifacts : undefined;
       const artifacts = Array.isArray(journaled) && journaled.every(entry => typeof entry === 'string')
         ? [...journaled] : [];
-      return { summary: typeof stdout === 'string' ? stdout : JSON.stringify(output), artifacts };
+      return { completionReason: 'success', summary: typeof stdout === 'string' ? stdout : JSON.stringify(output), artifacts };
     },
     async llm(id: string, prompt: string, options?: LlmOptions, verification?: NamedGate): Promise<unknown> {
       if (options !== undefined && (typeof options !== 'object' || options === null || options.output === undefined)) {
