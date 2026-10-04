@@ -159,7 +159,7 @@ async function executePinnedWrapper(
     let exitCode: number | null = null;
     /** The handshake deadline, then the execution deadline if there is one. */
     let lifecycleTimer: NodeJS.Timeout | undefined;
-    /** The post-exit drain grace, armed only when execution is unlimited. */
+    /** The post-exit drain grace, armed once the wrapper has exited and acknowledged. */
     let drainTimer: NodeJS.Timeout | undefined;
 
     const finish = (result: WrapperSessionResult): void => {
@@ -260,7 +260,21 @@ async function executePinnedWrapper(
       // and what bounds the work from here is the lease abort — the same thing
       // that bounds a `claude` or `codex` step.
       if (limits.executionTimeoutMs <= 0) return;
-      lifecycleTimer = setTimeout(() => terminate(
+      lifecycleTimer = setTimeout(() => {
+        lifecycleTimer = undefined;
+        // The deadline bounds a wrapper that is still running. One that has
+        // already exited did not time out, whatever it left holding stdio:
+        // its settle belongs to the post-exit drain, which reports the
+        // wrapper's own exit. Re-arming here is idempotent.
+        if (childExited) {
+          startDrainGrace();
+          return;
+        }
+        onExecutionDeadline();
+      }, limits.executionTimeoutMs);
+    };
+    const onExecutionDeadline = (): void => {
+      terminate(
         `CLI ${JSON.stringify(cli)} execution timed out after ${limits.executionTimeoutMs}ms.`,
         transportEvidence({ phase: 'timeout', cause: 'timeout', retryable: false, exitCode: null, signal: null,
           stderr: `CLI execution timed out after ${limits.executionTimeoutMs}ms.` }, env),
@@ -268,7 +282,7 @@ async function executePinnedWrapper(
         // already emitted still reports its usage. Only the caller decides
         // what of it, if anything, is output.
         stdout.join('') + executionPending,
-      ), limits.executionTimeoutMs);
+      );
     };
     const exceedsOutputLimit = (additionalBytes: number): boolean => {
       const pendingBytes = Buffer.byteLength(executionPending);
@@ -390,13 +404,13 @@ async function executePinnedWrapper(
       finishOnChildExit(result);
     };
     /**
-     * Arm the post-exit drain, for an unlimited session that has both seen the
-     * wrapper exit and consumed its acknowledgement. A session with an explicit
-     * execution deadline keeps its existing behaviour: that deadline is what
-     * bounds a withheld `'close'` there, and nothing about it changes.
+     * Arm the post-exit drain, for a session that has both seen the wrapper
+     * exit and consumed its acknowledgement. This holds with or without an
+     * execution deadline: the deadline bounds a wrapper still running, and a
+     * wrapper that exited — even with a descendant holding stdio — settles as
+     * its own exit here rather than waiting out the deadline as a timeout.
      */
     const startDrainGrace = (): void => {
-      if (limits.executionTimeoutMs > 0) return;
       if (!childExited || phase !== 'execute') return;
       if (settled || drainTimer !== undefined || protocolError !== undefined) return;
       drainTimer = setTimeout(drainExpired, DRAIN_AFTER_EXIT_MS);

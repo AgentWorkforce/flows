@@ -533,6 +533,10 @@ describe('custom wrapper execution bounds are reader-owned', () => {
    * there the wrapper is still alive when the deadline fires, so SIGTERM
    * closes its own pipes and 'close' arrives. That test proves the timer
    * FIRES. This one proves the bound HOLDS.
+   *
+   * The wrapper exited 0 before its deadline, so it did not time out: the
+   * post-exit drain settles it as its own exit even with a deadline armed,
+   * and the descendant holding the pipe does not turn it into a timeout.
    */
   function leakyWrapperSource(inherit: 'inherit' | ['ignore', 'inherit', 'ignore'], holdMs: number): string {
     return `
@@ -564,8 +568,9 @@ process.stdin.on('end', () => {
     });
     const elapsed = Date.now() - started;
 
-    expect(result.exit_code).toBeNull();
-    expect(result.stderr_tail).toMatch(/timed out after 300ms/i);
+    expect(result.transport?.cause).not.toBe('timeout');
+    expect(result.exit_code).toBe(0);
+    expect(result.stdout_tail).toBe('{"ok":true}\n');
     expect(elapsed).toBeLessThan(5_000);
   }, 20_000);
 
@@ -585,8 +590,9 @@ process.stdin.on('end', () => {
     });
     const elapsed = Date.now() - started;
 
-    expect(result.exit_code).toBeNull();
-    expect(result.stderr_tail).toMatch(/timed out after 300ms/i);
+    expect(result.transport?.cause).not.toBe('timeout');
+    expect(result.exit_code).toBe(0);
+    expect(result.stdout_tail).toBe('{"ok":true}\n');
     expect(elapsed).toBeLessThan(5_000);
   }, 20_000);
 
