@@ -1,0 +1,46 @@
+Mutation verification of the `host` propagation in `parseRepository`
+(packages/sdk/src/cloud-deploy.ts). The change under test is the final
+return, which attaches `host: 'gitlab'` only for a GitLab target:
+
+    return { owner, name, ...(host === 'gitlab' ? { host: 'gitlab' as const } : {}) };
+
+Step 1 — revert it to the pre-change `return { owner, name };`:
+2cc34891dc35e1866f1e88a3653039215fe92c263c73791ea9edec9868b4bb55  packages/sdk/src/cloud-deploy.ts
+$ sed -n 139p packages/sdk/src/cloud-deploy.ts
+  return { owner, name };
+
+Step 2 — the suite fails:
+$ cd packages/sdk && ./node_modules/.bin/vitest run tests/cloud-deploy.test.ts
+ FAIL  tests/cloud-deploy.test.ts > trigger source and repository parsing > parses repository gitlab:group/project
+AssertionError: expected { owner: 'group', name: 'project' } to strictly equal { owner: 'group', …(2) }
+ FAIL  tests/cloud-deploy.test.ts > trigger source and repository parsing > parses repository gitlab:group/sub/project
+ FAIL  tests/cloud-deploy.test.ts > trigger source and repository parsing > parses repository https://gitlab.com/group/sub/project.git
+AssertionError: expected { owner: 'group/sub', name: 'project' } to strictly equal { owner: 'group/sub', …(2) }
+ FAIL  tests/cloud-deploy.test.ts > trigger source and repository parsing > parses repository http://GITLAB.com/g/p
+ FAIL  tests/cloud-deploy.test.ts > trigger source and repository parsing > parses repository GITLAB:g/p
+ FAIL  tests/cloud-deploy.test.ts > trigger source and repository parsing > parses repository gitlab:https://gitlab.com/g/p
+AssertionError: expected { owner: 'g', name: 'p' } to strictly equal { owner: 'g', name: 'p', …(1) }
+ FAIL  tests/cloud-deploy.test.ts > trigger source and repository parsing > parses repository gitlab:g/g/g/g/g/g/g/g/g/g/g/g/g/g/g/g/g/g/g/g/g/p
+AssertionError: expected { …(2) } to strictly equal { …(3) }
+ FAIL  tests/cloud-deploy.test.ts > deployToCloud > requires the GitLab target integration with gitlab:labels=x
+ FAIL  tests/cloud-deploy.test.ts > deployToCloud > requires the GitLab target integration with linear:team=ENG
+AssertionError: expected { owner: 'group/sub', name: 'web' } to strictly equal { owner: 'group/sub', …(2) }
+ FAIL  tests/cloud-deploy.test.ts > deployToCloud > refuses an unscoped GitHub source for a GitLab target before HTTP
+AssertionError: expected CloudFlowError: Cloud request failed with… { …(4) } to match object { code: 'invalid_input', …(1) }
+ FAIL  tests/cloud-deploy.test.ts > flows deploy / flows deployments > deploys and lists GitLab repositories (json=false)
+AssertionError: expected [ 'DEPLOYED a listening', …(5) ] to include '  repository: gitlab:group/sub/web'
+ FAIL  tests/cloud-deploy.test.ts > flows deploy / flows deployments > deploys and lists GitLab repositories (json=true)
+AssertionError: expected { owner: 'group/sub', name: 'web' } to strictly equal { owner: 'group/sub', …(2) }
+ Test Files  1 failed (1)
+      Tests  12 failed | 88 passed (100)
+
+Step 3 — restore the change byte-for-byte:
+$ git diff --quiet packages/sdk/src/cloud-deploy.ts (vs the pre-mutation file)
+identical to pre-mutation copy
+2cc34891dc35e1866f1e88a3653039215fe92c263c73791ea9edec9868b4bb55  packages/sdk/src/cloud-deploy.ts
+
+Step 4 — the suite passes again:
+$ cd packages/sdk && ./node_modules/.bin/vitest run tests/cloud-deploy.test.ts
+ ✓ tests/cloud-deploy.test.ts (100 tests) 2716ms
+ Test Files  1 passed (1)
+      Tests  100 passed (100)

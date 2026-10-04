@@ -18,10 +18,11 @@ import { parseVersionChange, type CloudFlowVersionChange } from './cloud-version
  * deploy wizard. `POST /api/v1/flows/deploy` stores one self-contained
  * authored source and creates a proactive listener whose watch rules match
  * the chosen ticket sources on the workspace's relayfile projections. There
- * is no webhook to register: the GitHub App installation (or Slack/Linear/
- * Jira/Shortcut connection) is the ingress, and each matching ticket launches
- * a run of the stored source with `{ approver, issue, event }` as its input,
- * inside a fresh branch of the deployment's repository.
+ * is no webhook to register: the GitHub App installation (or the GitLab,
+ * Slack, Linear, Jira or Shortcut connection) is the ingress, and each
+ * matching ticket launches a run of the stored source with
+ * `{ approver, issue, event }` as its input, inside a fresh branch of the
+ * deployment's repository.
  */
 
 export const FLOW_TRIGGER_PROVIDERS = ['github', 'gitlab', 'linear', 'jira', 'shortcut', 'slack'] as const;

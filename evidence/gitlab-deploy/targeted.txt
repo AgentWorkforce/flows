@@ -1,0 +1,15 @@
+$ cd packages/sdk && RELAYFLOWD_BIN=../../kernel/target/release/relayflowd RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 \
+    ./node_modules/.bin/vitest run tests/cloud-deploy.test.ts tests/relay-cli-surface.test.ts tests/flow-requirements.test.ts
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/relay-cli-surface.test.ts (87 tests) 44ms
+ ✓ tests/flow-requirements.test.ts (14 tests) 1096ms
+   ✓ flows check prints REQUIRES > names the helper, the harness and the mcp server of an authored flow 819ms
+ ✓ tests/cloud-deploy.test.ts (100 tests) 2822ms
+
+ Test Files  3 passed (3)
+      Tests  201 passed (201)
+   Start at  07:39:55
+   Duration  5.26s (transform 1.76s, setup 43ms, collect 6.70s, tests 3.96s, environment 0ms, prepare 150ms)
+

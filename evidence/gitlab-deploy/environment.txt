@@ -1,0 +1,19 @@
+$ /usr/bin/bwrap --ro-bind / / --unshare-net --dev /dev /bin/true
+bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+exit=1
+
+$ cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns
+1
+
+$ sudo -n sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+sysctl: permission denied on key "kernel.apparmor_restrict_unprivileged_userns"
+
+$ mount | grep " /proc/sys "
+sysboxfs on /proc/sys type fuse (rw,nosuid,nodev,relatime,user_id=0,group_id=0,default_permissions,allow_other)
+
+--- the live-kernel cause: an ancestor package.json pins CommonJS ---
+$ sed -n /\"type\"/p /home/daytona/package.json
+  "type": "commonjs",
+
+$ printf "" | node testdata/preflight/analyze-story-stub-cli --relayflows-adapter-v1
+exit=0  (ES-module fixture silently ran nothing as CommonJS)
