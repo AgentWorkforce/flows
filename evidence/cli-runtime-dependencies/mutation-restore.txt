@@ -1,4 +1,0 @@
-$ cd /home/daytona/.relayflow-v2-supervisor/durable/repository
-$ git diff --exit-code -- packages/sdk/package.json packages/sdk/package-lock.json
-
-exit=0

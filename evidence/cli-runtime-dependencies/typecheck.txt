@@ -1,7 +1,0 @@
-$ npm run typecheck --prefix packages/sdk
-
-> @relayflows/sdk@2.0.39 typecheck
-> tsc --noEmit && tsc -p tsconfig.type-tests.json
-
-
-exit=0

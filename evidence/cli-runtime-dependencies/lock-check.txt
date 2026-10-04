@@ -1,5 +1,0 @@
-$ node -e "const assert=require('node:assert/strict'); const l=require('./packages/sdk/package-lock.json'); const entries=Object.keys(l.packages).filter(k=>/undici$/.test(k)); assert.equal(entries.length,1); assert.notEqual(l.packages['node_modules/typescript'].dev,true); console.log(entries); console.log('typescript dev:',l.packages['node_modules/typescript'].dev);"
-[ 'node_modules/undici' ]
-typescript dev: undefined
-
-exit=0
