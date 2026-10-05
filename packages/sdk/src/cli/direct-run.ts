@@ -1,3 +1,5 @@
+import { daemonUnresponsiveReport, isReadInterruption } from './journal-timeout.js';
+import { FLOW_READ_BUDGET_MS } from '../journal-read-policy.js';
 import { onWorkerFailure } from '../worker-lease.js';
 import { McpStepError } from '../authored-mcp.js';
 import { randomUUID } from 'node:crypto';
@@ -67,7 +69,7 @@ export async function runDirectFlow(
   }
   const socketPath = socketFor(dataDir);
   const base: RunReport = { ...emptyReport('run'), path };
-  const client = new JournalClient(socketPath);
+  const client = new JournalClient(socketPath, { readBudgetMs: FLOW_READ_BUDGET_MS });
   const connected = await connect(client, 'run', dataDir, base, options);
   if (connected !== undefined) return connected;
 
@@ -212,6 +214,7 @@ export async function runDirectFlow(
     if (error instanceof AuthoredFlowExecutionError && (error.code === 'step_failed' || error.code === 'gate_failed')) {
       return authoredStepFailure('run', base, socketPath, error);
     }
+    if (isReadInterruption(error)) return daemonUnresponsiveReport('run', base, socketPath, error, base.rootRunId, options, dataDir);
     if (error instanceof AuthoredFlowExecutionError && error.code === 'root_lease_lost') {
       return rootLeaseLostReport('run', base, socketPath, error);
     }

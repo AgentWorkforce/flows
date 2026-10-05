@@ -559,3 +559,15 @@ SDK (`npm test` in `packages/sdk`):
 Test 15 is the one that matters most and is the hardest to fake: it must spawn
 real processes against a real temp data dir, because the property under test is
 enforced by `flock(2)`, not by any code we could stub.
+
+## Reads during long-running commands
+
+The daemon handles frames sequentially per connection; `run.start`,
+`run.resume`, and `step.complete` can drive deterministic commands before
+replying. The SDK's flow execution clients therefore send read-only requests
+on an unconditional lazy reader session, serialized and retried within a
+bounded budget. Worker registrations, leases, writes, and watches retain their
+own session ordering. Watch pushes come from the hub and can arrive while a
+command is in flight. A read timeout is not a terminal run fact: the CLI probes
+a fresh connection and reports a resumable interruption (see `docs/SURFACE.md`
+§5). No daemon protocol or runtime release is required for this policy.

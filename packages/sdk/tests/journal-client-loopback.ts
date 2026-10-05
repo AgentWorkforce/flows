@@ -24,33 +24,34 @@ export interface FrameCtx {
 }
 
 export interface LoopbackHandlers {
-  'subscription.inspect'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'subscription.deliver'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'subscription.fence_overflow'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  hello?: (ctx: FrameCtx) => void;
-  'run.start'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'run.resume'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'run.cancel'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'run.get'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'run.watch'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'worker.attach'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'step.heartbeat'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'effect.record'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'effect.confirm'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'step.complete'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'step.wait'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'event.emit'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'subscription.open'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'subscription.next'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'subscription.close'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'journal.read'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'stream.append'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
-  'stream.read'?: (ctx: FrameCtx, params: Record<string, unknown>) => void;
+  'subscription.inspect'?: (ctx: FrameCtx, params: Record<string, unknown>) => void | Promise<void>;
+  'subscription.deliver'?: (ctx: FrameCtx, params: Record<string, unknown>) => void | Promise<void>;
+  'subscription.fence_overflow'?: (ctx: FrameCtx, params: Record<string, unknown>) => void | Promise<void>;
+  hello?: (ctx: FrameCtx) => void | Promise<void>;
+  'run.start'?: (ctx: FrameCtx, params: Record<string, unknown>) => void | Promise<void>;
+  'run.resume'?: (ctx: FrameCtx, params: Record<string, unknown>) => void | Promise<void>;
+  'run.cancel'?: (ctx: FrameCtx, params: Record<string, unknown>) => void | Promise<void>;
+  'run.get'?: (ctx: FrameCtx, params: Record<string, unknown>) => void | Promise<void>;
+  'run.watch'?: (ctx: FrameCtx, params: Record<string, unknown>) => void | Promise<void>;
+  'worker.attach'?: (ctx: FrameCtx, params: Record<string, unknown>) => void | Promise<void>;
+  'step.heartbeat'?: (ctx: FrameCtx, params: Record<string, unknown>) => void | Promise<void>;
+  'effect.record'?: (ctx: FrameCtx, params: Record<string, unknown>) => void | Promise<void>;
+  'effect.confirm'?: (ctx: FrameCtx, params: Record<string, unknown>) => void | Promise<void>;
+  'step.complete'?: (ctx: FrameCtx, params: Record<string, unknown>) => void | Promise<void>;
+  'step.wait'?: (ctx: FrameCtx, params: Record<string, unknown>) => void | Promise<void>;
+  'event.emit'?: (ctx: FrameCtx, params: Record<string, unknown>) => void | Promise<void>;
+  'subscription.open'?: (ctx: FrameCtx, params: Record<string, unknown>) => void | Promise<void>;
+  'subscription.next'?: (ctx: FrameCtx, params: Record<string, unknown>) => void | Promise<void>;
+  'subscription.close'?: (ctx: FrameCtx, params: Record<string, unknown>) => void | Promise<void>;
+  'journal.read'?: (ctx: FrameCtx, params: Record<string, unknown>) => void | Promise<void>;
+  'stream.append'?: (ctx: FrameCtx, params: Record<string, unknown>) => void | Promise<void>;
+  'stream.read'?: (ctx: FrameCtx, params: Record<string, unknown>) => void | Promise<void>;
 }
 
-export function startLoopback(path: string, handlers: LoopbackHandlers): Server {
+export function startLoopback(path: string, handlers: LoopbackHandlers, options: { serialize?: boolean } = {}): Server {
   const server = createServer((socket) => {
     let buffer = '';
+    let queue = Promise.resolve();
     const send = (obj: unknown): void => {
       socket.write(JSON.stringify(obj) + '\n');
     };
@@ -62,11 +63,14 @@ export function startLoopback(path: string, handlers: LoopbackHandlers): Server 
         buffer = buffer.slice(nl + 1);
         if (line.length === 0) continue;
         const req = JSON.parse(line) as { id: string; verb: keyof LoopbackHandlers; params: Record<string, unknown> };
-        const handler = handlers[req.verb] as ((ctx: FrameCtx, params: Record<string, unknown>) => void) | undefined;
+        const handler = handlers[req.verb] as ((ctx: FrameCtx, params: Record<string, unknown>) => void | Promise<void>) | undefined;
         if (handler === undefined) {
           send({ id: req.id, ok: false, error: { code: 'unknown_verb', message: req.verb } });
         } else {
-          handler({ id: req.id, socket, send }, req.params);
+          const handle = () => handler({ id: req.id, socket, send }, req.params);
+          // server.rs handles one frame at a time per connection.
+          if (options.serialize) queue = queue.then(handle);
+          else void handle();
         }
       }
     });

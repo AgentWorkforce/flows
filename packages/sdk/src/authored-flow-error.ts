@@ -35,6 +35,7 @@ export type AuthoredFlowExecutionErrorCode =
    * re-dispatch the root to it. The run is not failed: completed steps are
    * journaled and `flows resume <rootRunId>` continues it.
    */
+  | 'daemon_unresponsive'
   | 'root_lease_lost'
   | 'unsupported_completion'
   | 'unsupported_gate'

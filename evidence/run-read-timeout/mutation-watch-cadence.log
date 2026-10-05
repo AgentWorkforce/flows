@@ -1,0 +1,51 @@
+Source: packages/sdk/src/cli/running-step.ts
+Original SHA256: 0f8b6b9e160ebb047b5a83ad48ad41e2c201d5ba905c27c3a872acd3b9b288c2
+Replaced:
+const LEASE_POLL_MS = 2_000;
+With:
+const LEASE_POLL_MS = 50;
+
+REVERTED
+$ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'uses pushes for completion' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/running-step-watch.test.ts (2 tests | 1 failed | 1 skipped) 2110ms
+   × uses pushes for completion with lease-cadence reads and releases its watcher 2109ms
+     → expected 41 to be less than or equal to 1
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/running-step-watch.test.ts > uses pushes for completion with lease-cadence reads and releases its watcher
+AssertionError: expected 41 to be less than or equal to 1
+ ❯ tests/running-step-watch.test.ts:37:19
+     35|     await waitForRunningStep(client, 'run', { id: 'step', type: 'agent…
+     36|     expect(performance.now() - start).toBeGreaterThan(2000);
+     37|     expect(reads).toBeLessThanOrEqual(1);
+       |                   ^
+     38|     await sleep(10);
+     39|     expect(watchClosed).toBe(true);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 skipped (2)
+   Start at  10:38:16
+   Duration  2.60s (transform 179ms, setup 16ms, collect 313ms, tests 2.11s, environment 0ms, prepare 43ms)
+
+exit=1
+
+RESTORED SHA256: 0f8b6b9e160ebb047b5a83ad48ad41e2c201d5ba905c27c3a872acd3b9b288c2
+$ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'uses pushes for completion' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/running-step-watch.test.ts (2 tests | 1 skipped) 2120ms
+   ✓ uses pushes for completion with lease-cadence reads and releases its watcher 2119ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 1 skipped (2)
+   Start at  10:38:20
+   Duration  2.61s (transform 186ms, setup 15ms, collect 322ms, tests 2.12s, environment 0ms, prepare 42ms)
+
+exit=0

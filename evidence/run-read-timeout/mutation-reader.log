@@ -1,0 +1,57 @@
+Source: packages/sdk/src/journal-client.ts
+Original SHA256: 9a390f44f9a1375f0e13be91786f24e848bba7fa07b93b28b119c7ca1d24027c
+Replaced:
+(reader ?? this).requestOnce(verb, params, remaining)
+With:
+this.requestOnce(verb, params, remaining)
+
+REVERTED
+$ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t 'serves a bounded read' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/journal-client-read-timeout.test.ts (13 tests | 1 failed | 12 skipped) 111ms
+   × serves a bounded read while an unbounded command is in flight 110ms
+     → expected true to be false // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/journal-client-read-timeout.test.ts > serves a bounded read while an unbounded command is in flight
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/journal-client-read-timeout.test.ts:36:23
+     34|   await inFlight;
+     35|   expect(await client.runGet('run')).toMatchObject({ status: 'running'…
+     36|   expect(commandDone).toBe(false);
+       |                       ^
+     37|   await command;
+     38| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 12 skipped (13)
+   Start at  10:38:14
+   Duration  588ms (transform 169ms, setup 15ms, collect 306ms, tests 111ms, environment 0ms, prepare 44ms)
+
+exit=1
+
+RESTORED SHA256: 9a390f44f9a1375f0e13be91786f24e848bba7fa07b93b28b119c7ca1d24027c
+$ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t 'serves a bounded read' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/journal-client-read-timeout.test.ts (13 tests | 12 skipped) 108ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 12 skipped (13)
+   Start at  10:38:15
+   Duration  586ms (transform 171ms, setup 15ms, collect 307ms, tests 108ms, environment 0ms, prepare 42ms)
+
+exit=0

@@ -12,9 +12,9 @@ import {
   resumeDurableAuthoredFlow,
   type AuthoredRootMetadata,
 } from '../src/authored-root.js';
-import { JournalProtocolError, type JournalClient } from '../src/journal-client.js';
+import { JournalProtocolError, JournalRequestTimeoutError, type JournalClient } from '../src/journal-client.js';
 import type { RunOutcome, StepDispatchEvent } from '../src/protocol.js';
-import { AuthoredHumanParked } from '../src/authored-flow-error.js';
+import { AuthoredFlowExecutionError, AuthoredHumanParked } from '../src/authored-flow-error.js';
 
 vi.mock('../src/authored-flow-loader.js', async importOriginal => ({
   ...await importOriginal<typeof import('../src/authored-flow-loader.js')>(),
@@ -381,6 +381,42 @@ describe('durable authored root', () => {
     expect(result).toMatchObject({ rootRunId: 'root-run', completionReason: 'success' });
     expect(journal.resumeCalls).toBe(1);
     expect(journal.peer.completions).toEqual([{ attempt: 2, reason: 'success' }]);
+  });
+
+  it('does not terminalize a root whose heartbeat times out', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    const controller = new AbortController();
+    journal.peer.stepHeartbeat = async () => {
+      controller.abort();
+      throw new JournalRequestTimeoutError('step.heartbeat', 10);
+    };
+    await expect(executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'heartbeat-timeout', lifecycle: { signal: controller.signal } }))
+      .rejects.toThrow();
+    expect(journal.peer.completions).toEqual([]);
+  });
+
+  it('still terminalizes a timed-out mutation as a body failure', async () => {
+    const loaded = await fixture(false, 0, async () => { throw new JournalRequestTimeoutError('stream.append', 10); });
+    const journal = new RootJournal();
+    await expect(executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'write-timeout' })).rejects.toMatchObject({ verb: 'stream.append' });
+    expect(journal.peer.completions).toEqual([{ attempt: 1, reason: 'worker_error' }]);
+  });
+
+  it.each([false, true])('leaves the root resumable after a read timeout without waiting for redispatch (Node frame=%s)', async nodeFrame => {
+    const timeout = new JournalRequestTimeoutError('run.get', 10);
+    const loaded = await fixture(false, 0, async () => {
+      throw nodeFrame ? new AuthoredFlowExecutionError('daemon_unresponsive', timeout.message) : timeout;
+    });
+    const journal = new RootJournal();
+    await expect(executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'read-timeout' })).rejects.toMatchObject({
+        code: 'daemon_unresponsive', rootRunId: 'root-run', message: expect.stringContaining('flows resume'),
+      });
+    expect(journal.peer.completions).toEqual([]);
+    expect(journal.resumeCalls).toBe(1);
   });
 
   it('terminalizes a returned body failure without replaying semantic side effects', async () => {

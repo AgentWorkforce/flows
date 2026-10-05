@@ -1,0 +1,53 @@
+Source: packages/sdk/src/worker-lease.ts
+Original SHA256: 44c13f9f61ac13cb8c0f872f4c22b1c212e020d05880ed080ea7205ba6007213
+Replaced:
+      if (error instanceof JournalRequestTimeoutError && error.verb === 'step.heartbeat') {
+        throw new WorkerLeaseLostError('renewal_expired', error.message, { cause: error });
+      }
+
+With:
+
+
+REVERTED
+$ cd packages/sdk && npx vitest run tests/heartbeat-timeout.test.ts -t 'a heartbeat timeout' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/heartbeat-timeout.test.ts (1 test | 1 failed) 20ms
+   × a heartbeat timeout is lease loss rather than a worker body failure 20ms
+     → expected JournalRequestTimeoutError: journal clien… { …(5) } to be an instance of WorkerLeaseLostError
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/heartbeat-timeout.test.ts > a heartbeat timeout is lease loss rather than a worker body failure
+AssertionError: expected JournalRequestTimeoutError: journal clien… { …(5) } to be an instance of WorkerLeaseLostError
+ ❯ tests/heartbeat-timeout.test.ts:16:5
+     14|   try {
+     15|     await client.connect();
+     16|     await expect(withWorkerLease(client, {
+       |     ^
+     17|       run_id: 'run', step_id: 'step', attempt: 1, step_type: 'agent', …
+     18|       lease_id: 'lease', lease_deadline_ms: Date.now() + 30_000, lease…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  10:38:23
+   Duration  509ms (transform 171ms, setup 14ms, collect 315ms, tests 20ms, environment 0ms, prepare 45ms)
+
+exit=1
+
+RESTORED SHA256: 44c13f9f61ac13cb8c0f872f4c22b1c212e020d05880ed080ea7205ba6007213
+$ cd packages/sdk && npx vitest run tests/heartbeat-timeout.test.ts -t 'a heartbeat timeout' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/heartbeat-timeout.test.ts (1 test) 15ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  10:38:24
+   Duration  491ms (transform 169ms, setup 15ms, collect 300ms, tests 15ms, environment 0ms, prepare 43ms)
+
+exit=0

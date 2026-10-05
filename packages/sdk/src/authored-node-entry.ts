@@ -1,3 +1,4 @@
+import { FLOW_READ_BUDGET_MS, JournalRequestTimeoutError, READ_ONLY_VERBS } from './journal-read-policy.js';
 import { Worker } from 'node:worker_threads';
 import { createHash, createHmac } from 'node:crypto';
 import { readFileSync, writeSync } from 'node:fs';
@@ -74,7 +75,7 @@ try {
   const loaded = await loadPinnedAuthoredSource(request.metadata, true);
   if (request.localAgentStream !== request.metadata.localAgentStream) throw new Error('authored root local agent surface mismatch');
   if (request.workerCapacity !== undefined && !isAgentCapacity(request.workerCapacity)) throw new Error('invalid authored worker capacity');
-  client = new JournalClient(request.socketPath);
+  client = new JournalClient(request.socketPath, { readBudgetMs: FLOW_READ_BUDGET_MS });
   await client.connect(); await client.hello('flows-authored-node');
   const result = await executeAuthoredFlow(loaded.handle, client,
     request.metadata.inputPresent ? request.metadata.input : undefined, {
@@ -99,6 +100,10 @@ try {
     // `parkCause` travels for the same reason: it is the difference between
     // "attach a worker" and "a human has to recover this", and this process is
     // the only one that saw the child's classification.
+    // Preserve a read interruption across the Node/Bun error frame so the
+    // lease-owning parent can leave the root resumable.
+    ...(error instanceof JournalRequestTimeoutError && (READ_ONLY_VERBS.has(error.verb) || error.verb === 'run.watch')
+      ? { code: 'daemon_unresponsive' } : {}),
     ...(error instanceof AuthoredFlowExecutionError ? { code: error.code,
       completionReason: error.completionReason, runId: error.runId,
       details: error.details,

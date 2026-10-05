@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { describe, expect, it } from 'vitest';
 
 import { classifyOutcome } from '../src/cli/run.js';
@@ -163,6 +164,9 @@ describe('the remedy on a worker park', () => {
     const until = Date.now() + 3_000;
     let resumes = 0;
     const client = {
+      createPeer: () => Object.assign(new EventEmitter(), {
+        connect: async () => {}, hello: async () => {}, runWatch: async () => {}, close: () => {},
+      }),
       runGet: async () => (Date.now() < until ? backoff : completed),
       runResume: async (): Promise<RunOutcome> => {
         resumes += 1;
@@ -245,6 +249,9 @@ describe('the remedy on a worker park', () => {
       budget: { tokens_in: 0, tokens_out: 0, dollars: '0' },
     };
     const client = {
+      createPeer: () => Object.assign(new EventEmitter(), {
+        connect: async () => {}, hello: async () => {}, runWatch: async () => {}, close: () => {},
+      }),
       runGet: async () => (Date.now() < until ? running
         : { ...running, status: 'completed', steps: { answer: { type: 'agent', state: 'done' } } }),
       runResume: async (): Promise<RunOutcome> =>

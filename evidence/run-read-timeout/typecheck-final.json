@@ -1,0 +1,10 @@
+{
+  "command": "cd packages/sdk && npx tsc --noEmit && npx tsc -p tsconfig.tests.json",
+  "result": {
+    "chunk_id": "10aa44",
+    "wall_time_seconds": 0.000001521,
+    "exit_code": 0,
+    "original_token_count": 0,
+    "output": ""
+  }
+}

@@ -217,7 +217,7 @@ export type {
 } from './protocol.js';
 export { JOURNAL_WRITE_FAILED, PROTOCOL_VERSION } from './protocol.js';
 
-export { JournalClient, type JournalClientOptions } from './journal-client.js';
+export { JournalClient, JournalRequestTimeoutError, type JournalClientOptions } from './journal-client.js';
 export { AgentWorker, type AgentWorkerOptions } from './worker.js';
 
 export {

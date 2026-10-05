@@ -1,3 +1,7 @@
+import { waitForRunningStep, type RunningStep } from './running-step.js';
+export { LEASE_SWEEP_GRACE_MS } from './running-step.js';
+import { daemonUnresponsiveReport, isReadInterruption } from './journal-timeout.js';
+import { FLOW_READ_BUDGET_MS } from '../journal-read-policy.js';
 import { onWorkerFailure } from '../worker-lease.js';
 import { communicationInstruction } from '../communication/spec.js';
 import { checkCommunicationEnvironment, CommunicationEnvironmentError } from '../communication/preflight.js';
@@ -203,7 +207,7 @@ async function executeCheckedFlow(
     catch (error) { return { exitCode: 2, report: { ...base, diagnostics: [...base.diagnostics,
       { severity: 'refusal', kind: 'probe_failed', message: error instanceof Error ? error.message : 'Communication environment could not be checked.' }] } }; }
   }
-  const client = new JournalClient(socketPath);
+  const client = new JournalClient(socketPath, { readBudgetMs: FLOW_READ_BUDGET_MS });
   const connected = await connect(client, 'run', dataDir, base, options);
   if (connected !== undefined) return connected;
 
@@ -225,6 +229,7 @@ async function executeCheckedFlow(
     }
     if (options.onJournalEntry !== undefined) client.on('entry', options.onJournalEntry);
     const outcome = await startWatched(client, spec, options);
+    base.runId = outcome.run_id;
     // `run.start { watch: true }` is an event stream, not the source of the
     // root identity. A short deterministic run can finish before its first
     // watched entry is delivered (and an older daemon may refuse `watch`), so
@@ -239,6 +244,7 @@ async function executeCheckedFlow(
     }
     return execution;
   } catch (error) {
+    if (isReadInterruption(error)) return daemonUnresponsiveReport('run', base, socketPath, error, base.runId, options, dataDir);
     if (error instanceof CommunicationEnvironmentError) return { exitCode: 2, report: { ...base,
       diagnostics: [...base.diagnostics, { severity: 'refusal', kind: 'probe_failed', message: error.message }] } };
     if (error instanceof JournalProtocolError && (
@@ -289,7 +295,7 @@ export async function resumeFlow(
   const agentEnvironment = localAgentEnvironment();
   const socketPath = socketFor(dataDir);
   const base = emptyReport('resume');
-  const client = new JournalClient(socketPath);
+  const client = new JournalClient(socketPath, { readBudgetMs: FLOW_READ_BUDGET_MS });
   const connected = await connect(client, 'resume', dataDir, base, options);
   if (connected !== undefined) return connected;
 
@@ -408,6 +414,7 @@ export async function resumeFlow(
     if (error instanceof AuthoredFlowExecutionError && (error.code === 'step_failed' || error.code === 'gate_failed')) {
       return authoredStepFailure('resume', base, socketPath, error, runId);
     }
+    if (isReadInterruption(error)) return daemonUnresponsiveReport('resume', base, socketPath, error, runId, options, dataDir);
     if (error instanceof AuthoredFlowExecutionError && error.code === 'root_lease_lost') {
       return rootLeaseLostReport('resume', base, socketPath, error, runId);
     }
@@ -822,6 +829,19 @@ export async function connect(
 /// needs a stubbed client rather than a real run -- the integration test that
 /// found it reproduced the bug roughly 1 time in 12.
 export async function classifyOutcome(
+  client: JournalClient, command: RunCommand, outcome: RunOutcome,
+  base: CheckReport | RunReport, socketPath: string, options: RunLifecycleOptions,
+): Promise<RunExecution> {
+  try { return await classifyOutcomeInner(client, command, outcome, base, socketPath, options); }
+  catch (error) {
+    // Authored child calls have no CLI socket path: let their durable root
+    // handle the interruption, rather than turn it into a child step failure.
+    if (socketPath !== '' && isReadInterruption(error)) return daemonUnresponsiveReport(command, base, socketPath, error, outcome.run_id, options);
+    throw error;
+  }
+}
+
+async function classifyOutcomeInner(
   client: JournalClient,
   command: RunCommand,
   outcome: RunOutcome,
@@ -1021,10 +1041,6 @@ interface OutOfBandInspection {
   backoffStep?: ParkedStep;
 }
 
-interface RunningStep extends ParkedStep {
-  leaseDeadlineMs: number;
-}
-
 // Bound on re-polling a run that reports `running` with no identifiable step.
 // 40 x 50ms = 2s, far longer than the sub-second window observed in #179, and
 // short enough that a genuinely stuck run still reports rather than hangs.
@@ -1071,63 +1087,7 @@ async function inspectOutOfBandStep(
   };
 }
 
-// Match kernel/relayflowd/src/server/client.rs: allow the lease sweep to dispatch a retry.
-export const LEASE_SWEEP_GRACE_MS = 5_000;
-// How often to re-ask the daemon about a step whose lease looks expired here.
 const EXPIRED_LEASE_POLL_MS = 250;
-// A deadline unchanged for a whole lease (relayflowd LEASE_RENEWAL_MS, 30s)
-// plus the sweep grace was renewed by nobody: the attempt is dead and the
-// daemon never swept it. Fail rather than hang.
-const STALE_LEASE_MS = 30_000 + LEASE_SWEEP_GRACE_MS;
-
-async function waitForRunningStep(
-  client: JournalClient,
-  runId: string,
-  runningStep: RunningStep,
-  options: RunLifecycleOptions,
-): Promise<void> {
-  let leaseDeadlineMs = runningStep.leaseDeadlineMs;
-  if (!Number.isFinite(leaseDeadlineMs)) {
-    throw new Error(`running step "${runningStep.id}" omitted lease_deadline_ms`);
-  }
-  options.onWait?.({
-    runId,
-    stepId: runningStep.id,
-    stepType: runningStep.type,
-    leaseDeadlineMs,
-  });
-  // When the lease deadline last changed, on this process's monotonic clock.
-  // A live worker renews every ~10s, moving the deadline; a dead lease the
-  // daemon has not swept keeps it. That -- not a comparison of the daemon's
-  // deadline with our wall clock -- is what separates the two under skew.
-  let deadlineSeenAt = performance.now();
-  while (true) {
-    throwIfCanceled(options.signal, runningStep.id);
-    const remainingMs = leaseDeadlineMs + LEASE_SWEEP_GRACE_MS - Date.now();
-    if (performance.now() - deadlineSeenAt > STALE_LEASE_MS) {
-      throw new Error(
-        `worker lease for step "${runningStep.id}" expired at ${leaseDeadlineMs} without completion`,
-      );
-    }
-    // Past the deadline by THIS clock alone is not an expiry: the daemon may
-    // still hold the lease (skew) or be sweeping it into a retry. Keep
-    // following the step, at a slower poll, until the daemon says otherwise.
-    await delay(remainingMs <= 0 ? EXPIRED_LEASE_POLL_MS : Math.min(50, remainingMs), options.signal);
-    const snapshot = await client.runGet(runId);
-    const step = snapshot.steps[runningStep.id];
-    if (step?.state !== 'running') return;
-    if (step.lease_deadline_ms !== undefined && step.lease_deadline_ms !== leaseDeadlineMs) {
-      leaseDeadlineMs = step.lease_deadline_ms;
-      deadlineSeenAt = performance.now();
-      options.onWait?.({
-        runId,
-        stepId: runningStep.id,
-        stepType: runningStep.type,
-        leaseDeadlineMs,
-      });
-    }
-  }
-}
 
 export function protocolFailure(
   command: RunCommand,

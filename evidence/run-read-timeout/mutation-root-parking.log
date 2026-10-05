@@ -1,0 +1,70 @@
+Source: packages/sdk/src/authored-root.ts
+Original SHA256: ef090c86e849b5b4d77700672b60f9a42979e6649e6207a800a1e7561ca6be1e
+Replaced:
+    if ((error instanceof JournalRequestTimeoutError && (READ_ONLY_VERBS.has(error.verb) || error.verb === 'run.watch'))
+      || (error instanceof AuthoredFlowExecutionError && error.code === 'daemon_unresponsive')) {
+      const parked = new AuthoredFlowExecutionError('daemon_unresponsive',
+        `${error.message}. The run remains resumable. Continue with: ${resumeCommand(dispatch.run_id, options.dataDir, options.localAgentStream !== undefined)}.`);
+      parked.rootRunId = dispatch.run_id;
+      throw parked;
+    }
+
+With:
+
+
+REVERTED
+$ cd packages/sdk && npx vitest run tests/authored-root.test.ts -t 'leaves the root resumable after a read timeout' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/authored-root.test.ts (25 tests | 1 failed | 24 skipped) 22ms
+   × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch 21ms
+     → expected JournalRequestTimeoutError: journal clien… { …(5) } to match object { code: 'daemon_unresponsive', …(2) }
+(6 matching properties omitted from actual)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-root.test.ts > durable authored root > leaves the root resumable after a read timeout without waiting for redispatch
+AssertionError: expected JournalRequestTimeoutError: journal clien… { …(5) } to match object { code: 'daemon_unresponsive', …(2) }
+(6 matching properties omitted from actual)
+
+- Expected
++ Received
+
+- Object {
+-   "code": "daemon_unresponsive",
+-   "message": StringContaining "flows resume",
+-   "rootRunId": "root-run",
+- }
++ [JournalRequestTimeoutError: journal client: run.get timed out after 10ms]
+
+ ❯ tests/authored-root.test.ts:411:5
+    409|     const loaded = await fixture(false, 0, async () => { throw new Jou…
+    410|     const journal = new RootJournal();
+    411|     await expect(executeDurableAuthoredFlow(loaded, journal as unknown…
+       |     ^
+    412|       { dataDir: '/unused', admissionKey: 'read-timeout' })).rejects.t…
+    413|         code: 'daemon_unresponsive', rootRunId: 'root-run', message: e…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 24 skipped (25)
+   Start at  10:38:25
+   Duration  1.36s (transform 704ms, setup 18ms, collect 1.16s, tests 22ms, environment 0ms, prepare 46ms)
+
+exit=1
+
+RESTORED SHA256: ef090c86e849b5b4d77700672b60f9a42979e6649e6207a800a1e7561ca6be1e
+$ cd packages/sdk && npx vitest run tests/authored-root.test.ts -t 'leaves the root resumable after a read timeout' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/authored-root.test.ts (25 tests | 24 skipped) 18ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 24 skipped (25)
+   Start at  10:38:27
+   Duration  1.32s (transform 674ms, setup 15ms, collect 1.13s, tests 18ms, environment 0ms, prepare 45ms)
+
+exit=0

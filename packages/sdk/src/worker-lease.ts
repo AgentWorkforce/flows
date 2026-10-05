@@ -1,4 +1,4 @@
-import { JournalProtocolError, type JournalClient } from './journal-client.js';
+import { JournalProtocolError, JournalRequestTimeoutError, type JournalClient } from './journal-client.js';
 import type { StepDispatchEvent } from './protocol.js';
 
 export class WorkerLeaseLostError extends Error {
@@ -72,7 +72,12 @@ export async function withWorkerLease<T>(
     const sentAt = performance.now();
     const result = await untilAborted(client.stepHeartbeat(
       dispatch.run_id, dispatch.step_id, dispatch.attempt, dispatch.lease_id,
-    ), controller.signal);
+    ), controller.signal).catch(error => {
+      if (error instanceof JournalRequestTimeoutError && error.verb === 'step.heartbeat') {
+        throw new WorkerLeaseLostError('renewal_expired', error.message, { cause: error });
+      }
+      throw error;
+    });
     controller.signal.throwIfAborted();
     // A response handled after local expiry cannot revive ownership, even
     // if its future deadline was issued before this event loop stalled.

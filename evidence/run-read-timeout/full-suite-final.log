@@ -1,0 +1,1970 @@
+$ cd packages/sdk && RELAYFLOWD_BIN=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd npm test
+
+> @relayflows/sdk@2.0.42 test
+> sh scripts/test.sh
+
+
+> @relayflows/sdk@2.0.42 test:prep
+> ( cd ../../kernel && sh ../ops/cargo.sh build ) && ( [ ! -d ../../testdata/preflight ] || find ../../testdata/preflight -name '*-cli' -type f -exec chmod +x {} + )
+
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+
+> @relayflows/sdk@2.0.42 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+
+> @relayflows/sdk@2.0.42 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+> @relayflows/sdk@2.0.42 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd
+LIVE_KERNEL flows=/home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/dist/cli.js
+
+ ✓ tests/preflight.test.ts (70 tests) 115ms
+ ✓ tests/cli.test.ts (71 tests) 5824ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 460ms
+   ✓ flows check CLI > resolves a bare PATH-resolved claude with no declared model, in an isolated PATH 413ms
+   ✓ flows run/resume CLI over the journal protocol > follows a dispatched worker step instead of reporting a protocol error 2038ms
+   ✓ flows run/resume CLI over the journal protocol > follows a worker wait past a locally expired lease until the daemon settles it 2045ms
+ ✓ tests/cloud-read.test.ts (46 tests) 55ms
+stdout | tests/live-kernel.test.ts > surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once
+LIVE_KERNEL kill -9 pid=44150 run=01M45TEQ6WQ827KKF8VV8WPXD1 while step=two state=Running
+
+ ❯ tests/live-kernel.test.ts (32 tests | 8 failed) 57015ms
+   ✓ built flows CLI against live relayflowd > twenty-six-step reuses 25 durable completions after editing the failed final step 2821ms
+   ✓ built flows CLI against live relayflowd > runs rung (a), parks rung (b), and keeps JSON report-shaped 2765ms
+   ✓ built flows CLI against live relayflowd > allows a deterministic run to exceed the bounded request timeout 32494ms
+   ✓ built flows CLI against live relayflowd > follows a live worker dispatch through flows run 668ms
+   ✓ built flows CLI against live relayflowd > runs an agent CLI end to end through the SDK worker 466ms
+   ✓ built flows CLI against live relayflowd > f.agent lowers to a real agent step and dispatches through a live worker 578ms
+   ✓ built flows CLI against live relayflowd > can always get a parked run to a late-attaching worker 5588ms
+   ✓ built flows CLI against live relayflowd > reports a real manual-recovery NeedsHuman state as parked 485ms
+   × built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo) 543ms
+     → expected { …(12) } to match object { output: { …(3) }, …(1) }
+(22 matching properties omitted from actual)
+   × built flows CLI against live relayflowd > hn-monitor analyze-story FAILS verification when the CLI omits required schema fields 543ms
+     → expected { …(12) } to match object { …(3) }
+(21 matching properties omitted from actual)
+   × built flows CLI against live relayflowd > agent step preserves the CliResult wrapper as output when the CLI emits non-JSON text 506ms
+     → expected null not to be null
+   × built flows CLI against live relayflowd > AgentWorker exposes wake_context to the CLI via RELAYFLOW_WAKE_CONTEXT env var (real analyzer prerequisite) 635ms
+     → Cannot read properties of null (reading 'story_title')
+   × built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_WAKE_CONTEXT UNSET when the run has no wake_context (undefined-vs-null pin) 587ms
+     → Cannot read properties of null (reading 'env_present')
+   ✓ built flows CLI against live relayflowd > AgentWorker passes a declared model to an identified wrapper as RELAYFLOW_MODEL 589ms
+   ✓ built flows CLI against live relayflowd > AgentWorker refuses a nonconforming journal-submitted wrapper before exposing RELAYFLOW_MODEL 522ms
+   ✓ built flows CLI against live relayflowd > AgentWorker executes the raw claude adapter with its real model flag 462ms
+   ✓ built flows CLI against live relayflowd > AgentWorker executes the raw codex adapter with its real model flag 635ms
+   × built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_MODEL UNSET when the step declares no model 1454ms
+     → Cannot read properties of null (reading 'story_title')
+   × built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI 29ms
+     → LIVE_ANALYZER_UNAVAILABLE: "/home/daytona/.relayflow-v2-supervisor/durable/repository/testdata/preflight/analyze-story-claude-cli" does not identify as relayflows-agent-cli-v1 — failing because gate-2 acceptance requires the real analyzer to execute. Set RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 only if this run is not gate evidence.
+   ✓ built flows CLI against live relayflowd > preflights before journaling and names an unreachable socket 904ms
+   ✓ built flows CLI against live relayflowd > starts exactly one daemon when two runs race for one empty data dir 569ms
+   ✓ subprocess_gate output capture against live relayflowd > journals the gate command output and reports both tails 1007ms
+   ✓ surface resume after a real daemon kill > resumes a three-step run with each successful completion exactly once 882ms
+   × a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant 495ms
+     → expected null to deeply equal { schedule_id: 'heartbeat-1m', …(3) }
+ ✓ tests/cloud-live.test.ts (55 tests) 2058ms
+   ✓ argv and wiring > routes both live invocations through runCli, and refuses a missing run id 2004ms
+ ❯ tests/hosted-extension-isolation.test.ts (22 tests | 14 failed) 350ms
+   × hosted extension capability isolation > executes the exact capability-only handler for a queued receipt 9ms
+     → bubblewrap is unavailable
+   × hosted extension capability isolation > executes the exact capability-only handler for a duplicate receipt 2ms
+     → bubblewrap is unavailable
+   × hosted extension capability isolation > launches through the captured process primitive after builtin export synchronization 5ms
+     → promise rejected "Error: bubblewrap is unavailable { code: '…' }" instead of resolving
+   × hosted extension capability isolation > ignores inherited launcher overrides and decodes manifests with the captured Buffer intrinsic 5ms
+     → promise rejected "Error: bubblewrap is unavailable { code: '…' }" instead of resolving
+   × hosted extension capability isolation > streams verified bytes when the live store is replaced and no writable staging path exists 248ms
+     → promise rejected "Error: Hosted extension sandbox exited wi… { code: '…' }" instead of resolving
+   × hosted extension capability isolation > mounts pinned private Surface bytes when the live package changes before launch 4ms
+     → promise rejected "Error: bubblewrap is unavailable { code: '…' }" instead of resolving
+   × hosted extension capability isolation > refuses oversized Surface files through the bounded descriptor reader 6ms
+     → expected Error: bubblewrap is unavailable { code: '…' } to match object { code: 'plugin_unsupported', …(1) }
+   × hosted extension capability isolation > shields verified Surface files before async settlement 4ms
+     → promise rejected "Error: bubblewrap is unavailable { code: '…' }" instead of resolving
+   × hosted extension capability isolation > preserves a typed host refusal while disclosing only a fixed marker to the child 2ms
+     → expected Error: bubblewrap is unavailable { code: '…' } to be Error: private Cloud policy detail { code: '…' } // Object.is equality
+   × hosted extension capability isolation > denies ambient credentials, host files, writes, network, subprocesses, and undeclared context verbs 7ms
+     → bubblewrap is unavailable
+   × hosted extension capability isolation > enforces OS address-space and data bounds on native Buffer allocation 2ms
+     → expected Error: bubblewrap is unavailable { code: '…' } to match object { code: 'plugin_unsupported', …(1) }
+   × hosted extension capability isolation > blocks extra handler fields and authority-bearing receipt fields at the parent port 2ms
+     → expected Error: bubblewrap is unavailable { code: '…' } to match object { code: 'plugin_event_unroutable' }
+   × hosted extension capability isolation > constructs adapter authority with the captured freeze intrinsic 1ms
+     → bubblewrap is unavailable
+   × hosted extension capability isolation > writes the Surface manifest and protocol without inherited toJSON behavior 2ms
+     → promise rejected "Error: bubblewrap is unavailable { code: '…' }" instead of resolving
+ ✓ tests/cloud-deploy.test.ts (117 tests) 2599ms
+ ✓ tests/cloud-sync.test.ts (40 tests) 736ms
+ ✓ tests/observer-link.test.ts (44 tests) 177ms
+ ✓ tests/authored-flow.test.ts (38 tests) 806ms
+ ✓ tests/plugin-extension.test.ts (94 tests) 464ms
+ ✓ tests/cloud-transcript-codex.test.ts (44 tests) 21ms
+ ✓ tests/worker-cli.test.ts (25 tests) 27087ms
+   ✓ registered CLI model defaults > passes the same priced Claude default to the real provider invocation 482ms
+   ✓ registered CLI model defaults > uses the explicitly supplied agent environment for the provider subprocess 427ms
+   ✓ registered CLI model defaults > dispatches canonical generic bytes with the preflight-proved adapter identity 493ms
+   ✓ direct transport lifecycle evidence > classifies only the exact Codex stdin lifecycle signature as retryable 410ms
+   ✓ direct transport lifecycle evidence > records a signal close separately from an ordinary nonzero exit 849ms
+   ✓ direct transport lifecycle evidence > records a spawn error code without treating a missing executable as transient 450ms
+   ✓ direct transport lifecycle evidence > journals classified lifecycle evidence and reports crashed instead of generic worker_error 610ms
+   ✓ step discovery environment > names the run, step, attempt and an absolute data dir for a direct agent spawn 582ms
+   ✓ step discovery environment > exports none of the four without a data dir, even when the worker inherited them 478ms
+   ✓ wrapper discovery environment > sets the four names from the dispatch and still refuses ambient values and other secrets 466ms
+   ✓ wrapper discovery environment > exports none of the four to a wrapper without a data dir, even when the worker inherited them 486ms
+   ✓ custom wrapper execution identity > passes an explicit safe environment at identification and execution 449ms
+   ✓ custom wrapper execution identity > refuses a wrapper symlink retarget before delivering private values 453ms
+   ✓ custom wrapper execution identity > bounds wrapper execution after acknowledgement 498ms
+   ✓ custom wrapper execution identity > bounds captured wrapper output 470ms
+   ✓ custom wrapper execution identity > refuses a duplicate execute protocol frame 432ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a conforming wrapper leaks a stdio pipe to a background helper 697ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when the leaked helper inherits stderr only 673ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a wrapper leaks a stdio pipe and exits before identifying 3447ms
+   ✓ custom wrapper execution bounds are reader-owned > journals a completionReason at the default bound when a wrapper leaks a stdio pipe 11463ms
+   ✓ custom wrapper execution bounds are reader-owned > accepts an execute token and an over-8KiB payload flushed in one write 434ms
+   ✓ custom wrapper execution bounds are reader-owned > accepts the same over-8KiB payload whether or not it coalesces with the execute token 1430ms
+   ✓ custom wrapper execution bounds are reader-owned > still bounds an un-terminated handshake buffer and names the bound 441ms
+   ✓ delivers the journaled memory pack to the real wrapper and excludes its charge from completion usage 462ms
+ ✓ tests/flow-extension-compose.test.ts (33 tests) 6663ms
+   ✓ composing flow extensions onto a base flow > composes two extensions in declaration order, and the order is the lockfile order 556ms
+   ✓ composing flow extensions onto a base flow > flows check reports the composition and keeps the composed triggers deliverable 1122ms
+   ✓ composing flow extensions onto a base flow > uses extension permissions for hosted deploy preflight and the deploy body 324ms
+(node:46445) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/cli-status.test.ts (27 tests) 1171ms
+   ✓ flows status > resolves the run with no arguments from inside a worker-spawned agent 940ms
+ ✓ tests/run-state.test.ts (28 tests) 34ms
+ ✓ tests/cloud-run.test.ts (59 tests) 597ms
+ ✓ tests/relay-cli-surface.test.ts (87 tests) 42ms
+ ✓ tests/agent-transcript.test.ts (29 tests) 332ms
+(node:46773) [FLOWS_ROOT_LEASE_LOST] Warning: authored root run_id=root-run attempt=1: lease_conflict: attempt has no active worker lease. Waiting for the kernel to retry it.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/authored-root.test.ts (26 tests) 400ms
+ ✓ tests/babysitter-native-extension.test.ts (41 tests | 1 skipped) 1473ms
+ ✓ tests/shipped-source-model-provenance.test.ts (1 test) 109230ms
+   ✓ shipped-source model provenance > does not treat mutable aliases or incomplete named agents as pinned 109229ms
+ ✓ tests/authored-completion-detail.test.ts (59 tests) 223ms
+ ✓ tests/shipped-source-worker-call-forms.test.ts (1 test) 17255ms
+   ✓ shipped-source worker call forms > fails closed for computed keys, assertions, binds, call, and apply 17254ms
+ ✓ tests/step-failure-diagnostic.test.ts (26 tests) 72ms
+ ✓ tests/stop-process-group.test.ts (11 tests) 14220ms
+   ✓ every stop reaches the process group, not just the direct child > exits the run after an execution-timeout stop 970ms
+   ✓ every stop reaches the process group, not just the direct child > exits the run after a protocol terminate stop 486ms
+   ✓ every stop reaches the process group, not just the direct child > kills a SIGTERM-deaf grandchild after a protocol terminate stop 1508ms
+   ✓ every stop reaches the process group, not just the direct child > kills a SIGTERM-deaf grandchild after an execution-timeout stop 1913ms
+   ✓ every stop reaches the process group, not just the direct child > holds the loop open long enough for the escalation to run 1102ms
+   ✓ every stop reaches the process group, not just the direct child > bounds forced-stop confirmation when a group remains unprovable 1006ms
+   ✓ a wrapper that exits with no execution deadline still drains > reports the wrapper result and reaps a grandchild holding its pipes 707ms
+   ✓ a wrapper that exits with no execution deadline still drains > reaps a SIGTERM-deaf grandchild holding its pipes 1780ms
+   ✓ a wrapper that exits with no execution deadline still drains > settles on its own deadline when an escaped holder withholds close 4427ms
+ ✓ tests/mcp.test.ts (34 tests) 13995ms
+   ✓ MCP preflight and transports > flows check refuses an undeclared server with exit 2 and no daemon 865ms
+   ✓ MCP preflight and transports > flows check reports a refusing server and leaves no PID 944ms
+   ✓ MCP preflight and transports > kills a SIGTERM-resistant silent child after a parent-owned handshake deadline 1313ms
+   ✓ MCP preflight and transports > reaps a SIGTERM-resistant descendant with inherit stdio before cleanup finishes 1061ms
+   ✓ MCP preflight and transports > reaps a SIGTERM-resistant descendant with ignore stdio before cleanup finishes 2021ms
+   ✓ MCP preflight and transports > rejects close when forced group death remains unprovable 2065ms
+   ✓ MCP preflight and transports > cancels force escalation when close follows an exited child 1179ms
+   ✓ MCP preflight and transports > waits for child close when the transport cannot own a process group 1055ms
+   ✓ MCP preflight and transports > cancels force escalation for an already-closed child without a process group 1177ms
+   ✓ MCP preflight and transports > reports malformed connection configuration as config_invalid 803ms
+   ✓ authored MCP effects against the real kernel > reports a dropped tool connection as a failed CLI run 647ms
+ ✓ tests/step-attempt-history.test.ts (23 tests) 27ms
+ ✓ tests/daemon-lifecycle.test.ts (42 tests) 41ms
+ ✓ tests/close-pr-flow.test.ts (35 tests) 21131ms
+   ✓ close-pr journaled repair loop > reads an existing Bugbot finding, repairs in the same worktree, pushes and re-verifies before merging 2505ms
+   ✓ close-pr journaled repair loop > opens a PR and feeds failed CI logs into the repair agent 2128ms
+   ✓ close-pr journaled repair loop > pins the current generated model for codex when no override is supplied 4998ms
+   ✓ close-pr journaled repair loop > pins the current generated model for claude when no override is supplied 3900ms
+   ✓ close-pr journaled repair loop > parks after exactly three nonconverging repairs, with accumulated blockers 2385ms
+   ✓ close-pr journaled repair loop > can converge on the third repair 2486ms
+   ✓ close-pr journaled repair loop > executes the deterministic commit and force-push steps against a local Git remote, including a no-op repair 2527ms
+ ❯ tests/authored-node-runtime.test.ts (16 tests | 16 skipped) 12ms
+ ✓ tests/artifact-gates.test.ts (27 tests) 242ms
+ ❯ tests/hosted-extension-protocol.test.ts (27 tests | 8 failed) 40086ms
+   × hosted extension hostile protocol > uses captured JSON intrinsics for the complete parent boundary 6ms
+     → bubblewrap is unavailable
+   × hosted extension hostile protocol > rejects an import-time different PR frame with zero adapter calls 5ms
+     → expected Error: bubblewrap is unavailable { code: '…' } to match object { code: 'plugin_event_unroutable' }
+   × hosted extension hostile protocol > rejects an import-time different delivery frame with zero adapter calls 2ms
+     → expected Error: bubblewrap is unavailable { code: '…' } to match object { code: 'plugin_event_unroutable' }
+   × hosted extension hostile protocol > rejects an import-time different event frame with zero adapter calls 2ms
+     → expected Error: bubblewrap is unavailable { code: '…' } to match object { code: 'plugin_event_unroutable' }
+   × hosted extension hostile protocol > rejects two forged calls after the authoritative first outcome settles 10004ms
+     → hostile child did not invoke the adapter
+   × hosted extension hostile protocol > waits for a pending adapter to reject after a forged child error 10004ms
+     → hostile child did not invoke the adapter
+   × hosted extension hostile protocol > waits for a pending adapter to resolve after a forged child error 10005ms
+     → hostile child did not invoke the adapter
+   × hosted extension hostile protocol > returns a typed adapter rejection even when the hostile child hangs 10005ms
+     → hostile child did not invoke the adapter
+ ✓ tests/hosted-base-snapshot.test.ts (18 tests) 1873ms
+   ✓ hosted base private snapshot > stops streaming project entries at the shared count limit 1797ms
+ ✓ tests/cloud-connect.test.ts (24 tests) 3023ms
+   ✓ hosted verbs connect before they submit > flows run --cloud submits once the prompt connected the integration 2120ms
+ ✓ tests/journal-client.test.ts (17 tests) 81ms
+ ✓ tests/authored-node-result.test.ts (45 tests) 20ms
+ ✓ tests/verb-field-lint.test.ts (99 tests) 389ms
+ ✓ tests/bundle.test.ts (26 tests) 9078ms
+   ✓ immutable bundles > returns exit 2 naming a byte-flipped payload and refuses to reuse corruption 406ms
+   ✓ immutable bundles > verifies with --verify in any position and answers --json with one object 799ms
+   ✓ immutable bundles > refuses --out with --verify rather than ignoring the destination 401ms
+   ✓ immutable bundles > builds and verifies the canonical YAML fixture through the compiled CLI 1253ms
+   ✓ immutable bundles > emits the ephemeral warning on CLI stderr and uses the default output directory 793ms
+   ✓ immutable bundles > refuses build-provable CLI resolution errors without environment probes 431ms
+   ✓ immutable bundles > builds a standalone TS fixture twice with identical executable hashes 2353ms
+   ✓ immutable bundles > refuses to label installed dependency drift with lockfile pins 384ms
+   ✓ immutable bundles > refuses invalid CLI arguments %j 396ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--out" 396ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--verify" 397ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--verify" 394ms
+   ✓ immutable bundles > refuses invalid CLI arguments "--out" 529ms
+ ✓ tests/validate.test.ts (68 tests) 34ms
+ ✓ tests/flow-executor-chain.test.ts (14 tests) 9665ms
+   ✓ flow executor LLM and output-binding chain > runs f.llm -> f.agent -> f.run with schema-verified journal output and the exact allowed model 842ms
+   ✓ flow executor LLM and output-binding chain > runs a dollar-budgeted authored Claude agent with the same default used by preflight 547ms
+   ✓ flow executor LLM and output-binding chain > runs the exact authored flagship f.llm -> f.agent -> f.run path through the durable CLI root 1465ms
+   ✓ flow executor LLM and output-binding chain > resumes an interrupted durable authored root without replaying completed flagship effects 3225ms
+   ✓ flow executor LLM and output-binding chain > passes a declarative verified value through an agent into a deterministic artifact 761ms
+   ✓ flow executor LLM and output-binding chain > flows run consumes YAML bindings and resume reuses the original journal output 1096ms
+ ✓ tests/agent-relay-transport.test.ts (17 tests) 2272ms
+   ✓ Relay completion at the journal boundary > does not complete at readiness and journals exact output, receipt, and priced accounting 1006ms
+   ✓ Relay completion at the journal boundary > aborts polling on rejected renewal and never writes a stale completion 1000ms
+ ✓ tests/shipped-source-flow-provenance-repairs.test.ts (1 test) 30332ms
+   ✓ shipped-source flow provenance repairs > audits repaired writer, alias, binding, and cyclic provenance forms 30331ms
+ ✓ tests/tick-source.test.ts (33 tests) 21ms
+ ✓ tests/authored-step-graph.test.ts (25 tests) 837ms
+   ✓ the authored step DAG > does not walk a long-running step's own polling chain to find its dependents' edges 337ms
+ ✓ tests/cloud-mirror.test.ts (14 tests) 33ms
+ ✓ tests/pr-review-post.test.ts (21 tests) 1982ms
+ ✓ tests/authored-flow-lifecycle-executor.test.ts (27 tests) 587ms
+ ✓ tests/step-failure-excerpt.test.ts (42 tests) 195ms
+ ✓ tests/authored-step-terminal-completion.test.ts (13 tests) 4878ms
+   ✓ readCompletedStepOutput on an adopted gated child whose gate has not started > refuses a producer success when the wait ends with the run still not terminal 2006ms
+   ✓ readCompletedStepOutput given a suspended known status (#441) > refuses a producer success while the child is still not terminal 2006ms
+(node:52566) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/cloud-mirror-step.test.ts (17 tests) 12ms
+ ✓ tests/cli-replay.test.ts (38 tests) 1314ms
+   ✓ flows replay > --json is byte-identical across two CLI invocations (diff) 941ms
+ ✓ tests/authored-flow-slack.test.ts (7 tests) 1753ms
+   ✓ authored Slack helper effects > replays after SIGKILL before confirm with the same token and one successful completion 560ms
+   ✓ authored Slack helper effects > replays after SIGKILL before complete with the same token and one successful completion 528ms
+ ✓ tests/wrapper-execution-duration.test.ts (7 tests) 10822ms
+   ✓ keeps the handshake deadline independent of the removed execution deadline 10054ms
+   ✓ still lets a lease abort stop an unlimited wrapper before it produces output 511ms
+ ✓ tests/tick-runner.test.ts (22 tests) 2354ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms fractional as an invocation error 393ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms exponent notation as an invocation error 385ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms hex as an invocation error 385ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms trailing text as an invocation error 390ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > refuses --interval-ms empty as an invocation error 391ms
+   ✓ CLI argument parsing refuses coercion rather than accepting it > accepts an exact integer and proceeds past parsing 385ms
+ ✓ tests/authored-step-index.test.ts (17 tests) 16ms
+ ✓ tests/named-gate-diagnostics.test.ts (20 tests) 640ms
+ ✓ tests/authored-agent-artifacts.test.ts (5 tests) 325ms
+ ✓ tests/direct-input.test.ts (6 tests) 6022ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > returns exit 3 for an authored human handoff and persists its outcome 592ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > returns exit 1 for an authored step_failed verdict and persists its outcome 632ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > executes inline and file JSON input through relayflowd 2421ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > refuses missing and malformed input before contacting relayflowd 1517ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > does not run the authored body before daemon availability 478ms
+   ✓ direct .flow.ts input through the built CLI and live runtime > refuses oversized file input before contacting relayflowd 381ms
+ ✓ tests/worker-transcript.test.ts (9 tests) 866ms
+ ✓ tests/gate-contract.test.ts (20 tests) 151ms
+ ❯ tests/canonical-software-factory.test.ts (25 tests | 25 failed) 152ms
+   × canonical software-factory metadata contract > opens the actual catalog flow with the ticket title and exactly one GitHub closing line 11ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory metadata contract > writes a Linear closing reference that the GitHub integration links back 7ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory metadata contract > accepts a Linear team key that carries digits 6ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory metadata contract > stops before push when a Linear ticket has no linkable identifier () 6ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory metadata contract > stops before push when a Linear ticket has no linkable identifier (not-an-issue) 7ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory metadata contract > fails closed before push when the Linear closing reference is duplicated in the final body 7ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory metadata contract > fails closed before push when the body carries a foreign closing reference 6ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory metadata contract > does not mistake ordinary closing-verb prose for a reference 6ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory metadata contract > normalizes whitespace and caps the title at 240 Unicode code points 7ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory metadata contract > fails closed before push when GitHub identity is missing or the final body duplicates its closing line 0ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory review scope > fails closed for explicit defects 6ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory review scope > fails closed for no verdict 5ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory review scope > fails closed for contradictory blocked and unverified 6ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory review scope > fails closed for contradictory passed and unverified 5ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory review scope > fails closed for contradictory passed and blocked 7ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory review scope > fails closed for empty unverified 7ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory review scope > distinguishes a missing verification prerequisite from a defect 6ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory review scope > preserves the passed body without a scope marker or draft 6ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory review scope > rejects a forged scope for local before publication 6ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory review scope > rejects a forged scope for github before publication 5ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory review scope > scopes the post-review hook refusal 6ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory review scope > scopes the merge-gate hook refusal 6ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory review scope > rejects malformed head "" before publication 6ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory review scope > rejects malformed head "not-a-sha" before publication 7ms
+     → expected an @relayflows/surface flow handle
+   × canonical software-factory review scope > rejects malformed head "a'; touch injected; #" before publication 6ms
+     → expected an @relayflows/surface flow handle
+ ✓ tests/authored-human.test.ts (13 tests) 91ms
+ ✓ tests/wrapper-exit-drain.test.ts (10 tests) 3512ms
+   ✓ reports a signalled wrapper death while a pipe is held, with its output intact 379ms
+   ✓ lets a lease abort outrank a successful exit still being drained 537ms
+   ✓ does not let a later drain overwrite abort while group confirmation is pending 631ms
+ ✓ tests/cloud-schedule.test.ts (17 tests) 5275ms
+   ✓ schedule lowering > marks a non-grid cron as Cloud-only rather than approximating it, with a silence budget from its own cadence 2913ms
+   ✓ flows check prints declared schedules > shows the lowering for a fixed interval and the Cloud-only note for a real cron 1956ms
+ ✓ tests/authored-run-failure-evidence.test.ts (9 tests) 848ms
+   ✓ the child index after the process that wrote it is gone > still names every child, with its own run id, after a daemon restart 484ms
+ ✓ tests/worker-cli-result-exit.test.ts (7 tests) 34844ms
+   ✓ a Claude agent step completes on its result, not only on process exit > settles a hung, successful run within the grace and stops its whole tree 32619ms
+   ✓ a Claude agent step completes on its result, not only on process exit > maps an error result on a hung run to a failed exit 31619ms
+   ✓ a Claude agent step completes on its result, not only on process exit > leaves a hang before any result to the existing stops 32014ms
+   ✓ an agent tree does not outlive the process that spawned it > kills the agent group when the run process is terminated by SIGTERM 795ms
+   ✓ an agent tree does not outlive the process that spawned it > removes a wrapper alias on host exit after group death stays unprovable 1341ms
+ ✓ tests/cli-hn-monitor.test.ts (16 tests) 95ms
+ ✓ tests/spec-parity.test.ts (46 tests) 505ms
+ ✓ tests/authored-activity.test.ts (16 tests) 108ms
+ ✓ tests/run-projection.test.ts (13 tests) 12ms
+ ✓ tests/agent-artifacts-live.test.ts (5 tests) 4163ms
+   ✓ agent artifacts and gates through the built CLI, a real daemon and the local agent > journals the files the agent wrote, including under a dot-directory, and every artifact gate passes on that journal 1030ms
+   ✓ agent artifacts and gates through the built CLI, a real daemon and the local agent > fails the run when the artifact_exists gate names a file the agent did not write 803ms
+   ✓ agent artifacts and gates through the built CLI, a real daemon and the local agent > fails the run with the author reason when a predicate gate returns false, journaling the verdict 877ms
+   ✓ review follow-ups > applies a predicate gate on a helper step too, and journals its verdict 790ms
+   ✓ review follow-ups > records predicate verdicts on the root run so a resume reuses them instead of re-running the closure 662ms
+ ✓ tests/daemon-lifecycle-live.test.ts (9 tests) 6889ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > cold start spawns exactly one daemon, the run succeeds, and the daemon outlives the CLI 492ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > polls, bounded, for a daemon that holds the lock before it binds 1369ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > attaches to a serving daemon that has not published a connection file 505ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > a second run attaches to the daemon the first one started, spawning nothing 964ms
+   ✓ flows run against a data dir with no daemon (§6 test 7) > detects a stale connection file left by a hard kill and starts a fresh daemon 1010ms
+   ✓ concurrent invocations against one empty data dir (§6 test 15) > ends with exactly one daemon owning the socket, and both runs succeed 1203ms
+   ✓ refusals from a spawn that cannot produce a daemon > names relayflowd_not_found rather than falling through to PATH 413ms
+   ✓ refusals from a spawn that cannot produce a daemon > names daemon_start_failed and quotes the daemon log when startup dies 470ms
+   ✓ refusals from a spawn that cannot produce a daemon > refuses a daemon speaking another protocol version instead of binding over it 464ms
+ ✓ tests/agent-transcript-live.test.ts (4 tests) 3517ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > preserves structured agent failure details and its completed root index 852ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > preserves structured llm failure details and its completed root index 806ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > journals the digest in trajectory_tail on a successful agent step and writes the file it points at 885ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > on a failed agent step, names the failure and the transcript in the terminal diagnostic, redacted 973ms
+ ✓ tests/resume-local-agent.test.ts (8 tests) 13ms
+(node:55014) Warning: Transcript tail for run-9/analyze attempt 1 (stdout) could not be written; the step continues without it: EACCES: permission denied, mkdir '/tmp/transcript-tail-1nBIzB/runs/run-9/steps'
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/transcript-tail.test.ts (11 tests) 1192ms
+   ✓ direct agent spawn > tees stdout and stderr into tail files that name the dispatch 527ms
+   ✓ direct agent spawn > completes the step when the tail directory cannot be created 384ms
+ ✓ tests/advisory-outcome.test.ts (23 tests) 72ms
+ ✓ tests/shipped-source-cubic-regressions.test.ts (5 tests) 11768ms
+   ✓ shipped-source adversarial provenance regressions > retains callable writes through member mutation, spreads, this, holes, and alternate receivers 6294ms
+   ✓ shipped-source adversarial provenance regressions > does not manufacture intrinsic writes or comma-left callables 2442ms
+   ✓ shipped-source adversarial provenance regressions > treats constructor and implicit-this receiver escapes as possible worker writes 666ms
+   ✓ shipped-source adversarial provenance regressions > maps pure helper parameters and refuses mutations or conditional assignments as proofs 1755ms
+   ✓ shipped-source adversarial provenance regressions > does not apply later alias assignments retroactively to copied values 610ms
+ ✓ tests/agent-cwd-live.test.ts (4 tests) 2928ms
+   ✓ agents drive two checkouts under one run root > runs each CLI in its declared directory, and the run is not refused as an unknown field 868ms
+   ✓ agents drive two checkouts under one run root > gates on an artifact path relative to the agent directory 779ms
+   ✓ a declaration this contract cannot honour is refused at its own edge > refuses a path that climbs out of the run root without starting a run at all 600ms
+   ✓ a declaration this contract cannot honour is refused at its own edge > fails the step with the reason when the directory is not there, rather than running somewhere else 680ms
+ ✓ tests/authored-helpers.test.ts (6 tests) 3363ms
+   ✓ runs every available provider through the real kernel and resumes completed effects without a second write 1593ms
+   ✓ replays after SIGKILL before confirm with the same token and one successful completion 712ms
+   ✓ replays after SIGKILL before complete with the same token and one successful completion 741ms
+ ✓ tests/cloud-mirror-session.test.ts (12 tests) 14ms
+ ✓ tests/agent-cwd.test.ts (53 tests) 50ms
+ ✓ tests/pty-sidechannel.test.ts (14 tests) 8465ms
+   ✓ view attach preserves worker completion and marks only drive 970ms
+   ✓ drive attach preserves worker completion and marks only drive 460ms
+   ✓ passthrough attach preserves worker completion and marks only drive 907ms
+   ✓ none attach preserves worker completion and marks only drive 947ms
+   ✓ none subscriber lets an unattended CLI read EOF 506ms
+   ✓ view subscriber lets an unattended CLI read EOF 497ms
+   ✓ passthrough subscriber lets an unattended CLI read EOF 494ms
+   ✓ incomplete subscriber lets an unattended CLI read EOF 513ms
+   ✓ unattended Codex receives closed stdin before startup instead of entering its additional-input lifecycle 591ms
+   ✓ ends driven stdin when the last drive peer disconnects after spawn 730ms
+   ✓ rejects drive after EOF without marking human intervention 951ms
+   ✓ delivers all drive bytes in order across child stdin backpressure 866ms
+ ✓ tests/authored-flow-operation.test.ts (24 tests) 507ms
+ ✓ tests/budget-attribution.test.ts (10 tests) 9ms
+ ✓ tests/helper-reference.test.ts (30 tests) 22ms
+ ✓ tests/cloud-mirror-live.test.ts (3 tests) 2782ms
+   ✓ a local run on the Cloud dashboard > registers, publishes its steps and its log, and reports terminal last 547ms
+   ✓ a local run on the Cloud dashboard > sends nothing at all unless it is asked to 1358ms
+   ✓ a local run on the Cloud dashboard > publishes a composed authored flow as one connected dashboard DAG 835ms
+ ✓ tests/flow-requirements.test.ts (14 tests) 720ms
+   ✓ flows check prints REQUIRES > names the helper, the harness and the mcp server of an authored flow 508ms
+ ✓ tests/backlog-picker.test.ts (14 tests) 41ms
+ ✓ tests/plugin-store-bounds.test.ts (11 tests) 69ms
+ ✓ tests/classify-outcome.test.ts (11 tests) 7417ms
+   ✓ classifyOutcome > gives up and reports when a running run never becomes classifiable 2007ms
+   ✓ the remedy on a worker park > follows a step through a retry backoff longer than the unclassified bound 3005ms
+   ✓ the remedy on a worker park > follows a run.start outcome that is already running on a retried attempt 2000ms
+ ✓ tests/authored-completion-recovery.test.ts (5 tests) 375ms
+ ✓ tests/backlog-picker-flow.test.ts (6 tests) 262ms
+ ✓ tests/hosted-extension-protocol-intrinsics.test.ts (6 tests) 13ms
+ ✓ tests/preflight-permissions-unenforced.test.ts (17 tests) 517ms
+   ✓ an authored TypeScript body is out of reach, and spec.ts says so > checks clean on a .flow.ts whose body declares permissions 473ms
+ ✓ tests/budget-unmetered-live.test.ts (4 tests) 1245ms
+   ✓ unmetered budget spend through the live kernel > runs an unpriced step under a dollar budget without tripping it, journaling unknown dollars 444ms
+ ❯ tests/stuck-run-triage.test.ts (22 tests | 22 failed) 74ms
+   × stuck-run-triage input validation > refuses an 8-character run-id prefix: Cloud has no prefix lookup 4ms
+     → expected [Function] to throw error matching /not full Cloud run ids: c649fe14/ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage input validation > refuses the whole batch when any id is invalid, rather than dropping it 1ms
+     → expected [Function] to throw error matching /not full Cloud run ids: nope!/ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage input validation > refuses an empty batch 0ms
+     → expected [Function] to throw error matching /needs runIds/ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage input validation > refuses a batch too large for the edge step lease 0ms
+     → expected [Function] to throw error matching /exceeds the 8 that fit/ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage input validation > accepts eight ids — the incident batch is inside the bound 3ms
+     → promise rejected "TypeError: expected an @relayflows/surfac…" instead of resolving
+   × stuck-run-triage apiUrl > refuses to send the Cloud bearer token to an unapproved origin 0ms
+     → expected [Function] to throw error matching /refusing to send the Cloud bearer to…/\ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage apiUrl > refuses a non-URL apiUrl 1ms
+     → expected [Function] to throw error matching /is not a URL/ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage apiUrl > allows an approved origin and uses it in the curl 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage apiUrl > defaults to production Cloud 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage apiUrl > never publishes a run record the fetch did not produce 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage edge collection > names the Worker on every wrangler invocation 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage edge collection > accepts caller-supplied Workers and rejects option-shaped ones 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage edge collection > falls back when GNU timeout is absent, as it is on macOS 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage edge collection > runs the tails concurrently so wall time does not scale with the batch 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage edge collection > records wrangler's own exit status rather than head's 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage shell text > parses under both sh and bash 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage shell text > collects tails with no GNU timeout on PATH, as on a stock macOS 58ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage agents > declares read-only permissions on every agent 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage agents > tells the forensics agents their evidence is untrusted 0ms
+     → expected an @relayflows/surface flow handle
+   × stuck-run-triage fan-out > refuses a duplicate run id: two tails would share one evidence file 1ms
+     → expected [Function] to throw error matching /duplicate runIds: c649fe14-0c2e-4e51-…/ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage fan-out > refuses a duplicate Worker name for the same reason 0ms
+     → expected [Function] to throw error matching /duplicate workers: w-one/ but got 'expected an @relayflows/surface flow …'
+   × stuck-run-triage fan-out > bounds ids x workers, not just ids 0ms
+     → expected [Function] to throw error matching /24 concurrent tails, over the 16/ but got 'expected an @relayflows/surface flow …'
+ ✓ tests/hosted-extension-routing.test.ts (7 tests) 7ms
+ ✓ tests/webhook.test.ts (9 tests) 784ms
+   ✓ webhook ingress > checks TS declarations against flows.json without invoking handlers 675ms
+ ✓ tests/redact.test.ts (54 tests) 10ms
+ ✓ tests/cli-probe.test.ts (17 tests) 1830ms
+ ✓ tests/authored-advisory-run-live.test.ts (16 tests) 883ms
+ ✓ tests/webhook-live.test.ts (6 tests) 9746ms
+   ✓ executes and deduplicates 'app_mention' only for its provider and matching payload 1471ms
+   ✓ executes and deduplicates 'reaction_added' only for its provider and matching payload 1447ms
+   ✓ executes and deduplicates 'pull_request' only for its provider and matching payload 1448ms
+   ✓ flows serve-webhook writes JSON before the daemon starts, then journals and archives exactly once 1444ms
+   ✓ replays a dropped file after SIGKILL before spawn 478ms
+   ✓ resumes the same journal after SIGKILL after spawn and before acknowledgement 3457ms
+ ✓ tests/authored-parallel-agents.test.ts (8 tests) 8916ms
+   ✓ authored steps under local workers with capacity > runs more concurrent f.llm calls than the worker holds side by side, never more than its capacity 1086ms
+   ✓ authored steps under local workers with capacity > completes more concurrent f.agent calls than the worker holds: the overflow waits for a slot instead of parking 1473ms
+   ✓ authored steps under local workers with capacity > runs agents in distinct working directories side by side (the kernel carries cwd) 596ms
+   ✓ authored steps under local workers with capacity > serializes agents whose cwd is a symlink alias of the same directory 1014ms
+   ✓ authored steps under local workers with capacity > serializes agents whose cwd is a directory nested inside the other 1036ms
+   ✓ authored steps under local workers with capacity > never starts queued agents once the body has failed 1568ms
+   ✓ authored steps under local workers with capacity > never starts a queued agent when the agent holding the only slot fails 1570ms
+   ✓ authored steps under local workers with capacity > parks the overflow when the body is not told the capacity (the defect this closes) 573ms
+ ✓ tests/local-agent-live.test.ts (7 tests) 42312ms
+   ✓ built CLI local agent against a real daemon > dispatches through the wrapper and keeps --json stdout report-shaped 766ms
+   ✓ built CLI local agent against a real daemon > runs beyond the initial 30-second lease without a second invocation 35817ms
+   ✓ built CLI local agent against a real daemon > renders actual agent completion in text output 888ms
+   ✓ built CLI local agent against a real daemon > returns a failed run when the agent process fails 813ms
+   ✓ built CLI local agent against a real daemon > prints a remedy that runs the parked authored flow to completion 1608ms
+   ✓ built CLI local agent against a real daemon > prints a remedy that runs, for a run started from an input file too long to be one 1818ms
+   ✓ built CLI local agent against a real daemon > refuses a workspace it cannot pin before invoking the agent 600ms
+ ✓ tests/cli-watch.test.ts (10 tests) 16514ms
+   ✓ flows check --watch > rechecks syntax errors, clears once, and returns the last refusal on Ctrl-C 1335ms
+   ✓ flows check --watch > streams JSON lines without ANSI, recovers after atomic saves, and exits zero after repair 1867ms
+   ✓ flows check --watch > coalesces 20 concurrent saves into at most two rechecks 1870ms
+   ✓ flows check --watch > watches transitive relative use imports, cycles, and nearest config changes 2461ms
+   ✓ flows check --watch > refreshes the import graph and notices missing imports being created 2520ms
+   ✓ flows check --watch > reloads authored TypeScript instead of reusing the first imported definition 1804ms
+   ✓ flows check --watch > detects a nearer config appearing and falls back after it is deleted 1973ms
+   ✓ flows check --watch > keeps watching after the target is deleted and recreated 1905ms
+   ✓ flows check --watch > queues changes during a slow check without overlapping checks 775ms
+ ✓ tests/check-worker-surface.test.ts (11 tests) 80ms
+ ✓ tests/human-live.test.ts (3 tests) 6825ms
+   ✓ f.human against a real daemon > parks with the question, refuses wrong answers, records one, and resumes to success 3963ms
+   ✓ f.human against a real daemon > a "no" is a value the body branches on: declined, exit 0, no effect 1759ms
+   ✓ f.human against a real daemon > refuses to answer a run the daemon does not know 1102ms
+(node:58939) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/authored-status-detail.test.ts (20 tests) 124ms
+ ✓ tests/authored-step-failed.test.ts (10 tests) 42ms
+ ✓ tests/budget-preflight.test.ts (25 tests) 18ms
+ ✓ tests/authored-retried-child-resume-live.test.ts (2 tests) 1732ms
+   ✓ an authored step whose child run retried an attempt > resumes after a kill mid-step and reads the terminal completion, not the crashed one 1619ms
+ ✓ tests/provider-trigger-contract.test.ts (7 tests) 872ms
+   ✓ provider trigger contract > accepts one subscription from each of five providers and refuses a bogus event on any of them 510ms
+   ✓ provider trigger contract > fails `flows check` before deployment and passes once the event is real 357ms
+ ✓ tests/shipped-source-flow-header-provenance.test.ts (1 test) 2910ms
+   ✓ shipped-source flow header provenance > fails closed for unsafe authored and declarative headers 2910ms
+ ✓ tests/work-package-consumer.test.ts (13 tests) 111ms
+ ✓ tests/helpers-fanout.test.ts (96 tests) 159ms
+(node:59280) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/authored-step-graph-live.test.ts (1 test) 944ms
+   ✓ the authored step DAG through the live kernel > carries labels and predecessors on every index record and journal step, ids unchanged 943ms
+ ✓ tests/named-gate-journal.test.ts (5 tests) 1760ms
+   ✓ a lowered subprocess_gate journals the gate command's streams > persists what the gate printed before a timeout killed it 828ms
+   ✓ a gate on an agent step > journals the command's streams and surfaces them in the authored failure 647ms
+ ✓ tests/generate-triggers.test.ts (7 tests) 1403ms
+   ✓ discovers new adapters, preserves exact event names, and prefers adapter-local mappings 404ms
+ ✓ tests/local-agent-remedy.test.ts (16 tests) 13ms
+ ✓ tests/yaml-local-agent-live.test.ts (9 tests) 6529ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked step CLI and model and journals done 601ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked named CLI and model and journals done 622ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked flow CLI and model and journals done 590ms
+   ✓ YAML --local-agent through the built CLI and real daemon > runs with the checked project CLI and model and journals done 582ms
+   ✓ YAML --local-agent through the built CLI and real daemon > still parks without --local-agent 539ms
+   ✓ YAML --local-agent through the built CLI and real daemon > resumes a parked spec run with --local-agent instead of parking identically again 1004ms
+   ✓ YAML --local-agent through the built CLI and real daemon > parks a second time with a different message when the attached worker is not eligible 1020ms
+   ✓ YAML --local-agent through the built CLI and real daemon > reports the agent process failure 852ms
+   ✓ YAML --local-agent through the built CLI and real daemon > preserves declared workspace surfaces that the local worker cannot pin 717ms
+ ✓ tests/yaml-helpers.test.ts (34 tests) 77ms
+ ✓ tests/direct-run-failure.test.ts (12 tests) 41ms
+ ✓ tests/authored-agent-permissions.test.ts (27 tests) 902ms
+ ✓ tests/authored-detail-live.test.ts (3 tests) 3737ms
+   ✓ carries done("step_failed", { detail }) into the report, the journal and flows status 2146ms
+   ✓ reports a detail a caller sliced through an emoji, instead of hanging on it 603ms
+   ✓ leaves a one-argument done("step_failed") reporting exactly as it always did 987ms
+ ✓ tests/live-event-activities.test.ts (2 tests) 202ms
+ ✓ tests/software-garden-babysitter-composition.test.ts (6 tests | 2 skipped) 43ms
+ ✓ tests/worker-lease.test.ts (7 tests) 18ms
+ ✓ tests/worker-lease-lost.test.ts (17 tests) 25ms
+ ✓ tests/webhook-hardening.test.ts (11 tests) 58ms
+ ✓ tests/authored-probe-cache.test.ts (5 tests) 21050ms
+   ✓ authored run CLI probe cache > nine calls have no expired attempts at capacity 1 6998ms
+   ✓ authored run CLI probe cache > nine calls have no expired attempts at capacity 4 5396ms
+   ✓ authored run CLI probe cache > does not serialize nine starts behind nine probes, and probes again on a new run 7027ms
+   ✓ authored run CLI probe cache > caches probe failures while refusing all nine calls 397ms
+   ✓ authored run CLI probe cache > shares probe results across agent calls too 1232ms
+ ✓ tests/yaml-declared-streams-live.test.ts (8 tests) 5063ms
+   ✓ YAML declared streams through the built CLI and real daemon > runs with the checked step CLI and model and journals done 609ms
+   ✓ YAML declared streams through the built CLI and real daemon > runs with the checked named CLI and model and journals done 599ms
+   ✓ YAML declared streams through the built CLI and real daemon > runs with the checked flow CLI and model and journals done 606ms
+   ✓ YAML declared streams through the built CLI and real daemon > runs with the checked project CLI and model and journals done 587ms
+   ✓ YAML declared streams through the built CLI and real daemon > still parks without --local-agent 539ms
+   ✓ YAML declared streams through the built CLI and real daemon > reports the agent process failure 613ms
+   ✓ YAML declared streams through the built CLI and real daemon > resumes the journaled stream declarations after the input YAML changes 1001ms
+   ✓ YAML declared streams through the built CLI and real daemon > preserves declared workspace surfaces that the local worker cannot pin 508ms
+ ✓ tests/human-to.test.ts (8 tests) 13ms
+(node:61719) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/authored-dispatch-live.test.ts (2 tests) 2417ms
+   ✓ durable child flow dispatch > runs a declared child in the parent DAG and replays it without repeating effects 1621ms
+   ✓ durable child flow dispatch > lowers a named gate attached to the dispatch receipt 794ms
+ ✓ tests/plugin-loader.test.ts (9 tests) 195ms
+ ✓ tests/worker-lease-drift-live.test.ts (3 tests) 36205ms
+   ✓ worker lease under clock skew between worker and daemon > renews before the daemon deadline when the worker clock runs 75s behind the daemon 36062ms
+ ✓ tests/deploy.test.ts (11 tests) 5316ms
+   ✓ flows deploy file buckets > publishes the full signed layout byte-for-byte and redeploys as a noop 824ms
+   ✓ flows deploy file buckets > answers --json with one object per outcome 830ms
+   ✓ flows deploy file buckets > reports a refusal as JSON under --json 398ms
+   ✓ flows deploy file buckets > refuses a missing local bundle before creating the bucket 394ms
+   ✓ flows deploy file buckets > refuses an unreachable bucket before copying 403ms
+   ✓ flows deploy file buckets > refuses an unwritable bucket 410ms
+   ✓ flows deploy file buckets > refuses local tampering of spec.canonical.json 405ms
+   ✓ flows deploy file buckets > refuses local tampering of identity.json 419ms
+   ✓ flows deploy file buckets > refuses asset bundles instead of using daemon-relative files 392ms
+   ✓ flows deploy file buckets > never labels a corrupt existing deployment as a noop 813ms
+ ✓ tests/bin.test.ts (12 tests) 5976ms
+   ✓ built flows binary > prints the installed SDK version for --version 383ms
+   ✓ built flows binary > prints the installed SDK version for -V 389ms
+   ✓ built flows binary > keeps version flags strict when extra arguments are supplied 377ms
+   ✓ built flows binary > prints the installed SDK version from the standalone binary for --version 973ms
+   ✓ built flows binary > prints the installed SDK version from the standalone binary for -V 987ms
+   ✓ built flows binary > refuses through a symlink to the built artifact 383ms
+   ✓ built flows binary > refuses through a symlinked directory component 400ms
+   ✓ built flows binary > classifies a signal-terminated auth probe as probe_failed 859ms
+   ✓ built flows binary > classifies an unavailable PATH resolver as probe_failed 420ms
+   ✓ built flows binary > does not describe a present non-executable CLI as missing 403ms
+   ✓ built flows binary > runs one auth probe for three steps sharing a flow CLI 399ms
+ ✓ tests/babysitter-catalog-export.test.ts (14 tests) 759ms
+   ✓ Babysitter catalog artifact export > CLI refuses an existing output and leaves no file on validation failure 606ms
+ ✓ tests/journal-client-read-timeout.test.ts (13 tests) 1065ms
+   ✓ a recovered read timeout does not become an authored callback failure 337ms
+ ✓ tests/communication.test.ts (10 tests) 13ms
+ ✓ tests/communication-review.test.ts (6 tests) 324ms
+ ✓ tests/transport-evidence-bounds.test.ts (7 tests) 11ms
+ ✓ tests/typed-output.test.ts (14 tests) 209ms
+ ✓ tests/shipped-source-models.test.ts (2 tests) 39331ms
+   ✓ first-party shipped source model pins > gives every TypeScript agent and LLM an explicit supported pair or a pinned named-agent declaration 39293ms
+ ✓ tests/agent-timeout-live.test.ts (3 tests) 4254ms
+   ✓ journals timeout, stops the process, runs a predicate gate and publishes under a budget header 1156ms
+   ✓ replays timeout after killing the root and daemon, without executing the agent again 1973ms
+   ✓ lets an author reject timeout through a predicate gate 1123ms
+ ✓ tests/effect-channel.test.ts (5 tests) 397ms
+ ✓ tests/worker-slots.test.ts (8 tests) 7ms
+ ✓ tests/step-lease.test.ts (36 tests) 66445ms
+   ✓ f.run leases against the live kernel > enforces 10000 ms for 'sleep 5; printf ok' 5065ms
+   ✓ f.run leases against the live kernel > enforces 40000 ms for 'sleep 31; printf ok' 31101ms
+   ✓ f.run leases against the live kernel > enforces 30000 ms for 'sleep 31; printf ok' 30086ms
+ ✓ tests/json-schema-bound.test.ts (71 tests) 2320ms
+   ✓ JSON Schema termination bound > walks a deep schema with an explicit stack rather than recursion 1896ms
+ ✓ tests/cloud-mirror-transport.test.ts (5 tests) 9ms
+ ✓ tests/mcp-lifecycle.test.ts (4 tests) 19ms
+ ✓ tests/communication-worker.test.ts (17 tests) 1708ms
+ ✓ tests/model-selection.test.ts (10 tests) 17ms
+ ✓ tests/f-memory.test.ts (7 tests) 781ms
+ ✓ tests/relayflowd-path.test.ts (10 tests) 5ms
+ ✓ tests/agent-artifacts.test.ts (9 tests) 20ms
+ ✓ tests/authored-plugin-effect.test.ts (6 tests) 65ms
+ ✓ tests/agent-timeout-worker.test.ts (9 tests) 2190ms
+   ✓ stops claude at its declared limit, preserving work and stopping descendants 523ms
+   ✓ stops codex at its declared limit, preserving work and stopping descendants 517ms
+   ✓ stops wrapper at its declared limit, preserving work and stopping descendants 536ms
+ ✓ tests/hosted-hardening.test.ts (11 tests) 15ms
+ ✓ tests/local-dev-ux.test.ts (8 tests) 14ms
+ ✓ tests/authored-preflight.test.ts (5 tests) 214ms
+ ✓ tests/deterministic-llm.test.ts (5 tests) 53ms
+ ✓ tests/relay-cli-surface-live.test.ts (3 tests) 416ms
+ ✓ tests/authored-declined.test.ts (13 tests) 51ms
+ ✓ tests/resume-failure.test.ts (2 tests) 5ms
+ ✓ tests/dependency-validation.test.ts (6 tests) 759ms
+   ✓ dependency validation > accepts a valid 10,000-step reverse chain through every direct public boundary 417ms
+ ✓ tests/worker-lease-lost-live.test.ts (3 tests) 878ms
+   ✓ reports journal success after completion rejects with lease_conflict 315ms
+ ✓ tests/authored-hooks.test.ts (5 tests) 6ms
+ ✓ tests/input-binding.test.ts (12 tests) 201ms
+ ✓ tests/yaml-helper-effect.test.ts (4 tests) 83ms
+ ✓ tests/cloud-mirror-ledger.test.ts (7 tests) 1121ms
+   ✓ the mirror ledger > keeps the newest entries when the count cap bites 1109ms
+ ✓ tests/scope-preflight.test.ts (6 tests) 8ms
+ ✓ tests/run-from-digest.test.ts (6 tests) 4580ms
+   ✓ flows run digest input > submits the sealed canonical spec through the normal journal path without checkout 431ms
+   ✓ flows run digest input > uses a verified cache hit even after the bucket is removed 453ms
+   ✓ flows run digest input > resolves deploy.bucket from flows.json and honors explicit override 1216ms
+   ✓ flows run digest input > refuses an unconfigured bucket 809ms
+   ✓ flows run digest input > refuses tampered spec.canonical.json before creating run data 810ms
+   ✓ flows run digest input > refuses tampered identity.json before creating run data 859ms
+ ✓ tests/build-gate.test.ts (3 tests) 1201ms
+   ✓ flows build gates on flows check green (#318) > refuses a flow with an unresolvable named-agent CLI and leaves no artifacts 388ms
+   ✓ flows build gates on flows check green (#318) > --json emits one CheckReport object on stdout on refusal, exits 2, no artifacts 394ms
+   ✓ flows build gates on flows check green (#318) > builds the bundle on success (regression: gate must not block valid flows) 418ms
+ ✓ tests/scope-compiler.test.ts (25 tests) 11ms
+ ✓ tests/worker-cli-abort.test.ts (3 tests) 3748ms
+   ✓ stops claude and its process group when lease ownership is lost 1365ms
+   ✓ stops wrapper.mjs and its process group when lease ownership is lost 1350ms
+   ✓ fails closed when abort cannot prove the process group is gone 1033ms
+ ✓ tests/hn-poller.test.ts (6 tests) 7ms
+ ✓ tests/plugin-add.test.ts (7 tests) 1144ms
+   ✓ typechecks the augmented verb and rejects unknown namespaces 855ms
+ ✓ tests/authored-step-failed-exit.test.ts (3 tests) 9ms
+ ✓ tests/run-read-load-live.test.ts (2 tests) 3060ms
+   ✓ completes a CPU-saturating deterministic flow with reads in flight and preserves its journal 2431ms
+   ✓ drains read and watch promises before an authored flow completes 628ms
+ ✓ tests/retried-step-failure.test.ts (1 test) 904ms
+   ✓ a retried step failing differently through the live kernel > reports both attempts and says the evidence differs 903ms
+ ✓ tests/dir-watcher-poller.test.ts (6 tests) 7ms
+ ✓ tests/subscription-report.test.ts (8 tests) 5ms
+ ✓ tests/worker-lease-sweep.test.ts (4 tests) 9ms
+ ✓ tests/model-pricing.test.ts (10 tests) 5ms
+ ✓ tests/authored-use-loader.test.ts (6 tests) 693ms
+ ✓ tests/yaml-helper-live.test.ts (1 test) 957ms
+   ✓ runs compiled YAML helpers through the built CLI and kernel effect journal 957ms
+ ✓ tests/provider-trigger-executor.test.ts (4 tests) 228ms
+ ✓ tests/journal-client-completion.test.ts (6 tests) 104ms
+ ✓ tests/transcript-tail-close.test.ts (2 tests) 1303ms
+   ✓ a stalled transcript-tail close > does not hold the spawn open past its bounded window 647ms
+   ✓ a stalled tail close beside a transcript that finished > still journals the transcript pointer 654ms
+ ✓ tests/wrapper-artifacts-cwd.test.ts (2 tests) 123ms
+ ✓ tests/hello-deterministic.test.ts (5 tests) 17ms
+ ✓ tests/transcript-exclusion-timeout.test.ts (1 test) 287ms
+ ✓ tests/cli-adapter.test.ts (4 tests) 5ms
+ ✓ tests/communication-mixed-resume.test.ts (1 test) 169ms
+ ✓ tests/work-package-validator.test.ts (7 tests) 5ms
+ ✓ tests/activity-preflight.test.ts (10 tests) 21ms
+ ✓ tests/authored-declined-live.test.ts (1 test) 1606ms
+   ✓ runs an input guard and resumes its completed declined root without repeated effects 1605ms
+ ✓ tests/cli-answer.test.ts (15 tests) 10ms
+ ✓ tests/bundle-preflight.test.ts (4 tests) 880ms
+   ✓ bundle execution preflight > ignores surrounding cache configuration on a verified cache hit 448ms
+   ✓ bundle execution preflight > uses the built alias for a nameless flow even in a digest-only cache directory 416ms
+ ✓ tests/agent-timeout-outcome.test.ts (6 tests) 18ms
+ ✓ tests/agent-relay-hardening.test.ts (12 tests) 16ms
+ ✓ tests/resume-worker-lease.test.ts (3 tests) 6ms
+ ✓ tests/communication-preflight.test.ts (13 tests) 31ms
+ ✓ tests/direct-run-worker-lease.test.ts (3 tests) 9ms
+ ↓ tests/real-cli-adapters.test.ts (3 tests | 3 skipped)
+ ✓ tests/memoization.test.ts (57 tests) 54ms
+ ✓ tests/shipped-source-call-array-forwarding.test.ts (1 test) 2781ms
+   ✓ shipped-source call-array forwarding > maps rest indexes and nested same-helper actuals for workers and flows 2780ms
+ ✓ tests/local-agent-environment.test.ts (8 tests) 6ms
+ ✓ tests/fs-descriptor.test.ts (1 test) 4ms
+ ✓ tests/running-step-watch.test.ts (2 tests) 2120ms
+   ✓ uses pushes for completion with lease-cadence reads and releases its watcher 2117ms
+ ✓ tests/runtime-dependencies.test.ts (1 test) 210ms
+ ✓ tests/parse-json-output.test.ts (7 tests) 4ms
+ ✓ tests/reported-cost.test.ts (4 tests) 3ms
+ ✓ tests/journal-client-subscriptions.test.ts (1 test) 8ms
+ ✓ tests/authored-model-probe-kinds.test.ts (2 tests) 199ms
+ ✓ tests/communication-environment-preflight.test.ts (6 tests) 5ms
+ ✓ tests/budget-authored-live.test.ts (2 tests) 181ms
+ ✓ tests/slack-writeback.test.ts (1 test) 257ms
+ ✓ tests/authored-surface-authority.test.ts (2 tests) 19ms
+ ✓ tests/adapters/claude.test.ts (7 tests) 4ms
+ ✓ tests/worker-cli-cwd.test.ts (2 tests) 360ms
+   ✓ runAgentCli — cwd propagation (flows#357) > omits cwd when not provided (inherits parent cwd) 354ms
+ ✓ tests/adapters/codex.test.ts (7 tests) 5ms
+ ✓ tests/shipped-source-parameter-provenance.test.ts (1 test) 1630ms
+   ✓ shipped-source parameter provenance > keeps caller-supplied identifier and destructured keys unknown 1629ms
+ ✓ tests/slack-block-kit.test.ts (5 tests) 14ms
+ ✓ tests/agent-timeout.test.ts (23 tests) 35ms
+ ✓ tests/communication-history.test.ts (1 test) 3ms
+ ✓ tests/adapters/registry.test.ts (4 tests) 4ms
+ ✓ tests/authored-declined-report.test.ts (6 tests) 7ms
+ ✓ tests/promise-ancestry.test.ts (2 tests) 260ms
+ ✓ tests/agent-cwd-validation.test.ts (2 tests) 397ms
+   ✓ declarative agent cwd > is refused by `flows check` on a YAML flow before anything runs 394ms
+ ✓ tests/communication-refusal.test.ts (1 test) 14ms
+ ✓ tests/bundle-transport.test.ts (20 tests) 2491ms
+   ✓ digest references > accepts and deploys the build output for hello 463ms
+   ✓ digest references > accepts and deploys the build output for Hello 413ms
+   ✓ digest references > accepts and deploys the build output for hello.world 408ms
+   ✓ digest references > accepts and deploys the build output for hello_world 397ms
+   ✓ digest references > accepts and deploys the build output for 123 408ms
+   ✓ digest references > accepts and deploys the build output for A_b.c-1 399ms
+ ✓ tests/cli-cloud-mirror-flag.test.ts (4 tests) 3ms
+ ✓ tests/catalog-plugins.test.ts (2 tests) 4ms
+ ✓ tests/check-command-cwd.test.ts (1 test) 23ms
+ ✓ tests/communication-lazy.test.ts (1 test) 5ms
+ ✓ tests/cli-progress-wait.test.ts (2 tests) 4ms
+ ✓ tests/run-digest-live.test.ts (1 test) 924ms
+   ✓ executes a deployed digest on the real kernel after deleting the authoring tree 923ms
+ ✓ tests/run-daemon-unresponsive.test.ts (2 tests) 4ms
+ ✓ tests/placement.test.ts (54 tests) 18ms
+ ✓ tests/preflight-run-cache.test.ts (1 test) 5ms
+ ✓ tests/heartbeat-timeout.test.ts (1 test) 15ms
+ ✓ tests/canonical-tree.test.ts (1 test) 2ms
+ ✓ tests/local-agent-stream-selection.test.ts (1 test) 5ms
+ ✓ tests/run-digest.test.ts (4 tests) 1552ms
+   ✓ digest run configuration refusals > reports config_invalid before fetching or starting a run for {invalid json 397ms
+   ✓ digest run configuration refusals > reports config_invalid before fetching or starting a run for {"deploy":{}} 383ms
+   ✓ digest run configuration refusals > reports config_invalid before fetching or starting a run for {"deploy":{"bucket":123}} 380ms
+   ✓ digest run configuration refusals > reports config_invalid before fetching or starting a run for {"deploy":{"bucket":""}} 391ms
+ ✓ tests/communication-tools.test.ts (1 test) 64ms
+ ✓ tests/authored-admission.test.ts (2 tests) 3ms
+ ✓ tests/memory.test.ts (18 tests) 8ms
+ ✓ tests/worker-platform.test.ts (1 test) 3ms
+$ /usr/local/share/nvm/versions/node/v25.6.0/bin/node scripts/pack-release.mjs surface /tmp/flows-cli-package-h2FUqF/tarballs
+PACK_OK @relayflows/surface@2.0.42: package/dist/index.js, package/dist/index.d.ts, package/dist/runtime.js, package/dist/runtime.d.ts
+$ /usr/local/share/nvm/versions/node/v25.6.0/bin/node scripts/pack-release.mjs sdk /tmp/flows-cli-package-h2FUqF/tarballs
+PACK_OK @relayflows/sdk@2.0.42: package/dist/index.js, package/dist/index.d.ts, package/dist/cli.js
+$ /usr/local/share/nvm/versions/node/v25.6.0/bin/node scripts/pack-release.mjs relayflows /tmp/flows-cli-package-h2FUqF/tarballs
+PACK_OK relayflows@2.0.42: package/bin/flows.js
+$ npm install --ignore-scripts --omit=optional --no-audit --no-fund /tmp/flows-cli-package-h2FUqF/tarballs/relayflows-2.0.42.tgz /tmp/flows-cli-package-h2FUqF/tarballs/relayflows-sdk-2.0.42.tgz /tmp/flows-cli-package-h2FUqF/tarballs/relayflows-surface-2.0.42.tgz
+
+added 150 packages in 5s
+$ /tmp/flows-cli-package-h2FUqF/local/node_modules/.bin/flows check examples/dependency-upgrade-bot.flow.ts
+REQUIRES claude (agent "upgrader")
+CHECK PASSED examples/dependency-upgrade-bot.flow.ts
+$ /usr/local/share/nvm/versions/node/v25.6.0/bin/node /tmp/flows-cli-package-h2FUqF/local/node_modules/relayflows/bin/flows.js check examples/dependency-upgrade-bot.flow.ts
+REQUIRES claude (agent "upgrader")
+CHECK PASSED examples/dependency-upgrade-bot.flow.ts
+$ npm install -g --prefix /tmp/flows-cli-package-h2FUqF/prefix --ignore-scripts --omit=optional --no-audit --no-fund /tmp/flows-cli-package-h2FUqF/tarballs/relayflows-2.0.42.tgz /tmp/flows-cli-package-h2FUqF/tarballs/relayflows-sdk-2.0.42.tgz /tmp/flows-cli-package-h2FUqF/tarballs/relayflows-surface-2.0.42.tgz
+
+added 294 packages in 5s
+$ npm install --ignore-scripts --omit=optional --no-audit --no-fund /tmp/flows-cli-package-h2FUqF/tarballs/relayflows-surface-2.0.42.tgz
+
+added 140 packages in 2s
+$ /tmp/flows-cli-package-h2FUqF/prefix/bin/flows check examples/dependency-upgrade-bot.flow.ts
+REQUIRES claude (agent "upgrader")
+CHECK PASSED examples/dependency-upgrade-bot.flow.ts
+$ /usr/local/share/nvm/versions/node/v25.6.0/bin/node /tmp/flows-cli-package-h2FUqF/prefix/lib/node_modules/relayflows/bin/flows.js check examples/dependency-upgrade-bot.flow.ts
+REQUIRES claude (agent "upgrader")
+CHECK PASSED examples/dependency-upgrade-bot.flow.ts
+CLI_PACKAGE_OK: local and global installs
+ ✓ tests/cli-package-gate.test.ts (1 test) 19640ms
+   ✓ checks authored flows with locally and globally installed release tarballs 19639ms
+ ✓ tests/event-await-cli.test.ts (1 test) 13231ms
+   ✓ parks, restarts, and replays two event wakes through the actual CLI 13228ms
+ ✓ tests/authored-parallel-llm.test.ts (6 tests) 115215ms
+   ✓ parallel llm capacity 1 > deduplicates concurrent preflight probes 3257ms
+   ✓ parallel llm capacity 1 > completes nine calls without expired child leases during slow preflight 8921ms
+   ✓ parallel llm capacity 1 > keeps the durable root lease alive across two cold models 47937ms
+   ✓ parallel llm capacity 4 > deduplicates concurrent preflight probes 1356ms
+   ✓ parallel llm capacity 4 > completes nine calls without expired child leases during slow preflight 7251ms
+   ✓ parallel llm capacity 4 > keeps the durable root lease alive across two cold models 46493ms
+ ✓ tests/shipped-source-worker-invocations.test.ts (1 test) 756344ms
+   ✓ shipped-source worker invocation resolution > fails closed across direct, extracted, bound, mutable, and escaped callables 756343ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-node-runtime.test.ts [ tests/authored-node-runtime.test.ts ]
+AssertionError: expected '1.3.6' to be '1.4.0' // Object.is equality
+
+Expected: "1.4.0"
+Received: "1.3.6"
+
+ ❯ tests/authored-node-runtime.test.ts:18:77
+     16| 
+     17| beforeAll(() => {
+     18|   expect(spawnSync(bun, ['--version'], { encoding: 'utf8' }).stdout.tr…
+       |                                                                             ^
+     19|   expect(existsSync(daemon), 'build the current kernel or set RELAYFLO…
+     20|   stage = mkdtempSync(join(tmpdir(), 'authored-standalone-build-'));
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/78]⎯
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 77 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory metadata contract > opens the actual catalog flow with the ticket title and exactly one GitHub closing line
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ runCanonical tests/canonical-software-factory.test.ts:73:22
+     71|   };
+     72| 
+     73|   const definition = getFlowDefinition(softwareFactory);
+       |                      ^
+     74|   return definition.body(context as never, { issue, approver: 'khaliq'…
+     75|     root,
+ ❯ tests/canonical-software-factory.test.ts:89:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/78]⎯
+
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory metadata contract > writes a Linear closing reference that the GitHub integration links back
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ runCanonical tests/canonical-software-factory.test.ts:73:22
+     71|   };
+     72| 
+     73|   const definition = getFlowDefinition(softwareFactory);
+       |                      ^
+     74|   return definition.body(context as never, { issue, approver: 'khaliq'…
+     75|     root,
+ ❯ tests/canonical-software-factory.test.ts:106:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/78]⎯
+
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory metadata contract > accepts a Linear team key that carries digits
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ runCanonical tests/canonical-software-factory.test.ts:73:22
+     71|   };
+     72| 
+     73|   const definition = getFlowDefinition(softwareFactory);
+       |                      ^
+     74|   return definition.body(context as never, { issue, approver: 'khaliq'…
+     75|     root,
+ ❯ tests/canonical-software-factory.test.ts:115:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/78]⎯
+
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory metadata contract > stops before push when a Linear ticket has no linkable identifier ()
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory metadata contract > stops before push when a Linear ticket has no linkable identifier (not-an-issue)
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ runCanonical tests/canonical-software-factory.test.ts:73:22
+     71|   };
+     72| 
+     73|   const definition = getFlowDefinition(softwareFactory);
+       |                      ^
+     74|   return definition.body(context as never, { issue, approver: 'khaliq'…
+     75|     root,
+ ❯ tests/canonical-software-factory.test.ts:126:28
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/78]⎯
+
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory metadata contract > fails closed before push when the Linear closing reference is duplicated in the final body
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ runCanonical tests/canonical-software-factory.test.ts:73:22
+     71|   };
+     72| 
+     73|   const definition = getFlowDefinition(softwareFactory);
+       |                      ^
+     74|   return definition.body(context as never, { issue, approver: 'khaliq'…
+     75|     root,
+ ❯ tests/canonical-software-factory.test.ts:138:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/78]⎯
+
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory metadata contract > fails closed before push when the body carries a foreign closing reference
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ runCanonical tests/canonical-software-factory.test.ts:73:22
+     71|   };
+     72| 
+     73|   const definition = getFlowDefinition(softwareFactory);
+       |                      ^
+     74|   return definition.body(context as never, { issue, approver: 'khaliq'…
+     75|     root,
+ ❯ tests/canonical-software-factory.test.ts:150:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/78]⎯
+
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory metadata contract > does not mistake ordinary closing-verb prose for a reference
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ runCanonical tests/canonical-software-factory.test.ts:73:22
+     71|   };
+     72| 
+     73|   const definition = getFlowDefinition(softwareFactory);
+       |                      ^
+     74|   return definition.body(context as never, { issue, approver: 'khaliq'…
+     75|     root,
+ ❯ tests/canonical-software-factory.test.ts:162:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/78]⎯
+
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory metadata contract > normalizes whitespace and caps the title at 240 Unicode code points
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ runCanonical tests/canonical-software-factory.test.ts:73:22
+     71|   };
+     72| 
+     73|   const definition = getFlowDefinition(softwareFactory);
+       |                      ^
+     74|   return definition.body(context as never, { issue, approver: 'khaliq'…
+     75|     root,
+ ❯ tests/canonical-software-factory.test.ts:171:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/78]⎯
+
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory metadata contract > fails closed before push when GitHub identity is missing or the final body duplicates its closing line
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ tests/canonical-software-factory.test.ts:180:24
+    178| 
+    179|   it('fails closed before push when GitHub identity is missing or the …
+    180|     const definition = getFlowDefinition(softwareFactory);
+       |                        ^
+    181|     const commands: string[] = [];
+    182|     let completionReason = '';
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/78]⎯
+
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory review scope > fails closed for explicit defects
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory review scope > fails closed for no verdict
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory review scope > fails closed for contradictory blocked and unverified
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory review scope > fails closed for contradictory passed and unverified
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory review scope > fails closed for contradictory passed and blocked
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory review scope > fails closed for empty unverified
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ runCanonical tests/canonical-software-factory.test.ts:73:22
+     71|   };
+     72| 
+     73|   const definition = getFlowDefinition(softwareFactory);
+       |                      ^
+     74|   return definition.body(context as never, { issue, approver: 'khaliq'…
+     75|     root,
+ ❯ tests/canonical-software-factory.test.ts:214:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/78]⎯
+
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory review scope > distinguishes a missing verification prerequisite from a defect
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ runCanonical tests/canonical-software-factory.test.ts:73:22
+     71|   };
+     72| 
+     73|   const definition = getFlowDefinition(softwareFactory);
+       |                      ^
+     74|   return definition.body(context as never, { issue, approver: 'khaliq'…
+     75|     root,
+ ❯ tests/canonical-software-factory.test.ts:224:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/78]⎯
+
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory review scope > preserves the passed body without a scope marker or draft
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ runCanonical tests/canonical-software-factory.test.ts:73:22
+     71|   };
+     72| 
+     73|   const definition = getFlowDefinition(softwareFactory);
+       |                      ^
+     74|   return definition.body(context as never, { issue, approver: 'khaliq'…
+     75|     root,
+ ❯ tests/canonical-software-factory.test.ts:235:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/78]⎯
+
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory review scope > rejects a forged scope for local before publication
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory review scope > rejects a forged scope for github before publication
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ runCanonical tests/canonical-software-factory.test.ts:73:22
+     71|   };
+     72| 
+     73|   const definition = getFlowDefinition(softwareFactory);
+       |                      ^
+     74|   return definition.body(context as never, { issue, approver: 'khaliq'…
+     75|     root,
+ ❯ tests/canonical-software-factory.test.ts:243:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/78]⎯
+
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory review scope > scopes the post-review hook refusal
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory review scope > scopes the merge-gate hook refusal
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ runCanonical tests/canonical-software-factory.test.ts:73:22
+     71|   };
+     72| 
+     73|   const definition = getFlowDefinition(softwareFactory);
+       |                      ^
+     74|   return definition.body(context as never, { issue, approver: 'khaliq'…
+     75|     root,
+ ❯ tests/canonical-software-factory.test.ts:250:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/78]⎯
+
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory review scope > rejects malformed head "" before publication
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory review scope > rejects malformed head "not-a-sha" before publication
+ FAIL  tests/canonical-software-factory.test.ts > canonical software-factory review scope > rejects malformed head "a'; touch injected; #" before publication
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ runCanonical tests/canonical-software-factory.test.ts:73:22
+     71|   };
+     72| 
+     73|   const definition = getFlowDefinition(softwareFactory);
+       |                      ^
+     74|   return definition.body(context as never, { issue, approver: 'khaliq'…
+     75|     root,
+ ❯ tests/canonical-software-factory.test.ts:259:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/78]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > executes the exact capability-only handler for a queued receipt
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > executes the exact capability-only handler for a duplicate receipt
+Error: bubblewrap is unavailable
+ ❯ unsupported src/hosted-extension-sandbox.ts:503:9
+    501| 
+    502| function unsupported(message: string): never {
+    503|   throw new PluginError('plugin_unsupported', message);
+       |         ^
+    504| }
+    505| 
+ ❯ executable src/hosted-extension-sandbox.ts:484:18
+ ❯ Module.runHostedExtensionSandbox src/hosted-extension-sandbox.ts:176:17
+ ❯ Module.runVerifiedNativeExtensionSandbox src/hosted-extension-isolation.ts:209:16
+ ❯ tests/hosted-extension-isolation.test.ts:221:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/78]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > launches through the captured process primitive after builtin export synchronization
+AssertionError: promise rejected "Error: bubblewrap is unavailable { code: '…' }" instead of resolving
+ ❯ tests/hosted-extension-isolation.test.ts:283:11
+    281|           input: descriptor(),
+    282|           babysitterTurn: { queue: async () => ({ receiptId: 'receipt-…
+    283|         })).resolves.toEqual({ completionReason: 'success', capability…
+       |           ^
+    284|       } finally {
+    285|         process.execPath = originalExecPath;
+
+Caused by: Error: bubblewrap is unavailable
+ ❯ unsupported src/hosted-extension-sandbox.ts:503:9
+ ❯ executable src/hosted-extension-sandbox.ts:484:18
+ ❯ Module.runHostedExtensionSandbox src/hosted-extension-sandbox.ts:176:17
+ ❯ Module.runVerifiedNativeExtensionSandbox src/hosted-extension-isolation.ts:209:16
+ ❯ tests/hosted-extension-isolation.test.ts:277:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/78]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > ignores inherited launcher overrides and decodes manifests with the captured Buffer intrinsic
+AssertionError: promise rejected "Error: bubblewrap is unavailable { code: '…' }" instead of resolving
+ ❯ tests/hosted-extension-isolation.test.ts:373:11
+    371|           input: descriptor('delivery-options'),
+    372|           babysitterTurn: { queue: async () => ({ receiptId: 'receipt-…
+    373|         })).resolves.toEqual({ completionReason: 'success', capability…
+       |           ^
+    374|       } finally {
+    375|         Buffer.prototype.toString = bufferToString;
+
+Caused by: Error: bubblewrap is unavailable
+ ❯ unsupported src/hosted-extension-sandbox.ts:503:9
+ ❯ executable src/hosted-extension-sandbox.ts:484:18
+ ❯ Module.runHostedExtensionSandbox src/hosted-extension-sandbox.ts:176:17
+ ❯ Module.runVerifiedNativeExtensionSandbox src/hosted-extension-isolation.ts:209:16
+ ❯ tests/hosted-extension-isolation.test.ts:367:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/78]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > streams verified bytes when the live store is replaced and no writable staging path exists
+AssertionError: promise rejected "Error: Hosted extension sandbox exited wi… { code: '…' }" instead of resolving
+ ❯ tests/hosted-extension-isolation.test.ts:431:7
+    429|         return { receiptId: 'receipt-1', status: 'queued' };
+    430|       } },
+    431|     })).resolves.toEqual({ completionReason: 'success', capabilityCall…
+       |       ^
+    432|     expect(calls).toBe(1);
+    433|     expect(readFileSync(join(installed.directory, 'babysitter.flow.ts'…
+
+Caused by: Error: Hosted extension sandbox exited without a valid completion (exit 1): /tmp/hosted-bwrap-wrapper-Bvf1hY/bwrap-wrapper:20
+if (child.error) throw child.error;
+                 ^
+
+Error: spawnSync /usr/bin/bwrap ENOENT
+    at Object.spawnSync (node:internal/child_process:1103:20)
+    at spawnSync (node:child_process:911:24)
+    at Object.<anonymous> (/tmp/hosted-bwrap-wrapper-Bvf1hY/bwrap-wrapper:19:15)
+    at Module._compile (node:internal/modules/cjs/loader:1809:14)
+    at Object..js (node:internal/modules/cjs/loader:1940:10)
+    at Module.load (node:internal/modules/cjs/loader:1530:32)
+    at Module._load (node:internal/modules/cjs/loader:1332:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47 {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'spawnSync /usr/bin/bwrap',
+  path: '/usr/bin/bwrap',
+  spawnargs: [
+    '--unshare-all',
+    '--die-with-parent',
+    '--new-session',
+    '--clearenv',
+    '--cap-drop',
+    'ALL',
+    '--dir',
+    '/usr',
+    '--ro-bind',
+    '/usr/lib',
+    '/usr/lib',
+    '--ro-bind',
+    '/usr/lib64',
+    '/usr/lib64',
+    '--ro-bind',
+    '/usr/lib',
+    '/lib',
+    '--ro-bind',
+    '/usr/lib64',
+    '/lib64',
+    '--proc',
+    '/proc',
+    '--dev',
+    '/dev',
+    '--tmpfs',
+    '/tmp',
+    '--dir',
+    '/runtime',
+    '--dir',
+    '/extension',
+    '--dir',
+    '/extension/node_modules',
+    '--dir',
+    '/extension/node_modules/@relayflows',
+    '--dir',
+    '/extension/node_modules/@relayflows/surface',
+    '--dir',
+    '/extension/node_modules/@relayflows/surface/dist',
+    '--dir',
+    '/extension/node_modules/@relayflows/surface/dist/helpers',
+    '--dir',
+    '/extension/node_modules/@relayflows/surface/dist/triggers',
+    '--dir',
+    '/extension/src',
+    '--perms',
+    '0500',
+    '--ro-bind-data',
+    '4',
+    '/runtime/node',
+    '--perms',
+    '0400',
+    '--ro-bind-data',
+    '5',
+    '/runtime/runner.mjs',
+    '--perms',
+    '0400',
+    '--ro-bind-data',
+    '6',
+    '/extension/node_modules/@relayflows/surface/package.json',
+    '--perms',
+    '0400',
+    '--ro-bind-data',
+    '7',
+    '/extension/node_modules/@relayflows/surface/index.js',
+    '--perms',
+    '0400',
+    '--ro-bind-data',
+    '8',
+    '/extension/node_modules/@relayflows/surface/runtime.js',
+    '--perms',
+    '0400',
+    '--ro-bind-data',
+    '9',
+    '/extension/node_modules/@relayflows/surface/dist/flow.js',
+    '--perms',
+    '0400',
+    '--ro-bind-data',
+    '10',
+    '/extension/node_modules/@relayflows/surface/dist/helpers/providers.js',
+    '--perms',
+    '0400',
+    '--ro-bind-data',
+    '11',
+    '/extension/node_modules/@relayflows/surface/dist/provider-trigger.js',
+    '--perms',
+    '0400',
+    '--ro-bind-data',
+    '12',
+    '/extension/node_modules/@relayflows/surface/dist/schedule.js',
+    '--perms',
+    '0400',
+    '--ro-bind-data',
+    '13',
+    '/extension/node_modules/@relayflows/surface/dist/triggers.js',
+    '--perms',
+    '0400',
+    '--ro-bind-data',
+    '14',
+    '/extension/node_modules/@relayflows/surface/dist/triggers/github.js',
+    '--perms',
+    ... 27 more items
+  ]
+}
+
+Node.js v25.6.0
+
+ ❯ Object.<anonymous> ../../../../../../../tmp/hosted-bwrap-wrapper-Bvf1hY/bwrap-wrapper:19:15
+ ❯ refuse src/hosted-extension-protocol.ts:135:21
+ ❯ ChildProcess.<anonymous> src/hosted-extension-protocol.ts:234:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/78]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > mounts pinned private Surface bytes when the live package changes before launch
+AssertionError: promise rejected "Error: bubblewrap is unavailable { code: '…' }" instead of resolving
+ ❯ tests/hosted-extension-isolation.test.ts:456:7
+    454|         return { receiptId: 'receipt-1', status: 'queued' };
+    455|       } },
+    456|     })).resolves.toEqual({ completionReason: 'success', capabilityCall…
+       |       ^
+    457|     expect(calls).toBe(1);
+    458|     expect(readFileSync(join(surfaceRoot, 'dist/flow.js'), 'utf8')).to…
+
+Caused by: Error: bubblewrap is unavailable
+ ❯ unsupported src/hosted-extension-sandbox.ts:503:9
+ ❯ executable src/hosted-extension-sandbox.ts:484:18
+ ❯ Module.runHostedExtensionSandbox src/hosted-extension-sandbox.ts:176:17
+ ❯ Module.runVerifiedNativeExtensionSandbox src/hosted-extension-isolation.ts:209:16
+ ❯ tests/hosted-extension-isolation.test.ts:443:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/78]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > refuses oversized Surface files through the bounded descriptor reader
+AssertionError: expected Error: bubblewrap is unavailable { code: '…' } to match object { code: 'plugin_unsupported', …(1) }
+
+- Expected
++ Received
+
+- Object {
++ PluginError {
+    "code": "plugin_unsupported",
+-   "message": StringContaining "cannot read pinned Surface runtime flow.js",
+  }
+
+ ❯ tests/hosted-extension-isolation.test.ts:489:5
+    487|     });
+    488|     let calls = 0;
+    489|     await expect(runVerifiedNativeExtensionSandbox({
+       |     ^
+    490|       artifact: await artifact(),
+    491|       manifest: validateFlowExtensionManifest(manifest()),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/78]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > shields verified Surface files before async settlement
+AssertionError: promise rejected "Error: bubblewrap is unavailable { code: '…' }" instead of resolving
+ ❯ tests/hosted-extension-isolation.test.ts:532:9
+    530|         surfaceRoot,
+    531|         babysitterTurn: { queue: async () => ({ receiptId: 'receipt-1'…
+    532|       })).resolves.toEqual({ completionReason: 'success', capabilityCa…
+       |         ^
+    533|     } finally {
+    534|       if (previous === undefined) delete (Array.prototype as { then?: …
+
+Caused by: Error: bubblewrap is unavailable
+ ❯ unsupported src/hosted-extension-sandbox.ts:503:9
+ ❯ executable src/hosted-extension-sandbox.ts:484:18
+ ❯ Module.runHostedExtensionSandbox src/hosted-extension-sandbox.ts:176:17
+ ❯ Module.runVerifiedNativeExtensionSandbox src/hosted-extension-isolation.ts:209:16
+ ❯ tests/hosted-extension-isolation.test.ts:525:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/78]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > preserves a typed host refusal while disclosing only a fixed marker to the child
+AssertionError: expected Error: bubblewrap is unavailable { code: '…' } to be Error: private Cloud policy detail { code: '…' } // Object.is equality
+
+- Expected
++ Received
+
+- [Error: private Cloud policy detail]
++ [Error: bubblewrap is unavailable]
+
+ ❯ tests/hosted-extension-isolation.test.ts:560:5
+    558|       provider: 'github', eventType: 'pull_request.labeled', deliveryI…
+    559|     });
+    560|     await expect(runVerifiedNativeExtensionSandbox({
+       |     ^
+    561|       artifact: await artifact(source), manifest: validateFlowExtensio…
+    562|       babysitterTurn: { queue: async () => { throw refusal; } },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/78]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > denies ambient credentials, host files, writes, network, subprocesses, and undeclared context verbs
+Error: bubblewrap is unavailable
+ ❯ unsupported src/hosted-extension-sandbox.ts:503:9
+    501| 
+    502| function unsupported(message: string): never {
+    503|   throw new PluginError('plugin_unsupported', message);
+       |         ^
+    504| }
+    505| 
+ ❯ executable src/hosted-extension-sandbox.ts:484:18
+ ❯ Module.runHostedExtensionSandbox src/hosted-extension-sandbox.ts:176:17
+ ❯ Module.runVerifiedNativeExtensionSandbox src/hosted-extension-isolation.ts:209:16
+ ❯ tests/hosted-extension-isolation.test.ts:624:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/78]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > enforces OS address-space and data bounds on native Buffer allocation
+AssertionError: expected Error: bubblewrap is unavailable { code: '…' } to match object { code: 'plugin_unsupported', …(1) }
+
+- Expected
++ Received
+
+- Object {
++ PluginError {
+    "code": "plugin_unsupported",
+-   "message": StringMatching /(?:Failed to allocate memory|Array buffer allocation failed)/u,
+  }
+
+ ❯ tests/hosted-extension-isolation.test.ts:646:5
+    644|     });
+    645|     let calls = 0;
+    646|     await expect(runVerifiedNativeExtensionSandbox({
+       |     ^
+    647|       artifact: installed,
+    648|       manifest: validateFlowExtensionManifest(manifest()),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/78]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > blocks extra handler fields and authority-bearing receipt fields at the parent port
+AssertionError: expected Error: bubblewrap is unavailable { code: '…' } to match object { code: 'plugin_event_unroutable' }
+
+- Expected
++ Received
+
+- Object {
+-   "code": "plugin_event_unroutable",
++ PluginError {
++   "code": "plugin_unsupported",
+  }
+
+ ❯ tests/hosted-extension-isolation.test.ts:675:5
+    673|     });
+    674|     let calls = 0;
+    675|     await expect(runVerifiedNativeExtensionSandbox({
+       |     ^
+    676|       artifact: await artifact(source), manifest: validateFlowExtensio…
+    677|       babysitterTurn: { queue: async () => { calls += 1; return { rece…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[27/78]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > constructs adapter authority with the captured freeze intrinsic
+Error: bubblewrap is unavailable
+ ❯ unsupported src/hosted-extension-sandbox.ts:503:9
+    501| 
+    502| function unsupported(message: string): never {
+    503|   throw new PluginError('plugin_unsupported', message);
+       |         ^
+    504| }
+    505| 
+ ❯ executable src/hosted-extension-sandbox.ts:484:18
+ ❯ Module.runHostedExtensionSandbox src/hosted-extension-sandbox.ts:176:17
+ ❯ Module.runVerifiedNativeExtensionSandbox src/hosted-extension-isolation.ts:209:16
+ ❯ tests/hosted-extension-isolation.test.ts:745:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[28/78]⎯
+
+ FAIL  tests/hosted-extension-isolation.test.ts > hosted extension capability isolation > writes the Surface manifest and protocol without inherited toJSON behavior
+AssertionError: promise rejected "Error: bubblewrap is unavailable { code: '…' }" instead of resolving
+ ❯ tests/hosted-extension-isolation.test.ts:788:11
+    786|           babysitterTurn: { queue: async () => ({ receiptId: 'receipt-…
+    787|           timeoutMs: 3_000,
+    788|         })).resolves.toEqual({ completionReason: 'success', capability…
+       |           ^
+    789|       } finally {
+    790|         if (previous === undefined) delete (Object.prototype as { toJS…
+
+Caused by: Error: bubblewrap is unavailable
+ ❯ unsupported src/hosted-extension-sandbox.ts:503:9
+ ❯ executable src/hosted-extension-sandbox.ts:484:18
+ ❯ Module.runHostedExtensionSandbox src/hosted-extension-sandbox.ts:176:17
+ ❯ Module.runVerifiedNativeExtensionSandbox src/hosted-extension-isolation.ts:209:16
+ ❯ tests/hosted-extension-isolation.test.ts:781:22
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[29/78]⎯
+
+ FAIL  tests/hosted-extension-protocol.test.ts > hosted extension hostile protocol > uses captured JSON intrinsics for the complete parent boundary
+Error: bubblewrap is unavailable
+ ❯ unsupported src/hosted-extension-sandbox.ts:503:9
+    501| 
+    502| function unsupported(message: string): never {
+    503|   throw new PluginError('plugin_unsupported', message);
+       |         ^
+    504| }
+    505| 
+ ❯ executable src/hosted-extension-sandbox.ts:484:18
+ ❯ Module.runHostedExtensionSandbox src/hosted-extension-sandbox.ts:176:17
+ ❯ Module.runVerifiedNativeExtensionSandbox src/hosted-extension-isolation.ts:209:16
+ ❯ tests/hosted-extension-protocol.test.ts:326:24
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[30/78]⎯
+
+ FAIL  tests/hosted-extension-protocol.test.ts > hosted extension hostile protocol > rejects an import-time different PR frame with zero adapter calls
+ FAIL  tests/hosted-extension-protocol.test.ts > hosted extension hostile protocol > rejects an import-time different delivery frame with zero adapter calls
+ FAIL  tests/hosted-extension-protocol.test.ts > hosted extension hostile protocol > rejects an import-time different event frame with zero adapter calls
+AssertionError: expected Error: bubblewrap is unavailable { code: '…' } to match object { code: 'plugin_event_unroutable' }
+
+- Expected
++ Received
+
+- Object {
+-   "code": "plugin_event_unroutable",
++ PluginError {
++   "code": "plugin_unsupported",
+  }
+
+ ❯ tests/hosted-extension-protocol.test.ts:447:5
+    445|   ])('rejects an import-time %s frame with zero adapter calls', async …
+    446|     let calls = 0;
+    447|     await expect(runVerifiedNativeExtensionSandbox({
+       |     ^
+    448|       artifact: await artifact(hostileImport([frame, { type: 'error', …
+    449|       manifest: validateFlowExtensionManifest(manifest()), dispatch: d…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[31/78]⎯
+
+ FAIL  tests/hosted-extension-protocol.test.ts > hosted extension hostile protocol > rejects two forged calls after the authoritative first outcome settles
+ FAIL  tests/hosted-extension-protocol.test.ts > hosted extension hostile protocol > waits for a pending adapter to reject after a forged child error
+ FAIL  tests/hosted-extension-protocol.test.ts > hosted extension hostile protocol > waits for a pending adapter to resolve after a forged child error
+ FAIL  tests/hosted-extension-protocol.test.ts > hosted extension hostile protocol > returns a typed adapter rejection even when the hostile child hangs
+Error: hostile child did not invoke the adapter
+ ❯ Timeout._onTimeout tests/hosted-extension-protocol.test.ts:135:45
+    133| async function waitForInvocation(invoked: Promise<void>): Promise<void…
+    134|   await new Promise<void>((resolve, reject) => {
+    135|     const timeout = setTimeout(() => reject(new Error('hostile child d…
+       |                                             ^
+    136|     void invoked.then(() => { clearTimeout(timeout); resolve(); }, rej…
+    137|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[32/78]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo)
+AssertionError: expected { …(12) } to match object { output: { …(3) }, …(1) }
+(22 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "output": Object {
+-     "reasoning": "stub agent runtime — deterministic output for gate-2 clause-2 demo",
+-     "relevance_score": 5,
+-     "story_title": "stub",
+-   },
++   "output": null,
+    "verification": Object {
+-     "gate": "json_schema",
+-     "verdict": "pass",
++     "gate": "execution",
++     "verdict": "fail",
+    },
+  }
+
+ ❯ tests/live-kernel.test.ts:657:36
+    655|         && (entry as { step_id?: string }).step_id === 'analyze-story',
+    656|     ) as { payload: { output: unknown; verification: unknown } } | und…
+    657|     expect(stepCompleted?.payload).toMatchObject({
+       |                                    ^
+    658|       output: {
+    659|         story_title: 'stub',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[33/78]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story FAILS verification when the CLI omits required schema fields
+AssertionError: expected { …(12) } to match object { …(3) }
+(21 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "completionReason": "retries_exhausted",
++   "completionReason": "worker_error",
+    "output": null,
+    "verification": Object {
+-     "gate": "json_schema",
++     "gate": "execution",
+      "verdict": "fail",
+    },
+  }
+
+ ❯ tests/live-kernel.test.ts:752:36
+    750|     // its verification record names the json_schema rejection. The re…
+    751|     // parsed value is nulled before the completion is persisted.
+    752|     expect(stepCompleted?.payload).toMatchObject({
+       |                                    ^
+    753|       completionReason: 'retries_exhausted',
+    754|       output: null,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[34/78]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > agent step preserves the CliResult wrapper as output when the CLI emits non-JSON text
+AssertionError: expected null not to be null
+ ❯ tests/live-kernel.test.ts:823:24
+    821|     // here (parseJsonOutput returned null on non-JSON stdout) and
+    822|     // these assertions would all fail.
+    823|     expect(output).not.toBeNull();
+       |                        ^
+    824|     expect(output.exit_code).toBe(0);
+    825|     expect(output.stdout_tail).toContain('looked at the story');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[35/78]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker exposes wake_context to the CLI via RELAYFLOW_WAKE_CONTEXT env var (real analyzer prerequisite)
+TypeError: Cannot read properties of null (reading 'story_title')
+ ❯ tests/live-kernel.test.ts:891:42
+    889|     ) as { payload: { output: { story_title: string; reasoning: string…
+    890|     expect(stepCompleted).toBeDefined();
+    891|     expect(stepCompleted!.payload.output.story_title).toBe(`echoed:${s…
+       |                                          ^
+    892|     expect(stepCompleted!.payload.output.reasoning).toContain(String(s…
+    893| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[36/78]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_WAKE_CONTEXT UNSET when the run has no wake_context (undefined-vs-null pin)
+TypeError: Cannot read properties of null (reading 'env_present')
+ ❯ tests/live-kernel.test.ts:958:38
+    956|     ) as { payload: { output: { env_present: boolean } } } | undefined;
+    957|     expect(completed).toBeDefined();
+    958|     expect(completed!.payload.output.env_present).toBe(false);
+       |                                      ^
+    959| 
+    960|     delete process.env.RELAYFLOW_WAKE_CONTEXT;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[37/78]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > AgentWorker leaves RELAYFLOW_MODEL UNSET when the step declares no model
+TypeError: Cannot read properties of null (reading 'story_title')
+ ❯ tests/live-kernel.test.ts:1194:38
+    1192|     expect(completed).toBeDefined();
+    1193|     // UNSET, not EMPTY and not the leaked parent value.
+    1194|     expect(completed!.payload.output.story_title).toBe('model:UNSET');
+       |                                      ^
+    1195| 
+    1196|     delete process.env.RELAYFLOW_MODEL;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[38/78]⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > hn-monitor analyze-story reaches done through the real Claude analyzer CLI
+Error: LIVE_ANALYZER_UNAVAILABLE: "/home/daytona/.relayflow-v2-supervisor/durable/repository/testdata/preflight/analyze-story-claude-cli" does not identify as relayflows-agent-cli-v1 — failing because gate-2 acceptance requires the real analyzer to execute. Set RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 only if this run is not gate evidence.
+ ❯ tests/live-kernel.test.ts:1223:15
+    1221|       const notice = `LIVE_ANALYZER_UNAVAILABLE: ${readiness.detail}`;
+    1222|       if (process.env['RELAYFLOWS_ALLOW_ANALYZER_SKIP'] !== '1') {
+    1223|         throw new Error(
+       |               ^
+    1224|           `${notice} — failing because gate-2 acceptance requires the …
+    1225|           + 'Set RELAYFLOWS_ALLOW_ANALYZER_SKIP=1 only if this run is …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[39/78]⎯
+
+ FAIL  tests/live-kernel.test.ts > a relayflow can be scheduled: tick source against live relayflowd > a tick spawns a real run whose step reports the SCHEDULED instant
+AssertionError: expected null to deeply equal { schedule_id: 'heartbeat-1m', …(3) }
+
+- Expected: 
+Object {
+  "lag_ms": 43000,
+  "schedule_id": "heartbeat-1m",
+  "scheduled_for_ms": 1764000000000,
+  "slot": 29400000,
+}
+
++ Received: 
+null
+
+ ❯ tests/live-kernel.test.ts:1739:39
+    1737|     // The bound: the run reports the grid instant and its own lag, so…
+    1738|     // backfilled run can tell it is running for a slot from the past.
+    1739|     expect(completed!.payload.output).toEqual({
+       |                                       ^
+    1740|       schedule_id: 'heartbeat-1m',
+    1741|       slot: 29_400_000,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[40/78]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage input validation > refuses an 8-character run-id prefix: Cloud has no prefix lookup
+AssertionError: expected [Function] to throw error matching /not full Cloud run ids: c649fe14/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/not full Cloud run ids: c649fe14/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[41/78]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage input validation > refuses the whole batch when any id is invalid, rather than dropping it
+AssertionError: expected [Function] to throw error matching /not full Cloud run ids: nope!/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/not full Cloud run ids: nope!/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[42/78]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage input validation > refuses an empty batch
+AssertionError: expected [Function] to throw error matching /needs runIds/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/needs runIds/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[43/78]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage input validation > refuses a batch too large for the edge step lease
+AssertionError: expected [Function] to throw error matching /exceeds the 8 that fit/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/exceeds the 8 that fit/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[44/78]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage input validation > accepts eight ids — the incident batch is inside the bound
+AssertionError: promise rejected "TypeError: expected an @relayflows/surfac…" instead of resolving
+ ❯ tests/stuck-run-triage.test.ts:62:40
+     60|   it('accepts eight ids — the incident batch is inside the bound', asy…
+     61|     const ids = Array.from({ length: 8 }, (_, i) => `${ID_A.slice(0, -…
+     62|     await expect(drive({ runIds: ids })).resolves.toBeDefined();
+       |                                        ^
+     63|   });
+     64| });
+
+Caused by: TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+ ❯ tests/stuck-run-triage.test.ts:62:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[45/78]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage apiUrl > refuses to send the Cloud bearer token to an unapproved origin
+AssertionError: expected [Function] to throw error matching /refusing to send the Cloud bearer to…/\ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/refusing to send the Cloud bearer token to https:\/\/evil\.example/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[46/78]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage apiUrl > refuses a non-URL apiUrl
+AssertionError: expected [Function] to throw error matching /is not a URL/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/is not a URL/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[47/78]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage apiUrl > allows an approved origin and uses it in the curl
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:77:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[48/78]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage apiUrl > defaults to production Cloud
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:82:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[49/78]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage apiUrl > never publishes a run record the fetch did not produce
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:89:34
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[50/78]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage edge collection > names the Worker on every wrangler invocation
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:98:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[51/78]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage edge collection > accepts caller-supplied Workers and rejects option-shaped ones
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:107:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[52/78]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage edge collection > falls back when GNU timeout is absent, as it is on macOS
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:115:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[53/78]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage edge collection > runs the tails concurrently so wall time does not scale with the batch
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:123:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[54/78]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage edge collection > records wrangler's own exit status rather than head's
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:129:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[55/78]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage shell text > parses under both sh and bash
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:137:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[56/78]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage shell text > collects tails with no GNU timeout on PATH, as on a stock macOS
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:157:33
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[57/78]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage agents > declares read-only permissions on every agent
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:176:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[58/78]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage agents > tells the forensics agents their evidence is untrusted
+TypeError: expected an @relayflows/surface flow handle
+ ❯ Module.getFlowDefinition node_modules/@relayflows/surface/src/flow.ts:169:11
+ ❯ drive tests/stuck-run-triage.test.ts:34:9
+     32|     done: () => {},
+     33|   };
+     34|   await getFlowDefinition<StuckRunTriageInput>(triage).body(f as never…
+       |         ^
+     35|   return rec;
+     36| }
+ ❯ tests/stuck-run-triage.test.ts:182:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[59/78]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage fan-out > refuses a duplicate run id: two tails would share one evidence file
+AssertionError: expected [Function] to throw error matching /duplicate runIds: c649fe14-0c2e-4e51-…/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/duplicate runIds: c649fe14-0c2e-4e51-9a6a-4f0d1b0f77aa/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[60/78]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage fan-out > refuses a duplicate Worker name for the same reason
+AssertionError: expected [Function] to throw error matching /duplicate workers: w-one/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/duplicate workers: w-one/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[61/78]⎯
+
+ FAIL  tests/stuck-run-triage.test.ts > stuck-run-triage fan-out > bounds ids x workers, not just ids
+AssertionError: expected [Function] to throw error matching /24 concurrent tails, over the 16/ but got 'expected an @relayflows/surface flow …'
+
+- Expected: 
+/24 concurrent tails, over the 16/
+
++ Received: 
+"expected an @relayflows/surface flow handle"
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[62/78]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+Error: bubblewrap is unavailable
+ ❯ unsupported src/hosted-extension-sandbox.ts:503:9
+    501| 
+    502| function unsupported(message: string): never {
+    503|   throw new PluginError('plugin_unsupported', message);
+       |         ^
+    504| }
+    505| 
+ ❯ executable src/hosted-extension-sandbox.ts:484:18
+ ❯ Module.runHostedExtensionSandbox src/hosted-extension-sandbox.ts:176:17
+ ❯ Module.runVerifiedNativeExtensionSandbox src/hosted-extension-isolation.ts:209:16
+ ❯ tests/hosted-extension-protocol.test.ts:471:17
+ ❯ node_modules/@vitest/runner/dist/index.js:533:5
+ ❯ runTest node_modules/@vitest/runner/dist/index.js:1056:11
+ ❯ runSuite node_modules/@vitest/runner/dist/index.js:1205:15
+ ❯ runSuite node_modules/@vitest/runner/dist/index.js:1205:15
+ ❯ runFiles node_modules/@vitest/runner/dist/index.js:1262:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'plugin_unsupported' }
+This error originated in "tests/hosted-extension-protocol.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "rejects two forged calls after the authoritative first outcome settles". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ Test Files  6 failed | 248 passed | 1 skipped (255)
+      Tests  77 failed | 3774 passed | 22 skipped (3873)
+     Errors  1 error
+   Start at  10:40:22
+   Duration  757.43s (transform 4.18s, setup 1.09s, collect 64.50s, tests 1765.01s, environment 32ms, prepare 10.44s)
+
+exit=1

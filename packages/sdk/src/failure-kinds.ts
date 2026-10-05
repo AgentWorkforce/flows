@@ -149,6 +149,7 @@ export const RUN_FAILURE_KINDS = [
    * reach this process. The run is NOT failed (`status: running`): its
    * completed steps are journaled and `flows resume <rootRunId>` continues it.
    */
+  'daemon_unresponsive',
   'root_lease_lost',
 ] as const;
 

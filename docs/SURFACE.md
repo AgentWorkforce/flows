@@ -1736,6 +1736,32 @@ typed `run_not_found` refusal. A dropped connection, request failure, or
 journal may already have changed and the CLI cannot honestly claim the resume
 was refused before a write.
 
+A timed-out read is handled separately: flow execution clients (`flows run`
+and `flows resume`, authored and declarative) retry only `run.get`,
+`journal.read`, `stream.read`, and `subscription.inspect` within a 300-second
+total budget. Reads use a separate session, one in flight per body client,
+with increasing attempt bounds and jitter. Interactive clients keep the
+single-shot 30-second default; writes are never retried by this policy.
+Unretried timeouts retain `journal client: <verb> timed out after <ms>ms`.
+Exhausted reads instead name the verb, attempts, elapsed time, total read
+budget, and possible CPU load.
+
+After a read budget expires, the CLI probes a fresh connection. A responding
+daemon reports `daemon_unresponsive`; a failed probe reports
+`daemon_unreachable` (also used for initial attach failures). A failed probe
+cannot prove the daemon is dead: its diagnostic names both unreachability and
+CPU load. Both reports exit 1, carry the known run/root id, retain
+`status: running`, and include `flows resume`. This parks the CLI execution
+without manufacturing a terminal journal fact; it does not claim a journaled
+human park or verify journal integrity. The root worker session closes so the
+kernel can recover its attempt, preserving completed work for resume.
+
+Worker completion waits use `run.watch` pushes with a snapshot every two
+seconds for the live lease deadline. A scoped watch session closes after each
+wait because the protocol has no unwatch verb. A heartbeat timeout relinquishes
+worker ownership as lease loss, leaving recovery to the kernel instead of
+recording `worker_error` against the body.
+
 A step that ran and failed is **not** one of those. It reports `step_failed`
 with `status: failed`, for every step type and for authored TypeScript flows
 as well as declarative ones. `protocol_error` is reserved for an outcome the

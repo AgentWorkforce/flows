@@ -1,3 +1,4 @@
+import { AuthoredFlowExecutionError } from '../src/authored-flow-error.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { runDirectFlow } from '../src/cli/direct-run.js';
 import { JournalClient, JournalProtocolError } from '../src/journal-client.js';
@@ -31,4 +32,18 @@ it.each([false, true])('direct run handles LLM errors with leaseLost=%s', async 
   const result = await runDirectFlow('flow.ts', '{}', '/unused', { localAgent: true });
   expect(result.exitCode).toBe(1);
   expect(JSON.stringify(result.report)).toContain(leaseLost ? 'connection closed' : 'cli exploded');
+});
+
+it('reports a read interruption without losing the resumable root', async () => {
+  vi.spyOn(JournalClient.prototype, 'connect').mockResolvedValue();
+  vi.spyOn(JournalClient.prototype, 'hello').mockResolvedValue({} as never);
+  vi.spyOn(LlmWorker.prototype, 'attach').mockResolvedValue();
+  const error = new AuthoredFlowExecutionError('daemon_unresponsive', 'read timed out under CPU load');
+  error.rootRunId = 'saved-root';
+  vi.mocked(executeDurableAuthoredFlow).mockRejectedValueOnce(error);
+  const result = await runDirectFlow('flow.ts', '{}', '/unused');
+  expect(result).toMatchObject({ exitCode: 1, report: {
+    command: 'run', runId: 'saved-root', rootRunId: 'saved-root', status: 'running',
+    diagnostics: [{ kind: 'daemon_unresponsive', message: expect.stringContaining('flows resume --data-dir /unused saved-root') }],
+  } });
 });

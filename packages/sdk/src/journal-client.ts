@@ -9,6 +9,8 @@
 // stream plumbing. The client's framing and failure behavior is covered by a
 // loopback double in tests.
 
+import { JournalReadPolicy, JournalRequestTimeoutError, READ_ONLY_VERBS } from './journal-read-policy.js';
+export { JournalRequestTimeoutError } from './journal-read-policy.js';
 import { EventEmitter } from 'node:events';
 export { walkJournal, JournalReadError, type JournalEvent, type JournalReadFailure } from './journal-reader.js';
 import { randomUUID } from 'node:crypto';
@@ -27,6 +29,8 @@ import {
 import type { KernelRunSpec, StepType } from './spec.js';
 
 export interface JournalClientOptions {
+  /** Opt-in total budget for read-only requests; interactive clients stay single-shot. */
+  readBudgetMs?: number;
   /** Override the timeout for bounded protocol requests (ms). Default 30000. */
   requestTimeoutMs?: number;
   /**
@@ -61,9 +65,14 @@ export class JournalProtocolError extends Error {
 }
 
 export class JournalClient extends EventEmitter {
+  private readonly reads = new JournalReadPolicy();
+  private reader: JournalClient | undefined;
+  private readerReady: Promise<JournalClient | undefined> | undefined;
+  private readonly readBudgetMs?: number;
   /** Additive request capabilities the daemon advertised at `hello`; none until then. */
   private features: ReadonlySet<string> = new Set();
   private socket: Socket | null = null;
+  private connectingSocket: Socket | undefined;
   /** Why the connection ended, so a later "not connected" names its cause rather than hiding it. */
   private disconnectCause: Error | undefined;
   private buffer = '';
@@ -76,6 +85,7 @@ export class JournalClient extends EventEmitter {
     options: JournalClientOptions = {},
   ) {
     super();
+    this.readBudgetMs = options.readBudgetMs;
     this.requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
     this.connectTimeoutMs = options.connectTimeoutMs ?? 2_000;
   }
@@ -92,6 +102,7 @@ export class JournalClient extends EventEmitter {
     return new Promise((resolve, reject) => {
       if (this.socket) return resolve();
       const socket = createConnection({ path: this.socketPath });
+      this.connectingSocket = socket;
       const timer = setTimeout(() => {
         socket.removeAllListeners();
         socket.destroy();
@@ -112,10 +123,13 @@ export class JournalClient extends EventEmitter {
         socket.on('data', (chunk) => this.onData(chunk));
         socket.on('close', () => {
           const closed = new Error('journal client: connection closed');
+          this.reads.close();
+          this.reader?.close(closed);
           this.disconnectCause ??= closed;
           this.failAll(closed);
         });
         this.disconnectCause = undefined;
+        this.connectingSocket = undefined;
         this.socket = socket;
         resolve();
       });
@@ -131,6 +145,9 @@ export class JournalClient extends EventEmitter {
     const closed = cause === undefined
       ? new Error('journal client: closed by caller')
       : new Error(`journal client: closed after ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+    this.reads.close();
+    this.reader?.close(cause);
+    this.connectingSocket?.destroy(closed);
     this.disconnectCause ??= closed;
     this.failAll(closed);
     this.socket?.destroy();
@@ -181,7 +198,31 @@ export class JournalClient extends EventEmitter {
     this.pending.clear();
   }
 
-  private request<V extends keyof VerbContract>(
+  private async readSession(): Promise<JournalClient | undefined> {
+    if (this.readerReady === undefined) {
+      const reader = this.createPeer();
+      this.reader = reader;
+      this.readerReady = reader.connect().then(() => reader.hello('flows-reader')).then(() => reader)
+        .catch(() => { reader.close(); return undefined; });
+    }
+    return this.readerReady;
+  }
+
+  private request<V extends keyof VerbContract>(verb: V, params: VerbContract[V]['params'],
+    timeoutMs: number | null = this.requestTimeoutMs): Promise<VerbContract[V]['result']> {
+    if (this.socket && !this.socket.destroyed && this.readBudgetMs !== undefined && timeoutMs !== null && READ_ONLY_VERBS.has(verb)) {
+      return this.reads.read(verb, timeoutMs, this.readBudgetMs, async bound => {
+        const started = performance.now();
+        const reader = await this.readSession();
+        const remaining = bound - (performance.now() - started);
+        if (remaining <= 0) throw new JournalRequestTimeoutError(verb, bound);
+        return (reader ?? this).requestOnce(verb, params, remaining);
+      });
+    }
+    return this.requestOnce(verb, params, timeoutMs);
+  }
+
+  private requestOnce<V extends keyof VerbContract>(
     verb: V,
     params: VerbContract[V]['params'],
     timeoutMs: number | null = this.requestTimeoutMs,
@@ -196,10 +237,11 @@ export class JournalClient extends EventEmitter {
         return;
       }
       const id = randomUUID();
+      const started = performance.now();
       const frame: Request = { id, verb: verb as string, params };
       const timer = timeoutMs === null ? undefined : setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`journal client: ${verb} timed out after ${timeoutMs}ms`));
+        reject(new JournalRequestTimeoutError(verb, timeoutMs, 1, performance.now() - started));
       }, timeoutMs);
       this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
       this.socket.write(JSON.stringify(frame) + '\n', (err) => {
