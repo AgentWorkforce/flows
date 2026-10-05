@@ -53,6 +53,26 @@ describe('hosted v2 submission', () => {
     expect(JSON.parse(body.workflow).steps[0]).toMatchObject({ id: 'gate', type: 'deterministic', command: 'printf verified' });
   });
 
+  it('refreshes the login before resolving the hosted submission base URL', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'cloud-run-refresh-'));
+    dirs.push(home);
+    vi.stubEnv('AGENT_RELAY_HOME', home);
+    vi.stubEnv('FLOWS_CLOUD_TOKEN', undefined);
+    vi.stubEnv('FLOWS_CLOUD_URL', undefined);
+    await writeFile(join(home, 'cloud-auth.json'), JSON.stringify({
+      apiUrl: 'https://cloud-contract.example', accessToken: 'expired',
+      accessTokenExpiresAt: '2020-01-01', refreshToken: 'refresh',
+    }));
+    await cloud((path, _body, auth) => {
+      if (path.endsWith('/token/refresh')) return {
+        accessToken: 'renewed', refreshToken: 'rotated', accessTokenExpiresAt: '2099-01-01',
+      };
+      expect(auth).toBe('Bearer renewed');
+      return { runId: 'refreshed-run', status: 'pending' };
+    });
+    expect(await runInCloud(flow)).toMatchObject({ runId: 'refreshed-run' });
+  });
+
   it('refuses invalid specs and unsupported source extensions before any HTTP request', async () => {
     const fetch = vi.spyOn(globalThis, 'fetch');
     const options = { token: 'test-token' };

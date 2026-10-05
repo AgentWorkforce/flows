@@ -1,6 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { readAgentRelayCloudLogin, expiredCloudLogin, canRefreshCloudLogin, normalizeCloudBaseUrl, refreshCloudLogin } from './cloud-auth-store.js';
+export { agentRelayCloudAuthPath, readAgentRelayCloudLogin, type AgentRelayCloudLogin } from './cloud-auth-store.js';
 
 export interface CloudConnectionOptions {
   /** Cloud application base URL; defaults to https://agentrelay.com/cloud. */
@@ -33,6 +32,7 @@ export interface CloudRefusal {
 export type CloudConfigurationReason =
   | 'auth_missing'
   | 'auth_expired'
+  | 'auth_store_unwritable'
   | 'url_invalid'
   | 'url_mismatch'
   | 'timeout_invalid';
@@ -61,50 +61,13 @@ function configurationError(reason: CloudConfigurationReason, message: string): 
   return error;
 }
 
-/**
- * The `agent-relay cloud login` credential store. Read only when neither the
- * `token` option nor `FLOWS_CLOUD_TOKEN` is set, so an explicit credential
- * always wins and this file can change shape without breaking a configured
- * caller. Its `apiUrl` becomes the default base URL for the same reason: a
- * login against one deployment must not send its token to another.
- */
-export function agentRelayCloudAuthPath(env: NodeJS.ProcessEnv = process.env): string {
-  return join(env['AGENT_RELAY_HOME'] ?? join(homedir(), '.agentworkforce/relay'), 'cloud-auth.json');
-}
-
-export interface AgentRelayCloudLogin {
-  apiUrl: string;
-  accessToken: string;
-  /** ISO-8601; the store carries it, so an expired login refuses with a real reason. */
-  accessTokenExpiresAt?: string;
-}
-
-export function readAgentRelayCloudLogin(
-  env: NodeJS.ProcessEnv = process.env,
-  read: (path: string) => string = path => readFileSync(path, 'utf8'),
-): AgentRelayCloudLogin | undefined {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(read(agentRelayCloudAuthPath(env)));
-  } catch {
-    return undefined;
-  }
-  if (!isCloudRecord(parsed) || typeof parsed.apiUrl !== 'string' || typeof parsed.accessToken !== 'string'
-    || !parsed.accessToken.trim()) return undefined;
-  return {
-    apiUrl: parsed.apiUrl, accessToken: parsed.accessToken,
-    ...(typeof parsed.accessTokenExpiresAt === 'string' ? { accessTokenExpiresAt: parsed.accessTokenExpiresAt } : {}),
-  };
-}
-
 export function cloudConnection(options: CloudConnectionOptions): { baseUrl: string; token: string } {
-  let rawToken = options.token ?? process.env['FLOWS_CLOUD_TOKEN'];
+  let rawToken = explicitCloudToken(options);
   let loginApiUrl: string | undefined;
   if (rawToken === undefined) {
     const login = readAgentRelayCloudLogin();
     if (login !== undefined) {
-      const expiresAt = login.accessTokenExpiresAt === undefined ? Number.NaN : Date.parse(login.accessTokenExpiresAt);
-      if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) {
+      if (expiredCloudLogin(login)) {
         throw configurationError('auth_expired',
           'The agent-relay cloud login has expired. Run `agent-relay cloud login` again, or set FLOWS_CLOUD_TOKEN.');
       }
@@ -124,11 +87,10 @@ export function cloudConnection(options: CloudConnectionOptions): { baseUrl: str
   } catch {
     throw configurationError('url_invalid', 'FLOWS_CLOUD_URL must be an absolute Cloud application base URL.');
   }
-  if (url.protocol !== 'https:'
-    || url.username || url.password || url.search || url.hash || !/^\/[A-Za-z0-9/_-]*$/u.test(url.pathname)) {
+  const baseUrl = normalizeCloudBaseUrl(url.href);
+  if (baseUrl === undefined) {
     throw configurationError('url_invalid', 'Cloud URL must use HTTPS and a plain base path.');
   }
-  const baseUrl = `${url.origin}${url.pathname.replace(/\/+$/u, '')}`;
   // A login-store token is bound to the deployment that issued it. An explicit
   // URL that names another deployment gets no token at all — set
   // FLOWS_CLOUD_TOKEN for that deployment instead.
@@ -145,6 +107,49 @@ export function cloudConnection(options: CloudConnectionOptions): { baseUrl: str
     }
   }
   return { baseUrl, token };
+}
+
+function explicitCloudToken(options: CloudConnectionOptions): string | undefined {
+  return options.token ?? process.env['FLOWS_CLOUD_TOKEN'];
+}
+
+function requestTimeout(options: CloudConnectionOptions): number {
+  const timeout = options.requestTimeoutMs ?? 30_000;
+  if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 2_147_483_647) {
+    throw configurationError('timeout_invalid', 'requestTimeoutMs must be a positive 32-bit integer.');
+  }
+  return timeout;
+}
+
+async function ensureFreshCloudLogin(options: CloudConnectionOptions): Promise<void> {
+  if (explicitCloudToken(options) !== undefined) return;
+  const login = readAgentRelayCloudLogin();
+  if (!login || !expiredCloudLogin(login) || !canRefreshCloudLogin(login)) return;
+  const baseUrl = normalizeCloudBaseUrl(options.apiUrl ?? process.env['FLOWS_CLOUD_URL'] ?? login.apiUrl);
+  if (baseUrl === undefined || baseUrl !== normalizeCloudBaseUrl(login.apiUrl)) return;
+  const result = await refreshCloudLogin(login, baseUrl, { signal: options.signal, timeoutMs: requestTimeout(options) });
+  switch (result.kind) {
+    case 'current': case 'refreshed': return;
+    case 'blocked': throw new CloudFlowError('transient_error', 'Another process is refreshing the agent-relay cloud login; try again.');
+    case 'transport': throw transportError(result.error);
+    case 'unwritable': {
+      const errno = isCloudRecord(result.error) && typeof result.error.code === 'string' ? result.error.code : 'unknown error';
+      throw configurationError('auth_store_unwritable', `Cannot update the agent-relay cloud login at ${result.path} (${errno}). Check filesystem permissions and available space.`);
+    }
+    case 'refused':
+      if (result.status !== undefined && [400, 401, 403].includes(result.status)) {
+        throw configurationError('auth_expired', 'The agent-relay cloud login has expired. Run `agent-relay cloud login` again, or set FLOWS_CLOUD_TOKEN.');
+      }
+      if (result.status !== undefined) throw new CloudFlowError('http_error', `Cloud login refresh failed with HTTP ${result.status}.`, result.status);
+      throw new CloudFlowError('invalid_response', 'Cloud returned an unusable login refresh response.');
+  }
+}
+
+/** Re-read after refresh; no cache that could hide a relay-side rotation. */
+export async function resolveCloudConnection(options: CloudConnectionOptions): Promise<{ baseUrl: string; token: string }> {
+  requestTimeout(options);
+  await ensureFreshCloudLogin(options);
+  return cloudConnection(options);
 }
 
 export async function cloudRequest(
@@ -182,11 +187,8 @@ export async function cloudFetch(
   options: CloudConnectionOptions,
   init: CloudFetchInit,
 ): Promise<unknown> {
-  const { baseUrl, token } = cloudConnection(options);
-  const timeout = options.requestTimeoutMs ?? 30_000;
-  if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 2_147_483_647) {
-    throw configurationError('timeout_invalid', 'requestTimeoutMs must be a positive 32-bit integer.');
-  }
+  const timeout = requestTimeout(options);
+  const { baseUrl, token } = await resolveCloudConnection(options);
   const bearer = init.bearerToken ?? token;
   if (/[\r\n]/u.test(bearer) || !bearer.trim()) {
     throw new CloudFlowError('invalid_response', 'Cloud issued an unusable storage credential.');
