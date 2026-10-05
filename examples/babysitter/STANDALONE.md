@@ -4,9 +4,13 @@
 needs no Relay runtime. v1 diagnoses and posts one comment; it never pushes,
 merges, approves or requests changes. Pushing waits on gate 8 / #442.
 
-Nothing is enabled by merging this: it is an example source, deployed only by
-bundling it (`node build-standalone.mjs <policy.json>`) and submitting the
-bundle, and even then its agent step stays closed (see "Blocker" below).
+Nothing is enabled by merging this. The exact deployable source is committed
+at `artifacts/babysitter-standalone.flow.ts`, with its byte count and SHA-256
+in `artifacts/babysitter-standalone.manifest.json`. The manifest also pins the
+credential-free operator policy and the explicit
+`enforcedAgentWriteScope: true` runtime assertion. Cloud must bind that exact
+artifact identity to its daemon-only GitHub read/comment capability before an
+operator deploys it (see "Deployment prerequisite" below).
 
 ## Launch input
 
@@ -26,10 +30,10 @@ drain from the bound lineage:
 }
 ```
 
-Operator policy, embedded at bundle time: `botLogin` (required), `label`
-(default `babysit`), optional `agentCli` / `agentModel`. With no `agentCli`
-the agent runs the origin session's own CLI, so Claude and Codex sessions
-both work.
+The committed operator policy is `standalone-policy.json`: `botLogin` is
+`agent-relay-code[bot]` and the opt-in label is `babysit`. It contains no
+credential. With no `agentCli`, the agent runs the origin session's own CLI,
+so Claude and Codex sessions both work.
 
 ## Body, in order
 
@@ -114,10 +118,13 @@ Follow-up needed to wire the MCP safely:
 2. ai-hist-mcp: a remote read mode that talks to relayhistory-cloud with
    such a token (today it has none).
 
-## Blocker: the agent step is closed by default
+## Deployment prerequisite: enforce the asserted agent scope
 
 `capabilities.enforcedAgentWriteScope` is `false`, and the body returns
-`needs_human` before `f.agent`. The no-push guarantee cannot be met today:
+`needs_human` before `f.agent`. The committed artifact deliberately supplies
+the runtime assertion as `true`, so it must not be deployed by a generic
+launcher. The no-push guarantee depends on Cloud recognizing the exact
+artifact SHA-256 and enforcing the split below:
 
 - Cloud gives the flows CLI process, which runs coding agents in-process, the
   repository grant's environment, including `GH_CONFIG_DIR` and the `GIT_*`
@@ -129,18 +136,24 @@ Follow-up needed to wire the MCP safely:
 - `permissions: { accessPreset: 'readonly' }` is recorded but not enforced
   (#442; `packages/sdk/src/permissions-preflight.ts`).
 
-Either of these opens it: gate 8 enforcement, or Cloud launching this flow's
-agents without repository credentials in `cliEnv`, while `f.run` keeps them
-for the comment. Until then, the tests pass `{ enforcedAgentWriteScope: true }`
-to prove the body that runs once the gate opens.
+Cloud must launch this flow's agent without repository credentials in
+`cliEnv`, while its daemon-owned `f.run` environment receives only the
+pull-request read/comment capability. There is no checkout, repository grant,
+house funding, push, merge, or review capability. The launcher must fail
+closed for an unknown artifact digest or any broader permission request.
+
+The source-level default remains closed. Unit tests pass
+`{ enforcedAgentWriteScope: true }` to prove the body under that platform
+fact; the committed artifact makes the same assertion reviewable and
+content-addressable for Cloud's allowlist.
 
 ## Verify
 
 ```bash
 node --experimental-strip-types --test examples/babysitter/tests/standalone.test.ts
-echo '{"botLogin":"agent-relay[bot]"}' > /tmp/babysitter-policy.json   # outside the tree: policy is operator-owned
-node examples/babysitter/build-standalone.mjs /tmp/babysitter-policy.json  # writes examples/babysitter/dist/ (gitignored)
-(cd examples/babysitter && node ../../packages/sdk/dist/cli.js check dist/babysitter-standalone.flow.ts)
+node examples/babysitter/build-standalone.mjs
+node examples/babysitter/build-standalone.mjs --check
+node packages/sdk/dist/cli.js check examples/babysitter/artifacts/babysitter-standalone.flow.ts
 ```
 
 Literal output: `evidence/standalone/`. Every file is the unedited output of

@@ -1,24 +1,74 @@
-// Bundle the standalone Babysitter into one self-contained Cloud source:
-// Cloud loads a flow from the request body and resolves no sibling imports.
-// Policy is operator-owned and holds no credentials: deployed source is
-// readable to its owner. Only the runtime-owned surface stays external.
-import { build } from '../../packages/sdk/node_modules/esbuild/lib/main.js';
-import { mkdir, readFile } from 'node:fs/promises';
+// Produce the exact, reviewable source Cloud may launch. The policy contains
+// no credentials; both it and the enforced runtime contract are covered by
+// the committed artifact digest.
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { build } from '../../packages/sdk/node_modules/esbuild/lib/main.js';
 
-const [policyPath, ...extra] = process.argv.slice(2);
-if (!policyPath || extra.length) throw new Error('Usage: node examples/babysitter/build-standalone.mjs <operator-policy.json>');
-const policy = JSON.parse(await readFile(policyPath, 'utf8'));
+const args = process.argv.slice(2);
+const check = args.length === 1 && args[0] === '--check';
+if (args.length > 0 && !check) {
+  throw new Error('Usage: node examples/babysitter/build-standalone.mjs [--check]');
+}
+
 const root = fileURLToPath(new URL('.', import.meta.url));
-await mkdir(`${root}dist`, { recursive: true });
-await build({
+const artifactDirectory = fileURLToPath(new URL('artifacts/', import.meta.url));
+const artifactPath = fileURLToPath(new URL('artifacts/babysitter-standalone.flow.ts', import.meta.url));
+const manifestPath = fileURLToPath(new URL('artifacts/babysitter-standalone.manifest.json', import.meta.url));
+const policyPath = fileURLToPath(new URL('standalone-policy.json', import.meta.url));
+const policyBytes = await readFile(policyPath);
+const policy = JSON.parse(policyBytes.toString('utf8'));
+const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+
+const result = await build({
+  absWorkingDir: root,
   stdin: {
-    contents: `import { createStandaloneBabysitter } from './standalone.ts';\nexport default createStandaloneBabysitter(${JSON.stringify(policy)});\n`,
-    resolveDir: root, sourcefile: 'standalone-entry.ts', loader: 'ts',
+    contents: [
+      "import { createStandaloneBabysitter } from './standalone.ts';",
+      `export default createStandaloneBabysitter(${JSON.stringify(policy)}, { enforcedAgentWriteScope: true });`,
+      '',
+    ].join('\n'),
+    resolveDir: root,
+    sourcefile: 'standalone-entry.ts',
+    loader: 'ts',
   },
-  outfile: `${root}dist/babysitter-standalone.flow.ts`, bundle: true,
-  platform: 'node', format: 'esm', target: 'node22', external: ['@relayflows/surface'],
+  outfile: artifactPath,
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node22',
+  external: ['@relayflows/surface'],
   // readSignals/postComment/githubRead.toString() execute inside f.run; keep their identifiers.
   minify: false,
+  write: false,
 });
-console.log('Built examples/babysitter/dist/babysitter-standalone.flow.ts. Run flows check before deployment.');
+const artifact = result.outputFiles?.find(file => file.path === artifactPath)?.contents;
+if (!artifact) throw new Error('Standalone build produced no artifact.');
+const manifest = Buffer.from(`${JSON.stringify({
+  schemaVersion: 1,
+  artifact: 'babysitter-standalone.flow.ts',
+  bytes: artifact.byteLength,
+  sha256: sha256(artifact),
+  policy: '../standalone-policy.json',
+  policySha256: sha256(policyBytes),
+  runtime: { enforcedAgentWriteScope: true },
+  external: ['@relayflows/surface'],
+}, null, 2)}\n`);
+
+if (check) {
+  const [committedArtifact, committedManifest] = await Promise.all([
+    readFile(artifactPath), readFile(manifestPath),
+  ]);
+  if (!committedArtifact.equals(artifact) || !committedManifest.equals(manifest)) {
+    throw new Error('Committed standalone artifact drifted; run build-standalone.mjs and commit both generated files.');
+  }
+  process.stdout.write(`Checked sha256:${sha256(artifact)}\n`);
+} else {
+  await mkdir(artifactDirectory, { recursive: true });
+  await Promise.all([
+    writeFile(artifactPath, artifact),
+    writeFile(manifestPath, manifest),
+  ]);
+  process.stdout.write(`Built ${artifactPath} sha256:${sha256(artifact)}\n`);
+}

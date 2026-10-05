@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "artifact": "babysitter-standalone.flow.ts",
+  "bytes": 33553,
+  "sha256": "175e0615de7117a235487c4c70bc2e30ff6f076e563cdc16401d893b0e81d17d",
+  "policy": "../standalone-policy.json",
+  "policySha256": "3671bab03a1537c4cc6626009c17b1060b866e387fe57e79fdd8c580b89971b0",
+  "runtime": {
+    "enforcedAgentWriteScope": true
+  },
+  "external": [
+    "@relayflows/surface"
+  ]
+}

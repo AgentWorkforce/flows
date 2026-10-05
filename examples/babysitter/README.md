@@ -263,7 +263,10 @@ byte-for-byte and capture the pass — and `SCOPE.md` for the requested scope.
 
 `standalone.ts` is the v1 diagnose-and-comment Babysitter that Cloud launches
 from a webhook with the bound session's origin context. See
-[`STANDALONE.md`](STANDALONE.md).
+[`STANDALONE.md`](STANDALONE.md). The exact launch source is committed at
+`artifacts/babysitter-standalone.flow.ts`; its byte count, SHA-256, operator
+policy, and enforced read-only runtime assertion are pinned by the adjacent
+manifest. `npm run check:standalone` refuses generated-source drift.
 
 ## Running the tests
 
