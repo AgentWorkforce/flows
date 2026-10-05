@@ -33,7 +33,10 @@ drain from the bound lineage:
 The committed operator policy is `standalone-policy.json`: `botLogin` is
 `agent-relay-code[bot]` and the opt-in label is `babysit`. It contains no
 credential. With no `agentCli`, the agent runs the origin session's own CLI,
-so Claude and Codex sessions both work.
+so Claude and Codex sessions both work. The generated manifest therefore
+requires both harnesses explicitly; an operator must connect and declare both
+when deploying this source rather than relying on the static default branch
+reported by `flows check`.
 
 ## Body, in order
 

@@ -53,6 +53,11 @@ const manifest = Buffer.from(`${JSON.stringify({
   policy: '../standalone-policy.json',
   policySha256: sha256(policyBytes),
   runtime: { enforcedAgentWriteScope: true },
+  requirements: {
+    integrations: ['github'],
+    harnesses: ['claude', 'codex'],
+    mcp: [],
+  },
   external: ['@relayflows/surface'],
 }, null, 2)}\n`);
 

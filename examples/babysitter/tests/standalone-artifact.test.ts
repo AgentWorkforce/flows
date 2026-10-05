@@ -25,6 +25,11 @@ test('the committed standalone artifact is exact, reproducible, and explicitly r
     policy: '../standalone-policy.json',
     policySha256: sha256(policyBytes),
     runtime: { enforcedAgentWriteScope: true },
+    requirements: {
+      integrations: ['github'],
+      harnesses: ['claude', 'codex'],
+      mcp: [],
+    },
     external: ['@relayflows/surface'],
   });
   assert.deepEqual(JSON.parse(policyBytes.toString('utf8')), {

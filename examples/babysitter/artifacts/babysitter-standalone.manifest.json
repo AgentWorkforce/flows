@@ -8,6 +8,16 @@
   "runtime": {
     "enforcedAgentWriteScope": true
   },
+  "requirements": {
+    "integrations": [
+      "github"
+    ],
+    "harnesses": [
+      "claude",
+      "codex"
+    ],
+    "mcp": []
+  },
   "external": [
     "@relayflows/surface"
   ]
