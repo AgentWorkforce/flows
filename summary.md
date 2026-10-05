@@ -49,7 +49,26 @@ AUTHORING_REFERENCE_OK
 
 ## Limits and follow-ups
 
-- No workflow or gate script was edited. The existing workflow watches surface/SDK/regression paths, so type changes, CLI changes and shipped reference edits trigger the check. Edits only to `docs/CLI.md`, root generation/test scripts, or prose outside the surface package do not trigger it. Run the check locally for those; extending the workflow path filter is a follow-up.
+- No workflow or gate script was edited. `surface-package.yml` watches
+  `packages/surface/**`, `packages/sdk/**` and `regressions/**`, so every
+  source behind a documented row — the surface types, `CLI_VERBS`, and the
+  shipped reference itself — triggers the byte comparison. Edits only to
+  `docs/CLI.md`, the root generation/test scripts, or prose outside the surface
+  package do not trigger it. Run the check locally for those; extending the
+  path filter is a follow-up.
+- The lease number is guarded at both ends, which matters because the 30s lives
+  in the kernel, and `kernel/**` is not a `surface-package.yml` path. The
+  prose-sync test ties the surface JSDoc, `docs/SURFACE.md`, the surface README
+  and `compile.ts`'s ceiling to `machine.rs`'s `LEASE_DURATION_MS`; the kernel
+  separately pins its own default in
+  `machine::tests::deterministic_lease_override_and_default_are_journaled`,
+  which `cargo test --workspace` runs on any `kernel/**` change. Verified by
+  mutation: setting `LEASE_DURATION_MS` to `60_000` fails the kernel test
+  (`left: 61000, right: 31000`, `tests.rs:872`) and the prose-sync test
+  (`✖ lease prose agrees with type, kernel default and compiler ceiling`,
+  `fail 1`); restoring it byte-for-byte returns both to green (`2 passed`,
+  `pass 14 / fail 0`) with a clean `git diff`. So a kernel-only change to the
+  default cannot land while the docs still claim 30s.
 - The external `@agent-relay/writing-relayflows` skill lives in `AgentWorkforce/skills`. Its refresh should derive from this reference; it was not changed here.
 - `packages/create-flow/package.json` remains pinned to 2.0.8; changing that is a separate release decision.
 - `ArtifactExistsNamedGate` is reachable through `NamedGate` but is not individually re-exported from the package root. This reference includes its shape without changing the API. The `ReadonlyFlowHeader` asymmetry also remains outside this documentation change.
