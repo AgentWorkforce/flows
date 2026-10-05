@@ -574,10 +574,11 @@ function createStandaloneBabysitter(policy, runtime = capabilities) {
       await report("Babysitter diagnosis blocked: the agent would inherit push-capable repository credentials; needs enforced agent write scope (gate 8 / #442).");
       return f.done("needs_human");
     }
-    const cli = configured.agentCli ?? origin.source;
+    const cli = String(configured.agentCli ?? origin.source);
+    const model = String(requiredReviewerModel(cli, configured.agentModel));
     const result = await f.agent("babysitter-diagnose", {
       cli,
-      model: requiredReviewerModel(cli, configured.agentModel),
+      model,
       permissions: { accessPreset: "readonly" },
       task: agentTask(origin, `${pr.owner}/${pr.repo}#${pr.number}`, head, changed)
     });

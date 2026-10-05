@@ -137,9 +137,10 @@ export function createStandaloneBabysitter(policy: unknown, runtime: { enforcedA
       return f.done('needs_human');
     }
     // (5) One agent carrying the original scope.
-    const cli = configured.agentCli ?? origin.source;
+    const cli = String(configured.agentCli ?? origin.source);
+    const model = String(requiredReviewerModel(cli, configured.agentModel));
     const result = await f.agent('babysitter-diagnose', {
-      cli, model: requiredReviewerModel(cli, configured.agentModel),
+      cli, model,
       permissions: { accessPreset: 'readonly' },
       task: agentTask(origin, `${pr.owner}/${pr.repo}#${pr.number}`, head, changed),
     });
