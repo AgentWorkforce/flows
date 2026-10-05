@@ -154,8 +154,8 @@ content-addressable for Cloud's allowlist.
 
 ```bash
 node --experimental-strip-types --test examples/babysitter/tests/standalone.test.ts
-node examples/babysitter/build-standalone.mjs
 node examples/babysitter/build-standalone.mjs --check
+node examples/babysitter/build-standalone.mjs
 node packages/sdk/dist/cli.js check examples/babysitter/artifacts/babysitter-standalone.flow.ts
 ```
 

@@ -271,9 +271,12 @@ manifest. `npm run check:standalone` refuses generated-source drift.
 ## Running the tests
 
 The suites resolve `@relayflows/surface` from the repo root and the SDK's
-provider-trigger contract from source, so no publish step is involved:
+provider-trigger contract from source, so no publish step is involved. The
+standalone artifact drift gate uses the SDK's declared `esbuild` development
+dependency, so install both package workspaces on a fresh checkout:
 
 ```bash
+(cd packages/sdk && npm ci)                     # install the pinned artifact builder
 (cd packages/surface && npm ci && npx tsc)      # build the surface dist
 mkdir -p node_modules/@relayflows && ln -sfn "$PWD/packages/surface" node_modules/@relayflows/surface
 node --experimental-strip-types --test examples/babysitter/tests/*.test.ts
