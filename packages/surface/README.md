@@ -48,6 +48,11 @@ export default flow<{ base: string }>("release-note", {}, async (f, input) => {
 });
 ```
 
+Commands lease for **30s by default**, **15m maximum**. Pass `{ timeout: '5m' }`
+for longer work, for example `await f.run('git fetch', { timeout: '5m' })`.
+See the shipped [authoring reference](AUTHORING.md) for all signatures, option
+fields, completion reasons, named gates and helper namespaces.
+
 Run it with inline JSON or the path to a JSON file:
 
 ```sh

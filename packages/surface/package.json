@@ -29,7 +29,8 @@
   },
   "files": [
     "dist",
-    "src"
+    "src",
+    "AUTHORING.md"
   ],
   "scripts": {
     "gen": "node ../../scripts/generate-helpers.mjs",
@@ -37,9 +38,10 @@
     "build": "tsc",
     "prepare": "bun run build",
     "typecheck": "tsc --noEmit",
-    "typecheck:regressions": "tsc -p ../../regressions/tsconfig.json && tsc -p tsconfig.test.json && node scripts/check-generated-helpers.mjs",
+    "typecheck:regressions": "tsc -p ../../regressions/tsconfig.json && tsc -p tsconfig.test.json && node scripts/check-generated-helpers.mjs && node ../../scripts/check-authoring-reference.mjs && node --test ../../scripts/authoring-reference.test.mjs",
     "typecheck:examples": "tsc -p ../../examples/tsconfig.json",
-    "test": "bun run build && tsc -p tsconfig.test.json && vitest run"
+    "test": "bun run build && tsc -p tsconfig.test.json && vitest run",
+    "gen:docs": "node ../../scripts/generate-authoring-reference.mjs"
   },
   "license": "Apache-2.0",
   "engines": {

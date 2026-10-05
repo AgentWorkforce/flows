@@ -79,6 +79,10 @@ Try on the cloud right now: [https://agentrelay.com/flows](https://agentrelay.co
 
 # For Agents
 
+Use the current [authoring reference](packages/surface/AUTHORING.md) for API
+signatures, command leases, helpers and named gates, and the [CLI reference](docs/CLI.md)
+for commands and flags.
+
 Install the skill and hand it to your agent to write, run, and deploy your flow:
 
 ```bash

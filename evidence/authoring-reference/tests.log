@@ -1,0 +1,22 @@
+✔ extracts overloads in order and preserves lease JSDoc byte-for-byte (5.095847ms)
+✔ walks union members even when not re-exported, including nested unions (1.222704ms)
+✔ CLI literals refuse unresolved options with command and identifier (1.767566ms)
+✔ CLI literals resolve imports, spreads, String and templates but refuse dynamic defaults (4.676176ms)
+✔ run documents every exported overload and the lease comment (0.270881ms)
+✔ done documents all three distinct completion vocabularies (0.709423ms)
+✔ human returns Step<boolean> (0.113631ms)
+✔ all helper namespaces and mcp are discoverable (0.468781ms)
+✔ FlowHeader includes every field and its declaration (0.276151ms)
+✔ AgentOptions includes every field and its declaration (0.24699ms)
+✔ all named gate variants and both gate overloads are documented (0.26383ms)
+✔ CLI includes every declared verb, subcommand and literal flag (0.640912ms)
+✔ lease prose agrees with type, kernel default and compiler ceiling (0.775743ms)
+✔ checker accepts exact docs, rejects drift or missing docs, and accepts restoration (1778.963914ms)
+ℹ tests 14
+ℹ suites 0
+ℹ pass 14
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2007.258635
