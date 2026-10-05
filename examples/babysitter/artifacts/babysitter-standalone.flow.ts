@@ -502,8 +502,8 @@ function parsePolicy(value) {
 }
 function boundPullRequest(value) {
   const pr = record(record(record(value).babysitter).pullRequest);
-  if (typeof pr.owner !== "string" || typeof pr.repo !== "string" || !Number.isSafeInteger(pr.number) || Number(pr.number) <= 0) return void 0;
-  return { owner: pr.owner, repo: pr.repo, number: Number(pr.number) };
+  if (typeof pr.owner !== "string" || typeof pr.repo !== "string" || !Number.isSafeInteger(pr.number) || Number(pr.number) <= 0 || typeof pr.headSha !== "string" || !/^[a-f0-9]{40}$/.test(pr.headSha)) return void 0;
+  return { owner: pr.owner, repo: pr.repo, number: Number(pr.number), headSha: pr.headSha };
 }
 var reportMarker = (pr, head) => `<!-- babysitter:report ${pr.owner.toLowerCase()}/${pr.repo.toLowerCase()}#${pr.number}@${head} -->`;
 function outOfScope(s, c, label) {
@@ -549,12 +549,16 @@ function createStandaloneBabysitter(policy, runtime = capabilities) {
       await report(`${wake.id} delivery=${deliveryId}: no usable origin context; Babysitter will not act without the original scope.`);
       return f.done("needs_human");
     }
-    const c = parseInput({ ...pr, testCommand: "true", botLogin: configured.botLogin });
+    const c = parseInput({ owner: pr.owner, repo: pr.repo, number: pr.number, testCommand: "true", botLogin: configured.botLogin });
     const live = await readState(f, c);
     const bound = bindHead(live, c);
     await report(`${observation(c, wake, bound)} delivery=${deliveryId}`);
     if ("refusal" in bound) return f.done("declined");
     const head = bound.head;
+    if (head !== pr.headSha) {
+      await report(`${wake.id}: live head ${head} differs from claimed head ${pr.headSha}; declining without diagnosis or comment`);
+      return f.done("declined");
+    }
     const skip = outOfScope(live, c, configured.label);
     if (skip) {
       await report(`${wake.id}: ${skip}`);

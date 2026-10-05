@@ -23,7 +23,7 @@ drain from the bound lineage:
   "pullRequest": { "owner": "acme", "repo": "widgets", "number": 7, "headSha": "…" }, // hint
   "event": { "provider": "github", "eventType": "check_run.completed", "deliveryId": "…" },
   "babysitter": {
-    "pullRequest": { "owner": "acme", "repo": "widgets", "number": 7 },          // the binding
+    "pullRequest": { "owner": "acme", "repo": "widgets", "number": 7, "headSha": "…" }, // server binding + claimed head
     "originContext": { "status": "ok" | "degraded", "source": "claude" | "codex",  // cloud#4144
                        "sessionId": "…", "rootSessionId": "…", "firstPrompt": "…", "events": [ … ] }
   }
@@ -46,10 +46,13 @@ reported by `flows check`.
    `needs_human`.
 2. **Fail closed without origin.** Absent, `missing`, malformed or
    prompt-less `originContext` → `needs_human`, no live read, no agent.
-3. **Webhook is a hint.** `readState` rereads GitHub; `bindHead` binds the
-   live head. One observation line logs `key=babysitter:<event>:<pr>@<head>`,
-   which is the same for every delivery of the same event at the same live
-   state.
+3. **Webhook is a hint; the server claim is a constraint.** `readState`
+   rereads GitHub and `bindHead` binds the live head. The body then requires
+   it to equal `babysitter.pullRequest.headSha`, which Cloud captured before
+   reserving per-head capacity. A mismatch declines before signal reads,
+   diagnosis, or comment. One observation line logs
+   `key=babysitter:<event>:<pr>@<head>`, which is the same for every delivery
+   of the same event at the same live state.
 4. **Decline when nothing is actionable.** Closed, merged, draft or skip
    label (`eligible`); the `babysit` label absent from *live* labels; this head
    already reported by `botLogin` (its own comments' markers, all pages); or no

@@ -262,7 +262,11 @@ byte-for-byte and capture the pass — and `SCOPE.md` for the requested scope.
 ## Standalone webhook Babysitter
 
 `standalone.ts` is the v1 diagnose-and-comment Babysitter that Cloud launches
-from a webhook with the bound session's origin context. See
+from a webhook with the bound session's origin context. Cloud also binds the
+server-claimed PR head in `input.babysitter.pullRequest.headSha`; the artifact
+rereads GitHub and declines before signals, diagnosis, or comment if that
+exact head is no longer live. This keeps per-head admission quotas attached to
+the head the run can actually diagnose. See
 [`STANDALONE.md`](STANDALONE.md). The exact launch source is committed at
 `artifacts/babysitter-standalone.flow.ts`; its byte count, SHA-256, operator
 policy, and enforced read-only runtime assertion are pinned by the adjacent
