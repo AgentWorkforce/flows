@@ -55,7 +55,7 @@ describe('typed CLI adapters', () => {
       timeoutMs: 60_000,
     });
     expect(agentExecution(kind, 'Review.', 'gpt-model')).toEqual({
-      args: ['exec', '--ephemeral', '--skip-git-repo-check', '--dangerously-bypass-approvals-and-sandbox',
+      args: ['exec', '--skip-git-repo-check', '--dangerously-bypass-approvals-and-sandbox',
         '--model', 'gpt-model', 'Review.'],
       timeoutMs: 0,
     });
