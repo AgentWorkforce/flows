@@ -65,6 +65,7 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
   { verb: 'add', argv: ['add', 'my-helper'], variant: 'add' },
   { verb: 'add', argv: ['add', 'github:AgentWorkforce/flows@main#examples/babysitter'], variant: 'add' },
   { verb: 'answer', argv: ['answer', RUN_ID, 'human-1', 'yes'], variant: 'answer' },
+  { verb: 'answer', argv: ['answer', '--cloud', RUN_ID, 'yes', '--json', '--source', 'original.flow.ts', '--note', 'reviewed'], variant: 'cloud-answer' },
   {
     verb: 'answer',
     argv: ['answer', '--json', '--no-spawn', '--data-dir', '.relayflowd',

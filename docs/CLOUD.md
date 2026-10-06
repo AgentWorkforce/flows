@@ -415,8 +415,8 @@ COMPLETED 20d04c99-3fa8-48c9-9286-92d364a5bc2e completionReason: success
 
 Both differ from their one-shot forms in one visible way: **the exit code is
 the run's, not the read's.** They exit 0 only on a run Cloud attests as
-`completed` with `completionReason: success`, 1 on an attested failure or
-cancellation, and 1 with `cloud_invalid_response` on a terminal record that
+`completed` with `completionReason: success`, 3 on an attested `needs_human`
+park, 1 on an attested failure or cancellation, and 1 with `cloud_invalid_response` on a terminal record that
 attests neither — the same validation `flows run --cloud --wait` blocks on, so
 the two cannot disagree. A plain `flows logs` on a failed run still exits 0,
 because there the exit code describes the read. Ctrl-C exits 1 with
@@ -704,7 +704,8 @@ them on activation or launch and the CLI names `agent-relay cloud connect
 
 Without `--wait`, exit 0 means the server accepted the run. With `--wait`, it
 means Cloud reported `completed` with a validated `success` completion reason.
-Failed/cancelled runs and observation/transport failures return 1. Local input,
+A `needs_human` park returns 3. Failed/cancelled runs and observation/transport
+failures return 1. Local input,
 configuration, unsupported format, and pre-admission HTTP 401/403 refusals return 2.
 After admission, an observation HTTP 401/403 returns 1 and retains the run ID. SIGINT/SIGTERM stops
 observation and preserves the run ID in the error report; it does not cancel
@@ -839,3 +840,57 @@ work, then replay the session to understand how it got there.
 The landing page is **cancelled, not deferred**, by Khaliq’s ruling. This
 proposed copy is retained here as a document only. It will not be applied to a
 page; there is no deployment target or landing acceptance dependency.
+
+
+## Answering a Cloud human gate
+
+`flows run --cloud --wait` treats a Cloud record with `status: failed` and
+`result.completionReason: needs_human` as parked, prints its question, `to`, and
+answer command, and exits **3**. `status --cloud --watch` displays
+`needs_human` and exits 3; `logs --follow` exits 3 after draining the log.
+Other status/reason combinations still refuse, including `needs_human` under
+`completed`. Missing display metadata does not invalidate an attested park.
+
+```sh
+flows answer --cloud 2e97a7ed yes --note 'Reviewed the evidence'
+# If Cloud retained only a prefix of the source, use the original local copy
+# (including a copy pulled with flows sync):
+flows answer --cloud 2e97a7ed yes --source human.flow.ts
+```
+
+This is the scriptable fallback for answering in the delivered Slack/GitHub
+channel. In-channel answering is the primary path when Cloud delivery is
+available. The CLI reads the open wait from `GET …/runs/<id>/answer`; it never
+requires a manually copied wait id. Local `flows answer` retains its existing
+`<run-id> <wait-id> <yes|no>` syntax and separate resume.
+
+Before writing an answer, the CLI verifies the original source bytes against
+`relayflowV2Authority.source.sha256`. It uses the record's `workflow`, or
+`--source` if supplied, and forwards the record's authority unchanged. It does
+not import or execute that source locally. Missing authority, changed source,
+reported synced working trees, and declared extensions refuse before any
+POST; this client cannot yet restore their complete execution context.
+`workspaceId` is preserved when supplied by Cloud.
+
+The CLI posts `{ waitId, answer, note? }`, re-reads the run, and submits a resume
+only if it is still parked. A resume contains the original source, authority,
+`resume: <id>`, and **no `inputs`**: Cloud restores persisted input. If the
+re-read reports Cloud already running/completed the run, the CLI reports that
+without a resume POST. This check is not an atomic claim: simultaneous callers
+or Cloud creating a successor without updating the original record require
+server-side deduplication; this CLI does not guarantee that contract.
+
+After an answer is recorded, a resume failure reports `answerRecorded: true`
+and says resume could not be confirmed. Inspect hosted status before re-running
+the same command. A retry can skip the answer POST only if the answer route
+returns the same recorded `{ waitId, answer, note? }`; a conflicting decision
+or unrecognizable response refuses. POSTs are never retried automatically.
+The reader accepts `humanWait` (or `wait`) or a single-entry `openWaits` array,
+and an optional recorded `answer` object. These shapes are tested fixtures;
+production compatibility must be confirmed against the deployed answer route.
+
+`--by`, `--data-dir`, and `--no-spawn` are refused with `--cloud`; Cloud derives
+answer attribution from the credential. `--json` preserves each verb's existing
+meaning of `ok`: parked `run --wait` reports `ok: false`; successful status/log
+reads report `ok: true` even when their exit is 3. Cloud answer exit 0 means the
+answer/resume was accepted or Cloud already resumed, not that execution finished.

@@ -1070,6 +1070,19 @@ exit with *its* outcome rather than the read's, using `flows run --cloud
 --wait`'s mapping; Ctrl-C ends the observation, not the run. `--watch` needs
 `--cloud`, and `--follow` does not take `--step`.
 
+A hosted human gate is terminal for now: `run --cloud --wait`,
+`status --cloud --watch`, and `logs --follow` exit **3** on an attested
+`needs_human`. The waiter prints the question, recipient and answer command.
+The Cloud write command records the answer and resumes in one invocation:
+
+```text
+flows answer --cloud [--json] [--note <text>] [--source <path>] <run-id> <yes|no>
+```
+
+Cloud discovers the open wait; the local answer form above still requires its
+wait id. See [Cloud human gates](CLOUD.md#answering-a-cloud-human-gate) for source
+verification, resume limits and recovery after partial success.
+
 ### Agent sidechannel (initial byte-stream slice)
 
 Local agent workers (`flows run --local-agent`) open
@@ -1725,7 +1738,8 @@ is a requirement of the flow (`flows check` prints `slack (f.human to)`) and
 Locally, authority is the journal socket: whoever can reach the daemon can
 answer, and `answeredBy` records the OS user who did. On Cloud the same wait is
 answered through the run's answer route — by the delivered channel above, or
-`POST /api/v1/workflows/runs/<id>/answer` — with the answerer's identity
+`flows answer --cloud <run-id> yes|no` (using
+`POST /api/v1/workflows/runs/<id>/answer`) — with the answerer's identity
 (`slack:@handle`, `github:@login`, or the Cloud user). `timeout` is not yet
 enforced (DESIGN.md §1.4). A child flow cannot call `f.human`; approval
 authority remains with the root flow.

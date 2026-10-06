@@ -1,3 +1,5 @@
+import { cloudAnswerCommand } from '../authored-human.js';
+import { scrubCloudHumanWait, cloudParkLines } from './cloud-human.js';
 import { CloudFlowError } from '../cloud-http.js';
 import { runInCloud, waitForCloudFlowRun, type RunInCloudOptions } from '../cloud-run.js';
 import { DirectInputError, isAuthoredFlowPath, parseDirectInput } from '../direct-input.js';
@@ -17,7 +19,7 @@ export async function runCloudCli(
    * handler is installed here.
    */
   signal: AbortSignal,
-): Promise<0 | 1 | 2> {
+): Promise<0 | 1 | 2 | 3> {
   let runId: string | undefined;
   // Flips at the run submission. An interruption before it — during prepare,
   // packing or upload — admitted nothing and is safe to retry; only an
@@ -65,6 +67,13 @@ export async function runCloudCli(
       return 0;
     }
     const run = await waitForCloudFlowRun(receipt.runId, { signal });
+    if (run.status === 'needs_human') {
+      const humanWait = scrubCloudHumanWait(run.humanWait);
+      const next = cloudAnswerCommand(run.runId);
+      if (json) io.stdout(JSON.stringify({ ok: false, ...receipt, ...run, humanWait, next }));
+      else for (const line of cloudParkLines(run)) io.stdout(line);
+      return 3;
+    }
     const ok = run.status === 'completed';
     if (json) io.stdout(JSON.stringify({ ok, ...receipt, ...run }));
     else io.stdout(`${run.status.toUpperCase()} ${run.runId} completionReason: ${'completionReason' in run ? run.completionReason : 'unavailable'}`);

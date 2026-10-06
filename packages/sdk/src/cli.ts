@@ -28,6 +28,7 @@ import {
   type RunProgress,
   type RunReport,
 } from './cli/run.js';
+import { runCloudAnswerCli } from './cli/cloud-answer.js';
 import { answerFlow } from './cli/answer.js';
 import { checkAuthoredTriggers } from './cli/check-triggers.js';
 import { parseWebhookArgs, runServeWebhook } from './cli/serve-webhook.js';
@@ -106,6 +107,7 @@ export type ParsedArgs =
   | { command: 'check'; json: boolean; watch: boolean; value: string }
   | { command: 'run'; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; cloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
   | { command: 'resume'; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; cloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
+  | { command: 'cloud-answer'; runId: string; answer: boolean; json: boolean; note?: string; source?: string }
   | { command: 'answer'; dataDir: string; json: boolean; spawn: boolean; note: string | undefined; by: string | undefined; runId: string; waitId: string; answer: boolean }
   | RunsArgs
   | LogsArgs
@@ -145,6 +147,7 @@ const USAGE = [
   'flows run [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
   'flows resume [--allow-human-influenced] [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <run-id>',
+  'flows answer --cloud [--json] [--note <text>] [--source <path>] <run-id> <yes|no>',
   'flows answer [--json] [--no-spawn] [--data-dir <dir>] [--note <text>] [--by <identity>] <run-id> <wait-id> <yes|no>',
   'flows replay [--allow-human-influenced] [--json] [--data-dir <dir>] <run-id> [--at <step-id>]',
   'flows status [--json] [--data-dir <dir>] [--tail <n>] [<run-id>]',
@@ -274,6 +277,9 @@ export async function runCli(
     return logs.follow
       ? withInterrupt(options.signal, (signal) => runCloudLogsFollow(logs, io, { signal }))
       : runCloudLogsCli(logs, io);
+  }
+  if (parsed.command === 'cloud-answer') {
+    return withInterrupt(options.signal, signal => runCloudAnswerCli(parsed, io, signal));
   }
   if (parsed.command === 'answer') {
     const execution = await answerFlow(parsed.runId, parsed.waitId, parsed.answer, parsed.dataDir, {
@@ -808,6 +814,8 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
  */
 function parseAnswerArgs(rest: readonly string[]): ParsedArgs | undefined {
   let json = false;
+  let cloud = false;
+  let source: string | undefined;
   let spawn = true;
   let dataDir = DEFAULT_DATA_DIR;
   let sawDataDir = false;
@@ -816,6 +824,18 @@ function parseAnswerArgs(rest: readonly string[]): ParsedArgs | undefined {
   const positionals: string[] = [];
   for (let index = 0; index < rest.length; index += 1) {
     const argument = rest[index]!;
+    if (argument === '--cloud') {
+      if (cloud) return undefined;
+      cloud = true;
+      continue;
+    }
+    if (argument === '--source') {
+      const value = rest[index + 1];
+      if (source !== undefined || value === undefined || value.startsWith('-')) return undefined;
+      source = value;
+      index += 1;
+      continue;
+    }
     if (argument === '--json') {
       if (json) return undefined;
       json = true;
@@ -851,6 +871,14 @@ function parseAnswerArgs(rest: readonly string[]): ParsedArgs | undefined {
     if (argument.startsWith('-')) return undefined;
     positionals.push(argument);
   }
+  if (cloud) {
+    if (sawDataDir || !spawn || by !== undefined || positionals.length !== 2) return undefined;
+    const [runId, word] = positionals as [string, string];
+    const answer = word === 'yes' || word === 'true' ? true : word === 'no' || word === 'false' ? false : undefined;
+    if (answer === undefined) return undefined;
+    return { command: 'cloud-answer', runId, answer, json, ...(note === undefined ? {} : { note }), ...(source === undefined ? {} : { source }) };
+  }
+  if (source !== undefined) return undefined;
   if (positionals.length !== 3) return undefined;
   const [runId, waitId, word] = positionals as [string, string, string];
   const answer = word === 'yes' || word === 'true' ? true : word === 'no' || word === 'false' ? false : undefined;

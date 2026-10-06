@@ -145,3 +145,8 @@ export function resumeCommand(runId: string, dataDir?: string, localAgent = fals
   const dir = dataDir === undefined ? '' : ` --data-dir ${shellWord(dataDir)}`;
   return `flows resume${dir}${localAgent ? ' --local-agent' : ''} ${runId}`;
 }
+
+/** Cloud discovers the open wait, then records the answer and resumes. */
+export function cloudAnswerCommand(runId: string): string {
+  return `flows answer --cloud ${shellWord(runId)} yes|no`;
+}

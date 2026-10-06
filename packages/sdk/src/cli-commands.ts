@@ -117,20 +117,22 @@ export const CLI_VERBS = [
   },
   {
     name: 'answer',
-    description: 'Answer a run’s parked f.human question; `flows resume` then continues the body',
+    description: 'Answer a parked f.human; --cloud also resumes, local answers need flows resume',
     args: [
       { name: 'run-id', description: 'Run parked on the question', required: true },
-      { name: 'wait-id', description: 'Which question to answer, named human-<n> in the order the body asked', required: true },
-      { name: 'answer', description: 'The decision, as yes or no (also true or false)', required: true },
+      { name: 'wait-id-or-answer', description: 'Local: human-<n> wait id; Cloud: yes or no', required: true },
+      { name: 'answer', description: 'Local decision, as yes or no (also true or false)', required: false },
     ],
     options: [
       JSON_OPTION,
+      { flags: '--cloud', description: 'Answer and resume a Cloud run using its open wait' },
+      { flags: '--source <path>', description: 'Original Cloud flow source when the stored copy is unavailable or truncated' },
       DATA_DIR_OPTION,
       { flags: '--no-spawn', description: 'Require a running relayflowd rather than starting one' },
       { flags: '--note <text>', description: 'Reason recorded on the journal alongside the answer' },
       { flags: '--by <identity>', description: 'Who answered, when relaying a person’s decision; defaults to the OS user' },
     ],
-    variants: ['answer'],
+    variants: ['answer', 'cloud-answer'],
   },
   {
     name: 'build',
