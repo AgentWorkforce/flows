@@ -1,0 +1,14 @@
+$ 'node' '/home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/node_modules/vitest/vitest.mjs' 'run' 'tests/check-daemon-validation.test.ts' '-t' 'maps generated-step indices'
+cwd: /tmp/daemon-check-mutation-avim9yyh/packages/sdk
+
+ RUN  v2.1.9 /tmp/daemon-check-mutation-avim9yyh/packages/sdk
+
+ ✓ tests/check-daemon-validation.test.ts (20 tests | 19 skipped) 6ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 19 skipped (20)
+   Start at  14:32:47
+   Duration  2.55s (transform 1.49s, setup 14ms, collect 2.28s, tests 6ms, environment 0ms, prepare 47ms)
+
+
+exit=0

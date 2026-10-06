@@ -145,9 +145,9 @@ export const CLI_VERBS = [
   },
   {
     name: 'check',
-    description: 'Compile and preflight a flow without running it, or opening a daemon socket',
+    description: 'Compile, preflight, and validate with the installed runtime when available; never start a run',
     args: [{ name: 'source', description: 'flow.ts, flow.yaml, or spec.json', required: true }],
-    options: [JSON_OPTION, { flags: '--watch', description: 'Re-check on every change to the flow and its imports' }],
+    options: [{ flags: '--against-daemon', description: 'Require acceptance by the installed relayflowd validator (FLOWS_CHECK_AGAINST_DAEMON=1)' }, { flags: '--no-daemon-check', description: 'Local compile and preflight only (FLOWS_NO_DAEMON_CHECK=1)' }, JSON_OPTION, { flags: '--watch', description: 'Re-check on every change to the flow and its imports' }],
     variants: ['check'],
   },
   {

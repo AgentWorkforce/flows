@@ -1,0 +1,11 @@
+   Compiling relayflowd v0.1.0 (/home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/relayflowd)
+    Finished `test` profile [unoptimized] target(s) in 0.19s
+     Running tests/validate_spec.rs (/tmp/relayflows-daemon-check-target/debug/deps/validate_spec-2e0369aa01bb2e19)
+
+running 3 tests
+test refuses_unknown_field_with_kernel_location ... ok
+test accepts_without_creating_data_directory_or_journal ... ok
+test refuses_semantic_errors_and_malformed_json ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

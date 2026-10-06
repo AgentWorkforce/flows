@@ -2057,3 +2057,18 @@ function isObject(value: unknown): value is Record<string, unknown> {
 function delay(ms: number): Promise<void> {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 }
+
+
+it('validates the canonical ladder with the built daemon without running it', () => {
+  for (const name of ['hello-deterministic', 'hello-llm', 'hello-agent']) {
+    const checked = checkFlow(join(TESTDATA, `${name}.flow.yaml`), {
+      daemonValidation: 'required',
+      daemonValidationDeps: {
+        resolveBinary: () => RELAYFLOWD,
+        run: (binary, input) => spawnSync(binary, ['validate-spec'], { input, encoding: 'utf8' }),
+      },
+    });
+    expect(checked.report.ok, JSON.stringify(checked.report)).toBe(true);
+    expect(checked.report.validation?.mode).toBe('daemon');
+  }
+});

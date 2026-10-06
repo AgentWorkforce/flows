@@ -1,3 +1,4 @@
+import type { DaemonValidationMode } from './daemon-spec-validation.js';
 import { spawn } from 'node:child_process';
 import { accessSync, constants, existsSync, readFileSync, watch, type FSWatcher } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
@@ -15,12 +16,13 @@ export async function watchCheck(
   io: CliIo,
   /** Cancellation, owned by the caller; this function installs no signal handler. */
   signal: AbortSignal,
+  daemonValidation: DaemonValidationMode = 'auto',
 ): Promise<ExitCode> {
   try {
     return await watchChecks({
       path,
       signal,
-      check: () => checkOnce(path, json, io),
+      check: () => checkOnce(path, json, io, daemonValidation),
       clear: () => { if (!json) io.stdout('\x1b[2J\x1b[H'); },
     });
   } catch (error) {
@@ -140,13 +142,13 @@ function discoverWatchPaths(path: string, imports: Map<string, string[]>): Set<s
   return paths;
 }
 
-function checkOnce(path: string, json: boolean, io: CliIo): Promise<ExitCode> {
+function checkOnce(path: string, json: boolean, io: CliIo, mode: DaemonValidationMode): Promise<ExitCode> {
   // Importing an authored TS file in this process again would return its stale
   // cached definition (including transitive imports). A fresh CLI process uses
   // precisely the same check pipeline and reporting as a one-shot invocation.
   const entry = fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? './cli.ts' : './cli.js', import.meta.url));
   return new Promise((resolveCode, reject) => {
-    const child = spawn(process.execPath, [...process.execArgv, entry, 'check', ...(json ? ['--json'] : []), path], {
+    const child = spawn(process.execPath, [...process.execArgv, entry, 'check', ...(mode === 'required' ? ['--against-daemon'] : mode === 'off' ? ['--no-daemon-check'] : []), ...(json ? ['--json'] : []), path], {
       stdio: ['ignore', 'pipe', 'pipe'],
       // Ctrl-C belongs to the watcher; let an active check finish so its report
       // and exit status remain a pair, then release all resources.

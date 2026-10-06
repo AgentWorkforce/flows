@@ -666,6 +666,7 @@ steps:
     expect(pass.code).toBe(0);
     expect(JSON.parse(pass.stdout.join('\n')) as CheckReport).toEqual({
       ok: true,
+      validation: { mode: 'local', reason: 'disabled' },
       path: passPath,
       projectConfigPath: configPath,
       gates: [{
@@ -688,6 +689,7 @@ steps:
     const report = JSON.parse(refusal.stdout.join('\n')) as CheckReport;
     expect(report).toEqual({
       ok: false,
+      validation: { mode: 'local', reason: 'not_reached' },
       path: refusalPath,
       projectConfigPath: configPath,
       gates: [{

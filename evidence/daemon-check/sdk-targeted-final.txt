@@ -1,0 +1,28 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/cli.test.ts (71 tests) 4358ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 945ms
+   ✓ flows check CLI > resolves a bare PATH-resolved claude with no declared model, in an isolated PATH 699ms
+   ✓ flows run/resume CLI over the journal protocol > follows a worker wait past a locally expired lease until the daemon settles it 1066ms
+ ✓ tests/check-daemon-validation.test.ts (20 tests) 4465ms
+   ✓ real CLI refuses skew in auto and required modes 1449ms
+   ✓ real CLI labels daemon and offline passes, including JSON 2162ms
+   ✓ real CLI refuses an invalid RELAYFLOWD_BIN in required mode 616ms
+ ✓ tests/cli-watch.test.ts (11 tests) 19871ms
+   ✓ flows check --watch > forwards required daemon validation through watch despite the offline test environment 1371ms
+   ✓ flows check --watch > rechecks syntax errors, clears once, and returns the last refusal on Ctrl-C 2275ms
+   ✓ flows check --watch > streams JSON lines without ANSI, recovers after atomic saves, and exits zero after repair 2472ms
+   ✓ flows check --watch > coalesces 20 concurrent saves into at most two rechecks 1927ms
+   ✓ flows check --watch > watches transitive relative use imports, cycles, and nearest config changes 2580ms
+   ✓ flows check --watch > refreshes the import graph and notices missing imports being created 2559ms
+   ✓ flows check --watch > reloads authored TypeScript instead of reusing the first imported definition 1902ms
+   ✓ flows check --watch > detects a nearer config appearing and falls back after it is deleted 2014ms
+   ✓ flows check --watch > keeps watching after the target is deleted and recreated 1987ms
+   ✓ flows check --watch > queues changes during a slow check without overlapping checks 779ms
+
+ Test Files  3 passed (3)
+      Tests  102 passed (102)
+   Start at  14:30:03
+   Duration  22.30s (transform 1.83s, setup 58ms, collect 6.59s, tests 28.69s, environment 0ms, prepare 196ms)
+

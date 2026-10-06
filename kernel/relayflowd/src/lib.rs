@@ -14,3 +14,5 @@ pub use engine::{
 };
 
 mod workspace;
+
+pub mod validate_spec;

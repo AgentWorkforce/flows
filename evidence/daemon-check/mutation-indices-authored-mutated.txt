@@ -1,0 +1,66 @@
+$ 'node' '/home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/node_modules/vitest/vitest.mjs' 'run' 'tests/check-daemon-validation.test.ts' '-t' 'maps authored steps following generated steps'
+cwd: /tmp/daemon-check-mutation-avim9yyh/packages/sdk
+
+ RUN  v2.1.9 /tmp/daemon-check-mutation-avim9yyh/packages/sdk
+
+ ❯ tests/check-daemon-validation.test.ts (20 tests | 1 failed | 19 skipped) 24ms
+   × maps authored steps following generated steps without blaming the compiler 23ms
+     → expected [ { severity: 'warning', …(3) }, …(2) ] to deep equally contain { severity: 'refusal', …(4) }
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/check-daemon-validation.test.ts > maps authored steps following generated steps without blaming the compiler
+AssertionError: expected [ { severity: 'warning', …(3) }, …(2) ] to deep equally contain { severity: 'refusal', …(4) }
+
+- Expected: 
+Object {
+  "errors": Array [
+    "unknown field \"nope\" at steps[2]",
+  ],
+  "kind": "invalid_spec",
+  "message": "unknown field \"nope\" at steps[2]",
+  "severity": "refusal",
+  "stepId": "second",
+}
+
++ Received: 
+Array [
+  Object {
+    "kind": "unprovable_effects",
+    "message": "Step \"first\" command \"echo\" resolves, but its effects cannot be proven before execution.",
+    "severity": "warning",
+    "stepId": "first",
+  },
+  Object {
+    "kind": "unprovable_effects",
+    "message": "Step \"second\" command \"echo\" resolves, but its effects cannot be proven before execution.",
+    "severity": "warning",
+    "stepId": "second",
+  },
+  Object {
+    "errors": Array [
+      "unknown field \"nope\" at steps[2]",
+    ],
+    "kind": "invalid_spec",
+    "message": "unknown field \"nope\" at steps[2]",
+    "severity": "refusal",
+  },
+]
+
+ ❯ tests/check-daemon-validation.test.ts:178:38
+    176|     { daemonValidation: 'required', daemonValidationDeps: deps('unknow…
+    177|   expect(checked.report.ok).toBe(false);
+    178|   expect(checked.report.diagnostics).toContainEqual({ severity: 'refus…
+       |                                      ^
+    179|     message: 'unknown field "nope" at steps[2]', errors: ['unknown fie…
+    180| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 19 skipped (20)
+   Start at  14:32:45
+   Duration  2.04s (transform 1.15s, setup 17ms, collect 1.80s, tests 24ms, environment 0ms, prepare 71ms)
+
+
+exit=1

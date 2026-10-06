@@ -1,0 +1,6 @@
+Bundled 824 modules in 64ms
+
+  authored-node.mjs  3.54 MB  (entry point)
+
+ [421ms]  bundle  779 modules
+  [25ms] compile  /tmp/flows-daemon-check

@@ -382,6 +382,20 @@ Not found → exit 2, `relayflowd_not_found`, message naming both
 
 ## 4. What changes, and what is new
 
+`flows check` does not call `ensureDaemon` or open a socket. It may invoke the
+resolved binary as `relayflowd validate-spec < spec.json`, a stateless stdin /
+JSON-stdout admission check dispatched before engine construction. It parses and
+validates like `run.start`, writes no run or journal, and leaves the data dir
+untouched. Exit 0 carries an accepting envelope; exit 2 carries an invalid-spec
+envelope. An older binary's clap exit 2 is not a verdict: consumers must validate
+the stdout envelope. The envelope reports `ok`, `protocol`, `spec_version`, and
+on refusal `error: {code: "invalid_spec", message}`.
+
+Automatic mode falls back to labelled local validation when no validator answers;
+`--against-daemon` requires a verdict and `--no-daemon-check` disables discovery.
+This judges the resolved binary, not a different build already serving a socket.
+
+
 ### New — `packages/sdk/src/daemon-lifecycle.ts`
 
 Mirrors `../relay/packages/cli/src/cli/lib/broker-lifecycle.ts` +
