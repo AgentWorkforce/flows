@@ -77,6 +77,7 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
   { verb: 'build', argv: ['build', '--verify', '--json', BUNDLE_DIR], variant: 'build' },
   { verb: 'build', argv: ['build', BUNDLE_DIR, '--verify'], variant: 'build' },
   { verb: 'check', argv: ['check', 'flow.yaml'], variant: 'check' },
+  { verb: 'check', argv: ['check', '--explain-warnings', 'flow.yaml'], variant: 'check' },
   { verb: 'check', argv: ['check', '--watch', '--json', 'flow.yaml'], variant: 'check' },
   // Both `deploy` forms: the positional decides which variant the verb produces.
   { verb: 'deploy', argv: ['deploy', DIGEST, '--to', 'file:///tmp/bucket'], variant: 'deploy' },

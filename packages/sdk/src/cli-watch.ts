@@ -11,7 +11,7 @@ type ExitCode = 0 | 1 | 2 | 3;
 /** A runner around the ordinary CLI, with a fresh module cache for every check. */
 export async function watchCheck(
   path: string,
-  json: boolean,
+  options: { json: boolean; explainWarnings: boolean },
   io: CliIo,
   /** Cancellation, owned by the caller; this function installs no signal handler. */
   signal: AbortSignal,
@@ -20,8 +20,8 @@ export async function watchCheck(
     return await watchChecks({
       path,
       signal,
-      check: () => checkOnce(path, json, io),
-      clear: () => { if (!json) io.stdout('\x1b[2J\x1b[H'); },
+      check: () => checkOnce(path, options, io),
+      clear: () => { if (!options.json) io.stdout('\x1b[2J\x1b[H'); },
     });
   } catch (error) {
     io.stderr(`REFUSED [input_unreadable] Could not watch "${path}": ${error instanceof Error ? error.message : String(error)}`);
@@ -140,13 +140,13 @@ function discoverWatchPaths(path: string, imports: Map<string, string[]>): Set<s
   return paths;
 }
 
-function checkOnce(path: string, json: boolean, io: CliIo): Promise<ExitCode> {
+function checkOnce(path: string, options: { json: boolean; explainWarnings: boolean }, io: CliIo): Promise<ExitCode> {
   // Importing an authored TS file in this process again would return its stale
   // cached definition (including transitive imports). A fresh CLI process uses
   // precisely the same check pipeline and reporting as a one-shot invocation.
   const entry = fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? './cli.ts' : './cli.js', import.meta.url));
   return new Promise((resolveCode, reject) => {
-    const child = spawn(process.execPath, [...process.execArgv, entry, 'check', ...(json ? ['--json'] : []), path], {
+    const child = spawn(process.execPath, [...process.execArgv, entry, 'check', ...(options.json ? ['--json'] : []), ...(options.explainWarnings ? ['--explain-warnings'] : []), path], {
       stdio: ['ignore', 'pipe', 'pipe'],
       // Ctrl-C belongs to the watcher; let an active check finish so its report
       // and exit status remain a pair, then release all resources.
