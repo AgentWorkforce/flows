@@ -1,0 +1,26 @@
+$ cd packages/sdk && ./node_modules/.bin/vitest run tests/check-helper-surface.test.ts tests/authored-flow-slack.test.ts tests/check-worker-surface.test.ts tests/flow-requirements.test.ts tests/preflight.test.ts tests/helpers-fanout.test.ts tests/helper-reference.test.ts tests/flow-extension-compose.test.ts
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/preflight.test.ts (70 tests) 104ms
+ ✓ tests/helper-reference.test.ts (30 tests) 34ms
+ ✓ tests/authored-flow-slack.test.ts (7 tests) 1947ms
+   ✓ authored Slack helper effects > refuses missing credentials before running the body while flows check warns 441ms
+   ✓ authored Slack helper effects > replays after SIGKILL before confirm with the same token and one successful completion 508ms
+   ✓ authored Slack helper effects > replays after SIGKILL before complete with the same token and one successful completion 496ms
+ ✓ tests/flow-requirements.test.ts (14 tests) 797ms
+   ✓ flows check prints REQUIRES > names the helper, the harness and the mcp server of an authored flow 533ms
+ ✓ tests/check-worker-surface.test.ts (11 tests) 91ms
+ ✓ tests/helpers-fanout.test.ts (96 tests) 190ms
+ ✓ tests/flow-extension-compose.test.ts (33 tests) 5949ms
+   ✓ composing flow extensions onto a base flow > composes two extensions in declaration order, and the order is the lockfile order 476ms
+   ✓ composing flow extensions onto a base flow > flows check reports the composition and keeps the composed triggers deliverable 962ms
+ ✓ tests/check-helper-surface.test.ts (16 tests) 5008ms
+   ✓ reports the declared integration once after REQUIRES and before CHECK PASSED 456ms
+   ✓ preserves requirements when compilation refuses and for named agents 3058ms
+
+ Test Files  8 passed (8)
+      Tests  277 passed (277)
+   Start at  14:16:19
+   Duration  8.95s (transform 1.61s, setup 73ms, collect 5.86s, tests 14.12s, environment 1ms, prepare 366ms)
+

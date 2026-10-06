@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -29,6 +29,24 @@ function fixture(body = "await f.slack.post('#test', 'hi');", header = '', name 
 export default flow('test', ${header} async f => { ${body} f.done('success'); });`);
   return path;
 }
+/**
+ * A shipped example, copied where `@relayflows/surface` resolves — the same
+ * staging `tests/flow-requirements.test.ts` uses. Copied rather than checked in
+ * place because `examples/` carries no `package.json`, so a checkout whose
+ * ancestry declares `"type": "commonjs"` cannot import an authored `.flow.ts`
+ * there at all; the temp copy declares its own module boundary.
+ */
+function shippedExample(name: string) {
+  const dir = mkdtempSync(join(tmpdir(), 'helper-surface-example-'));
+  directories.push(dir);
+  writeFileSync(join(dir, 'package.json'), '{"type":"module"}');
+  writeFileSync(join(dir, 'flows.json'), '{}');
+  mkdirSync(join(dir, 'node_modules/@relayflows'), { recursive: true });
+  symlinkSync(resolve('node_modules/@relayflows/surface'), join(dir, 'node_modules/@relayflows/surface'));
+  const path = join(dir, `${name}.flow.ts`);
+  copyFileSync(resolve('../../examples', name, `${name}.flow.ts`), path);
+  return path;
+}
 async function check(path: string, json = false, verb = 'check') {
   const lines: string[] = [];
   const stdout: string[] = [];
@@ -57,6 +75,17 @@ it('reports the declared integration once after REQUIRES and before CHECK PASSED
   expect(warning).toBeGreaterThan(requires);
   expect(passed).toBeGreaterThan(warning);
   expect(result.stderr.filter(line => line.includes('[helper_credential_unresolved]'))).toHaveLength(1);
+});
+it('answers the shipped Cloud-bound stale-issues example instead of refusing it', async () => {
+  // The reported defect, on the artifact it was reported against: with no local
+  // Slack mount this exited 2 on [helper_slack.credential_missing] and never
+  // reached REQUIRES. `flows schedule` / `flows deploy` check Slack as a
+  // workspace integration at submit, so inspection has to answer, not refuse.
+  const result = await check(shippedExample('stale-issues'));
+  expect(result.stderr.filter(line => line.startsWith('REFUSED'))).toEqual([]);
+  expect(result.exit).toBe(0);
+  expect(result.stdout).toContain('REQUIRES slack (tools.slack), claude (llm step)');
+  expect(result.lines.filter(line => line.includes('[helper_credential_unresolved]'))).toHaveLength(1);
 });
 it('emits one diagnostic in JSON and stderr with integration requirements', async () => {
   const result = await check(fixture('', '{ tools: { slack: true } },'), true);
