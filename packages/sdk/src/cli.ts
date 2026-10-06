@@ -445,7 +445,8 @@ export async function runCli(
  * aspects' coverage.
  */
 async function checkAuthoredFlowComposed(path: string): Promise<{ report: CheckReport }> {
-  const helper = await checkHelperBody(path);
+  const invocation = { warnUnresolvedHelperCredential: true };
+  const helper = await checkHelperBody(path, invocation);
   if (!helper.report.ok) return helper;
   // The activity checker loads the TypeScript compiler. YAML checks and
   // unrelated CLI commands should not pay that startup cost on every run.
@@ -454,9 +455,11 @@ async function checkAuthoredFlowComposed(path: string): Promise<{ report: CheckR
   if (!activities.report.ok) return activities;
   const mcp = await checkTypeScriptFlow(path);
   const triggers = isAuthoredFlowPath(path)
-    ? await checkAuthoredTriggers(path)
+    ? await checkAuthoredTriggers(path, invocation)
     : undefined;
   const triggerDiagnostics = triggers?.report.diagnostics ?? [];
+  // The trigger leg already includes the same helper diagnostics.
+  const helperDiagnostics = triggers === undefined ? helper.report.diagnostics : [];
   const triggerOk = triggers?.report.ok ?? true;
   return {
     report: {
@@ -467,7 +470,7 @@ async function checkAuthoredFlowComposed(path: string): Promise<{ report: CheckR
       // The authored definition sees helper flags, body use and `cli:`
       // declarations; the compiled view underneath knows only its steps.
       ...(triggers?.report.requirements === undefined ? {} : { requirements: triggers.report.requirements }),
-      diagnostics: [...helper.report.diagnostics, ...activities.report.diagnostics, ...mcp.report.diagnostics, ...triggerDiagnostics],
+      diagnostics: [...helperDiagnostics, ...activities.report.diagnostics, ...mcp.report.diagnostics, ...triggerDiagnostics],
       ok: helper.report.ok && activities.report.ok && mcp.report.ok && triggerOk,
     },
   };
@@ -1034,15 +1037,12 @@ function parseTickArgs(rest: readonly string[]): ParsedArgs | undefined {
 }
 
 /**
- * `agent_worker_unresolved` reads as a footnote to `REQUIRES codex (step
- * "implement"), …`: that line already names the steps that need an agent
- * worker, and this says what has to be true for one to be attached. So the
- * plain-text pass holds it back and emits it in that position, exactly once —
- * the leading batch below skips it rather than printing it twice. JSON mode
- * returns before any of this and keeps the single ordered diagnostics array.
+ * Worker and helper warnings annotate REQUIRES. Hold them back until that
+ * line, then emit each once. JSON keeps the single diagnostics array.
  */
-function isWorkerSurfaceWarning(diagnostic: CheckReport['diagnostics'][number]): boolean {
-  return diagnostic.kind === 'agent_worker_unresolved';
+function isRequiresFootnote(diagnostic: CheckReport['diagnostics'][number]): boolean {
+  return diagnostic.kind === 'agent_worker_unresolved'
+    || diagnostic.kind === 'helper_credential_unresolved';
 }
 
 const MODEL_PROVENANCE: Readonly<Record<CliModelSource, string>> = {
@@ -1062,8 +1062,8 @@ function emitCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
     io.stdout(JSON.stringify(report));
     return;
   }
-  const deferred = report.diagnostics.filter(isWorkerSurfaceWarning);
-  emitDiagnostics(report.diagnostics.filter((diagnostic) => !isWorkerSurfaceWarning(diagnostic)), io);
+  const deferred = report.diagnostics.filter(isRequiresFootnote);
+  emitDiagnostics(report.diagnostics.filter((diagnostic) => !isRequiresFootnote(diagnostic)), io);
   for (const gate of report.gates) {
     // A gate that accepts every output is legal, but it must not read like a
     // gate that judges something.

@@ -125,6 +125,8 @@ type CliProbeOutcomeMap = Map<string, CliProbeOutcome>;
  * anything that depends on how the flow is about to be invoked opts in here.
  */
 export interface CheckInvocation {
+  /** Only flows check opts into reporting missing local helper mounts as warnings. */
+  warnUnresolvedHelperCredential?: boolean;
   /** Environment used only by provider executable/auth/model probes. */
   environment?: NodeJS.ProcessEnv;
   /**

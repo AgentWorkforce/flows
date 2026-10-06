@@ -32,7 +32,9 @@ export function preflightHelpers(
       diagnostics.push({ severity: 'refusal',
         kind: provider === 'slack' ? (fact.token?.trim() ? 'helper_slack.mount_required' : 'helper_slack.credential_missing') : 'helper_provider.mount_required',
         message: `f.${namespace} requires a relayfile ${provider} mount; direct-token transport is not implemented.` });
-    } else if (provider === 'notion' && !fact.mock && /\.\s*appendBlock\b/.test(body)) {
+    }
+    // Missing local mounts must not hide an operation unsupported on Cloud too.
+    if (supported && provider === 'notion' && !fact.mock && /\.\s*appendBlock\b/.test(body)) {
       diagnostics.push({ severity: 'refusal', kind: 'helper_provider.unsupported',
         message: 'f.notion.appendBlock is mock-only: the Notion adapter has no append-block writeback route.' });
     }

@@ -16,9 +16,11 @@ export default flow('notify', async f => {
 ```
 
 Provide a relayfile mount with a `slack/` directory.
-`flows check notify.flow.ts` refuses visible Slack calls when neither a mount
-nor a bot token is available, with `REFUSED [helper_slack.credential_missing]`
-and exit status 2.
+`flows check notify.flow.ts` reports Slack under `REQUIRES` and warns
+`helper_credential_unresolved` when no local mount is available.
+Local `flows run` still refuses with `helper_slack.credential_missing` and
+exit status 2 before executing the body. `flows schedule`, `flows deploy`,
+and `flows run --cloud` check the workspace integration at submit.
 Direct bot-token transport is deferred: a token without a mount is refused
 as `helper_slack.mount_required`, before running the body. A header can declare
 `tools: { slack: true }` for calls hidden behind another
