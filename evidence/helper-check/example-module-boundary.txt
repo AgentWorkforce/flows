@@ -1,0 +1,9 @@
+$ python3 evidence/helper-check/example.py
+$ env -u SLACK_BOT_TOKEN -u RELAYFLOWS_SLACK_MOCK -u RELAYFILE_MOUNT_PATH -u WORKSPACE_ROOT -u WORKFORCE_SANDBOX_ROOT -u RELAYFILE_MOUNT_ROOT -u RELAYFILE_ROOT node packages/sdk/dist/cli.js check examples/stale-issues/stale-issues.flow.ts
+REQUIRES slack (tools.slack), claude (llm step)
+WARNING [helper_credential_unresolved] f.slack needs a slack mount, which is not available locally. flows schedule / flows deploy / flows run --cloud check the integration against your workspace at submit and refuse if Cloud cannot connect it. A local flows run needs a relayfile slack mount (a slack/ directory under RELAYFILE_MOUNT_PATH) or RELAYFLOWS_SLACK_MOCK=1, and refuses with [helper_slack.credential_missing] without one.
+CHECK PASSED examples/stale-issues/stale-issues.flow.ts
+exit=0
+$ env -u SLACK_BOT_TOKEN -u RELAYFLOWS_SLACK_MOCK -u RELAYFILE_MOUNT_PATH -u WORKSPACE_ROOT -u WORKFORCE_SANDBOX_ROOT -u RELAYFILE_MOUNT_ROOT -u RELAYFILE_ROOT node packages/sdk/dist/cli.js run examples/stale-issues/stale-issues.flow.ts --input '{"repo":"acme/api","channel":"#eng"}'
+REFUSED [helper_slack.credential_missing] f.slack requires a relayfile slack mount; direct-token transport is not implemented.
+exit=2

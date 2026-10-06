@@ -5,6 +5,7 @@ import { accessSync, constants, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, parse as parsePath, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { CompileError, compileSpec, kernelToAuthoring } from '../compile.js';
+import { helperCredentialDiagnostics } from './check-helper-surface.js';
 import { agentWorkerDiagnostics } from './check-worker-surface.js';
 import { helperReady } from '../yaml-helper-effect.js';
 import { flowRequirements, type FlowRequirements } from '../flow-requirements.js';
@@ -181,7 +182,10 @@ export function checkFlow(path: string, invocation: CheckInvocation = {}): Check
 /** Requirements never turn a preflight refusal into an unrelated exception. */
 function safeRequirements(authoring: FlowSpec, projectCli: string | undefined): FlowRequirements | undefined {
   try {
-    return flowRequirements(authoring, projectCli === undefined ? {} : { projectCli });
+    let requirementsSpec = authoring;
+    try { requirementsSpec = compileSpec(authoring); }
+    catch { /* Preserve requirements from invalid authoring; preflight owns its refusal. */ }
+    return flowRequirements(requirementsSpec, projectCli === undefined ? {} : { projectCli });
   } catch {
     return undefined;
   }
@@ -248,14 +252,16 @@ export function checkAuthoredFlow(
     const workerSurface = invocation.warnUnresolvedAgentWorker === true
       ? agentWorkerDiagnostics(authoring)
       : [];
+    const diagnostics = invocation.warnUnresolvedHelperCredential === true
+      ? helperCredentialDiagnostics(result.diagnostics).diagnostics : result.diagnostics;
     return {
       report: {
-        ok: result.ok,
+        ok: !diagnostics.some(diagnostic => diagnostic.severity === 'refusal'),
         path,
         ...(config.path !== undefined ? { projectConfigPath: config.path } : {}),
         gates: result.gates,
         resolutions: result.resolutions,
-        diagnostics: [...result.diagnostics, ...workerSurface],
+        diagnostics: [...diagnostics, ...workerSurface],
         requirements: safeRequirements(authoring, config.cli),
       },
       ...(result.ok && flow !== undefined ? { flow } : {}),

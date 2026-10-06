@@ -1,0 +1,13 @@
+$ npx vitest run tests/check-helper-surface.test.ts -t still refuses unsupported notion
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/check-helper-surface.test.ts (11 tests | 10 skipped) 90ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 10 skipped (11)
+   Start at  13:39:14
+   Duration  2.16s (transform 1.23s, setup 20ms, collect 1.87s, tests 90ms, environment 0ms, prepare 50ms)
+
+
+exit=0

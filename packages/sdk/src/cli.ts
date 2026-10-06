@@ -302,7 +302,7 @@ export async function runCli(
     // without compiling steps, so it has no agent steps to count.
     const checked = /\.(?:[cm]?[jt]s)$/.test(parsed.value)
       ? await checkAuthoredFlowComposed(parsed.value)
-      : checkFlow(parsed.value, { warnUnresolvedAgentWorker: true });
+      : checkFlow(parsed.value, { warnUnresolvedAgentWorker: true, warnUnresolvedHelperCredential: true });
     emitCheckReport(checked.report, parsed.json, io);
     return checked.report.ok ? 0 : 2;
   }

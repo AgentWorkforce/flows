@@ -33,7 +33,7 @@ async function check(path: string, json = false, verb = 'check') {
   const lines: string[] = [];
   const stdout: string[] = [];
   const stderr: string[] = [];
-  const exit = await runCli([verb, ...(json ? ['--json'] : []), path, ...(verb === 'run' ? ['--input', '{}'] : [])], {
+  const exit = await runCli([verb, ...(json ? ['--json'] : []), path, ...(verb === 'run' && path.endsWith('.flow.ts') ? ['--input', '{}'] : [])], {
     stdout: line => { stdout.push(line); lines.push(line); },
     stderr: line => { stderr.push(line); lines.push(line); },
   });
@@ -110,4 +110,64 @@ it('warns once for a token without a mount and names the strict refusal', async 
   const result = await check(fixture());
   expect(result.exit).toBe(0);
   expect(result.stderr.join('\n')).toContain('[helper_slack.mount_required]');
+});
+
+function yamlFixture() {
+  const path = join(dirname(fixture()), 'notify.yaml');
+  writeFileSync(path, `version: '0.1.0'
+name: notify
+steps:
+  - id: notify
+    slack:
+      post: { channel: '#test', text: hi }
+`);
+  return path;
+}
+it('YAML reports both footnotes once after REQUIRES and before CHECK PASSED', async () => {
+  const result = await check(yamlFixture());
+  expect(result.exit).toBe(0);
+  const requires = result.lines.findIndex(line => line.includes('REQUIRES slack (step "notify")'));
+  const passed = result.lines.findIndex(line => line.includes('CHECK PASSED'));
+  expect(requires).toBeGreaterThanOrEqual(0);
+  for (const kind of ['helper_credential_unresolved', 'agent_worker_unresolved']) {
+    const matches = result.lines.flatMap((line, index) => line.includes(`[${kind}]`) ? [index] : []);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]).toBeGreaterThan(requires);
+    expect(matches[0]).toBeLessThan(passed);
+  }
+});
+it('YAML local run still refuses a missing mount', async () => {
+  const result = await check(yamlFixture(), false, 'run');
+  expect(result.exit).toBe(2);
+  expect(result.stderr.join('\n')).toContain('[helper_mount_required]');
+});
+it('YAML with a mount reports the integration without a credential warning or harness', async () => {
+  const path = yamlFixture();
+  mkdirSync(join(dirname(path), 'slack'));
+  vi.stubEnv('RELAYFILE_MOUNT_PATH', dirname(path));
+  const result = await check(path, true);
+  expect(result.exit).toBe(0);
+  const report = JSON.parse(result.stdout.join(''));
+  expect(report.requirements.integrations).toContainEqual(expect.objectContaining({ provider: 'slack' }));
+  expect(report.requirements.harnessUses).toEqual([]);
+  expect(report.diagnostics.some((d: { kind: string }) => d.kind === 'helper_credential_unresolved')).toBe(false);
+});
+
+it('preserves requirements when compilation refuses and for named agents', async () => {
+  const path = yamlFixture();
+  for (const extra of ['', "use: ['./missing.yaml']\n"]) {
+    writeFileSync(path, `version: '0.1.0'
+name: named
+${extra}agents:
+  reviewer: { cli: codex, model: gpt-5 }
+steps:
+  - id: review
+    type: agent
+    agent: reviewer
+    instruction: Review
+`);
+    const result = await check(path, true);
+    const report = JSON.parse(result.stdout.join(''));
+    expect(report.requirements.harnessUses).toContainEqual({ harness: 'codex', detail: 'step "review"' });
+  }
 });
