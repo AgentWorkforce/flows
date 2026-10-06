@@ -1,0 +1,8 @@
+Working directory (relative to repository): .
+Command: npm run build --prefix packages/sdk
+Exit code: 0
+Captured stdout/stderr follows:
+
+> @relayflows/sdk@2.0.42 build
+> tsc && node scripts/make-cli-executable.mjs
+

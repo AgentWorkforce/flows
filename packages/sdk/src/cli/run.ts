@@ -379,6 +379,7 @@ export async function resumeFlow(
       await client.runWatch(runId).catch(() => client.off('entry', onEntry));
     }
     let outcome = await client.runResume(runId, options.allowHumanInfluenced);
+    options.onRunReceipt?.({ runId, flow: 'flow' });
     if (await resumeHelperEffect(client, runId, dataDir)) {
       outcome = await client.runResume(runId, options.allowHumanInfluenced);
     }

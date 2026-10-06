@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { startDetachedRun, emitDetachedHandle } from './cli/detached-run.js';
+import { takeDetachedReceipt, type DetachedReceipt } from './cli/detached-record.js';
 import { withSubscriptionMetadata } from './cli/subscription-report.js';
 import { addPlugin } from './cli/add.js';
 import { parsePluginArgs, runPluginCommand, type PluginArgs } from './cli/plugin.js';
@@ -104,8 +106,8 @@ export type ParsedArgs =
   | { command: 'schedules'; json: boolean }
   | { command: 'unschedule'; scheduleId: string; json: boolean }
   | { command: 'check'; json: boolean; watch: boolean; value: string }
-  | { command: 'run'; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; cloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
-  | { command: 'resume'; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; cloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
+  | { command: 'run'; detach?: boolean; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; cloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
+  | { command: 'resume'; detach?: boolean; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; cloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
   | { command: 'answer'; dataDir: string; json: boolean; spawn: boolean; note: string | undefined; by: string | undefined; runId: string; waitId: string; answer: boolean }
   | RunsArgs
   | LogsArgs
@@ -135,16 +137,16 @@ const USAGE = [
   'flows schedules [--json]',
   'flows unschedule [--json] <schedule-id>',
   'flows deploy <flow>@sha256:<digest> --to <file-bucket-uri>',
-  'flows run <flow>@sha256:<digest> [--bucket <file-bucket-uri>] [--data-dir <dir>] [--json]',
+  'flows run <flow>@sha256:<digest> [--bucket <file-bucket-uri>] [--data-dir <dir>] [--json] [--detach]',
   'flows check [--watch] [--json] <flow.ts|flow.yaml|spec.json>',
   'flows serve-webhook --data-dir <dir> --port <p> [--allow <name>[,<name>]]',
-  'flows run [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] [--reuse-from <run-id>] <flow.yaml|spec.json>',
+  'flows run [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--detach] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] [--reuse-from <run-id>] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] [--sync-code] [--no-connect] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] [--sync-code] [--no-connect] <flow.ts> --input <inline-json-or-file>',
   'flows sync [--json] [--dry-run] [--dir <path>] <run-id>',
-  'flows run [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <flow.ts> --input <inline-json-or-file>',
+  'flows run [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--detach] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
-  'flows resume [--allow-human-influenced] [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <run-id>',
+  'flows resume [--allow-human-influenced] [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--detach] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <run-id>',
   'flows answer [--json] [--no-spawn] [--data-dir <dir>] [--note <text>] [--by <identity>] <run-id> <wait-id> <yes|no>',
   'flows replay [--allow-human-influenced] [--json] [--data-dir <dir>] <run-id> [--at <step-id>]',
   'flows status [--json] [--data-dir <dir>] [--tail <n>] [<run-id>]',
@@ -173,6 +175,8 @@ const PROCESS_IO: CliIo = {
 
 /** Optional knobs for an embedded caller. `bin/flows.js` passes none. */
 export interface RunCliOptions {
+  /** Internal standalone child receipt; absent in ordinary embedded invocations. */
+  detachedReceipt?: DetachedReceipt;
   /**
    * Version to print for a self-contained executable that cannot read the
    * installed package manifest. Normal package entrypoints leave this unset.
@@ -234,6 +238,16 @@ export async function runCli(
     const report = inputFailureReport({ kind: 'invalid_invocation', message: USAGE });
     emitCheckReport(report, args.includes('--json'), io);
     return 2;
+  }
+
+  if ((parsed.command === 'run' || parsed.command === 'resume') && parsed.detach) {
+    const result = await startDetachedRun(args, parsed);
+    if ('execution' in result) {
+      emitRunReport(result.execution, parsed.json, io);
+      return result.execution.exitCode;
+    }
+    emitDetachedHandle(result.handle, parsed.json, io);
+    return 0;
   }
 
   if (parsed.command === 'add') return addPlugin(parsed.value, io);
@@ -338,7 +352,9 @@ export async function runCli(
   // not here. Hoisting it above the dispatch would start a daemon as a side
   // effect of an invocation that is about to be refused for bad input.
   const startedSteps = new Map<string, number>();
-  const observer = parsed.noObserverLink ? undefined : createObserverSession(parsed.command, io);
+  const observer = parsed.noObserverLink ? undefined : createObserverSession(parsed.command, io, process.env, {
+    onObserverUrl: url => options.detachedReceipt?.observerUrl(url),
+  });
   const runnerLog: string[] = [];
   // Opt-in, unlike the observer link beside it. The observer is the default
   // way to watch a local run: it is free, it needs only a workspace key, and
@@ -380,17 +396,25 @@ export async function runCli(
     localAgent: parsed.localAgent,
     ...(parsed.agentCapacity === undefined ? {} : { agentCapacity: parsed.agentCapacity }),
     onProgress: showProgress,
-    ...(observer === undefined && mirror === undefined ? {} : {
+    ...(observer === undefined && mirror === undefined && options.detachedReceipt === undefined ? {} : {
       onJournalEntry: (entry: JournalEvent) => {
+        // Resume's watch replays history before admission; it is not a receipt.
+        if (parsed.command === 'run' && entry.entry_type === 'run.spawned') {
+          options.detachedReceipt?.started({ runId: entry.run_id });
+        }
         observer?.onJournalEntry(entry);
         mirror?.onJournalEntry(entry);
       },
       onRunStarted: (run: { runId: string; flow: string; resumed?: boolean }) => {
+        options.detachedReceipt?.started(run);
         observer?.onRunStarted(run);
         mirror?.onRunStarted(run);
       },
-      ...(mirror === undefined ? {} : {
-        onRunReceipt: (run: { runId: string }) => { mirror.onRunStarted(run); },
+      ...(mirror === undefined && options.detachedReceipt === undefined ? {} : {
+        onRunReceipt: (run: { runId: string }) => {
+          options.detachedReceipt?.started(run);
+          mirror?.onRunStarted(run);
+        },
       }),
     }),
     onWait: (progress: RunProgress) => {
@@ -407,6 +431,7 @@ export async function runCli(
       ? await runDirectFlow(parsed.value, parsed.input, parsed.dataDir, lifecycle)
       : await runFlow(parsed.value, parsed.dataDir, lifecycle)
     : await resumeFlow(parsed.value, parsed.dataDir, lifecycle);
+  options.detachedReceipt?.finished(execution);
   // The link is scoped to the run's channel, so it exists only once the run
   // does. `finish` drains the projection and settles the mint, both bounded;
   // it never rejects (see `createObserverSession`).
@@ -666,6 +691,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   let syncCode = false;
   let noConnect = false;
   let localAgent = false;
+  let detach = false;
   let agentCapacity: number | undefined;
   let allowHumanInfluenced = false;
   let dataDir = DEFAULT_DATA_DIR;
@@ -687,6 +713,11 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
       else if (argument === '--wait') wait = true;
       else if (argument === '--sync-code') syncCode = true;
       else noConnect = true;
+      continue;
+    }
+    if (argument === '--detach') {
+      if (command === 'check' || detach) return undefined;
+      detach = true;
       continue;
     }
     if (argument === '--allow-human-influenced') {
@@ -782,7 +813,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
     // observer-link opt-out -- describes nothing there and is refused rather
     // than ignored. `--input` is the authored body's argument and travels with
     // the source, so it is accepted exactly where a local run accepts it.
-    if (allowHumanInfluenced || sawDataDir || !spawn || localAgent || noObserverLink || cloudMirror
+    if (detach || allowHumanInfluenced || sawDataDir || !spawn || localAgent || noObserverLink || cloudMirror
       || reuseFromRunId !== undefined) return undefined;
     if (sawInput && !isAuthoredFlowPath(positionals[0]!)) return undefined;
     return { command: 'cloud-run', value: positionals[0]!, json, wait, input, syncCode, noConnect };
@@ -794,8 +825,8 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   return command === 'check'
     ? { command, json, watch, value: positionals[0]! }
     : command === 'run'
-      ? { command, bucket, reuseFromRunId, localAgent, agentCapacity, dataDir, input, json, spawn, noObserverLink, cloudMirror, allowHumanInfluenced, value: positionals[0]! }
-      : { command, localAgent, agentCapacity, dataDir, json, spawn, noObserverLink, cloudMirror, allowHumanInfluenced, value: positionals[0]! };
+      ? { command, ...(detach ? { detach } : {}), bucket, reuseFromRunId, localAgent, agentCapacity, dataDir, input, json, spawn, noObserverLink, cloudMirror, allowHumanInfluenced, value: positionals[0]! }
+      : { command, ...(detach ? { detach } : {}), localAgent, agentCapacity, dataDir, json, spawn, noObserverLink, cloudMirror, allowHumanInfluenced, value: positionals[0]! };
 }
 
 /**
@@ -1199,7 +1230,8 @@ function isDirectInvocation(entryPath: string | undefined): boolean {
 }
 
 if (isDirectInvocation(process.argv[1])) {
-  void runCli(process.argv.slice(2)).then((exitCode) => {
+  const detachedReceipt = takeDetachedReceipt();
+  void runCli(process.argv.slice(2), PROCESS_IO, { detachedReceipt }).then((exitCode) => {
     process.exitCode = exitCode;
   });
 }
