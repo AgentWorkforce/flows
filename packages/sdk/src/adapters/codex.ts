@@ -38,7 +38,12 @@ export const codexAdapter: HeadlessAdapter = {
   buildAgentInvocation(instruction: string, model?: string): CliInvocation {
     return {
       args: [
-        'exec', '--ephemeral', '--skip-git-repo-check',
+        // Real steps must retain Codex's native session under CODEX_HOME (or
+        // ~/.codex). Hosted Relayflow teardown captures that provider history
+        // and uploads it to Relayhistory; --ephemeral silently leaves nothing
+        // for the bounded flush to capture. Readiness probes above stay
+        // ephemeral because they are diagnostics, not workflow steps.
+        'exec', '--skip-git-repo-check',
         // Agent-mode is where the flow explicitly delegates code changes to
         // the CLI. Without this flag codex prompts for approval on every
         // write, gets nothing (no TTY), and completes "successfully" without
@@ -54,7 +59,7 @@ export const codexAdapter: HeadlessAdapter = {
 
   buildLlmInvocation(prompt: string, model?: string): CliInvocation {
     return {
-      args: ['exec', '--ephemeral', '--sandbox', 'read-only', '--skip-git-repo-check',
+      args: ['exec', '--sandbox', 'read-only', '--skip-git-repo-check',
         ...(model === undefined ? [] : ['--model', model]), prompt],
       timeoutMs: 0,
     };
