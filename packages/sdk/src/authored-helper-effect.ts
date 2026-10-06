@@ -1,3 +1,4 @@
+import { helperPendingDiagnostic } from './helper-receipt.js';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -10,7 +11,7 @@ import { SPEC_SCHEMA_VERSION, type KernelAgentStep } from './spec.js';
 import type { StepDispatchEvent } from './protocol.js';
 import { withWorkerLease } from './worker-lease.js';
 import { helperProviders, type HelperCall } from '@relayflows/surface/runtime';
-import { helperWriteback, HelperDeliveryError } from './helper-writeback.js';
+import { helperWriteback, HelperDeliveryError, HelperWritebackPendingError } from './helper-writeback.js';
 import { checkSlackHelpers } from './slack-preflight.js';
 import { atomicJson, readSlackReceipt, receiptPath, slackWriteback, type SlackCall } from './slack-writeback.js';
 import { authoredChildAdmissionKey } from './authored-admission.js';
@@ -49,7 +50,14 @@ export async function runHelperEffect(
   const outcome = await journal.runStart(spec, undefined, admissionKey);
   await atomicJson(join(dataDir, 'helper-runs', `${outcome.run_id}.json`), { provider: call.provider });
   await driveHelperEffect(journal, outcome.run_id, spec.steps[0] as KernelAgentStep, call, dataDir);
-  const output = await readCompletedStepOutput(journal, outcome.run_id, stepId, journalSteps);
+  const output = await readCompletedStepOutput(journal, outcome.run_id, stepId, journalSteps).catch(error => {
+    const diagnostic = error instanceof AuthoredFlowExecutionError ? helperPendingDiagnostic(error.details?.detail) : undefined;
+    if (error instanceof AuthoredFlowExecutionError && diagnostic) {
+      throw new AuthoredFlowExecutionError('helper_writeback_pending', diagnostic.replace(/^helper_writeback_pending: /, ''),
+        error.completionReason, error.runId, error.details);
+    }
+    throw error;
+  });
   return (output as { receipt: unknown }).receipt;
 }
 
@@ -97,7 +105,7 @@ async function driveHelperEffect(
     const outcome = await journal.runResume(runId);
     if (outcome.status === 'completed') return;
     if (outcome.status === 'failed') {
-      throw new AuthoredFlowExecutionError('step_failed', `Helper run ${runId} ${outcome.status}`, undefined, runId);
+      return; // Read the terminal journal below, including its pending-write diagnostic.
     }
     await completed;
   } catch (error) {
@@ -135,8 +143,11 @@ async function completeHelperDispatch(client: JournalClient, dispatch: StepDispa
     if (!(error instanceof HelperDeliveryError)) throw error;
     await client.stepComplete(dispatch.run_id, dispatch.step_id, dispatch.attempt,
       dispatch.idempotency_key, 'worker_error', {
-        output: { ...call, diagnostic: error.message },
-        started_pins: dispatch.pins, end_pins: dispatch.pins, effects: [], reported_cost: NO_MODEL_COST,
+        output: error instanceof HelperWritebackPendingError
+          ? { code: error.code, diagnostic: error.message, writeId: error.writeId }
+          : { ...call, diagnostic: error.message },
+        started_pins: dispatch.pins, end_pins: dispatch.pins,
+        effects: [{ surface_path: `/${call.provider}`, idempotency_key: dispatch.idempotency_key }], reported_cost: NO_MODEL_COST,
       });
     return;
   }

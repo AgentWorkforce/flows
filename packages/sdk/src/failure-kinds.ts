@@ -150,6 +150,8 @@ export const RUN_FAILURE_KINDS = [
    * completed steps are journaled and `flows resume <rootRunId>` continues it.
    */
   'root_lease_lost',
+  /** The mount accepted a helper write, but its receipt budget expired (terminal). */
+  'helper_writeback_pending',
 ] as const;
 
 /**

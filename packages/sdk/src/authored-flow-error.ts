@@ -36,6 +36,8 @@ export type AuthoredFlowExecutionErrorCode =
    * journaled and `flows resume <rootRunId>` continues it.
    */
   | 'root_lease_lost'
+  /** The mount accepted a helper write, but its receipt budget expired (terminal). */
+  | 'helper_writeback_pending'
   | 'unsupported_completion'
   | 'unsupported_gate'
   | 'gate_failed'

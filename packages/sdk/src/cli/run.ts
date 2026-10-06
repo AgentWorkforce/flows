@@ -1,3 +1,4 @@
+import { helperPendingDiagnostic } from '../helper-receipt.js';
 import { onWorkerFailure } from '../worker-lease.js';
 import { communicationInstruction } from '../communication/spec.js';
 import { checkCommunicationEnvironment, CommunicationEnvironmentError } from '../communication/preflight.js';
@@ -307,6 +308,14 @@ export async function resumeFlow(
     authoredRoot = await readAuthoredRootMetadata(client, runId);
     if (authoredRoot !== undefined) {
       base.rootRunId = runId;
+      const snapshot = await client.runGet(runId);
+      if (snapshot.status === 'failed') {
+        const details = await stepFailureDetails(client, runId);
+        const diagnostic = helperPendingDiagnostic(details?.detail);
+        if (diagnostic) return helperWritebackPendingReport('resume', base, socketPath,
+          new AuthoredFlowExecutionError('helper_writeback_pending', diagnostic,
+            'worker_error', runId, details), runId);
+      }
       // Both worker-surface mismatches are refusals, not protocol failures.
       // They used to throw bare `Error`s, which landed on `protocol_error`
       // ("RUN <id> unknown") and told nobody what to do instead; and the
@@ -407,6 +416,9 @@ export async function resumeFlow(
     // `RUN <id> unknown` for the identical failure.
     if (error instanceof AuthoredFlowExecutionError && (error.code === 'step_failed' || error.code === 'gate_failed')) {
       return authoredStepFailure('resume', base, socketPath, error, runId);
+    }
+    if (error instanceof AuthoredFlowExecutionError && error.code === 'helper_writeback_pending') {
+      return helperWritebackPendingReport('resume', base, socketPath, error, runId);
     }
     if (error instanceof AuthoredFlowExecutionError && error.code === 'root_lease_lost') {
       return rootLeaseLostReport('resume', base, socketPath, error, runId);
@@ -555,6 +567,18 @@ export function rootLeaseLostReport(
       }],
     },
   };
+}
+
+/** Accepted provider writes are terminal pending, never a suggestion to re-post. */
+export function helperWritebackPendingReport(
+  command: RunCommand, base: CheckReport | RunReport, socketPath: string,
+  error: AuthoredFlowExecutionError, fallbackRunId?: string,
+): RunExecution {
+  const result = authoredStepFailure(command, base, socketPath, error, fallbackRunId);
+  const diagnostic = result.report.diagnostics[result.report.diagnostics.length - 1]!;
+  diagnostic.kind = 'helper_writeback_pending';
+  diagnostic.message = error.message.replace(/^helper_writeback_pending: /, '');
+  return result;
 }
 
 export function authoredStepFailure(
@@ -940,6 +964,7 @@ export async function classifyOutcome(
       if (details !== undefined) {
         Object.assign(diagnostic, details);
         diagnostic.message += renderStepEvidence(details);
+        if (helperPendingDiagnostic(details.detail)) diagnostic.kind = 'helper_writeback_pending';
       }
       // Appended whatever the inspection found — including nothing. A failure
       // shape this reader does not recognise, or a journal it could not read,

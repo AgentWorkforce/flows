@@ -55,3 +55,11 @@ its stable idempotency key, and `receipt`. As with TS Slack, receipts are saved
 before effect confirmation, allowing unfinished attempts to recover without
 repeating a confirmed provider write. Keep the worker's data directory across
 restarts.
+
+Mount receipt waits default to 60 seconds; configure a positive millisecond
+`RELAYFLOW_HELPER_RECEIPT_TIMEOUT_MS` in the helper process before the run.
+Accepted drafts are recorded durably: crash/lease-loss recovery waits on the
+same write without re-posting. At budget exhaustion, `helper_writeback_pending`
+names the write; the journal reason remains terminal `worker_error`. Resume
+cannot continue a budget-exhausted run, and a new run may post again. See
+[helper runtime receipt limits](HELPERS-RUNTIME.md) for Cloud configuration limits.

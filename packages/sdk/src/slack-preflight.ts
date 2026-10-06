@@ -1,3 +1,4 @@
+import { helperReceiptTimeoutMs } from './helper-receipt.js';
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { helperProviders } from '@relayflows/surface/runtime';
@@ -14,12 +15,19 @@ export function providerMount(provider: string, env: NodeJS.ProcessEnv = process
 export const slackMount = (env: NodeJS.ProcessEnv = process.env) => providerMount('slack', env);
 
 export function checkProviderHelpers(definition: Parameters<typeof preflightHelpers>[0]) {
-  return preflightHelpers(definition, {
+  const report = preflightHelpers(definition, {
     providers: Object.fromEntries(helperProviders.map(p => [p.provider, {
       mount: providerMount(p.provider) !== undefined,
       mock: process.env[p.mockEnv] === '1',
       token: p.provider === 'slack' ? process.env.SLACK_BOT_TOKEN : undefined,
     }])),
   });
+  try { helperReceiptTimeoutMs(); }
+  catch (error) {
+    report.ok = false;
+    report.diagnostics.unshift({ severity: 'refusal', kind: 'budget_syntax_invalid',
+      message: (error as Error).message });
+  }
+  return report;
 }
 export const checkSlackHelpers = checkProviderHelpers;

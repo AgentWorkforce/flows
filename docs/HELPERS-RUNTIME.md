@@ -31,9 +31,26 @@ mock lists return an empty array. These are test responses, not provider data.
 Writes use `(run id, step id)` as the writeback idempotency key. Collection
 paths receive stable draft filenames; item paths remain canonical. Delivery
 must be confirmed before the receipt is persisted and the journal effect is
-confirmed. Resume recovers the receipt, and repeats only an unconfirmed effect
-using its original key. Provider failures complete with `worker_error`;
-journal and receipt-storage failures fail closed.
+confirmed. Accepted writes are recorded before waiting; an attempt re-dispatched
+after a crash or lease loss waits on that same draft instead of writing again.
+The daemon must replace the draft with its receipt in place. Retain the whole
+data directory, including accepted records, across restarts.
+
+Mount receipts have a 60-second default budget. Set
+`RELAYFLOW_HELPER_RECEIPT_TIMEOUT_MS` to a positive integer (milliseconds) in the
+helper process environment before starting a run; malformed values are refused
+at preflight. For example, `600000` allows ten minutes on local/self-hosted
+workers. Cloud environment passthrough is not established here; 60 seconds does
+not cover the reported eight-minute flush stall.
+
+Budget exhaustion reports `helper_writeback_pending` with the accepted write id
+and path. The journal retains `worker_error` as its completion reason and does
+not confirm the effect. This is terminal, not an automatic retry or parked wait:
+resuming after budget exhaustion cannot collect a later receipt. Crash recovery
+before exhaustion can. A new run has a new write identity and may post again;
+configure the budget before running, and inspect delivery before starting anew.
+Other provider failures complete with `worker_error`; journal and receipt-storage
+failures fail closed.
 
 ## Regeneration
 

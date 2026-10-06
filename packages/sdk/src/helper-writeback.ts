@@ -1,20 +1,21 @@
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import { writeJsonFile, readJsonFile, listJsonFiles, type WritebackResult } from '@relayfile/adapter-core/vfs-client';
+import { readJsonFile, listJsonFiles, type WritebackResult } from '@relayfile/adapter-core/vfs-client';
 import type { RelayTransport, RelayTransportRequest } from '@relayfile/relay-helpers/transport';
 import { helperClients, helperProviders, invokeHelper, type HelperCall } from '@relayflows/surface/runtime';
 import { providerMount } from './slack-preflight.js';
 import { atomicJson } from './helper-storage.js';
 import type { SlackCall } from './slack-writeback.js';
 
-export class HelperDeliveryError extends Error {}
+import { receiptWriteback, HelperDeliveryError } from './helper-receipt.js';
+export { HelperDeliveryError, HelperWritebackPendingError } from './helper-receipt.js';
 
 export async function helperWriteback(call: HelperCall, dataDir: string, runId: string, stepId: string, signal: AbortSignal): Promise<unknown> {
   const factory = helperClients[call.provider];
   if (!factory) throw new Error(`No writeback client for ${call.provider}`);
   const { transport } = helperTransport(call, dataDir, runId, stepId, signal);
   try { return await invokeHelper(factory, call, transport); }
-  catch (cause) { throw new HelperDeliveryError(cause instanceof Error ? cause.message : String(cause), { cause }); }
+  catch (cause) { if (cause instanceof HelperDeliveryError) throw cause; signal.throwIfAborted(); throw new HelperDeliveryError(cause instanceof Error ? cause.message : String(cause), { cause }); }
 }
 
 /** One transport for every provider, including Slack. Only confirmed writes succeed. */
@@ -65,14 +66,15 @@ export function helperTransport(call: HelperCall | SlackCall, dataDir: string, r
           runId, stepId, request: { ...request, body }, receipt: result.receipt,
         });
       } else {
-        try { result = await writeJsonFile(options(), call.provider, `write.${request.resource}`, draft, body); }
-        catch (cause) {
-          // Upstream created() converts pending/terminal adapter errors into values.
-          // A journal effect must fail instead of confirming an undelivered write.
-          throw new Error(`${call.provider} writeback failed: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
+        try {
+          result = await receiptWriteback(options().relayfileMountRoot, call.provider,
+            `write.${request.resource}`, draft, body, dataDir, runId, stepId, signal);
+        } catch (cause) {
+          if (cause instanceof HelperDeliveryError) throw cause;
+          signal.throwIfAborted();
+          throw new HelperDeliveryError(`${call.provider} writeback failed: ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
         }
-        if (result.deliveryStatus !== 'confirmed' || !result.receipt) throw new Error(`${call.provider} writeback is pending; no delivery receipt`);
-        if (call.provider === 'slack' && call.verb !== 'react' && !result.receipt.externalId && !result.receipt.ts) throw new Error('Slack writeback has no delivered timestamp');
+        if (call.provider === 'slack' && call.verb !== 'react' && !result.receipt?.externalId && !result.receipt?.ts) throw new Error('Slack writeback has no delivered timestamp');
         deliveredRef = result.path;
       }
       signal.throwIfAborted();

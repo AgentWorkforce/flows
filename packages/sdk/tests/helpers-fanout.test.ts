@@ -78,17 +78,19 @@ it('preserves collection drafts, item paths, and confirmed receipts in mount mod
   const write = vi.mocked(vfs.writeJsonFile).mockResolvedValue({ path: 'delivered', absolutePath: 'delivered', deliveryStatus: 'confirmed', receipt: { externalId: '123' } });
   await expect(helperWriteback(github, dir, 'run', 'issue', signal())).resolves.toMatchObject({ status: 'confirmed', id: '123' });
   expect(write.mock.calls[0]?.[3]).toMatch(/^\/github\/repos\/owner\/repo\/issues\/draft-[a-f0-9]+\.json$/);
+  expect(write.mock.calls[0]?.[0]).toMatchObject({ writebackTimeoutMs: 0 });
   expect(write.mock.calls[0]?.[4]).toEqual({ title: 'hi', body: 'body', idempotencyKey: 'run:issue' });
   await helperWriteback({ ...github, verb: 'updateRef', args: [{ owner: 'owner', repo: 'repo', ref: 'branch', sha: '123' }] }, dir, 'run', 'ref', signal());
   expect(write.mock.calls[1]?.[3]).toMatch(/refs\/refs%2Fheads%2Fbranch\.json$/);
 });
 
 it('never confirms pending delivery or permits upstream created() to swallow a pending error', async () => {
+  vi.stubEnv('RELAYFLOW_HELPER_RECEIPT_TIMEOUT_MS', '1');
   const dir = temporary(); mkdirSync(join(dir, 'github')); vi.stubEnv('RELAYFILE_MOUNT_PATH', dir); vi.stubEnv('RELAYFLOWS_GITHUB_MOCK', '');
   const write = vi.mocked(vfs.writeJsonFile).mockResolvedValue({ path: 'pending', absolutePath: 'pending', deliveryStatus: 'pending' });
   await expect(helperWriteback(github, dir, 'run', 'step', signal())).rejects.toThrow('pending');
   write.mockRejectedValue(new vfs.RelayfileWritebackPendingError({ provider: 'github', operation: 'write.issues', path: 'pending', opId: 'op', status: 'pending', timeoutMs: 1 }));
-  await expect(helperWriteback(github, dir, 'run', 'step', signal())).rejects.toThrow();
+  await expect(helperWriteback(github, dir, 'run', 'other-step', signal())).rejects.toMatchObject({ code: 'helper_writeback_pending', writeId: 'op' });
 });
 
 it('blocks Notion append in mount mode and tests its lowering in mock mode', async () => {

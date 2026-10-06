@@ -1546,6 +1546,10 @@ Consumer examples must wait for matching Surface/SDK releases, updated consumer
 pins, and a Cloud runtime artifact that executes this vocabulary. The onboarding
 guards in agentrelay.com require a separate rollout and verification.
 
+`helper_writeback_pending` is an exit-1 failure diagnostic naming a mount-accepted
+write whose receipt budget expired. Its kernel completion reason is terminal
+`worker_error`; it is not a parked run. See [helper runtime](HELPERS-RUNTIME.md).
+
 The exit codes are part of the surface contract:
 
 | Exit | Outcome |

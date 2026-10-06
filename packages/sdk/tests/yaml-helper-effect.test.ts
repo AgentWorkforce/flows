@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
@@ -17,14 +17,14 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-function fixture() {
+function fixture(provider: 'slack' | 'github' = 'slack') {
   vi.stubEnv('RELAYFLOWS_SLACK_MOCK', '1');
   const dataDir = mkdtempSync(join(tmpdir(), 'yaml-effect-'));
   dirs.push(dataDir);
   const spec = toKernelSpec(compileYaml(`version: 0.1.0
 steps:
   - id: notify
-    slack: {post: {channel: "#test", text: hi}}
+    ${provider === 'slack' ? 'slack: {post: {channel: "#test", text: hi}}' : 'github: {comment: {target: {owner: owner, repo: repo, number: 1}, body: hi}}'}
 `)).steps[0]!;
   if (spec.type !== 'agent') throw new Error('expected agent lowering');
   const call = helperCall(spec)!;
@@ -87,4 +87,21 @@ it('does not report success when the effect election fails', async () => {
   f.performEffect.mockRejectedValueOnce(new Error('journal write failed'));
   await expect(completeHelperDispatch(f.client, f.dispatch, f.call, f.dataDir)).rejects.toThrow('journal write failed');
   expect(f.stepComplete).not.toHaveBeenCalled();
+});
+
+
+it.each(['slack', 'github'] as const)('reports an accepted YAML %s write as pending without confirming the election', async provider => {
+  const f = fixture(provider);
+  mkdirSync(join(f.dataDir, provider));
+  vi.stubEnv('RELAYFILE_MOUNT_PATH', f.dataDir);
+  vi.stubEnv('RELAYFLOWS_SLACK_MOCK', '');
+  vi.stubEnv('RELAYFLOW_HELPER_RECEIPT_TIMEOUT_MS', '1');
+  const confirmed = vi.fn();
+  f.performEffect.mockImplementationOnce(async (_options, execute) => { await execute(); confirmed(); });
+  await completeHelperDispatch(f.client, f.dispatch, f.call, f.dataDir);
+  expect(confirmed).not.toHaveBeenCalled();
+  expect(f.stepComplete).toHaveBeenCalledTimes(1);
+  expect(f.stepComplete).toHaveBeenCalledWith('run', 'notify', 1, 'election', 'worker_error',
+    expect.objectContaining({ effects: [{ surface_path: `/${provider}`, idempotency_key: 'election' }], output: expect.objectContaining({ code: 'helper_writeback_pending',
+      writeId: 'run:notify', diagnostic: expect.stringContaining('run:notify accepted') }) }));
 });

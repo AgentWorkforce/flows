@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
-import { writeJsonFile } from '@relayfile/adapter-core/vfs-client';
+import { receiptWriteback, helperReceiptTimeoutMs, HelperWritebackPendingError } from './helper-receipt.js';
 import type { RelayTransport } from '@relayfile/relay-helpers';
 import type { JournalClient } from './journal-client.js';
 import type { StepDispatchEvent } from './protocol.js';
@@ -19,6 +19,7 @@ export function helperMount(provider: string, env = process.env): string | undef
 }
 
 export function helperReady(provider: string): boolean {
+  helperReceiptTimeoutMs();
   return (provider === 'slack' && process.env.RELAYFLOWS_SLACK_MOCK === '1') || helperMount(provider) !== undefined;
 }
 
@@ -37,11 +38,8 @@ async function writeback(call: HelperCall, dataDir: string, runId: string, stepI
       // Item updates keep the client's canonical path. Creates use a stable draft.
       const path = request.path.endsWith('.json') ? request.path
         : `${request.path}/draft-${createHash('sha256').update(idempotencyKey).digest('hex')}.json`;
-      const result = await writeJsonFile({ relayfileMountRoot: mount }, request.provider,
-        `write.${request.resource}`, path, body);
-      if (result.deliveryStatus !== 'confirmed' || !result.receipt) {
-        throw new Error(`${call.provider} writeback is pending; no delivery receipt`);
-      }
+      const result = await receiptWriteback(mount, request.provider,
+        `write.${request.resource}`, path, body, dataDir, runId, stepId, signal);
       signal.throwIfAborted();
       return result;
     },
@@ -54,25 +52,37 @@ export async function completeHelperDispatch(
   client: JournalClient, dispatch: StepDispatchEvent, call: HelperCall, dataDir: string,
 ): Promise<void> {
   const surfacePath = `/${call.provider}`;
-  const output = await withWorkerLease(client, dispatch, async signal => {
-    const file = receiptPath(dataDir, dispatch.run_id, dispatch.step_id);
-    let receipt: unknown;
-    await client.performEffect({
-      runId: dispatch.run_id, stepId: dispatch.step_id, attempt: dispatch.attempt,
-      idempotencyKey: dispatch.idempotency_key, surfacePath,
-      revisionBefore: 'pending', revisionAfter: `${dispatch.run_id}:${dispatch.step_id}`,
-    }, async () => {
-      try { receipt = await readSlackReceipt(file); }
-      catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-        receipt = await writeback(call, dataDir, dispatch.run_id, dispatch.step_id, signal);
-        await atomicJson(file, receipt);
-      }
-      signal.throwIfAborted();
+  let output: unknown;
+  try {
+    output = await withWorkerLease(client, dispatch, async signal => {
+      const file = receiptPath(dataDir, dispatch.run_id, dispatch.step_id);
+      let receipt: unknown;
+      await client.performEffect({
+        runId: dispatch.run_id, stepId: dispatch.step_id, attempt: dispatch.attempt,
+        idempotencyKey: dispatch.idempotency_key, surfacePath,
+        revisionBefore: 'pending', revisionAfter: `${dispatch.run_id}:${dispatch.step_id}`,
+      }, async () => {
+        try { receipt = await readSlackReceipt(file); }
+        catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+          receipt = await writeback(call, dataDir, dispatch.run_id, dispatch.step_id, signal);
+          await atomicJson(file, receipt);
+        }
+        signal.throwIfAborted();
+      });
+      if (receipt === undefined) receipt = await readSlackReceipt(file);
+      return { ...call, idempotencyKey: `${dispatch.run_id}:${dispatch.step_id}`, receipt };
     });
-    if (receipt === undefined) receipt = await readSlackReceipt(file);
-    return { ...call, idempotencyKey: `${dispatch.run_id}:${dispatch.step_id}`, receipt };
-  });
+  } catch (error) {
+    if (!(error instanceof HelperWritebackPendingError)) throw error;
+    await client.stepComplete(dispatch.run_id, dispatch.step_id, dispatch.attempt,
+      dispatch.idempotency_key, 'worker_error', {
+        output: { code: error.code, diagnostic: error.message, writeId: error.writeId },
+        started_pins: dispatch.pins, end_pins: dispatch.pins,
+        effects: [{ surface_path: surfacePath, idempotency_key: dispatch.idempotency_key }], reported_cost: NO_MODEL_COST,
+      });
+    return;
+  }
   await client.stepComplete(dispatch.run_id, dispatch.step_id, dispatch.attempt,
     dispatch.idempotency_key, 'success', { output, started_pins: dispatch.pins, end_pins: dispatch.pins, reported_cost: NO_MODEL_COST,
       effects: [{ surface_path: surfacePath, idempotency_key: dispatch.idempotency_key }] });

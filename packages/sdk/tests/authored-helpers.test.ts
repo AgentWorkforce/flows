@@ -10,6 +10,7 @@ import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
 import { JournalClient } from '../src/journal-client.js';
 import { socketPathFor } from '../src/daemon-connection.js';
 import { resumeFlow } from '../src/cli/run.js';
+import { runDirectFlow } from '../src/cli/direct-run.js';
 import { runCli } from '../src/cli.js';
 import { helperProviders, type HelperCall } from '@relayflows/surface/runtime';
 import { WRITEBACK_PATH_CATALOG } from '@relayfile/adapter-core/writeback-paths';
@@ -188,3 +189,87 @@ it('journals provider failure with worker_error and never confirms the effect', 
   expect(entries.filter(e => e.entry_type === 'effect.confirmed')).toHaveLength(0);
   expect(entries.find(e => e.entry_type === 'step.completed').payload.completionReason).toBe('worker_error');
 });
+
+it('journals terminal pending once, reports the write, and never confirms or reposts on resume', async () => {
+  const dataDir = temporary(); mkdirSync(join(dataDir, 'github'));
+  vi.stubEnv('RELAYFILE_MOUNT_PATH', dataDir); vi.stubEnv('RELAYFLOWS_GITHUB_MOCK', '');
+  vi.stubEnv('RELAYFLOW_HELPER_RECEIPT_TIMEOUT_MS', '20');
+  const { client } = await start(dataDir);
+  const steps: import('../src/authored-flow-executor.js').AuthoredFlowJournalStep[] = [];
+  const call: HelperCall = { type: 'effect', provider: 'github', verb: 'createIssue', args: [{ repo: 'owner/repo', title: 'hi', body: '' }] };
+  await expect(runHelperEffect(client, 'pending', 'issue', call, dataDir, steps, 'root')).rejects.toMatchObject({
+    code: 'helper_writeback_pending', message: expect.stringContaining(':issue accepted'),
+  });
+  const runId = steps[0]!.runId;
+  await expect(runHelperEffect(client, 'pending', 'issue', call, dataDir, [], 'root')).rejects.toMatchObject({ code: 'helper_writeback_pending' });
+  const resumed = await resumeFlow(runId, dataDir, { daemon: { spawn: false } });
+  expect(resumed.exitCode).toBe(1);
+  expect(resumed.report.diagnostics).toContainEqual(expect.objectContaining({ kind: 'helper_writeback_pending' }));
+  const entries = (await client.journalRead(runId, 1)).entries as any[];
+  expect(entries.filter(e => e.entry_type === 'step.completed')).toHaveLength(1);
+  expect(entries.find(e => e.entry_type === 'step.completed').payload.completionReason).toBe('worker_error');
+  expect(entries.filter(e => e.entry_type === 'effect.confirmed')).toHaveLength(0);
+  expect(readdirSync(join(dataDir, 'github/repos/owner/repo/issues'))).toHaveLength(1);
+});
+
+it.each([true, false])('SIGKILL mid-wait reuses the accepted draft (receipt available: %s)', async delivered => {
+  const dataDir = temporary(); mkdirSync(join(dataDir, 'github'));
+  vi.stubEnv('RELAYFILE_MOUNT_PATH', dataDir); vi.stubEnv('RELAYFLOWS_GITHUB_MOCK', '');
+  vi.stubEnv('RELAYFLOW_HELPER_RECEIPT_TIMEOUT_MS', '60000');
+  const first = await start(dataDir);
+  const script = join(dataDir, 'pending-crash.mjs');
+  writeFileSync(script, `
+    import { JournalClient } from ${JSON.stringify(join(root, 'packages/sdk/dist/journal-client.js'))};
+    import { runHelperEffect } from ${JSON.stringify(join(root, 'packages/sdk/dist/authored-helper-effect.js'))};
+    const client = new JournalClient(${JSON.stringify(socketPathFor(dataDir))});
+    await client.connect(); await client.hello('pending-child');
+    await runHelperEffect(client, 'pending-crash', 'issue', { type: 'effect', provider: 'github', verb: 'createIssue', args: [{ repo: 'owner/repo', title: 'hi', body: '' }] }, ${JSON.stringify(dataDir)}, []);
+  `);
+  const child = spawn(process.execPath, [script], { stdio: ['ignore', 'pipe', 'pipe'] }); children.push(child);
+  let pendingFile = '';
+  await vi.waitFor(() => {
+    pendingFile = readdirSync(join(dataDir, 'helper-receipts')).find(file => file.endsWith('.pending.json'))!;
+    expect(pendingFile).toBeTruthy();
+  }, { timeout: 10000 });
+  const pending = JSON.parse(readFileSync(join(dataDir, 'helper-receipts', pendingFile), 'utf8'));
+  const runId = pending.writeId.split(':')[0];
+  await kill(child); first.client.close(); await kill(first.daemon);
+  const draft = join(dataDir, pending.relayPath);
+  const daemonValue = delivered ? { externalId: 'delivered' } : { queued: true };
+  writeFileSync(draft, JSON.stringify(daemonValue));
+  vi.stubEnv('RELAYFLOW_HELPER_RECEIPT_TIMEOUT_MS', '20');
+  const second = await start(dataDir);
+  const resumed = await resumeFlow(runId, dataDir, { daemon: { spawn: false } });
+  expect(resumed.exitCode, JSON.stringify(resumed.report)).toBe(delivered ? 0 : 1);
+  if (!delivered) expect(resumed.report.diagnostics).toContainEqual(expect.objectContaining({ kind: 'helper_writeback_pending' }));
+  // Unchanged daemon content proves no overwrite, not merely one deterministic filename.
+  expect(JSON.parse(readFileSync(draft, 'utf8'))).toEqual(daemonValue);
+  expect(readdirSync(join(dataDir, 'github/repos/owner/repo/issues'))).toHaveLength(1);
+  const entries = (await second.client.journalRead(runId, 1)).entries as any[];
+  expect(entries.filter(e => e.entry_type === 'step.completed' && e.payload.completionReason === 'crashed')).toHaveLength(1);
+  expect(entries.filter(e => e.entry_type === 'effect.confirmed')).toHaveLength(delivered ? 1 : 0);
+  expect(entries.filter(e => e.entry_type === 'step.completed' && e.payload.completionReason === (delivered ? 'success' : 'worker_error'))).toHaveLength(1);
+}, 30000);
+
+
+it('reports pending through the authored CLI run and root resume boundaries', async () => {
+  const dataDir = temporary(); mkdirSync(join(dataDir, 'github'));
+  vi.stubEnv('RELAYFILE_MOUNT_PATH', dataDir); vi.stubEnv('RELAYFLOWS_GITHUB_MOCK', '');
+  vi.stubEnv('RELAYFLOW_HELPER_RECEIPT_TIMEOUT_MS', '20');
+  await start(dataDir);
+  mkdirSync(join(dataDir, 'node_modules/@relayflows'), { recursive: true });
+  symlinkSync(join(root, 'packages/sdk/node_modules/@relayflows/surface'), join(dataDir, 'node_modules/@relayflows/surface'));
+  const source = join(dataDir, 'pending.flow.ts');
+  writeFileSync(source, `import { flow } from '@relayflows/surface';
+    export default flow('pending-cli', async f => {
+      await f.github.comment({ owner: 'owner', repo: 'repo', number: 485 }, 'hello');
+      f.done('success');
+    });`);
+  const result = await runDirectFlow(source, '{}', dataDir, { daemon: { spawn: false } });
+  expect(result.exitCode, JSON.stringify(result.report)).toBe(1);
+  expect(result.report.diagnostics).toContainEqual(expect.objectContaining({ kind: 'helper_writeback_pending' }));
+  expect(result.report.rootRunId).toBeTruthy();
+  const resumed = await resumeFlow(result.report.rootRunId!, dataDir, { daemon: { spawn: false } });
+  expect(resumed.exitCode, JSON.stringify(resumed.report)).toBe(1);
+  expect(resumed.report.diagnostics).toContainEqual(expect.objectContaining({ kind: 'helper_writeback_pending' }));
+}, 30000);

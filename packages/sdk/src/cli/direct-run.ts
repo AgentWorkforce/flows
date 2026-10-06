@@ -21,7 +21,7 @@ import { authoredInput, authoredWorkerRemedy, localAgentRemedy } from './local-a
 import {
   authoredCompletion,
   authoredHumanParked,
-  authoredStepFailure, rootLeaseLostReport,
+  authoredStepFailure, rootLeaseLostReport, helperWritebackPendingReport,
   connect,
   emptyReport,
   fromCheckReport,
@@ -211,6 +211,9 @@ export async function runDirectFlow(
     // terminal. `resumeFlow` takes the same branch, through the same helper.
     if (error instanceof AuthoredFlowExecutionError && (error.code === 'step_failed' || error.code === 'gate_failed')) {
       return authoredStepFailure('run', base, socketPath, error);
+    }
+    if (error instanceof AuthoredFlowExecutionError && error.code === 'helper_writeback_pending') {
+      return helperWritebackPendingReport('run', base, socketPath, error);
     }
     if (error instanceof AuthoredFlowExecutionError && error.code === 'root_lease_lost') {
       return rootLeaseLostReport('run', base, socketPath, error);

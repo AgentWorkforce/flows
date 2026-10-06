@@ -49,7 +49,15 @@ Receipts are persisted under `<data-dir>/helper-receipts/` before confirmation.
 and recovers the receipt. Retain the whole data directory across restarts.
 The kernel retains a crashed attempt's `step.completed(crashed)` and records
 exactly one successful completion on recovery. A confirmed effect is not sent
-again. An unconfirmed effect is retried with its original provider token.
+again. An accepted, unconfirmed write is awaited using its original draft.
+
+Mount receipt waits default to 60 seconds; configure a positive millisecond
+`RELAYFLOW_HELPER_RECEIPT_TIMEOUT_MS` in the helper process before the run.
+Accepted drafts are recorded durably: crash/lease-loss recovery waits on the
+same write without re-posting. At budget exhaustion, `helper_writeback_pending`
+names the write; the journal reason remains terminal `worker_error`. Resume
+cannot continue a budget-exhausted run, and a new run may post again. See
+[helper runtime receipt limits](HELPERS-RUNTIME.md) for Cloud configuration limits.
 
 The authored executor still creates separate runs per step; it does not yet
 have a durable journal for the whole TypeScript body. Resuming a helper run
