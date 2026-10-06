@@ -614,10 +614,8 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
 /**
  * Redact every string the report carries, leaf by leaf.
  *
- * Not `redact(JSON.stringify(...))`: the redactor's value patterns end in
- * `\\S+`, which across serialized JSON would swallow the closing quote and the
- * next key, and hand Cloud a document it cannot parse. Redacting leaves keeps
- * the shape intact and still scrubs every free-text field.
+ * Redacting decoded leaves preserves the document structure and lets rules
+ * see actual newlines and quotes rather than their JSON escape sequences.
  */
 function redactJson(value: unknown, env: NodeJS.ProcessEnv): unknown {
   if (typeof value === 'string') return redact(value, env);

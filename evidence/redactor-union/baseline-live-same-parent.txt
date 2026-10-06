@@ -1,0 +1,51 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-redactor-baseline/packages/sdk
+
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd
+LIVE_KERNEL flows=/home/daytona/.relayflow-redactor-baseline/packages/sdk/dist/cli.js
+
+ ❯ tests/live-kernel.test.ts (32 tests | 1 failed | 31 skipped) 661ms
+   × built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo) 660ms
+     → expected { …(12) } to match object { output: { …(3) }, …(1) }
+(22 matching properties omitted from actual)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/live-kernel.test.ts > built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo)
+AssertionError: expected { …(12) } to match object { output: { …(3) }, …(1) }
+(22 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "output": Object {
+-     "reasoning": "stub agent runtime — deterministic output for gate-2 clause-2 demo",
+-     "relevance_score": 5,
+-     "story_title": "stub",
+-   },
++   "output": null,
+    "verification": Object {
+-     "gate": "json_schema",
+-     "verdict": "pass",
++     "gate": "execution",
++     "verdict": "fail",
+    },
+  }
+
+ ❯ tests/live-kernel.test.ts:657:36
+    655|         && (entry as { step_id?: string }).step_id === 'analyze-story',
+    656|     ) as { payload: { output: unknown; verification: unknown } } | und…
+    657|     expect(stepCompleted?.payload).toMatchObject({
+       |                                    ^
+    658|       output: {
+    659|         story_title: 'stub',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 31 skipped (32)
+   Start at  18:21:42
+   Duration  2.50s (transform 972ms, setup 16ms, collect 1.61s, tests 661ms, environment 0ms, prepare 89ms)
+

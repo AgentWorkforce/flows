@@ -178,8 +178,8 @@ The mirror sends the flow source, step metadata, agent transcripts and this
 invocation's own stderr. Transcripts are the sharp edge: they are whatever the
 agent printed, which includes file contents, command output, and anything it
 read out of its environment. Every string goes through the same redactor
-`flows status` uses — but redaction is pattern matching, and pattern matching
-has a false-negative rate.
+`flows status` and the journaled transcript digest use — but redaction is
+pattern matching, and pattern matching has a false-negative rate.
 
 So the trigger is an explicit request, never the presence of a login. A
 developer who signed in once to run something hosted has not thereby agreed to
@@ -335,10 +335,10 @@ assistant:
 
 `--raw` prints the JSONL unrendered. It does **not** print it unredacted:
 every string that reaches the terminal — rendered, raw, or `--json` — goes
-through `redact.ts`, the redactor the local `flows status` uses. That is a
-deliberate choice of one of the two redactors in the tree (flows#494): this is
-the status page extended to hosted runs, and a reader should meet the same
-rule set whether the run was local or hosted. No frame is ever dropped — a
+through `redact.ts`, shared by local status, hosted views, transcript files
+and journaled digests. Hosted views originally chose the status redactor
+(flows#494); the status and transcript rules are now consolidated, so that
+choice no longer changes which secrets are scrubbed. No frame is ever dropped — a
 frame this vocabulary has no opinion about is reported as one line naming its
 type and size, and a line that is not JSON is printed as written, so `--raw`
 is never the only way to find out that something ran.

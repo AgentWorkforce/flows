@@ -1,0 +1,15 @@
+
+ RUN  v2.1.9 /tmp/relayflow-redactor-baseline/packages/sdk
+
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd
+LIVE_KERNEL flows=/tmp/relayflow-redactor-baseline/packages/sdk/dist/cli.js
+
+ ✓ tests/live-kernel.test.ts (32 tests | 31 skipped) 639ms
+   ✓ built flows CLI against live relayflowd > runs hn-monitor analyze-story end-to-end via a stub agent CLI (gate 2 clause 2 demo) 638ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 31 skipped (32)
+   Start at  18:20:25
+   Duration  2.28s (transform 839ms, setup 15ms, collect 1.39s, tests 639ms, environment 0ms, prepare 84ms)
+

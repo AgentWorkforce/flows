@@ -1,0 +1,36 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/redact.test.ts (84 tests | 1 failed) 17ms
+   × shared rule union > holds an open union header "x-api-key": 6ms
+     → expected 5 to be 6 // Object.is equality
+ ✓ tests/agent-transcript.test.ts (30 tests) 347ms
+ ✓ tests/cloud-live.test.ts (63 tests) 2066ms
+   ✓ argv and wiring > routes both live invocations through runCli, and refuses a missing run id 2004ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/redact.test.ts > shared rule union > holds an open union header "x-api-key":
+AssertionError: expected 5 to be 6 // Object.is equality
+
+- Expected
++ Received
+
+- 6
++ 5
+
+ ❯ tests/redact.test.ts:299:52
+    297|   it.each(['x-api-key:', 'cookie:', 'set-cookie:', 'x-api-key=', 'auth…
+    298|   ('holds an open union header %s', head => {
+    299|     expect(openCredentialStart(`safe\n${head}\n`)).toBe(5 + (head.star…
+       |                                                    ^
+    300|   });
+    301| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 176 passed (177)
+   Start at  18:17:07
+   Duration  4.10s (transform 1.32s, setup 73ms, collect 2.07s, tests 2.43s, environment 0ms, prepare 129ms)
+

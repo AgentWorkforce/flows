@@ -1348,10 +1348,15 @@ user can already read `pty.sock`.
 
 Redaction (`redact.ts`) applies to every free-text field the view prints:
 the value of any current env var whose name matches
-`TOKEN|SECRET|KEY|PASSWORD|PASSWD|CREDENTIAL|AUTH` and is ≥ 8 chars becomes
-`[redacted:<NAME>]`; relay, bearer, header, vendor and `NAME=value` token
-shapes become `[redacted]` with their name kept. Identifiers — run and step
-ids, hashes, env *names* — are never rewritten, so the view stays greppable.
+`TOKEN|SECRET|KEY|PASSWORD|PASSWD|CREDENTIAL|AUTH|COOKIE|SESSION|PRIVATE`
+and is ≥ 8 chars becomes `[redacted:<NAME>]`. Matching `NAME=VALUE` env-dump
+lines also redact values ≥ 8 chars regardless of the name, including run IDs
+in `RELAYFLOW_RUN_ID=VALUE` position. Relay and vendor tokens, bearer values,
+credential headers, JSON credential fields and secret-shaped assignments
+become `[redacted]`, keeping field names and auth schemes. Private-key PEM
+blocks become `[redacted:private-key]`. Identifiers outside these free-text
+credential and env-dump shapes remain greppable. The same rules apply to
+transcript files and journaled digests.
 
 What `flows status` cannot tell a hosted run is Cloud's: its Cloud run id,
 sandbox and listener, and anything about sibling runs. Given that run id,
@@ -1465,7 +1470,8 @@ f.done("step_failed", { detail: "review found 1 P2: `review.clean` was not creat
 The detail is normalized once, at `done()`, before anything durable is written:
 
 - **Redacted** with the SDK's existing redactor — known token shapes, named
-  credential fields, and the values of secret-looking environment variables.
+  credential fields, private-key blocks, matching env-dump lines, and the
+  values of secret-looking environment variables.
   That is a policy, not a promise to recognise every possible secret.
 - **Bounded** to 2,000 Unicode code points *including* the fixed
   `… (truncated)` suffix, exported as `COMPLETION_DETAIL_MAX_CODE_POINTS`.

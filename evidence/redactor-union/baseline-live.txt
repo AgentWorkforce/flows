@@ -1,0 +1,25 @@
+
+ RUN  v2.1.9 /tmp/relayflow-redactor-baseline/packages/sdk
+
+ ❯ tests/live-kernel.test.ts (32 tests | 32 skipped) 5ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/live-kernel.test.ts [ tests/live-kernel.test.ts ]
+Error: LIVE_KERNEL_MISSING: built flows CLI does not name an executable file: /tmp/relayflow-redactor-baseline/packages/sdk/dist/cli.js. Build it with: (cd sdk && npm run build)
+ ❯ requireExecutable tests/live-kernel.test.ts:1876:11
+    1874|     accessSync(path, constants.X_OK);
+    1875|   } catch {
+    1876|     throw new Error(
+       |           ^
+    1877|       `LIVE_KERNEL_MISSING: ${source} does not name an executable file…
+    1878|     );
+ ❯ tests/live-kernel.test.ts:75:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  32 skipped (32)
+   Start at  18:20:09
+   Duration  1.94s (transform 983ms, setup 15ms, collect 1.61s, tests 5ms, environment 0ms, prepare 75ms)
+
