@@ -1,0 +1,32 @@
+$ cd packages/sdk && FLOWS_BUILD_BUN=/tmp/regex-gate-bun-1.4.0/node_modules/.bin/bun RELAYFLOWD_BIN=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd npx vitest run tests/authored-node-runtime.test.ts tests/named-gate-journal.test.ts
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/named-gate-journal.test.ts (5 tests) 1445ms
+   ✓ a lowered subprocess_gate journals the gate command's streams > persists what the gate printed before a timeout killed it 801ms
+   ✓ a gate on an agent step > journals the command's streams and surfaces them in the authored failure 450ms
+ ✓ tests/authored-node-runtime.test.ts (16 tests) 29692ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > serializes the immutable prepared binding facts through the Node and CLI boundary 1132ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > suppresses the loader warning while preserving authored experimental warnings 1160ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > awaits agent plus three run steps and resumes without repeating effects 1801ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > accepts a predicate-gated flow: the `<step>.gate` child is journaled, verified, and not counted as an authored step 1659ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > resumes a run killed mid-step: the retried child passes the durable result verifier 2142ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > parks an f.human across the IPC boundary, answers it, and resumes the Node body with the answer 2527ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGKILL and replays completed children before success 2552ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGTERM and replays completed children before success 2467ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent blocked-SIGKILL and replays completed children before success 2432ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > stops on parent SIGKILL and replays completed children before declined 2505ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses unawaited rather than reporting terminal success 1250ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses manual then rather than reporting terminal success 1313ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > dispatches the captured child graph even when the source changes before execution 1222ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > rejects a forged result frame without durable completion 1160ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses missing Node before body effects or root admission 500ms
+   ✓ Bun 1.4.0 standalone → native Node authored lifecycle > refuses an old Node candidate before body effects 527ms
+
+ Test Files  2 passed (2)
+      Tests  21 passed (21)
+   Start at  18:19:01
+   Duration  30.79s (transform 803ms, setup 33ms, collect 1.94s, tests 31.14s, environment 0ms, prepare 57ms)
+
+
+exit: 0
