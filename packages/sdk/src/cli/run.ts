@@ -308,14 +308,6 @@ export async function resumeFlow(
     authoredRoot = await readAuthoredRootMetadata(client, runId);
     if (authoredRoot !== undefined) {
       base.rootRunId = runId;
-      const snapshot = await client.runGet(runId);
-      if (snapshot.status === 'failed') {
-        const details = await stepFailureDetails(client, runId);
-        const diagnostic = helperPendingDiagnostic(details?.detail);
-        if (diagnostic) return helperWritebackPendingReport('resume', base, socketPath,
-          new AuthoredFlowExecutionError('helper_writeback_pending', diagnostic,
-            'worker_error', runId, details), runId);
-      }
       // Both worker-surface mismatches are refusals, not protocol failures.
       // They used to throw bare `Error`s, which landed on `protocol_error`
       // ("RUN <id> unknown") and told nobody what to do instead; and the

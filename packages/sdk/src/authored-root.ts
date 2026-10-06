@@ -19,6 +19,8 @@ import type { RunLifecycleOptions } from './cli/run.js';
 import { isLeaseLost, withWorkerLease } from './worker-lease.js';
 import { AuthoredFlowExecutionError, AuthoredHumanParked } from './authored-flow-error.js';
 import { readOpenHumanWaits, resumeCommand } from './authored-human.js';
+import { helperPendingDiagnostic } from './helper-receipt.js';
+import { stepFailureDetails } from './cli/step-failure.js';
 import { isSurfaceCompletionReason } from './authored-step-output.js';
 import { readSubscriptionPark } from './authored-subscription-park.js';
 import { localAgentCredentialEnvironment } from './local-agent-environment.js';
@@ -170,6 +172,7 @@ export async function resumeDurableAuthoredFlow(
       dispatchWait.cancel();
       return await completedRootResult(journal, rootRunId);
     }
+    await assertNoPendingHelperWriteback(journal, rootRunId, outcome);
     assertRootCanDispatch(outcome);
     await assertNoOpenHumanWait(journal, outcome);
     options.lifecycle?.onRunStarted?.({ runId: rootRunId, flow: metadata.flowName, resumed: true });
@@ -182,6 +185,29 @@ export async function resumeDurableAuthoredFlow(
     cancelDispatch();
     peer.close();
   }
+}
+
+/**
+ * A root whose last attempt ended on an accepted-but-unreceipted helper write
+ * is terminal PENDING, not an undiagnosable terminal root. Resuming it reports
+ * which write is outstanding, so the next resume waits on the receipt rather
+ * than re-issuing a post the mount already took.
+ *
+ * Read here rather than probed before the resume: `runResume` is the first
+ * authority on the root's status, so the journal walk happens only on the one
+ * status that can carry this evidence — and a resume that is refused, parks, or
+ * dispatches never pays for it.
+ */
+async function assertNoPendingHelperWriteback(
+  journal: JournalClient, rootRunId: string, outcome: RunOutcome,
+): Promise<void> {
+  if (outcome.status !== 'failed') return;
+  const details = await stepFailureDetails(journal, rootRunId);
+  const diagnostic = helperPendingDiagnostic(details?.detail);
+  if (diagnostic === undefined) return;
+  throw new AuthoredFlowExecutionError('helper_writeback_pending',
+    diagnostic.replace(/^helper_writeback_pending: /, ''),
+    outcome.completion_reason ?? undefined, rootRunId, details);
 }
 
 /**
