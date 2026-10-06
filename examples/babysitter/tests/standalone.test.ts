@@ -6,6 +6,7 @@ import { createStandaloneBabysitter } from '../standalone.ts';
 
 const head = 'b'.repeat(40);
 const moved = 'f'.repeat(40);
+const boundPr = { owner: 'acme', repo: 'widgets', number: 7, headSha: head };
 const policy = { botLogin: 'babysitter[bot]' };
 // Gate 8 (#442) is a platform fact, not policy: these tests supply it to prove
 // what the body does once it holds. The default is proven separately.
@@ -33,7 +34,7 @@ function input(over: { deliveryId?: string; eventType?: string; babysitter?: unk
   return {
     pullRequest: over.pullRequest ?? { owner: 'acme', repo: 'widgets', number: 7, headSha: 'a'.repeat(40) },
     event: { provider: 'github', eventType: over.eventType ?? 'check_run.completed', paths: [], deliveryId: over.deliveryId ?? 'delivery-1' },
-    babysitter: 'babysitter' in over ? over.babysitter : { pullRequest: { owner: 'acme', repo: 'widgets', number: 7 }, originContext },
+    babysitter: 'babysitter' in over ? over.babysitter : { pullRequest: boundPr, originContext },
   };
 }
 function context(o: { states?: Record<string, unknown>[]; signals?: Record<string, unknown>; summary?: string; kept?: boolean } = {}) {
@@ -62,15 +63,15 @@ const body = (runtime = isolated) => getFlowDefinition(createStandaloneBabysitte
 const posted = (commands: string[]) => commands.filter(c => c.includes('postComment'));
 
 test('without originContext the run ends needs_human with zero f.agent calls and no live read', async () => {
-  for (const babysitter of [undefined, { pullRequest: { owner: 'acme', repo: 'widgets', number: 7 } },
-    { pullRequest: { owner: 'acme', repo: 'widgets', number: 7 }, originContext: { status: 'missing', reason: 'digest_mismatch' } },
-    { pullRequest: { owner: 'acme', repo: 'widgets', number: 7 }, originContext: { ...originContext, firstPrompt: '' } },
+  for (const babysitter of [undefined, { pullRequest: boundPr },
+    { pullRequest: boundPr, originContext: { status: 'missing', reason: 'digest_mismatch' } },
+    { pullRequest: boundPr, originContext: { ...originContext, firstPrompt: '' } },
     // Malformed events are a malformed context, not a smaller one.
-    { pullRequest: { owner: 'acme', repo: 'widgets', number: 7 }, originContext: { ...originContext, events: 'not-a-list' } },
-    { pullRequest: { owner: 'acme', repo: 'widgets', number: 7 }, originContext: { ...originContext, events: [42] } },
-    { pullRequest: { owner: 'acme', repo: 'widgets', number: 7 }, originContext: { ...originContext, events: [{ ...originContext.events[0], content: 7 }] } },
+    { pullRequest: boundPr, originContext: { ...originContext, events: 'not-a-list' } },
+    { pullRequest: boundPr, originContext: { ...originContext, events: [42] } },
+    { pullRequest: boundPr, originContext: { ...originContext, events: [{ ...originContext.events[0], content: 7 }] } },
     // A `missing` verdict refuses even if a prompt rides along with it.
-    { pullRequest: { owner: 'acme', repo: 'widgets', number: 7 }, originContext: { ...originContext, status: 'missing', reason: 'digest_mismatch' } }]) {
+    { pullRequest: boundPr, originContext: { ...originContext, status: 'missing', reason: 'digest_mismatch' } }]) {
     const { f, commands, reasons, agents } = context();
     await body()(f, input({ babysitter }));
     assert.deepEqual(reasons, ['needs_human']);
@@ -112,7 +113,7 @@ test('two deliveries with different ids and the same live state log the same dec
 });
 
 test('anything that is not the bound PR is refused before any effect', async () => {
-  const bound = { owner: 'acme', repo: 'widgets', number: 7 };
+  const bound = boundPr;
   const invalid = [
     input({ pullRequest: { owner: 'acme', repo: 'widgets', number: 8 } }),
     input({ pullRequest: { owner: 'other', repo: 'widgets', number: 7 } }),
@@ -129,6 +130,29 @@ test('anything that is not the bound PR is refused before any effect', async () 
     assert.equal(commands.length, 0);
     assert.equal(agents.length, 0);
   }
+});
+
+test('a missing or malformed server-claimed head fails closed before live state or diagnosis', async () => {
+  for (const pullRequest of [
+    { owner: 'acme', repo: 'widgets', number: 7 },
+    { ...boundPr, headSha: 'not-a-sha' },
+  ]) {
+    const { f, reasons, agents, commands } = context();
+    await body()(f, input({ babysitter: { pullRequest, originContext } }));
+    assert.deepEqual(reasons, ['needs_human']);
+    assert.equal(agents.length, 0);
+    assert.ok(commands.every(command => !command.includes('githubRead') && !command.includes('postComment')));
+  }
+});
+
+test('a live head different from the server-claimed head declines before signals, diagnosis or comment', async () => {
+  const { f, reasons, agents, commands } = context({ states: [live({ headSha: moved })] });
+  await body()(f, input());
+  assert.deepEqual(reasons, ['declined']);
+  assert.equal(agents.length, 0);
+  assert.equal(posted(commands).length, 0);
+  assert.ok(commands.every(command => !command.includes('readSignals')));
+  assert.ok(commands.some(command => command.includes(`claimed head ${head}`)));
 });
 
 test('live state decides: closed, draft, missing babysit label or nothing actionable decline without an agent', async () => {
@@ -233,7 +257,7 @@ test('report is one owned PR comment naming the inherited session, never the pro
 test('the agent CLI follows the origin session: Claude and Codex both work', async () => {
   for (const [source, cli, model] of [['claude', 'claude', 'claude-sonnet-5'], ['codex', 'codex', 'gpt-5.6-sol']] as const) {
     const { f, agents } = context();
-    await body()(f, input({ babysitter: { pullRequest: { owner: 'acme', repo: 'widgets', number: 7 }, originContext: { ...originContext, source } } }));
+    await body()(f, input({ babysitter: { pullRequest: boundPr, originContext: { ...originContext, source } } }));
     assert.equal(agents[0]!.options.cli, cli);
     assert.equal(agents[0]!.options.model, model);
   }

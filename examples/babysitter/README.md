@@ -262,15 +262,25 @@ byte-for-byte and capture the pass — and `SCOPE.md` for the requested scope.
 ## Standalone webhook Babysitter
 
 `standalone.ts` is the v1 diagnose-and-comment Babysitter that Cloud launches
-from a webhook with the bound session's origin context. See
-[`STANDALONE.md`](STANDALONE.md).
+from a webhook with the bound session's origin context. Cloud also binds the
+server-claimed PR head in `input.babysitter.pullRequest.headSha`; the artifact
+rereads GitHub and declines before signals, diagnosis, or comment if that
+exact head is no longer live. This keeps per-head admission quotas attached to
+the head the run can actually diagnose. See
+[`STANDALONE.md`](STANDALONE.md). The exact launch source is committed at
+`artifacts/babysitter-standalone.flow.ts`; its byte count, SHA-256, operator
+policy, and enforced read-only runtime assertion are pinned by the adjacent
+manifest. `npm run check:standalone` refuses generated-source drift.
 
 ## Running the tests
 
 The suites resolve `@relayflows/surface` from the repo root and the SDK's
-provider-trigger contract from source, so no publish step is involved:
+provider-trigger contract from source, so no publish step is involved. The
+standalone artifact drift gate uses the SDK's declared `esbuild` development
+dependency, so install both package workspaces on a fresh checkout:
 
 ```bash
+(cd packages/sdk && npm ci)                     # install the pinned artifact builder
 (cd packages/surface && npm ci && npx tsc)      # build the surface dist
 mkdir -p node_modules/@relayflows && ln -sfn "$PWD/packages/surface" node_modules/@relayflows/surface
 node --experimental-strip-types --test examples/babysitter/tests/*.test.ts
