@@ -1,3 +1,4 @@
+import { createRedactor, type Redactor } from './redact.js';
 import { constants as fsConstants } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { mkdir, open, unlink, type FileHandle } from 'node:fs/promises';
@@ -121,73 +122,6 @@ export function transcriptPath(
 ): string {
   if (!Number.isSafeInteger(attempt) || attempt < 1) throw new Error('Invalid transcript attempt');
   return join(dirname(ptySocketPath(context)), `attempt-${attempt}.transcript.jsonl`);
-}
-
-// ---------------------------------------------------------------------------
-// Redaction
-// ---------------------------------------------------------------------------
-
-const SECRET_NAME = /(TOKEN|SECRET|KEY|PASSWORD|PASSWD|CREDENTIAL|AUTH|COOKIE|SESSION|PRIVATE)/i;
-/**
- * Relay-issued token prefixes, shared with `redactRelayError` (worker-cli.ts).
- * The tail must be at least 8 characters so journal keys such as `at_ms` are
- * not mistaken for tokens.
- */
-export const RELAY_TOKEN_PATTERN = /\b(?:at|rk|nt|ot|br|arr)_(?:live_)?[A-Za-z0-9_-]{8,}/g;
-const TOKEN_PATTERNS: RegExp[] = [
-  RELAY_TOKEN_PATTERN,
-  /\bsk-ant-[A-Za-z0-9_-]{8,}/g,
-  /\b(?:ghp|gho|ghs|ghu|ghr)_[A-Za-z0-9]{16,}/g,
-  /\bgithub_pat_[A-Za-z0-9_]{16,}/g,
-  /\bxox[abps]-[A-Za-z0-9-]{8,}/g,
-  /\bAKIA[0-9A-Z]{16}\b/g,
-];
-const PEM_BLOCK = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g;
-// Header forms, in prose or inside a JSON-encoded object: the header name and
-// any `Bearer`/`Basic` scheme stay, the value goes. Cookies are redacted to the
-// end of the line, since every pair in them is a credential.
-const HEADER_VALUE = /\b(authorization|x-api-key|x-callback-token)("?\s*[:=]\s*"?)((?:Bearer|Basic)\s+)?(?!\[redacted)([^\s"',;\\]+)/gi;
-const COOKIE_VALUE = /\b(cookie|set-cookie)("?\s*[:=]\s*"?)(?!\[redacted)([^\n"\\]+)/gi;
-const BEARER = /\bBearer\s+(?!\[redacted)[A-Za-z0-9._~+/=-]{8,}/g;
-const ENV_LINE = /^([A-Za-z_][A-Za-z0-9_]*)=(.+)$/gm;
-
-export type Redactor = (text: string) => string;
-
-/**
- * One redactor for one environment: the values of secret-named variables are
- * resolved once, so a writer redacting thousands of strings does not rescan
- * `process.env` for each.
- */
-export function createRedactor(env: NodeJS.ProcessEnv = process.env): Redactor {
-  const byName: Array<[string, string]> = [];
-  for (const [name, value] of Object.entries(env)) {
-    if (typeof value === 'string' && value.length >= 8 && SECRET_NAME.test(name)) byName.push([name, value]);
-  }
-  // Longest first, so a value that is a prefix of another cannot leave the
-  // longer one half-redacted.
-  byName.sort((a, b) => b[1].length - a[1].length);
-  return (text: string): string => {
-    if (text.length === 0) return text;
-    // Rule 3 — env dumps by shape: `NAME=VALUE` where VALUE is that variable's
-    // value, whatever the name. Catches `env`/`printenv` output of variables
-    // whose names look harmless.
-    let out = text.replace(ENV_LINE, (line, name: string, value: string) =>
-      env[name] === value ? `${name}=[redacted:${name}]` : line);
-    // Rule 2 — secret-named variables' values, wherever they appear.
-    for (const [name, value] of byName) out = out.replaceAll(value, `[redacted:${name}]`);
-    // Rule 4 — well-known token shapes and header forms; the header name stays.
-    out = out.replace(PEM_BLOCK, '[redacted:private-key]');
-    for (const pattern of TOKEN_PATTERNS) out = out.replace(pattern, '[redacted]');
-    out = out.replace(HEADER_VALUE, (_m, name: string, sep: string, scheme: string | undefined) => `${name}${sep}${scheme ?? ''}[redacted]`);
-    out = out.replace(COOKIE_VALUE, (_m, name: string, sep: string) => `${name}${sep}[redacted]`);
-    out = out.replace(BEARER, 'Bearer [redacted]');
-    return out;
-  };
-}
-
-/** Redact one string against `env` (D6 rules 2–4). */
-export function redactText(text: string, env: NodeJS.ProcessEnv = process.env): string {
-  return createRedactor(env)(text);
 }
 
 // ---------------------------------------------------------------------------

@@ -62,7 +62,8 @@ describe('redactRelayError', () => {
   it('keeps the historical spelling for the two relay names and the token pattern', () => {
     const env = { RELAY_AGENT_TOKEN: 'short', RELAY_API_KEY: 'rk_live_secretsecret' };
     // `short` is under the general length floor and still scrubbed here, as it always was.
-    expect(redactRelayError('short rk_live_secretsecret nt_x', env)).toBe('[redacted] [redacted] [redacted]');
+    // Decision B: spare short identifiers such as at_ms.
+    expect(redactRelayError('short rk_live_secretsecret nt_x', env)).toBe('[redacted] [redacted] nt_x');
   });
 
   it('additionally applies the general scrub', () => {
@@ -89,7 +90,9 @@ describe('redact — JSON credential fields', () => {
     ['PASSWORD', 'hunter22'],
   ] as const) {
     it(`redacts "${name}"`, () => {
-      expect(redact(`{"${name}":"${value}"}`, {})).toBe(`{"${name}":"[redacted]"}`);
+      // Decision A: keep the auth scheme.
+      const scheme = name === 'authorization' ? 'Basic ' : '';
+      expect(redact(`{"${name}":"${value}"}`, {})).toBe(`{"${name}":"${scheme}[redacted]"}`);
     });
   }
 
@@ -205,5 +208,103 @@ describe('openCredentialStart', () => {
     expect(openCredentialStart('{"authToken": 12')).toBe(16);
     expect(openCredentialStart('{"note": "unterminated')).toBe(22);
     expect(openCredentialStart('{"monkey": "tail')).toBe(16);
+  });
+});
+
+describe('redaction', () => {
+  const env: NodeJS.ProcessEnv = {
+    FAKE_TOKEN: 'tok-0123456789abcdef',
+    S3_SECRET_ACCESS_KEY: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+    // Harmless name, secret value: only the shape rule can catch a dump of it.
+    DEPLOY_TARGET: 'hunter2-hunter2-hunter2',
+    SHORT_KEY: 'abc',
+    HOME: '/home/agent',
+  };
+
+  it('replaces the values of secret-named variables wherever they appear', () => {
+    const text = `curl -H "x: ${env.FAKE_TOKEN}" and ${env.S3_SECRET_ACCESS_KEY} again ${env.FAKE_TOKEN}`;
+    const out = redact(text, env);
+    expect(out).toBe('curl -H "x: [redacted:FAKE_TOKEN]" and [redacted:S3_SECRET_ACCESS_KEY] again [redacted:FAKE_TOKEN]');
+    // Too short to be worth matching by value: it would redact every "abc".
+    expect(redact('abc abc', env)).toBe('abc abc');
+  });
+
+  it('redacts an env dump by shape whatever the variable is called', () => {
+    const dump = `HOME=/home/agent\nDEPLOY_TARGET=${env.DEPLOY_TARGET}\nFAKE_TOKEN=${env.FAKE_TOKEN}\nOTHER=not-in-env\n`;
+    expect(redact(dump, env)).toBe(
+      'HOME=[redacted:HOME]\nDEPLOY_TARGET=[redacted:DEPLOY_TARGET]\nFAKE_TOKEN=[redacted:FAKE_TOKEN]\nOTHER=not-in-env\n');
+  });
+
+  it('redacts well-known token shapes, header values and private keys, keeping the names', () => {
+    const cases: Array<[string, string]> = [
+      ['key sk-ant-api03-abcdefghijklmnop', 'key [redacted]'],
+      ['ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', '[redacted]'],
+      ['github_pat_11ABCDEFG0123456789_abcdefghijklmnop', '[redacted]'],
+      ['xoxb-1234567890-abcdefgh', '[redacted]'],
+      ['AKIAIOSFODNN7EXAMPLE', '[redacted]'],
+      ['at_live_abcdefghijklmnop', '[redacted]'],
+      ['Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.sig', 'Authorization: Bearer [redacted]'],
+      ['"authorization": "Bearer abcdefghijklmnop"', '"authorization": "Bearer [redacted]"'],
+      ['x-api-key=abcdefghijklmnop', 'x-api-key=[redacted]'],
+      ['x-callback-token: cb_abcdefghijklmnop', 'x-callback-token: [redacted]'],
+      ['Cookie: session=abc; other=def', 'Cookie: [redacted]'],
+      ['-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----', '[redacted:private-key]'],
+    ];
+    for (const [input, expected] of cases) expect(redact(input, env)).toBe(expected);
+  });
+
+  it('leaves journal keys that merely resemble a relay token prefix alone', () => {
+    expect(redact('{"at_ms":1,"br_x":2}', env)).toBe('{"at_ms":1,"br_x":2}');
+  });
+});
+
+describe('shared rule union', () => {
+  it.each([
+    ['github_pat_abcdefghijklmnop', '[redacted]'],
+    ...['ghp', 'gho', 'ghs', 'ghu', 'ghr'].map(prefix => [`${prefix}_abcdefghijklmnop`, '[redacted]']),
+    ['xoxs-abcdefgh', '[redacted]'],
+    ['sk-ant-abcdefgh', '[redacted]'],
+    ['set-cookie: sid=opaque; other=value', 'set-cookie: [redacted]'],
+  ])('scrubs %s on the status path', (input, expected) => {
+    expect(redact(input!, {})).toBe(expected);
+  });
+
+  it.each(['COOKIE', 'SESSION', 'PRIVATE'])('scrubs %s env values', name => {
+    expect(redact('opaque-sensitive-value', { [name]: 'opaque-sensitive-value' })).toBe(`[redacted:${name}]`);
+  });
+
+  it('keeps short modes but redacts identifiers in matching env-dump lines', () => {
+    expect(redact(`AUTH_MODE=off\nRELAYFLOW_RUN_ID=${ENV.RELAYFLOW_RUN_ID}`, ENV))
+      .toBe('AUTH_MODE=off\nRELAYFLOW_RUN_ID=[redacted:RELAYFLOW_RUN_ID]');
+    const source = 'let br_tag = ot_handle(at_index); for arr_item in arr_items: nt_count += 1';
+    expect(redact(source, {})).toBe(source);
+  });
+
+  it.each(['authorization: Bearer', 'export MY_TOKEN=', 'Bearer', 'x-api-key:'])
+  ('preserves JSON neighbours around %s', prefix => {
+    const input = JSON.stringify({ log: `${prefix} abcdef1234`, step: 'a' });
+    // Assignments do not permit whitespace after '='.
+    const out = redact(input.replace('= ', '='), {});
+    expect(JSON.parse(out)).toEqual({ log: `${prefix}${prefix.endsWith('=') ? '' : ' '}[redacted]`, step: 'a' });
+  });
+
+  it('preserves named replacements and auth schemes on repeated redaction', () => {
+    const env = { API_TOKEN: 'opaque-sensitive-value' };
+    const input = '{"authorization":"Bearer opaque-sensitive-value"}';
+    const expected = '{"authorization":"Bearer [redacted:API_TOKEN]"}';
+    expect(redact(input, env)).toBe(expected);
+    expect(redact(expected, env)).toBe(expected);
+  });
+
+  it.each(['x-api-key:', 'cookie:', 'set-cookie:', 'x-api-key=', 'authorization=', 'cookie=', '"x-api-key":'])
+  ('holds an open union header %s', head => {
+    expect(openCredentialStart(`safe\n${head}\n`)).toBe(5);
+  });
+
+  it('holds an unexported PEM until its footer arrives', () => {
+    const head = 'safe\n-----BEGIN RSA PRIVATE KEY-----\nmaterial\n';
+    expect(openCredentialStart(head)).toBe(5);
+    const complete = `${head}-----END RSA PRIVATE KEY-----\n`;
+    expect(openCredentialStart(complete)).toBe(complete.length);
   });
 });

@@ -5,14 +5,13 @@ import { claudeResultOutcome, decodeProviderResult, decodeWrapperResult, require
 import { openSidechannel, type SidechannelContext } from './pty-sidechannel.js';
 import {
   openTranscriptWriter,
-  redactText,
   transcriptPath,
   type TranscriptDigest,
   type TranscriptFile,
   type TranscriptWriter,
 } from './agent-transcript.js';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { redactRelayError } from './redact.js';
+import { redact, redactRelayError } from './redact.js';
 import { StringDecoder } from 'node:string_decoder';
 import { childStop } from './child-stop.js';
 import { reapOnExit } from './agent-reaper.js';
@@ -598,7 +597,7 @@ async function spawnInvocation(
         finishAfterStop({
           exit_code: exitCode,
           stdout_tail: Buffer.concat(stdout).toString('utf8'),
-          stderr_tail: redactText(stderrText, env),
+          stderr_tail: redact(stderrText, env),
           transport,
         }, 'terminate');
       }, RESULT_EXIT_GRACE_MS);
@@ -634,7 +633,7 @@ async function spawnInvocation(
       finishOnChildExit({
         exit_code: null,
         stdout_tail: Buffer.concat(stdout).toString('utf8'),
-        stderr_tail: redactText(error.message, env),
+        stderr_tail: redact(error.message, env),
         transport,
       });
     });
@@ -655,7 +654,7 @@ async function spawnInvocation(
       finishOnChildExit({
         exit_code: code,
         stdout_tail: Buffer.concat(stdout).toString('utf8'),
-        stderr_tail: redactText(stderrText, env),
+        stderr_tail: redact(stderrText, env),
         transport,
       });
     });

@@ -1,3 +1,4 @@
+import { redact } from './redact.js';
 import { communicationInstruction } from './communication/spec.js';
 import { workerSpend } from './worker-spend.js';
 import { reportedCost } from './reported-cost.js';
@@ -18,7 +19,6 @@ import {
   ARTIFACT_PATHS_MAX,
   boundTranscriptDigest,
   boundedTail,
-  redactText,
   type TranscriptDigest,
 } from './agent-transcript.js';
 
@@ -193,7 +193,7 @@ export class AgentWorker extends EventEmitter {
     // before it reaches either the worker-failure render or the journal --
     // against the environment the CLI ran with as well as this host's, since a
     // secret supplied only to the CLI is the one most likely to be echoed.
-    const redacted = redactText(redactText(rawWrapper.stderr_tail), this.options.environment ?? process.env);
+    const redacted = redact(redact(rawWrapper.stderr_tail), this.options.environment ?? process.env);
     const wrapper = {
       ...rawWrapper,
       stderr_tail: boundedTail(redacted, 2 * 1024, 'worker stderr: ').text,

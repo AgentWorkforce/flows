@@ -1,0 +1,150 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/cloud-live.test.ts (63 tests | 6 failed | 55 skipped) 27ms
+   × flows logs --follow > union hold: keeps x-api-key: with its next-poll value 17ms
+     → expected [ 'safe', 'x-api-key:' ] to deeply equal [ 'safe' ]
+   × flows logs --follow > union hold: keeps cookie: with its next-poll value 2ms
+     → expected [ 'safe', 'cookie:' ] to deeply equal [ 'safe' ]
+   × flows logs --follow > union hold: keeps set-cookie: with its next-poll value 1ms
+     → expected [ 'safe', 'set-cookie:' ] to deeply equal [ 'safe' ]
+   × flows logs --follow > union hold: keeps x-api-key= with its next-poll value 1ms
+     → expected [ 'safe', 'x-api-key=' ] to deeply equal [ 'safe' ]
+   × flows logs --follow > union hold: keeps authorization= with its next-poll value 1ms
+     → expected [ 'safe', 'authorization=' ] to deeply equal [ 'safe' ]
+   × flows logs --follow > union hold: keeps cookie= with its next-poll value 1ms
+     → expected [ 'safe', 'cookie=' ] to deeply equal [ 'safe' ]
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/cloud-live.test.ts > flows logs --follow > union hold: keeps x-api-key: with its next-poll value
+AssertionError: expected [ 'safe', 'x-api-key:' ] to deeply equal [ 'safe' ]
+
+- Expected
++ Received
+
+  Array [
+    "safe",
++   "x-api-key:",
+  ]
+
+ ❯ tests/cloud-live.test.ts:683:31
+    681|     ], path => { if (path === 'run') seen.push([...out.stdout]); });
+    682|     expect(await runCloudLogsFollow({ runId: RUN, step: undefined, jso…
+    683|     expect(seen[1]!.slice(1)).toEqual(['safe']);
+       |                               ^
+    684|     expect(out.stdout.join('\n')).not.toContain('opaque-sensitive-valu…
+    685|     expect(out.stdout.join('\n')).toContain('[redacted]');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  tests/cloud-live.test.ts > flows logs --follow > union hold: keeps cookie: with its next-poll value
+AssertionError: expected [ 'safe', 'cookie:' ] to deeply equal [ 'safe' ]
+
+- Expected
++ Received
+
+  Array [
+    "safe",
++   "cookie:",
+  ]
+
+ ❯ tests/cloud-live.test.ts:683:31
+    681|     ], path => { if (path === 'run') seen.push([...out.stdout]); });
+    682|     expect(await runCloudLogsFollow({ runId: RUN, step: undefined, jso…
+    683|     expect(seen[1]!.slice(1)).toEqual(['safe']);
+       |                               ^
+    684|     expect(out.stdout.join('\n')).not.toContain('opaque-sensitive-valu…
+    685|     expect(out.stdout.join('\n')).toContain('[redacted]');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  tests/cloud-live.test.ts > flows logs --follow > union hold: keeps set-cookie: with its next-poll value
+AssertionError: expected [ 'safe', 'set-cookie:' ] to deeply equal [ 'safe' ]
+
+- Expected
++ Received
+
+  Array [
+    "safe",
++   "set-cookie:",
+  ]
+
+ ❯ tests/cloud-live.test.ts:683:31
+    681|     ], path => { if (path === 'run') seen.push([...out.stdout]); });
+    682|     expect(await runCloudLogsFollow({ runId: RUN, step: undefined, jso…
+    683|     expect(seen[1]!.slice(1)).toEqual(['safe']);
+       |                               ^
+    684|     expect(out.stdout.join('\n')).not.toContain('opaque-sensitive-valu…
+    685|     expect(out.stdout.join('\n')).toContain('[redacted]');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  tests/cloud-live.test.ts > flows logs --follow > union hold: keeps x-api-key= with its next-poll value
+AssertionError: expected [ 'safe', 'x-api-key=' ] to deeply equal [ 'safe' ]
+
+- Expected
++ Received
+
+  Array [
+    "safe",
++   "x-api-key=",
+  ]
+
+ ❯ tests/cloud-live.test.ts:683:31
+    681|     ], path => { if (path === 'run') seen.push([...out.stdout]); });
+    682|     expect(await runCloudLogsFollow({ runId: RUN, step: undefined, jso…
+    683|     expect(seen[1]!.slice(1)).toEqual(['safe']);
+       |                               ^
+    684|     expect(out.stdout.join('\n')).not.toContain('opaque-sensitive-valu…
+    685|     expect(out.stdout.join('\n')).toContain('[redacted]');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  tests/cloud-live.test.ts > flows logs --follow > union hold: keeps authorization= with its next-poll value
+AssertionError: expected [ 'safe', 'authorization=' ] to deeply equal [ 'safe' ]
+
+- Expected
++ Received
+
+  Array [
+    "safe",
++   "authorization=",
+  ]
+
+ ❯ tests/cloud-live.test.ts:683:31
+    681|     ], path => { if (path === 'run') seen.push([...out.stdout]); });
+    682|     expect(await runCloudLogsFollow({ runId: RUN, step: undefined, jso…
+    683|     expect(seen[1]!.slice(1)).toEqual(['safe']);
+       |                               ^
+    684|     expect(out.stdout.join('\n')).not.toContain('opaque-sensitive-valu…
+    685|     expect(out.stdout.join('\n')).toContain('[redacted]');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  tests/cloud-live.test.ts > flows logs --follow > union hold: keeps cookie= with its next-poll value
+AssertionError: expected [ 'safe', 'cookie=' ] to deeply equal [ 'safe' ]
+
+- Expected
++ Received
+
+  Array [
+    "safe",
++   "cookie=",
+  ]
+
+ ❯ tests/cloud-live.test.ts:683:31
+    681|     ], path => { if (path === 'run') seen.push([...out.stdout]); });
+    682|     expect(await runCloudLogsFollow({ runId: RUN, step: undefined, jso…
+    683|     expect(seen[1]!.slice(1)).toEqual(['safe']);
+       |                               ^
+    684|     expect(out.stdout.join('\n')).not.toContain('opaque-sensitive-valu…
+    685|     expect(out.stdout.join('\n')).toContain('[redacted]');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+
+ Test Files  1 failed (1)
+      Tests  6 failed | 2 passed | 55 skipped (63)
+   Start at  18:17:36
+   Duration  2.21s (transform 1.26s, setup 33ms, collect 1.94s, tests 27ms, environment 0ms, prepare 45ms)
+

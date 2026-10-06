@@ -671,6 +671,34 @@ describe('flows logs --follow', () => {
     expect(seen[2]!.slice(1)).toEqual(['credential dump:']);
   });
 
+  it.each(['x-api-key:', 'cookie:', 'set-cookie:', 'x-api-key=', 'authorization=', 'cookie=', '"x-api-key":'])
+  ('union hold: keeps %s with its next-poll value', async head => {
+    const out = io();
+    const seen: string[][] = [];
+    stagedCloud([
+      { run: RUNNING, log: logBody(`safe\n${head}\n`) },
+      { run: COMPLETED, log: logBody(`safe\n${head}\nopaque-sensitive-value\n`, { done: true }) },
+    ], path => { if (path === 'run') seen.push([...out.stdout]); });
+    expect(await runCloudLogsFollow({ runId: RUN, step: undefined, json: false }, out.io, live({ env: {} }))).toBe(0);
+    expect(seen[1]!.slice(1)).toEqual(['safe']);
+    expect(out.stdout.join('\n')).not.toContain('opaque-sensitive-value');
+    expect(out.stdout.join('\n')).toContain('[redacted]');
+  });
+
+  it('union hold: keeps an unexported PEM across three polls', async () => {
+    const out = io();
+    const seen: string[][] = [];
+    stagedCloud([
+      { run: RUNNING, log: logBody(`safe\n${PEM.split('\n')[0]}\n`) },
+      { run: RUNNING, log: logBody(`safe\n${PEM.split('\n').slice(0, 2).join('\n')}\n`) },
+      { run: COMPLETED, log: logBody(`safe\n${PEM}\ndone\n`, { done: true }) },
+    ], path => { if (path === 'run') seen.push([...out.stdout]); });
+    expect(await runCloudLogsFollow({ runId: RUN, step: undefined, json: false }, out.io, live({ env: {} }))).toBe(0);
+    expect(seen[1]!.slice(1)).toEqual(['safe']);
+    expect(seen[2]!.slice(1)).toEqual(['safe']);
+    expect(out.stdout.slice(1, -1)).toEqual(['safe', '[redacted:private-key]', 'done']);
+  });
+
   it('refuses a log that no longer begins with what was already shown', async () => {
     stagedCloud([
       { run: RUNNING, log: logBody('alpha\nbeta\n') },

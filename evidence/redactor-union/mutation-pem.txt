@@ -1,0 +1,35 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/cloud-live.test.ts (63 tests | 1 failed | 55 skipped) 26ms
+   × flows logs --follow > union hold: keeps an unexported PEM across three polls 9ms
+     → expected [ 'safe', …(1) ] to deeply equal [ 'safe' ]
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/cloud-live.test.ts > flows logs --follow > union hold: keeps an unexported PEM across three polls
+AssertionError: expected [ 'safe', …(1) ] to deeply equal [ 'safe' ]
+
+- Expected
++ Received
+
+  Array [
+    "safe",
++   "-----BEGIN PRIVATE KEY-----",
+  ]
+
+ ❯ tests/cloud-live.test.ts:697:31
+    695|     ], path => { if (path === 'run') seen.push([...out.stdout]); });
+    696|     expect(await runCloudLogsFollow({ runId: RUN, step: undefined, jso…
+    697|     expect(seen[1]!.slice(1)).toEqual(['safe']);
+       |                               ^
+    698|     expect(seen[2]!.slice(1)).toEqual(['safe']);
+    699|     expect(out.stdout.slice(1, -1)).toEqual(['safe', '[redacted:privat…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 7 passed | 55 skipped (63)
+   Start at  18:17:39
+   Duration  2.51s (transform 1.52s, setup 20ms, collect 2.25s, tests 26ms, environment 0ms, prepare 67ms)
+

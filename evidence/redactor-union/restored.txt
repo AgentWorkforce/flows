@@ -1,0 +1,13 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/redact.test.ts (84 tests) 14ms
+ ✓ tests/agent-transcript.test.ts (30 tests) 461ms
+ ✓ tests/cloud-live.test.ts (63 tests) 2064ms
+   ✓ argv and wiring > routes both live invocations through runCli, and refuses a missing run id 2005ms
+
+ Test Files  3 passed (3)
+      Tests  177 passed (177)
+   Start at  18:17:42
+   Duration  4.46s (transform 1.72s, setup 44ms, collect 2.56s, tests 2.54s, environment 0ms, prepare 220ms)
+

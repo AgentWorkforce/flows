@@ -1,3 +1,4 @@
+import { redact } from './redact.js';
 import { workerSpend } from './worker-spend.js';
 import { reportedCost } from './reported-cost.js';
 import { DEFAULT_LOCAL_AGENT_CAPACITY } from './worker-slots.js';
@@ -11,7 +12,7 @@ import { resolveCliModel } from './cli-adapter.js';
 import { withWorkerLease } from './worker-lease.js';
 import { workerInstruction } from './worker-input.js';
 import { jsonSchemaOutputError } from './json-schema.js';
-import { LLM_ERROR_MAX_BYTES, boundTranscriptDigest, boundedText, redactText } from './agent-transcript.js';
+import { LLM_ERROR_MAX_BYTES, boundTranscriptDigest, boundedText } from './agent-transcript.js';
 
 /** Bare value-producing LLM dispatch, without agent workspace/recovery pins. */
 export class LlmWorker extends EventEmitter {
@@ -93,7 +94,7 @@ export class LlmWorker extends EventEmitter {
     const transcript = completed.transcript === undefined ? undefined
       : boundTranscriptDigest({ attempt: dispatch.attempt, exit_code: result.exit_code, ...completed.transcript });
     const trajectoryTail = {
-      ...(reason === 'success' ? {} : { error: boundedText(redactText(detail), LLM_ERROR_MAX_BYTES).text }),
+      ...(reason === 'success' ? {} : { error: boundedText(redact(detail), LLM_ERROR_MAX_BYTES).text }),
       ...(transcript === undefined ? {} : { transcript }),
     };
     await this.client.stepComplete(dispatch.run_id, dispatch.step_id, dispatch.attempt,

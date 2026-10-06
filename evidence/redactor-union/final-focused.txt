@@ -1,0 +1,14 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/redact.test.ts (84 tests) 12ms
+ ✓ tests/agent-transcript.test.ts (30 tests) 509ms
+   ✓ transcript file writer — bounds and the path it opens > keeps the file at or under its cap once the marker is counted 340ms
+ ✓ tests/cloud-live.test.ts (63 tests) 2073ms
+   ✓ argv and wiring > routes both live invocations through runCli, and refuses a missing run id 2005ms
+
+ Test Files  3 passed (3)
+      Tests  177 passed (177)
+   Start at  18:19:17
+   Duration  4.60s (transform 1.85s, setup 56ms, collect 2.69s, tests 2.59s, environment 0ms, prepare 274ms)
+
