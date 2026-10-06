@@ -57,6 +57,15 @@ All `.txt` files contain captured output, not reconstructed output.
 
 [Captured output](live-cli.txt)
 
+`cd packages/sdk && RELAYFLOWD_BIN=<repo>/kernel/target/release/relayflowd ./node_modules/.bin/vitest run tests/live-kernel.test.ts -t 'naming the step the daemon named'`
+
+Mutation verification for the live skew case: `stepId` mapping removed from
+`daemon-spec-validation.ts`, the test run and its failure captured, the file
+restored byte-for-byte (`git diff --exit-code` clean) and the test re-run.
+
+[Captured output, mutated](live-skew-mutated.txt) ·
+[Captured output, restored](live-skew-restored.txt)
+
 `python3 evidence/daemon-check/mutation-run.py`
 
 [Captured output](mutations.txt)

@@ -1,0 +1,17 @@
+$ git checkout -- packages/sdk/src/daemon-spec-validation.ts   # restored byte-for-byte; git diff --exit-code is clean
+$ cd packages/sdk && RELAYFLOWD_BIN=$PWD/../../kernel/target/release/relayflowd ./node_modules/.bin/vitest run tests/live-kernel.test.ts -t "naming the step the daemon named"
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/home/daytona/.relayflow-v2-supervisor/durable/repository/kernel/target/release/relayflowd
+LIVE_KERNEL flows=/home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/dist/cli.js
+
+ ✓ tests/live-kernel.test.ts (34 tests | 33 skipped) 61ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 33 skipped (34)
+   Start at  15:16:15
+   Duration  2.59s (transform 1.45s, setup 24ms, collect 2.31s, tests 61ms, environment 0ms, prepare 50ms)
+
+exit=0
