@@ -249,8 +249,8 @@ flows status --cloud --watch [--json] <run-id>            # ...and redraw it unt
 ```
 
 They resolve their credential exactly the way every other hosted verb does
-(see [Credentials](#credentials) below) and they write nothing. A workspace
-API token of purpose `workflow` is enough; the log route additionally wants
+(see [Credentials](#credentials) below) and the only thing they write is a renewed
+login. A workspace API token of purpose `workflow` is enough; the log route additionally wants
 `workflow:logs:read` or `workflow:invoke:read`, and a run-scoped *sandbox*
 token may only read its own run.
 
@@ -494,7 +494,7 @@ Every refusal is one `REFUSED [code] message` line naming what to do next:
 | code | when |
 | --- | --- |
 | `cloud_auth_missing` | no credential anywhere; names `agent-relay cloud login` |
-| `cloud_auth_expired` | the stored login expired; refused before any request |
+| `cloud_auth_expired` | the stored login expired and could not be refreshed |
 | `cloud_auth_rejected` | Cloud answered 401: the token is unknown or revoked |
 | `cloud_forbidden` | 403: authenticated, but not allowed to read that run or log |
 | `cloud_run_not_found` | 404: no such run for this credential; points at `flows runs` |
@@ -524,7 +524,9 @@ then `FLOWS_CLOUD_TOKEN`, then the `agent-relay cloud login` store
 (`~/.agentworkforce/relay/cloud-auth.json`, or `AGENT_RELAY_HOME`). The login
 store also supplies the base URL unless `FLOWS_CLOUD_URL` overrides it, so a
 login against one deployment never sends its token to another. An expired
-login is refused with the re-login remedy rather than sent.
+login is renewed when its refresh token is usable, then written atomically through
+the relay CLI’s file contract and shared lock. If renewal is unavailable or fails
+(including persistence), flows refuses with the re-login remedy.
 
 Running and syncing work with either kind of token. Deploying, listing and
 removing listeners need the interactive `cli:auth` credential the login

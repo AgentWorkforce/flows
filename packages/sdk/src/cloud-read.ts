@@ -1,11 +1,11 @@
 // Reading a hosted run: the four Cloud GETs behind `flows runs`, `flows logs`
 // and `flows status --cloud`.
 //
-// Nothing here writes. Every call goes through `cloudFetch`, so the credential
-// is resolved exactly once and in exactly one place (cloud-http.ts: the `token`
+// Only credential renewal writes the login store. Every call goes through
+// `cloudFetch`, resolving the credential in one place (cloud-http.ts: the `token`
 // option, then `FLOWS_CLOUD_TOKEN`, then the `agent-relay cloud login` store,
-// with the URL binding and the expiry refusal) -- an agent inspecting its own
-// runs holds the same credential it would use to start one, and there is no
+// with URL binding and refresh before expiry refusal). An agent inspecting its
+// own runs holds the same credential it would use to start one, and there is no
 // second path to get it wrong.
 //
 // The routes answer Cloud's own field names in camelCase. This module is where

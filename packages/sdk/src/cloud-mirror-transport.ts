@@ -113,7 +113,7 @@ export async function registerLocalRun(
     || typeof callbackToken !== 'string' || callbackToken.length === 0) {
     throw new CloudFlowError('invalid_response', 'Cloud registered the run without a usable credential.');
   }
-  const { baseUrl } = cloudConnection(options);
+  const { baseUrl } = await cloudConnection(options);
   const runUrl = typeof result['runUrl'] === 'string' && /^https:\/\//u.test(result['runUrl'])
     ? result['runUrl']
     : `${baseUrl}/dashboard/workflow/${encodeURIComponent(runId)}/runner`;

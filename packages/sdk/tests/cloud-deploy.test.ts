@@ -442,30 +442,30 @@ describe('agent-relay cloud login fallback', () => {
   it('uses the login token and its API URL when no explicit credential is configured', async () => {
     await loginStore({ apiUrl: 'https://login.example/cloud', accessToken: 'login-token',
       accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString() });
-    expect(cloudConnection({})).toEqual({ baseUrl: 'https://login.example/cloud', token: 'login-token' });
+    expect(await cloudConnection({})).toEqual({ baseUrl: 'https://login.example/cloud', token: 'login-token' });
   });
 
   it('never sends the login token to a deployment other than the one that issued it', async () => {
     await loginStore({ apiUrl: 'https://login.example/cloud', accessToken: 'login-token' });
     vi.stubEnv('FLOWS_CLOUD_URL', 'https://other.example/cloud');
-    expect(() => cloudConnection({})).toThrow(expect.objectContaining({ code: 'configuration' }));
-    expect(() => cloudConnection({ apiUrl: 'https://other.example/cloud' })).toThrow(/issued for https:\/\/login\.example\/cloud/u);
+    await expect(cloudConnection({})).rejects.toThrow(expect.objectContaining({ code: 'configuration' }));
+    await expect(cloudConnection({ apiUrl: 'https://other.example/cloud' })).rejects.toThrow(/issued for https:\/\/login\.example\/cloud/u);
     // The same deployment spelled with a trailing slash is still the same deployment.
-    expect(cloudConnection({ apiUrl: 'https://login.example/cloud/' })).toEqual({ baseUrl: 'https://login.example/cloud', token: 'login-token' });
+    expect(await cloudConnection({ apiUrl: 'https://login.example/cloud/' })).toEqual({ baseUrl: 'https://login.example/cloud', token: 'login-token' });
   });
 
   it('lets FLOWS_CLOUD_TOKEN win over the login store', async () => {
     await loginStore({ apiUrl: 'https://login.example/cloud', accessToken: 'login-token' });
     vi.stubEnv('FLOWS_CLOUD_TOKEN', 'explicit');
-    expect(cloudConnection({})).toEqual({ baseUrl: 'https://agentrelay.com/cloud', token: 'explicit' });
+    expect(await cloudConnection({})).toEqual({ baseUrl: 'https://agentrelay.com/cloud', token: 'explicit' });
   });
 
   it('refuses an expired login with the re-login remedy, and a missing store with the configuration message', async () => {
     await loginStore({ apiUrl: 'https://login.example/cloud', accessToken: 'stale',
       accessTokenExpiresAt: new Date(Date.now() - 1).toISOString() });
-    expect(() => cloudConnection({})).toThrow(/agent-relay cloud login/u);
+    await expect(cloudConnection({})).rejects.toThrow(/agent-relay cloud login/u);
     vi.stubEnv('AGENT_RELAY_HOME', join(await tempDir('relay-home-empty-'), 'nope'));
-    expect(() => cloudConnection({})).toThrow(expect.objectContaining({ code: 'configuration' }));
+    await expect(cloudConnection({})).rejects.toThrow(expect.objectContaining({ code: 'configuration' }));
   });
 });
 

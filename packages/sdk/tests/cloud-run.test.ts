@@ -206,7 +206,7 @@ describe('hosted v2 submission', () => {
 
   it('preserves the production /cloud base path and normalized credentials', async () => {
     vi.stubEnv('FLOWS_CLOUD_URL', undefined);
-    expect(cloudConnection({ token: ' test-token ' })).toEqual({ baseUrl: 'https://agentrelay.com/cloud', token: 'test-token' });
+    expect(await cloudConnection({ token: ' test-token ' })).toEqual({ baseUrl: 'https://agentrelay.com/cloud', token: 'test-token' });
     const paths: string[] = [];
     const options = await cloud(path => { paths.push(path); return { runId: 'path-run', status: 'pending' }; });
     const receipt = await runInCloud(flow, { ...options, apiUrl: `${options.apiUrl}/cloud/` });

@@ -210,7 +210,7 @@ export async function runInCloud(
   flow: CloudFlowSource,
   options: RunInCloudOptions = {},
 ): Promise<CloudRunReceipt> {
-  const { baseUrl } = cloudConnection(options);
+  const { baseUrl } = await cloudConnection(options);
   const submission = await prepareCloudSubmission(flow, options);
   const hash = submission.specHash;
   // Sync before submission: `prepare` reserves the run ID and the upload lands

@@ -1,6 +1,4 @@
-import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { readAgentRelayCloudLogin, loginIsExpired, refreshTokenUsable, refreshAgentRelayCloudLogin } from './cloud-login-store.js';
 
 export interface CloudConnectionOptions {
   /** Cloud application base URL; defaults to https://agentrelay.com/cloud. */
@@ -61,63 +59,22 @@ function configurationError(reason: CloudConfigurationReason, message: string): 
   return error;
 }
 
-/**
- * The `agent-relay cloud login` credential store. Read only when neither the
- * `token` option nor `FLOWS_CLOUD_TOKEN` is set, so an explicit credential
- * always wins and this file can change shape without breaking a configured
- * caller. Its `apiUrl` becomes the default base URL for the same reason: a
- * login against one deployment must not send its token to another.
- */
-export function agentRelayCloudAuthPath(env: NodeJS.ProcessEnv = process.env): string {
-  return join(env['AGENT_RELAY_HOME'] ?? join(homedir(), '.agentworkforce/relay'), 'cloud-auth.json');
-}
-
-export interface AgentRelayCloudLogin {
-  apiUrl: string;
-  accessToken: string;
-  /** ISO-8601; the store carries it, so an expired login refuses with a real reason. */
-  accessTokenExpiresAt?: string;
-}
-
-export function readAgentRelayCloudLogin(
-  env: NodeJS.ProcessEnv = process.env,
-  read: (path: string) => string = path => readFileSync(path, 'utf8'),
-): AgentRelayCloudLogin | undefined {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(read(agentRelayCloudAuthPath(env)));
-  } catch {
-    return undefined;
-  }
-  if (!isCloudRecord(parsed) || typeof parsed.apiUrl !== 'string' || typeof parsed.accessToken !== 'string'
-    || !parsed.accessToken.trim()) return undefined;
-  return {
-    apiUrl: parsed.apiUrl, accessToken: parsed.accessToken,
-    ...(typeof parsed.accessTokenExpiresAt === 'string' ? { accessTokenExpiresAt: parsed.accessTokenExpiresAt } : {}),
-  };
-}
-
-export function cloudConnection(options: CloudConnectionOptions): { baseUrl: string; token: string } {
-  let rawToken = options.token ?? process.env['FLOWS_CLOUD_TOKEN'];
-  let loginApiUrl: string | undefined;
-  if (rawToken === undefined) {
-    const login = readAgentRelayCloudLogin();
-    if (login !== undefined) {
-      const expiresAt = login.accessTokenExpiresAt === undefined ? Number.NaN : Date.parse(login.accessTokenExpiresAt);
-      if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) {
-        throw configurationError('auth_expired',
-          'The agent-relay cloud login has expired. Run `agent-relay cloud login` again, or set FLOWS_CLOUD_TOKEN.');
-      }
-      rawToken = login.accessToken;
-      loginApiUrl = login.apiUrl;
-    }
-  }
+function cloudToken(rawToken: string | undefined): string {
   const token = rawToken?.trim();
   if (!token || /[\r\n]/u.test(rawToken!) || /^(?:rk|ot)_live_/u.test(token)) {
     throw configurationError('auth_missing',
       'Set FLOWS_CLOUD_TOKEN to a scoped Cloud API token (workflow:invoke:write and workflow:runs:read), '
       + 'or sign in with `agent-relay cloud login`.');
   }
+  return token;
+}
+
+export async function cloudConnection(options: CloudConnectionOptions): Promise<{ baseUrl: string; token: string }> {
+  const rawToken = options.token ?? process.env['FLOWS_CLOUD_TOKEN'];
+  const login = rawToken === undefined ? readAgentRelayCloudLogin() : undefined;
+  // Explicit credentials retain their original validation order and bypass disk.
+  if (rawToken !== undefined || login === undefined) cloudToken(rawToken);
+  const loginApiUrl = login?.apiUrl;
   let url: URL;
   try {
     url = new URL(options.apiUrl ?? process.env['FLOWS_CLOUD_URL'] ?? loginApiUrl ?? 'https://agentrelay.com/cloud');
@@ -144,7 +101,31 @@ export function cloudConnection(options: CloudConnectionOptions): { baseUrl: str
         + 'Set FLOWS_CLOUD_TOKEN for that deployment, or unset FLOWS_CLOUD_URL to use the login.');
     }
   }
-  return { baseUrl, token };
+  if (login && loginIsExpired(login)) {
+    const remedy = ' Run `agent-relay cloud login` again, or set FLOWS_CLOUD_TOKEN.';
+    if (!login.refreshToken?.trim()) {
+      throw configurationError('auth_expired', 'The agent-relay cloud login has expired.' + remedy);
+    }
+    if (!refreshTokenUsable(login)) {
+      throw configurationError('auth_expired', 'The agent-relay cloud login has expired, and so has its refresh token.' + remedy);
+    }
+    const result = await refreshAgentRelayCloudLogin({ login, baseUrl, signal: options.signal });
+    if (!result.ok) {
+      throw configurationError('auth_expired', `The agent-relay cloud login has expired and could not be refreshed ${result.detail}.` + remedy);
+    }
+    let renewedUrl: string | undefined;
+    try {
+      const renewed = new URL(result.login.apiUrl);
+      renewedUrl = `${renewed.origin}${renewed.pathname.replace(/\/+$/u, '')}`;
+    } catch { renewedUrl = undefined; }
+    if (renewedUrl !== baseUrl) {
+      throw configurationError('url_mismatch',
+        `The agent-relay cloud login was renewed for ${result.login.apiUrl}, not ${baseUrl}. `
+        + 'Re-run the command, or set FLOWS_CLOUD_TOKEN for that deployment.');
+    }
+    return { baseUrl, token: cloudToken(result.login.accessToken) };
+  }
+  return { baseUrl, token: cloudToken(rawToken ?? login?.accessToken) };
 }
 
 export async function cloudRequest(
@@ -182,11 +163,11 @@ export async function cloudFetch(
   options: CloudConnectionOptions,
   init: CloudFetchInit,
 ): Promise<unknown> {
-  const { baseUrl, token } = cloudConnection(options);
   const timeout = options.requestTimeoutMs ?? 30_000;
   if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 2_147_483_647) {
     throw configurationError('timeout_invalid', 'requestTimeoutMs must be a positive 32-bit integer.');
   }
+  const { baseUrl, token } = await cloudConnection(options);
   const bearer = init.bearerToken ?? token;
   if (/[\r\n]/u.test(bearer) || !bearer.trim()) {
     throw new CloudFlowError('invalid_response', 'Cloud issued an unusable storage credential.');

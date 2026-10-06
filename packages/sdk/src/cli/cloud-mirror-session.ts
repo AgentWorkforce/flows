@@ -231,7 +231,7 @@ export function mirrorSourceFromJournal(dataDir: string): (runId: string) => Pro
     // the deployment this invocation will actually register with, so a run
     // mirrored to staging never claims to continue an id that means something
     // else in production.
-    const resumedFromRunId = await readMirroredRun(dataDir, runId, cloudConnection({}).baseUrl)
+    const resumedFromRunId = await readMirroredRun(dataDir, runId, (await cloudConnection({})).baseUrl)
       .catch(() => undefined);
     // Through the retrying reader: a resume reads this journal while the
     // daemon is writing to it, and a single `journal_busy` used to abandon
