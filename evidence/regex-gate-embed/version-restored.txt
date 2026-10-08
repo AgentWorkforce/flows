@@ -1,0 +1,4 @@
+$ node scripts/generate-re2js-embed.mjs --check
+re2js 2.8.6 embed is current
+
+exit: 0

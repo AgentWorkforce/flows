@@ -1,17 +1,13 @@
-import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import { deflateRawSync } from 'node:zlib';
+import { RE2JS_DEFLATED_BASE64 } from './re2js-embedded.js';
 import { bindingDependencies } from './input-binding.js';
 import { isNamedGate, regexFlags } from './named-gates.js';
 import type { NamedDataGate, StepSpec, VerificationSpec } from './spec.js';
 
 const quote = (text: string): string => `'${text.replaceAll("'", "'\\''")}'`;
-let re2Source: string | undefined;
 
 /** Embed the pinned engine in the command: execution does not resolve npm or SDK paths. */
 function embeddedRE2(): string {
-  re2Source ??= deflateRawSync(readFileSync(createRequire(import.meta.url).resolve('re2js'))).toString('base64');
-  return `const re2={};new Function('exports',require('node:zlib').inflateRawSync(Buffer.from(${JSON.stringify(re2Source)},'base64')).toString())(re2);`;
+  return `const re2={};new Function('exports',require('node:zlib').inflateRawSync(Buffer.from(${JSON.stringify(RE2JS_DEFLATED_BASE64)},'base64')).toString())(re2);`;
 }
 
 /**
