@@ -172,6 +172,22 @@ describe('Cloud answer and resume', () => {
     expect(calls).toHaveLength(4);
   });
 
+  it('reports a run already parked on a later wait as resumed by Cloud, without a resume POST', async () => {
+    const sequence = replies();
+    sequence[3] = { body: { ...parked, result: { completionReason: 'needs_human', humanWait: { ...wait, waitId: 'human-3' } } } };
+    const calls = cloud(sequence);
+    expect(await answerCloudFlow(RUN, true, options)).toMatchObject({ waitId: 'human-2', resumedByCloud: true });
+    expect(calls).toHaveLength(4);
+  });
+
+  it('answers the open wait when the answer route still holds an earlier gate\'s decision', async () => {
+    const sequence = replies();
+    sequence[1] = { body: { humanWait: wait, answer: { waitId: 'human-1', answer: false, note: 'earlier gate' } } };
+    const calls = cloud(sequence);
+    expect(await answerCloudFlow(RUN, true, options)).toMatchObject({ waitId: 'human-2', runId: 'resumed-1' });
+    expect(calls[2]).toMatchObject({ method: 'POST', path: `${path}/answer`, body: { waitId: 'human-2', answer: true } });
+  });
+
   it('does not report a run cancelled after the answer as resumed', async () => {
     const sequence = replies(); sequence[3] = { body: { ...parked, status: 'cancelled', result: { completionReason: 'canceled' } } };
     const calls = cloud(sequence);

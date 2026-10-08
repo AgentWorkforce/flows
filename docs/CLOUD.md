@@ -888,7 +888,9 @@ re-reads the run and submits a resume only if it is still parked. A resume conta
 `resume: <id>`, and **no `inputs`**: Cloud restores persisted input. If the
 re-read reports Cloud already running, completed or failed the run (execution
 continued past the park), the CLI reports that without a resume POST; a run
-cancelled meanwhile is reported as not resumed. This check is not an atomic claim: simultaneous callers
+cancelled meanwhile is reported as not resumed. A run already parked on a later
+wait was also resumed by Cloud; answer that wait with a fresh command. A decision
+the answer route still holds for an earlier wait does not block the open one. This check is not an atomic claim: simultaneous callers
 or Cloud creating a successor without updating the original record require
 server-side deduplication; this CLI does not guarantee that contract.
 

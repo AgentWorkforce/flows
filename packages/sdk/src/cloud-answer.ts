@@ -153,13 +153,15 @@ export async function answerCloudFlow(runId: string, answer: boolean, options: C
   const record = await get(route(runId), options);
   const state = cloudRunState(record, runId);
   if (state.status !== 'needs_human') throw new CloudFlowError('invalid_input', 'Run is not parked on needs_human; no answer or resume was submitted.');
-  const { wait, recorded } = await readCloudHumanWait(runId, options);
-  const waitId = wait?.waitId ?? recorded?.waitId;
+  const { wait, recorded: lastRecorded } = await readCloudHumanWait(runId, options);
+  const waitId = wait?.waitId ?? lastRecorded?.waitId;
+  // A decision recorded for an earlier gate says nothing about the open one.
+  const recorded = lastRecorded?.waitId === waitId ? lastRecorded : undefined;
   if (!waitId || (state.humanWait && state.humanWait.waitId !== waitId)) {
     throw new CloudFlowError('invalid_response', 'Cloud answer record does not identify the run’s parked wait.');
   }
   // A recorded answer that omits its optional note does not contradict --note.
-  if (recorded && (recorded.waitId !== waitId || recorded.answer !== answer
+  if (recorded && (recorded.answer !== answer
     || (recorded.note !== undefined && recorded.note !== options.note))) {
     throw new CloudFlowError('invalid_input', 'The recorded answer differs; a closed human wait cannot be changed.');
   }
@@ -184,8 +186,10 @@ export async function answerCloudFlow(runId: string, answer: boolean, options: C
       }
       return { runId, resumedFrom: runId, waitId, answer, resumedByCloud: true };
     }
+    // Parked on a later gate: Cloud already resumed past this one. Never
+    // resume (or retry this decision) against the new wait.
     if (current.humanWait && current.humanWait.waitId !== waitId) {
-      throw new CloudFlowError('invalid_response', 'Run is now parked on a different human wait; refusing to resume it.');
+      return { runId, resumedFrom: runId, waitId, answer, resumedByCloud: true };
     }
     const receipt = await post('/api/v1/workflows/run', body, options);
     if (!isCloudRecord(receipt) || !['pending', 'running'].includes(String(receipt.status))) {
