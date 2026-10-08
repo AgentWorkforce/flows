@@ -132,8 +132,10 @@ function reachesMachinery(node: AstNode, parents: WeakMap<AstNode, AstNode>): bo
     if (parent !== undefined && declares(parent, node)) return false;
     if (parent?.type === 'VariableDeclarator' && parent.id === node) return false;
     if (boundLocally(node, node.name!, parents)) return false;
-    const member = parent?.type === 'MemberExpression' && parent.object === node ? memberName(parent) : undefined;
-    return member === undefined || PROTOTYPE_MACHINERY.has(member);
+    // globalThis.Object is Object by another route: judge it the same way.
+    if (node.name === 'globalThis' && parent?.type === 'MemberExpression' && parent.object === node
+      && MACHINERY_GLOBALS.has(memberName(parent) ?? '')) return onlyStaticSafeMember(parent, parents);
+    return onlyStaticSafeMember(node, parents) === true;
   }
   // Destructuring a prototype-bearing global at all (computed keys, rest)
   // can pick out any of its machinery.
@@ -197,6 +199,16 @@ function reassigns(node: AstNode, name: string): boolean {
     for (const entry of Array.isArray(child) ? child : [child]) if (isNode(entry) && reassigns(entry, name)) return true;
   }
   return false;
+}
+
+/**
+ * For a value that is a prototype-bearing global: true (machinery reached)
+ * unless it is only the object of a static, non-machinery member.
+ */
+function onlyStaticSafeMember(value: AstNode, parents: WeakMap<AstNode, AstNode>): boolean {
+  const parent = parents.get(value);
+  const member = parent?.type === 'MemberExpression' && parent.object === value ? memberName(parent) : undefined;
+  return member === undefined || PROTOTYPE_MACHINERY.has(member);
 }
 
 /** Globals whose members include the prototype machinery. */

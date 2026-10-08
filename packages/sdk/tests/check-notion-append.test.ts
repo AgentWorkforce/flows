@@ -343,3 +343,12 @@ it('refuses a local constructor name that is later reassigned', async () => {
   const result = await check(fixture('class Local {} Local = ({}).constructor; Local.prototype.hook = 1; await f.notion.createPage({ parent: "p", title: "t" });', '{ tools: { notion: true } },'));
   expect(result.exit).toBe(2);
 });
+it('refuses prototype-bearing globals reached through globalThis', async () => {
+  const body = 'let held; const O = globalThis.Object, S = globalThis.Symbol; const d = "define" + "Property", p = "proto" + "type", t = "to" + "Primitive"; O[d](O[p], S[t], { value() { held = this; return ""; }, configurable: true }); const s = `${f.notion}`; await held.appendBlock("p", {});';
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+});
+it('allows static non-machinery members reached through globalThis', async () => {
+  const result = await check(fixture('const n = globalThis.Object.keys({ a: 1 }).length; await f.notion.createPage({ parent: "p", title: String(n) });', '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(0);
+});
