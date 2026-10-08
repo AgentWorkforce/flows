@@ -16,9 +16,9 @@ import { bindHead, observation } from './wake.ts';
  * runtime. It diagnoses and comments; it never pushes, merges or reviews.
  *
  * Order is the contract: admit only the bound PR; refuse without origin
- * context; reread live state and bind its head; decline when nothing is
- * actionable; one agent with the original scope; reread and decline if the
- * head moved; one owned comment.
+ * context; reread live state and require the exact server-claimed head;
+ * decline when nothing is actionable; one agent with the original scope;
+ * reread and decline if the head moved; one owned comment.
  */
 const REPORT_MAX_CHARS = 12_000;
 const AUTHORISED = ['OWNER', 'MEMBER', 'COLLABORATOR'];
@@ -44,11 +44,14 @@ function parsePolicy(value: unknown): StandalonePolicy {
   };
 }
 
-/** The bound PR comes from Cloud's lineage, never from the delivered webhook. */
-function boundPullRequest(value: unknown): BoundPullRequest | undefined {
+type StandaloneBoundPullRequest = BoundPullRequest & { headSha: string };
+
+/** The bound PR and claimed head come from Cloud, never from the delivered webhook. */
+function boundPullRequest(value: unknown): StandaloneBoundPullRequest | undefined {
   const pr = record(record(record(value).babysitter).pullRequest);
-  if (typeof pr.owner !== 'string' || typeof pr.repo !== 'string' || !Number.isSafeInteger(pr.number) || Number(pr.number) <= 0) return undefined;
-  return { owner: pr.owner, repo: pr.repo, number: Number(pr.number) };
+  if (typeof pr.owner !== 'string' || typeof pr.repo !== 'string' || !Number.isSafeInteger(pr.number) || Number(pr.number) <= 0
+    || typeof pr.headSha !== 'string' || !/^[a-f0-9]{40}$/.test(pr.headSha)) return undefined;
+  return { owner: pr.owner, repo: pr.repo, number: Number(pr.number), headSha: pr.headSha };
 }
 
 export const reportMarker = (pr: BoundPullRequest, head: string): string =>
@@ -114,13 +117,18 @@ export function createStandaloneBabysitter(policy: unknown, runtime: { enforcedA
       await report(`${wake.id} delivery=${deliveryId}: no usable origin context; Babysitter will not act without the original scope.`);
       return f.done('needs_human');
     }
-    // (3) A webhook is a hint: reread and bind the live head.
-    const c: Config = parseInput({ ...pr, testCommand: 'true', botLogin: configured.botLogin });
+    // (3) A webhook is a hint: reread live state and require the exact head
+    // Cloud claimed before reserving this run's per-head capacity.
+    const c: Config = parseInput({ owner: pr.owner, repo: pr.repo, number: pr.number, testCommand: 'true', botLogin: configured.botLogin });
     const live: State = await readState(f, c);
     const bound = bindHead(live, c);
     await report(`${observation(c, wake, bound)} delivery=${deliveryId}`);
     if ('refusal' in bound) return f.done('declined');
     const head = bound.head;
+    if (head !== pr.headSha) {
+      await report(`${wake.id}: live head ${head} differs from claimed head ${pr.headSha}; declining without diagnosis or comment`);
+      return f.done('declined');
+    }
     // (4) Decline when live state leaves nothing to do.
     const skip = outOfScope(live, c, configured.label);
     if (skip) { await report(`${wake.id}: ${skip}`); return f.done('declined'); }
@@ -137,9 +145,10 @@ export function createStandaloneBabysitter(policy: unknown, runtime: { enforcedA
       return f.done('needs_human');
     }
     // (5) One agent carrying the original scope.
-    const cli = configured.agentCli ?? origin.source;
+    const cli = String(configured.agentCli ?? origin.source);
+    const model = String(requiredReviewerModel(cli, configured.agentModel));
     const result = await f.agent('babysitter-diagnose', {
-      cli, model: requiredReviewerModel(cli, configured.agentModel),
+      cli, model,
       permissions: { accessPreset: 'readonly' },
       task: agentTask(origin, `${pr.owner}/${pr.repo}#${pr.number}`, head, changed),
     });

@@ -1106,7 +1106,7 @@ process.stdout.write('{"must_not":"execute"}');
 
   it.each([
     ['claude', '-p --dangerously-skip-permissions --model declared-model-xyz'],
-    ['codex', 'exec --ephemeral --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --model declared-model-xyz'],
+    ['codex', 'exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --model declared-model-xyz'],
   ] as const)('AgentWorker executes the raw %s adapter with its real model flag', async (name, prefix) => {
     const dataDir = temporaryDirectory(`flows-live-${name}-adapter-`);
     await startDaemon(dataDir);
