@@ -199,3 +199,20 @@ it('still refuses a tagged template, which hands the value to its tag', async ()
   const result = await check(fixture('await globalThis.tagHelper`${f.notion}`;', '{ tools: { notion: true } },'));
   expect(result.exit).toBe(2);
 });
+it('refuses the context reached through arguments in a non-arrow body', async () => {
+  const path = fixture('', '{ tools: { notion: true } },');
+  writeFileSync(path, `import { flow } from '@relayflows/surface';
+export default flow('test', { tools: { notion: true } }, async function (f) { await arguments[0].notion.appendBlock('p', {}); f.done('success'); });`);
+  const result = await check(path);
+  expect(result.exit).toBe(2);
+  expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
+});
+it('a typeof probe of appendBlock is not a call', async () => {
+  const result = await check(fixture('if (typeof f.notion.appendBlock === "function") await f.notion.createPage({ parent: "p", title: "t" });', '{ tools: { notion: true } },'));
+  expect(result.stderr.join('\n')).not.toContain('[helper_provider.unsupported]');
+  expect(result.exit).toBe(0);
+});
+it('an extracted appendBlock reference is unprovable', async () => {
+  const result = await check(fixture('const add = f.notion.appendBlock; await add("p", {});', '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+});

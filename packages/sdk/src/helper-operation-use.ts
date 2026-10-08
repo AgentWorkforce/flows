@@ -37,6 +37,8 @@ export function helperOperationUse(body: string, root: string, namespace: string
     if ((node.type === 'CallExpression' || node.type === 'NewExpression')
       && (node.callee as AstNode).type === 'Identifier'
       && ['eval', 'Function'].includes((node.callee as AstNode).name!)) return mark('unprovable');
+    // `arguments[0]` is the context in a non-arrow body without naming it.
+    if (node.type === 'Identifier' && node.name === 'arguments') return mark('unprovable');
     if (node.type !== 'Identifier' || node.name !== root) return;
     const parent = parents.get(node);
     if (parent === undefined || declares(parent, node)) return;
@@ -48,7 +50,13 @@ export function helperOperationUse(body: string, root: string, namespace: string
       if (grand?.type === 'MemberExpression' && grand.object === parent) {
         const operation = memberName(grand);
         if (operation === undefined) mark('unprovable'); // f.notion[expr]
-        else if (operation === method) mark('called');
+        else if (operation === method) {
+          // Calling it is the operation; a read (typeof, comparison) is not;
+          // anything else hands the function on.
+          const call = parents.get(grand);
+          if (call?.type === 'CallExpression' && call.callee === grand) mark('called');
+          else if (!readOrCall(grand, parents)) mark('unprovable');
+        }
         // Inherited object members: called directly, the primitive-returning ones
         // cannot expose the helper; any other (valueOf, constructor, __proto__, a
         // referenced member) can hand it back or reach its prototype.
