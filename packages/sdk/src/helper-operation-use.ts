@@ -118,6 +118,12 @@ function boundLocally(node: AstNode, name: string, parents: WeakMap<AstNode, Ast
 function reachesMachinery(node: AstNode, parents: WeakMap<AstNode, AstNode>): boolean {
   // memberName also reads string-literal computed keys (Object['prototype']).
   if (node.type === 'MemberExpression' && PROTOTYPE_MACHINERY.has(memberName(node) ?? '')) return true;
+  // A key built at runtime on a prototype-bearing global (Object[d], Symbol[t])
+  // may name any of that machinery.
+  if (node.type === 'MemberExpression' && memberName(node) === undefined) {
+    const object = node.object as AstNode | undefined;
+    if (object?.type === 'Identifier' && MACHINERY_GLOBALS.has(object.name!) && !boundLocally(object, object.name!, parents)) return true;
+  }
   // Destructuring reads the same members: const { prototype: p } = Object.
   if (node.type === 'Property' && parents.get(node)?.type === 'ObjectPattern') {
     const key = node.key as AstNode | undefined;
@@ -137,6 +143,9 @@ function reachesMachinery(node: AstNode, parents: WeakMap<AstNode, AstNode>): bo
   }
   return false;
 }
+
+/** Globals whose members include the prototype machinery. */
+const MACHINERY_GLOBALS = new Set(['Object', 'Symbol', 'Reflect', 'Function', 'globalThis', 'Proxy']);
 
 /** Members through which a body can reach or rewrite the prototypes every helper inherits from. */
 const PROTOTYPE_MACHINERY = new Set(['prototype', '__proto__', 'defineProperty', 'defineProperties',

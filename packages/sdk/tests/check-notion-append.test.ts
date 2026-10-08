@@ -303,3 +303,12 @@ it('refuses prototype machinery reached through destructuring', async () => {
   const result = await check(fixture(body, '{ tools: { notion: true } },'));
   expect(result.exit).toBe(2);
 });
+it('refuses dynamic computed members on the prototype-bearing globals', async () => {
+  const body = 'let held; const d = "define" + "Property", p = "proto" + "type", t = "to" + "Primitive"; Object[d](Object[p], Symbol[t], { value() { held = this; return ""; }, configurable: true }); const s = `${f.notion}`; await held.appendBlock("p", {});';
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+});
+it('allows dynamic indexing of ordinary values', async () => {
+  const result = await check(fixture('const titles = ["a", "b"]; const i = Number("1"); await f.notion.createPage({ parent: "p", title: titles[i] });', '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(0);
+});
