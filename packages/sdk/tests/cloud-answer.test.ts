@@ -1,17 +1,22 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { answerCloudFlow, CloudAnswerError } from '../src/cloud-answer.js';
 import { runCli } from '../src/cli.js';
+import { packageTreeSha256 } from '../src/authored-flow-loader.js';
 
 const RUN = '2e97a7ed';
 const path = `/api/v1/workflows/runs/${RUN}`;
 // This is deliberately not executable TypeScript: resuming must only read bytes.
 const workflow = 'original UTF-8 source 🛰️; do not execute';
-const authority = { source: { sha256: createHash('sha256').update(workflow).digest('hex'),
-  surface: { version: '2.0.18', packageName: '@relayflows/surface' } }, artifact: { sha256: 'original-artifact' } };
+const surface = { packageName: '@relayflows/surface', version: '2.0.18',
+  packageSha256: 'a'.repeat(64), runtimeSha256: 'b'.repeat(64) };
+const sourceSha256 = createHash('sha256').update(workflow).digest('hex');
+// The stored attestation shape, which differs from the submission authority.
+const authority = { source: { sha256: sourceSha256, surface }, artifact: { sha256: 'original-artifact' } };
+const submitted = { schemaVersion: 1, sourceSha256, byteLength: Buffer.byteLength(workflow), surface };
 const wait = { waitId: 'human-2', question: 'Ship this?', to: 'slack:#eng' };
 const parked = { runId: RUN, relayflowVersion: 'v2', status: 'failed', workflow,
   relayflowV2Authority: authority, workspaceId: 'original-workspace',
@@ -56,7 +61,7 @@ describe('Cloud answer and resume', () => {
       ['GET', path], ['GET', `${path}/answer`], ['POST', `${path}/answer`], ['GET', path], ['POST', '/api/v1/workflows/run'],
     ]);
     expect(calls[2]!.body).toEqual({ waitId: 'human-2', answer: true, note: 'reviewed' });
-    expect(calls[4]!.body).toEqual({ workflow, authoredAuthority: authority, fileType: 'ts',
+    expect(calls[4]!.body).toEqual({ workflow, authoredAuthority: submitted, fileType: 'ts',
       relayflowVersion: 'v2', resume: RUN, workspaceId: 'original-workspace' });
     expect(calls[4]!.body).not.toHaveProperty('inputs');
   });
@@ -71,6 +76,40 @@ describe('Cloud answer and resume', () => {
   ])('refuses %s before writes', async (_label, changes) => {
     const calls = cloud(replies({ ...parked, ...changes }));
     await expect(answerCloudFlow(RUN, true, options)).rejects.toMatchObject({ code: 'unsupported_source' });
+    expect(calls.every(c => c.method === 'GET')).toBe(true);
+  });
+
+  async function sourceWithSurface(version: string) {
+    const dir = await mkdtemp(join(tmpdir(), 'cloud-answer-')); dirs.push(dir);
+    const pkg = join(dir, 'node_modules', '@relayflows', 'surface'); await mkdir(pkg, { recursive: true });
+    await writeFile(join(pkg, 'package.json'), JSON.stringify({ name: '@relayflows/surface', version,
+      exports: { './runtime': './runtime.js' } }));
+    // Importing this would throw; the resume path must only hash it.
+    const runtime = 'throw new Error("surface runtime must not be imported");\n';
+    await writeFile(join(pkg, 'runtime.js'), runtime);
+    const source = join(dir, 'original.flow.ts'); await writeFile(source, workflow);
+    return { source, surface: { packageName: '@relayflows/surface', version, packageSha256: await packageTreeSha256(pkg),
+      runtimeSha256: createHash('sha256').update(runtime).digest('hex') } };
+  }
+  // Production records store only { version } for the Surface (see cloud-read tests).
+  const versionOnly = { ...parked, relayflowV2Authority: { ...authority, source: { sha256: sourceSha256, surface: { version: '2.0.18' } } } };
+
+  it('re-derives a version-only stored Surface from --source without importing it', async () => {
+    const local = await sourceWithSurface('2.0.18');
+    const calls = cloud(replies(versionOnly));
+    await answerCloudFlow(RUN, true, { ...options, source: local.source });
+    expect((calls[4]!.body as Record<string, unknown>).authoredAuthority).toEqual({ ...submitted, surface: local.surface });
+  });
+
+  it('refuses a version-only stored Surface without --source, or with a different local version, before writes', async () => {
+    let calls = cloud(replies(versionOnly));
+    await expect(answerCloudFlow(RUN, true, options)).rejects.toMatchObject({ code: 'unsupported_source' });
+    expect(calls.every(c => c.method === 'GET')).toBe(true);
+    vi.restoreAllMocks();
+    const local = await sourceWithSurface('2.0.19');
+    calls = cloud(replies(versionOnly));
+    await expect(answerCloudFlow(RUN, true, { ...options, source: local.source }))
+      .rejects.toMatchObject({ code: 'unsupported_source', message: expect.stringContaining('2.0.19') });
     expect(calls.every(c => c.method === 'GET')).toBe(true);
   });
 
@@ -139,6 +178,14 @@ describe('Cloud answer and resume', () => {
     const calls = cloud(sequence);
     await expect(answerCloudFlow(RUN, true, options)).rejects.toMatchObject({ answerRecorded: false });
     expect(calls).toHaveLength(3);
+  });
+
+  it.each([{}, { ok: null }, { ok: 'true' }, { status: 'recorded' }])('does not resume after an unconfirmed answer acknowledgement %j', async ack => {
+    const sequence = replies(); sequence[2] = { body: ack };
+    const calls = cloud(sequence);
+    await expect(answerCloudFlow(RUN, true, options)).rejects.toMatchObject({ answerRecorded: false });
+    expect(calls).toHaveLength(3);
+    expect(calls.filter(c => c.path === '/api/v1/workflows/run')).toEqual([]);
   });
 
   it('CLI exposes answerRecorded when resume fails', async () => {

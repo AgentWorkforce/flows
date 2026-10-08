@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { CloudFlowError, cloudFetch, cloudRunId, isCloudRecord, type CloudConnectionOptions } from './cloud-http.js';
 import { cloudRunState, isCloudRunActive } from './cloud-run-record.js';
 import { readCloudHumanWaitValue } from './cloud-human-wait.js';
+import { readSurfaceAuthority, type SurfaceModuleAuthority } from './authored-flow-loader.js';
+import type { CloudAuthoredAuthority } from './cloud-run.js';
 
 export interface CloudAnswerOptions extends CloudConnectionOptions {
   note?: string;
@@ -66,6 +68,42 @@ export async function readCloudHumanWait(runId: string, options: CloudConnection
     : undefined };
 }
 
+const HEX64 = /^[a-f0-9]{64}$/u;
+
+function isSurfaceAuthority(value: unknown): value is SurfaceModuleAuthority {
+  return isCloudRecord(value) && value.packageName === '@relayflows/surface'
+    && typeof value.version === 'string' && value.version.length > 0
+    && typeof value.packageSha256 === 'string' && HEX64.test(value.packageSha256)
+    && typeof value.runtimeSha256 === 'string' && HEX64.test(value.runtimeSha256);
+}
+
+/**
+ * The admitted Surface identity. A complete stored identity is reused as-is;
+ * otherwise it is re-derived by hashing the Surface installed beside --source
+ * (never importing either), and must match the stored version.
+ */
+async function resumeSurface(stored: unknown, source?: string): Promise<SurfaceModuleAuthority> {
+  if (isSurfaceAuthority(stored)) {
+    const { packageName, version, packageSha256, runtimeSha256 } = stored;
+    return Object.freeze({ packageName, version, packageSha256, runtimeSha256 });
+  }
+  const version = isCloudRecord(stored) && typeof stored.version === 'string' && stored.version.length > 0
+    ? stored.version : undefined;
+  if (version === undefined) {
+    throw new CloudFlowError('unsupported_source', 'Cloud run lacks its Surface version; cannot rebuild the submission authority.');
+  }
+  if (source === undefined) {
+    throw new CloudFlowError('unsupported_source', `Cloud stores only the Surface version (${version}); supply --source <path> where @relayflows/surface ${version} is installed.`);
+  }
+  let local: SurfaceModuleAuthority;
+  try { local = await readSurfaceAuthority(source); }
+  catch { throw new CloudFlowError('unsupported_source', `Cannot resolve @relayflows/surface from --source; install @relayflows/surface ${version} beside it.`); }
+  if (local.version !== version) {
+    throw new CloudFlowError('unsupported_source', `The run was admitted with @relayflows/surface ${version}, but --source resolves ${local.version}.`);
+  }
+  return local;
+}
+
 /** Build from admitted bytes and authority, never re-import hosted code or resend inputs. */
 async function resumeBody(record: Record<string, unknown>, runId: string, source?: string) {
   // A resume without the original tree/plugins is a different execution. Until
@@ -94,7 +132,14 @@ async function resumeBody(record: Record<string, unknown>, runId: string, source
   if (record.workspaceId !== undefined && record.workspaceId !== null && typeof record.workspaceId !== 'string') {
     throw new CloudFlowError('invalid_response', 'Cloud returned an invalid workspaceId.');
   }
-  return { workflow, authoredAuthority: authority, fileType: 'ts', relayflowVersion: 'v2', resume: runId,
+  // The run route takes the submission contract, not the stored attestation.
+  const authoredAuthority: CloudAuthoredAuthority = Object.freeze({
+    schemaVersion: 1,
+    sourceSha256: authority.source.sha256,
+    byteLength: Buffer.byteLength(workflow, 'utf8'),
+    surface: await resumeSurface(authority.source.surface, source),
+  });
+  return { workflow, authoredAuthority, fileType: 'ts', relayflowVersion: 'v2', resume: runId,
     ...(typeof record.workspaceId === 'string' ? { workspaceId: record.workspaceId } : {}) };
 }
 
@@ -117,7 +162,8 @@ export async function answerCloudFlow(runId: string, answer: boolean, options: C
   try {
     if (!answerRecorded) {
       const accepted = await post(`${route(runId)}/answer`, { waitId, answer, ...(options.note === undefined ? {} : { note: options.note }) }, options);
-      if (!isCloudRecord(accepted) || accepted.ok === false || accepted.error !== undefined) {
+      // Only an explicit acknowledgement counts; {} or { ok: null } is not a recorded decision.
+      if (!isCloudRecord(accepted) || accepted.ok !== true || accepted.error !== undefined) {
         throw new CloudFlowError('invalid_response', 'Cloud did not confirm the human answer.');
       }
       answerRecorded = true;

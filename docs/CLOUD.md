@@ -866,14 +866,20 @@ requires a manually copied wait id. Local `flows answer` retains its existing
 
 Before writing an answer, the CLI verifies the original source bytes against
 `relayflowV2Authority.source.sha256`. It uses the record's `workflow`, or
-`--source` if supplied, and forwards the record's authority unchanged. It does
-not import or execute that source locally. Missing authority, changed source,
+`--source` if supplied. The resume carries the same submission authority as
+`flows run --cloud` (`schemaVersion`, `sourceSha256`, `byteLength`, `surface`),
+not the stored attestation. The record's Surface identity is reused when it is
+complete; when Cloud stores only its version, `--source` is required and the
+`@relayflows/surface` installed beside it is hashed and must match that version.
+Neither the source nor the Surface runtime is imported or executed locally.
+Missing authority, a missing or different Surface, changed source,
 reported synced working trees, and declared extensions refuse before any
 POST; this client cannot yet restore their complete execution context.
 `workspaceId` is preserved when supplied by Cloud.
 
-The CLI posts `{ waitId, answer, note? }`, re-reads the run, and submits a resume
-only if it is still parked. A resume contains the original source, authority,
+The CLI posts `{ waitId, answer, note? }` and treats only `{ ok: true }` as a
+recorded answer; any other acknowledgement refuses without a resume. It then
+re-reads the run and submits a resume only if it is still parked. A resume contains the original source, authority,
 `resume: <id>`, and **no `inputs`**: Cloud restores persisted input. If the
 re-read reports Cloud already running/completed the run, the CLI reports that
 without a resume POST. This check is not an atomic claim: simultaneous callers
