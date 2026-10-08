@@ -452,7 +452,15 @@ async function checkAuthoredFlowComposed(path: string): Promise<{ report: CheckR
   // unrelated CLI commands should not pay that startup cost on every run.
   const { checkAuthoredActivities } = await import('./cli/check-activities.js');
   const activities = await checkAuthoredActivities(path);
-  if (!activities.report.ok) return activities;
+  if (!activities.report.ok) {
+    // Keep what is already provable about the flow: its helper warnings and
+    // integration requirements, so one check reports both problems.
+    const requirements = isAuthoredFlowPath(path)
+      ? (await checkAuthoredTriggers(path, invocation)).report.requirements : undefined;
+    return { report: { ...activities.report,
+      diagnostics: [...helper.report.diagnostics, ...activities.report.diagnostics],
+      ...(requirements === undefined ? {} : { requirements }) } };
+  }
   const mcp = await checkTypeScriptFlow(path);
   const triggers = isAuthoredFlowPath(path)
     ? await checkAuthoredTriggers(path, invocation)

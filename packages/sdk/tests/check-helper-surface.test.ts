@@ -399,10 +399,10 @@ it.each([
   expect(result.exit).toBe(2);
   expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
 });
-it('a plain alias with only named, supported methods still passes', async () => {
+it('an aliased f.notion refuses with the remedy, since its calls cannot be attributed', async () => {
   const result = await check(fixture('const notion = f.notion; await notion.createPage({ parent: "p", title: "t" });', '{ tools: { notion: true } },'));
-  expect(result.stderr.join('\n')).not.toContain('[helper_provider.unsupported]');
-  expect(result.exit).toBe(0);
+  expect(result.exit).toBe(2);
+  expect(result.stderr.join('\n')).toContain('call f.notion methods directly by name');
 });
 it.each([
   ['an alias handed to a call', 'const notion = f.notion; await globalThis.invokeHelper(notion, "page");'],
@@ -415,9 +415,26 @@ it.each([
 });
 it.each([
   ['a short-circuit guard', 'f.notion && await f.notion.createPage({ parent: "p", title: "t" });'],
-  ['an alias guard', 'const n = f.notion; if (n) await n.createPage({ parent: "p", title: "t" }); n && await n.createPage({ parent: "p", title: "u" });'],
+  ['a direct guard and comparison', 'if (f.notion !== undefined && typeof f.notion === "object") await f.notion.createPage({ parent: "p", title: "t" });'],
 ])('does not over-refuse %s that only calls supported methods', async (_shape, body) => {
   const result = await check(fixture(body, '{ tools: { notion: true } },'));
   expect(result.stderr.join('\n')).not.toContain('[helper_provider.unsupported]');
   expect(result.exit).toBe(0);
+});
+it.each([
+  ['a captured alias inside a root-shadowing function', 'const notion = f.notion; function call(f) { return notion.appendBlock("p", {}); } await call(1);'],
+  ['an alias used as a default', 'const run = async (n = f.notion) => globalThis.invokeHelper(n); await run();'],
+  ['an assignment used as an argument', 'let n; await globalThis.invokeHelper(n = f.notion);'],
+])('refuses %s', async (_shape, body) => {
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+  expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
+});
+it('keeps the helper warning and requirements when activity validation refuses', async () => {
+  const result = await check(fixture('f.on(globalThis.source, { idle: "1h" });', '{ tools: { slack: true } },'), true);
+  const report = JSON.parse(result.stdout.join(''));
+  expect(report.ok).toBe(false);
+  expect(report.diagnostics.some((d: { message: string }) => d.message.includes('unbounded_subscription'))).toBe(true);
+  expect(report.diagnostics.some((d: { kind: string }) => d.kind === 'helper_credential_unresolved')).toBe(true);
+  expect(report.requirements?.integrations).toContainEqual(expect.objectContaining({ provider: 'slack' }));
 });

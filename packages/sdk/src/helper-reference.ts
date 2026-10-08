@@ -38,212 +38,8 @@ export function helperNamespacesUsed(body: string, root: string): ReadonlySet<st
   return used;
 }
 
-/**
- * Which `f.<namespace>.<method>` helper operations a flow body references, as
- * `namespace.method`. Same parse and scoping as `helperNamespacesUsed`, so an
- * unrelated object's method, a string or a comment naming one is not a use.
- *
- * A namespace used anywhere but a method access or a read-only check
- * (`if (f.notion)`, `typeof f.notion`) is reported in `escaped` — aliases,
- * destructuring, arguments, returns, arrow bodies and defaults alike — and a
- * bare `f` in such a position escapes the whole context (`*`). This is an
- * allowlist, so a new aliasing shape escapes by default. A computed method,
- * `f.notion[expr]`, is recorded as `notion.*`; a computed namespace escapes `*`.
- * `members` lists every member name the body accesses or destructures (`*`
- * for a computed access), for callers that must stay conservative about an
- * escaped namespace.
- */
-export function helperMemberUses(body: string, root: string): {
-  methods: ReadonlySet<string>; escaped: ReadonlySet<string>; members: ReadonlySet<string>;
-} {
-  const program = parseFlowBody(body);
-  const methods = new Set<string>();
-  const escaped = new Set<string>();
-  const members = new Set<string>();
-  if (program === null) {
-    // Permissive, like textFallback: an unparseable body over-reports.
-    const escapedRoot = root.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-    const pattern = new RegExp(`(?:^|[^\\w$.])${escapedRoot}\\s*\\.\\s*([\\w$]+)\\s*\\.\\s*([\\w$]+)`, 'gu');
-    for (const match of body.matchAll(pattern)) methods.add(`${match[1]}.${match[2]}`);
-    escaped.add('*');
-    for (const match of body.matchAll(/\.\s*([\w$]+)/gu)) members.add(match[1]!);
-    return { methods, escaped, members };
-  }
-  // Parent links for the whole body, so each visible use of the context can be
-  // judged by where it sits.
-  const parents = new WeakMap<AstNode, AstNode>();
-  const link = (node: AstNode): void => {
-    for (const key of Object.keys(node)) {
-      if (key === 'type' || key === 'start' || key === 'end' || key === 'loc') continue;
-      const child = node[key];
-      for (const entry of Array.isArray(child) ? child : [child]) {
-        if (isNode(entry)) { parents.set(entry, node); link(entry); }
-      }
-    }
-  };
-  link(program);
-  // Every destructured key, at any depth: `const { notion: { appendBlock } } = f`
-  // reads appendBlock as surely as a member access does.
-  const patternKeys = (pattern: AstNode | undefined): void => {
-    if (pattern === undefined) return;
-    if (pattern.type === 'AssignmentPattern') return patternKeys(pattern.left as AstNode);
-    if (pattern.type === 'ArrayPattern') {
-      for (const element of (pattern.elements as Array<AstNode | null> | undefined) ?? []) patternKeys(element ?? undefined);
-      return;
-    }
-    if (pattern.type !== 'ObjectPattern') return;
-    for (const property of (pattern.properties as AstNode[] | undefined) ?? []) {
-      // `...rest` and `[expr]: x` can take any member, appendBlock included.
-      if (property.type !== 'Property') { members.add('*'); continue; }
-      members.add(keyName(property) ?? '*');
-      patternKeys(property.value as AstNode);
-    }
-  };
-  // A read that cannot hand the helper on: a member access (`f.notion.x`), an
-  // operand of typeof/!/comparison, or a condition. Anything else may alias it.
-  const readOnly = (node: AstNode): boolean => {
-    const parent = parents.get(node);
-    if (parent === undefined) return false;
-    switch (parent.type) {
-      case 'UnaryExpression': case 'BinaryExpression': return true;
-      case 'IfStatement': case 'WhileStatement': case 'DoWhileStatement': case 'ForStatement':
-        return parent.test === node;
-      case 'ConditionalExpression': return parent.test === node || readOnly(parent);
-      case 'LogicalExpression': case 'ChainExpression': return readOnly(parent);
-      default: return false;
-    }
-  };
-  // Wrappers that pass their operand's value through unchanged.
-  const transparent = new Set(['ChainExpression', 'ParenthesizedExpression', 'AwaitExpression',
-    'ConditionalExpression', 'LogicalExpression', 'SequenceExpression']);
-  // Where an escaping helper lands. Only a plain binding — `const n = f.notion`,
-  // `n = f.notion`, or destructuring — keeps it inside this body, where the
-  // names read from it are tracked. Anywhere else (a call or new argument, an
-  // object or array, a property, a return, a spread) hands it to code this scan
-  // cannot see, so any member may be read from it: record an unknown one.
-  // Names that hold a helper namespace (`const n = f.notion`, `const { notion } = f`).
-  // Their later uses are judged exactly like `f.notion` itself.
-  const aliases = new Set<string>();
-  const bindingNames = (pattern: AstNode | undefined, into: Set<string>): void => {
-    if (pattern === undefined) return;
-    if (pattern.type === 'Identifier') { into.add(pattern.name!); return; }
-    if (pattern.type === 'AssignmentPattern') return bindingNames(pattern.left as AstNode, into);
-    if (pattern.type === 'RestElement') return bindingNames(pattern.argument as AstNode, into);
-    if (pattern.type === 'ArrayPattern') {
-      for (const element of (pattern.elements as Array<AstNode | null> | undefined) ?? []) bindingNames(element ?? undefined, into);
-      return;
-    }
-    if (pattern.type === 'ObjectPattern') {
-      for (const property of (pattern.properties as AstNode[] | undefined) ?? []) {
-        bindingNames((property.type === 'Property' ? property.value : property.argument) as AstNode, into);
-      }
-    }
-  };
-  // Where a helper value lands. A plain binding keeps it inside this body as an
-  // alias whose uses are tracked; a discarded value or a condition reads it; a
-  // direct call uses it. Anywhere else (a call or new argument, an object or
-  // array, a property, a return, a spread) hands it to code this scan cannot
-  // see, so any member may be read from it: record an unknown one. `context`
-  // marks the whole `f`, whose plain alias cannot be followed member by member.
-  const handedOn = (value: AstNode, context = false): void => {
-    let current = value;
-    let parent = parents.get(current);
-    while (parent !== undefined && transparent.has(parent.type)
-      && !(parent.type === 'ConditionalExpression' && parent.test === current)) {
-      current = parent;
-      parent = parents.get(current);
-    }
-    if (parent === undefined) { members.add('*'); return; }
-    const discarded = parent.type === 'ExpressionStatement' || parent.type === 'UnaryExpression'
-      || parent.type === 'BinaryExpression'
-      || (['IfStatement', 'WhileStatement', 'DoWhileStatement', 'ForStatement', 'ConditionalExpression'].includes(parent.type)
-        && parent.test === current);
-    const called = (parent.type === 'CallExpression' || parent.type === 'NewExpression') && parent.callee === current;
-    if (discarded || called) return;
-    const target = parent.type === 'VariableDeclarator' && parent.init === current ? parent.id as AstNode
-      : parent.type === 'AssignmentExpression' && parent.right === current ? parent.left as AstNode : undefined;
-    if (target === undefined || !['Identifier', 'ObjectPattern', 'ArrayPattern'].includes(target.type)
-      || (context && target.type !== 'ObjectPattern')) { members.add('*'); return; }
-    bindingNames(target, aliases);
-  };
-  walkReferences(program, root, false, { rootFunctionFound: false }, (node) => {
-    if (node.type === 'ObjectPattern' || node.type === 'ArrayPattern') { patternKeys(node); return; }
-    if (node.type === 'Identifier' && node.name === root) {
-      const parent = parents.get(node);
-      const declaresIt = parent !== undefined && isFunction(parent)
-        && ((parent.params as AstNode[] | undefined) ?? []).includes(node);
-      const isName = parent?.type === 'Property' && parent.key === node && parent.computed !== true && parent.shorthand !== true
-        || parent?.type === 'MemberExpression' && parent.property === node && parent.computed !== true;
-      if (declaresIt || isName) return;
-      if (parent?.type === 'MemberExpression' && parent.object === node) {
-        const namespace = memberName(parent);
-        const grand = parents.get(parent);
-        const method = grand?.type === 'MemberExpression' && grand.object === parent;
-        // `f[expr]` names no knowable namespace: whatever it reaches escapes.
-        if (namespace === undefined || (!method && !readOnly(parent))) escaped.add(namespace ?? '*');
-        if (!method && !readOnly(parent)) handedOn(parent);
-        return;
-      }
-      if (!readOnly(node)) { escaped.add('*'); handedOn(node, true); }
-      return;
-    }
-    if (node.type !== 'MemberExpression') return;
-    const name = memberName(node);
-    // `x[expr]` could name any member, appendBlock included: record it as unknown.
-    members.add(name ?? '*');
-    const object = node.object as AstNode | undefined;
-    if (object?.type !== 'MemberExpression') return;
-    const context = object.object as AstNode | undefined;
-    if (context?.type !== 'Identifier' || context.name !== root) return;
-    const namespace = memberName(object);
-    // `f.notion[expr]` could be any method; record it as unknown (`notion.*`).
-    if (namespace !== undefined) methods.add(`${namespace}.${name ?? '*'}`);
-  });
-  // Follow aliases until no new one appears: each use of an alias name that is
-  // neither a member access nor a read is judged as a landing of the helper.
-  const judged = new Set<string>();
-  const identifiers: AstNode[] = [];
-  const collect = (node: AstNode): void => {
-    if (node.type === 'Identifier') identifiers.push(node);
-    for (const key of Object.keys(node)) {
-      if (key === 'type' || key === 'start' || key === 'end' || key === 'loc') continue;
-      const child = node[key];
-      for (const entry of Array.isArray(child) ? child : [child]) if (isNode(entry)) collect(entry);
-    }
-  };
-  collect(program);
-  const declaresName = (node: AstNode): boolean => {
-    const parent = parents.get(node);
-    if (parent === undefined) return false;
-    if (parent.type === 'VariableDeclarator') return parent.id === node;
-    if (parent.type === 'Property') return parent.key === node && parent.computed !== true && parent.shorthand !== true
-      || (parent.value === node && parents.get(parent)?.type === 'ObjectPattern');
-    if (parent.type === 'MemberExpression') return parent.property === node && parent.computed !== true;
-    if (parent.type === 'AssignmentPattern' || parent.type === 'ArrayPattern' || parent.type === 'RestElement') return true;
-    if (parent.type === 'AssignmentExpression') return parent.left === node;
-    return isFunction(parent) && ((parent.params as AstNode[] | undefined) ?? []).includes(node);
-  };
-  for (let fresh = [...aliases]; fresh.length > 0; fresh = [...aliases].filter(name => !judged.has(name))) {
-    for (const name of fresh) judged.add(name);
-    for (const node of identifiers) {
-      if (!fresh.includes(node.name!) || declaresName(node)) continue;
-      const parent = parents.get(node);
-      if (parent?.type === 'MemberExpression' && parent.object === node) continue; // its member name is tracked
-      if (!readOnly(node)) handedOn(node);
-    }
-  }
-  return { methods, escaped, members };
-}
-
-/** A non-computed property key's name, or a string-literal key. */
-function keyName(property: AstNode): string | undefined {
-  const key = property.key as AstNode | undefined;
-  if (key?.type === 'Identifier' && property.computed !== true) return key.name;
-  return key?.type === 'Literal' && typeof key.value === 'string' ? key.value : undefined;
-}
-
 /** `f.slack`, `f["slack"]`, `f?.slack` — but not `f[variable]`, which is unknowable. */
-function memberName(node: AstNode): string | undefined {
+export function memberName(node: AstNode): string | undefined {
   const property = node.property as AstNode | undefined;
   if (property === undefined) return undefined;
   if (node.computed !== true) return property.type === 'Identifier' ? property.name : undefined;
@@ -259,7 +55,7 @@ function memberName(node: AstNode): string | undefined {
  * here (Node strips before evaluating, and bundlers transpile), so this is
  * plain JavaScript.
  */
-function parseFlowBody(body: string): AstNode | null {
+export function parseFlowBody(body: string): AstNode | null {
   const options = { ecmaVersion: 'latest' as const, allowAwaitOutsideFunction: true, allowReturnOutsideFunction: true };
   // `parseExpressionAt` stops at the end of the first expression and does not
   // object to what follows, so `async post(f) { … }` parses as the identifier
@@ -307,7 +103,7 @@ function textFallback(body: string, root: string): ReadonlySet<string> {
   return used;
 }
 
-type AstNode = {
+export type AstNode = {
   type: string;
   end?: number;
   name?: string;
@@ -324,7 +120,7 @@ type AstNode = {
  * would refuse the flow for a mount it never touches. Acorn gives us binding
  * shapes, so scopes are tracked as syntax instead of guessed from text.
  */
-function walkReferences(
+export function walkReferences(
   node: AstNode,
   root: string,
   shadowed: boolean,
@@ -369,7 +165,7 @@ function walkReferences(
   }
 }
 
-function isFunction(node: AstNode): boolean {
+export function isFunction(node: AstNode): boolean {
   return node.type === 'ArrowFunctionExpression'
     || node.type === 'FunctionExpression'
     || node.type === 'FunctionDeclaration';
@@ -454,6 +250,6 @@ function functionVarBinds(node: AstNode, root: string): boolean {
   return found;
 }
 
-function isNode(value: unknown): value is AstNode {
+export function isNode(value: unknown): value is AstNode {
   return typeof value === 'object' && value !== null && typeof (value as { type?: unknown }).type === 'string';
 }

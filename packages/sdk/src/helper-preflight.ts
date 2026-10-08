@@ -1,6 +1,7 @@
 import { helperProviders } from '@relayflows/surface/runtime';
 import type { PreflightResult, PreflightDiagnostic } from './preflight.js';
-import { helperMemberUses, helperNamespacesUsed } from './helper-reference.js';
+import { helperNamespacesUsed } from './helper-reference.js';
+import { helperOperationUse } from './helper-operation-use.js';
 
 /** Static discovery never executes the body; dynamic aliases are checked at call time. */
 export function preflightHelpers(
@@ -18,21 +19,14 @@ export function preflightHelpers(
   // comment, template quasi or regex is not used, and refusing on one demands
   // a mount the flow never touches.
   const referenced = root === undefined ? new Set<string>() : helperNamespacesUsed(body, root);
-  // An unresolvable context name leaves only the text; keep refusing permissively
-  // there. An aliased or destructured f.notion cannot be followed statically, so
-  // any appendBlock member access then counts as the unsupported operation.
-  const uses = root === undefined ? undefined : helperMemberUses(body, root);
-  // Attributed only when f.notion is called directly; an escaped f.notion cannot be
-  // told apart from another object's appendBlock, so check refuses and says why.
-  const notionAppendInferred = uses !== undefined && !uses.methods.has('notion.appendBlock');
-  const appendsNotionBlock = uses === undefined
-    ? /\.\s*appendBlock\b/.test(body)
-    : uses.methods.has('notion.appendBlock') || uses.methods.has('notion.*')
-      // Once f.notion escapes, any appendBlock the body names — a member, a
-      // computed access, or the string itself (Reflect.get, obj['appendBlock'])
-      // — may reach it. A name assembled at runtime still refuses at execution.
-      || ((uses.escaped.has('notion') || uses.escaped.has('*'))
-        && (uses.members.has('appendBlock') || uses.members.has('*') || /appendBlock/.test(body)));
+  // f.notion.appendBlock has no writeback route. It is attributed precisely only
+  // while f.notion is used directly; once it is aliased, passed on or reached by a
+  // computed name, the call cannot be ruled out and check refuses, saying why.
+  const notionAppend = root === undefined
+    ? (/\.\s*appendBlock\b/.test(body) ? 'unprovable' : 'absent')
+    : helperOperationUse(body, root, 'notion', 'appendBlock');
+  const appendsNotionBlock = notionAppend !== 'absent';
+  const notionAppendInferred = notionAppend === 'unprovable';
   for (const { provider, namespace, supported } of helperProviders) {
     const used = definition.header?.tools?.[namespace] === true
       || referenced.has(namespace);
@@ -53,7 +47,7 @@ export function preflightHelpers(
       diagnostics.push({ severity: 'refusal', kind: 'helper_provider.unsupported',
         message: 'f.notion.appendBlock is mock-only: the Notion adapter has no append-block writeback route.'
           + (notionAppendInferred ? ' f.notion is aliased, passed on or called through a computed name in this body, so the call cannot be ruled out;'
-            + ' call f.notion methods directly by name (f.notion.createPage(...)) to let flows check tell them apart.' : '') });
+            + ' call f.notion methods directly by name (f.notion.createPage(...)) so flows check can see which ones run.' : '') });
     }
   }
   return { ok: diagnostics.length === 0, gates: [], resolutions: [], diagnostics };
