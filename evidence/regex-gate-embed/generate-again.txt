@@ -1,0 +1,8 @@
+$ npm run gen:re2js --prefix packages/sdk
+
+> @relayflows/sdk@2.0.42 gen:re2js
+> node ../../scripts/generate-re2js-embed.mjs
+
+re2js 2.8.6 embed is current
+
+exit: 0

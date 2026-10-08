@@ -1,0 +1,4 @@
+$ node scripts/generate-re2js-embed.mjs --check
+re2js embed is stale; run npm run gen:re2js --prefix packages/sdk
+
+exit: 1
