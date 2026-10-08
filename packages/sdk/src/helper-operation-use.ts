@@ -37,8 +37,7 @@ export function helperOperationUse(body: string, root: string, namespace: string
   // Body-wide, whatever scope binds the context name: code that rewrites the
   // prototypes helpers inherit from (or runs source text) can intercept the
   // helper anywhere, so nothing is attributable once it is present.
-  const local = localNames(all);
-  if (all.some(node => reachesMachinery(node, parents, local))) return 'unprovable';
+  if (all.some(node => reachesMachinery(node, parents))) return 'unprovable';
   walkReferences(program, root, false, { rootFunctionFound: false }, (node) => {
     // `arguments[0]` is the context in a non-arrow root body without naming it.
     if (node.type === 'Identifier' && node.name === 'arguments' && rootArguments(node, parents)) return mark('unprovable');
@@ -75,41 +74,61 @@ export function helperOperationUse(body: string, root: string, namespace: string
   return result;
 }
 
-/** Names the body binds itself, which therefore do not refer to the global of that name. */
-function localNames(all: readonly AstNode[]): ReadonlySet<string> {
+/** Every name a binding pattern introduces. */
+function patternNames(pattern: AstNode | undefined | null, into: Set<string>): void {
+  if (!pattern) return;
+  if (pattern.type === 'Identifier') into.add(pattern.name!);
+  else if (pattern.type === 'AssignmentPattern') patternNames(pattern.left as AstNode, into);
+  else if (pattern.type === 'RestElement') patternNames(pattern.argument as AstNode, into);
+  else if (pattern.type === 'ArrayPattern') for (const element of pattern.elements as Array<AstNode | null>) patternNames(element, into);
+  else if (pattern.type === 'ObjectPattern') {
+    for (const property of pattern.properties as AstNode[]) patternNames((property.type === 'Property' ? property.value : property.argument) as AstNode, into);
+  }
+}
+
+/** The names one scope node binds directly: its parameters, function name, catch parameter, or declarations. */
+function scopeBindings(scope: AstNode): Set<string> {
   const names = new Set<string>();
-  const bind = (pattern: AstNode | undefined | null): void => {
-    if (!pattern) return;
-    if (pattern.type === 'Identifier') names.add(pattern.name!);
-    else if (pattern.type === 'AssignmentPattern') bind(pattern.left as AstNode);
-    else if (pattern.type === 'RestElement') bind(pattern.argument as AstNode);
-    else if (pattern.type === 'ArrayPattern') for (const element of (pattern.elements as Array<AstNode | null>)) bind(element);
-    else if (pattern.type === 'ObjectPattern') {
-      for (const property of pattern.properties as AstNode[]) bind((property.type === 'Property' ? property.value : property.argument) as AstNode);
+  if (isFunction(scope)) {
+    if (scope.type === 'FunctionExpression') patternNames(scope.id as AstNode | undefined, names);
+    for (const param of (scope.params as AstNode[] | undefined) ?? []) patternNames(param, names);
+  }
+  if (scope.type === 'CatchClause') patternNames(scope.param as AstNode | undefined, names);
+  const statements = scope.type === 'BlockStatement' || scope.type === 'Program' ? scope.body as AstNode[]
+    : ['ForStatement', 'ForInStatement', 'ForOfStatement'].includes(scope.type) ? [(scope.init ?? scope.left) as AstNode] : [];
+  for (const statement of statements ?? []) {
+    if (statement?.type === 'VariableDeclaration') {
+      for (const declarator of statement.declarations as AstNode[]) patternNames(declarator.id as AstNode, names);
+    } else if (statement?.type === 'FunctionDeclaration' || statement?.type === 'ClassDeclaration') {
+      patternNames(statement.id as AstNode | undefined, names);
     }
-  };
-  for (const node of all) {
-    if (node.type === 'VariableDeclarator') bind(node.id as AstNode);
-    else if (isFunction(node)) {
-      bind(node.id as AstNode | undefined);
-      for (const param of (node.params as AstNode[] | undefined) ?? []) bind(param);
-    } else if (node.type === 'ClassDeclaration') bind(node.id as AstNode | undefined);
-    else if (node.type === 'CatchClause') bind(node.param as AstNode | undefined);
   }
   return names;
 }
 
-/** Prototype machinery, eval or Function: anything that lets the body intercept or hide a helper use. */
-function reachesMachinery(node: AstNode, parents: WeakMap<AstNode, AstNode>, local: ReadonlySet<string>): boolean {
-  if (node.type === 'MemberExpression' && node.computed !== true
-    && PROTOTYPE_MACHINERY.has((node.property as AstNode).name ?? '')) return true;
-  if (node.type === 'Identifier' && (node.name === 'Reflect' || node.name === 'Proxy') && !local.has(node.name)) {
-    const parent = parents.get(node);
-    return parent === undefined || !declares(parent, node);
+/** Whether `node`, a use of `name`, resolves to a binding in an enclosing scope rather than the global. */
+function boundLocally(node: AstNode, name: string, parents: WeakMap<AstNode, AstNode>): boolean {
+  for (let at = parents.get(node); at !== undefined; at = parents.get(at)) {
+    if (scopeBindings(at).has(name)) return true;
   }
-  return (node.type === 'CallExpression' || node.type === 'NewExpression')
-    && (node.callee as AstNode).type === 'Identifier'
-    && ['eval', 'Function'].includes((node.callee as AstNode).name!) && !local.has((node.callee as AstNode).name!);
+  return false;
+}
+
+/** Prototype machinery, eval or Function: anything that lets the body intercept or hide a helper use. */
+function reachesMachinery(node: AstNode, parents: WeakMap<AstNode, AstNode>): boolean {
+  // memberName also reads string-literal computed keys (Object['prototype']).
+  if (node.type === 'MemberExpression' && PROTOTYPE_MACHINERY.has(memberName(node) ?? '')) return true;
+  if (node.type === 'Identifier' && ['Reflect', 'Proxy', 'eval', 'Function'].includes(node.name!)) {
+    const parent = parents.get(node);
+    if (parent !== undefined && declares(parent, node)) return false;
+    if (parent?.type === 'VariableDeclarator' && parent.id === node) return false;
+    // eval and Function matter only when called; a use resolving to a local
+    // binding (scope by scope, not body-wide) is not the global.
+    if ((node.name === 'eval' || node.name === 'Function')
+      && !((parent?.type === 'CallExpression' || parent?.type === 'NewExpression') && parent.callee === node)) return false;
+    return !boundLocally(node, node.name!, parents);
+  }
+  return false;
 }
 
 /** Members through which a body can reach or rewrite the prototypes every helper inherits from. */

@@ -276,3 +276,25 @@ it.each([
   expect(result.stderr.join('\n')).not.toContain('[helper_provider.unsupported]');
   expect(result.exit).toBe(0);
 });
+it('refuses prototype machinery spelled with string-keyed members', async () => {
+  const body = 'let held; Object["defineProperty"](Object["prototype"], Symbol["toPrimitive"], { value() { held = this; return ""; }, configurable: true }); const s = `${f.notion}`; await held.appendBlock("p", {});';
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+});
+it.each([
+  ['a nested parameter named Proxy', 'function wrap(Proxy) { return Proxy; } const p = new Proxy({}, {}); await f.notion.createPage({ parent: "p", title: String(wrap(p)) });'],
+  ['a catch binding named Reflect', 'try { throw 1; } catch (Reflect) { void Reflect; } await f.notion[Reflect.ownKeys({})[0] ?? "createPage"]({ parent: "p", title: "t" });'],
+])('still refuses a global use when %s exists elsewhere', async (_shape, body) => {
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+});
+it('scopes local machinery names: a parameter in one function does not hide the global in another', async () => {
+  const local = await check(fixture('function wrap(Proxy) { return Proxy; } await f.notion.createPage({ parent: "p", title: String(wrap(1)) });', '{ tools: { notion: true } },'));
+  expect(local.exit).toBe(0);
+  const global = await check(fixture('function wrap(Proxy) { return Proxy; } const p = new Proxy({}, {}); wrap(p); await f.notion.createPage({ parent: "p", title: "t" });', '{ tools: { notion: true } },'));
+  expect(global.exit).toBe(2);
+});
+it('a parameter named Function in one function does not hide new Function elsewhere', async () => {
+  const result = await check(fixture('function wrap(Function) { return Function; } wrap(1); await new Function("n", "return n.appendBlock(\'p\', {})")(globalThis.helper);', '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+});
