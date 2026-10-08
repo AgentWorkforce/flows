@@ -57,14 +57,10 @@ export function helperOperationUse(body: string, root: string, namespace: string
           // wrapped (parentheses, comma, ||, ?:, new), or the function handed on.
           if (!readOrCall(grand, parents, false)) mark('called');
         }
-        // Inherited object members: called directly, the primitive-returning ones
-        // cannot expose the helper; any other (valueOf, constructor, __proto__, a
-        // referenced member) can hand it back or reach its prototype.
-        else if (operation === '__proto__' || Object.prototype.hasOwnProperty.call(Object.prototype, operation)) {
-          const call = parents.get(grand);
-          const calledDirectly = call?.type === 'CallExpression' && call.callee === grand;
-          if (!(PRIMITIVE_RETURNING.has(operation) && calledDirectly)) mark('unprovable');
-        }
+        // Inherited object members (valueOf, constructor, toString, ...) can hand
+        // the helper back — directly, or through a prototype the body replaced —
+        // so none is attributable; helper methods return steps.
+        else if (operation === '__proto__' || Object.prototype.hasOwnProperty.call(Object.prototype, operation)) mark('unprovable');
         return;
       }
       if (!readOrCall(parent, parents)) mark('unprovable');
@@ -75,9 +71,6 @@ export function helperOperationUse(body: string, root: string, namespace: string
   });
   return result;
 }
-
-/** Object.prototype methods whose call returns a primitive, never the receiver. */
-const PRIMITIVE_RETURNING = new Set(['hasOwnProperty', 'isPrototypeOf', 'propertyIsEnumerable', 'toString', 'toLocaleString']);
 
 /**
  * A use that cannot hand the value on: a discarded value or a read, and —

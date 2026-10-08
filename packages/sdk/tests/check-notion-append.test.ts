@@ -172,11 +172,11 @@ it('an earlier comma operand is a discarded read, not a hand-off', async () => {
 });
 it.each([
   ['hasOwnProperty', 'if (f.notion.hasOwnProperty("createPage")) await f.notion.createPage({ parent: "p", title: "t" });'],
-  ['toString', 'const label = f.notion.toString(); await f.notion.createPage({ parent: "p", title: label });'],
-])('allows the primitive-returning inherited call %s', async (_name, body) => {
+  ['toString after replacing it', 'let held; Object.prototype.toString = function () { held = this; return ""; }; f.notion.toString(); await held.appendBlock("p", {});'],
+])('refuses the inherited call %s, since a replaced prototype can capture the helper', async (_name, body) => {
   const result = await check(fixture(body, '{ tools: { notion: true } },'));
-  expect(result.stderr.join('\n')).not.toContain('[helper_provider.unsupported]');
-  expect(result.exit).toBe(0);
+  expect(result.exit).toBe(2);
+  expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
 });
 it('still refuses an inherited member that is referenced rather than called', async () => {
   const result = await check(fixture('await globalThis.invokeHelper(f.notion.hasOwnProperty);', '{ tools: { notion: true } },'));
