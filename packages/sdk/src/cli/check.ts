@@ -226,7 +226,14 @@ export function checkAuthoredFlow(
       ...(config.modelRegistryPath !== undefined ? { modelRegistryPath: config.modelRegistryPath } : {}),
       probes,
     });
-    const flow = result.ok
+    // check may restate a missing local helper mount as a warning. When that is
+    // the only refusal, still compile the flow so the communication checks
+    // below run: they must not depend on whether a helper is mounted. The
+    // compiled flow is returned only when preflight itself admitted it.
+    const inspectOnly = !result.ok && invocation.warnUnresolvedHelperCredential === true
+      && !helperCredentialDiagnostics(result.diagnostics).diagnostics
+        .some(diagnostic => diagnostic.severity === 'refusal');
+    const flow = result.ok || inspectOnly
       ? bindResolvedCliPaths(
           compileSpec(authoring),
           result.resolutions,

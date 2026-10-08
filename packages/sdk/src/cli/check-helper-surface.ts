@@ -27,12 +27,16 @@ export function helperCredentialDiagnostics(diagnostics: readonly PreflightDiagn
     }
     if (seen.has(helper.provider)) continue;
     seen.add(helper.provider);
+    // YAML execution (helper_mount_required) honours a mock only for Slack
+    // (yaml-helper-effect.ts helperReady); every other YAML helper needs a mount.
+    const mockSupported = diagnostic.kind !== 'helper_mount_required' || helper.provider === 'slack';
     result.push({
       severity: 'warning', kind: 'helper_credential_unresolved',
       message: `f.${helper.namespace} needs a ${helper.provider} mount, which is not available locally. `
         + 'flows schedule / flows deploy / flows run --cloud check the integration against your workspace at submit and refuse if Cloud cannot connect it. '
-        + `A local flows run needs a relayfile ${helper.provider} mount (a ${helper.provider}/ directory under RELAYFILE_MOUNT_PATH) `
-        + `or ${helper.mockEnv}=1, and refuses with [${diagnostic.kind}] without one.`,
+        + `A local flows run needs a relayfile ${helper.provider} mount (a ${helper.provider}/ directory under RELAYFILE_MOUNT_PATH)`
+        + (mockSupported ? ` or ${helper.mockEnv}=1` : '')
+        + `, and refuses with [${diagnostic.kind}] without one.`,
     });
   }
   return { diagnostics: result, downgraded: seen.size > 0 };
