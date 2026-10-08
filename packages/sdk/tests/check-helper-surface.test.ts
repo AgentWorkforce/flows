@@ -381,3 +381,12 @@ it.each([
   expect(result.exit).toBe(2);
   expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
 });
+it.each([
+  ['an optional chain', 'const method = String(Date.now()); await Reflect.get(f?.notion, method)("page", {});'],
+  ['a logical fallback', 'const method = String(Date.now()); await Reflect.get(f.notion ?? {}, method)("page", {});'],
+  ['a spread argument', 'const method = String(Date.now()); await Reflect.get(...[f.notion, method])("page", {});'],
+])('keeps refusing when f.notion reaches a call through %s', async (_shape, body) => {
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+  expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
+});

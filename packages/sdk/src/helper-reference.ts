@@ -115,10 +115,19 @@ export function helperMemberUses(body: string, root: string): {
   };
   // Passed into a call (`Reflect.get(f.notion, key)`, `use(f.notion)`), the
   // helper meets code this scan cannot see: any member may be read from it.
+  // Wrappers that pass their operand's value through unchanged.
+  const transparent = new Set(['ChainExpression', 'ParenthesizedExpression', 'AwaitExpression',
+    'ConditionalExpression', 'LogicalExpression', 'SequenceExpression', 'SpreadElement', 'ArrayExpression']);
   const handedToCall = (value: AstNode): void => {
-    const parent = parents.get(value);
+    let current = value;
+    let parent = parents.get(current);
+    while (parent !== undefined && transparent.has(parent.type)
+      && !(parent.type === 'ConditionalExpression' && parent.test === current)) {
+      current = parent;
+      parent = parents.get(current);
+    }
     if ((parent?.type === 'CallExpression' || parent?.type === 'NewExpression')
-      && ((parent.arguments as AstNode[] | undefined) ?? []).includes(value)) members.add('*');
+      && ((parent.arguments as AstNode[] | undefined) ?? []).includes(current)) members.add('*');
   };
   walkReferences(program, root, false, { rootFunctionFound: false }, (node) => {
     if (node.type === 'ObjectPattern' || node.type === 'ArrayPattern') { patternKeys(node); return; }
