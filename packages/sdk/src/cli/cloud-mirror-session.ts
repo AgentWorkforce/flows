@@ -25,7 +25,7 @@
 import { readFile } from 'node:fs/promises';
 import type { CliIo } from '../cli.js';
 import { canonicalize } from '../canonical.js';
-import { cloudConnection, CloudFlowError } from '../cloud-http.js';
+import { resolveCloudConnection, CloudFlowError } from '../cloud-http.js';
 import { recordMirroredRun, readMirroredRun } from '../cloud-mirror-ledger.js';
 import { createRunMirror, readJournalEvents, type RunMirror } from '../cloud-mirror.js';
 import { MirrorClient, registerLocalRun, type MirrorRunSource } from '../cloud-mirror-transport.js';
@@ -231,7 +231,8 @@ export function mirrorSourceFromJournal(dataDir: string): (runId: string) => Pro
     // the deployment this invocation will actually register with, so a run
     // mirrored to staging never claims to continue an id that means something
     // else in production.
-    const resumedFromRunId = await readMirroredRun(dataDir, runId, cloudConnection({}).baseUrl)
+    const { baseUrl } = await resolveCloudConnection({});
+    const resumedFromRunId = await readMirroredRun(dataDir, runId, baseUrl)
       .catch(() => undefined);
     // Through the retrying reader: a resume reads this journal while the
     // daemon is writing to it, and a single `journal_busy` used to abandon

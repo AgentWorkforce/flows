@@ -113,6 +113,7 @@ export async function registerLocalRun(
     || typeof callbackToken !== 'string' || callbackToken.length === 0) {
     throw new CloudFlowError('invalid_response', 'Cloud registered the run without a usable credential.');
   }
+  // Registration above already refreshed the store through cloudFetch.
   const { baseUrl } = cloudConnection(options);
   const runUrl = typeof result['runUrl'] === 'string' && /^https:\/\//u.test(result['runUrl'])
     ? result['runUrl']
