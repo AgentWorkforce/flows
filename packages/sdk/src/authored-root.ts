@@ -410,6 +410,10 @@ async function driveRoot(
       });
       throw error;
     }
+    if (error instanceof AuthoredFlowExecutionError && error.code === 'helper_writeback_pending') {
+      error.rootRunId = dispatch.run_id;
+      throw error;
+    }
     await terminalizeRootFailure(peer, dispatch, error);
     if (error instanceof AuthoredFlowExecutionError) error.rootRunId = dispatch.run_id;
     throw error;

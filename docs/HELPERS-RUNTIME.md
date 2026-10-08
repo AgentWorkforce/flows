@@ -31,8 +31,17 @@ mock lists return an empty array. These are test responses, not provider data.
 Writes use `(run id, step id)` as the writeback idempotency key. Collection
 paths receive stable draft filenames; item paths remain canonical. Delivery
 must be confirmed before the receipt is persisted and the journal effect is
-confirmed. Resume recovers the receipt, and repeats only an unconfirmed effect
-using its original key. Provider failures complete with `worker_error`;
+confirmed. Mount receipt waits default to 60 seconds; set
+`RELAYFLOW_HELPER_RECEIPT_TIMEOUT_MS` to a positive integer to change the budget
+(for example, `600000` for a ten-minute flush window). An exhausted budget
+reports `helper_writeback_pending` with the run/step write id and draft path;
+it does not complete the step with `worker_error`. The CLI returns exit 3.
+`flows resume <root-run-id>` resumes receipt polling without submitting again.
+A durable intent in `<data-dir>/helper-receipts/*.pending` precedes submission,
+so even a crash between submission and effect confirmation cannot re-post.
+An interruption between intent persistence and mount submission remains
+pending conservatively and requires inspection of the named draft path.
+Provider failures complete with `worker_error`;
 journal and receipt-storage failures fail closed.
 
 ## Regeneration

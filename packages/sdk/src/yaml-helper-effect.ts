@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
-import { writeJsonFile } from '@relayfile/adapter-core/vfs-client';
+import { writeHelperDraft } from './helper-receipt.js';
 import type { RelayTransport } from '@relayfile/relay-helpers';
 import type { JournalClient } from './journal-client.js';
 import type { StepDispatchEvent } from './protocol.js';
@@ -37,8 +37,8 @@ async function writeback(call: HelperCall, dataDir: string, runId: string, stepI
       // Item updates keep the client's canonical path. Creates use a stable draft.
       const path = request.path.endsWith('.json') ? request.path
         : `${request.path}/draft-${createHash('sha256').update(idempotencyKey).digest('hex')}.json`;
-      const result = await writeJsonFile({ relayfileMountRoot: mount }, request.provider,
-        `write.${request.resource}`, path, body);
+      const result = await writeHelperDraft(mount, request.provider,
+        `write.${request.resource}`, path, body, dataDir, runId, stepId, signal);
       if (result.deliveryStatus !== 'confirmed' || !result.receipt) {
         throw new Error(`${call.provider} writeback is pending; no delivery receipt`);
       }

@@ -47,3 +47,20 @@ it('reports a read interruption without losing the resumable root', async () => 
     diagnostics: [{ kind: 'daemon_unresponsive', message: expect.stringContaining('flows resume --data-dir /unused saved-root') }],
   } });
 });
+
+
+it('reports a pending helper receipt as resumable with exit 3 and the write id', async () => {
+  vi.spyOn(JournalClient.prototype, 'connect').mockResolvedValue();
+  vi.spyOn(JournalClient.prototype, 'hello').mockResolvedValue({} as never);
+  vi.spyOn(LlmWorker.prototype, 'attach').mockResolvedValue();
+  const error = new AuthoredFlowExecutionError('helper_writeback_pending', 'write child:comment receipt pending');
+  error.rootRunId = 'saved-root';
+  vi.mocked(executeDurableAuthoredFlow).mockRejectedValueOnce(error);
+  const result = await runDirectFlow('flow.ts', '{}', '/unused');
+  expect(result).toMatchObject({ exitCode: 3, report: {
+    runId: 'saved-root', rootRunId: 'saved-root', status: 'parked',
+    diagnostics: [{ severity: 'parked', kind: 'helper_writeback_pending',
+      message: expect.stringContaining('write child:comment') }],
+  } });
+  expect(result.report.diagnostics[0]!.message).toContain('flows resume --data-dir /unused saved-root');
+});

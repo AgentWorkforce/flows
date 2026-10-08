@@ -428,6 +428,12 @@ export async function resumeFlow(
     // only honest instruction is a new run carrying the same `--input`.
     // `runId` here is the CHILD run holding the evidence; the root this resume
     // named stays separate, so `flows` can still collect it.
+    if (error instanceof AuthoredFlowExecutionError && error.code === 'helper_writeback_pending') {
+      return { exitCode: 3, report: { ...base, ok: false,
+        runId: error.rootRunId ?? error.runId, rootRunId: error.rootRunId, socketPath, status: 'parked',
+        diagnostics: [...base.diagnostics, { severity: 'parked', kind: error.code,
+          message: error.message + ` Continue with: ${resumeCommand(error.rootRunId ?? error.runId ?? runId, dataDir, options.localAgent === true)}.` }] } };
+    }
     if (error instanceof AuthoredFlowExecutionError && (error.code === 'agent_parked' || error.code === 'llm_parked')) {
       return {
         exitCode: 3,

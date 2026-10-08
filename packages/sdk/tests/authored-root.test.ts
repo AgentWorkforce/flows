@@ -407,6 +407,18 @@ describe('durable authored root', () => {
     expect(journal.peer.completions).toEqual([]);
   });
 
+  it('leaves the root resumable when a helper receipt is pending, including across a Node error frame', async () => {
+    const loaded = await fixture(false, 0, async () => {
+      throw new AuthoredFlowExecutionError('helper_writeback_pending', 'write child:comment receipt pending');
+    });
+    const journal = new RootJournal();
+    await expect(executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'pending-helper' })).rejects.toMatchObject({
+        code: 'helper_writeback_pending', rootRunId: 'root-run',
+      });
+    expect(journal.peer.completions).toEqual([]);
+  });
+
   it('still terminalizes a timed-out mutation as a body failure', async () => {
     const loaded = await fixture(false, 0, async () => { throw new JournalRequestTimeoutError('stream.append', 10); });
     const journal = new RootJournal();

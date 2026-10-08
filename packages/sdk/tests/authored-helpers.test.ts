@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
-import { existsSync, mkdirSync, symlinkSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, symlinkSync, mkdtempSync, readdirSync, readFileSync, statSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -188,3 +188,33 @@ it('journals provider failure with worker_error and never confirms the effect', 
   expect(entries.filter(e => e.entry_type === 'effect.confirmed')).toHaveLength(0);
   expect(entries.find(e => e.entry_type === 'step.completed').payload.completionReason).toBe('worker_error');
 });
+
+
+it('resumes an accepted mount write after receipt timeout and daemon restart without posting again', async () => {
+  const dataDir = temporary();
+  mkdirSync(join(dataDir, 'github'));
+  vi.stubEnv('RELAYFILE_MOUNT_PATH', dataDir);
+  vi.stubEnv('RELAYFLOWS_GITHUB_MOCK', '0');
+  vi.stubEnv('RELAYFLOW_HELPER_RECEIPT_TIMEOUT_MS', '20');
+  const first = await start(dataDir);
+  await expect(runHelperEffect(first.client, 'pending-helper', 'comment', {
+    type: 'effect', provider: 'github', verb: 'comment',
+    args: [{ owner: 'org', repo: 'repo', number: 1 }, 'hi'],
+  }, dataDir, [])).rejects.toMatchObject({ code: 'helper_writeback_pending' });
+  const runId = readdirSync(join(dataDir, 'helper-runs'))[0]!.replace(/\.json$/, '');
+  const pendingFile = readdirSync(join(dataDir, 'helper-receipts')).find(file => file.endsWith('.pending'))!;
+  const intent = JSON.parse(readFileSync(join(dataDir, 'helper-receipts', pendingFile), 'utf8'));
+  const inode = statSync(intent.absolutePath).ino;
+  const entriesBefore = (await first.client.journalRead(runId, 1)).entries as any[];
+  expect(entriesBefore.filter(entry => entry.entry_type === 'effect.confirmed')).toHaveLength(0);
+  expect(entriesBefore.filter(entry => entry.entry_type === 'step.completed')).toHaveLength(0);
+  first.client.close(); await kill(first.daemon);
+  writeFileSync(intent.absolutePath, JSON.stringify({ id: '5738826838' }));
+  const second = await start(dataDir);
+  await expect(resumeHelperEffect(second.client, runId, dataDir)).resolves.toBe(true);
+  expect(statSync(intent.absolutePath).ino).toBe(inode);
+  expect(JSON.parse(readFileSync(intent.absolutePath, 'utf8'))).toEqual({ id: '5738826838' });
+  const entries = (await second.client.journalRead(runId, 1)).entries as any[];
+  expect(entries.filter(entry => entry.entry_type === 'effect.confirmed')).toHaveLength(1);
+  expect(entries.filter(entry => entry.entry_type === 'step.completed' && entry.payload.completionReason === 'success')).toHaveLength(1);
+}, 30_000);

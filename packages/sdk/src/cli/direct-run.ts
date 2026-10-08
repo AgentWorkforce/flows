@@ -1,3 +1,4 @@
+import { resumeCommand } from '../authored-human.js';
 import { completedResultUnreadableReport, daemonUnresponsiveReport, isReadInterruption } from './journal-timeout.js';
 import { FLOW_READ_BUDGET_MS } from '../journal-read-policy.js';
 import { onWorkerFailure } from '../worker-lease.js';
@@ -177,6 +178,12 @@ export async function runDirectFlow(
           socketPath,
         },
       };
+    }
+    if (error instanceof AuthoredFlowExecutionError && error.code === 'helper_writeback_pending') {
+      return { exitCode: 3, report: { ...base, ok: false,
+        runId: error.rootRunId ?? error.runId, rootRunId: error.rootRunId, socketPath, status: 'parked',
+        diagnostics: [...base.diagnostics, { severity: 'parked', kind: error.code,
+          message: error.message + ` Continue with: ${resumeCommand(error.rootRunId ?? error.runId!, dataDir, options.localAgent === true)}.` }] } };
     }
     if (error instanceof AuthoredFlowExecutionError && (error.code === 'agent_parked' || error.code === 'llm_parked')) {
       return {

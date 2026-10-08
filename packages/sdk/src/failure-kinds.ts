@@ -153,6 +153,7 @@ export const RUN_FAILURE_KINDS = [
    */
   'daemon_unresponsive',
   'root_lease_lost',
+  'helper_writeback_pending',
 ] as const;
 
 /**
