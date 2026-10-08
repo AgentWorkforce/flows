@@ -127,15 +127,22 @@ function reachesMachinery(node: AstNode, parents: WeakMap<AstNode, AstNode>): bo
   // non-machinery member (Object.keys, Symbol.iterator). Aliasing it, passing
   // it, destructuring it or indexing it with a runtime key can reach the
   // machinery under another name.
-  if (node.type === 'Identifier' && MACHINERY_GLOBALS.has(node.name!)) {
+  if (node.type === 'Identifier' && (MACHINERY_GLOBALS.has(node.name!) || GLOBAL_ROOTS.has(node.name!))) {
     const parent = parents.get(node);
     if (parent !== undefined && declares(parent, node)) return false;
     if (parent?.type === 'VariableDeclarator' && parent.id === node) return false;
     if (boundLocally(node, node.name!, parents)) return false;
-    // globalThis.Object is Object by another route: judge it the same way.
-    if (node.name === 'globalThis' && parent?.type === 'MemberExpression' && parent.object === node
-      && MACHINERY_GLOBALS.has(memberName(parent) ?? '')) return onlyStaticSafeMember(parent, parents);
-    return onlyStaticSafeMember(node, parents) === true;
+    if (!GLOBAL_ROOTS.has(node.name!)) return onlyStaticSafeMember(node, parents);
+    // A global root (globalThis, global, window, self) reaches every global:
+    // follow root-to-root chains, then judge a named prototype-bearing global
+    // like the bare one. Any other use of a root can reach them by any name.
+    let value: AstNode = node;
+    for (let up = parents.get(value); up?.type === 'MemberExpression' && up.object === value
+      && GLOBAL_ROOTS.has(memberName(up) ?? ''); up = parents.get(value)) value = up;
+    const up = parents.get(value);
+    const named = up?.type === 'MemberExpression' && up.object === value ? memberName(up) : undefined;
+    if (named !== undefined && MACHINERY_GLOBALS.has(named)) return onlyStaticSafeMember(up!, parents);
+    return named === undefined || PROTOTYPE_MACHINERY.has(named);
   }
   // Destructuring a prototype-bearing global at all (computed keys, rest)
   // can pick out any of its machinery.
@@ -212,7 +219,9 @@ function onlyStaticSafeMember(value: AstNode, parents: WeakMap<AstNode, AstNode>
 }
 
 /** Globals whose members include the prototype machinery. */
-const MACHINERY_GLOBALS = new Set(['Object', 'Symbol', 'Reflect', 'Function', 'globalThis', 'Proxy']);
+const MACHINERY_GLOBALS = new Set(['Object', 'Symbol', 'Reflect', 'Function', 'Proxy']);
+/** Names for the global object itself, through which every global is reachable. */
+const GLOBAL_ROOTS = new Set(['globalThis', 'global', 'window', 'self']);
 
 /** Members through which a body can reach or rewrite the prototypes every helper inherits from. */
 const PROTOTYPE_MACHINERY = new Set(['prototype', '__proto__', 'defineProperty', 'defineProperties',

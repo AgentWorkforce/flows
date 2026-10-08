@@ -352,3 +352,16 @@ it('allows static non-machinery members reached through globalThis', async () =>
   const result = await check(fixture('const n = globalThis.Object.keys({ a: 1 }).length; await f.notion.createPage({ parent: "p", title: String(n) });', '{ tools: { notion: true } },'));
   expect(result.exit).toBe(0);
 });
+it.each([
+  ["Node's global", 'const O = global.Object, S = global.Symbol;'],
+  ['a nested globalThis chain', 'const O = globalThis.globalThis.Object, S = globalThis.global.Symbol;'],
+  ['an aliased global root', 'const g = globalThis; const O = g.Object, S = g.Symbol;'],
+])('refuses prototype-bearing globals reached through %s', async (_shape, prefix) => {
+  const body = `let held; ${prefix} const d = "define" + "Property", p = "proto" + "type", t = "to" + "Primitive"; O[d](O[p], S[t], { value() { held = this; return ""; }, configurable: true }); const s = \`\${f.notion}\`; await held.appendBlock("p", {});`;
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+});
+it('allows ordinary members of the global roots', async () => {
+  const result = await check(fixture('const t = typeof global.setTimeout + typeof globalThis.structuredClone; await f.notion.createPage({ parent: "p", title: t });', '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(0);
+});
