@@ -11,8 +11,8 @@ $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'cancels
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/running-step-watch.test.ts (12 tests | 1 failed | 11 skipped) 2216ms
-   × cancels promptly while a lease snapshot read is in flight 2216ms
+ ❯ tests/running-step-watch.test.ts (12 tests | 1 failed | 11 skipped) 2215ms
+   × cancels promptly while a lease snapshot read is in flight 2215ms
      → expected 'still waiting' to be an instance of Error
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
@@ -31,8 +31,8 @@ AssertionError: expected 'still waiting' to be an instance of Error
 
  Test Files  1 failed (1)
       Tests  1 failed | 11 skipped (12)
-   Start at  04:05:13
-   Duration  2.69s (transform 192ms, setup 13ms, collect 331ms, tests 2.22s, environment 0ms, prepare 41ms)
+   Start at  04:15:57
+   Duration  2.71s (transform 196ms, setup 16ms, collect 331ms, tests 2.22s, environment 0ms, prepare 40ms)
 
 exit=1
 
@@ -41,12 +41,12 @@ $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'cancels
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/running-step-watch.test.ts (12 tests | 11 skipped) 2012ms
-   ✓ cancels promptly while a lease snapshot read is in flight 2011ms
+ ✓ tests/running-step-watch.test.ts (12 tests | 11 skipped) 2010ms
+   ✓ cancels promptly while a lease snapshot read is in flight 2010ms
 
  Test Files  1 passed (1)
       Tests  1 passed | 11 skipped (12)
-   Start at  04:05:16
-   Duration  2.51s (transform 197ms, setup 17ms, collect 332ms, tests 2.01s, environment 0ms, prepare 41ms)
+   Start at  04:16:00
+   Duration  2.45s (transform 190ms, setup 15ms, collect 309ms, tests 2.01s, environment 0ms, prepare 31ms)
 
 exit=0

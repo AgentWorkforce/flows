@@ -508,6 +508,23 @@ describe('durable authored root', () => {
       });
   });
 
+  it('propagates a cancellation while detecting an authored root, but trusts a definite answer', async () => {
+    const { readAuthoredRootMetadata } = await import('../src/authored-root.js');
+    const canceled = { journalRead: async () => { throw new DOMException('This operation was aborted', 'AbortError'); } };
+    await expect(readAuthoredRootMetadata(canceled as unknown as JournalClient, 'run')).rejects.toMatchObject({ name: 'AbortError' });
+    const absent = { journalRead: async () => { throw new JournalProtocolError('run_not_found', 'no such run'); } };
+    await expect(readAuthoredRootMetadata(absent as unknown as JournalClient, 'run')).resolves.toBeUndefined();
+  });
+
+  it('keeps a completed root outcome when reading back its result is canceled', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    (journal as unknown as { startStatus: RunOutcome }).startStatus = outcome('root-run', 'completed', 'success');
+    journal.journalRead = async () => { throw new DOMException('This operation was aborted', 'AbortError'); };
+    await expect(executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'completed-canceled' })).rejects.toMatchObject({ code: 'result_unreadable', rootRunId: 'root-run' });
+  });
+
   it('terminalizes a returned body failure without replaying semantic side effects', async () => {
     const loaded = await fixture(true);
     const journal = new RootJournal();

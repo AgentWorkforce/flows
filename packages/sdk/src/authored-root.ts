@@ -13,7 +13,7 @@ import {
   type LoadedAuthoredFlow,
   type SurfaceModuleAuthority,
 } from './authored-flow-loader.js';
-import { JournalClient, JournalProtocolError } from './journal-client.js';
+import { JournalClient, JournalFrameError, JournalProtocolError } from './journal-client.js';
 import type { RunOutcome, StepDispatchEvent } from './protocol.js';
 import { SPEC_SCHEMA_VERSION } from './spec.js';
 import type { RunLifecycleOptions } from './cli/run.js';
@@ -200,11 +200,12 @@ export async function readAuthoredRootMetadata(
   journal: JournalClient,
   runId: string,
 ): Promise<AuthoredRootMetadata | undefined> {
-  // Not finding the root step means "not authored"; an unanswered read means
-  // nothing yet, and guessing declarative would resume the wrong way.
+  // Only a definite answer means "not authored": the daemon refused the read, or
+  // the journal has no root step. An unanswered or canceled read means nothing
+  // yet, and guessing declarative would resume the run the wrong way.
   const step = await rootKernelStep(journal, runId).catch(error => {
-    if (isReadInterruptionError(error)) throw error;
-    return undefined;
+    if (error instanceof JournalProtocolError || error === NO_ROOT_STEP) return undefined;
+    throw error;
   });
   if (step === undefined || step.id !== 'authored-root' || !hasRootStream(step)) return undefined;
   if (typeof step.instruction !== 'string') {
@@ -475,14 +476,14 @@ function rootSpec(metadata: AuthoredRootMetadata, stream: string) {
   }));
 }
 
+const NO_ROOT_STEP = new Error('authored root journal has no root step');
+
 async function rootKernelStep(journal: JournalClient, runId: string): Promise<Record<string, unknown>> {
   const entries = (await journal.journalRead(runId, 1)).entries as Array<Record<string, unknown>>;
   const spawned = entries.find(entry => entry.entry_type === 'run.spawned');
   const payload = spawned?.payload as { spec?: { steps?: unknown[] } } | undefined;
   const step = payload?.spec?.steps?.[0];
-  if (typeof step !== 'object' || step === null || Array.isArray(step)) {
-    throw new Error('authored root journal has no root step');
-  }
+  if (typeof step !== 'object' || step === null || Array.isArray(step)) throw NO_ROOT_STEP;
   return step as Record<string, unknown>;
 }
 
@@ -575,7 +576,10 @@ function nextRootDispatch(peer: JournalClient, timeoutMs = 30_000): {
  */
 function completedResult(journal: JournalClient, outcome: RunOutcome, rootRunId: string): Promise<AuthoredFlowExecutionResult & { readonly rootRunId: string }> {
   return completedRootResult(journal, rootRunId).catch(error => {
-    if (!isReadInterruptionError(error)) throw error;
+    // A definite answer stands (a refusal, a bad frame, no stored result);
+    // anything else — interrupted or canceled — left the verdict unread.
+    if (error instanceof JournalProtocolError || error instanceof JournalFrameError
+      || error === NO_DURABLE_RESULT) throw error;
     // The kernel completes the root step with success whatever the body
     // declared; the authored verdict lives only in the unread output.
     const unread = new AuthoredFlowExecutionError('result_unreadable',
@@ -586,6 +590,8 @@ function completedResult(journal: JournalClient, outcome: RunOutcome, rootRunId:
   });
 }
 
+const NO_DURABLE_RESULT = new Error('completed authored root has no durable result');
+
 async function completedRootResult(
   journal: JournalClient,
   rootRunId: string,
@@ -595,9 +601,7 @@ async function completedRootResult(
     && entry.step_id === 'authored-root'
     && (entry.payload as { completionReason?: unknown } | undefined)?.completionReason === 'success');
   const output = (completed?.payload as { output?: unknown } | undefined)?.output;
-  if (!isCompletedRootOutput(output)) {
-    throw new Error('completed authored root has no durable result');
-  }
+  if (!isCompletedRootOutput(output)) throw NO_DURABLE_RESULT;
   // The stored detail, never a freshly computed one: redaction reads the
   // CURRENT environment, so recomputing here would let a completed run report
   // something its journal does not hold.
