@@ -404,3 +404,20 @@ it('a plain alias with only named, supported methods still passes', async () => 
   expect(result.stderr.join('\n')).not.toContain('[helper_provider.unsupported]');
   expect(result.exit).toBe(0);
 });
+it.each([
+  ['an alias handed to a call', 'const notion = f.notion; await globalThis.invokeHelper(notion, "page");'],
+  ['a rebound alias handed on', 'const a = f.notion; const b = a; await globalThis.invokeHelper({ b }, "page");'],
+  ['a destructured namespace handed on', 'const { notion } = f; await globalThis.invokeHelper(notion, "page");'],
+])('keeps refusing when %s', async (_shape, body) => {
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+  expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
+});
+it.each([
+  ['a short-circuit guard', 'f.notion && await f.notion.createPage({ parent: "p", title: "t" });'],
+  ['an alias guard', 'const n = f.notion; if (n) await n.createPage({ parent: "p", title: "t" }); n && await n.createPage({ parent: "p", title: "u" });'],
+])('does not over-refuse %s that only calls supported methods', async (_shape, body) => {
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.stderr.join('\n')).not.toContain('[helper_provider.unsupported]');
+  expect(result.exit).toBe(0);
+});

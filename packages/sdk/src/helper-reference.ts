@@ -121,7 +121,31 @@ export function helperMemberUses(body: string, root: string): {
   // names read from it are tracked. Anywhere else (a call or new argument, an
   // object or array, a property, a return, a spread) hands it to code this scan
   // cannot see, so any member may be read from it: record an unknown one.
-  const handedOn = (value: AstNode): void => {
+  // Names that hold a helper namespace (`const n = f.notion`, `const { notion } = f`).
+  // Their later uses are judged exactly like `f.notion` itself.
+  const aliases = new Set<string>();
+  const bindingNames = (pattern: AstNode | undefined, into: Set<string>): void => {
+    if (pattern === undefined) return;
+    if (pattern.type === 'Identifier') { into.add(pattern.name!); return; }
+    if (pattern.type === 'AssignmentPattern') return bindingNames(pattern.left as AstNode, into);
+    if (pattern.type === 'RestElement') return bindingNames(pattern.argument as AstNode, into);
+    if (pattern.type === 'ArrayPattern') {
+      for (const element of (pattern.elements as Array<AstNode | null> | undefined) ?? []) bindingNames(element ?? undefined, into);
+      return;
+    }
+    if (pattern.type === 'ObjectPattern') {
+      for (const property of (pattern.properties as AstNode[] | undefined) ?? []) {
+        bindingNames((property.type === 'Property' ? property.value : property.argument) as AstNode, into);
+      }
+    }
+  };
+  // Where a helper value lands. A plain binding keeps it inside this body as an
+  // alias whose uses are tracked; a discarded value or a condition reads it; a
+  // direct call uses it. Anywhere else (a call or new argument, an object or
+  // array, a property, a return, a spread) hands it to code this scan cannot
+  // see, so any member may be read from it: record an unknown one. `context`
+  // marks the whole `f`, whose plain alias cannot be followed member by member.
+  const handedOn = (value: AstNode, context = false): void => {
     let current = value;
     let parent = parents.get(current);
     while (parent !== undefined && transparent.has(parent.type)
@@ -129,12 +153,18 @@ export function helperMemberUses(body: string, root: string): {
       current = parent;
       parent = parents.get(current);
     }
-    // Calling it (`f.done(...)`) uses the value here; it is not handed on.
-    const bound = ((parent?.type === 'CallExpression' || parent?.type === 'NewExpression') && parent.callee === current)
-      || (parent?.type === 'VariableDeclarator' && parent.init === current)
-      || (parent?.type === 'AssignmentExpression' && parent.right === current
-        && ['Identifier', 'ObjectPattern', 'ArrayPattern'].includes((parent.left as AstNode).type));
-    if (!bound) members.add('*');
+    if (parent === undefined) { members.add('*'); return; }
+    const discarded = parent.type === 'ExpressionStatement' || parent.type === 'UnaryExpression'
+      || parent.type === 'BinaryExpression'
+      || (['IfStatement', 'WhileStatement', 'DoWhileStatement', 'ForStatement', 'ConditionalExpression'].includes(parent.type)
+        && parent.test === current);
+    const called = (parent.type === 'CallExpression' || parent.type === 'NewExpression') && parent.callee === current;
+    if (discarded || called) return;
+    const target = parent.type === 'VariableDeclarator' && parent.init === current ? parent.id as AstNode
+      : parent.type === 'AssignmentExpression' && parent.right === current ? parent.left as AstNode : undefined;
+    if (target === undefined || !['Identifier', 'ObjectPattern', 'ArrayPattern'].includes(target.type)
+      || (context && target.type !== 'ObjectPattern')) { members.add('*'); return; }
+    bindingNames(target, aliases);
   };
   walkReferences(program, root, false, { rootFunctionFound: false }, (node) => {
     if (node.type === 'ObjectPattern' || node.type === 'ArrayPattern') { patternKeys(node); return; }
@@ -154,7 +184,7 @@ export function helperMemberUses(body: string, root: string): {
         if (!method && !readOnly(parent)) handedOn(parent);
         return;
       }
-      if (!readOnly(node)) { escaped.add('*'); handedOn(node); }
+      if (!readOnly(node)) { escaped.add('*'); handedOn(node, true); }
       return;
     }
     if (node.type !== 'MemberExpression') return;
@@ -169,6 +199,39 @@ export function helperMemberUses(body: string, root: string): {
     // `f.notion[expr]` could be any method; record it as unknown (`notion.*`).
     if (namespace !== undefined) methods.add(`${namespace}.${name ?? '*'}`);
   });
+  // Follow aliases until no new one appears: each use of an alias name that is
+  // neither a member access nor a read is judged as a landing of the helper.
+  const judged = new Set<string>();
+  const identifiers: AstNode[] = [];
+  const collect = (node: AstNode): void => {
+    if (node.type === 'Identifier') identifiers.push(node);
+    for (const key of Object.keys(node)) {
+      if (key === 'type' || key === 'start' || key === 'end' || key === 'loc') continue;
+      const child = node[key];
+      for (const entry of Array.isArray(child) ? child : [child]) if (isNode(entry)) collect(entry);
+    }
+  };
+  collect(program);
+  const declaresName = (node: AstNode): boolean => {
+    const parent = parents.get(node);
+    if (parent === undefined) return false;
+    if (parent.type === 'VariableDeclarator') return parent.id === node;
+    if (parent.type === 'Property') return parent.key === node && parent.computed !== true && parent.shorthand !== true
+      || (parent.value === node && parents.get(parent)?.type === 'ObjectPattern');
+    if (parent.type === 'MemberExpression') return parent.property === node && parent.computed !== true;
+    if (parent.type === 'AssignmentPattern' || parent.type === 'ArrayPattern' || parent.type === 'RestElement') return true;
+    if (parent.type === 'AssignmentExpression') return parent.left === node;
+    return isFunction(parent) && ((parent.params as AstNode[] | undefined) ?? []).includes(node);
+  };
+  for (let fresh = [...aliases]; fresh.length > 0; fresh = [...aliases].filter(name => !judged.has(name))) {
+    for (const name of fresh) judged.add(name);
+    for (const node of identifiers) {
+      if (!fresh.includes(node.name!) || declaresName(node)) continue;
+      const parent = parents.get(node);
+      if (parent?.type === 'MemberExpression' && parent.object === node) continue; // its member name is tracked
+      if (!readOnly(node)) handedOn(node);
+    }
+  }
   return { methods, escaped, members };
 }
 
