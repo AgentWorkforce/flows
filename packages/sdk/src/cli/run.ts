@@ -952,6 +952,7 @@ async function classifyOutcomeInner(
       kind: current.completion_reason,
       message: `Run "${current.run_id}" failed with completionReason: ${current.completion_reason}.`,
     };
+    let interrupted: RunDiagnostic | undefined;
     if (current.completion_reason === 'step_failed') {
       let details: StepFailedDetails | undefined;
       try {
@@ -959,6 +960,10 @@ async function classifyOutcomeInner(
       } catch (error) {
         // Inspection must not erase the already known run failure.
         diagnostic.message += ` Could not inspect the failed step: ${errorMessage(error)}`;
+        // Mark an unanswered read so optional follow-up reads do not spend a
+        // fresh budget on the same delayed daemon.
+        if (isReadInterruption(error)) interrupted = { severity: 'warning', kind: 'inspection_interrupted',
+          message: `The failed step could not be inspected: ${errorMessage(error)}` };
       }
       if (details !== undefined) {
         Object.assign(diagnostic, details);
@@ -975,7 +980,7 @@ async function classifyOutcomeInner(
       exitCode: 1,
       report: {
         ...report,
-        diagnostics: [...report.diagnostics, diagnostic],
+        diagnostics: [...report.diagnostics, diagnostic, ...(interrupted === undefined ? [] : [interrupted])],
       },
     };
   }

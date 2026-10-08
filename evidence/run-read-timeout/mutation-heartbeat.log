@@ -33,8 +33,8 @@ AssertionError: expected JournalRequestTimeoutError: journal clien… { …(5) }
 
  Test Files  1 failed (1)
       Tests  1 failed (1)
-   Start at  04:48:10
-   Duration  464ms (transform 163ms, setup 17ms, collect 280ms, tests 19ms, environment 0ms, prepare 44ms)
+   Start at  05:06:26
+   Duration  472ms (transform 167ms, setup 17ms, collect 290ms, tests 19ms, environment 0ms, prepare 42ms)
 
 exit=1
 
@@ -47,7 +47,7 @@ $ cd packages/sdk && npx vitest run tests/heartbeat-timeout.test.ts -t 'a heartb
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  04:48:11
-   Duration  450ms (transform 165ms, setup 16ms, collect 288ms, tests 16ms, environment 0ms, prepare 40ms)
+   Start at  05:06:27
+   Duration  443ms (transform 165ms, setup 17ms, collect 284ms, tests 16ms, environment 0ms, prepare 29ms)
 
 exit=0

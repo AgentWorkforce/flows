@@ -47,3 +47,14 @@ it('reports a completed run with an unread result as finished but with an unconf
   expect(execution.report).not.toHaveProperty('completionReason');
   expect(JSON.stringify(execution.report)).not.toContain('flows resume');
 });
+
+it('marks a step_failed run whose inspection was interrupted', async () => {
+  vi.mocked(probeSocket).mockResolvedValue({ reachable: true });
+  const client = { journalRead: async () => { throw new JournalRequestTimeoutError('journal.read', 10, 3, 300_000, 300_000); },
+    runGet: async () => { throw new JournalRequestTimeoutError('run.get', 10, 3, 300_000, 300_000); } };
+  const result = await classifyOutcome(client as unknown as JournalClient, 'run', {
+    run_id: 'failed-run', status: 'failed', completion_reason: 'step_failed', completed_steps: 1,
+  }, { command: 'run', ok: true, diagnostics: [] } as never, '/socket', {});
+  expect(result.report).toMatchObject({ status: 'failed', completionReason: 'step_failed' });
+  expect(result.report.diagnostics).toContainEqual(expect.objectContaining({ severity: 'warning', kind: 'inspection_interrupted' }));
+});

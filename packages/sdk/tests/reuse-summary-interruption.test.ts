@@ -46,3 +46,15 @@ it.each(['daemon_unresponsive', 'daemon_unreachable'])('does not start another r
   expect(execution).toBe(interrupted);
   expect(execution.report.reuse).toBeUndefined();
 });
+
+it('does not start another read after failed-step inspection was interrupted', async () => {
+  let reads = 0;
+  const client = { journalRead: async () => { reads += 1; return { entries: [] }; } } as unknown as JournalClient;
+  const failed: RunExecution = { exitCode: 1, report: { command: 'run', ok: false, status: 'failed', runId: 'run-1', diagnostics: [
+    { severity: 'failure', kind: 'step_failed', message: 'Run failed. Could not inspect the failed step: read timed out' },
+    { severity: 'warning', kind: 'inspection_interrupted', message: 'The failed step could not be inspected: read timed out' },
+  ] } as never };
+  const execution = await attachReuseSummary(failed, client, 'run-1', 'prior');
+  expect(reads).toBe(0);
+  expect(execution).toBe(failed);
+});

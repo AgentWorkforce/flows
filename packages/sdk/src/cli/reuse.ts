@@ -33,8 +33,8 @@ export async function attachReuseSummary(execution: RunExecution, client: Journa
   runId: string, fromRunId: string): Promise<RunExecution> {
   // Classification already ended on an unanswered read: the run is resumable and
   // another read would only spend a fresh budget against the same delayed daemon.
-  if (execution.report.diagnostics.some(diagnostic =>
-    diagnostic.kind === 'daemon_unresponsive' || diagnostic.kind === 'daemon_unreachable')) return execution;
+  if (execution.report.diagnostics.some(diagnostic => diagnostic.kind === 'daemon_unresponsive'
+    || diagnostic.kind === 'daemon_unreachable' || diagnostic.kind === 'inspection_interrupted')) return execution;
   try {
     execution.report.reuse = await reuseSummary(client, runId, fromRunId);
   } catch (error) {

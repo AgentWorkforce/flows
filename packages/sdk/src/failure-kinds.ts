@@ -163,6 +163,7 @@ export const RUN_WARNING_KINDS = [
   'connection_file_stale',
   'reuse_summary_unavailable',
   'result_unreadable',
+  'inspection_interrupted',
 ] as const;
 
 /**
