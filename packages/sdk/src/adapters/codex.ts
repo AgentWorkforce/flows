@@ -4,6 +4,7 @@ import type {
   HeadlessAdapter,
   ModelProbeFailure,
 } from './base.js';
+import { promptOperand } from './base.js';
 import { providerUsageLimited } from './usage-limit.js';
 
 const MODEL_PROBE_PROMPT = 'Reply with exactly RELAYFLOWS_MODEL_READY and nothing else.';
@@ -25,7 +26,7 @@ export const codexAdapter: HeadlessAdapter = {
     return {
       args: [
         'exec', '--ephemeral', '--sandbox', 'read-only', '--skip-git-repo-check',
-        '--model', model, MODEL_PROBE_PROMPT,
+        '--model', model, ...promptOperand(MODEL_PROBE_PROMPT),
       ],
       timeoutMs: 60_000,
     };
@@ -51,7 +52,7 @@ export const codexAdapter: HeadlessAdapter = {
         // read-only and does NOT get the bypass.
         '--dangerously-bypass-approvals-and-sandbox',
         ...(model === undefined ? [] : ['--model', model]),
-        instruction,
+        ...promptOperand(instruction),
       ],
       timeoutMs: 0,
     };
@@ -60,7 +61,7 @@ export const codexAdapter: HeadlessAdapter = {
   buildLlmInvocation(prompt: string, model?: string): CliInvocation {
     return {
       args: ['exec', '--sandbox', 'read-only', '--skip-git-repo-check',
-        ...(model === undefined ? [] : ['--model', model]), prompt],
+        ...(model === undefined ? [] : ['--model', model]), ...promptOperand(prompt)],
       timeoutMs: 0,
     };
   },

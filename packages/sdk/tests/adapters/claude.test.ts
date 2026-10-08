@@ -48,4 +48,22 @@ describe('claudeAdapter — HeadlessAdapter contract', () => {
     expect(inv.args).toContain('--model');
     expect(inv.args.at(-1)).toBe('summarize');
   });
+
+  // A task is author text, not an option: one that starts with `-` or `--`
+  // must still reach the CLI as the prompt operand, after the separator.
+  it.each(['-v', '--version', '--help me plan', '--', '-'])('passes a dash-leading task %j after the end-of-options separator', task => {
+    for (const inv of [
+      claudeAdapter.buildAgentInvocation(task, 'm'),
+      claudeAdapter.buildAgentInvocation(task),
+      claudeAdapter.buildLlmInvocation(task, 'm'),
+      claudeAdapter.buildLlmInvocation(task),
+    ]) {
+      expect(inv.args.slice(-2)).toEqual(['--', task]);
+      expect(inv.args.indexOf('--')).toBe(inv.args.length - 2);
+    }
+  });
+
+  it('ends the readiness probe options before its prompt', () => {
+    expect(claudeAdapter.buildModelReadinessProbe('m').args.at(-2)).toBe('--');
+  });
 });

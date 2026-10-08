@@ -43,6 +43,7 @@ import {
   type AgentTransport,
 } from './agent-relay-transport.js';
 import { pinCliAlias } from './cli/pinned-cli-alias.js';
+import { promptOperand } from './adapters/base.js';
 
 export type { CliTransportCause, CliTransportEvidence, CliTransportPhase } from './cli-transport-evidence.js';
 export { agentCompletionReason } from './cli-transport-evidence.js';
@@ -212,8 +213,10 @@ export async function runAgentCli(
   // Structured provider output carries the authoritative token counts. Claude
   // streams it, so its final result is seen when it is emitted rather than
   // only once the process exits — which, after a background task, it may not.
+  // The flags go before the `--` that ends the task operand (promptOperand):
+  // after it they would reach the CLI as task text, not options.
   const args = [...invocation.args];
-  args.splice(args.length - 1, 0, ...(kind === 'claude' ? ['--output-format', 'stream-json', '--verbose'] : ['--json']));
+  args.splice(args.length - promptOperand('').length, 0, ...(kind === 'claude' ? ['--output-format', 'stream-json', '--verbose'] : ['--json']));
   const completion = kind === 'claude' ? claudeResultOutcome : undefined;
   return requirePricedUsage(decodeProviderResult(await spawnInvocation(
     cli, { ...invocation, args }, env, signal, sidechannel, cwd, completion, argv0, kind,

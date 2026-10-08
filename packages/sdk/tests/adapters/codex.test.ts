@@ -50,4 +50,22 @@ describe('codexAdapter — HeadlessAdapter contract', () => {
     expect(inv.args).toContain('--sandbox');
     expect(inv.args).toContain('read-only');
   });
+
+  // A task is author text, not an option: one that starts with `-` or `--`
+  // must still reach the CLI as the prompt operand, after the separator.
+  it.each(['-v', '--version', '--help me plan', '--', '-'])('passes a dash-leading task %j after the end-of-options separator', task => {
+    for (const inv of [
+      codexAdapter.buildAgentInvocation(task, 'm'),
+      codexAdapter.buildAgentInvocation(task),
+      codexAdapter.buildLlmInvocation(task, 'm'),
+      codexAdapter.buildLlmInvocation(task),
+    ]) {
+      expect(inv.args.slice(-2)).toEqual(['--', task]);
+      expect(inv.args.indexOf('--')).toBe(inv.args.length - 2);
+    }
+  });
+
+  it('ends the readiness probe options before its prompt', () => {
+    expect(codexAdapter.buildModelReadinessProbe('m').args.at(-2)).toBe('--');
+  });
 });
