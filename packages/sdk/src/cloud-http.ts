@@ -33,6 +33,7 @@ export type CloudConfigurationReason =
   | 'auth_missing'
   | 'auth_expired'
   | 'auth_store_unwritable'
+  | 'auth_refresh_failed'
   | 'url_invalid'
   | 'url_mismatch'
   | 'timeout_invalid';
@@ -140,7 +141,15 @@ async function ensureFreshCloudLogin(options: CloudConnectionOptions): Promise<v
       if (result.status !== undefined && [400, 401, 403].includes(result.status)) {
         throw configurationError('auth_expired', 'The agent-relay cloud login has expired. Run `agent-relay cloud login` again, or set FLOWS_CLOUD_TOKEN.');
       }
-      if (result.status !== undefined) throw new CloudFlowError('http_error', `Cloud login refresh failed with HTTP ${result.status}.`, result.status);
+      // Only statuses a poll may retry keep http_error: read CLIs map any other
+      // http_error status (a 404 above all) to a fact about the run, not the login.
+      if (result.status !== undefined && [408, 429, 500, 502, 503, 504].includes(result.status)) {
+        throw new CloudFlowError('http_error', `Cloud login refresh failed with HTTP ${result.status}.`, result.status);
+      }
+      if (result.status !== undefined) {
+        throw configurationError('auth_refresh_failed', `Cloud login refresh failed with HTTP ${result.status}. `
+          + 'Run `agent-relay cloud login` again, or set FLOWS_CLOUD_TOKEN.');
+      }
       throw new CloudFlowError('invalid_response', 'Cloud returned an unusable login refresh response.');
   }
 }

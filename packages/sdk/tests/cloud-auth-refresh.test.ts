@@ -209,6 +209,21 @@ describe('cloud login refresh', () => {
     expect(await fs.readdir(home)).toEqual(['cloud-auth.json']);
   });
 
+  it.each([404, 405, 410, 422])('never lets refresh HTTP %i read as a missing run', async status => {
+    // A read CLI maps any http_error 404 to cloud_run_not_found; a refresh
+    // route the deployment does not serve is a login problem, not an unknown run.
+    const before = await bytes();
+    mockCloud({ error: 'do not echo secret' }, status);
+    const error = await request().catch(e => e);
+    expect(error).toMatchObject({ code: 'configuration', reason: 'auth_refresh_failed' });
+    expect(error.message).toContain(`HTTP ${status}`);
+    expect(error.message).toContain('agent-relay cloud login');
+    expect(error.message).not.toContain('secret');
+    expect(isTransientRead(error)).toBe(false);
+    expect(refusalFor(error, 'run', {})).toMatchObject({ code: 'cloud_configuration', exit: 2 });
+    expect(await bytes()).toBe(before);
+  });
+
   it.each([
     [new TypeError('fetch failed', { cause: { code: 'ECONNRESET' } }), 'transient_error'],
     [new TypeError('TLS failed'), 'transport_error'],
