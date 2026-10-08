@@ -223,3 +223,12 @@ test('declares every public type, including type-only exports no signature names
   const missing = names.filter(name => !new RegExp(`(?:interface|type) ${name}\\b|### ${name}\\b|\\| \`${name}\` \\||\`Ctx extends ${name}\`|import(?: type)? \\{ ${name} \\}`).test(authoring));
   assert.deepEqual(missing, []);
 });
+test('claims only what it declares: dependency types are named, links name their version skew', () => {
+  const external = [...authoring.matchAll(/^import(?: type)? \{ \w+ \} from "([^".][^"]*)";$/gm)].map(match => match[1]);
+  assert.ok(external.length > 0);
+  const header = authoring.slice(0, authoring.indexOf('\n## '));
+  for (const module of new Set(external.filter(name => name.startsWith('@relayfile/')).map(name => name.split('/').slice(0, 2).join('/')))) assert.ok(header.includes(`\`${module}\``), module);
+  assert.match(header, /named by its import line and not expanded/);
+  assert.match(header, /links follow `main`; for an installed release, read the same files at this repository's `v<version>` tag/);
+  assert.doesNotMatch(read('packages/surface/README.md'), /for all signatures/);
+});

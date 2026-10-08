@@ -1,4 +1,4 @@
 $ node scripts/check-authoring-reference.mjs
-# cwd: /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr615; head: 898b78e0 (parent; logs captured from the uncommitted change they accompany)
+# cwd: /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr615; head: f382fb9c (parent; logs captured from the uncommitted change they accompany)
 AUTHORING_REFERENCE_OK
 # exit: 0
