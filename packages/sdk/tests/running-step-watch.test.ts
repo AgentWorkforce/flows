@@ -230,3 +230,22 @@ it('a malformed watch frame during an in-flight snapshot is an error, not a comp
     expect(outcome).toBeInstanceOf(JournalFrameError);
   } finally { client.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });
+
+it('a watch connection lost after registration is a read interruption, not a silent wait', async () => {
+  const path = sockPath();
+  const server = startLoopback(path, { hello: sendOk, 'run.watch': ctx => {
+    sendResult(ctx, {});
+    setTimeout(() => ctx.socket.destroy(), 20);
+  } });
+  await once(server, 'listening');
+  const client = new JournalClient(path);
+  try {
+    await client.connect();
+    const outcome = await Promise.race([
+      waitForRunningStep(client, 'run', { id: 'step', type: 'agent', leaseDeadlineMs: Date.now() + 30_000 }, {}).then(() => 'returned', error => error),
+      sleep(1_000).then(() => 'still waiting'),
+    ]);
+    expect(outcome).toBeInstanceOf(AuthoredFlowExecutionError);
+    expect(isReadInterruption(outcome)).toBe(true);
+  } finally { client.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});

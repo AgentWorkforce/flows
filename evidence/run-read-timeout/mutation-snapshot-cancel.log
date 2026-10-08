@@ -1,5 +1,5 @@
 Source: packages/sdk/src/cli/running-step.ts
-Original SHA256: 70c81a8ceed373400410f4dcd753ad714b1f86513e9240344de7807162ad3d64
+Original SHA256: 34223d566de94486b7039f5eb783ddacbe62ccc3cca63c2b5278d72c4de59c38
 Replaced:
 const signal = options.signal === undefined ? read.signal
         : AbortSignal.any([options.signal, read.signal]);
@@ -11,8 +11,8 @@ $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'cancels
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/running-step-watch.test.ts (10 tests | 1 failed | 9 skipped) 2216ms
-   × cancels promptly while a lease snapshot read is in flight 2215ms
+ ❯ tests/running-step-watch.test.ts (11 tests | 1 failed | 10 skipped) 2213ms
+   × cancels promptly while a lease snapshot read is in flight 2212ms
      → expected 'still waiting' to be an instance of Error
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
@@ -30,23 +30,23 @@ AssertionError: expected 'still waiting' to be an instance of Error
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
 
  Test Files  1 failed (1)
-      Tests  1 failed | 9 skipped (10)
-   Start at  02:56:29
-   Duration  2.71s (transform 192ms, setup 18ms, collect 321ms, tests 2.22s, environment 0ms, prepare 45ms)
+      Tests  1 failed | 10 skipped (11)
+   Start at  03:07:12
+   Duration  2.69s (transform 192ms, setup 16ms, collect 324ms, tests 2.21s, environment 0ms, prepare 40ms)
 
 exit=1
 
-RESTORED SHA256: 70c81a8ceed373400410f4dcd753ad714b1f86513e9240344de7807162ad3d64
+RESTORED SHA256: 34223d566de94486b7039f5eb783ddacbe62ccc3cca63c2b5278d72c4de59c38
 $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'cancels promptly while a lease snapshot read is in flight' --maxWorkers=1 --minWorkers=1
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/running-step-watch.test.ts (10 tests | 9 skipped) 2011ms
+ ✓ tests/running-step-watch.test.ts (11 tests | 10 skipped) 2011ms
    ✓ cancels promptly while a lease snapshot read is in flight 2010ms
 
  Test Files  1 passed (1)
-      Tests  1 passed | 9 skipped (10)
-   Start at  02:56:32
-   Duration  2.49s (transform 186ms, setup 15ms, collect 313ms, tests 2.01s, environment 0ms, prepare 42ms)
+      Tests  1 passed | 10 skipped (11)
+   Start at  03:07:15
+   Duration  2.48s (transform 188ms, setup 16ms, collect 309ms, tests 2.01s, environment 0ms, prepare 44ms)
 
 exit=0

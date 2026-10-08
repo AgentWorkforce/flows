@@ -135,6 +135,9 @@ export class JournalClient extends EventEmitter {
           this.budgeted?.close(closed);
           this.disconnectCause ??= closed;
           this.failAll(closed);
+          // Only a drop the caller did not ask for; close() clears this.socket first.
+          // Sessions with nothing pending (a registered watch) must hear it too.
+          if (this.socket === socket) this.emit('disconnected', closed);
         });
         this.disconnectCause = undefined;
         this.connectingSocket = undefined;

@@ -11,14 +11,14 @@ $ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/journal-client-read-timeout.test.ts (22 tests | 1 failed | 21 skipped) 1008ms
-   × reconnects the reader after it disconnects within the read budget 1007ms
-     → journal client: run.get read session was interrupted after 79 attempts in 1001ms (read budget 1000ms): journal client: not connected (run.get): journal client: connection closed
+ ❯ tests/journal-client-read-timeout.test.ts (22 tests | 1 failed | 21 skipped) 1010ms
+   × reconnects the reader after it disconnects within the read budget 1009ms
+     → journal client: run.get read session was interrupted after 77 attempts in 1000ms (read budget 1000ms): journal client: not connected (run.get): journal client: connection closed
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
 
  FAIL  tests/journal-client-read-timeout.test.ts > reconnects the reader after it disconnects within the read budget
-JournalReadInterruptedError: journal client: run.get read session was interrupted after 79 attempts in 1001ms (read budget 1000ms): journal client: not connected (run.get): journal client: connection closed
+JournalReadInterruptedError: journal client: run.get read session was interrupted after 77 attempts in 1000ms (read budget 1000ms): journal client: not connected (run.get): journal client: connection closed
  ❯ exhausted src/journal-read-policy.ts:71:9
      69|     let last: unknown;
      70|     const exhausted = () => last instanceof JournalReadInterruptedError
@@ -29,8 +29,8 @@ JournalReadInterruptedError: journal client: run.get read session was interrupte
  ❯ Timeout.<anonymous> src/journal-read-policy.ts:82:39
 
 Caused by: Error: journal client: not connected (run.get): journal client: connection closed
- ❯ src/journal-client.ts:233:16
- ❯ JournalClient.requestOnce src/journal-client.ts:226:12
+ ❯ src/journal-client.ts:236:16
+ ❯ JournalClient.requestOnce src/journal-client.ts:229:12
  ❯ src/journal-budgeted-reads.ts:47:29
  ❯ src/journal-read-policy.ts:94:18
 
@@ -41,8 +41,8 @@ Caused by: Error: journal client: connection closed
 
  Test Files  1 failed (1)
       Tests  1 failed | 21 skipped (22)
-   Start at  02:56:19
-   Duration  1.45s (transform 164ms, setup 16ms, collect 284ms, tests 1.01s, environment 0ms, prepare 41ms)
+   Start at  03:07:01
+   Duration  1.46s (transform 169ms, setup 16ms, collect 291ms, tests 1.01s, environment 0ms, prepare 43ms)
 
 exit=1
 
@@ -51,11 +51,11 @@ $ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/journal-client-read-timeout.test.ts (22 tests | 21 skipped) 92ms
+ ✓ tests/journal-client-read-timeout.test.ts (22 tests | 21 skipped) 84ms
 
  Test Files  1 passed (1)
       Tests  1 passed | 21 skipped (22)
-   Start at  02:56:20
-   Duration  543ms (transform 164ms, setup 17ms, collect 286ms, tests 92ms, environment 0ms, prepare 41ms)
+   Start at  03:07:03
+   Duration  732ms (transform 213ms, setup 24ms, collect 411ms, tests 84ms, environment 0ms, prepare 65ms)
 
 exit=0
