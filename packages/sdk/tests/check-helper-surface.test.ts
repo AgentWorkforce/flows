@@ -347,3 +347,11 @@ it('keeps refusing a computed call through an aliased f.notion', async () => {
   expect(result.exit).toBe(2);
   expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
 });
+it.each([
+  ['a computed destructuring key', 'const method = "appendBlock"; const { [method]: append } = f.notion; await append("page", {});'],
+  ['a rest element', 'const { createPage, ...rest } = f.notion; await rest.appendBlock("page", {});'],
+])('keeps refusing f.notion.appendBlock reached through %s', async (_shape, body) => {
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+  expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
+});

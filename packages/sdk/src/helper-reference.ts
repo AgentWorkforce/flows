@@ -93,9 +93,9 @@ export function helperMemberUses(body: string, root: string): {
     }
     if (pattern.type !== 'ObjectPattern') return;
     for (const property of (pattern.properties as AstNode[] | undefined) ?? []) {
-      if (property.type !== 'Property') continue;
-      const name = keyName(property);
-      if (name !== undefined) members.add(name);
+      // `...rest` and `[expr]: x` can take any member, appendBlock included.
+      if (property.type !== 'Property') { members.add('*'); continue; }
+      members.add(keyName(property) ?? '*');
       patternKeys(property.value as AstNode);
     }
   };
