@@ -34,8 +34,8 @@ Received: "still waiting"
 
  Test Files  1 failed (1)
       Tests  1 failed | 11 skipped (12)
-   Start at  04:16:03
-   Duration  3.50s (transform 193ms, setup 16ms, collect 322ms, tests 3.01s, environment 0ms, prepare 44ms)
+   Start at  04:25:55
+   Duration  4.12s (transform 456ms, setup 59ms, collect 722ms, tests 3.01s, environment 0ms, prepare 131ms)
 
 exit=1
 
@@ -44,12 +44,12 @@ $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'a compl
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/running-step-watch.test.ts (12 tests | 11 skipped) 2063ms
-   ✓ a completion push ends the wait without waiting out an in-flight snapshot 2062ms
+ ✓ tests/running-step-watch.test.ts (12 tests | 11 skipped) 2062ms
+   ✓ a completion push ends the wait without waiting out an in-flight snapshot 2061ms
 
  Test Files  1 passed (1)
       Tests  1 passed | 11 skipped (12)
-   Start at  04:16:07
-   Duration  2.53s (transform 189ms, setup 15ms, collect 322ms, tests 2.06s, environment 0ms, prepare 37ms)
+   Start at  04:26:00
+   Duration  2.62s (transform 216ms, setup 20ms, collect 365ms, tests 2.06s, environment 0ms, prepare 49ms)
 
 exit=0

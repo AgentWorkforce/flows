@@ -1,5 +1,5 @@
 Source: packages/sdk/src/journal-budgeted-reads.ts
-Original SHA256: 3c10585faa843ba188e6d87cc39f0b4e8a6b95a165d9caba104919c1c35598ec
+Original SHA256: 668d4d45dd732da1c653985dda4c2c3ddb115dab7462c0c1187c3e820f779b6a
 Replaced:
           if (this.reader === reader) {
             this.reader = undefined;
@@ -16,8 +16,8 @@ $ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/journal-client-read-timeout.test.ts (26 tests | 1 failed | 25 skipped) 80ms
-   × retries a reader setup that timed out instead of reading on the primary for good 79ms
+ ❯ tests/journal-client-read-timeout.test.ts (27 tests | 1 failed | 26 skipped) 82ms
+   × retries a reader setup that timed out instead of reading on the primary for good 81ms
      → expected 1 to be 2 // Object.is equality
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
@@ -42,22 +42,22 @@ AssertionError: expected 1 to be 2 // Object.is equality
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
 
  Test Files  1 failed (1)
-      Tests  1 failed | 25 skipped (26)
-   Start at  04:15:50
-   Duration  524ms (transform 168ms, setup 17ms, collect 293ms, tests 80ms, environment 0ms, prepare 42ms)
+      Tests  1 failed | 26 skipped (27)
+   Start at  04:25:40
+   Duration  649ms (transform 210ms, setup 17ms, collect 359ms, tests 82ms, environment 0ms, prepare 60ms)
 
 exit=1
 
-RESTORED SHA256: 3c10585faa843ba188e6d87cc39f0b4e8a6b95a165d9caba104919c1c35598ec
+RESTORED SHA256: 668d4d45dd732da1c653985dda4c2c3ddb115dab7462c0c1187c3e820f779b6a
 $ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t 'retries a reader setup that timed out' --maxWorkers=1 --minWorkers=1
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/journal-client-read-timeout.test.ts (26 tests | 25 skipped) 74ms
+ ✓ tests/journal-client-read-timeout.test.ts (27 tests | 26 skipped) 74ms
 
  Test Files  1 passed (1)
-      Tests  1 passed | 25 skipped (26)
-   Start at  04:15:51
-   Duration  508ms (transform 164ms, setup 16ms, collect 287ms, tests 74ms, environment 0ms, prepare 40ms)
+      Tests  1 passed | 26 skipped (27)
+   Start at  04:25:41
+   Duration  617ms (transform 199ms, setup 19ms, collect 348ms, tests 74ms, environment 0ms, prepare 45ms)
 
 exit=0

@@ -10,8 +10,8 @@ $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'uses pu
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/running-step-watch.test.ts (12 tests | 1 failed | 11 skipped) 2110ms
-   × uses pushes for completion with lease-cadence reads and releases its watcher 2109ms
+ ❯ tests/running-step-watch.test.ts (12 tests | 1 failed | 11 skipped) 2111ms
+   × uses pushes for completion with lease-cadence reads and releases its watcher 2110ms
      → expected 41 to be less than or equal to 1
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
@@ -30,8 +30,8 @@ AssertionError: expected 41 to be less than or equal to 1
 
  Test Files  1 failed (1)
       Tests  1 failed | 11 skipped (12)
-   Start at  04:15:52
-   Duration  2.58s (transform 194ms, setup 17ms, collect 319ms, tests 2.11s, environment 0ms, prepare 40ms)
+   Start at  04:25:42
+   Duration  2.68s (transform 222ms, setup 18ms, collect 385ms, tests 2.11s, environment 0ms, prepare 45ms)
 
 exit=1
 
@@ -40,12 +40,12 @@ $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'uses pu
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/running-step-watch.test.ts (12 tests | 11 skipped) 2119ms
-   ✓ uses pushes for completion with lease-cadence reads and releases its watcher 2118ms
+ ✓ tests/running-step-watch.test.ts (12 tests | 11 skipped) 2118ms
+   ✓ uses pushes for completion with lease-cadence reads and releases its watcher 2117ms
 
  Test Files  1 passed (1)
       Tests  1 passed | 11 skipped (12)
-   Start at  04:15:54
-   Duration  2.60s (transform 190ms, setup 16ms, collect 318ms, tests 2.12s, environment 0ms, prepare 41ms)
+   Start at  04:25:46
+   Duration  2.58s (transform 191ms, setup 15ms, collect 319ms, tests 2.12s, environment 0ms, prepare 30ms)
 
 exit=0

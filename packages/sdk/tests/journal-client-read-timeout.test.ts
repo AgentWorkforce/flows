@@ -316,3 +316,27 @@ it('a read started after the primary dropped is still a typed read interruption'
   const error = await client.runGet('run').catch(caught => caught);
   expect(isReadInterruptionError(error)).toBe(true);
 });
+
+it('canceling a read during reader setup frees the queue for the next read at once', async () => {
+  let hellos = 0;
+  let firstHello!: () => void;
+  const helloSeen = new Promise<void>(resolve => { firstHello = resolve; });
+  const path = sockPath();
+  const server = startLoopback(path, {
+    hello: ctx => { if (++hellos === 1) firstHello(); else sendOk(ctx); }, // the first reader hello hangs
+    'run.get': ctx => sendResult(ctx, { status: 'running' }),
+  }, { serialize: true });
+  servers.push(server);
+  await once(server, 'listening');
+  const client = new JournalClient(path, { requestTimeoutMs: 20_000, readBudgetMs: 60_000 });
+  clients.push(client);
+  await client.connect();
+  const controller = new AbortController();
+  const first = client.runGet('run', { signal: controller.signal });
+  await helloSeen;
+  controller.abort(new Error('re-drive'));
+  await expect(first).rejects.toThrow('re-drive');
+  const begun = performance.now();
+  await expect(client.runGet('run')).resolves.toMatchObject({ status: 'running' });
+  expect(performance.now() - begun).toBeLessThan(2_000);
+});

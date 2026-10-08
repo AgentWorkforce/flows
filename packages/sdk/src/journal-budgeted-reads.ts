@@ -46,7 +46,7 @@ export class BudgetedReads {
     const combined = sources.length <= 1 ? sources[0] : AbortSignal.any(sources);
     return this.policy.read(verb, timeoutMs, this.budgetMs, async (bound, attemptSignal) => {
       const started = performance.now();
-      const reader = await this.session().catch(error => {
+      const reader = await this.untilAborted(this.session(), attemptSignal).catch(error => {
         attemptSignal.throwIfAborted();
         // A malformed handshake frame is a protocol violation: fail closed.
         if (error instanceof JournalFrameError) throw error;
@@ -93,6 +93,24 @@ export class BudgetedReads {
         });
     }
     return this.readerReady;
+  }
+
+  /**
+   * Settle with the session, or at once with the attempt's abort — abandoning a
+   * setup still in progress, so the serialized queue never waits on it.
+   */
+  private untilAborted<T>(setup: Promise<T>, signal: AbortSignal): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const onAbort = () => {
+        const pending = this.reader;
+        if (pending !== undefined) this.drop(pending);
+        reject(signal.reason);
+      };
+      if (signal.aborted) { onAbort(); return; }
+      signal.addEventListener('abort', onAbort, { once: true });
+      setup.then(value => { signal.removeEventListener('abort', onAbort); resolve(value); },
+        error => { signal.removeEventListener('abort', onAbort); reject(error); });
+    });
   }
 
   /** Forget a reader whose transport failed so the next attempt reconnects one. */
