@@ -113,12 +113,15 @@ export function helperMemberUses(body: string, root: string): {
       default: return false;
     }
   };
-  // Passed into a call (`Reflect.get(f.notion, key)`, `use(f.notion)`), the
-  // helper meets code this scan cannot see: any member may be read from it.
   // Wrappers that pass their operand's value through unchanged.
   const transparent = new Set(['ChainExpression', 'ParenthesizedExpression', 'AwaitExpression',
-    'ConditionalExpression', 'LogicalExpression', 'SequenceExpression', 'SpreadElement', 'ArrayExpression']);
-  const handedToCall = (value: AstNode): void => {
+    'ConditionalExpression', 'LogicalExpression', 'SequenceExpression']);
+  // Where an escaping helper lands. Only a plain binding — `const n = f.notion`,
+  // `n = f.notion`, or destructuring — keeps it inside this body, where the
+  // names read from it are tracked. Anywhere else (a call or new argument, an
+  // object or array, a property, a return, a spread) hands it to code this scan
+  // cannot see, so any member may be read from it: record an unknown one.
+  const handedOn = (value: AstNode): void => {
     let current = value;
     let parent = parents.get(current);
     while (parent !== undefined && transparent.has(parent.type)
@@ -126,8 +129,12 @@ export function helperMemberUses(body: string, root: string): {
       current = parent;
       parent = parents.get(current);
     }
-    if ((parent?.type === 'CallExpression' || parent?.type === 'NewExpression')
-      && ((parent.arguments as AstNode[] | undefined) ?? []).includes(current)) members.add('*');
+    // Calling it (`f.done(...)`) uses the value here; it is not handed on.
+    const bound = ((parent?.type === 'CallExpression' || parent?.type === 'NewExpression') && parent.callee === current)
+      || (parent?.type === 'VariableDeclarator' && parent.init === current)
+      || (parent?.type === 'AssignmentExpression' && parent.right === current
+        && ['Identifier', 'ObjectPattern', 'ArrayPattern'].includes((parent.left as AstNode).type));
+    if (!bound) members.add('*');
   };
   walkReferences(program, root, false, { rootFunctionFound: false }, (node) => {
     if (node.type === 'ObjectPattern' || node.type === 'ArrayPattern') { patternKeys(node); return; }
@@ -144,11 +151,10 @@ export function helperMemberUses(body: string, root: string): {
         const method = grand?.type === 'MemberExpression' && grand.object === parent;
         // `f[expr]` names no knowable namespace: whatever it reaches escapes.
         if (namespace === undefined || (!method && !readOnly(parent))) escaped.add(namespace ?? '*');
-        if (!method) handedToCall(parent);
+        if (!method && !readOnly(parent)) handedOn(parent);
         return;
       }
-      if (!readOnly(node)) escaped.add('*');
-      handedToCall(node);
+      if (!readOnly(node)) { escaped.add('*'); handedOn(node); }
       return;
     }
     if (node.type !== 'MemberExpression') return;

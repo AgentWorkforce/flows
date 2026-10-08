@@ -390,3 +390,17 @@ it.each([
   expect(result.exit).toBe(2);
   expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
 });
+it.each([
+  ['an object passed to a call', 'await globalThis.invokeHelper({ notion: f.notion }, "page");'],
+  ['a returned helper', 'const get = () => { return f.notion; }; await globalThis.invokeHelper(get, "page");'],
+  ['a property assignment', 'const box = {}; box.n = f.notion; await globalThis.invokeHelper(box, "page");'],
+])('keeps refusing when f.notion escapes through %s', async (_shape, body) => {
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+  expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
+});
+it('a plain alias with only named, supported methods still passes', async () => {
+  const result = await check(fixture('const notion = f.notion; await notion.createPage({ parent: "p", title: "t" });', '{ tools: { notion: true } },'));
+  expect(result.stderr.join('\n')).not.toContain('[helper_provider.unsupported]');
+  expect(result.exit).toBe(0);
+});
