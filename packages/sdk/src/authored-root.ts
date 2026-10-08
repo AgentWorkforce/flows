@@ -6,23 +6,22 @@ import { readFile } from 'node:fs/promises';
 import { canonicalize } from './canonical.js';
 import { compileSpec, toKernelSpec } from './compile.js';
 import { executeAuthoredFlow, type AuthoredFlowExecutionResult, type AuthoredFlowSuspendedResult } from './authored-flow-executor.js';
-import { isDurableCompletionDetail, isLoweredCompletion } from './authored-completion.js';
 import { AUTHORED_ROOT_KIND } from './authored-verdict.js';
 import {
   loadAuthoredFlow,
   type LoadedAuthoredFlow,
   type SurfaceModuleAuthority,
 } from './authored-flow-loader.js';
-import { JournalClient, JournalFrameError, JournalProtocolError } from './journal-client.js';
+import { JournalClient, JournalProtocolError } from './journal-client.js';
 import type { RunOutcome, StepDispatchEvent } from './protocol.js';
 import { SPEC_SCHEMA_VERSION } from './spec.js';
 import type { RunLifecycleOptions } from './cli/run.js';
 import { isLeaseLost, withWorkerLease } from './worker-lease.js';
 import { AuthoredFlowExecutionError, AuthoredHumanParked } from './authored-flow-error.js';
 import { readOpenHumanWaits, resumeCommand } from './authored-human.js';
-import { isSurfaceCompletionReason } from './authored-step-output.js';
 import { readSubscriptionPark } from './authored-subscription-park.js';
 import { localAgentCredentialEnvironment } from './local-agent-environment.js';
+import { completedResult, rootKernelStep, rootStepIfPresent } from './authored-root-readback.js';
 
 export type DurableAuthoredFlowResult =
   | (AuthoredFlowExecutionResult & { readonly rootRunId: string })
@@ -200,13 +199,7 @@ export async function readAuthoredRootMetadata(
   journal: JournalClient,
   runId: string,
 ): Promise<AuthoredRootMetadata | undefined> {
-  // Only a definite answer means "not authored": the daemon refused the read, or
-  // the journal has no root step. An unanswered or canceled read means nothing
-  // yet, and guessing declarative would resume the run the wrong way.
-  const step = await rootKernelStep(journal, runId).catch(error => {
-    if (error instanceof JournalProtocolError || error === NO_ROOT_STEP) return undefined;
-    throw error;
-  });
+  const step = await rootStepIfPresent(journal, runId);
   if (step === undefined || step.id !== 'authored-root' || !hasRootStream(step)) return undefined;
   if (typeof step.instruction !== 'string') {
     throw new Error('authored root journal has malformed authority metadata');
@@ -476,16 +469,6 @@ function rootSpec(metadata: AuthoredRootMetadata, stream: string) {
   }));
 }
 
-const NO_ROOT_STEP = new Error('authored root journal has no root step');
-
-async function rootKernelStep(journal: JournalClient, runId: string): Promise<Record<string, unknown>> {
-  const entries = (await journal.journalRead(runId, 1)).entries as Array<Record<string, unknown>>;
-  const spawned = entries.find(entry => entry.entry_type === 'run.spawned');
-  const payload = spawned?.payload as { spec?: { steps?: unknown[] } } | undefined;
-  const step = payload?.spec?.steps?.[0];
-  if (typeof step !== 'object' || step === null || Array.isArray(step)) throw NO_ROOT_STEP;
-  return step as Record<string, unknown>;
-}
 
 function rootStreamFromMetadata(step: Record<string, unknown>): string {
   const surfaces = step.surfaces as { streams?: Array<{ stream?: unknown }> } | undefined;
@@ -569,65 +552,6 @@ function nextRootDispatch(peer: JournalClient, timeoutMs = 30_000): {
   return { promise, cancel };
 }
 
-/**
- * The stored result of a root the daemon already reports completed. If reading
- * it back is interrupted, the outcome is still known: say so, rather than
- * recasting a finished run as resumable.
- */
-function completedResult(journal: JournalClient, outcome: RunOutcome, rootRunId: string): Promise<AuthoredFlowExecutionResult & { readonly rootRunId: string }> {
-  return completedRootResult(journal, rootRunId).catch(error => {
-    // A definite answer stands (a refusal, a bad frame, no stored result);
-    // anything else — interrupted or canceled — left the verdict unread.
-    if (error instanceof JournalProtocolError || error instanceof JournalFrameError
-      || error === NO_DURABLE_RESULT) throw error;
-    // The kernel completes the root step with success whatever the body
-    // declared; the authored verdict lives only in the unread output.
-    const unread = new AuthoredFlowExecutionError('result_unreadable',
-      `run ${rootRunId} completed, but its stored result (the flow's verdict) could not be read: ${error.message}`,
-      undefined, rootRunId);
-    unread.rootRunId = rootRunId;
-    throw unread;
-  });
-}
-
-const NO_DURABLE_RESULT = new Error('completed authored root has no durable result');
-
-async function completedRootResult(
-  journal: JournalClient,
-  rootRunId: string,
-): Promise<AuthoredFlowExecutionResult & { readonly rootRunId: string }> {
-  const entries = (await journal.journalRead(rootRunId, 1)).entries as Array<Record<string, unknown>>;
-  const completed = entries.slice().reverse().find(entry => entry.entry_type === 'step.completed'
-    && entry.step_id === 'authored-root'
-    && (entry.payload as { completionReason?: unknown } | undefined)?.completionReason === 'success');
-  const output = (completed?.payload as { output?: unknown } | undefined)?.output;
-  if (!isCompletedRootOutput(output)) throw NO_DURABLE_RESULT;
-  // The stored detail, never a freshly computed one: redaction reads the
-  // CURRENT environment, so recomputing here would let a completed run report
-  // something its journal does not hold.
-  return Object.freeze({
-    name: output.name,
-    completionReason: output.completionReason,
-    ...(output.completionDetail === undefined ? {} : { completionDetail: output.completionDetail }),
-    journalSteps: Object.freeze(output.journalSteps.map(step => Object.freeze({ ...step }))),
-    rootRunId,
-  });
-}
-
-function isCompletedRootOutput(value: unknown): value is Omit<AuthoredFlowExecutionResult, 'rootRunId'> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const output = value as Partial<AuthoredFlowExecutionResult>;
-  return typeof output.name === 'string'
-    && isLoweredCompletion(output.completionReason)
-    // A malformed detail fails the whole readback rather than being dropped:
-    // silently discarding it would report the verdict without the evidence
-    // the journal says it was recorded with.
-    && (output.completionDetail === undefined || isDurableCompletionDetail(output.completionDetail))
-    && Array.isArray(output.journalSteps)
-    && output.journalSteps.every(step => typeof step === 'object' && step !== null
-      && typeof step.id === 'string' && typeof step.runId === 'string'
-      && isSurfaceCompletionReason(step.completionReason));
-}
 
 function assertRootCanDispatch(outcome: RunOutcome): void {
   // The kernel reports `parked` after handing an agent lease to its worker;

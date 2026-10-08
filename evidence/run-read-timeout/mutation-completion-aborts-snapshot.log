@@ -1,5 +1,5 @@
 Source: packages/sdk/src/cli/running-step.ts
-Original SHA256: 251ef48cb8616a41911ba353fd9ea7d9aae299049b941c87ef9927e9429cd1d8
+Original SHA256: 2a5f6adeca146e6188ac5e6d129db004e71574cf09df397fd4b9127c50e9b5aa
 Replaced:
 snapshotRead?.abort(new Error(`step "${runningStep.id}" completed during the lease snapshot`));
 With:
@@ -10,8 +10,8 @@ $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'a compl
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/running-step-watch.test.ts (13 tests | 1 failed | 12 skipped) 3013ms
-   × a completion push ends the wait without waiting out an in-flight snapshot 3013ms
+ ❯ tests/running-step-watch.test.ts (14 tests | 1 failed | 13 skipped) 3013ms
+   × a completion push ends the wait without waiting out an in-flight snapshot 3012ms
      → expected 'still waiting' to be 'returned' // Object.is equality
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
@@ -33,23 +33,23 @@ Received: "still waiting"
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
 
  Test Files  1 failed (1)
-      Tests  1 failed | 12 skipped (13)
-   Start at  04:36:31
-   Duration  3.50s (transform 190ms, setup 17ms, collect 324ms, tests 3.01s, environment 0ms, prepare 41ms)
+      Tests  1 failed | 13 skipped (14)
+   Start at  04:48:03
+   Duration  3.50s (transform 189ms, setup 16ms, collect 333ms, tests 3.01s, environment 0ms, prepare 42ms)
 
 exit=1
 
-RESTORED SHA256: 251ef48cb8616a41911ba353fd9ea7d9aae299049b941c87ef9927e9429cd1d8
+RESTORED SHA256: 2a5f6adeca146e6188ac5e6d129db004e71574cf09df397fd4b9127c50e9b5aa
 $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'a completion push ends the wait' --maxWorkers=1 --minWorkers=1
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/running-step-watch.test.ts (13 tests | 12 skipped) 2063ms
-   ✓ a completion push ends the wait without waiting out an in-flight snapshot 2062ms
+ ✓ tests/running-step-watch.test.ts (14 tests | 13 skipped) 2058ms
+   ✓ a completion push ends the wait without waiting out an in-flight snapshot 2058ms
 
  Test Files  1 passed (1)
-      Tests  1 passed | 12 skipped (13)
-   Start at  04:36:35
-   Duration  2.52s (transform 182ms, setup 17ms, collect 300ms, tests 2.06s, environment 0ms, prepare 40ms)
+      Tests  1 passed | 13 skipped (14)
+   Start at  04:48:07
+   Duration  2.58s (transform 201ms, setup 18ms, collect 347ms, tests 2.06s, environment 0ms, prepare 47ms)
 
 exit=0

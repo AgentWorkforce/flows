@@ -1,5 +1,5 @@
 Source: packages/sdk/src/cli/running-step.ts
-Original SHA256: 251ef48cb8616a41911ba353fd9ea7d9aae299049b941c87ef9927e9429cd1d8
+Original SHA256: 2a5f6adeca146e6188ac5e6d129db004e71574cf09df397fd4b9127c50e9b5aa
 Replaced:
 const signal = options.signal === undefined ? read.signal
         : AbortSignal.any([options.signal, read.signal]);
@@ -11,8 +11,8 @@ $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'cancels
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/running-step-watch.test.ts (13 tests | 1 failed | 12 skipped) 2217ms
-   × cancels promptly while a lease snapshot read is in flight 2216ms
+ ❯ tests/running-step-watch.test.ts (14 tests | 1 failed | 13 skipped) 2215ms
+   × cancels promptly while a lease snapshot read is in flight 2215ms
      → expected 'still waiting' to be an instance of Error
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
@@ -30,23 +30,23 @@ AssertionError: expected 'still waiting' to be an instance of Error
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
 
  Test Files  1 failed (1)
-      Tests  1 failed | 12 skipped (13)
-   Start at  04:36:25
-   Duration  2.70s (transform 189ms, setup 17ms, collect 322ms, tests 2.22s, environment 0ms, prepare 41ms)
+      Tests  1 failed | 13 skipped (14)
+   Start at  04:47:57
+   Duration  2.68s (transform 189ms, setup 15ms, collect 317ms, tests 2.22s, environment 0ms, prepare 41ms)
 
 exit=1
 
-RESTORED SHA256: 251ef48cb8616a41911ba353fd9ea7d9aae299049b941c87ef9927e9429cd1d8
+RESTORED SHA256: 2a5f6adeca146e6188ac5e6d129db004e71574cf09df397fd4b9127c50e9b5aa
 $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'cancels promptly while a lease snapshot read is in flight' --maxWorkers=1 --minWorkers=1
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/running-step-watch.test.ts (13 tests | 12 skipped) 2011ms
+ ✓ tests/running-step-watch.test.ts (14 tests | 13 skipped) 2011ms
    ✓ cancels promptly while a lease snapshot read is in flight 2011ms
 
  Test Files  1 passed (1)
-      Tests  1 passed | 12 skipped (13)
-   Start at  04:36:28
-   Duration  2.46s (transform 188ms, setup 16ms, collect 307ms, tests 2.01s, environment 0ms, prepare 33ms)
+      Tests  1 passed | 13 skipped (14)
+   Start at  04:48:00
+   Duration  2.48s (transform 182ms, setup 15ms, collect 317ms, tests 2.01s, environment 0ms, prepare 29ms)
 
 exit=0

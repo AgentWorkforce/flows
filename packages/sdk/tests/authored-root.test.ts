@@ -525,6 +525,21 @@ describe('durable authored root', () => {
       { dataDir: '/unused', admissionKey: 'completed-canceled' })).rejects.toMatchObject({ code: 'result_unreadable', rootRunId: 'root-run' });
   });
 
+  it('propagates a daemon-side read failure while detecting an authored root', async () => {
+    const { readAuthoredRootMetadata } = await import('../src/authored-root.js');
+    const storage = { journalRead: async () => { throw new JournalProtocolError('journal_write_failed', 'storage failed'); } };
+    await expect(readAuthoredRootMetadata(storage as unknown as JournalClient, 'run')).rejects.toMatchObject({ code: 'journal_write_failed' });
+  });
+
+  it('keeps a completed root outcome when its readback meets a storage protocol error', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    (journal as unknown as { startStatus: RunOutcome }).startStatus = outcome('root-run', 'completed', 'success');
+    journal.journalRead = async () => { throw new JournalProtocolError('journal_write_failed', 'storage failed'); };
+    await expect(executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'completed-storage' })).rejects.toMatchObject({ code: 'result_unreadable', rootRunId: 'root-run' });
+  });
+
   it('terminalizes a returned body failure without replaying semantic side effects', async () => {
     const loaded = await fixture(true);
     const journal = new RootJournal();

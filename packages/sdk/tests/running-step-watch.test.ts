@@ -276,7 +276,7 @@ it('honours a replayed completion even if the watch drops before registration an
   const server = startLoopback(path, { hello: sendOk, 'run.watch': (ctx, params) => {
     ctx.send({ event: 'entry', data: { run_id: String(params['run_id']), step_id: 'step', entry_type: 'step.completed' } });
     setTimeout(() => ctx.socket.destroy(), 10); // replay delivered, response never sent
-  } });
+  }, 'run.get': ctx => sendResult(ctx, { steps: { step: { state: 'completed' } } }) });
   await once(server, 'listening');
   const client = new JournalClient(path);
   try {
@@ -284,4 +284,27 @@ it('honours a replayed completion even if the watch drops before registration an
     await expect(waitForRunningStep(client, 'run', { id: 'step', type: 'agent', leaseDeadlineMs: Date.now() + 30_000 }, {}))
       .resolves.toBeUndefined();
   } finally { client.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
+it('confirms a replayed completion with a snapshot when the replay may be truncated', async () => {
+  for (const [state, expected] of [['completed', 'returned'], ['running', 'interrupted']] as const) {
+    const path = sockPath();
+    const server = startLoopback(path, {
+      hello: sendOk,
+      'run.watch': (ctx, params) => {
+        // An older attempt's completion arrives; the drop may hide a later retry.
+        ctx.send({ event: 'entry', data: { run_id: String(params['run_id']), step_id: 'step', entry_type: 'step.completed' } });
+        setTimeout(() => ctx.socket.destroy(), 10);
+      },
+      'run.get': ctx => sendResult(ctx, { steps: { step: { state, lease_deadline_ms: Date.now() + 30_000 } } }),
+    });
+    await once(server, 'listening');
+    const client = new JournalClient(path);
+    try {
+      await client.connect();
+      const outcome = await waitForRunningStep(client, 'run', { id: 'step', type: 'agent', leaseDeadlineMs: Date.now() + 30_000 }, {})
+        .then(() => 'returned', error => (isReadInterruption(error) ? 'interrupted' : `other: ${error.message}`));
+      expect(outcome).toBe(expected);
+    } finally { client.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
+  }
 });

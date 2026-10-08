@@ -70,16 +70,23 @@ export async function waitForRunningStep(client: JournalClient, runId: string,
   try {
     // Every transport failure up to and including the watch registration is a
     // read interruption: the step may still be running and the run resumable.
+    let unconfirmed: unknown;
     await Promise.race([watch.connect().then(() => watch.hello('flows-step-watch'))
       .then(() => watch.runWatch(runId)).catch(error => {
-        // The replay precedes the response: a completion already folded from it
-        // is authoritative even if registration never answered.
-        if (settled) return;
+        // The replay precedes the response, but a drop may have truncated it
+        // (an older completion, the retry not yet seen): confirm below.
+        if (settled) { unconfirmed = error; return; }
         // Refusals and malformed frames are protocol facts, not lost transport: fail closed.
         if (error instanceof JournalProtocolError || error instanceof JournalFrameError) throw error;
         throw new AuthoredFlowExecutionError('daemon_unresponsive',
           `could not establish the completion watch: ${error instanceof Error ? error.message : String(error)}`);
       }), completed]);
+    if (unconfirmed !== undefined) {
+      const snapshot = await client.runGet(runId, options.signal === undefined ? {} : { signal: options.signal });
+      if (snapshot.steps[runningStep.id]?.state !== 'running') return;
+      throw new AuthoredFlowExecutionError('daemon_unresponsive',
+        `could not establish the completion watch: ${unconfirmed instanceof Error ? unconfirmed.message : String(unconfirmed)}`);
+    }
     ready = true;
     if (settled) return;
     while (true) {

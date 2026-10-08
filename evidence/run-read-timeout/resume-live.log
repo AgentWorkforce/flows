@@ -2,12 +2,12 @@ $ cd packages/sdk && RELAYFLOWD_BIN=/home/khaliqgant/Projects/AgentWorkforce/flo
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/read-timeout-resume-live.test.ts (1 test) 929ms
-   ✓ parks an unreadable authored root and resumes without repeating its journaled effect 928ms
+ ✓ tests/read-timeout-resume-live.test.ts (1 test) 911ms
+   ✓ parks an unreadable authored root and resumes without repeating its journaled effect 911ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  04:37:47
-   Duration  2.20s (transform 614ms, setup 16ms, collect 1.01s, tests 929ms, environment 0ms, prepare 62ms)
+   Start at  04:49:20
+   Duration  2.15s (transform 618ms, setup 20ms, collect 1.01s, tests 911ms, environment 0ms, prepare 90ms)
 
 exit=0
