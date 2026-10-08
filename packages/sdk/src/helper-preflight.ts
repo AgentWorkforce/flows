@@ -28,7 +28,7 @@ export function preflightHelpers(
   const appendsNotionBlock = uses === undefined
     ? /\.\s*appendBlock\b/.test(body)
     : uses.methods.has('notion.appendBlock') || uses.methods.has('notion.*')
-      || ((uses.escaped.has('notion') || uses.escaped.has('*')) && uses.members.has('appendBlock'));
+      || ((uses.escaped.has('notion') || uses.escaped.has('*')) && (uses.members.has('appendBlock') || uses.members.has('*')));
   for (const { provider, namespace, supported } of helperProviders) {
     const used = definition.header?.tools?.[namespace] === true
       || referenced.has(namespace);

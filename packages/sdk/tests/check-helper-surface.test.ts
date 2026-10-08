@@ -342,3 +342,8 @@ it.each([
   expect(result.exit).toBe(2);
   expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
 });
+it('keeps refusing a computed call through an aliased f.notion', async () => {
+  const result = await check(fixture('const notion = f.notion; const method = "appendBlock"; await notion[method]("page", {});', '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+  expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
+});

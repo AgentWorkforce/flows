@@ -49,8 +49,9 @@ export function helperNamespacesUsed(body: string, root: string): ReadonlySet<st
  * bare `f` in such a position escapes the whole context (`*`). This is an
  * allowlist, so a new aliasing shape escapes by default. A computed method,
  * `f.notion[expr]`, is recorded as `notion.*`; a computed namespace escapes `*`.
- * `members` lists every member name the body accesses or destructures, for
- * callers that must stay conservative about an escaped namespace.
+ * `members` lists every member name the body accesses or destructures (`*`
+ * for a computed access), for callers that must stay conservative about an
+ * escaped namespace.
  */
 export function helperMemberUses(body: string, root: string): {
   methods: ReadonlySet<string>; escaped: ReadonlySet<string>; members: ReadonlySet<string>;
@@ -134,7 +135,8 @@ export function helperMemberUses(body: string, root: string): {
     }
     if (node.type !== 'MemberExpression') return;
     const name = memberName(node);
-    if (name !== undefined) members.add(name);
+    // `x[expr]` could name any member, appendBlock included: record it as unknown.
+    members.add(name ?? '*');
     const object = node.object as AstNode | undefined;
     if (object?.type !== 'MemberExpression') return;
     const context = object.object as AstNode | undefined;
