@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   guard:
-    if: (github.event_name != 'pull_request' && github.event_name != 'pull_request_target') || github.head_ref == 'trunk'
     runs-on: ubuntu-latest
     steps:
       # pull_request_target always reads this workflow and script from the PR
