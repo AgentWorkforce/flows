@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { parse as parseYaml } from 'yaml';
 import { loadAuthoredFlow } from '../authored-flow-loader.js';
+import { isAuthoredFlowPath } from '../direct-input.js';
 import { ensureIntegrationsConnected, type ConnectPrompt, type ConnectionsOutcome } from '../cloud-connect.js';
 import { CloudFlowError, cloudRequest, isCloudRecord, type CloudConnectionOptions } from '../cloud-http.js';
 import { CompileError, compileSpec, kernelToAuthoring } from '../compile.js';
@@ -35,7 +36,9 @@ export async function flowRequirementsForPath(
   const projectCli = context.projectCli ?? projectCliFor(path);
   const withCli = { ...context, ...(projectCli === undefined ? {} : { projectCli }) };
   try {
-    if (/\.flow\.ts$/iu.test(path)) {
+    // Every authored extension flows check accepts; skipping one would let a
+    // Cloud submission go out without its integration check.
+    if (isAuthoredFlowPath(path)) {
       const loaded = await loadAuthoredFlow(path);
       return flowRequirements(loaded.getDefinition(loaded.handle), withCli);
     }

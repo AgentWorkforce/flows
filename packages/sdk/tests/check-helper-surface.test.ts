@@ -327,3 +327,10 @@ it('explains an alias-inferred appendBlock refusal and how to avoid it', async (
   const real = await check(fixture('await f.notion.appendBlock("page", {});', '{ tools: { notion: true } },'));
   expect(real.stderr.join('\n')).not.toContain('aliased or passed on');
 });
+it.each(['test.flow.mjs', 'test.flow.js'])('Cloud requirement reading covers %s, so submit can verify its integrations', async name => {
+  const { flowRequirementsForPath } = await import('../src/cli/cloud-connect-cli.js');
+  const path = fixture('', '{ tools: { slack: true } },', name.replace('test', 'cloud'));
+  writeFileSync(join(dirname(path), 'package.json'), '{"type":"module"}');
+  const requirements = await flowRequirementsForPath(path);
+  expect(requirements?.integrations).toContainEqual(expect.objectContaining({ provider: 'slack' }));
+});
