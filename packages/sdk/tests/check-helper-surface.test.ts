@@ -373,3 +373,11 @@ it.each([
   expect(result.exit).toBe(2);
   expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
 });
+it.each([
+  ['a dynamic Reflect.get key', 'const method = String(Date.now()); await Reflect.get(f.notion, method)("page", {});'],
+  ['a helper function', 'const call = (n, m) => n[m]; await call(f.notion, "append" + "Block")("page", {});'],
+])('keeps refusing when f.notion is handed to %s', async (_shape, body) => {
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+  expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
+});

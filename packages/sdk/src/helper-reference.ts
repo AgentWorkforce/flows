@@ -113,6 +113,13 @@ export function helperMemberUses(body: string, root: string): {
       default: return false;
     }
   };
+  // Passed into a call (`Reflect.get(f.notion, key)`, `use(f.notion)`), the
+  // helper meets code this scan cannot see: any member may be read from it.
+  const handedToCall = (value: AstNode): void => {
+    const parent = parents.get(value);
+    if ((parent?.type === 'CallExpression' || parent?.type === 'NewExpression')
+      && ((parent.arguments as AstNode[] | undefined) ?? []).includes(value)) members.add('*');
+  };
   walkReferences(program, root, false, { rootFunctionFound: false }, (node) => {
     if (node.type === 'ObjectPattern' || node.type === 'ArrayPattern') { patternKeys(node); return; }
     if (node.type === 'Identifier' && node.name === root) {
@@ -128,9 +135,11 @@ export function helperMemberUses(body: string, root: string): {
         const method = grand?.type === 'MemberExpression' && grand.object === parent;
         // `f[expr]` names no knowable namespace: whatever it reaches escapes.
         if (namespace === undefined || (!method && !readOnly(parent))) escaped.add(namespace ?? '*');
+        if (!method) handedToCall(parent);
         return;
       }
       if (!readOnly(node)) escaped.add('*');
+      handedToCall(node);
       return;
     }
     if (node.type !== 'MemberExpression') return;
