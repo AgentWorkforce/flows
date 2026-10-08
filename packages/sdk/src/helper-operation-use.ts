@@ -37,8 +37,8 @@ export function helperOperationUse(body: string, root: string, namespace: string
     if ((node.type === 'CallExpression' || node.type === 'NewExpression')
       && (node.callee as AstNode).type === 'Identifier'
       && ['eval', 'Function'].includes((node.callee as AstNode).name!)) return mark('unprovable');
-    // `arguments[0]` is the context in a non-arrow body without naming it.
-    if (node.type === 'Identifier' && node.name === 'arguments') return mark('unprovable');
+    // `arguments[0]` is the context in a non-arrow root body without naming it.
+    if (node.type === 'Identifier' && node.name === 'arguments' && rootArguments(node, root, parents)) return mark('unprovable');
     if (node.type !== 'Identifier' || node.name !== root) return;
     const parent = parents.get(node);
     if (parent === undefined || declares(parent, node)) return;
@@ -53,9 +53,9 @@ export function helperOperationUse(body: string, root: string, namespace: string
         else if (operation === method) {
           // Calling it is the operation; a read (typeof, comparison) is not;
           // anything else hands the function on.
-          const call = parents.get(grand);
-          if (call?.type === 'CallExpression' && call.callee === grand) mark('called');
-          else if (!readOrCall(grand, parents)) mark('unprovable');
+          // Any use but a pure read reaches the operation: a call, however
+          // wrapped (parentheses, comma, ||, ?:, new), or the function handed on.
+          if (!readOrCall(grand, parents, false)) mark('called');
         }
         // Inherited object members: called directly, the primitive-returning ones
         // cannot expose the helper; any other (valueOf, constructor, __proto__, a
@@ -79,8 +79,11 @@ export function helperOperationUse(body: string, root: string, namespace: string
 /** Object.prototype methods whose call returns a primitive, never the receiver. */
 const PRIMITIVE_RETURNING = new Set(['hasOwnProperty', 'isPrototypeOf', 'propertyIsEnumerable', 'toString', 'toLocaleString']);
 
-/** A use that cannot hand the value on: a direct call, a discarded value, or a read. */
-function readOrCall(value: AstNode, parents: WeakMap<AstNode, AstNode>): boolean {
+/**
+ * A use that cannot hand the value on: a discarded value or a read, and —
+ * when `allowCall` — a direct call of it.
+ */
+function readOrCall(value: AstNode, parents: WeakMap<AstNode, AstNode>, allowCall = true): boolean {
   let current = value;
   let parent = parents.get(current);
   // Wrappers that pass their operand's value through unchanged.
@@ -93,12 +96,26 @@ function readOrCall(value: AstNode, parents: WeakMap<AstNode, AstNode>): boolean
     parent = parents.get(current);
   }
   if (parent === undefined) return false;
-  if ((parent.type === 'CallExpression' || parent.type === 'NewExpression') && parent.callee === current) return true;
-  if (['ExpressionStatement', 'UnaryExpression', 'BinaryExpression'].includes(parent.type)) return true;
+  if ((parent.type === 'CallExpression' || parent.type === 'NewExpression') && parent.callee === current) return allowCall;
+  // `instanceof` hands its left operand to the right side's Symbol.hasInstance.
+  if (parent.type === 'BinaryExpression') return parent.operator !== 'instanceof';
+  if (['ExpressionStatement', 'UnaryExpression'].includes(parent.type)) return true;
   // `${f.notion}` coerces to a string; a tagged template hands the value to its tag.
   if (parent.type === 'TemplateLiteral') return parents.get(parent)?.type !== 'TaggedTemplateExpression';
   return ['IfStatement', 'WhileStatement', 'DoWhileStatement', 'ForStatement', 'ConditionalExpression'].includes(parent.type)
     && parent.test === current;
+}
+
+/** `arguments` used (not named) inside the root flow function itself, not a nested non-arrow one. */
+function rootArguments(node: AstNode, root: string, parents: WeakMap<AstNode, AstNode>): boolean {
+  const parent = parents.get(node);
+  if (parent !== undefined && declares(parent, node)) return false;
+  for (let at = parents.get(node); at !== undefined; at = parents.get(at)) {
+    if (at.type === 'FunctionDeclaration' || at.type === 'FunctionExpression') {
+      return ((at.params as AstNode[] | undefined) ?? []).some(param => param.type === 'Identifier' && param.name === root);
+    }
+  }
+  return false;
 }
 
 /** The identifier is a name being declared or a property name, not a use of the context. */

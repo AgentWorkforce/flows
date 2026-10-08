@@ -216,3 +216,25 @@ it('an extracted appendBlock reference is unprovable', async () => {
   const result = await check(fixture('const add = f.notion.appendBlock; await add("p", {});', '{ tools: { notion: true } },'));
   expect(result.exit).toBe(2);
 });
+it('an instanceof operand hands the helper to Symbol.hasInstance', async () => {
+  const result = await check(fixture('if (f.notion instanceof globalThis.Probe) await f.notion.createPage({ parent: "p", title: "t" });', '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+});
+it.each([
+  ['a nested function', 'function count() { return arguments.length; } await f.notion.createPage({ parent: "p", title: String(count()) });'],
+  ['a property name', 'const o = { arguments: 1 }; await f.notion.createPage({ parent: "p", title: String(o.arguments) });'],
+])('does not refuse arguments belonging to %s', async (_shape, body) => {
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.stderr.join('\n')).not.toContain('[helper_provider.unsupported]');
+  expect(result.exit).toBe(0);
+});
+it.each([
+  ['parentheses', 'await (f.notion.appendBlock)("p", {});'],
+  ['a comma expression', 'await (0, f.notion.appendBlock)("p", {});'],
+  ['a logical fallback', 'await (f.notion.appendBlock || globalThis.noop)("p", {});'],
+  ['new', 'new f.notion.appendBlock("p", {});'],
+])('counts an appendBlock call through %s', async (_shape, body) => {
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+  expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
+});
