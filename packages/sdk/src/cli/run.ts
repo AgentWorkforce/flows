@@ -207,7 +207,8 @@ async function executeCheckedFlow(
     catch (error) { return { exitCode: 2, report: { ...base, diagnostics: [...base.diagnostics,
       { severity: 'refusal', kind: 'probe_failed', message: error instanceof Error ? error.message : 'Communication environment could not be checked.' }] } }; }
   }
-  const client = new JournalClient(socketPath, { readBudgetMs: FLOW_READ_BUDGET_MS });
+  const client = new JournalClient(socketPath, { readBudgetMs: FLOW_READ_BUDGET_MS,
+    ...(options.signal === undefined ? {} : { readSignal: options.signal }) });
   const connected = await connect(client, 'run', dataDir, base, options);
   if (connected !== undefined) return connected;
 
@@ -293,7 +294,8 @@ export async function resumeFlow(
   const agentEnvironment = localAgentEnvironment();
   const socketPath = socketFor(dataDir);
   const base = emptyReport('resume');
-  const client = new JournalClient(socketPath, { readBudgetMs: FLOW_READ_BUDGET_MS });
+  const client = new JournalClient(socketPath, { readBudgetMs: FLOW_READ_BUDGET_MS,
+    ...(options.signal === undefined ? {} : { readSignal: options.signal }) });
   const connected = await connect(client, 'resume', dataDir, base, options);
   if (connected !== undefined) return connected;
 

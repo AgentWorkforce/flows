@@ -4,6 +4,7 @@ import type { Server } from 'node:net';
 import { afterEach, expect, it } from 'vitest';
 import { JournalClient, JournalRequestTimeoutError } from '../src/journal-client.js';
 import { JournalReadInterruptedError, isReadInterruptionError } from '../src/journal-read-policy.js';
+import { JournalFrameError } from '../src/journal-client.js';
 import { HELLO_SPEC, sendOk, sendResult, sockPath, startLoopback, type LoopbackHandlers } from './journal-client-loopback.js';
 
 const clients: JournalClient[] = [];
@@ -202,4 +203,32 @@ it('retries a reader setup that timed out instead of reading on the primary for 
   expect(hellos).toBe(2);
   expect(served).toHaveLength(2);
   expect(served.every(socket => socket !== primary)).toBe(true);
+});
+
+it('fails closed on a malformed reader frame instead of retrying it as a transport loss', async () => {
+  let reads = 0;
+  const client = await setup({ 'run.get': ctx => { reads += 1; ctx.socket.write('{not json\n'); } }, 5_000);
+  const error = await client.runGet('run').catch(caught => caught);
+  expect(error).toBeInstanceOf(JournalFrameError);
+  expect(isReadInterruptionError(error)).toBe(false);
+  expect(reads).toBe(1);
+});
+
+it('a client read signal cancels every budgeted read promptly', async () => {
+  let entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const path = sockPath();
+  const server = startLoopback(path, { hello: sendOk, 'journal.read': () => entered() }, { serialize: true });
+  servers.push(server);
+  await once(server, 'listening');
+  const controller = new AbortController();
+  const client = new JournalClient(path, { requestTimeoutMs: 50, readBudgetMs: 60_000, readSignal: controller.signal });
+  clients.push(client);
+  await client.connect();
+  const pending = client.journalRead('run', 1);
+  await started;
+  const begun = performance.now();
+  controller.abort(new Error('run canceled'));
+  await expect(pending).rejects.toThrow('run canceled');
+  expect(performance.now() - begun).toBeLessThan(40);
 });

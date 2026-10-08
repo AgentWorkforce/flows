@@ -17,11 +17,11 @@ $ cd packages/sdk && npx vitest run tests/authored-root.test.ts -t 'leaves the r
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/authored-root.test.ts (27 tests | 3 failed | 24 skipped) 30ms
+ ❯ tests/authored-root.test.ts (27 tests | 3 failed | 24 skipped) 31ms
    × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=false) 22ms
      → expected JournalRequestTimeoutError: journal clien… { …(5) } to match object { code: 'daemon_unresponsive', …(2) }
 (6 matching properties omitted from actual)
-   × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=true) 4ms
+   × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=true) 5ms
      → expected AuthoredFlowExecutionError: daemon_unresp… { …(7) } to match object { code: 'daemon_unresponsive', …(2) }
 (6 matching properties omitted from actual)
    × durable authored root > leaves the root resumable when the read session disconnects while the root worker is healthy 4ms
@@ -104,8 +104,8 @@ AssertionError: expected JournalReadInterruptedError: journal clie… { …(4) }
 
  Test Files  1 failed (1)
       Tests  3 failed | 24 skipped (27)
-   Start at  01:06:09
-   Duration  1.23s (transform 654ms, setup 17ms, collect 1.04s, tests 30ms, environment 0ms, prepare 41ms)
+   Start at  01:24:10
+   Duration  1.25s (transform 640ms, setup 16ms, collect 1.05s, tests 31ms, environment 0ms, prepare 41ms)
 
 exit=1
 
@@ -118,7 +118,7 @@ $ cd packages/sdk && npx vitest run tests/authored-root.test.ts -t 'leaves the r
 
  Test Files  1 passed (1)
       Tests  3 passed | 24 skipped (27)
-   Start at  01:06:10
-   Duration  1.27s (transform 658ms, setup 17ms, collect 1.08s, tests 23ms, environment 0ms, prepare 41ms)
+   Start at  01:24:12
+   Duration  1.30s (transform 672ms, setup 17ms, collect 1.10s, tests 23ms, environment 0ms, prepare 47ms)
 
 exit=0

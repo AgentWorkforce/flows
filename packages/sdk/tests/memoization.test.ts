@@ -56,3 +56,29 @@ it.each([
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+it('cancels runFlow promptly while a classification read is delayed', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'run-cancel-read-'));
+  let reading!: () => void;
+  const inRead = new Promise<void>(resolve => { reading = resolve; });
+  const server = startLoopback(socketPathFor(dir), {
+    hello: ctx => sendOk(ctx),
+    'run.start': ctx => ctx.send({ id: ctx.id, ok: true, result: { run_id: 'r1', status: 'running', completion_reason: null, completed_steps: 0 } }),
+    'run.get': () => reading(), // the daemon never answers under load
+  });
+  await once(server, 'listening');
+  const controller = new AbortController();
+  try {
+    const running = runFlow(fileURLToPath(new URL('../../../testdata/hello-deterministic.flow.yaml', import.meta.url)),
+      dir, { daemon: { spawn: false }, signal: controller.signal });
+    await inRead;
+    const begun = performance.now();
+    controller.abort();
+    const settled = await Promise.race([running.then(() => 'settled', () => 'settled'), new Promise(resolve => setTimeout(() => resolve('still reading'), 2_000))]);
+    expect(settled).toBe('settled');
+    expect(performance.now() - begun).toBeLessThan(2_000);
+  } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

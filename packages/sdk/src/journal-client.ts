@@ -31,6 +31,8 @@ import type { KernelRunSpec, StepType } from './spec.js';
 export interface JournalClientOptions {
   /** Opt-in total budget for read-only requests; interactive clients stay single-shot. */
   readBudgetMs?: number;
+  /** Cancels every budgeted read, so a run's lifecycle abort never waits out the budget. */
+  readSignal?: AbortSignal;
   /** Override the timeout for bounded protocol requests (ms). Default 30000. */
   requestTimeoutMs?: number;
   /**
@@ -64,11 +66,20 @@ export class JournalProtocolError extends Error {
   }
 }
 
+/** The daemon sent a frame this client cannot parse: a protocol violation, never retried. */
+export class JournalFrameError extends Error {
+  constructor(message = 'journal client: malformed frame from server') {
+    super(message);
+    this.name = 'JournalFrameError';
+  }
+}
+
 export class JournalClient extends EventEmitter {
   private readonly reads = new JournalReadPolicy();
   private reader: JournalClient | undefined;
   private readerReady: Promise<JournalClient | undefined> | undefined;
   private readonly readBudgetMs?: number;
+  private readonly readSignal?: AbortSignal;
   /** Additive request capabilities the daemon advertised at `hello`; none until then. */
   private features: ReadonlySet<string> = new Set();
   private socket: Socket | null = null;
@@ -86,6 +97,7 @@ export class JournalClient extends EventEmitter {
   ) {
     super();
     this.readBudgetMs = options.readBudgetMs;
+    this.readSignal = options.readSignal;
     this.requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
     this.connectTimeoutMs = options.connectTimeoutMs ?? 2_000;
   }
@@ -171,7 +183,7 @@ export class JournalClient extends EventEmitter {
       msg = JSON.parse(line) as Response | ServerEvent;
     } catch {
       // A malformed frame is a protocol violation; fail closed.
-      this.failAll(new Error('journal client: malformed frame from server'));
+      this.failAll(new JournalFrameError());
       return;
     }
 
@@ -245,12 +257,13 @@ export class JournalClient extends EventEmitter {
           return await reader.requestOnce(verb, params, remaining, attemptSignal);
         } catch (error) {
           if (attemptSignal.aborted || error instanceof JournalRequestTimeoutError
-            || error instanceof JournalProtocolError) throw error;
+            || error instanceof JournalProtocolError || error instanceof JournalFrameError) throw error;
           // Only the dedicated reader's transport failed; reconnect within the budget.
           this.dropReader(reader);
           throw new JournalReadInterruptedError(verb, 1, performance.now() - started, undefined, { cause: error });
         }
-      }, signal);
+      }, signal === undefined ? this.readSignal
+        : this.readSignal === undefined ? signal : AbortSignal.any([signal, this.readSignal]));
     }
     return this.requestOnce(verb, params, timeoutMs, signal);
   }

@@ -69,7 +69,8 @@ export async function runDirectFlow(
   }
   const socketPath = socketFor(dataDir);
   const base: RunReport = { ...emptyReport('run'), path };
-  const client = new JournalClient(socketPath, { readBudgetMs: FLOW_READ_BUDGET_MS });
+  const client = new JournalClient(socketPath, { readBudgetMs: FLOW_READ_BUDGET_MS,
+    ...(options.signal === undefined ? {} : { readSignal: options.signal }) });
   const connected = await connect(client, 'run', dataDir, base, options);
   if (connected !== undefined) return connected;
 
