@@ -1,4 +1,4 @@
-import { JournalProtocolError, type JournalClient } from '../journal-client.js';
+import { JournalFrameError, JournalProtocolError, type JournalClient } from '../journal-client.js';
 import { AuthoredFlowExecutionError } from '../authored-flow-error.js';
 import type { JournalEvent } from '../journal-reader.js';
 import type { RunLifecycleOptions, ParkedStep } from './run.js';
@@ -56,7 +56,8 @@ export async function waitForRunningStep(client: JournalClient, runId: string,
     // read interruption: the step may still be running and the run resumable.
     await Promise.race([watch.connect().then(() => watch.hello('flows-step-watch'))
       .then(() => watch.runWatch(runId)).catch(error => {
-        if (error instanceof JournalProtocolError) throw error;
+        // Refusals and malformed frames are protocol facts, not lost transport: fail closed.
+        if (error instanceof JournalProtocolError || error instanceof JournalFrameError) throw error;
         throw new AuthoredFlowExecutionError('daemon_unresponsive',
           `could not establish the completion watch: ${error instanceof Error ? error.message : String(error)}`);
       }), completed]);

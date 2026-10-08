@@ -7,14 +7,14 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[2]
 SDK = ROOT / 'packages/sdk'
 CASES = [
-    ('reader', 'packages/sdk/src/journal-client.ts',
+    ('reader', 'packages/sdk/src/journal-budgeted-reads.ts',
      'return await reader.requestOnce(verb, params, remaining, attemptSignal);',
-     'return await this.requestOnce(verb, params, remaining, attemptSignal);',
+     'return await this.primary.requestOnce(verb, params, remaining, attemptSignal);',
      'tests/journal-client-read-timeout.test.ts', 'serves a bounded read'),
-    ('reader-reconnect', 'packages/sdk/src/journal-client.ts',
-     """          this.dropReader(reader);
+    ('reader-reconnect', 'packages/sdk/src/journal-budgeted-reads.ts',
+     """        this.drop(reader);
 """, '', 'tests/journal-client-read-timeout.test.ts', 'reconnects the reader after it disconnects'),
-    ('reader-setup-retry', 'packages/sdk/src/journal-client.ts',
+    ('reader-setup-retry', 'packages/sdk/src/journal-budgeted-reads.ts',
      """          if (this.reader === reader) {
             this.reader = undefined;
             this.readerReady = undefined;

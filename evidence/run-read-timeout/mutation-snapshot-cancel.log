@@ -1,5 +1,5 @@
 Source: packages/sdk/src/cli/running-step.ts
-Original SHA256: 5f7ca7c0a29e5dcd0be4650369e994a21aa715f7dbdc45363924abf5df30d96b
+Original SHA256: e535b533e40304d47aeba175c8ac6f6e51808de9fc99d1d0f64648f2b8a39a70
 Replaced:
 const signal = options.signal === undefined ? read.signal
         : AbortSignal.any([options.signal, read.signal]);
@@ -11,8 +11,8 @@ $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'cancels
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/running-step-watch.test.ts (7 tests | 1 failed | 6 skipped) 2217ms
-   × cancels promptly while a lease snapshot read is in flight 2217ms
+ ❯ tests/running-step-watch.test.ts (8 tests | 1 failed | 7 skipped) 2216ms
+   × cancels promptly while a lease snapshot read is in flight 2215ms
      → expected 'still waiting' to be an instance of Error
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
@@ -30,23 +30,23 @@ AssertionError: expected 'still waiting' to be an instance of Error
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
 
  Test Files  1 failed (1)
-      Tests  1 failed | 6 skipped (7)
-   Start at  01:44:32
-   Duration  2.67s (transform 192ms, setup 16ms, collect 311ms, tests 2.22s, environment 0ms, prepare 35ms)
+      Tests  1 failed | 7 skipped (8)
+   Start at  02:35:36
+   Duration  2.69s (transform 192ms, setup 18ms, collect 313ms, tests 2.22s, environment 0ms, prepare 41ms)
 
 exit=1
 
-RESTORED SHA256: 5f7ca7c0a29e5dcd0be4650369e994a21aa715f7dbdc45363924abf5df30d96b
+RESTORED SHA256: e535b533e40304d47aeba175c8ac6f6e51808de9fc99d1d0f64648f2b8a39a70
 $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'cancels promptly while a lease snapshot read is in flight' --maxWorkers=1 --minWorkers=1
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/running-step-watch.test.ts (7 tests | 6 skipped) 2011ms
-   ✓ cancels promptly while a lease snapshot read is in flight 2010ms
+ ✓ tests/running-step-watch.test.ts (8 tests | 7 skipped) 2012ms
+   ✓ cancels promptly while a lease snapshot read is in flight 2011ms
 
  Test Files  1 passed (1)
-      Tests  1 passed | 6 skipped (7)
-   Start at  01:44:35
-   Duration  2.48s (transform 184ms, setup 17ms, collect 308ms, tests 2.01s, environment 0ms, prepare 42ms)
+      Tests  1 passed | 7 skipped (8)
+   Start at  02:35:39
+   Duration  2.47s (transform 178ms, setup 17ms, collect 296ms, tests 2.01s, environment 0ms, prepare 40ms)
 
 exit=0

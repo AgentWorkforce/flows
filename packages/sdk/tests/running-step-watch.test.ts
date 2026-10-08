@@ -1,7 +1,7 @@
 import { once } from 'node:events';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { expect, it } from 'vitest';
-import { JournalClient } from '../src/journal-client.js';
+import { JournalClient, JournalFrameError } from '../src/journal-client.js';
 import { waitForRunningStep } from '../src/cli/running-step.js';
 import { isReadInterruption } from '../src/cli/journal-timeout.js';
 import { AuthoredFlowExecutionError } from '../src/authored-flow-error.js';
@@ -176,5 +176,19 @@ it('a completion that aborts the snapshot is not an error even if a retry starts
       sleep(3_000).then(() => 'still waiting'),
     ]);
     expect(outcome).toBe('returned');
+  } finally { client.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
+it('fails closed on a malformed frame during watch setup', async () => {
+  const path = sockPath();
+  const server = startLoopback(path, { hello: sendOk, 'run.watch': ctx => { ctx.socket.write('{not json\n'); } });
+  await once(server, 'listening');
+  const client = new JournalClient(path);
+  try {
+    await client.connect();
+    const error = await waitForRunningStep(client, 'run', { id: 'step', type: 'agent', leaseDeadlineMs: Date.now() + 30_000 }, {})
+      .catch(caught => caught);
+    expect(error).toBeInstanceOf(JournalFrameError);
+    expect(isReadInterruption(error)).toBe(false);
   } finally { client.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });
