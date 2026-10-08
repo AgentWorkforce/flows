@@ -494,7 +494,8 @@ Every refusal is one `REFUSED [code] message` line naming what to do next:
 | code | when |
 | --- | --- |
 | `cloud_auth_missing` | no credential anywhere; names `agent-relay cloud login` |
-| `cloud_auth_expired` | the stored login expired; refused before any request |
+| `cloud_configuration` (`auth_store_unwritable`) | cannot persist refreshed credentials; check the named path, filesystem error, permissions and free space |
+| `cloud_auth_expired` | the stored login expired and cannot be refreshed |
 | `cloud_auth_rejected` | Cloud answered 401: the token is unknown or revoked |
 | `cloud_forbidden` | 403: authenticated, but not allowed to read that run or log |
 | `cloud_run_not_found` | 404: no such run for this credential; points at `flows runs` |
@@ -524,7 +525,11 @@ then `FLOWS_CLOUD_TOKEN`, then the `agent-relay cloud login` store
 (`~/.agentworkforce/relay/cloud-auth.json`, or `AGENT_RELAY_HOME`). The login
 store also supplies the base URL unless `FLOWS_CLOUD_URL` overrides it, so a
 login against one deployment never sends its token to another. An expired
-login is refused with the re-login remedy rather than sent.
+access token is renewed using the stored refresh token, and both rotated tokens
+are written atomically before use. Missing or expired refresh tokens and rejected
+refresh credentials require re-login; network and server failures retain their
+transport and HTTP classifications. Explicit credentials never read or write the
+store. Renewal is triggered by the stored expiry, not by a request returning 401.
 
 Running and syncing work with either kind of token. Deploying, listing and
 removing listeners need the interactive `cli:auth` credential the login

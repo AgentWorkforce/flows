@@ -88,7 +88,8 @@ const NO_CONNECT_OPTION: CliOptionSpec = {
 const LOCAL_EXECUTION_OPTIONS = [
   JSON_OPTION,
   DATA_DIR_OPTION,
-  { flags: '--local-agent', description: 'Run agent steps in this process instead of a worker' },
+  { flags: '--local-agent', description: 'Run agent steps in this process (bound to this terminal unless --detach)' },
+  { flags: '--detach', description: 'Start in a separate process, print the run handle and exit; follow with flows status' },
   {
     flags: '--agent-capacity <n>',
     description: `With --local-agent, how many agent steps (and, separately, LLM steps) run at once (1-${MAX_LOCAL_AGENT_CAPACITY})`,

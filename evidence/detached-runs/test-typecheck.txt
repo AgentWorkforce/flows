@@ -1,0 +1,8 @@
+Working directory (relative to repository): .
+Command: npm run typecheck:tests --prefix packages/sdk
+Exit code: 0
+Captured stdout/stderr follows:
+
+> @relayflows/sdk@2.0.42 typecheck:tests
+> tsc -p tsconfig.tests.json
+

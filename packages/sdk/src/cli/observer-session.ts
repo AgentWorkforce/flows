@@ -36,6 +36,7 @@ export interface ObserverSession {
 }
 
 export interface ObserverSessionDeps {
+  onObserverUrl?: (url: string) => void;
   fetch?: ProjectionFetch;
   mint?: (options: MintObserverOptions) => Promise<MintOutcome>;
 }
@@ -72,7 +73,12 @@ export function createObserverSession(
       diagnostic: message => io.stderr(`[observer] ${message}`),
     }, run);
     void mintFor(run.runId).then(outcome => {
-      if (outcome.observerUrl !== undefined) io.stderr(`Observer: ${outcome.observerUrl}`);
+      if (outcome.observerUrl !== undefined) {
+        io.stderr(`Observer: ${outcome.observerUrl}`);
+        try { deps.onObserverUrl?.(outcome.observerUrl); } catch (error) {
+          io.stderr(`[observer] could not publish observer URL: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
     });
     return projection;
   };

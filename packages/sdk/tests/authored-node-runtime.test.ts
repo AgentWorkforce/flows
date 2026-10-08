@@ -127,6 +127,23 @@ describe('Bun 1.4.0 standalone → native Node authored lifecycle', () => {
     expect(output.journalSteps.map((s:{id:string})=>s.id)).toEqual(['agent-1','run-2','run-3','run-4','complete-5']);
   }, 90_000);
 
+  it('detaches through the compiled executable and the child publishes its receipt', async () => {
+    const f = fixture(sequential + `f.done('success');`);
+    const started = f.invoke(['run', 'case.flow.ts', '--input', '{}', '--detach']);
+    expect(started.status, started.stderr + started.stdout).toBe(0);
+    const handle = JSON.parse(started.stdout) as { detached: true; runId: string; pid: number; recordPath: string; logPath: string };
+    expect(handle).toMatchObject({ detached: true, runId: expect.any(String) });
+    const deadline = Date.now() + 60_000;
+    let record: { phase?: string; execution?: { exitCode: number } } = {};
+    while (record.phase !== 'finished') {
+      if (Date.now() > deadline) throw new Error(`no finished receipt; log:\n${readFileSync(handle.logPath, 'utf8')}`);
+      if (existsSync(handle.recordPath)) record = JSON.parse(readFileSync(handle.recordPath, 'utf8'));
+      await new Promise(done => setTimeout(done, 50));
+    }
+    expect(record.execution, readFileSync(handle.logPath, 'utf8')).toMatchObject({ exitCode: 0 });
+    expect(readFileSync(join(f.directory, 'run-effects'), 'utf8')).toBe('onetwothree');
+  }, 90_000);
+
   it('accepts a predicate-gated flow: the `<step>.gate` child is journaled, verified, and not counted as an authored step', async () => {
     const f = fixture(`await f.run("printf one").gate(out => out === 'one', 'echo says one');
 await f.run("printf two").gate({ type: 'word_count_bounds', min: 1, max: 1 });
