@@ -246,15 +246,33 @@ it('fails closed on a malformed frame during reader setup', async () => {
   expect(reads).toBe(0);
 });
 
-it('retries a delayed handshake within the read budget on a budgeted flow client', async () => {
+async function handshakeClient(handlers: LoopbackHandlers, budget: number) {
+  const path = sockPath();
+  const server = startLoopback(path, { hello: sendOk, ...handlers }, { serialize: true });
+  servers.push(server);
+  await once(server, 'listening');
+  const client = new JournalClient(path, { requestTimeoutMs: 50, readBudgetMs: budget, budgetHandshake: true });
+  clients.push(client);
+  await client.connect();
+  return client;
+}
+
+it('keeps a pre-admission handshake single-shot even on a budgeted flow client', async () => {
   let hellos = 0;
-  const client = await setup({ hello: ctx => { if (++hellos > 1) sendOk(ctx); } }, 5_000);
+  const client = await setup({ hello: () => { hellos += 1; } }, 5_000);
+  await expect(client.hello('flows-run')).rejects.toMatchObject({ verb: 'hello', attempts: 1 });
+  expect(hellos).toBe(1);
+});
+
+it('retries a delayed post-admission handshake within the read budget', async () => {
+  let hellos = 0;
+  const client = await handshakeClient({ hello: ctx => { if (++hellos > 1) sendOk(ctx); } }, 5_000);
   await expect(client.hello('flows-authored-node')).resolves.toBeDefined();
   expect(hellos).toBe(2);
 });
 
-it('an exhausted handshake budget is a read interruption, not a body failure', async () => {
-  const client = await setup({ hello: () => {} }, 250);
+it('an exhausted post-admission handshake budget is a read interruption, not a body failure', async () => {
+  const client = await handshakeClient({ hello: () => {} }, 250);
   const error = await client.hello('flows-authored-node').catch(caught => caught);
   expect(isReadInterruptionError(error)).toBe(true);
 });

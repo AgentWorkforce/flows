@@ -19,7 +19,7 @@ it('verifies a Bun-run authored result with the flow read budget, not single-sho
   const result = { rootRunId: 'root', name: 'flow', completionReason: 'success',
     journalSteps: [{ id: 'complete-1' }] };
   await verifyAuthoredNodeResult(result as never, { flowName: 'flow' } as never, 'root', '/unused.sock').catch(() => undefined);
-  expect(constructed).toContainEqual(expect.objectContaining({ readBudgetMs: FLOW_READ_BUDGET_MS }));
+  expect(constructed).toContainEqual(expect.objectContaining({ readBudgetMs: FLOW_READ_BUDGET_MS, budgetHandshake: true }));
 });
 
 it('hands the lifecycle signal to the verifier so cancellation stops its reads', async () => {

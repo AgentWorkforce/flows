@@ -356,7 +356,7 @@ export async function verifyAuthoredNodeResult(
   }
   const runs = new Set<string>();
   // The verifier reads the same journal under the same CPU load as the body.
-  const journal = new JournalClient(socketPath, { readBudgetMs: FLOW_READ_BUDGET_MS,
+  const journal = new JournalClient(socketPath, { readBudgetMs: FLOW_READ_BUDGET_MS, budgetHandshake: true,
     ...(signal === undefined ? {} : { readSignal: signal }) });
   await journal.connect();
   try {

@@ -2,69 +2,69 @@ $ cd packages/sdk && RELAYFLOWD_BIN=/home/khaliqgant/Projects/AgentWorkforce/flo
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/cli.test.ts (71 tests) 5320ms
-   ✓ flows check CLI > resolves a bare PATH-resolved claude with no declared model, in an isolated PATH 326ms
-   ✓ flows run/resume CLI over the journal protocol > follows a dispatched worker step instead of reporting a protocol error 2038ms
-   ✓ flows run/resume CLI over the journal protocol > follows a worker wait past a locally expired lease until the daemon settles it 2046ms
-(node:3908233) [FLOWS_ROOT_LEASE_LOST] Warning: authored root run_id=root-run attempt=1: lease_conflict: attempt has no active worker lease. Waiting for the kernel to retry it.
+ ✓ tests/cli.test.ts (71 tests) 5293ms
+   ✓ flows check CLI > resolves a bare PATH-resolved claude with no declared model, in an isolated PATH 312ms
+   ✓ flows run/resume CLI over the journal protocol > follows a dispatched worker step instead of reporting a protocol error 2036ms
+   ✓ flows run/resume CLI over the journal protocol > follows a worker wait past a locally expired lease until the daemon settles it 2038ms
+(node:3978255) [FLOWS_ROOT_LEASE_LOST] Warning: authored root run_id=root-run attempt=1: lease_conflict: attempt has no active worker lease. Waiting for the kernel to retry it.
 (Use `node --trace-warnings ...` to show where the warning was created)
- ✓ tests/authored-root.test.ts (28 tests) 363ms
- ✓ tests/journal-client.test.ts (17 tests) 80ms
- ✓ tests/flow-executor-chain.test.ts (14 tests) 6984ms
-   ✓ flow executor LLM and output-binding chain > runs f.llm -> f.agent -> f.run with schema-verified journal output and the exact allowed model 467ms
-   ✓ flow executor LLM and output-binding chain > runs the exact authored flagship f.llm -> f.agent -> f.run path through the durable CLI root 1065ms
-   ✓ flow executor LLM and output-binding chain > resumes an interrupted durable authored root without replaying completed flagship effects 2779ms
-   ✓ flow executor LLM and output-binding chain > passes a declarative verified value through an agent into a deterministic artifact 375ms
-   ✓ flow executor LLM and output-binding chain > flows run consumes YAML bindings and resume reuses the original journal output 751ms
- ✓ tests/authored-flow-slack.test.ts (7 tests) 1188ms
-   ✓ authored Slack helper effects > replays after SIGKILL before confirm with the same token and one successful completion 433ms
-   ✓ authored Slack helper effects > replays after SIGKILL before complete with the same token and one successful completion 417ms
- ✓ tests/agent-transcript-live.test.ts (4 tests) 2530ms
-   ✓ the transcript digest through the built CLI, a real daemon and the local agent > preserves structured agent failure details and its completed root index 580ms
-   ✓ the transcript digest through the built CLI, a real daemon and the local agent > preserves structured llm failure details and its completed root index 627ms
-   ✓ the transcript digest through the built CLI, a real daemon and the local agent > journals the digest in trajectory_tail on a successful agent step and writes the file it points at 703ms
-   ✓ the transcript digest through the built CLI, a real daemon and the local agent > on a failed agent step, names the failure and the transcript in the terminal diagnostic, redacted 618ms
- ✓ tests/journal-client-read-timeout.test.ts (22 tests) 1730ms
- ✓ tests/running-step-watch.test.ts (11 tests) 10283ms
+ ✓ tests/authored-root.test.ts (28 tests) 391ms
+ ✓ tests/journal-client.test.ts (17 tests) 78ms
+ ✓ tests/flow-executor-chain.test.ts (14 tests) 6906ms
+   ✓ flow executor LLM and output-binding chain > runs f.llm -> f.agent -> f.run with schema-verified journal output and the exact allowed model 488ms
+   ✓ flow executor LLM and output-binding chain > runs the exact authored flagship f.llm -> f.agent -> f.run path through the durable CLI root 1069ms
+   ✓ flow executor LLM and output-binding chain > resumes an interrupted durable authored root without replaying completed flagship effects 2720ms
+   ✓ flow executor LLM and output-binding chain > passes a declarative verified value through an agent into a deterministic artifact 344ms
+   ✓ flow executor LLM and output-binding chain > flows run consumes YAML bindings and resume reuses the original journal output 848ms
+ ✓ tests/authored-flow-slack.test.ts (7 tests) 1174ms
+   ✓ authored Slack helper effects > replays after SIGKILL before confirm with the same token and one successful completion 411ms
+   ✓ authored Slack helper effects > replays after SIGKILL before complete with the same token and one successful completion 418ms
+ ✓ tests/agent-transcript-live.test.ts (4 tests) 2558ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > preserves structured agent failure details and its completed root index 627ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > preserves structured llm failure details and its completed root index 623ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > journals the digest in trajectory_tail on a successful agent step and writes the file it points at 656ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > on a failed agent step, names the failure and the transcript in the terminal diagnostic, redacted 651ms
+ ✓ tests/journal-client-read-timeout.test.ts (23 tests) 1726ms
+ ✓ tests/running-step-watch.test.ts (11 tests) 10286ms
    ✓ uses pushes for completion with lease-cadence reads and releases its watcher 2117ms
-   ✓ cancels promptly while a lease snapshot read is in flight 2006ms
-   ✓ a completion push ends the wait without waiting out an in-flight snapshot 2053ms
+   ✓ cancels promptly while a lease snapshot read is in flight 2004ms
+   ✓ a completion push ends the wait without waiting out an in-flight snapshot 2054ms
    ✓ a completion that aborts the snapshot is not an error even if a retry starts at once 2004ms
-   ✓ a malformed watch frame during an in-flight snapshot is an error, not a completion 2002ms
- ✓ tests/authored-helpers.test.ts (6 tests) 1748ms
-   ✓ runs every available provider through the real kernel and resumes completed effects without a second write 760ms
-   ✓ replays after SIGKILL before confirm with the same token and one successful completion 379ms
-   ✓ replays after SIGKILL before complete with the same token and one successful completion 393ms
- ✓ tests/classify-outcome.test.ts (11 tests) 7434ms
-   ✓ classifyOutcome > gives up and reports when a running run never becomes classifiable 2017ms
+   ✓ a malformed watch frame during an in-flight snapshot is an error, not a completion 2004ms
+ ✓ tests/authored-helpers.test.ts (6 tests) 1949ms
+   ✓ runs every available provider through the real kernel and resumes completed effects without a second write 885ms
+   ✓ replays after SIGKILL before confirm with the same token and one successful completion 421ms
+   ✓ replays after SIGKILL before complete with the same token and one successful completion 418ms
+ ✓ tests/classify-outcome.test.ts (11 tests) 7435ms
+   ✓ classifyOutcome > gives up and reports when a running run never becomes classifiable 2019ms
    ✓ the remedy on a worker park > follows a step through a retry backoff longer than the unclassified bound 3008ms
    ✓ the remedy on a worker park > follows a run.start outcome that is already running on a retried attempt 2001ms
- ✓ tests/human-live.test.ts (3 tests) 4717ms
-   ✓ f.human against a real daemon > parks with the question, refuses wrong answers, records one, and resumes to success 2802ms
-   ✓ f.human against a real daemon > a "no" is a value the body branches on: declined, exit 0, no effect 1179ms
-   ✓ f.human against a real daemon > refuses to answer a run the daemon does not know 736ms
+ ✓ tests/human-live.test.ts (3 tests) 4487ms
+   ✓ f.human against a real daemon > parks with the question, refuses wrong answers, records one, and resumes to success 2652ms
+   ✓ f.human against a real daemon > a "no" is a value the body branches on: declined, exit 0, no effect 1151ms
+   ✓ f.human against a real daemon > refuses to answer a run the daemon does not know 683ms
  ✓ tests/worker-lease.test.ts (7 tests) 19ms
- ✓ tests/communication-worker.test.ts (18 tests) 1714ms
+ ✓ tests/communication-worker.test.ts (18 tests) 1706ms
  ✓ tests/worker-lease-lost.test.ts (17 tests) 25ms
- ✓ tests/worker-lease-lost-live.test.ts (3 tests) 672ms
- ✓ tests/memoization.test.ts (58 tests) 65ms
- ✓ tests/run-read-load-live.test.ts (2 tests) 2419ms
-   ✓ completes a CPU-saturating deterministic flow with reads in flight and preserves its journal 2058ms
-   ✓ drains read and watch promises before an authored flow completes 360ms
- ✓ tests/worker-lease-sweep.test.ts (4 tests) 8ms
- ✓ tests/journal-client-completion.test.ts (6 tests) 104ms
+ ✓ tests/worker-lease-lost-live.test.ts (3 tests) 705ms
+ ✓ tests/memoization.test.ts (58 tests) 62ms
+ ✓ tests/run-read-load-live.test.ts (2 tests) 2469ms
+   ✓ completes a CPU-saturating deterministic flow with reads in flight and preserves its journal 2055ms
+   ✓ drains read and watch promises before an authored flow completes 413ms
+ ✓ tests/worker-lease-sweep.test.ts (4 tests) 6ms
+ ✓ tests/journal-client-completion.test.ts (6 tests) 102ms
  ✓ tests/reuse-summary-interruption.test.ts (5 tests) 4ms
- ✓ tests/resume-worker-lease.test.ts (3 tests) 8ms
+ ✓ tests/resume-worker-lease.test.ts (3 tests) 7ms
  ✓ tests/direct-run-worker-lease.test.ts (3 tests) 9ms
- ✓ tests/helper-effect-lease-loss.test.ts (1 test) 217ms
+ ✓ tests/helper-effect-lease-loss.test.ts (1 test) 204ms
  ✓ tests/journal-client-subscriptions.test.ts (1 test) 8ms
  ✓ tests/run-daemon-unresponsive.test.ts (3 tests) 4ms
- ✓ tests/authored-verifier-read-budget.test.ts (2 tests) 45ms
- ✓ tests/heartbeat-timeout.test.ts (1 test) 16ms
+ ✓ tests/authored-verifier-read-budget.test.ts (2 tests) 46ms
+ ✓ tests/heartbeat-timeout.test.ts (1 test) 17ms
 
  Test Files  27 passed (27)
-      Tests  328 passed (328)
-   Start at  03:07:34
-   Duration  57.70s (transform 1.11s, setup 156ms, collect 6.57s, tests 47.71s, environment 4ms, prepare 978ms)
+      Tests  329 passed (329)
+   Start at  03:15:44
+   Duration  57.61s (transform 1.13s, setup 149ms, collect 6.59s, tests 47.68s, environment 4ms, prepare 953ms)
 
 exit=0

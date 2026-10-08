@@ -17,14 +17,14 @@ $ cd packages/sdk && npx vitest run tests/authored-root.test.ts -t 'leaves the r
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/authored-root.test.ts (28 tests | 3 failed | 25 skipped) 37ms
-   × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=false) 28ms
+ ❯ tests/authored-root.test.ts (28 tests | 3 failed | 25 skipped) 21ms
+   × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=false) 15ms
      → expected JournalRequestTimeoutError: journal clien… { …(5) } to match object { code: 'daemon_unresponsive', …(2) }
 (6 matching properties omitted from actual)
-   × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=true) 4ms
+   × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=true) 3ms
      → expected AuthoredFlowExecutionError: daemon_unresp… { …(7) } to match object { code: 'daemon_unresponsive', …(2) }
 (6 matching properties omitted from actual)
-   × durable authored root > leaves the root resumable when the read session disconnects while the root worker is healthy 4ms
+   × durable authored root > leaves the root resumable when the read session disconnects while the root worker is healthy 2ms
      → expected JournalReadInterruptedError: journal clie… { …(4) } to match object { code: 'daemon_unresponsive', …(2) }
 (5 matching properties omitted from actual)
 
@@ -104,8 +104,8 @@ AssertionError: expected JournalReadInterruptedError: journal clie… { …(4) }
 
  Test Files  1 failed (1)
       Tests  3 failed | 25 skipped (28)
-   Start at  03:07:27
-   Duration  1.54s (transform 769ms, setup 18ms, collect 1.31s, tests 37ms, environment 0ms, prepare 53ms)
+   Start at  03:15:38
+   Duration  1.22s (transform 643ms, setup 14ms, collect 1.04s, tests 21ms, environment 0ms, prepare 41ms)
 
 exit=1
 
@@ -118,7 +118,7 @@ $ cd packages/sdk && npx vitest run tests/authored-root.test.ts -t 'leaves the r
 
  Test Files  1 passed (1)
       Tests  3 passed | 25 skipped (28)
-   Start at  03:07:29
-   Duration  1.31s (transform 678ms, setup 19ms, collect 1.12s, tests 16ms, environment 0ms, prepare 42ms)
+   Start at  03:15:39
+   Duration  1.22s (transform 650ms, setup 16ms, collect 1.06s, tests 16ms, environment 0ms, prepare 30ms)
 
 exit=0

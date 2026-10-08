@@ -34,6 +34,12 @@ export interface JournalClientOptions {
   readBudgetMs?: number;
   /** Cancels every budgeted read, so a run's lifecycle abort never waits out the budget. */
   readSignal?: AbortSignal;
+  /**
+   * Retry this session's own `hello` within the read budget. Only for sessions
+   * opened after a run is admitted (an authored child, its verifier); a
+   * top-level command's handshake stays a single-shot compatibility check.
+   */
+  budgetHandshake?: boolean;
   /** Override the timeout for bounded protocol requests (ms). Default 30000. */
   requestTimeoutMs?: number;
   /**
@@ -77,6 +83,7 @@ export class JournalFrameError extends Error {
 
 export class JournalClient extends EventEmitter {
   private readonly budgeted: BudgetedReads | undefined;
+  private readonly budgetHandshake: boolean;
   /** Additive request capabilities the daemon advertised at `hello`; none until then. */
   private features: ReadonlySet<string> = new Set();
   private socket: Socket | null = null;
@@ -93,6 +100,7 @@ export class JournalClient extends EventEmitter {
     options: JournalClientOptions = {},
   ) {
     super();
+    this.budgetHandshake = options.budgetHandshake === true;
     this.budgeted = options.readBudgetMs === undefined ? undefined
       : new BudgetedReads(this, options.readBudgetMs, options.readSignal);
     this.requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
@@ -279,7 +287,7 @@ export class JournalClient extends EventEmitter {
   async hello(client: string): Promise<VerbContract['hello']['result']> {
     const params = { protocol: PROTOCOL_VERSION, client };
     // A flow client's handshake meets the same CPU load as its reads.
-    const result = this.budgeted === undefined ? await this.request('hello', params)
+    const result = this.budgeted === undefined || !this.budgetHandshake ? await this.request('hello', params)
       : await this.budgeted.handshake(params, this.requestTimeoutMs);
     this.features = new Set(Array.isArray(result.features) ? result.features.filter(f => typeof f === 'string') : []);
     return result;

@@ -75,7 +75,7 @@ try {
   const loaded = await loadPinnedAuthoredSource(request.metadata, true);
   if (request.localAgentStream !== request.metadata.localAgentStream) throw new Error('authored root local agent surface mismatch');
   if (request.workerCapacity !== undefined && !isAgentCapacity(request.workerCapacity)) throw new Error('invalid authored worker capacity');
-  client = new JournalClient(request.socketPath, { readBudgetMs: FLOW_READ_BUDGET_MS });
+  client = new JournalClient(request.socketPath, { readBudgetMs: FLOW_READ_BUDGET_MS, budgetHandshake: true });
   await client.connect(); await client.hello('flows-authored-node');
   const result = await executeAuthoredFlow(loaded.handle, client,
     request.metadata.inputPresent ? request.metadata.input : undefined, {
