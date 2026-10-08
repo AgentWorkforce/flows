@@ -186,3 +186,20 @@ it('a canceled read settles promptly and frees the serial read queue', async () 
   expect(performance.now() - begun).toBeLessThan(40);
   expect(await client.runGet('run')).toMatchObject({ status: 'completed' });
 });
+
+it('retries a reader setup that timed out instead of reading on the primary for good', async () => {
+  let hellos = 0;
+  let primary: unknown;
+  const served: unknown[] = [];
+  const client = await setup({
+    hello: ctx => { if (++hellos > 1) sendOk(ctx); }, // the first reader hello times out under load
+    'run.get': ctx => { served.push(ctx.socket); sendResult(ctx, { status: 'completed' }); },
+    'stream.append': ctx => { primary = ctx.socket; sendResult(ctx, { seq: 1 }); },
+  }, 5_000);
+  await client.streamAppend('run', 'stream', {});
+  expect(await client.runGet('run')).toMatchObject({ status: 'completed' });
+  expect(await client.runGet('run')).toMatchObject({ status: 'completed' });
+  expect(hellos).toBe(2);
+  expect(served).toHaveLength(2);
+  expect(served.every(socket => socket !== primary)).toBe(true);
+});

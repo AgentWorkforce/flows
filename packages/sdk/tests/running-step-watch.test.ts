@@ -82,3 +82,29 @@ it('cancels promptly while a lease snapshot read is in flight', async () => {
     expect((settled as Error).message).toContain('was canceled');
   } finally { client.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });
+
+it('cancelling during the watch handshake leaves no unhandled rejection', async () => {
+  const path = sockPath();
+  let greeted!: () => void;
+  const hello = new Promise<void>(resolve => { greeted = resolve; });
+  const server = startLoopback(path, { hello: () => greeted() }); // never answers the watch hello
+  await once(server, 'listening');
+  const client = new JournalClient(path);
+  const controller = new AbortController();
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => { unhandled.push(reason); };
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    await client.connect();
+    const waiting = waitForRunningStep(client, 'run', { id: 'step', type: 'agent', leaseDeadlineMs: Date.now() + 30_000 }, { signal: controller.signal });
+    const rejected = expect(waiting).rejects.toThrow('was canceled');
+    await hello;
+    controller.abort();
+    await rejected;
+    await sleep(50);
+    expect(unhandled).toEqual([]);
+  } finally {
+    process.off('unhandledRejection', onUnhandled);
+    client.close(); await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});

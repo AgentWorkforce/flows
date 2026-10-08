@@ -203,7 +203,18 @@ export class JournalClient extends EventEmitter {
       const reader = this.createPeer();
       this.reader = reader;
       this.readerReady = reader.connect().then(() => reader.hello('flows-reader')).then(() => reader)
-        .catch(() => { reader.close(); return undefined; });
+        .catch(error => {
+          reader.close();
+          // A daemon that refuses the session will keep refusing it: read on the primary.
+          if (error instanceof JournalProtocolError) return undefined;
+          // A connect or hello that failed under load is retried with a fresh session,
+          // never by queueing reads behind the primary's unbounded commands for good.
+          if (this.reader === reader) {
+            this.reader = undefined;
+            this.readerReady = undefined;
+          }
+          throw error;
+        });
     }
     return this.readerReady;
   }
@@ -221,7 +232,10 @@ export class JournalClient extends EventEmitter {
     if (this.socket && !this.socket.destroyed && this.readBudgetMs !== undefined && timeoutMs !== null && READ_ONLY_VERBS.has(verb)) {
       return this.reads.read(verb, timeoutMs, this.readBudgetMs, async (bound, attemptSignal) => {
         const started = performance.now();
-        const reader = await this.readSession();
+        const reader = await this.readSession().catch(error => {
+          attemptSignal.throwIfAborted();
+          throw new JournalReadInterruptedError(verb, 1, performance.now() - started, undefined, { cause: error });
+        });
         attemptSignal.throwIfAborted();
         const remaining = bound - (performance.now() - started);
         if (remaining <= 0) throw new JournalRequestTimeoutError(verb, bound);
@@ -339,8 +353,10 @@ export class JournalClient extends EventEmitter {
   }
 
   /**
-   * Open a push stream of every appended entry. Resolves once subscribed;
-   * entries arrive as `'entry'` events: `client.on('entry', (entry) => …)`.
+   * Open a push stream of every appended entry. The daemon writes the run's
+   * existing entries before this resolves (server.rs `watch_with_replay`), so
+   * the replay is fully delivered first; later entries arrive as they are
+   * appended. Entries arrive as `'entry'` events: `client.on('entry', (entry) => …)`.
    */
   runWatch(runId: string): Promise<VerbContract['run.watch']['result']> {
     return this.request('run.watch', { run_id: runId });

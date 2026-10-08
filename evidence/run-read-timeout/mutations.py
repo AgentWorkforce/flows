@@ -1,4 +1,4 @@
-"""Reproduce the four reviewed-plan mutations; always restore source bytes."""
+"""Reproduce the reviewed mutations against the current source; always restore source bytes."""
 from pathlib import Path
 import hashlib
 import shlex
@@ -8,26 +8,41 @@ ROOT = Path(__file__).resolve().parents[2]
 SDK = ROOT / 'packages/sdk'
 CASES = [
     ('reader', 'packages/sdk/src/journal-client.ts',
-     '(reader ?? this).requestOnce(verb, params, remaining)',
-     'this.requestOnce(verb, params, remaining)',
+     'return await reader.requestOnce(verb, params, remaining, attemptSignal);',
+     'return await this.requestOnce(verb, params, remaining, attemptSignal);',
      'tests/journal-client-read-timeout.test.ts', 'serves a bounded read'),
+    ('reader-reconnect', 'packages/sdk/src/journal-client.ts',
+     """          this.dropReader(reader);
+""", '', 'tests/journal-client-read-timeout.test.ts', 'reconnects the reader after it disconnects'),
+    ('reader-setup-retry', 'packages/sdk/src/journal-client.ts',
+     """          if (this.reader === reader) {
+            this.reader = undefined;
+            this.readerReady = undefined;
+          }
+          throw error;
+""", """          return undefined;
+""", 'tests/journal-client-read-timeout.test.ts', 'retries a reader setup that timed out'),
     ('watch-cadence', 'packages/sdk/src/cli/running-step.ts',
      'const LEASE_POLL_MS = 2_000;', 'const LEASE_POLL_MS = 50;',
      'tests/running-step-watch.test.ts', 'uses pushes for completion'),
+    ('snapshot-cancel', 'packages/sdk/src/cli/running-step.ts',
+     'client.runGet(runId, options.signal === undefined ? {} : { signal: options.signal })',
+     'client.runGet(runId)',
+     'tests/running-step-watch.test.ts', 'cancels promptly while a lease snapshot read is in flight'),
     ('heartbeat', 'packages/sdk/src/worker-lease.ts',
      """      if (error instanceof JournalRequestTimeoutError && error.verb === 'step.heartbeat') {
         throw new WorkerLeaseLostError('renewal_expired', error.message, { cause: error });
       }
 """, '', 'tests/heartbeat-timeout.test.ts', 'a heartbeat timeout'),
     ('root-parking', 'packages/sdk/src/authored-root.ts',
-     """    if ((error instanceof JournalRequestTimeoutError && (READ_ONLY_VERBS.has(error.verb) || error.verb === 'run.watch'))
+     """    if (isReadInterruptionError(error)
       || (error instanceof AuthoredFlowExecutionError && error.code === 'daemon_unresponsive')) {
       const parked = new AuthoredFlowExecutionError('daemon_unresponsive',
         `${error.message}. The run remains resumable. Continue with: ${resumeCommand(dispatch.run_id, options.dataDir, options.localAgentStream !== undefined)}.`);
       parked.rootRunId = dispatch.run_id;
       throw parked;
     }
-""", '', 'tests/authored-root.test.ts', 'leaves the root resumable after a read timeout'),
+""", '', 'tests/authored-root.test.ts', 'leaves the root resumable'),
 ]
 
 for name, source, old, new, test, pattern in CASES:

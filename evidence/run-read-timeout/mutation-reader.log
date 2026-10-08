@@ -1,17 +1,17 @@
 Source: packages/sdk/src/journal-client.ts
-Original SHA256: 9a390f44f9a1375f0e13be91786f24e848bba7fa07b93b28b119c7ca1d24027c
+Original SHA256: e840ea971905def84fdecf0c3826430f058e0a88cf5650627fe0ca4fc4faa299
 Replaced:
-(reader ?? this).requestOnce(verb, params, remaining)
+return await reader.requestOnce(verb, params, remaining, attemptSignal);
 With:
-this.requestOnce(verb, params, remaining)
+return await this.requestOnce(verb, params, remaining, attemptSignal);
 
 REVERTED
 $ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t 'serves a bounded read' --maxWorkers=1 --minWorkers=1
 
- RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/journal-client-read-timeout.test.ts (13 tests | 1 failed | 12 skipped) 111ms
-   × serves a bounded read while an unbounded command is in flight 110ms
+ ❯ tests/journal-client-read-timeout.test.ts (17 tests | 1 failed | 16 skipped) 113ms
+   × serves a bounded read while an unbounded command is in flight 112ms
      → expected true to be false // Object.is equality
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
@@ -25,33 +25,33 @@ AssertionError: expected true to be false // Object.is equality
 - false
 + true
 
- ❯ tests/journal-client-read-timeout.test.ts:36:23
-     34|   await inFlight;
-     35|   expect(await client.runGet('run')).toMatchObject({ status: 'running'…
-     36|   expect(commandDone).toBe(false);
+ ❯ tests/journal-client-read-timeout.test.ts:37:23
+     35|   await inFlight;
+     36|   expect(await client.runGet('run')).toMatchObject({ status: 'running'…
+     37|   expect(commandDone).toBe(false);
        |                       ^
-     37|   await command;
-     38| });
+     38|   await command;
+     39| });
 
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
 
  Test Files  1 failed (1)
-      Tests  1 failed | 12 skipped (13)
-   Start at  10:38:14
-   Duration  588ms (transform 169ms, setup 15ms, collect 306ms, tests 111ms, environment 0ms, prepare 44ms)
+      Tests  1 failed | 16 skipped (17)
+   Start at  23:37:15
+   Duration  572ms (transform 170ms, setup 17ms, collect 295ms, tests 113ms, environment 0ms, prepare 42ms)
 
 exit=1
 
-RESTORED SHA256: 9a390f44f9a1375f0e13be91786f24e848bba7fa07b93b28b119c7ca1d24027c
+RESTORED SHA256: e840ea971905def84fdecf0c3826430f058e0a88cf5650627fe0ca4fc4faa299
 $ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t 'serves a bounded read' --maxWorkers=1 --minWorkers=1
 
- RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/journal-client-read-timeout.test.ts (13 tests | 12 skipped) 108ms
+ ✓ tests/journal-client-read-timeout.test.ts (17 tests | 16 skipped) 107ms
 
  Test Files  1 passed (1)
-      Tests  1 passed | 12 skipped (13)
-   Start at  10:38:15
-   Duration  586ms (transform 171ms, setup 15ms, collect 307ms, tests 108ms, environment 0ms, prepare 42ms)
+      Tests  1 passed | 16 skipped (17)
+   Start at  23:37:16
+   Duration  556ms (transform 169ms, setup 17ms, collect 293ms, tests 107ms, environment 0ms, prepare 40ms)
 
 exit=0
