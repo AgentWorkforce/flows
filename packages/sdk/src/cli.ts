@@ -58,7 +58,7 @@ import { parseBuildArgs, runBuild, type BuildArgs } from './cli/build.js';
 import { runHnMonitor } from './cli/hn-monitor.js';
 import { runTickRunner } from './cli/tick-runner.js';
 import { DEFAULT_DATA_DIR } from './daemon-connection.js';
-import { CLI_VERB_NAMES } from './cli-commands.js';
+import { CLI_VERB_NAMES, isGlobalOption } from './cli-commands.js';
 import { isAgentCapacity } from './worker-slots.js';
 import {
   mintObserverUrl,
@@ -234,11 +234,11 @@ export async function runCli(
   io: CliIo = PROCESS_IO,
   options: RunCliOptions = {},
 ): Promise<CliExitCode> {
-  if (args.length === 1 && (args[0] === '--version' || args[0] === '-V')) {
+  if (isGlobalOption(args, '--version')) {
     io.stdout(options.version ?? packageVersion());
     return 0;
   }
-  if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) {
+  if (isGlobalOption(args, '--help')) {
     io.stdout(USAGE);
     return 0;
   }

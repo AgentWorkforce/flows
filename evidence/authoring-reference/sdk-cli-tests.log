@@ -1,0 +1,15 @@
+$ cd packages/sdk && npx vitest run tests/relay-cli-surface.test.ts tests/cli-cloud-mirror-flag.test.ts tests/cli-global-options.test.ts
+# cwd: /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr615; head: c30e9a15 (parent; logs captured from the uncommitted change they accompany)
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr615/packages/sdk
+
+ ✓ tests/cli-cloud-mirror-flag.test.ts (4 tests) 5ms
+ ✓ tests/cli-global-options.test.ts (2 tests) 5ms
+ ✓ tests/relay-cli-surface.test.ts (91 tests) 39ms
+
+ Test Files  3 passed (3)
+      Tests  97 passed (97)
+   Start at  08:57:22
+   Duration  1.58s (transform 1.01s, setup 51ms, collect 3.89s, tests 49ms, environment 0ms, prepare 158ms)
+
+# exit: 0

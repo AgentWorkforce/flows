@@ -10,6 +10,9 @@ Design law: the surface must serve both poles with the same language. A simple f
 
 ### The super simple relayflow
 
+See the generated [authoring reference](../packages/surface/AUTHORING.md) for
+current signatures, options, return types, helper namespaces and named gates.
+
 ```yaml
 name: release-note
 steps:
@@ -1048,11 +1051,13 @@ base64 32-byte Ed25519 seed. Without either, stderr reports
 `identity_ephemeral: bundle can be verified but not attributed`.
 Deployment, remote upload, and execution by digest remain future slices.
 
-## 5. Invocation: the gate-1 CLI
+## 5. Invocation: the CLI
 
-Gate 1 ships three CLI verbs over the journal protocol, plus two out-of-band
-verbs: `observer`, which mints an observer link without contacting the
-daemon, and `status`, which reads a run's journal without one:
+The CLI covers local execution, bundles, deployment, scheduling, plugins and
+hosted operations. The generated [CLI reference](CLI.md) lists every declared
+command, argument and option. Core local invocations include `observer`, which
+mints an observer link without contacting the daemon, and `status`, which
+reads a run's journal without one:
 
 ```text
 flows check [--watch] [--json] [--explain-warnings] <flow.yaml|spec.json>
@@ -1855,8 +1860,12 @@ explain still says where the record is rather than ending the trail.
 
 The data/code split is settled: Relayflows does not have a serializable
 expression language. YAML keeps the existing `verification:` spelling and may
-name only checks that lower to the closed kernel fields available today:
-`exit_code`, `output_contains`, and `json_schema`. `flows check` validates that
+name the kernel fields `exit_code`, `output_contains`, and `json_schema`, plus
+named data gates lowered by the SDK: `regex_match`, `subprocess_gate`,
+`artifact_exists`, `references_input`, and `word_count_bounds`. These named
+gates also attach to authored steps with `.gate(config)`; their full shapes
+and both gate overloads are in the [authoring reference](../packages/surface/AUTHORING.md#gates).
+`flows check` validates that
 data—including compiling JSON Schema declarations with the kernel's supported
 drafts—and prints the exact kernel checks for each step. "Preflightable" means
 the declaration and its parameters are inspectable before execution; it does
