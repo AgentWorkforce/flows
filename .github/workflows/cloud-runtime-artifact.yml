@@ -40,7 +40,6 @@ permissions:
 
 jobs:
   linux-x64-artifact:
-    if: (github.event_name != 'pull_request' && github.event_name != 'pull_request_target') || github.head_ref == 'trunk'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
