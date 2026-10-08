@@ -445,6 +445,19 @@ describe('durable authored root', () => {
     expect(journal.peer.completions).toEqual([]);
   });
 
+  it('scopes body reads to the root attempt lease for the life of the attempt', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    const release = vi.fn();
+    const scopeReads = vi.fn((_signal: AbortSignal) => release);
+    (journal as unknown as { scopeReads: typeof scopeReads }).scopeReads = scopeReads;
+    await executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'scoped-reads' }).catch(() => undefined);
+    expect(scopeReads).toHaveBeenCalledTimes(1);
+    expect(scopeReads.mock.calls[0]![0]).toBeInstanceOf(AbortSignal);
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
   it('terminalizes a returned body failure without replaying semantic side effects', async () => {
     const loaded = await fixture(true);
     const journal = new RootJournal();

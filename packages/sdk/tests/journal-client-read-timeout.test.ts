@@ -276,3 +276,18 @@ it('an exhausted post-admission handshake budget is a read interruption, not a b
   const error = await client.hello('flows-authored-node').catch(caught => caught);
   expect(isReadInterruptionError(error)).toBe(true);
 });
+
+it('a scoped read signal (the root lease) cancels budgeted reads only while it is attached', async () => {
+  let entered!: () => void;
+  let reads = 0;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const client = await setup({ 'journal.read': ctx => { reads += 1; if (reads === 1) entered(); else sendResult(ctx, { entries: [] }); } }, 60_000);
+  const lease = new AbortController();
+  const release = client.scopeReads(lease.signal);
+  const pending = client.journalRead('run', 1);
+  await started;
+  lease.abort(new Error('root lease lost'));
+  await expect(pending).rejects.toThrow('root lease lost');
+  release();
+  await expect(client.journalRead('run', 1)).resolves.toEqual({ entries: [] });
+});

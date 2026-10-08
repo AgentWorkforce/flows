@@ -57,8 +57,12 @@ export async function waitForRunningStep(client: JournalClient, runId: string,
   watch.on('protocol_error', onProtocolError);
   // A dropped watch loses its completion pushes: a resumable read interruption.
   const onDisconnected = (error: Error) => {
-    if (!settled) fail(new AuthoredFlowExecutionError('daemon_unresponsive',
-      `the completion watch for step "${runningStep.id}" disconnected: ${error.message}`));
+    if (settled) return;
+    const lost = new AuthoredFlowExecutionError('daemon_unresponsive',
+      `the completion watch for step "${runningStep.id}" disconnected: ${error.message}`);
+    protocolFailure ??= lost;
+    fail(lost);
+    snapshotRead?.abort(lost);
   };
   watch.on('disconnected', onDisconnected);
   options.signal?.addEventListener('abort', cancel, { once: true });

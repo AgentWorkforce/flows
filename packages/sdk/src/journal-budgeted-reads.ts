@@ -15,12 +15,19 @@ export class BudgetedReads {
   private readonly policy = new JournalReadPolicy();
   private reader: JournalClient | undefined;
   private readerReady: Promise<JournalClient | undefined> | undefined;
+  private readonly scoped = new Set<AbortSignal>();
 
   constructor(
     private readonly primary: JournalClient,
     private readonly budgetMs: number,
     private readonly lifecycle?: AbortSignal,
   ) {}
+
+  /** Add an abort source (a root attempt's lease) for as long as the returned release is not called. */
+  scope(signal: AbortSignal): () => void {
+    this.scoped.add(signal);
+    return () => { this.scoped.delete(signal); };
+  }
 
   close(cause?: unknown): void {
     this.policy.close();
@@ -29,8 +36,8 @@ export class BudgetedReads {
 
   read<V extends keyof VerbContract>(verb: V, params: VerbContract[V]['params'], timeoutMs: number,
     signal?: AbortSignal): Promise<VerbContract[V]['result']> {
-    const combined = signal === undefined ? this.lifecycle
-      : this.lifecycle === undefined ? signal : AbortSignal.any([signal, this.lifecycle]);
+    const sources = [signal, this.lifecycle, ...this.scoped].filter((source): source is AbortSignal => source !== undefined);
+    const combined = sources.length <= 1 ? sources[0] : AbortSignal.any(sources);
     return this.policy.read(verb, timeoutMs, this.budgetMs, async (bound, attemptSignal) => {
       const started = performance.now();
       const reader = await this.session().catch(error => {

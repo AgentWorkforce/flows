@@ -321,38 +321,42 @@ async function driveRoot(
 ): Promise<DurableAuthoredFlowResult> {
   try {
     const result = await withWorkerLease(peer, dispatch, async rootSignal => {
-      const callerSignal = options.lifecycle?.signal;
-      const signal = callerSignal === undefined ? rootSignal : AbortSignal.any([callerSignal, rootSignal]);
-      if (process.versions['bun'] !== undefined) {
-        return runAuthoredInNode(metadata, journal.socketPath, dispatch.run_id, {
-          dataDir: options.dataDir, localAgentStream: options.localAgentStream,
-          ...(options.agentEnvironment === undefined ? {} : {
-            agentEnvironment: localAgentCredentialEnvironment(options.agentEnvironment),
-          }),
-          ...(options.workerCapacity === undefined ? {} : { workerCapacity: options.workerCapacity }),
-          ...options.lifecycle, signal,
-        });
-      }
-      return await executeAuthoredFlow(
-        loaded.handle,
-        journal,
-        metadata.inputPresent ? metadata.input : undefined,
-        {
-          getDefinition: loaded.getDefinition,
-          dataDir: options.dataDir,
-          flowPath: metadata.flowPath,
-          localAgentStream: options.localAgentStream,
-          ...(options.agentEnvironment === undefined ? {} : { agentEnvironment: options.agentEnvironment }),
-          ...(options.workerCapacity === undefined ? {} : { workerCapacity: options.workerCapacity }),
-          rootRunId: dispatch.run_id,
-          extensions: loaded.extensions,
-          flowGraph: loaded.graph,
-          ...options.lifecycle,
-          signal: callerSignal === undefined
-            ? rootSignal
-            : AbortSignal.any([callerSignal, rootSignal]),
-        },
-      );
+      // A lost root lease must also stop body reads still inside their budget.
+      const releaseReads = journal.scopeReads?.(rootSignal) ?? (() => {});
+      try {
+        const callerSignal = options.lifecycle?.signal;
+        const signal = callerSignal === undefined ? rootSignal : AbortSignal.any([callerSignal, rootSignal]);
+        if (process.versions['bun'] !== undefined) {
+          return runAuthoredInNode(metadata, journal.socketPath, dispatch.run_id, {
+            dataDir: options.dataDir, localAgentStream: options.localAgentStream,
+            ...(options.agentEnvironment === undefined ? {} : {
+              agentEnvironment: localAgentCredentialEnvironment(options.agentEnvironment),
+            }),
+            ...(options.workerCapacity === undefined ? {} : { workerCapacity: options.workerCapacity }),
+            ...options.lifecycle, signal,
+          });
+        }
+        return await executeAuthoredFlow(
+          loaded.handle,
+          journal,
+          metadata.inputPresent ? metadata.input : undefined,
+          {
+            getDefinition: loaded.getDefinition,
+            dataDir: options.dataDir,
+            flowPath: metadata.flowPath,
+            localAgentStream: options.localAgentStream,
+            ...(options.agentEnvironment === undefined ? {} : { agentEnvironment: options.agentEnvironment }),
+            ...(options.workerCapacity === undefined ? {} : { workerCapacity: options.workerCapacity }),
+            rootRunId: dispatch.run_id,
+            extensions: loaded.extensions,
+            flowGraph: loaded.graph,
+            ...options.lifecycle,
+            signal: callerSignal === undefined
+              ? rootSignal
+              : AbortSignal.any([callerSignal, rootSignal]),
+          },
+        );
+      } finally { releaseReads(); }
     });
     await peer.stepComplete(
       dispatch.run_id, dispatch.step_id, dispatch.attempt,

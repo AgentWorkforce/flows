@@ -1,5 +1,5 @@
 Source: packages/sdk/src/cli/running-step.ts
-Original SHA256: 34223d566de94486b7039f5eb783ddacbe62ccc3cca63c2b5278d72c4de59c38
+Original SHA256: 2d95d1b21da7acb5e91e79236cb099604beabaed7e1e0443c96aeccf4c704c3e
 Replaced:
 const signal = options.signal === undefined ? read.signal
         : AbortSignal.any([options.signal, read.signal]);
@@ -11,7 +11,7 @@ $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'cancels
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/running-step-watch.test.ts (11 tests | 1 failed | 10 skipped) 2216ms
+ ❯ tests/running-step-watch.test.ts (12 tests | 1 failed | 11 skipped) 2216ms
    × cancels promptly while a lease snapshot read is in flight 2215ms
      → expected 'still waiting' to be an instance of Error
 
@@ -30,23 +30,23 @@ AssertionError: expected 'still waiting' to be an instance of Error
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
 
  Test Files  1 failed (1)
-      Tests  1 failed | 10 skipped (11)
-   Start at  03:15:24
-   Duration  2.70s (transform 188ms, setup 17ms, collect 317ms, tests 2.22s, environment 0ms, prepare 41ms)
+      Tests  1 failed | 11 skipped (12)
+   Start at  03:26:28
+   Duration  2.70s (transform 192ms, setup 17ms, collect 324ms, tests 2.22s, environment 0ms, prepare 40ms)
 
 exit=1
 
-RESTORED SHA256: 34223d566de94486b7039f5eb783ddacbe62ccc3cca63c2b5278d72c4de59c38
+RESTORED SHA256: 2d95d1b21da7acb5e91e79236cb099604beabaed7e1e0443c96aeccf4c704c3e
 $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'cancels promptly while a lease snapshot read is in flight' --maxWorkers=1 --minWorkers=1
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/running-step-watch.test.ts (11 tests | 10 skipped) 2011ms
-   ✓ cancels promptly while a lease snapshot read is in flight 2011ms
+ ✓ tests/running-step-watch.test.ts (12 tests | 11 skipped) 2011ms
+   ✓ cancels promptly while a lease snapshot read is in flight 2010ms
 
  Test Files  1 passed (1)
-      Tests  1 passed | 10 skipped (11)
-   Start at  03:15:27
-   Duration  2.48s (transform 185ms, setup 17ms, collect 309ms, tests 2.01s, environment 0ms, prepare 40ms)
+      Tests  1 passed | 11 skipped (12)
+   Start at  03:26:31
+   Duration  2.49s (transform 184ms, setup 17ms, collect 305ms, tests 2.01s, environment 0ms, prepare 40ms)
 
 exit=0

@@ -249,3 +249,24 @@ it('a watch connection lost after registration is a read interruption, not a sil
     expect(isReadInterruption(outcome)).toBe(true);
   } finally { client.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });
+
+it('a watch dropped during an in-flight snapshot is reported at once, not after the read budget', async () => {
+  const path = sockPath();
+  let drop!: () => void;
+  const server = startLoopback(path, {
+    hello: sendOk,
+    'run.watch': ctx => { sendResult(ctx, {}); drop = () => ctx.socket.destroy(); },
+    'run.get': () => drop(), // the watch drops while the snapshot is in flight
+  });
+  await once(server, 'listening');
+  const client = new JournalClient(path, { readBudgetMs: 300_000 });
+  try {
+    await client.connect();
+    const outcome = await Promise.race([
+      waitForRunningStep(client, 'run', { id: 'step', type: 'agent', leaseDeadlineMs: Date.now() + 30_000 }, {}).then(() => 'returned', error => error),
+      sleep(4_000).then(() => 'still waiting'),
+    ]);
+    expect(outcome).toBeInstanceOf(AuthoredFlowExecutionError);
+    expect((outcome as AuthoredFlowExecutionError).code).toBe('daemon_unresponsive');
+  } finally { client.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});

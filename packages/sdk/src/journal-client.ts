@@ -227,6 +227,14 @@ export class JournalClient extends EventEmitter {
     return this.requestOnce(verb, params, timeoutMs, signal);
   }
 
+  /**
+   * Cancel budgeted reads also when `signal` aborts — a root attempt's lease —
+   * until the returned release is called. A no-op without a read budget.
+   */
+  scopeReads(signal: AbortSignal): () => void {
+    return this.budgeted?.scope(signal) ?? (() => {});
+  }
+
   /** @internal One unretried request on this session; flow reads go through `request`. */
   requestOnce<V extends keyof VerbContract>(
     verb: V,
