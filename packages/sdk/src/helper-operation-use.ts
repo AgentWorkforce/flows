@@ -124,6 +124,13 @@ function reachesMachinery(node: AstNode, parents: WeakMap<AstNode, AstNode>): bo
     const object = node.object as AstNode | undefined;
     if (object?.type === 'Identifier' && MACHINERY_GLOBALS.has(object.name!) && !boundLocally(object, object.name!, parents)) return true;
   }
+  // Destructuring a prototype-bearing global at all (computed keys, rest)
+  // can pick out any of its machinery.
+  if ((node.type === 'VariableDeclarator' && (node.id as AstNode).type === 'ObjectPattern')
+    || (node.type === 'AssignmentExpression' && (node.left as AstNode).type === 'ObjectPattern')) {
+    const source = (node.type === 'VariableDeclarator' ? node.init : node.right) as AstNode | undefined;
+    if (source?.type === 'Identifier' && MACHINERY_GLOBALS.has(source.name!) && !boundLocally(source, source.name!, parents)) return true;
+  }
   // Destructuring reads the same members: const { prototype: p } = Object.
   if (node.type === 'Property' && parents.get(node)?.type === 'ObjectPattern') {
     const key = node.key as AstNode | undefined;

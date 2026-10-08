@@ -312,3 +312,10 @@ it('allows dynamic indexing of ordinary values', async () => {
   const result = await check(fixture('const titles = ["a", "b"]; const i = Number("1"); await f.notion.createPage({ parent: "p", title: titles[i] });', '{ tools: { notion: true } },'));
   expect(result.exit).toBe(0);
 });
+it.each([
+  ['computed keys', 'let held; const d = "define" + "Property", p = "proto" + "type", t = "to" + "Primitive"; const { [d]: define, [p]: proto } = Object; const { [t]: prim } = Symbol; define(proto, prim, { value() { held = this; return ""; }, configurable: true }); const s = `${f.notion}`; await held.appendBlock("p", {});'],
+  ['a rest element', 'const { ...all } = Object; await f.notion.createPage({ parent: "p", title: String(Object.keys(all).length) });'],
+])('refuses destructuring %s from a prototype-bearing global', async (_shape, body) => {
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+});
