@@ -33,6 +33,8 @@ export async function waitForRunningStep(client: JournalClient, runId: string,
   });
   // The subscription handshake itself may be pending when cancellation arrives.
   void completed.catch(() => {});
+  // A completion push aborts the lease snapshot in flight: the answer is known.
+  let snapshotRead: AbortController | undefined;
   const onEntry = (entry: JournalEvent) => {
     if (entry.run_id !== runId) return;
     if (entry.entry_type === 'run.completed') settled = true;
@@ -41,7 +43,10 @@ export async function waitForRunningStep(client: JournalClient, runId: string,
       if (entry.entry_type === 'step.completed' || entry.entry_type === 'wait.human') settled = true;
     }
     // Fold the entire replay before deciding: an older attempt may have failed.
-    if (ready && settled) finish();
+    if (ready && settled) {
+      finish();
+      snapshotRead?.abort(new Error(`step "${runningStep.id}" completed during the lease snapshot`));
+    }
   };
   watch.on('entry', onEntry);
   options.signal?.addEventListener('abort', cancel, { once: true });
@@ -70,12 +75,16 @@ export async function waitForRunningStep(client: JournalClient, runId: string,
       // Drain the read before leaving the authored promise scope. A raced but
       // unresolved read would look like unawaited derived work to that scope,
       // so cancellation aborts the read itself and it settles at once.
-      const snapshot = await client.runGet(runId, options.signal === undefined ? {} : { signal: options.signal })
+      snapshotRead = new AbortController();
+      const signal = options.signal === undefined ? snapshotRead.signal
+        : AbortSignal.any([options.signal, snapshotRead.signal]);
+      const snapshot = await client.runGet(runId, { signal })
         .catch(error => {
           if (options.signal?.aborted) throw canceled();
           if (settled) return undefined;
           throw error;
-        });
+        })
+        .finally(() => { snapshotRead = undefined; });
       if (options.signal?.aborted) throw canceled();
       if (settled || snapshot === undefined || snapshot.steps[runningStep.id]?.state !== 'running') return;
       const deadline = snapshot.steps[runningStep.id]?.lease_deadline_ms;

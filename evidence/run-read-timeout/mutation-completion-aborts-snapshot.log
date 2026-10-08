@@ -1,0 +1,55 @@
+Source: packages/sdk/src/cli/running-step.ts
+Original SHA256: b84dc4f0d83e3f8c31d55a38f42a0d68c25299970d05ec7f3be772290f8d1a6e
+Replaced:
+snapshotRead?.abort(new Error(`step "${runningStep.id}" completed during the lease snapshot`));
+With:
+
+
+REVERTED
+$ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'a completion push ends the wait' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
+
+ ❯ tests/running-step-watch.test.ts (6 tests | 1 failed | 5 skipped) 3013ms
+   × a completion push ends the wait without waiting out an in-flight snapshot 3012ms
+     → expected 'still waiting' to be 'returned' // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/running-step-watch.test.ts > a completion push ends the wait without waiting out an in-flight snapshot
+AssertionError: expected 'still waiting' to be 'returned' // Object.is equality
+
+Expected: "returned"
+Received: "still waiting"
+
+ ❯ tests/running-step-watch.test.ts:152:21
+    150|     const waiting = waitForRunningStep(client, 'run', { id: 'step', ty…
+    151|     const outcome = await Promise.race([waiting.then(() => 'returned')…
+    152|     expect(outcome).toBe('returned');
+       |                     ^
+    153|     expect(await client.runGet('run', { signal: AbortSignal.timeout(50…
+    154|   } finally { client.close(); await new Promise<void>(resolve => serve…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 skipped (6)
+   Start at  00:53:49
+   Duration  3.49s (transform 191ms, setup 16ms, collect 320ms, tests 3.01s, environment 0ms, prepare 41ms)
+
+exit=1
+
+RESTORED SHA256: b84dc4f0d83e3f8c31d55a38f42a0d68c25299970d05ec7f3be772290f8d1a6e
+$ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'a completion push ends the wait' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
+
+ ✓ tests/running-step-watch.test.ts (6 tests | 5 skipped) 2062ms
+   ✓ a completion push ends the wait without waiting out an in-flight snapshot 2061ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 5 skipped (6)
+   Start at  00:53:52
+   Duration  2.50s (transform 182ms, setup 16ms, collect 305ms, tests 2.06s, environment 0ms, prepare 29ms)
+
+exit=0

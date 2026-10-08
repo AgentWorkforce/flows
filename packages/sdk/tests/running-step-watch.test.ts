@@ -130,3 +130,26 @@ it('treats a watch connection lost during registration as a read interruption', 
     expect(hellos).toBe(1);
   } finally { client.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });
+
+it('a completion push ends the wait without waiting out an in-flight snapshot', async () => {
+  const path = sockPath();
+  let push!: () => void;
+  const server = startLoopback(path, {
+    hello: sendOk,
+    'run.watch': (ctx, params) => {
+      sendResult(ctx, {});
+      push = () => ctx.send({ event: 'entry', data: { run_id: String(params['run_id']), step_id: 'step', entry_type: 'step.completed' } });
+    },
+    // The snapshot never answers; the completion arrives while it is in flight.
+    'run.get': () => push(),
+  });
+  await once(server, 'listening');
+  const client = new JournalClient(path, { readBudgetMs: 300_000 });
+  try {
+    await client.connect();
+    const waiting = waitForRunningStep(client, 'run', { id: 'step', type: 'agent', leaseDeadlineMs: Date.now() + 30_000 }, {});
+    const outcome = await Promise.race([waiting.then(() => 'returned'), sleep(3_000).then(() => 'still waiting')]);
+    expect(outcome).toBe('returned');
+    expect(await client.runGet('run', { signal: AbortSignal.timeout(50) }).catch(error => error.name)).toBe('TimeoutError');
+  } finally { client.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});

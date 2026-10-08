@@ -26,9 +26,13 @@ CASES = [
      'const LEASE_POLL_MS = 2_000;', 'const LEASE_POLL_MS = 50;',
      'tests/running-step-watch.test.ts', 'uses pushes for completion'),
     ('snapshot-cancel', 'packages/sdk/src/cli/running-step.ts',
-     'client.runGet(runId, options.signal === undefined ? {} : { signal: options.signal })',
-     'client.runGet(runId)',
+     'const signal = options.signal === undefined ? snapshotRead.signal\n        : AbortSignal.any([options.signal, snapshotRead.signal]);',
+     'const signal = snapshotRead.signal;',
      'tests/running-step-watch.test.ts', 'cancels promptly while a lease snapshot read is in flight'),
+    ('completion-aborts-snapshot', 'packages/sdk/src/cli/running-step.ts',
+     'snapshotRead?.abort(new Error(`step "${runningStep.id}" completed during the lease snapshot`));',
+     '',
+     'tests/running-step-watch.test.ts', 'a completion push ends the wait'),
     ('heartbeat', 'packages/sdk/src/worker-lease.ts',
      """      if (error instanceof JournalRequestTimeoutError && error.verb === 'step.heartbeat') {
         throw new WorkerLeaseLostError('renewal_expired', error.message, { cause: error });

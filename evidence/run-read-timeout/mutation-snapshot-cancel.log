@@ -1,17 +1,18 @@
 Source: packages/sdk/src/cli/running-step.ts
-Original SHA256: 5ae78a777c69e5f83a259df2f256305a0e9fd9c60525e661e66e3997d0f3801a
+Original SHA256: b84dc4f0d83e3f8c31d55a38f42a0d68c25299970d05ec7f3be772290f8d1a6e
 Replaced:
-client.runGet(runId, options.signal === undefined ? {} : { signal: options.signal })
+const signal = options.signal === undefined ? snapshotRead.signal
+        : AbortSignal.any([options.signal, snapshotRead.signal]);
 With:
-client.runGet(runId)
+const signal = snapshotRead.signal;
 
 REVERTED
 $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'cancels promptly while a lease snapshot read is in flight' --maxWorkers=1 --minWorkers=1
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/running-step-watch.test.ts (5 tests | 1 failed | 4 skipped) 2217ms
-   × cancels promptly while a lease snapshot read is in flight 2216ms
+ ❯ tests/running-step-watch.test.ts (6 tests | 1 failed | 5 skipped) 2215ms
+   × cancels promptly while a lease snapshot read is in flight 2215ms
      → expected 'still waiting' to be an instance of Error
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
@@ -29,23 +30,23 @@ AssertionError: expected 'still waiting' to be an instance of Error
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
 
  Test Files  1 failed (1)
-      Tests  1 failed | 4 skipped (5)
-   Start at  00:19:19
-   Duration  2.74s (transform 201ms, setup 18ms, collect 339ms, tests 2.22s, environment 0ms, prepare 45ms)
+      Tests  1 failed | 5 skipped (6)
+   Start at  00:53:43
+   Duration  2.68s (transform 182ms, setup 17ms, collect 307ms, tests 2.22s, environment 0ms, prepare 41ms)
 
 exit=1
 
-RESTORED SHA256: 5ae78a777c69e5f83a259df2f256305a0e9fd9c60525e661e66e3997d0f3801a
+RESTORED SHA256: b84dc4f0d83e3f8c31d55a38f42a0d68c25299970d05ec7f3be772290f8d1a6e
 $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'cancels promptly while a lease snapshot read is in flight' --maxWorkers=1 --minWorkers=1
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/running-step-watch.test.ts (5 tests | 4 skipped) 2012ms
-   ✓ cancels promptly while a lease snapshot read is in flight 2011ms
+ ✓ tests/running-step-watch.test.ts (6 tests | 5 skipped) 2011ms
+   ✓ cancels promptly while a lease snapshot read is in flight 2010ms
 
  Test Files  1 passed (1)
-      Tests  1 passed | 4 skipped (5)
-   Start at  00:19:22
-   Duration  2.55s (transform 214ms, setup 23ms, collect 356ms, tests 2.01s, environment 0ms, prepare 45ms)
+      Tests  1 passed | 5 skipped (6)
+   Start at  00:53:46
+   Duration  2.48s (transform 183ms, setup 16ms, collect 311ms, tests 2.01s, environment 0ms, prepare 41ms)
 
 exit=0

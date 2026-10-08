@@ -1,5 +1,5 @@
 Source: packages/sdk/src/cli/running-step.ts
-Original SHA256: 5ae78a777c69e5f83a259df2f256305a0e9fd9c60525e661e66e3997d0f3801a
+Original SHA256: b84dc4f0d83e3f8c31d55a38f42a0d68c25299970d05ec7f3be772290f8d1a6e
 Replaced:
 const LEASE_POLL_MS = 2_000;
 With:
@@ -10,8 +10,8 @@ $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'uses pu
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/running-step-watch.test.ts (5 tests | 1 failed | 4 skipped) 2112ms
-   × uses pushes for completion with lease-cadence reads and releases its watcher 2111ms
+ ❯ tests/running-step-watch.test.ts (6 tests | 1 failed | 5 skipped) 2111ms
+   × uses pushes for completion with lease-cadence reads and releases its watcher 2110ms
      → expected 41 to be less than or equal to 1
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
@@ -29,23 +29,23 @@ AssertionError: expected 41 to be less than or equal to 1
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
 
  Test Files  1 failed (1)
-      Tests  1 failed | 4 skipped (5)
-   Start at  00:19:13
-   Duration  2.59s (transform 188ms, setup 17ms, collect 315ms, tests 2.11s, environment 0ms, prepare 42ms)
+      Tests  1 failed | 5 skipped (6)
+   Start at  00:53:37
+   Duration  2.59s (transform 186ms, setup 17ms, collect 316ms, tests 2.11s, environment 0ms, prepare 43ms)
 
 exit=1
 
-RESTORED SHA256: 5ae78a777c69e5f83a259df2f256305a0e9fd9c60525e661e66e3997d0f3801a
+RESTORED SHA256: b84dc4f0d83e3f8c31d55a38f42a0d68c25299970d05ec7f3be772290f8d1a6e
 $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'uses pushes for completion' --maxWorkers=1 --minWorkers=1
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/running-step-watch.test.ts (5 tests | 4 skipped) 2117ms
-   ✓ uses pushes for completion with lease-cadence reads and releases its watcher 2116ms
+ ✓ tests/running-step-watch.test.ts (6 tests | 5 skipped) 2118ms
+   ✓ uses pushes for completion with lease-cadence reads and releases its watcher 2117ms
 
  Test Files  1 passed (1)
-      Tests  1 passed | 4 skipped (5)
-   Start at  00:19:16
-   Duration  2.60s (transform 184ms, setup 18ms, collect 324ms, tests 2.12s, environment 0ms, prepare 45ms)
+      Tests  1 passed | 5 skipped (6)
+   Start at  00:53:40
+   Duration  2.59s (transform 187ms, setup 16ms, collect 316ms, tests 2.12s, environment 0ms, prepare 40ms)
 
 exit=0
