@@ -34,3 +34,15 @@ it('reports an interrupted read session as resumable rather than a failed run', 
     diagnostics: [{ kind: 'daemon_unresponsive', message: expect.stringContaining('flows resume saved-run') }],
   } });
 });
+
+it('reports a completed run whose result could not be read as completed, not resumable', async () => {
+  const { completedResultUnreadableReport } = await import('../src/cli/journal-timeout.js');
+  const { AuthoredFlowExecutionError } = await import('../src/authored-flow-error.js');
+  const error = new AuthoredFlowExecutionError('result_unreadable', 'run r completed (success), but its stored result could not be read', 'success', 'r');
+  error.rootRunId = 'r';
+  const execution = completedResultUnreadableReport('resume', { command: 'resume', ok: true, diagnostics: [] } as never, '/socket', error);
+  expect(execution.exitCode).toBe(0);
+  expect(execution.report).toMatchObject({ ok: true, status: 'completed', completionReason: 'success', runId: 'r',
+    diagnostics: [{ severity: 'warning', kind: 'result_unreadable' }] });
+  expect(JSON.stringify(execution.report)).not.toContain('flows resume');
+});

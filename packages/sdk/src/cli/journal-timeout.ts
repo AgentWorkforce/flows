@@ -10,6 +10,19 @@ export function isReadInterruption(error: unknown): boolean {
     || (error instanceof AuthoredFlowExecutionError && error.code === 'daemon_unresponsive');
 }
 
+/** A completed run whose stored result could not be read back: report the known outcome. */
+export function completedResultUnreadableReport(command: RunCommand, base: CheckReport | RunReport,
+  socketPath: string, error: AuthoredFlowExecutionError): RunExecution {
+  const runId = error.rootRunId ?? error.runId;
+  const ok = error.completionReason === 'success';
+  return { exitCode: ok ? 0 : 1, report: {
+    ...base, command, ok, socketPath, status: 'completed',
+    ...(runId === undefined ? {} : { runId, rootRunId: runId }),
+    ...(error.completionReason === undefined ? {} : { completionReason: error.completionReason }),
+    diagnostics: [...base.diagnostics, { severity: 'warning', kind: 'result_unreadable', message: error.message }],
+  } as RunExecution['report'] };
+}
+
 export async function daemonUnresponsiveReport(command: RunCommand,
   base: CheckReport | RunReport, socketPath: string, error: unknown, fallbackRunId?: string,
   options: RunLifecycleOptions = {}, dataDir?: string): Promise<RunExecution> {

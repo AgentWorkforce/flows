@@ -1,6 +1,6 @@
 import { waitForRunningStep, type RunningStep } from './running-step.js';
 export { LEASE_SWEEP_GRACE_MS } from './running-step.js';
-import { daemonUnresponsiveReport, isReadInterruption } from './journal-timeout.js';
+import { completedResultUnreadableReport, daemonUnresponsiveReport, isReadInterruption } from './journal-timeout.js';
 import { FLOW_READ_BUDGET_MS } from '../journal-read-policy.js';
 import { onWorkerFailure } from '../worker-lease.js';
 import { communicationInstruction } from '../communication/spec.js';
@@ -413,6 +413,9 @@ export async function resumeFlow(
     // `RUN <id> unknown` for the identical failure.
     if (error instanceof AuthoredFlowExecutionError && (error.code === 'step_failed' || error.code === 'gate_failed')) {
       return authoredStepFailure('resume', base, socketPath, error, runId);
+    }
+    if (error instanceof AuthoredFlowExecutionError && error.code === 'result_unreadable') {
+      return completedResultUnreadableReport('resume', base, socketPath, error);
     }
     if (isReadInterruption(error)) return daemonUnresponsiveReport('resume', base, socketPath, error, runId, options, dataDir);
     if (error instanceof AuthoredFlowExecutionError && error.code === 'root_lease_lost') {

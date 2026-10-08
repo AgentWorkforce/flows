@@ -1,4 +1,5 @@
-import { JournalFrameError, JournalProtocolError, type JournalClient } from './journal-client.js';
+import { JournalFrameError, JournalProtocolError } from './journal-connection.js';
+import type { JournalClient } from './journal-client.js';
 import { JournalReadInterruptedError, JournalReadPolicy, JournalRequestTimeoutError } from './journal-read-policy.js';
 import type { VerbContract } from './protocol.js';
 

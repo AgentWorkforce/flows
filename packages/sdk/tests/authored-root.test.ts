@@ -497,6 +497,17 @@ describe('durable authored root', () => {
     }
   });
 
+  it('keeps a completed root outcome when reading back its result is interrupted', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    (journal as unknown as { startStatus: RunOutcome }).startStatus = outcome('root-run', 'completed', 'success');
+    journal.journalRead = async () => { throw new JournalRequestTimeoutError('journal.read', 10, 3, 300_000, 300_000); };
+    await expect(executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'completed-unread' })).rejects.toMatchObject({
+        code: 'result_unreadable', completionReason: 'success', rootRunId: 'root-run',
+      });
+  });
+
   it('terminalizes a returned body failure without replaying semantic side effects', async () => {
     const loaded = await fixture(true);
     const journal = new RootJournal();

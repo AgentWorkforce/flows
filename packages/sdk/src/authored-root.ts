@@ -120,7 +120,7 @@ export async function executeDurableAuthoredFlow(
     options.onAdmitted?.(outcome.run_id);
     if (outcome.status === 'completed') {
       dispatchWait.cancel();
-      return await completedRootResult(journal, outcome.run_id);
+      return await completedResult(journal, outcome, outcome.run_id);
     }
     assertRootCanDispatch(outcome);
     options.lifecycle?.onRunStarted?.({ runId: outcome.run_id, flow: definition.name });
@@ -169,7 +169,7 @@ export async function resumeDurableAuthoredFlow(
     const outcome = await journal.runResume(rootRunId);
     if (outcome.status === 'completed') {
       dispatchWait.cancel();
-      return await completedRootResult(journal, rootRunId);
+      return await completedResult(journal, outcome, rootRunId);
     }
     assertRootCanDispatch(outcome);
     await assertNoOpenHumanWait(journal, outcome);
@@ -566,6 +566,22 @@ function nextRootDispatch(peer: JournalClient, timeoutMs = 30_000): {
     };
   });
   return { promise, cancel };
+}
+
+/**
+ * The stored result of a root the daemon already reports completed. If reading
+ * it back is interrupted, the outcome is still known: say so, rather than
+ * recasting a finished run as resumable.
+ */
+function completedResult(journal: JournalClient, outcome: RunOutcome, rootRunId: string): Promise<AuthoredFlowExecutionResult & { readonly rootRunId: string }> {
+  return completedRootResult(journal, rootRunId).catch(error => {
+    if (!isReadInterruptionError(error)) throw error;
+    const unread = new AuthoredFlowExecutionError('result_unreadable',
+      `run ${rootRunId} completed (${outcome.completion_reason ?? 'no completion reason'}), but its stored result could not be read: ${error.message}`,
+      outcome.completion_reason ?? undefined, rootRunId);
+    unread.rootRunId = rootRunId;
+    throw unread;
+  });
 }
 
 async function completedRootResult(

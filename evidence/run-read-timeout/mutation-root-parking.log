@@ -1,5 +1,5 @@
 Source: packages/sdk/src/authored-root.ts
-Original SHA256: 4dc10394dadeada752ce12bd86fbbdfb1c231d92902a9aa912ce8ba7fb57c914
+Original SHA256: 3800932c9ef7768b4bf0a01f08885856e5ccbd3d173cd63574fd599a4fc33230
 Replaced:
     if (isReadInterruptionError(error)
       || (error instanceof AuthoredFlowExecutionError && error.code === 'daemon_unresponsive')) {
@@ -17,14 +17,14 @@ $ cd packages/sdk && npx vitest run tests/authored-root.test.ts -t 'leaves the r
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/authored-root.test.ts (31 tests | 3 failed | 28 skipped) 26ms
-   × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=false) 18ms
+ ❯ tests/authored-root.test.ts (32 tests | 3 failed | 29 skipped) 48ms
+   × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=false) 33ms
      → expected JournalRequestTimeoutError: journal clien… { …(5) } to match object { code: 'daemon_unresponsive', …(2) }
 (6 matching properties omitted from actual)
-   × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=true) 4ms
+   × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=true) 7ms
      → expected AuthoredFlowExecutionError: daemon_unresp… { …(7) } to match object { code: 'daemon_unresponsive', …(2) }
 (6 matching properties omitted from actual)
-   × durable authored root > leaves the root resumable when the read session disconnects while the root worker is healthy 3ms
+   × durable authored root > leaves the root resumable when the read session disconnects while the root worker is healthy 6ms
      → expected JournalReadInterruptedError: journal clie… { …(4) } to match object { code: 'daemon_unresponsive', …(2) }
 (5 matching properties omitted from actual)
 
@@ -103,22 +103,22 @@ AssertionError: expected JournalReadInterruptedError: journal clie… { …(4) }
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
 
  Test Files  1 failed (1)
-      Tests  3 failed | 28 skipped (31)
-   Start at  03:46:05
-   Duration  1.55s (transform 830ms, setup 14ms, collect 1.38s, tests 26ms, environment 0ms, prepare 33ms)
+      Tests  3 failed | 29 skipped (32)
+   Start at  03:57:09
+   Duration  1.71s (transform 791ms, setup 23ms, collect 1.42s, tests 48ms, environment 0ms, prepare 62ms)
 
 exit=1
 
-RESTORED SHA256: 4dc10394dadeada752ce12bd86fbbdfb1c231d92902a9aa912ce8ba7fb57c914
+RESTORED SHA256: 3800932c9ef7768b4bf0a01f08885856e5ccbd3d173cd63574fd599a4fc33230
 $ cd packages/sdk && npx vitest run tests/authored-root.test.ts -t 'leaves the root resumable' --maxWorkers=1 --minWorkers=1
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/authored-root.test.ts (31 tests | 28 skipped) 21ms
+ ✓ tests/authored-root.test.ts (32 tests | 29 skipped) 35ms
 
  Test Files  1 passed (1)
-      Tests  3 passed | 28 skipped (31)
-   Start at  03:46:07
-   Duration  1.49s (transform 779ms, setup 17ms, collect 1.27s, tests 21ms, environment 0ms, prepare 54ms)
+      Tests  3 passed | 29 skipped (32)
+   Start at  03:57:12
+   Duration  1.76s (transform 820ms, setup 23ms, collect 1.50s, tests 35ms, environment 0ms, prepare 49ms)
 
 exit=0

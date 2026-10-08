@@ -36,6 +36,8 @@ export type AuthoredFlowExecutionErrorCode =
    * journaled and `flows resume <rootRunId>` continues it.
    */
   | 'daemon_unresponsive'
+  /** The root run completed; only reading back its stored result failed. */
+  | 'result_unreadable'
   | 'root_lease_lost'
   | 'unsupported_completion'
   | 'unsupported_gate'

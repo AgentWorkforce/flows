@@ -1,4 +1,4 @@
-import { daemonUnresponsiveReport, isReadInterruption } from './journal-timeout.js';
+import { completedResultUnreadableReport, daemonUnresponsiveReport, isReadInterruption } from './journal-timeout.js';
 import { FLOW_READ_BUDGET_MS } from '../journal-read-policy.js';
 import { onWorkerFailure } from '../worker-lease.js';
 import { McpStepError } from '../authored-mcp.js';
@@ -214,6 +214,9 @@ export async function runDirectFlow(
     // terminal. `resumeFlow` takes the same branch, through the same helper.
     if (error instanceof AuthoredFlowExecutionError && (error.code === 'step_failed' || error.code === 'gate_failed')) {
       return authoredStepFailure('run', base, socketPath, error);
+    }
+    if (error instanceof AuthoredFlowExecutionError && error.code === 'result_unreadable') {
+      return completedResultUnreadableReport('run', base, socketPath, error);
     }
     if (isReadInterruption(error)) return daemonUnresponsiveReport('run', base, socketPath, error, base.rootRunId, options, dataDir);
     if (error instanceof AuthoredFlowExecutionError && error.code === 'root_lease_lost') {
