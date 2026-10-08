@@ -1,6 +1,6 @@
 import { helperProviders } from '@relayflows/surface/runtime';
 import type { PreflightResult, PreflightDiagnostic } from './preflight.js';
-import { helperMethodsUsed, helperNamespacesUsed } from './helper-reference.js';
+import { helperMemberUses, helperNamespacesUsed } from './helper-reference.js';
 
 /** Static discovery never executes the body; dynamic aliases are checked at call time. */
 export function preflightHelpers(
@@ -18,9 +18,14 @@ export function preflightHelpers(
   // comment, template quasi or regex is not used, and refusing on one demands
   // a mount the flow never touches.
   const referenced = root === undefined ? new Set<string>() : helperNamespacesUsed(body, root);
-  // An unresolvable context name leaves only the text; keep refusing permissively there.
-  const appendsNotionBlock = root === undefined
-    ? /\.\s*appendBlock\b/.test(body) : helperMethodsUsed(body, root).has('notion.appendBlock');
+  // An unresolvable context name leaves only the text; keep refusing permissively
+  // there. An aliased or destructured f.notion cannot be followed statically, so
+  // any appendBlock member access then counts as the unsupported operation.
+  const uses = root === undefined ? undefined : helperMemberUses(body, root);
+  const appendsNotionBlock = uses === undefined
+    ? /\.\s*appendBlock\b/.test(body)
+    : uses.methods.has('notion.appendBlock')
+      || ((uses.escaped.has('notion') || uses.escaped.has('*')) && uses.members.has('appendBlock'));
   for (const { provider, namespace, supported } of helperProviders) {
     const used = definition.header?.tools?.[namespace] === true
       || referenced.has(namespace);

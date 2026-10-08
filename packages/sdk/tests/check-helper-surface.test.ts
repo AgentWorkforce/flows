@@ -288,3 +288,11 @@ export default flow('test', { tools: { notion: true } }, async ctx => { await ct
   expect(result.exit).toBe(2);
   expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
 });
+it.each([
+  ['an alias', 'const notion = f.notion; await notion.appendBlock("page", {});'],
+  ['a destructured helper', 'const { notion } = f; await notion.appendBlock("page", {});'],
+])('keeps refusing f.notion.appendBlock reached through %s', async (_shape, body) => {
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+  expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
+});

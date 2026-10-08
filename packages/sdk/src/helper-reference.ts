@@ -42,28 +42,66 @@ export function helperNamespacesUsed(body: string, root: string): ReadonlySet<st
  * Which `f.<namespace>.<method>` helper operations a flow body references, as
  * `namespace.method`. Same parse and scoping as `helperNamespacesUsed`, so an
  * unrelated object's method, a string or a comment naming one is not a use.
+ *
+ * A namespace that leaves the context without a method — `const n = f.notion`,
+ * `const { notion } = f`, `use(f.notion)` — is reported in `escaped` (`*` for
+ * the whole context), because its later calls cannot be attributed statically.
+ * `members` lists every member name the body accesses, for callers that must
+ * stay conservative about an escaped namespace.
  */
-export function helperMethodsUsed(body: string, root: string): ReadonlySet<string> {
+export function helperMemberUses(body: string, root: string): {
+  methods: ReadonlySet<string>; escaped: ReadonlySet<string>; members: ReadonlySet<string>;
+} {
   const program = parseFlowBody(body);
-  const used = new Set<string>();
+  const methods = new Set<string>();
+  const escaped = new Set<string>();
+  const members = new Set<string>();
   if (program === null) {
     // Permissive, like textFallback: an unparseable body over-reports.
-    const escaped = root.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-    const pattern = new RegExp(`(?:^|[^\\w$.])${escaped}\\s*\\.\\s*([\\w$]+)\\s*\\.\\s*([\\w$]+)`, 'gu');
-    for (const match of body.matchAll(pattern)) used.add(`${match[1]}.${match[2]}`);
-    return used;
+    const escapedRoot = root.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+    const pattern = new RegExp(`(?:^|[^\\w$.])${escapedRoot}\\s*\\.\\s*([\\w$]+)\\s*\\.\\s*([\\w$]+)`, 'gu');
+    for (const match of body.matchAll(pattern)) methods.add(`${match[1]}.${match[2]}`);
+    escaped.add('*');
+    for (const match of body.matchAll(/\.\s*([\w$]+)/gu)) members.add(match[1]!);
+    return { methods, escaped, members };
   }
+  const namespaceRefs = new Map<string, number>();
+  const methodRefs = new Map<string, number>();
+  const bump = (map: Map<string, number>, key: string) => map.set(key, (map.get(key) ?? 0) + 1);
   walkReferences(program, root, false, { rootFunctionFound: false }, (node) => {
+    if (node.type === 'VariableDeclarator') {
+      const id = node.id as AstNode | undefined;
+      const init = node.init as AstNode | undefined;
+      if (id?.type === 'ObjectPattern' && init?.type === 'Identifier' && init.name === root) {
+        for (const property of (id.properties as AstNode[] | undefined) ?? []) {
+          const key = property.type === 'Property' ? property.key as AstNode | undefined : undefined;
+          const name = key?.type === 'Identifier' && property.computed !== true ? key.name
+            : key?.type === 'Literal' && typeof key.value === 'string' ? key.value : undefined;
+          escaped.add(name ?? '*');
+        }
+      }
+      return;
+    }
     if (node.type !== 'MemberExpression') return;
-    const inner = node.object as AstNode | undefined;
-    if (inner?.type !== 'MemberExpression') return;
-    const object = inner.object as AstNode | undefined;
-    if (object?.type !== 'Identifier' || object.name !== root) return;
-    const namespace = memberName(inner);
-    const method = memberName(node);
-    if (namespace !== undefined && method !== undefined) used.add(`${namespace}.${method}`);
+    const name = memberName(node);
+    if (name !== undefined) members.add(name);
+    const object = node.object as AstNode | undefined;
+    if (object?.type === 'Identifier' && object.name === root) {
+      if (name !== undefined) bump(namespaceRefs, name);
+      return;
+    }
+    if (object?.type !== 'MemberExpression') return;
+    const context = object.object as AstNode | undefined;
+    if (context?.type !== 'Identifier' || context.name !== root) return;
+    const namespace = memberName(object);
+    if (namespace === undefined) return;
+    if (name !== undefined) methods.add(`${namespace}.${name}`);
+    bump(methodRefs, namespace);
   });
-  return used;
+  for (const [namespace, count] of namespaceRefs) {
+    if (count > (methodRefs.get(namespace) ?? 0)) escaped.add(namespace);
+  }
+  return { methods, escaped, members };
 }
 
 /** `f.slack`, `f["slack"]`, `f?.slack` — but not `f[variable]`, which is unknowable. */
