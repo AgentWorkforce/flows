@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { foldUnprovableEffects, type FoldOptions } from './cli/diagnostic-fold.js';
 import { startDetachedRun, emitDetachedHandle } from './cli/detached-run.js';
 import { takeDetachedReceipt, type DetachedReceipt } from './cli/detached-record.js';
 import { withSubscriptionMetadata } from './cli/subscription-report.js';
@@ -105,7 +106,7 @@ export type ParsedArgs =
   | CloudScheduleArgs
   | { command: 'schedules'; json: boolean }
   | { command: 'unschedule'; scheduleId: string; json: boolean }
-  | { command: 'check'; json: boolean; watch: boolean; value: string }
+  | { command: 'check'; json: boolean; watch: boolean; explainWarnings: boolean; value: string }
   | { command: 'run'; detach?: boolean; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; cloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
   | { command: 'resume'; detach?: boolean; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; cloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
   | { command: 'answer'; dataDir: string; json: boolean; spawn: boolean; note: string | undefined; by: string | undefined; runId: string; waitId: string; answer: boolean }
@@ -138,7 +139,7 @@ const USAGE = [
   'flows unschedule [--json] <schedule-id>',
   'flows deploy <flow>@sha256:<digest> --to <file-bucket-uri>',
   'flows run <flow>@sha256:<digest> [--bucket <file-bucket-uri>] [--data-dir <dir>] [--json] [--detach]',
-  'flows check [--watch] [--json] <flow.ts|flow.yaml|spec.json>',
+  'flows check [--watch] [--json] [--explain-warnings] <flow.ts|flow.yaml|spec.json>',
   'flows serve-webhook --data-dir <dir> --port <p> [--allow <name>[,<name>]]',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--detach] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] [--reuse-from <run-id>] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] [--sync-code] [--no-connect] <flow.yaml|spec.json>',
@@ -310,7 +311,7 @@ export async function runCli(
 
   if (parsed.command === 'check') {
     if (parsed.watch) {
-      return withInterrupt(options.signal, (signal) => watchCheck(parsed.value, parsed.json, io, signal));
+      return withInterrupt(options.signal, (signal) => watchCheck(parsed.value, { json: parsed.json, explainWarnings: parsed.explainWarnings }, io, signal));
     }
     // Deliberately daemon-free (kernel/DAEMON-LIFECYCLE.md §4). `checkFlow` is
     // a compile-and-preflight that opens no daemon socket, and the parser
@@ -324,7 +325,7 @@ export async function runCli(
     const checked = /\.(?:[cm]?[jt]s)$/.test(parsed.value)
       ? await checkAuthoredFlowComposed(parsed.value)
       : checkFlow(parsed.value, { warnUnresolvedAgentWorker: true });
-    emitCheckReport(checked.report, parsed.json, io);
+    emitCheckReport(checked.report, parsed.json, io, parsed.explainWarnings);
     return checked.report.ok ? 0 : 2;
   }
 
@@ -693,6 +694,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
 
   let json = false;
   let watch = false;
+  let explainWarnings = false;
   let cloud = false;
   let wait = false;
   let syncCode = false;
@@ -743,6 +745,11 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
       if (command === 'check' || agentCapacity !== undefined || value === undefined || !/^[0-9]+$/.test(value)) return undefined;
       agentCapacity = Number(value);
       if (!isAgentCapacity(agentCapacity)) return undefined;
+      continue;
+    }
+    if (argument === '--explain-warnings') {
+      if (command !== 'check' || explainWarnings) return undefined;
+      explainWarnings = true;
       continue;
     }
     if (argument === '--watch') {
@@ -830,7 +837,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
 
   if (command === 'run' && input !== undefined && !isAuthoredFlowPath(positionals[0]!)) return undefined;
   return command === 'check'
-    ? { command, json, watch, value: positionals[0]! }
+    ? { command, json, watch, explainWarnings, value: positionals[0]! }
     : command === 'run'
       ? { command, ...(detach ? { detach } : {}), bucket, reuseFromRunId, localAgent, agentCapacity, dataDir, input, json, spawn, noObserverLink, cloudMirror, allowHumanInfluenced, value: positionals[0]! }
       : { command, ...(detach ? { detach } : {}), localAgent, agentCapacity, dataDir, json, spawn, noObserverLink, cloudMirror, allowHumanInfluenced, value: positionals[0]! };
@@ -1094,14 +1101,18 @@ function modelProvenance(source: CliModelSource | undefined): string {
   return source === undefined ? '' : ` from ${MODEL_PROVENANCE[source]}`;
 }
 
-function emitCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
+function emitCheckReport(report: CheckReport, json: boolean, io: CliIo, explainWarnings = false): void {
+  const foldOptions: FoldOptions = {
+    fold: true, explain: explainWarnings,
+    ...(report.gates.length > 0 ? { totalSteps: report.gates.length } : {}),
+  };
   if (json) {
-    emitDiagnostics(report.diagnostics, io);
+    emitDiagnostics(report.diagnostics, io, foldOptions);
     io.stdout(JSON.stringify(report));
     return;
   }
   const deferred = report.diagnostics.filter(isWorkerSurfaceWarning);
-  emitDiagnostics(report.diagnostics.filter((diagnostic) => !isWorkerSurfaceWarning(diagnostic)), io);
+  emitDiagnostics(report.diagnostics.filter((diagnostic) => !isWorkerSurfaceWarning(diagnostic)), io, foldOptions);
   for (const gate of report.gates) {
     // A gate that accepts every output is legal, but it must not read like a
     // gate that judges something.
@@ -1147,7 +1158,7 @@ function emitCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
   // the hosted verbs check the same list against Cloud before submitting.
   const requires = report.requirements === undefined ? '' : describeFlowRequirements(report.requirements);
   if (requires) io.stdout(`REQUIRES ${requires}`);
-  emitDiagnostics(deferred, io);
+  emitDiagnostics(deferred, io, foldOptions);
   if (report.ok) io.stdout(`CHECK PASSED ${report.path ?? ''}`.trimEnd());
 }
 
@@ -1211,8 +1222,9 @@ function emitRunReport(
 function emitDiagnostics(
   diagnostics: CheckReport['diagnostics'] | RunReport['diagnostics'],
   io: CliIo,
+  options: FoldOptions = {},
 ): void {
-  for (const diagnostic of diagnostics) {
+  for (const diagnostic of foldUnprovableEffects(diagnostics, options)) {
     io.stderr(`${diagnosticLabel(diagnostic.severity)} [${diagnostic.kind}] ${diagnostic.message}`);
   }
 }
