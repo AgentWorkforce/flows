@@ -182,3 +182,11 @@ it('still refuses an inherited member that is referenced rather than called', as
   const result = await check(fixture('await globalThis.invokeHelper(f.notion.hasOwnProperty);', '{ tools: { notion: true } },'));
   expect(result.exit).toBe(2);
 });
+it.each([
+  ['direct eval', 'await eval("f.notion.appendBlock(\'page\', {})");'],
+  ['the Function constructor', 'await new Function("f", "return f.notion.appendBlock(\'page\', {})")(f);'],
+])('refuses code run through %s, which the scan cannot see', async (_shape, body) => {
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+  expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
+});

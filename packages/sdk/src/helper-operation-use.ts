@@ -33,6 +33,10 @@ export function helperOperationUse(body: string, root: string, namespace: string
   let result: 'called' | 'absent' | 'unprovable' = 'absent';
   const mark = (found: 'called' | 'unprovable') => { if (result !== 'unprovable') result = found; };
   walkReferences(program, root, false, { rootFunctionFound: false }, (node) => {
+    // eval and Function run source text this scan never sees.
+    if ((node.type === 'CallExpression' || node.type === 'NewExpression')
+      && (node.callee as AstNode).type === 'Identifier'
+      && ['eval', 'Function'].includes((node.callee as AstNode).name!)) return mark('unprovable');
     if (node.type !== 'Identifier' || node.name !== root) return;
     const parent = parents.get(node);
     if (parent === undefined || declares(parent, node)) return;
