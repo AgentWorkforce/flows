@@ -27,10 +27,10 @@ describe('codexAdapter — HeadlessAdapter contract', () => {
     expect(inv.args).toContain('gpt-6-astra');
   });
 
-  it('buildAgentInvocation uses exec --ephemeral --skip-git-repo-check with instruction at the tail', () => {
+  it('buildAgentInvocation persists provider history and keeps the instruction at the tail', () => {
     const inv = codexAdapter.buildAgentInvocation('build the thing', 'gpt-6-astra');
     expect(inv.args[0]).toBe('exec');
-    expect(inv.args).toContain('--ephemeral');
+    expect(inv.args).not.toContain('--ephemeral');
     expect(inv.args).toContain('--skip-git-repo-check');
     expect(inv.args).toContain('--model');
     expect(inv.args).toContain('gpt-6-astra');
@@ -44,8 +44,9 @@ describe('codexAdapter — HeadlessAdapter contract', () => {
     expect(inv.args).not.toContain('--sandbox');
   });
 
-  it('buildLlmInvocation adds --sandbox read-only', () => {
+  it('buildLlmInvocation persists provider history in its read-only sandbox', () => {
     const inv = codexAdapter.buildLlmInvocation('summarize');
+    expect(inv.args).not.toContain('--ephemeral');
     expect(inv.args).toContain('--sandbox');
     expect(inv.args).toContain('read-only');
   });
