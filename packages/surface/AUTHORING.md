@@ -448,3 +448,389 @@ The kernel verification fields are `exit_code`, `output_contains` and `json_sche
 | `f.webhookServer` | `WebhookServerHelper` | None in pinned catalog |
 | `f.x` | `XHelper` | None in pinned catalog |
 | `f.zendesk` | `ZendeskHelper` | 3 |
+
+## Triggers
+
+Sources for `flow(name, { on }, body)` and `f.on(source, options)`.
+
+```ts
+/** Plain, immutable data. Constructing a source opens no receiver. */
+export function webhook(name: string, filter?: WebhookFilter): WebhookTriggerSource;
+```
+
+```ts
+export const schedule: Readonly<{
+  /** A five-field cron, evaluated in `tz` (default UTC). */
+  cron(expression: string, options?: ScheduleCronOptions): ScheduleTriggerSource;
+  /** A fixed interval: `every("5m")`, `every("2h")`. Units s, m, h, d. */
+  every(interval: string): ScheduleTriggerSource;
+}>;
+```
+
+## Referenced declarations
+
+Every exported type named by a declaration above or by the helper namespace table, followed transitively. Completion reasons and `Helpers` are the tables above.
+
+### TriggerSource
+
+```ts
+/** A webhook inbox subscription, or a `schedule.*` tick subscription. */
+export type TriggerSource = WebhookTriggerSource | ScheduleTriggerSource;
+```
+
+### CloudCapabilities
+
+```ts
+/** Capability ports are injected by a host runtime, never constructed by authored input. */
+export interface CloudCapabilities {
+  readonly babysitterTurn?: CloudBabysitterTurnCapability;
+}
+```
+
+### ActivityOptions
+
+```ts
+/** Bounds are required so a body-level subscription cannot keep a run open forever. */
+export interface ActivityOptions {
+  /** Coalesce a burst until this long after its most recent frame. Defaults to zero. */
+  readonly settle?: ActivityDuration;
+  /** Per wake: return idle after this long without a buffered matching frame. */
+  readonly idle: ActivityDuration;
+  /** Absolute cap fixed when the subscription is opened. */
+  readonly deadline: ActivityDuration;
+  /** Include events caused by the run identity. Defaults to false. */
+  readonly includeSelf?: boolean;
+}
+```
+
+### Activity
+
+```ts
+/** A durable, bounded cursor over matching provider events. */
+export interface Activity {
+  next(): Promise<Wake>;
+  close(): Promise<void>;
+}
+```
+
+### CloudHelper
+
+```ts
+/** AgentWorkforce Cloud helper contract generated from its relayfile adapter. */
+export interface CloudHelper {
+  workers: {
+    mintEnrollmentToken(input: {
+      workspaceId: string;
+      name: string;
+      /** Principal resolved at `<mount>/principals/<as>`. */
+      as: string;
+    }): Step<EnrollmentReceipt>;
+    list(input: { workspaceId: string; as: string }): Step<{
+      online: WorkerSummary[];
+      all: WorkerSummary[];
+    }>;
+    heartbeat(input: { workerId: string; as: string }): Step<Heartbeat>;
+    awaitHeartbeat(input: {
+      workerId: string;
+      as: string;
+      within: string;
+    }): Step<Heartbeat>;
+  };
+  schedules: {
+    create(input: {
+      workspaceId: string;
+      workflow: string;
+      cron: string;
+      name: string;
+      as: string;
+    }): Step<{ id: string }>;
+    fire(input: { scheduleId: string; as: string }): Step<{ accepted: boolean }>;
+    get(input: { scheduleId: string; as: string }): Step<ScheduleState>;
+    remove(input: { scheduleId: string; as: string }): Step<{ deleted: boolean }>;
+  };
+  runs: {
+    journal(input: { runId: string; as: string }): Step<RunJournal>;
+  };
+}
+```
+
+### MemoryHelper
+
+```ts
+export interface MemoryHelper {
+  /** Local script memory read; does not journal a step. */
+  recall(query: string, options?: MemoryRecallOptions): Promise<HistoryEntry[]>;
+  /** Best matching decision trajectory, or an empty array. No journal step. */
+  why(task: string): Promise<TrajectoryEntry[]>;
+  /** Reserved for the journal-backed write slice; currently refuses. */
+  learn(finding: MemoryFinding): Promise<void>;
+}
+```
+
+### WebhookFilter
+
+```ts
+/** Recursive object subset; array and scalar leaves match exactly. */
+export type WebhookFilter = { readonly [key: string]: WebhookValue };
+```
+
+### WebhookTriggerSource
+
+```ts
+export interface WebhookTriggerSource {
+  readonly kind: "webhook";
+  readonly name: string;
+  readonly filter?: WebhookFilter;
+}
+```
+
+### ScheduleCronOptions
+
+```ts
+export interface ScheduleCronOptions {
+  readonly tz?: string;
+}
+```
+
+### ScheduleTriggerSource
+
+```ts
+/**
+ * Schedule triggers. Hand-written, unlike the provider namespaces under
+ * `triggers/`, because a schedule is not a provider event: there is no inbox
+ * and no upstream mapping to generate from. A schedule is an event source —
+ * locally the `flows tick` runner, on Cloud a relaycron cron — that submits
+ * `flows.tick` events, and this namespace declares which ticks a flow wants.
+ *
+ * Constructing a source opens nothing. The SDK lowers it to the same
+ * `flows.tick` subscription `testdata/tick-heartbeat.flow.yaml` writes by
+ * hand (`scheduleTriggerSpec`), and `flows schedule` sends the cron to Cloud.
+ */
+
+export interface ScheduleTriggerSource {
+  readonly kind: "schedule";
+  /** Fixed: every schedule is delivered as a `flows.tick` event. */
+  readonly name: "flows.tick";
+  /** A 5-field cron expression, when declared with `schedule.cron`. */
+  readonly cron?: string;
+  /** IANA zone for `cron`; defaults to UTC. */
+  readonly tz?: string;
+  /** Fixed interval in milliseconds, when declared with `schedule.every` or when `cron` is exactly a tick grid. */
+  readonly intervalMs?: number;
+  /** Phase of that grid: the first fire is `epochMs` past the Unix epoch; present exactly when `intervalMs` is. */
+  readonly epochMs?: number;
+}
+```
+
+### SlackHelper
+
+```ts
+/** Slack writeback helpers; every call is a journal-backed effect. */
+export interface SlackHelper {
+  post(channel: string, text: string | SlackPostMessage, opts?: SlackPostOptions): Step<SlackReceipt>;
+  dm(user: string, text: string): Step<{ user: string; ts: string }>;
+  reply(channel: string, threadTs: string, text: string): Step<SlackReceipt>;
+  react(channel: string, messageTs: string, emoji: string): Step<void>;
+}
+```
+
+### CloudBabysitterTurnCapability
+
+```ts
+export interface CloudBabysitterTurnCapability {
+  queue(request: { readonly delivery: CloudBabysitterTurnDelivery }): PromiseLike<CloudBabysitterTurnReceipt>;
+}
+```
+
+### ActivityDuration
+
+```ts
+/** A duration in whole milliseconds or an unambiguous wall-clock literal. */
+export type ActivityDuration = number | string;
+```
+
+### Wake
+
+```ts
+export type Wake =
+  | { readonly kind: "events"; readonly events: readonly EventFrame[]; readonly offset: number }
+  | { readonly kind: "idle" }
+  | { readonly kind: "deadline"; readonly pending: { readonly from: number; readonly to: number } | null }
+  | { readonly kind: "overflow"; readonly retained: number; readonly bytes: number; readonly from: number };
+```
+
+### EnrollmentReceipt
+
+```ts
+export interface EnrollmentReceipt {
+  /** Mount path for the token. The credential itself never enters the journal. */
+  tokenPath: string;
+  expiresAt: string;
+  registerCommand: string;
+}
+```
+
+### WorkerSummary
+
+```ts
+export interface WorkerSummary {
+  workerId: string;
+  status: string;
+  lastSeenAt: string | null;
+}
+```
+
+### Heartbeat
+
+```ts
+export interface Heartbeat extends WorkerSummary {}
+```
+
+### ScheduleState
+
+```ts
+export interface ScheduleState {
+  id: string;
+  lastTriggerStatus: string | null;
+  lastTriggeredRunId: string | null;
+  lastTriggerError: string | null;
+}
+```
+
+### RunJournal
+
+```ts
+export interface RunJournal {
+  runId: string;
+  steps: JournalStep[];
+  completionReason: RunCompletionReason | null;
+}
+```
+
+### MemoryRecallOptions
+
+```ts
+/** Reads cannot widen the current flow's script scope. */
+export type MemoryRecallOptions = Omit<SearchOptions, "project">;
+```
+
+### HistoryEntry
+
+```ts
+export type { HistoryEntry } from "ai-hist";
+```
+
+### TrajectoryEntry
+
+```ts
+export type { TrajectoryEntry } from "ai-hist";
+```
+
+### MemoryFinding
+
+```ts
+export interface MemoryFinding {
+  question: string;
+  chosen: string;
+  reasoning: string;
+  alternatives?: string[];
+}
+```
+
+### WebhookValue
+
+```ts
+export type WebhookValue = null | boolean | number | string
+  | readonly WebhookValue[] | { readonly [key: string]: WebhookValue };
+```
+
+### SlackPostMessage
+
+```ts
+/** Structured message content. Text supplies the notification/accessibility fallback. */
+export interface SlackPostMessage {
+  text?: string;
+  blocks?: SlackBlock[];
+  attachments?: SlackAttachment[];
+}
+```
+
+### SlackPostOptions
+
+```ts
+export interface SlackPostOptions extends Omit<SlackPostMessage, "text"> {
+  replyTo?: string;
+}
+```
+
+### SlackReceipt
+
+```ts
+export interface SlackReceipt {
+  channel: string;
+  ts: string;
+  ref: string;
+}
+```
+
+### CloudBabysitterTurnDelivery
+
+```ts
+/** Delivery-only request accepted by the host-owned native Babysitter adapter. */
+export interface CloudBabysitterTurnDelivery {
+  readonly deliveryId: string;
+  readonly provider: 'github';
+  readonly eventType: string;
+  readonly pullRequest: {
+    readonly owner: string;
+    readonly repository: string;
+    readonly number: number;
+  };
+}
+```
+
+### CloudBabysitterTurnReceipt
+
+```ts
+/** The only successful native-turn outcomes; refusals reject the call. */
+export interface CloudBabysitterTurnReceipt {
+  readonly receiptId: string;
+  readonly status: 'queued' | 'duplicate';
+}
+```
+
+### EventFrame
+
+```ts
+/**
+ * Opaque provider event preserved by the journal. Providers may add fields;
+ * bodies must re-read provider state instead of treating this payload as truth.
+ */
+export interface EventFrame {
+  readonly type: string;
+  readonly payload?: unknown;
+  readonly [field: string]: unknown;
+}
+```
+
+### JournalStep
+
+```ts
+export interface JournalStep {
+  id: string;
+  type: "deterministic" | "llm" | "agent";
+  completionReason: CompletionReason | null;
+}
+```
+
+### SlackBlock
+
+```ts
+export type { SlackBlock } from "./helpers/slack.js";
+```
+
+### SlackAttachment
+
+```ts
+export type { SlackAttachment } from "./helpers/slack.js";
+```

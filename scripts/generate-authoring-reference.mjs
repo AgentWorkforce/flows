@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { root, source, declarations, declarationText, unionDeclarations, exportedNames, literal } from './authoring-source.mjs';
+import { root, source, declarations, declarationText, unionDeclarations, exportedNames, exportSources, literal, signatureText, ts, typeReferences } from './authoring-source.mjs';
 
 export const referencePaths = ['packages/surface/AUTHORING.md', 'docs/CLI.md'];
 const regenerate = 'npm run gen:docs --prefix packages/surface';
@@ -53,7 +53,47 @@ export function authoringReference() {
     if (!provider) throw new Error(`Missing helper provider metadata: ${name}`);
     text += `| \`f.${name}\` | \`${member.type.getText()}\` | ${provider.supported ? provider.resources.length : 'None in pinned catalog'} |\n`;
   }
-  return text;
+  text += '\n## Triggers\n\nSources for `flow(name, { on }, body)` and `f.on(source, options)`.\n\n';
+  const triggers = read('triggers');
+  const schedules = read('schedule');
+  text += fence(signatureText(triggers, 'webhook')) + '\n' + fence(signatureText(schedules, 'schedule'));
+  text += '\n## Referenced declarations\n\nEvery exported type named by a declaration above or by the helper namespace table, followed transitively. Completion reasons and `Helpers` are the tables above.\n\n';
+  // Helper namespace types appear only in the table above; declare the exported ones too.
+  text += referencedDeclarations(text, exports, helpers.map(member => member.type.getText()));
+  return text.replace(/\n+$/, '\n');
+}
+
+/** Declare each exported surface type the reference names, so no signature points into dist/. */
+function referencedDeclarations(rendered, exports, seeds = []) {
+  const index = source(resolve(root, 'packages/surface/src/index.ts'));
+  const modules = exportSources(index);
+  const fenced = text => [...text.matchAll(/```ts\n([\s\S]*?)```/g)].map(match => match[1]).join('\n');
+  const declared = (text, name) => new RegExp(`(?:interface|type|function|const|class) ${name}\\b`).test(text);
+  const tabulated = new Set(['Helpers', 'FlowCompletionReason', 'RunCompletionReason', 'CompletionReason']);
+  let body = fenced(rendered);
+  let out = '';
+  const done = new Set();
+  for (let queue = [...typeReferences(body), ...seeds]; queue.length;) {
+    const name = queue.shift();
+    if (done.has(name) || !exports.includes(name) || tabulated.has(name) || declared(body, name)) continue;
+    done.add(name);
+    const module = modules.get(name);
+    if (module === undefined || !module.startsWith('.')) continue;
+    const file = source(resolve(root, 'packages/surface/src', module.replace(/\.js$/, '.ts')));
+    let text;
+    try { text = declarationText(file, name); }
+    catch {
+      // Re-exported from a dependency (ai-hist's HistoryEntry, ...): name it, do not copy it.
+      const external = file.statements.find(node => ts.isExportDeclaration(node) && node.moduleSpecifier
+        && node.exportClause && ts.isNamedExports(node.exportClause) && node.exportClause.elements.some(item => item.name.text === name));
+      if (!external) throw new Error(`${file.fileName}: missing declaration ${name}`);
+      text = `export type { ${name} } from ${external.moduleSpecifier.getText(file)};`;
+    }
+    out += `### ${name}\n\n${fence(text)}\n`;
+    body += `\n${text}`;
+    queue.push(...typeReferences(text));
+  }
+  return out;
 }
 
 export function cliReference() {

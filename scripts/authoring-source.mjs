@@ -105,3 +105,62 @@ export function literal(file, name, importDepth = 0, stack = []) {
   }
   throw new Error(`${chain.join(' -> ')}: unresolved literal identifier ${name}`);
 }
+
+/** Type names referenced from declaration text, in first-seen order. */
+export function typeReferences(text) {
+  const file = source('references.ts', text);
+  const names = [];
+  const visit = node => {
+    if (ts.isTypeReferenceNode(node) || ts.isExpressionWithTypeArguments(node)) {
+      const target = ts.isTypeReferenceNode(node) ? node.typeName : node.expression;
+      let left = target;
+      while (ts.isQualifiedName(left)) left = left.left;
+      while (ts.isPropertyAccessExpression(left)) left = left.expression;
+      if (ts.isIdentifier(left) && !names.includes(left.text)) names.push(left.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return names;
+}
+
+/** Exported name -> relative module that declares it, from the package index. */
+export function exportSources(index) {
+  const result = new Map();
+  for (const node of index.statements) {
+    if (!ts.isExportDeclaration(node) || !node.moduleSpecifier || !node.exportClause || !ts.isNamedExports(node.exportClause)) continue;
+    for (const item of node.exportClause.elements) result.set(item.name.text, node.moduleSpecifier.text);
+  }
+  return result;
+}
+
+/**
+ * The callable surface of an implemented export, without its body: a function
+ * declaration's signature, or the methods of an `Object.freeze({...})` value.
+ * Parameter defaults read as optional parameters, as they do to a caller.
+ */
+export function signatureText(file, name) {
+  const parameters = node => node.parameters.map(parameter => `${parameter.name.getText(file)}${parameter.questionToken || parameter.initializer ? '?' : ''}: ${parameter.type.getText(file)}`).join(', ');
+  const docs = node => ts.getJSDocCommentsAndTags(node).filter(ts.isJSDoc).map(doc => doc.getText(file)).join('\n');
+  const signature = node => `${node.name.getText(file)}(${parameters(node)}): ${node.type.getText(file)};`;
+  for (const statement of file.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name?.text === name) {
+      const doc = docs(statement);
+      return `${doc ? `${doc}\n` : ''}export function ${signature(statement)}`;
+    }
+    if (!ts.isVariableStatement(statement)) continue;
+    const declaration = statement.declarationList.declarations.find(item => item.name.getText(file) === name);
+    if (!declaration) continue;
+    const call = declaration.initializer;
+    const object = call && ts.isCallExpression(call) && call.expression.getText(file) === 'Object.freeze' ? call.arguments[0] : undefined;
+    if (!object || !ts.isObjectLiteralExpression(object)) throw new Error(`${file.fileName}: ${name} is not a frozen object of methods`);
+    const methods = object.properties.map(method => {
+      if (!ts.isMethodDeclaration(method)) throw new Error(`${file.fileName}: ${name}.${method.name?.getText(file)} is not a method`);
+      const doc = docs(method);
+      return `${doc ? `  ${doc}\n` : ''}  ${signature(method)}`;
+    });
+    const doc = docs(statement);
+    return `${doc ? `${doc}\n` : ''}export const ${name}: Readonly<{\n${methods.join('\n')}\n}>;`;
+  }
+  throw new Error(`${file.fileName}: missing implemented export ${name}`);
+}

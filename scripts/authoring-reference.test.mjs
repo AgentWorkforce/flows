@@ -4,7 +4,7 @@ import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join, dirname, posix } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { root, source, declarationText, unionDeclarations, literal } from './authoring-source.mjs';
+import { root, source, declarationText, unionDeclarations, literal, exportedNames, typeReferences } from './authoring-source.mjs';
 
 const read = path => readFileSync(join(root, path), 'utf8');
 const authoring = read('packages/surface/AUTHORING.md');
@@ -149,4 +149,23 @@ test('every relative link in shipped surface markdown resolves inside the packed
     }
   }
   assert.deepEqual(broken, []);
+});
+test('every exported surface type the reference mentions is declared in it', () => {
+  // A signature that names TriggerSource or CloudHelper without declaring it
+  // sends the reader back to node_modules/*.d.ts, which this file replaces.
+  const fences = [...authoring.matchAll(/```ts\n([\s\S]*?)```/g)].map(match => match[1]).join('\n');
+  const exported = new Set(exportedNames(source(join(root, 'packages/surface/src/index.ts'))));
+  // Rendered as tables rather than declarations.
+  const tabulated = new Set(['Helpers', 'FlowCompletionReason', 'RunCompletionReason', 'CompletionReason']);
+  const declared = name => new RegExp(`(?:(?:interface|type|function|const|class) ${name}\\b|export type \\{ ${name} \\} from)`).test(fences);
+  const missing = typeReferences(fences).filter(name => exported.has(name) && !tabulated.has(name) && !declared(name));
+  assert.deepEqual(missing, []);
+});
+test('trigger and helper entry points are documented', () => {
+  for (const name of ['webhook', 'schedule', 'TriggerSource', 'ActivityOptions', 'Activity',
+    'CloudHelper', 'MemoryHelper', 'SlackHelper']) {
+    assert.match(authoring, new RegExp(`(?:interface|type|function|const) ${name}\\b`), name);
+  }
+  assert.match(authoring, /export function webhook\(name: string, filter\?: WebhookFilter\): WebhookTriggerSource;/);
+  assert.match(authoring, /cron\(expression: string, options\?: ScheduleCronOptions\): ScheduleTriggerSource;/);
 });
