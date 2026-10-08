@@ -539,3 +539,57 @@ describe('refusal bodies keep transport classification', () => {
       .rejects.toMatchObject({ code: 'http_error', status: 502, message: 'Cloud request failed with HTTP 502.' });
   });
 });
+
+describe('Cloud human park', () => {
+  const runId = '2e97a7ed';
+  const humanWait = { waitId: 'human-2', question: 'Ship this?', to: 'slack:#eng' };
+  const parked = { runId, relayflowVersion: 'v2', status: 'failed',
+    result: { completionReason: 'needs_human', humanWait } };
+
+  it('waiter returns needs_human instead of invalid_response', async () => {
+    const options = await cloud(() => parked);
+    expect(await waitForCloudFlowRun(runId, { ...options, pollIntervalMs: 1 })).toMatchObject({
+      runId, status: 'needs_human', completionReason: 'needs_human', humanWait,
+    });
+  });
+
+  it.each(['completed', 'cancelled', 'running'])('refuses needs_human under %s with the observed status', async status => {
+    const options = await cloud(() => ({ ...parked, status }));
+    await expect(getCloudFlowRun(runId, options)).rejects.toThrow(`status ${status}`);
+  });
+
+  it.each([undefined, { waitId: 'approval' }, { waitId: 'human-2', to: 'slack:', question: 42 }])(
+    'keeps an attested park when display metadata is incomplete: %j', async value => {
+      const options = await cloud(() => ({ ...parked, result: { completionReason: 'needs_human', humanWait: value } }));
+      const state = await getCloudFlowRun(runId, options);
+      expect(state.status).toBe('needs_human');
+      if (state.status === 'needs_human') expect(state.humanWait?.recipient).toBeUndefined();
+    },
+  );
+
+  it('reads a top-level wait when result has none', async () => {
+    const options = await cloud(() => ({ ...parked, humanWait, result: { completionReason: 'needs_human' } }));
+    expect(await getCloudFlowRun(runId, options)).toMatchObject({ humanWait });
+  });
+
+  it.each([false, true])('run --cloud --wait exits 3 with a scrubbed question and answer command (json=%s)', async json => {
+    vi.stubEnv('FLOWS_CLOUD_TOKEN', 'test-scoped-cloud-token');
+    vi.stubEnv('FLOWS_CLOUD_URL', 'https://cloud-contract.example');
+    const dir = await mkdtemp(join(tmpdir(), 'cloud-human-')); dirs.push(dir);
+    const path = join(dir, 'flow.json'); await writeFile(path, JSON.stringify(flow));
+    await cloud((url) => url.endsWith('/run') ? { runId, status: 'pending' } : {
+      ...parked, result: { completionReason: 'needs_human', humanWait: { ...humanWait,
+        question: 'Ship this? test-scoped-cloud-token\u001b[2J' } },
+    });
+    const stdout: string[] = [], stderr: string[] = [];
+    expect(await runCli(['run', '--cloud', '--wait', path, ...(json ? ['--json'] : [])], {
+      stdout: s => stdout.push(s), stderr: s => stderr.push(s),
+    })).toBe(3);
+    expect(stderr).toEqual([]);
+    const text = stdout.join('\n');
+    expect(text).toContain(`flows answer --cloud ${runId} yes|no`);
+    expect(text).toContain('slack:#eng'); expect(text).toContain('Ship this?');
+    expect(text).not.toContain('test-scoped-cloud-token'); expect(text).not.toContain('\u001b');
+    if (json) expect(JSON.parse(stdout[0]!)).toMatchObject({ ok: false, status: 'needs_human', completionReason: 'needs_human' });
+  });
+});

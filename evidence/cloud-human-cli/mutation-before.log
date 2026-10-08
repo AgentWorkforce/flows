@@ -1,0 +1,29 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/cloud-run.test.ts (69 tests | 1 failed | 68 skipped) 11ms
+   × Cloud human park > waiter returns needs_human instead of invalid_response 10ms
+     → Cloud terminal record lacks a valid, consistent run completionReason; no execution outcome is attested.
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/cloud-run.test.ts > Cloud human park > waiter returns needs_human instead of invalid_response
+CloudFlowError: Cloud terminal record lacks a valid, consistent run completionReason; no execution outcome is attested.
+ ❯ Module.cloudRunState src/cloud-run-record.ts:61:11
+     59|     || (body.status === 'failed' && !['step_failed', 'budget_exceeded'…
+     60|     || (body.status === 'cancelled' && reason !== 'canceled')) {
+     61|     throw new CloudFlowError('invalid_response', 'Cloud terminal recor…
+       |           ^
+     62|   }
+     63|   return { runId, status: body.status as 'completed' | 'failed' | 'can…
+ ❯ getCloudFlowRun src/cloud-run.ts:277:10
+ ❯ Module.waitForCloudFlowRun src/cloud-run.ts:293:19
+ ❯ tests/cloud-run.test.ts:513:12
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 68 skipped (69)
+   Start at  18:59:10
+   Duration  2.14s (transform 1.23s, setup 18ms, collect 1.93s, tests 11ms, environment 0ms, prepare 57ms)
+

@@ -913,3 +913,24 @@ describe('argv and wiring', () => {
     expect(help.stdout[0]).toContain('flows logs [--step <name>] [--raw] [--json] [--follow] <run-id>');
   });
 });
+
+describe('live Cloud human parks', () => {
+  const parked = runRecord({ status: 'failed', result: { completionReason: 'needs_human',
+    humanWait: { waitId: 'human-2', question: 'Ship this?', to: 'slack:#eng' } } });
+  it.each([false, true])('watch renders needs_human and exits 3 (json=%s)', async json => {
+    stagedCloud([{ run: parked }]); const output = io();
+    expect(await runCloudStatusWatch({ runId: RUN, json }, output.io, CONNECTION)).toBe(3);
+    const text = output.stdout.join('\n');
+    expect(text).toMatch(/needs_human/i);
+    if (json) expect(JSON.parse(text)).toMatchObject({ ok: true, run: { status: 'needs_human' } });
+    else { expect(text).not.toContain('FAILED'); expect(text).toContain(`flows answer --cloud ${RUN} yes|no`); }
+  });
+  it('follow drains the parked log then exits 3', async () => {
+    stagedCloud([{ run: parked, log: { body: { content: 'parked\n', offset: 7, totalSize: 7, done: true } } }]);
+    const output = io();
+    expect(await runCloudLogsFollow({ runId: RUN, step: undefined, json: false }, output.io, {
+      ...CONNECTION, sleep: async () => {},
+    })).toBe(3);
+    expect(output.stdout.join('\n')).toContain('NEEDS_HUMAN');
+  });
+});
