@@ -22,9 +22,11 @@ export function preflightHelpers(
   // f.notion.appendBlock has no writeback route. It is attributed precisely only
   // while f.notion is used directly; once it is aliased, passed on or reached by a
   // computed name, the call cannot be ruled out and check refuses, saying why.
-  const notionAppend = root === undefined
-    ? (/\.\s*appendBlock\b/.test(body) ? 'unprovable' : 'absent')
-    : helperOperationUse(body, root, 'notion', 'appendBlock');
+  // Without a named context parameter (destructured, say) nothing can be
+  // attributed, so a declared Notion flow cannot rule the call out.
+  const notionAppend = body.trim() === '' ? 'absent'
+    : root === undefined ? 'unprovable'
+      : helperOperationUse(body, root, 'notion', 'appendBlock');
   const appendsNotionBlock = notionAppend !== 'absent';
   const notionAppendInferred = notionAppend === 'unprovable';
   for (const { provider, namespace, supported } of helperProviders) {
@@ -47,7 +49,7 @@ export function preflightHelpers(
       diagnostics.push({ severity: 'refusal', kind: 'helper_provider.unsupported',
         message: 'f.notion.appendBlock is mock-only: the Notion adapter has no append-block writeback route.'
           + (notionAppendInferred ? ' f.notion is aliased, passed on or called through a computed name in this body, so the call cannot be ruled out;'
-            + ' call f.notion methods directly by name (f.notion.createPage(...)) so flows check can see which ones run.' : '') });
+            + ' call f.notion methods directly by name on a named context parameter (f.notion.createPage(...)) so flows check can see which ones run.' : '') });
     }
   }
   return { ok: diagnostics.length === 0, gates: [], resolutions: [], diagnostics };

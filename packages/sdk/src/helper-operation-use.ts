@@ -38,7 +38,7 @@ export function helperOperationUse(body: string, root: string, namespace: string
       && (node.callee as AstNode).type === 'Identifier'
       && ['eval', 'Function'].includes((node.callee as AstNode).name!)) return mark('unprovable');
     // `arguments[0]` is the context in a non-arrow root body without naming it.
-    if (node.type === 'Identifier' && node.name === 'arguments' && rootArguments(node, root, parents)) return mark('unprovable');
+    if (node.type === 'Identifier' && node.name === 'arguments' && rootArguments(node, parents)) return mark('unprovable');
     if (node.type !== 'Identifier' || node.name !== root) return;
     const parent = parents.get(node);
     if (parent === undefined || declares(parent, node)) return;
@@ -106,16 +106,23 @@ function readOrCall(value: AstNode, parents: WeakMap<AstNode, AstNode>, allowCal
     && parent.test === current;
 }
 
-/** `arguments` used (not named) inside the root flow function itself, not a nested non-arrow one. */
-function rootArguments(node: AstNode, root: string, parents: WeakMap<AstNode, AstNode>): boolean {
+/**
+ * `arguments` used (not named) inside the root flow function itself — the
+ * outermost non-arrow function, whatever shape its context parameter has — not
+ * inside a nested non-arrow function with its own `arguments`.
+ */
+function rootArguments(node: AstNode, parents: WeakMap<AstNode, AstNode>): boolean {
   const parent = parents.get(node);
   if (parent !== undefined && declares(parent, node)) return false;
+  let owner: AstNode | undefined;
   for (let at = parents.get(node); at !== undefined; at = parents.get(at)) {
-    if (at.type === 'FunctionDeclaration' || at.type === 'FunctionExpression') {
-      return ((at.params as AstNode[] | undefined) ?? []).some(param => param.type === 'Identifier' && param.name === root);
-    }
+    if (at.type === 'FunctionDeclaration' || at.type === 'FunctionExpression') { owner = at; break; }
   }
-  return false;
+  if (owner === undefined) return false;
+  for (let at = parents.get(owner); at !== undefined; at = parents.get(at)) {
+    if (at.type === 'FunctionDeclaration' || at.type === 'FunctionExpression' || at.type === 'ArrowFunctionExpression') return false;
+  }
+  return true;
 }
 
 /** The identifier is a name being declared or a property name, not a use of the context. */

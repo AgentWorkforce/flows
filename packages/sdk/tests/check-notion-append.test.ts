@@ -238,3 +238,14 @@ it.each([
   expect(result.exit).toBe(2);
   expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
 });
+it.each([
+  ['a defaulted context parameter', "async function (f = {}) { await arguments[0].notion.appendBlock('p', {}); f.done('success'); }"],
+  ['a destructured context parameter', "async function ({ done }) { await arguments[0].notion[globalThis.method]('p', {}); done('success'); }"],
+])('refuses appendBlock reached through %s', async (_shape, fn) => {
+  const path = fixture('', '{ tools: { notion: true } },');
+  writeFileSync(path, `import { flow } from '@relayflows/surface';
+export default flow('test', { tools: { notion: true } }, ${fn});`);
+  const result = await check(path);
+  expect(result.exit).toBe(2);
+  expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
+});
