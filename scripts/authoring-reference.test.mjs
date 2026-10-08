@@ -169,3 +169,9 @@ test('trigger and helper entry points are documented', () => {
   assert.match(authoring, /export function webhook\(name: string, filter\?: WebhookFilter\): WebhookTriggerSource;/);
   assert.match(authoring, /cron\(expression: string, options\?: ScheduleCronOptions\): ScheduleTriggerSource;/);
 });
+test('in-package re-exports are declared, never pointed at by a source path', () => {
+  // A relative path written into the shipped AUTHORING.md resolves to nothing.
+  assert.doesNotMatch(authoring, /export type \{ \w+ \} from ["']\./);
+  assert.match(authoring, /export type SlackBlock = /);
+  assert.match(authoring, /export type SlackAttachment = /);
+});

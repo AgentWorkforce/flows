@@ -826,11 +826,12 @@ export interface JournalStep {
 ### SlackBlock
 
 ```ts
-export type { SlackBlock } from "./helpers/slack.js";
+/** Generated from the pinned Slack OpenAPI fragments in scripts/slack-message-schema.json. */
+export type SlackBlock = { type: string; [key: string]: unknown; };
 ```
 
 ### SlackAttachment
 
 ```ts
-export type { SlackAttachment } from "./helpers/slack.js";
+export type SlackAttachment = { [key: string]: unknown; };
 ```

@@ -79,21 +79,32 @@ function referencedDeclarations(rendered, exports, seeds = []) {
     done.add(name);
     const module = modules.get(name);
     if (module === undefined || !module.startsWith('.')) continue;
-    const file = source(resolve(root, 'packages/surface/src', module.replace(/\.js$/, '.ts')));
-    let text;
-    try { text = declarationText(file, name); }
-    catch {
-      // Re-exported from a dependency (ai-hist's HistoryEntry, ...): name it, do not copy it.
-      const external = file.statements.find(node => ts.isExportDeclaration(node) && node.moduleSpecifier
-        && node.exportClause && ts.isNamedExports(node.exportClause) && node.exportClause.elements.some(item => item.name.text === name));
-      if (!external) throw new Error(`${file.fileName}: missing declaration ${name}`);
-      text = `export type { ${name} } from ${external.moduleSpecifier.getText(file)};`;
-    }
+    const text = declarationOf(resolve(root, 'packages/surface/src', module.replace(/\.js$/, '.ts')), name);
     out += `### ${name}\n\n${fence(text)}\n`;
     body += `\n${text}`;
     queue.push(...typeReferences(text));
   }
   return out;
+}
+
+/**
+ * The declaration of `name` in `path`, following in-package re-exports to the
+ * declaring file. A dependency's type is named, not copied: its source is not
+ * part of this package.
+ */
+function declarationOf(path, name, seen = new Set()) {
+  if (seen.has(path)) throw new Error(`${path}: cyclic re-export of ${name}`);
+  seen.add(path);
+  const file = source(path);
+  if (file.statements.some(node => node.name?.text === name)) return declarationText(file, name);
+  const reexport = file.statements.find(node => ts.isExportDeclaration(node) && node.moduleSpecifier
+    && node.exportClause && ts.isNamedExports(node.exportClause) && node.exportClause.elements.some(item => item.name.text === name));
+  if (!reexport) throw new Error(`${path}: missing declaration ${name}`);
+  const item = reexport.exportClause.elements.find(element => element.name.text === name);
+  const original = item.propertyName?.text ?? name;
+  const target = reexport.moduleSpecifier.text;
+  if (target.startsWith('.')) return declarationOf(resolve(dirname(path), target.replace(/\.js$/, '.ts')), original, seen);
+  return `export type { ${name} } from ${JSON.stringify(target)};`;
 }
 
 export function cliReference() {
