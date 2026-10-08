@@ -117,7 +117,12 @@ function boundLocally(node: AstNode, name: string, parents: WeakMap<AstNode, Ast
 /** Prototype machinery, eval or Function: anything that lets the body intercept or hide a helper use. */
 function reachesMachinery(node: AstNode, parents: WeakMap<AstNode, AstNode>): boolean {
   // memberName also reads string-literal computed keys (Object['prototype']).
-  if (node.type === 'MemberExpression' && PROTOTYPE_MACHINERY.has(memberName(node) ?? '')) return true;
+  if (node.type === 'MemberExpression' && PROTOTYPE_MACHINERY.has(memberName(node) ?? '')) {
+    // A class or function the body defines has its own prototype, which cannot
+    // reach the helper: Local.prototype.flag = true is not machinery.
+    const object = node.object as AstNode | undefined;
+    return !(memberName(node) === 'prototype' && object?.type === 'Identifier' && ownConstructor(object, parents));
+  }
   // A prototype-bearing global is safe only as the object of a static,
   // non-machinery member (Object.keys, Symbol.iterator). Aliasing it, passing
   // it, destructuring it or indexing it with a runtime key can reach the
@@ -153,6 +158,43 @@ function reachesMachinery(node: AstNode, parents: WeakMap<AstNode, AstNode>): bo
     if ((node.name === 'eval' || node.name === 'Function')
       && !((parent?.type === 'CallExpression' || parent?.type === 'NewExpression') && parent.callee === node)) return false;
     return !boundLocally(node, node.name!, parents);
+  }
+  return false;
+}
+
+/** Whether `node` names a class or function the body itself defines, in an enclosing scope. */
+function ownConstructor(node: AstNode, parents: WeakMap<AstNode, AstNode>): boolean {
+  const name = node.name!;
+  // Class and function bindings are reassignable; one that is reassigned
+  // anywhere could hold any constructor.
+  let program: AstNode = node;
+  for (let at = parents.get(node); at !== undefined; at = parents.get(at)) program = at;
+  if (reassigns(program, name)) return false;
+  const constructs = (value: AstNode | undefined) => value?.type === 'ClassExpression' || value?.type === 'FunctionExpression';
+  for (let scope = parents.get(node); scope !== undefined; scope = parents.get(scope)) {
+    const statements = scope.type === 'BlockStatement' || scope.type === 'Program' ? scope.body as AstNode[] : [];
+    for (const statement of statements) {
+      if ((statement.type === 'ClassDeclaration' || statement.type === 'FunctionDeclaration')
+        && (statement.id as AstNode | undefined)?.name === name) return true;
+      if (statement.type === 'VariableDeclaration' && statement.kind === 'const') {
+        for (const declarator of statement.declarations as AstNode[]) {
+          if ((declarator.id as AstNode).type === 'Identifier' && (declarator.id as AstNode).name === name) return constructs(declarator.init as AstNode | undefined);
+        }
+      }
+    }
+    if (scopeBindings(scope).has(name)) return false; // bound here to something else
+  }
+  return false;
+}
+
+/** Whether any assignment or update anywhere under `node` targets the identifier `name`. */
+function reassigns(node: AstNode, name: string): boolean {
+  if ((node.type === 'AssignmentExpression' && (node.left as AstNode).type === 'Identifier' && (node.left as AstNode).name === name)
+    || (node.type === 'UpdateExpression' && (node.argument as AstNode).type === 'Identifier' && (node.argument as AstNode).name === name)) return true;
+  for (const key of Object.keys(node)) {
+    if (key === 'type' || key === 'start' || key === 'end' || key === 'loc') continue;
+    const child = node[key];
+    for (const entry of Array.isArray(child) ? child : [child]) if (isNode(entry) && reassigns(entry, name)) return true;
   }
   return false;
 }

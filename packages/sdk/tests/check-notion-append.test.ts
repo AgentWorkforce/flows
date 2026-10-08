@@ -328,3 +328,18 @@ it('allows static non-machinery members of those globals', async () => {
   const result = await check(fixture('const keys = Object.keys({ a: 1 }); const it = Symbol.iterator; await f.notion.createPage({ parent: "p", title: String(keys.length) + String(typeof it) });', '{ tools: { notion: true } },'));
   expect(result.exit).toBe(0);
 });
+it.each([
+  ['a local class', 'class Local {} Local.prototype.flag = true; await f.notion.createPage({ parent: "p", title: "t" });'],
+  ['a local function', 'function Thing() {} Thing.prototype.kind = "x"; const Other = class {}; Other.prototype.k = 1; await f.notion.createPage({ parent: "p", title: "t" });'],
+])('allows the prototype of %s the body defines', async (_shape, body) => {
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(0);
+});
+it('still refuses a prototype reached through a constructor property', async () => {
+  const result = await check(fixture('const C = ({}).constructor; C.prototype.hook = 1; await f.notion.createPage({ parent: "p", title: "t" });', '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+});
+it('refuses a local constructor name that is later reassigned', async () => {
+  const result = await check(fixture('class Local {} Local = ({}).constructor; Local.prototype.hook = 1; await f.notion.createPage({ parent: "p", title: "t" });', '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+});
