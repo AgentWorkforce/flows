@@ -123,3 +123,13 @@ it('leaves a retried attempt whose history read was interrupted to the kernel', 
   expect(isReadInterruptionError(error)).toBe(true);
   expect(f.client.stepComplete).not.toHaveBeenCalled();
 });
+it('scopes the attempt history reads to its lease and releases them after', async () => {
+  const f = fixture();
+  const release = vi.fn();
+  const scopeReads = vi.fn((_signal: AbortSignal) => release);
+  (f.client as unknown as { scopeReads: typeof scopeReads }).scopeReads = scopeReads;
+  await f.execute();
+  expect(scopeReads).toHaveBeenCalledTimes(1);
+  expect(scopeReads.mock.calls[0]![0]).toBeInstanceOf(AbortSignal);
+  expect(release).toHaveBeenCalledTimes(1);
+});

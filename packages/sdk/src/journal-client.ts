@@ -94,6 +94,11 @@ export class JournalClient extends JournalConnection {
     return this.budgeted?.scope(signal) ?? (() => {});
   }
 
+  /** End every budgeted read now and refuse later ones; the session itself stays open. */
+  cancelReads(): void {
+    this.budgeted?.close(new Error('journal client: reads canceled'));
+  }
+
   // --- Typed verb methods (gate 1 minimal set, kernel DESIGN.md §5) --------
 
   /** Handshake; version mismatch is a hard error. Records the daemon's additive features. */

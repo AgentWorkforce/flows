@@ -340,3 +340,15 @@ it('canceling a read during reader setup frees the queue for the next read at on
   await expect(client.runGet('run')).resolves.toMatchObject({ status: 'running' });
   expect(performance.now() - begun).toBeLessThan(2_000);
 });
+
+it('cancelReads ends in-flight budgeted reads at once, ahead of a draining shutdown', async () => {
+  let entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const client = await setup({ 'journal.read': () => entered() }, 60_000);
+  const pending = client.journalRead('run', 1);
+  await started;
+  const begun = performance.now();
+  client.cancelReads();
+  await expect(pending).rejects.toThrow();
+  expect(performance.now() - begun).toBeLessThan(40);
+});

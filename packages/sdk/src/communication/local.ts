@@ -19,6 +19,9 @@ export async function attachCommunicationWorkers(spec: KernelRunSpec, socketPath
   let failure: unknown;
   const close = async () => {
     const outcomes = await Promise.allSettled(workers.map(async ({ client, worker }) => {
+      // Stop budgeted reads first: draining the worker must not wait out a
+      // delayed history read on shutdown.
+      client.cancelReads();
       try { await worker.close(); } finally { client.close(); }
     }));
     const rejected = outcomes.find(result => result.status === 'rejected');
