@@ -92,3 +92,19 @@ it('uses the proved identity for a canonical generic communication executable', 
     }),
   }));
 });
+it('leaves a heartbeat-lost attempt to the kernel instead of completing it as worker_error', async () => {
+  const { JournalRequestTimeoutError } = await import('../src/journal-client.js');
+  const { isLeaseLost } = await import('../src/worker-lease.js');
+  mocks.spawn.mockImplementation(async () => ({ name: 'managed-agent', generation: 'generation', release: mocks.release, waitForReady: mocks.ready }));
+  const f = fixture();
+  f.client.stepHeartbeat.mockImplementation(async () => { throw new JournalRequestTimeoutError('step.heartbeat', 10); });
+  (f as unknown as { client: { stepHeartbeat: unknown } }).client.stepHeartbeat = f.client.stepHeartbeat;
+  const dispatchDeadline = Date.now() + 200;
+  const error = await completeCommunicationDispatch(f.client as unknown as JournalClient, {
+    run_id: 'run', step_id: 'agent', attempt: 1, idempotency_key: 'key', pins: {}, lease_id: 'lease',
+    lease_deadline_ms: dispatchDeadline, spec: { type: 'agent', cli: 'claude', instruction: '' },
+  } as StepDispatchEvent, { type: 'relayflows.communication.v1', instruction: 'test', incoming: ['peer'], outgoing: [], timeoutMs: 60_000 },
+  '/tmp/data').catch(caught => caught);
+  expect(isLeaseLost(error)).toBe(true);
+  expect(f.client.stepComplete).not.toHaveBeenCalled();
+});
