@@ -28,7 +28,11 @@ export function preflightHelpers(
   const appendsNotionBlock = uses === undefined
     ? /\.\s*appendBlock\b/.test(body)
     : uses.methods.has('notion.appendBlock') || uses.methods.has('notion.*')
-      || ((uses.escaped.has('notion') || uses.escaped.has('*')) && (uses.members.has('appendBlock') || uses.members.has('*')));
+      // Once f.notion escapes, any appendBlock the body names — a member, a
+      // computed access, or the string itself (Reflect.get, obj['appendBlock'])
+      // — may reach it. A name assembled at runtime still refuses at execution.
+      || ((uses.escaped.has('notion') || uses.escaped.has('*'))
+        && (uses.members.has('appendBlock') || uses.members.has('*') || /appendBlock/.test(body)));
   for (const { provider, namespace, supported } of helperProviders) {
     const used = definition.header?.tools?.[namespace] === true
       || referenced.has(namespace);

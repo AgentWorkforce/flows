@@ -365,3 +365,11 @@ it.each(['test.flow.mjs', 'test.flow.js'])('never prompts to connect integration
   expect(prompt).not.toHaveBeenCalled();
   expect(fetch).not.toHaveBeenCalled();
 });
+it.each([
+  ['Reflect.get', 'await Reflect.get(f.notion, "appendBlock")("page", {});'],
+  ['a string-keyed alias', 'const n = f.notion; await n["appendBlock"]("page", {});'],
+])('keeps refusing f.notion.appendBlock reached through %s', async (_shape, body) => {
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+  expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
+});
