@@ -118,6 +118,13 @@ function boundLocally(node: AstNode, name: string, parents: WeakMap<AstNode, Ast
 function reachesMachinery(node: AstNode, parents: WeakMap<AstNode, AstNode>): boolean {
   // memberName also reads string-literal computed keys (Object['prototype']).
   if (node.type === 'MemberExpression' && PROTOTYPE_MACHINERY.has(memberName(node) ?? '')) return true;
+  // Destructuring reads the same members: const { prototype: p } = Object.
+  if (node.type === 'Property' && parents.get(node)?.type === 'ObjectPattern') {
+    const key = node.key as AstNode | undefined;
+    const name = key?.type === 'Identifier' && node.computed !== true ? key.name
+      : key?.type === 'Literal' && typeof key.value === 'string' ? key.value : undefined;
+    if (name !== undefined && PROTOTYPE_MACHINERY.has(name)) return true;
+  }
   if (node.type === 'Identifier' && ['Reflect', 'Proxy', 'eval', 'Function'].includes(node.name!)) {
     const parent = parents.get(node);
     if (parent !== undefined && declares(parent, node)) return false;

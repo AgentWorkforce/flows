@@ -263,8 +263,10 @@ export function checkAuthoredFlow(
     const workerSurface = invocation.warnUnresolvedAgentWorker === true
       ? agentWorkerDiagnostics(authoring)
       : [];
+    // A flow inspected past a missing helper mount is still a compiled spec the
+    // daemon must judge; skipping it would let a downgraded warning pass the gate.
     const daemon = invocation.daemonValidation === undefined ? undefined
-      : result.ok && flow !== undefined
+      : (result.ok || inspectOnly) && flow !== undefined
         ? validateSpecWithDaemon(flow, invocation.daemonValidation, invocation.daemonValidationDeps)
         : { validation: { mode: 'local' as const, reason: 'not_reached' as const }, diagnostics: [] };
     if (daemon?.diagnostics.some(d => d.severity === 'refusal')) result.ok = false;

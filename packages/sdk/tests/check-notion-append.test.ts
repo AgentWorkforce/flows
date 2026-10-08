@@ -298,3 +298,8 @@ it('a parameter named Function in one function does not hide new Function elsewh
   const result = await check(fixture('function wrap(Function) { return Function; } wrap(1); await new Function("n", "return n.appendBlock(\'p\', {})")(globalThis.helper);', '{ tools: { notion: true } },'));
   expect(result.exit).toBe(2);
 });
+it('refuses prototype machinery reached through destructuring', async () => {
+  const body = 'let held; const { prototype: p } = Object; const { toPrimitive: t } = Symbol; p[t] = function () { held = this; return ""; }; const s = `${f.notion}`; await held.appendBlock("p", {});';
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+});

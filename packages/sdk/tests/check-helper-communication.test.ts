@@ -76,3 +76,19 @@ it('authored TS helpers keep their provider-specific mock remedy', () => {
     message: 'f.linear requires a relayfile linear mount; direct-token transport is not implemented.' }]);
   expect(diagnostics[0]?.message).toContain('RELAYFLOWS_LINEAR_MOCK=1');
 });
+
+it('runs required daemon validation for a flow inspected past a missing helper mount', async () => {
+  const { checkAuthoredFlow } = await import('../src/cli/check.js');
+  const dir = mkdtempSync(join(tmpdir(), 'helper-daemon-'));
+  directories.push(dir);
+  const cli = join(dir, 'codex');
+  writeFileSync(cli, '#!/bin/sh\nexit 0\n');
+  chmodSync(cli, 0o755);
+  const spec = { version: '0.1.0', cli, steps: [{ id: 'notify', slack: { post: { channel: '#c', text: 'hi' } } }] } as unknown as FlowSpec;
+  const run = vi.fn(() => ({ status: 2, stdout: JSON.stringify({ ok: false, error: { code: 'invalid_spec', message: 'daemon says no' } }), stderr: '' }));
+  const report = checkAuthoredFlow(spec, join(dir, 'flow.yaml'), { projectConfig: { directory: dir, models: [], executors: [] } },
+    { warnUnresolvedHelperCredential: true, daemonValidation: 'required', daemonValidationDeps: { resolveBinary: () => '/stub/relayflowd', run } }).report;
+  expect(run).toHaveBeenCalled();
+  expect(report.ok).toBe(false);
+  expect(report.validation?.reason).not.toBe('not_reached');
+});
