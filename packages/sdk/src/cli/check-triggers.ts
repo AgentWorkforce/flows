@@ -7,16 +7,19 @@ import { scheduleLowering } from '../schedule-trigger.js';
 import { checkSlackHelpers } from '../slack-preflight.js';
 import { flowRequirements, mergeFlowExtensionRequirements } from '../flow-requirements.js';
 import { PluginError } from '../plugin-manifest.js';
-import { inputFailureReport, readProjectConfig, type CheckReport } from './check.js';
+import { inputFailureReport, readProjectConfig, type CheckInvocation, type CheckReport } from './check.js';
+
+import { helperCredentialDiagnostics } from './check-helper-surface.js';
 
 /**
  * Inspect an authored flow without running a handler or contacting the daemon.
  * Combines the two authored-only preflight paths that share a loaded flow: the
  * webhook-trigger check (E) and the f.slack helper check (B). Skipping either
  * turned this into a silent trapdoor -- a `.flow.ts` using `f.slack.post`
- * without a token would pass `flows check` and only crash at run.
+ * without a mount would silently pass inspection. Check may opt into a
+ * warning; local run keeps the default refusal before daemon attachment.
  */
-export async function checkAuthoredTriggers(path: string): Promise<{
+export async function checkAuthoredTriggers(path: string, invocation: CheckInvocation = {}): Promise<{
   report: CheckReport;
   loaded?: LoadedAuthoredFlow;
 }> {
@@ -33,8 +36,10 @@ export async function checkAuthoredTriggers(path: string): Promise<{
     // refused there, on the first real event.
     const providerDiagnostics = preflightProviderTriggers(triggers);
     const helperReport = checkSlackHelpers(definition);
+    const helperDiagnostics = invocation.warnUnresolvedHelperCredential === true
+      ? helperCredentialDiagnostics(helperReport.diagnostics).diagnostics : helperReport.diagnostics;
     const diagnostics = [
-      ...triggerDiagnostics, ...providerDiagnostics, ...helperReport.diagnostics,
+      ...triggerDiagnostics, ...providerDiagnostics, ...helperDiagnostics,
     ];
     // A schedule is inspectable data: print what it lowers to, and say plainly
     // when the local runner cannot drive it. Neither is a refusal — Cloud can.

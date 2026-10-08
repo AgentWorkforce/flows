@@ -1,13 +1,19 @@
 import { loadAuthoredFlow } from '../authored-flow-loader.js';
 import { PluginError } from '../plugin-manifest.js';
 import { checkSlackHelpers } from '../slack-preflight.js';
-import { inputFailureReport, type CheckExecution } from './check.js';
+import { inputFailureReport, type CheckInvocation, type CheckExecution } from './check.js';
+
+import { helperCredentialDiagnostics } from './check-helper-surface.js';
 
 /** Imports the definition, but never executes arbitrary authored body code. */
-export async function checkHelperBody(path: string): Promise<CheckExecution> {
+export async function checkHelperBody(path: string, invocation: CheckInvocation = {}): Promise<CheckExecution> {
   try {
     const { handle, getDefinition } = await loadAuthoredFlow(path);
-    return { report: { ...checkSlackHelpers(getDefinition(handle)), path } };
+    const report = checkSlackHelpers(getDefinition(handle));
+    const diagnostics = invocation.warnUnresolvedHelperCredential === true
+      ? helperCredentialDiagnostics(report.diagnostics).diagnostics : report.diagnostics;
+    return { report: { ...report, path, diagnostics,
+      ok: !diagnostics.some(diagnostic => diagnostic.severity === 'refusal') } };
   } catch (error) {
     if (error instanceof PluginError) {
       return { report: inputFailureReport({ kind: error.code, message: error.message }, path) };

@@ -1,0 +1,5 @@
+$ env -u SLACK_BOT_TOKEN -u RELAYFLOWS_SLACK_MOCK -u RELAYFILE_MOUNT_PATH -u WORKSPACE_ROOT -u WORKFORCE_SANDBOX_ROOT -u RELAYFILE_MOUNT_ROOT -u RELAYFILE_ROOT node packages/sdk/dist/cli.js run examples/stale-issues/stale-issues.flow.ts --input '{"repo":"acme/api","channel":"#eng"}'
+(node:15007) Warning: Failed to load the ES module: /home/daytona/.relayflow-v2-supervisor/durable/repository/examples/stale-issues/stale-issues.flow.ts. Make sure to set "type": "module" in the nearest package.json file or use the .mjs extension.
+(Use `node --trace-warnings ...` to show where the warning was created)
+REFUSED [invalid_spec] Flow "/home/daytona/.relayflow-v2-supervisor/durable/repository/examples/stale-issues/stale-issues.flow.ts" could not be imported: Cannot use import statement outside a module
+exit=2

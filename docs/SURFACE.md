@@ -1414,6 +1414,13 @@ because it is a footnote to that line. It never refuses, and it is scoped to
 `.flow.ts` is checked through its header without compiling step bodies, so it
 has no agent steps to count.
 
+Missing local helper mounts similarly produce `helper_credential_unresolved`
+on `flows check`, after `REQUIRES` and before the result. Cloud submission
+(`schedule`, `deploy`, `run --cloud`) checks the workspace integration and
+refuses if Cloud cannot connect it. Local `run` still requires a mount or the
+provider's mock mode. Unsupported helper operations remain refusals.
+Non-`.flow.*` authored modules also warn, but have no `REQUIRES` line.
+
 `flows check --watch` checks once, then watches the target, its reachable
 relative `use:` imports, and the nearest `flows.json` walking up from the
 flow directory. Saves are debounced for 150 ms; a change during a check

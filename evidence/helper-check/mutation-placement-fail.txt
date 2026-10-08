@@ -1,0 +1,29 @@
+$ npx vitest run tests/check-helper-surface.test.ts -t reports the declared integration once
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/check-helper-surface.test.ts (11 tests | 1 failed | 10 skipped) 542ms
+   × reports the declared integration once after REQUIRES and before CHECK PASSED 541ms
+     → expected 0 to be greater than 1
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/check-helper-surface.test.ts > reports the declared integration once after REQUIRES and before CHECK PASSED
+AssertionError: expected 0 to be greater than 1
+ ❯ tests/check-helper-surface.test.ts:57:19
+     55|   const passed = result.lines.findIndex(line => line.includes('CHECK P…
+     56|   expect(requires).toBeGreaterThanOrEqual(0);
+     57|   expect(warning).toBeGreaterThan(requires);
+       |                   ^
+     58|   expect(passed).toBeGreaterThan(warning);
+     59|   expect(result.stderr.filter(line => line.includes('[helper_credentia…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 10 skipped (11)
+   Start at  13:39:05
+   Duration  2.45s (transform 1.09s, setup 16ms, collect 1.70s, tests 542ms, environment 0ms, prepare 42ms)
+
+
+exit=1

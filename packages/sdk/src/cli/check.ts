@@ -6,6 +6,7 @@ import { accessSync, constants, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, parse as parsePath, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { CompileError, compileSpec, kernelToAuthoring } from '../compile.js';
+import { helperCredentialDiagnostics } from './check-helper-surface.js';
 import { agentWorkerDiagnostics } from './check-worker-surface.js';
 import { helperReady } from '../yaml-helper-effect.js';
 import { flowRequirements, type FlowRequirements } from '../flow-requirements.js';
@@ -127,6 +128,8 @@ type CliProbeOutcomeMap = Map<string, CliProbeOutcome>;
  * anything that depends on how the flow is about to be invoked opts in here.
  */
 export interface CheckInvocation {
+  /** Only flows check opts into reporting missing local helper mounts as warnings. */
+  warnUnresolvedHelperCredential?: boolean;
   daemonValidation?: DaemonValidationMode;
   daemonValidationDeps?: DaemonValidationDeps;
   /** Environment used only by provider executable/auth/model probes. */
@@ -183,7 +186,10 @@ export function checkFlow(path: string, invocation: CheckInvocation = {}): Check
 /** Requirements never turn a preflight refusal into an unrelated exception. */
 function safeRequirements(authoring: FlowSpec, projectCli: string | undefined): FlowRequirements | undefined {
   try {
-    return flowRequirements(authoring, projectCli === undefined ? {} : { projectCli });
+    let requirementsSpec = authoring;
+    try { requirementsSpec = compileSpec(authoring); }
+    catch { /* Preserve requirements from invalid authoring; preflight owns its refusal. */ }
+    return flowRequirements(requirementsSpec, projectCli === undefined ? {} : { projectCli });
   } catch {
     return undefined;
   }
@@ -224,7 +230,14 @@ export function checkAuthoredFlow(
       ...(config.modelRegistryPath !== undefined ? { modelRegistryPath: config.modelRegistryPath } : {}),
       probes,
     });
-    const flow = result.ok
+    // check may restate a missing local helper mount as a warning. When that is
+    // the only refusal, still compile the flow so the communication checks
+    // below run: they must not depend on whether a helper is mounted. The
+    // compiled flow is returned only when preflight itself admitted it.
+    const inspectOnly = !result.ok && invocation.warnUnresolvedHelperCredential === true
+      && !helperCredentialDiagnostics(result.diagnostics).diagnostics
+        .some(diagnostic => diagnostic.severity === 'refusal');
+    const flow = result.ok || inspectOnly
       ? bindResolvedCliPaths(
           compileSpec(authoring),
           result.resolutions,
@@ -250,20 +263,25 @@ export function checkAuthoredFlow(
     const workerSurface = invocation.warnUnresolvedAgentWorker === true
       ? agentWorkerDiagnostics(authoring)
       : [];
+    // A flow inspected past a missing helper mount is still a compiled spec the
+    // daemon must judge; skipping it would let a downgraded warning pass the gate.
     const daemon = invocation.daemonValidation === undefined ? undefined
-      : result.ok && flow !== undefined
+      : (result.ok || inspectOnly) && flow !== undefined
         ? validateSpecWithDaemon(flow, invocation.daemonValidation, invocation.daemonValidationDeps)
         : { validation: { mode: 'local' as const, reason: 'not_reached' as const }, diagnostics: [] };
     if (daemon?.diagnostics.some(d => d.severity === 'refusal')) result.ok = false;
+    const diagnostics = invocation.warnUnresolvedHelperCredential === true
+      ? helperCredentialDiagnostics(result.diagnostics).diagnostics : result.diagnostics;
     return {
       report: {
         ...(daemon === undefined ? {} : { validation: daemon.validation }),
-        ok: result.ok,
+        ok: !diagnostics.some(diagnostic => diagnostic.severity === 'refusal')
+          && !(daemon?.diagnostics.some(diagnostic => diagnostic.severity === 'refusal') ?? false),
         path,
         ...(config.path !== undefined ? { projectConfigPath: config.path } : {}),
         gates: result.gates,
         resolutions: result.resolutions,
-        diagnostics: [...result.diagnostics, ...workerSurface, ...(daemon?.diagnostics ?? [])],
+        diagnostics: [...diagnostics, ...workerSurface, ...(daemon?.diagnostics ?? [])],
         requirements: safeRequirements(authoring, config.cli),
       },
       ...(result.ok && flow !== undefined ? { flow } : {}),

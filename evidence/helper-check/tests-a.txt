@@ -1,0 +1,12 @@
+$ cd packages/sdk && npx vitest run tests/check-helper-surface.test.ts
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/check-helper-surface.test.ts (11 tests) 2144ms
+   ✓ reports the declared integration once after REQUIRES and before CHECK PASSED 587ms
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  13:39:04
+   Duration  3.97s (transform 1.09s, setup 20ms, collect 1.63s, tests 2.14s, environment 0ms, prepare 42ms)
+
