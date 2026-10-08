@@ -302,3 +302,17 @@ it('an unexpected primary disconnect aborts in-flight reads with a typed read in
   const error = await client.runGet('run').catch(caught => caught);
   expect(isReadInterruptionError(error)).toBe(true);
 });
+
+it('a read started after the primary dropped is still a typed read interruption', async () => {
+  let primary: { destroy(): void } | undefined;
+  const client = await setup({
+    'stream.append': ctx => { primary = ctx.socket; sendResult(ctx, { seq: 1 }); },
+    'run.get': ctx => sendResult(ctx, { status: 'running' }),
+  }, 60_000);
+  await client.streamAppend('run', 'stream', {});
+  const dropped = new Promise<void>(resolve => client.once('disconnected', () => resolve()));
+  primary?.destroy();
+  await dropped;
+  const error = await client.runGet('run').catch(caught => caught);
+  expect(isReadInterruptionError(error)).toBe(true);
+});

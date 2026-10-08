@@ -221,7 +221,9 @@ export class JournalClient extends EventEmitter {
 
   private request<V extends keyof VerbContract>(verb: V, params: VerbContract[V]['params'],
     timeoutMs: number | null = this.requestTimeoutMs, signal?: AbortSignal): Promise<VerbContract[V]['result']> {
-    if (this.budgeted !== undefined && this.socket && !this.socket.destroyed && timeoutMs !== null && READ_ONLY_VERBS.has(verb)) {
+    // Every allowlisted read takes the policy, even after the primary dropped: its
+    // closed state then answers with the typed interruption recorded at the drop.
+    if (this.budgeted !== undefined && timeoutMs !== null && READ_ONLY_VERBS.has(verb)) {
       return this.budgeted.read(verb, params, timeoutMs, signal);
     }
     return this.requestOnce(verb, params, timeoutMs, signal);

@@ -17,6 +17,15 @@ import type { RunOutcome, StepDispatchEvent } from '../src/protocol.js';
 import { AuthoredFlowExecutionError, AuthoredHumanParked } from '../src/authored-flow-error.js';
 import { JournalReadInterruptedError } from '../src/journal-read-policy.js';
 
+const nodeRunner = vi.hoisted(() => ({ override: undefined as undefined | ((...args: unknown[]) => Promise<unknown>) }));
+vi.mock('../src/authored-node-runner.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('../src/authored-node-runner.js')>();
+  return { ...actual,
+    assertAuthoredRuntimeAvailable: () => { if (nodeRunner.override === undefined) actual.assertAuthoredRuntimeAvailable(); },
+    runAuthoredInNode: (...args: Parameters<typeof actual.runAuthoredInNode>) =>
+      nodeRunner.override !== undefined ? nodeRunner.override(...args) : actual.runAuthoredInNode(...args) };
+});
+
 vi.mock('../src/authored-flow-loader.js', async importOriginal => ({
   ...await importOriginal<typeof import('../src/authored-flow-loader.js')>(),
   loadAuthoredFlow: vi.fn(),
@@ -464,6 +473,28 @@ describe('durable authored root', () => {
     await expect(readAuthoredRootMetadata(interrupted as unknown as JournalClient, 'run')).rejects.toBeInstanceOf(JournalRequestTimeoutError);
     const plain = { journalRead: async () => ({ entries: [] }) };
     await expect(readAuthoredRootMetadata(plain as unknown as JournalClient, 'run')).resolves.toBeUndefined();
+  });
+
+  it('keeps the lease read scope for the whole Bun-run attempt', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    const release = vi.fn();
+    (journal as unknown as { scopeReads: (signal: AbortSignal) => () => void }).scopeReads = () => release;
+    let finish!: (value: unknown) => void;
+    nodeRunner.override = () => new Promise(resolve => { finish = resolve; });
+    Object.defineProperty(process.versions, 'bun', { value: '1.4.0', configurable: true });
+    try {
+      const execution = executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+        { dataDir: '/unused', admissionKey: 'bun-scope' }).catch(() => undefined);
+      await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+      expect(release).not.toHaveBeenCalled(); // the child is still running
+      finish({ name: 'f', completionReason: 'success', journalSteps: [] });
+      await execution;
+      expect(release).toHaveBeenCalledTimes(1);
+    } finally {
+      delete (process.versions as Record<string, string | undefined>)['bun'];
+      nodeRunner.override = undefined;
+    }
   });
 
   it('terminalizes a returned body failure without replaying semantic side effects', async () => {

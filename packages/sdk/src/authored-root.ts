@@ -332,7 +332,8 @@ async function driveRoot(
         const callerSignal = options.lifecycle?.signal;
         const signal = callerSignal === undefined ? rootSignal : AbortSignal.any([callerSignal, rootSignal]);
         if (process.versions['bun'] !== undefined) {
-          return runAuthoredInNode(metadata, journal.socketPath, dispatch.run_id, {
+          // Awaited, so the read scope below covers the child's whole run.
+          return await runAuthoredInNode(metadata, journal.socketPath, dispatch.run_id, {
             dataDir: options.dataDir, localAgentStream: options.localAgentStream,
             ...(options.agentEnvironment === undefined ? {} : {
               agentEnvironment: localAgentCredentialEnvironment(options.agentEnvironment),

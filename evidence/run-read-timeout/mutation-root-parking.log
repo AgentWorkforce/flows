@@ -1,5 +1,5 @@
 Source: packages/sdk/src/authored-root.ts
-Original SHA256: 8ab20a03c6def62800d2ef8a49932ec616a3b1c1fcd48c4aff9fa80437bcb35c
+Original SHA256: 4dc10394dadeada752ce12bd86fbbdfb1c231d92902a9aa912ce8ba7fb57c914
 Replaced:
     if (isReadInterruptionError(error)
       || (error instanceof AuthoredFlowExecutionError && error.code === 'daemon_unresponsive')) {
@@ -17,14 +17,14 @@ $ cd packages/sdk && npx vitest run tests/authored-root.test.ts -t 'leaves the r
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/authored-root.test.ts (30 tests | 3 failed | 27 skipped) 32ms
-   × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=false) 22ms
+ ❯ tests/authored-root.test.ts (31 tests | 3 failed | 28 skipped) 26ms
+   × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=false) 18ms
      → expected JournalRequestTimeoutError: journal clien… { …(5) } to match object { code: 'daemon_unresponsive', …(2) }
 (6 matching properties omitted from actual)
    × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=true) 4ms
      → expected AuthoredFlowExecutionError: daemon_unresp… { …(7) } to match object { code: 'daemon_unresponsive', …(2) }
 (6 matching properties omitted from actual)
-   × durable authored root > leaves the root resumable when the read session disconnects while the root worker is healthy 4ms
+   × durable authored root > leaves the root resumable when the read session disconnects while the root worker is healthy 3ms
      → expected JournalReadInterruptedError: journal clie… { …(4) } to match object { code: 'daemon_unresponsive', …(2) }
 (5 matching properties omitted from actual)
 
@@ -44,13 +44,13 @@ AssertionError: expected JournalRequestTimeoutError: journal clien… { …(5) }
 - }
 + [JournalRequestTimeoutError: journal client: run.get timed out after 10ms]
 
- ❯ tests/authored-root.test.ts:415:5
-    413|     });
-    414|     const journal = new RootJournal();
-    415|     await expect(executeDurableAuthoredFlow(loaded, journal as unknown…
+ ❯ tests/authored-root.test.ts:424:5
+    422|     });
+    423|     const journal = new RootJournal();
+    424|     await expect(executeDurableAuthoredFlow(loaded, journal as unknown…
        |     ^
-    416|       { dataDir: '/unused', admissionKey: 'read-timeout' })).rejects.t…
-    417|         code: 'daemon_unresponsive', rootRunId: 'root-run', message: e…
+    425|       { dataDir: '/unused', admissionKey: 'read-timeout' })).rejects.t…
+    426|         code: 'daemon_unresponsive', rootRunId: 'root-run', message: e…
 
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
 
@@ -68,13 +68,13 @@ AssertionError: expected AuthoredFlowExecutionError: daemon_unresp… { …(7) }
     "rootRunId": "root-run",
   }
 
- ❯ tests/authored-root.test.ts:415:5
-    413|     });
-    414|     const journal = new RootJournal();
-    415|     await expect(executeDurableAuthoredFlow(loaded, journal as unknown…
+ ❯ tests/authored-root.test.ts:424:5
+    422|     });
+    423|     const journal = new RootJournal();
+    424|     await expect(executeDurableAuthoredFlow(loaded, journal as unknown…
        |     ^
-    416|       { dataDir: '/unused', admissionKey: 'read-timeout' })).rejects.t…
-    417|         code: 'daemon_unresponsive', rootRunId: 'root-run', message: e…
+    425|       { dataDir: '/unused', admissionKey: 'read-timeout' })).rejects.t…
+    426|         code: 'daemon_unresponsive', rootRunId: 'root-run', message: e…
 
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
 
@@ -92,33 +92,33 @@ AssertionError: expected JournalReadInterruptedError: journal clie… { …(4) }
 - }
 + [JournalReadInterruptedError: journal client: run.get read session was interrupted after 2 attempts in 40ms (read budget 300000ms): journal client: connection closed]
 
- ❯ tests/authored-root.test.ts:428:5
-    426|     const loaded = await fixture(false, 0, async () => { throw interru…
-    427|     const journal = new RootJournal();
-    428|     await expect(executeDurableAuthoredFlow(loaded, journal as unknown…
+ ❯ tests/authored-root.test.ts:437:5
+    435|     const loaded = await fixture(false, 0, async () => { throw interru…
+    436|     const journal = new RootJournal();
+    437|     await expect(executeDurableAuthoredFlow(loaded, journal as unknown…
        |     ^
-    429|       { dataDir: '/unused', admissionKey: 'read-disconnect' })).reject…
-    430|         code: 'daemon_unresponsive', rootRunId: 'root-run', message: e…
+    438|       { dataDir: '/unused', admissionKey: 'read-disconnect' })).reject…
+    439|         code: 'daemon_unresponsive', rootRunId: 'root-run', message: e…
 
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
 
  Test Files  1 failed (1)
-      Tests  3 failed | 27 skipped (30)
-   Start at  03:35:51
-   Duration  1.29s (transform 661ms, setup 15ms, collect 1.10s, tests 32ms, environment 0ms, prepare 40ms)
+      Tests  3 failed | 28 skipped (31)
+   Start at  03:46:05
+   Duration  1.55s (transform 830ms, setup 14ms, collect 1.38s, tests 26ms, environment 0ms, prepare 33ms)
 
 exit=1
 
-RESTORED SHA256: 8ab20a03c6def62800d2ef8a49932ec616a3b1c1fcd48c4aff9fa80437bcb35c
+RESTORED SHA256: 4dc10394dadeada752ce12bd86fbbdfb1c231d92902a9aa912ce8ba7fb57c914
 $ cd packages/sdk && npx vitest run tests/authored-root.test.ts -t 'leaves the root resumable' --maxWorkers=1 --minWorkers=1
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/authored-root.test.ts (30 tests | 27 skipped) 23ms
+ ✓ tests/authored-root.test.ts (31 tests | 28 skipped) 21ms
 
  Test Files  1 passed (1)
-      Tests  3 passed | 27 skipped (30)
-   Start at  03:35:53
-   Duration  1.27s (transform 658ms, setup 17ms, collect 1.10s, tests 23ms, environment 0ms, prepare 31ms)
+      Tests  3 passed | 28 skipped (31)
+   Start at  03:46:07
+   Duration  1.49s (transform 779ms, setup 17ms, collect 1.27s, tests 21ms, environment 0ms, prepare 54ms)
 
 exit=0
