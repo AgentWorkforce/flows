@@ -438,3 +438,11 @@ it('keeps the helper warning and requirements when activity validation refuses',
   expect(report.diagnostics.some((d: { kind: string }) => d.kind === 'helper_credential_unresolved')).toBe(true);
   expect(report.requirements?.integrations).toContainEqual(expect.objectContaining({ provider: 'slack' }));
 });
+it.each([
+  ['valueOf()', 'await f.notion.valueOf().appendBlock("page", {});'],
+  ['constructor', 'await globalThis.invokeHelper(f.notion.constructor);'],
+])('refuses f.notion reached back through the inherited %s', async (_shape, body) => {
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+  expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
+});

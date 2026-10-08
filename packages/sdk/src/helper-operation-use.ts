@@ -45,6 +45,9 @@ export function helperOperationUse(body: string, root: string, namespace: string
         const operation = memberName(grand);
         if (operation === undefined) mark('unprovable'); // f.notion[expr]
         else if (operation === method) mark('called');
+        // Inherited object members (valueOf, constructor, __proto__, ...) hand the
+        // helper back or reach its prototype; helper methods return steps.
+        else if (operation === '__proto__' || Object.prototype.hasOwnProperty.call(Object.prototype, operation)) mark('unprovable');
         return;
       }
       if (!readOrCall(parent, parents)) mark('unprovable');
