@@ -160,6 +160,34 @@ setInterval(() => {}, 1000);
     expect(existsSync(join(f.dataDir, 'connection.json'))).toBe(false);
   });
 
+  it('a completed authored root resumes detached, but a pre-admission source failure keeps its exit code', async () => {
+    const f = fixture();
+    const pinned = join(f.root, 'pinned.flow.ts');
+    writeFileSync(pinned, `import { flow } from '@relayflows/surface';
+export default flow('detached-pinned', async f => { await f.run('printf ok'); f.done('success'); });\n`);
+    const ran = f.invoke(['run', pinned, '--input', '{}', '--json', '--no-observer-link']);
+    expect(ran.status, ran.stdout + ran.stderr).toBe(0);
+    const runId = JSON.parse(ran.stdout).runId as string;
+    // Admission of an already completed root publishes no run.started, only the receipt.
+    const again = f.invoke(['resume', runId, '--json', '--no-observer-link', '--detach']);
+    expect(again.status, again.stdout + again.stderr).toBe(0);
+    const handle = JSON.parse(again.stdout) as DetachedHandle;
+    workers.push(handle.pid);
+    expect(handle).toMatchObject({ detached: true, runId });
+    await waitUntil(() => readDetachedRecord(handle.recordPath)?.phase === 'finished', 'completed root receipt');
+    expect(readDetachedRecord(handle.recordPath)?.execution).toMatchObject({ exitCode: 0 });
+
+    writeFileSync(pinned, readFileSync(pinned, 'utf8').replace("printf ok", "printf changed"));
+    const foreground = f.invoke(['resume', runId, '--json', '--no-observer-link']);
+    expect(foreground.status, foreground.stdout + foreground.stderr).toBe(1);
+    expect(foreground.stdout).toContain('authority mismatch');
+    const detached = f.invoke(['resume', runId, '--json', '--no-observer-link', '--detach']);
+    expect(detached.status, detached.stdout + detached.stderr).toBe(1);
+    const report = JSON.parse(detached.stdout);
+    expect(report).not.toHaveProperty('detached');
+    expect(JSON.stringify(report.diagnostics)).toContain('authority mismatch');
+  }, 45_000);
+
   it('does not report a missing resume target as admitted', () => {
     const f = fixture();
     const result = f.invoke(['resume', '01ARZ3NDEKTSV4RRFFQ69G5FAV', '--json', '--no-observer-link', '--detach']);

@@ -1573,8 +1573,11 @@ journal. There is no automatic process restart or cross-run worker service.
 Logs and receipts remain for inspection until you remove them.
 
 Preflight and bundle fetching run once, in the child. Before admission the
-parent waits up to 60 seconds for a run ID or the child's refusal report;
-refusals retain their exit code and diagnostics. If startup exits unexpectedly
+parent waits up to 60 seconds for the daemon to admit the run or for the
+child's report. Only admission (including resuming an already completed
+authored root) yields the detached handle; anything that ends before it, such
+as a refusal or a resume whose pinned source changed, is reported as the
+child's own report with its exit code and diagnostics. If startup exits unexpectedly
 or times out, the parent exits 1 with the log path. A timeout sends SIGTERM to
 the child; inspect the log before retrying because a journal may already exist.
 The parent waits at most two more seconds for an observer URL. An absent URL

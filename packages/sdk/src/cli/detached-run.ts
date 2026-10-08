@@ -34,7 +34,7 @@ export function detachedArgv(args: readonly string[]): string[] {
 
 export async function startDetachedRun(
   args: readonly string[],
-  options: { command: 'run' | 'resume'; dataDir: string; noObserverLink: boolean },
+  options: { command: 'run' | 'resume'; dataDir: string; noObserverLink: boolean; selfCommand?: readonly string[] },
 ): Promise<DetachedResult> {
   const failure = (message: string, refusal = false): DetachedResult => ({ execution: {
     exitCode: refusal ? 2 : 1,
@@ -59,9 +59,8 @@ export async function startDetachedRun(
     let spawnError: Error | undefined;
     let exited = false;
     try {
-      // cli-watch.ts's re-exec precedent supports both source and built entries.
-      const entry = fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? '../cli.ts' : '../cli.js', import.meta.url));
-      child = spawn(process.execPath, [...process.execArgv, entry, ...detachedArgv(args)], {
+      const [executable, ...prefix] = options.selfCommand ?? defaultSelfCommand();
+      child = spawn(executable!, [...prefix, ...detachedArgv(args)], {
         detached: true, stdio: ['ignore', log, log], cwd: process.cwd(),
         env: { ...process.env, [DETACH_RECORD_ENV]: recordPath },
       });
@@ -99,6 +98,16 @@ export async function startDetachedRun(
     child?.kill('SIGTERM');
     return failure(`detached_start_failed: ${error instanceof Error ? error.message : String(error)}${logPath === undefined ? '' : `. Log: ${logPath}`}`);
   }
+}
+
+/**
+ * cli-watch.ts's re-exec precedent supports both source and built entries. A
+ * compiled executable is its own entry: its module path is virtual and would
+ * reach the CLI as an extra positional, so it passes `selfCommand` instead.
+ */
+function defaultSelfCommand(): string[] {
+  const entry = fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? '../cli.ts' : '../cli.js', import.meta.url));
+  return [process.execPath, ...process.execArgv, entry];
 }
 
 export function emitDetachedHandle(handle: DetachedHandle, json: boolean, io: CliIo): void {

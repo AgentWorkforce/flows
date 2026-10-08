@@ -117,6 +117,7 @@ export async function executeDurableAuthoredFlow(
     });
     const outcome = await journal.runStart(spec, undefined, admissionKey);
     options.onAdmitted?.(outcome.run_id);
+    options.lifecycle?.onRunReceipt?.({ runId: outcome.run_id, flow: definition.name });
     if (outcome.status === 'completed') {
       dispatchWait.cancel();
       return await completedRootResult(journal, outcome.run_id);
@@ -166,6 +167,7 @@ export async function resumeDurableAuthoredFlow(
       workspace: [], streams: [{ stream, read_offset: 0 }],
     });
     const outcome = await journal.runResume(rootRunId);
+    options.lifecycle?.onRunReceipt?.({ runId: rootRunId, flow: metadata.flowName });
     if (outcome.status === 'completed') {
       dispatchWait.cancel();
       return await completedRootResult(journal, rootRunId);

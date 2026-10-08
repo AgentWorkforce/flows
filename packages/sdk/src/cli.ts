@@ -178,6 +178,11 @@ export interface RunCliOptions {
   /** Internal standalone child receipt; absent in ordinary embedded invocations. */
   detachedReceipt?: DetachedReceipt;
   /**
+   * Argv that re-executes this CLI for `--detach`. A compiled executable
+   * passes `[process.execPath]`; the default re-runs Node with this entry.
+   */
+  selfCommand?: readonly string[];
+  /**
    * Version to print for a self-contained executable that cannot read the
    * installed package manifest. Normal package entrypoints leave this unset.
    */
@@ -241,7 +246,9 @@ export async function runCli(
   }
 
   if ((parsed.command === 'run' || parsed.command === 'resume') && parsed.detach) {
-    const result = await startDetachedRun(args, parsed);
+    const result = await startDetachedRun(args, {
+      ...parsed, ...(options.selfCommand === undefined ? {} : { selfCommand: options.selfCommand }),
+    });
     if ('execution' in result) {
       emitRunReport(result.execution, parsed.json, io);
       return result.execution.exitCode;

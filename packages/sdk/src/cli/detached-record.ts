@@ -30,6 +30,7 @@ export function readDetachedRecord(path: string): DetachedRecord | undefined {
 }
 
 export interface DetachedReceipt {
+  /** The daemon admitted the run: the only signal that makes a detach succeed. */
   started(run: { runId: string }): void;
   observerUrl(url: string): void;
   finished(execution: RunExecution): void;
@@ -46,6 +47,7 @@ export function takeDetachedReceipt(env: NodeJS.ProcessEnv = process.env): Detac
   const publish = (): void => {
     const record: DetachedRecord = {
       pid: process.pid,
+      // Never admitted means the parent reports this execution as-is.
       phase: execution === undefined ? 'started' : runId === undefined ? 'refused' : 'finished',
       ...(runId === undefined ? {} : { runId }),
       ...(observerUrl === undefined ? {} : { observerUrl }),
@@ -60,9 +62,9 @@ export function takeDetachedReceipt(env: NodeJS.ProcessEnv = process.env): Detac
     started(run) { runId ??= run.runId; publish(); },
     observerUrl(url) { observerUrl = url; publish(); },
     finished(result) {
+      // Admission is explicit. A failure report can name the requested run
+      // (e.g. resume's pre-admission source check) without having admitted it.
       execution = result;
-      // A refusal can name an existing run without having admitted a resume.
-      if (result.exitCode !== 2) runId ??= result.report.rootRunId ?? result.report.runId;
       publish();
     },
   };

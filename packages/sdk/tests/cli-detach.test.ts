@@ -89,4 +89,13 @@ describe('detached child receipts', () => {
     expect(JSON.parse(readFileSync(path, 'utf8'))).toMatchObject({ phase: 'refused', execution: { exitCode: 2 } });
     expect(readDetachedRecord(path)).not.toHaveProperty('runId');
   });
+
+  it.each([1, 0, 3])('an unadmitted exit %i naming the requested run stays a refusal with its exit code', exitCode => {
+    // e.g. resume's pinned-source authority check fails before run.resume.
+    const { receipt, path } = record();
+    receipt.finished({ exitCode, report: { command: 'resume', ok: exitCode === 0, runId: 'OLD', rootRunId: 'OLD',
+      resolutions: [], diagnostics: [{ severity: 'failure', kind: 'protocol_error', message: 'authored root source authority mismatch' }] } });
+    expect(readDetachedRecord(path)).toMatchObject({ phase: 'refused', execution: { exitCode } });
+    expect(readDetachedRecord(path)).not.toHaveProperty('runId');
+  });
 });

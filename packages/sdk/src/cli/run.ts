@@ -149,7 +149,7 @@ export interface RunLifecycleOptions {
   onJournalEntry?: (entry: JournalEvent) => void;
   /** An authored root was admitted: its id is known before its body runs. */
   onRunStarted?: (run: { runId: string; flow: string; resumed?: boolean }) => void;
-  /** A declarative root returned its admission receipt, even if no watched entry arrived. */
+  /** The daemon admitted a root (declarative or authored, even an already completed one). */
   onRunReceipt?: (run: { runId: string; flow: string }) => void;
   localAgent?: boolean;
   /** `--agent-capacity`: the local workers' concurrency; the default is `DEFAULT_LOCAL_AGENT_CAPACITY`. */

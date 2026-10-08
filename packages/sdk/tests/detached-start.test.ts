@@ -47,6 +47,27 @@ it('bounds startup and signals only the spawned child on timeout', async () => {
   } } });
 });
 
+it('re-execs a compiled executable through selfCommand without a virtual entry argument', async () => {
+  vi.mocked(spawn).mockImplementation((_exe, _args, opts) => {
+    writeFileSync((opts as SpawnOptions).env![DETACH_RECORD_ENV]!, JSON.stringify({ phase: 'started', pid: 9, runId: 'RUN' }));
+    return child as never;
+  });
+  const argv = ['run', 'flow.yaml', '--json', '--detach'];
+  expect(await startDetachedRun(argv, { ...options(), selfCommand: ['/opt/flows'] })).toMatchObject({ handle: { runId: 'RUN' } });
+  const [exe, args] = vi.mocked(spawn).mock.calls[0]!;
+  expect(exe).toBe('/opt/flows');
+  expect(args).toEqual(['run', 'flow.yaml', '--json']);
+});
+
+it('returns an unadmitted child execution unchanged', async () => {
+  const execution = { exitCode: 1, report: { ok: false, command: 'resume', runId: 'OLD', resolutions: [], diagnostics: [] } };
+  vi.mocked(spawn).mockImplementation((_exe, _args, opts) => {
+    writeFileSync((opts as SpawnOptions).env![DETACH_RECORD_ENV]!, JSON.stringify({ phase: 'refused', pid: 9, execution }));
+    return child as never;
+  });
+  expect(await startDetachedRun(['resume', 'OLD', '--detach'], { ...options(), command: 'resume' })).toEqual({ execution });
+});
+
 it('re-execs with private stdio, original argv and the current working directory', async () => {
   vi.mocked(spawn).mockImplementation((_exe, _args, opts) => {
     const record = (opts as SpawnOptions).env![DETACH_RECORD_ENV]!;
