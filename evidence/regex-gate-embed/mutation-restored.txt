@@ -1,0 +1,13 @@
+$ cd packages/sdk && npx vitest run tests/named-gate-engine.test.ts -t "lowers and executes"
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/named-gate-engine.test.ts (2 tests | 1 skipped) 134ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 1 skipped (2)
+   Start at  18:18:47
+   Duration  299ms (transform 38ms, setup 14ms, collect 39ms, tests 134ms, environment 0ms, prepare 30ms)
+
+
+exit: 0

@@ -1,0 +1,82 @@
+$ cd packages/sdk && npx vitest run tests/named-gate-engine.test.ts -t "lowers and executes"
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/named-gate-engine.test.ts (2 tests | 1 failed | 1 skipped) 79ms
+   × lowers and executes a bundled regex gate without package resolution 78ms
+     → node:internal/modules/cjs/loader:1453
+  const err = new Error(message);
+              ^
+
+Error: Cannot find module 're2js'
+Require stack:
+- /tmp/named-gate-engine-cBM0KV/bundle.mjs
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1453:15)
+    at require.resolve (node:internal/modules/helpers:163:19)
+    at embeddedRE2 (file:///tmp/named-gate-engine-cBM0KV/bundle.mjs:6331:76)
+    at gateCommand (file:///tmp/named-gate-engine-cBM0KV/bundle.mjs:6423:17)
+    at lowerNamedGates (file:///tmp/named-gate-engine-cBM0KV/bundle.mjs:6365:16)
+    at file:///tmp/named-gate-engine-cBM0KV/bundle.mjs:6474:13
+    at ModuleJob.run (node:internal/modules/esm/module_job:430:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:655:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [ '/tmp/named-gate-engine-cBM0KV/bundle.mjs' ]
+}
+
+Node.js v25.6.0
+: expected 1 to be +0 // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/named-gate-engine.test.ts > lowers and executes a bundled regex gate without package resolution
+AssertionError: node:internal/modules/cjs/loader:1453
+  const err = new Error(message);
+              ^
+
+Error: Cannot find module 're2js'
+Require stack:
+- /tmp/named-gate-engine-cBM0KV/bundle.mjs
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1453:15)
+    at require.resolve (node:internal/modules/helpers:163:19)
+    at embeddedRE2 (file:///tmp/named-gate-engine-cBM0KV/bundle.mjs:6331:76)
+    at gateCommand (file:///tmp/named-gate-engine-cBM0KV/bundle.mjs:6423:17)
+    at lowerNamedGates (file:///tmp/named-gate-engine-cBM0KV/bundle.mjs:6365:16)
+    at file:///tmp/named-gate-engine-cBM0KV/bundle.mjs:6474:13
+    at ModuleJob.run (node:internal/modules/esm/module_job:430:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:655:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [ '/tmp/named-gate-engine-cBM0KV/bundle.mjs' ]
+}
+
+Node.js v25.6.0
+: expected 1 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ embeddedRE2 ../../../../../../../tmp/named-gate-engine-cBM0KV/bundle.mjs:6331:76
+ ❯ gateCommand ../../../../../../../tmp/named-gate-engine-cBM0KV/bundle.mjs:6423:17
+ ❯ lowerNamedGates ../../../../../../../tmp/named-gate-engine-cBM0KV/bundle.mjs:6365:16
+ ❯ ../../../../../../../tmp/named-gate-engine-cBM0KV/bundle.mjs:6474:13
+ ❯ tests/named-gate-engine.test.ts:54:44
+     52|     const env = { ...process.env, NODE_PATH: '' };
+     53|     const lowered = spawnSync(process.execPath, [bundle], { cwd: direc…
+     54|     expect(lowered.status, lowered.stderr).toBe(0);
+       |                                            ^
+     55|     const command = lowered.stdout.trim();
+     56|     expect(command).toMatch(/^node -e /);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 skipped (2)
+   Start at  18:18:47
+   Duration  240ms (transform 36ms, setup 15ms, collect 32ms, tests 79ms, environment 0ms, prepare 32ms)
+
+
+exit: 1
