@@ -1,0 +1,17 @@
+$ cd packages/sdk && npx vitest run tests/named-gate-engine.test.ts tests/named-gate-diagnostics.test.ts tests/artifact-gates.test.ts tests/gate-contract.test.ts tests/preflight.test.ts
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/named-gate-diagnostics.test.ts (20 tests) 817ms
+ ✓ tests/artifact-gates.test.ts (27 tests) 315ms
+ ✓ tests/named-gate-engine.test.ts (2 tests) 299ms
+ ✓ tests/preflight.test.ts (70 tests) 89ms
+ ✓ tests/gate-contract.test.ts (20 tests) 105ms
+
+ Test Files  5 passed (5)
+      Tests  139 passed (139)
+   Start at  18:18:20
+   Duration  3.03s (transform 2.25s, setup 43ms, collect 5.74s, tests 1.63s, environment 1ms, prepare 258ms)
+
+
+exit: 0

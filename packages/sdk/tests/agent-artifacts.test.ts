@@ -1,5 +1,5 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { chmod } from 'node:fs/promises';
+import { chmod, open } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -101,6 +101,26 @@ describe('snapshotWorkspaceFiles / diffWorkspaceFiles', () => {
   it('yields an empty snapshot for a directory that does not exist yet', async () => {
     const dir = join(tempDir(), 'does-not-exist');
     expect(await snapshotWorkspaceFiles(dir)).toEqual(new Map());
+  });
+
+  it('never reports a same-size rewrite of an unreadable file as unchanged', async () => {
+    // A writer keeps an open descriptor after the file becomes mode 000 and
+    // rewrites it at the same size. A size-only signature would read identical
+    // at both snapshots and drop a real artifact; the scan must refuse instead.
+    if (process.getuid?.() === 0) return; // root bypasses permission bits; nothing to assert
+    const dir = tempDir();
+    const path = join(dir, 'report.txt');
+    writeFileSync(path, 'aaaa');
+    const writer = await open(path, 'r+');
+    try {
+      await chmod(path, 0o000);
+      await expect(snapshotWorkspaceFiles(dir)).rejects.toMatchObject({ code: 'EACCES' });
+      await writer.write('bbbb', 0, 'utf8');
+      await expect(snapshotWorkspaceFiles(dir)).rejects.toMatchObject({ code: 'EACCES' });
+    } finally {
+      await writer.close();
+      await chmod(path, 0o644);
+    }
   });
 
   it('propagates a non-ENOENT scan failure instead of silently omitting files', async () => {

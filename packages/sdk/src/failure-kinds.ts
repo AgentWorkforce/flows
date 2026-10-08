@@ -48,7 +48,9 @@ export const CHECK_INPUT_FAILURE_KINDS = [
   ...SHARED_SPEC_FAILURE_KINDS,
 ] as const;
 
+// run never enables daemon validation; fromCheckReport needs a mapping if that changes.
 export const CHECK_FAILURE_KINDS = [
+  'daemon_validation_unavailable',
   ...CHECK_INPUT_FAILURE_KINDS,
   ...PREFLIGHT_ENVIRONMENT_FAILURE_KINDS,
 ] as const;
@@ -174,7 +176,7 @@ export const RUN_WARNING_KINDS = [
  */
 /** helper_credential_unresolved describes a local mount gap during inspection;
  * Cloud validates workspace integrations at submit, and local execution refuses. */
-export const CHECK_WARNING_KINDS = ['editor_schema_missing', 'agent_worker_unresolved', 'helper_credential_unresolved'] as const;
+export const CHECK_WARNING_KINDS = ['editor_schema_missing', 'daemon_unvalidated', 'agent_worker_unresolved', 'helper_credential_unresolved'] as const;
 export type CheckWarningKind = (typeof CHECK_WARNING_KINDS)[number];
 
 export type PreflightFailureKind = (typeof PREFLIGHT_FAILURE_KINDS)[number];

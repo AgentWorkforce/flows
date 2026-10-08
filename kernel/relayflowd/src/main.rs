@@ -19,6 +19,8 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Validate a kernel spec from stdin without creating a run or journal.
+    ValidateSpec,
     /// Start and execute a run spec JSON file.
     Run {
         spec: PathBuf,
@@ -56,8 +58,17 @@ enum Command {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    if matches!(cli.command, Command::ValidateSpec) {
+        let verdict = match serde_json::from_reader::<_, serde_json::Value>(std::io::stdin()) {
+            Ok(value) => relayflowd::validate_spec::validate_spec(&value),
+            Err(error) => relayflowd::validate_spec::refusal(error.to_string()),
+        };
+        println!("{}", verdict);
+        std::process::exit(if verdict["ok"] == true { 0 } else { 2 });
+    }
     let engine = Engine::new(&cli.data_dir);
     match cli.command {
+        Command::ValidateSpec => unreachable!(),
         Command::Run {
             spec,
             event,

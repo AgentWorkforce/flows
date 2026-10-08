@@ -12,6 +12,7 @@
   "include": [
     "src/**/*.ts",
     "tests/isolate-workspace.ts",
+    "tests/check-daemon-validation.test.ts",
     "tests/runtime-dependencies.test.ts",
     "tests/cli-package-gate.test.ts",
     "tests/run-projection.test.ts",

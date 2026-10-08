@@ -21,6 +21,7 @@
 // owns for the verb's duration, and nothing here installs a process handler.
 // Aborting stops the observation, not the hosted run — the refusal says so.
 
+import { cloudParkLines } from './cloud-human.js';
 import { canonicalize } from '../canonical.js';
 import {
   getCloudRunDetailLive, getCloudRunLog, getCloudRunSteps,
@@ -56,7 +57,8 @@ function delayFor(failures: number, interval: number): number {
 }
 
 /** The hosted `flows run --wait` mapping: only an attested success is 0. */
-function exitFor(state: CloudRunState): 0 | 1 {
+function exitFor(state: CloudRunState): 0 | 1 | 3 {
+  if (state.status === 'needs_human') return 3;
   return state.status === 'completed' ? 0 : 1;
 }
 
@@ -99,7 +101,7 @@ export async function runCloudStatusWatch(
   args: { runId?: string; json: boolean },
   io: CliIo,
   options: CloudLiveOptions = {},
-): Promise<0 | 1 | 2> {
+): Promise<0 | 1 | 2 | 3> {
   const env = options.env ?? process.env;
   const clock = options.now ?? Date.now;
   const signal = options.signal;
@@ -132,12 +134,15 @@ export async function runCloudStatusWatch(
     }
     failures = 0;
 
-    const run = scrubRun(live.detail, env);
+    const run = scrubRun(live.state.status === 'needs_human'
+      ? { ...live.detail, status: 'needs_human' } : live.detail, env);
     const scrubbed = scrubSteps(steps, env);
     const terminal = !isCloudRunActive(live.state.status);
     // Rendered before the abort check and emitted after it, in one call: an
     // interrupt between two lines of a frame would leave a torn page.
-    const page = args.json ? '' : `${clearSequence(io)}${renderCloudStatus(run, scrubbed, clock()).join('\n')}`;
+    const lines = renderCloudStatus(run, scrubbed, clock());
+    if (live.state.status === 'needs_human') lines.push(...cloudParkLines(live.state, env));
+    const page = args.json ? '' : `${clearSequence(io)}${lines.join('\n')}`;
     if (isAborted(signal)) return aborted('watching', runId, args.json, io);
     if (!args.json) io.stdout(page);
     if (terminal) {
@@ -265,7 +270,7 @@ export async function runCloudLogsFollow(
   args: { runId: string; step: string | undefined; json: boolean },
   io: CliIo,
   options: CloudLiveOptions = {},
-): Promise<0 | 1 | 2> {
+): Promise<0 | 1 | 2 | 3> {
   const env = options.env ?? process.env;
   const signal = options.signal;
   const interval = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;

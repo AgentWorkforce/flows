@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/plugin-extension.test.ts (94 tests) 428ms
+
+ Test Files  1 passed (1)
+      Tests  94 passed (94)
+   Start at  14:37:26
+   Duration  2.84s (transform 1.47s, setup 26ms, collect 2.21s, tests 428ms, environment 0ms, prepare 44ms)
+

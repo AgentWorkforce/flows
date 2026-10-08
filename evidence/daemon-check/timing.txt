@@ -1,0 +1,20 @@
+WARNING [unprovable_effects] Step "greet" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "shout" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [editor_schema_missing] For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+GATE step "greet" exit_code+output_contains from data (kernel, journal-replayable)
+GATE step "shout" exit_code+output_contains from data (kernel, journal-replayable)
+CHECK PASSED testdata/hello-deterministic.flow.yaml [validated by relayflowd at /tmp/relayflows-daemon-check-target/debug/relayflowd, protocol 0]
+
+real	0m0.505s
+user	0m0.471s
+sys	0m0.126s
+WARNING [unprovable_effects] Step "greet" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "shout" command "echo" resolves, but its effects cannot be proven before execution.
+WARNING [editor_schema_missing] For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+GATE step "greet" exit_code+output_contains from data (kernel, journal-replayable)
+GATE step "shout" exit_code+output_contains from data (kernel, journal-replayable)
+CHECK PASSED testdata/hello-deterministic.flow.yaml [local only: disabled, so daemon acceptance is unproven]
+
+real	0m0.491s
+user	0m0.493s
+sys	0m0.107s

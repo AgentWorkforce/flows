@@ -211,6 +211,32 @@ async function resolveSurfaceRuntime(
   absolutePath: string,
   displayPath: string,
 ): Promise<{ getDefinition: GetFlowDefinition; surfaceAuthority: SurfaceModuleAuthority }> {
+  const { runtimePath, surfaceAuthority } = await locateSurfaceAuthority(absolutePath, displayPath);
+  const runtimeModule = await import(/* @vite-ignore */ runtimePath) as {
+    getFlowDefinition?: unknown;
+  };
+  if (typeof runtimeModule.getFlowDefinition !== 'function') {
+    throw new AuthoredFlowLoadError(
+      `Flow "${displayPath}": the @relayflows/surface/runtime resolved from its location `
+        + 'does not export getFlowDefinition — check its @relayflows/surface version.',
+    );
+  }
+  return { getDefinition: runtimeModule.getFlowDefinition as GetFlowDefinition, surfaceAuthority };
+}
+
+/**
+ * The Surface package a file at `absolutePath` would import, identified by
+ * hashing its installed bytes. Neither the file nor the Surface runtime is
+ * imported, so this is safe for source that must not execute locally.
+ */
+export async function readSurfaceAuthority(absolutePath: string, displayPath = absolutePath): Promise<SurfaceModuleAuthority> {
+  return (await locateSurfaceAuthority(resolve(absolutePath), displayPath)).surfaceAuthority;
+}
+
+async function locateSurfaceAuthority(
+  absolutePath: string,
+  displayPath: string,
+): Promise<{ runtimePath: string; surfaceAuthority: SurfaceModuleAuthority }> {
   const require = createRequire(pathToFileURL(absolutePath));
   let resolvedRuntimePath: string;
   try {
@@ -227,15 +253,6 @@ async function resolveSurfaceRuntime(
         + `could not be resolved from the same location: ${errorMessage(error)}`,
     );
   }
-  const runtimeModule = await import(/* @vite-ignore */ resolvedRuntimePath) as {
-    getFlowDefinition?: unknown;
-  };
-  if (typeof runtimeModule.getFlowDefinition !== 'function') {
-    throw new AuthoredFlowLoadError(
-      `Flow "${displayPath}": the @relayflows/surface/runtime resolved from its location `
-        + 'does not export getFlowDefinition — check its @relayflows/surface version.',
-    );
-  }
   let packagePath = dirname(resolvedRuntimePath);
   for (;;) {
     const candidate = resolve(packagePath, 'package.json');
@@ -248,7 +265,7 @@ async function resolveSurfaceRuntime(
         }
         const runtimeBytes = await readFile(resolvedRuntimePath);
         return {
-          getDefinition: runtimeModule.getFlowDefinition as GetFlowDefinition,
+          runtimePath: resolvedRuntimePath,
           surfaceAuthority: Object.freeze({
             packageName: '@relayflows/surface', version: manifest.version,
             packageSha256: await packageTreeSha256(packagePath),

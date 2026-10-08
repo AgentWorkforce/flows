@@ -1,0 +1,5 @@
+$ npm install --prefix /tmp/regex-gate-bun-1.4.0 --no-package-lock bun@1.4.0
+
+added 2 packages in 1s
+
+exit: 0

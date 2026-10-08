@@ -53,12 +53,50 @@ describe('hosted v2 submission', () => {
     expect(JSON.parse(body.workflow).steps[0]).toMatchObject({ id: 'gate', type: 'deterministic', command: 'printf verified' });
   });
 
+  it('refreshes the login before resolving the hosted submission base URL', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'cloud-run-refresh-'));
+    dirs.push(home);
+    vi.stubEnv('AGENT_RELAY_HOME', home);
+    vi.stubEnv('FLOWS_CLOUD_TOKEN', undefined);
+    vi.stubEnv('FLOWS_CLOUD_URL', undefined);
+    await writeFile(join(home, 'cloud-auth.json'), JSON.stringify({
+      apiUrl: 'https://cloud-contract.example', accessToken: 'expired',
+      accessTokenExpiresAt: '2020-01-01', refreshToken: 'refresh',
+    }));
+    await cloud((path, _body, auth) => {
+      if (path.endsWith('/token/refresh')) return {
+        accessToken: 'renewed', refreshToken: 'rotated', accessTokenExpiresAt: '2099-01-01',
+      };
+      expect(auth).toBe('Bearer renewed');
+      return { runId: 'refreshed-run', status: 'pending' };
+    });
+    expect(await runInCloud(flow)).toMatchObject({ runId: 'refreshed-run' });
+  });
+
   it('refuses invalid specs and unsupported source extensions before any HTTP request', async () => {
     const fetch = vi.spyOn(globalThis, 'fetch');
     const options = { token: 'test-token' };
     await expect(runInCloud({ ...flow, steps: [] }, options)).rejects.toThrow();
     await expect(runInCloud({ path: 'example.txt' }, options)).rejects.toMatchObject({ code: 'unsupported_source' });
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('validates the submission before refreshing an expired stored login', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'cloud-run-refresh-order-'));
+    dirs.push(home);
+    vi.stubEnv('AGENT_RELAY_HOME', home);
+    vi.stubEnv('FLOWS_CLOUD_TOKEN', undefined);
+    vi.stubEnv('FLOWS_CLOUD_URL', undefined);
+    const store = JSON.stringify({
+      apiUrl: 'https://cloud-contract.example', accessToken: 'expired',
+      accessTokenExpiresAt: '2020-01-01', refreshToken: 'refresh',
+    });
+    await writeFile(join(home, 'cloud-auth.json'), store);
+    const fetch = vi.spyOn(globalThis, 'fetch');
+    await expect(runInCloud({ ...flow, steps: [] })).rejects.toThrow();
+    await expect(runInCloud({ path: 'example.txt' })).rejects.toMatchObject({ code: 'unsupported_source' });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(await readFile(join(home, 'cloud-auth.json'), 'utf8')).toBe(store);
   });
 
   it('submits exact authored UTF-8 bytes with source and pinned Surface authority', async () => {
@@ -499,5 +537,59 @@ describe('refusal bodies keep transport classification', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('<html>502</html>', { status: 502, headers: { 'content-type': 'text/html' } }));
     await expect(runInCloud({ path: join(dir, 'flow.yaml') }, { apiUrl: 'https://cloud-contract.example', token: 'test-scoped-cloud-token' }))
       .rejects.toMatchObject({ code: 'http_error', status: 502, message: 'Cloud request failed with HTTP 502.' });
+  });
+});
+
+describe('Cloud human park', () => {
+  const runId = '2e97a7ed';
+  const humanWait = { waitId: 'human-2', question: 'Ship this?', to: 'slack:#eng' };
+  const parked = { runId, relayflowVersion: 'v2', status: 'failed',
+    result: { completionReason: 'needs_human', humanWait } };
+
+  it('waiter returns needs_human instead of invalid_response', async () => {
+    const options = await cloud(() => parked);
+    expect(await waitForCloudFlowRun(runId, { ...options, pollIntervalMs: 1 })).toMatchObject({
+      runId, status: 'needs_human', completionReason: 'needs_human', humanWait,
+    });
+  });
+
+  it.each(['completed', 'cancelled', 'running'])('refuses needs_human under %s with the observed status', async status => {
+    const options = await cloud(() => ({ ...parked, status }));
+    await expect(getCloudFlowRun(runId, options)).rejects.toThrow(`status ${status}`);
+  });
+
+  it.each([undefined, { waitId: 'approval' }, { waitId: 'human-2', to: 'slack:', question: 42 }])(
+    'keeps an attested park when display metadata is incomplete: %j', async value => {
+      const options = await cloud(() => ({ ...parked, result: { completionReason: 'needs_human', humanWait: value } }));
+      const state = await getCloudFlowRun(runId, options);
+      expect(state.status).toBe('needs_human');
+      if (state.status === 'needs_human') expect(state.humanWait?.recipient).toBeUndefined();
+    },
+  );
+
+  it('reads a top-level wait when result has none', async () => {
+    const options = await cloud(() => ({ ...parked, humanWait, result: { completionReason: 'needs_human' } }));
+    expect(await getCloudFlowRun(runId, options)).toMatchObject({ humanWait });
+  });
+
+  it.each([false, true])('run --cloud --wait exits 3 with a scrubbed question and answer command (json=%s)', async json => {
+    vi.stubEnv('FLOWS_CLOUD_TOKEN', 'test-scoped-cloud-token');
+    vi.stubEnv('FLOWS_CLOUD_URL', 'https://cloud-contract.example');
+    const dir = await mkdtemp(join(tmpdir(), 'cloud-human-')); dirs.push(dir);
+    const path = join(dir, 'flow.json'); await writeFile(path, JSON.stringify(flow));
+    await cloud((url) => url.endsWith('/run') ? { runId, status: 'pending' } : {
+      ...parked, result: { completionReason: 'needs_human', humanWait: { ...humanWait,
+        question: 'Ship this? test-scoped-cloud-token\u001b[2J' } },
+    });
+    const stdout: string[] = [], stderr: string[] = [];
+    expect(await runCli(['run', '--cloud', '--wait', path, ...(json ? ['--json'] : [])], {
+      stdout: s => stdout.push(s), stderr: s => stderr.push(s),
+    })).toBe(3);
+    expect(stderr).toEqual([]);
+    const text = stdout.join('\n');
+    expect(text).toContain(`flows answer --cloud ${runId} yes|no`);
+    expect(text).toContain('slack:#eng'); expect(text).toContain('Ship this?');
+    expect(text).not.toContain('test-scoped-cloud-token'); expect(text).not.toContain('\u001b');
+    if (json) expect(JSON.parse(stdout[0]!)).toMatchObject({ ok: false, status: 'needs_human', completionReason: 'needs_human' });
   });
 });

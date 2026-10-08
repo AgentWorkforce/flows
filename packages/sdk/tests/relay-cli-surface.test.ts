@@ -65,6 +65,7 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
   { verb: 'add', argv: ['add', 'my-helper'], variant: 'add' },
   { verb: 'add', argv: ['add', 'github:AgentWorkforce/flows@main#examples/babysitter'], variant: 'add' },
   { verb: 'answer', argv: ['answer', RUN_ID, 'human-1', 'yes'], variant: 'answer' },
+  { verb: 'answer', argv: ['answer', '--cloud', RUN_ID, 'yes', '--json', '--source', 'original.flow.ts', '--note', 'reviewed'], variant: 'cloud-answer' },
   {
     verb: 'answer',
     argv: ['answer', '--json', '--no-spawn', '--data-dir', '.relayflowd',
@@ -77,6 +78,9 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
   { verb: 'build', argv: ['build', '--verify', '--json', BUNDLE_DIR], variant: 'build' },
   { verb: 'build', argv: ['build', BUNDLE_DIR, '--verify'], variant: 'build' },
   { verb: 'check', argv: ['check', 'flow.yaml'], variant: 'check' },
+  { verb: 'check', argv: ['check', '--against-daemon', 'flow.yaml'], variant: 'check' },
+  { verb: 'check', argv: ['check', '--no-daemon-check', 'flow.yaml'], variant: 'check' },
+  { verb: 'check', argv: ['check', '--explain-warnings', 'flow.yaml'], variant: 'check' },
   { verb: 'check', argv: ['check', '--watch', '--json', 'flow.yaml'], variant: 'check' },
   // Both `deploy` forms: the positional decides which variant the verb produces.
   { verb: 'deploy', argv: ['deploy', DIGEST, '--to', 'file:///tmp/bucket'], variant: 'deploy' },
@@ -131,14 +135,14 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
   {
     verb: 'resume',
     argv: ['resume', '--json', '--data-dir', '.relayflowd', '--local-agent', '--agent-capacity', '8', '--no-spawn',
-      '--no-observer-link', '--cloud-mirror', '--allow-human-influenced', RUN_ID],
+      '--no-observer-link', '--cloud-mirror', '--detach', '--allow-human-influenced', RUN_ID],
     variant: 'resume',
   },
   { verb: 'run', argv: ['run', 'flow.yaml'], variant: 'run' },
   {
     verb: 'run',
     argv: ['run', '--json', '--data-dir', '.relayflowd', '--local-agent', '--agent-capacity', '8', '--no-spawn',
-      '--no-observer-link', '--cloud-mirror', '--allow-human-influenced', '--input', '{"a":1}', 'review.flow.ts'],
+      '--no-observer-link', '--cloud-mirror', '--detach', '--allow-human-influenced', '--input', '{"a":1}', 'review.flow.ts'],
     variant: 'run',
   },
   // `--input` is the authored body's argument and `--reuse-from` memoizes a

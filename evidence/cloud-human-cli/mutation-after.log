@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/cloud-run.test.ts (69 tests | 68 skipped) 6ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 68 skipped (69)
+   Start at  18:59:22
+   Duration  2.13s (transform 1.27s, setup 16ms, collect 1.93s, tests 6ms, environment 0ms, prepare 43ms)
+

@@ -95,9 +95,11 @@ describe('mintObserverUrl', () => {
   it('keeps an authored root channel when the failure report names its child', async () => {
     const mint = vi.fn(async (_options: import('../src/observer-link.js').MintObserverOptions) => ({ observerUrl: 'https://observer.test/root' }));
     const fetch = vi.fn(async () => jsonResponse(200, { data: { token: 'at_live_test' } }));
-    const session = createObserverSession('run', capture().io, { RELAYCAST_WORKSPACE_KEY: 'rk_live_test' }, { mint, fetch })!;
+    const onObserverUrl = vi.fn();
+    const session = createObserverSession('run', capture().io, { RELAYCAST_WORKSPACE_KEY: 'rk_live_test' }, { mint, fetch, onObserverUrl })!;
     session.onRunStarted({ runId: 'ROOT', flow: 'authored' });
     await session.finish({ command: 'run', ok: false, runId: 'CHILD', status: 'failed', diagnostics: [], resolutions: [] });
+    expect(onObserverUrl).toHaveBeenCalledWith('https://observer.test/root');
     expect(mint).toHaveBeenCalledOnce();
     expect(mint.mock.calls[0]?.[0]).toMatchObject({ channel: 'wf-root' });
   });
