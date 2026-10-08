@@ -10,7 +10,7 @@ import { snapshotJsonValue, type JsonValue } from './json-value.js';
 import { loadAuthoredFlow, type SurfaceModuleAuthority } from './authored-flow-loader.js';
 import { assertNoUseDependencies, collectExtensionSubmissions, type FlowExtensionSubmission } from './flow-extension-submit.js';
 import {
-  CloudFlowError, cloudConnection, cloudFetch, cloudRequest, cloudRunId, isCloudRecord,
+  CloudFlowError, resolveCloudConnection, cloudFetch, cloudRequest, cloudRunId, isCloudRecord,
   type CloudConnectionOptions,
 } from './cloud-http.js';
 import { cloudRunState, isCloudRunActive, type CloudRunState } from './cloud-run-record.js';
@@ -210,8 +210,10 @@ export async function runInCloud(
   flow: CloudFlowSource,
   options: RunInCloudOptions = {},
 ): Promise<CloudRunReceipt> {
-  const { baseUrl } = cloudConnection(options);
+  // Validate locally first: resolving the connection may refresh a stored
+  // login, which posts the refresh token and rotates the credential file.
   const submission = await prepareCloudSubmission(flow, options);
+  const { baseUrl } = await resolveCloudConnection(options);
   const hash = submission.specHash;
   // Sync before submission: `prepare` reserves the run ID and the upload lands
   // under it, so the run request below names code Cloud already holds. A
