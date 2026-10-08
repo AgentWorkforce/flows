@@ -881,8 +881,9 @@ The CLI posts `{ waitId, answer, note? }` and treats only `{ ok: true }` as a
 recorded answer; any other acknowledgement refuses without a resume. It then
 re-reads the run and submits a resume only if it is still parked. A resume contains the original source, authority,
 `resume: <id>`, and **no `inputs`**: Cloud restores persisted input. If the
-re-read reports Cloud already running/completed the run, the CLI reports that
-without a resume POST. This check is not an atomic claim: simultaneous callers
+re-read reports Cloud already running, completed or failed the run (execution
+continued past the park), the CLI reports that without a resume POST; a run
+cancelled meanwhile is reported as not resumed. This check is not an atomic claim: simultaneous callers
 or Cloud creating a successor without updating the original record require
 server-side deduplication; this CLI does not guarantee that contract.
 

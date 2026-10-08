@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { CloudFlowError, cloudFetch, cloudRunId, isCloudRecord, type CloudConnectionOptions } from './cloud-http.js';
-import { cloudRunState, isCloudRunActive } from './cloud-run-record.js';
+import { cloudRunState } from './cloud-run-record.js';
 import { readCloudHumanWaitValue } from './cloud-human-wait.js';
 import { readSurfaceAuthority, type SurfaceModuleAuthority } from './authored-flow-loader.js';
 import type { CloudAuthoredAuthority } from './cloud-run.js';
@@ -62,11 +62,13 @@ export async function readCloudHumanWait(runId: string, options: CloudConnection
   const recorded = body.answer;
   if (recorded !== undefined && recorded !== null
     && (!isCloudRecord(recorded) || !readCloudHumanWaitValue(recorded) || typeof recorded.answer !== 'boolean'
-      || (recorded.note !== undefined && typeof recorded.note !== 'string'))) {
+      || (recorded.note !== undefined && recorded.note !== null && typeof recorded.note !== 'string'))) {
     throw new CloudFlowError('invalid_response', 'Cloud returned an invalid recorded human answer.');
   }
   return { wait, recorded: isCloudRecord(recorded)
-    ? { waitId: recorded.waitId as string, answer: recorded.answer as boolean, note: recorded.note as string | undefined }
+    // Like the wait fields, a null note means absent.
+    ? { waitId: recorded.waitId as string, answer: recorded.answer as boolean,
+      note: typeof recorded.note === 'string' ? recorded.note : undefined }
     : undefined };
 }
 
@@ -174,8 +176,11 @@ export async function answerCloudFlow(runId: string, answer: boolean, options: C
     }
     const current = cloudRunState(await get(route(runId), options), runId);
     if (current.status !== 'needs_human') {
-      if (!isCloudRunActive(current.status) && current.status !== 'completed') {
-        throw new CloudFlowError('invalid_response', 'Run left the human park without a confirmed resume.');
+      // The contract is that execution continued, not that it succeeded:
+      // failed (step_failed/budget_exceeded) ran steps after the park. Only a
+      // cancellation leaves the park without any execution.
+      if (current.status === 'cancelled') {
+        throw new CloudFlowError('invalid_response', 'Run was cancelled after the answer; it was not resumed.');
       }
       return { runId, resumedFrom: runId, waitId, answer, resumedByCloud: true };
     }

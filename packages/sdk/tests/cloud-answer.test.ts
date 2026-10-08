@@ -158,6 +158,27 @@ describe('Cloud answer and resume', () => {
     expect(calls).toHaveLength(5);
   });
 
+  it('treats a null recorded note as absent and resumes without answering twice', async () => {
+    const calls = cloud([{ body: parked }, { body: { humanWait: null, answer: { waitId: 'human-2', answer: true, note: null } } },
+      { body: parked }, { body: { runId: 'resumed-1', status: 'pending' } }]);
+    await answerCloudFlow(RUN, true, options);
+    expect(calls.filter(c => c.method === 'POST').map(c => c.path)).toEqual(['/api/v1/workflows/run']);
+  });
+
+  it.each(['step_failed', 'budget_exceeded'])('reports a run that already failed (%s) after the answer as resumed by Cloud', async reason => {
+    const sequence = replies(); sequence[3] = { body: { ...parked, status: 'failed', result: { completionReason: reason } } };
+    const calls = cloud(sequence);
+    expect(await answerCloudFlow(RUN, true, options)).toMatchObject({ resumedByCloud: true });
+    expect(calls).toHaveLength(4);
+  });
+
+  it('does not report a run cancelled after the answer as resumed', async () => {
+    const sequence = replies(); sequence[3] = { body: { ...parked, status: 'cancelled', result: { completionReason: 'canceled' } } };
+    const calls = cloud(sequence);
+    await expect(answerCloudFlow(RUN, true, options)).rejects.toMatchObject({ answerRecorded: true });
+    expect(calls).toHaveLength(4);
+  });
+
   it('retries with --note when the recorded answer omits its optional note', async () => {
     const calls = cloud([{ body: parked }, { body: { humanWait: null, answer: { waitId: 'human-2', answer: true } } },
       { body: parked }, { body: { runId: 'resumed-1', status: 'pending' } }]);
