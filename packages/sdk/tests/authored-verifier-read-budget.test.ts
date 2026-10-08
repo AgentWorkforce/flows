@@ -21,3 +21,13 @@ it('verifies a Bun-run authored result with the flow read budget, not single-sho
   await verifyAuthoredNodeResult(result as never, { flowName: 'flow' } as never, 'root', '/unused.sock').catch(() => undefined);
   expect(constructed).toContainEqual(expect.objectContaining({ readBudgetMs: FLOW_READ_BUDGET_MS }));
 });
+
+it('hands the lifecycle signal to the verifier so cancellation stops its reads', async () => {
+  const { verifyAuthoredNodeResult } = await import('../src/authored-node-runner.js');
+  constructed.length = 0;
+  const controller = new AbortController();
+  const result = { rootRunId: 'root', name: 'flow', completionReason: 'success', journalSteps: [{ id: 'complete-1' }] };
+  await verifyAuthoredNodeResult(result as never, { flowName: 'flow' } as never, 'root', '/unused.sock', controller.signal)
+    .catch(() => undefined);
+  expect(constructed).toContainEqual(expect.objectContaining({ readSignal: controller.signal }));
+});

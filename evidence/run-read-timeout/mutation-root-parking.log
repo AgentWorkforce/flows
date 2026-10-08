@@ -104,8 +104,8 @@ AssertionError: expected JournalReadInterruptedError: journal clie… { …(4) }
 
  Test Files  1 failed (1)
       Tests  3 failed | 24 skipped (27)
-   Start at  01:24:10
-   Duration  1.25s (transform 640ms, setup 16ms, collect 1.05s, tests 31ms, environment 0ms, prepare 41ms)
+   Start at  01:34:30
+   Duration  1.29s (transform 670ms, setup 16ms, collect 1.10s, tests 31ms, environment 0ms, prepare 41ms)
 
 exit=1
 
@@ -118,7 +118,7 @@ $ cd packages/sdk && npx vitest run tests/authored-root.test.ts -t 'leaves the r
 
  Test Files  1 passed (1)
       Tests  3 passed | 24 skipped (27)
-   Start at  01:24:12
-   Duration  1.30s (transform 672ms, setup 17ms, collect 1.10s, tests 23ms, environment 0ms, prepare 47ms)
+   Start at  01:34:32
+   Duration  1.28s (transform 664ms, setup 16ms, collect 1.09s, tests 23ms, environment 0ms, prepare 41ms)
 
 exit=0

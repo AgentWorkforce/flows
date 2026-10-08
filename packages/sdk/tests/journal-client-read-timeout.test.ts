@@ -232,3 +232,16 @@ it('a client read signal cancels every budgeted read promptly', async () => {
   await expect(pending).rejects.toThrow('run canceled');
   expect(performance.now() - begun).toBeLessThan(40);
 });
+
+it('fails closed on a malformed frame during reader setup', async () => {
+  let hellos = 0;
+  let reads = 0;
+  const client = await setup({
+    hello: ctx => { hellos += 1; ctx.socket.write('{not json\n'); },
+    'run.get': ctx => { reads += 1; sendResult(ctx, { status: 'completed' }); },
+  }, 5_000);
+  const error = await client.runGet('run').catch(caught => caught);
+  expect(error).toBeInstanceOf(JournalFrameError);
+  expect(hellos).toBe(1);
+  expect(reads).toBe(0);
+});

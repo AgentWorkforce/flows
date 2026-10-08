@@ -246,6 +246,8 @@ export class JournalClient extends EventEmitter {
         const started = performance.now();
         const reader = await this.readSession().catch(error => {
           attemptSignal.throwIfAborted();
+          // A malformed handshake frame is a protocol violation: fail closed.
+          if (error instanceof JournalFrameError) throw error;
           throw new JournalReadInterruptedError(verb, 1, performance.now() - started, undefined, { cause: error });
         });
         attemptSignal.throwIfAborted();

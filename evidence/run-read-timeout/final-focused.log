@@ -2,58 +2,59 @@ $ cd packages/sdk && RELAYFLOWD_BIN=/home/khaliqgant/Projects/AgentWorkforce/flo
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/cli.test.ts (71 tests) 5251ms
+ ✓ tests/cli.test.ts (71 tests) 5255ms
+   ✓ flows check CLI > resolves a bare PATH-resolved claude with no declared model, in an isolated PATH 322ms
    ✓ flows run/resume CLI over the journal protocol > follows a dispatched worker step instead of reporting a protocol error 2039ms
-   ✓ flows run/resume CLI over the journal protocol > follows a worker wait past a locally expired lease until the daemon settles it 2038ms
-(node:3460729) [FLOWS_ROOT_LEASE_LOST] Warning: authored root run_id=root-run attempt=1: lease_conflict: attempt has no active worker lease. Waiting for the kernel to retry it.
+   ✓ flows run/resume CLI over the journal protocol > follows a worker wait past a locally expired lease until the daemon settles it 2033ms
+(node:3512367) [FLOWS_ROOT_LEASE_LOST] Warning: authored root run_id=root-run attempt=1: lease_conflict: attempt has no active worker lease. Waiting for the kernel to retry it.
 (Use `node --trace-warnings ...` to show where the warning was created)
- ✓ tests/authored-root.test.ts (27 tests) 398ms
- ✓ tests/journal-client.test.ts (17 tests) 82ms
- ✓ tests/flow-executor-chain.test.ts (14 tests) 7251ms
-   ✓ flow executor LLM and output-binding chain > runs f.llm -> f.agent -> f.run with schema-verified journal output and the exact allowed model 575ms
-   ✓ flow executor LLM and output-binding chain > runs the exact authored flagship f.llm -> f.agent -> f.run path through the durable CLI root 1120ms
-   ✓ flow executor LLM and output-binding chain > resumes an interrupted durable authored root without replaying completed flagship effects 2705ms
-   ✓ flow executor LLM and output-binding chain > passes a declarative verified value through an agent into a deterministic artifact 358ms
-   ✓ flow executor LLM and output-binding chain > flows run consumes YAML bindings and resume reuses the original journal output 761ms
- ✓ tests/agent-transcript-live.test.ts (4 tests) 2529ms
-   ✓ the transcript digest through the built CLI, a real daemon and the local agent > preserves structured agent failure details and its completed root index 629ms
-   ✓ the transcript digest through the built CLI, a real daemon and the local agent > preserves structured llm failure details and its completed root index 559ms
-   ✓ the transcript digest through the built CLI, a real daemon and the local agent > journals the digest in trajectory_tail on a successful agent step and writes the file it points at 678ms
-   ✓ the transcript digest through the built CLI, a real daemon and the local agent > on a failed agent step, names the failure and the transcript in the terminal diagnostic, redacted 663ms
- ✓ tests/classify-outcome.test.ts (11 tests) 7433ms
-   ✓ classifyOutcome > gives up and reports when a running run never becomes classifiable 2014ms
-   ✓ the remedy on a worker park > follows a step through a retry backoff longer than the unclassified bound 3009ms
-   ✓ the remedy on a worker park > follows a run.start outcome that is already running on a retried attempt 2003ms
- ✓ tests/journal-client-read-timeout.test.ts (19 tests) 1422ms
- ✓ tests/human-live.test.ts (3 tests) 4521ms
-   ✓ f.human against a real daemon > parks with the question, refuses wrong answers, records one, and resumes to success 2654ms
-   ✓ f.human against a real daemon > a "no" is a value the body branches on: declined, exit 0, no effect 1134ms
-   ✓ f.human against a real daemon > refuses to answer a run the daemon does not know 732ms
- ✓ tests/running-step-watch.test.ts (7 tests) 8237ms
-   ✓ uses pushes for completion with lease-cadence reads and releases its watcher 2117ms
-   ✓ cancels promptly while a lease snapshot read is in flight 2005ms
-   ✓ a completion push ends the wait without waiting out an in-flight snapshot 2054ms
-   ✓ a completion that aborts the snapshot is not an error even if a retry starts at once 2004ms
- ✓ tests/worker-lease.test.ts (7 tests) 21ms
- ✓ tests/worker-lease-lost.test.ts (17 tests) 27ms
- ✓ tests/worker-lease-lost-live.test.ts (3 tests) 781ms
- ✓ tests/memoization.test.ts (58 tests) 70ms
- ✓ tests/run-read-load-live.test.ts (2 tests) 2461ms
+ ✓ tests/authored-root.test.ts (27 tests) 390ms
+ ✓ tests/journal-client.test.ts (17 tests) 80ms
+ ✓ tests/flow-executor-chain.test.ts (14 tests) 6940ms
+   ✓ flow executor LLM and output-binding chain > runs f.llm -> f.agent -> f.run with schema-verified journal output and the exact allowed model 468ms
+   ✓ flow executor LLM and output-binding chain > runs the exact authored flagship f.llm -> f.agent -> f.run path through the durable CLI root 1067ms
+   ✓ flow executor LLM and output-binding chain > resumes an interrupted durable authored root without replaying completed flagship effects 2741ms
+   ✓ flow executor LLM and output-binding chain > passes a declarative verified value through an agent into a deterministic artifact 349ms
+   ✓ flow executor LLM and output-binding chain > flows run consumes YAML bindings and resume reuses the original journal output 827ms
+ ✓ tests/agent-transcript-live.test.ts (4 tests) 2544ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > preserves structured agent failure details and its completed root index 651ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > preserves structured llm failure details and its completed root index 595ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > journals the digest in trajectory_tail on a successful agent step and writes the file it points at 624ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > on a failed agent step, names the failure and the transcript in the terminal diagnostic, redacted 673ms
+ ✓ tests/journal-client-read-timeout.test.ts (20 tests) 1427ms
+ ✓ tests/classify-outcome.test.ts (11 tests) 7425ms
+   ✓ classifyOutcome > gives up and reports when a running run never becomes classifiable 2011ms
+   ✓ the remedy on a worker park > follows a step through a retry backoff longer than the unclassified bound 3006ms
+   ✓ the remedy on a worker park > follows a run.start outcome that is already running on a retried attempt 2001ms
+ ✓ tests/human-live.test.ts (3 tests) 4580ms
+   ✓ f.human against a real daemon > parks with the question, refuses wrong answers, records one, and resumes to success 2734ms
+   ✓ f.human against a real daemon > a "no" is a value the body branches on: declined, exit 0, no effect 1166ms
+   ✓ f.human against a real daemon > refuses to answer a run the daemon does not know 679ms
+ ✓ tests/running-step-watch.test.ts (7 tests) 8236ms
+   ✓ uses pushes for completion with lease-cadence reads and releases its watcher 2116ms
+   ✓ cancels promptly while a lease snapshot read is in flight 2006ms
+   ✓ a completion push ends the wait without waiting out an in-flight snapshot 2055ms
+   ✓ a completion that aborts the snapshot is not an error even if a retry starts at once 2003ms
+ ✓ tests/worker-lease.test.ts (7 tests) 20ms
+ ✓ tests/worker-lease-lost.test.ts (17 tests) 26ms
+ ✓ tests/worker-lease-lost-live.test.ts (3 tests) 697ms
+ ✓ tests/memoization.test.ts (58 tests) 64ms
+ ✓ tests/run-read-load-live.test.ts (2 tests) 2471ms
    ✓ completes a CPU-saturating deterministic flow with reads in flight and preserves its journal 2057ms
-   ✓ drains read and watch promises before an authored flow completes 404ms
- ✓ tests/worker-lease-sweep.test.ts (4 tests) 10ms
- ✓ tests/journal-client-completion.test.ts (6 tests) 106ms
- ✓ tests/resume-worker-lease.test.ts (3 tests) 8ms
- ✓ tests/direct-run-worker-lease.test.ts (3 tests) 15ms
- ✓ tests/reuse-summary-interruption.test.ts (5 tests) 5ms
- ✓ tests/journal-client-subscriptions.test.ts (1 test) 9ms
- ✓ tests/run-daemon-unresponsive.test.ts (3 tests) 3ms
- ✓ tests/authored-verifier-read-budget.test.ts (1 test) 52ms
- ✓ tests/heartbeat-timeout.test.ts (1 test) 14ms
+   ✓ drains read and watch promises before an authored flow completes 414ms
+ ✓ tests/worker-lease-sweep.test.ts (4 tests) 8ms
+ ✓ tests/journal-client-completion.test.ts (6 tests) 102ms
+ ✓ tests/resume-worker-lease.test.ts (3 tests) 7ms
+ ✓ tests/direct-run-worker-lease.test.ts (3 tests) 9ms
+ ✓ tests/reuse-summary-interruption.test.ts (5 tests) 4ms
+ ✓ tests/journal-client-subscriptions.test.ts (1 test) 7ms
+ ✓ tests/run-daemon-unresponsive.test.ts (3 tests) 4ms
+ ✓ tests/authored-verifier-read-budget.test.ts (2 tests) 49ms
+ ✓ tests/heartbeat-timeout.test.ts (1 test) 15ms
 
  Test Files  23 passed (23)
-      Tests  287 passed (287)
-   Start at  01:24:17
-   Duration  49.98s (transform 1.07s, setup 139ms, collect 6.17s, tests 40.71s, environment 3ms, prepare 879ms)
+      Tests  289 passed (289)
+   Start at  01:34:37
+   Duration  48.85s (transform 1.05s, setup 122ms, collect 5.61s, tests 40.36s, environment 3ms, prepare 812ms)
 
 exit=0
