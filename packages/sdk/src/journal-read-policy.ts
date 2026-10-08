@@ -31,7 +31,7 @@ export class JournalReadInterruptedError extends Error {
     readonly attempts = 1,
     readonly elapsedMs = 0,
     readonly readBudgetMs?: number,
-    options?: ErrorOptions,
+    options?: ErrorOptions & { retryable?: boolean },
   ) {
     const cause = options?.cause instanceof Error ? `: ${options.cause.message}` : '';
     super(readBudgetMs === undefined
@@ -39,7 +39,11 @@ export class JournalReadInterruptedError extends Error {
       : `journal client: ${verb} read session was interrupted after ${attempts} attempts in ${Math.round(elapsedMs)}ms (read budget ${readBudgetMs}ms)${cause}`,
     options);
     this.name = 'JournalReadInterruptedError';
+    this.retryable = options?.retryable !== false;
   }
+
+  /** False when the session it ran on is gone, so retrying it cannot help. */
+  readonly retryable: boolean;
 }
 
 /** A read that could not be answered — by timeout or lost read transport — not a run failure. */
@@ -98,7 +102,8 @@ export class JournalReadPolicy {
           return await request(Math.min(remaining, timeoutMs * 2 ** Math.max(0, attempts - 2)), attemptSignal);
         } catch (error) {
           attemptSignal.throwIfAborted();
-          if (!(error instanceof JournalRequestTimeoutError || error instanceof JournalReadInterruptedError)) throw error;
+          if (!(error instanceof JournalRequestTimeoutError
+            || (error instanceof JournalReadInterruptedError && error.retryable))) throw error;
           last = error;
           const left = deadline - performance.now();
           if (left <= 0) throw exhausted();

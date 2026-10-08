@@ -62,8 +62,10 @@ export class BudgetedReads {
         // relayflowd answers one frame at a time per connection, so a canceled
         // request still occupies this reader: drop it for a fresh session.
         if (attemptSignal.aborted) { this.drop(reader); throw error; }
-        if (error instanceof JournalRequestTimeoutError
-          || error instanceof JournalProtocolError || error instanceof JournalFrameError) throw error;
+        // A timed-out request still occupies this sequential connection: retry
+        // on a fresh reader rather than queueing behind it.
+        if (error instanceof JournalRequestTimeoutError) { this.drop(reader); throw error; }
+        if (error instanceof JournalProtocolError || error instanceof JournalFrameError) throw error;
         // Only the dedicated reader's transport failed; reconnect within the budget.
         this.drop(reader);
         throw new JournalReadInterruptedError(verb, 1, performance.now() - started, undefined, { cause: error });
@@ -74,7 +76,13 @@ export class BudgetedReads {
   /** The primary session's own `hello`, retried within the same budget as reads. */
   handshake(params: VerbContract['hello']['params'], timeoutMs: number): Promise<VerbContract['hello']['result']> {
     return this.policy.read('hello', timeoutMs, this.budgetMs,
-      (bound, attemptSignal) => this.primary.requestOnce('hello', params, bound, attemptSignal), this.lifecycle);
+      (bound, attemptSignal) => this.primary.requestOnce('hello', params, bound, attemptSignal).catch(error => {
+        if (attemptSignal.aborted || error instanceof JournalRequestTimeoutError
+          || error instanceof JournalProtocolError || error instanceof JournalFrameError) throw error;
+        // The primary's own transport failed (ECONNRESET, ...): a read
+        // interruption, not a body failure, and not retryable on this session.
+        throw new JournalReadInterruptedError('hello', 1, 0, undefined, { cause: error, retryable: false });
+      }), this.lifecycle);
   }
 
   private session(): Promise<JournalClient | undefined> {

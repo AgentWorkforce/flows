@@ -25,8 +25,8 @@ $ cd packages/sdk && npx vitest run tests/authored-root.test.ts -t 'leaves the r
      → expected AuthoredFlowExecutionError: daemon_unresp… { …(7) } to match object { code: 'daemon_unresponsive', …(2) }
 (6 matching properties omitted from actual)
    × durable authored root > leaves the root resumable when the read session disconnects while the root worker is healthy 4ms
-     → expected JournalReadInterruptedError: journal clie… { …(4) } to match object { code: 'daemon_unresponsive', …(2) }
-(5 matching properties omitted from actual)
+     → expected JournalReadInterruptedError: journal clie… { …(5) } to match object { code: 'daemon_unresponsive', …(2) }
+(6 matching properties omitted from actual)
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
 
@@ -79,8 +79,8 @@ AssertionError: expected AuthoredFlowExecutionError: daemon_unresp… { …(7) }
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
 
  FAIL  tests/authored-root.test.ts > durable authored root > leaves the root resumable when the read session disconnects while the root worker is healthy
-AssertionError: expected JournalReadInterruptedError: journal clie… { …(4) } to match object { code: 'daemon_unresponsive', …(2) }
-(5 matching properties omitted from actual)
+AssertionError: expected JournalReadInterruptedError: journal clie… { …(5) } to match object { code: 'daemon_unresponsive', …(2) }
+(6 matching properties omitted from actual)
 
 - Expected
 + Received
@@ -104,8 +104,8 @@ AssertionError: expected JournalReadInterruptedError: journal clie… { …(4) }
 
  Test Files  1 failed (1)
       Tests  3 failed | 33 skipped (36)
-   Start at  06:06:03
-   Duration  1.31s (transform 677ms, setup 16ms, collect 1.12s, tests 31ms, environment 0ms, prepare 41ms)
+   Start at  06:16:37
+   Duration  1.33s (transform 681ms, setup 15ms, collect 1.12s, tests 31ms, environment 0ms, prepare 44ms)
 
 exit=1
 
@@ -118,7 +118,7 @@ $ cd packages/sdk && npx vitest run tests/authored-root.test.ts -t 'leaves the r
 
  Test Files  1 passed (1)
       Tests  3 passed | 33 skipped (36)
-   Start at  06:06:05
-   Duration  1.31s (transform 683ms, setup 16ms, collect 1.12s, tests 23ms, environment 0ms, prepare 40ms)
+   Start at  06:16:39
+   Duration  1.29s (transform 674ms, setup 14ms, collect 1.11s, tests 23ms, environment 0ms, prepare 41ms)
 
 exit=0

@@ -410,3 +410,28 @@ it('an exhausted budget during reader setup frees the queue for the next read', 
   await expect(client.runGet('run')).resolves.toMatchObject({ status: 'running' });
   expect(performance.now() - begun).toBeLessThan(2_000);
 });
+
+it('a transport error during a budgeted handshake is a read interruption, not a body failure', async () => {
+  const client = await handshakeClient({ hello: ctx => { ctx.socket.destroy(); } }, 60_000);
+  const begun = performance.now();
+  const error = await client.hello('flows-authored-node').catch(caught => caught);
+  expect(isReadInterruptionError(error)).toBe(true);
+  expect(performance.now() - begun).toBeLessThan(2_000); // the session is gone; no futile retries
+});
+
+it('retries a timed-out read on a fresh reader instead of queueing behind it', async () => {
+  let reads = 0;
+  const sockets: unknown[] = [];
+  const path = sockPath();
+  const server = startLoopback(path, {
+    hello: sendOk,
+    'run.get': ctx => { reads += 1; sockets.push(ctx.socket); if (reads > 1) sendResult(ctx, { status: 'running' }); },
+  }, { serialize: true });
+  servers.push(server);
+  await once(server, 'listening');
+  const client = new JournalClient(path, { requestTimeoutMs: 100, readBudgetMs: 10_000 });
+  clients.push(client);
+  await client.connect();
+  await expect(client.runGet('run')).resolves.toMatchObject({ status: 'running' });
+  expect(sockets[1]).not.toBe(sockets[0]);
+});
