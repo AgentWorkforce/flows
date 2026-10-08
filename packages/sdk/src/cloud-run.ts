@@ -210,8 +210,10 @@ export async function runInCloud(
   flow: CloudFlowSource,
   options: RunInCloudOptions = {},
 ): Promise<CloudRunReceipt> {
-  const { baseUrl } = await resolveCloudConnection(options);
+  // Validate locally first: resolving the connection may refresh a stored
+  // login, which posts the refresh token and rotates the credential file.
   const submission = await prepareCloudSubmission(flow, options);
+  const { baseUrl } = await resolveCloudConnection(options);
   const hash = submission.specHash;
   // Sync before submission: `prepare` reserves the run ID and the upload lands
   // under it, so the run request below names code Cloud already holds. A

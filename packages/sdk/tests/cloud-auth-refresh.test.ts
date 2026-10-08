@@ -244,6 +244,31 @@ describe('cloud login refresh', () => {
     expect(await bytes()).toBe(before);
   });
 
+  it('keeps a persisted rotation when releasing the lock fails; the stale window reclaims it', async () => {
+    const rm = fs.rm.bind(fs);
+    vi.spyOn(fs, 'rm').mockImplementation(async (target, options) => {
+      if (String(target) === `${path}.lock`) throw Object.assign(new Error('busy'), { code: 'EBUSY' });
+      return rm(target, options);
+    });
+    mockCloud();
+    expect(await refreshCloudLogin(old, apiUrl)).toEqual({ kind: 'refreshed' });
+    expect(JSON.parse(await bytes())).toMatchObject({ accessToken: rotated.accessToken, refreshToken: rotated.refreshToken });
+  });
+
+  it('propagates cancellation even when releasing the lock fails', async () => {
+    const rm = fs.rm.bind(fs);
+    vi.spyOn(fs, 'rm').mockImplementation(async (target, options) => {
+      if (String(target) === `${path}.lock`) throw Object.assign(new Error('busy'), { code: 'EBUSY' });
+      return rm(target, options);
+    });
+    const controller = new AbortController();
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+      controller.abort(new Error('cancelled'));
+      throw controller.signal.reason;
+    });
+    await expect(refreshCloudLogin(old, apiUrl, { fetch, signal: controller.signal })).rejects.toThrow('cancelled');
+  });
+
   it('propagates cancellation while waiting without removing the other process lock', async () => {
     await fs.mkdir(`${path}.lock`);
     const controller = new AbortController();

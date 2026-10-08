@@ -81,6 +81,24 @@ describe('hosted v2 submission', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('validates the submission before refreshing an expired stored login', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'cloud-run-refresh-order-'));
+    dirs.push(home);
+    vi.stubEnv('AGENT_RELAY_HOME', home);
+    vi.stubEnv('FLOWS_CLOUD_TOKEN', undefined);
+    vi.stubEnv('FLOWS_CLOUD_URL', undefined);
+    const store = JSON.stringify({
+      apiUrl: 'https://cloud-contract.example', accessToken: 'expired',
+      accessTokenExpiresAt: '2020-01-01', refreshToken: 'refresh',
+    });
+    await writeFile(join(home, 'cloud-auth.json'), store);
+    const fetch = vi.spyOn(globalThis, 'fetch');
+    await expect(runInCloud({ ...flow, steps: [] })).rejects.toThrow();
+    await expect(runInCloud({ path: 'example.txt' })).rejects.toMatchObject({ code: 'unsupported_source' });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(await readFile(join(home, 'cloud-auth.json'), 'utf8')).toBe(store);
+  });
+
   it('submits exact authored UTF-8 bytes with source and pinned Surface authority', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'cloud-authored-'));
     dirs.push(dir);

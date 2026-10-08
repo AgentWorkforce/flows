@@ -177,9 +177,9 @@ export async function refreshCloudLogin(
     options.signal?.throwIfAborted();
     return { kind: 'unwritable', error, path };
   } finally {
-    if (acquired) {
-      try { await fs.rm(lockPath, { recursive: true, force: true }); }
-      catch (error) { return { kind: 'unwritable', error, path }; }
-    }
+    // Never let cleanup replace the outcome: a rotation already persisted must
+    // be used, and a cancellation must propagate. A lock left behind ages past
+    // LOCK_STALE_MS and is reclaimed by the next caller, as relay does.
+    if (acquired) await fs.rm(lockPath, { recursive: true, force: true }).catch(() => undefined);
   }
 }
