@@ -192,3 +192,41 @@ it('fails closed on a malformed frame during watch setup', async () => {
     expect(isReadInterruption(error)).toBe(false);
   } finally { client.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });
+
+it('fails closed on a malformed frame after the watch is registered', async () => {
+  const path = sockPath();
+  const server = startLoopback(path, { hello: sendOk, 'run.watch': ctx => {
+    sendResult(ctx, {});
+    setTimeout(() => ctx.socket.write('{not json\n'), 20);
+  } });
+  await once(server, 'listening');
+  const client = new JournalClient(path);
+  try {
+    await client.connect();
+    const outcome = await Promise.race([
+      waitForRunningStep(client, 'run', { id: 'step', type: 'agent', leaseDeadlineMs: Date.now() + 30_000 }, {}).then(() => 'returned', error => error),
+      sleep(1_000).then(() => 'still waiting'),
+    ]);
+    expect(outcome).toBeInstanceOf(JournalFrameError);
+  } finally { client.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
+it('a malformed watch frame during an in-flight snapshot is an error, not a completion', async () => {
+  const path = sockPath();
+  let corrupt!: () => void;
+  const server = startLoopback(path, {
+    hello: sendOk,
+    'run.watch': ctx => { sendResult(ctx, {}); corrupt = () => ctx.socket.write('{not json\n'); },
+    'run.get': () => corrupt(), // the frame breaks while the snapshot is in flight
+  });
+  await once(server, 'listening');
+  const client = new JournalClient(path, { readBudgetMs: 300_000 });
+  try {
+    await client.connect();
+    const outcome = await Promise.race([
+      waitForRunningStep(client, 'run', { id: 'step', type: 'agent', leaseDeadlineMs: Date.now() + 30_000 }, {}).then(() => 'returned', error => error),
+      sleep(4_000).then(() => 'still waiting'),
+    ]);
+    expect(outcome).toBeInstanceOf(JournalFrameError);
+  } finally { client.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});

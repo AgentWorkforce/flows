@@ -44,7 +44,8 @@ export class JournalReadInterruptedError extends Error {
 
 /** A read that could not be answered — by timeout or lost read transport — not a run failure. */
 export function isReadInterruptionError(error: unknown): error is JournalRequestTimeoutError | JournalReadInterruptedError {
-  return (error instanceof JournalRequestTimeoutError && (READ_ONLY_VERBS.has(error.verb) || error.verb === 'run.watch'))
+  return (error instanceof JournalRequestTimeoutError
+    && (READ_ONLY_VERBS.has(error.verb) || error.verb === 'run.watch' || error.verb === 'hello'))
     || error instanceof JournalReadInterruptedError;
 }
 

@@ -17,14 +17,14 @@ $ cd packages/sdk && npx vitest run tests/authored-root.test.ts -t 'leaves the r
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/authored-root.test.ts (28 tests | 3 failed | 25 skipped) 31ms
+ ❯ tests/authored-root.test.ts (28 tests | 3 failed | 25 skipped) 30ms
    × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=false) 22ms
      → expected JournalRequestTimeoutError: journal clien… { …(5) } to match object { code: 'daemon_unresponsive', …(2) }
 (6 matching properties omitted from actual)
    × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=true) 4ms
      → expected AuthoredFlowExecutionError: daemon_unresp… { …(7) } to match object { code: 'daemon_unresponsive', …(2) }
 (6 matching properties omitted from actual)
-   × durable authored root > leaves the root resumable when the read session disconnects while the root worker is healthy 4ms
+   × durable authored root > leaves the root resumable when the read session disconnects while the root worker is healthy 3ms
      → expected JournalReadInterruptedError: journal clie… { …(4) } to match object { code: 'daemon_unresponsive', …(2) }
 (5 matching properties omitted from actual)
 
@@ -104,8 +104,8 @@ AssertionError: expected JournalReadInterruptedError: journal clie… { …(4) }
 
  Test Files  1 failed (1)
       Tests  3 failed | 25 skipped (28)
-   Start at  02:47:00
-   Duration  1.25s (transform 654ms, setup 16ms, collect 1.06s, tests 31ms, environment 0ms, prepare 30ms)
+   Start at  02:56:43
+   Duration  1.26s (transform 660ms, setup 16ms, collect 1.07s, tests 30ms, environment 0ms, prepare 41ms)
 
 exit=1
 
@@ -114,11 +114,11 @@ $ cd packages/sdk && npx vitest run tests/authored-root.test.ts -t 'leaves the r
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/authored-root.test.ts (28 tests | 25 skipped) 21ms
+ ✓ tests/authored-root.test.ts (28 tests | 25 skipped) 22ms
 
  Test Files  1 passed (1)
       Tests  3 passed | 25 skipped (28)
-   Start at  02:47:01
-   Duration  1.25s (transform 669ms, setup 15ms, collect 1.09s, tests 21ms, environment 0ms, prepare 29ms)
+   Start at  02:56:45
+   Duration  1.27s (transform 656ms, setup 16ms, collect 1.08s, tests 22ms, environment 0ms, prepare 44ms)
 
 exit=0

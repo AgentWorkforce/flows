@@ -178,7 +178,10 @@ export class JournalClient extends EventEmitter {
       msg = JSON.parse(line) as Response | ServerEvent;
     } catch {
       // A malformed frame is a protocol violation; fail closed.
-      this.failAll(new JournalFrameError());
+      const error = new JournalFrameError();
+      this.failAll(error);
+      // Sessions with nothing pending (a registered watch) must hear it too.
+      this.emit('protocol_error', error);
       return;
     }
 
@@ -271,7 +274,10 @@ export class JournalClient extends EventEmitter {
 
   /** Handshake; version mismatch is a hard error. Records the daemon's additive features. */
   async hello(client: string): Promise<VerbContract['hello']['result']> {
-    const result = await this.request('hello', { protocol: PROTOCOL_VERSION, client });
+    const params = { protocol: PROTOCOL_VERSION, client };
+    // A flow client's handshake meets the same CPU load as its reads.
+    const result = this.budgeted === undefined ? await this.request('hello', params)
+      : await this.budgeted.handshake(params, this.requestTimeoutMs);
     this.features = new Set(Array.isArray(result.features) ? result.features.filter(f => typeof f === 'string') : []);
     return result;
   }

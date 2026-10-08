@@ -26,10 +26,12 @@ export async function waitForRunningStep(client: JournalClient, runId: string,
   let ready = false;
   let finish: () => void = () => {};
   let cancel: () => void = () => {};
+  let fail: (error: unknown) => void = () => {};
   const canceled = () => new Error(`worker wait for step "${runningStep.id}" was canceled`);
   const completed = new Promise<void>((resolve, reject) => {
     finish = resolve;
     cancel = () => reject(canceled());
+    fail = reject;
   });
   // The subscription handshake itself may be pending when cancellation arrives.
   void completed.catch(() => {});
@@ -49,6 +51,10 @@ export async function waitForRunningStep(client: JournalClient, runId: string,
     }
   };
   watch.on('entry', onEntry);
+  // A malformed frame after registration has no pending request to reject: fail closed here.
+  let protocolFailure: unknown;
+  const onProtocolError = (error: unknown) => { protocolFailure ??= error; fail(error); snapshotRead?.abort(error); };
+  watch.on('protocol_error', onProtocolError);
   options.signal?.addEventListener('abort', cancel, { once: true });
   if (options.signal?.aborted) cancel();
   try {
@@ -82,6 +88,7 @@ export async function waitForRunningStep(client: JournalClient, runId: string,
       const snapshot = await client.runGet(runId, { signal })
         .catch(error => {
           if (options.signal?.aborted) throw canceled();
+          if (protocolFailure !== undefined) throw protocolFailure;
           // A completion push aborted this read: completion was observed, and
           // finish() is one-shot, even if a retry attempt started right after.
           if (settled || read.signal.aborted) return undefined;
@@ -89,6 +96,7 @@ export async function waitForRunningStep(client: JournalClient, runId: string,
         })
         .finally(() => { snapshotRead = undefined; });
       if (options.signal?.aborted) throw canceled();
+      if (protocolFailure !== undefined) throw protocolFailure;
       if (settled || snapshot === undefined || snapshot.steps[runningStep.id]?.state !== 'running') return;
       const deadline = snapshot.steps[runningStep.id]?.lease_deadline_ms;
       if (deadline !== undefined && deadline !== leaseDeadlineMs) {
@@ -105,6 +113,7 @@ export async function waitForRunningStep(client: JournalClient, runId: string,
     finish();
     options.signal?.removeEventListener('abort', cancel);
     watch.off('entry', onEntry);
+    watch.off('protocol_error', onProtocolError);
     watch.close();
   }
 }

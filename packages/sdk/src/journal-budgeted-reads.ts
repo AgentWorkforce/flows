@@ -55,6 +55,12 @@ export class BudgetedReads {
     }, combined);
   }
 
+  /** The primary session's own `hello`, retried within the same budget as reads. */
+  handshake(params: VerbContract['hello']['params'], timeoutMs: number): Promise<VerbContract['hello']['result']> {
+    return this.policy.read('hello', timeoutMs, this.budgetMs,
+      (bound, attemptSignal) => this.primary.requestOnce('hello', params, bound, attemptSignal), this.lifecycle);
+  }
+
   private session(): Promise<JournalClient | undefined> {
     if (this.readerReady === undefined) {
       const reader = this.primary.createPeer();

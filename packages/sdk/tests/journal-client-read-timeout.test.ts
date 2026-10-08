@@ -245,3 +245,16 @@ it('fails closed on a malformed frame during reader setup', async () => {
   expect(hellos).toBe(1);
   expect(reads).toBe(0);
 });
+
+it('retries a delayed handshake within the read budget on a budgeted flow client', async () => {
+  let hellos = 0;
+  const client = await setup({ hello: ctx => { if (++hellos > 1) sendOk(ctx); } }, 5_000);
+  await expect(client.hello('flows-authored-node')).resolves.toBeDefined();
+  expect(hellos).toBe(2);
+});
+
+it('an exhausted handshake budget is a read interruption, not a body failure', async () => {
+  const client = await setup({ hello: () => {} }, 250);
+  const error = await client.hello('flows-authored-node').catch(caught => caught);
+  expect(isReadInterruptionError(error)).toBe(true);
+});
