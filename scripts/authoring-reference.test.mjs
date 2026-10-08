@@ -191,3 +191,9 @@ test('every provider trigger reachable through star re-exports is documented', (
   assert.ok(methods > 500, `found ${methods} provider trigger methods`);
   assert.match(authoring, /\| `github\.pull_request\(action\?: string\)` \| `github` \| `pull_request` \|/);
 });
+test('every function exported from the package root has its signature in the reference', () => {
+  for (const name of ['flowRunWritebackIdempotency', 'scheduleIdFor', 'parseCron', 'cronGrid',
+    'cronFixedIntervalMs', 'cronMaxGapMs', 'everyToMs', 'webhook', 'flow']) {
+    assert.match(authoring, new RegExp(`export function ${name}[<(]`), name);
+  }
+});

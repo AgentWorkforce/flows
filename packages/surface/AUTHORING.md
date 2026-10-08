@@ -1047,6 +1047,63 @@ Exported from the package root (`import { github } from '@relayflows/surface'`).
 | `zendesk.user_deleted(filter?: WebhookFilter)` | `zendesk` | `user.deleted` |
 | `zendesk.user_updated(filter?: WebhookFilter)` | `zendesk` | `user.updated` |
 
+## Other exported functions
+
+Scheduling, cron and writeback utilities exported from the package root.
+
+```ts
+/** Stable across attempts; deliberately independent of process-tick ordinals. */
+export function flowRunWritebackIdempotency(runId: string, stepId: string): string;
+```
+
+```ts
+/**
+ * The `schedule_id` a flow's schedule subscribes to. Deterministic from the
+ * flow name and the declaration, so the local runner, `flows check` and the
+ * journal all name the same slot stream without a registry — and injective:
+ * a readable slug for humans, plus a hash of the exact declaration so
+ * `1-5` and `1,5`, or two zones, or two long names sharing a prefix, never
+ * share a stream (the kernel dispatches an event to its first matching
+ * subscription only).
+ */
+export function scheduleIdFor(flowName: string, source: ScheduleTriggerSource): string;
+```
+
+```ts
+/**
+ * Standard five-field cron. Accepts `*`, values, ranges, lists and `/step`,
+ * plus month and weekday names; refuses anything outside each field's range.
+ * Validation, not evaluation — the schedule's clock is the runner's.
+ */
+export function parseCron(expression: string): CronFields;
+```
+
+```ts
+export function cronGrid(fields: CronFields, tz?: string): CronGrid | undefined;
+```
+
+```ts
+/** The fixed interval of a cron, when `cronGrid` finds one. Kept for callers that only need the period. */
+export function cronFixedIntervalMs(fields: CronFields, tz?: string): number | undefined;
+```
+
+```ts
+/**
+ * The longest gap between consecutive fires over two calendar years (one of
+ * them leap), in milliseconds — a cron's natural quiet period. Evaluated on
+ * the UTC calendar minute by minute; a zone offset does not change gap
+ * lengths, and a DST shift changes one gap by at most an hour, which the
+ * callers' multiple absorbs. An expression that fires at most once in the
+ * span reports the whole span. Returns undefined when it never fires.
+ */
+export function cronMaxGapMs(fields: CronFields): number | undefined;
+```
+
+```ts
+/** `every("5m")` — a fixed interval. Units: s, m, h, d. Minimum one second. */
+export function everyToMs(value: string): number;
+```
+
 ## Referenced declarations
 
 Every exported type named by a declaration above or by the helper namespace table, followed transitively. Completion reasons and `Helpers` are the tables above.
@@ -1199,6 +1256,28 @@ export interface ScheduleTriggerSource {
   readonly intervalMs?: number;
   /** Phase of that grid: the first fire is `epochMs` past the Unix epoch; present exactly when `intervalMs` is. */
   readonly epochMs?: number;
+}
+```
+
+### CronFields
+
+```ts
+export interface CronFields {
+  readonly minute: string;
+  readonly hour: string;
+  readonly dayOfMonth: string;
+  readonly month: string;
+  readonly dayOfWeek: string;
+}
+```
+
+### CronGrid
+
+```ts
+/** A tick grid that reproduces a cron exactly: fire every `intervalMs`, phase-aligned at `epochMs` past the Unix epoch. */
+export interface CronGrid {
+  readonly intervalMs: number;
+  readonly epochMs: number;
 }
 ```
 

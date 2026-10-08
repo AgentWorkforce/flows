@@ -1,22 +1,28 @@
-✔ extracts overloads in order and preserves lease JSDoc byte-for-byte (5.095847ms)
-✔ walks union members even when not re-exported, including nested unions (1.222704ms)
-✔ CLI literals refuse unresolved options with command and identifier (1.767566ms)
-✔ CLI literals resolve imports, spreads, String and templates but refuse dynamic defaults (4.676176ms)
-✔ run documents every exported overload and the lease comment (0.270881ms)
-✔ done documents all three distinct completion vocabularies (0.709423ms)
-✔ human returns Step<boolean> (0.113631ms)
-✔ all helper namespaces and mcp are discoverable (0.468781ms)
-✔ FlowHeader includes every field and its declaration (0.276151ms)
-✔ AgentOptions includes every field and its declaration (0.24699ms)
-✔ all named gate variants and both gate overloads are documented (0.26383ms)
-✔ CLI includes every declared verb, subcommand and literal flag (0.640912ms)
-✔ lease prose agrees with type, kernel default and compiler ceiling (0.775743ms)
-✔ checker accepts exact docs, rejects drift or missing docs, and accepts restoration (1778.963914ms)
-ℹ tests 14
+✔ extracts overloads in order and preserves lease JSDoc byte-for-byte (5.452696ms)
+✔ walks union members even when not re-exported, including nested unions (1.369856ms)
+✔ CLI literals refuse unresolved options with command and identifier (2.028005ms)
+✔ CLI literals resolve imports, spreads, String and templates but refuse dynamic defaults (4.338116ms)
+✔ run documents every exported overload and the lease comment (0.405557ms)
+✔ done documents all three distinct completion vocabularies (0.934143ms)
+✔ human returns Step<boolean> (0.143348ms)
+✔ all helper namespaces and mcp are discoverable (0.527014ms)
+✔ FlowHeader includes every field and its declaration (0.316912ms)
+✔ AgentOptions includes every field and its declaration (0.249856ms)
+✔ all named gate variants and both gate overloads are documented (0.315068ms)
+✔ CLI includes every declared verb, subcommand and literal flag (0.70755ms)
+✔ lease prose agrees with type, kernel default and compiler ceiling (0.465679ms)
+✔ checker accepts exact docs, rejects drift or missing docs, and accepts restoration (1995.656966ms)
+✔ every relative link in shipped surface markdown resolves inside the packed package (411.504943ms)
+✔ every exported surface type the reference mentions is declared in it (13.675842ms)
+✔ trigger and helper entry points are documented (1.074556ms)
+✔ in-package re-exports are declared, never pointed at by a source path (0.173233ms)
+✔ every provider trigger reachable through star re-exports is documented (6.540947ms)
+✔ every function exported from the package root has its signature in the reference (0.587026ms)
+ℹ tests 20
 ℹ suites 0
-ℹ pass 14
+ℹ pass 20
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 2007.258635
+ℹ duration_ms 2624.289353

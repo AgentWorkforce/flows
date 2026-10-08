@@ -58,6 +58,7 @@ export function authoringReference() {
   const schedules = read('schedule');
   text += fence(signatureText(triggers, 'webhook')) + '\n' + fence(signatureText(schedules, 'schedule'));
   text += providerTriggers();
+  text += otherFunctions(text, exports);
   text += '\n## Referenced declarations\n\nEvery exported type named by a declaration above or by the helper namespace table, followed transitively. Completion reasons and `Helpers` are the tables above.\n\n';
   // Helper namespace types appear only in the table above; declare the exported ones too.
   text += referencedDeclarations(text, exports, [...helpers.map(member => member.type.getText()), 'ProviderTriggerSource']);
@@ -103,6 +104,33 @@ function providerTriggers() {
   return '\n### Provider triggers\n\nExported from the package root (`import { github } from \'@relayflows/surface\'`). '
     + 'Each call returns `ProviderTriggerSource<Provider, Event>` for the listed provider and event; pass it to `flow(...).on(...)` or `f.on(...)`.\n\n'
     + '| Call | Provider | Event |\n| --- | --- | --- |\n' + rows.join('\n') + '\n';
+}
+
+/** Every other function exported from the package root, so the reference covers each callable. */
+function otherFunctions(rendered, exports) {
+  const modules = exportSources(source(resolve(root, 'packages/surface/src/index.ts')));
+  const fences = [];
+  for (const name of exports) {
+    const module = modules.get(name);
+    if (module === undefined || !module.startsWith('.')) continue;
+    const located = functionModule(resolve(root, 'packages/surface/src', module.replace(/\.js$/, '.ts')), name);
+    if (located === undefined || new RegExp(`export function ${name}[<(]`).test(rendered)) continue;
+    fences.push(fence(signatureText(located.file, located.name)));
+  }
+  return fences.length === 0 ? '' : `\n## Other exported functions\n\nScheduling, cron and writeback utilities exported from the package root.\n\n${fences.join('\n')}`;
+}
+
+/** The file and local name of a function declaration, following in-package re-exports. */
+function functionModule(path, name, seen = new Set()) {
+  if (seen.has(path)) return undefined;
+  seen.add(path);
+  const file = source(path);
+  if (file.statements.some(node => ts.isFunctionDeclaration(node) && node.name?.text === name)) return { file, name };
+  const reexport = file.statements.find(node => ts.isExportDeclaration(node) && node.moduleSpecifier
+    && node.exportClause && ts.isNamedExports(node.exportClause) && node.exportClause.elements.some(item => item.name.text === name));
+  const item = reexport?.exportClause.elements.find(element => element.name.text === name);
+  if (!item || !reexport.moduleSpecifier.text.startsWith('.')) return undefined;
+  return functionModule(resolve(dirname(path), reexport.moduleSpecifier.text.replace(/\.js$/, '.ts')), item.propertyName?.text ?? name, seen);
 }
 
 /** Declare each exported surface type the reference names, so no signature points into dist/. */

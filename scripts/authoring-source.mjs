@@ -151,7 +151,11 @@ export function exportSources(index) {
 export function signatureText(file, name) {
   const parameters = node => node.parameters.map(parameter => `${parameter.name.getText(file)}${parameter.questionToken || parameter.initializer ? '?' : ''}: ${parameter.type.getText(file)}`).join(', ');
   const docs = node => ts.getJSDocCommentsAndTags(node).filter(ts.isJSDoc).map(doc => doc.getText(file)).join('\n');
-  const signature = node => `${node.name.getText(file)}(${parameters(node)}): ${node.type.getText(file)};`;
+  const signature = node => {
+    if (!node.type) throw new Error(`${file.fileName}: ${node.name.getText(file)} needs an explicit return type to be documented`);
+    const generics = node.typeParameters ? `<${node.typeParameters.map(item => item.getText(file)).join(', ')}>` : '';
+    return `${node.name.getText(file)}${generics}(${parameters(node)}): ${node.type.getText(file)};`;
+  };
   for (const statement of file.statements) {
     if (ts.isFunctionDeclaration(statement) && statement.name?.text === name) {
       const doc = docs(statement);
