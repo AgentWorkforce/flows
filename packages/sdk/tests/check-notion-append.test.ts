@@ -190,3 +190,12 @@ it.each([
   expect(result.exit).toBe(2);
   expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
 });
+it('treats template interpolation as a read', async () => {
+  const result = await check(fixture('const label = `${f.notion}`; await f.notion.createPage({ parent: "p", title: label });', '{ tools: { notion: true } },'));
+  expect(result.stderr.join('\n')).not.toContain('[helper_provider.unsupported]');
+  expect(result.exit).toBe(0);
+});
+it('still refuses a tagged template, which hands the value to its tag', async () => {
+  const result = await check(fixture('await globalThis.tagHelper`${f.notion}`;', '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+});

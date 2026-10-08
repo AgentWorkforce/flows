@@ -87,6 +87,8 @@ function readOrCall(value: AstNode, parents: WeakMap<AstNode, AstNode>): boolean
   if (parent === undefined) return false;
   if ((parent.type === 'CallExpression' || parent.type === 'NewExpression') && parent.callee === current) return true;
   if (['ExpressionStatement', 'UnaryExpression', 'BinaryExpression'].includes(parent.type)) return true;
+  // `${f.notion}` coerces to a string; a tagged template hands the value to its tag.
+  if (parent.type === 'TemplateLiteral') return parents.get(parent)?.type !== 'TaggedTemplateExpression';
   return ['IfStatement', 'WhileStatement', 'DoWhileStatement', 'ForStatement', 'ConditionalExpression'].includes(parent.type)
     && parent.test === current;
 }
