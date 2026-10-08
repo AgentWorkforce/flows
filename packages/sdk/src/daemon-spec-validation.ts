@@ -8,7 +8,7 @@ import type { CheckReport } from './cli/check.js';
 
 export type DaemonValidationMode = 'auto' | 'required' | 'off';
 type Unavailable = 'disabled' | 'not_reached' | 'authored_body' | 'relayflowd_not_found'
-  | 'relayflowd_bin_invalid' | 'no_verdict' | 'spawn_failed' | 'timed_out' | 'protocol_mismatch';
+  | 'relayflowd_bin_invalid' | 'no_verdict' | 'spawn_failed' | 'timed_out' | 'protocol_mismatch' | 'abnormal_exit';
 export interface DaemonValidation {
   mode: 'daemon' | 'local';
   binary?: string;
@@ -19,7 +19,7 @@ export interface DaemonValidation {
 export interface DaemonValidationDeps {
   resolveBinary(): string;
   run(binary: string, input: string): {
-    status: number | null; stdout: string; stderr: string; error?: Error;
+    status: number | null; signal?: NodeJS.Signals | null; stdout: string; stderr: string; error?: Error;
   };
 }
 type Result = { validation: DaemonValidation; diagnostics: CheckReport['diagnostics'] };
@@ -91,7 +91,14 @@ export function validateSpecWithDaemon(
       `validator protocol ${verdict.protocol}, SDK protocol ${PROTOCOL_VERSION}`, binary);
     const validation: DaemonValidation = { mode: 'daemon', binary,
       protocol: verdict.protocol, specVersion: verdict.spec_version };
-    if (verdict.ok) return { validation, diagnostics: [] };
+    if (verdict.ok) {
+      // Acceptance is the envelope AND exit 0; a validator that fails or is
+      // killed after printing it has not completed validation.
+      if (result.status !== 0) return unavailableValidation(mode, 'abnormal_exit',
+        `validator ${result.status === null ? `was terminated by ${result.signal ?? 'a signal'}` : `exited ${result.status}`} after an accepting verdict`, binary);
+      return { validation, diagnostics: [] };
+    }
+    // A refusal fails closed whatever the exit status, so it is reported as-is.
     const message = verdict.error.message;
     const index = /steps\[(\d+)\]/.exec(message)?.[1];
     const stepId = index === undefined ? undefined : submitted.steps[Number(index)]?.id;

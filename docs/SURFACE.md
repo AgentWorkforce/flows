@@ -1977,7 +1977,10 @@ The annotation names the binary that judged the spec. An already running daemon
 from a different build may disagree; this check does not contact that service.
 Older binaries (including 2.0.19) lack `validate-spec`: automatic mode warns
 `daemon_unvalidated`, naming the binary and the unproven acceptance, while
-required mode refuses. This catches skew going forward, not retroactively.
+required mode refuses. The same applies to a validator that exits nonzero or
+is killed after printing an accepting verdict (`abnormal_exit`): acceptance
+requires both the verdict and exit 0. A daemon refusal is reported whatever the
+exit status. This catches skew going forward, not retroactively.
 
 Authored TypeScript bodies are not lowered until execution. Their header checks
 remain local, with `authored_body` as the validation reason (required mode

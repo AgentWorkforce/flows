@@ -77,6 +77,8 @@ it.each([
   { status: null, stdout: '', stderr: '', error: Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' }), reason: 'timed_out' },
   { status: null, stdout: '', stderr: '', error: new Error('spawn'), reason: 'spawn_failed' },
   { status: 0, stdout: JSON.stringify({ ...envelope(), protocol: 99 }), stderr: '', reason: 'protocol_mismatch' },
+  { status: 2, stdout: JSON.stringify(envelope()), stderr: '', reason: 'abnormal_exit' },
+  { status: null, signal: 'SIGTERM' as const, stdout: JSON.stringify(envelope()), stderr: '', reason: 'abnormal_exit' },
 ])('reports $reason without claiming daemon acceptance', outcome => {
   for (const mode of ['auto', 'required'] as const) {
     const result = validateSpecWithDaemon(flow, mode, { ...deps(), run: () => outcome });
@@ -107,6 +109,26 @@ it('real CLI refuses skew in auto and required modes', () => {
     expect(result.stderr).toContain(`REFUSED [invalid_spec] ${message}`);
   }
 });
+it('keeps a daemon refusal whatever the validator exit status', () => {
+  const result = validateSpecWithDaemon(flow, 'auto', { ...deps(),
+    run: () => ({ status: null, signal: 'SIGTERM', stdout: JSON.stringify(envelope(message)), stderr: '' }) });
+  expect(result.validation.mode).toBe('daemon');
+  expect(result.diagnostics).toMatchObject([{ severity: 'refusal', kind: 'invalid_spec', stepId: 'first' }]);
+});
+
+it.each([['exit 2', 'process.exitCode=2'], ['SIGTERM', "process.kill(process.pid,'SIGTERM')"]])(
+  'real CLI does not claim daemon acceptance after an accepting verdict then %s', (_label, ending) => {
+    const f = fixture();
+    writeFileSync(f.binary, `#!${process.execPath}\nprocess.stdin.resume();process.stdin.on('end',()=>{process.stdout.write(${JSON.stringify(JSON.stringify(envelope()) + '\n')},()=>{${ending};});});\n`, { mode: 0o755 });
+    writeFileSync(f.path, JSON.stringify({ ...flow, steps: [{ id: 'a', type: 'deterministic', command: 'echo ok' }] }));
+    const required = cli(f.path, f.binary, ['--against-daemon', '--json']);
+    expect(required.status, required.stderr).toBe(2);
+    expect(JSON.parse(required.stdout)).toMatchObject({ ok: false, validation: { mode: 'local', reason: 'abnormal_exit' } });
+    const auto = cli(f.path, f.binary, ['--json']);
+    expect(JSON.parse(auto.stdout)).toMatchObject({ validation: { mode: 'local', reason: 'abnormal_exit' },
+      diagnostics: expect.arrayContaining([expect.objectContaining({ severity: 'warning', kind: 'daemon_unvalidated' })]) });
+  });
+
 it('real CLI labels daemon and offline passes, including JSON', () => {
   const f = fixture();
   expect(cli(f.path, f.binary, ['--no-daemon-check']).stdout).toContain('[local only: disabled');
