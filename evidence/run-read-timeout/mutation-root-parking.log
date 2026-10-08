@@ -17,8 +17,8 @@ $ cd packages/sdk && npx vitest run tests/authored-root.test.ts -t 'leaves the r
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/authored-root.test.ts (34 tests | 3 failed | 31 skipped) 32ms
-   × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=false) 23ms
+ ❯ tests/authored-root.test.ts (34 tests | 3 failed | 31 skipped) 30ms
+   × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=false) 22ms
      → expected JournalRequestTimeoutError: journal clien… { …(5) } to match object { code: 'daemon_unresponsive', …(2) }
 (6 matching properties omitted from actual)
    × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=true) 4ms
@@ -104,8 +104,8 @@ AssertionError: expected JournalReadInterruptedError: journal clie… { …(4) }
 
  Test Files  1 failed (1)
       Tests  3 failed | 31 skipped (34)
-   Start at  04:26:04
-   Duration  1.29s (transform 655ms, setup 16ms, collect 1.09s, tests 32ms, environment 0ms, prepare 41ms)
+   Start at  04:36:40
+   Duration  1.29s (transform 657ms, setup 17ms, collect 1.09s, tests 30ms, environment 0ms, prepare 41ms)
 
 exit=1
 
@@ -114,11 +114,11 @@ $ cd packages/sdk && npx vitest run tests/authored-root.test.ts -t 'leaves the r
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/authored-root.test.ts (34 tests | 31 skipped) 25ms
+ ✓ tests/authored-root.test.ts (34 tests | 31 skipped) 23ms
 
  Test Files  1 passed (1)
       Tests  3 passed | 31 skipped (34)
-   Start at  04:26:06
-   Duration  1.28s (transform 654ms, setup 16ms, collect 1.09s, tests 25ms, environment 0ms, prepare 41ms)
+   Start at  04:36:41
+   Duration  1.30s (transform 673ms, setup 16ms, collect 1.11s, tests 23ms, environment 0ms, prepare 42ms)
 
 exit=0

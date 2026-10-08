@@ -270,3 +270,18 @@ it('a watch dropped during an in-flight snapshot is reported at once, not after 
     expect((outcome as AuthoredFlowExecutionError).code).toBe('daemon_unresponsive');
   } finally { client.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });
+
+it('honours a replayed completion even if the watch drops before registration answers', async () => {
+  const path = sockPath();
+  const server = startLoopback(path, { hello: sendOk, 'run.watch': (ctx, params) => {
+    ctx.send({ event: 'entry', data: { run_id: String(params['run_id']), step_id: 'step', entry_type: 'step.completed' } });
+    setTimeout(() => ctx.socket.destroy(), 10); // replay delivered, response never sent
+  } });
+  await once(server, 'listening');
+  const client = new JournalClient(path);
+  try {
+    await client.connect();
+    await expect(waitForRunningStep(client, 'run', { id: 'step', type: 'agent', leaseDeadlineMs: Date.now() + 30_000 }, {}))
+      .resolves.toBeUndefined();
+  } finally { client.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});
