@@ -88,7 +88,8 @@ const NO_CONNECT_OPTION: CliOptionSpec = {
 const LOCAL_EXECUTION_OPTIONS = [
   JSON_OPTION,
   DATA_DIR_OPTION,
-  { flags: '--local-agent', description: 'Run agent steps in this process instead of a worker' },
+  { flags: '--local-agent', description: 'Run agent steps in this process (bound to this terminal unless --detach)' },
+  { flags: '--detach', description: 'Start in a separate process, print the run handle and exit; follow with flows status' },
   {
     flags: '--agent-capacity <n>',
     description: `With --local-agent, how many agent steps (and, separately, LLM steps) run at once (1-${MAX_LOCAL_AGENT_CAPACITY})`,
@@ -117,20 +118,22 @@ export const CLI_VERBS = [
   },
   {
     name: 'answer',
-    description: 'Answer a run’s parked f.human question; `flows resume` then continues the body',
+    description: 'Answer a parked f.human; --cloud also resumes, local answers need flows resume',
     args: [
       { name: 'run-id', description: 'Run parked on the question', required: true },
-      { name: 'wait-id', description: 'Which question to answer, named human-<n> in the order the body asked', required: true },
-      { name: 'answer', description: 'The decision, as yes or no (also true or false)', required: true },
+      { name: 'wait-id-or-answer', description: 'Local: human-<n> wait id; Cloud: yes or no', required: true },
+      { name: 'answer', description: 'Local decision, as yes or no (also true or false)', required: false },
     ],
     options: [
       JSON_OPTION,
+      { flags: '--cloud', description: 'Answer and resume a Cloud run using its open wait' },
+      { flags: '--source <path>', description: 'Original Cloud flow source when the stored copy is unavailable or truncated' },
       DATA_DIR_OPTION,
       { flags: '--no-spawn', description: 'Require a running relayflowd rather than starting one' },
       { flags: '--note <text>', description: 'Reason recorded on the journal alongside the answer' },
       { flags: '--by <identity>', description: 'Who answered, when relaying a person’s decision; defaults to the OS user' },
     ],
-    variants: ['answer'],
+    variants: ['answer', 'cloud-answer'],
   },
   {
     name: 'build',
@@ -145,9 +148,10 @@ export const CLI_VERBS = [
   },
   {
     name: 'check',
-    description: 'Compile and preflight a flow without running it, or opening a daemon socket',
+    description: 'Compile, preflight, and validate with the installed runtime when available; never start a run',
     args: [{ name: 'source', description: 'flow.ts, flow.yaml, or spec.json', required: true }],
-    options: [JSON_OPTION, { flags: '--watch', description: 'Re-check on every change to the flow and its imports' }],
+    options: [{ flags: '--against-daemon', description: 'Require acceptance by the installed relayflowd validator (FLOWS_CHECK_AGAINST_DAEMON=1)' }, { flags: '--no-daemon-check', description: 'Local compile and preflight only (FLOWS_NO_DAEMON_CHECK=1)' }, JSON_OPTION, { flags: '--watch', description: 'Re-check on every change to the flow and its imports' },
+      { flags: '--explain-warnings', description: 'List every unprovable-effects warning per step instead of one summary line' }],
     variants: ['check'],
   },
   {

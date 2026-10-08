@@ -1,0 +1,7 @@
+$ node evidence/helper-check/requirements.mjs
+named-agent before: REQUIRES codex (step "review")
+named-agent after: REQUIRES codex (step "review")
+named-agent refusals: model_unavailable
+use before: REQUIRES codex (step "review")
+use after: REQUIRES codex (step "review")
+use refusals: invalid_spec

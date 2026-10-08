@@ -1,0 +1,15 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+stdout | tests/live-kernel.test.ts
+LIVE_KERNEL relayflowd=/tmp/relayflows-daemon-check-target/debug/relayflowd
+LIVE_KERNEL flows=/home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/dist/cli.js
+
+ ✓ tests/live-kernel.test.ts (33 tests | 32 skipped) 306ms
+   ✓ validates the canonical ladder with the built daemon without running it 303ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 32 skipped (33)
+   Start at  14:31:05
+   Duration  4.41s (transform 2.31s, setup 62ms, collect 3.80s, tests 306ms, environment 0ms, prepare 46ms)
+

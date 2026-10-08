@@ -1,0 +1,13 @@
+$ cd packages/sdk && npx vitest run tests/authored-flow-slack.test.ts tests/authored-helpers.test.ts -t 'refuses missing credentials|on `.flow.ts` paths too|rejects malformed arguments'
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/authored-helpers.test.ts (6 tests | 5 skipped) 28ms
+ ✓ tests/authored-flow-slack.test.ts (7 tests | 5 skipped) 727ms
+   ✓ authored Slack helper effects > refuses missing credentials before running the body while flows check warns 511ms
+
+ Test Files  2 passed (2)
+      Tests  3 passed | 10 skipped (13)
+   Start at  13:40:46
+   Duration  2.58s (transform 1.11s, setup 27ms, collect 2.85s, tests 755ms, environment 0ms, prepare 112ms)
+

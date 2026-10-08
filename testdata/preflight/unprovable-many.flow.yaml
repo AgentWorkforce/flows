@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+version: '0.1.0'
+name: unprovable-many
+steps:
+  - id: first
+    type: deterministic
+    command: "printf first"
+  - id: second
+    type: deterministic
+    command: "printf second"
+  - id: conditional
+    type: deterministic
+    command: "if [ -f x ]; then printf found; fi"
+  - id: suspicious
+    type: deterministic
+    command: definitely-not-a-real-binary

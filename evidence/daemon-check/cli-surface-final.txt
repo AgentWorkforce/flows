@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/relay-cli-surface.test.ts (89 tests) 83ms
+
+ Test Files  1 passed (1)
+      Tests  89 passed (89)
+   Start at  14:36:15
+   Duration  3.18s (transform 1.91s, setup 23ms, collect 2.88s, tests 83ms, environment 0ms, prepare 44ms)
+

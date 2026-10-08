@@ -12,9 +12,19 @@ import {
   resumeDurableAuthoredFlow,
   type AuthoredRootMetadata,
 } from '../src/authored-root.js';
-import { JournalProtocolError, type JournalClient } from '../src/journal-client.js';
+import { JournalProtocolError, JournalRequestTimeoutError, type JournalClient } from '../src/journal-client.js';
 import type { RunOutcome, StepDispatchEvent } from '../src/protocol.js';
-import { AuthoredHumanParked } from '../src/authored-flow-error.js';
+import { AuthoredFlowExecutionError, AuthoredHumanParked } from '../src/authored-flow-error.js';
+import { JournalReadInterruptedError } from '../src/journal-read-policy.js';
+
+const nodeRunner = vi.hoisted(() => ({ override: undefined as undefined | ((...args: unknown[]) => Promise<unknown>) }));
+vi.mock('../src/authored-node-runner.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('../src/authored-node-runner.js')>();
+  return { ...actual,
+    assertAuthoredRuntimeAvailable: () => { if (nodeRunner.override === undefined) actual.assertAuthoredRuntimeAvailable(); },
+    runAuthoredInNode: (...args: Parameters<typeof actual.runAuthoredInNode>) =>
+      nodeRunner.override !== undefined ? nodeRunner.override(...args) : actual.runAuthoredInNode(...args) };
+});
 
 vi.mock('../src/authored-flow-loader.js', async importOriginal => ({
   ...await importOriginal<typeof import('../src/authored-flow-loader.js')>(),
@@ -381,6 +391,153 @@ describe('durable authored root', () => {
     expect(result).toMatchObject({ rootRunId: 'root-run', completionReason: 'success' });
     expect(journal.resumeCalls).toBe(1);
     expect(journal.peer.completions).toEqual([{ attempt: 2, reason: 'success' }]);
+  });
+
+  it('does not terminalize a root whose heartbeat times out', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    const controller = new AbortController();
+    journal.peer.stepHeartbeat = async () => {
+      controller.abort();
+      throw new JournalRequestTimeoutError('step.heartbeat', 10);
+    };
+    await expect(executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'heartbeat-timeout', lifecycle: { signal: controller.signal } }))
+      .rejects.toThrow();
+    expect(journal.peer.completions).toEqual([]);
+  });
+
+  it('still terminalizes a timed-out mutation as a body failure', async () => {
+    const loaded = await fixture(false, 0, async () => { throw new JournalRequestTimeoutError('stream.append', 10); });
+    const journal = new RootJournal();
+    await expect(executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'write-timeout' })).rejects.toMatchObject({ verb: 'stream.append' });
+    expect(journal.peer.completions).toEqual([{ attempt: 1, reason: 'worker_error' }]);
+  });
+
+  it.each([false, true])('leaves the root resumable after a read timeout without waiting for redispatch (Node frame=%s)', async nodeFrame => {
+    const timeout = new JournalRequestTimeoutError('run.get', 10);
+    const loaded = await fixture(false, 0, async () => {
+      throw nodeFrame ? new AuthoredFlowExecutionError('daemon_unresponsive', timeout.message) : timeout;
+    });
+    const journal = new RootJournal();
+    await expect(executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'read-timeout' })).rejects.toMatchObject({
+        code: 'daemon_unresponsive', rootRunId: 'root-run', message: expect.stringContaining('flows resume'),
+      });
+    expect(journal.peer.completions).toEqual([]);
+    expect(journal.resumeCalls).toBe(1);
+  });
+
+  it('leaves the root resumable when the read session disconnects while the root worker is healthy', async () => {
+    const interrupted = new JournalReadInterruptedError('run.get', 2, 40, 300_000,
+      { cause: new Error('journal client: connection closed') });
+    const loaded = await fixture(false, 0, async () => { throw interrupted; });
+    const journal = new RootJournal();
+    await expect(executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'read-disconnect' })).rejects.toMatchObject({
+        code: 'daemon_unresponsive', rootRunId: 'root-run', message: expect.stringContaining('flows resume'),
+      });
+    expect(journal.peer.completions).toEqual([]);
+  });
+
+  it('never terminalizes the root for a caller cancellation', async () => {
+    const controller = new AbortController();
+    const loaded = await fixture(false, 0, async () => {
+      controller.abort(new Error('caller canceled the run'));
+      throw controller.signal.reason;
+    });
+    const journal = new RootJournal();
+    await expect(executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'caller-cancel', lifecycle: { signal: controller.signal } }))
+      .rejects.toMatchObject({ message: 'caller canceled the run', rootRunId: 'root-run' });
+    expect(journal.peer.completions).toEqual([]);
+  });
+
+  it('scopes body reads to the root attempt lease for the life of the attempt', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    const release = vi.fn();
+    const scopeReads = vi.fn((_signal: AbortSignal) => release);
+    (journal as unknown as { scopeReads: typeof scopeReads }).scopeReads = scopeReads;
+    await executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'scoped-reads' }).catch(() => undefined);
+    expect(scopeReads).toHaveBeenCalledTimes(1);
+    expect(scopeReads.mock.calls[0]![0]).toBeInstanceOf(AbortSignal);
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates a read interruption while detecting an authored root instead of guessing declarative', async () => {
+    const { readAuthoredRootMetadata } = await import('../src/authored-root.js');
+    const interrupted = { journalRead: async () => { throw new JournalRequestTimeoutError('journal.read', 10, 3, 300_000, 300_000); } };
+    await expect(readAuthoredRootMetadata(interrupted as unknown as JournalClient, 'run')).rejects.toBeInstanceOf(JournalRequestTimeoutError);
+    const plain = { journalRead: async () => ({ entries: [] }) };
+    await expect(readAuthoredRootMetadata(plain as unknown as JournalClient, 'run')).resolves.toBeUndefined();
+  });
+
+  it('keeps the lease read scope for the whole Bun-run attempt', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    const release = vi.fn();
+    (journal as unknown as { scopeReads: (signal: AbortSignal) => () => void }).scopeReads = () => release;
+    let finish!: (value: unknown) => void;
+    nodeRunner.override = () => new Promise(resolve => { finish = resolve; });
+    Object.defineProperty(process.versions, 'bun', { value: '1.4.0', configurable: true });
+    try {
+      const execution = executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+        { dataDir: '/unused', admissionKey: 'bun-scope' }).catch(() => undefined);
+      await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+      expect(release).not.toHaveBeenCalled(); // the child is still running
+      finish({ name: 'f', completionReason: 'success', journalSteps: [] });
+      await execution;
+      expect(release).toHaveBeenCalledTimes(1);
+    } finally {
+      delete (process.versions as Record<string, string | undefined>)['bun'];
+      nodeRunner.override = undefined;
+    }
+  });
+
+  it('keeps a completed root outcome when reading back its result is interrupted', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    (journal as unknown as { startStatus: RunOutcome }).startStatus = outcome('root-run', 'completed', 'success');
+    journal.journalRead = async () => { throw new JournalRequestTimeoutError('journal.read', 10, 3, 300_000, 300_000); };
+    await expect(executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'completed-unread' })).rejects.toMatchObject({
+        code: 'result_unreadable', completionReason: undefined, rootRunId: 'root-run',
+      });
+  });
+
+  it('propagates a cancellation while detecting an authored root, but trusts a definite answer', async () => {
+    const { readAuthoredRootMetadata } = await import('../src/authored-root.js');
+    const canceled = { journalRead: async () => { throw new DOMException('This operation was aborted', 'AbortError'); } };
+    await expect(readAuthoredRootMetadata(canceled as unknown as JournalClient, 'run')).rejects.toMatchObject({ name: 'AbortError' });
+    const absent = { journalRead: async () => { throw new JournalProtocolError('run_not_found', 'no such run'); } };
+    await expect(readAuthoredRootMetadata(absent as unknown as JournalClient, 'run')).resolves.toBeUndefined();
+  });
+
+  it('keeps a completed root outcome when reading back its result is canceled', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    (journal as unknown as { startStatus: RunOutcome }).startStatus = outcome('root-run', 'completed', 'success');
+    journal.journalRead = async () => { throw new DOMException('This operation was aborted', 'AbortError'); };
+    await expect(executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'completed-canceled' })).rejects.toMatchObject({ code: 'result_unreadable', rootRunId: 'root-run' });
+  });
+
+  it('propagates a daemon-side read failure while detecting an authored root', async () => {
+    const { readAuthoredRootMetadata } = await import('../src/authored-root.js');
+    const storage = { journalRead: async () => { throw new JournalProtocolError('journal_write_failed', 'storage failed'); } };
+    await expect(readAuthoredRootMetadata(storage as unknown as JournalClient, 'run')).rejects.toMatchObject({ code: 'journal_write_failed' });
+  });
+
+  it('keeps a completed root outcome when its readback meets a storage protocol error', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    (journal as unknown as { startStatus: RunOutcome }).startStatus = outcome('root-run', 'completed', 'success');
+    journal.journalRead = async () => { throw new JournalProtocolError('journal_write_failed', 'storage failed'); };
+    await expect(executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'completed-storage' })).rejects.toMatchObject({ code: 'result_unreadable', rootRunId: 'root-run' });
   });
 
   it('terminalizes a returned body failure without replaying semantic side effects', async () => {

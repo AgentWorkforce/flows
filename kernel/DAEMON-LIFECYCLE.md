@@ -382,6 +382,20 @@ Not found → exit 2, `relayflowd_not_found`, message naming both
 
 ## 4. What changes, and what is new
 
+`flows check` does not call `ensureDaemon` or open a socket. It may invoke the
+resolved binary as `relayflowd validate-spec < spec.json`, a stateless stdin /
+JSON-stdout admission check dispatched before engine construction. It parses and
+validates like `run.start`, writes no run or journal, and leaves the data dir
+untouched. Exit 0 carries an accepting envelope; exit 2 carries an invalid-spec
+envelope. An older binary's clap exit 2 is not a verdict: consumers must validate
+the stdout envelope. The envelope reports `ok`, `protocol`, `spec_version`, and
+on refusal `error: {code: "invalid_spec", message}`.
+
+Automatic mode falls back to labelled local validation when no validator answers;
+`--against-daemon` requires a verdict and `--no-daemon-check` disables discovery.
+This judges the resolved binary, not a different build already serving a socket.
+
+
 ### New — `packages/sdk/src/daemon-lifecycle.ts`
 
 Mirrors `../relay/packages/cli/src/cli/lib/broker-lifecycle.ts` +
@@ -559,3 +573,15 @@ SDK (`npm test` in `packages/sdk`):
 Test 15 is the one that matters most and is the hardest to fake: it must spawn
 real processes against a real temp data dir, because the property under test is
 enforced by `flock(2)`, not by any code we could stub.
+
+## Reads during long-running commands
+
+The daemon handles frames sequentially per connection; `run.start`,
+`run.resume`, and `step.complete` can drive deterministic commands before
+replying. The SDK's flow execution clients therefore send read-only requests
+on an unconditional lazy reader session, serialized and retried within a
+bounded budget. Worker registrations, leases, writes, and watches retain their
+own session ordering. Watch pushes come from the hub and can arrive while a
+command is in flight. A read timeout is not a terminal run fact: the CLI probes
+a fresh connection and reports a resumable interruption (see `docs/SURFACE.md`
+§5). No daemon protocol or runtime release is required for this policy.

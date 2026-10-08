@@ -224,3 +224,12 @@ schema's entry point, even though `flows check` can also ingest it.
 4. Hover `timeoutMs` and inspect completion after `type: agent`.
 
 Do not correct `identitty` to `identity` in this dialect: neither is supported.
+
+
+`flows check --json` also reports `validation`: `mode: "daemon"` includes the
+validator binary, protocol and spec version; `mode: "local"` includes a reason
+why daemon acceptance is unproven. Editor/schema acceptance alone does not prove
+runtime compatibility. Set `FLOWS_NO_DAEMON_CHECK=1` for spawn-free local checks,
+or use `--against-daemon` to require the installed binary's stateless validator.
+Authored TypeScript bodies remain local header checks. See SURFACE.md's
+“What `flows check` proves about the installed runtime” for scope and old binaries.

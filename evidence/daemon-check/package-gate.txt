@@ -1,0 +1,28 @@
+$ /usr/local/share/nvm/versions/node/v25.6.0/bin/node scripts/pack-release.mjs surface /tmp/flows-cli-package-gXtQFF/tarballs
+PACK_OK @relayflows/surface@2.0.42: package/dist/index.js, package/dist/index.d.ts, package/dist/runtime.js, package/dist/runtime.d.ts
+$ /usr/local/share/nvm/versions/node/v25.6.0/bin/node scripts/pack-release.mjs sdk /tmp/flows-cli-package-gXtQFF/tarballs
+PACK_OK @relayflows/sdk@2.0.42: package/dist/index.js, package/dist/index.d.ts, package/dist/cli.js
+$ /usr/local/share/nvm/versions/node/v25.6.0/bin/node scripts/pack-release.mjs relayflows /tmp/flows-cli-package-gXtQFF/tarballs
+PACK_OK relayflows@2.0.42: package/bin/flows.js
+$ npm install --ignore-scripts --omit=optional --no-audit --no-fund /tmp/flows-cli-package-gXtQFF/tarballs/relayflows-2.0.42.tgz /tmp/flows-cli-package-gXtQFF/tarballs/relayflows-sdk-2.0.42.tgz /tmp/flows-cli-package-gXtQFF/tarballs/relayflows-surface-2.0.42.tgz
+
+added 150 packages in 10s
+$ /tmp/flows-cli-package-gXtQFF/local/node_modules/.bin/flows check examples/dependency-upgrade-bot.flow.ts
+REQUIRES claude (agent "upgrader")
+CHECK PASSED examples/dependency-upgrade-bot.flow.ts [local only: authored body, so daemon acceptance is unproven]
+$ /usr/local/share/nvm/versions/node/v25.6.0/bin/node /tmp/flows-cli-package-gXtQFF/local/node_modules/relayflows/bin/flows.js check examples/dependency-upgrade-bot.flow.ts
+REQUIRES claude (agent "upgrader")
+CHECK PASSED examples/dependency-upgrade-bot.flow.ts [local only: authored body, so daemon acceptance is unproven]
+$ npm install -g --prefix /tmp/flows-cli-package-gXtQFF/prefix --ignore-scripts --omit=optional --no-audit --no-fund /tmp/flows-cli-package-gXtQFF/tarballs/relayflows-2.0.42.tgz /tmp/flows-cli-package-gXtQFF/tarballs/relayflows-sdk-2.0.42.tgz /tmp/flows-cli-package-gXtQFF/tarballs/relayflows-surface-2.0.42.tgz
+
+added 294 packages in 8s
+$ npm install --ignore-scripts --omit=optional --no-audit --no-fund /tmp/flows-cli-package-gXtQFF/tarballs/relayflows-surface-2.0.42.tgz
+
+added 140 packages in 2s
+$ /tmp/flows-cli-package-gXtQFF/prefix/bin/flows check examples/dependency-upgrade-bot.flow.ts
+REQUIRES claude (agent "upgrader")
+CHECK PASSED examples/dependency-upgrade-bot.flow.ts [local only: authored body, so daemon acceptance is unproven]
+$ /usr/local/share/nvm/versions/node/v25.6.0/bin/node /tmp/flows-cli-package-gXtQFF/prefix/lib/node_modules/relayflows/bin/flows.js check examples/dependency-upgrade-bot.flow.ts
+REQUIRES claude (agent "upgrader")
+CHECK PASSED examples/dependency-upgrade-bot.flow.ts [local only: authored body, so daemon acceptance is unproven]
+CLI_PACKAGE_OK: local and global installs

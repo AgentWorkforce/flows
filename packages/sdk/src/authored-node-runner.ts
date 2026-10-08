@@ -1,4 +1,5 @@
 import { JournalClient } from './journal-client.js';
+import { FLOW_READ_BUDGET_MS } from './journal-read-policy.js';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -171,7 +172,7 @@ export async function runAuthoredInNode(
         else resolve(result);
       });
     });
-    await verifyAuthoredNodeResult(result, metadata, rootRunId, socketPath);
+    await verifyAuthoredNodeResult(result, metadata, rootRunId, socketPath, options.signal);
     return result;
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
@@ -323,7 +324,7 @@ function frameCount(frame: Record<string, unknown>, key: string): number | undef
 /** The IPC frame is a claim, not a durable terminal fact or a sandbox boundary. */
 export async function verifyAuthoredNodeResult(
   result: AuthoredFlowExecutionResult, metadata: AuthoredRootMetadata,
-  rootRunId: string, socketPath: string,
+  rootRunId: string, socketPath: string, signal?: AbortSignal,
 ): Promise<void> {
   const invalid = (why = ''): never => { throw new Error(`authored runtime result has no matching durable completion${process.env['FLOWS_VERIFIER_DEBUG'] && why ? ` (${why})` : ''}`); };
   if (result.rootRunId !== rootRunId || result.name !== metadata.flowName
@@ -354,7 +355,9 @@ export async function verifyAuthoredNodeResult(
     if (!authoredIds.has(gate.id.slice(0, -'.gate'.length))) invalid(`orphan ${gate.id}`);
   }
   const runs = new Set<string>();
-  const journal = new JournalClient(socketPath);
+  // The verifier reads the same journal under the same CPU load as the body.
+  const journal = new JournalClient(socketPath, { readBudgetMs: FLOW_READ_BUDGET_MS, budgetHandshake: true,
+    ...(signal === undefined ? {} : { readSignal: signal }) });
   await journal.connect();
   try {
     await journal.hello('flows-authored-result-verifier');

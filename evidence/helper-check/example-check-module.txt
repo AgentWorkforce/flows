@@ -1,0 +1,3 @@
+$ env -u SLACK_BOT_TOKEN -u RELAYFLOWS_SLACK_MOCK -u RELAYFILE_MOUNT_PATH -u WORKSPACE_ROOT -u WORKFORCE_SANDBOX_ROOT -u RELAYFILE_MOUNT_ROOT -u RELAYFILE_ROOT node --experimental-default-type=module packages/sdk/dist/cli.js check examples/stale-issues/stale-issues.flow.ts
+node: bad option: --experimental-default-type=module
+exit=9

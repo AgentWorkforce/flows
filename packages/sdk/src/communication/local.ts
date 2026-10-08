@@ -1,5 +1,6 @@
 import { onWorkerFailure } from '../worker-lease.js';
 import { randomUUID } from 'node:crypto';
+import { FLOW_READ_BUDGET_MS } from '../journal-read-policy.js';
 import { JournalClient } from '../journal-client.js';
 import { AgentWorker } from '../worker.js';
 import type { KernelRunSpec } from '../spec.js';
@@ -18,6 +19,9 @@ export async function attachCommunicationWorkers(spec: KernelRunSpec, socketPath
   let failure: unknown;
   const close = async () => {
     const outcomes = await Promise.allSettled(workers.map(async ({ client, worker }) => {
+      // Stop budgeted reads first: draining the worker must not wait out a
+      // delayed history read on shutdown.
+      client.cancelReads();
       try { await worker.close(); } finally { client.close(); }
     }));
     const rejected = outcomes.find(result => result.status === 'rejected');
@@ -28,7 +32,8 @@ export async function attachCommunicationWorkers(spec: KernelRunSpec, socketPath
       if (step.type !== 'agent') continue;
       requireCommunicationCli(step.cli ?? spec.cli);
       if (step.surfaces?.workspace?.length) throw new Error('Local communication workers support stream surfaces only');
-      const client = new JournalClient(socketPath);
+      // History reads on a retried attempt meet the same CPU load as flow reads.
+      const client = new JournalClient(socketPath, { readBudgetMs: FLOW_READ_BUDGET_MS });
       const worker = new AgentWorker(client, { workerId: `communication-${randomUUID()}`, dataDir, environment,
         requiredStreams: [channelName(step.id, '$receipts')],
         pins: { workspace: [], streams: step.surfaces?.streams?.map(({ stream }) => ({ stream, read_offset: 0 })) ?? [] } });

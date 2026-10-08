@@ -312,6 +312,14 @@ No process runs between events: the handler wakes, executes to its next await, p
    deterministic-command preflight gap.” Consequently, `cli_missing` applies
    to declared `llm` and `agent` CLIs, not deterministic command words.
 
+   For YAML/JSON specs, `flows check` summarises `unprovable_effects` warnings
+   affecting two or more steps in one trailing warning line. The denominator
+   counts every step in the spec, including `llm` and `agent` steps.
+   Use `--explain-warnings` (also with `--watch`) to list the original per-step
+   warnings; `--json` always retains every diagnostic in its stdout report.
+   Other diagnostic kinds remain individual. `flows run`, `flows resume`, and
+   `flows deploy` still print individual warnings.
+
    **Project-config discovery:** starting in the flow file's directory, `flows check` walks parent directories through the filesystem root and selects the first readable `flows.json`. That nearest file is the whole project config; it is not merged with outer files. Its schema is `{ "cli"?: <non-empty string>, "executors"?: <non-empty string>[], "models"?: <trimmed model string>[], "mcp"?: <server map> }`; unknown keys, malformed model entries, and duplicates fail closed as `config_invalid`. A nearer config therefore defines a self-contained nested project boundary and prevents accidental inheritance of outer credentials, executors, or model approvals. The selected path is printed with project-level resolutions and named in refusals; if it declares no `cli` or models, outer configs remain shadowed. At gate 1, a trigger executor is considered registered only when its name is present in this author-written `executors` array; `flows check` does not yet contact a registry, broker, or RelayCron, and absence is `no_executor`.
 
    Implementation status for issue #132: this named-agent contract currently
@@ -1052,7 +1060,7 @@ mints an observer link without contacting the daemon, and `status`, which
 reads a run's journal without one:
 
 ```text
-flows check [--watch] [--json] <flow.yaml|spec.json>
+flows check [--watch] [--json] [--explain-warnings] <flow.yaml|spec.json>
 flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.yaml|spec.json>
 flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.ts> --input <inline-json-or-file>
 flows resume [--json] [--no-spawn] [--data-dir <dir>] <run-id>
@@ -1074,6 +1082,19 @@ flows status --cloud [--json] [--watch] <run-id>
 exit with *its* outcome rather than the read's, using `flows run --cloud
 --wait`'s mapping; Ctrl-C ends the observation, not the run. `--watch` needs
 `--cloud`, and `--follow` does not take `--step`.
+
+A hosted human gate is terminal for now: `run --cloud --wait`,
+`status --cloud --watch`, and `logs --follow` exit **3** on an attested
+`needs_human`. The waiter prints the question, recipient and answer command.
+The Cloud write command records the answer and resumes in one invocation:
+
+```text
+flows answer --cloud [--json] [--note <text>] [--source <path>] <run-id> <yes|no>
+```
+
+Cloud discovers the open wait; the local answer form above still requires its
+wait id. See [Cloud human gates](CLOUD.md#answering-a-cloud-human-gate) for source
+verification, resume limits and recovery after partial success.
 
 ### Agent sidechannel (initial byte-stream slice)
 
@@ -1398,6 +1419,13 @@ because it is a footnote to that line. It never refuses, and it is scoped to
 `.flow.ts` is checked through its header without compiling step bodies, so it
 has no agent steps to count.
 
+Missing local helper mounts similarly produce `helper_credential_unresolved`
+on `flows check`, after `REQUIRES` and before the result. Cloud submission
+(`schedule`, `deploy`, `run --cloud`) checks the workspace integration and
+refuses if Cloud cannot connect it. Local `run` still requires a mount or the
+provider's mock mode. Unsupported helper operations remain refusals.
+Non-`.flow.*` authored modules also warn, but have no `REQUIRES` line.
+
 `flows check --watch` checks once, then watches the target, its reachable
 relative `use:` imports, and the nearest `flows.json` walking up from the
 flow directory. Saves are debounced for 150 ms; a change during a check
@@ -1551,7 +1579,54 @@ Consumer examples must wait for matching Surface/SDK releases, updated consumer
 pins, and a Cloud runtime artifact that executes this vocabulary. The onboarding
 guards in agentrelay.com require a separate rollout and verification.
 
-The exit codes are part of the surface contract:
+### Detached local execution
+
+`flows run --detach --local-agent <flow.yaml>` starts the CLI and its local
+worker in a separate process, prints a run handle, and exits. Authored bodies
+are kept alive too: `flows run --detach --local-agent review.flow.ts --input
+input.json`. Continue an existing run with `flows resume --detach
+--local-agent <run-id>`, using the same `--data-dir` as its original invocation.
+The child inherits the directory and environment of the shell that starts it.
+Detachment does not change macOS login-keychain access: start from a session
+that already has the credentials the agent CLI needs.
+
+Text output includes `DETACHED <run-id>`, the child PID, log and receipt paths,
+an optional observer URL, and a runnable `flows status` command. `--json`
+emits one object with `detached`, `runId`, `pid`, `logPath`, `recordPath`,
+`follow`, `notice`, and optional `observerUrl`. The parent's exit 0 means the
+run was admitted, not that it completed: it can still fail, park (exit 3 in
+the child), or suspend. Read the journal with `flows status <run-id>
+--data-dir <dir>`; the log carries park remedies, human-gate instructions,
+and the `PTY <path>` sidechannel socket used to steer a local agent.
+
+The private `<data-dir>/detached/run-*/` directory retains `run.log` and an
+atomically written `record.json`. The receipt records the final child report
+and exit code when it finishes; it is an index, never a replacement for the
+journal. There is no automatic process restart or cross-run worker service.
+Logs and receipts remain for inspection until you remove them.
+
+Preflight and bundle fetching run once, in the child. Before admission the
+parent waits up to 60 seconds for the daemon to admit the run or for the
+child's report. Only admission (including resuming an already completed
+authored root) yields the detached handle; anything that ends before it, such
+as a refusal or a resume whose pinned source changed, is reported as the
+child's own report with its exit code and diagnostics. If startup exits unexpectedly
+or times out, the parent exits 1 with the log path. A timeout sends SIGTERM to
+the child; inspect the log before retrying because a journal may already exist.
+The parent waits at most two more seconds for an observer URL. An absent URL
+is not guessed: a later mint is written to the log and receipt. Observer
+failure cannot fail the run. `--cloud-mirror` remains opt-in.
+
+`--detach` accepts the ordinary local run/resume options, including
+`--no-spawn`, `--no-observer-link`, `--reuse-from`, `--agent-capacity`, and
+`--allow-human-influenced` where those options apply. It is refused with
+`--cloud`, on `check`, and when repeated. Hosts using
+`FLOWS_LOCAL_AGENT_ENV_FD` receive `detach_environment_fd_unsupported` (exit 2):
+forwarding that one-shot credential descriptor is not implemented.
+
+Without `--detach`, `--local-agent` remains bound to the invoking terminal.
+
+The foreground exit codes are part of the surface contract:
 
 | Exit | Outcome |
 |---:|---|
@@ -1730,7 +1805,8 @@ is a requirement of the flow (`flows check` prints `slack (f.human to)`) and
 Locally, authority is the journal socket: whoever can reach the daemon can
 answer, and `answeredBy` records the OS user who did. On Cloud the same wait is
 answered through the run's answer route — by the delivered channel above, or
-`POST /api/v1/workflows/runs/<id>/answer` — with the answerer's identity
+`flows answer --cloud <run-id> yes|no` (using
+`POST /api/v1/workflows/runs/<id>/answer`) — with the answerer's identity
 (`slack:@handle`, `github:@login`, or the Cloud user). `timeout` is not yet
 enforced (DESIGN.md §1.4). A child flow cannot call `f.human`; approval
 authority remains with the root flow.
@@ -1740,6 +1816,32 @@ typed `run_not_found` refusal. A dropped connection, request failure, or
 `journal_write_failed` response exits 1 as `protocol_error`, because the
 journal may already have changed and the CLI cannot honestly claim the resume
 was refused before a write.
+
+A timed-out read is handled separately: flow execution clients (`flows run`
+and `flows resume`, authored and declarative) retry only `run.get`,
+`journal.read`, `stream.read`, and `subscription.inspect` within a 300-second
+total budget. Reads use a separate session, one in flight per body client,
+with increasing attempt bounds and jitter. Interactive clients keep the
+single-shot 30-second default; writes are never retried by this policy.
+Unretried timeouts retain `journal client: <verb> timed out after <ms>ms`.
+Exhausted reads instead name the verb, attempts, elapsed time, total read
+budget, and possible CPU load.
+
+After a read budget expires, the CLI probes a fresh connection. A responding
+daemon reports `daemon_unresponsive`; a failed probe reports
+`daemon_unreachable` (also used for initial attach failures). A failed probe
+cannot prove the daemon is dead: its diagnostic names both unreachability and
+CPU load. Both reports exit 1, carry the known run/root id, retain
+`status: running`, and include `flows resume`. This parks the CLI execution
+without manufacturing a terminal journal fact; it does not claim a journaled
+human park or verify journal integrity. The root worker session closes so the
+kernel can recover its attempt, preserving completed work for resume.
+
+Worker completion waits use `run.watch` pushes with a snapshot every two
+seconds for the live lease deadline. A scoped watch session closes after each
+wait because the protocol has no unwatch verb. A heartbeat timeout relinquishes
+worker ownership as lease loss, leaving recovery to the kernel instead of
+recording `worker_error` against the body.
 
 A step that ran and failed is **not** one of those. It reports `step_failed`
 with `status: failed`, for every step type and for authored TypeScript flows
@@ -1956,3 +2058,43 @@ captured, hash-verified authored source bytes at their original module URLs.
 Successful root output records the Node version, executable SHA256, and embedded
 payload SHA256 as `executionRuntime`. The payload remains part of the existing
 artifact hash, and completed child effects remain journal results on resume.
+
+
+### What `flows check` proves about the installed runtime
+
+For declarative YAML/JSON specs, `flows check` now also pipes the compiled kernel
+spec to the installed `relayflowd validate-spec` when available. This performs
+`RunSpec::parse` and `validate`, just like `run.start` (and is stricter than
+`event.submit`, which currently only parses). No socket is opened, run created,
+or journal written. The input is the same spec value `run.start` submits, in
+canonical form.
+
+- Default: automatic validation when the installed binary supports it; otherwise
+  local compile and preflight, with a reason on the `CHECK PASSED` line.
+- `--against-daemon`: require a verdict; unavailable or incompatible validators
+  refuse with `daemon_validation_unavailable` and exit 2.
+- `--no-daemon-check`: local compile and preflight only, without binary discovery.
+
+`FLOWS_NO_DAEMON_CHECK=1` and `FLOWS_CHECK_AGAINST_DAEMON=1` select the same modes
+for an environment; explicit flags win. If both environment variables are set,
+the offline opt-out wins. Watch mode preserves the selection.
+
+A daemon refusal uses `invalid_spec`, preserving the kernel field and step
+location. A refusal on a generated gate step identifies an SDK lowering bug,
+not an authoring mistake. JSON reports carry `validation` on success and refusal;
+human output annotates the pass line, without adding a refusal terminator.
+
+The annotation names the binary that judged the spec. An already running daemon
+from a different build may disagree; this check does not contact that service.
+Older binaries (including 2.0.19) lack `validate-spec`: automatic mode warns
+`daemon_unvalidated`, naming the binary and the unproven acceptance, while
+required mode refuses. The same applies to a validator that exits nonzero or
+is killed after printing an accepting verdict (`abnormal_exit`): acceptance
+requires both the verdict and exit 0. A daemon refusal is reported whatever the
+exit status. This catches skew going forward, not retroactively.
+
+Authored TypeScript bodies are not lowered until execution. Their header checks
+remain local, with `authored_body` as the validation reason (required mode
+refuses). This change therefore does not cover the authored-body case reported
+in #489. Body capability probing and requiring daemon checks in release artifact
+packaging are follow-on work.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { runCli, type CliIo } from '../src/cli.js';
+import { parseCliArgs, runCli, type CliIo } from '../src/cli.js';
 
 function capture(): { io: CliIo; stdout: string[]; stderr: string[] } {
   const stdout: string[] = [];
@@ -54,5 +54,24 @@ describe('flows answer invocation', () => {
     const output = capture();
     expect(await runCli(['--help'], output.io)).toBe(0);
     expect(output.stdout.join('\n')).toContain('flows answer');
+  });
+});
+
+
+describe('Cloud answer invocation', () => {
+  it('accepts two Cloud positionals while preserving three local positionals', () => {
+    expect(parseCliArgs(['answer', '--cloud', '2e97a7ed', 'no', '--note', 'hold', '--source', 'human.flow.ts']))
+      .toMatchObject({ command: 'cloud-answer', runId: '2e97a7ed', answer: false, note: 'hold', source: 'human.flow.ts' });
+    expect(parseCliArgs(['answer', 'run-1', 'human-1', 'yes'])).toMatchObject({ command: 'answer' });
+  });
+  it.each([
+    ['--by', 'alice'], ['--data-dir', '.relayflowd'], ['--no-spawn'],
+    ['--cloud'], ['--source'], ['--source', '--json'], ['--source', 'a', '--source', 'b'],
+  ])('refuses incompatible or repeated Cloud flags %j', (...flags) => {
+    expect(parseCliArgs(['answer', '--cloud', '2e97a7ed', 'yes', ...flags])).toBeUndefined();
+  });
+  it('refuses local --source and extra Cloud wait id', () => {
+    expect(parseCliArgs(['answer', 'r', 'human-1', 'yes', '--source', 'a'])).toBeUndefined();
+    expect(parseCliArgs(['answer', '--cloud', 'r', 'human-1', 'yes'])).toBeUndefined();
   });
 });

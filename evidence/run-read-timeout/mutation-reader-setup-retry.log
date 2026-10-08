@@ -1,0 +1,63 @@
+Source: packages/sdk/src/journal-budgeted-reads.ts
+Original SHA256: fe56924a3b780e35507350c7cef74a4cb2815fee0588cf952542cb8119332710
+Replaced:
+          if (this.reader === reader) {
+            this.reader = undefined;
+            this.readerReady = undefined;
+          }
+          throw error;
+
+With:
+          return undefined;
+
+
+REVERTED
+$ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t 'retries a reader setup that timed out' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
+
+ ❯ tests/journal-client-read-timeout.test.ts (33 tests | 1 failed | 32 skipped) 84ms
+   × retries a reader setup that timed out instead of reading on the primary for good 83ms
+     → expected 1 to be 2 // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/journal-client-read-timeout.test.ts > retries a reader setup that timed out instead of reading on the primary for good
+AssertionError: expected 1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ tests/journal-client-read-timeout.test.ts:203:18
+    201|   expect(await client.runGet('run')).toMatchObject({ status: 'complete…
+    202|   expect(await client.runGet('run')).toMatchObject({ status: 'complete…
+    203|   expect(hellos).toBe(2);
+       |                  ^
+    204|   expect(served).toHaveLength(2);
+    205|   expect(served.every(socket => socket !== primary)).toBe(true);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 32 skipped (33)
+   Start at  06:16:14
+   Duration  535ms (transform 173ms, setup 17ms, collect 299ms, tests 84ms, environment 0ms, prepare 42ms)
+
+exit=1
+
+RESTORED SHA256: fe56924a3b780e35507350c7cef74a4cb2815fee0588cf952542cb8119332710
+$ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t 'retries a reader setup that timed out' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
+
+ ✓ tests/journal-client-read-timeout.test.ts (33 tests | 32 skipped) 74ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 32 skipped (33)
+   Start at  06:16:15
+   Duration  534ms (transform 180ms, setup 17ms, collect 303ms, tests 74ms, environment 0ms, prepare 41ms)
+
+exit=0

@@ -1,0 +1,4 @@
+
+> @relayflows/sdk@2.0.42 build
+> tsc && node scripts/make-cli-executable.mjs
+

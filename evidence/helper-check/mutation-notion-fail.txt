@@ -1,0 +1,36 @@
+$ npx vitest run tests/check-helper-surface.test.ts -t still refuses unsupported notion
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ❯ tests/check-helper-surface.test.ts (11 tests | 1 failed | 10 skipped) 590ms
+   × still refuses unsupported notion appendBlock without a mount 588ms
+     → expected +0 to be 2 // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/check-helper-surface.test.ts > still refuses unsupported notion appendBlock without a mount
+AssertionError: expected +0 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 0
+
+ ❯ tests/check-helper-surface.test.ts:80:23
+     78| ])('still refuses unsupported %s without a mount', async (_name, body)…
+     79|   const result = await check(fixture(body));
+     80|   expect(result.exit).toBe(2);
+       |                       ^
+     81|   expect(result.stderr.join('\n')).toContain('[helper_provider.unsuppo…
+     82| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 10 skipped (11)
+   Start at  13:39:11
+   Duration  2.56s (transform 1.12s, setup 18ms, collect 1.72s, tests 590ms, environment 0ms, prepare 84ms)
+
+
+exit=1

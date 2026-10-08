@@ -1,0 +1,25 @@
+$ cd packages/sdk && npx vitest run tests/check-helper-surface.test.ts tests/check-worker-surface.test.ts tests/preflight.test.ts tests/helpers-fanout.test.ts tests/helper-reference.test.ts tests/flow-requirements.test.ts tests/flow-extension-compose.test.ts
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/helper-reference.test.ts (30 tests) 22ms
+ ✓ tests/preflight.test.ts (70 tests) 100ms
+ ✓ tests/check-worker-surface.test.ts (11 tests) 88ms
+ ✓ tests/flow-requirements.test.ts (14 tests) 1030ms
+   ✓ flows check prints REQUIRES > names the helper, the harness and the mcp server of an authored flow 786ms
+ ✓ tests/helpers-fanout.test.ts (96 tests) 156ms
+ ✓ tests/check-helper-surface.test.ts (15 tests) 4150ms
+   ✓ reports the declared integration once after REQUIRES and before CHECK PASSED 479ms
+   ✓ keeps default and explicit opt-out checks strict, and local run refuses before attach 339ms
+   ✓ preserves requirements when compilation refuses and for named agents 2248ms
+ ✓ tests/flow-extension-compose.test.ts (33 tests) 5886ms
+   ✓ composing flow extensions onto a base flow > composes two extensions in declaration order, and the order is the lockfile order 445ms
+   ✓ composing flow extensions onto a base flow > flows check reports the composition and keeps the composed triggers deliverable 973ms
+   ✓ composing flow extensions onto a base flow > flows check probes extension preflight before reporting the project healthy 305ms
+   ✓ composing flow extensions onto a base flow > uses extension permissions for hosted deploy preflight and the deploy body 322ms
+
+ Test Files  7 passed (7)
+      Tests  269 passed (269)
+   Start at  13:40:37
+   Duration  7.93s (transform 1.99s, setup 57ms, collect 6.67s, tests 11.43s, environment 1ms, prepare 287ms)
+

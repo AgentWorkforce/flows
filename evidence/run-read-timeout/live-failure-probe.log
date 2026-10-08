@@ -1,0 +1,45 @@
+$ node /tmp/relayflow-read-probe.mjs
+[
+  {
+    "at_ms": 1791197554045,
+    "attempt": 1,
+    "entry_type": "step.completed",
+    "payload": {
+      "budget": {
+        "dollars": "0",
+        "dollars_unmetered": true,
+        "tokens_in": 0,
+        "tokens_out": 0
+      },
+      "completed_by": "probe",
+      "completionReason": "worker_error",
+      "disposition": "step_done",
+      "effects": [],
+      "end_pins": {
+        "streams": [],
+        "workspace": []
+      },
+      "input_hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "next_attempt_at_ms": null,
+      "output": null,
+      "spend": {
+        "dollars": 0,
+        "dollars_unmetered": true,
+        "tokens_input": 0,
+        "tokens_output": 0,
+        "wallclock_ms": 723
+      },
+      "step_spec_hash": "12d9633edd0ffd882a0b1586fc347ce36c84d32656fe82f7e0b8d9d97cecc087",
+      "verification": {
+        "detail": "{\"artifacts\":[],\"exit_code\":null,\"stderr_tail\":\"CLI \\\"/home/daytona/.relayflow-v2-supervisor/durable/repository/testdata/preflight/analyze-story-stub-cli\\\" exited before completing the relayflows-agent-cli-v1 same-process handshake.\",\"stdout_tail\":\"\"}",
+        "gate": "execution",
+        "verdict": "fail"
+      }
+    },
+    "run_id": "01M45V38MZYZ0F87JWZVAJBZ6F",
+    "segment_id": 1,
+    "seq": 7,
+    "step_id": "analyze-story"
+  }
+]
+exit=0

@@ -43,7 +43,9 @@ takes `{issueId, body}`, and `updateIssue` takes `{issueId, args}`.
 Configure a relayfile mount containing the provider directory using the same
 mount environment variables as TS Slack helpers (`RELAYFILE_MOUNT_PATH`,
 `WORKSPACE_ROOT`, `WORKFORCE_SANDBOX_ROOT`, `RELAYFILE_MOUNT_ROOT`, or
-`RELAYFILE_ROOT`). `flows check` refuses missing mounts. To run locally:
+`RELAYFILE_ROOT`). `flows check` lists the provider under `REQUIRES` and warns
+`helper_credential_unresolved` for missing local mounts. Cloud submission checks
+workspace integrations; local `flows run` still refuses missing mounts. To run locally:
 
 ```sh
 flows run notify.yaml --local-agent

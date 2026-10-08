@@ -666,6 +666,7 @@ steps:
     expect(pass.code).toBe(0);
     expect(JSON.parse(pass.stdout.join('\n')) as CheckReport).toEqual({
       ok: true,
+      validation: { mode: 'local', reason: 'disabled' },
       path: passPath,
       projectConfigPath: configPath,
       gates: [{
@@ -688,6 +689,7 @@ steps:
     const report = JSON.parse(refusal.stdout.join('\n')) as CheckReport;
     expect(report).toEqual({
       ok: false,
+      validation: { mode: 'local', reason: 'not_reached' },
       path: refusalPath,
       projectConfigPath: configPath,
       gates: [{
@@ -1010,6 +1012,7 @@ describe('flows run/resume CLI over the journal protocol', () => {
     let snapshots = 0;
     await startCliLoopback(dataDir, {
       hello: sendOk,
+      'run.watch': ctx => sendResult(ctx, {}),
       'run.start': (ctx) => sendResult(ctx, {
         run_id: 'run-worker',
         status: 'parked',
@@ -1059,6 +1062,7 @@ describe('flows run/resume CLI over the journal protocol', () => {
     let snapshots = 0;
     await startCliLoopback(dataDir, {
       hello: sendOk,
+      'run.watch': ctx => sendResult(ctx, {}),
       'run.start': (ctx) => sendResult(ctx, {
         run_id: 'run-stale-worker',
         status: 'parked',
@@ -1066,7 +1070,7 @@ describe('flows run/resume CLI over the journal protocol', () => {
         completed_steps: 1,
       }),
       'run.get': (ctx) => {
-        const running = snapshots++ < 4;
+        const running = snapshots++ < 1;
         sendResult(ctx, {
           run_id: 'run-stale-worker',
           status: running ? 'running' : 'completed',
@@ -1095,13 +1099,14 @@ describe('flows run/resume CLI over the journal protocol', () => {
     expect(output.stderr.join('\n')).toContain('WAITING [worker_lease]');
     expect(output.stderr.join('\n')).toContain(`until ${leaseDeadlineMs}`);
     expect(output.stderr.join('\n')).not.toContain('worker lease for step "answer" expired');
-    expect(snapshots).toBeGreaterThan(4);
+    expect(snapshots).toBeGreaterThan(1);
   });
 
   it('allows a caller to cancel a worker-lease wait', async () => {
     const dataDir = temporaryProject('flows-run-cancel-');
     await startCliLoopback(dataDir, {
       hello: sendOk,
+      'run.watch': ctx => sendResult(ctx, {}),
       'run.start': (ctx) => sendResult(ctx, {
         run_id: 'run-cancel',
         status: 'parked',

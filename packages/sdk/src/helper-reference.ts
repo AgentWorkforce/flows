@@ -39,7 +39,7 @@ export function helperNamespacesUsed(body: string, root: string): ReadonlySet<st
 }
 
 /** `f.slack`, `f["slack"]`, `f?.slack` — but not `f[variable]`, which is unknowable. */
-function memberName(node: AstNode): string | undefined {
+export function memberName(node: AstNode): string | undefined {
   const property = node.property as AstNode | undefined;
   if (property === undefined) return undefined;
   if (node.computed !== true) return property.type === 'Identifier' ? property.name : undefined;
@@ -55,7 +55,7 @@ function memberName(node: AstNode): string | undefined {
  * here (Node strips before evaluating, and bundlers transpile), so this is
  * plain JavaScript.
  */
-function parseFlowBody(body: string): AstNode | null {
+export function parseFlowBody(body: string): AstNode | null {
   const options = { ecmaVersion: 'latest' as const, allowAwaitOutsideFunction: true, allowReturnOutsideFunction: true };
   // `parseExpressionAt` stops at the end of the first expression and does not
   // object to what follows, so `async post(f) { … }` parses as the identifier
@@ -103,7 +103,7 @@ function textFallback(body: string, root: string): ReadonlySet<string> {
   return used;
 }
 
-type AstNode = {
+export type AstNode = {
   type: string;
   end?: number;
   name?: string;
@@ -120,7 +120,7 @@ type AstNode = {
  * would refuse the flow for a mount it never touches. Acorn gives us binding
  * shapes, so scopes are tracked as syntax instead of guessed from text.
  */
-function walkReferences(
+export function walkReferences(
   node: AstNode,
   root: string,
   shadowed: boolean,
@@ -165,7 +165,7 @@ function walkReferences(
   }
 }
 
-function isFunction(node: AstNode): boolean {
+export function isFunction(node: AstNode): boolean {
   return node.type === 'ArrowFunctionExpression'
     || node.type === 'FunctionExpression'
     || node.type === 'FunctionDeclaration';
@@ -250,6 +250,6 @@ function functionVarBinds(node: AstNode, root: string): boolean {
   return found;
 }
 
-function isNode(value: unknown): value is AstNode {
+export function isNode(value: unknown): value is AstNode {
   return typeof value === 'object' && value !== null && typeof (value as { type?: unknown }).type === 'string';
 }

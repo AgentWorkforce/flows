@@ -649,6 +649,37 @@ describe('refusals', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('refreshes an expired login before logs and keeps JSON refusals to one object', async () => {
+    const home = temporaryDirectory();
+    const login = { apiUrl: 'https://cloud-contract.example', accessToken: 'old',
+      accessTokenExpiresAt: '2020-01-01', refreshToken: 'refresh', refreshTokenExpiresAt: '2099-01-01' };
+    writeFileSync(join(home, 'cloud-auth.json'), JSON.stringify(login));
+    vi.stubEnv('FLOWS_CLOUD_TOKEN', undefined);
+    vi.stubEnv('FLOWS_CLOUD_URL', undefined);
+    vi.stubEnv('AGENT_RELAY_HOME', home);
+    cloud((path, _query, auth) => {
+      if (path.endsWith('/token/refresh')) return { body: {
+        accessToken: 'renewed', refreshToken: 'rotated', accessTokenExpiresAt: '2099-01-01',
+      } };
+      expect(auth).toBe('Bearer renewed');
+      if (path.endsWith('/steps')) return { body: STEPS };
+      if (path.endsWith('/logs')) return { body: logEnvelope('') };
+      return { body: RUN_DETAIL };
+    });
+    const out = io();
+    expect(await runCloudLogsCli({ command: 'logs', runId: RUN, step: undefined, raw: false, json: true }, out.io, { env: {} })).toBe(0);
+    expect(out.stdout).toHaveLength(1);
+    expect(() => JSON.parse(out.stdout[0]!)).not.toThrow();
+    expect(out.stderr).toEqual([]);
+    writeFileSync(join(home, 'cloud-auth.json'), JSON.stringify(login));
+    cloud(() => ({ status: 401, body: {} }));
+    const refused = io();
+    expect(await runCloudLogsCli({ command: 'logs', runId: RUN, step: undefined, raw: false, json: true }, refused.io, { env: {} })).toBe(2);
+    expect(refused.stdout).toHaveLength(1);
+    expect(JSON.parse(refused.stdout[0]!)).toMatchObject({ code: 'cloud_auth_expired' });
+    expect(refused.stderr).toEqual([]);
+  });
+
   it('separates a run the credential cannot see (404) from one it may not read (403)', async () => {
     cloud(() => ({ status: 404, body: { error: 'Run not found' } }));
     const absent = io();

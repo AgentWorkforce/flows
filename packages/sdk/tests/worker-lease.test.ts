@@ -161,3 +161,15 @@ it('aborts the CLI when a later heartbeat response would revive an expired lease
   expect(client.stepComplete).not.toHaveBeenCalled();
   expect(String(errors[0])).toContain('lease expired before renewal');
 });
+
+it('hands a worker read interruption back to the kernel instead of failing fatally', async () => {
+  const { onWorkerFailure } = await import('../src/worker-lease.js');
+  const { JournalRequestTimeoutError } = await import('../src/journal-client.js');
+  const fatal = vi.fn();
+  const warn = vi.spyOn(process, 'emitWarning').mockImplementation(() => undefined);
+  onWorkerFailure('communication', fatal)(new JournalRequestTimeoutError('journal.read', 10, 3, 300_000, 300_000),
+    { run_id: 'r', step_id: 's', attempt: 2 } as never);
+  expect(fatal).not.toHaveBeenCalled();
+  expect(warn).toHaveBeenCalled();
+  warn.mockRestore();
+});

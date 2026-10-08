@@ -7,26 +7,36 @@
 // AGENTS.md rule 4). The kernel binary (`kernel/relayflowd serve`) speaks
 // this transport, including out-of-band leases, watches, events, and durable
 // stream plumbing. The client's framing and failure behavior is covered by a
-// loopback double in tests.
+// loopback double in tests. Framing and the socket lifecycle live in
+// journal-connection.ts; budgeted reads in journal-budgeted-reads.ts.
 
-import { EventEmitter } from 'node:events';
+import { READ_ONLY_VERBS } from './journal-read-policy.js';
+import { JournalConnection, JournalProtocolError } from './journal-connection.js';
+export { JournalFrameError, JournalProtocolError } from './journal-connection.js';
+import { BudgetedReads } from './journal-budgeted-reads.js';
+export { JournalReadInterruptedError, JournalRequestTimeoutError } from './journal-read-policy.js';
 export { walkJournal, JournalReadError, type JournalEvent, type JournalReadFailure } from './journal-reader.js';
-import { randomUUID } from 'node:crypto';
-import { createConnection, type Socket } from 'node:net';
 import type { VerbContract, EventEmitParams, EventSubmitParams, ReportedCost } from './protocol.js';
 import {
   PROTOCOL_VERSION,
   type CompletionReason,
   type EffectRef,
   type Pins,
-  type Request,
-  type Response,
-  type ServerEvent,
   type StepUsage,
 } from './protocol.js';
 import type { KernelRunSpec, StepType } from './spec.js';
 
 export interface JournalClientOptions {
+  /** Opt-in total budget for read-only requests; interactive clients stay single-shot. */
+  readBudgetMs?: number;
+  /** Cancels every budgeted read, so a run's lifecycle abort never waits out the budget. */
+  readSignal?: AbortSignal;
+  /**
+   * Retry this session's own `hello` within the read budget. Only for sessions
+   * opened after a run is admitted (an authored child, its verifier); a
+   * top-level command's handshake stays a single-shot compatibility check.
+   */
+  budgetHandshake?: boolean;
   /** Override the timeout for bounded protocol requests (ms). Default 30000. */
   requestTimeoutMs?: number;
   /**
@@ -42,42 +52,21 @@ export interface JournalClientOptions {
   connectTimeoutMs?: number;
 }
 
-interface Pending {
-  resolve: (value: unknown) => void;
-  reject: (err: Error) => void;
-  timer?: ReturnType<typeof setTimeout>;
-}
-
-/** A structured rejection returned by relayflowd over the journal protocol. */
-export class JournalProtocolError extends Error {
-  readonly code: string;
-  verb?: string;
-
-  constructor(code: string, message: string) {
-    super(`${code}: ${message}`);
-    this.name = 'JournalProtocolError';
-    this.code = code;
-  }
-}
-
-export class JournalClient extends EventEmitter {
+export class JournalClient extends JournalConnection {
+  private readonly budgeted: BudgetedReads | undefined;
+  private readonly budgetHandshake: boolean;
   /** Additive request capabilities the daemon advertised at `hello`; none until then. */
   private features: ReadonlySet<string> = new Set();
-  private socket: Socket | null = null;
-  /** Why the connection ended, so a later "not connected" names its cause rather than hiding it. */
-  private disconnectCause: Error | undefined;
-  private buffer = '';
-  private readonly pending = new Map<string, Pending>();
-  private readonly requestTimeoutMs: number;
-  private readonly connectTimeoutMs: number;
 
-  constructor(
-    readonly socketPath: string,
-    options: JournalClientOptions = {},
-  ) {
-    super();
-    this.requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
-    this.connectTimeoutMs = options.connectTimeoutMs ?? 2_000;
+  constructor(socketPath: string, options: JournalClientOptions = {}) {
+    super(socketPath, options.requestTimeoutMs ?? 30_000, options.connectTimeoutMs ?? 2_000);
+    this.budgetHandshake = options.budgetHandshake === true;
+    this.budgeted = options.readBudgetMs === undefined ? undefined
+      : new BudgetedReads(this, options.readBudgetMs, options.readSignal);
+  }
+
+  protected override connectionClosed(cause: unknown, unexpected: boolean): void {
+    this.budgeted?.close(cause, unexpected);
   }
 
   /** Independent session for an SDK helper worker; preserves the caller's registration. */
@@ -87,139 +76,41 @@ export class JournalClient extends EventEmitter {
     });
   }
 
-  /** Open the unix socket connection. Rejects on connect failure (fail-closed). */
-  connect(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (this.socket) return resolve();
-      const socket = createConnection({ path: this.socketPath });
-      const timer = setTimeout(() => {
-        socket.removeAllListeners();
-        socket.destroy();
-        this.failAll(new Error(`journal client: connect timed out after ${this.connectTimeoutMs}ms`));
-        reject(new Error(`journal client: connect timed out after ${this.connectTimeoutMs}ms`));
-      }, this.connectTimeoutMs);
-      const onError = (err: Error): void => {
-        clearTimeout(timer);
-        socket.removeAllListeners();
-        this.failAll(err);
-        reject(new Error(`journal client: connect failed: ${err.message}`));
-      };
-      socket.once('error', onError);
-      socket.once('connect', () => {
-        clearTimeout(timer);
-        socket.removeListener('error', onError);
-        socket.on('error', (err) => { this.disconnectCause ??= err; this.failAll(err); });
-        socket.on('data', (chunk) => this.onData(chunk));
-        socket.on('close', () => {
-          const closed = new Error('journal client: connection closed');
-          this.disconnectCause ??= closed;
-          this.failAll(closed);
-        });
-        this.disconnectCause = undefined;
-        this.socket = socket;
-        resolve();
-      });
-    });
+  private request<V extends keyof VerbContract>(verb: V, params: VerbContract[V]['params'],
+    timeoutMs: number | null = this.requestTimeoutMs, signal?: AbortSignal): Promise<VerbContract[V]['result']> {
+    // Every allowlisted read takes the policy, even after the primary dropped: its
+    // closed state then answers with the typed interruption recorded at the drop.
+    if (this.budgeted !== undefined && timeoutMs !== null && READ_ONLY_VERBS.has(verb)) {
+      return this.budgeted.read(verb, params, timeoutMs, signal);
+    }
+    return this.requestOnce(verb, params, timeoutMs, signal);
   }
 
   /**
-   * Close the connection and reject any pending requests. A `cause` (for
-   * example the worker failure that forced the close) is carried into every
-   * later "not connected" rejection.
+   * Cancel budgeted reads also when `signal` aborts — a root attempt's lease —
+   * until the returned release is called. A no-op without a read budget.
    */
-  close(cause?: unknown): void {
-    const closed = cause === undefined
-      ? new Error('journal client: closed by caller')
-      : new Error(`journal client: closed after ${cause instanceof Error ? cause.message : String(cause)}`, { cause });
-    this.disconnectCause ??= closed;
-    this.failAll(closed);
-    this.socket?.destroy();
-    this.socket = null;
-    this.buffer = '';
+  scopeReads(signal: AbortSignal): () => void {
+    return this.budgeted?.scope(signal) ?? (() => {});
   }
 
-  private onData(chunk: Buffer): void {
-    this.buffer += chunk.toString('utf8');
-    let nl: number;
-    while ((nl = this.buffer.indexOf('\n')) !== -1) {
-      const line = this.buffer.slice(0, nl);
-      this.buffer = this.buffer.slice(nl + 1);
-      if (line.length > 0) this.onLine(line);
-    }
-  }
-
-  private onLine(line: string): void {
-    let msg: Response | ServerEvent;
-    try {
-      msg = JSON.parse(line) as Response | ServerEvent;
-    } catch {
-      // A malformed frame is a protocol violation; fail closed.
-      this.failAll(new Error('journal client: malformed frame from server'));
-      return;
-    }
-
-    if (typeof (msg as Response).id === 'string' && 'ok' in (msg as Response)) {
-      const res = msg as Response;
-      const pending = this.pending.get(res.id);
-      if (!pending) return; // reply for an already-timed-out request
-      this.pending.delete(res.id);
-      if (pending.timer !== undefined) clearTimeout(pending.timer);
-      if (res.ok) pending.resolve(res.result);
-      else pending.reject(new JournalProtocolError(res.error.code, res.error.message));
-    } else {
-      const ev = msg as ServerEvent;
-      this.emit(ev.event, ev.data);
-      this.emit('event', ev);
-    }
-  }
-
-  private failAll(err: Error): void {
-    for (const [, p] of this.pending) {
-      if (p.timer !== undefined) clearTimeout(p.timer);
-      p.reject(err);
-    }
-    this.pending.clear();
-  }
-
-  private request<V extends keyof VerbContract>(
-    verb: V,
-    params: VerbContract[V]['params'],
-    timeoutMs: number | null = this.requestTimeoutMs,
-  ): Promise<VerbContract[V]['result']> {
-    return new Promise((resolve, reject) => {
-      if (!this.socket || this.socket.destroyed) {
-        const cause = this.disconnectCause;
-        reject(new Error(
-          `journal client: not connected (${verb})${cause === undefined ? '' : `: ${cause.message}`}`,
-          cause === undefined ? undefined : { cause },
-        ));
-        return;
-      }
-      const id = randomUUID();
-      const frame: Request = { id, verb: verb as string, params };
-      const timer = timeoutMs === null ? undefined : setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`journal client: ${verb} timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
-      this.socket.write(JSON.stringify(frame) + '\n', (err) => {
-        if (err) {
-          const p = this.pending.get(id);
-          if (p) {
-            if (p.timer !== undefined) clearTimeout(p.timer);
-            this.pending.delete(id);
-            p.reject(new Error(`journal client: ${verb} write failed: ${err.message}`));
-          }
-        }
-      });
-    });
+  /**
+   * End every budgeted read now and refuse later ones; the session itself stays
+   * open. The reads end as read interruptions, so a worker hands its attempt
+   * back to the kernel rather than completing it as a failure.
+   */
+  cancelReads(): void {
+    this.budgeted?.close(new Error('journal client: reads canceled'), true);
   }
 
   // --- Typed verb methods (gate 1 minimal set, kernel DESIGN.md §5) --------
 
   /** Handshake; version mismatch is a hard error. Records the daemon's additive features. */
   async hello(client: string): Promise<VerbContract['hello']['result']> {
-    const result = await this.request('hello', { protocol: PROTOCOL_VERSION, client });
+    const params = { protocol: PROTOCOL_VERSION, client };
+    // A flow client's handshake meets the same CPU load as its reads.
+    const result = this.budgeted === undefined || !this.budgetHandshake ? await this.request('hello', params)
+      : await this.budgeted.handshake(params, this.requestTimeoutMs);
     this.features = new Set(Array.isArray(result.features) ? result.features.filter(f => typeof f === 'string') : []);
     return result;
   }
@@ -255,13 +146,15 @@ export class JournalClient extends EventEmitter {
   }
 
   /** Snapshot for legibility. */
-  runGet(runId: string): Promise<VerbContract['run.get']['result']> {
-    return this.request('run.get', { run_id: runId });
+  runGet(runId: string, options: { signal?: AbortSignal } = {}): Promise<VerbContract['run.get']['result']> {
+    return this.request('run.get', { run_id: runId }, this.requestTimeoutMs, options.signal);
   }
 
   /**
-   * Open a push stream of every appended entry. Resolves once subscribed;
-   * entries arrive as `'entry'` events: `client.on('entry', (entry) => …)`.
+   * Open a push stream of every appended entry. The daemon writes the run's
+   * existing entries before this resolves (server.rs `watch_with_replay`), so
+   * the replay is fully delivered first; later entries arrive as they are
+   * appended. Entries arrive as `'entry'` events: `client.on('entry', (entry) => …)`.
    */
   runWatch(runId: string): Promise<VerbContract['run.watch']['result']> {
     return this.request('run.watch', { run_id: runId });

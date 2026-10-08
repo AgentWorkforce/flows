@@ -1,0 +1,53 @@
+Source: packages/sdk/src/worker-lease.ts
+Original SHA256: 4c58d4670422dc2169764af16eb082c55e72c5321ed9d6001af3607f03955fa3
+Replaced:
+      if (error instanceof JournalRequestTimeoutError && error.verb === 'step.heartbeat') {
+        throw new WorkerLeaseLostError('renewal_expired', error.message, { cause: error });
+      }
+
+With:
+
+
+REVERTED
+$ cd packages/sdk && npx vitest run tests/heartbeat-timeout.test.ts -t 'a heartbeat timeout' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
+
+ ❯ tests/heartbeat-timeout.test.ts (1 test | 1 failed) 19ms
+   × a heartbeat timeout is lease loss rather than a worker body failure 18ms
+     → expected JournalRequestTimeoutError: journal clien… { …(5) } to be an instance of WorkerLeaseLostError
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/heartbeat-timeout.test.ts > a heartbeat timeout is lease loss rather than a worker body failure
+AssertionError: expected JournalRequestTimeoutError: journal clien… { …(5) } to be an instance of WorkerLeaseLostError
+ ❯ tests/heartbeat-timeout.test.ts:16:5
+     14|   try {
+     15|     await client.connect();
+     16|     await expect(withWorkerLease(client, {
+       |     ^
+     17|       run_id: 'run', step_id: 'step', attempt: 1, step_type: 'agent', …
+     18|       lease_id: 'lease', lease_deadline_ms: Date.now() + 30_000, lease…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  06:16:36
+   Duration  460ms (transform 168ms, setup 17ms, collect 294ms, tests 19ms, environment 0ms, prepare 42ms)
+
+exit=1
+
+RESTORED SHA256: 4c58d4670422dc2169764af16eb082c55e72c5321ed9d6001af3607f03955fa3
+$ cd packages/sdk && npx vitest run tests/heartbeat-timeout.test.ts -t 'a heartbeat timeout' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
+
+ ✓ tests/heartbeat-timeout.test.ts (1 test) 16ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  06:16:37
+   Duration  435ms (transform 164ms, setup 16ms, collect 277ms, tests 16ms, environment 0ms, prepare 32ms)
+
+exit=0

@@ -1,0 +1,13 @@
+--- fixed/named-gate-lowering.ts
++++ reverted/named-gate-lowering.ts
+@@ -1 +1,3 @@
+-import { RE2JS_DEFLATED_BASE64 } from './re2js-embedded.js';
++import { readFileSync } from 'node:fs';
++import { createRequire } from 'node:module';
++import { deflateRawSync } from 'node:zlib';
+@@ -6,0 +9 @@
++let re2Source: string | undefined;
+@@ -10 +13,2 @@
+-  return `const re2={};new Function('exports',require('node:zlib').inflateRawSync(Buffer.from(${JSON.stringify(RE2JS_DEFLATED_BASE64)},'base64')).toString())(re2);`;
++  re2Source ??= deflateRawSync(readFileSync(createRequire(import.meta.url).resolve('re2js'))).toString('base64');
++  return `const re2={};new Function('exports',require('node:zlib').inflateRawSync(Buffer.from(${JSON.stringify(re2Source)},'base64')).toString())(re2);`;

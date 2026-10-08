@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+import { unavailableValidation, validationAnnotation, type DaemonValidationMode } from './daemon-spec-validation.js';
+import { foldUnprovableEffects, type FoldOptions } from './cli/diagnostic-fold.js';
+import { startDetachedRun, emitDetachedHandle } from './cli/detached-run.js';
+import { takeDetachedReceipt, type DetachedReceipt } from './cli/detached-record.js';
 import { withSubscriptionMetadata } from './cli/subscription-report.js';
 import { addPlugin } from './cli/add.js';
 import { parsePluginArgs, runPluginCommand, type PluginArgs } from './cli/plugin.js';
@@ -28,6 +32,7 @@ import {
   type RunProgress,
   type RunReport,
 } from './cli/run.js';
+import { runCloudAnswerCli } from './cli/cloud-answer.js';
 import { answerFlow } from './cli/answer.js';
 import { checkAuthoredTriggers } from './cli/check-triggers.js';
 import { parseWebhookArgs, runServeWebhook } from './cli/serve-webhook.js';
@@ -103,9 +108,10 @@ export type ParsedArgs =
   | CloudScheduleArgs
   | { command: 'schedules'; json: boolean }
   | { command: 'unschedule'; scheduleId: string; json: boolean }
-  | { command: 'check'; json: boolean; watch: boolean; value: string }
-  | { command: 'run'; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; cloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
-  | { command: 'resume'; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; cloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
+  | { command: 'check'; json: boolean; watch: boolean; explainWarnings: boolean; daemonValidation: DaemonValidationMode; value: string }
+  | { command: 'run'; detach?: boolean; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; cloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
+  | { command: 'resume'; detach?: boolean; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; cloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
+  | { command: 'cloud-answer'; runId: string; answer: boolean; json: boolean; note?: string; source?: string }
   | { command: 'answer'; dataDir: string; json: boolean; spawn: boolean; note: string | undefined; by: string | undefined; runId: string; waitId: string; answer: boolean }
   | RunsArgs
   | LogsArgs
@@ -135,16 +141,17 @@ const USAGE = [
   'flows schedules [--json]',
   'flows unschedule [--json] <schedule-id>',
   'flows deploy <flow>@sha256:<digest> --to <file-bucket-uri>',
-  'flows run <flow>@sha256:<digest> [--bucket <file-bucket-uri>] [--data-dir <dir>] [--json]',
-  'flows check [--watch] [--json] <flow.ts|flow.yaml|spec.json>',
+  'flows run <flow>@sha256:<digest> [--bucket <file-bucket-uri>] [--data-dir <dir>] [--json] [--detach]',
+  'flows check [--against-daemon|--no-daemon-check] [--watch] [--json] [--explain-warnings] <flow.ts|flow.yaml|spec.json>',
   'flows serve-webhook --data-dir <dir> --port <p> [--allow <name>[,<name>]]',
-  'flows run [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] [--reuse-from <run-id>] <flow.yaml|spec.json>',
+  'flows run [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--detach] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] [--reuse-from <run-id>] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] [--sync-code] [--no-connect] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] [--sync-code] [--no-connect] <flow.ts> --input <inline-json-or-file>',
   'flows sync [--json] [--dry-run] [--dir <path>] <run-id>',
-  'flows run [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <flow.ts> --input <inline-json-or-file>',
+  'flows run [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--detach] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
-  'flows resume [--allow-human-influenced] [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <run-id>',
+  'flows resume [--allow-human-influenced] [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--detach] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <run-id>',
+  'flows answer --cloud [--json] [--note <text>] [--source <path>] <run-id> <yes|no>',
   'flows answer [--json] [--no-spawn] [--data-dir <dir>] [--note <text>] [--by <identity>] <run-id> <wait-id> <yes|no>',
   'flows replay [--allow-human-influenced] [--json] [--data-dir <dir>] <run-id> [--at <step-id>]',
   'flows status [--json] [--data-dir <dir>] [--tail <n>] [<run-id>]',
@@ -173,6 +180,13 @@ const PROCESS_IO: CliIo = {
 
 /** Optional knobs for an embedded caller. `bin/flows.js` passes none. */
 export interface RunCliOptions {
+  /** Internal standalone child receipt; absent in ordinary embedded invocations. */
+  detachedReceipt?: DetachedReceipt;
+  /**
+   * Argv that re-executes this CLI for `--detach`. A compiled executable
+   * passes `[process.execPath]`; the default re-runs Node with this entry.
+   */
+  selfCommand?: readonly string[];
   /**
    * Version to print for a self-contained executable that cannot read the
    * installed package manifest. Normal package entrypoints leave this unset.
@@ -236,6 +250,18 @@ export async function runCli(
     return 2;
   }
 
+  if ((parsed.command === 'run' || parsed.command === 'resume') && parsed.detach) {
+    const result = await startDetachedRun(args, {
+      ...parsed, ...(options.selfCommand === undefined ? {} : { selfCommand: options.selfCommand }),
+    });
+    if ('execution' in result) {
+      emitRunReport(result.execution, parsed.json, io);
+      return result.execution.exitCode;
+    }
+    emitDetachedHandle(result.handle, parsed.json, io);
+    return 0;
+  }
+
   if (parsed.command === 'add') return addPlugin(parsed.value, io);
   if (parsed.command === 'plugin') return runPluginCommand(parsed, io);
 
@@ -275,6 +301,9 @@ export async function runCli(
       ? withInterrupt(options.signal, (signal) => runCloudLogsFollow(logs, io, { signal }))
       : runCloudLogsCli(logs, io);
   }
+  if (parsed.command === 'cloud-answer') {
+    return withInterrupt(options.signal, signal => runCloudAnswerCli(parsed, io, signal));
+  }
   if (parsed.command === 'answer') {
     const execution = await answerFlow(parsed.runId, parsed.waitId, parsed.answer, parsed.dataDir, {
       ...(parsed.note === undefined ? {} : { note: parsed.note }),
@@ -289,21 +318,21 @@ export async function runCli(
 
   if (parsed.command === 'check') {
     if (parsed.watch) {
-      return withInterrupt(options.signal, (signal) => watchCheck(parsed.value, parsed.json, io, signal));
+      return withInterrupt(options.signal, (signal) => watchCheck(parsed.value, { json: parsed.json, explainWarnings: parsed.explainWarnings }, io, signal, parsed.daemonValidation));
     }
-    // Deliberately daemon-free (kernel/DAEMON-LIFECYCLE.md §4). `checkFlow` is
-    // a compile-and-preflight that opens no daemon socket, and the parser
-    // refuses `--data-dir` on `check`, so there is no data dir to attach to.
-    // `flows check` keeps working with no daemon, no relayflowd binary and no
-    // data directory at all -- a property worth keeping, not an omission.
-    // Only this invocation opts into `agent_worker_unresolved`: `flows check`
-    // attaches no worker and, being daemon-free, cannot see one attached
-    // elsewhere. The authored `.flow.ts` path checks header declarations
-    // without compiling steps, so it has no agent steps to count.
+    // Stateless binary validation opens no socket or data dir (DAEMON-LIFECYCLE §4).
+    // Authored bodies are only lowered at run time, so their acceptance is unproven.
     const checked = /\.(?:[cm]?[jt]s)$/.test(parsed.value)
       ? await checkAuthoredFlowComposed(parsed.value)
-      : checkFlow(parsed.value, { warnUnresolvedAgentWorker: true });
-    emitCheckReport(checked.report, parsed.json, io);
+      : checkFlow(parsed.value, { warnUnresolvedAgentWorker: true, warnUnresolvedHelperCredential: true, daemonValidation: parsed.daemonValidation });
+    if (checked.report.validation === undefined) {
+      const unavailable = unavailableValidation(parsed.daemonValidation,
+        checked.report.ok ? (parsed.daemonValidation === 'off' ? 'disabled' : 'authored_body') : 'not_reached');
+      checked.report.validation = unavailable.validation;
+      if (checked.report.ok) checked.report.diagnostics.push(...unavailable.diagnostics);
+      checked.report.ok = checked.report.ok && !checked.report.diagnostics.some(d => d.severity === 'refusal');
+    }
+    emitCheckReport(checked.report, parsed.json, io, parsed.explainWarnings);
     return checked.report.ok ? 0 : 2;
   }
 
@@ -338,7 +367,9 @@ export async function runCli(
   // not here. Hoisting it above the dispatch would start a daemon as a side
   // effect of an invocation that is about to be refused for bad input.
   const startedSteps = new Map<string, number>();
-  const observer = parsed.noObserverLink ? undefined : createObserverSession(parsed.command, io);
+  const observer = parsed.noObserverLink ? undefined : createObserverSession(parsed.command, io, process.env, {
+    onObserverUrl: url => options.detachedReceipt?.observerUrl(url),
+  });
   const runnerLog: string[] = [];
   // Opt-in, unlike the observer link beside it. The observer is the default
   // way to watch a local run: it is free, it needs only a workspace key, and
@@ -380,17 +411,25 @@ export async function runCli(
     localAgent: parsed.localAgent,
     ...(parsed.agentCapacity === undefined ? {} : { agentCapacity: parsed.agentCapacity }),
     onProgress: showProgress,
-    ...(observer === undefined && mirror === undefined ? {} : {
+    ...(observer === undefined && mirror === undefined && options.detachedReceipt === undefined ? {} : {
       onJournalEntry: (entry: JournalEvent) => {
+        // Resume's watch replays history before admission; it is not a receipt.
+        if (parsed.command === 'run' && entry.entry_type === 'run.spawned') {
+          options.detachedReceipt?.started({ runId: entry.run_id });
+        }
         observer?.onJournalEntry(entry);
         mirror?.onJournalEntry(entry);
       },
       onRunStarted: (run: { runId: string; flow: string; resumed?: boolean }) => {
+        options.detachedReceipt?.started(run);
         observer?.onRunStarted(run);
         mirror?.onRunStarted(run);
       },
-      ...(mirror === undefined ? {} : {
-        onRunReceipt: (run: { runId: string }) => { mirror.onRunStarted(run); },
+      ...(mirror === undefined && options.detachedReceipt === undefined ? {} : {
+        onRunReceipt: (run: { runId: string }) => {
+          options.detachedReceipt?.started(run);
+          mirror?.onRunStarted(run);
+        },
       }),
     }),
     onWait: (progress: RunProgress) => {
@@ -407,6 +446,7 @@ export async function runCli(
       ? await runDirectFlow(parsed.value, parsed.input, parsed.dataDir, lifecycle)
       : await runFlow(parsed.value, parsed.dataDir, lifecycle)
     : await resumeFlow(parsed.value, parsed.dataDir, lifecycle);
+  options.detachedReceipt?.finished(execution);
   // The link is scoped to the run's channel, so it exists only once the run
   // does. `finish` drains the projection and settles the mint, both bounded;
   // it never rejects (see `createObserverSession`).
@@ -445,18 +485,32 @@ export async function runCli(
  * aspects' coverage.
  */
 async function checkAuthoredFlowComposed(path: string): Promise<{ report: CheckReport }> {
-  const helper = await checkHelperBody(path);
+  const invocation = { warnUnresolvedHelperCredential: true };
+  const helper = await checkHelperBody(path, invocation);
   if (!helper.report.ok) return helper;
   // The activity checker loads the TypeScript compiler. YAML checks and
   // unrelated CLI commands should not pay that startup cost on every run.
   const { checkAuthoredActivities } = await import('./cli/check-activities.js');
   const activities = await checkAuthoredActivities(path);
-  if (!activities.report.ok) return activities;
+  if (!activities.report.ok) {
+    // Keep what is already provable about the flow: its helper warnings and
+    // integration requirements, so one check reports both problems.
+    const requirements = isAuthoredFlowPath(path)
+      ? (await checkAuthoredTriggers(path, invocation)).report.requirements : undefined;
+    return { report: { ...activities.report,
+      diagnostics: [...helper.report.diagnostics, ...activities.report.diagnostics],
+      ...(requirements === undefined ? {} : { requirements }) } };
+  }
   const mcp = await checkTypeScriptFlow(path);
   const triggers = isAuthoredFlowPath(path)
-    ? await checkAuthoredTriggers(path)
+    ? await checkAuthoredTriggers(path, invocation)
     : undefined;
   const triggerDiagnostics = triggers?.report.diagnostics ?? [];
+  // The trigger leg normally repeats the helper diagnostics; keep any it did not
+  // (an early trigger or config failure reports none of them).
+  const repeated = new Set(triggerDiagnostics.map(diagnostic => `${diagnostic.kind}\u0000${diagnostic.message}`));
+  const helperDiagnostics = helper.report.diagnostics
+    .filter(diagnostic => !repeated.has(`${diagnostic.kind}\u0000${diagnostic.message}`));
   const triggerOk = triggers?.report.ok ?? true;
   return {
     report: {
@@ -467,7 +521,7 @@ async function checkAuthoredFlowComposed(path: string): Promise<{ report: CheckR
       // The authored definition sees helper flags, body use and `cli:`
       // declarations; the compiled view underneath knows only its steps.
       ...(triggers?.report.requirements === undefined ? {} : { requirements: triggers.report.requirements }),
-      diagnostics: [...helper.report.diagnostics, ...activities.report.diagnostics, ...mcp.report.diagnostics, ...triggerDiagnostics],
+      diagnostics: [...helperDiagnostics, ...activities.report.diagnostics, ...mcp.report.diagnostics, ...triggerDiagnostics],
       ok: helper.report.ok && activities.report.ok && mcp.report.ok && triggerOk,
     },
   };
@@ -661,11 +715,14 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
 
   let json = false;
   let watch = false;
+  let daemonValidation: DaemonValidationMode | undefined;
+  let explainWarnings = false;
   let cloud = false;
   let wait = false;
   let syncCode = false;
   let noConnect = false;
   let localAgent = false;
+  let detach = false;
   let agentCapacity: number | undefined;
   let allowHumanInfluenced = false;
   let dataDir = DEFAULT_DATA_DIR;
@@ -689,6 +746,11 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
       else noConnect = true;
       continue;
     }
+    if (argument === '--detach') {
+      if (command === 'check' || detach) return undefined;
+      detach = true;
+      continue;
+    }
     if (argument === '--allow-human-influenced') {
       if (command === 'check' || allowHumanInfluenced) return undefined;
       allowHumanInfluenced = true;
@@ -705,6 +767,16 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
       if (command === 'check' || agentCapacity !== undefined || value === undefined || !/^[0-9]+$/.test(value)) return undefined;
       agentCapacity = Number(value);
       if (!isAgentCapacity(agentCapacity)) return undefined;
+      continue;
+    }
+    if (argument === '--against-daemon' || argument === '--no-daemon-check') {
+      if (command !== 'check' || daemonValidation !== undefined) return undefined;
+      daemonValidation = argument === '--against-daemon' ? 'required' : 'off';
+      continue;
+    }
+    if (argument === '--explain-warnings') {
+      if (command !== 'check' || explainWarnings) return undefined;
+      explainWarnings = true;
       continue;
     }
     if (argument === '--watch') {
@@ -782,7 +854,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
     // observer-link opt-out -- describes nothing there and is refused rather
     // than ignored. `--input` is the authored body's argument and travels with
     // the source, so it is accepted exactly where a local run accepts it.
-    if (allowHumanInfluenced || sawDataDir || !spawn || localAgent || noObserverLink || cloudMirror
+    if (detach || allowHumanInfluenced || sawDataDir || !spawn || localAgent || noObserverLink || cloudMirror
       || reuseFromRunId !== undefined) return undefined;
     if (sawInput && !isAuthoredFlowPath(positionals[0]!)) return undefined;
     return { command: 'cloud-run', value: positionals[0]!, json, wait, input, syncCode, noConnect };
@@ -792,10 +864,12 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
 
   if (command === 'run' && input !== undefined && !isAuthoredFlowPath(positionals[0]!)) return undefined;
   return command === 'check'
-    ? { command, json, watch, value: positionals[0]! }
+    ? { command, json, watch, explainWarnings, value: positionals[0]!,
+        daemonValidation: daemonValidation ?? (process.env['FLOWS_NO_DAEMON_CHECK'] === '1' ? 'off'
+          : process.env['FLOWS_CHECK_AGAINST_DAEMON'] === '1' ? 'required' : 'auto') }
     : command === 'run'
-      ? { command, bucket, reuseFromRunId, localAgent, agentCapacity, dataDir, input, json, spawn, noObserverLink, cloudMirror, allowHumanInfluenced, value: positionals[0]! }
-      : { command, localAgent, agentCapacity, dataDir, json, spawn, noObserverLink, cloudMirror, allowHumanInfluenced, value: positionals[0]! };
+      ? { command, ...(detach ? { detach } : {}), bucket, reuseFromRunId, localAgent, agentCapacity, dataDir, input, json, spawn, noObserverLink, cloudMirror, allowHumanInfluenced, value: positionals[0]! }
+      : { command, ...(detach ? { detach } : {}), localAgent, agentCapacity, dataDir, json, spawn, noObserverLink, cloudMirror, allowHumanInfluenced, value: positionals[0]! };
 }
 
 /**
@@ -808,6 +882,8 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
  */
 function parseAnswerArgs(rest: readonly string[]): ParsedArgs | undefined {
   let json = false;
+  let cloud = false;
+  let source: string | undefined;
   let spawn = true;
   let dataDir = DEFAULT_DATA_DIR;
   let sawDataDir = false;
@@ -816,6 +892,18 @@ function parseAnswerArgs(rest: readonly string[]): ParsedArgs | undefined {
   const positionals: string[] = [];
   for (let index = 0; index < rest.length; index += 1) {
     const argument = rest[index]!;
+    if (argument === '--cloud') {
+      if (cloud) return undefined;
+      cloud = true;
+      continue;
+    }
+    if (argument === '--source') {
+      const value = rest[index + 1];
+      if (source !== undefined || value === undefined || value.startsWith('-')) return undefined;
+      source = value;
+      index += 1;
+      continue;
+    }
     if (argument === '--json') {
       if (json) return undefined;
       json = true;
@@ -851,6 +939,14 @@ function parseAnswerArgs(rest: readonly string[]): ParsedArgs | undefined {
     if (argument.startsWith('-')) return undefined;
     positionals.push(argument);
   }
+  if (cloud) {
+    if (sawDataDir || !spawn || by !== undefined || positionals.length !== 2) return undefined;
+    const [runId, word] = positionals as [string, string];
+    const answer = word === 'yes' || word === 'true' ? true : word === 'no' || word === 'false' ? false : undefined;
+    if (answer === undefined) return undefined;
+    return { command: 'cloud-answer', runId, answer, json, ...(note === undefined ? {} : { note }), ...(source === undefined ? {} : { source }) };
+  }
+  if (source !== undefined) return undefined;
   if (positionals.length !== 3) return undefined;
   const [runId, waitId, word] = positionals as [string, string, string];
   const answer = word === 'yes' || word === 'true' ? true : word === 'no' || word === 'false' ? false : undefined;
@@ -1034,15 +1130,12 @@ function parseTickArgs(rest: readonly string[]): ParsedArgs | undefined {
 }
 
 /**
- * `agent_worker_unresolved` reads as a footnote to `REQUIRES codex (step
- * "implement"), …`: that line already names the steps that need an agent
- * worker, and this says what has to be true for one to be attached. So the
- * plain-text pass holds it back and emits it in that position, exactly once —
- * the leading batch below skips it rather than printing it twice. JSON mode
- * returns before any of this and keeps the single ordered diagnostics array.
+ * Worker and helper warnings annotate REQUIRES. Hold them back until that
+ * line, then emit each once. JSON keeps the single diagnostics array.
  */
-function isWorkerSurfaceWarning(diagnostic: CheckReport['diagnostics'][number]): boolean {
-  return diagnostic.kind === 'agent_worker_unresolved';
+function isRequiresFootnote(diagnostic: CheckReport['diagnostics'][number]): boolean {
+  return diagnostic.kind === 'agent_worker_unresolved'
+    || diagnostic.kind === 'helper_credential_unresolved';
 }
 
 const MODEL_PROVENANCE: Readonly<Record<CliModelSource, string>> = {
@@ -1056,14 +1149,18 @@ function modelProvenance(source: CliModelSource | undefined): string {
   return source === undefined ? '' : ` from ${MODEL_PROVENANCE[source]}`;
 }
 
-function emitCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
+function emitCheckReport(report: CheckReport, json: boolean, io: CliIo, explainWarnings = false): void {
+  const foldOptions: FoldOptions = {
+    fold: true, explain: explainWarnings,
+    ...(report.gates.length > 0 ? { totalSteps: report.gates.length } : {}),
+  };
   if (json) {
-    emitDiagnostics(report.diagnostics, io);
+    emitDiagnostics(report.diagnostics, io, foldOptions);
     io.stdout(JSON.stringify(report));
     return;
   }
-  const deferred = report.diagnostics.filter(isWorkerSurfaceWarning);
-  emitDiagnostics(report.diagnostics.filter((diagnostic) => !isWorkerSurfaceWarning(diagnostic)), io);
+  const deferred = report.diagnostics.filter(isRequiresFootnote);
+  emitDiagnostics(report.diagnostics.filter((diagnostic) => !isRequiresFootnote(diagnostic)), io, foldOptions);
   for (const gate of report.gates) {
     // A gate that accepts every output is legal, but it must not read like a
     // gate that judges something.
@@ -1109,8 +1206,8 @@ function emitCheckReport(report: CheckReport, json: boolean, io: CliIo): void {
   // the hosted verbs check the same list against Cloud before submitting.
   const requires = report.requirements === undefined ? '' : describeFlowRequirements(report.requirements);
   if (requires) io.stdout(`REQUIRES ${requires}`);
-  emitDiagnostics(deferred, io);
-  if (report.ok) io.stdout(`CHECK PASSED ${report.path ?? ''}`.trimEnd());
+  emitDiagnostics(deferred, io, foldOptions);
+  if (report.ok) io.stdout(`CHECK PASSED ${report.path ?? ''}`.trimEnd() + validationAnnotation(report.validation));
 }
 
 function emitRunReport(
@@ -1173,8 +1270,9 @@ function emitRunReport(
 function emitDiagnostics(
   diagnostics: CheckReport['diagnostics'] | RunReport['diagnostics'],
   io: CliIo,
+  options: FoldOptions = {},
 ): void {
-  for (const diagnostic of diagnostics) {
+  for (const diagnostic of foldUnprovableEffects(diagnostics, options)) {
     io.stderr(`${diagnosticLabel(diagnostic.severity)} [${diagnostic.kind}] ${diagnostic.message}`);
   }
 }
@@ -1199,7 +1297,8 @@ function isDirectInvocation(entryPath: string | undefined): boolean {
 }
 
 if (isDirectInvocation(process.argv[1])) {
-  void runCli(process.argv.slice(2)).then((exitCode) => {
+  const detachedReceipt = takeDetachedReceipt();
+  void runCli(process.argv.slice(2), PROCESS_IO, { detachedReceipt }).then((exitCode) => {
     process.exitCode = exitCode;
   });
 }

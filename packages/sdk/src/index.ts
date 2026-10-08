@@ -217,7 +217,7 @@ export type {
 } from './protocol.js';
 export { JOURNAL_WRITE_FAILED, PROTOCOL_VERSION } from './protocol.js';
 
-export { JournalClient, type JournalClientOptions } from './journal-client.js';
+export { JournalClient, JournalRequestTimeoutError, type JournalClientOptions } from './journal-client.js';
 export { AgentWorker, type AgentWorkerOptions } from './worker.js';
 
 export {
@@ -287,3 +287,6 @@ export { createFlow, type CreateFlowOptions, type CreatedFlow } from './create-f
 export { renderProgress, type ProgressEvent } from './progress.js';
 export { webhookTriggerSpec } from './trigger-executor.js';
 export { scheduleTriggerSpec, scheduleLowering, SCHEDULE_EXECUTOR, type ScheduleLowering } from './schedule-trigger.js';
+
+export { answerCloudFlow, readCloudHumanWait, CloudAnswerError, type CloudAnswerOptions, type CloudResumeReceipt } from './cloud-answer.js';
+export type { CloudHumanWait } from './cloud-human-wait.js';

@@ -1,3 +1,4 @@
+import { isReadInterruptionError } from './journal-read-policy.js';
 import { loadPinnedAuthoredSource } from './authored-source-authority.js';
 import { assertAuthoredRuntimeAvailable, runAuthoredInNode } from './authored-node-runner.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -5,7 +6,6 @@ import { readFile } from 'node:fs/promises';
 import { canonicalize } from './canonical.js';
 import { compileSpec, toKernelSpec } from './compile.js';
 import { executeAuthoredFlow, type AuthoredFlowExecutionResult, type AuthoredFlowSuspendedResult } from './authored-flow-executor.js';
-import { isDurableCompletionDetail, isLoweredCompletion } from './authored-completion.js';
 import { AUTHORED_ROOT_KIND } from './authored-verdict.js';
 import {
   loadAuthoredFlow,
@@ -19,9 +19,9 @@ import type { RunLifecycleOptions } from './cli/run.js';
 import { isLeaseLost, withWorkerLease } from './worker-lease.js';
 import { AuthoredFlowExecutionError, AuthoredHumanParked } from './authored-flow-error.js';
 import { readOpenHumanWaits, resumeCommand } from './authored-human.js';
-import { isSurfaceCompletionReason } from './authored-step-output.js';
 import { readSubscriptionPark } from './authored-subscription-park.js';
 import { localAgentCredentialEnvironment } from './local-agent-environment.js';
+import { completedResult, rootKernelStep, rootStepIfPresent } from './authored-root-readback.js';
 
 export type DurableAuthoredFlowResult =
   | (AuthoredFlowExecutionResult & { readonly rootRunId: string })
@@ -117,9 +117,10 @@ export async function executeDurableAuthoredFlow(
     });
     const outcome = await journal.runStart(spec, undefined, admissionKey);
     options.onAdmitted?.(outcome.run_id);
+    options.lifecycle?.onRunReceipt?.({ runId: outcome.run_id, flow: definition.name });
     if (outcome.status === 'completed') {
       dispatchWait.cancel();
-      return await completedRootResult(journal, outcome.run_id);
+      return await completedResult(journal, outcome, outcome.run_id);
     }
     assertRootCanDispatch(outcome);
     options.lifecycle?.onRunStarted?.({ runId: outcome.run_id, flow: definition.name });
@@ -166,9 +167,10 @@ export async function resumeDurableAuthoredFlow(
       workspace: [], streams: [{ stream, read_offset: 0 }],
     });
     const outcome = await journal.runResume(rootRunId);
+    options.lifecycle?.onRunReceipt?.({ runId: rootRunId, flow: metadata.flowName });
     if (outcome.status === 'completed') {
       dispatchWait.cancel();
-      return await completedRootResult(journal, rootRunId);
+      return await completedResult(journal, outcome, rootRunId);
     }
     assertRootCanDispatch(outcome);
     await assertNoOpenHumanWait(journal, outcome);
@@ -199,7 +201,7 @@ export async function readAuthoredRootMetadata(
   journal: JournalClient,
   runId: string,
 ): Promise<AuthoredRootMetadata | undefined> {
-  const step = await rootKernelStep(journal, runId).catch(() => undefined);
+  const step = await rootStepIfPresent(journal, runId);
   if (step === undefined || step.id !== 'authored-root' || !hasRootStream(step)) return undefined;
   if (typeof step.instruction !== 'string') {
     throw new Error('authored root journal has malformed authority metadata');
@@ -320,38 +322,43 @@ async function driveRoot(
 ): Promise<DurableAuthoredFlowResult> {
   try {
     const result = await withWorkerLease(peer, dispatch, async rootSignal => {
-      const callerSignal = options.lifecycle?.signal;
-      const signal = callerSignal === undefined ? rootSignal : AbortSignal.any([callerSignal, rootSignal]);
-      if (process.versions['bun'] !== undefined) {
-        return runAuthoredInNode(metadata, journal.socketPath, dispatch.run_id, {
-          dataDir: options.dataDir, localAgentStream: options.localAgentStream,
-          ...(options.agentEnvironment === undefined ? {} : {
-            agentEnvironment: localAgentCredentialEnvironment(options.agentEnvironment),
-          }),
-          ...(options.workerCapacity === undefined ? {} : { workerCapacity: options.workerCapacity }),
-          ...options.lifecycle, signal,
-        });
-      }
-      return await executeAuthoredFlow(
-        loaded.handle,
-        journal,
-        metadata.inputPresent ? metadata.input : undefined,
-        {
-          getDefinition: loaded.getDefinition,
-          dataDir: options.dataDir,
-          flowPath: metadata.flowPath,
-          localAgentStream: options.localAgentStream,
-          ...(options.agentEnvironment === undefined ? {} : { agentEnvironment: options.agentEnvironment }),
-          ...(options.workerCapacity === undefined ? {} : { workerCapacity: options.workerCapacity }),
-          rootRunId: dispatch.run_id,
-          extensions: loaded.extensions,
-          flowGraph: loaded.graph,
-          ...options.lifecycle,
-          signal: callerSignal === undefined
-            ? rootSignal
-            : AbortSignal.any([callerSignal, rootSignal]),
-        },
-      );
+      // A lost root lease must also stop body reads still inside their budget.
+      const releaseReads = journal.scopeReads?.(rootSignal) ?? (() => {});
+      try {
+        const callerSignal = options.lifecycle?.signal;
+        const signal = callerSignal === undefined ? rootSignal : AbortSignal.any([callerSignal, rootSignal]);
+        if (process.versions['bun'] !== undefined) {
+          // Awaited, so the read scope below covers the child's whole run.
+          return await runAuthoredInNode(metadata, journal.socketPath, dispatch.run_id, {
+            dataDir: options.dataDir, localAgentStream: options.localAgentStream,
+            ...(options.agentEnvironment === undefined ? {} : {
+              agentEnvironment: localAgentCredentialEnvironment(options.agentEnvironment),
+            }),
+            ...(options.workerCapacity === undefined ? {} : { workerCapacity: options.workerCapacity }),
+            ...options.lifecycle, signal,
+          });
+        }
+        return await executeAuthoredFlow(
+          loaded.handle,
+          journal,
+          metadata.inputPresent ? metadata.input : undefined,
+          {
+            getDefinition: loaded.getDefinition,
+            dataDir: options.dataDir,
+            flowPath: metadata.flowPath,
+            localAgentStream: options.localAgentStream,
+            ...(options.agentEnvironment === undefined ? {} : { agentEnvironment: options.agentEnvironment }),
+            ...(options.workerCapacity === undefined ? {} : { workerCapacity: options.workerCapacity }),
+            rootRunId: dispatch.run_id,
+            extensions: loaded.extensions,
+            flowGraph: loaded.graph,
+            ...options.lifecycle,
+            signal: callerSignal === undefined
+              ? rootSignal
+              : AbortSignal.any([callerSignal, rootSignal]),
+          },
+        );
+      } finally { releaseReads(); }
     });
     await peer.stepComplete(
       dispatch.run_id, dispatch.step_id, dispatch.attempt,
@@ -368,6 +375,20 @@ async function driveRoot(
     // A lost lease is owned by the kernel's retry path, not by this attempt's
     // terminalization or suspension handling.
     if (isLeaseLost(error)) throw error;
+    // A caller cancel is the caller's, not a body failure: reads aborted by it
+    // (including the Bun verifier's) leave the root resumable, never terminal.
+    const signal = options.lifecycle?.signal;
+    if (aborted(signal) && (error === signal!.reason || (error instanceof Error && error.name === 'AbortError'))) {
+      if (error instanceof Error) (error as Error & { rootRunId?: string }).rootRunId = dispatch.run_id;
+      throw error;
+    }
+    if (isReadInterruptionError(error)
+      || (error instanceof AuthoredFlowExecutionError && error.code === 'daemon_unresponsive')) {
+      const parked = new AuthoredFlowExecutionError('daemon_unresponsive',
+        `${error.message}. The run remains resumable. Continue with: ${resumeCommand(dispatch.run_id, options.dataDir, options.localAgentStream !== undefined)}.`);
+      parked.rootRunId = dispatch.run_id;
+      throw parked;
+    }
     if (error instanceof AuthoredFlowExecutionError
       && error.code === 'subscription_suspended'
       && error.suspension !== undefined) {
@@ -450,16 +471,6 @@ function rootSpec(metadata: AuthoredRootMetadata, stream: string) {
   }));
 }
 
-async function rootKernelStep(journal: JournalClient, runId: string): Promise<Record<string, unknown>> {
-  const entries = (await journal.journalRead(runId, 1)).entries as Array<Record<string, unknown>>;
-  const spawned = entries.find(entry => entry.entry_type === 'run.spawned');
-  const payload = spawned?.payload as { spec?: { steps?: unknown[] } } | undefined;
-  const step = payload?.spec?.steps?.[0];
-  if (typeof step !== 'object' || step === null || Array.isArray(step)) {
-    throw new Error('authored root journal has no root step');
-  }
-  return step as Record<string, unknown>;
-}
 
 function rootStreamFromMetadata(step: Record<string, unknown>): string {
   const surfaces = step.surfaces as { streams?: Array<{ stream?: unknown }> } | undefined;
@@ -543,44 +554,6 @@ function nextRootDispatch(peer: JournalClient, timeoutMs = 30_000): {
   return { promise, cancel };
 }
 
-async function completedRootResult(
-  journal: JournalClient,
-  rootRunId: string,
-): Promise<AuthoredFlowExecutionResult & { readonly rootRunId: string }> {
-  const entries = (await journal.journalRead(rootRunId, 1)).entries as Array<Record<string, unknown>>;
-  const completed = entries.slice().reverse().find(entry => entry.entry_type === 'step.completed'
-    && entry.step_id === 'authored-root'
-    && (entry.payload as { completionReason?: unknown } | undefined)?.completionReason === 'success');
-  const output = (completed?.payload as { output?: unknown } | undefined)?.output;
-  if (!isCompletedRootOutput(output)) {
-    throw new Error('completed authored root has no durable result');
-  }
-  // The stored detail, never a freshly computed one: redaction reads the
-  // CURRENT environment, so recomputing here would let a completed run report
-  // something its journal does not hold.
-  return Object.freeze({
-    name: output.name,
-    completionReason: output.completionReason,
-    ...(output.completionDetail === undefined ? {} : { completionDetail: output.completionDetail }),
-    journalSteps: Object.freeze(output.journalSteps.map(step => Object.freeze({ ...step }))),
-    rootRunId,
-  });
-}
-
-function isCompletedRootOutput(value: unknown): value is Omit<AuthoredFlowExecutionResult, 'rootRunId'> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const output = value as Partial<AuthoredFlowExecutionResult>;
-  return typeof output.name === 'string'
-    && isLoweredCompletion(output.completionReason)
-    // A malformed detail fails the whole readback rather than being dropped:
-    // silently discarding it would report the verdict without the evidence
-    // the journal says it was recorded with.
-    && (output.completionDetail === undefined || isDurableCompletionDetail(output.completionDetail))
-    && Array.isArray(output.journalSteps)
-    && output.journalSteps.every(step => typeof step === 'object' && step !== null
-      && typeof step.id === 'string' && typeof step.runId === 'string'
-      && isSurfaceCompletionReason(step.completionReason));
-}
 
 function assertRootCanDispatch(outcome: RunOutcome): void {
   // The kernel reports `parked` after handing an agent lease to its worker;

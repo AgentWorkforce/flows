@@ -1,0 +1,12 @@
+mutation-refusal-unit-mutated.txt: exit=1
+mutation-refusal-cli-mutated.txt: exit=1
+mutation-refusal-unit-restored.txt: exit=0
+mutation-refusal-cli-restored.txt: exit=0
+Restored byte-for-byte: src/daemon-spec-validation.ts sha256=3aac707c344f3b83a8cef39d47df4901635b071b5b34cecb0e06340a479eae4c
+Restored byte-for-byte: dist/daemon-spec-validation.js sha256=16ff10bf6f1e3d2b3fe89000f85776d7b84d90f5c8aff81fd1ed3b3382d6f764
+mutation-indices-generated-mutated.txt: exit=1
+mutation-indices-authored-mutated.txt: exit=1
+mutation-indices-generated-restored.txt: exit=0
+mutation-indices-authored-restored.txt: exit=0
+Restored byte-for-byte: src/daemon-spec-validation.ts sha256=3aac707c344f3b83a8cef39d47df4901635b071b5b34cecb0e06340a479eae4c
+Restored byte-for-byte: dist/daemon-spec-validation.js sha256=16ff10bf6f1e3d2b3fe89000f85776d7b84d90f5c8aff81fd1ed3b3382d6f764

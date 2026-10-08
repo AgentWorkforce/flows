@@ -1,4 +1,5 @@
-import { JournalProtocolError, type JournalClient } from './journal-client.js';
+import { JournalProtocolError, JournalRequestTimeoutError, type JournalClient } from './journal-client.js';
+import { isReadInterruptionError } from './journal-read-policy.js';
 import type { StepDispatchEvent } from './protocol.js';
 
 export class WorkerLeaseLostError extends Error {
@@ -22,7 +23,9 @@ export function isLeaseLost(error: unknown): boolean {
 export function onWorkerFailure(label: string, fatal: (error: unknown) => void) {
   return (error: unknown, dispatch?: StepDispatchEvent): void => {
     // Without the dispatch there is no attempt to hand back to the kernel: fail closed.
-    if (!isLeaseLost(error) || dispatch === undefined) { fatal(error); return; }
+    // A lost lease and an unanswered read both leave the attempt to the kernel,
+    // which sweeps the lease and retries it.
+    if (!(isLeaseLost(error) || isReadInterruptionError(error)) || dispatch === undefined) { fatal(error); return; }
     // The kernel owns this attempt's fate; its journal supplies the run outcome.
     // stderr keeps this diagnostic out of structured reports on stdout.
     process.emitWarning(
@@ -72,7 +75,12 @@ export async function withWorkerLease<T>(
     const sentAt = performance.now();
     const result = await untilAborted(client.stepHeartbeat(
       dispatch.run_id, dispatch.step_id, dispatch.attempt, dispatch.lease_id,
-    ), controller.signal);
+    ), controller.signal).catch(error => {
+      if (error instanceof JournalRequestTimeoutError && error.verb === 'step.heartbeat') {
+        throw new WorkerLeaseLostError('renewal_expired', error.message, { cause: error });
+      }
+      throw error;
+    });
     controller.signal.throwIfAborted();
     // A response handled after local expiry cannot revive ownership, even
     // if its future deadline was issued before this event loop stalled.
