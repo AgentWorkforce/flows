@@ -23,6 +23,10 @@ const DYNAMIC_PAIR_SOURCE_WAIVERS = new Map([
     ['"review"'],
   ],
   [
+    'examples/babysitter/artifacts/babysitter-standalone.flow.ts',
+    ['"babysitter-diagnose"'],
+  ],
+  [
     'packages/sdk/scripts/dogfood/close-pr.flow.ts',
     ["'close-pr-repair'"],
   ],
