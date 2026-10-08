@@ -47,10 +47,12 @@ export async function readCloudHumanWait(runId: string, options: CloudConnection
   if (body.runId !== undefined && body.runId !== runId) {
     throw new CloudFlowError('invalid_response', 'Cloud returned a human answer record for a different run.');
   }
-  if (['humanWait', 'wait', 'openWaits'].filter(key => body[key] !== undefined && body[key] !== null).length > 1) {
+  // An absent and a null field mean the same thing everywhere below.
+  const present = (key: string): boolean => body[key] !== undefined && body[key] !== null;
+  if (['humanWait', 'wait', 'openWaits'].filter(present).length > 1) {
     throw new CloudFlowError('invalid_response', 'Cloud returned competing open human wait fields.');
   }
-  const candidates = 'openWaits' in body ? body.openWaits
+  const candidates = present('openWaits') ? body.openWaits
     : [body.humanWait ?? body.wait].filter(value => value !== undefined && value !== null);
   if (!Array.isArray(candidates) || candidates.length > 1) {
     throw new CloudFlowError('invalid_response', 'Cloud must report at most one open human wait.');
@@ -154,7 +156,9 @@ export async function answerCloudFlow(runId: string, answer: boolean, options: C
   if (!waitId || (state.humanWait && state.humanWait.waitId !== waitId)) {
     throw new CloudFlowError('invalid_response', 'Cloud answer record does not identify the run’s parked wait.');
   }
-  if (recorded && (recorded.waitId !== waitId || recorded.answer !== answer || recorded.note !== options.note)) {
+  // A recorded answer that omits its optional note does not contradict --note.
+  if (recorded && (recorded.waitId !== waitId || recorded.answer !== answer
+    || (recorded.note !== undefined && recorded.note !== options.note))) {
     throw new CloudFlowError('invalid_input', 'The recorded answer differs; a closed human wait cannot be changed.');
   }
   const body = await resumeBody(record as Record<string, unknown>, runId, options.source);

@@ -151,6 +151,26 @@ describe('Cloud answer and resume', () => {
     expect(calls.filter(c => c.method === 'POST').map(c => c.path)).toEqual(['/api/v1/workflows/run']);
   });
 
+  it('discovers a humanWait beside a null openWaits', async () => {
+    const sequence = replies(); sequence[1] = { body: { humanWait: wait, openWaits: null } };
+    const calls = cloud(sequence);
+    expect(await answerCloudFlow(RUN, true, options)).toMatchObject({ waitId: 'human-2', runId: 'resumed-1' });
+    expect(calls).toHaveLength(5);
+  });
+
+  it('retries with --note when the recorded answer omits its optional note', async () => {
+    const calls = cloud([{ body: parked }, { body: { humanWait: null, answer: { waitId: 'human-2', answer: true } } },
+      { body: parked }, { body: { runId: 'resumed-1', status: 'pending' } }]);
+    await answerCloudFlow(RUN, true, { ...options, note: 'reviewed' });
+    expect(calls.filter(c => c.method === 'POST').map(c => c.path)).toEqual(['/api/v1/workflows/run']);
+  });
+
+  it('refuses a recorded note that differs from --note without writes', async () => {
+    const calls = cloud([{ body: parked }, { body: { answer: { waitId: 'human-2', answer: true, note: 'other' } } }]);
+    await expect(answerCloudFlow(RUN, true, { ...options, note: 'reviewed' })).rejects.toThrow('recorded answer differs');
+    expect(calls).toHaveLength(2);
+  });
+
   it('refuses a conflicting recorded answer without writes', async () => {
     const calls = cloud([{ body: parked }, { body: { answer: { waitId: 'human-2', answer: false } } }]);
     await expect(answerCloudFlow(RUN, true, options)).rejects.toThrow('recorded answer differs');
