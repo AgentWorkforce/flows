@@ -43,11 +43,12 @@ export function helperNamespacesUsed(body: string, root: string): ReadonlySet<st
  * `namespace.method`. Same parse and scoping as `helperNamespacesUsed`, so an
  * unrelated object's method, a string or a comment naming one is not a use.
  *
- * A namespace that leaves the context without a method — `const n = f.notion`,
- * `const { notion } = f`, `use(f.notion)` — is reported in `escaped` (`*` for
- * the whole context), because its later calls cannot be attributed statically.
- * `members` lists every member name the body accesses, for callers that must
- * stay conservative about an escaped namespace.
+ * A namespace whose value is handed on — `const n = f.notion`,
+ * `const { notion } = f`, `use(f.notion)`, `return f.notion` — is reported in
+ * `escaped` (`*` for the whole context), because its later calls cannot be
+ * attributed statically; a read such as `if (f.notion)` is not a hand-off.
+ * `members` lists every member name the body accesses or destructures, for
+ * callers that must stay conservative about an escaped namespace.
  */
 export function helperMemberUses(body: string, root: string): {
   methods: ReadonlySet<string>; escaped: ReadonlySet<string>; members: ReadonlySet<string>;
@@ -65,42 +66,83 @@ export function helperMemberUses(body: string, root: string): {
     for (const match of body.matchAll(/\.\s*([\w$]+)/gu)) members.add(match[1]!);
     return { methods, escaped, members };
   }
-  const namespaceRefs = new Map<string, number>();
-  const methodRefs = new Map<string, number>();
-  const bump = (map: Map<string, number>, key: string) => map.set(key, (map.get(key) ?? 0) + 1);
-  walkReferences(program, root, false, { rootFunctionFound: false }, (node) => {
-    if (node.type === 'VariableDeclarator') {
-      const id = node.id as AstNode | undefined;
-      const init = node.init as AstNode | undefined;
-      if (id?.type === 'ObjectPattern' && init?.type === 'Identifier' && init.name === root) {
-        for (const property of (id.properties as AstNode[] | undefined) ?? []) {
-          const key = property.type === 'Property' ? property.key as AstNode | undefined : undefined;
-          const name = key?.type === 'Identifier' && property.computed !== true ? key.name
-            : key?.type === 'Literal' && typeof key.value === 'string' ? key.value : undefined;
-          escaped.add(name ?? '*');
-        }
+  // Where a value can flow on to: each such slot holding `f.<ns>` (or `f`)
+  // hands the helper to code this scan cannot follow. Reads such as `if (f.notion)`
+  // or `typeof f.notion` are not slots and do not escape.
+  const handOff = (expression: AstNode | undefined): void => {
+    if (expression === undefined) return;
+    switch (expression.type) {
+      case 'ConditionalExpression':
+        handOff(expression.consequent as AstNode); handOff(expression.alternate as AstNode); return;
+      case 'LogicalExpression':
+        handOff(expression.left as AstNode); handOff(expression.right as AstNode); return;
+      case 'SequenceExpression': {
+        const items = expression.expressions as AstNode[];
+        handOff(items[items.length - 1]); return;
       }
-      return;
+      case 'AwaitExpression': case 'ParenthesizedExpression': case 'ChainExpression':
+        handOff((expression.argument ?? expression.expression) as AstNode); return;
+      case 'Identifier':
+        if (expression.name === root) escaped.add('*');
+        return;
+      case 'MemberExpression': {
+        const object = expression.object as AstNode | undefined;
+        const namespace = memberName(expression);
+        if (object?.type === 'Identifier' && object.name === root) escaped.add(namespace ?? '*');
+        return;
+      }
+      default:
     }
-    if (node.type !== 'MemberExpression') return;
+  };
+  const patternKeys = (pattern: AstNode | undefined): void => {
+    if (pattern?.type !== 'ObjectPattern') return;
+    for (const property of (pattern.properties as AstNode[] | undefined) ?? []) {
+      const key = property.type === 'Property' ? property.key as AstNode | undefined : undefined;
+      const name = key?.type === 'Identifier' && property.computed !== true ? key.name
+        : key?.type === 'Literal' && typeof key.value === 'string' ? key.value : undefined;
+      if (name !== undefined) members.add(name);
+    }
+  };
+  walkReferences(program, root, false, { rootFunctionFound: false }, (node) => {
+    switch (node.type) {
+      case 'VariableDeclarator':
+        // `const { appendBlock } = f.notion` reads appendBlock as surely as a member access.
+        patternKeys(node.id as AstNode);
+        handOff(node.init as AstNode);
+        if ((node.id as AstNode | undefined)?.type === 'ObjectPattern' && (node.init as AstNode | undefined)?.type === 'Identifier'
+          && (node.init as AstNode).name === root) {
+          for (const property of ((node.id as AstNode).properties as AstNode[] | undefined) ?? []) {
+            const key = property.type === 'Property' ? property.key as AstNode | undefined : undefined;
+            escaped.add(key?.type === 'Identifier' && property.computed !== true ? key.name!
+              : key?.type === 'Literal' && typeof key.value === 'string' ? key.value : '*');
+          }
+        }
+        return;
+      case 'AssignmentExpression':
+        patternKeys(node.left as AstNode); handOff(node.right as AstNode); return;
+      case 'CallExpression': case 'NewExpression':
+        for (const argument of (node.arguments as AstNode[] | undefined) ?? []) handOff(argument);
+        return;
+      case 'Property':
+        if (node.value !== node.key) handOff(node.value as AstNode);
+        return;
+      case 'ArrayExpression':
+        for (const element of (node.elements as Array<AstNode | null> | undefined) ?? []) handOff(element ?? undefined);
+        return;
+      case 'ReturnStatement': case 'SpreadElement': case 'YieldExpression':
+        handOff(node.argument as AstNode); return;
+      case 'MemberExpression': break;
+      default: return;
+    }
     const name = memberName(node);
     if (name !== undefined) members.add(name);
     const object = node.object as AstNode | undefined;
-    if (object?.type === 'Identifier' && object.name === root) {
-      if (name !== undefined) bump(namespaceRefs, name);
-      return;
-    }
     if (object?.type !== 'MemberExpression') return;
     const context = object.object as AstNode | undefined;
     if (context?.type !== 'Identifier' || context.name !== root) return;
     const namespace = memberName(object);
-    if (namespace === undefined) return;
-    if (name !== undefined) methods.add(`${namespace}.${name}`);
-    bump(methodRefs, namespace);
+    if (namespace !== undefined && name !== undefined) methods.add(`${namespace}.${name}`);
   });
-  for (const [namespace, count] of namespaceRefs) {
-    if (count > (methodRefs.get(namespace) ?? 0)) escaped.add(namespace);
-  }
   return { methods, escaped, members };
 }
 

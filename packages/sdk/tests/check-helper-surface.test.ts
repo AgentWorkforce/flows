@@ -296,3 +296,15 @@ it.each([
   expect(result.exit).toBe(2);
   expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
 });
+it('keeps refusing a destructured f.notion.appendBlock method', async () => {
+  const result = await check(fixture('const { appendBlock } = f.notion; await appendBlock("page", {});', '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+  expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
+});
+it('does not treat an existence check of f.notion as a handoff', async () => {
+  const body = `if (f.notion && typeof f.notion === 'object') await f.notion.createPage({ parent: 'p', title: 't' });
+    const doc = { appendBlock() { return 1; } }; doc.appendBlock();`;
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.stderr.join('\n')).not.toContain('[helper_provider.unsupported]');
+  expect(result.exit).toBe(0);
+});
