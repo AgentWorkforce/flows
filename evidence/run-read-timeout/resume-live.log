@@ -1,15 +1,13 @@
 $ cd packages/sdk && npx vitest run tests/read-timeout-resume-live.test.ts
-$ cd packages/sdk && npx vitest run tests/read-timeout-resume-live.test.ts
 
- RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+ RUN  v2.1.9 <repo>/packages/sdk
 
- ✓ tests/read-timeout-resume-live.test.ts (1 test) 1512ms
-   ✓ parks an unreadable authored root and resumes without repeating its journaled effect 1511ms
+ ✓ tests/read-timeout-resume-live.test.ts (1 test) 955ms
+   ✓ parks an unreadable authored root and resumes without repeating its journaled effect 954ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  10:49:12
-   Duration  3.20s (transform 891ms, setup 54ms, collect 1.39s, tests 1.51s, environment 0ms, prepare 43ms)
+   Start at  23:53:47
+   Duration  2.32s (transform 650ms, setup 14ms, collect 1.10s, tests 955ms, environment 0ms, prepare 60ms)
 
-exit=0
 exit=0
