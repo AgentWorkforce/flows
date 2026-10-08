@@ -4,7 +4,7 @@ import { readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, rmSyn
 import { tmpdir } from 'node:os';
 import { join, dirname, posix } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { root, source, declarationText, unionDeclarations, literal, exportedNames, typeReferences } from './authoring-source.mjs';
+import { root, source, declarationText, unionDeclarations, literal, exportedNames, typeReferences, ts } from './authoring-source.mjs';
 
 const read = path => readFileSync(join(root, path), 'utf8');
 const authoring = read('packages/surface/AUTHORING.md');
@@ -196,4 +196,21 @@ test('every function exported from the package root has its signature in the ref
     'cronFixedIntervalMs', 'cronMaxGapMs', 'everyToMs', 'webhook', 'flow']) {
     assert.match(authoring, new RegExp(`export function ${name}[<(]`), name);
   }
+});
+test('every type a rendered declaration names is declared, imported or a TypeScript global', () => {
+  const fences = [...authoring.matchAll(/```ts\n([\s\S]*?)```/g)].map(match => match[1]).join('\n');
+  const file = source('fences.ts', fences);
+  const generics = new Set();
+  const collect = node => { if (ts.isTypeParameterDeclaration(node)) generics.add(node.name.text); ts.forEachChild(node, collect); };
+  collect(file);
+  const globals = new Set(['Array', 'ReadonlyArray', 'Promise', 'PromiseLike', 'Record', 'Partial', 'Required', 'Readonly',
+    'Pick', 'Omit', 'Exclude', 'Extract', 'NonNullable', 'ReturnType', 'Parameters', 'Awaited', 'TemplateStringsArray',
+    'Date', 'Error', 'Map', 'ReadonlyMap', 'Set', 'ReadonlySet', 'Uint8Array', 'Function', 'RegExp', 'ArrayBuffer', 'AbortSignal']);
+  const tabulated = new Set(['Helpers', 'FlowCompletionReason', 'RunCompletionReason', 'CompletionReason']);
+  const declared = name => new RegExp(`(?:(?:interface|type|function|const|class) ${name}\\b|(?:export|import)(?: type)? \\{ ${name} \\} from)`).test(fences);
+  const helperTypes = [...authoring.matchAll(/^\| `f\.\w+` \| `(\w+)` \|/gm)].map(match => match[1]);
+  assert.ok(helperTypes.includes('GithubHelper'));
+  const missing = [...typeReferences(fences), ...helperTypes]
+    .filter(name => !generics.has(name) && !globals.has(name) && !tabulated.has(name) && !declared(name));
+  assert.deepEqual([...new Set(missing)], []);
 });

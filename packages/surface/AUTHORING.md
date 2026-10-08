@@ -1106,7 +1106,7 @@ export function everyToMs(value: string): number;
 
 ## Referenced declarations
 
-Every exported type named by a declaration above or by the helper namespace table, followed transitively. Completion reasons and `Helpers` are the tables above.
+Every type named by a declaration above or by the helper namespace table, followed transitively through the file that names it. Dependency types are named by import; completion reasons and `Helpers` are the tables above.
 
 ### TriggerSource
 
@@ -1281,6 +1281,264 @@ export interface CronGrid {
 }
 ```
 
+### AirtableHelper (not exported from the package root)
+
+```ts
+export type AirtableHelper = UnavailableHelper;
+```
+
+### AsanaHelper (not exported from the package root)
+
+```ts
+export type AsanaHelper = JournalHelper<ReturnType<typeof asanaClient>>;
+```
+
+### AzureBlobHelper (not exported from the package root)
+
+```ts
+export type AzureBlobHelper = JournalHelper<ReturnType<typeof azureBlobClient>>;
+```
+
+### BoxHelper (not exported from the package root)
+
+```ts
+export type BoxHelper = JournalHelper<ReturnType<typeof boxClient>>;
+```
+
+### CalendlyHelper (not exported from the package root)
+
+```ts
+export type CalendlyHelper = JournalHelper<ReturnType<typeof calendlyClient>>;
+```
+
+### ClickupHelper (not exported from the package root)
+
+```ts
+export type ClickupHelper = JournalHelper<ReturnType<typeof clickupClient>>;
+```
+
+### CloudflareHelper (not exported from the package root)
+
+```ts
+export type CloudflareHelper = JournalHelper<ReturnType<typeof cloudflareClient>>;
+```
+
+### ConfluenceHelper (not exported from the package root)
+
+```ts
+export type ConfluenceHelper = JournalHelper<ReturnType<typeof confluenceClient>>;
+```
+
+### DaytonaHelper (not exported from the package root)
+
+```ts
+export type DaytonaHelper = JournalHelper<ReturnType<typeof daytonaClient>>;
+```
+
+### DockerHubHelper (not exported from the package root)
+
+```ts
+export type DockerHubHelper = UnavailableHelper;
+```
+
+### DropboxHelper (not exported from the package root)
+
+```ts
+export type DropboxHelper = JournalHelper<ReturnType<typeof dropboxClient>>;
+```
+
+### FathomHelper (not exported from the package root)
+
+```ts
+export type FathomHelper = UnavailableHelper;
+```
+
+### GcpHelper (not exported from the package root)
+
+```ts
+export type GcpHelper = UnavailableHelper;
+```
+
+### GcsHelper (not exported from the package root)
+
+```ts
+export type GcsHelper = JournalHelper<ReturnType<typeof gcsClient>>;
+```
+
+### GithubHelper (not exported from the package root)
+
+```ts
+export type GithubHelper = JournalHelper<ReturnType<typeof githubClient>>;
+```
+
+### GitlabHelper (not exported from the package root)
+
+```ts
+export type GitlabHelper = JournalHelper<ReturnType<typeof gitlabClient>>;
+```
+
+### GmailHelper (not exported from the package root)
+
+```ts
+export type GmailHelper = JournalHelper<ReturnType<typeof gmailClient>>;
+```
+
+### GoogleCalendarHelper (not exported from the package root)
+
+```ts
+export type GoogleCalendarHelper = JournalHelper<ReturnType<typeof googleCalendarClient>>;
+```
+
+### GoogleDriveHelper (not exported from the package root)
+
+```ts
+export type GoogleDriveHelper = JournalHelper<ReturnType<typeof googleDriveClient>>;
+```
+
+### GranolaHelper (not exported from the package root)
+
+```ts
+export type GranolaHelper = JournalHelper<ReturnType<typeof granolaClient>>;
+```
+
+### HubspotHelper (not exported from the package root)
+
+```ts
+export type HubspotHelper = JournalHelper<ReturnType<typeof hubspotClient>>;
+```
+
+### IntercomHelper (not exported from the package root)
+
+```ts
+export type IntercomHelper = JournalHelper<ReturnType<typeof intercomClient>>;
+```
+
+### JiraHelper (not exported from the package root)
+
+```ts
+export type JiraHelper = JournalHelper<ReturnType<typeof jiraClient>>;
+```
+
+### LinearHelper (not exported from the package root)
+
+```ts
+export type LinearHelper = JournalHelper<ReturnType<typeof linearClient>>;
+```
+
+### MailgunHelper (not exported from the package root)
+
+```ts
+export type MailgunHelper = JournalHelper<ReturnType<typeof mailgunClient>>;
+```
+
+### MixpanelHelper (not exported from the package root)
+
+```ts
+export type MixpanelHelper = JournalHelper<ReturnType<typeof mixpanelClient>>;
+```
+
+### NeonHelper (not exported from the package root)
+
+```ts
+export type NeonHelper = UnavailableHelper;
+```
+
+### NotionHelper (not exported from the package root)
+
+```ts
+export type NotionHelper = JournalHelper<ReturnType<typeof notionClient>>;
+```
+
+### OnedriveHelper (not exported from the package root)
+
+```ts
+export type OnedriveHelper = JournalHelper<ReturnType<typeof onedriveClient>>;
+```
+
+### PipedriveHelper (not exported from the package root)
+
+```ts
+export type PipedriveHelper = JournalHelper<ReturnType<typeof pipedriveClient>>;
+```
+
+### PostgresHelper (not exported from the package root)
+
+```ts
+export type PostgresHelper = JournalHelper<ReturnType<typeof postgresClient>>;
+```
+
+### PosthogHelper (not exported from the package root)
+
+```ts
+export type PosthogHelper = UnavailableHelper;
+```
+
+### RampHelper (not exported from the package root)
+
+```ts
+export type RampHelper = JournalHelper<ReturnType<typeof rampClient>>;
+```
+
+### RecallHelper (not exported from the package root)
+
+```ts
+export type RecallHelper = JournalHelper<ReturnType<typeof recallClient>>;
+```
+
+### RedditHelper (not exported from the package root)
+
+```ts
+export type RedditHelper = JournalHelper<ReturnType<typeof redditClient>>;
+```
+
+### RedisHelper (not exported from the package root)
+
+```ts
+export type RedisHelper = JournalHelper<ReturnType<typeof redisClient>>;
+```
+
+### S3Helper (not exported from the package root)
+
+```ts
+export type S3Helper = JournalHelper<ReturnType<typeof s3Client>>;
+```
+
+### SalesforceHelper (not exported from the package root)
+
+```ts
+export type SalesforceHelper = JournalHelper<ReturnType<typeof salesforceClient>>;
+```
+
+### SegmentHelper (not exported from the package root)
+
+```ts
+export type SegmentHelper = UnavailableHelper;
+```
+
+### SendgridHelper (not exported from the package root)
+
+```ts
+export type SendgridHelper = JournalHelper<ReturnType<typeof sendgridClient>>;
+```
+
+### SharepointHelper (not exported from the package root)
+
+```ts
+export type SharepointHelper = JournalHelper<ReturnType<typeof sharepointClient>>;
+```
+
+### ShopifyHelper (not exported from the package root)
+
+```ts
+export type ShopifyHelper = UnavailableHelper;
+```
+
+### ShortcutHelper (not exported from the package root)
+
+```ts
+export type ShortcutHelper = JournalHelper<ReturnType<typeof shortcutClient>>;
+```
+
 ### SlackHelper
 
 ```ts
@@ -1291,6 +1549,42 @@ export interface SlackHelper {
   reply(channel: string, threadTs: string, text: string): Step<SlackReceipt>;
   react(channel: string, messageTs: string, emoji: string): Step<void>;
 }
+```
+
+### StripeHelper (not exported from the package root)
+
+```ts
+export type StripeHelper = JournalHelper<ReturnType<typeof stripeClient>>;
+```
+
+### TeamsHelper (not exported from the package root)
+
+```ts
+export type TeamsHelper = JournalHelper<ReturnType<typeof teamsClient>>;
+```
+
+### TelegramHelper (not exported from the package root)
+
+```ts
+export type TelegramHelper = JournalHelper<ReturnType<typeof telegramClient>>;
+```
+
+### WebhookServerHelper (not exported from the package root)
+
+```ts
+export type WebhookServerHelper = UnavailableHelper;
+```
+
+### XHelper (not exported from the package root)
+
+```ts
+export type XHelper = UnavailableHelper;
+```
+
+### ZendeskHelper (not exported from the package root)
+
+```ts
+export type ZendeskHelper = JournalHelper<ReturnType<typeof zendeskClient>>;
 ```
 
 ### ProviderTriggerSource
@@ -1413,6 +1707,252 @@ export type WebhookValue = null | boolean | number | string
   | readonly WebhookValue[] | { readonly [key: string]: WebhookValue };
 ```
 
+### UnavailableHelper (not exported from the package root)
+
+```ts
+export interface UnavailableHelper { readonly available: false }
+```
+
+### JournalHelper (not exported from the package root)
+
+```ts
+/** Promise-returning client verbs become lazy, journal-owned steps. */
+export type JournalHelper<T> = {
+  [K in keyof T]: T[K] extends (...args: infer A) => Promise<infer R>
+    ? (...args: A) => Step<R>
+    : T[K] extends (...args: infer A) => infer R ? (...args: A) => R
+    : T[K] extends object ? JournalHelper<T[K]> : T[K];
+};
+```
+
+### asanaClient
+
+```ts
+import { asanaClient } from "@relayfile/relay-helpers";
+```
+
+### azureBlobClient
+
+```ts
+import { azureBlobClient } from "@relayfile/relay-helpers";
+```
+
+### boxClient
+
+```ts
+import { boxClient } from "@relayfile/relay-helpers";
+```
+
+### calendlyClient
+
+```ts
+import { calendlyClient } from "@relayfile/relay-helpers";
+```
+
+### clickupClient
+
+```ts
+import { clickupClient } from "@relayfile/relay-helpers";
+```
+
+### cloudflareClient
+
+```ts
+import { cloudflareClient } from "@relayfile/relay-helpers";
+```
+
+### confluenceClient
+
+```ts
+import { confluenceClient } from "@relayfile/relay-helpers";
+```
+
+### daytonaClient
+
+```ts
+import { daytonaClient } from "@relayfile/relay-helpers";
+```
+
+### dropboxClient
+
+```ts
+import { dropboxClient } from "@relayfile/relay-helpers";
+```
+
+### gcsClient
+
+```ts
+import { gcsClient } from "@relayfile/relay-helpers";
+```
+
+### githubClient (not exported from the package root)
+
+```ts
+// Return type inferred from this implementation.
+/** Accept the conventional owner/repo shorthand as well as upstream arguments. */
+export function githubClient(options: RelayClientOptions) {
+  const client = upstreamGithub(options);
+  return { ...client, createIssue(args: { owner?: string; repo: string; title: string; body: string; labels?: string[] }) {
+    const [owner, repo, extra] = args.repo.split('/');
+    if (!args.owner && (!owner || !repo || extra)) throw new Error('github.createIssue requires repo: "owner/repo" or an explicit owner');
+    return client.createIssue({ ...args, owner: args.owner ?? owner!, repo: args.owner ? args.repo : repo! });
+  } };
+}
+```
+
+### gitlabClient
+
+```ts
+import { gitlabClient } from "@relayfile/relay-helpers";
+```
+
+### gmailClient
+
+```ts
+import { gmailClient } from "@relayfile/relay-helpers";
+```
+
+### googleCalendarClient
+
+```ts
+import { googleCalendarClient } from "@relayfile/relay-helpers";
+```
+
+### googleDriveClient
+
+```ts
+import { googleDriveClient } from "@relayfile/relay-helpers";
+```
+
+### granolaClient
+
+```ts
+import { granolaClient } from "@relayfile/relay-helpers";
+```
+
+### hubspotClient
+
+```ts
+import { hubspotClient } from "@relayfile/relay-helpers";
+```
+
+### intercomClient
+
+```ts
+import { intercomClient } from "@relayfile/relay-helpers";
+```
+
+### jiraClient
+
+```ts
+import { jiraClient } from "@relayfile/relay-helpers";
+```
+
+### linearClient
+
+```ts
+import { linearClient } from "@relayfile/relay-helpers";
+```
+
+### mailgunClient
+
+```ts
+import { mailgunClient } from "@relayfile/relay-helpers";
+```
+
+### mixpanelClient
+
+```ts
+import { mixpanelClient } from "@relayfile/relay-helpers";
+```
+
+### notionClient (not exported from the package root)
+
+```ts
+// Return type inferred from this implementation.
+export function notionClient(options: RelayClientOptions) {
+  return { ...upstreamNotion(options), async appendBlock(args: { pageId: string; block: Record<string, unknown> }) {
+    if (!options.transport) throw new Error('Notion requires a journal transport');
+    // The adapter does not yet support this route. The runtime refuses it in
+    // mount mode, while mock mode can exercise authoring and effect lowering.
+    return created(options.transport.write({ provider: 'notion', resource: 'blocks',
+      parameters: { pageId: args.pageId }, path: `/notion/pages/${encodeURIComponent(args.pageId)}/blocks`, body: { children: [args.block] } }));
+  } };
+}
+```
+
+### onedriveClient
+
+```ts
+import { onedriveClient } from "@relayfile/relay-helpers";
+```
+
+### pipedriveClient
+
+```ts
+import { pipedriveClient } from "@relayfile/relay-helpers";
+```
+
+### postgresClient
+
+```ts
+import { postgresClient } from "@relayfile/relay-helpers";
+```
+
+### rampClient
+
+```ts
+import { rampClient } from "@relayfile/relay-helpers";
+```
+
+### recallClient
+
+```ts
+import { recallClient } from "@relayfile/relay-helpers";
+```
+
+### redditClient
+
+```ts
+import { redditClient } from "@relayfile/relay-helpers";
+```
+
+### redisClient
+
+```ts
+import { redisClient } from "@relayfile/relay-helpers";
+```
+
+### s3Client
+
+```ts
+import { s3Client } from "@relayfile/relay-helpers";
+```
+
+### salesforceClient
+
+```ts
+import { salesforceClient } from "@relayfile/relay-helpers";
+```
+
+### sendgridClient
+
+```ts
+import { sendgridClient } from "@relayfile/relay-helpers";
+```
+
+### sharepointClient
+
+```ts
+import { sharepointClient } from "@relayfile/relay-helpers";
+```
+
+### shortcutClient
+
+```ts
+import { shortcutClient } from "@relayfile/relay-helpers";
+```
+
 ### SlackPostMessage
 
 ```ts
@@ -1440,6 +1980,37 @@ export interface SlackReceipt {
   ts: string;
   ref: string;
 }
+```
+
+### stripeClient (not exported from the package root)
+
+```ts
+// Return type inferred from this implementation.
+export function stripeClient(options: RelayClientOptions) {
+  return { createInvoice(args: { customer: string; auto_advance?: boolean; collection_method?: 'charge_automatically' | 'send_invoice'; days_until_due?: number; description?: string; metadata?: Record<string, string> }) {
+    if (!options.transport) throw new Error('Stripe requires a journal transport');
+    return created(options.transport.write({ provider: 'stripe', resource: 'invoices',
+      parameters: {}, path: '/stripe/invoices', body: args }));
+  } };
+}
+```
+
+### teamsClient
+
+```ts
+import { teamsClient } from "@relayfile/relay-helpers";
+```
+
+### telegramClient
+
+```ts
+import { telegramClient } from "@relayfile/relay-helpers";
+```
+
+### zendeskClient
+
+```ts
+import { zendeskClient } from "@relayfile/relay-helpers";
 ```
 
 ### CloudBabysitterTurnDelivery
@@ -1490,6 +2061,18 @@ export interface JournalStep {
   type: "deterministic" | "llm" | "agent";
   completionReason: CompletionReason | null;
 }
+```
+
+### SearchOptions
+
+```ts
+import type { SearchOptions } from "ai-hist";
+```
+
+### RelayClientOptions
+
+```ts
+import type { RelayClientOptions } from "@relayfile/relay-helpers/transport";
 ```
 
 ### SlackBlock

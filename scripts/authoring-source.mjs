@@ -120,8 +120,9 @@ export function typeReferences(text) {
   const file = source('references.ts', text);
   const names = [];
   const visit = node => {
-    if (ts.isTypeReferenceNode(node) || ts.isExpressionWithTypeArguments(node)) {
-      const target = ts.isTypeReferenceNode(node) ? node.typeName : node.expression;
+    if (ts.isTypeReferenceNode(node) || ts.isExpressionWithTypeArguments(node) || ts.isTypeQueryNode(node)) {
+      // `typeof githubClient` names a value whose type the declaration depends on.
+      const target = ts.isTypeReferenceNode(node) ? node.typeName : ts.isTypeQueryNode(node) ? node.exprName : node.expression;
       let left = target;
       while (ts.isQualifiedName(left)) left = left.left;
       while (ts.isPropertyAccessExpression(left)) left = left.expression;

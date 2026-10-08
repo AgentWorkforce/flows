@@ -59,7 +59,7 @@ export function authoringReference() {
   text += fence(signatureText(triggers, 'webhook')) + '\n' + fence(signatureText(schedules, 'schedule'));
   text += providerTriggers();
   text += otherFunctions(text, exports);
-  text += '\n## Referenced declarations\n\nEvery exported type named by a declaration above or by the helper namespace table, followed transitively. Completion reasons and `Helpers` are the tables above.\n\n';
+  text += '\n## Referenced declarations\n\nEvery type named by a declaration above or by the helper namespace table, followed transitively through the file that names it. Dependency types are named by import; completion reasons and `Helpers` are the tables above.\n\n';
   // Helper namespace types appear only in the table above; declare the exported ones too.
   text += referencedDeclarations(text, exports, [...helpers.map(member => member.type.getText()), 'ProviderTriggerSource']);
   return text.replace(/\n+$/, '\n');
@@ -133,28 +133,58 @@ function functionModule(path, name, seen = new Set()) {
   return functionModule(resolve(dirname(path), reexport.moduleSpecifier.text.replace(/\.js$/, '.ts')), item.propertyName?.text ?? name, seen);
 }
 
-/** Declare each exported surface type the reference names, so no signature points into dist/. */
+/**
+ * Declare every type the reference names, so no signature points into dist/.
+ * A name is resolved where it is used: a package-root export through the
+ * index, anything else through the referencing file's own declarations and
+ * imports. A dependency's type is named by an import line, not copied, and
+ * TypeScript globals and type parameters resolve to nothing and are skipped.
+ */
 function referencedDeclarations(rendered, exports, seeds = []) {
-  const index = source(resolve(root, 'packages/surface/src/index.ts'));
-  const modules = exportSources(index);
+  const srcRoot = resolve(root, 'packages/surface/src');
+  const index = resolve(srcRoot, 'index.ts');
+  const modules = exportSources(source(index));
   const fenced = text => [...text.matchAll(/```ts\n([\s\S]*?)```/g)].map(match => match[1]).join('\n');
-  const declared = (text, name) => new RegExp(`(?:interface|type|function|const|class) ${name}\\b`).test(text);
+  const declared = (text, name) => new RegExp(`(?:(?:interface|type|function|const|class) ${name}\\b|(?:export|import)(?: type)? \\{ ${name} \\} from)`).test(text);
   const tabulated = new Set(['Helpers', 'FlowCompletionReason', 'RunCompletionReason', 'CompletionReason']);
   let body = fenced(rendered);
   let out = '';
   const done = new Set();
-  for (let queue = [...typeReferences(body), ...seeds]; queue.length;) {
-    const name = queue.shift();
-    if (done.has(name) || !exports.includes(name) || tabulated.has(name) || declared(body, name)) continue;
+  const queue = [...typeReferences(body).map(name => ({ name, from: index })),
+    ...seeds.map(name => ({ name, from: resolve(srcRoot, 'helpers/index.ts') }))];
+  while (queue.length) {
+    const { name, from } = queue.shift();
+    if (done.has(name) || tabulated.has(name) || declared(body, name)) continue;
+    const module = exports.includes(name) ? modules.get(name) : undefined;
+    const found = module !== undefined && module.startsWith('.')
+      ? declarationOf(resolve(srcRoot, module.replace(/\.js$/, '.ts')), name)
+      : resolveFrom(from, name);
+    if (found === undefined) continue;
     done.add(name);
-    const module = modules.get(name);
-    if (module === undefined || !module.startsWith('.')) continue;
-    const text = declarationOf(resolve(root, 'packages/surface/src', module.replace(/\.js$/, '.ts')), name);
-    out += `### ${name}\n\n${fence(text)}\n`;
-    body += `\n${text}`;
-    queue.push(...typeReferences(text));
+    const note = exports.includes(name) ? '' : ' (not exported from the package root)';
+    out += `### ${name}${found.external ? '' : note}\n\n${fence(found.text)}\n`;
+    body += `\n${found.text}`;
+    if (found.path !== undefined) queue.push(...typeReferences(found.text).map(next => ({ name: next, from: found.path })));
   }
   return out;
+}
+
+/** `name` as the file at `path` sees it: its own declaration, or what it imports under that name. */
+function resolveFrom(path, name) {
+  const file = source(path);
+  if (file.statements.some(node => node.name?.text === name && !ts.isImportDeclaration(node))) {
+    return { text: declarationText(file, name), path };
+  }
+  for (const node of file.statements.filter(ts.isImportDeclaration)) {
+    const bindings = node.importClause?.namedBindings;
+    const item = bindings && ts.isNamedImports(bindings) && bindings.elements.find(element => element.name.text === name);
+    if (!item) continue;
+    const target = node.moduleSpecifier.text;
+    if (target.startsWith('.')) return declarationOf(resolve(dirname(path), target.replace(/\.js$/, '.ts')), item.propertyName?.text ?? name);
+    const typeOnly = node.importClause.isTypeOnly || item.isTypeOnly;
+    return { text: `import${typeOnly ? ' type' : ''} { ${name} } from ${JSON.stringify(target)};`, external: true };
+  }
+  return undefined;
 }
 
 /**
@@ -166,7 +196,13 @@ function declarationOf(path, name, seen = new Set()) {
   if (seen.has(path)) throw new Error(`${path}: cyclic re-export of ${name}`);
   seen.add(path);
   const file = source(path);
-  if (file.statements.some(node => node.name?.text === name)) return declarationText(file, name);
+  const implemented = file.statements.find(node => ts.isFunctionDeclaration(node) && node.body && node.name?.text === name);
+  if (implemented !== undefined) {
+    // A typed signature is the contract; an inferred return type is only stated by its implementation.
+    return { path, text: implemented.type ? signatureText(file, name)
+      : `// Return type inferred from this implementation.\n${file.text.slice(implemented.getFullStart(), implemented.end).trim()}` };
+  }
+  if (file.statements.some(node => node.name?.text === name)) return { text: declarationText(file, name), path };
   const reexport = file.statements.find(node => ts.isExportDeclaration(node) && node.moduleSpecifier
     && node.exportClause && ts.isNamedExports(node.exportClause) && node.exportClause.elements.some(item => item.name.text === name));
   if (!reexport) throw new Error(`${path}: missing declaration ${name}`);
@@ -174,7 +210,7 @@ function declarationOf(path, name, seen = new Set()) {
   const original = item.propertyName?.text ?? name;
   const target = reexport.moduleSpecifier.text;
   if (target.startsWith('.')) return declarationOf(resolve(dirname(path), target.replace(/\.js$/, '.ts')), original, seen);
-  return `export type { ${name} } from ${JSON.stringify(target)};`;
+  return { text: `export type { ${name} } from ${JSON.stringify(target)};`, external: true };
 }
 
 export function cliReference() {
