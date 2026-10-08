@@ -75,7 +75,7 @@ process.stdout.write(JSON.stringify({ type: 'result', result: 'default-model-ok'
       tokens_input: 2, tokens_output: 1 });
     expect(JSON.parse(readFileSync(calls, 'utf8'))).toEqual([
       '-p', '--dangerously-skip-permissions', '--model', 'claude-opus-5',
-      '--output-format', 'stream-json', '--verbose', 'do the task',
+      '--output-format', 'stream-json', '--verbose', '--', 'do the task',
     ]);
   });
 
@@ -131,8 +131,48 @@ process.stdout.write(JSON.stringify({ type: 'result', result: 'canonical-ok',
     expect(cliInvocationArgv0(canonical, 'claude')).toBe('claude');
     expect(JSON.parse(readFileSync(calls, 'utf8'))).toEqual([
       '-p', '--dangerously-skip-permissions', '--model', 'claude-sonnet-5',
-      '--output-format', 'stream-json', '--verbose', 'do the task',
+      '--output-format', 'stream-json', '--verbose', '--', 'do the task',
     ]);
+  });
+});
+
+/**
+ * A provider stand-in that parses argv the way Claude Code and `codex exec`
+ * do: words before `--` that start with `-` are options, and `--version`
+ * (or `-v`/`-V`) short-circuits to a version banner with exit 0. That is the real failure
+ * a bare dash-leading task produced: a "successful" step whose output is the
+ * CLI's version, the task never run.
+ */
+function optionParsingProvider(kind: 'claude' | 'codex'): string {
+  return `
+const args = process.argv.slice(2);
+const end = args.indexOf('--');
+const options = end === -1 ? args : args.slice(0, end);
+if (options.some(word => ['--version', '-v', '-V'].includes(word))) { process.stdout.write('9.9.9 (stand-in)\\n'); process.exit(0); }
+const task = end === -1 ? args.at(-1) : args.slice(end + 1).join(' ');
+const frames = ${kind === 'claude'
+    ? `[{ type: 'result', result: task, usage: { input_tokens: 2, output_tokens: 1 } }]`
+    : `[{ type: 'item.completed', item: { type: 'agent_message', text: task } },
+  { type: 'turn.completed', usage: { input_tokens: 2, output_tokens: 1 } }]`};
+for (const frame of frames) process.stdout.write(JSON.stringify(frame) + '\\n');
+`;
+}
+
+describe('dash-leading task text', () => {
+  it.each([
+    ['claude', 'agent', '--version'],
+    ['claude', 'llm', '--version'],
+    ['claude', 'agent', '-v explain the flag'],
+    ['codex', 'agent', '--version'],
+    ['codex', 'llm', '--version'],
+    ['codex', 'agent', '-v explain the flag'],
+  ] as const)('%s %s runs the task %j instead of parsing it as an option', async (kind, mode, task) => {
+    const directory = makeDirectory();
+    const cli = makeWrapper(directory, kind, optionParsingProvider(kind));
+
+    const result = await runAgentCli(cli, task, undefined, 'unpriced-test-model', undefined, undefined, mode);
+
+    expect(result).toMatchObject({ exit_code: 0, stdout_tail: task });
   });
 });
 

@@ -36,7 +36,7 @@ describe('typed CLI adapters', () => {
     });
     expect(readiness).not.toHaveProperty('modelEnv');
     expect(agentExecution(kind, 'Review.', 'claude-model')).toEqual({
-      args: ['-p', '--dangerously-skip-permissions', '--model', 'claude-model', 'Review.'],
+      args: ['-p', '--dangerously-skip-permissions', '--model', 'claude-model', '--', 'Review.'],
       timeoutMs: 0,
     });
   });
@@ -50,13 +50,13 @@ describe('typed CLI adapters', () => {
     expect(modelReadinessProbe(kind, 'gpt-model')).toEqual({
       args: [
         'exec', '--ephemeral', '--sandbox', 'read-only', '--skip-git-repo-check',
-        '--model', 'gpt-model', 'Reply with exactly RELAYFLOWS_MODEL_READY and nothing else.',
+        '--model', 'gpt-model', '--', 'Reply with exactly RELAYFLOWS_MODEL_READY and nothing else.',
       ],
       timeoutMs: 60_000,
     });
     expect(agentExecution(kind, 'Review.', 'gpt-model')).toEqual({
       args: ['exec', '--skip-git-repo-check', '--dangerously-bypass-approvals-and-sandbox',
-        '--model', 'gpt-model', 'Review.'],
+        '--model', 'gpt-model', '--', 'Review.'],
       timeoutMs: 0,
     });
   });

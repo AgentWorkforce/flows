@@ -12,6 +12,18 @@
  * registered adapter for the resolved kind, so callers don't change.
  */
 
+/**
+ * The trailing operand that carries a task or prompt to a raw provider CLI.
+ * Task text is author-controlled and may begin with `-` or `--`; spelled as a
+ * bare word it is parsed as an option (a task of `--version` prints the CLI
+ * version and exits 0). Both Claude Code and `codex exec` honour the POSIX
+ * end-of-options separator, so the text always rides after `--`. Callers that
+ * add flags must insert them before this tail, never after it.
+ */
+export function promptOperand(text: string): [separator: '--', text: string] {
+  return ['--', text];
+}
+
 export interface CliInvocation {
   args: string[];
   timeoutMs: number;

@@ -4,6 +4,7 @@ import type {
   HeadlessAdapter,
   ModelProbeFailure,
 } from './base.js';
+import { promptOperand } from './base.js';
 import { providerUsageLimited } from './usage-limit.js';
 
 const MODEL_PROBE_PROMPT = 'Reply with exactly RELAYFLOWS_MODEL_READY and nothing else.';
@@ -26,7 +27,7 @@ export const claudeAdapter: HeadlessAdapter = {
     return {
       args: [
         '-p', '--model', model, '--tools', '', '--no-session-persistence',
-        MODEL_PROBE_PROMPT,
+        ...promptOperand(MODEL_PROBE_PROMPT),
       ],
       timeoutMs: 60_000,
     };
@@ -55,7 +56,7 @@ export const claudeAdapter: HeadlessAdapter = {
         // and completes "successfully" without touching files.
         '--dangerously-skip-permissions',
         ...(model === undefined ? [] : ['--model', model]),
-        instruction,
+        ...promptOperand(instruction),
       ],
       timeoutMs: 0,
     };
@@ -64,7 +65,7 @@ export const claudeAdapter: HeadlessAdapter = {
   buildLlmInvocation(prompt: string, model?: string): CliInvocation {
     return {
       args: ['-p', '--tools', '', '--no-session-persistence',
-        ...(model === undefined ? [] : ['--model', model]), prompt],
+        ...(model === undefined ? [] : ['--model', model]), ...promptOperand(prompt)],
       timeoutMs: 0,
     };
   },
