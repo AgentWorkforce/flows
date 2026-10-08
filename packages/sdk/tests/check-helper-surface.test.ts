@@ -318,3 +318,12 @@ it.each([
   expect(result.exit).toBe(2);
   expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
 });
+it('explains an alias-inferred appendBlock refusal and how to avoid it', async () => {
+  const aliased = await check(fixture('const notion = f.notion; await notion.createPage({ parent: "p", title: "t" }); const doc = { appendBlock() {} }; doc.appendBlock();', '{ tools: { notion: true } },'));
+  expect(aliased.exit).toBe(2);
+  expect(aliased.stderr.join('\n')).toContain('f.notion is aliased or passed on in this body');
+  const direct = await check(fixture('await f.notion.createPage({ parent: "p", title: "t" }); const doc = { appendBlock() {} }; doc.appendBlock();', '{ tools: { notion: true } },'));
+  expect(direct.exit).toBe(0);
+  const real = await check(fixture('await f.notion.appendBlock("page", {});', '{ tools: { notion: true } },'));
+  expect(real.stderr.join('\n')).not.toContain('aliased or passed on');
+});

@@ -22,6 +22,9 @@ export function preflightHelpers(
   // there. An aliased or destructured f.notion cannot be followed statically, so
   // any appendBlock member access then counts as the unsupported operation.
   const uses = root === undefined ? undefined : helperMemberUses(body, root);
+  // Attributed only when f.notion is called directly; an escaped f.notion cannot be
+  // told apart from another object's appendBlock, so check refuses and says why.
+  const notionAppendInferred = uses !== undefined && !uses.methods.has('notion.appendBlock');
   const appendsNotionBlock = uses === undefined
     ? /\.\s*appendBlock\b/.test(body)
     : uses.methods.has('notion.appendBlock')
@@ -44,7 +47,9 @@ export function preflightHelpers(
     // Missing local mounts must not hide an operation unsupported on Cloud too.
     if (supported && provider === 'notion' && !fact.mock && appendsNotionBlock) {
       diagnostics.push({ severity: 'refusal', kind: 'helper_provider.unsupported',
-        message: 'f.notion.appendBlock is mock-only: the Notion adapter has no append-block writeback route.' });
+        message: 'f.notion.appendBlock is mock-only: the Notion adapter has no append-block writeback route.'
+          + (notionAppendInferred ? ' f.notion is aliased or passed on in this body, so any .appendBlock access is treated as this operation;'
+            + ' call f.notion methods directly (f.notion.createPage(...)) to let flows check tell them apart.' : '') });
     }
   }
   return { ok: diagnostics.length === 0, gates: [], resolutions: [], diagnostics };
