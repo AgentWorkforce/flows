@@ -8,7 +8,7 @@ import { checkCommunicationEnvironment, CommunicationEnvironmentError } from '..
 import { parseHumanRecipient } from '../human-to.js';
 import { parseDigestReference } from '../bundle-transport.js';
 import { prepareDigestRun } from './run-digest.js';
-import { reuseSummary } from './reuse.js';
+import { attachReuseSummary } from './reuse.js';
 import { resumeHelperEffect } from '../authored-helper-effect.js';
 import { AuthoredFlowExecutionError, AuthoredHumanParked, type AuthoredHumanWait } from '../authored-flow-error.js';
 import { answerCommand, resumeCommand } from '../authored-human.js';
@@ -239,10 +239,8 @@ async function executeCheckedFlow(
     // truthful "not projected" diagnostic.
     options.onRunReceipt?.({ runId: outcome.run_id, flow: spec.name ?? 'flow' });
     const execution = await classifyOutcome(client, 'run', outcome, base, socketPath, { ...options, dataDir });
-    if (options.reuseFromRunId !== undefined) {
-      execution.report.reuse = await reuseSummary(client, outcome.run_id, options.reuseFromRunId);
-    }
-    return execution;
+    return options.reuseFromRunId === undefined ? execution
+      : await attachReuseSummary(execution, client, outcome.run_id, options.reuseFromRunId);
   } catch (error) {
     if (isReadInterruption(error)) return daemonUnresponsiveReport('run', base, socketPath, error, base.runId, options, dataDir);
     if (error instanceof CommunicationEnvironmentError) return { exitCode: 2, report: { ...base,
