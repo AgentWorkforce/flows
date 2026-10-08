@@ -60,6 +60,7 @@ export function authoringReference() {
   text += fence(signatureText(triggers, 'webhook')) + '\n' + fence(signatureText(schedules, 'schedule'));
   text += providerTriggers();
   text += otherFunctions(text, exports);
+  text += exportedConstants(text, exports);
   text += '\n## Referenced declarations\n\nEvery type named by a declaration above or by the helper namespace table, followed transitively through the file that names it. Dependency types are named by import; completion reasons and `Helpers` are the tables above.\n\n';
   // Helper namespace types appear only in the table above, and a type-only
   // export may be named by no signature at all; declare every public type.
@@ -76,18 +77,10 @@ export function authoringReference() {
 function providerTriggers() {
   const index = source(resolve(root, 'packages/surface/src/index.ts'));
   const rows = [];
-  const values = [];
   for (const star of index.statements.filter(ts.isExportDeclaration)) {
     const barrel = starModule(index, star);
     if (barrel === undefined) continue;
     const barrelFile = source(barrel);
-    for (const name of directExports(barrelFile)) {
-      const statement = barrelFile.statements.find(node => (ts.isVariableStatement(node) ? node.declarationList.declarations : [node]).some(item => item.name?.text === name));
-      const doc = ts.getJSDocCommentsAndTags(ts.isVariableStatement(statement) ? statement.declarationList.declarations[0] : statement)
-        .map(item => ts.getTextOfJSDocComment(item.comment)).filter(Boolean).join(' ');
-      if (!doc) throw new Error(`${barrel}: exported ${name} has no JSDoc to document`);
-      values.push(`- \`${name}\`: ${doc}`);
-    }
     for (const entry of barrelFile.statements.filter(ts.isExportDeclaration)) {
       if (!entry.exportClause || !ts.isNamedExports(entry.exportClause)) throw new Error(`${barrel}: unsupported re-export`);
       const file = source(resolve(dirname(barrel), entry.moduleSpecifier.text.replace(/\.js$/, '.ts')));
@@ -114,8 +107,33 @@ function providerTriggers() {
   if (rows.length === 0) return '';
   return '\n### Provider triggers\n\nExported from the package root (`import { github } from \'@relayflows/surface\'`). '
     + 'Each call returns `ProviderTriggerSource<Provider, Event>` for the listed provider and event; pass it to `flow(...).on(...)` or `f.on(...)`.\n\n'
-    + '| Call | Provider | Event |\n| --- | --- | --- |\n' + rows.join('\n') + '\n'
-    + (values.length ? `\nAlso exported alongside the constructors, keyed by the Provider column:\n\n${values.join('\n')}\n` : '');
+    + '| Call | Provider | Event |\n| --- | --- | --- |\n' + rows.join('\n') + '\n';
+}
+
+/** Whether `rendered` declares the value `name`, or lists it as a table row. */
+const declaresValue = (rendered, name) => new RegExp(`(?:const|function|class) ${name}\\b|^\\| \`${name}[.(\`]`, 'm').test(rendered);
+
+/**
+ * Every exported constant not already declared above, as its source
+ * declaration: a named re-export through its module, a star-exported barrel's
+ * own `export const` through that barrel.
+ */
+function exportedConstants(rendered, exports) {
+  const index = source(resolve(root, 'packages/surface/src/index.ts'));
+  const modules = exportSources(index);
+  const barrels = index.statements.filter(ts.isExportDeclaration).map(node => starModule(index, node)).filter(Boolean);
+  const fences = [];
+  for (const name of exports) {
+    if (declaresValue(rendered, name)) continue;
+    const module = modules.get(name);
+    const paths = module?.startsWith('.') ? [resolve(root, 'packages/surface/src', module.replace(/\.js$/, '.ts'))] : module === undefined ? barrels : [];
+    for (const path of paths) {
+      const file = source(path);
+      const statement = file.statements.find(node => ts.isVariableStatement(node) && node.declarationList.declarations.some(item => item.name.text === name));
+      if (statement) { fences.push(fence(file.text.slice(statement.getFullStart(), statement.end).trim())); break; }
+    }
+  }
+  return fences.length === 0 ? '' : `\n## Exported constants\n\nValues exported from the package root, as declared.\n\n${fences.join('\n')}`;
 }
 
 /** Every other function exported from the package root, so the reference covers each callable. */

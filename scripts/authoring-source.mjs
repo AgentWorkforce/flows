@@ -144,7 +144,9 @@ export function typeReferences(text) {
   const file = source('references.ts', text);
   const names = [];
   const visit = node => {
-    if (ts.isTypeReferenceNode(node) || ts.isExpressionWithTypeArguments(node) || ts.isTypeQueryNode(node)) {
+    // `x as const` parses as a reference to a type named `const`; it names nothing.
+    const constAssertion = ts.isTypeReferenceNode(node) && ts.isAsExpression(node.parent) && node.typeName.getText(file) === 'const';
+    if (!constAssertion && (ts.isTypeReferenceNode(node) || ts.isExpressionWithTypeArguments(node) || ts.isTypeQueryNode(node))) {
       // `typeof githubClient` names a value whose type the declaration depends on.
       const target = ts.isTypeReferenceNode(node) ? node.typeName : ts.isTypeQueryNode(node) ? node.exprName : node.expression;
       let left = target;
