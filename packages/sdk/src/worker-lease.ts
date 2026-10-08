@@ -1,4 +1,5 @@
 import { JournalProtocolError, JournalRequestTimeoutError, type JournalClient } from './journal-client.js';
+import { isReadInterruptionError } from './journal-read-policy.js';
 import type { StepDispatchEvent } from './protocol.js';
 
 export class WorkerLeaseLostError extends Error {
@@ -22,7 +23,9 @@ export function isLeaseLost(error: unknown): boolean {
 export function onWorkerFailure(label: string, fatal: (error: unknown) => void) {
   return (error: unknown, dispatch?: StepDispatchEvent): void => {
     // Without the dispatch there is no attempt to hand back to the kernel: fail closed.
-    if (!isLeaseLost(error) || dispatch === undefined) { fatal(error); return; }
+    // A lost lease and an unanswered read both leave the attempt to the kernel,
+    // which sweeps the lease and retries it.
+    if (!(isLeaseLost(error) || isReadInterruptionError(error)) || dispatch === undefined) { fatal(error); return; }
     // The kernel owns this attempt's fate; its journal supplies the run outcome.
     // stderr keeps this diagnostic out of structured reports on stdout.
     process.emitWarning(

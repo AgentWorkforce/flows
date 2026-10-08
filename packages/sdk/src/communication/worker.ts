@@ -6,6 +6,7 @@ import type { JournalClient } from '../journal-client.js';
 import type { StepDispatchEvent } from '../protocol.js';
 import type { ResolvedKernelAgentStep } from '../resolved-cli-identity.js';
 import { isLeaseLost, withWorkerLease } from '../worker-lease.js';
+import { isReadInterruptionError } from '../journal-read-policy.js';
 import { workerInstruction } from '../worker-input.js';
 import { resolveCliModel } from '../cli-adapter.js';
 import { resolveAgentCwd } from '../agent-cwd.js';
@@ -29,8 +30,9 @@ export async function completeCommunicationDispatch(client: JournalClient, dispa
     output = await withWorkerLease(client, dispatch, signal =>
       run(client, dispatch, instruction, spec, dataDir, signal, runRoot, environment));
   } catch (error) {
-    // A lost lease belongs to the kernel's sweep and retry: never complete it here.
-    if (isLeaseLost(error)) throw error;
+    // A lost lease or an unanswered read belongs to the kernel's sweep and
+    // retry: never complete the attempt here as a worker failure.
+    if (isLeaseLost(error) || isReadInterruptionError(error)) throw error;
     completionReason = 'worker_error';
     output = { error: error instanceof Error ? error.message : String(error) };
   }

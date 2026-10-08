@@ -108,3 +108,18 @@ it('leaves a heartbeat-lost attempt to the kernel instead of completing it as wo
   expect(isLeaseLost(error)).toBe(true);
   expect(f.client.stepComplete).not.toHaveBeenCalled();
 });
+it('leaves a retried attempt whose history read was interrupted to the kernel', async () => {
+  const { JournalRequestTimeoutError } = await import('../src/journal-client.js');
+  const { isReadInterruptionError } = await import('../src/journal-read-policy.js');
+  const f = fixture();
+  (f.client as unknown as { journalRead: () => Promise<never> }).journalRead = async () => {
+    throw new JournalRequestTimeoutError('journal.read', 10, 3, 300_000, 300_000);
+  };
+  const error = await completeCommunicationDispatch(f.client as unknown as JournalClient, {
+    run_id: 'run', step_id: 'agent', attempt: 2, idempotency_key: 'key', pins: {}, lease_id: 'lease',
+    lease_deadline_ms: Date.now() + 30_000, spec: { type: 'agent', cli: 'claude', instruction: '' },
+  } as StepDispatchEvent, { type: 'relayflows.communication.v1', instruction: 'test', incoming: ['peer'], outgoing: [], timeoutMs: 1000 },
+  '/tmp/data').catch(caught => caught);
+  expect(isReadInterruptionError(error)).toBe(true);
+  expect(f.client.stepComplete).not.toHaveBeenCalled();
+});

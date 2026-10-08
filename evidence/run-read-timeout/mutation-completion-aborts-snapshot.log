@@ -11,7 +11,7 @@ $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'a compl
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
  ❯ tests/running-step-watch.test.ts (14 tests | 1 failed | 13 skipped) 3010ms
-   × a completion push ends the wait without waiting out an in-flight snapshot 3010ms
+   × a completion push ends the wait without waiting out an in-flight snapshot 3009ms
      → expected 'still waiting' to be 'returned' // Object.is equality
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
@@ -34,8 +34,8 @@ Received: "still waiting"
 
  Test Files  1 failed (1)
       Tests  1 failed | 13 skipped (14)
-   Start at  05:06:19
-   Duration  3.49s (transform 192ms, setup 15ms, collect 325ms, tests 3.01s, environment 0ms, prepare 41ms)
+   Start at  05:18:01
+   Duration  3.50s (transform 189ms, setup 17ms, collect 323ms, tests 3.01s, environment 0ms, prepare 41ms)
 
 exit=1
 
@@ -44,12 +44,12 @@ $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'a compl
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/running-step-watch.test.ts (14 tests | 13 skipped) 2062ms
-   ✓ a completion push ends the wait without waiting out an in-flight snapshot 2061ms
+ ✓ tests/running-step-watch.test.ts (14 tests | 13 skipped) 2057ms
+   ✓ a completion push ends the wait without waiting out an in-flight snapshot 2057ms
 
  Test Files  1 passed (1)
       Tests  1 passed | 13 skipped (14)
-   Start at  05:06:23
-   Duration  2.53s (transform 182ms, setup 14ms, collect 311ms, tests 2.06s, environment 0ms, prepare 44ms)
+   Start at  05:18:05
+   Duration  2.55s (transform 194ms, setup 17ms, collect 338ms, tests 2.06s, environment 0ms, prepare 41ms)
 
 exit=0
