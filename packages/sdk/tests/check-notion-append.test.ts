@@ -372,3 +372,11 @@ it.each([
   const result = await check(fixture(`${prefix} await f.notion.createPage({ parent: "p", title: "t" });`, '{ tools: { notion: true } },'));
   expect(result.exit).toBe(2);
 });
+it.each([
+  ['an indirect call', '(0, eval)("globalThis.x = 1");'],
+  ['an alias', 'const run = eval; run("globalThis.x = 1");'],
+  ['a global root', 'globalThis.eval("globalThis.x = 1");'],
+])('refuses eval used through %s', async (_shape, prefix) => {
+  const result = await check(fixture(`${prefix} await f.notion.createPage({ parent: "p", title: "t" });`, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+});

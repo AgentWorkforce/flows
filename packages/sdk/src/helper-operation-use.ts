@@ -164,8 +164,8 @@ function reachesMachinery(node: AstNode, parents: WeakMap<AstNode, AstNode>): bo
     if (parent?.type === 'VariableDeclarator' && parent.id === node) return false;
     // eval and Function matter only when called; a use resolving to a local
     // binding (scope by scope, not body-wide) is not the global.
-    if ((node.name === 'eval' || node.name === 'Function')
-      && !((parent?.type === 'CallExpression' || parent?.type === 'NewExpression') && parent.callee === node)) return false;
+    // Any use of eval (indirect call, alias) runs source text the scan never
+    // sees; Function is judged with the other prototype-bearing globals.
     return !boundLocally(node, node.name!, parents);
   }
   return false;
@@ -227,8 +227,9 @@ const GLOBAL_ROOTS = new Set(['globalThis', 'global', 'window', 'self']);
 const PROTOTYPE_MACHINERY = new Set(['prototype', '__proto__', 'defineProperty', 'defineProperties',
   'setPrototypeOf', 'getPrototypeOf', 'toPrimitive', '__defineGetter__', '__defineSetter__',
   '__lookupGetter__', '__lookupSetter__',
-  // Any function's (or global's) constructor chain reaches Function, which compiles source text.
-  'constructor']);
+  // Any function's (or global's) constructor chain reaches Function, which compiles source text,
+  // and eval (globalThis.eval, ...) runs it directly.
+  'constructor', 'eval']);
 
 /**
  * A use that cannot hand the value on: a discarded value or a read, and —
