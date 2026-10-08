@@ -37,8 +37,8 @@ AssertionError: expected true to be false // Object.is equality
 
  Test Files  1 failed (1)
       Tests  1 failed | 19 skipped (20)
-   Start at  01:34:04
-   Duration  542ms (transform 158ms, setup 17ms, collect 274ms, tests 114ms, environment 0ms, prepare 41ms)
+   Start at  01:44:20
+   Duration  546ms (transform 170ms, setup 17ms, collect 294ms, tests 114ms, environment 0ms, prepare 30ms)
 
 exit=1
 
@@ -51,7 +51,7 @@ $ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t
 
  Test Files  1 passed (1)
       Tests  1 passed | 19 skipped (20)
-   Start at  01:34:05
-   Duration  544ms (transform 163ms, setup 16ms, collect 281ms, tests 106ms, environment 0ms, prepare 41ms)
+   Start at  01:44:21
+   Duration  552ms (transform 163ms, setup 17ms, collect 285ms, tests 106ms, environment 0ms, prepare 38ms)
 
 exit=0

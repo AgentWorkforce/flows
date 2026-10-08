@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { attachReuseSummary } from '../src/cli/reuse.js';
-import { JournalReadInterruptedError, JournalRequestTimeoutError, type JournalClient } from '../src/journal-client.js';
+import { JournalFrameError, JournalReadInterruptedError, JournalRequestTimeoutError, type JournalClient } from '../src/journal-client.js';
 import type { RunExecution } from '../src/cli/run.js';
 
 const completed = (): RunExecution => ({ exitCode: 0, report: {
@@ -22,13 +22,18 @@ it.each([
   expect(JSON.stringify(execution.report)).not.toContain('flows resume');
 });
 
-it('still attaches the summary when the read succeeds, and rethrows other failures', async () => {
+it('still attaches the summary when the read succeeds, and never lets the optional read discard the outcome', async () => {
   const ok = { journalRead: async (_run: string, from: number) => ({ entries: from === 1
     ? [{ seq: 1, entry_type: 'step.completed', step_id: 'a', payload: { reused_from: 'prior' } }] : [] }) } as unknown as JournalClient;
   expect((await attachReuseSummary(completed(), ok, 'run-1', 'prior')).report.reuse)
     .toEqual({ fromRunId: 'prior', reusedSteps: 1, executedSteps: 0 });
-  const broken = { journalRead: async () => { throw new Error('invalid journal sequence'); } } as unknown as JournalClient;
-  await expect(attachReuseSummary(completed(), broken, 'run-1', 'prior')).rejects.toThrow('invalid journal sequence');
+  for (const failure of [new Error('invalid journal sequence'), new JournalFrameError(),
+    Object.assign(new Error('run canceled'), { name: 'AbortError' })]) {
+    const broken = { journalRead: async () => { throw failure; } } as unknown as JournalClient;
+    const execution = await attachReuseSummary(completed(), broken, 'run-1', 'prior');
+    expect(execution.report).toMatchObject({ ok: true, status: 'completed' });
+    expect(execution.report.diagnostics.at(-1)).toMatchObject({ kind: 'reuse_summary_unavailable', message: expect.stringContaining(failure.message) });
+  }
 });
 
 it.each(['daemon_unresponsive', 'daemon_unreachable'])('does not start another read after classification reported %s', async kind => {

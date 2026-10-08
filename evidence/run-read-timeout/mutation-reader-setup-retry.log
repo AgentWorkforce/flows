@@ -16,8 +16,8 @@ $ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/journal-client-read-timeout.test.ts (20 tests | 1 failed | 19 skipped) 77ms
-   × retries a reader setup that timed out instead of reading on the primary for good 76ms
+ ❯ tests/journal-client-read-timeout.test.ts (20 tests | 1 failed | 19 skipped) 80ms
+   × retries a reader setup that timed out instead of reading on the primary for good 79ms
      → expected 1 to be 2 // Object.is equality
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
@@ -43,8 +43,8 @@ AssertionError: expected 1 to be 2 // Object.is equality
 
  Test Files  1 failed (1)
       Tests  1 failed | 19 skipped (20)
-   Start at  01:34:08
-   Duration  520ms (transform 162ms, setup 17ms, collect 280ms, tests 77ms, environment 0ms, prepare 40ms)
+   Start at  01:44:24
+   Duration  507ms (transform 163ms, setup 17ms, collect 277ms, tests 80ms, environment 0ms, prepare 40ms)
 
 exit=1
 
@@ -53,11 +53,11 @@ $ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/journal-client-read-timeout.test.ts (20 tests | 19 skipped) 74ms
+ ✓ tests/journal-client-read-timeout.test.ts (20 tests | 19 skipped) 70ms
 
  Test Files  1 passed (1)
       Tests  1 passed | 19 skipped (20)
-   Start at  01:34:09
-   Duration  523ms (transform 170ms, setup 17ms, collect 297ms, tests 74ms, environment 0ms, prepare 41ms)
+   Start at  01:44:25
+   Duration  509ms (transform 166ms, setup 17ms, collect 288ms, tests 70ms, environment 0ms, prepare 41ms)
 
 exit=0

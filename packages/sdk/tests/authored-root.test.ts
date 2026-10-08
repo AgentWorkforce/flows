@@ -432,6 +432,19 @@ describe('durable authored root', () => {
     expect(journal.peer.completions).toEqual([]);
   });
 
+  it('never terminalizes the root for a caller cancellation', async () => {
+    const controller = new AbortController();
+    const loaded = await fixture(false, 0, async () => {
+      controller.abort(new Error('caller canceled the run'));
+      throw controller.signal.reason;
+    });
+    const journal = new RootJournal();
+    await expect(executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'caller-cancel', lifecycle: { signal: controller.signal } }))
+      .rejects.toMatchObject({ message: 'caller canceled the run', rootRunId: 'root-run' });
+    expect(journal.peer.completions).toEqual([]);
+  });
+
   it('terminalizes a returned body failure without replaying semantic side effects', async () => {
     const loaded = await fixture(true);
     const journal = new RootJournal();

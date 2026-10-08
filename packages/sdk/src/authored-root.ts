@@ -369,6 +369,13 @@ async function driveRoot(
     // A lost lease is owned by the kernel's retry path, not by this attempt's
     // terminalization or suspension handling.
     if (isLeaseLost(error)) throw error;
+    // A caller cancel is the caller's, not a body failure: reads aborted by it
+    // (including the Bun verifier's) leave the root resumable, never terminal.
+    const signal = options.lifecycle?.signal;
+    if (aborted(signal) && (error === signal!.reason || (error instanceof Error && error.name === 'AbortError'))) {
+      if (error instanceof Error) (error as Error & { rootRunId?: string }).rootRunId = dispatch.run_id;
+      throw error;
+    }
     if (isReadInterruptionError(error)
       || (error instanceof AuthoredFlowExecutionError && error.code === 'daemon_unresponsive')) {
       const parked = new AuthoredFlowExecutionError('daemon_unresponsive',
