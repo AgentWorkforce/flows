@@ -151,6 +151,7 @@ export const RUN_FAILURE_KINDS = [
    * reach this process. The run is NOT failed (`status: running`): its
    * completed steps are journaled and `flows resume <rootRunId>` continues it.
    */
+  'daemon_unresponsive',
   'root_lease_lost',
 ] as const;
 
@@ -162,6 +163,9 @@ export const RUN_FAILURE_KINDS = [
  */
 export const RUN_WARNING_KINDS = [
   'connection_file_stale',
+  'reuse_summary_unavailable',
+  'result_unreadable',
+  'inspection_interrupted',
 ] as const;
 
 /**

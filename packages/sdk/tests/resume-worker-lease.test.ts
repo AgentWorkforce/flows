@@ -1,3 +1,4 @@
+import { AuthoredFlowExecutionError } from '../src/authored-flow-error.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { JournalClient, JournalProtocolError } from '../src/journal-client.js';
 import { LlmWorker } from '../src/llm-worker.js';
@@ -33,4 +34,18 @@ it.each([false, true])('resume handles LLM errors with leaseLost=%s', async leas
   expect(result.exitCode).toBe(1);
   expect(JSON.stringify(result.report)).toContain(leaseLost ? 'connection closed' : 'cli exploded');
   expect(warning).toHaveBeenCalledTimes(leaseLost ? 1 : 0);
+});
+
+it('reports a read interruption without losing the resumable root', async () => {
+  vi.spyOn(JournalClient.prototype, 'connect').mockResolvedValue();
+  vi.spyOn(JournalClient.prototype, 'hello').mockResolvedValue({} as never);
+  vi.spyOn(LlmWorker.prototype, 'attach').mockResolvedValue();
+  const error = new AuthoredFlowExecutionError('daemon_unresponsive', 'read timed out under CPU load');
+  error.rootRunId = 'saved-root';
+  vi.mocked(resumeDurableAuthoredFlow).mockRejectedValueOnce(error);
+  const result = await resumeFlow('saved-root', '/unused', { localAgent: true });
+  expect(result).toMatchObject({ exitCode: 1, report: {
+    command: 'resume', runId: 'saved-root', rootRunId: 'saved-root', status: 'running',
+    diagnostics: [{ kind: 'daemon_unresponsive', message: expect.stringContaining('flows resume --data-dir /unused --local-agent saved-root') }],
+  } });
 });

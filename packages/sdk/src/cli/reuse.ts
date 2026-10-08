@@ -1,4 +1,5 @@
 import type { JournalClient } from '../journal-client.js';
+import type { RunExecution } from './run.js';
 
 /** Count durable facts, including failed executions, across paginated reads. */
 export async function reuseSummary(client: JournalClient, runId: string, fromRunId: string): Promise<{
@@ -20,4 +21,28 @@ export async function reuseSummary(client: JournalClient, runId: string, fromRun
     }
   }
   return { fromRunId, reusedSteps: reused.size, executedSteps: executed.size };
+}
+
+/**
+ * Add the reuse summary to an already classified run. The summary is an extra
+ * journal read after the outcome is known: if it cannot be answered, report
+ * that as a warning and keep the classified outcome rather than recasting a
+ * finished run as resumable or failed.
+ */
+export async function attachReuseSummary(execution: RunExecution, client: JournalClient,
+  runId: string, fromRunId: string): Promise<RunExecution> {
+  // Classification already ended on an unanswered read: the run is resumable and
+  // another read would only spend a fresh budget against the same delayed daemon.
+  if (execution.report.diagnostics.some(diagnostic => diagnostic.kind === 'daemon_unresponsive'
+    || diagnostic.kind === 'daemon_unreachable' || diagnostic.kind === 'inspection_interrupted')) return execution;
+  try {
+    execution.report.reuse = await reuseSummary(client, runId, fromRunId);
+  } catch (error) {
+    // Optional detail after the outcome is decided: no failure here — an
+    // interruption, a cancellation, a bad frame — may replace that outcome.
+    const why = error instanceof Error ? error.message : String(error);
+    execution.report.diagnostics = [...execution.report.diagnostics, { severity: 'warning', kind: 'reuse_summary_unavailable',
+      message: `The run's outcome is final, but the summary of steps reused from ${fromRunId} could not be read: ${why}` }];
+  }
+  return execution;
 }

@@ -8,7 +8,7 @@ import type { AuthoredFlowJournalStep } from './authored-flow-executor.js';
 import { compileSpec, toKernelSpec } from './compile.js';
 import { SPEC_SCHEMA_VERSION, type KernelAgentStep } from './spec.js';
 import type { StepDispatchEvent } from './protocol.js';
-import { withWorkerLease } from './worker-lease.js';
+import { isLeaseLost, withWorkerLease } from './worker-lease.js';
 import { helperProviders, type HelperCall } from '@relayflows/surface/runtime';
 import { helperWriteback, HelperDeliveryError } from './helper-writeback.js';
 import { checkSlackHelpers } from './slack-preflight.js';
@@ -101,7 +101,8 @@ async function driveHelperEffect(
     }
     await completed;
   } catch (error) {
-    if (error instanceof AuthoredFlowExecutionError) throw error;
+    // A lost lease belongs to the kernel's sweep and retry, not to this step.
+    if (error instanceof AuthoredFlowExecutionError || isLeaseLost(error)) throw error;
     throw new AuthoredFlowExecutionError('step_failed', error instanceof Error ? error.message : 'Helper effect failed', 'worker_error', runId);
   } finally { client.close(); }
 }

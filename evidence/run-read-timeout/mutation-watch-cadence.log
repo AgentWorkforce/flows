@@ -1,0 +1,51 @@
+Source: packages/sdk/src/cli/running-step.ts
+Original SHA256: 2a5f6adeca146e6188ac5e6d129db004e71574cf09df397fd4b9127c50e9b5aa
+Replaced:
+const LEASE_POLL_MS = 2_000;
+With:
+const LEASE_POLL_MS = 50;
+
+REVERTED
+$ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'uses pushes for completion' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
+
+ ❯ tests/running-step-watch.test.ts (14 tests | 1 failed | 13 skipped) 2109ms
+   × uses pushes for completion with lease-cadence reads and releases its watcher 2108ms
+     → expected 41 to be less than or equal to 1
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/running-step-watch.test.ts > uses pushes for completion with lease-cadence reads and releases its watcher
+AssertionError: expected 41 to be less than or equal to 1
+ ❯ tests/running-step-watch.test.ts:39:19
+     37|     await waitForRunningStep(client, 'run', { id: 'step', type: 'agent…
+     38|     expect(performance.now() - start).toBeGreaterThan(2000);
+     39|     expect(reads).toBeLessThanOrEqual(1);
+       |                   ^
+     40|     await sleep(10);
+     41|     expect(watchClosed).toBe(true);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 13 skipped (14)
+   Start at  06:16:16
+   Duration  2.59s (transform 194ms, setup 16ms, collect 322ms, tests 2.11s, environment 0ms, prepare 41ms)
+
+exit=1
+
+RESTORED SHA256: 2a5f6adeca146e6188ac5e6d129db004e71574cf09df397fd4b9127c50e9b5aa
+$ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'uses pushes for completion' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
+
+ ✓ tests/running-step-watch.test.ts (14 tests | 13 skipped) 2117ms
+   ✓ uses pushes for completion with lease-cadence reads and releases its watcher 2116ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 13 skipped (14)
+   Start at  06:16:19
+   Duration  2.56s (transform 186ms, setup 14ms, collect 298ms, tests 2.12s, environment 0ms, prepare 33ms)
+
+exit=0

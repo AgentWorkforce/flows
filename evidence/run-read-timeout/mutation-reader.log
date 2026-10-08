@@ -1,0 +1,57 @@
+Source: packages/sdk/src/journal-budgeted-reads.ts
+Original SHA256: fe56924a3b780e35507350c7cef74a4cb2815fee0588cf952542cb8119332710
+Replaced:
+return await reader.requestOnce(verb, params, remaining, attemptSignal);
+With:
+return await this.primary.requestOnce(verb, params, remaining, attemptSignal);
+
+REVERTED
+$ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t 'serves a bounded read' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
+
+ ❯ tests/journal-client-read-timeout.test.ts (33 tests | 1 failed | 32 skipped) 113ms
+   × serves a bounded read while an unbounded command is in flight 112ms
+     → expected true to be false // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/journal-client-read-timeout.test.ts > serves a bounded read while an unbounded command is in flight
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/journal-client-read-timeout.test.ts:38:23
+     36|   await inFlight;
+     37|   expect(await client.runGet('run')).toMatchObject({ status: 'running'…
+     38|   expect(commandDone).toBe(false);
+       |                       ^
+     39|   await command;
+     40| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 32 skipped (33)
+   Start at  06:16:09
+   Duration  589ms (transform 185ms, setup 18ms, collect 300ms, tests 113ms, environment 0ms, prepare 44ms)
+
+exit=1
+
+RESTORED SHA256: fe56924a3b780e35507350c7cef74a4cb2815fee0588cf952542cb8119332710
+$ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t 'serves a bounded read' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
+
+ ✓ tests/journal-client-read-timeout.test.ts (33 tests | 32 skipped) 106ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 32 skipped (33)
+   Start at  06:16:10
+   Duration  542ms (transform 172ms, setup 15ms, collect 309ms, tests 106ms, environment 0ms, prepare 28ms)
+
+exit=0
