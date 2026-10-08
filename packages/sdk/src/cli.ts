@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { unavailableValidation, validationAnnotation, type DaemonValidationMode } from './daemon-spec-validation.js';
 import { foldUnprovableEffects, type FoldOptions } from './cli/diagnostic-fold.js';
 import { startDetachedRun, emitDetachedHandle } from './cli/detached-run.js';
 import { takeDetachedReceipt, type DetachedReceipt } from './cli/detached-record.js';
@@ -106,7 +107,7 @@ export type ParsedArgs =
   | CloudScheduleArgs
   | { command: 'schedules'; json: boolean }
   | { command: 'unschedule'; scheduleId: string; json: boolean }
-  | { command: 'check'; json: boolean; watch: boolean; explainWarnings: boolean; value: string }
+  | { command: 'check'; json: boolean; watch: boolean; explainWarnings: boolean; daemonValidation: DaemonValidationMode; value: string }
   | { command: 'run'; detach?: boolean; bucket: string | undefined; reuseFromRunId: string | undefined; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; input: string | undefined; json: boolean; spawn: boolean; noObserverLink: boolean; cloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
   | { command: 'resume'; detach?: boolean; localAgent: boolean; agentCapacity: number | undefined; dataDir: string; json: boolean; spawn: boolean; noObserverLink: boolean; cloudMirror: boolean; allowHumanInfluenced: boolean; value: string }
   | { command: 'answer'; dataDir: string; json: boolean; spawn: boolean; note: string | undefined; by: string | undefined; runId: string; waitId: string; answer: boolean }
@@ -139,7 +140,7 @@ const USAGE = [
   'flows unschedule [--json] <schedule-id>',
   'flows deploy <flow>@sha256:<digest> --to <file-bucket-uri>',
   'flows run <flow>@sha256:<digest> [--bucket <file-bucket-uri>] [--data-dir <dir>] [--json] [--detach]',
-  'flows check [--watch] [--json] [--explain-warnings] <flow.ts|flow.yaml|spec.json>',
+  'flows check [--against-daemon|--no-daemon-check] [--watch] [--json] [--explain-warnings] <flow.ts|flow.yaml|spec.json>',
   'flows serve-webhook --data-dir <dir> --port <p> [--allow <name>[,<name>]]',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--detach] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] [--reuse-from <run-id>] <flow.yaml|spec.json>',
   'flows run --cloud [--json] [--wait] [--sync-code] [--no-connect] <flow.yaml|spec.json>',
@@ -311,20 +312,20 @@ export async function runCli(
 
   if (parsed.command === 'check') {
     if (parsed.watch) {
-      return withInterrupt(options.signal, (signal) => watchCheck(parsed.value, { json: parsed.json, explainWarnings: parsed.explainWarnings }, io, signal));
+      return withInterrupt(options.signal, (signal) => watchCheck(parsed.value, { json: parsed.json, explainWarnings: parsed.explainWarnings }, io, signal, parsed.daemonValidation));
     }
-    // Deliberately daemon-free (kernel/DAEMON-LIFECYCLE.md §4). `checkFlow` is
-    // a compile-and-preflight that opens no daemon socket, and the parser
-    // refuses `--data-dir` on `check`, so there is no data dir to attach to.
-    // `flows check` keeps working with no daemon, no relayflowd binary and no
-    // data directory at all -- a property worth keeping, not an omission.
-    // Only this invocation opts into `agent_worker_unresolved`: `flows check`
-    // attaches no worker and, being daemon-free, cannot see one attached
-    // elsewhere. The authored `.flow.ts` path checks header declarations
-    // without compiling steps, so it has no agent steps to count.
+    // Stateless binary validation opens no socket or data dir (DAEMON-LIFECYCLE §4).
+    // Authored bodies are only lowered at run time, so their acceptance is unproven.
     const checked = /\.(?:[cm]?[jt]s)$/.test(parsed.value)
       ? await checkAuthoredFlowComposed(parsed.value)
-      : checkFlow(parsed.value, { warnUnresolvedAgentWorker: true });
+      : checkFlow(parsed.value, { warnUnresolvedAgentWorker: true, daemonValidation: parsed.daemonValidation });
+    if (checked.report.validation === undefined) {
+      const unavailable = unavailableValidation(parsed.daemonValidation,
+        checked.report.ok ? (parsed.daemonValidation === 'off' ? 'disabled' : 'authored_body') : 'not_reached');
+      checked.report.validation = unavailable.validation;
+      if (checked.report.ok) checked.report.diagnostics.push(...unavailable.diagnostics);
+      checked.report.ok = checked.report.ok && !checked.report.diagnostics.some(d => d.severity === 'refusal');
+    }
     emitCheckReport(checked.report, parsed.json, io, parsed.explainWarnings);
     return checked.report.ok ? 0 : 2;
   }
@@ -694,6 +695,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
 
   let json = false;
   let watch = false;
+  let daemonValidation: DaemonValidationMode | undefined;
   let explainWarnings = false;
   let cloud = false;
   let wait = false;
@@ -745,6 +747,11 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
       if (command === 'check' || agentCapacity !== undefined || value === undefined || !/^[0-9]+$/.test(value)) return undefined;
       agentCapacity = Number(value);
       if (!isAgentCapacity(agentCapacity)) return undefined;
+      continue;
+    }
+    if (argument === '--against-daemon' || argument === '--no-daemon-check') {
+      if (command !== 'check' || daemonValidation !== undefined) return undefined;
+      daemonValidation = argument === '--against-daemon' ? 'required' : 'off';
       continue;
     }
     if (argument === '--explain-warnings') {
@@ -837,7 +844,9 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
 
   if (command === 'run' && input !== undefined && !isAuthoredFlowPath(positionals[0]!)) return undefined;
   return command === 'check'
-    ? { command, json, watch, explainWarnings, value: positionals[0]! }
+    ? { command, json, watch, explainWarnings, value: positionals[0]!,
+        daemonValidation: daemonValidation ?? (process.env['FLOWS_NO_DAEMON_CHECK'] === '1' ? 'off'
+          : process.env['FLOWS_CHECK_AGAINST_DAEMON'] === '1' ? 'required' : 'auto') }
     : command === 'run'
       ? { command, ...(detach ? { detach } : {}), bucket, reuseFromRunId, localAgent, agentCapacity, dataDir, input, json, spawn, noObserverLink, cloudMirror, allowHumanInfluenced, value: positionals[0]! }
       : { command, ...(detach ? { detach } : {}), localAgent, agentCapacity, dataDir, json, spawn, noObserverLink, cloudMirror, allowHumanInfluenced, value: positionals[0]! };
@@ -1159,7 +1168,7 @@ function emitCheckReport(report: CheckReport, json: boolean, io: CliIo, explainW
   const requires = report.requirements === undefined ? '' : describeFlowRequirements(report.requirements);
   if (requires) io.stdout(`REQUIRES ${requires}`);
   emitDiagnostics(deferred, io, foldOptions);
-  if (report.ok) io.stdout(`CHECK PASSED ${report.path ?? ''}`.trimEnd());
+  if (report.ok) io.stdout(`CHECK PASSED ${report.path ?? ''}`.trimEnd() + validationAnnotation(report.validation));
 }
 
 function emitRunReport(

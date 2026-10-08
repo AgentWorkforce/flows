@@ -40,11 +40,11 @@ async function project(): Promise<{ directory: string; path: string }> {
   return { directory, path };
 }
 
-function start(path: string, json = false) {
+function start(path: string, json = false, flags: string[] = [], environment: NodeJS.ProcessEnv = {}) {
   // The package's flows binary is produced by the ordinary SDK build.
-  const child = spawn(process.env['BUN_BIN'] ?? 'bun', ['run', 'flows', 'check', '--watch', ...(json ? ['--json'] : []), path], {
+  const child = spawn(process.env['BUN_BIN'] ?? 'bun', ['run', 'flows', 'check', '--watch', ...flags, ...(json ? ['--json'] : []), path], {
     cwd: sdk,
-    env: { ...process.env, PATH: `${bin}:${process.env['PATH']}` },
+    env: { ...process.env, ...environment, PATH: `${bin}:${process.env['PATH']}` },
   });
   children.push(child);
   let stdout = '';
@@ -71,6 +71,16 @@ async function touch(path: string): Promise<void> {
 }
 
 describe('flows check --watch', () => {
+  it('forwards required daemon validation through watch despite the offline test environment', async () => {
+    const { path } = await project();
+    // The test environment selects offline; an explicit flag must survive the child.
+    const running = start(path, true, ['--against-daemon'], { RELAYFLOWD_BIN: '/missing/watch-relayflowd' });
+    await until(() => running.reports().length > 0);
+    expect(running.reports()[0].ok).toBe(false);
+    expect(running.reports()[0].validation.reason).toBe('relayflowd_bin_invalid');
+    await stop(running.child);
+  });
+
   it('rechecks syntax errors, clears once, and returns the last refusal on Ctrl-C', async () => {
     const { path } = await project();
     const output = start(path);

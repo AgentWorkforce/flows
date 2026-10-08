@@ -1,3 +1,4 @@
+import { validateSpecWithDaemon, type DaemonValidation, type DaemonValidationMode, type DaemonValidationDeps } from '../daemon-spec-validation.js';
 import { communicationInstruction } from '../communication/spec.js';
 import { rememberResolvedCliIdentities } from '../resolved-cli-identity.js';
 import { checkCommunicationEnvironment } from '../communication/preflight.js';
@@ -44,6 +45,7 @@ export interface ProjectConfig {
 }
 
 export interface CheckReport {
+  validation?: DaemonValidation;
   mcpTools?: Readonly<Record<string, readonly string[]>>;
   ok: boolean;
   path?: string;
@@ -125,6 +127,8 @@ type CliProbeOutcomeMap = Map<string, CliProbeOutcome>;
  * anything that depends on how the flow is about to be invoked opts in here.
  */
 export interface CheckInvocation {
+  daemonValidation?: DaemonValidationMode;
+  daemonValidationDeps?: DaemonValidationDeps;
   /** Environment used only by provider executable/auth/model probes. */
   environment?: NodeJS.ProcessEnv;
   /**
@@ -159,7 +163,7 @@ export function checkFlow(path: string, invocation: CheckInvocation = {}): Check
       execution = checkAuthoredFlow(readFlow(source, absolutePath), path, undefined, invocation);
     } catch (error) {
       if (!(error instanceof CheckFailure)) throw error;
-      execution = { report: inputFailureReport(error, path) };
+      execution = { report: inputFailureReport(error, path, invocation) };
     }
     // The editor-schema hint is a documentation nudge, emitted for every
     // .flow.yaml without a first-line yaml-language-server comment.
@@ -172,7 +176,7 @@ export function checkFlow(path: string, invocation: CheckInvocation = {}): Check
     const failure = error instanceof CheckFailure
       ? error
       : new CheckFailure('invalid_spec', `Flow "${path}" could not be checked as a Relayflow spec.`);
-    return { report: inputFailureReport(failure, path) };
+    return { report: inputFailureReport(failure, path, invocation) };
   }
 }
 
@@ -246,14 +250,20 @@ export function checkAuthoredFlow(
     const workerSurface = invocation.warnUnresolvedAgentWorker === true
       ? agentWorkerDiagnostics(authoring)
       : [];
+    const daemon = invocation.daemonValidation === undefined ? undefined
+      : result.ok && flow !== undefined
+        ? validateSpecWithDaemon(flow, invocation.daemonValidation, invocation.daemonValidationDeps)
+        : { validation: { mode: 'local' as const, reason: 'not_reached' as const }, diagnostics: [] };
+    if (daemon?.diagnostics.some(d => d.severity === 'refusal')) result.ok = false;
     return {
       report: {
+        ...(daemon === undefined ? {} : { validation: daemon.validation }),
         ok: result.ok,
         path,
         ...(config.path !== undefined ? { projectConfigPath: config.path } : {}),
         gates: result.gates,
         resolutions: result.resolutions,
-        diagnostics: [...result.diagnostics, ...workerSurface],
+        diagnostics: [...result.diagnostics, ...workerSurface, ...(daemon?.diagnostics ?? [])],
         requirements: safeRequirements(authoring, config.cli),
       },
       ...(result.ok && flow !== undefined ? { flow } : {}),
@@ -262,7 +272,7 @@ export function checkAuthoredFlow(
     const failure = error instanceof CheckFailure
       ? error
       : new CheckFailure('invalid_spec', `Flow "${path}" could not be checked as a Relayflow spec.`);
-    return { report: inputFailureReport(failure, path) };
+    return { report: inputFailureReport(failure, path, invocation) };
   }
 }
 
@@ -335,8 +345,10 @@ export async function checkBuildableFlow(path: string): Promise<CheckExecution> 
 export function inputFailureReport(
   failure: { kind: CheckFailureKind; message: string },
   path?: string,
+  invocation: CheckInvocation = {},
 ): CheckReport {
   return {
+    ...(invocation.daemonValidation === undefined ? {} : { validation: { mode: 'local' as const, reason: 'not_reached' as const } }),
     ok: false,
     ...(path !== undefined ? { path } : {}),
     gates: [],

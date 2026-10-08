@@ -58,7 +58,9 @@ describe('flows check warning presentation', () => {
     expect(result.stderr).toEqual([...details, unresolved]);
   });
   it('keeps JSON byte-identical to the original report, with either text mode', async () => {
-    const expected = JSON.stringify(checkFlow(fixture, { warnUnresolvedAgentWorker: true }).report);
+    // The CLI's daemon validation mode for this offline test environment.
+    const daemonValidation = process.env['FLOWS_NO_DAEMON_CHECK'] === '1' ? 'off' : 'auto';
+    const expected = JSON.stringify(checkFlow(fixture, { warnUnresolvedAgentWorker: true, daemonValidation }).report);
     for (const flags of [[], ['--explain-warnings']]) {
       const result = await invoke(['check', '--json', ...flags, fixture]);
       expect(result.code).toBe(0);

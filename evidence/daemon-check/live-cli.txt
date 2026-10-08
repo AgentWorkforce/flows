@@ -1,0 +1,11 @@
+WARNING [permissions_unenforced] Step "edit" declares permissions (fileGlobs, accessPreset). This declaration is validated and recorded with the step spec; it is not currently enforced (gate 8 / #442). These permissions do not restrict file or network access.
+WARNING [unprovable_effects] Step "greet" command "printf" resolves, but its effects cannot be proven before execution.
+WARNING [unprovable_effects] Step "finish" command "printf" resolves, but its effects cannot be proven before execution.
+WARNING [editor_schema_missing] For editor validation, add this first line: # yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+GATE step "greet" exit_code+output_contains from data (kernel, journal-replayable)
+GATE step "edit" output_contains from data (kernel, journal-replayable)
+GATE step "finish" exit_code from data (kernel, journal-replayable)
+RESOLVED step "edit" cli "./preflight/authenticated-cli" from project (/home/daytona/.relayflow-v2-supervisor/durable/repository/testdata/flows.json) model "test-model-v1" from step
+REQUIRES claude (step "edit")
+WARNING [agent_worker_unresolved] 1 agent step ("edit") requires an attached worker. For a local run, use `flows run --local-agent <flow>`, unless you already attach an agent worker for this daemon. `flows check` does not verify worker attachment: with no worker attached the run parks at the first agent step.
+CHECK PASSED testdata/hello-agent.flow.yaml [validated by relayflowd at /tmp/relayflows-daemon-check-target/debug/relayflowd, protocol 0]

@@ -2002,3 +2002,43 @@ captured, hash-verified authored source bytes at their original module URLs.
 Successful root output records the Node version, executable SHA256, and embedded
 payload SHA256 as `executionRuntime`. The payload remains part of the existing
 artifact hash, and completed child effects remain journal results on resume.
+
+
+### What `flows check` proves about the installed runtime
+
+For declarative YAML/JSON specs, `flows check` now also pipes the compiled kernel
+spec to the installed `relayflowd validate-spec` when available. This performs
+`RunSpec::parse` and `validate`, just like `run.start` (and is stricter than
+`event.submit`, which currently only parses). No socket is opened, run created,
+or journal written. The input is the same spec value `run.start` submits, in
+canonical form.
+
+- Default: automatic validation when the installed binary supports it; otherwise
+  local compile and preflight, with a reason on the `CHECK PASSED` line.
+- `--against-daemon`: require a verdict; unavailable or incompatible validators
+  refuse with `daemon_validation_unavailable` and exit 2.
+- `--no-daemon-check`: local compile and preflight only, without binary discovery.
+
+`FLOWS_NO_DAEMON_CHECK=1` and `FLOWS_CHECK_AGAINST_DAEMON=1` select the same modes
+for an environment; explicit flags win. If both environment variables are set,
+the offline opt-out wins. Watch mode preserves the selection.
+
+A daemon refusal uses `invalid_spec`, preserving the kernel field and step
+location. A refusal on a generated gate step identifies an SDK lowering bug,
+not an authoring mistake. JSON reports carry `validation` on success and refusal;
+human output annotates the pass line, without adding a refusal terminator.
+
+The annotation names the binary that judged the spec. An already running daemon
+from a different build may disagree; this check does not contact that service.
+Older binaries (including 2.0.19) lack `validate-spec`: automatic mode warns
+`daemon_unvalidated`, naming the binary and the unproven acceptance, while
+required mode refuses. The same applies to a validator that exits nonzero or
+is killed after printing an accepting verdict (`abnormal_exit`): acceptance
+requires both the verdict and exit 0. A daemon refusal is reported whatever the
+exit status. This catches skew going forward, not retroactively.
+
+Authored TypeScript bodies are not lowered until execution. Their header checks
+remain local, with `authored_body` as the validation reason (required mode
+refuses). This change therefore does not cover the authored-body case reported
+in #489. Body capability probing and requiring daemon checks in release artifact
+packaging are follow-on work.
