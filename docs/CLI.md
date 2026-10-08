@@ -4,6 +4,15 @@ Generated from `packages/sdk/src/cli-commands.ts` by `scripts/generate-authoring
 
 See [SURFACE.md](SURFACE.md#5-invocation-the-cli) for execution semantics and [CLOUD.md](CLOUD.md) for hosted operations.
 
+## Global options
+
+Accepted only as the sole argument, before any verb.
+
+| Option | Description |
+| --- | --- |
+| `-h, --help` | Print usage and exit. |
+| `-V, --version` | Print the SDK version and exit. |
+
 ## flows add
 
 Install a helper plugin, or a flow-extension plugin from a public GitHub repository, into this project

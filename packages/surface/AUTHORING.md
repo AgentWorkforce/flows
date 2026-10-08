@@ -1049,6 +1049,10 @@ Exported from the package root (`import { github } from '@relayflows/surface'`).
 | `zendesk.user_deleted(filter?: WebhookFilter)` | `zendesk` | `user.deleted` |
 | `zendesk.user_updated(filter?: WebhookFilter)` | `zendesk` | `user.updated` |
 
+Also exported alongside the constructors, keyed by the Provider column:
+
+- `providerEventTypes`: Exact upstream event names, plus the generated Slack mention shorthand.
+
 ## Other exported functions
 
 Scheduling, cron and writeback utilities exported from the package root.
@@ -1896,6 +1900,8 @@ import { gcsClient } from "@relayfile/relay-helpers";
 
 ```ts
 // Return type inferred from this implementation.
+import { githubClient as upstreamGithub } from "@relayfile/relay-helpers";
+import type { RelayClientOptions } from "@relayfile/relay-helpers/transport";
 /** Accept the conventional owner/repo shorthand as well as upstream arguments. */
 export function githubClient(options: RelayClientOptions) {
   const client = upstreamGithub(options);
@@ -1977,6 +1983,8 @@ import { mixpanelClient } from "@relayfile/relay-helpers";
 
 ```ts
 // Return type inferred from this implementation.
+import { notionClient as upstreamNotion, created } from "@relayfile/relay-helpers";
+import type { RelayClientOptions } from "@relayfile/relay-helpers/transport";
 export function notionClient(options: RelayClientOptions) {
   return { ...upstreamNotion(options), async appendBlock(args: { pageId: string; block: Record<string, unknown> }) {
     if (!options.transport) throw new Error('Notion requires a journal transport');
@@ -2064,6 +2072,8 @@ import { shortcutClient } from "@relayfile/relay-helpers";
 
 ```ts
 // Return type inferred from this implementation.
+import { created } from "@relayfile/relay-helpers";
+import type { RelayClientOptions } from "@relayfile/relay-helpers/transport";
 export function stripeClient(options: RelayClientOptions) {
   return { createInvoice(args: { customer: string; auto_advance?: boolean; collection_method?: 'charge_automatically' | 'send_invoice'; days_until_due?: number; description?: string; metadata?: Record<string, string> }) {
     if (!options.transport) throw new Error('Stripe requires a journal transport');
@@ -2095,10 +2105,4 @@ import { zendeskClient } from "@relayfile/relay-helpers";
 
 ```ts
 import type { SearchOptions } from "ai-hist";
-```
-
-### RelayClientOptions
-
-```ts
-import type { RelayClientOptions } from "@relayfile/relay-helpers/transport";
 ```

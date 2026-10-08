@@ -41,11 +41,17 @@ export function unionDeclarations(file, name, seen = new Set()) {
   return result;
 }
 export function exportedNames(file) {
-  return file.statements.filter(ts.isExportDeclaration).flatMap(node => {
+  return [...file.statements.filter(ts.isExportDeclaration).flatMap(node => {
     if (node.exportClause && ts.isNamedExports(node.exportClause)) return node.exportClause.elements.map(item => item.name.text);
     // `export * from './x.js'` re-exports everything x exports; follow it.
     return starModule(file, node) === undefined ? [] : exportedNames(source(starModule(file, node)));
-  });
+  }), ...directExports(file)];
+}
+
+/** Names a file declares with an `export` modifier, e.g. `export const x = ...` in a star-exported barrel. */
+export function directExports(file) {
+  return file.statements.filter(node => node.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword))
+    .flatMap(node => ts.isVariableStatement(node) ? node.declarationList.declarations.map(item => item.name.text) : node.name ? [node.name.text] : []);
 }
 
 /**

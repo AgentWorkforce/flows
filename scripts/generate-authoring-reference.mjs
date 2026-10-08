@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { root, source, declarations, declarationText, unionDeclarations, exportedNames, exportSources, literal, signatureText, starModule, ts, typeExports, typeReferences } from './authoring-source.mjs';
+import { root, source, declarations, declarationText, directExports, unionDeclarations, exportedNames, exportSources, literal, signatureText, starModule, ts, typeExports, typeReferences } from './authoring-source.mjs';
 
 export const referencePaths = ['packages/surface/AUTHORING.md', 'docs/CLI.md'];
 const regenerate = 'npm run gen:docs --prefix packages/surface';
@@ -76,10 +76,18 @@ export function authoringReference() {
 function providerTriggers() {
   const index = source(resolve(root, 'packages/surface/src/index.ts'));
   const rows = [];
+  const values = [];
   for (const star of index.statements.filter(ts.isExportDeclaration)) {
     const barrel = starModule(index, star);
     if (barrel === undefined) continue;
     const barrelFile = source(barrel);
+    for (const name of directExports(barrelFile)) {
+      const statement = barrelFile.statements.find(node => (ts.isVariableStatement(node) ? node.declarationList.declarations : [node]).some(item => item.name?.text === name));
+      const doc = ts.getJSDocCommentsAndTags(ts.isVariableStatement(statement) ? statement.declarationList.declarations[0] : statement)
+        .map(item => ts.getTextOfJSDocComment(item.comment)).filter(Boolean).join(' ');
+      if (!doc) throw new Error(`${barrel}: exported ${name} has no JSDoc to document`);
+      values.push(`- \`${name}\`: ${doc}`);
+    }
     for (const entry of barrelFile.statements.filter(ts.isExportDeclaration)) {
       if (!entry.exportClause || !ts.isNamedExports(entry.exportClause)) throw new Error(`${barrel}: unsupported re-export`);
       const file = source(resolve(dirname(barrel), entry.moduleSpecifier.text.replace(/\.js$/, '.ts')));
@@ -106,7 +114,8 @@ function providerTriggers() {
   if (rows.length === 0) return '';
   return '\n### Provider triggers\n\nExported from the package root (`import { github } from \'@relayflows/surface\'`). '
     + 'Each call returns `ProviderTriggerSource<Provider, Event>` for the listed provider and event; pass it to `flow(...).on(...)` or `f.on(...)`.\n\n'
-    + '| Call | Provider | Event |\n| --- | --- | --- |\n' + rows.join('\n') + '\n';
+    + '| Call | Provider | Event |\n| --- | --- | --- |\n' + rows.join('\n') + '\n'
+    + (values.length ? `\nAlso exported alongside the constructors, keyed by the Provider column:\n\n${values.join('\n')}\n` : '');
 }
 
 /** Every other function exported from the package root, so the reference covers each callable. */
@@ -203,7 +212,7 @@ function declarationOf(path, name, seen = new Set()) {
   if (implemented !== undefined) {
     // A typed signature is the contract; an inferred return type is only stated by its implementation.
     return { path, text: implemented.type ? signatureText(file, name)
-      : `// Return type inferred from this implementation.\n${file.text.slice(implemented.getFullStart(), implemented.end).trim()}` };
+      : `// Return type inferred from this implementation.\n${usedImports(file, implemented)}${file.text.slice(implemented.getFullStart(), implemented.end).trim()}` };
   }
   if (file.statements.some(node => node.name?.text === name)) return { text: declarationText(file, name), path };
   const reexport = file.statements.find(node => ts.isExportDeclaration(node) && node.moduleSpecifier
@@ -214,6 +223,19 @@ function declarationOf(path, name, seen = new Set()) {
   const target = reexport.moduleSpecifier.text;
   if (target.startsWith('.')) return declarationOf(resolve(dirname(path), target.replace(/\.js$/, '.ts')), original, seen);
   return { text: `export type { ${name} } from ${JSON.stringify(target)};`, external: true };
+}
+
+/** The import lines binding identifiers `node` uses, narrowed to those names, so a copied body names its sources. */
+function usedImports(file, node) {
+  const used = new Set();
+  (function visit(child) { if (ts.isIdentifier(child)) used.add(child.text); ts.forEachChild(child, visit); })(node);
+  return file.statements.filter(ts.isImportDeclaration).flatMap(statement => {
+    const bindings = statement.importClause?.namedBindings;
+    const items = bindings && ts.isNamedImports(bindings) ? bindings.elements.filter(item => used.has(item.name.text)) : [];
+    if (items.length === 0) return [];
+    const typeOnly = statement.importClause.isTypeOnly ? ' type' : '';
+    return [`import${typeOnly} { ${items.map(item => item.getText(file)).join(', ')} } from ${JSON.stringify(statement.moduleSpecifier.text)};\n`];
+  }).join('');
 }
 
 export function cliReference() {
@@ -233,6 +255,8 @@ export function cliReference() {
     }
     for (const child of command.subcommands ?? []) render(child, invocation);
   }
+  text += '\n## Global options\n\nAccepted only as the sole argument, before any verb.\n\n| Option | Description |\n| --- | --- |\n';
+  for (const option of literal(file, 'CLI_GLOBAL_OPTIONS')) text += `| \`${cell(option.flags)}\` | ${proseCell(option.description)} |\n`;
   for (const command of literal(file, 'CLI_VERBS')) render(command);
   return text;
 }

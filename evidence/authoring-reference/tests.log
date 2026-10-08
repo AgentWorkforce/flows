@@ -1,36 +1,39 @@
 $ cd packages/surface && bun run check:docs
-# cwd: /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr615; head: f382fb9c (parent; logs captured from the uncommitted change they accompany)
+# cwd: /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr615; head: 6172c170 (parent; logs captured from the uncommitted change they accompany)
 $ node ../../scripts/check-authoring-reference.mjs && node --test ../../scripts/authoring-reference.test.mjs
 AUTHORING_REFERENCE_OK
-✔ extracts overloads in order and preserves lease JSDoc byte-for-byte (5.559303ms)
-✔ walks union members even when not re-exported, including nested unions (1.231508ms)
-✔ CLI literals refuse unresolved options with command and identifier (1.851905ms)
-✔ CLI literals resolve imports, spreads, String and templates but refuse dynamic defaults (7.429732ms)
-✔ run documents every exported overload and the lease comment (0.391932ms)
-✔ done documents all three distinct completion vocabularies (1.138365ms)
-✔ human returns Step<boolean> (0.102442ms)
-✔ all helper namespaces and mcp are discoverable (0.528576ms)
-✔ FlowHeader includes every field and its declaration (0.308235ms)
-✔ AgentOptions includes every field and its declaration (0.253764ms)
-✔ all named gate variants and both gate overloads are documented (0.352919ms)
-✔ CLI includes every declared verb, subcommand and literal flag (0.679317ms)
-✔ lease prose agrees with type, kernel default and compiler ceiling (0.48219ms)
-✔ checker accepts exact docs, rejects drift or missing docs, and accepts restoration (2570.97847ms)
-✔ every relative link in shipped surface markdown resolves inside the packed package (415.745059ms)
-✔ every exported surface type the reference mentions is declared in it (17.685548ms)
-✔ trigger and helper entry points are documented (1.102327ms)
-✔ in-package re-exports are declared, never pointed at by a source path (0.214009ms)
-✔ every provider trigger reachable through star re-exports is documented (7.023214ms)
-✔ every function exported from the package root has its signature in the reference (0.516503ms)
-✔ every type a rendered declaration names is declared, imported or a TypeScript global (30.632535ms)
-✔ declares every public type, including type-only exports no signature names (12.143138ms)
-✔ claims only what it declares: dependency types are named, links name their version skew (0.576615ms)
-ℹ tests 23
+✔ extracts overloads in order and preserves lease JSDoc byte-for-byte (5.314697ms)
+✔ walks union members even when not re-exported, including nested unions (1.206742ms)
+✔ CLI literals refuse unresolved options with command and identifier (1.750396ms)
+✔ CLI literals resolve imports, spreads, String and templates but refuse dynamic defaults (3.871043ms)
+✔ run documents every exported overload and the lease comment (0.399947ms)
+✔ done documents all three distinct completion vocabularies (1.090244ms)
+✔ human returns Step<boolean> (0.103974ms)
+✔ all helper namespaces and mcp are discoverable (0.53081ms)
+✔ FlowHeader includes every field and its declaration (0.319436ms)
+✔ AgentOptions includes every field and its declaration (0.277207ms)
+✔ all named gate variants and both gate overloads are documented (0.356185ms)
+✔ CLI includes every declared verb, subcommand and literal flag (0.679729ms)
+✔ lease prose agrees with type, kernel default and compiler ceiling (0.488461ms)
+✔ checker accepts exact docs, rejects drift or missing docs, and accepts restoration (2801.022437ms)
+✔ every relative link in shipped surface markdown resolves inside the packed package (480.81375ms)
+✔ every exported surface type the reference mentions is declared in it (26.23895ms)
+✔ trigger and helper entry points are documented (1.588654ms)
+✔ in-package re-exports are declared, never pointed at by a source path (0.342008ms)
+✔ every provider trigger reachable through star re-exports is documented (11.31909ms)
+✔ every function exported from the package root has its signature in the reference (0.965802ms)
+✔ every type a rendered declaration names is declared, imported or a TypeScript global (37.773913ms)
+✔ declares every public type, including type-only exports no signature names (11.846895ms)
+✔ claims only what it declares: dependency types are named, links name their version skew (0.638962ms)
+✔ names every package-root export, including declarations a star-exported barrel owns (6.628659ms)
+✔ a copied implementation imports every free function it calls (1.847016ms)
+✔ CLI reference lists the root-level flags runCli handles before verbs (0.149299ms)
+ℹ tests 26
 ℹ suites 0
-ℹ pass 23
+ℹ pass 26
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 3261.886864
+ℹ duration_ms 3587.580234
 # exit: 0

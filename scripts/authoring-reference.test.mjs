@@ -232,3 +232,26 @@ test('claims only what it declares: dependency types are named, links name their
   assert.match(header, /links follow `main`; for an installed release, read the same files at this repository's `v<version>` tag/);
   assert.doesNotMatch(read('packages/surface/README.md'), /for all signatures/);
 });
+test('names every package-root export, including declarations a star-exported barrel owns', () => {
+  const index = source(join(root, 'packages/surface/src/index.ts'));
+  assert.ok(exportedNames(index).includes('providerEventTypes'));
+  assert.deepEqual(exportedNames(index).filter(name => !new RegExp(`\\b${name}\\b`).test(authoring)), []);
+});
+test('a copied implementation imports every free function it calls', () => {
+  const blocks = authoring.split('// Return type inferred from this implementation.\n').slice(1).map(text => text.slice(0, text.indexOf('```')));
+  assert.ok(blocks.length > 0);
+  for (const block of blocks) {
+    const file = fixture(block);
+    const bound = new Set(), called = [];
+    (function visit(node) {
+      if ((ts.isImportSpecifier(node) || ts.isFunctionDeclaration(node) || ts.isVariableDeclaration(node) || ts.isParameter(node)) && node.name && ts.isIdentifier(node.name)) bound.add(node.name.text);
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) called.push(node.expression.text);
+      ts.forEachChild(node, visit);
+    })(file);
+    const globals = new Set(['Error', 'TypeError', 'Promise', 'String', 'Number', 'Boolean', 'Object', 'Array', 'JSON', 'encodeURIComponent']);
+    assert.deepEqual(called.filter(name => !bound.has(name) && !globals.has(name)), [], block.match(/^export function \w+/m)[0]);
+  }
+});
+test('CLI reference lists the root-level flags runCli handles before verbs', () => {
+  for (const flag of ['-h, --help', '-V, --version']) assert.ok(cli.includes(`| \`${flag}\` |`), flag);
+});

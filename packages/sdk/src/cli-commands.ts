@@ -431,3 +431,18 @@ export type _EveryDeclaredVariantExists = AssertNever<Exclude<DeclaredVariant, P
  * from drifting apart.
  */
 export const CLI_VERB_NAMES: ReadonlySet<string> = new Set(CLI_VERBS.map((verb) => verb.name));
+
+/**
+ * Flags `runCli` handles before verb parsing, each only as the sole argument.
+ * The CLI reference renders this list, so it is the only place they are spelled.
+ */
+export const CLI_GLOBAL_OPTIONS = [
+  { flags: '-h, --help', description: 'Print usage and exit.' },
+  { flags: '-V, --version', description: 'Print the SDK version and exit.' },
+] as const satisfies readonly CliOptionSpec[];
+
+/** Whether `args` is exactly one spelling of the global option whose long form is `long`. */
+export function isGlobalOption(args: readonly string[], long: '--help' | '--version'): boolean {
+  const option = CLI_GLOBAL_OPTIONS.find((candidate) => candidate.flags.split(', ').includes(long));
+  return args.length === 1 && option !== undefined && option.flags.split(', ').includes(args[0]!);
+}
