@@ -45,9 +45,14 @@ export function helperOperationUse(body: string, root: string, namespace: string
         const operation = memberName(grand);
         if (operation === undefined) mark('unprovable'); // f.notion[expr]
         else if (operation === method) mark('called');
-        // Inherited object members (valueOf, constructor, __proto__, ...) hand the
-        // helper back or reach its prototype; helper methods return steps.
-        else if (operation === '__proto__' || Object.prototype.hasOwnProperty.call(Object.prototype, operation)) mark('unprovable');
+        // Inherited object members: called directly, the primitive-returning ones
+        // cannot expose the helper; any other (valueOf, constructor, __proto__, a
+        // referenced member) can hand it back or reach its prototype.
+        else if (operation === '__proto__' || Object.prototype.hasOwnProperty.call(Object.prototype, operation)) {
+          const call = parents.get(grand);
+          const calledDirectly = call?.type === 'CallExpression' && call.callee === grand;
+          if (!(PRIMITIVE_RETURNING.has(operation) && calledDirectly)) mark('unprovable');
+        }
         return;
       }
       if (!readOrCall(parent, parents)) mark('unprovable');
@@ -58,6 +63,9 @@ export function helperOperationUse(body: string, root: string, namespace: string
   });
   return result;
 }
+
+/** Object.prototype methods whose call returns a primitive, never the receiver. */
+const PRIMITIVE_RETURNING = new Set(['hasOwnProperty', 'isPrototypeOf', 'propertyIsEnumerable', 'toString', 'toLocaleString']);
 
 /** A use that cannot hand the value on: a direct call, a discarded value, or a read. */
 function readOrCall(value: AstNode, parents: WeakMap<AstNode, AstNode>): boolean {
