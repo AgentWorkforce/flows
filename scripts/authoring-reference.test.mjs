@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, posix } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { root, source, declarationText, unionDeclarations, literal } from './authoring-source.mjs';
 
@@ -131,4 +131,22 @@ test('checker accepts exact docs, rejects drift or missing docs, and accepts res
       assert.equal(check().status, 0);
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+test('every relative link in shipped surface markdown resolves inside the packed package', () => {
+  // npm installs read these files from node_modules/@relayflows/surface, where
+  // repository-relative links such as ../../docs/ resolve to nothing.
+  const packed = spawnSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'],
+    { cwd: join(root, 'packages/surface'), encoding: 'utf8' });
+  assert.equal(packed.status, 0, packed.stderr);
+  const files = new Set(JSON.parse(packed.stdout)[0].files.map(file => file.path));
+  const broken = [];
+  for (const doc of [...files].filter(path => path.endsWith('.md'))) {
+    const text = readFileSync(join(root, 'packages/surface', doc), 'utf8');
+    for (const [, target] of text.matchAll(/\]\(([^)\s]+)\)/g)) {
+      if (/^[a-z][a-z0-9+.-]*:/i.test(target) || target.startsWith('#')) continue;
+      const path = posix.normalize(posix.join(posix.dirname(doc), target.split('#')[0]));
+      if (!files.has(path)) broken.push(`${doc}: ${target}`);
+    }
+  }
+  assert.deepEqual(broken, []);
 });
