@@ -466,8 +466,11 @@ async function checkAuthoredFlowComposed(path: string): Promise<{ report: CheckR
     ? await checkAuthoredTriggers(path, invocation)
     : undefined;
   const triggerDiagnostics = triggers?.report.diagnostics ?? [];
-  // The trigger leg already includes the same helper diagnostics.
-  const helperDiagnostics = triggers === undefined ? helper.report.diagnostics : [];
+  // The trigger leg normally repeats the helper diagnostics; keep any it did not
+  // (an early trigger or config failure reports none of them).
+  const repeated = new Set(triggerDiagnostics.map(diagnostic => `${diagnostic.kind}\u0000${diagnostic.message}`));
+  const helperDiagnostics = helper.report.diagnostics
+    .filter(diagnostic => !repeated.has(`${diagnostic.kind}\u0000${diagnostic.message}`));
   const triggerOk = triggers?.report.ok ?? true;
   return {
     report: {
