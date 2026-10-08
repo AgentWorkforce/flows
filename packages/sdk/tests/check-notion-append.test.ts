@@ -319,3 +319,12 @@ it.each([
   const result = await check(fixture(body, '{ tools: { notion: true } },'));
   expect(result.exit).toBe(2);
 });
+it('refuses an aliased prototype-bearing global used to reach machinery', async () => {
+  const body = 'let held; const O = Object, S = Symbol; const d = "define" + "Property", p = "proto" + "type", t = "to" + "Primitive"; O[d](O[p], S[t], { value() { held = this; return ""; }, configurable: true }); const s = `${f.notion}`; await held.appendBlock("p", {});';
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+});
+it('allows static non-machinery members of those globals', async () => {
+  const result = await check(fixture('const keys = Object.keys({ a: 1 }); const it = Symbol.iterator; await f.notion.createPage({ parent: "p", title: String(keys.length) + String(typeof it) });', '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(0);
+});

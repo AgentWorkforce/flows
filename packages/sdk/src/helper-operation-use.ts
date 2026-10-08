@@ -118,11 +118,17 @@ function boundLocally(node: AstNode, name: string, parents: WeakMap<AstNode, Ast
 function reachesMachinery(node: AstNode, parents: WeakMap<AstNode, AstNode>): boolean {
   // memberName also reads string-literal computed keys (Object['prototype']).
   if (node.type === 'MemberExpression' && PROTOTYPE_MACHINERY.has(memberName(node) ?? '')) return true;
-  // A key built at runtime on a prototype-bearing global (Object[d], Symbol[t])
-  // may name any of that machinery.
-  if (node.type === 'MemberExpression' && memberName(node) === undefined) {
-    const object = node.object as AstNode | undefined;
-    if (object?.type === 'Identifier' && MACHINERY_GLOBALS.has(object.name!) && !boundLocally(object, object.name!, parents)) return true;
+  // A prototype-bearing global is safe only as the object of a static,
+  // non-machinery member (Object.keys, Symbol.iterator). Aliasing it, passing
+  // it, destructuring it or indexing it with a runtime key can reach the
+  // machinery under another name.
+  if (node.type === 'Identifier' && MACHINERY_GLOBALS.has(node.name!)) {
+    const parent = parents.get(node);
+    if (parent !== undefined && declares(parent, node)) return false;
+    if (parent?.type === 'VariableDeclarator' && parent.id === node) return false;
+    if (boundLocally(node, node.name!, parents)) return false;
+    const member = parent?.type === 'MemberExpression' && parent.object === node ? memberName(parent) : undefined;
+    return member === undefined || PROTOTYPE_MACHINERY.has(member);
   }
   // Destructuring a prototype-bearing global at all (computed keys, rest)
   // can pick out any of its machinery.
