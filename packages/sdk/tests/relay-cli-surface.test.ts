@@ -79,6 +79,7 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
   { verb: 'check', argv: ['check', 'flow.yaml'], variant: 'check' },
   { verb: 'check', argv: ['check', '--against-daemon', 'flow.yaml'], variant: 'check' },
   { verb: 'check', argv: ['check', '--no-daemon-check', 'flow.yaml'], variant: 'check' },
+  { verb: 'check', argv: ['check', '--explain-warnings', 'flow.yaml'], variant: 'check' },
   { verb: 'check', argv: ['check', '--watch', '--json', 'flow.yaml'], variant: 'check' },
   // Both `deploy` forms: the positional decides which variant the verb produces.
   { verb: 'deploy', argv: ['deploy', DIGEST, '--to', 'file:///tmp/bucket'], variant: 'deploy' },

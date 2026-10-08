@@ -3,6 +3,11 @@
 Items the Lead should weigh in assess after ops/DIRECTIVES.md and the current
 gate's needs. Not commitments; ordering is the Lead's call with evidence.
 
+- **Extend unprovable-effects warning summaries beyond `check`.**
+  `flows check` folds repeated warnings and offers `--explain-warnings`.
+  `run`/`resume`/`deploy` retain individual warnings; consider the same rendering
+  with an appropriate way to request details (run reports have no step total).
+
 - **`timeoutMs` is enforced LATE, not never — a step ran 2.3x past its limit.**
   Run 6d9bc35c's `verify-1` declares `timeoutMs: 1200000` (20 min) in
   workflows/drive-cloud.yaml. It ran about 46 minutes — log frozen at 19628

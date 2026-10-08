@@ -309,6 +309,14 @@ No process runs between events: the handler wakes, executes to its next await, p
    deterministic-command preflight gap.” Consequently, `cli_missing` applies
    to declared `llm` and `agent` CLIs, not deterministic command words.
 
+   For YAML/JSON specs, `flows check` summarises `unprovable_effects` warnings
+   affecting two or more steps in one trailing warning line. The denominator
+   counts every step in the spec, including `llm` and `agent` steps.
+   Use `--explain-warnings` (also with `--watch`) to list the original per-step
+   warnings; `--json` always retains every diagnostic in its stdout report.
+   Other diagnostic kinds remain individual. `flows run`, `flows resume`, and
+   `flows deploy` still print individual warnings.
+
    **Project-config discovery:** starting in the flow file's directory, `flows check` walks parent directories through the filesystem root and selects the first readable `flows.json`. That nearest file is the whole project config; it is not merged with outer files. Its schema is `{ "cli"?: <non-empty string>, "executors"?: <non-empty string>[], "models"?: <trimmed model string>[], "mcp"?: <server map> }`; unknown keys, malformed model entries, and duplicates fail closed as `config_invalid`. A nearer config therefore defines a self-contained nested project boundary and prevents accidental inheritance of outer credentials, executors, or model approvals. The selected path is printed with project-level resolutions and named in refusals; if it declares no `cli` or models, outer configs remain shadowed. At gate 1, a trigger executor is considered registered only when its name is present in this author-written `executors` array; `flows check` does not yet contact a registry, broker, or RelayCron, and absence is `no_executor`.
 
    Implementation status for issue #132: this named-agent contract currently
@@ -1047,7 +1055,7 @@ verbs: `observer`, which mints an observer link without contacting the
 daemon, and `status`, which reads a run's journal without one:
 
 ```text
-flows check [--watch] [--json] <flow.yaml|spec.json>
+flows check [--watch] [--json] [--explain-warnings] <flow.yaml|spec.json>
 flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.yaml|spec.json>
 flows run [--json] [--no-spawn] [--data-dir <dir>] <flow.ts> --input <inline-json-or-file>
 flows resume [--json] [--no-spawn] [--data-dir <dir>] <run-id>
