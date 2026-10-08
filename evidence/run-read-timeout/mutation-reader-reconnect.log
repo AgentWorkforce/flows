@@ -1,0 +1,61 @@
+Source: packages/sdk/src/journal-client.ts
+Original SHA256: e840ea971905def84fdecf0c3826430f058e0a88cf5650627fe0ca4fc4faa299
+Replaced:
+          this.dropReader(reader);
+
+With:
+
+
+REVERTED
+$ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t 'reconnects the reader after it disconnects' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
+
+ ❯ tests/journal-client-read-timeout.test.ts (17 tests | 1 failed | 16 skipped) 1008ms
+   × reconnects the reader after it disconnects within the read budget 1007ms
+     → journal client: run.get read session was interrupted after 82 attempts in 1000ms (read budget 1000ms): journal client: not connected (run.get): journal client: connection closed
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/journal-client-read-timeout.test.ts > reconnects the reader after it disconnects within the read budget
+JournalReadInterruptedError: journal client: run.get read session was interrupted after 82 attempts in 1000ms (read budget 1000ms): journal client: not connected (run.get): journal client: connection closed
+ ❯ exhausted src/journal-read-policy.ts:70:9
+     68|     let last: unknown;
+     69|     const exhausted = () => last instanceof JournalReadInterruptedError
+     70|       ? new JournalReadInterruptedError(verb, attempts, performance.no…
+       |         ^
+     71|       : new JournalRequestTimeoutError(verb, timeoutMs, attempts, perf…
+     72|     // A caller's cancellation settles this read and drains its queued…
+ ❯ src/journal-read-policy.ts:99:32
+
+Caused by: Error: journal client: not connected (run.get): journal client: connection closed
+ ❯ src/journal-client.ts:270:16
+ ❯ JournalClient.requestOnce src/journal-client.ts:263:12
+ ❯ src/journal-client.ts:245:31
+ ❯ src/journal-read-policy.ts:93:18
+
+Caused by: Error: journal client: connection closed
+ ❯ Socket.<anonymous> src/journal-client.ts:125:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 16 skipped (17)
+   Start at  00:19:08
+   Duration  1.43s (transform 163ms, setup 17ms, collect 284ms, tests 1.01s, environment 0ms, prepare 33ms)
+
+exit=1
+
+RESTORED SHA256: e840ea971905def84fdecf0c3826430f058e0a88cf5650627fe0ca4fc4faa299
+$ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t 'reconnects the reader after it disconnects' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
+
+ ✓ tests/journal-client-read-timeout.test.ts (17 tests | 16 skipped) 84ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 16 skipped (17)
+   Start at  00:19:10
+   Duration  531ms (transform 170ms, setup 17ms, collect 290ms, tests 84ms, environment 0ms, prepare 42ms)
+
+exit=0

@@ -1,0 +1,51 @@
+Source: packages/sdk/src/cli/running-step.ts
+Original SHA256: 5ae78a777c69e5f83a259df2f256305a0e9fd9c60525e661e66e3997d0f3801a
+Replaced:
+client.runGet(runId, options.signal === undefined ? {} : { signal: options.signal })
+With:
+client.runGet(runId)
+
+REVERTED
+$ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'cancels promptly while a lease snapshot read is in flight' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
+
+ ❯ tests/running-step-watch.test.ts (5 tests | 1 failed | 4 skipped) 2217ms
+   × cancels promptly while a lease snapshot read is in flight 2216ms
+     → expected 'still waiting' to be an instance of Error
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/running-step-watch.test.ts > cancels promptly while a lease snapshot read is in flight
+AssertionError: expected 'still waiting' to be an instance of Error
+ ❯ tests/running-step-watch.test.ts:83:21
+     81|     controller.abort();
+     82|     const settled = await Promise.race([outcome, sleep(200).then(() =>…
+     83|     expect(settled).toBeInstanceOf(Error);
+       |                     ^
+     84|     expect((settled as Error).message).toContain('was canceled');
+     85|   } finally { client.close(); await new Promise<void>(resolve => serve…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 skipped (5)
+   Start at  00:19:19
+   Duration  2.74s (transform 201ms, setup 18ms, collect 339ms, tests 2.22s, environment 0ms, prepare 45ms)
+
+exit=1
+
+RESTORED SHA256: 5ae78a777c69e5f83a259df2f256305a0e9fd9c60525e661e66e3997d0f3801a
+$ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'cancels promptly while a lease snapshot read is in flight' --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
+
+ ✓ tests/running-step-watch.test.ts (5 tests | 4 skipped) 2012ms
+   ✓ cancels promptly while a lease snapshot read is in flight 2011ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 4 skipped (5)
+   Start at  00:19:22
+   Duration  2.55s (transform 214ms, setup 23ms, collect 356ms, tests 2.01s, environment 0ms, prepare 45ms)
+
+exit=0

@@ -1,0 +1,3 @@
+$ cd kernel && CARGO_TARGET_DIR=/home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/kernel-target cargo build
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+exit=0
