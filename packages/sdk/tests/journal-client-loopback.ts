@@ -52,8 +52,11 @@ export function startLoopback(path: string, handlers: LoopbackHandlers, options:
   const server = createServer((socket) => {
     let buffer = '';
     let queue = Promise.resolve();
+    // A client may hang up before a reply lands (a dropped reader, a closed
+    // session); like the daemon, the double ignores the failed write.
+    socket.on('error', () => {});
     const send = (obj: unknown): void => {
-      socket.write(JSON.stringify(obj) + '\n');
+      if (!socket.destroyed) socket.write(JSON.stringify(obj) + '\n');
     };
     socket.on('data', (chunk) => {
       buffer += chunk.toString('utf8');

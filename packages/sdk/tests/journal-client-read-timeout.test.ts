@@ -3,6 +3,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import type { Server } from 'node:net';
 import { afterEach, expect, it } from 'vitest';
 import { JournalClient, JournalRequestTimeoutError } from '../src/journal-client.js';
+import { JournalReadInterruptedError, isReadInterruptionError } from '../src/journal-read-policy.js';
 import { HELLO_SPEC, sendOk, sendResult, sockPath, startLoopback, type LoopbackHandlers } from './journal-client-loopback.js';
 
 const clients: JournalClient[] = [];
@@ -138,4 +139,50 @@ it.each(['run.get', 'journal.read', 'stream.read', 'subscription.inspect'] as co
     : client.subscriptionInspect({ run_id: 'run', subscription_id: 'subscription' });
   await result;
   expect(attempts).toBe(2);
+});
+
+it('reconnects the reader after it disconnects within the read budget', async () => {
+  let reads = 0;
+  const client = await setup({
+    'run.get': ctx => {
+      reads += 1;
+      if (reads === 1) return; // time out first
+      if (reads === 2) { ctx.socket.destroy(); return; } // then lose the reader transport
+      sendResult(ctx, { status: 'completed' });
+    },
+    'stream.append': ctx => sendResult(ctx, { seq: 1 }),
+  });
+  expect(await client.runGet('run')).toMatchObject({ status: 'completed' });
+  expect(reads).toBe(3);
+  // The primary session that carries writes was never involved.
+  await expect(client.streamAppend('run', 'stream', {})).resolves.toBeDefined();
+});
+
+it('surfaces an exhausted reader disconnect as a typed read interruption, not a body failure', async () => {
+  const client = await setup({ 'run.get': ctx => { ctx.socket.destroy(); } }, 250);
+  const error = await client.runGet('run').catch(error => error);
+  expect(error).toBeInstanceOf(JournalReadInterruptedError);
+  expect(isReadInterruptionError(error)).toBe(true);
+  expect(error.verb).toBe('run.get');
+  expect(error.attempts).toBeGreaterThan(1);
+  expect(error.message).toContain('read budget 250ms');
+});
+
+it('a canceled read settles promptly and frees the serial read queue', async () => {
+  let reads = 0;
+  let entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const client = await setup({ 'run.get': ctx => {
+    reads += 1;
+    if (reads === 1) { entered(); return; } // never answers
+    sendResult(ctx, { status: 'completed' });
+  } }, 60_000);
+  const controller = new AbortController();
+  const pending = client.runGet('run', { signal: controller.signal });
+  await started;
+  const begun = performance.now();
+  controller.abort(new Error('caller canceled'));
+  await expect(pending).rejects.toThrow('caller canceled');
+  expect(performance.now() - begun).toBeLessThan(40);
+  expect(await client.runGet('run')).toMatchObject({ status: 'completed' });
 });

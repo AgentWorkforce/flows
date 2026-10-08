@@ -57,3 +57,28 @@ it('cancels a pending watch registration and removes its connection', async () =
     await rejected;
   } finally { client.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });
+
+it('cancels promptly while a lease snapshot read is in flight', async () => {
+  const path = sockPath();
+  let reading!: () => void;
+  const readStarted = new Promise<void>(resolve => { reading = resolve; });
+  const server = startLoopback(path, {
+    hello: sendOk,
+    'run.watch': ctx => sendResult(ctx, {}),
+    // The daemon never answers the snapshot: only cancellation can end the wait.
+    'run.get': () => reading(),
+  });
+  await once(server, 'listening');
+  const client = new JournalClient(path, { readBudgetMs: 300_000 });
+  const controller = new AbortController();
+  try {
+    await client.connect();
+    const waiting = waitForRunningStep(client, 'run', { id: 'step', type: 'agent', leaseDeadlineMs: Date.now() + 30_000 }, { signal: controller.signal });
+    const outcome = waiting.then(() => 'returned', error => error);
+    await readStarted;
+    controller.abort();
+    const settled = await Promise.race([outcome, sleep(200).then(() => 'still waiting')]);
+    expect(settled).toBeInstanceOf(Error);
+    expect((settled as Error).message).toContain('was canceled');
+  } finally { client.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});

@@ -19,6 +19,35 @@ export class JournalRequestTimeoutError extends Error {
   }
 }
 
+/**
+ * The dedicated read session lost its transport (closed, reset, not connected)
+ * while the primary session may still be healthy. Like a timeout, this says
+ * nothing about the run itself: retry within the budget, then leave the run
+ * resumable. Protocol refusals and write failures are never this error.
+ */
+export class JournalReadInterruptedError extends Error {
+  constructor(
+    readonly verb: string,
+    readonly attempts = 1,
+    readonly elapsedMs = 0,
+    readonly readBudgetMs?: number,
+    options?: ErrorOptions,
+  ) {
+    const cause = options?.cause instanceof Error ? `: ${options.cause.message}` : '';
+    super(readBudgetMs === undefined
+      ? `journal client: ${verb} read session was interrupted${cause}`
+      : `journal client: ${verb} read session was interrupted after ${attempts} attempts in ${Math.round(elapsedMs)}ms (read budget ${readBudgetMs}ms)${cause}`,
+    options);
+    this.name = 'JournalReadInterruptedError';
+  }
+}
+
+/** A read that could not be answered — by timeout or lost read transport — not a run failure. */
+export function isReadInterruptionError(error: unknown): error is JournalRequestTimeoutError | JournalReadInterruptedError {
+  return (error instanceof JournalRequestTimeoutError && (READ_ONLY_VERBS.has(error.verb) || error.verb === 'run.watch'))
+    || error instanceof JournalReadInterruptedError;
+}
+
 /** Serial admission bounds read amplification, including retries, per body client. */
 export class JournalReadPolicy {
   private tail: Promise<unknown> = Promise.resolve();
@@ -32,13 +61,16 @@ export class JournalReadPolicy {
   close(): void { this.closed.abort(new Error('journal client: closed by caller')); }
 
   async read<T>(verb: string, timeoutMs: number, budgetMs: number,
-    request: (timeoutMs: number) => Promise<T>): Promise<T> {
+    request: (timeoutMs: number, signal: AbortSignal) => Promise<T>, caller?: AbortSignal): Promise<T> {
     const started = performance.now();
     const deadline = started + budgetMs;
     let attempts = 0;
-    const exhausted = () => new JournalRequestTimeoutError(verb, timeoutMs, attempts,
-      performance.now() - started, budgetMs);
-    const signal = this.closed.signal;
+    let last: unknown;
+    const exhausted = () => last instanceof JournalReadInterruptedError
+      ? new JournalReadInterruptedError(verb, attempts, performance.now() - started, budgetMs, { cause: last.cause })
+      : new JournalRequestTimeoutError(verb, timeoutMs, attempts, performance.now() - started, budgetMs);
+    // A caller's cancellation settles this read and drains its queued attempt.
+    const signal = caller === undefined ? this.closed.signal : AbortSignal.any([this.closed.signal, caller]);
     let timer: ReturnType<typeof setTimeout> | undefined;
     let onClose: () => void = () => {};
     let deliver: (value: T) => void = () => {};
@@ -58,9 +90,11 @@ export class JournalReadPolicy {
         if (remaining <= 0) throw exhausted();
         attempts += 1;
         try {
-          return await request(Math.min(remaining, timeoutMs * 2 ** Math.max(0, attempts - 2)));
+          return await request(Math.min(remaining, timeoutMs * 2 ** Math.max(0, attempts - 2)), signal);
         } catch (error) {
-          if (!(error instanceof JournalRequestTimeoutError)) throw error;
+          signal.throwIfAborted();
+          if (!(error instanceof JournalRequestTimeoutError || error instanceof JournalReadInterruptedError)) throw error;
+          last = error;
           const left = deadline - performance.now();
           if (left <= 0) throw exhausted();
           // Jitter plus escalating bounds keep a slow daemon from collecting a retry storm.

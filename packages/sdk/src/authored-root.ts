@@ -1,4 +1,4 @@
-import { JournalRequestTimeoutError, READ_ONLY_VERBS } from './journal-read-policy.js';
+import { isReadInterruptionError } from './journal-read-policy.js';
 import { loadPinnedAuthoredSource } from './authored-source-authority.js';
 import { assertAuthoredRuntimeAvailable, runAuthoredInNode } from './authored-node-runner.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -369,7 +369,7 @@ async function driveRoot(
     // A lost lease is owned by the kernel's retry path, not by this attempt's
     // terminalization or suspension handling.
     if (isLeaseLost(error)) throw error;
-    if ((error instanceof JournalRequestTimeoutError && (READ_ONLY_VERBS.has(error.verb) || error.verb === 'run.watch'))
+    if (isReadInterruptionError(error)
       || (error instanceof AuthoredFlowExecutionError && error.code === 'daemon_unresponsive')) {
       const parked = new AuthoredFlowExecutionError('daemon_unresponsive',
         `${error.message}. The run remains resumable. Continue with: ${resumeCommand(dispatch.run_id, options.dataDir, options.localAgentStream !== undefined)}.`);

@@ -26,9 +26,10 @@ export async function waitForRunningStep(client: JournalClient, runId: string,
   let ready = false;
   let finish: () => void = () => {};
   let cancel: () => void = () => {};
+  const canceled = () => new Error(`worker wait for step "${runningStep.id}" was canceled`);
   const completed = new Promise<void>((resolve, reject) => {
     finish = resolve;
-    cancel = () => reject(new Error(`worker wait for step "${runningStep.id}" was canceled`));
+    cancel = () => reject(canceled());
   });
   // The subscription handshake itself may be pending when cancellation arrives.
   void completed.catch(() => {});
@@ -64,11 +65,15 @@ export async function waitForRunningStep(client: JournalClient, runId: string,
         if (!elapsed) return;
       } finally { clearTimeout(timer); releaseTimer(); }
       // Drain the read before leaving the authored promise scope. A raced but
-      // unresolved read would look like unawaited derived work to that scope.
-      const snapshot = await client.runGet(runId).catch(error => {
-        if (settled) return undefined;
-        throw error;
-      });
+      // unresolved read would look like unawaited derived work to that scope,
+      // so cancellation aborts the read itself and it settles at once.
+      const snapshot = await client.runGet(runId, options.signal === undefined ? {} : { signal: options.signal })
+        .catch(error => {
+          if (options.signal?.aborted) throw canceled();
+          if (settled) return undefined;
+          throw error;
+        });
+      if (options.signal?.aborted) throw canceled();
       if (settled || snapshot === undefined || snapshot.steps[runningStep.id]?.state !== 'running') return;
       const deadline = snapshot.steps[runningStep.id]?.lease_deadline_ms;
       if (deadline !== undefined && deadline !== leaseDeadlineMs) {

@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { classifyOutcome } from '../src/cli/run.js';
 import { JournalRequestTimeoutError, type JournalClient } from '../src/journal-client.js';
 import { probeSocket } from '../src/daemon-connection.js';
+import { JournalReadInterruptedError } from '../src/journal-read-policy.js';
 vi.mock('../src/daemon-connection.js', async original => ({
   ...await original<typeof import('../src/daemon-connection.js')>(), probeSocket: vi.fn(),
 }));
@@ -18,4 +19,18 @@ it.each([true, false])('reports an unreadable declarative run as resumable (reac
       message: expect.stringContaining('flows resume saved-run') }],
   } });
   expect(probeSocket).toHaveBeenCalledWith('/socket');
+});
+
+it('reports an interrupted read session as resumable rather than a failed run', async () => {
+  vi.mocked(probeSocket).mockResolvedValue({ reachable: true });
+  const client = { runGet: async () => {
+    throw new JournalReadInterruptedError('run.get', 3, 100, 100, { cause: new Error('journal client: connection closed') });
+  } };
+  const result = await classifyOutcome(client as unknown as JournalClient, 'run', {
+    run_id: 'saved-run', status: 'parked', completion_reason: null, completed_steps: 30,
+  }, { command: 'run', ok: true, diagnostics: [] } as never, '/socket', {});
+  expect(result).toMatchObject({ exitCode: 1, report: {
+    runId: 'saved-run', status: 'running',
+    diagnostics: [{ kind: 'daemon_unresponsive', message: expect.stringContaining('flows resume saved-run') }],
+  } });
 });

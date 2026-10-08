@@ -1,4 +1,4 @@
-import { FLOW_READ_BUDGET_MS, JournalRequestTimeoutError, READ_ONLY_VERBS } from './journal-read-policy.js';
+import { FLOW_READ_BUDGET_MS, isReadInterruptionError } from './journal-read-policy.js';
 import { Worker } from 'node:worker_threads';
 import { createHash, createHmac } from 'node:crypto';
 import { readFileSync, writeSync } from 'node:fs';
@@ -102,7 +102,7 @@ try {
     // the only one that saw the child's classification.
     // Preserve a read interruption across the Node/Bun error frame so the
     // lease-owning parent can leave the root resumable.
-    ...(error instanceof JournalRequestTimeoutError && (READ_ONLY_VERBS.has(error.verb) || error.verb === 'run.watch')
+    ...(isReadInterruptionError(error)
       ? { code: 'daemon_unresponsive' } : {}),
     ...(error instanceof AuthoredFlowExecutionError ? { code: error.code,
       completionReason: error.completionReason, runId: error.runId,

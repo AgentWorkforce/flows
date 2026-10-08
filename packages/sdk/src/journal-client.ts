@@ -9,8 +9,8 @@
 // stream plumbing. The client's framing and failure behavior is covered by a
 // loopback double in tests.
 
-import { JournalReadPolicy, JournalRequestTimeoutError, READ_ONLY_VERBS } from './journal-read-policy.js';
-export { JournalRequestTimeoutError } from './journal-read-policy.js';
+import { JournalReadInterruptedError, JournalReadPolicy, JournalRequestTimeoutError, READ_ONLY_VERBS } from './journal-read-policy.js';
+export { JournalReadInterruptedError, JournalRequestTimeoutError } from './journal-read-policy.js';
 import { EventEmitter } from 'node:events';
 export { walkJournal, JournalReadError, type JournalEvent, type JournalReadFailure } from './journal-reader.js';
 import { randomUUID } from 'node:crypto';
@@ -208,26 +208,50 @@ export class JournalClient extends EventEmitter {
     return this.readerReady;
   }
 
+  /** Forget a reader whose transport failed so the next attempt reconnects one. */
+  private dropReader(reader: JournalClient): void {
+    if (this.reader !== reader) return;
+    this.reader = undefined;
+    this.readerReady = undefined;
+    reader.close();
+  }
+
   private request<V extends keyof VerbContract>(verb: V, params: VerbContract[V]['params'],
-    timeoutMs: number | null = this.requestTimeoutMs): Promise<VerbContract[V]['result']> {
+    timeoutMs: number | null = this.requestTimeoutMs, signal?: AbortSignal): Promise<VerbContract[V]['result']> {
     if (this.socket && !this.socket.destroyed && this.readBudgetMs !== undefined && timeoutMs !== null && READ_ONLY_VERBS.has(verb)) {
-      return this.reads.read(verb, timeoutMs, this.readBudgetMs, async bound => {
+      return this.reads.read(verb, timeoutMs, this.readBudgetMs, async (bound, attemptSignal) => {
         const started = performance.now();
         const reader = await this.readSession();
+        attemptSignal.throwIfAborted();
         const remaining = bound - (performance.now() - started);
         if (remaining <= 0) throw new JournalRequestTimeoutError(verb, bound);
-        return (reader ?? this).requestOnce(verb, params, remaining);
-      });
+        // The primary session's own failures keep their meaning: it also carries writes.
+        if (reader === undefined) return this.requestOnce(verb, params, remaining, attemptSignal);
+        try {
+          return await reader.requestOnce(verb, params, remaining, attemptSignal);
+        } catch (error) {
+          if (attemptSignal.aborted || error instanceof JournalRequestTimeoutError
+            || error instanceof JournalProtocolError) throw error;
+          // Only the dedicated reader's transport failed; reconnect within the budget.
+          this.dropReader(reader);
+          throw new JournalReadInterruptedError(verb, 1, performance.now() - started, undefined, { cause: error });
+        }
+      }, signal);
     }
-    return this.requestOnce(verb, params, timeoutMs);
+    return this.requestOnce(verb, params, timeoutMs, signal);
   }
 
   private requestOnce<V extends keyof VerbContract>(
     verb: V,
     params: VerbContract[V]['params'],
     timeoutMs: number | null = this.requestTimeoutMs,
+    signal?: AbortSignal,
   ): Promise<VerbContract[V]['result']> {
     return new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(signal.reason);
+        return;
+      }
       if (!this.socket || this.socket.destroyed) {
         const cause = this.disconnectCause;
         reject(new Error(
@@ -239,11 +263,24 @@ export class JournalClient extends EventEmitter {
       const id = randomUUID();
       const started = performance.now();
       const frame: Request = { id, verb: verb as string, params };
+      // Cancellation forgets the request; a late reply is ignored like a timed-out one.
+      const onAbort = () => {
+        const p = this.pending.get(id);
+        if (p === undefined) return;
+        if (p.timer !== undefined) clearTimeout(p.timer);
+        this.pending.delete(id);
+        p.reject(signal!.reason);
+      };
+      const settle = <A>(fn: (arg: A) => void) => (arg: A) => {
+        signal?.removeEventListener('abort', onAbort);
+        fn(arg);
+      };
       const timer = timeoutMs === null ? undefined : setTimeout(() => {
         this.pending.delete(id);
-        reject(new JournalRequestTimeoutError(verb, timeoutMs, 1, performance.now() - started));
+        settle(reject)(new JournalRequestTimeoutError(verb, timeoutMs, 1, performance.now() - started));
       }, timeoutMs);
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
+      this.pending.set(id, { resolve: settle(resolve as (v: unknown) => void), reject: settle(reject), timer });
+      signal?.addEventListener('abort', onAbort, { once: true });
       this.socket.write(JSON.stringify(frame) + '\n', (err) => {
         if (err) {
           const p = this.pending.get(id);
@@ -297,8 +334,8 @@ export class JournalClient extends EventEmitter {
   }
 
   /** Snapshot for legibility. */
-  runGet(runId: string): Promise<VerbContract['run.get']['result']> {
-    return this.request('run.get', { run_id: runId });
+  runGet(runId: string, options: { signal?: AbortSignal } = {}): Promise<VerbContract['run.get']['result']> {
+    return this.request('run.get', { run_id: runId }, this.requestTimeoutMs, options.signal);
   }
 
   /**

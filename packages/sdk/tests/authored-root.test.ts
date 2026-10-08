@@ -15,6 +15,7 @@ import {
 import { JournalProtocolError, JournalRequestTimeoutError, type JournalClient } from '../src/journal-client.js';
 import type { RunOutcome, StepDispatchEvent } from '../src/protocol.js';
 import { AuthoredFlowExecutionError, AuthoredHumanParked } from '../src/authored-flow-error.js';
+import { JournalReadInterruptedError } from '../src/journal-read-policy.js';
 
 vi.mock('../src/authored-flow-loader.js', async importOriginal => ({
   ...await importOriginal<typeof import('../src/authored-flow-loader.js')>(),
@@ -417,6 +418,18 @@ describe('durable authored root', () => {
       });
     expect(journal.peer.completions).toEqual([]);
     expect(journal.resumeCalls).toBe(1);
+  });
+
+  it('leaves the root resumable when the read session disconnects while the root worker is healthy', async () => {
+    const interrupted = new JournalReadInterruptedError('run.get', 2, 40, 300_000,
+      { cause: new Error('journal client: connection closed') });
+    const loaded = await fixture(false, 0, async () => { throw interrupted; });
+    const journal = new RootJournal();
+    await expect(executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'read-disconnect' })).rejects.toMatchObject({
+        code: 'daemon_unresponsive', rootRunId: 'root-run', message: expect.stringContaining('flows resume'),
+      });
+    expect(journal.peer.completions).toEqual([]);
   });
 
   it('terminalizes a returned body failure without replaying semantic side effects', async () => {
