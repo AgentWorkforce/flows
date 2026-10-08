@@ -504,7 +504,7 @@ describe('durable authored root', () => {
     journal.journalRead = async () => { throw new JournalRequestTimeoutError('journal.read', 10, 3, 300_000, 300_000); };
     await expect(executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
       { dataDir: '/unused', admissionKey: 'completed-unread' })).rejects.toMatchObject({
-        code: 'result_unreadable', completionReason: 'success', rootRunId: 'root-run',
+        code: 'result_unreadable', completionReason: undefined, rootRunId: 'root-run',
       });
   });
 

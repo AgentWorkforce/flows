@@ -10,16 +10,20 @@ export function isReadInterruption(error: unknown): boolean {
     || (error instanceof AuthoredFlowExecutionError && error.code === 'daemon_unresponsive');
 }
 
-/** A completed run whose stored result could not be read back: report the known outcome. */
+/**
+ * A completed run whose stored result could not be read back. The run is
+ * finished — nothing to resume — but its authored verdict is unknown, so the
+ * report claims neither success nor a reason, and says how to read it later.
+ */
 export function completedResultUnreadableReport(command: RunCommand, base: CheckReport | RunReport,
   socketPath: string, error: AuthoredFlowExecutionError): RunExecution {
   const runId = error.rootRunId ?? error.runId;
-  const ok = error.completionReason === 'success';
-  return { exitCode: ok ? 0 : 1, report: {
-    ...base, command, ok, socketPath, status: 'completed',
+  return { exitCode: 1, report: {
+    ...base, command, ok: false, socketPath, status: 'completed',
     ...(runId === undefined ? {} : { runId, rootRunId: runId }),
-    ...(error.completionReason === undefined ? {} : { completionReason: error.completionReason }),
-    diagnostics: [...base.diagnostics, { severity: 'warning', kind: 'result_unreadable', message: error.message }],
+    diagnostics: [...base.diagnostics, { severity: 'warning', kind: 'result_unreadable',
+      message: `${error.message}. The run is finished; its verdict is unconfirmed`
+        + (runId === undefined ? '.' : ` — read it with \`flows status ${runId}\` once relayflowd answers.`) }],
   } as RunExecution['report'] };
 }
 

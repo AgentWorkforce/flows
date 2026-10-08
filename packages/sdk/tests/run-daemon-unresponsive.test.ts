@@ -35,14 +35,15 @@ it('reports an interrupted read session as resumable rather than a failed run', 
   } });
 });
 
-it('reports a completed run whose result could not be read as completed, not resumable', async () => {
+it('reports a completed run with an unread result as finished but with an unconfirmed verdict', async () => {
   const { completedResultUnreadableReport } = await import('../src/cli/journal-timeout.js');
   const { AuthoredFlowExecutionError } = await import('../src/authored-flow-error.js');
-  const error = new AuthoredFlowExecutionError('result_unreadable', 'run r completed (success), but its stored result could not be read', 'success', 'r');
+  const error = new AuthoredFlowExecutionError('result_unreadable', 'run r completed, but its stored result (the flow\'s verdict) could not be read', undefined, 'r');
   error.rootRunId = 'r';
   const execution = completedResultUnreadableReport('resume', { command: 'resume', ok: true, diagnostics: [] } as never, '/socket', error);
-  expect(execution.exitCode).toBe(0);
-  expect(execution.report).toMatchObject({ ok: true, status: 'completed', completionReason: 'success', runId: 'r',
-    diagnostics: [{ severity: 'warning', kind: 'result_unreadable' }] });
+  expect(execution.exitCode).toBe(1);
+  expect(execution.report).toMatchObject({ ok: false, status: 'completed', runId: 'r',
+    diagnostics: [{ severity: 'warning', kind: 'result_unreadable', message: expect.stringContaining('flows status r') }] });
+  expect(execution.report).not.toHaveProperty('completionReason');
   expect(JSON.stringify(execution.report)).not.toContain('flows resume');
 });

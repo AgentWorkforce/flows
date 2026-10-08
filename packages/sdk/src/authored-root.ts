@@ -576,9 +576,11 @@ function nextRootDispatch(peer: JournalClient, timeoutMs = 30_000): {
 function completedResult(journal: JournalClient, outcome: RunOutcome, rootRunId: string): Promise<AuthoredFlowExecutionResult & { readonly rootRunId: string }> {
   return completedRootResult(journal, rootRunId).catch(error => {
     if (!isReadInterruptionError(error)) throw error;
+    // The kernel completes the root step with success whatever the body
+    // declared; the authored verdict lives only in the unread output.
     const unread = new AuthoredFlowExecutionError('result_unreadable',
-      `run ${rootRunId} completed (${outcome.completion_reason ?? 'no completion reason'}), but its stored result could not be read: ${error.message}`,
-      outcome.completion_reason ?? undefined, rootRunId);
+      `run ${rootRunId} completed, but its stored result (the flow's verdict) could not be read: ${error.message}`,
+      undefined, rootRunId);
     unread.rootRunId = rootRunId;
     throw unread;
   });
