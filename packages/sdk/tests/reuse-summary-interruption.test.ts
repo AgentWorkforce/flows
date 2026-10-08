@@ -30,3 +30,14 @@ it('still attaches the summary when the read succeeds, and rethrows other failur
   const broken = { journalRead: async () => { throw new Error('invalid journal sequence'); } } as unknown as JournalClient;
   await expect(attachReuseSummary(completed(), broken, 'run-1', 'prior')).rejects.toThrow('invalid journal sequence');
 });
+
+it.each(['daemon_unresponsive', 'daemon_unreachable'])('does not start another read after classification reported %s', async kind => {
+  let reads = 0;
+  const client = { journalRead: async () => { reads += 1; return { entries: [] }; } } as unknown as JournalClient;
+  const interrupted: RunExecution = { exitCode: 1, report: { command: 'run', ok: false, status: 'running', runId: 'run-1',
+    diagnostics: [{ severity: 'failure', kind, message: 'read timed out' }] } as never };
+  const execution = await attachReuseSummary(interrupted, client, 'run-1', 'prior');
+  expect(reads).toBe(0);
+  expect(execution).toBe(interrupted);
+  expect(execution.report.reuse).toBeUndefined();
+});
