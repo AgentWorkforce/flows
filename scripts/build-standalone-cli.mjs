@@ -23,8 +23,12 @@ try {
   await writeFile(entry, `
 import { installAuthoredNodeSource } from ${JSON.stringify(join(root, 'packages/sdk/src/authored-node-runner.ts'))};
 import { runCli } from ${JSON.stringify(join(root, 'packages/sdk/src/cli.ts'))};
+import { takeDetachedReceipt } from ${JSON.stringify(join(root, 'packages/sdk/src/cli/detached-record.ts'))};
+// A --detach child consumes its receipt marker before any authored code loads.
+const detachedReceipt = takeDetachedReceipt();
 installAuthoredNodeSource(${JSON.stringify(await readFile(payload, 'utf8'))});
-process.exitCode = await runCli(process.argv.slice(2), undefined, { version: ${JSON.stringify(sdkVersion)} });
+process.exitCode = await runCli(process.argv.slice(2), undefined, { version: ${JSON.stringify(sdkVersion)},
+  detachedReceipt, selfCommand: [process.execPath] });
 `);
   bun(['build', entry, '--compile', '--target='+target, '--outfile='+resolve(outfile),
     '--env=disable', '--no-compile-autoload-dotenv', '--no-compile-autoload-bunfig']);
