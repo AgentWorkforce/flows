@@ -37,7 +37,6 @@ const DYNAMIC_PAIR_SOURCE_WAIVERS = new Map([
 // lockstep with the schedules documented in ops/AUTONOMY.md.
 const REGISTERED_SCHEDULE_SOURCES = new Set([
   'workflows/drive.yaml',
-  'workflows/watchdog.yaml',
 ]);
 
 function filesBelow(path: string, suffix: string): string[] {

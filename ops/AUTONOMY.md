@@ -19,22 +19,12 @@ cannot kill the chain — there is no chain, only a row and a sweep.
     agent-relay cloud schedules      # inspect
     # pause: delete the schedule; resume: recreate it
 
-## The watchdog (who watches the driver)
-
-A second, daily schedule checks liveness and posts a digest:
-- ops/DRIVE-LOG.md fresh within 24h? open PRs not stale > 48h? NEEDS_HUMAN.md
-  present? If unhealthy or blocked → escalate to Khaliq. Otherwise a one-line
-  digest. Registered as `flows-watchdog` (workflows/watchdog.yaml).
-
 ## The human contract (what actually reaches Khaliq)
 
-1. **Merges.** The only recurring duty. The daily digest carries the merge
-   queue with evidence; merging from the phone is enough.
+1. **Merges.** The only recurring duty.
 2. **needs_human escalations.** Only when a tick writes ops/NEEDS_HUMAN.md
    with an exact question. Answering unblocks the next tick.
-3. Nothing else. No poking, no prodding. Silence from the system means the
-   watchdog verified health — and the watchdog says so daily, so silence
-   from the *watchdog* is itself a signal to check.
+3. Nothing else. No poking, no prodding.
 
 ## Failure honesty
 
