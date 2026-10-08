@@ -43,10 +43,11 @@ export function helperNamespacesUsed(body: string, root: string): ReadonlySet<st
  * `namespace.method`. Same parse and scoping as `helperNamespacesUsed`, so an
  * unrelated object's method, a string or a comment naming one is not a use.
  *
- * A namespace whose value is handed on — `const n = f.notion`,
- * `const { notion } = f`, `use(f.notion)`, `return f.notion` — is reported in
- * `escaped` (`*` for the whole context), because its later calls cannot be
- * attributed statically; a read such as `if (f.notion)` is not a hand-off.
+ * A namespace used anywhere but a method access or a read-only check
+ * (`if (f.notion)`, `typeof f.notion`) is reported in `escaped` — aliases,
+ * destructuring, arguments, returns, arrow bodies and defaults alike — and a
+ * bare `f` in such a position escapes the whole context (`*`). This is an
+ * allowlist, so a new aliasing shape escapes by default.
  * `members` lists every member name the body accesses or destructures, for
  * callers that must stay conservative about an escaped namespace.
  */
@@ -66,74 +67,70 @@ export function helperMemberUses(body: string, root: string): {
     for (const match of body.matchAll(/\.\s*([\w$]+)/gu)) members.add(match[1]!);
     return { methods, escaped, members };
   }
-  // Where a value can flow on to: each such slot holding `f.<ns>` (or `f`)
-  // hands the helper to code this scan cannot follow. Reads such as `if (f.notion)`
-  // or `typeof f.notion` are not slots and do not escape.
-  const handOff = (expression: AstNode | undefined): void => {
-    if (expression === undefined) return;
-    switch (expression.type) {
-      case 'ConditionalExpression':
-        handOff(expression.consequent as AstNode); handOff(expression.alternate as AstNode); return;
-      case 'LogicalExpression':
-        handOff(expression.left as AstNode); handOff(expression.right as AstNode); return;
-      case 'SequenceExpression': {
-        const items = expression.expressions as AstNode[];
-        handOff(items[items.length - 1]); return;
+  // Parent links for the whole body, so each visible use of the context can be
+  // judged by where it sits.
+  const parents = new WeakMap<AstNode, AstNode>();
+  const link = (node: AstNode): void => {
+    for (const key of Object.keys(node)) {
+      if (key === 'type' || key === 'start' || key === 'end' || key === 'loc') continue;
+      const child = node[key];
+      for (const entry of Array.isArray(child) ? child : [child]) {
+        if (isNode(entry)) { parents.set(entry, node); link(entry); }
       }
-      case 'AwaitExpression': case 'ParenthesizedExpression': case 'ChainExpression':
-        handOff((expression.argument ?? expression.expression) as AstNode); return;
-      case 'Identifier':
-        if (expression.name === root) escaped.add('*');
-        return;
-      case 'MemberExpression': {
-        const object = expression.object as AstNode | undefined;
-        const namespace = memberName(expression);
-        if (object?.type === 'Identifier' && object.name === root) escaped.add(namespace ?? '*');
-        return;
-      }
-      default:
     }
   };
+  link(program);
+  // Every destructured key, at any depth: `const { notion: { appendBlock } } = f`
+  // reads appendBlock as surely as a member access does.
   const patternKeys = (pattern: AstNode | undefined): void => {
-    if (pattern?.type !== 'ObjectPattern') return;
+    if (pattern === undefined) return;
+    if (pattern.type === 'AssignmentPattern') return patternKeys(pattern.left as AstNode);
+    if (pattern.type === 'ArrayPattern') {
+      for (const element of (pattern.elements as Array<AstNode | null> | undefined) ?? []) patternKeys(element ?? undefined);
+      return;
+    }
+    if (pattern.type !== 'ObjectPattern') return;
     for (const property of (pattern.properties as AstNode[] | undefined) ?? []) {
-      const key = property.type === 'Property' ? property.key as AstNode | undefined : undefined;
-      const name = key?.type === 'Identifier' && property.computed !== true ? key.name
-        : key?.type === 'Literal' && typeof key.value === 'string' ? key.value : undefined;
+      if (property.type !== 'Property') continue;
+      const name = keyName(property);
       if (name !== undefined) members.add(name);
+      patternKeys(property.value as AstNode);
+    }
+  };
+  // A read that cannot hand the helper on: a member access (`f.notion.x`), an
+  // operand of typeof/!/comparison, or a condition. Anything else may alias it.
+  const readOnly = (node: AstNode): boolean => {
+    const parent = parents.get(node);
+    if (parent === undefined) return false;
+    switch (parent.type) {
+      case 'UnaryExpression': case 'BinaryExpression': return true;
+      case 'IfStatement': case 'WhileStatement': case 'DoWhileStatement': case 'ForStatement':
+        return parent.test === node;
+      case 'ConditionalExpression': return parent.test === node || readOnly(parent);
+      case 'LogicalExpression': case 'ChainExpression': return readOnly(parent);
+      default: return false;
     }
   };
   walkReferences(program, root, false, { rootFunctionFound: false }, (node) => {
-    switch (node.type) {
-      case 'VariableDeclarator':
-        // `const { appendBlock } = f.notion` reads appendBlock as surely as a member access.
-        patternKeys(node.id as AstNode);
-        handOff(node.init as AstNode);
-        if ((node.id as AstNode | undefined)?.type === 'ObjectPattern' && (node.init as AstNode | undefined)?.type === 'Identifier'
-          && (node.init as AstNode).name === root) {
-          for (const property of ((node.id as AstNode).properties as AstNode[] | undefined) ?? []) {
-            const key = property.type === 'Property' ? property.key as AstNode | undefined : undefined;
-            escaped.add(key?.type === 'Identifier' && property.computed !== true ? key.name!
-              : key?.type === 'Literal' && typeof key.value === 'string' ? key.value : '*');
-          }
-        }
+    if (node.type === 'ObjectPattern' || node.type === 'ArrayPattern') { patternKeys(node); return; }
+    if (node.type === 'Identifier' && node.name === root) {
+      const parent = parents.get(node);
+      const declaresIt = parent !== undefined && isFunction(parent)
+        && ((parent.params as AstNode[] | undefined) ?? []).includes(node);
+      const isName = parent?.type === 'Property' && parent.key === node && parent.computed !== true && parent.shorthand !== true
+        || parent?.type === 'MemberExpression' && parent.property === node && parent.computed !== true;
+      if (declaresIt || isName) return;
+      if (parent?.type === 'MemberExpression' && parent.object === node) {
+        const namespace = memberName(parent);
+        const grand = parents.get(parent);
+        const method = grand?.type === 'MemberExpression' && grand.object === parent;
+        if (!method && !readOnly(parent)) escaped.add(namespace ?? '*');
         return;
-      case 'AssignmentExpression':
-        patternKeys(node.left as AstNode); handOff(node.right as AstNode); return;
-      case 'CallExpression': case 'NewExpression':
-        for (const argument of (node.arguments as AstNode[] | undefined) ?? []) handOff(argument);
-        return;
-      case 'Property':
-        if (node.value !== node.key) handOff(node.value as AstNode);
-        return;
-      case 'ArrayExpression':
-        for (const element of (node.elements as Array<AstNode | null> | undefined) ?? []) handOff(element ?? undefined);
-        return;
-      case 'ReturnStatement': case 'SpreadElement': case 'YieldExpression':
-        handOff(node.argument as AstNode); return;
-      case 'MemberExpression': break;
-      default: return;
+      }
+      if (!readOnly(node)) escaped.add('*');
+      return;
     }
+    if (node.type !== 'MemberExpression') return;
     const name = memberName(node);
     if (name !== undefined) members.add(name);
     const object = node.object as AstNode | undefined;
@@ -144,6 +141,13 @@ export function helperMemberUses(body: string, root: string): {
     if (namespace !== undefined && name !== undefined) methods.add(`${namespace}.${name}`);
   });
   return { methods, escaped, members };
+}
+
+/** A non-computed property key's name, or a string-literal key. */
+function keyName(property: AstNode): string | undefined {
+  const key = property.key as AstNode | undefined;
+  if (key?.type === 'Identifier' && property.computed !== true) return key.name;
+  return key?.type === 'Literal' && typeof key.value === 'string' ? key.value : undefined;
 }
 
 /** `f.slack`, `f["slack"]`, `f?.slack` — but not `f[variable]`, which is unknowable. */

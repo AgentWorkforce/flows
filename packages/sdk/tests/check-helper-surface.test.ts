@@ -308,3 +308,13 @@ it('does not treat an existence check of f.notion as a handoff', async () => {
   expect(result.stderr.join('\n')).not.toContain('[helper_provider.unsupported]');
   expect(result.exit).toBe(0);
 });
+it.each([
+  ['nested destructuring', 'const { notion: { appendBlock } } = f; await appendBlock("page", {});'],
+  ['an arrow expression body', 'const get = () => f.notion; await get().appendBlock("page", {});'],
+  ['a parameter default', 'const run = async (n = f.notion) => n.appendBlock("page", {}); await run();'],
+  ['a nested destructuring default', 'const { appendBlock: add = f.notion.appendBlock } = {}; await add("page", {});'],
+])('keeps refusing f.notion.appendBlock reached through %s', async (_shape, body) => {
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+  expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
+});
