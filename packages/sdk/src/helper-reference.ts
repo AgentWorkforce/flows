@@ -38,6 +38,34 @@ export function helperNamespacesUsed(body: string, root: string): ReadonlySet<st
   return used;
 }
 
+/**
+ * Which `f.<namespace>.<method>` helper operations a flow body references, as
+ * `namespace.method`. Same parse and scoping as `helperNamespacesUsed`, so an
+ * unrelated object's method, a string or a comment naming one is not a use.
+ */
+export function helperMethodsUsed(body: string, root: string): ReadonlySet<string> {
+  const program = parseFlowBody(body);
+  const used = new Set<string>();
+  if (program === null) {
+    // Permissive, like textFallback: an unparseable body over-reports.
+    const escaped = root.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+    const pattern = new RegExp(`(?:^|[^\\w$.])${escaped}\\s*\\.\\s*([\\w$]+)\\s*\\.\\s*([\\w$]+)`, 'gu');
+    for (const match of body.matchAll(pattern)) used.add(`${match[1]}.${match[2]}`);
+    return used;
+  }
+  walkReferences(program, root, false, { rootFunctionFound: false }, (node) => {
+    if (node.type !== 'MemberExpression') return;
+    const inner = node.object as AstNode | undefined;
+    if (inner?.type !== 'MemberExpression') return;
+    const object = inner.object as AstNode | undefined;
+    if (object?.type !== 'Identifier' || object.name !== root) return;
+    const namespace = memberName(inner);
+    const method = memberName(node);
+    if (namespace !== undefined && method !== undefined) used.add(`${namespace}.${method}`);
+  });
+  return used;
+}
+
 /** `f.slack`, `f["slack"]`, `f?.slack` — but not `f[variable]`, which is unknowable. */
 function memberName(node: AstNode): string | undefined {
   const property = node.property as AstNode | undefined;

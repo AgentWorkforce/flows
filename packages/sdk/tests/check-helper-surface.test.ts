@@ -270,3 +270,21 @@ it('authored TS helpers keep their provider-specific mock remedy', () => {
     message: 'f.linear requires a relayfile linear mount; direct-token transport is not implemented.' }]);
   expect(diagnostics[0]?.message).toContain('RELAYFLOWS_LINEAR_MOCK=1');
 });
+it('does not refuse an unrelated .appendBlock in a Notion flow with no local mount', async () => {
+  const body = `const doc = { appendBlock() { return 1; } };
+    doc.appendBlock(); // f.notion.appendBlock is not called here
+    const note = 'x.appendBlock';
+    await f.notion.createPage({ parent: 'p', title: note });`;
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.stderr.join('\n')).not.toContain('[helper_provider.unsupported]');
+  expect(result.exit).toBe(0);
+  expect(result.stderr.join('\n')).toContain('[helper_credential_unresolved]');
+});
+it('still refuses a real f.notion.appendBlock through an aliased context name', async () => {
+  const path = fixture('', '{ tools: { notion: true } },');
+  writeFileSync(path, `import { flow } from '@relayflows/surface';
+export default flow('test', { tools: { notion: true } }, async ctx => { await ctx.notion.appendBlock('page', {}); ctx.done('success'); });`);
+  const result = await check(path);
+  expect(result.exit).toBe(2);
+  expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
+});

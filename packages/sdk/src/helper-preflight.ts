@@ -1,6 +1,6 @@
 import { helperProviders } from '@relayflows/surface/runtime';
 import type { PreflightResult, PreflightDiagnostic } from './preflight.js';
-import { helperNamespacesUsed } from './helper-reference.js';
+import { helperMethodsUsed, helperNamespacesUsed } from './helper-reference.js';
 
 /** Static discovery never executes the body; dynamic aliases are checked at call time. */
 export function preflightHelpers(
@@ -18,6 +18,9 @@ export function preflightHelpers(
   // comment, template quasi or regex is not used, and refusing on one demands
   // a mount the flow never touches.
   const referenced = root === undefined ? new Set<string>() : helperNamespacesUsed(body, root);
+  // An unresolvable context name leaves only the text; keep refusing permissively there.
+  const appendsNotionBlock = root === undefined
+    ? /\.\s*appendBlock\b/.test(body) : helperMethodsUsed(body, root).has('notion.appendBlock');
   for (const { provider, namespace, supported } of helperProviders) {
     const used = definition.header?.tools?.[namespace] === true
       || referenced.has(namespace);
@@ -34,7 +37,7 @@ export function preflightHelpers(
         message: `f.${namespace} requires a relayfile ${provider} mount; direct-token transport is not implemented.` });
     }
     // Missing local mounts must not hide an operation unsupported on Cloud too.
-    if (supported && provider === 'notion' && !fact.mock && /\.\s*appendBlock\b/.test(body)) {
+    if (supported && provider === 'notion' && !fact.mock && appendsNotionBlock) {
       diagnostics.push({ severity: 'refusal', kind: 'helper_provider.unsupported',
         message: 'f.notion.appendBlock is mock-only: the Notion adapter has no append-block writeback route.' });
     }
