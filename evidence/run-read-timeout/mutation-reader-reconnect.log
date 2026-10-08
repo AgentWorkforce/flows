@@ -13,12 +13,12 @@ $ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t
 
  ❯ tests/journal-client-read-timeout.test.ts (17 tests | 1 failed | 16 skipped) 1008ms
    × reconnects the reader after it disconnects within the read budget 1007ms
-     → journal client: run.get read session was interrupted after 80 attempts in 1000ms (read budget 1000ms): journal client: not connected (run.get): journal client: connection closed
+     → journal client: run.get read session was interrupted after 78 attempts in 1000ms (read budget 1000ms): journal client: not connected (run.get): journal client: connection closed
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
 
  FAIL  tests/journal-client-read-timeout.test.ts > reconnects the reader after it disconnects within the read budget
-JournalReadInterruptedError: journal client: run.get read session was interrupted after 80 attempts in 1000ms (read budget 1000ms): journal client: not connected (run.get): journal client: connection closed
+JournalReadInterruptedError: journal client: run.get read session was interrupted after 78 attempts in 1000ms (read budget 1000ms): journal client: not connected (run.get): journal client: connection closed
  ❯ exhausted src/journal-read-policy.ts:70:9
      68|     let last: unknown;
      69|     const exhausted = () => last instanceof JournalReadInterruptedError
@@ -41,8 +41,8 @@ Caused by: Error: journal client: connection closed
 
  Test Files  1 failed (1)
       Tests  1 failed | 16 skipped (17)
-   Start at  00:53:32
-   Duration  1.46s (transform 166ms, setup 18ms, collect 286ms, tests 1.01s, environment 0ms, prepare 42ms)
+   Start at  01:05:44
+   Duration  1.44s (transform 158ms, setup 16ms, collect 276ms, tests 1.01s, environment 0ms, prepare 42ms)
 
 exit=1
 
@@ -51,11 +51,11 @@ $ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/journal-client-read-timeout.test.ts (17 tests | 16 skipped) 78ms
+ ✓ tests/journal-client-read-timeout.test.ts (17 tests | 16 skipped) 79ms
 
  Test Files  1 passed (1)
       Tests  1 passed | 16 skipped (17)
-   Start at  00:53:34
-   Duration  522ms (transform 156ms, setup 16ms, collect 276ms, tests 78ms, environment 0ms, prepare 43ms)
+   Start at  01:05:46
+   Duration  486ms (transform 158ms, setup 18ms, collect 267ms, tests 79ms, environment 0ms, prepare 30ms)
 
 exit=0

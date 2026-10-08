@@ -1,4 +1,5 @@
 import { JournalClient } from './journal-client.js';
+import { FLOW_READ_BUDGET_MS } from './journal-read-policy.js';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -354,7 +355,8 @@ export async function verifyAuthoredNodeResult(
     if (!authoredIds.has(gate.id.slice(0, -'.gate'.length))) invalid(`orphan ${gate.id}`);
   }
   const runs = new Set<string>();
-  const journal = new JournalClient(socketPath);
+  // The verifier reads the same journal under the same CPU load as the body.
+  const journal = new JournalClient(socketPath, { readBudgetMs: FLOW_READ_BUDGET_MS });
   await journal.connect();
   try {
     await journal.hello('flows-authored-result-verifier');

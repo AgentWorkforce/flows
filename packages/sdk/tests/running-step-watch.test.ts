@@ -153,3 +153,28 @@ it('a completion push ends the wait without waiting out an in-flight snapshot', 
     expect(await client.runGet('run', { signal: AbortSignal.timeout(50) }).catch(error => error.name)).toBe('TimeoutError');
   } finally { client.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });
+
+it('a completion that aborts the snapshot is not an error even if a retry starts at once', async () => {
+  const path = sockPath();
+  let push!: () => void;
+  const server = startLoopback(path, {
+    hello: sendOk,
+    'run.watch': (ctx, params) => {
+      sendResult(ctx, {});
+      const entry = (type: string) => ctx.send({ event: 'entry', data: { run_id: String(params['run_id']), step_id: 'step', entry_type: type } });
+      push = () => { entry('step.completed'); entry('step.attempt.started'); };
+    },
+    'run.get': () => push(),
+  });
+  await once(server, 'listening');
+  const client = new JournalClient(path, { readBudgetMs: 300_000 });
+  try {
+    await client.connect();
+    const outcome = await Promise.race([
+      waitForRunningStep(client, 'run', { id: 'step', type: 'agent', leaseDeadlineMs: Date.now() + 30_000 }, {})
+        .then(() => 'returned', error => `threw: ${error.message}`),
+      sleep(3_000).then(() => 'still waiting'),
+    ]);
+    expect(outcome).toBe('returned');
+  } finally { client.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});

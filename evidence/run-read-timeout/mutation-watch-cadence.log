@@ -1,5 +1,5 @@
 Source: packages/sdk/src/cli/running-step.ts
-Original SHA256: b84dc4f0d83e3f8c31d55a38f42a0d68c25299970d05ec7f3be772290f8d1a6e
+Original SHA256: 5f7ca7c0a29e5dcd0be4650369e994a21aa715f7dbdc45363924abf5df30d96b
 Replaced:
 const LEASE_POLL_MS = 2_000;
 With:
@@ -10,7 +10,7 @@ $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'uses pu
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/running-step-watch.test.ts (6 tests | 1 failed | 5 skipped) 2111ms
+ ❯ tests/running-step-watch.test.ts (7 tests | 1 failed | 6 skipped) 2110ms
    × uses pushes for completion with lease-cadence reads and releases its watcher 2110ms
      → expected 41 to be less than or equal to 1
 
@@ -29,23 +29,23 @@ AssertionError: expected 41 to be less than or equal to 1
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
 
  Test Files  1 failed (1)
-      Tests  1 failed | 5 skipped (6)
-   Start at  00:53:37
-   Duration  2.59s (transform 186ms, setup 17ms, collect 316ms, tests 2.11s, environment 0ms, prepare 43ms)
+      Tests  1 failed | 6 skipped (7)
+   Start at  01:05:48
+   Duration  2.58s (transform 185ms, setup 16ms, collect 311ms, tests 2.11s, environment 0ms, prepare 41ms)
 
 exit=1
 
-RESTORED SHA256: b84dc4f0d83e3f8c31d55a38f42a0d68c25299970d05ec7f3be772290f8d1a6e
+RESTORED SHA256: 5f7ca7c0a29e5dcd0be4650369e994a21aa715f7dbdc45363924abf5df30d96b
 $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'uses pushes for completion' --maxWorkers=1 --minWorkers=1
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/running-step-watch.test.ts (6 tests | 5 skipped) 2118ms
+ ✓ tests/running-step-watch.test.ts (7 tests | 6 skipped) 2118ms
    ✓ uses pushes for completion with lease-cadence reads and releases its watcher 2117ms
 
  Test Files  1 passed (1)
-      Tests  1 passed | 5 skipped (6)
-   Start at  00:53:40
-   Duration  2.59s (transform 187ms, setup 16ms, collect 316ms, tests 2.12s, environment 0ms, prepare 40ms)
+      Tests  1 passed | 6 skipped (7)
+   Start at  01:05:51
+   Duration  2.58s (transform 177ms, setup 17ms, collect 295ms, tests 2.12s, environment 0ms, prepare 41ms)
 
 exit=0

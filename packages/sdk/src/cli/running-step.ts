@@ -75,13 +75,15 @@ export async function waitForRunningStep(client: JournalClient, runId: string,
       // Drain the read before leaving the authored promise scope. A raced but
       // unresolved read would look like unawaited derived work to that scope,
       // so cancellation aborts the read itself and it settles at once.
-      snapshotRead = new AbortController();
-      const signal = options.signal === undefined ? snapshotRead.signal
-        : AbortSignal.any([options.signal, snapshotRead.signal]);
+      const read = snapshotRead = new AbortController();
+      const signal = options.signal === undefined ? read.signal
+        : AbortSignal.any([options.signal, read.signal]);
       const snapshot = await client.runGet(runId, { signal })
         .catch(error => {
           if (options.signal?.aborted) throw canceled();
-          if (settled) return undefined;
+          // A completion push aborted this read: completion was observed, and
+          // finish() is one-shot, even if a retry attempt started right after.
+          if (settled || read.signal.aborted) return undefined;
           throw error;
         })
         .finally(() => { snapshotRead = undefined; });
