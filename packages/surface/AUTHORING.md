@@ -5,7 +5,7 @@ Regenerate from the repository root with `npm run gen:docs --prefix packages/sur
 
 This file describes signatures; [SURFACE.md](https://github.com/AgentWorkforce/flows/blob/main/docs/SURFACE.md) explains semantics and [CLI.md](https://github.com/AgentWorkforce/flows/blob/main/docs/CLI.md) lists commands. The shipped `src/*.ts` declarations are the canonical source for emitted `dist/*.d.ts`.
 
-CI checks this reference through `typecheck:regressions` on surface, SDK and regression changes. Changes only to `docs/CLI.md`, prose docs or root generator/test scripts do not trigger that workflow; run the check locally for those edits.
+Check this reference with `bun run check:docs` in `packages/surface` after any surface, SDK, CLI or generator change. CI does not run that check yet.
 
 ## Flow declarations
 
@@ -293,11 +293,11 @@ export interface DoneOptions {
 
 Authored `f.done` verdicts, kernel run outcomes and step outcomes are distinct closed vocabularies.
 
-| Vocabulary | Used for | Values |
-| --- | --- | --- |
-| `FLOW_COMPLETION_REASONS` | f.done | `success`, `step_failed`, `canceled`, `budget_exceeded`, `needs_human`, `declined` |
-| `RUN_COMPLETION_REASONS` | Kernel run completion | `success`, `step_failed`, `canceled`, `budget_exceeded` |
-| `COMPLETION_REASONS` | Journal step completion | `success`, `verification_failed`, `retries_exhausted`, `lease_expired`, `crashed`, `timeout`, `worker_error`, `budget_exceeded`, `canceled` |
+| Vocabulary | Type | Used for | Values |
+| --- | --- | --- | --- |
+| `FLOW_COMPLETION_REASONS` | `FlowCompletionReason` | f.done | `success`, `step_failed`, `canceled`, `budget_exceeded`, `needs_human`, `declined` |
+| `RUN_COMPLETION_REASONS` | `RunCompletionReason` | Kernel run completion | `success`, `step_failed`, `canceled`, `budget_exceeded` |
+| `COMPLETION_REASONS` | `CompletionReason` | Journal step completion | `success`, `verification_failed`, `retries_exhausted`, `lease_expired`, `crashed`, `timeout`, `worker_error`, `budget_exceeded`, `canceled` |
 
 ## Gates
 
@@ -1587,41 +1587,6 @@ export type XHelper = UnavailableHelper;
 export type ZendeskHelper = JournalHelper<ReturnType<typeof zendeskClient>>;
 ```
 
-### ProviderTriggerSource
-
-```ts
-/** A provider inbox subscription over an envelope's type and payload. */
-export interface ProviderTriggerSource<Provider extends string, Event extends string> extends WebhookTriggerSource {
-  readonly name: Provider;
-  readonly filter: WebhookFilter & { readonly provider: Provider; readonly type: Event };
-}
-```
-
-### CloudBabysitterTurnCapability
-
-```ts
-export interface CloudBabysitterTurnCapability {
-  queue(request: { readonly delivery: CloudBabysitterTurnDelivery }): PromiseLike<CloudBabysitterTurnReceipt>;
-}
-```
-
-### ActivityDuration
-
-```ts
-/** A duration in whole milliseconds or an unambiguous wall-clock literal. */
-export type ActivityDuration = number | string;
-```
-
-### Wake
-
-```ts
-export type Wake =
-  | { readonly kind: "events"; readonly events: readonly EventFrame[]; readonly offset: number }
-  | { readonly kind: "idle" }
-  | { readonly kind: "deadline"; readonly pending: { readonly from: number; readonly to: number } | null }
-  | { readonly kind: "overflow"; readonly retained: number; readonly bytes: number; readonly from: number };
-```
-
 ### EnrollmentReceipt
 
 ```ts
@@ -1633,20 +1598,30 @@ export interface EnrollmentReceipt {
 }
 ```
 
-### WorkerSummary
-
-```ts
-export interface WorkerSummary {
-  workerId: string;
-  status: string;
-  lastSeenAt: string | null;
-}
-```
-
 ### Heartbeat
 
 ```ts
 export interface Heartbeat extends WorkerSummary {}
+```
+
+### JournalStep
+
+```ts
+export interface JournalStep {
+  id: string;
+  type: "deterministic" | "llm" | "agent";
+  completionReason: CompletionReason | null;
+}
+```
+
+### RunJournal
+
+```ts
+export interface RunJournal {
+  runId: string;
+  steps: JournalStep[];
+  completionReason: RunCompletionReason | null;
+}
 ```
 
 ### ScheduleState
@@ -1660,13 +1635,131 @@ export interface ScheduleState {
 }
 ```
 
-### RunJournal
+### WorkerSummary
 
 ```ts
-export interface RunJournal {
-  runId: string;
-  steps: JournalStep[];
-  completionReason: RunCompletionReason | null;
+export interface WorkerSummary {
+  workerId: string;
+  status: string;
+  lastSeenAt: string | null;
+}
+```
+
+### CloudBabysitterTurnCapability
+
+```ts
+export interface CloudBabysitterTurnCapability {
+  queue(request: { readonly delivery: CloudBabysitterTurnDelivery }): PromiseLike<CloudBabysitterTurnReceipt>;
+}
+```
+
+### CloudBabysitterTurnDelivery
+
+```ts
+/** Delivery-only request accepted by the host-owned native Babysitter adapter. */
+export interface CloudBabysitterTurnDelivery {
+  readonly deliveryId: string;
+  readonly provider: 'github';
+  readonly eventType: string;
+  readonly pullRequest: {
+    readonly owner: string;
+    readonly repository: string;
+    readonly number: number;
+  };
+}
+```
+
+### CloudBabysitterTurnReceipt
+
+```ts
+/** The only successful native-turn outcomes; refusals reject the call. */
+export interface CloudBabysitterTurnReceipt {
+  readonly receiptId: string;
+  readonly status: 'queued' | 'duplicate';
+}
+```
+
+### ActivityDuration
+
+```ts
+/** A duration in whole milliseconds or an unambiguous wall-clock literal. */
+export type ActivityDuration = number | string;
+```
+
+### EventFrame
+
+```ts
+/**
+ * Opaque provider event preserved by the journal. Providers may add fields;
+ * bodies must re-read provider state instead of treating this payload as truth.
+ */
+export interface EventFrame {
+  readonly type: string;
+  readonly payload?: unknown;
+  readonly [field: string]: unknown;
+}
+```
+
+### Wake
+
+```ts
+export type Wake =
+  | { readonly kind: "events"; readonly events: readonly EventFrame[]; readonly offset: number }
+  | { readonly kind: "idle" }
+  | { readonly kind: "deadline"; readonly pending: { readonly from: number; readonly to: number } | null }
+  | { readonly kind: "overflow"; readonly retained: number; readonly bytes: number; readonly from: number };
+```
+
+### SlackReceipt
+
+```ts
+export interface SlackReceipt {
+  channel: string;
+  ts: string;
+  ref: string;
+}
+```
+
+### SlackBlock
+
+```ts
+/** Generated from the pinned Slack OpenAPI fragments in scripts/slack-message-schema.json. */
+export type SlackBlock = { type: string; [key: string]: unknown; };
+```
+
+### SlackAttachment
+
+```ts
+export type SlackAttachment = { [key: string]: unknown; };
+```
+
+### SlackPostMessage
+
+```ts
+/** Structured message content. Text supplies the notification/accessibility fallback. */
+export interface SlackPostMessage {
+  text?: string;
+  blocks?: SlackBlock[];
+  attachments?: SlackAttachment[];
+}
+```
+
+### SlackPostOptions
+
+```ts
+export interface SlackPostOptions extends Omit<SlackPostMessage, "text"> {
+  replyTo?: string;
+}
+```
+
+### MemoryFinding
+
+```ts
+export interface MemoryFinding {
+  question: string;
+  chosen: string;
+  reasoning: string;
+  alternatives?: string[];
 }
 ```
 
@@ -1689,22 +1782,34 @@ export type { HistoryEntry } from "ai-hist";
 export type { TrajectoryEntry } from "ai-hist";
 ```
 
-### MemoryFinding
-
-```ts
-export interface MemoryFinding {
-  question: string;
-  chosen: string;
-  reasoning: string;
-  alternatives?: string[];
-}
-```
-
 ### WebhookValue
 
 ```ts
 export type WebhookValue = null | boolean | number | string
   | readonly WebhookValue[] | { readonly [key: string]: WebhookValue };
+```
+
+### ProviderTriggerSource
+
+```ts
+/** A provider inbox subscription over an envelope's type and payload. */
+export interface ProviderTriggerSource<Provider extends string, Event extends string> extends WebhookTriggerSource {
+  readonly name: Provider;
+  readonly filter: WebhookFilter & { readonly provider: Provider; readonly type: Event };
+}
+```
+
+### PluginMethod
+
+```ts
+/** Plugins augment Ctx in @relayflows/surface; no catch-all index signature. */
+export type PluginMethod<Args, Output = unknown> = (args: Args) => Step<Output>;
+```
+
+### PluginPrimitive
+
+```ts
+export type PluginPrimitive = 'run' | 'llm' | 'agent' | 'effect' | 'wait';
 ```
 
 ### UnavailableHelper (not exported from the package root)
@@ -1953,35 +2058,6 @@ import { sharepointClient } from "@relayfile/relay-helpers";
 import { shortcutClient } from "@relayfile/relay-helpers";
 ```
 
-### SlackPostMessage
-
-```ts
-/** Structured message content. Text supplies the notification/accessibility fallback. */
-export interface SlackPostMessage {
-  text?: string;
-  blocks?: SlackBlock[];
-  attachments?: SlackAttachment[];
-}
-```
-
-### SlackPostOptions
-
-```ts
-export interface SlackPostOptions extends Omit<SlackPostMessage, "text"> {
-  replyTo?: string;
-}
-```
-
-### SlackReceipt
-
-```ts
-export interface SlackReceipt {
-  channel: string;
-  ts: string;
-  ref: string;
-}
-```
-
 ### stripeClient (not exported from the package root)
 
 ```ts
@@ -2013,56 +2089,6 @@ import { telegramClient } from "@relayfile/relay-helpers";
 import { zendeskClient } from "@relayfile/relay-helpers";
 ```
 
-### CloudBabysitterTurnDelivery
-
-```ts
-/** Delivery-only request accepted by the host-owned native Babysitter adapter. */
-export interface CloudBabysitterTurnDelivery {
-  readonly deliveryId: string;
-  readonly provider: 'github';
-  readonly eventType: string;
-  readonly pullRequest: {
-    readonly owner: string;
-    readonly repository: string;
-    readonly number: number;
-  };
-}
-```
-
-### CloudBabysitterTurnReceipt
-
-```ts
-/** The only successful native-turn outcomes; refusals reject the call. */
-export interface CloudBabysitterTurnReceipt {
-  readonly receiptId: string;
-  readonly status: 'queued' | 'duplicate';
-}
-```
-
-### EventFrame
-
-```ts
-/**
- * Opaque provider event preserved by the journal. Providers may add fields;
- * bodies must re-read provider state instead of treating this payload as truth.
- */
-export interface EventFrame {
-  readonly type: string;
-  readonly payload?: unknown;
-  readonly [field: string]: unknown;
-}
-```
-
-### JournalStep
-
-```ts
-export interface JournalStep {
-  id: string;
-  type: "deterministic" | "llm" | "agent";
-  completionReason: CompletionReason | null;
-}
-```
-
 ### SearchOptions
 
 ```ts
@@ -2073,17 +2099,4 @@ import type { SearchOptions } from "ai-hist";
 
 ```ts
 import type { RelayClientOptions } from "@relayfile/relay-helpers/transport";
-```
-
-### SlackBlock
-
-```ts
-/** Generated from the pinned Slack OpenAPI fragments in scripts/slack-message-schema.json. */
-export type SlackBlock = { type: string; [key: string]: unknown; };
-```
-
-### SlackAttachment
-
-```ts
-export type SlackAttachment = { [key: string]: unknown; };
 ```

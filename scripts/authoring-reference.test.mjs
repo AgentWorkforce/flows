@@ -4,7 +4,7 @@ import { readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, rmSyn
 import { tmpdir } from 'node:os';
 import { join, dirname, posix } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { root, source, declarationText, unionDeclarations, literal, exportedNames, typeReferences, ts } from './authoring-source.mjs';
+import { root, source, declarationText, unionDeclarations, literal, exportedNames, typeExports, typeReferences, ts } from './authoring-source.mjs';
 
 const read = path => readFileSync(join(root, path), 'utf8');
 const authoring = read('packages/surface/AUTHORING.md');
@@ -58,7 +58,9 @@ test('done documents all three distinct completion vocabularies', () => {
   for (const name of ['FLOW_COMPLETION_REASONS', 'RUN_COMPLETION_REASONS', 'COMPLETION_REASONS']) {
     const row = authoring.split('\n').find(line => line.startsWith(`| \`${name}\``));
     assert.ok(row);
-    assert.deepEqual([...row.matchAll(/`(\w+)`/g)].slice(1).map(match => match[1]), reasons(name));
+    const [, type, , values] = row.split('|').slice(1, -1).map(cell => cell.trim());
+    assert.equal(type, `\`${text.match(new RegExp(`export type (\\w+) = \\(typeof ${name}\\)\\[number\\]`))[1]}\``);
+    assert.deepEqual([...values.matchAll(/`(\w+)`/g)].map(match => match[1]), reasons(name));
   }
   assert.equal(reasons('FLOW_COMPLETION_REASONS').length, 6);
   assert.ok(authoring.includes(context.match(/^  done\(.+;$/m)[0]));
@@ -213,4 +215,11 @@ test('every type a rendered declaration names is declared, imported or a TypeScr
   const missing = [...typeReferences(fences), ...helperTypes]
     .filter(name => !generics.has(name) && !globals.has(name) && !tabulated.has(name) && !declared(name));
   assert.deepEqual([...new Set(missing)], []);
+});
+test('declares every public type, including type-only exports no signature names', () => {
+  const index = source(join(root, 'packages/surface/src/index.ts'));
+  const names = typeExports(index).map(entry => entry.name);
+  assert.ok(names.includes('PluginMethod') && names.includes('PluginPrimitive'));
+  const missing = names.filter(name => !new RegExp(`(?:interface|type) ${name}\\b|### ${name}\\b|\\| \`${name}\` \\||\`Ctx extends ${name}\`|import(?: type)? \\{ ${name} \\}`).test(authoring));
+  assert.deepEqual(missing, []);
 });

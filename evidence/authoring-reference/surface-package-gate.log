@@ -1,66 +1,38 @@
+$ bash scripts/surface-package-gate.sh
+# cwd: /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr615; head: 898b78e0 (parent; logs captured from the uncommitted change they accompany)
 bun install v1.4.2 (744846f84)
 
-Checked 187 installs across 239 packages (no changes) [5.00ms]
+Checked 187 installs across 239 packages (no changes) [4.00ms]
 $ tsc
 $ bun run build && tsc -p tsconfig.test.json && vitest run
 $ tsc
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr615/packages/surface
 
- ✓ tests/activity.test.ts (1 test) 2ms
- ✓ tests/helpers.snapshot.test.ts (2 tests) 288ms
+ ✓ tests/activity.test.ts (1 test) 1ms
  ✓ tests/done-detail.test.ts (1 test) 2ms
- ✓ tests/declined.test.ts (1 test) 2ms
- ✓ tests/triggers-github-events.test.ts (2 tests) 4ms
- ✓ tests/triggers-all-providers.test.ts (4 tests) 45ms
- ✓ tests/slack-block-kit.test.ts (5 tests) 3ms
- ✓ tests/provider-triggers.test.ts (3 tests) 4ms
- ✓ tests/triggers.test.ts (6 tests) 8ms
- ✓ tests/flow.test.ts (24 tests) 10ms
- ✓ tests/schedule.test.ts (7 tests) 7346ms
-   ✓ schedule.cron > measures a cron's longest quiet period so a silence budget can be declared honestly 7316ms
+ ✓ tests/declined.test.ts (1 test) 3ms
+ ✓ tests/triggers-github-events.test.ts (2 tests) 6ms
+ ✓ tests/helpers.snapshot.test.ts (2 tests) 279ms
+ ✓ tests/triggers-all-providers.test.ts (4 tests) 46ms
+ ✓ tests/slack-block-kit.test.ts (5 tests) 5ms
+ ✓ tests/provider-triggers.test.ts (3 tests) 8ms
+ ✓ tests/triggers.test.ts (6 tests) 9ms
+ ✓ tests/flow.test.ts (24 tests) 12ms
+ ✓ tests/schedule.test.ts (7 tests) 7907ms
+   ✓ schedule.cron > measures a cron's longest quiet period so a silence budget can be declared honestly 7878ms
 
  Test Files  11 passed (11)
       Tests  56 passed (56)
-   Start at  07:54:26
-   Duration  8.21s (transform 1.23s, setup 0ms, collect 4.89s, tests 7.71s, environment 2ms, prepare 1.11s)
+   Start at  08:08:16
+   Duration  8.62s (transform 925ms, setup 0ms, collect 4.49s, tests 8.28s, environment 2ms, prepare 781ms)
 
-$ tsc -p ../../regressions/tsconfig.json && tsc -p tsconfig.test.json && node scripts/check-generated-helpers.mjs && node ../../scripts/check-authoring-reference.mjs && node --test ../../scripts/authoring-reference.test.mjs
+$ tsc -p ../../regressions/tsconfig.json && tsc -p tsconfig.test.json && node scripts/check-generated-helpers.mjs
 HELPERS_GENERATED_OK airtable.ts, asana.ts, azure-blob.ts, box.ts, calendly.ts, clickup.ts, clients.ts, cloudflare.ts, confluence.ts, daytona.ts, docker-hub.ts, dropbox.ts, fathom.ts, gcp.ts, gcs.ts, github.ts, gitlab.ts, gmail.ts, google-calendar.ts, google-drive.ts, granola.ts, hubspot.ts, index.ts, intercom.ts, jira.ts, linear.ts, mailgun.ts, mixpanel.ts, neon.ts, notion.ts, onedrive.ts, pipedrive.ts, postgres.ts, posthog.ts, providers.ts, ramp.ts, recall.ts, reddit.ts, redis.ts, s3.ts, salesforce.ts, segment.ts, sendgrid.ts, sharepoint.ts, shopify.ts, shortcut.ts, slack.ts, stripe.ts, teams.ts, telegram.ts, webhook-server.ts, x.ts, zendesk.ts
-AUTHORING_REFERENCE_OK
-✔ extracts overloads in order and preserves lease JSDoc byte-for-byte (6.554627ms)
-✔ walks union members even when not re-exported, including nested unions (1.571241ms)
-✔ CLI literals refuse unresolved options with command and identifier (2.132257ms)
-✔ CLI literals resolve imports, spreads, String and templates but refuse dynamic defaults (4.86216ms)
-✔ run documents every exported overload and the lease comment (0.587676ms)
-✔ done documents all three distinct completion vocabularies (1.218924ms)
-✔ human returns Step<boolean> (0.125835ms)
-✔ all helper namespaces and mcp are discoverable (0.65408ms)
-✔ FlowHeader includes every field and its declaration (0.375641ms)
-✔ AgentOptions includes every field and its declaration (0.293317ms)
-✔ all named gate variants and both gate overloads are documented (0.361324ms)
-✔ CLI includes every declared verb, subcommand and literal flag (0.79333ms)
-✔ lease prose agrees with type, kernel default and compiler ceiling (0.763114ms)
-✔ checker accepts exact docs, rejects drift or missing docs, and accepts restoration (3222.328516ms)
-✔ every relative link in shipped surface markdown resolves inside the packed package (477.394761ms)
-✔ every exported surface type the reference mentions is declared in it (27.397186ms)
-✔ trigger and helper entry points are documented (1.705823ms)
-✔ in-package re-exports are declared, never pointed at by a source path (0.370191ms)
-✔ every provider trigger reachable through star re-exports is documented (10.298932ms)
-✔ every function exported from the package root has its signature in the reference (0.859694ms)
-✔ every type a rendered declaration names is declared, imported or a TypeScript global (37.793289ms)
-ℹ tests 21
-ℹ suites 0
-ℹ pass 21
-ℹ fail 0
-ℹ cancelled 0
-ℹ skipped 0
-ℹ todo 0
-ℹ duration_ms 4020.836883
 bun pack v1.4.2 (744846f84)
 
-packed 1.99KB package.json
-packed 94.11KB AUTHORING.md
+packed 2.0KB package.json
+packed 94.40KB AUTHORING.md
 packed 3.20KB README.md
 packed 1.62KB dist/activity.d.ts
 packed 1.21KB dist/activity.d.ts.map
@@ -651,13 +623,13 @@ packed 2.46KB src/triggers/teams.ts
 packed 3.13KB src/triggers/telegram.ts
 packed 1.26KB src/triggers/zendesk.ts
 
-/tmp/relayflows-surface-pack.DlDLPz/relayflows-surface-2.0.42.tgz
+/tmp/relayflows-surface-pack.3OP2vM/relayflows-surface-2.0.42.tgz
 
 Total files: 591
-Shasum: fb36a699b02f7e2540a476f71fa9f13b6b3e0bd8
-Integrity: sha512-X8bT5yQ7IM5fT[...]W24EUF2UkKdFw==
+Shasum: aa2843f777688b733856b989c7bc20d073a93738
+Integrity: sha512-2YVYsXOxbt1ik[...]5gAgW0T+MGiDw==
 Unpacked size: 0.85MB
-Packed size: 147.0KB
+Packed size: 147.12KB
 npm warn deprecated whatwg-encoding@3.1.1: Use @exodus/bytes instead for a more spec-conformant and faster implementation
 
 added 195 packages, and audited 196 packages in 2s
@@ -675,7 +647,7 @@ To address all issues (including breaking changes), run:
 
 Run `npm audit` for details.
 
-changed 1 package, and audited 196 packages in 1s
+changed 1 package, and audited 196 packages in 958ms
 
 65 packages are looking for funding
   run `npm fund` for details
@@ -698,18 +670,20 @@ Resolving dependencies
 Resolved, downloaded and extracted [125]
 Saved lockfile
 
-installed @relayflows/surface@/tmp/relayflows-surface-pack.DlDLPz/relayflows-surface-2.0.42.tgz
+installed @relayflows/surface@/tmp/relayflows-surface-pack.3OP2vM/relayflows-surface-2.0.42.tgz
 
-139 packages installed [1196.00ms]
+139 packages installed [1214.00ms]
 PACKED_RUNTIME_OK name=packed-runtime-consumer completionReason=success
 PACKED_RUNTIME_REFUSAL_OK invalidHeaders=9 forgedHandle=refused
 PACKED_TYPESCRIPT_OK
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr615/packages/sdk
 
- ✓ tests/authored-flow.test.ts (38 tests) 764ms
+ ✓ tests/authored-flow.test.ts (38 tests) 731ms
 
  Test Files  1 passed (1)
       Tests  38 passed (38)
-   Start at  07:54:54
-   Duration  2.45s (transform 791ms, setup 28ms, collect 1.32s, tests 764ms, environment 0ms, prepare 78ms)
+   Start at  08:08:37
+   Duration  2.04s (transform 671ms, setup 20ms, collect 1.06s, tests 731ms, environment 0ms, prepare 52ms)
+
+# exit: 0

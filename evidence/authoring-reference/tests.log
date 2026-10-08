@@ -1,29 +1,35 @@
-✔ extracts overloads in order and preserves lease JSDoc byte-for-byte (6.867701ms)
-✔ walks union members even when not re-exported, including nested unions (2.066635ms)
-✔ CLI literals refuse unresolved options with command and identifier (2.493331ms)
-✔ CLI literals resolve imports, spreads, String and templates but refuse dynamic defaults (6.681773ms)
-✔ run documents every exported overload and the lease comment (0.577006ms)
-✔ done documents all three distinct completion vocabularies (1.494828ms)
-✔ human returns Step<boolean> (0.18788ms)
-✔ all helper namespaces and mcp are discoverable (0.768533ms)
-✔ FlowHeader includes every field and its declaration (0.50343ms)
-✔ AgentOptions includes every field and its declaration (0.400928ms)
-✔ all named gate variants and both gate overloads are documented (0.470898ms)
-✔ CLI includes every declared verb, subcommand and literal flag (0.908334ms)
-✔ lease prose agrees with type, kernel default and compiler ceiling (0.679548ms)
-✔ checker accepts exact docs, rejects drift or missing docs, and accepts restoration (3154.971419ms)
-✔ every relative link in shipped surface markdown resolves inside the packed package (353.070922ms)
-✔ every exported surface type the reference mentions is declared in it (26.347046ms)
-✔ trigger and helper entry points are documented (2.001113ms)
-✔ in-package re-exports are declared, never pointed at by a source path (0.421516ms)
-✔ every provider trigger reachable through star re-exports is documented (11.228636ms)
-✔ every function exported from the package root has its signature in the reference (0.930896ms)
-✔ every type a rendered declaration names is declared, imported or a TypeScript global (40.452077ms)
-ℹ tests 21
+$ cd packages/surface && bun run check:docs
+# cwd: /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr615; head: 898b78e0 (parent; logs captured from the uncommitted change they accompany)
+$ node ../../scripts/check-authoring-reference.mjs && node --test ../../scripts/authoring-reference.test.mjs
+AUTHORING_REFERENCE_OK
+✔ extracts overloads in order and preserves lease JSDoc byte-for-byte (5.832653ms)
+✔ walks union members even when not re-exported, including nested unions (1.376449ms)
+✔ CLI literals refuse unresolved options with command and identifier (1.862645ms)
+✔ CLI literals resolve imports, spreads, String and templates but refuse dynamic defaults (4.170341ms)
+✔ run documents every exported overload and the lease comment (0.40734ms)
+✔ done documents all three distinct completion vocabularies (1.126531ms)
+✔ human returns Step<boolean> (0.110886ms)
+✔ all helper namespaces and mcp are discoverable (0.531441ms)
+✔ FlowHeader includes every field and its declaration (0.325658ms)
+✔ AgentOptions includes every field and its declaration (0.277909ms)
+✔ all named gate variants and both gate overloads are documented (0.394045ms)
+✔ CLI includes every declared verb, subcommand and literal flag (0.714854ms)
+✔ lease prose agrees with type, kernel default and compiler ceiling (0.486417ms)
+✔ checker accepts exact docs, rejects drift or missing docs, and accepts restoration (2685.735812ms)
+✔ every relative link in shipped surface markdown resolves inside the packed package (352.954057ms)
+✔ every exported surface type the reference mentions is declared in it (23.49092ms)
+✔ trigger and helper entry points are documented (1.505849ms)
+✔ in-package re-exports are declared, never pointed at by a source path (0.259234ms)
+✔ every provider trigger reachable through star re-exports is documented (10.309536ms)
+✔ every function exported from the package root has its signature in the reference (0.810162ms)
+✔ every type a rendered declaration names is declared, imported or a TypeScript global (34.655252ms)
+✔ declares every public type, including type-only exports no signature names (11.834642ms)
+ℹ tests 22
 ℹ suites 0
-ℹ pass 21
+ℹ pass 22
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 3831.318124
+ℹ duration_ms 3330.662464
+# exit: 0

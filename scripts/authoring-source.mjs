@@ -48,6 +48,24 @@ export function exportedNames(file) {
   });
 }
 
+/**
+ * The package's public types: type-only named exports, and the interfaces and
+ * type aliases a `export *` module exports, each with the file to resolve it from.
+ */
+export function typeExports(file) {
+  return file.statements.filter(ts.isExportDeclaration).flatMap(node => {
+    if (node.exportClause && ts.isNamedExports(node.exportClause)) {
+      return node.exportClause.elements.filter(item => node.isTypeOnly || item.isTypeOnly).map(item => ({ name: item.name.text, from: file.fileName }));
+    }
+    const star = starModule(file, node);
+    if (star === undefined) return [];
+    const module = source(star);
+    const own = module.statements.filter(statement => (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement))
+      && statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)).map(statement => ({ name: statement.name.text, from: star }));
+    return [...own, ...typeExports(module)];
+  });
+}
+
 /** The local file behind `export * from "./x.js"`, for .ts sources and emitted .d.ts alike. */
 export function starModule(file, node) {
   if (node.exportClause || !node.moduleSpecifier || !node.moduleSpecifier.text.startsWith('.')) return undefined;
