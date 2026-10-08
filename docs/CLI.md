@@ -14,17 +14,19 @@ Install a helper plugin, or a flow-extension plugin from a public GitHub reposit
 
 ## flows answer
 
-Answer a run’s parked f.human question; `flows resume` then continues the body
+Answer a parked f.human; --cloud also resumes, local answers need flows resume
 
 | Argument | Required | Description |
 | --- | --- | --- |
 | `run-id` | Yes | Run parked on the question |
-| `wait-id` | Yes | Which question to answer, named human-&lt;n&gt; in the order the body asked |
-| `answer` | Yes | The decision, as yes or no (also true or false) |
+| `wait-id-or-answer` | Yes | Local: human-&lt;n&gt; wait id; Cloud: yes or no |
+| `answer` | No | Local decision, as yes or no (also true or false) |
 
 | Option | Description | Default |
 | --- | --- | --- |
 | `--json` | Emit one machine-readable JSON object instead of text | — |
+| `--cloud` | Answer and resume a Cloud run using its open wait | — |
+| `--source <path>` | Original Cloud flow source when the stored copy is unavailable or truncated | — |
 | `--data-dir <dir>` | Daemon data directory | `.relayflowd` |
 | `--no-spawn` | Require a running relayflowd rather than starting one | — |
 | `--note <text>` | Reason recorded on the journal alongside the answer | — |
@@ -46,7 +48,7 @@ Compile a flow into a sealed, content-addressed bundle
 
 ## flows check
 
-Compile and preflight a flow without running it, or opening a daemon socket
+Compile, preflight, and validate with the installed runtime when available; never start a run
 
 | Argument | Required | Description |
 | --- | --- | --- |
@@ -54,8 +56,11 @@ Compile and preflight a flow without running it, or opening a daemon socket
 
 | Option | Description | Default |
 | --- | --- | --- |
+| `--against-daemon` | Require acceptance by the installed relayflowd validator (FLOWS_CHECK_AGAINST_DAEMON=1) | — |
+| `--no-daemon-check` | Local compile and preflight only (FLOWS_NO_DAEMON_CHECK=1) | — |
 | `--json` | Emit one machine-readable JSON object instead of text | — |
 | `--watch` | Re-check on every change to the flow and its imports | — |
+| `--explain-warnings` | List every unprovable-effects warning per step instead of one summary line | — |
 
 ## flows deploy
 
@@ -226,7 +231,8 @@ Resume an interrupted local run from where its journal left off
 | --- | --- | --- |
 | `--json` | Emit one machine-readable JSON object instead of text | — |
 | `--data-dir <dir>` | Daemon data directory | `.relayflowd` |
-| `--local-agent` | Run agent steps in this process instead of a worker | — |
+| `--local-agent` | Run agent steps in this process (bound to this terminal unless --detach) | — |
+| `--detach` | Start in a separate process, print the run handle and exit; follow with flows status | — |
 | `--agent-capacity <n>` | With --local-agent, how many agent steps (and, separately, LLM steps) run at once (1-32) | `4` |
 | `--no-spawn` | Require a running relayflowd rather than starting one | — |
 | `--no-observer-link` | Do not mint an observer link for this run | — |
@@ -245,7 +251,8 @@ Run a flow locally, or submit it to Cloud with --cloud
 | --- | --- | --- |
 | `--json` | Emit one machine-readable JSON object instead of text | — |
 | `--data-dir <dir>` | Daemon data directory | `.relayflowd` |
-| `--local-agent` | Run agent steps in this process instead of a worker | — |
+| `--local-agent` | Run agent steps in this process (bound to this terminal unless --detach) | — |
+| `--detach` | Start in a separate process, print the run handle and exit; follow with flows status | — |
 | `--agent-capacity <n>` | With --local-agent, how many agent steps (and, separately, LLM steps) run at once (1-32) | `4` |
 | `--no-spawn` | Require a running relayflowd rather than starting one | — |
 | `--no-observer-link` | Do not mint an observer link for this run | — |
