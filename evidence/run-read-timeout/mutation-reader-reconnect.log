@@ -11,14 +11,14 @@ $ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/journal-client-read-timeout.test.ts (30 tests | 1 failed | 29 skipped) 1008ms
-   × reconnects the reader after it disconnects within the read budget 1007ms
-     → journal client: run.get read session was interrupted after 77 attempts in 1000ms (read budget 1000ms): journal client: not connected (run.get): journal client: connection closed
+ ❯ tests/journal-client-read-timeout.test.ts (31 tests | 1 failed | 30 skipped) 1007ms
+   × reconnects the reader after it disconnects within the read budget 1006ms
+     → journal client: run.get read session was interrupted after 81 attempts in 1000ms (read budget 1000ms): journal client: not connected (run.get): journal client: connection closed
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
 
  FAIL  tests/journal-client-read-timeout.test.ts > reconnects the reader after it disconnects within the read budget
-JournalReadInterruptedError: journal client: run.get read session was interrupted after 77 attempts in 1000ms (read budget 1000ms): journal client: not connected (run.get): journal client: connection closed
+JournalReadInterruptedError: journal client: run.get read session was interrupted after 81 attempts in 1000ms (read budget 1000ms): journal client: not connected (run.get): journal client: connection closed
  ❯ exhausted src/journal-read-policy.ts:71:9
      69|     let last: unknown;
      70|     const exhausted = () => last instanceof JournalReadInterruptedError
@@ -26,13 +26,13 @@ JournalReadInterruptedError: journal client: run.get read session was interrupte
        |         ^
      72|       : new JournalRequestTimeoutError(verb, timeoutMs, attempts, perf…
      73|     // A caller's cancellation settles this read and drains its queued…
- ❯ Timeout.<anonymous> src/journal-read-policy.ts:82:39
+ ❯ Timeout.<anonymous> src/journal-read-policy.ts:86:48
 
 Caused by: Error: journal client: not connected (run.get): journal client: connection closed
  ❯ src/journal-connection.ts:183:16
  ❯ JournalClient.requestOnce src/journal-connection.ts:176:12
  ❯ src/journal-budgeted-reads.ts:60:29
- ❯ src/journal-read-policy.ts:94:18
+ ❯ src/journal-read-policy.ts:98:18
 
 Caused by: Error: journal client: connection closed
  ❯ Socket.<anonymous> src/journal-connection.ts:89:26
@@ -40,9 +40,9 @@ Caused by: Error: journal client: connection closed
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
 
  Test Files  1 failed (1)
-      Tests  1 failed | 29 skipped (30)
-   Start at  05:46:59
-   Duration  1.47s (transform 174ms, setup 16ms, collect 303ms, tests 1.01s, environment 0ms, prepare 40ms)
+      Tests  1 failed | 30 skipped (31)
+   Start at  06:05:38
+   Duration  1.47s (transform 180ms, setup 17ms, collect 308ms, tests 1.01s, environment 0ms, prepare 40ms)
 
 exit=1
 
@@ -51,11 +51,11 @@ $ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/journal-client-read-timeout.test.ts (30 tests | 29 skipped) 70ms
+ ✓ tests/journal-client-read-timeout.test.ts (31 tests | 30 skipped) 86ms
 
  Test Files  1 passed (1)
-      Tests  1 passed | 29 skipped (30)
-   Start at  05:47:00
-   Duration  485ms (transform 173ms, setup 16ms, collect 284ms, tests 70ms, environment 0ms, prepare 28ms)
+      Tests  1 passed | 30 skipped (31)
+   Start at  06:05:40
+   Duration  543ms (transform 170ms, setup 17ms, collect 283ms, tests 86ms, environment 0ms, prepare 45ms)
 
 exit=0

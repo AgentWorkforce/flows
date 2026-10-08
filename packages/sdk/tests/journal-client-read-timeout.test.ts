@@ -392,3 +392,21 @@ it('canceled reads are typed read interruptions, so workers hand attempts back',
   const error = await pending.catch(caught => caught);
   expect(isReadInterruptionError(error)).toBe(true);
 });
+
+it('an exhausted budget during reader setup frees the queue for the next read', async () => {
+  let hellos = 0;
+  const path = sockPath();
+  const server = startLoopback(path, {
+    hello: ctx => { if (++hellos > 1) sendOk(ctx); }, // the first reader handshake stalls
+    'run.get': ctx => sendResult(ctx, { status: 'running' }),
+  }, { serialize: true });
+  servers.push(server);
+  await once(server, 'listening');
+  const client = new JournalClient(path, { requestTimeoutMs: 20_000, readBudgetMs: 300 });
+  clients.push(client);
+  await client.connect();
+  await expect(client.runGet('run')).rejects.toMatchObject({ readBudgetMs: 300 });
+  const begun = performance.now();
+  await expect(client.runGet('run')).resolves.toMatchObject({ status: 'running' });
+  expect(performance.now() - begun).toBeLessThan(2_000);
+});

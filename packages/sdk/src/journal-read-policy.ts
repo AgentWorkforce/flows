@@ -72,6 +72,10 @@ export class JournalReadPolicy {
       : new JournalRequestTimeoutError(verb, timeoutMs, attempts, performance.now() - started, budgetMs);
     // A caller's cancellation settles this read and drains its queued attempt.
     const signal = caller === undefined ? this.closed.signal : AbortSignal.any([this.closed.signal, caller]);
+    // Budget exhaustion also aborts the queued work, so a stalled setup or
+    // request does not hold the serialized queue after its caller gave up.
+    const budget = new AbortController();
+    const attemptSignal = AbortSignal.any([signal, budget.signal]);
     let timer: ReturnType<typeof setTimeout> | undefined;
     let onClose: () => void = () => {};
     let deliver: (value: T) => void = () => {};
@@ -79,27 +83,27 @@ export class JournalReadPolicy {
     const response = new Promise<T>((resolve, reject) => {
       deliver = resolve;
       fail = reject;
-      timer = setTimeout(() => reject(exhausted()), budgetMs);
+      timer = setTimeout(() => { const error = exhausted(); budget.abort(error); reject(error); }, budgetMs);
       onClose = () => reject(signal.reason);
       signal.addEventListener('abort', onClose, { once: true });
       if (signal.aborted) onClose();
     });
     const job = this.tail.then(async () => {
       while (true) {
-        signal.throwIfAborted();
+        attemptSignal.throwIfAborted();
         const remaining = deadline - performance.now();
         if (remaining <= 0) throw exhausted();
         attempts += 1;
         try {
-          return await request(Math.min(remaining, timeoutMs * 2 ** Math.max(0, attempts - 2)), signal);
+          return await request(Math.min(remaining, timeoutMs * 2 ** Math.max(0, attempts - 2)), attemptSignal);
         } catch (error) {
-          signal.throwIfAborted();
+          attemptSignal.throwIfAborted();
           if (!(error instanceof JournalRequestTimeoutError || error instanceof JournalReadInterruptedError)) throw error;
           last = error;
           const left = deadline - performance.now();
           if (left <= 0) throw exhausted();
           // Jitter plus escalating bounds keep a slow daemon from collecting a retry storm.
-          await sleep(Math.min(left, Math.min(1000, timeoutMs / 4) * (0.5 + Math.random())), undefined, { signal });
+          await sleep(Math.min(left, Math.min(1000, timeoutMs / 4) * (0.5 + Math.random())), undefined, { signal: attemptSignal });
         }
       }
     });
