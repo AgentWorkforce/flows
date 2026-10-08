@@ -1,6 +1,5 @@
-import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { chmod } from 'node:fs/promises';
+import { chmod, open } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -104,35 +103,24 @@ describe('snapshotWorkspaceFiles / diffWorkspaceFiles', () => {
     expect(await snapshotWorkspaceFiles(dir)).toEqual(new Map());
   });
 
-  it('accounts for a file it cannot read instead of failing the whole scan', async () => {
-    // `bun build --compile` creates its output in its cwd with mode 000, fills
-    // it with the executable and only then renames it onto the --outfile, so a
-    // scan of any tree a build is running in meets a present, unreadable file
-    // for seconds at a time. That must not fail an agent step that has done
-    // its work, and it must not be silently dropped either.
-    if (process.getuid?.() === 0) return; // root reads mode 000; nothing to assert
+  it('never reports a same-size rewrite of an unreadable file as unchanged', async () => {
+    // A writer keeps an open descriptor after the file becomes mode 000 and
+    // rewrites it at the same size. A size-only signature would read identical
+    // at both snapshots and drop a real artifact; the scan must refuse instead.
+    if (process.getuid?.() === 0) return; // root bypasses permission bits; nothing to assert
     const dir = tempDir();
-    writeFileSync(join(dir, 'readable.txt'), 'kept');
-    const building = join(dir, '.aabbccdd-00000000.bun-build');
-    writeFileSync(building, 'partial');
-    await chmod(building, 0o000);
-    const before = await snapshotWorkspaceFiles(dir);
-    expect(before.get('readable.txt')).toBe(`4:${createHash('sha256').update('kept').digest('hex')}`);
-    expect(before.get('.aabbccdd-00000000.bun-build')).toBe('7:unreadable:EACCES');
-
-    // The build writes more into it; the signature tracks what can be seen.
-    await chmod(building, 0o600);
-    writeFileSync(building, 'partial and then some');
-    await chmod(building, 0o000);
-    const after = await snapshotWorkspaceFiles(dir);
-    expect(after.get('.aabbccdd-00000000.bun-build')).toBe('21:unreadable:EACCES');
-    expect(diffWorkspaceFiles(before, after)).toEqual(['.aabbccdd-00000000.bun-build']);
-
-    // An unreadable signature can never read as a content hash: the same file
-    // once readable is a different signature at the same size.
-    await chmod(building, 0o600);
-    expect((await snapshotWorkspaceFiles(dir)).get('.aabbccdd-00000000.bun-build'))
-      .toBe(`21:${createHash('sha256').update('partial and then some').digest('hex')}`);
+    const path = join(dir, 'report.txt');
+    writeFileSync(path, 'aaaa');
+    const writer = await open(path, 'r+');
+    try {
+      await chmod(path, 0o000);
+      await expect(snapshotWorkspaceFiles(dir)).rejects.toMatchObject({ code: 'EACCES' });
+      await writer.write('bbbb', 0, 'utf8');
+      await expect(snapshotWorkspaceFiles(dir)).rejects.toMatchObject({ code: 'EACCES' });
+    } finally {
+      await writer.close();
+      await chmod(path, 0o644);
+    }
   });
 
   it('propagates a non-ENOENT scan failure instead of silently omitting files', async () => {

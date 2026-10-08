@@ -7,12 +7,6 @@ function isEnoent(error: unknown): boolean {
   return error instanceof Error && (error as NodeJS.ErrnoException).code === 'ENOENT';
 }
 
-/** A file present on disk whose bytes this process is not permitted to read. */
-function isUnreadable(error: unknown): boolean {
-  const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
-  return code === 'EACCES' || code === 'EPERM';
-}
-
 /**
  * A recursive snapshot of every regular file under `dir`, keyed by its
  * `dir`-relative POSIX path, valued by a content signature (size + sha256).
@@ -33,12 +27,10 @@ function isUnreadable(error: unknown): boolean {
  * Only regular files are signed; symlinks are not followed and directories are
  * descended, not recorded. A missing `dir` (an agent step whose cwd does not
  * exist yet) yields an empty snapshot rather than throwing. Only a vanished
- * path (`ENOENT`) is ever swallowed this way; a file whose bytes cannot be read
- * is recorded by size and reason instead of being skipped, and any other
- * filesystem error (`ENOTDIR`, `EIO`, an unreadable *directory*, ...)
- * propagates, because a step whose artifact scan silently dropped files it
- * could not read must not report a successful, incomplete `artifacts` list as
- * if it were the truth.
+ * path (`ENOENT`) is ever swallowed this way; any other filesystem error
+ * (permissions, `ENOTDIR`, `EISDIR`, ...) propagates, because a step whose
+ * artifact scan silently dropped files it could not read must not report a
+ * successful, incomplete `artifacts` list as if it were the truth.
  */
 export async function snapshotWorkspaceFiles(dir: string): Promise<Map<string, string>> {
   const out = new Map<string, string>();
@@ -76,25 +68,10 @@ async function walk(root: string, current: string, out: Map<string, string>): Pr
       bytes = await readFile(path);
     } catch (error) {
       if (isEnoent(error)) continue;
-      if (!isUnreadable(error)) throw error;
-      // A file whose bytes are unreadable is still accounted for — by size
-      // and reason, which can never collide with a content hash — rather
-      // than dropped or made to fail the scan. `bun build --compile` creates
-      // its output in its cwd with `O_CREAT|O_EXCL` and mode 000, writes the
-      // (tens of megabytes) executable into it, then renames it onto the
-      // --outfile; `bundle-typescript.ts` runs exactly that with cwd set to
-      // the flow's own directory. So any tree a build is running in holds an
-      // unreadable file for seconds at a time, and failing closed here lets
-      // a neighbouring process fail an agent step that has done its work.
-      out.set(signedPath(root, path), `${info.size}:unreadable:${(error as NodeJS.ErrnoException).code}`);
-      continue;
+      throw error;
     }
-    out.set(signedPath(root, path), `${info.size}:${createHash('sha256').update(bytes).digest('hex')}`);
+    out.set(relative(root, path).split(sep).join('/'), `${info.size}:${createHash('sha256').update(bytes).digest('hex')}`);
   }
-}
-
-function signedPath(root: string, path: string): string {
-  return relative(root, path).split(sep).join('/');
 }
 
 /** `dir`-relative paths present in `after` that are new or changed since `before`, sorted. */
