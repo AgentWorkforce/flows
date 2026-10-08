@@ -59,7 +59,10 @@ export class BudgetedReads {
       try {
         return await reader.requestOnce(verb, params, remaining, attemptSignal);
       } catch (error) {
-        if (attemptSignal.aborted || error instanceof JournalRequestTimeoutError
+        // relayflowd answers one frame at a time per connection, so a canceled
+        // request still occupies this reader: drop it for a fresh session.
+        if (attemptSignal.aborted) { this.drop(reader); throw error; }
+        if (error instanceof JournalRequestTimeoutError
           || error instanceof JournalProtocolError || error instanceof JournalFrameError) throw error;
         // Only the dedicated reader's transport failed; reconnect within the budget.
         this.drop(reader);

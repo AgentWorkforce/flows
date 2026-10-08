@@ -352,3 +352,43 @@ it('cancelReads ends in-flight budgeted reads at once, ahead of a draining shutd
   await expect(pending).rejects.toThrow();
   expect(performance.now() - begun).toBeLessThan(40);
 });
+
+it('drops a reader whose in-flight read was canceled, so the next read gets a fresh session', async () => {
+  let reads = 0;
+  const sockets: unknown[] = [];
+  let firstRead!: () => void;
+  const started = new Promise<void>(resolve => { firstRead = resolve; });
+  const path = sockPath();
+  // Serialized per connection, like relayflowd: a hung request blocks its socket.
+  const server = startLoopback(path, {
+    hello: sendOk,
+    'run.get': ctx => { reads += 1; sockets.push(ctx.socket); if (reads === 1) firstRead(); else sendResult(ctx, { status: 'running' }); },
+  }, { serialize: true });
+  servers.push(server);
+  await once(server, 'listening');
+  const client = new JournalClient(path, { requestTimeoutMs: 20_000, readBudgetMs: 60_000 });
+  clients.push(client);
+  await client.connect();
+  const lease = new AbortController();
+  const release = client.scopeReads(lease.signal);
+  const first = client.runGet('run');
+  await started;
+  lease.abort(new Error('root lease lost'));
+  await expect(first).rejects.toThrow('root lease lost');
+  release();
+  const begun = performance.now();
+  await expect(client.runGet('run')).resolves.toMatchObject({ status: 'running' });
+  expect(performance.now() - begun).toBeLessThan(2_000);
+  expect(sockets[1]).not.toBe(sockets[0]);
+});
+
+it('canceled reads are typed read interruptions, so workers hand attempts back', async () => {
+  let entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const client = await setup({ 'journal.read': () => entered() }, 60_000);
+  const pending = client.journalRead('run', 1);
+  await started;
+  client.cancelReads();
+  const error = await pending.catch(caught => caught);
+  expect(isReadInterruptionError(error)).toBe(true);
+});

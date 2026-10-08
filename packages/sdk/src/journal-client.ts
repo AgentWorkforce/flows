@@ -94,9 +94,13 @@ export class JournalClient extends JournalConnection {
     return this.budgeted?.scope(signal) ?? (() => {});
   }
 
-  /** End every budgeted read now and refuse later ones; the session itself stays open. */
+  /**
+   * End every budgeted read now and refuse later ones; the session itself stays
+   * open. The reads end as read interruptions, so a worker hands its attempt
+   * back to the kernel rather than completing it as a failure.
+   */
   cancelReads(): void {
-    this.budgeted?.close(new Error('journal client: reads canceled'));
+    this.budgeted?.close(new Error('journal client: reads canceled'), true);
   }
 
   // --- Typed verb methods (gate 1 minimal set, kernel DESIGN.md §5) --------
