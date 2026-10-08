@@ -1,5 +1,5 @@
 Source: packages/sdk/src/cli/running-step.ts
-Original SHA256: a57da3dce86c9724d83bd3547a2d9186e05e7ea10409b743f89aaa25bf461bcd
+Original SHA256: 5ae78a777c69e5f83a259df2f256305a0e9fd9c60525e661e66e3997d0f3801a
 Replaced:
 const LEASE_POLL_MS = 2_000;
 With:
@@ -10,42 +10,42 @@ $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'uses pu
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/running-step-watch.test.ts (4 tests | 1 failed | 3 skipped) 2110ms
-   × uses pushes for completion with lease-cadence reads and releases its watcher 2110ms
+ ❯ tests/running-step-watch.test.ts (5 tests | 1 failed | 4 skipped) 2112ms
+   × uses pushes for completion with lease-cadence reads and releases its watcher 2111ms
      → expected 41 to be less than or equal to 1
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
 
  FAIL  tests/running-step-watch.test.ts > uses pushes for completion with lease-cadence reads and releases its watcher
 AssertionError: expected 41 to be less than or equal to 1
- ❯ tests/running-step-watch.test.ts:37:19
-     35|     await waitForRunningStep(client, 'run', { id: 'step', type: 'agent…
-     36|     expect(performance.now() - start).toBeGreaterThan(2000);
-     37|     expect(reads).toBeLessThanOrEqual(1);
+ ❯ tests/running-step-watch.test.ts:39:19
+     37|     await waitForRunningStep(client, 'run', { id: 'step', type: 'agent…
+     38|     expect(performance.now() - start).toBeGreaterThan(2000);
+     39|     expect(reads).toBeLessThanOrEqual(1);
        |                   ^
-     38|     await sleep(10);
-     39|     expect(watchClosed).toBe(true);
+     40|     await sleep(10);
+     41|     expect(watchClosed).toBe(true);
 
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
 
  Test Files  1 failed (1)
-      Tests  1 failed | 3 skipped (4)
-   Start at  23:37:21
-   Duration  2.57s (transform 168ms, setup 15ms, collect 294ms, tests 2.11s, environment 0ms, prepare 40ms)
+      Tests  1 failed | 4 skipped (5)
+   Start at  00:19:13
+   Duration  2.59s (transform 188ms, setup 17ms, collect 315ms, tests 2.11s, environment 0ms, prepare 42ms)
 
 exit=1
 
-RESTORED SHA256: a57da3dce86c9724d83bd3547a2d9186e05e7ea10409b743f89aaa25bf461bcd
+RESTORED SHA256: 5ae78a777c69e5f83a259df2f256305a0e9fd9c60525e661e66e3997d0f3801a
 $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'uses pushes for completion' --maxWorkers=1 --minWorkers=1
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/running-step-watch.test.ts (4 tests | 3 skipped) 2117ms
+ ✓ tests/running-step-watch.test.ts (5 tests | 4 skipped) 2117ms
    ✓ uses pushes for completion with lease-cadence reads and releases its watcher 2116ms
 
  Test Files  1 passed (1)
-      Tests  1 passed | 3 skipped (4)
-   Start at  23:37:24
-   Duration  2.57s (transform 165ms, setup 17ms, collect 291ms, tests 2.12s, environment 0ms, prepare 41ms)
+      Tests  1 passed | 4 skipped (5)
+   Start at  00:19:16
+   Duration  2.60s (transform 184ms, setup 18ms, collect 324ms, tests 2.12s, environment 0ms, prepare 45ms)
 
 exit=0

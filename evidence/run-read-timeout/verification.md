@@ -4,7 +4,7 @@ Captured verification at the review-fix source. Commands and output below are ve
 
 ```text
 $ cd kernel && CARGO_TARGET_DIR=/home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/kernel-target cargo build
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
 exit=0
 ```
 
@@ -15,58 +15,58 @@ $ cd packages/sdk && RELAYFLOWD_BIN=/home/khaliqgant/Projects/AgentWorkforce/flo
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/cli.test.ts (71 tests) 5725ms
-   ✓ flows check CLI > resolves a bare PATH-resolved claude with no declared model, in an isolated PATH 319ms
-   ✓ flows run/resume CLI over the journal protocol > follows a dispatched worker step instead of reporting a protocol error 2049ms
-   ✓ flows run/resume CLI over the journal protocol > follows a worker wait past a locally expired lease until the daemon settles it 2041ms
-(node:2935253) [FLOWS_ROOT_LEASE_LOST] Warning: authored root run_id=root-run attempt=1: lease_conflict: attempt has no active worker lease. Waiting for the kernel to retry it.
+ ✓ tests/cli.test.ts (71 tests) 5624ms
+   ✓ flows run/resume CLI over the journal protocol > follows a dispatched worker step instead of reporting a protocol error 2057ms
+   ✓ flows run/resume CLI over the journal protocol > follows a worker wait past a locally expired lease until the daemon settles it 2050ms
+(node:3018634) [FLOWS_ROOT_LEASE_LOST] Warning: authored root run_id=root-run attempt=1: lease_conflict: attempt has no active worker lease. Waiting for the kernel to retry it.
 (Use `node --trace-warnings ...` to show where the warning was created)
- ✓ tests/authored-root.test.ts (27 tests) 404ms
- ✓ tests/journal-client.test.ts (17 tests) 83ms
- ✓ tests/flow-executor-chain.test.ts (14 tests) 7385ms
-   ✓ flow executor LLM and output-binding chain > runs f.llm -> f.agent -> f.run with schema-verified journal output and the exact allowed model 510ms
-   ✓ flow executor LLM and output-binding chain > runs the exact authored flagship f.llm -> f.agent -> f.run path through the durable CLI root 1048ms
-   ✓ flow executor LLM and output-binding chain > resumes an interrupted durable authored root without replaying completed flagship effects 2909ms
-   ✓ flow executor LLM and output-binding chain > passes a declarative verified value through an agent into a deterministic artifact 376ms
-   ✓ flow executor LLM and output-binding chain > flows run consumes YAML bindings and resume reuses the original journal output 912ms
- ✓ tests/agent-transcript-live.test.ts (4 tests) 2804ms
-   ✓ the transcript digest through the built CLI, a real daemon and the local agent > preserves structured agent failure details and its completed root index 713ms
-   ✓ the transcript digest through the built CLI, a real daemon and the local agent > preserves structured llm failure details and its completed root index 638ms
-   ✓ the transcript digest through the built CLI, a real daemon and the local agent > journals the digest in trajectory_tail on a successful agent step and writes the file it points at 750ms
-   ✓ the transcript digest through the built CLI, a real daemon and the local agent > on a failed agent step, names the failure and the transcript in the terminal diagnostic, redacted 702ms
- ✓ tests/classify-outcome.test.ts (11 tests) 7422ms
-   ✓ classifyOutcome > gives up and reports when a running run never becomes classifiable 2010ms
-   ✓ the remedy on a worker park > follows a step through a retry backoff longer than the unclassified bound 3003ms
+ ✓ tests/authored-root.test.ts (27 tests) 414ms
+ ✓ tests/journal-client.test.ts (17 tests) 77ms
+ ✓ tests/flow-executor-chain.test.ts (14 tests) 8994ms
+   ✓ flow executor LLM and output-binding chain > runs f.llm -> f.agent -> f.run with schema-verified journal output and the exact allowed model 596ms
+   ✓ flow executor LLM and output-binding chain > runs the exact authored flagship f.llm -> f.agent -> f.run path through the durable CLI root 1638ms
+   ✓ flow executor LLM and output-binding chain > resumes an interrupted durable authored root without replaying completed flagship effects 3077ms
+   ✓ flow executor LLM and output-binding chain > passes a declarative verified value through an agent into a deterministic artifact 398ms
+   ✓ flow executor LLM and output-binding chain > flows run consumes YAML bindings and resume reuses the original journal output 1204ms
+ ✓ tests/agent-transcript-live.test.ts (4 tests) 3511ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > preserves structured agent failure details and its completed root index 938ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > preserves structured llm failure details and its completed root index 856ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > journals the digest in trajectory_tail on a successful agent step and writes the file it points at 1026ms
+   ✓ the transcript digest through the built CLI, a real daemon and the local agent > on a failed agent step, names the failure and the transcript in the terminal diagnostic, redacted 691ms
+ ✓ tests/classify-outcome.test.ts (11 tests) 7431ms
+   ✓ classifyOutcome > gives up and reports when a running run never becomes classifiable 2014ms
+   ✓ the remedy on a worker park > follows a step through a retry backoff longer than the unclassified bound 3005ms
    ✓ the remedy on a worker park > follows a run.start outcome that is already running on a retried attempt 2001ms
- ✓ tests/journal-client-read-timeout.test.ts (17 tests) 1458ms
-   ✓ a recovered read timeout does not become an authored callback failure 300ms
- ✓ tests/human-live.test.ts (3 tests) 5014ms
-   ✓ f.human against a real daemon > parks with the question, refuses wrong answers, records one, and resumes to success 2989ms
-   ✓ f.human against a real daemon > a "no" is a value the body branches on: declined, exit 0, no effect 1204ms
-   ✓ f.human against a real daemon > refuses to answer a run the daemon does not know 820ms
- ✓ tests/worker-lease.test.ts (7 tests) 20ms
- ✓ tests/worker-lease-lost.test.ts (17 tests) 31ms
- ✓ tests/running-step-watch.test.ts (4 tests) 4178ms
+ ✓ tests/journal-client-read-timeout.test.ts (17 tests) 1474ms
+   ✓ a recovered read timeout does not become an authored callback failure 328ms
+ ✓ tests/human-live.test.ts (3 tests) 9715ms
+   ✓ f.human against a real daemon > parks with the question, refuses wrong answers, records one, and resumes to success 7375ms
+   ✓ f.human against a real daemon > a "no" is a value the body branches on: declined, exit 0, no effect 1477ms
+   ✓ f.human against a real daemon > refuses to answer a run the daemon does not know 862ms
+ ✓ tests/worker-lease.test.ts (7 tests) 19ms
+ ✓ tests/worker-lease-lost.test.ts (17 tests) 27ms
+ ✓ tests/running-step-watch.test.ts (5 tests) 4194ms
    ✓ uses pushes for completion with lease-cadence reads and releases its watcher 2117ms
-   ✓ cancels promptly while a lease snapshot read is in flight 2003ms
- ✓ tests/worker-lease-lost-live.test.ts (3 tests) 703ms
- ✓ tests/run-read-load-live.test.ts (2 tests) 2431ms
-   ✓ completes a CPU-saturating deterministic flow with reads in flight and preserves its journal 2058ms
-   ✓ drains read and watch promises before an authored flow completes 372ms
- ✓ tests/worker-lease-sweep.test.ts (4 tests) 8ms
+   ✓ cancels promptly while a lease snapshot read is in flight 2009ms
+ ✓ tests/worker-lease-lost-live.test.ts (3 tests) 962ms
+   ✓ reports journal success after completion rejects with lease_conflict 429ms
+ ✓ tests/run-read-load-live.test.ts (2 tests) 2477ms
+   ✓ completes a CPU-saturating deterministic flow with reads in flight and preserves its journal 2062ms
+   ✓ drains read and watch promises before an authored flow completes 415ms
+ ✓ tests/worker-lease-sweep.test.ts (4 tests) 6ms
  ✓ tests/journal-client-completion.test.ts (6 tests) 103ms
- ✓ tests/resume-worker-lease.test.ts (3 tests) 8ms
- ✓ tests/direct-run-worker-lease.test.ts (3 tests) 8ms
- ✓ tests/memoization.test.ts (57 tests) 59ms
- ✓ tests/journal-client-subscriptions.test.ts (1 test) 8ms
- ✓ tests/run-daemon-unresponsive.test.ts (3 tests) 4ms
- ✓ tests/reuse-summary-interruption.test.ts (3 tests) 3ms
+ ✓ tests/resume-worker-lease.test.ts (3 tests) 10ms
+ ✓ tests/direct-run-worker-lease.test.ts (3 tests) 14ms
+ ✓ tests/memoization.test.ts (57 tests) 62ms
+ ✓ tests/journal-client-subscriptions.test.ts (1 test) 6ms
+ ✓ tests/run-daemon-unresponsive.test.ts (3 tests) 5ms
+ ✓ tests/reuse-summary-interruption.test.ts (3 tests) 7ms
  ✓ tests/heartbeat-timeout.test.ts (1 test) 16ms
 
  Test Files  22 passed (22)
-      Tests  278 passed (278)
-   Start at  00:10:50
-   Duration  46.66s (transform 1.04s, setup 129ms, collect 5.94s, tests 37.87s, environment 3ms, prepare 786ms)
+      Tests  279 passed (279)
+   Start at  00:19:38
+   Duration  56.60s (transform 1.38s, setup 185ms, collect 7.88s, tests 45.15s, environment 4ms, prepare 980ms)
 
 exit=0
 ```
@@ -78,13 +78,13 @@ $ cd packages/sdk && RELAYFLOWD_BIN=/home/khaliqgant/Projects/AgentWorkforce/flo
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/read-timeout-resume-live.test.ts (1 test) 920ms
-   ✓ parks an unreadable authored root and resumes without repeating its journaled effect 919ms
+ ✓ tests/read-timeout-resume-live.test.ts (1 test) 1110ms
+   ✓ parks an unreadable authored root and resumes without repeating its journaled effect 1109ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  00:11:37
-   Duration  2.24s (transform 656ms, setup 20ms, collect 1.08s, tests 920ms, environment 0ms, prepare 82ms)
+   Start at  00:20:35
+   Duration  2.81s (transform 802ms, setup 28ms, collect 1.35s, tests 1.11s, environment 0ms, prepare 56ms)
 
 exit=0
 ```
@@ -106,8 +106,8 @@ $ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/journal-client-read-timeout.test.ts (17 tests | 1 failed | 16 skipped) 113ms
-   × serves a bounded read while an unbounded command is in flight 112ms
+ ❯ tests/journal-client-read-timeout.test.ts (17 tests | 1 failed | 16 skipped) 114ms
+   × serves a bounded read while an unbounded command is in flight 113ms
      → expected true to be false // Object.is equality
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
@@ -133,8 +133,8 @@ AssertionError: expected true to be false // Object.is equality
 
  Test Files  1 failed (1)
       Tests  1 failed | 16 skipped (17)
-   Start at  23:37:15
-   Duration  572ms (transform 170ms, setup 17ms, collect 295ms, tests 113ms, environment 0ms, prepare 42ms)
+   Start at  00:19:07
+   Duration  556ms (transform 161ms, setup 17ms, collect 282ms, tests 114ms, environment 0ms, prepare 40ms)
 
 exit=1
 
@@ -143,12 +143,12 @@ $ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/journal-client-read-timeout.test.ts (17 tests | 16 skipped) 107ms
+ ✓ tests/journal-client-read-timeout.test.ts (17 tests | 16 skipped) 105ms
 
  Test Files  1 passed (1)
       Tests  1 passed | 16 skipped (17)
-   Start at  23:37:16
-   Duration  556ms (transform 169ms, setup 17ms, collect 293ms, tests 107ms, environment 0ms, prepare 40ms)
+   Start at  00:19:07
+   Duration  543ms (transform 168ms, setup 16ms, collect 289ms, tests 105ms, environment 0ms, prepare 41ms)
 
 exit=0
 ```
@@ -169,14 +169,14 @@ $ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/journal-client-read-timeout.test.ts (17 tests | 1 failed | 16 skipped) 1007ms
-   × reconnects the reader after it disconnects within the read budget 1006ms
-     → journal client: run.get read session was interrupted after 79 attempts in 1001ms (read budget 1000ms): journal client: not connected (run.get): journal client: connection closed
+ ❯ tests/journal-client-read-timeout.test.ts (17 tests | 1 failed | 16 skipped) 1008ms
+   × reconnects the reader after it disconnects within the read budget 1007ms
+     → journal client: run.get read session was interrupted after 82 attempts in 1000ms (read budget 1000ms): journal client: not connected (run.get): journal client: connection closed
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
 
  FAIL  tests/journal-client-read-timeout.test.ts > reconnects the reader after it disconnects within the read budget
-JournalReadInterruptedError: journal client: run.get read session was interrupted after 79 attempts in 1001ms (read budget 1000ms): journal client: not connected (run.get): journal client: connection closed
+JournalReadInterruptedError: journal client: run.get read session was interrupted after 82 attempts in 1000ms (read budget 1000ms): journal client: not connected (run.get): journal client: connection closed
  ❯ exhausted src/journal-read-policy.ts:70:9
      68|     let last: unknown;
      69|     const exhausted = () => last instanceof JournalReadInterruptedError
@@ -184,7 +184,7 @@ JournalReadInterruptedError: journal client: run.get read session was interrupte
        |         ^
      71|       : new JournalRequestTimeoutError(verb, timeoutMs, attempts, perf…
      72|     // A caller's cancellation settles this read and drains its queued…
- ❯ Timeout.<anonymous> src/journal-read-policy.ts:81:39
+ ❯ src/journal-read-policy.ts:99:32
 
 Caused by: Error: journal client: not connected (run.get): journal client: connection closed
  ❯ src/journal-client.ts:270:16
@@ -199,8 +199,8 @@ Caused by: Error: journal client: connection closed
 
  Test Files  1 failed (1)
       Tests  1 failed | 16 skipped (17)
-   Start at  23:37:16
-   Duration  1.45s (transform 170ms, setup 18ms, collect 289ms, tests 1.01s, environment 0ms, prepare 42ms)
+   Start at  00:19:08
+   Duration  1.43s (transform 163ms, setup 17ms, collect 284ms, tests 1.01s, environment 0ms, prepare 33ms)
 
 exit=1
 
@@ -209,12 +209,12 @@ $ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/journal-client-read-timeout.test.ts (17 tests | 16 skipped) 76ms
+ ✓ tests/journal-client-read-timeout.test.ts (17 tests | 16 skipped) 84ms
 
  Test Files  1 passed (1)
       Tests  1 passed | 16 skipped (17)
-   Start at  23:37:18
-   Duration  532ms (transform 166ms, setup 16ms, collect 295ms, tests 76ms, environment 0ms, prepare 41ms)
+   Start at  00:19:10
+   Duration  531ms (transform 170ms, setup 17ms, collect 290ms, tests 84ms, environment 0ms, prepare 42ms)
 
 exit=0
 ```
@@ -240,8 +240,8 @@ $ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/journal-client-read-timeout.test.ts (17 tests | 1 failed | 16 skipped) 72ms
-   × retries a reader setup that timed out instead of reading on the primary for good 71ms
+ ❯ tests/journal-client-read-timeout.test.ts (17 tests | 1 failed | 16 skipped) 82ms
+   × retries a reader setup that timed out instead of reading on the primary for good 81ms
      → expected 1 to be 2 // Object.is equality
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
@@ -267,8 +267,8 @@ AssertionError: expected 1 to be 2 // Object.is equality
 
  Test Files  1 failed (1)
       Tests  1 failed | 16 skipped (17)
-   Start at  23:37:19
-   Duration  495ms (transform 161ms, setup 17ms, collect 270ms, tests 72ms, environment 0ms, prepare 41ms)
+   Start at  00:19:11
+   Duration  533ms (transform 167ms, setup 15ms, collect 289ms, tests 82ms, environment 0ms, prepare 41ms)
 
 exit=1
 
@@ -277,12 +277,12 @@ $ cd packages/sdk && npx vitest run tests/journal-client-read-timeout.test.ts -t
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/journal-client-read-timeout.test.ts (17 tests | 16 skipped) 75ms
+ ✓ tests/journal-client-read-timeout.test.ts (17 tests | 16 skipped) 72ms
 
  Test Files  1 passed (1)
       Tests  1 passed | 16 skipped (17)
-   Start at  23:37:20
-   Duration  513ms (transform 164ms, setup 17ms, collect 287ms, tests 75ms, environment 0ms, prepare 40ms)
+   Start at  00:19:12
+   Duration  510ms (transform 169ms, setup 22ms, collect 277ms, tests 72ms, environment 0ms, prepare 43ms)
 
 exit=0
 ```
@@ -291,7 +291,7 @@ exit=0
 
 ```text
 Source: packages/sdk/src/cli/running-step.ts
-Original SHA256: a57da3dce86c9724d83bd3547a2d9186e05e7ea10409b743f89aaa25bf461bcd
+Original SHA256: 5ae78a777c69e5f83a259df2f256305a0e9fd9c60525e661e66e3997d0f3801a
 Replaced:
 const LEASE_POLL_MS = 2_000;
 With:
@@ -302,43 +302,43 @@ $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'uses pu
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/running-step-watch.test.ts (4 tests | 1 failed | 3 skipped) 2110ms
-   × uses pushes for completion with lease-cadence reads and releases its watcher 2110ms
+ ❯ tests/running-step-watch.test.ts (5 tests | 1 failed | 4 skipped) 2112ms
+   × uses pushes for completion with lease-cadence reads and releases its watcher 2111ms
      → expected 41 to be less than or equal to 1
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
 
  FAIL  tests/running-step-watch.test.ts > uses pushes for completion with lease-cadence reads and releases its watcher
 AssertionError: expected 41 to be less than or equal to 1
- ❯ tests/running-step-watch.test.ts:37:19
-     35|     await waitForRunningStep(client, 'run', { id: 'step', type: 'agent…
-     36|     expect(performance.now() - start).toBeGreaterThan(2000);
-     37|     expect(reads).toBeLessThanOrEqual(1);
+ ❯ tests/running-step-watch.test.ts:39:19
+     37|     await waitForRunningStep(client, 'run', { id: 'step', type: 'agent…
+     38|     expect(performance.now() - start).toBeGreaterThan(2000);
+     39|     expect(reads).toBeLessThanOrEqual(1);
        |                   ^
-     38|     await sleep(10);
-     39|     expect(watchClosed).toBe(true);
+     40|     await sleep(10);
+     41|     expect(watchClosed).toBe(true);
 
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
 
  Test Files  1 failed (1)
-      Tests  1 failed | 3 skipped (4)
-   Start at  23:37:21
-   Duration  2.57s (transform 168ms, setup 15ms, collect 294ms, tests 2.11s, environment 0ms, prepare 40ms)
+      Tests  1 failed | 4 skipped (5)
+   Start at  00:19:13
+   Duration  2.59s (transform 188ms, setup 17ms, collect 315ms, tests 2.11s, environment 0ms, prepare 42ms)
 
 exit=1
 
-RESTORED SHA256: a57da3dce86c9724d83bd3547a2d9186e05e7ea10409b743f89aaa25bf461bcd
+RESTORED SHA256: 5ae78a777c69e5f83a259df2f256305a0e9fd9c60525e661e66e3997d0f3801a
 $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'uses pushes for completion' --maxWorkers=1 --minWorkers=1
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/running-step-watch.test.ts (4 tests | 3 skipped) 2117ms
+ ✓ tests/running-step-watch.test.ts (5 tests | 4 skipped) 2117ms
    ✓ uses pushes for completion with lease-cadence reads and releases its watcher 2116ms
 
  Test Files  1 passed (1)
-      Tests  1 passed | 3 skipped (4)
-   Start at  23:37:24
-   Duration  2.57s (transform 165ms, setup 17ms, collect 291ms, tests 2.12s, environment 0ms, prepare 41ms)
+      Tests  1 passed | 4 skipped (5)
+   Start at  00:19:16
+   Duration  2.60s (transform 184ms, setup 18ms, collect 324ms, tests 2.12s, environment 0ms, prepare 45ms)
 
 exit=0
 ```
@@ -347,7 +347,7 @@ exit=0
 
 ```text
 Source: packages/sdk/src/cli/running-step.ts
-Original SHA256: a57da3dce86c9724d83bd3547a2d9186e05e7ea10409b743f89aaa25bf461bcd
+Original SHA256: 5ae78a777c69e5f83a259df2f256305a0e9fd9c60525e661e66e3997d0f3801a
 Replaced:
 client.runGet(runId, options.signal === undefined ? {} : { signal: options.signal })
 With:
@@ -358,43 +358,43 @@ $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'cancels
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/running-step-watch.test.ts (4 tests | 1 failed | 3 skipped) 2215ms
-   × cancels promptly while a lease snapshot read is in flight 2214ms
+ ❯ tests/running-step-watch.test.ts (5 tests | 1 failed | 4 skipped) 2217ms
+   × cancels promptly while a lease snapshot read is in flight 2216ms
      → expected 'still waiting' to be an instance of Error
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
 
  FAIL  tests/running-step-watch.test.ts > cancels promptly while a lease snapshot read is in flight
 AssertionError: expected 'still waiting' to be an instance of Error
- ❯ tests/running-step-watch.test.ts:81:21
-     79|     controller.abort();
-     80|     const settled = await Promise.race([outcome, sleep(200).then(() =>…
-     81|     expect(settled).toBeInstanceOf(Error);
+ ❯ tests/running-step-watch.test.ts:83:21
+     81|     controller.abort();
+     82|     const settled = await Promise.race([outcome, sleep(200).then(() =>…
+     83|     expect(settled).toBeInstanceOf(Error);
        |                     ^
-     82|     expect((settled as Error).message).toContain('was canceled');
-     83|   } finally { client.close(); await new Promise<void>(resolve => serve…
+     84|     expect((settled as Error).message).toContain('was canceled');
+     85|   } finally { client.close(); await new Promise<void>(resolve => serve…
 
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
 
  Test Files  1 failed (1)
-      Tests  1 failed | 3 skipped (4)
-   Start at  23:37:27
-   Duration  2.65s (transform 164ms, setup 16ms, collect 281ms, tests 2.21s, environment 0ms, prepare 40ms)
+      Tests  1 failed | 4 skipped (5)
+   Start at  00:19:19
+   Duration  2.74s (transform 201ms, setup 18ms, collect 339ms, tests 2.22s, environment 0ms, prepare 45ms)
 
 exit=1
 
-RESTORED SHA256: a57da3dce86c9724d83bd3547a2d9186e05e7ea10409b743f89aaa25bf461bcd
+RESTORED SHA256: 5ae78a777c69e5f83a259df2f256305a0e9fd9c60525e661e66e3997d0f3801a
 $ cd packages/sdk && npx vitest run tests/running-step-watch.test.ts -t 'cancels promptly while a lease snapshot read is in flight' --maxWorkers=1 --minWorkers=1
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/running-step-watch.test.ts (4 tests | 3 skipped) 2010ms
-   ✓ cancels promptly while a lease snapshot read is in flight 2009ms
+ ✓ tests/running-step-watch.test.ts (5 tests | 4 skipped) 2012ms
+   ✓ cancels promptly while a lease snapshot read is in flight 2011ms
 
  Test Files  1 passed (1)
-      Tests  1 passed | 3 skipped (4)
-   Start at  23:37:30
-   Duration  2.41s (transform 158ms, setup 15ms, collect 260ms, tests 2.01s, environment 0ms, prepare 34ms)
+      Tests  1 passed | 4 skipped (5)
+   Start at  00:19:22
+   Duration  2.55s (transform 214ms, setup 23ms, collect 356ms, tests 2.01s, environment 0ms, prepare 45ms)
 
 exit=0
 ```
@@ -417,8 +417,8 @@ $ cd packages/sdk && npx vitest run tests/heartbeat-timeout.test.ts -t 'a heartb
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/heartbeat-timeout.test.ts (1 test | 1 failed) 20ms
-   × a heartbeat timeout is lease loss rather than a worker body failure 20ms
+ ❯ tests/heartbeat-timeout.test.ts (1 test | 1 failed) 22ms
+   × a heartbeat timeout is lease loss rather than a worker body failure 21ms
      → expected JournalRequestTimeoutError: journal clien… { …(5) } to be an instance of WorkerLeaseLostError
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
@@ -437,8 +437,8 @@ AssertionError: expected JournalRequestTimeoutError: journal clien… { …(5) }
 
  Test Files  1 failed (1)
       Tests  1 failed (1)
-   Start at  23:37:33
-   Duration  464ms (transform 162ms, setup 16ms, collect 283ms, tests 20ms, environment 0ms, prepare 41ms)
+   Start at  00:19:25
+   Duration  635ms (transform 246ms, setup 17ms, collect 437ms, tests 22ms, environment 0ms, prepare 43ms)
 
 exit=1
 
@@ -447,12 +447,12 @@ $ cd packages/sdk && npx vitest run tests/heartbeat-timeout.test.ts -t 'a heartb
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/heartbeat-timeout.test.ts (1 test) 16ms
+ ✓ tests/heartbeat-timeout.test.ts (1 test) 19ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  23:37:33
-   Duration  440ms (transform 163ms, setup 15ms, collect 272ms, tests 16ms, environment 0ms, prepare 37ms)
+   Start at  00:19:26
+   Duration  695ms (transform 233ms, setup 20ms, collect 412ms, tests 19ms, environment 0ms, prepare 60ms)
 
 exit=0
 ```
@@ -479,14 +479,14 @@ $ cd packages/sdk && npx vitest run tests/authored-root.test.ts -t 'leaves the r
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/authored-root.test.ts (27 tests | 3 failed | 24 skipped) 31ms
-   × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=false) 22ms
+ ❯ tests/authored-root.test.ts (27 tests | 3 failed | 24 skipped) 40ms
+   × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=false) 28ms
      → expected JournalRequestTimeoutError: journal clien… { …(5) } to match object { code: 'daemon_unresponsive', …(2) }
 (6 matching properties omitted from actual)
-   × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=true) 4ms
+   × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=true) 6ms
      → expected AuthoredFlowExecutionError: daemon_unresp… { …(7) } to match object { code: 'daemon_unresponsive', …(2) }
 (6 matching properties omitted from actual)
-   × durable authored root > leaves the root resumable when the read session disconnects while the root worker is healthy 4ms
+   × durable authored root > leaves the root resumable when the read session disconnects while the root worker is healthy 5ms
      → expected JournalReadInterruptedError: journal clie… { …(4) } to match object { code: 'daemon_unresponsive', …(2) }
 (5 matching properties omitted from actual)
 
@@ -566,8 +566,8 @@ AssertionError: expected JournalReadInterruptedError: journal clie… { …(4) }
 
  Test Files  1 failed (1)
       Tests  3 failed | 24 skipped (27)
-   Start at  23:37:34
-   Duration  1.28s (transform 656ms, setup 16ms, collect 1.08s, tests 31ms, environment 0ms, prepare 43ms)
+   Start at  00:19:27
+   Duration  1.50s (transform 788ms, setup 20ms, collect 1.30s, tests 40ms, environment 0ms, prepare 33ms)
 
 exit=1
 
@@ -576,12 +576,12 @@ $ cd packages/sdk && npx vitest run tests/authored-root.test.ts -t 'leaves the r
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/authored-root.test.ts (27 tests | 24 skipped) 25ms
+ ✓ tests/authored-root.test.ts (27 tests | 24 skipped) 55ms
 
  Test Files  1 passed (1)
       Tests  3 passed | 24 skipped (27)
-   Start at  23:37:36
-   Duration  1.24s (transform 647ms, setup 16ms, collect 1.06s, tests 25ms, environment 0ms, prepare 41ms)
+   Start at  00:19:29
+   Duration  1.97s (transform 982ms, setup 20ms, collect 1.70s, tests 55ms, environment 0ms, prepare 54ms)
 
 exit=0
 ```

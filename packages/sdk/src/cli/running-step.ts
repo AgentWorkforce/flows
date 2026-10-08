@@ -47,11 +47,14 @@ export async function waitForRunningStep(client: JournalClient, runId: string,
   options.signal?.addEventListener('abort', cancel, { once: true });
   if (options.signal?.aborted) cancel();
   try {
-    await Promise.race([watch.connect().then(() => watch.hello('flows-step-watch')).catch(error => {
-      if (error instanceof JournalProtocolError) throw error;
-      throw new AuthoredFlowExecutionError('daemon_unresponsive',
-        `could not establish the completion watch: ${error instanceof Error ? error.message : String(error)}`);
-    }).then(() => watch.runWatch(runId)), completed]);
+    // Every transport failure up to and including the watch registration is a
+    // read interruption: the step may still be running and the run resumable.
+    await Promise.race([watch.connect().then(() => watch.hello('flows-step-watch'))
+      .then(() => watch.runWatch(runId)).catch(error => {
+        if (error instanceof JournalProtocolError) throw error;
+        throw new AuthoredFlowExecutionError('daemon_unresponsive',
+          `could not establish the completion watch: ${error instanceof Error ? error.message : String(error)}`);
+      }), completed]);
     ready = true;
     if (settled) return;
     while (true) {

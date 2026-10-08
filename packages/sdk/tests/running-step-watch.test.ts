@@ -3,6 +3,8 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { expect, it } from 'vitest';
 import { JournalClient } from '../src/journal-client.js';
 import { waitForRunningStep } from '../src/cli/running-step.js';
+import { isReadInterruption } from '../src/cli/journal-timeout.js';
+import { AuthoredFlowExecutionError } from '../src/authored-flow-error.js';
 import { sendOk, sendResult, sockPath, startLoopback } from './journal-client-loopback.js';
 
 it('uses pushes for completion with lease-cadence reads and releases its watcher', async () => {
@@ -107,4 +109,24 @@ it('cancelling during the watch handshake leaves no unhandled rejection', async 
     process.off('unhandledRejection', onUnhandled);
     client.close(); await new Promise<void>(resolve => server.close(() => resolve()));
   }
+});
+
+it('treats a watch connection lost during registration as a read interruption', async () => {
+  const path = sockPath();
+  let hellos = 0;
+  const server = startLoopback(path, {
+    hello: ctx => { hellos += 1; sendOk(ctx); },
+    'run.watch': ctx => { ctx.socket.destroy(); }, // registered hello, then the socket drops
+  });
+  await once(server, 'listening');
+  const client = new JournalClient(path);
+  try {
+    await client.connect();
+    const error = await waitForRunningStep(client, 'run', { id: 'step', type: 'agent', leaseDeadlineMs: Date.now() + 30_000 }, {})
+      .catch(caught => caught);
+    expect(error).toBeInstanceOf(AuthoredFlowExecutionError);
+    expect(error.code).toBe('daemon_unresponsive');
+    expect(isReadInterruption(error)).toBe(true);
+    expect(hellos).toBe(1);
+  } finally { client.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });

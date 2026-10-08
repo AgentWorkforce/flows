@@ -13,8 +13,8 @@ $ cd packages/sdk && npx vitest run tests/heartbeat-timeout.test.ts -t 'a heartb
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/heartbeat-timeout.test.ts (1 test | 1 failed) 20ms
-   × a heartbeat timeout is lease loss rather than a worker body failure 20ms
+ ❯ tests/heartbeat-timeout.test.ts (1 test | 1 failed) 22ms
+   × a heartbeat timeout is lease loss rather than a worker body failure 21ms
      → expected JournalRequestTimeoutError: journal clien… { …(5) } to be an instance of WorkerLeaseLostError
 
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
@@ -33,8 +33,8 @@ AssertionError: expected JournalRequestTimeoutError: journal clien… { …(5) }
 
  Test Files  1 failed (1)
       Tests  1 failed (1)
-   Start at  23:37:33
-   Duration  464ms (transform 162ms, setup 16ms, collect 283ms, tests 20ms, environment 0ms, prepare 41ms)
+   Start at  00:19:25
+   Duration  635ms (transform 246ms, setup 17ms, collect 437ms, tests 22ms, environment 0ms, prepare 43ms)
 
 exit=1
 
@@ -43,11 +43,11 @@ $ cd packages/sdk && npx vitest run tests/heartbeat-timeout.test.ts -t 'a heartb
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/heartbeat-timeout.test.ts (1 test) 16ms
+ ✓ tests/heartbeat-timeout.test.ts (1 test) 19ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  23:37:33
-   Duration  440ms (transform 163ms, setup 15ms, collect 272ms, tests 16ms, environment 0ms, prepare 37ms)
+   Start at  00:19:26
+   Duration  695ms (transform 233ms, setup 20ms, collect 412ms, tests 19ms, environment 0ms, prepare 60ms)
 
 exit=0
