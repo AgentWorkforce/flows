@@ -27,7 +27,7 @@ export function preflightHelpers(
   const notionAppendInferred = uses !== undefined && !uses.methods.has('notion.appendBlock');
   const appendsNotionBlock = uses === undefined
     ? /\.\s*appendBlock\b/.test(body)
-    : uses.methods.has('notion.appendBlock')
+    : uses.methods.has('notion.appendBlock') || uses.methods.has('notion.*')
       || ((uses.escaped.has('notion') || uses.escaped.has('*')) && uses.members.has('appendBlock'));
   for (const { provider, namespace, supported } of helperProviders) {
     const used = definition.header?.tools?.[namespace] === true
@@ -48,8 +48,8 @@ export function preflightHelpers(
     if (supported && provider === 'notion' && !fact.mock && appendsNotionBlock) {
       diagnostics.push({ severity: 'refusal', kind: 'helper_provider.unsupported',
         message: 'f.notion.appendBlock is mock-only: the Notion adapter has no append-block writeback route.'
-          + (notionAppendInferred ? ' f.notion is aliased or passed on in this body, so any .appendBlock access is treated as this operation;'
-            + ' call f.notion methods directly (f.notion.createPage(...)) to let flows check tell them apart.' : '') });
+          + (notionAppendInferred ? ' f.notion is aliased, passed on or called through a computed name in this body, so the call cannot be ruled out;'
+            + ' call f.notion methods directly by name (f.notion.createPage(...)) to let flows check tell them apart.' : '') });
     }
   }
   return { ok: diagnostics.length === 0, gates: [], resolutions: [], diagnostics };

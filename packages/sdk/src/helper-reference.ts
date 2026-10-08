@@ -47,7 +47,8 @@ export function helperNamespacesUsed(body: string, root: string): ReadonlySet<st
  * (`if (f.notion)`, `typeof f.notion`) is reported in `escaped` — aliases,
  * destructuring, arguments, returns, arrow bodies and defaults alike — and a
  * bare `f` in such a position escapes the whole context (`*`). This is an
- * allowlist, so a new aliasing shape escapes by default.
+ * allowlist, so a new aliasing shape escapes by default. A computed method,
+ * `f.notion[expr]`, is recorded as `notion.*`; a computed namespace escapes `*`.
  * `members` lists every member name the body accesses or destructures, for
  * callers that must stay conservative about an escaped namespace.
  */
@@ -124,7 +125,8 @@ export function helperMemberUses(body: string, root: string): {
         const namespace = memberName(parent);
         const grand = parents.get(parent);
         const method = grand?.type === 'MemberExpression' && grand.object === parent;
-        if (!method && !readOnly(parent)) escaped.add(namespace ?? '*');
+        // `f[expr]` names no knowable namespace: whatever it reaches escapes.
+        if (namespace === undefined || (!method && !readOnly(parent))) escaped.add(namespace ?? '*');
         return;
       }
       if (!readOnly(node)) escaped.add('*');
@@ -138,7 +140,8 @@ export function helperMemberUses(body: string, root: string): {
     const context = object.object as AstNode | undefined;
     if (context?.type !== 'Identifier' || context.name !== root) return;
     const namespace = memberName(object);
-    if (namespace !== undefined && name !== undefined) methods.add(`${namespace}.${name}`);
+    // `f.notion[expr]` could be any method; record it as unknown (`notion.*`).
+    if (namespace !== undefined) methods.add(`${namespace}.${name ?? '*'}`);
   });
   return { methods, escaped, members };
 }
