@@ -225,7 +225,10 @@ const GLOBAL_ROOTS = new Set(['globalThis', 'global', 'window', 'self']);
 
 /** Members through which a body can reach or rewrite the prototypes every helper inherits from. */
 const PROTOTYPE_MACHINERY = new Set(['prototype', '__proto__', 'defineProperty', 'defineProperties',
-  'setPrototypeOf', 'getPrototypeOf', 'toPrimitive', '__defineGetter__', '__defineSetter__']);
+  'setPrototypeOf', 'getPrototypeOf', 'toPrimitive', '__defineGetter__', '__defineSetter__',
+  '__lookupGetter__', '__lookupSetter__',
+  // Any function's (or global's) constructor chain reaches Function, which compiles source text.
+  'constructor']);
 
 /**
  * A use that cannot hand the value on: a discarded value or a read, and —

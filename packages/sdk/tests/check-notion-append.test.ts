@@ -365,3 +365,10 @@ it('allows ordinary members of the global roots', async () => {
   const result = await check(fixture('const t = typeof global.setTimeout + typeof globalThis.structuredClone; await f.notion.createPage({ parent: "p", title: t });', '{ tools: { notion: true } },'));
   expect(result.exit).toBe(0);
 });
+it.each([
+  ['Object.constructor', 'Object.constructor("globalThis.x = 1")();'],
+  ['a function constructor', '(() => {}).constructor("globalThis.x = 1")();'],
+])('refuses an indirect Function constructor through %s', async (_shape, prefix) => {
+  const result = await check(fixture(`${prefix} await f.notion.createPage({ parent: "p", title: "t" });`, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+});
