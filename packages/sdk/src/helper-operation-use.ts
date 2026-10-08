@@ -33,6 +33,13 @@ export function helperOperationUse(body: string, root: string, namespace: string
   let result: 'called' | 'absent' | 'unprovable' = 'absent';
   const mark = (found: 'called' | 'unprovable') => { if (result !== 'unprovable') result = found; };
   walkReferences(program, root, false, { rootFunctionFound: false }, (node) => {
+    // Prototype machinery lets the body intercept the helper wherever it is
+    // coerced or inherited from (toPrimitive, a replaced Object.prototype
+    // method, a Proxy), so no use of it is attributable once present.
+    if ((node.type === 'MemberExpression' && node.computed !== true
+        && PROTOTYPE_MACHINERY.has((node.property as AstNode).name ?? ''))
+      || (node.type === 'Identifier' && (node.name === 'Reflect' || node.name === 'Proxy')
+        && !declares(parents.get(node) ?? node, node))) return mark('unprovable');
     // eval and Function run source text this scan never sees.
     if ((node.type === 'CallExpression' || node.type === 'NewExpression')
       && (node.callee as AstNode).type === 'Identifier'
@@ -71,6 +78,10 @@ export function helperOperationUse(body: string, root: string, namespace: string
   });
   return result;
 }
+
+/** Members through which a body can reach or rewrite the prototypes every helper inherits from. */
+const PROTOTYPE_MACHINERY = new Set(['prototype', '__proto__', 'defineProperty', 'defineProperties',
+  'setPrototypeOf', 'getPrototypeOf', 'toPrimitive', '__defineGetter__', '__defineSetter__']);
 
 /**
  * A use that cannot hand the value on: a discarded value or a read, and —

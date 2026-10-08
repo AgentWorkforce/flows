@@ -249,3 +249,17 @@ export default flow('test', { tools: { notion: true } }, ${fn});`);
   expect(result.exit).toBe(2);
   expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
 });
+it.each([
+  ['a Symbol.toPrimitive hook', 'let held; Object.defineProperty(Object.prototype, Symbol.toPrimitive, { value() { held = this; return ""; }, configurable: true }); const s = `${f.notion}`; await held.appendBlock("p", {});'],
+  ['__proto__ access', 'const proto = ({}).__proto__; proto.valueOf = function () { return this; }; await f.notion.createPage({ parent: "p", title: "t" });'],
+  ['getPrototypeOf', 'Object.getPrototypeOf({}).hook = 1; await f.notion.createPage({ parent: "p", title: "t" });'],
+  ['a Proxy', 'const p = new Proxy({}, {}); await f.notion.createPage({ parent: "p", title: String(p) });'],
+])('refuses a body that tampers with prototypes through %s', async (_shape, body) => {
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+  expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
+});
+it('plain template interpolation without prototype tampering stays a read', async () => {
+  const result = await check(fixture('const label = `${f.notion}`; await f.notion.createPage({ parent: "p", title: label });', '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(0);
+});
