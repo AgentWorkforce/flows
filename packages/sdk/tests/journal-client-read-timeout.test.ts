@@ -291,3 +291,14 @@ it('a scoped read signal (the root lease) cancels budgeted reads only while it i
   release();
   await expect(client.journalRead('run', 1)).resolves.toEqual({ entries: [] });
 });
+
+it('an unexpected primary disconnect aborts in-flight reads with a typed read interruption', async () => {
+  let primary: { destroy(): void } | undefined;
+  const client = await setup({
+    'stream.append': ctx => { primary = ctx.socket; sendResult(ctx, { seq: 1 }); },
+    'run.get': () => { primary?.destroy(); }, // the reader is healthy; the primary drops
+  }, 60_000);
+  await client.streamAppend('run', 'stream', {});
+  const error = await client.runGet('run').catch(caught => caught);
+  expect(isReadInterruptionError(error)).toBe(true);
+});

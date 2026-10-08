@@ -59,7 +59,7 @@ export class JournalReadPolicy {
     setMaxListeners(0, this.closed.signal);
   }
 
-  close(): void { this.closed.abort(new Error('journal client: closed by caller')); }
+  close(reason: unknown = new Error('journal client: closed by caller')): void { this.closed.abort(reason); }
 
   async read<T>(verb: string, timeoutMs: number, budgetMs: number,
     request: (timeoutMs: number, signal: AbortSignal) => Promise<T>, caller?: AbortSignal): Promise<T> {

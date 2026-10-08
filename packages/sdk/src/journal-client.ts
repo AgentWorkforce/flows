@@ -140,7 +140,7 @@ export class JournalClient extends EventEmitter {
         socket.on('data', (chunk) => this.onData(chunk));
         socket.on('close', () => {
           const closed = new Error('journal client: connection closed');
-          this.budgeted?.close(closed);
+          this.budgeted?.close(closed, this.socket === socket);
           this.disconnectCause ??= closed;
           this.failAll(closed);
           // Only a drop the caller did not ask for; close() clears this.socket first.

@@ -200,7 +200,12 @@ export async function readAuthoredRootMetadata(
   journal: JournalClient,
   runId: string,
 ): Promise<AuthoredRootMetadata | undefined> {
-  const step = await rootKernelStep(journal, runId).catch(() => undefined);
+  // Not finding the root step means "not authored"; an unanswered read means
+  // nothing yet, and guessing declarative would resume the wrong way.
+  const step = await rootKernelStep(journal, runId).catch(error => {
+    if (isReadInterruptionError(error)) throw error;
+    return undefined;
+  });
   if (step === undefined || step.id !== 'authored-root' || !hasRootStream(step)) return undefined;
   if (typeof step.instruction !== 'string') {
     throw new Error('authored root journal has malformed authority metadata');

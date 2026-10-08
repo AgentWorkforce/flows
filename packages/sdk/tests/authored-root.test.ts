@@ -458,6 +458,14 @@ describe('durable authored root', () => {
     expect(release).toHaveBeenCalledTimes(1);
   });
 
+  it('propagates a read interruption while detecting an authored root instead of guessing declarative', async () => {
+    const { readAuthoredRootMetadata } = await import('../src/authored-root.js');
+    const interrupted = { journalRead: async () => { throw new JournalRequestTimeoutError('journal.read', 10, 3, 300_000, 300_000); } };
+    await expect(readAuthoredRootMetadata(interrupted as unknown as JournalClient, 'run')).rejects.toBeInstanceOf(JournalRequestTimeoutError);
+    const plain = { journalRead: async () => ({ entries: [] }) };
+    await expect(readAuthoredRootMetadata(plain as unknown as JournalClient, 'run')).resolves.toBeUndefined();
+  });
+
   it('terminalizes a returned body failure without replaying semantic side effects', async () => {
     const loaded = await fixture(true);
     const journal = new RootJournal();

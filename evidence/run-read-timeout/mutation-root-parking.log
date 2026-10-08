@@ -1,5 +1,5 @@
 Source: packages/sdk/src/authored-root.ts
-Original SHA256: 79f49acf9e87f35a2ff6a3b757c2d193e4e821eadfd28f96181034f550b01dfa
+Original SHA256: 8ab20a03c6def62800d2ef8a49932ec616a3b1c1fcd48c4aff9fa80437bcb35c
 Replaced:
     if (isReadInterruptionError(error)
       || (error instanceof AuthoredFlowExecutionError && error.code === 'daemon_unresponsive')) {
@@ -17,7 +17,7 @@ $ cd packages/sdk && npx vitest run tests/authored-root.test.ts -t 'leaves the r
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ❯ tests/authored-root.test.ts (29 tests | 3 failed | 26 skipped) 32ms
+ ❯ tests/authored-root.test.ts (30 tests | 3 failed | 27 skipped) 32ms
    × durable authored root > leaves the root resumable after a read timeout without waiting for redispatch (Node frame=false) 22ms
      → expected JournalRequestTimeoutError: journal clien… { …(5) } to match object { code: 'daemon_unresponsive', …(2) }
 (6 matching properties omitted from actual)
@@ -103,22 +103,22 @@ AssertionError: expected JournalReadInterruptedError: journal clie… { …(4) }
 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
 
  Test Files  1 failed (1)
-      Tests  3 failed | 26 skipped (29)
-   Start at  03:26:42
-   Duration  1.29s (transform 668ms, setup 17ms, collect 1.09s, tests 32ms, environment 0ms, prepare 42ms)
+      Tests  3 failed | 27 skipped (30)
+   Start at  03:35:51
+   Duration  1.29s (transform 661ms, setup 15ms, collect 1.10s, tests 32ms, environment 0ms, prepare 40ms)
 
 exit=1
 
-RESTORED SHA256: 79f49acf9e87f35a2ff6a3b757c2d193e4e821eadfd28f96181034f550b01dfa
+RESTORED SHA256: 8ab20a03c6def62800d2ef8a49932ec616a3b1c1fcd48c4aff9fa80437bcb35c
 $ cd packages/sdk && npx vitest run tests/authored-root.test.ts -t 'leaves the root resumable' --maxWorkers=1 --minWorkers=1
 
  RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/pr613/packages/sdk
 
- ✓ tests/authored-root.test.ts (29 tests | 26 skipped) 24ms
+ ✓ tests/authored-root.test.ts (30 tests | 27 skipped) 23ms
 
  Test Files  1 passed (1)
-      Tests  3 passed | 26 skipped (29)
-   Start at  03:26:44
-   Duration  1.24s (transform 644ms, setup 16ms, collect 1.05s, tests 24ms, environment 0ms, prepare 42ms)
+      Tests  3 passed | 27 skipped (30)
+   Start at  03:35:53
+   Duration  1.27s (transform 658ms, setup 17ms, collect 1.10s, tests 23ms, environment 0ms, prepare 31ms)
 
 exit=0

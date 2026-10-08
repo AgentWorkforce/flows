@@ -29,8 +29,13 @@ export class BudgetedReads {
     return () => { this.scoped.delete(signal); };
   }
 
-  close(cause?: unknown): void {
-    this.policy.close();
+  /**
+   * Stop all reads. An unexpected primary drop (`interrupted`) ends in-flight
+   * reads as a read interruption, so the run stays resumable; a caller close
+   * keeps its plain error.
+   */
+  close(cause?: unknown, interrupted = false): void {
+    this.policy.close(interrupted ? new JournalReadInterruptedError('journal', 1, 0, undefined, { cause }) : undefined);
     this.reader?.close(cause);
   }
 
