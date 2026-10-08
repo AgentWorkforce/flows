@@ -41,9 +41,18 @@ export function unionDeclarations(file, name, seen = new Set()) {
   return result;
 }
 export function exportedNames(file) {
-  return file.statements.filter(ts.isExportDeclaration).flatMap(node =>
-    node.exportClause && ts.isNamedExports(node.exportClause)
-      ? node.exportClause.elements.map(item => item.name.text) : []);
+  return file.statements.filter(ts.isExportDeclaration).flatMap(node => {
+    if (node.exportClause && ts.isNamedExports(node.exportClause)) return node.exportClause.elements.map(item => item.name.text);
+    // `export * from './x.js'` re-exports everything x exports; follow it.
+    return starModule(file, node) === undefined ? [] : exportedNames(source(starModule(file, node)));
+  });
+}
+
+/** The local file behind `export * from "./x.js"`, for .ts sources and emitted .d.ts alike. */
+export function starModule(file, node) {
+  if (node.exportClause || !node.moduleSpecifier || !node.moduleSpecifier.text.startsWith('.')) return undefined;
+  const base = resolve(dirname(file.fileName), node.moduleSpecifier.text.replace(/\.js$/, ''));
+  return file.fileName.endsWith('.d.ts') ? `${base}.d.ts` : `${base}.ts`;
 }
 
 /** Read static documentation data without executing SDK imports or environment-dependent defaults. */

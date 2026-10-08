@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, posix } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -174,4 +174,20 @@ test('in-package re-exports are declared, never pointed at by a source path', ()
   assert.doesNotMatch(authoring, /export type \{ \w+ \} from ["']\./);
   assert.match(authoring, /export type SlackBlock = /);
   assert.match(authoring, /export type SlackAttachment = /);
+});
+test('every provider trigger reachable through star re-exports is documented', () => {
+  const index = source(join(root, 'packages/surface/src/index.ts'));
+  assert.ok(exportedNames(index).includes('github'), 'star re-exports are traversed');
+  const triggers = join(root, 'packages/surface/src/triggers');
+  let methods = 0;
+  for (const name of readdirSync(triggers).filter(file => file.endsWith('.ts') && file !== 'index.ts')) {
+    const text = readFileSync(join(triggers, name), 'utf8');
+    const namespace = text.match(/export const (\w+) = Object\.freeze/)[1];
+    for (const [, method, params] of text.matchAll(/^  (\w+)\(([^)]*)\) \{$/gm)) {
+      methods += 1;
+      assert.ok(authoring.includes(`| \`${namespace}.${method}(${params})\` |`), `${namespace}.${method}`);
+    }
+  }
+  assert.ok(methods > 500, `found ${methods} provider trigger methods`);
+  assert.match(authoring, /\| `github\.pull_request\(action\?: string\)` \| `github` \| `pull_request` \|/);
 });

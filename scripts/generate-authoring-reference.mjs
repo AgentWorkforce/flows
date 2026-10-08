@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { root, source, declarations, declarationText, unionDeclarations, exportedNames, exportSources, literal, signatureText, ts, typeReferences } from './authoring-source.mjs';
+import { root, source, declarations, declarationText, unionDeclarations, exportedNames, exportSources, literal, signatureText, starModule, ts, typeReferences } from './authoring-source.mjs';
 
 export const referencePaths = ['packages/surface/AUTHORING.md', 'docs/CLI.md'];
 const regenerate = 'npm run gen:docs --prefix packages/surface';
@@ -57,10 +57,52 @@ export function authoringReference() {
   const triggers = read('triggers');
   const schedules = read('schedule');
   text += fence(signatureText(triggers, 'webhook')) + '\n' + fence(signatureText(schedules, 'schedule'));
+  text += providerTriggers();
   text += '\n## Referenced declarations\n\nEvery exported type named by a declaration above or by the helper namespace table, followed transitively. Completion reasons and `Helpers` are the tables above.\n\n';
   // Helper namespace types appear only in the table above; declare the exported ones too.
-  text += referencedDeclarations(text, exports, helpers.map(member => member.type.getText()));
+  text += referencedDeclarations(text, exports, [...helpers.map(member => member.type.getText()), 'ProviderTriggerSource']);
   return text.replace(/\n+$/, '\n');
+}
+
+/**
+ * Generated provider trigger constructors, reached from the package root only
+ * through `export *`. Each method returns `providerTrigger(provider, event, ...)`;
+ * the table reads the provider and event literals from that call.
+ */
+function providerTriggers() {
+  const index = source(resolve(root, 'packages/surface/src/index.ts'));
+  const rows = [];
+  for (const star of index.statements.filter(ts.isExportDeclaration)) {
+    const barrel = starModule(index, star);
+    if (barrel === undefined) continue;
+    const barrelFile = source(barrel);
+    for (const entry of barrelFile.statements.filter(ts.isExportDeclaration)) {
+      if (!entry.exportClause || !ts.isNamedExports(entry.exportClause)) throw new Error(`${barrel}: unsupported re-export`);
+      const file = source(resolve(dirname(barrel), entry.moduleSpecifier.text.replace(/\.js$/, '.ts')));
+      for (const item of entry.exportClause.elements) {
+        const namespace = item.name.text;
+        const declaration = file.statements.filter(ts.isVariableStatement)
+          .flatMap(statement => statement.declarationList.declarations)
+          .find(candidate => candidate.name.getText(file) === (item.propertyName?.text ?? namespace));
+        const object = declaration?.initializer?.arguments?.[0];
+        if (!object || !ts.isObjectLiteralExpression(object)) throw new Error(`${file.fileName}: ${namespace} is not a frozen trigger object`);
+        for (const method of object.properties) {
+          const call = ts.isMethodDeclaration(method) && method.body?.statements.length === 1
+            && ts.isReturnStatement(method.body.statements[0]) ? method.body.statements[0].expression : undefined;
+          if (!call || !ts.isCallExpression(call) || call.expression.getText(file) !== 'providerTrigger'
+            || !ts.isStringLiteral(call.arguments[0]) || !ts.isStringLiteral(call.arguments[1])) {
+            throw new Error(`${file.fileName}: ${namespace}.${method.name?.getText(file)} does not return providerTrigger(provider, event)`);
+          }
+          const params = method.parameters.map(parameter => parameter.getText(file)).join(', ');
+          rows.push(`| \`${namespace}.${method.name.getText(file)}(${cell(params)})\` | \`${call.arguments[0].text}\` | \`${call.arguments[1].text}\` |`);
+        }
+      }
+    }
+  }
+  if (rows.length === 0) return '';
+  return '\n### Provider triggers\n\nExported from the package root (`import { github } from \'@relayflows/surface\'`). '
+    + 'Each call returns `ProviderTriggerSource<Provider, Event>` for the listed provider and event; pass it to `flow(...).on(...)` or `f.on(...)`.\n\n'
+    + '| Call | Provider | Event |\n| --- | --- | --- |\n' + rows.join('\n') + '\n';
 }
 
 /** Declare each exported surface type the reference names, so no signature points into dist/. */
