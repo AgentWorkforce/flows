@@ -355,3 +355,13 @@ it.each([
   expect(result.exit).toBe(2);
   expect(result.stderr.join('\n')).toContain('[helper_provider.unsupported]');
 });
+it.each(['test.flow.mjs', 'test.flow.js'])('never prompts to connect integrations for %s, which Cloud submission refuses', async name => {
+  const { ensureFlowConnections } = await import('../src/cli/cloud-connect-cli.js');
+  const path = fixture('', '{ tools: { slack: true } },', name.replace('test', 'cloud'));
+  writeFileSync(join(dirname(path), 'package.json'), '{"type":"module"}');
+  const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('no network in this test'));
+  const prompt = vi.fn(async () => true);
+  expect(await ensureFlowConnections({ path, prompt } as never, { token: 'test-token' })).toBeUndefined();
+  expect(prompt).not.toHaveBeenCalled();
+  expect(fetch).not.toHaveBeenCalled();
+});

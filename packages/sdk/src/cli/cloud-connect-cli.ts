@@ -80,11 +80,15 @@ export async function currentWorkspaceId(options: CloudConnectionOptions): Promi
  * contacted when the flow requires no integration, so a flow with no
  * helpers, sources or repository submits exactly as before; the derived
  * requirements still come back so a later harness refusal can name its remedy.
- * `undefined` only when the source does not load — the submission says why.
+ * `undefined` when the source does not load or is an authored extension Cloud
+ * does not submit — the submission says why.
  */
 export async function ensureFlowConnections(
   input: FlowConnectionsInput, options: CloudConnectionOptions = {},
 ): Promise<{ requirements: FlowRequirements; outcome: ConnectionsOutcome } | undefined> {
+  // Cloud submission accepts only .flow.ts among authored sources (cloud-run.ts
+  // prepareCloudSubmission); never prompt or connect for one it will refuse.
+  if (isAuthoredFlowPath(input.path) && !/\.flow\.ts$/iu.test(input.path)) return undefined;
   const requirements = await flowRequirementsForPath(input.path, input);
   if (requirements === undefined) return undefined;
   if (requirements.integrations.length === 0) return { requirements, outcome: { ready: [], connected: [] } };
