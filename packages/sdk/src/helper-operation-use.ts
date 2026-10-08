@@ -67,6 +67,8 @@ function readOrCall(value: AstNode, parents: WeakMap<AstNode, AstNode>): boolean
   while (parent !== undefined && ['ChainExpression', 'ParenthesizedExpression', 'AwaitExpression',
     'LogicalExpression', 'ConditionalExpression', 'SequenceExpression'].includes(parent.type)
     && !(parent.type === 'ConditionalExpression' && parent.test === current)) {
+    // Only a sequence's last operand is its value; earlier ones are discarded reads.
+    if (parent.type === 'SequenceExpression' && (parent.expressions as AstNode[]).at(-1) !== current) return true;
     current = parent;
     parent = parents.get(current);
   }
