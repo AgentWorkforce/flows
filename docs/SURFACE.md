@@ -1546,7 +1546,54 @@ Consumer examples must wait for matching Surface/SDK releases, updated consumer
 pins, and a Cloud runtime artifact that executes this vocabulary. The onboarding
 guards in agentrelay.com require a separate rollout and verification.
 
-The exit codes are part of the surface contract:
+### Detached local execution
+
+`flows run --detach --local-agent <flow.yaml>` starts the CLI and its local
+worker in a separate process, prints a run handle, and exits. Authored bodies
+are kept alive too: `flows run --detach --local-agent review.flow.ts --input
+input.json`. Continue an existing run with `flows resume --detach
+--local-agent <run-id>`, using the same `--data-dir` as its original invocation.
+The child inherits the directory and environment of the shell that starts it.
+Detachment does not change macOS login-keychain access: start from a session
+that already has the credentials the agent CLI needs.
+
+Text output includes `DETACHED <run-id>`, the child PID, log and receipt paths,
+an optional observer URL, and a runnable `flows status` command. `--json`
+emits one object with `detached`, `runId`, `pid`, `logPath`, `recordPath`,
+`follow`, `notice`, and optional `observerUrl`. The parent's exit 0 means the
+run was admitted, not that it completed: it can still fail, park (exit 3 in
+the child), or suspend. Read the journal with `flows status <run-id>
+--data-dir <dir>`; the log carries park remedies, human-gate instructions,
+and the `PTY <path>` sidechannel socket used to steer a local agent.
+
+The private `<data-dir>/detached/run-*/` directory retains `run.log` and an
+atomically written `record.json`. The receipt records the final child report
+and exit code when it finishes; it is an index, never a replacement for the
+journal. There is no automatic process restart or cross-run worker service.
+Logs and receipts remain for inspection until you remove them.
+
+Preflight and bundle fetching run once, in the child. Before admission the
+parent waits up to 60 seconds for the daemon to admit the run or for the
+child's report. Only admission (including resuming an already completed
+authored root) yields the detached handle; anything that ends before it, such
+as a refusal or a resume whose pinned source changed, is reported as the
+child's own report with its exit code and diagnostics. If startup exits unexpectedly
+or times out, the parent exits 1 with the log path. A timeout sends SIGTERM to
+the child; inspect the log before retrying because a journal may already exist.
+The parent waits at most two more seconds for an observer URL. An absent URL
+is not guessed: a later mint is written to the log and receipt. Observer
+failure cannot fail the run. `--cloud-mirror` remains opt-in.
+
+`--detach` accepts the ordinary local run/resume options, including
+`--no-spawn`, `--no-observer-link`, `--reuse-from`, `--agent-capacity`, and
+`--allow-human-influenced` where those options apply. It is refused with
+`--cloud`, on `check`, and when repeated. Hosts using
+`FLOWS_LOCAL_AGENT_ENV_FD` receive `detach_environment_fd_unsupported` (exit 2):
+forwarding that one-shot credential descriptor is not implemented.
+
+Without `--detach`, `--local-agent` remains bound to the invoking terminal.
+
+The foreground exit codes are part of the surface contract:
 
 | Exit | Outcome |
 |---:|---|

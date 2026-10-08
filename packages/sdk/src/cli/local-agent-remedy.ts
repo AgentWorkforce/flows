@@ -66,6 +66,8 @@ export function authoredInput(argument: string | undefined): AuthoredInput {
  */
 const PINS = 'Declared workspace or stream surfaces require a worker that holds their pins.';
 
+const DETACH = ' --local-agent binds the worker to this terminal. Add --detach to run in the background.';
+
 /**
  * The remedy clause appended to a worker-park diagnostic, with a leading
  * space, or `''` when there is nothing to add.
@@ -82,11 +84,11 @@ export function localAgentRemedy(remedy: LocalAgentRemedy): string {
         + ` ${PINS} The local agent worker holds only its own stream.`;
     case 'spec-run':
       return ` To start a new run with a local agent worker: ${
-        newRunCommand(remedy.path, undefined, remedy.dataDir)}. ${PINS}`;
+        newRunCommand(remedy.path, undefined, remedy.dataDir)}. ${PINS}${DETACH}`;
     case 'spec-resume':
       // This run is resumable, so the remedy is this run — not a new one.
       return ` To continue this run with a local agent worker: ${
-        resumeCommand(remedy.runId, remedy.dataDir, true)}. ${PINS}`;
+        resumeCommand(remedy.runId, remedy.dataDir, true)}. ${PINS}${DETACH}`;
     case 'authored-run':
       return authoredRunRemedy(remedy);
   }
@@ -103,7 +105,7 @@ export function localAgentRemedy(remedy: LocalAgentRemedy): string {
 function authoredRunRemedy(remedy: Extract<LocalAgentRemedy, { kind: 'authored-run' }>): string {
   if (remedy.input.kind === 'inline') {
     return ` To start a new run with a local agent worker: ${
-      newRunCommand(remedy.path, remedy.input.argument, remedy.dataDir)}. ${PINS}`;
+      newRunCommand(remedy.path, remedy.input.argument, remedy.dataDir)}. ${PINS}${DETACH}`;
   }
   const requirement = ' A local agent worker is admitted at run start, so this run needs a new one.'
     + ` Starting one needs --local-agent, the flow path ${shellQuote(remedy.path)}, and the same`
@@ -115,7 +117,7 @@ function authoredRunRemedy(remedy: Extract<LocalAgentRemedy, { kind: 'authored-r
     // printed `--input '<json>'` would fail before the CLI ran at all.
     : `the journal recorded ${remedy.input.bytes} bytes of input, more than a shell`
       + ' can carry in one argument, so pass the input file this run was started from.')
-    + ` ${PINS}`;
+    + ` ${PINS}${DETACH}`;
 }
 
 /**

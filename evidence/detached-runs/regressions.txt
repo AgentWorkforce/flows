@@ -1,0 +1,76 @@
+Working directory (relative to repository): packages/sdk
+Command: npx vitest run tests/detached-start.test.ts tests/cli.test.ts tests/cli-progress-wait.test.ts tests/cli-detach.test.ts tests/cli-detach-live.test.ts tests/local-agent-remedy.test.ts tests/observer-link.test.ts tests/cli-cloud-mirror-flag.test.ts tests/relay-cli-surface.test.ts
+Exit code: 0
+Captured stdout/stderr follows:
+
+ RUN  v2.1.9 /home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk
+
+ ✓ tests/relay-cli-surface.test.ts (87 tests) 47ms
+ ✓ tests/observer-link.test.ts (44 tests) 195ms
+stdout | tests/cli-detach-live.test.ts
+LIVE_KERNEL relayflowd=/home/daytona/.relayflows-toolchain/target/2962130851/debug/relayflowd
+LIVE_KERNEL flows=/home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/dist/cli.js
+
+ ✓ tests/local-agent-remedy.test.ts (16 tests) 16ms
+ ✓ tests/cli-detach.test.ts (10 tests) 10ms
+ ✓ tests/detached-start.test.ts (3 tests) 19ms
+stdout | tests/cli-detach-live.test.ts > detached runs through a real terminal process group > yaml completes after the invoking terminal group is killed mid-agent
+PARENT ["/usr/local/share/nvm/versions/node/v25.6.0/bin/node","/home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/dist/cli.js","run","/tmp/flows-detach-ld8ZSc/flow.yaml","--local-agent","--json","--no-observer-link","--data-dir","/tmp/flows-detach-ld8ZSc/data","--detach"]
+{"status":0,"stdout":"{\"detached\":true,\"runId\":\"01M48Z354X6FCV8ZCB116ES2GB\",\"pid\":15623,\"logPath\":\"/tmp/flows-detach-ld8ZSc/data/detached/run-KYTnGP/run.log\",\"recordPath\":\"/tmp/flows-detach-ld8ZSc/data/detached/run-KYTnGP/record.json\",\"follow\":\"flows status 01M48Z354X6FCV8ZCB116ES2GB --data-dir /tmp/flows-detach-ld8ZSc/data\",\"notice\":\"Started in background; the run may later fail or park. Check status and the log for any park remedy.\"}\n","stderr":""}
+kill -TERM -- -15530
+
+stdout | tests/cli-detach-live.test.ts > detached runs through a real terminal process group > yaml completes after the invoking terminal group is killed mid-agent
+STATUS ["/usr/local/share/nvm/versions/node/v25.6.0/bin/node","/home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/dist/cli.js","status","--json","01M48Z354X6FCV8ZCB116ES2GB","--data-dir","/tmp/flows-detach-ld8ZSc/data"]
+{"completion_reason":"success","counts":{"backoff":0,"done":2,"needs_human":0,"pending":0,"running":0,"total":2,"waiting":0},"name":"detached-agent","now_ms":1791302408234,"partial":[],"reported_cost":{"complete":false,"dollars":"0","source":null},"run_id":"01M48Z354X6FCV8ZCB116ES2GB","spawned_at_ms":1791302407341,"spend":{"dollars":"0","dollars_unmetered":true,"tokens_in":0,"tokens_out":0},"status":"completed","steps":[{"artifacts":{"journaled":false,"paths":[]},"attempt":1,"backoff_until_ms":null,"completion_reason":"success","elapsed_ms":122,"id":"agent","last_attempt":{"attempt":1,"completion_reason":"success","disposition":"step_done","effects":0,"ended_at_ms":1791302407470,"human_intervention":false,"transcript":null,"verification":{"detail":"all gates passed","gate":"completion","verdict":"pass"}},"lease":null,"max_iterations":1,"reported_cost":{"complete":false,"dollars":"0","source":null},"spend":{"dollars":"0","dollars_unmetered":true,"tokens_in":0,"tokens_out":0},"started_at_ms":1791302407348,"state":"done","tails":{"stderr":null,"stdout":null},"type":"agent","wait":null},{"artifacts":{"journaled":false,"paths":[]},"attempt":1,"backoff_until_ms":null,"completion_reason":"success","elapsed_ms":5,"id":"finish","last_attempt":{"attempt":1,"completion_reason":"success","disposition":"step_done","effects":0,"ended_at_ms":1791302407519,"human_intervention":false,"transcript":null,"verification":{"detail":"all gates passed","gate":"exit_code","verdict":"pass"}},"lease":null,"max_iterations":1,"reported_cost":{"complete":true,"dollars":"0","source":null},"spend":{"dollars":"0","dollars_unmetered":false,"tokens_in":0,"tokens_out":0},"started_at_ms":1791302407514,"state":"done","tails":null,"type":"deterministic","wait":null}],"this_step":null,"v":1}
+(node:15750) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+ ✓ tests/cli-cloud-mirror-flag.test.ts (4 tests) 3ms
+ ✓ tests/cli-progress-wait.test.ts (2 tests) 4ms
+ ✓ tests/cli.test.ts (71 tests) 3976ms
+   ✓ flows check CLI > binds a checked relative wrapper to the flow directory for worker execution 776ms
+   ✓ flows check CLI > resolves a bare PATH-resolved claude with no declared model, in an isolated PATH 685ms
+   ✓ flows run/resume CLI over the journal protocol > follows a worker wait past a locally expired lease until the daemon settles it 1064ms
+stdout | tests/cli-detach-live.test.ts > detached runs through a real terminal process group > authored completes after the invoking terminal group is killed mid-agent
+PARENT ["/usr/local/share/nvm/versions/node/v25.6.0/bin/node","/home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/dist/cli.js","run","/tmp/flows-detach-7POjGT/body.flow.ts","--input","{}","--local-agent","--json","--no-observer-link","--data-dir","/tmp/flows-detach-7POjGT/data","--detach"]
+{"status":0,"stdout":"{\"detached\":true,\"runId\":\"01M48Z37BE31P777BYTQKJ7W14\",\"pid\":15884,\"logPath\":\"/tmp/flows-detach-7POjGT/data/detached/run-IHGQh5/run.log\",\"recordPath\":\"/tmp/flows-detach-7POjGT/data/detached/run-IHGQh5/record.json\",\"follow\":\"flows status 01M48Z37BE31P777BYTQKJ7W14 --data-dir /tmp/flows-detach-7POjGT/data\",\"notice\":\"Started in background; the run may later fail or park. Check status and the log for any park remedy.\"}\n","stderr":""}
+
+stdout | tests/cli-detach-live.test.ts > detached runs through a real terminal process group > authored completes after the invoking terminal group is killed mid-agent
+kill -TERM -- -15831
+
+stdout | tests/cli-detach-live.test.ts > detached runs through a real terminal process group > authored completes after the invoking terminal group is killed mid-agent
+STATUS ["/usr/local/share/nvm/versions/node/v25.6.0/bin/node","/home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/dist/cli.js","status","--json","01M48Z37BE31P777BYTQKJ7W14","--data-dir","/tmp/flows-detach-7POjGT/data"]
+{"authored_steps":[{"completion_reason":"success","label":"waiting","run_id":"01M48Z37EVJTREYWXW13GB0B16","state":"completed","step":"agent-1"},{"after":["agent-1"],"completion_reason":"success","run_id":"01M48Z37KAGASGXTF72HCQ9VBG","state":"completed","step":"run-2"},{"completion_reason":"success","run_id":"01M48Z37KZ9XTJJ6B3MM4924MZ","state":"completed","step":"complete-3"}],"completion_reason":"success","counts":{"backoff":0,"done":1,"needs_human":0,"pending":0,"running":0,"total":1,"waiting":0},"name":"authored-root/detached-body","now_ms":1791302410272,"partial":[],"reported_cost":{"complete":true,"dollars":"0","source":null},"run_id":"01M48Z37BE31P777BYTQKJ7W14","spawned_at_ms":1791302409592,"spend":{"dollars":"0","dollars_unmetered":false,"tokens_in":0,"tokens_out":0},"status":"completed","steps":[{"artifacts":{"journaled":false,"paths":[]},"attempt":1,"backoff_until_ms":null,"completion_reason":"success","elapsed_ms":280,"id":"authored-root","last_attempt":{"attempt":1,"completion_reason":"success","disposition":"step_done","effects":0,"ended_at_ms":1791302409877,"human_intervention":false,"transcript":null,"verification":{"detail":"all gates passed","gate":"completion","verdict":"pass"}},"lease":null,"max_iterations":1,"reported_cost":{"complete":true,"dollars":"0","source":null},"spend":{"dollars":"0","dollars_unmetered":false,"tokens_in":0,"tokens_out":0},"started_at_ms":1791302409597,"state":"done","tails":{"stderr":null,"stdout":null},"type":"agent","wait":null}],"this_step":null,"v":1}
+(node:15989) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+stdout | tests/cli-detach-live.test.ts > detached runs through a real terminal process group > resume completes after the invoking terminal group is killed mid-agent
+PARENT ["/usr/local/share/nvm/versions/node/v25.6.0/bin/node","/home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/dist/cli.js","resume","01M48Z38GSPC92DYVF1WZSTHVP","--local-agent","--json","--no-observer-link","--data-dir","/tmp/flows-detach-IJKqRG/data","--detach"]
+{"status":0,"stdout":"{\"detached\":true,\"runId\":\"01M48Z38GSPC92DYVF1WZSTHVP\",\"pid\":16066,\"logPath\":\"/tmp/flows-detach-IJKqRG/data/detached/run-IxEXaP/run.log\",\"recordPath\":\"/tmp/flows-detach-IJKqRG/data/detached/run-IxEXaP/record.json\",\"follow\":\"flows status 01M48Z38GSPC92DYVF1WZSTHVP --data-dir /tmp/flows-detach-IJKqRG/data\",\"notice\":\"Started in background; the run may later fail or park. Check status and the log for any park remedy.\"}\n","stderr":""}
+
+stdout | tests/cli-detach-live.test.ts > detached runs through a real terminal process group > resume completes after the invoking terminal group is killed mid-agent
+kill -TERM -- -16051
+
+stdout | tests/cli-detach-live.test.ts > detached runs through a real terminal process group > resume completes after the invoking terminal group is killed mid-agent
+STATUS ["/usr/local/share/nvm/versions/node/v25.6.0/bin/node","/home/daytona/.relayflow-v2-supervisor/durable/repository/packages/sdk/dist/cli.js","status","--json","01M48Z38GSPC92DYVF1WZSTHVP","--data-dir","/tmp/flows-detach-IJKqRG/data"]
+{"completion_reason":"success","counts":{"backoff":0,"done":2,"needs_human":0,"pending":0,"running":0,"total":2,"waiting":0},"name":"detached-agent","now_ms":1791302412072,"partial":[],"reported_cost":{"complete":false,"dollars":"0","source":null},"run_id":"01M48Z38GSPC92DYVF1WZSTHVP","spawned_at_ms":1791302410780,"spend":{"dollars":"0","dollars_unmetered":true,"tokens_in":0,"tokens_out":0},"status":"completed","steps":[{"artifacts":{"journaled":false,"paths":[]},"attempt":1,"backoff_until_ms":null,"completion_reason":"success","elapsed_ms":75,"id":"agent","last_attempt":{"attempt":1,"completion_reason":"success","disposition":"step_done","effects":0,"ended_at_ms":1791302411645,"human_intervention":false,"transcript":null,"verification":{"detail":"all gates passed","gate":"completion","verdict":"pass"}},"lease":null,"max_iterations":1,"reported_cost":{"complete":false,"dollars":"0","source":null},"spend":{"dollars":"0","dollars_unmetered":true,"tokens_in":0,"tokens_out":0},"started_at_ms":1791302411570,"state":"done","tails":{"stderr":null,"stdout":null},"type":"agent","wait":null},{"artifacts":{"journaled":false,"paths":[]},"attempt":1,"backoff_until_ms":null,"completion_reason":"success","elapsed_ms":2,"id":"finish","last_attempt":{"attempt":1,"completion_reason":"success","disposition":"step_done","effects":0,"ended_at_ms":1791302411649,"human_intervention":false,"transcript":null,"verification":{"detail":"all gates passed","gate":"exit_code","verdict":"pass"}},"lease":null,"max_iterations":1,"reported_cost":{"complete":true,"dollars":"0","source":null},"spend":{"dollars":"0","dollars_unmetered":false,"tokens_in":0,"tokens_out":0},"started_at_ms":1791302411647,"state":"done","tails":null,"type":"deterministic","wait":null}],"this_step":null,"v":1}
+(node:16091) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+ ✓ tests/cli-detach-live.test.ts (7 tests) 10955ms
+   ✓ detached runs through a real terminal process group > yaml completes after the invoking terminal group is killed mid-agent 2429ms
+   ✓ detached runs through a real terminal process group > authored completes after the invoking terminal group is killed mid-agent 2035ms
+   ✓ detached runs through a real terminal process group > resume completes after the invoking terminal group is killed mid-agent 1797ms
+   ✓ detached runs through a real terminal process group > returns the child preflight refusal instead of a detached success 798ms
+   ✓ detached runs through a real terminal process group > does not report a missing resume target as admitted 839ms
+   ✓ detached runs through a real terminal process group > replayed history cannot acknowledge a human-influenced resume refusal 2102ms
+   ✓ detached runs through a real terminal process group > retains a parked outcome and remedy in the child log and receipt 887ms
+
+ Test Files  9 passed (9)
+      Tests  244 passed (244)
+   Start at  16:00:03
+   Duration  13.51s (transform 1.54s, setup 82ms, collect 8.82s, tests 15.23s, environment 1ms, prepare 526ms)
+

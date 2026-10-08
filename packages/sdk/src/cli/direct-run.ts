@@ -105,6 +105,7 @@ export async function runDirectFlow(
         lifecycle: {
           onProgress: options.onProgress,
           ...(options.onRunStarted !== undefined ? { onRunStarted: options.onRunStarted } : {}),
+          ...(options.onRunReceipt !== undefined ? { onRunReceipt: options.onRunReceipt } : {}),
           ...(options.signal !== undefined ? { signal: options.signal } : {}),
           ...(options.onWait !== undefined ? { onWait: options.onWait } : {}),
         },
