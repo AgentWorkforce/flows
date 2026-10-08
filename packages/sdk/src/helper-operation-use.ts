@@ -20,7 +20,9 @@ export function helperOperationUse(body: string, root: string, namespace: string
   const program = parseFlowBody(body);
   if (program === null) return new RegExp(`\\.\\s*${method}\\b`).test(body) ? 'unprovable' : 'absent';
   const parents = new WeakMap<AstNode, AstNode>();
+  const all: AstNode[] = [];
   const link = (node: AstNode): void => {
+    all.push(node);
     for (const key of Object.keys(node)) {
       if (key === 'type' || key === 'start' || key === 'end' || key === 'loc') continue;
       const child = node[key];
@@ -32,18 +34,12 @@ export function helperOperationUse(body: string, root: string, namespace: string
   link(program);
   let result: 'called' | 'absent' | 'unprovable' = 'absent';
   const mark = (found: 'called' | 'unprovable') => { if (result !== 'unprovable') result = found; };
+  // Body-wide, whatever scope binds the context name: code that rewrites the
+  // prototypes helpers inherit from (or runs source text) can intercept the
+  // helper anywhere, so nothing is attributable once it is present.
+  const local = localNames(all);
+  if (all.some(node => reachesMachinery(node, parents, local))) return 'unprovable';
   walkReferences(program, root, false, { rootFunctionFound: false }, (node) => {
-    // Prototype machinery lets the body intercept the helper wherever it is
-    // coerced or inherited from (toPrimitive, a replaced Object.prototype
-    // method, a Proxy), so no use of it is attributable once present.
-    if ((node.type === 'MemberExpression' && node.computed !== true
-        && PROTOTYPE_MACHINERY.has((node.property as AstNode).name ?? ''))
-      || (node.type === 'Identifier' && (node.name === 'Reflect' || node.name === 'Proxy')
-        && !declares(parents.get(node) ?? node, node))) return mark('unprovable');
-    // eval and Function run source text this scan never sees.
-    if ((node.type === 'CallExpression' || node.type === 'NewExpression')
-      && (node.callee as AstNode).type === 'Identifier'
-      && ['eval', 'Function'].includes((node.callee as AstNode).name!)) return mark('unprovable');
     // `arguments[0]` is the context in a non-arrow root body without naming it.
     if (node.type === 'Identifier' && node.name === 'arguments' && rootArguments(node, parents)) return mark('unprovable');
     if (node.type !== 'Identifier' || node.name !== root) return;
@@ -77,6 +73,43 @@ export function helperOperationUse(body: string, root: string, namespace: string
     if (!readOrCall(node, parents)) mark('unprovable');
   });
   return result;
+}
+
+/** Names the body binds itself, which therefore do not refer to the global of that name. */
+function localNames(all: readonly AstNode[]): ReadonlySet<string> {
+  const names = new Set<string>();
+  const bind = (pattern: AstNode | undefined | null): void => {
+    if (!pattern) return;
+    if (pattern.type === 'Identifier') names.add(pattern.name!);
+    else if (pattern.type === 'AssignmentPattern') bind(pattern.left as AstNode);
+    else if (pattern.type === 'RestElement') bind(pattern.argument as AstNode);
+    else if (pattern.type === 'ArrayPattern') for (const element of (pattern.elements as Array<AstNode | null>)) bind(element);
+    else if (pattern.type === 'ObjectPattern') {
+      for (const property of pattern.properties as AstNode[]) bind((property.type === 'Property' ? property.value : property.argument) as AstNode);
+    }
+  };
+  for (const node of all) {
+    if (node.type === 'VariableDeclarator') bind(node.id as AstNode);
+    else if (isFunction(node)) {
+      bind(node.id as AstNode | undefined);
+      for (const param of (node.params as AstNode[] | undefined) ?? []) bind(param);
+    } else if (node.type === 'ClassDeclaration') bind(node.id as AstNode | undefined);
+    else if (node.type === 'CatchClause') bind(node.param as AstNode | undefined);
+  }
+  return names;
+}
+
+/** Prototype machinery, eval or Function: anything that lets the body intercept or hide a helper use. */
+function reachesMachinery(node: AstNode, parents: WeakMap<AstNode, AstNode>, local: ReadonlySet<string>): boolean {
+  if (node.type === 'MemberExpression' && node.computed !== true
+    && PROTOTYPE_MACHINERY.has((node.property as AstNode).name ?? '')) return true;
+  if (node.type === 'Identifier' && (node.name === 'Reflect' || node.name === 'Proxy') && !local.has(node.name)) {
+    const parent = parents.get(node);
+    return parent === undefined || !declares(parent, node);
+  }
+  return (node.type === 'CallExpression' || node.type === 'NewExpression')
+    && (node.callee as AstNode).type === 'Identifier'
+    && ['eval', 'Function'].includes((node.callee as AstNode).name!) && !local.has((node.callee as AstNode).name!);
 }
 
 /** Members through which a body can reach or rewrite the prototypes every helper inherits from. */

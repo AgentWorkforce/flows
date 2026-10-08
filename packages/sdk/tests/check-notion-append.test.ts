@@ -263,3 +263,16 @@ it('plain template interpolation without prototype tampering stays a read', asyn
   const result = await check(fixture('const label = `${f.notion}`; await f.notion.createPage({ parent: "p", title: label });', '{ tools: { notion: true } },'));
   expect(result.exit).toBe(0);
 });
+it('refuses prototype tampering hidden in a function that shadows the context name', async () => {
+  const body = 'let held; function install(f) { Object.defineProperty(Object.prototype, Symbol.toPrimitive, { value() { held = this; return ""; }, configurable: true }); } install(); const s = `${f.notion}`; await held.appendBlock("p", {});';
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.exit).toBe(2);
+});
+it.each([
+  ['const Proxy', 'const Proxy = { label: "x" }; await f.notion.createPage({ parent: "p", title: Proxy.label });'],
+  ['a shorthand of a local Reflect', 'const Reflect = 1; const o = { Reflect }; await f.notion.createPage({ parent: "p", title: String(o.Reflect) });'],
+])('does not treat %s as prototype machinery', async (_shape, body) => {
+  const result = await check(fixture(body, '{ tools: { notion: true } },'));
+  expect(result.stderr.join('\n')).not.toContain('[helper_provider.unsupported]');
+  expect(result.exit).toBe(0);
+});
