@@ -1,0 +1,70 @@
+# fix.ts at 53eafc86 (before the review-2 path fixes); tests from the review-2 commit.
+$ node --experimental-strip-types --test tests/fixer.test.ts
+✔ the fixer checks out the bound head, runs one agent there with fix rules, and journals one proposal (3.756767ms)
+✔ the fixer never writes to GitHub itself: no push, merge, review, or comment calls (0.867821ms)
+✔ thread replies go only to inline feedback this run was woken by, once each, marked and neutralised (0.628514ms)
+✔ a head that moves while fixing declines without a proposal (0.444009ms)
+✔ a refused proposal ends needs_human (0.481018ms)
+✔ by default the fixer dispatches no agent and checks nothing out (gate 8 / #442) (1.27432ms)
+✔ the agent outcome is read from a JSON message, a fenced JSON block, or falls back to prose (0.290312ms)
+✔ a real proposal covers edits, new files and the agent's own commits, all against the bound head (74.030768ms)
+✔ workflow, secret, oversized and too-wide proposals are refused whole (329.241222ms)
+✔ an untouched checkout proposes an empty patch (replies and summary may still publish) (41.292689ms)
+✔ the proposal script runs as f.run runs it: a stringified `node -e` command in a shell (72.972662ms)
+✔ the proposal script lifted from the shipped artifact runs under `node -e` (71.869952ms)
+✔ the proposal never runs code the agent planted in the checkout's git config, and its diff format is fixed (48.506372ms)
+✖ paths git would have to quote are refused; a newline cannot split a name past the workflow rule (42.368838ms)
+✖ a non-ASCII name is proposed unquoted, so Cloud parses the same path (43.713831ms)
+✔ the fixer runs the origin session's own CLI with its literal pinned model (1.376952ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 14
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 870.340071
+
+✖ failing tests:
+
+test at tests/fixer.test.ts:236:1
+✖ paths git would have to quote are refused; a newline cannot split a name past the workflow rule (42.368838ms)
+  AssertionError [ERR_ASSERTION]: ".github/workflows/a\nb.yml"
+  + actual - expected
+  
+  + 'babysitter-proposal'
+  - 'babysitter-refusal'
+                ^
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/tests/fixer.test.ts:242:12)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'babysitter-proposal',
+    expected: 'babysitter-refusal',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/fixer.test.ts:246:1
+✖ a non-ASCII name is proposed unquoted, so Cloud parses the same path (43.713831ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   '"src/caf\\303\\251.ts"'
+  -   'src/café.ts'
+    ]
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/tests/fixer.test.ts:250:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ '"src/caf\\303\\251.ts"' ],
+    expected: [ 'src/café.ts' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+exit=1

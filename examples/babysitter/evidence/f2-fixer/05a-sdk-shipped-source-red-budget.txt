@@ -1,0 +1,27 @@
+$ (cd packages/sdk && ./node_modules/.bin/vitest run tests/shipped-source-models.test.ts)
+AssertionError: examples/babysitter/artifacts/babysitter-fixer.flow.ts: current model aliases have no verified frozen price; dollar budgets need at most 100,000 tokens per dollar: expected [ Array(1) ] to deeply equal []
+
+- Expected
++ Received
+
+- Array []
++ Array [
++   "examples/babysitter/artifacts/babysitter-fixer.flow.ts:751",
++ ]
+
+ ❯ tests/shipped-source-models.test.ts:94:9
+     92|         result.dollarBudgetsWithoutTokenCeilings,
+     93|         `${name}: current model aliases have no verified frozen price;…
+     94|       ).toEqual([]);
+       |         ^
+     95|       if (result.unresolved.length > 0) {
+     96|         const expectedCalls = DYNAMIC_PAIR_SOURCE_WAIVERS.get(name);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  19:29:24
+   Duration  95.36s (transform 1.05s, setup 113ms, collect 2.14s, tests 92.04s, environment 0ms, prepare 300ms)
+
+exit=1

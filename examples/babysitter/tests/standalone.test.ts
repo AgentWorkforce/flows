@@ -317,7 +317,7 @@ test('unanswered review feedback alone is actionable and reaches the agent with 
   await body()(ctx.f, input({ eventType: 'pull_request_review.submitted' }));
   assert.equal(ctx.agents.length, 1);
   const task = String(ctx.agents[0]!.options.task);
-  assert.match(task, /Review comment by coderabbitai\[bot\] on src\/queue\.ts:42: Possible null dereference/);
+  assert.match(task, /Review comment #11 by coderabbitai\[bot\] on src\/queue\.ts:42: Possible null dereference/);
   assert.match(task, /Review by dana: Please add a regression test/);
 });
 
@@ -376,5 +376,5 @@ test('file-level review feedback renders its path without a line', async () => {
     { kind: 'inline', id: 21, login: 'dana', body: 'Needs a header', path: 'src/queue.ts', thread: 21, createdAt: '2026-10-05T00:00:00Z' },
   ] }) });
   await body()(ctx.f, input({ eventType: 'pull_request_review.submitted' }));
-  assert.match(String(ctx.agents[0]!.options.task), /Review comment by dana on src\/queue\.ts: Needs a header/);
+  assert.match(String(ctx.agents[0]!.options.task), /Review comment #21 by dana on src\/queue\.ts: Needs a header/);
 });

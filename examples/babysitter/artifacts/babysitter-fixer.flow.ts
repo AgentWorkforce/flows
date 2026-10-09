@@ -1,4 +1,4 @@
-// standalone.ts
+// fixer.ts
 import { flow } from "@relayflows/surface";
 
 // models.ts
@@ -427,68 +427,10 @@ async function readSignals(c) {
   if (Buffer.byteLength(out) > BUDGET) throw new Error("PR signals exceed safe journal output size");
   process.stdout.write(out);
 }
-async function postComment(c) {
-  if (!process.env.GH_TOKEN) throw new Error("GH_TOKEN required");
-  const res = await fetch(`https://api.github.com/repos/${c.owner}/${c.repo}/issues/${c.number}/comments`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
-    body: JSON.stringify({ body: c.body })
-  });
-  if (!res.ok) throw new Error(`GitHub comment POST: ${res.status}`);
-  process.stdout.write(JSON.stringify({ id: (await res.json()).id }));
-}
-async function settleReport(c) {
-  if (!process.env.GH_TOKEN) throw new Error("GH_TOKEN required");
-  const api = `https://api.github.com/repos/${c.owner}/${c.repo}`;
-  const headers = { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: "application/vnd.github+json" };
-  const own = [];
-  for (let page = 1; ; page++) {
-    if (page > 50) throw new Error("Pagination exceeded; cannot settle report");
-    const res = await fetch(`${api}/issues/${c.number}/comments?per_page=100&page=${page}`, { headers });
-    if (!res.ok) throw new Error(`GitHub GET comments: ${res.status}`);
-    const batch = await res.json();
-    if (!Array.isArray(batch)) throw new Error("Malformed GitHub list");
-    for (const m of batch) {
-      if (String(m.user?.login ?? "").toLowerCase() === c.botLogin.toLowerCase() && String(m.body ?? "").includes(c.marker)) own.push(m.id);
-    }
-    if (batch.length < 100) break;
-  }
-  if (!own.includes(c.id)) throw new Error("Posted report is not visible; cannot settle");
-  const kept = Math.min(...own) === c.id;
-  if (!kept) {
-    const res = await fetch(`${api}/issues/comments/${c.id}`, { method: "DELETE", headers });
-    if (!res.ok) throw new Error(`GitHub comment DELETE: ${res.status}`);
-  }
-  process.stdout.write(JSON.stringify({ kept }));
-}
-async function annotateReport(c) {
-  if (!process.env.GH_TOKEN) throw new Error("GH_TOKEN required");
-  const url = `https://api.github.com/repos/${c.owner}/${c.repo}/issues/comments/${c.id}`;
-  const headers = { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" };
-  const current = await fetch(url, { headers });
-  if (!current.ok) throw new Error(`GitHub comment GET: ${current.status}`);
-  const res = await fetch(url, { method: "PATCH", headers, body: JSON.stringify({ body: `> ${c.note}
-
-${(await current.json()).body}` }) });
-  if (!res.ok) throw new Error(`GitHub comment PATCH: ${res.status}`);
-}
 async function readSignalsAt(f, pr, head, who) {
   const value = JSON.parse(await f.run(nodeCommand(readSignals, { owner: pr.owner, repo: pr.repo, number: pr.number, head, ...who }), { timeout: "2m" }));
   if (value.headSha !== head) throw new Error("Signals were read for a different head");
   return value;
-}
-async function postReport(f, pr, body) {
-  const posted = JSON.parse(await f.run(nodeCommand(postComment, { owner: pr.owner, repo: pr.repo, number: pr.number, body }), { timeout: "2m" }));
-  if (!Number.isSafeInteger(posted.id)) throw new Error("GitHub did not return the posted comment id");
-  return posted.id;
-}
-async function settle(f, pr, id, botLogin, marker) {
-  const value = JSON.parse(await f.run(nodeCommand(settleReport, { owner: pr.owner, repo: pr.repo, number: pr.number, id, botLogin, marker }), { timeout: "2m" }));
-  if (typeof value.kept !== "boolean") throw new Error("Report settlement returned no verdict");
-  return value.kept;
-}
-async function annotate(f, pr, id, note) {
-  await f.run(nodeCommand(annotateReport, { owner: pr.owner, repo: pr.repo, id, note }), { timeout: "2m" });
 }
 
 // state.ts
@@ -556,7 +498,6 @@ function boundPullRequest(value) {
   if (typeof pr.owner !== "string" || typeof pr.repo !== "string" || !Number.isSafeInteger(pr.number) || Number(pr.number) <= 0 || typeof pr.headSha !== "string" || !/^[a-f0-9]{40}$/.test(pr.headSha)) return void 0;
   return { owner: pr.owner, repo: pr.repo, number: Number(pr.number), headSha: pr.headSha };
 }
-var reportMarker = (pr, head) => `<!-- babysitter:report ${pr.owner.toLowerCase()}/${pr.repo.toLowerCase()}#${pr.number}@${head} -->`;
 function gardenPullRequest(s, c) {
   return typeof s.headRef === "string" && s.headRef.startsWith("relayflow/") && String(s.headRepo).toLowerCase() === `${c.owner}/${c.repo}`.toLowerCase();
 }
@@ -657,64 +598,168 @@ var capabilities = Object.freeze({
   durableSubscriptionLiveness: false
 });
 
-// standalone.ts
-function createStandaloneBabysitter(policy, runtime = capabilities) {
+// fix.ts
+var PROPOSAL_MAX_BYTES = 5e4;
+var PATCH_MAX_BYTES = 36e3;
+var PATCH_MAX_FILES = 50;
+var REPLY_MAX_CHARS = 1e3;
+var SUMMARY_MAX_CHARS = 4e3;
+var REFUSED_PATHS = String.raw`^\.github/workflows/|(^|/)\.env($|\.)|\.(pem|key|p12|pfx|jks)$|(^|/)id_(rsa|dsa|ecdsa|ed25519)(\.pub)?$|(^|/)\.(npmrc|netrc|pypirc)$|(^|/)secrets?/`;
+async function checkoutHead(c) {
+  const { execFileSync } = await import("node:child_process");
+  const { existsSync, mkdirSync, rmSync, writeFileSync } = await import("node:fs");
+  const { resolve } = await import("node:path");
+  if (!process.env.GH_TOKEN) throw new Error("GH_TOKEN required");
+  const dir = resolve("babysitter-checkout");
+  const auth = Buffer.from(`x-access-token:${process.env.GH_TOKEN}`).toString("base64");
+  const env = {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_COUNT: "3",
+    GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
+    GIT_CONFIG_VALUE_0: `Authorization: Basic ${auth}`,
+    GIT_CONFIG_KEY_1: "core.hooksPath",
+    GIT_CONFIG_VALUE_1: "/dev/null",
+    GIT_CONFIG_KEY_2: "advice.detachedHead",
+    GIT_CONFIG_VALUE_2: "false"
+  };
+  const git = (...args) => String(execFileSync("git", ["-C", dir, ...args], { env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })).trim();
+  const reused = existsSync(`${dir}/.git`);
+  if (!reused) {
+    mkdirSync(dir, { recursive: true });
+    git("init", "-q");
+  }
+  writeFileSync(`${dir}/.git/config`, "[core]\n	repositoryformatversion = 0\n	filemode = true\n	bare = false\n");
+  rmSync(`${dir}/.git/hooks`, { recursive: true, force: true });
+  rmSync(`${dir}/.git/info/attributes`, { force: true });
+  git("fetch", "-q", "--no-tags", "--depth=50", `https://github.com/${c.owner}/${c.repo}.git`, c.head);
+  git("checkout", "-q", "--force", "--detach", c.head);
+  git("reset", "-q", "--hard", c.head);
+  git("clean", "-q", "-fd");
+  if (git("rev-parse", "HEAD") !== c.head) throw new Error("Checkout is not at the bound head");
+  process.stdout.write(JSON.stringify({ dir, head: c.head, reused }));
+}
+async function proposeChanges(c) {
+  const { execFileSync } = await import("node:child_process");
+  const { rmSync, writeFileSync } = await import("node:fs");
+  writeFileSync(`${c.dir}/.git/config`, "[core]\n	repositoryformatversion = 0\n	filemode = true\n	bare = false\n");
+  rmSync(`${c.dir}/.git/hooks`, { recursive: true, force: true });
+  rmSync(`${c.dir}/.git/info/attributes`, { force: true });
+  const git = (...args) => String(execFileSync("git", ["-C", c.dir, ...args], {
+    encoding: "utf8",
+    maxBuffer: 8 * 1024 * 1024,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_COUNT: "2", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/dev/null", GIT_CONFIG_KEY_1: "core.quotePath", GIT_CONFIG_VALUE_1: "false" }
+  }));
+  const diff = ["diff", "--cached", "--no-renames", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/"];
+  const refuse = (reason) => process.stdout.write(JSON.stringify({ kind: "babysitter-refusal", reason }));
+  git("add", "-A");
+  const files = git(...diff, "-z", "--name-only", c.head).split("\0").filter(Boolean);
+  const quoted = files.filter((f) => /["\\\x00-\x1f\x7f]/.test(f));
+  if (quoted.length) return refuse(`changes ${quoted.length} path(s) with quotes, backslashes or control characters`);
+  const refused = files.filter((f) => new RegExp(c.limits.refused).test(f));
+  if (refused.length) return refuse(`changes refused paths: ${refused.slice(0, 5).join(", ")}`);
+  if (files.length > c.limits.files) return refuse(`changes ${files.length} files; at most ${c.limits.files}`);
+  const patch = git(...diff, "--binary", "--full-index", c.head);
+  if (Buffer.byteLength(patch) > c.limits.patchBytes) return refuse(`patch is ${Buffer.byteLength(patch)} bytes; at most ${c.limits.patchBytes}`);
+  const out = JSON.stringify({
+    kind: "babysitter-proposal",
+    schemaVersion: 1,
+    pullRequest: c.pullRequest,
+    baseHead: c.head,
+    files,
+    patch,
+    summary: c.summary,
+    replies: c.replies
+  });
+  if (Buffer.byteLength(out) > c.limits.proposalBytes) return refuse("proposal exceeds the journal output bound");
+  process.stdout.write(out);
+}
+async function checkout(f, pr, head) {
+  const value = JSON.parse(await f.run(nodeCommand(checkoutHead, { owner: pr.owner, repo: pr.repo, head }), { timeout: "5m" }));
+  if (value.head !== head || typeof value.dir !== "string") throw new Error("Checkout did not report the bound head");
+  return { dir: value.dir, reused: value.reused === true };
+}
+async function propose(f, input) {
+  const value = JSON.parse(await f.run(nodeCommand(proposeChanges, {
+    ...input,
+    limits: { patchBytes: PATCH_MAX_BYTES, files: PATCH_MAX_FILES, proposalBytes: PROPOSAL_MAX_BYTES, refused: REFUSED_PATHS }
+  }), { timeout: "2m" }));
+  if (value.kind === "babysitter-refusal" && typeof value.reason === "string") return value;
+  if (value.kind !== "babysitter-proposal" || value.baseHead !== input.head || !Array.isArray(value.files) || typeof value.patch !== "string")
+    throw new Error("Proposal step returned a malformed proposal");
+  return value;
+}
+
+// fixer.ts
+var replyMarker = (pr, head) => `<!-- babysitter:reply ${pr.owner.toLowerCase()}/${pr.repo.toLowerCase()}#${pr.number}@${head} -->`;
+function parseOutcome(text2) {
+  const candidates = [text2, ...[...text2.matchAll(/```(?:json)?\s*\n([\s\S]*?)```/g)].map((m) => m[1]).reverse()];
+  for (const candidate of candidates) {
+    try {
+      const x = record(JSON.parse(candidate.trim()));
+      if (typeof x.summary !== "string") continue;
+      const replies = (Array.isArray(x.replies) ? x.replies : []).map(record).filter((r) => Number.isSafeInteger(r.id) && typeof r.body === "string" && r.body.trim()).map((r) => ({ id: Number(r.id), body: String(r.body) }));
+      return { summary: x.summary, replies };
+    } catch {
+    }
+  }
+  return { summary: text2, replies: [] };
+}
+function threadReplies(a, replies) {
+  const inline = new Set(a.changed.reviewFeedback.filter((r) => r.kind === "inline").map((r) => r.id));
+  const seen = /* @__PURE__ */ new Set();
+  return replies.filter((r) => inline.has(r.id) && !seen.has(r.id) && seen.add(r.id)).map((r) => ({
+    commentId: r.id,
+    body: `${replyMarker(a.pr, a.head)}
+${neutralise(r.body, a.origin.firstPrompt).slice(0, REPLY_MAX_CHARS)}`
+  }));
+}
+function createStandaloneFixer(policy, runtime = capabilities) {
   const configured = parsePolicy(policy);
   const enforced = runtime.enforcedAgentWriteScope;
   const body = async (f, value) => {
-    const admitted = await admit(
+    const a = await admit(
       f,
       value,
       configured,
       enforced,
-      "Babysitter diagnosis blocked: the agent would inherit push-capable repository credentials; needs enforced agent write scope (gate 8 / #442)."
+      "Babysitter fix blocked: the agent would inherit push-capable repository credentials; needs enforced agent write scope (gate 8 / #442)."
     );
-    if (!admitted) return;
-    const { pr, wake, origin, c, head, changed, report } = admitted;
-    const cli = String(configured.agentCli ?? origin.source);
-    const model = String(requiredReviewerModel(cli, configured.agentModel));
-    const result = await f.agent("babysitter-diagnose", {
-      cli,
-      model,
-      permissions: { accessPreset: "readonly" },
-      task: agentTask(origin, `${pr.owner}/${pr.repo}#${pr.number}`, head, changed)
-    });
+    if (!a) return;
+    const { pr, wake, origin, c, head, report } = a;
+    const work = await checkout(f, pr, head);
+    const task = agentTask(origin, `${pr.owner}/${pr.repo}#${pr.number}`, head, a.changed, "fix");
+    const result = origin.source === "codex" ? await f.agent("babysitter-fix", { cli: "codex", model: "gpt-5.6-sol", cwd: work.dir, permissions: { accessPreset: "readwrite" }, task }) : await f.agent("babysitter-fix", { cli: "claude", model: "claude-sonnet-5", cwd: work.dir, permissions: { accessPreset: "readwrite" }, task });
     const final = await readState(f, c);
     if (final.headSha !== head || outOfScope(final, c, configured.label)) {
-      await report(`${wake.id}: head moved or PR left scope during diagnosis; not reporting on ${head}`);
+      await report(`${wake.id}: head moved or PR left scope while fixing; no proposal for ${head}`);
       return f.done("declined");
     }
-    const marker = reportMarker(pr, head);
-    const id = await postReport(f, pr, [
-      marker,
-      `### Babysitter diagnosis for \`${head}\``,
-      `Inherited the original scope of ${origin.source} session \`${origin.sessionId}\` (root \`${origin.rootSessionId}\`)${origin.degraded.length ? `; origin context degraded: ${origin.degraded.join(", ")}` : ""}. Woken by \`${wake.id}\`.`,
-      "",
-      neutralise(result.summary, origin.firstPrompt),
-      "",
-      "_Diagnose-only: Babysitter made no changes to this PR._"
-    ].join("\n"));
-    if (!await settle(f, pr, id, configured.botLogin, marker)) {
-      await report(`${wake.id}: an earlier run already reported ${head}; removed this duplicate`);
-      return f.done("declined");
+    const outcome = parseOutcome(result.summary);
+    const proposal = await propose(f, {
+      dir: work.dir,
+      head,
+      pullRequest: { owner: pr.owner, repo: pr.repo, number: pr.number },
+      summary: neutralise(outcome.summary, origin.firstPrompt).slice(0, SUMMARY_MAX_CHARS),
+      replies: threadReplies(a, outcome.replies)
+    });
+    if (proposal.kind === "babysitter-refusal") {
+      await report(`${wake.id}: proposal refused: ${proposal.reason}`);
+      return f.done("needs_human", { detail: `Babysitter proposal refused: ${proposal.reason}` });
     }
-    const after = await readState(f, c);
-    const left = after.headSha === head ? outOfScope(after, c, configured.label) : void 0;
-    const stale = after.headSha !== head ? `**Superseded:** the head moved to \`${String(after.headSha)}\` while this was posted; this diagnosis is for \`${head}\` only.` : left ? `**Withdrawn:** this PR left Babysitter's scope (${left}) while this was posted.` : void 0;
-    if (stale) {
-      await annotate(f, pr, id, stale);
-      return f.done("declined");
-    }
-    f.done("success");
+    f.done("success", { detail: `Babysitter proposal for ${head}: ${proposal.files.length} file(s)` });
   };
   return subscriptions.reduce(
     (handle, subscription) => handle.on(subscription.trigger, body),
-    flow("Babysitter", { budget: { tokens: 4e5, dollars: 4, wallclock: "30m" } }, body)
+    flow("Babysitter fixer", { budget: { tokens: 1e6, dollars: 10, wallclock: "40m" } }, body)
   );
 }
 
 // standalone-entry.ts
-var standalone_entry_default = createStandaloneBabysitter({ "botLogin": "agent-relay-code[bot]", "label": "babysit", "reviewBots": ["chatgpt-codex-connector[bot]", "coderabbitai[bot]", "cubic-dev-ai[bot]", "cursor[bot]", "devin-ai-integration[bot]"], "ownAgents": ["AgentRelayBot"] }, { enforcedAgentWriteScope: true });
+var standalone_entry_default = createStandaloneFixer({ "botLogin": "agent-relay-code[bot]", "label": "babysit", "reviewBots": ["chatgpt-codex-connector[bot]", "coderabbitai[bot]", "cubic-dev-ai[bot]", "cursor[bot]", "devin-ai-integration[bot]"], "ownAgents": ["AgentRelayBot"] }, { enforcedAgentWriteScope: true });
 export {
   standalone_entry_default as default
 };

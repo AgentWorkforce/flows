@@ -1,0 +1,24 @@
+$ node --experimental-strip-types --test tests/fixer.test.ts
+✔ the fixer checks out the bound head, runs one agent there with fix rules, and journals one proposal (3.988825ms)
+✔ the fixer never writes to GitHub itself: no push, merge, review, or comment calls (0.873342ms)
+✔ thread replies go only to inline feedback this run was woken by, once each, marked and neutralised (0.618566ms)
+✔ a head that moves while fixing declines without a proposal (0.490897ms)
+✔ a refused proposal ends needs_human (0.503291ms)
+✔ by default the fixer dispatches no agent and checks nothing out (gate 8 / #442) (1.100016ms)
+✔ the agent outcome is read from a JSON message, a fenced JSON block, or falls back to prose (0.237263ms)
+✔ a real proposal covers edits, new files and the agent's own commits, all against the bound head (70.823683ms)
+✔ workflow, secret, oversized and too-wide proposals are refused whole (312.847302ms)
+✔ an untouched checkout proposes an empty patch (replies and summary may still publish) (47.710136ms)
+✔ the proposal script runs as f.run runs it: a stringified `node -e` command in a shell (73.115576ms)
+✔ the proposal script lifted from the shipped artifact runs under `node -e` (79.799397ms)
+✔ the proposal never runs code the agent planted in the checkout's git config, and its diff format is fixed (48.130892ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 779.617491
+exit=0
+$ ls /tmp/pwned-* (after the green run)
