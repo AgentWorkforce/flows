@@ -1,0 +1,10 @@
+$ node packages/sdk/dist/cli.js check examples/babysitter/artifacts/babysitter-standalone.flow.ts
+WARNING [daemon_unvalidated] relayflowd: authored body. Daemon acceptance is unproven; an already attached daemon from another build is not checked.
+REQUIRES github (on github pull_request), claude (agent "babysitter-diagnose")
+CHECK PASSED examples/babysitter/artifacts/babysitter-standalone.flow.ts [local only: authored body, so daemon acceptance is unproven]
+exit=0
+$ node packages/sdk/dist/cli.js check examples/babysitter/artifacts/babysitter-fixer.flow.ts
+WARNING [daemon_unvalidated] relayflowd: authored body. Daemon acceptance is unproven; an already attached daemon from another build is not checked.
+REQUIRES github (on github pull_request), claude (agent "babysitter-fix")
+CHECK PASSED examples/babysitter/artifacts/babysitter-fixer.flow.ts [local only: authored body, so daemon acceptance is unproven]
+exit=0

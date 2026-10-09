@@ -1,0 +1,34 @@
+# Captured at abe90fe6, before F2 was rebased onto F1 review round 1; fix.ts is unchanged by that rebase.
+# Mutation: load builtins with require() (the pre-fix code) instead of import(); rebuild the artifact.
+$ diff <original> fix.ts
+7a8
+> declare function require(name: string): any;
+32c33
+<   const { execFileSync } = await import('node:child_process');
+---
+>   const { execFileSync } = require('child_process');
+69c70
+<   const { execFileSync } = await import('node:child_process');
+---
+>   const { execFileSync } = require('child_process');
+$ node examples/babysitter/build-standalone.mjs
+Built /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/artifacts/babysitter-standalone.flow.ts sha256:6ea6982efeff304c4a51c2fe6ed3a5d326be272806b384b8028bcc22a4df634c
+Built /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/artifacts/babysitter-fixer.flow.ts sha256:35fde17a8fc763000dbc1eedc3e591d58a9b275280c956878cc8446d30158427
+$ node --experimental-strip-types --test tests/fixer.test.ts tests/standalone-artifact.test.ts
+✖ an untouched checkout proposes an empty patch (replies and summary may still publish) (209.394463ms)
+✖ a real proposal covers edits, new files and the agent's own commits, all against the bound head (313.487806ms)
+✖ failing tests:
+ℹ fail 5
+ℹ pass 10
+    output: [ null, '', '__require is not defined\n' ],
+  __require is not defined
+__require is not defined
+✖ scripts stringified into f.run never reach a bundler shim: `node -e` has no __require (6.578256ms)
+    stderr: '__require is not defined\n'
+✖ the proposal script lifted from the shipped artifact runs under `node -e` (362.425083ms)
+✖ workflow, secret, oversized and too-wide proposals are refused whole (211.522423ms)
+$ cmp fix.ts <original> && cmp artifacts/babysitter-fixer.flow.ts <original>  (restored byte-for-byte)
+identical
+$ node --experimental-strip-types --test tests/fixer.test.ts tests/standalone-artifact.test.ts
+ℹ pass 15
+ℹ fail 0
