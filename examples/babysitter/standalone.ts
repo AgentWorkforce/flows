@@ -91,10 +91,10 @@ function outOfScope(s: State, c: Config, label: string): string | undefined {
  * `s.comments` holds only comments after Babysitter's last one, so a
  * directive it already answered cannot wake it again.
  */
-export function whatChanged(s: Signals, author: string): WhatChanged | undefined {
+export function whatChanged(s: Signals, author: string, ownAgents: string[] = []): WhatChanged | undefined {
   const directive = [...s.comments].reverse().find(m => {
     const login = m.login.toLowerCase();
-    return DIRECTIVE.test(m.body) && !login.endsWith('[bot]')
+    return DIRECTIVE.test(m.body) && !login.endsWith('[bot]') && !ownAgents.includes(login)
       && (login === author.toLowerCase() || AUTHORISED.includes(m.association));
   });
   if (s.failingChecks.length === 0 && s.changeRequests.length === 0 && s.reviewFeedback.length === 0 && !directive) return undefined;
@@ -162,7 +162,7 @@ export function createStandaloneBabysitter(policy: unknown, runtime: { enforcedA
     if (signals.reported) {
       await report(`${wake.id}: head ${head} already reported`); return f.done('declined');
     }
-    const changed = whatChanged(signals, String(live.author));
+    const changed = whatChanged(signals, String(live.author), configured.ownAgents);
     if (!changed) { await report(`${wake.id}: nothing actionable at ${head}`); return f.done('declined'); }
     // No agent over untrusted PR content until its write scope is enforced:
     // today the agent process inherits the run's repository credentials.

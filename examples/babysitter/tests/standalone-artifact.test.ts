@@ -38,7 +38,7 @@ test('the committed standalone artifact is exact, reproducible, and explicitly r
     reviewBots: [
       'chatgpt-codex-connector[bot]', 'coderabbitai[bot]', 'cubic-dev-ai[bot]', 'cursor[bot]', 'devin-ai-integration[bot]',
     ],
-    ownAgents: ['AgentRelayBot', 'kjgbot'],
+    ownAgents: ['AgentRelayBot'],
   });
   assert.match(artifact.toString('utf8'), /enforcedAgentWriteScope:\s*true/);
 

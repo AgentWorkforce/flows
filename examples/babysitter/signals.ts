@@ -120,13 +120,23 @@ export async function readSignals(c: {
     const thread = m.in_reply_to_id ?? m.id;
     answered.set(thread, Math.max(answered.get(thread) ?? 0, m.id));
   }
+  // A pending review's comments become visible when the review is submitted,
+  // so they date from the later of their creation and that submission. The
+  // cutoff is inclusive: timestamps are per second, and feedback in the
+  // report's own second must not be lost (handling it twice is the safe side).
+  const submitted = new Map<number, string>(reviews.map((r: any) => [r.id, String(r.submitted_at ?? '')]));
+  const visibleAt = (m: any) => [String(m.created_at ?? ''), submitted.get(m.pull_request_review_id) ?? ''].sort().at(-1)!;
+  // File-level comments have no line. A line comment GitHub marked outdated
+  // keeps its blob line but loses its diff position.
+  const current = (m: any) => m.subject_type === 'file' || (typeof m.line === 'number' && m.position !== null);
   let feedback = [
-    ...inline.filter((m: any) => from(m) && typeof m.line === 'number' && String(m.created_at ?? '') > since
+    ...inline.filter((m: any) => from(m) && current(m) && visibleAt(m) >= since
       && m.id > (answered.get(m.in_reply_to_id ?? m.id) ?? 0))
-      .map((m: any) => ({ kind: 'inline', id: m.id, login: m.user.login, body: m.body, path: m.path, line: m.line,
-        thread: m.in_reply_to_id ?? m.id, createdAt: m.created_at })),
+      .map((m: any) => ({ kind: 'inline', id: m.id, login: m.user.login, body: m.body, path: m.path,
+        ...(typeof m.line === 'number' && m.subject_type !== 'file' ? { line: m.line } : {}),
+        thread: m.in_reply_to_id ?? m.id, createdAt: visibleAt(m) })),
     ...reviews.filter((r: any) => r.state === 'COMMENTED' && typeof r.body === 'string' && r.body.trim() && from(r)
-      && String(r.submitted_at ?? '') > since)
+      && String(r.submitted_at ?? '') >= since)
       .map((r: any) => ({ kind: 'review', id: r.id, login: r.user.login, body: r.body, createdAt: r.submitted_at })),
   ].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.id - b.id).slice(-100);
   // Fit the journal: text shrinks first (halving its cap down to a floor),

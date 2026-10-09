@@ -244,3 +244,27 @@ test('the Garden sharing Babysitter\'s app login does not look like Babysitter: 
   assert.deepEqual(s.comments.map((c: any) => c.id), [40, 41]);
   assert.deepEqual(s.reviewFeedback.map((r: any) => r.id), [1]);
 });
+
+test('file-level review comments are feedback; a line comment GitHub marked outdated (no diff position) is not', async () => {
+  const s = await read(base({ '/pulls/7/comments': [
+    { ...inline(1, 'dana', 'This whole file needs a header', { association: 'MEMBER', line: null }), subject_type: 'file' },
+    { ...inline(2, 'dana', 'Outdated but kept its blob line', { association: 'MEMBER' }), position: null },
+    { ...inline(3, 'dana', 'Current line comment', { association: 'MEMBER' }), position: 4 },
+  ] }));
+  assert.deepEqual(s.reviewFeedback.map((r: any) => [r.id, r.path, r.line ?? null]), [[1, 'src/queue.ts', null], [3, 'src/queue.ts', 12]]);
+});
+
+test('a pending review comment counts from its review\'s submission, and feedback at the report\'s own second is kept', async () => {
+  const s = await read(base({
+    '/issues/7/comments': [{ ...comment(50, 'babysitter[bot]', `${marker('e'.repeat(40))}\nreport`), created_at: '2026-10-04T00:00:00Z' }],
+    '/pulls/7/reviews': [
+      { id: 900, user: { login: 'dana' }, author_association: 'MEMBER', state: 'COMMENTED', body: '', submitted_at: '2026-10-05T00:00:00Z' },
+      { id: 901, user: { login: 'dana' }, author_association: 'MEMBER', state: 'COMMENTED', body: 'Same second as the report', submitted_at: '2026-10-04T00:00:00Z' },
+      { id: 902, user: { login: 'dana' }, author_association: 'MEMBER', state: 'COMMENTED', body: 'Before the report', submitted_at: '2026-10-03T00:00:00Z' },
+    ],
+    '/pulls/7/comments': [
+      { ...inline(1, 'dana', 'Drafted before the report, submitted after', { association: 'MEMBER', at: '2026-10-03T12:00:00Z' }), pull_request_review_id: 900 },
+    ],
+  }));
+  assert.deepEqual(s.reviewFeedback.map((r: any) => [r.kind, r.id]), [['review', 901], ['inline', 1]]);
+});

@@ -8,5 +8,5 @@
     "cursor[bot]",
     "devin-ai-integration[bot]"
   ],
-  "ownAgents": ["AgentRelayBot", "kjgbot"]
+  "ownAgents": ["AgentRelayBot"]
 }

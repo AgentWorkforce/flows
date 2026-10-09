@@ -362,3 +362,19 @@ test('a Software Garden draft is babysat (Garden drafts failing PRs); a label op
   assert.deepEqual(ctx.reasons, ['declined']);
   assert.equal(ctx.agents.length, 0, 'label opt-in draft');
 });
+
+test('an @babysitter directive from one of our own agents is not a directive', async () => {
+  const green = signals({ failingChecks: [], comments: [{ id: 9, login: 'AgentRelayBot', association: 'MEMBER', body: '@babysitter fix it', createdAt: '2026-10-02T00:00:00Z' }] });
+  const ctx = context({ signals: green });
+  await getFlowDefinition(createStandaloneBabysitter({ ...policy, ownAgents: ['AgentRelayBot'] }, isolated)).body(ctx.f, input({ eventType: 'issue_comment.created' }));
+  assert.deepEqual(ctx.reasons, ['declined']);
+  assert.equal(ctx.agents.length, 0);
+});
+
+test('file-level review feedback renders its path without a line', async () => {
+  const ctx = context({ signals: signals({ failingChecks: [], reviewFeedback: [
+    { kind: 'inline', id: 21, login: 'dana', body: 'Needs a header', path: 'src/queue.ts', thread: 21, createdAt: '2026-10-05T00:00:00Z' },
+  ] }) });
+  await body()(ctx.f, input({ eventType: 'pull_request_review.submitted' }));
+  assert.match(String(ctx.agents[0]!.options.task), /Review comment by dana on src\/queue\.ts: Needs a header/);
+});

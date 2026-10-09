@@ -1,7 +1,41 @@
-# Local env lacks surface deps; main@fe60dd4c has the same error classes. Filtered to errors outside those classes:
+# Environment-only error classes in this checkout: TS2345 dual-package Ctx, missing @relayfile/relay-helpers, missing ai-hist.
+# Filter used below: grep 'error TS' | grep -v 'TS2345.*Ctx\|relay-helpers\|ai-hist'
+# The two checkouts have different local deps installed (this one built packages/surface), so the raw counts below are NOT comparable; only filtered-count is. Every TS2345 in touched files is the same dual-package Ctx error that every body(f) call in the pre-existing tests also raises.
 $ (cd examples/babysitter && ../../packages/sdk/node_modules/.bin/tsc -p tsconfig.json) | grep -c "error TS"   # this branch
-75
-$ same, on clean main checkout at fe60dd4c
-73
-$ this branch, errors NOT in {TS2345 Ctx dual-package, relay-helpers, ai-hist}:
+41
+$ (cd examples/babysitter && ../../packages/sdk/node_modules/.bin/tsc -p tsconfig.json) | grep 'error TS' | grep -v 'TS2345.*Ctx\|relay-helpers\|ai-hist'   # this branch
 filtered-count=0
+$ same two commands on a clean main checkout at fe60dd4c
+73
+filtered-count=0
+$ this branch: the errors in excluded classes that are in files this PR touches
+tests/standalone.test.ts(76,18): error TS2345: Argument of t
+tests/standalone.test.ts(85,16): error TS2345: Argument of t
+tests/standalone.test.ts(105,18): error TS2345: Argument of 
+tests/standalone.test.ts(129,33): error TS2345: Argument of 
+tests/standalone.test.ts(141,18): error TS2345: Argument of 
+tests/standalone.test.ts(150,16): error TS2345: Argument of 
+tests/standalone.test.ts(168,18): error TS2345: Argument of 
+tests/standalone.test.ts(179,16): error TS2345: Argument of 
+tests/standalone.test.ts(185,16): error TS2345: Argument of 
+tests/standalone.test.ts(191,18): error TS2345: Argument of 
+tests/standalone.test.ts(199,16): error TS2345: Argument of 
+tests/standalone.test.ts(206,16): error TS2345: Argument of 
+tests/standalone.test.ts(214,16): error TS2345: Argument of 
+tests/standalone.test.ts(222,16): error TS2345: Argument of 
+tests/standalone.test.ts(234,16): error TS2345: Argument of 
+tests/standalone.test.ts(242,16): error TS2345: Argument of 
+tests/standalone.test.ts(260,18): error TS2345: Argument of 
+tests/standalone.test.ts(268,68): error TS2345: Argument of 
+tests/standalone.test.ts(282,16): error TS2345: Argument of 
+tests/standalone.test.ts(292,16): error TS2345: Argument of 
+tests/standalone.test.ts(302,16): error TS2345: Argument of 
+tests/standalone.test.ts(317,16): error TS2345: Argument of 
+tests/standalone.test.ts(326,150): error TS2345: Argument of
+tests/standalone.test.ts(341,16): error TS2345: Argument of 
+tests/standalone.test.ts(345,16): error TS2345: Argument of 
+tests/standalone.test.ts(350,16): error TS2345: Argument of 
+tests/standalone.test.ts(357,16): error TS2345: Argument of 
+tests/standalone.test.ts(361,16): error TS2345: Argument of 
+tests/standalone.test.ts(369,115): error TS2345: Argument of
+tests/standalone.test.ts(378,16): error TS2345: Argument of 

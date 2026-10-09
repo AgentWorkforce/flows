@@ -282,7 +282,7 @@ function agentTask(o, pr, head, changed) {
     "== What changed (live GitHub reread) ==",
     ...changed.failingChecks.map((c) => `- Failing check "${c.name}" (${c.conclusion}): ${c.summary || "no summary"}`),
     ...changed.changeRequests.map((r) => `- Changes requested by ${r.login}: ${r.body || "(no body)"}`),
-    ...changed.reviewFeedback.map((r) => r.kind === "inline" ? `- Review comment by ${r.login} on ${r.path}:${r.line}: ${r.body}` : `- Review by ${r.login}: ${r.body}`),
+    ...changed.reviewFeedback.map((r) => r.kind === "inline" ? `- Review comment by ${r.login} on ${r.path}${r.line === void 0 ? "" : `:${r.line}`}: ${r.body}` : `- Review by ${r.login}: ${r.body}`),
     ...changed.directive ? [`- Directive from ${changed.directive.login}: ${changed.directive.body}`] : [],
     ...events ? ["", "== Origin session events (oldest first, bounded) ==", events] : [],
     "",
@@ -377,18 +377,21 @@ async function readSignals(c) {
     const thread = m.in_reply_to_id ?? m.id;
     answered.set(thread, Math.max(answered.get(thread) ?? 0, m.id));
   }
+  const submitted = new Map(reviews.map((r) => [r.id, String(r.submitted_at ?? "")]));
+  const visibleAt = (m) => [String(m.created_at ?? ""), submitted.get(m.pull_request_review_id) ?? ""].sort().at(-1);
+  const current = (m) => m.subject_type === "file" || typeof m.line === "number" && m.position !== null;
   let feedback = [
-    ...inline.filter((m) => from(m) && typeof m.line === "number" && String(m.created_at ?? "") > since && m.id > (answered.get(m.in_reply_to_id ?? m.id) ?? 0)).map((m) => ({
+    ...inline.filter((m) => from(m) && current(m) && visibleAt(m) >= since && m.id > (answered.get(m.in_reply_to_id ?? m.id) ?? 0)).map((m) => ({
       kind: "inline",
       id: m.id,
       login: m.user.login,
       body: m.body,
       path: m.path,
-      line: m.line,
+      ...typeof m.line === "number" && m.subject_type !== "file" ? { line: m.line } : {},
       thread: m.in_reply_to_id ?? m.id,
-      createdAt: m.created_at
+      createdAt: visibleAt(m)
     })),
-    ...reviews.filter((r) => r.state === "COMMENTED" && typeof r.body === "string" && r.body.trim() && from(r) && String(r.submitted_at ?? "") > since).map((r) => ({ kind: "review", id: r.id, login: r.user.login, body: r.body, createdAt: r.submitted_at }))
+    ...reviews.filter((r) => r.state === "COMMENTED" && typeof r.body === "string" && r.body.trim() && from(r) && String(r.submitted_at ?? "") >= since).map((r) => ({ kind: "review", id: r.id, login: r.user.login, body: r.body, createdAt: r.submitted_at }))
   ].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.id - b.id).slice(-100);
   const shape = (text3) => JSON.stringify({
     headSha: c.head,
@@ -561,10 +564,10 @@ function outOfScope(s, c, label) {
   const garden = gardenPullRequest(s, c);
   return eligible(garden ? { ...s, draft: false } : s, c) ?? (garden || Array.isArray(s.labels) && s.labels.some((l) => String(l).toLowerCase() === label) ? void 0 : `Not a Software Garden PR and live labels lack the "${label}" opt-in`);
 }
-function whatChanged(s, author) {
+function whatChanged(s, author, ownAgents = []) {
   const directive = [...s.comments].reverse().find((m) => {
     const login = m.login.toLowerCase();
-    return DIRECTIVE.test(m.body) && !login.endsWith("[bot]") && (login === author.toLowerCase() || AUTHORISED.includes(m.association));
+    return DIRECTIVE.test(m.body) && !login.endsWith("[bot]") && !ownAgents.includes(login) && (login === author.toLowerCase() || AUTHORISED.includes(m.association));
   });
   if (s.failingChecks.length === 0 && s.changeRequests.length === 0 && s.reviewFeedback.length === 0 && !directive) return void 0;
   return {
@@ -627,7 +630,7 @@ function createStandaloneBabysitter(policy, runtime = capabilities) {
       await report(`${wake.id}: head ${head} already reported`);
       return f.done("declined");
     }
-    const changed = whatChanged(signals, String(live.author));
+    const changed = whatChanged(signals, String(live.author), configured.ownAgents);
     if (!changed) {
       await report(`${wake.id}: nothing actionable at ${head}`);
       return f.done("declined");
@@ -679,7 +682,7 @@ function createStandaloneBabysitter(policy, runtime = capabilities) {
 }
 
 // standalone-entry.ts
-var standalone_entry_default = createStandaloneBabysitter({ "botLogin": "agent-relay-code[bot]", "label": "babysit", "reviewBots": ["chatgpt-codex-connector[bot]", "coderabbitai[bot]", "cubic-dev-ai[bot]", "cursor[bot]", "devin-ai-integration[bot]"], "ownAgents": ["AgentRelayBot", "kjgbot"] }, { enforcedAgentWriteScope: true });
+var standalone_entry_default = createStandaloneBabysitter({ "botLogin": "agent-relay-code[bot]", "label": "babysit", "reviewBots": ["chatgpt-codex-connector[bot]", "coderabbitai[bot]", "cubic-dev-ai[bot]", "cursor[bot]", "devin-ai-integration[bot]"], "ownAgents": ["AgentRelayBot"] }, { enforcedAgentWriteScope: true });
 export {
   standalone_entry_default as default
 };
