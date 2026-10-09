@@ -58,6 +58,44 @@ export async function checkoutHead(c: { owner: string; repo: string; head: strin
   process.stdout.write(JSON.stringify({ dir, head: c.head, reused }));
 }
 
+/**
+ * The sandbox is reused per pull request, but each run's root is created
+ * anew. The checkout therefore lives in a PR-scoped cache under $HOME between
+ * runs and is moved (renamed, so installed dependencies come along) into the
+ * run root for the agent, whose working directory must sit inside it.
+ */
+export interface CheckoutCache { owner: string; repo: string; number: number; home?: string }
+
+export async function restoreCheckout(c: CheckoutCache): Promise<void> {
+  const { existsSync, mkdirSync, renameSync, rmSync } = await import('node:fs');
+  const { homedir } = await import('node:os');
+  const { join, resolve } = await import('node:path');
+  const cache = join(c.home ?? homedir(), '.babysitter', c.owner.toLowerCase(), c.repo.toLowerCase(), String(c.number), 'checkout');
+  const dir = resolve('babysitter-checkout');
+  let restored = false;
+  if (existsSync(join(cache, '.git')) && !existsSync(dir)) {
+    try { mkdirSync(resolve('.'), { recursive: true }); renameSync(cache, dir); restored = true; }
+    // Another filesystem (EXDEV) or a damaged cache: start fresh rather than copy.
+    catch { rmSync(cache, { recursive: true, force: true }); }
+  }
+  process.stdout.write(JSON.stringify({ restored }));
+}
+
+export async function stashCheckout(c: CheckoutCache): Promise<void> {
+  const { existsSync, mkdirSync, renameSync, rmSync } = await import('node:fs');
+  const { homedir } = await import('node:os');
+  const { dirname, join, resolve } = await import('node:path');
+  const cache = join(c.home ?? homedir(), '.babysitter', c.owner.toLowerCase(), c.repo.toLowerCase(), String(c.number), 'checkout');
+  const dir = resolve('babysitter-checkout');
+  let stashed = false;
+  if (existsSync(join(dir, '.git'))) {
+    rmSync(cache, { recursive: true, force: true });
+    mkdirSync(dirname(cache), { recursive: true });
+    try { renameSync(dir, cache); stashed = true; } catch { /* another filesystem: the next run starts fresh */ }
+  }
+  process.stdout.write(JSON.stringify({ stashed }));
+}
+
 export interface ProposalInput {
   dir: string; head: string; pullRequest: { owner: string; repo: string; number: number };
   summary: string; replies: { commentId: number; body: string }[];
@@ -103,6 +141,14 @@ export async function proposeChanges(c: ProposalInput): Promise<void> {
   });
   if (Buffer.byteLength(out) > c.limits.proposalBytes) return refuse('proposal exceeds the journal output bound');
   process.stdout.write(out);
+}
+
+export async function restore(f: Ctx, pr: { owner: string; repo: string; number: number }): Promise<boolean> {
+  return JSON.parse(await f.run(nodeCommand(restoreCheckout, { owner: pr.owner, repo: pr.repo, number: pr.number }), { timeout: '2m' })).restored === true;
+}
+
+export async function stash(f: Ctx, pr: { owner: string; repo: string; number: number }): Promise<void> {
+  await f.run(nodeCommand(stashCheckout, { owner: pr.owner, repo: pr.repo, number: pr.number }), { timeout: '2m' });
 }
 
 export async function checkout(f: Ctx, pr: { owner: string; repo: string }, head: string): Promise<{ dir: string; reused: boolean }> {

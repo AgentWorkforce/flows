@@ -30,6 +30,13 @@ from #4226, and Cloud publishes server-side.
      are removed: a previous agent turn may have written them.
    - An existing checkout (a reused sandbox) is fetched, reset to the head and
      cleaned in place. Ignored files, such as installed dependencies, survive.
+   - **Per-PR reuse (C2):** Cloud may hand a later wake the same sandbox.
+     Each run root is created anew, so the checkout lives in
+     `$HOME/.babysitter/<owner>/<repo>/<pr>/checkout` between runs. It is
+     moved (renamed, dependencies included) into the run root before
+     `checkoutHead`, and moved back after the run, whatever its outcome,
+     before `f.done`. If the cache is on another filesystem, or damaged, the
+     run starts fresh.
 2. **One agent** (`babysitter-fix`, the origin session's CLI, with a literal
    pinned model per CLI, ignoring the policy's `agentCli`) runs in that
    checkout. Its task opens with the origin's first prompt, verbatim and

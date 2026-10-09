@@ -46,6 +46,8 @@ function context(o: { states?: Record<string, unknown>[]; summary?: string; prop
         if (command.includes('readSignals')) return JSON.stringify(signals);
         if (command.includes('checkoutHead')) return JSON.stringify({ dir: '/run/babysitter-checkout', head, reused: false });
         if (command.includes('proposeChanges')) return JSON.stringify(o.proposed ?? proposal);
+        if (command.includes('restoreCheckout')) return JSON.stringify({ restored: false });
+        if (command.includes('stashCheckout')) return JSON.stringify({ stashed: true });
         return '';
       },
       agent: async (name: string, options: Record<string, unknown>) => {
@@ -260,4 +262,55 @@ test('the fixer runs the origin session\'s own CLI with its literal pinned model
   const claude = context();
   await body()(claude.f, input());
   assert.deepEqual([claude.agents[0]!.options.cli, claude.agents[0]!.options.model], ['claude', 'claude-sonnet-5']);
+});
+
+test('a PR checkout survives between runs: restored into the run root, stashed back after', async () => {
+  const { restoreCheckout, stashCheckout } = await import('../fix.ts');
+  const home = mkdtempSync(join(tmpdir(), 'babysitter-home-'));
+  const runRoot = mkdtempSync(join(tmpdir(), 'babysitter-run-'));
+  const pr = { owner: 'Acme', repo: 'Widgets', number: 7, home };
+  const capture = async (fn: () => Promise<void>) => {
+    const saved = process.stdout.write; let out = '';
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    const cwd = process.cwd(); process.chdir(runRoot);
+    try { await fn(); } finally { process.stdout.write = saved; process.chdir(cwd); }
+    return JSON.parse(out);
+  };
+  // First run: nothing cached.
+  assert.deepEqual(await capture(() => restoreCheckout(pr)), { restored: false });
+  // The run builds a checkout with installed dependencies, then stashes it.
+  mkdirSync(join(runRoot, 'babysitter-checkout', '.git'), { recursive: true });
+  mkdirSync(join(runRoot, 'babysitter-checkout', 'node_modules', 'dep'), { recursive: true });
+  writeFileSync(join(runRoot, 'babysitter-checkout', 'node_modules', 'dep', 'index.js'), 'installed\n');
+  assert.deepEqual(await capture(() => stashCheckout(pr)), { stashed: true });
+  assert.throws(() => readFileSync(join(runRoot, 'babysitter-checkout', 'node_modules', 'dep', 'index.js')), /ENOENT/);
+  // Next run (fresh run root, same sandbox home): the checkout comes back with its dependencies.
+  const next = mkdtempSync(join(tmpdir(), 'babysitter-run-'));
+  const cwd = process.cwd(); process.chdir(next);
+  const saved = process.stdout.write; let out = '';
+  process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+  try { await restoreCheckout(pr); } finally { process.stdout.write = saved; process.chdir(cwd); }
+  assert.deepEqual(JSON.parse(out), { restored: true });
+  assert.equal(readFileSync(join(next, 'babysitter-checkout', 'node_modules', 'dep', 'index.js'), 'utf8'), 'installed\n');
+});
+
+test('the fixer restores the cached checkout before checking out, and stashes it even when the agent fails', async () => {
+  const ok = context();
+  await body()(ok.f, input());
+  const order = ok.commands.map(c => ['restoreCheckout', 'checkoutHead', 'proposeChanges', 'stashCheckout'].find(n => c.includes(n))).filter(Boolean);
+  assert.deepEqual(order, ['restoreCheckout', 'checkoutHead', 'proposeChanges', 'stashCheckout']);
+  const failing = context();
+  (failing.f as any).agent = async () => { throw new Error('agent crashed'); };
+  await assert.rejects(body()(failing.f, input()), /agent crashed/);
+  assert.ok(failing.commands.some(c => c.includes('stashCheckout')), 'stashed after a failure');
+});
+
+test('restore and stash lifted from the shipped artifact run under `node -e`', () => {
+  const home = mkdtempSync(join(tmpdir(), 'babysitter-home-'));
+  const runRoot = mkdtempSync(join(tmpdir(), 'babysitter-run-'));
+  mkdirSync(join(runRoot, 'babysitter-checkout', '.git'), { recursive: true });
+  const run = (name: string) => JSON.parse(execFileSync('sh', ['-c', nodeCommand({ toString: () => shippedFunction(name) } as unknown as Function,
+    { owner: 'acme', repo: 'widgets', number: 7, home })], { cwd: runRoot, encoding: 'utf8' }));
+  assert.deepEqual(run('stashCheckout'), { stashed: true });
+  assert.deepEqual(run('restoreCheckout'), { restored: true });
 });

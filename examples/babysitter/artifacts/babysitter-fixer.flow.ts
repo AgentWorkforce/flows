@@ -641,6 +641,42 @@ async function checkoutHead(c) {
   if (git("rev-parse", "HEAD") !== c.head) throw new Error("Checkout is not at the bound head");
   process.stdout.write(JSON.stringify({ dir, head: c.head, reused }));
 }
+async function restoreCheckout(c) {
+  const { existsSync, mkdirSync, renameSync, rmSync } = await import("node:fs");
+  const { homedir } = await import("node:os");
+  const { join, resolve } = await import("node:path");
+  const cache = join(c.home ?? homedir(), ".babysitter", c.owner.toLowerCase(), c.repo.toLowerCase(), String(c.number), "checkout");
+  const dir = resolve("babysitter-checkout");
+  let restored = false;
+  if (existsSync(join(cache, ".git")) && !existsSync(dir)) {
+    try {
+      mkdirSync(resolve("."), { recursive: true });
+      renameSync(cache, dir);
+      restored = true;
+    } catch {
+      rmSync(cache, { recursive: true, force: true });
+    }
+  }
+  process.stdout.write(JSON.stringify({ restored }));
+}
+async function stashCheckout(c) {
+  const { existsSync, mkdirSync, renameSync, rmSync } = await import("node:fs");
+  const { homedir } = await import("node:os");
+  const { dirname, join, resolve } = await import("node:path");
+  const cache = join(c.home ?? homedir(), ".babysitter", c.owner.toLowerCase(), c.repo.toLowerCase(), String(c.number), "checkout");
+  const dir = resolve("babysitter-checkout");
+  let stashed = false;
+  if (existsSync(join(dir, ".git"))) {
+    rmSync(cache, { recursive: true, force: true });
+    mkdirSync(dirname(cache), { recursive: true });
+    try {
+      renameSync(dir, cache);
+      stashed = true;
+    } catch {
+    }
+  }
+  process.stdout.write(JSON.stringify({ stashed }));
+}
 async function proposeChanges(c) {
   const { execFileSync } = await import("node:child_process");
   const { rmSync, writeFileSync } = await import("node:fs");
@@ -676,6 +712,12 @@ async function proposeChanges(c) {
   });
   if (Buffer.byteLength(out) > c.limits.proposalBytes) return refuse("proposal exceeds the journal output bound");
   process.stdout.write(out);
+}
+async function restore(f, pr) {
+  return JSON.parse(await f.run(nodeCommand(restoreCheckout, { owner: pr.owner, repo: pr.repo, number: pr.number }), { timeout: "2m" })).restored === true;
+}
+async function stash(f, pr) {
+  await f.run(nodeCommand(stashCheckout, { owner: pr.owner, repo: pr.repo, number: pr.number }), { timeout: "2m" });
 }
 async function checkout(f, pr, head) {
   const value = JSON.parse(await f.run(nodeCommand(checkoutHead, { owner: pr.owner, repo: pr.repo, head }), { timeout: "5m" }));
@@ -729,6 +771,16 @@ function createStandaloneFixer(policy, runtime = capabilities) {
       "Babysitter fix blocked: the agent would inherit push-capable repository credentials; needs enforced agent write scope (gate 8 / #442)."
     );
     if (!a) return;
+    await restore(f, a.pr);
+    let verdict;
+    try {
+      verdict = await fixAndPropose(f, a);
+    } finally {
+      await stash(f, a.pr);
+    }
+    f.done(verdict.reason, verdict.detail ? { detail: verdict.detail } : void 0);
+  };
+  async function fixAndPropose(f, a) {
     const { pr, wake, origin, c, head, report } = a;
     const work = await checkout(f, pr, head);
     const task = agentTask(origin, `${pr.owner}/${pr.repo}#${pr.number}`, head, a.changed, "fix");
@@ -736,7 +788,7 @@ function createStandaloneFixer(policy, runtime = capabilities) {
     const final = await readState(f, c);
     if (final.headSha !== head || outOfScope(final, c, configured.label)) {
       await report(`${wake.id}: head moved or PR left scope while fixing; no proposal for ${head}`);
-      return f.done("declined");
+      return { reason: "declined" };
     }
     const outcome = parseOutcome(result.summary);
     const proposal = await propose(f, {
@@ -748,10 +800,10 @@ function createStandaloneFixer(policy, runtime = capabilities) {
     });
     if (proposal.kind === "babysitter-refusal") {
       await report(`${wake.id}: proposal refused: ${proposal.reason}`);
-      return f.done("needs_human", { detail: `Babysitter proposal refused: ${proposal.reason}` });
+      return { reason: "needs_human", detail: `Babysitter proposal refused: ${proposal.reason}` };
     }
-    f.done("success", { detail: `Babysitter proposal for ${head}: ${proposal.files.length} file(s)` });
-  };
+    return { reason: "success", detail: `Babysitter proposal for ${head}: ${proposal.files.length} file(s)` };
+  }
   return subscriptions.reduce(
     (handle, subscription) => handle.on(subscription.trigger, body),
     flow("Babysitter fixer", { budget: { tokens: 1e6, dollars: 10, wallclock: "40m" } }, body)
