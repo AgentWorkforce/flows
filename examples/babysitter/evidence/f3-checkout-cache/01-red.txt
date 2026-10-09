@@ -1,0 +1,63 @@
+# fix.ts/fixer.ts at 01149375; tests from the F3 commit.
+$ node --experimental-strip-types --test tests/fixer.test.ts
+✔ the fixer checks out the bound head, runs one agent there with fix rules, and journals one proposal (2.870232ms)
+✔ the fixer never writes to GitHub itself: no push, merge, review, or comment calls (0.630366ms)
+✔ thread replies go only to inline feedback this run was woken by, once each, marked and neutralised (0.535859ms)
+✔ a head that moves while fixing declines without a proposal (0.317191ms)
+✔ a refused proposal ends needs_human (0.397742ms)
+✔ by default the fixer dispatches no agent and checks nothing out (gate 8 / #442) (0.938991ms)
+✔ the agent outcome is read from a JSON message, a fenced JSON block, or falls back to prose (0.195023ms)
+✔ a real proposal covers edits, new files and the agent's own commits, all against the bound head (72.917016ms)
+✔ workflow, secret, oversized and too-wide proposals are refused whole (328.176771ms)
+✔ an untouched checkout proposes an empty patch (replies and summary may still publish) (43.603598ms)
+✔ the proposal script runs as f.run runs it: a stringified `node -e` command in a shell (75.060774ms)
+✔ the proposal script lifted from the shipped artifact runs under `node -e` (72.127132ms)
+✔ the proposal never runs code the agent planted in the checkout's git config, and its diff format is fixed (52.673283ms)
+✔ paths git would have to quote are refused; a newline cannot split a name past the workflow rule (118.653171ms)
+✔ a non-ASCII name is proposed unquoted, so Cloud parses the same path (42.946322ms)
+✔ the fixer runs the origin session's own CLI with its literal pinned model (1.037575ms)
+✖ a PR checkout survives between runs: restored into the run root, stashed back after (0.61106ms)
+✖ the fixer restores the cached checkout before checking out, and stashes it even when the agent fails (1.443883ms)
+ℹ tests 18
+ℹ suites 0
+ℹ pass 16
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 934.900586
+
+✖ failing tests:
+
+test at tests/fixer.test.ts:267:1
+✖ a PR checkout survives between runs: restored into the run root, stashed back after (0.61106ms)
+  TypeError: restoreCheckout is not a function
+      at file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/tests/fixer.test.ts:280:40
+      at capture (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/tests/fixer.test.ts:276:17)
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/tests/fixer.test.ts:280:26)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+
+test at tests/fixer.test.ts:297:1
+✖ the fixer restores the cached checkout before checking out, and stashes it even when the agent fails (1.443883ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  -   'restoreCheckout',
+      'checkoutHead',
+      'proposeChanges',
+  -   'stashCheckout'
+    ]
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/tests/fixer.test.ts:301:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'checkoutHead', 'proposeChanges' ],
+    expected: [ 'restoreCheckout', 'checkoutHead', 'proposeChanges', 'stashCheckout' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+exit=1

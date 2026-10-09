@@ -46,6 +46,8 @@ function context(o: { states?: Record<string, unknown>[]; summary?: string; prop
         if (command.includes('readSignals')) return JSON.stringify(signals);
         if (command.includes('checkoutHead')) return JSON.stringify({ dir: '/run/babysitter-checkout', head, reused: false });
         if (command.includes('proposeChanges')) return JSON.stringify(o.proposed ?? proposal);
+        if (command.includes('restoreCheckout')) return JSON.stringify({ restored: false });
+        if (command.includes('stashCheckout')) return JSON.stringify({ stashed: true });
         return '';
       },
       agent: async (name: string, options: Record<string, unknown>) => {
@@ -260,4 +262,158 @@ test('the fixer runs the origin session\'s own CLI with its literal pinned model
   const claude = context();
   await body()(claude.f, input());
   assert.deepEqual([claude.agents[0]!.options.cli, claude.agents[0]!.options.model], ['claude', 'claude-sonnet-5']);
+});
+
+test('a PR checkout survives between runs: restored into the run root, stashed back after', async () => {
+  const { restoreCheckout, stashCheckout } = await import('../fix.ts');
+  const home = mkdtempSync(join(tmpdir(), 'babysitter-home-'));
+  const runRoot = mkdtempSync(join(tmpdir(), 'babysitter-run-'));
+  const pr = { owner: 'Acme', repo: 'Widgets', number: 7, home };
+  const capture = async (fn: () => Promise<void>) => {
+    const saved = process.stdout.write; let out = '';
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    const cwd = process.cwd(); process.chdir(runRoot);
+    try { await fn(); } finally { process.stdout.write = saved; process.chdir(cwd); }
+    return JSON.parse(out);
+  };
+  // First run: nothing cached.
+  assert.deepEqual(await capture(() => restoreCheckout(pr)), { restored: false });
+  // The run builds a checkout with installed dependencies, then stashes it.
+  mkdirSync(join(runRoot, 'babysitter-checkout', '.git'), { recursive: true });
+  mkdirSync(join(runRoot, 'babysitter-checkout', 'node_modules', 'dep'), { recursive: true });
+  writeFileSync(join(runRoot, 'babysitter-checkout', 'node_modules', 'dep', 'index.js'), 'installed\n');
+  assert.deepEqual(await capture(() => stashCheckout(pr)), { stashed: true });
+  assert.throws(() => readFileSync(join(runRoot, 'babysitter-checkout', 'node_modules', 'dep', 'index.js')), /ENOENT/);
+  // Next run (fresh run root, same sandbox home): the checkout comes back with its dependencies.
+  const next = mkdtempSync(join(tmpdir(), 'babysitter-run-'));
+  const cwd = process.cwd(); process.chdir(next);
+  const saved = process.stdout.write; let out = '';
+  process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+  try { await restoreCheckout(pr); } finally { process.stdout.write = saved; process.chdir(cwd); }
+  assert.deepEqual(JSON.parse(out), { restored: true });
+  assert.equal(readFileSync(join(next, 'babysitter-checkout', 'node_modules', 'dep', 'index.js'), 'utf8'), 'installed\n');
+});
+
+test('the fixer restores the cached checkout before checking out, and stashes it even when the agent fails', async () => {
+  const ok = context();
+  await body()(ok.f, input());
+  const order = ok.commands.map(c => ['restoreCheckout', 'checkoutHead', 'proposeChanges', 'stashCheckout'].find(n => c.includes(n))).filter(Boolean);
+  assert.deepEqual(order, ['restoreCheckout', 'checkoutHead', 'proposeChanges', 'stashCheckout']);
+  const failing = context();
+  (failing.f as any).agent = async () => { throw new Error('agent crashed'); };
+  await assert.rejects(body()(failing.f, input()), /agent crashed/);
+  assert.ok(failing.commands.some(c => c.includes('stashCheckout')), 'stashed after a failure');
+});
+
+test('restore and stash lifted from the shipped artifact run under `node -e`', () => {
+  const home = mkdtempSync(join(tmpdir(), 'babysitter-home-'));
+  const runRoot = mkdtempSync(join(tmpdir(), 'babysitter-run-'));
+  mkdirSync(join(runRoot, 'babysitter-checkout', '.git'), { recursive: true });
+  const run = (name: string) => JSON.parse(execFileSync('sh', ['-c', nodeCommand({ toString: () => shippedFunction(name) } as unknown as Function,
+    { owner: 'acme', repo: 'widgets', number: 7, home })], { cwd: runRoot, encoding: 'utf8' }));
+  assert.deepEqual(run('stashCheckout'), { stashed: true });
+  assert.deepEqual(run('restoreCheckout'), { restored: true });
+});
+
+/** Run checkoutHead as f.run would, fetching from a local repository instead of GitHub. */
+async function runCheckout(runRoot: string, origin: string, head: string): Promise<any> {
+  const { checkoutHead } = await import('../fix.ts');
+  const saved = { write: process.stdout.write, token: process.env.GH_TOKEN, cwd: process.cwd() };
+  let out = '';
+  process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+  process.env.GH_TOKEN = 'test-token';
+  process.chdir(runRoot);
+  try { await checkoutHead({ owner: 'acme', repo: 'widgets', head, origin }); }
+  finally { process.stdout.write = saved.write; process.chdir(saved.cwd); if (saved.token === undefined) delete process.env.GH_TOKEN; else process.env.GH_TOKEN = saved.token; }
+  return JSON.parse(out);
+}
+
+function upstream(): { dir: string; commit: (files: Record<string, string>) => string } {
+  const dir = mkdtempSync(join(tmpdir(), 'babysitter-upstream-'));
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
+  const git = (...a: string[]) => execFileSync('git', ['-C', dir, ...a], { env, encoding: 'utf8' }).trim();
+  git('init', '-q');
+  git('config', 'uploadpack.allowReachableSHA1InWant', 'true');
+  return {
+    dir,
+    commit(files) {
+      for (const [path, content] of Object.entries(files)) { mkdirSync(join(dir, path, '..'), { recursive: true }); writeFileSync(join(dir, path), content); }
+      git('add', '-A'); git('commit', '-qm', 'c');
+      return git('rev-parse', 'HEAD');
+    },
+  };
+}
+
+test('a reused checkout keeps its dependencies but none of the agent\'s git state, and lands exactly on the head', async () => {
+  const up = upstream();
+  const first = up.commit({ '.gitignore': 'node_modules/\n', 'package.json': '{"name":"w"}\n', 'package-lock.json': '{"v":1}\n', 'src/a.ts': 'a\n' });
+  const runRoot = mkdtempSync(join(tmpdir(), 'babysitter-run-'));
+  assert.deepEqual(await runCheckout(runRoot, up.dir, first), { dir: join(runRoot, 'babysitter-checkout'), head: first, reused: false });
+  const dir = join(runRoot, 'babysitter-checkout');
+  // The previous run installed dependencies, edited a tracked file, left junk, and planted git config.
+  mkdirSync(join(dir, 'node_modules', 'dep'), { recursive: true });
+  writeFileSync(join(dir, 'node_modules', 'dep', 'index.js'), 'installed\n');
+  writeFileSync(join(dir, 'src/a.ts'), 'agent edit\n');
+  writeFileSync(join(dir, 'junk.txt'), 'x\n');
+  const proof = join(tmpdir(), `planted-${Date.now()}`);
+  writeFileSync(join(dir, '.git', 'config'), `[core]\n\tfsmonitor = sh -c 'touch ${proof}'\n`);
+  const second = up.commit({ 'src/a.ts': 'b\n' });
+  assert.deepEqual(await runCheckout(runRoot, up.dir, second), { dir, head: second, reused: true });
+  assert.equal(readFileSync(join(dir, 'src/a.ts'), 'utf8'), 'b\n');
+  assert.equal(readFileSync(join(dir, 'node_modules', 'dep', 'index.js'), 'utf8'), 'installed\n', 'dependencies survive an unchanged lockfile');
+  assert.throws(() => readFileSync(join(dir, 'junk.txt')), /ENOENT/);
+  assert.throws(() => readFileSync(proof), /ENOENT/, 'agent-planted git config never ran');
+});
+
+test('a dependency manifest that changed between heads drops the cached dependencies', async () => {
+  const up = upstream();
+  const first = up.commit({ '.gitignore': 'node_modules/\n', 'package-lock.json': '{"v":1}\n' });
+  const runRoot = mkdtempSync(join(tmpdir(), 'babysitter-run-'));
+  await runCheckout(runRoot, up.dir, first);
+  const dir = join(runRoot, 'babysitter-checkout');
+  mkdirSync(join(dir, 'node_modules', 'dep'), { recursive: true });
+  writeFileSync(join(dir, 'node_modules', 'dep', 'index.js'), 'old\n');
+  const second = up.commit({ 'package-lock.json': '{"v":2}\n' });
+  await runCheckout(runRoot, up.dir, second);
+  assert.throws(() => readFileSync(join(dir, 'node_modules', 'dep', 'index.js')), /ENOENT/);
+});
+
+test('a damaged cached .git is replaced, not reused', async () => {
+  const up = upstream();
+  const head = up.commit({ 'a.txt': 'a\n' });
+  const runRoot = mkdtempSync(join(tmpdir(), 'babysitter-run-'));
+  mkdirSync(join(runRoot, 'babysitter-checkout'), { recursive: true });
+  writeFileSync(join(runRoot, 'babysitter-checkout', '.git'), 'gitdir: /nowhere\n');
+  assert.deepEqual((await runCheckout(runRoot, up.dir, head)).head, head);
+  assert.equal(readFileSync(join(runRoot, 'babysitter-checkout', 'a.txt'), 'utf8'), 'a\n');
+});
+
+test('cache moves never fail the run: an unwritable cache only means the next run starts fresh', async () => {
+  const { stashCheckout } = await import('../fix.ts');
+  const runRoot = mkdtempSync(join(tmpdir(), 'babysitter-run-'));
+  mkdirSync(join(runRoot, 'babysitter-checkout', '.git'), { recursive: true });
+  const blocker = join(mkdtempSync(join(tmpdir(), 'babysitter-home-')), 'home-is-a-file');
+  writeFileSync(blocker, 'x');
+  const saved = { write: process.stdout.write, cwd: process.cwd() }; let out = '';
+  process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+  process.chdir(runRoot);
+  try { await stashCheckout({ owner: 'acme', repo: 'widgets', number: 7, home: blocker }); }
+  finally { process.stdout.write = saved.write; process.chdir(saved.cwd); }
+  assert.deepEqual(JSON.parse(out), { stashed: false });
+});
+
+test('flows check still sees the fixer\'s agent requirement', () => {
+  const artifact = readFileSync(fileURLToPath(new URL('../artifacts/babysitter-fixer.flow.ts', import.meta.url)), 'utf8');
+  const body = artifact.slice(artifact.indexOf('function createStandaloneFixer('));
+  const fn = body.slice(0, body.indexOf('\n}\n'));
+  assert.doesNotMatch(fn, /async function fixAndPropose/, 'agent calls stay in the registered body');
+});
+
+test('checkoutHead lifted from the shipped artifact runs under `node -e`', () => {
+  const up = upstream();
+  const head = up.commit({ 'a.txt': 'a\n' });
+  const runRoot = mkdtempSync(join(tmpdir(), 'babysitter-run-'));
+  const command = nodeCommand({ toString: () => shippedFunction('checkoutHead') } as unknown as Function, { owner: 'acme', repo: 'widgets', head, origin: up.dir });
+  const out = JSON.parse(execFileSync('sh', ['-c', command], { cwd: runRoot, encoding: 'utf8', env: { ...process.env, GH_TOKEN: 'test-token' } }));
+  assert.deepEqual([out.head, out.reused], [head, false]);
 });

@@ -1,7 +1,7 @@
 import { flow, type Ctx } from '@relayflows/surface';
 import { admit, neutralise, outOfScope, parsePolicy, type Admitted } from './admission.ts';
 import { capabilities } from './capabilities.ts';
-import { checkout, propose, REPLY_MAX_CHARS, SUMMARY_MAX_CHARS } from './fix.ts';
+import { checkout, propose, REPLY_MAX_CHARS, restore, stash, SUMMARY_MAX_CHARS } from './fix.ts';
 import { readState } from './github.ts';
 import { record } from './input.ts';
 import { agentTask } from './origin.ts';
@@ -45,6 +45,8 @@ function threadReplies(a: Admitted, replies: { id: number; body: string }[]): { 
   }));
 }
 
+type Verdict = { reason: 'success' | 'declined' | 'needs_human'; detail?: string };
+
 export function createStandaloneFixer(policy: unknown, runtime: { enforcedAgentWriteScope: boolean } = capabilities) {
   const configured = parsePolicy(policy);
   const enforced = runtime.enforcedAgentWriteScope;
@@ -52,35 +54,47 @@ export function createStandaloneFixer(policy: unknown, runtime: { enforcedAgentW
     const a = await admit(f, value, configured, enforced,
       'Babysitter fix blocked: the agent would inherit push-capable repository credentials; needs enforced agent write scope (gate 8 / #442).');
     if (!a) return;
+    // (5) The bound head, checked out where the agent works. A reused sandbox
+    // brings back the PR's previous checkout, with its dependencies.
     const { pr, wake, origin, c, head, report } = a;
-    // (5) The bound head, checked out where the agent works.
-    const work = await checkout(f, pr, head);
-    // (6) One agent carrying the original scope edits the working tree. It is
-    // the origin session's own CLI, with a literal pinned model per CLI so the
-    // shipped-source model audit resolves both pairs; the fixer ignores the
-    // policy's agentCli override.
-    const task = agentTask(origin, `${pr.owner}/${pr.repo}#${pr.number}`, head, a.changed, 'fix');
-    const result = origin.source === 'codex'
-      ? await f.agent('babysitter-fix', { cli: 'codex', model: 'gpt-5.6-sol', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task })
-      : await f.agent('babysitter-fix', { cli: 'claude', model: 'claude-sonnet-5', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task });
-    // (7) Never propose against a head that no longer exists.
-    const final = await readState(f, c);
-    if (final.headSha !== head || outOfScope(final, c, configured.label)) {
-      await report(`${wake.id}: head moved or PR left scope while fixing; no proposal for ${head}`);
-      return f.done('declined');
+    await restore(f, pr);
+    let verdict: Verdict;
+    try {
+      const work = await checkout(f, pr, head);
+      // (6) One agent carrying the original scope edits the working tree. It is
+      // the origin session's own CLI, with a literal pinned model per CLI so the
+      // shipped-source model audit resolves both pairs; the fixer ignores the
+      // policy's agentCli override.
+      const task = agentTask(origin, `${pr.owner}/${pr.repo}#${pr.number}`, head, a.changed, 'fix');
+      const result = origin.source === 'codex'
+        ? await f.agent('babysitter-fix', { cli: 'codex', model: 'gpt-5.6-sol', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task })
+        : await f.agent('babysitter-fix', { cli: 'claude', model: 'claude-sonnet-5', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task });
+      // (7) Never propose against a head that no longer exists.
+      const final = await readState(f, c);
+      if (final.headSha !== head || outOfScope(final, c, configured.label)) {
+        await report(`${wake.id}: head moved or PR left scope while fixing; no proposal for ${head}`);
+        verdict = { reason: 'declined' };
+      } else {
+        // (8) One journaled proposal. Cloud publishes it; this run never writes code to GitHub.
+        const outcome = parseOutcome(result.summary);
+        const proposal = await propose(f, {
+          dir: work.dir, head, pullRequest: { owner: pr.owner, repo: pr.repo, number: pr.number },
+          summary: neutralise(outcome.summary, origin.firstPrompt).slice(0, SUMMARY_MAX_CHARS),
+          replies: threadReplies(a, outcome.replies),
+        });
+        if (proposal.kind === 'babysitter-refusal') {
+          await report(`${wake.id}: proposal refused: ${proposal.reason}`);
+          verdict = { reason: 'needs_human', detail: `Babysitter proposal refused: ${proposal.reason}` };
+        } else {
+          verdict = { reason: 'success', detail: `Babysitter proposal for ${head}: ${proposal.files.length} file(s)` };
+        }
+      }
+    } finally {
+      // Back to the PR cache whatever happened, for the next wake on this box;
+      // before f.done, so the stash is a step of this run.
+      await stash(f, pr);
     }
-    // (8) One journaled proposal. Cloud publishes it; this run never writes code to GitHub.
-    const outcome = parseOutcome(result.summary);
-    const proposal = await propose(f, {
-      dir: work.dir, head, pullRequest: { owner: pr.owner, repo: pr.repo, number: pr.number },
-      summary: neutralise(outcome.summary, origin.firstPrompt).slice(0, SUMMARY_MAX_CHARS),
-      replies: threadReplies(a, outcome.replies),
-    });
-    if (proposal.kind === 'babysitter-refusal') {
-      await report(`${wake.id}: proposal refused: ${proposal.reason}`);
-      return f.done('needs_human', { detail: `Babysitter proposal refused: ${proposal.reason}` });
-    }
-    f.done('success', { detail: `Babysitter proposal for ${head}: ${proposal.files.length} file(s)` });
+    f.done(verdict.reason, verdict.detail ? { detail: verdict.detail } : undefined);
   };
   return subscriptions.reduce<ReturnType<typeof flow>>(
     (handle, subscription) => handle.on(subscription.trigger, body),

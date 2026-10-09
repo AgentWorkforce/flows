@@ -607,8 +607,9 @@ var SUMMARY_MAX_CHARS = 4e3;
 var REFUSED_PATHS = String.raw`^\.github/workflows/|(^|/)\.env($|\.)|\.(pem|key|p12|pfx|jks)$|(^|/)id_(rsa|dsa|ecdsa|ed25519)(\.pub)?$|(^|/)\.(npmrc|netrc|pypirc)$|(^|/)secrets?/`;
 async function checkoutHead(c) {
   const { execFileSync } = await import("node:child_process");
-  const { existsSync, mkdirSync, rmSync, writeFileSync } = await import("node:fs");
-  const { resolve } = await import("node:path");
+  const { createHash } = await import("node:crypto");
+  const { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } = await import("node:fs");
+  const { join, resolve } = await import("node:path");
   if (!process.env.GH_TOKEN) throw new Error("GH_TOKEN required");
   const dir = resolve("babysitter-checkout");
   const auth = Buffer.from(`x-access-token:${process.env.GH_TOKEN}`).toString("base64");
@@ -626,20 +627,68 @@ async function checkoutHead(c) {
     GIT_CONFIG_VALUE_2: "false"
   };
   const git = (...args) => String(execFileSync("git", ["-C", dir, ...args], { env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })).trim();
-  const reused = existsSync(`${dir}/.git`);
-  if (!reused) {
-    mkdirSync(dir, { recursive: true });
-    git("init", "-q");
-  }
-  writeFileSync(`${dir}/.git/config`, "[core]\n	repositoryformatversion = 0\n	filemode = true\n	bare = false\n");
-  rmSync(`${dir}/.git/hooks`, { recursive: true, force: true });
-  rmSync(`${dir}/.git/info/attributes`, { force: true });
-  git("fetch", "-q", "--no-tags", "--depth=50", `https://github.com/${c.owner}/${c.repo}.git`, c.head);
-  git("checkout", "-q", "--force", "--detach", c.head);
+  const MANIFESTS = /^(package\.json|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|requirements[\w.-]*\.txt|pyproject\.toml|poetry\.lock|Pipfile\.lock|uv\.lock|Cargo\.lock|go\.sum|Gemfile\.lock|composer\.lock)$/;
+  const SKIP = /* @__PURE__ */ new Set([".git", "node_modules", "vendor", "target", "dist", "build", ".venv", "venv"]);
+  const fingerprint = () => {
+    const hash = createHash("sha256");
+    const walk = (at, rel, depth) => {
+      if (depth > 6) return;
+      for (const entry2 of readdirSync(at, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+        if (entry2.isDirectory() && !SKIP.has(entry2.name)) walk(join(at, entry2.name), `${rel}${entry2.name}/`, depth + 1);
+        else if (entry2.isFile() && MANIFESTS.test(entry2.name)) hash.update(`${rel}${entry2.name}\0`).update(readFileSync(join(at, entry2.name))).update("\0");
+      }
+    };
+    walk(dir, "", 0);
+    return hash.digest("hex");
+  };
+  const reused = existsSync(dir);
+  mkdirSync(dir, { recursive: true });
+  const before = fingerprint();
+  rmSync(join(dir, ".git"), { recursive: true, force: true });
+  git("init", "-q");
+  git("fetch", "-q", "--no-tags", "--depth=50", c.origin ?? `https://github.com/${c.owner}/${c.repo}.git`, c.head);
   git("reset", "-q", "--hard", c.head);
-  git("clean", "-q", "-fd");
+  git("clean", "-q", reused && fingerprint() !== before ? "-fdx" : "-fd");
   if (git("rev-parse", "HEAD") !== c.head) throw new Error("Checkout is not at the bound head");
   process.stdout.write(JSON.stringify({ dir, head: c.head, reused }));
+}
+async function restoreCheckout(c) {
+  const { existsSync, renameSync, rmSync } = await import("node:fs");
+  const { homedir } = await import("node:os");
+  const { join, resolve } = await import("node:path");
+  const cache = join(c.home ?? homedir(), ".babysitter", c.owner.toLowerCase(), c.repo.toLowerCase(), String(c.number), "checkout");
+  const dir = resolve("babysitter-checkout");
+  let restored = false;
+  try {
+    if (existsSync(cache) && !existsSync(dir)) {
+      renameSync(cache, dir);
+      restored = true;
+    }
+  } catch {
+    try {
+      rmSync(cache, { recursive: true, force: true });
+    } catch {
+    }
+  }
+  process.stdout.write(JSON.stringify({ restored }));
+}
+async function stashCheckout(c) {
+  const { existsSync, mkdirSync, renameSync, rmSync } = await import("node:fs");
+  const { homedir } = await import("node:os");
+  const { dirname, join, resolve } = await import("node:path");
+  const cache = join(c.home ?? homedir(), ".babysitter", c.owner.toLowerCase(), c.repo.toLowerCase(), String(c.number), "checkout");
+  const dir = resolve("babysitter-checkout");
+  let stashed = false;
+  try {
+    if (existsSync(dir)) {
+      rmSync(cache, { recursive: true, force: true });
+      mkdirSync(dirname(cache), { recursive: true });
+      renameSync(dir, cache);
+      stashed = true;
+    }
+  } catch {
+  }
+  process.stdout.write(JSON.stringify({ stashed }));
 }
 async function proposeChanges(c) {
   const { execFileSync } = await import("node:child_process");
@@ -676,6 +725,12 @@ async function proposeChanges(c) {
   });
   if (Buffer.byteLength(out) > c.limits.proposalBytes) return refuse("proposal exceeds the journal output bound");
   process.stdout.write(out);
+}
+async function restore(f, pr) {
+  return JSON.parse(await f.run(nodeCommand(restoreCheckout, { owner: pr.owner, repo: pr.repo, number: pr.number }), { timeout: "2m" })).restored === true;
+}
+async function stash(f, pr) {
+  await f.run(nodeCommand(stashCheckout, { owner: pr.owner, repo: pr.repo, number: pr.number }), { timeout: "2m" });
 }
 async function checkout(f, pr, head) {
   const value = JSON.parse(await f.run(nodeCommand(checkoutHead, { owner: pr.owner, repo: pr.repo, head }), { timeout: "5m" }));
@@ -730,27 +785,36 @@ function createStandaloneFixer(policy, runtime = capabilities) {
     );
     if (!a) return;
     const { pr, wake, origin, c, head, report } = a;
-    const work = await checkout(f, pr, head);
-    const task = agentTask(origin, `${pr.owner}/${pr.repo}#${pr.number}`, head, a.changed, "fix");
-    const result = origin.source === "codex" ? await f.agent("babysitter-fix", { cli: "codex", model: "gpt-5.6-sol", cwd: work.dir, permissions: { accessPreset: "readwrite" }, task }) : await f.agent("babysitter-fix", { cli: "claude", model: "claude-sonnet-5", cwd: work.dir, permissions: { accessPreset: "readwrite" }, task });
-    const final = await readState(f, c);
-    if (final.headSha !== head || outOfScope(final, c, configured.label)) {
-      await report(`${wake.id}: head moved or PR left scope while fixing; no proposal for ${head}`);
-      return f.done("declined");
+    await restore(f, pr);
+    let verdict;
+    try {
+      const work = await checkout(f, pr, head);
+      const task = agentTask(origin, `${pr.owner}/${pr.repo}#${pr.number}`, head, a.changed, "fix");
+      const result = origin.source === "codex" ? await f.agent("babysitter-fix", { cli: "codex", model: "gpt-5.6-sol", cwd: work.dir, permissions: { accessPreset: "readwrite" }, task }) : await f.agent("babysitter-fix", { cli: "claude", model: "claude-sonnet-5", cwd: work.dir, permissions: { accessPreset: "readwrite" }, task });
+      const final = await readState(f, c);
+      if (final.headSha !== head || outOfScope(final, c, configured.label)) {
+        await report(`${wake.id}: head moved or PR left scope while fixing; no proposal for ${head}`);
+        verdict = { reason: "declined" };
+      } else {
+        const outcome = parseOutcome(result.summary);
+        const proposal = await propose(f, {
+          dir: work.dir,
+          head,
+          pullRequest: { owner: pr.owner, repo: pr.repo, number: pr.number },
+          summary: neutralise(outcome.summary, origin.firstPrompt).slice(0, SUMMARY_MAX_CHARS),
+          replies: threadReplies(a, outcome.replies)
+        });
+        if (proposal.kind === "babysitter-refusal") {
+          await report(`${wake.id}: proposal refused: ${proposal.reason}`);
+          verdict = { reason: "needs_human", detail: `Babysitter proposal refused: ${proposal.reason}` };
+        } else {
+          verdict = { reason: "success", detail: `Babysitter proposal for ${head}: ${proposal.files.length} file(s)` };
+        }
+      }
+    } finally {
+      await stash(f, pr);
     }
-    const outcome = parseOutcome(result.summary);
-    const proposal = await propose(f, {
-      dir: work.dir,
-      head,
-      pullRequest: { owner: pr.owner, repo: pr.repo, number: pr.number },
-      summary: neutralise(outcome.summary, origin.firstPrompt).slice(0, SUMMARY_MAX_CHARS),
-      replies: threadReplies(a, outcome.replies)
-    });
-    if (proposal.kind === "babysitter-refusal") {
-      await report(`${wake.id}: proposal refused: ${proposal.reason}`);
-      return f.done("needs_human", { detail: `Babysitter proposal refused: ${proposal.reason}` });
-    }
-    f.done("success", { detail: `Babysitter proposal for ${head}: ${proposal.files.length} file(s)` });
+    f.done(verdict.reason, verdict.detail ? { detail: verdict.detail } : void 0);
   };
   return subscriptions.reduce(
     (handle, subscription) => handle.on(subscription.trigger, body),

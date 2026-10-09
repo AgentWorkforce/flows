@@ -1,0 +1,130 @@
+# fix.ts/fixer.ts at 2b9034b4 (before review-1 fixes); tests from the review-1 commit.
+$ node --experimental-strip-types --test tests/fixer.test.ts
+✔ the fixer checks out the bound head, runs one agent there with fix rules, and journals one proposal (5.517765ms)
+✔ the fixer never writes to GitHub itself: no push, merge, review, or comment calls (1.738744ms)
+✔ thread replies go only to inline feedback this run was woken by, once each, marked and neutralised (1.113037ms)
+✔ a head that moves while fixing declines without a proposal (0.847853ms)
+✔ a refused proposal ends needs_human (2.086322ms)
+✔ by default the fixer dispatches no agent and checks nothing out (gate 8 / #442) (5.658759ms)
+✔ the agent outcome is read from a JSON message, a fenced JSON block, or falls back to prose (0.583068ms)
+✔ a real proposal covers edits, new files and the agent's own commits, all against the bound head (387.22251ms)
+✔ workflow, secret, oversized and too-wide proposals are refused whole (1214.352415ms)
+✔ an untouched checkout proposes an empty patch (replies and summary may still publish) (127.789373ms)
+✔ the proposal script runs as f.run runs it: a stringified `node -e` command in a shell (199.225897ms)
+✔ the proposal script lifted from the shipped artifact runs under `node -e` (232.221683ms)
+✔ the proposal never runs code the agent planted in the checkout's git config, and its diff format is fixed (280.43281ms)
+✔ paths git would have to quote are refused; a newline cannot split a name past the workflow rule (527.694788ms)
+✔ a non-ASCII name is proposed unquoted, so Cloud parses the same path (132.478162ms)
+✔ the fixer runs the origin session's own CLI with its literal pinned model (2.694147ms)
+✔ a PR checkout survives between runs: restored into the run root, stashed back after (3.704602ms)
+✔ the fixer restores the cached checkout before checking out, and stashes it even when the agent fails (2.979079ms)
+✔ restore and stash lifted from the shipped artifact run under `node -e` (108.36021ms)
+✖ a reused checkout keeps its dependencies but none of the agent's git state, and lands exactly on the head (391.243944ms)
+✖ a dependency manifest that changed between heads drops the cached dependencies (403.409714ms)
+✖ a damaged cached .git is replaced, not reused (239.153007ms)
+✖ cache moves never fail the run: an unwritable cache only means the next run starts fresh (1.069556ms)
+✖ flows check still sees the fixer's agent requirement (1.622277ms)
+ℹ tests 24
+ℹ suites 0
+ℹ pass 19
+ℹ fail 5
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4605.150809
+
+✖ failing tests:
+
+test at tests/fixer.test.ts:347:1
+✖ a reused checkout keeps its dependencies but none of the agent's git state, and lands exactly on the head (391.243944ms)
+  Error: Command failed: git -C /tmp/babysitter-run-dSkRvc/babysitter-checkout fetch -q --no-tags --depth=50 https://github.com/acme/widgets.git 2dddb438f7a80eef1008744f8a3b8568244e7982
+  fatal: could not read Username for 'https://github.com': terminal prompts disabled
+  
+      at genericNodeError (node:internal/errors:999:15)
+      at wrappedFn (node:internal/errors:544:14)
+      at checkExecSyncError (node:child_process:942:11)
+      at execFileSync (node:child_process:978:15)
+      at git (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/fix.ts:45:45)
+      at checkoutHead (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/fix.ts:53:3)
+      at async runCheckout (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/tests/fixer.test.ts:326:9)
+      at async TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/tests/fixer.test.ts:351:20)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    status: 128,
+    signal: null,
+    output: [ null, '', "fatal: could not read Username for 'https://github.com': terminal prompts disabled\n" ],
+    pid: 1891645,
+    stdout: '',
+    stderr: "fatal: could not read Username for 'https://github.com': terminal prompts disabled\n"
+  }
+
+test at tests/fixer.test.ts:368:1
+✖ a dependency manifest that changed between heads drops the cached dependencies (403.409714ms)
+  Error: Command failed: git -C /tmp/babysitter-run-Th1Dkg/babysitter-checkout fetch -q --no-tags --depth=50 https://github.com/acme/widgets.git 494c489e65e1721a48c1260d5784ec0a037acd68
+  fatal: could not read Username for 'https://github.com': terminal prompts disabled
+  
+      at genericNodeError (node:internal/errors:999:15)
+      at wrappedFn (node:internal/errors:544:14)
+      at checkExecSyncError (node:child_process:942:11)
+      at execFileSync (node:child_process:978:15)
+      at git (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/fix.ts:45:45)
+      at checkoutHead (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/fix.ts:53:3)
+      at async runCheckout (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/tests/fixer.test.ts:326:9)
+      at async TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/tests/fixer.test.ts:372:3)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    status: 128,
+    signal: null,
+    output: [ null, '', "fatal: could not read Username for 'https://github.com': terminal prompts disabled\n" ],
+    pid: 1891787,
+    stdout: '',
+    stderr: "fatal: could not read Username for 'https://github.com': terminal prompts disabled\n"
+  }
+
+test at tests/fixer.test.ts:381:1
+✖ a damaged cached .git is replaced, not reused (239.153007ms)
+  Error: ENOTDIR: not a directory, open '/tmp/babysitter-run-G0VrQ9/babysitter-checkout/.git/config'
+      at writeFileSync (node:fs:2997:20)
+      at checkoutHead (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/fix.ts:50:3)
+      at async runCheckout (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/tests/fixer.test.ts:326:9)
+      at async TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/tests/fixer.test.ts:387:21)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    errno: -20,
+    code: 'ENOTDIR',
+    syscall: 'open',
+    path: '/tmp/babysitter-run-G0VrQ9/babysitter-checkout/.git/config'
+  }
+
+test at tests/fixer.test.ts:391:1
+✖ cache moves never fail the run: an unwritable cache only means the next run starts fresh (1.069556ms)
+  Error: ENOTDIR: not a directory, mkdir '/tmp/babysitter-home-ch2QMP/home-is-a-file/.babysitter/acme/widgets/7'
+      at mkdirSync (node:fs:1734:26)
+      at stashCheckout (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/fix.ts:93:5)
+      at async TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/tests/fixer.test.ts:400:9)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    errno: -20,
+    code: 'ENOTDIR',
+    syscall: 'mkdir',
+    path: '/tmp/babysitter-home-ch2QMP/home-is-a-file/.babysitter/acme/widgets/7'
+  }
+
+test at tests/fixer.test.ts:405:1
+✖ flows check still sees the fixer's agent requirement (1.622277ms)
+  AssertionError [ERR_ASSERTION]: agent calls stay in the registered body
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/tests/fixer.test.ts:409:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'function createStandaloneFixer(policy, runtime = capabilities) {\n  const configured = parsePolicy(policy);\n  const enforced = runtime.enforcedAgentWriteScope;\n  const body = async (f, value) => {\n    const a = await admit(\n      f,\n      value,\n      configured,\n      enforced,\n      "Babysitter fix blocked: the agent would inherit push-capable repository credentials; needs enforced agent write scope (gate 8 / #442)."\n    );\n    if (!a) return;\n    await restore(f, a.pr);\n    let verdict;\n    try {\n      verdict = await fixAndPropose(f, a);\n    } finally {\n      await stash(f, a.pr);\n    }\n    f.done(verdict.reason, verdict.detail ? { detail: verdict.detail } : void 0);\n  };\n  async function fixAndPropose(f, a) {\n    const { pr, wake, origin, c, head, report } = a;\n    const work = await checkout(f, pr, head);\n    const task = agentTask(origin, `${pr.owner}/${pr.repo}#${pr.number}`, head, a.changed, "fix");\n    const result = origin.source === "codex" ? await f.agent("babysitter-fix", { cli: "codex", model: "gpt-5.6-sol", cwd: work.dir, permissions: { accessPreset: "readwrite" }, task }) : await f.agent("babysitter-fix", { cli: "claude", model: "claude-sonnet-5", cwd: work.dir, permissions: { accessPreset: "readwrite" }, task });\n    const final = await readState(f, c);\n    if (final.headSha !== head || outOfScope(final, c, configured.label)) {\n      await report(`${wake.id}: head moved or PR left scope while fixing; no proposal for ${head}`);\n      return { reason: "declined" };\n    }\n    const outcome = parseOutcome(result.summary);\n    const proposal = await propose(f, {\n      dir: work.dir,\n      head,\n      pullRequest: { owner: pr.owner, repo: pr.repo, number: pr.number },\n      summary: neutralise(outcome.summary, origin.firstPrompt).slice(0, SUMMARY_MAX_CHARS),\n      replies: threadReplies(a, outcome.replies)\n    });\n    if (proposal.kind === "babysitter-refusal") {\n      await report(`${wake.id}: proposal refused: ${proposal.reason}`);\n      return { reason: "needs_human", detail: `Babysitter proposal refused: ${proposal.reason}` };\n    }\n    return { reason: "success", detail: `Babysitter proposal for ${head}: ${proposal.files.length} file(s)` };\n  }\n  return subscriptions.reduce(\n    (handle, subscription) => handle.on(subscription.trigger, body),\n    flow("Babysitter fixer", { budget: { tokens: 1e6, dollars: 10, wallclock: "40m" } }, body)\n  );',
+    expected: /async function fixAndPropose/,
+    operator: 'doesNotMatch',
+    diff: 'simple'
+  }
+exit=1

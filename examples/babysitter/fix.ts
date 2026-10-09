@@ -25,13 +25,19 @@ export const REFUSED_PATHS = String.raw`^\.github/workflows/|(^|/)\.env($|\.)|\.
 /**
  * Check out exactly `head` into `babysitter-checkout` under the run root, with
  * the run's read-only token sent as a header (never in argv or git config).
- * An existing checkout (a reused sandbox) is fetched and reset in place;
- * ignored files such as installed dependencies are kept.
+ *
+ * A checkout restored from a reused sandbox keeps only its working tree:
+ * `.git` is always rebuilt, so nothing a previous agent turn wrote there
+ * (config, hooks, attributes, a damaged repository) reaches a git command
+ * that carries the token. Ignored files such as installed dependencies are
+ * kept, unless a dependency manifest differs from the head, in which case
+ * they are dropped too. `origin` exists for tests; runs fetch from GitHub.
  */
-export async function checkoutHead(c: { owner: string; repo: string; head: string }): Promise<void> {
+export async function checkoutHead(c: { owner: string; repo: string; head: string; origin?: string }): Promise<void> {
   const { execFileSync } = await import('node:child_process');
-  const { existsSync, mkdirSync, rmSync, writeFileSync } = await import('node:fs');
-  const { resolve } = await import('node:path');
+  const { createHash } = await import('node:crypto');
+  const { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } = await import('node:fs');
+  const { join, resolve } = await import('node:path');
   if (!process.env.GH_TOKEN) throw new Error('GH_TOKEN required');
   const dir = resolve('babysitter-checkout');
   const auth = Buffer.from(`x-access-token:${process.env.GH_TOKEN}`).toString('base64');
@@ -43,19 +49,74 @@ export async function checkoutHead(c: { owner: string; repo: string; head: strin
     GIT_CONFIG_KEY_2: 'advice.detachedHead', GIT_CONFIG_VALUE_2: 'false',
   };
   const git = (...args: string[]) => String(execFileSync('git', ['-C', dir, ...args], { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })).trim();
-  const reused = existsSync(`${dir}/.git`);
-  if (!reused) { mkdirSync(dir, { recursive: true }); git('init', '-q'); }
-  // A previous agent turn could write .git: drop its config, hooks and
-  // attribute overrides before git runs with the token.
-  writeFileSync(`${dir}/.git/config`, '[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n');
-  rmSync(`${dir}/.git/hooks`, { recursive: true, force: true });
-  rmSync(`${dir}/.git/info/attributes`, { force: true });
-  git('fetch', '-q', '--no-tags', '--depth=50', `https://github.com/${c.owner}/${c.repo}.git`, c.head);
-  git('checkout', '-q', '--force', '--detach', c.head);
+  // Dependency manifests anywhere outside dependency and build directories.
+  const MANIFESTS = /^(package\.json|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|requirements[\w.-]*\.txt|pyproject\.toml|poetry\.lock|Pipfile\.lock|uv\.lock|Cargo\.lock|go\.sum|Gemfile\.lock|composer\.lock)$/;
+  const SKIP = new Set(['.git', 'node_modules', 'vendor', 'target', 'dist', 'build', '.venv', 'venv']);
+  const fingerprint = (): string => {
+    const hash = createHash('sha256');
+    const walk = (at: string, rel: string, depth: number) => {
+      if (depth > 6) return;
+      for (const entry of readdirSync(at, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+        if (entry.isDirectory() && !SKIP.has(entry.name)) walk(join(at, entry.name), `${rel}${entry.name}/`, depth + 1);
+        else if (entry.isFile() && MANIFESTS.test(entry.name)) hash.update(`${rel}${entry.name}\0`).update(readFileSync(join(at, entry.name))).update('\0');
+      }
+    };
+    walk(dir, '', 0);
+    return hash.digest('hex');
+  };
+  const reused = existsSync(dir);
+  mkdirSync(dir, { recursive: true });
+  const before = fingerprint();
+  rmSync(join(dir, '.git'), { recursive: true, force: true });
+  git('init', '-q');
+  git('fetch', '-q', '--no-tags', '--depth=50', c.origin ?? `https://github.com/${c.owner}/${c.repo}.git`, c.head);
   git('reset', '-q', '--hard', c.head);
-  git('clean', '-q', '-fd');
+  git('clean', '-q', reused && fingerprint() !== before ? '-fdx' : '-fd');
   if (git('rev-parse', 'HEAD') !== c.head) throw new Error('Checkout is not at the bound head');
   process.stdout.write(JSON.stringify({ dir, head: c.head, reused }));
+}
+
+/**
+ * The sandbox is reused per pull request, but each run's root is created
+ * anew. The checkout therefore lives in a PR-scoped cache under $HOME between
+ * runs and is moved (renamed, so installed dependencies come along) into the
+ * run root for the agent, whose working directory must sit inside it.
+ */
+export interface CheckoutCache { owner: string; repo: string; number: number; home?: string }
+
+export async function restoreCheckout(c: CheckoutCache): Promise<void> {
+  const { existsSync, renameSync, rmSync } = await import('node:fs');
+  const { homedir } = await import('node:os');
+  const { join, resolve } = await import('node:path');
+  const cache = join(c.home ?? homedir(), '.babysitter', c.owner.toLowerCase(), c.repo.toLowerCase(), String(c.number), 'checkout');
+  const dir = resolve('babysitter-checkout');
+  let restored = false;
+  try {
+    if (existsSync(cache) && !existsSync(dir)) { renameSync(cache, dir); restored = true; }
+  } catch {
+    // Another filesystem (EXDEV) or an unreadable cache: start fresh rather than copy.
+    try { rmSync(cache, { recursive: true, force: true }); } catch { /* the next stash replaces it */ }
+  }
+  process.stdout.write(JSON.stringify({ restored }));
+}
+
+export async function stashCheckout(c: CheckoutCache): Promise<void> {
+  const { existsSync, mkdirSync, renameSync, rmSync } = await import('node:fs');
+  const { homedir } = await import('node:os');
+  const { dirname, join, resolve } = await import('node:path');
+  const cache = join(c.home ?? homedir(), '.babysitter', c.owner.toLowerCase(), c.repo.toLowerCase(), String(c.number), 'checkout');
+  const dir = resolve('babysitter-checkout');
+  let stashed = false;
+  // Best effort: a cache that cannot be written only means the next run starts fresh.
+  try {
+    if (existsSync(dir)) {
+      rmSync(cache, { recursive: true, force: true });
+      mkdirSync(dirname(cache), { recursive: true });
+      renameSync(dir, cache);
+      stashed = true;
+    }
+  } catch { /* fall through: not stashed */ }
+  process.stdout.write(JSON.stringify({ stashed }));
 }
 
 export interface ProposalInput {
@@ -103,6 +164,14 @@ export async function proposeChanges(c: ProposalInput): Promise<void> {
   });
   if (Buffer.byteLength(out) > c.limits.proposalBytes) return refuse('proposal exceeds the journal output bound');
   process.stdout.write(out);
+}
+
+export async function restore(f: Ctx, pr: { owner: string; repo: string; number: number }): Promise<boolean> {
+  return JSON.parse(await f.run(nodeCommand(restoreCheckout, { owner: pr.owner, repo: pr.repo, number: pr.number }), { timeout: '2m' })).restored === true;
+}
+
+export async function stash(f: Ctx, pr: { owner: string; repo: string; number: number }): Promise<void> {
+  await f.run(nodeCommand(stashCheckout, { owner: pr.owner, repo: pr.repo, number: pr.number }), { timeout: '2m' });
 }
 
 export async function checkout(f: Ctx, pr: { owner: string; repo: string }, head: string): Promise<{ dir: string; reused: boolean }> {
