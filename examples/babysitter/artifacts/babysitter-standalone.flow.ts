@@ -558,7 +558,8 @@ function gardenPullRequest(s, c) {
   return typeof s.headRef === "string" && s.headRef.startsWith("relayflow/") && String(s.headRepo).toLowerCase() === `${c.owner}/${c.repo}`.toLowerCase();
 }
 function outOfScope(s, c, label) {
-  return eligible(s, c) ?? (gardenPullRequest(s, c) || Array.isArray(s.labels) && s.labels.some((l) => String(l).toLowerCase() === label) ? void 0 : `Not a Software Garden PR and live labels lack the "${label}" opt-in`);
+  const garden = gardenPullRequest(s, c);
+  return eligible(garden ? { ...s, draft: false } : s, c) ?? (garden || Array.isArray(s.labels) && s.labels.some((l) => String(l).toLowerCase() === label) ? void 0 : `Not a Software Garden PR and live labels lack the "${label}" opt-in`);
 }
 function whatChanged(s, author) {
   const directive = [...s.comments].reverse().find((m) => {

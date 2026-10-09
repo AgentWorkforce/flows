@@ -75,11 +75,14 @@ function gardenPullRequest(s: State, c: Config): boolean {
 
 /**
  * Why live state puts the PR out of scope, if it does: lifecycle, skip labels,
- * or neither a Software Garden PR (in scope by default) nor the opt-in label.
+ * or neither a Software Garden PR (in scope by default, drafts included) nor
+ * the opt-in label (whose drafts stay out).
  */
 function outOfScope(s: State, c: Config, label: string): string | undefined {
-  return eligible(s, c)
-    ?? (gardenPullRequest(s, c) || (Array.isArray(s.labels) && s.labels.some(l => String(l).toLowerCase() === label))
+  // Garden drafts a PR whose checks fail; getting it out of draft is the job.
+  const garden = gardenPullRequest(s, c);
+  return eligible(garden ? { ...s, draft: false } : s, c)
+    ?? (garden || (Array.isArray(s.labels) && s.labels.some(l => String(l).toLowerCase() === label))
       ? undefined : `Not a Software Garden PR and live labels lack the "${label}" opt-in`);
 }
 

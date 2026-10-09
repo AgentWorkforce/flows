@@ -1,0 +1,54 @@
+$ node --experimental-strip-types --test tests/standalone.test.ts
+✔ without originContext the run ends needs_human with zero f.agent calls and no live read (4.372596ms)
+✔ with originContext the agent task carries the first prompt verbatim, delimited as the task definition (2.234753ms)
+✔ two deliveries with different ids and the same live state log the same decision key (1.508403ms)
+✔ anything that is not the bound PR is refused before any effect (3.254097ms)
+✔ a missing or malformed server-claimed head fails closed before live state or diagnosis (0.585769ms)
+✔ a live head different from the server-claimed head declines before signals, diagnosis or comment (0.649006ms)
+✔ live state decides: closed, draft, missing babysit label or nothing actionable decline without an agent (0.96306ms)
+✔ a change request or an authorised directive is actionable; an outsider directive is not (1.534853ms)
+✔ a head already reported by Babysitter declines before the agent (0.442252ms)
+✔ the reader is asked for this bot's reports at the bound head (0.686717ms)
+✔ withdrawing the opt-in label during diagnosis stops the report (0.394082ms)
+✔ a push racing the comment marks the posted report superseded for the new head (0.525306ms)
+✔ a head that moves while the agent runs declines instead of reporting on a stale head (0.344971ms)
+✔ report is one owned PR comment naming the inherited session, never the prompt text, with mentions neutralised (0.717333ms)
+✔ the agent CLI follows the origin session: Claude and Codex both work (0.992714ms)
+✔ by default no agent is dispatched: untrusted PR content needs enforced write scope first (gate 8 / #442) (1.466746ms)
+✔ invalid policy is refused when the source loads (0.500279ms)
+✔ withdrawing the opt-in label while the comment posts marks the report withdrawn (0.738573ms)
+✔ the agent echoing the original prompt does not publish it (0.518694ms)
+✔ a concurrent run that already reported this head wins: the later comment removes itself (0.609583ms)
+✔ unanswered review feedback alone is actionable and reaches the agent with its location (0.554952ms)
+✔ the reader is told the live PR author and the policy's review bots (0.589816ms)
+✔ review bots must be a list of [bot] logins (0.31756ms)
+✔ Software Garden PRs (same-repo relayflow/* heads) are in scope by default; any other PR needs the opt-in label (1.032008ms)
+✖ a Software Garden draft is babysat (Garden drafts failing PRs); a label opt-in draft is not (1.504216ms)
+ℹ tests 25
+ℹ suites 0
+ℹ pass 24
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 234.9852
+
+✖ failing tests:
+
+test at tests/standalone.test.ts:354:1
+✖ a Software Garden draft is babysat (Garden drafts failing PRs); a label opt-in draft is not (1.504216ms)
+  AssertionError [ERR_ASSERTION]: Garden draft
+  
+  0 !== 1
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f1/examples/babysitter/tests/standalone.test.ts:358:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+exit=1

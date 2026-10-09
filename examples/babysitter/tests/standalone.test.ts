@@ -350,3 +350,15 @@ test('Software Garden PRs (same-repo relayflow/* heads) are in scope by default;
   await body()(ctx.f, input());
   assert.equal(ctx.agents.length, 0, 'a fork cannot claim a Garden branch name');
 });
+
+test('a Software Garden draft is babysat (Garden drafts failing PRs); a label opt-in draft is not', async () => {
+  const garden = live({ labels: [], draft: true, headRef: 'relayflow/relay-software-garden-2f900443' });
+  let ctx = context({ states: [garden, garden] });
+  await body()(ctx.f, input());
+  assert.equal(ctx.agents.length, 1, 'Garden draft');
+
+  ctx = context({ states: [live({ draft: true, headRef: 'feature/x' })] });
+  await body()(ctx.f, input());
+  assert.deepEqual(ctx.reasons, ['declined']);
+  assert.equal(ctx.agents.length, 0, 'label opt-in draft');
+});

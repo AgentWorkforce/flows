@@ -56,8 +56,9 @@ reported by `flows check`.
    of the same event at the same live state.
 4. **Decline when nothing is actionable.** Closed, merged, draft or skip
    label (`eligible`); neither a Software Garden PR (a `relayflow/*` head in
-   the repository itself, in scope by default) nor the `babysit` label on
-   *live* labels (removing it opts out); this head
+   the repository itself, in scope by default, drafts included, since Garden
+   drafts a PR whose checks fail) nor the `babysit` label on *live* labels
+   (removing it opts out; a label opt-in draft still declines); this head
    already reported by `botLogin` (its own comments' markers, all pages); or no
    failing check run or commit status, standing change request (all review
    pages), unanswered review feedback, or new authorised `@babysitter`
