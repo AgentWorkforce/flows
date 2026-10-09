@@ -232,3 +232,32 @@ test('the proposal never runs code the agent planted in the checkout\'s git conf
     assert.throws(() => readFileSync(`${proof}${suffix}`), /ENOENT/, `planted ${suffix} ran`);
   }
 });
+
+test('paths git would have to quote are refused; a newline cannot split a name past the workflow rule', async () => {
+  for (const name of ['.github/workflows/a\nb.yml', 'src/"quoted".ts', 'src/back\\slash.ts']) {
+    const { dir, base } = repo();
+    mkdirSync(join(dir, name, '..'), { recursive: true });
+    writeFileSync(join(dir, name), 'x\n');
+    const p = await runPropose(dir, base);
+    assert.equal(p.kind, 'babysitter-refusal', JSON.stringify(name));
+  }
+});
+
+test('a non-ASCII name is proposed unquoted, so Cloud parses the same path', async () => {
+  const { dir, base } = repo();
+  writeFileSync(join(dir, 'src/café.ts'), 'x\n');
+  const p = await runPropose(dir, base);
+  assert.deepEqual(p.files, ['src/café.ts']);
+  assert.match(p.patch, /^diff --git a\/src\/café\.ts b\/src\/café\.ts$/m);
+});
+
+test('the fixer runs the origin session\'s own CLI with its literal pinned model', async () => {
+  const { f, agents } = context();
+  const codex = input();
+  (codex.babysitter as any).originContext = { ...originContext, source: 'codex' };
+  await body()(f, codex);
+  assert.deepEqual([agents[0]!.options.cli, agents[0]!.options.model], ['codex', 'gpt-5.6-sol']);
+  const claude = context();
+  await body()(claude.f, input());
+  assert.deepEqual([claude.agents[0]!.options.cli, claude.agents[0]!.options.model], ['claude', 'claude-sonnet-5']);
+});

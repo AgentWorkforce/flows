@@ -81,12 +81,17 @@ export async function proposeChanges(c: ProposalInput): Promise<void> {
   rmSync(`${c.dir}/.git/info/attributes`, { force: true });
   const git = (...args: string[]) => String(execFileSync('git', ['-C', c.dir, ...args], {
     encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: '/dev/null' },
+    env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: '/dev/null', GIT_CONFIG_KEY_1: 'core.quotePath', GIT_CONFIG_VALUE_1: 'false' },
   }));
   const diff = ['diff', '--cached', '--no-renames', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/'];
   const refuse = (reason: string) => process.stdout.write(JSON.stringify({ kind: 'babysitter-refusal', reason }));
   git('add', '-A');
-  const files = git(...diff, '--name-only', c.head).split('\n').filter(Boolean);
+  // NUL-delimited: a newline in a name cannot split it. A name git would
+  // have to quote in the patch is refused outright, so the paths Cloud parses
+  // back out of the patch are exactly these.
+  const files = git(...diff, '-z', '--name-only', c.head).split('\0').filter(Boolean);
+  const quoted = files.filter(f => /["\\\x00-\x1f\x7f]/.test(f));
+  if (quoted.length) return refuse(`changes ${quoted.length} path(s) with quotes, backslashes or control characters`);
   const refused = files.filter(f => new RegExp(c.limits.refused).test(f));
   if (refused.length) return refuse(`changes refused paths: ${refused.slice(0, 5).join(', ')}`);
   if (files.length > c.limits.files) return refuse(`changes ${files.length} files; at most ${c.limits.files}`);

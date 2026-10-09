@@ -30,7 +30,8 @@ from #4226, and Cloud publishes server-side.
      are removed: a previous agent turn may have written them.
    - An existing checkout (a reused sandbox) is fetched, reset to the head and
      cleaned in place. Ignored files, such as installed dependencies, survive.
-2. **One agent** (`babysitter-fix`, the origin session's CLI) runs in that
+2. **One agent** (`babysitter-fix`, the origin session's CLI, with a literal
+   pinned model per CLI, ignoring the policy's `agentCli`) runs in that
    checkout. Its task opens with the origin's first prompt, verbatim and
    fenced, then lists what changed with review comment ids. It is told to edit
    only, to never touch workflows or secrets, and to end with
@@ -59,6 +60,10 @@ from #4226, and Cloud publishes server-side.
      pre-fix code did run both).
    - Limits: patch ≤ 36,000 bytes, ≤ 50 files, whole proposal ≤ 50,000 bytes
      (the kernel keeps a 64 KiB stdout tail).
+   - Paths are read NUL-delimited, and the diff uses `core.quotePath=false`.
+     A path git would still have to quote (a quote, backslash or control
+     character) refuses the proposal, so the paths Cloud parses back out of
+     the patch are exactly the ones checked here.
    - Any path under `.github/workflows/`, `.env*`, keys and certificates,
      `id_*` SSH keys, `.npmrc`/`.netrc`/`.pypirc`, or `secret(s)/` makes the
      run print `{"kind": "babysitter-refusal"}` instead. The run then ends

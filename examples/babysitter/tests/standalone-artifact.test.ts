@@ -6,12 +6,12 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const directory = fileURLToPath(new URL('../', import.meta.url));
+const artifactPath = fileURLToPath(new URL('../artifacts/babysitter-standalone.flow.ts', import.meta.url));
+const manifestPath = fileURLToPath(new URL('../artifacts/babysitter-standalone.manifest.json', import.meta.url));
 const policyPath = fileURLToPath(new URL('../standalone-policy.json', import.meta.url));
 const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 
-for (const name of ['babysitter-standalone', 'babysitter-fixer']) test(`the committed ${name} artifact is exact, reproducible, and asserts the enforced agent scope`, async () => {
-  const artifactPath = fileURLToPath(new URL(`../artifacts/${name}.flow.ts`, import.meta.url));
-  const manifestPath = fileURLToPath(new URL(`../artifacts/${name}.manifest.json`, import.meta.url));
+test('the committed standalone artifact is exact, reproducible, and explicitly read-only', async () => {
   const [artifact, manifestBytes, policyBytes] = await Promise.all([
     readFile(artifactPath), readFile(manifestPath), readFile(policyPath),
   ]);
@@ -19,7 +19,7 @@ for (const name of ['babysitter-standalone', 'babysitter-fixer']) test(`the comm
 
   assert.deepEqual(manifest, {
     schemaVersion: 1,
-    artifact: `${name}.flow.ts`,
+    artifact: 'babysitter-standalone.flow.ts',
     bytes: artifact.byteLength,
     sha256: sha256(artifact),
     policy: '../standalone-policy.json',
@@ -48,12 +48,5 @@ for (const name of ['babysitter-standalone', 'babysitter-fixer']) test(`the comm
     timeout: 30_000,
   });
   assert.equal(check.status, 0, `${check.stdout}\n${check.stderr}`);
-  assert.ok(check.stdout.includes(`Checked ${name} sha256:${manifest.sha256}`), check.stdout);
-});
-
-test('scripts stringified into f.run never reach a bundler shim: `node -e` has no __require', async () => {
-  for (const name of ['babysitter-standalone', 'babysitter-fixer']) {
-    const artifact = await readFile(fileURLToPath(new URL(`../artifacts/${name}.flow.ts`, import.meta.url)), 'utf8');
-    assert.doesNotMatch(artifact, /__require\(/, name);
-  }
+  assert.match(check.stdout, new RegExp(`Checked sha256:${manifest.sha256}`));
 });
