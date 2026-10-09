@@ -56,47 +56,46 @@ export function createStandaloneFixer(policy: unknown, runtime: { enforcedAgentW
     if (!a) return;
     // (5) The bound head, checked out where the agent works. A reused sandbox
     // brings back the PR's previous checkout, with its dependencies.
-    await restore(f, a.pr);
+    const { pr, wake, origin, c, head, report } = a;
+    await restore(f, pr);
     let verdict: Verdict;
     try {
-      verdict = await fixAndPropose(f, a);
+      const work = await checkout(f, pr, head);
+      // (6) One agent carrying the original scope edits the working tree. It is
+      // the origin session's own CLI, with a literal pinned model per CLI so the
+      // shipped-source model audit resolves both pairs; the fixer ignores the
+      // policy's agentCli override.
+      const task = agentTask(origin, `${pr.owner}/${pr.repo}#${pr.number}`, head, a.changed, 'fix');
+      const result = origin.source === 'codex'
+        ? await f.agent('babysitter-fix', { cli: 'codex', model: 'gpt-5.6-sol', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task })
+        : await f.agent('babysitter-fix', { cli: 'claude', model: 'claude-sonnet-5', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task });
+      // (7) Never propose against a head that no longer exists.
+      const final = await readState(f, c);
+      if (final.headSha !== head || outOfScope(final, c, configured.label)) {
+        await report(`${wake.id}: head moved or PR left scope while fixing; no proposal for ${head}`);
+        verdict = { reason: 'declined' };
+      } else {
+        // (8) One journaled proposal. Cloud publishes it; this run never writes code to GitHub.
+        const outcome = parseOutcome(result.summary);
+        const proposal = await propose(f, {
+          dir: work.dir, head, pullRequest: { owner: pr.owner, repo: pr.repo, number: pr.number },
+          summary: neutralise(outcome.summary, origin.firstPrompt).slice(0, SUMMARY_MAX_CHARS),
+          replies: threadReplies(a, outcome.replies),
+        });
+        if (proposal.kind === 'babysitter-refusal') {
+          await report(`${wake.id}: proposal refused: ${proposal.reason}`);
+          verdict = { reason: 'needs_human', detail: `Babysitter proposal refused: ${proposal.reason}` };
+        } else {
+          verdict = { reason: 'success', detail: `Babysitter proposal for ${head}: ${proposal.files.length} file(s)` };
+        }
+      }
     } finally {
       // Back to the PR cache whatever happened, for the next wake on this box;
       // before f.done, so the stash is a step of this run.
-      await stash(f, a.pr);
+      await stash(f, pr);
     }
     f.done(verdict.reason, verdict.detail ? { detail: verdict.detail } : undefined);
   };
-  async function fixAndPropose(f: Ctx, a: Admitted): Promise<Verdict> {
-    const { pr, wake, origin, c, head, report } = a;
-    const work = await checkout(f, pr, head);
-    // (6) One agent carrying the original scope edits the working tree. It is
-    // the origin session's own CLI, with a literal pinned model per CLI so the
-    // shipped-source model audit resolves both pairs; the fixer ignores the
-    // policy's agentCli override.
-    const task = agentTask(origin, `${pr.owner}/${pr.repo}#${pr.number}`, head, a.changed, 'fix');
-    const result = origin.source === 'codex'
-      ? await f.agent('babysitter-fix', { cli: 'codex', model: 'gpt-5.6-sol', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task })
-      : await f.agent('babysitter-fix', { cli: 'claude', model: 'claude-sonnet-5', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task });
-    // (7) Never propose against a head that no longer exists.
-    const final = await readState(f, c);
-    if (final.headSha !== head || outOfScope(final, c, configured.label)) {
-      await report(`${wake.id}: head moved or PR left scope while fixing; no proposal for ${head}`);
-      return { reason: 'declined' };
-    }
-    // (8) One journaled proposal. Cloud publishes it; this run never writes code to GitHub.
-    const outcome = parseOutcome(result.summary);
-    const proposal = await propose(f, {
-      dir: work.dir, head, pullRequest: { owner: pr.owner, repo: pr.repo, number: pr.number },
-      summary: neutralise(outcome.summary, origin.firstPrompt).slice(0, SUMMARY_MAX_CHARS),
-      replies: threadReplies(a, outcome.replies),
-    });
-    if (proposal.kind === 'babysitter-refusal') {
-      await report(`${wake.id}: proposal refused: ${proposal.reason}`);
-      return { reason: 'needs_human', detail: `Babysitter proposal refused: ${proposal.reason}` };
-    }
-    return { reason: 'success', detail: `Babysitter proposal for ${head}: ${proposal.files.length} file(s)` };
-  }
   return subscriptions.reduce<ReturnType<typeof flow>>(
     (handle, subscription) => handle.on(subscription.trigger, body),
     flow<unknown>('Babysitter fixer', { budget: { tokens: 1_000_000, dollars: 10, wallclock: '40m' } }, body),
