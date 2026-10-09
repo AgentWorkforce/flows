@@ -1,0 +1,72 @@
+[
+  {
+    "name": "accept '1908508f-989e-4159-82b0-6a676c3d74d3'",
+    "resume": "1908508f-989e-4159-82b0-6a676c3d74d3",
+    "valid": true
+  },
+  {
+    "name": "accept '019a2b3c-4d5e-7f80-9123-456789abcdef'",
+    "resume": "019a2b3c-4d5e-7f80-9123-456789abcdef",
+    "valid": true
+  },
+  {
+    "name": "accept 'thread_abc.123:x'",
+    "resume": "thread_abc.123:x",
+    "valid": true
+  },
+  {
+    "name": "accept 'a'",
+    "resume": "a",
+    "valid": true
+  },
+  {
+    "name": "refuse ''",
+    "resume": "",
+    "valid": false
+  },
+  {
+    "name": "refuse '-c'",
+    "resume": "-c",
+    "valid": false
+  },
+  {
+    "name": "refuse '--dangerously-skip-permissions'",
+    "resume": "--dangerously-skip-permissions",
+    "valid": false
+  },
+  {
+    "name": "refuse ' 1908508f'",
+    "resume": " 1908508f",
+    "valid": false
+  },
+  {
+    "name": "refuse '1908508f '",
+    "resume": "1908508f ",
+    "valid": false
+  },
+  {
+    "name": "refuse 'abc/def'",
+    "resume": "abc/def",
+    "valid": false
+  },
+  {
+    "name": "refuse 'abc def'",
+    "resume": "abc def",
+    "valid": false
+  },
+  {
+    "name": "refuse 'abc\\x00'",
+    "resume": "abc\u0000",
+    "valid": false
+  },
+  {
+    "name": "refuse 'é1908508f'",
+    "resume": "é1908508f",
+    "valid": false
+  },
+  {
+    "name": "refuse 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'",
+    "resume": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "valid": false
+  }
+]

@@ -495,13 +495,15 @@ export function buildTranscriptDigest(
     return digest;
   }
 
-  // Codex: only `turn.completed` and `item.completed{agent_message}` are
-  // consumed today; tool activity is counted by item type until a fixture
-  // pins the frame shapes (plan U3).
+  // Codex: `thread.started` (the thread to resume), `turn.completed` and
+  // `item.completed{agent_message}` are consumed today; tool activity is
+  // counted by item type until a fixture pins the frame shapes (plan U3).
   const terminal = [...frames].reverse().find(f => f.type === 'turn.completed');
   const usage = record(terminal?.usage) ? terminal.usage : undefined;
+  const thread = label(str(frames.find(f => f.type === 'thread.started')?.thread_id));
   digest.result = {
     provider: 'codex',
+    ...(thread === undefined ? {} : { session_id: thread }),
     ...(usage === undefined ? {} : { usage: {
       ...(num(usage.input_tokens) === undefined ? {} : { input: num(usage.input_tokens) }),
       ...(num(usage.output_tokens) === undefined ? {} : { output: num(usage.output_tokens) }),

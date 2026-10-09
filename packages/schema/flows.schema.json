@@ -1453,6 +1453,11 @@
           "description": "Directory the declared CLI is spawned in, as a path relative to the run\nroot — the flow-runner's working directory, which is also where the CLI\nruns when this is absent. Absolute paths, `.`, `..` and empty components\nare refused lexically by `flows check` and by the kernel; the worker that\nspawns the CLI additionally requires the symlink-free directory to exist\ninside the symlink-free run root. A declaration, not a sandbox: nothing\nstops a CLI from writing outside it. Not supported with\n`transport: 'relay'`, where the agent runs on a host this process cannot\nresolve. See docs/SURFACE.md.",
           "type": "string"
         },
+        "resume": {
+          "title": "resume",
+          "description": "A CLI session id to continue: the `AgentResult.sessionId` an earlier step\nreported. Claude and Codex resume it in place of starting a new session;\nany other CLI refuses the step. 1-200 of A-Z a-z 0-9 . _ : -, starting\nwith a letter or digit. Not supported with `transport: 'relay'`, where the\nagent runs on a host whose session store this worker cannot see.",
+          "type": "string"
+        },
         "transport": {
           "title": "transport",
           "description": "Dispatch transport (flows#385). `'direct'` (default) spawns the CLI as\na local subprocess. `'relay'` posts to agent-relay so the agent\nregisters as a first-class workspace participant.",
@@ -2482,6 +2487,11 @@
         "cwd": {
           "title": "cwd",
           "description": "Run-root-relative directory the attached worker spawns the CLI in. The\nkernel checks the shape and does no I/O: existence and containment are\ndecided by the worker, on the host that shares the agent's filesystem.",
+          "type": "string"
+        },
+        "resume": {
+          "title": "resume",
+          "description": "CLI session id the worker resumes; the kernel checks its shape only.",
           "type": "string"
         },
         "transport": {

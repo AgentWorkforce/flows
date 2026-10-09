@@ -1,0 +1,17 @@
+# RELAYFLOWD_BIN points at this branch's kernel build (kernel/target/debug/relayflowd); the ambient value named a missing toolchain binary.
+$ (cd packages/sdk && RELAYFLOWD_BIN=$PWD/../../kernel/target/debug/relayflowd npx vitest run)
+   × durable authored root > journals exact source and Surface authority and completes the admitted root 5069ms
+   × durable authored root > resumes past an answered question: the wait is closed, the body re-runs and completes 5005ms
+   × hosted extension hostile protocol > rejects an import-time different PR frame with zero adapter calls 1543ms
+   × flows check --watch > watches transitive relative use imports, cycles, and nearest config changes 5118ms
+   × flows check --watch > refreshes the import graph and notices missing imports being created 6406ms
+   × flows check --watch > detects a nearer config appearing and falls back after it is deleted 5822ms
+   × built flows CLI against live relayflowd > twenty-six-step reuses 25 durable completions after editing the failed final step 8098ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  6 failed | 267 passed | 1 skipped (274)
+      Tests  7 failed | 4166 passed | 20 skipped (4193)
+
+# The 7 failures above are 5s timeouts under full-suite load; the same files in isolation:
+$ (cd packages/sdk && RELAYFLOWD_BIN=... npx vitest run tests/cli-watch.test.ts tests/authored-root.test.ts tests/hosted-extension-protocol.test.ts tests/live-kernel.test.ts tests/flow-executor-chain.test.ts tests/mcp.test.ts )
+ Test Files  6 passed (6)
+      Tests  156 passed (156)

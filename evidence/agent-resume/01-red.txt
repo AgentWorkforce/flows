@@ -1,0 +1,12 @@
+# packages/sdk/src and packages/surface/src at origin/main (22cd1836) via git stash; tests and testdata from this branch.
+$ (cd packages/sdk && npx vitest run tests/agent-resume.test.ts tests/spec-parity.test.ts)
+   × spec parity: one dialect at the SDK<->kernel boundary > compiles agent-resume to the pinned canonical JSON 5ms
+   × spec parity: one dialect at the SDK<->kernel boundary > hashes agent-resume to the pinned spec_hash 1ms
+   × spec parity: one dialect at the SDK<->kernel boundary > round-trips agent-resume across the kernel dialect 1ms
+Error: Failed to load url ../src/agent-resume.js (resolved id: ../src/agent-resume.js) in /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/agent-resume/packages/sdk/tests/agent-resume.test.ts. Does the file exist?
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+CompileError: spec compile failed:
+CompileError: spec compile failed:
+CompileError: spec compile failed:
+ Test Files  2 failed (2)
+      Tests  3 failed | 46 passed (49)

@@ -321,6 +321,14 @@ export interface AgentStepSpec extends BaseStepSpec {
    */
   cwd?: string;
   /**
+   * A CLI session id to continue: the `AgentResult.sessionId` an earlier step
+   * reported. Claude and Codex resume it in place of starting a new session;
+   * any other CLI refuses the step. 1-200 of A-Z a-z 0-9 . _ : -, starting
+   * with a letter or digit. Not supported with `transport: 'relay'`, where the
+   * agent runs on a host whose session store this worker cannot see.
+   */
+  resume?: string;
+  /**
    * Dispatch transport (flows#385). `'direct'` (default) spawns the CLI as
    * a local subprocess. `'relay'` posts to agent-relay so the agent
    * registers as a first-class workspace participant.
@@ -527,6 +535,8 @@ export interface KernelAgentStep extends KernelStepCommon {
    * decided by the worker, on the host that shares the agent's filesystem.
    */
   cwd?: string;
+  /** CLI session id the worker resumes; the kernel checks its shape only. */
+  resume?: string;
   /**
    * Dispatch transport (flows#385). Kernel passes through untouched;
    * the SDK worker selects between direct-spawn and agent-relay routing.

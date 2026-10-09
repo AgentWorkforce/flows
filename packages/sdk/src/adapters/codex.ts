@@ -13,6 +13,7 @@ const MODEL_PROBE_PROMPT = 'Reply with exactly RELAYFLOWS_MODEL_READY and nothin
  *  inline shape in `cli-adapter.ts` — only the packaging changed. */
 export const codexAdapter: HeadlessAdapter = {
   kind: 'codex',
+  resumable: true,
 
   buildIdentification(): CliAdapterIdentification {
     return { invocation: { args: ['login', 'status', '--help'], timeoutMs: 10_000 } };
@@ -36,7 +37,7 @@ export const codexAdapter: HeadlessAdapter = {
     return providerUsageLimited(output) ? { cause: 'provider_usage_limited' } : undefined;
   },
 
-  buildAgentInvocation(instruction: string, model?: string): CliInvocation {
+  buildAgentInvocation(instruction: string, model?: string, resume?: string): CliInvocation {
     return {
       args: [
         // Real steps must retain Codex's native session under CODEX_HOME (or
@@ -44,7 +45,8 @@ export const codexAdapter: HeadlessAdapter = {
         // and uploads it to Relayhistory; --ephemeral silently leaves nothing
         // for the bounded flush to capture. Readiness probes above stay
         // ephemeral because they are diagnostics, not workflow steps.
-        'exec', '--skip-git-repo-check',
+        // `exec resume <id>` continues a recorded thread with the same flags.
+        ...(resume === undefined ? ['exec'] : ['exec', 'resume']), '--skip-git-repo-check',
         // Agent-mode is where the flow explicitly delegates code changes to
         // the CLI. Without this flag codex prompts for approval on every
         // write, gets nothing (no TTY), and completes "successfully" without
@@ -52,6 +54,7 @@ export const codexAdapter: HeadlessAdapter = {
         // read-only and does NOT get the bypass.
         '--dangerously-bypass-approvals-and-sandbox',
         ...(model === undefined ? [] : ['--model', model]),
+        ...(resume === undefined ? [] : [resume]),
         ...promptOperand(instruction),
       ],
       timeoutMs: 0,

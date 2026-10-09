@@ -23,6 +23,8 @@ export interface AuthoredStepContext {
   readonly stepEdges?: (step: string) => AuthoredStepEdges | undefined;
   /** Cancels the wait for an adopted child run that is not yet terminal. */
   readonly signal?: AbortSignal;
+  /** Sees the accepted completion's payload (its evidence, not only its output). */
+  readonly onCompleted?: (payload: Readonly<Record<string, unknown>>) => void;
 }
 
 /**
@@ -149,6 +151,7 @@ export async function readCompletedStepOutput(
   await recordAuthoredChild(journal, context.rootRunId, {
     step: stepId, runId, state: 'completed', completionReason: reason, ...edges,
   });
+  context.onCompleted?.(completed.payload as unknown as Readonly<Record<string, unknown>>);
   return completed.payload.output;
 }
 

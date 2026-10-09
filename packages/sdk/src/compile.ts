@@ -253,6 +253,7 @@ function compileStep(step: StepSpec): StepSpec {
         ...(s.cli !== undefined ? { cli: s.cli } : {}),
         ...(s.model !== undefined ? { model: s.model } : {}),
         ...(s.cwd !== undefined ? { cwd: s.cwd } : {}),
+        ...(s.resume !== undefined ? { resume: s.resume } : {}),
         ...(s.transport !== undefined ? { transport: s.transport } : {}),
         recoveryMode,
         ...(s.surfaces !== undefined ? { surfaces: s.surfaces } : {}),
@@ -464,7 +465,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
   const unionKeys = [
     'id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements', 'input',
     'command', 'timeout_ms', 'lease_ms', 'on_non_zero', 'prompt', 'model', 'cli', 'instruction',
-    'cwd', 'recovery_mode', 'surfaces', 'permissions', 'transport', 'cli_identity',
+    'cwd', 'resume', 'recovery_mode', 'surfaces', 'permissions', 'transport', 'cli_identity',
   ] as const;
   const step = requireKernelObject(value, unionKeys, at);
   if (step['cli_identity'] !== undefined) {
@@ -479,7 +480,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
     : type === 'llm'
       ? ['prompt', 'model', 'cli', 'cli_identity'] as const
       : type === 'agent'
-        ? ['timeout_ms', 'instruction', 'cli', 'model', 'recovery_mode', 'surfaces', 'permissions', 'cwd', 'transport', 'cli_identity'] as const
+        ? ['timeout_ms', 'instruction', 'cli', 'model', 'recovery_mode', 'surfaces', 'permissions', 'cwd', 'resume', 'transport', 'cli_identity'] as const
         : [];
   assertKernelKeys(step, [...commonKeys, ...typeKeys], at);
   const transportRetries = step['retry'] === undefined
@@ -516,7 +517,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
       instruction: step['instruction'],
       ...(step['timeout_ms'] === undefined ? {} : { timeoutMs: step['timeout_ms'] }),
       ...(step['recovery_mode'] !== undefined ? { recoveryMode: step['recovery_mode'] } : {}),
-      ...copyDefined(step, ['cli', 'model', 'surfaces', 'cwd', 'transport']),
+      ...copyDefined(step, ['cli', 'model', 'surfaces', 'cwd', 'resume', 'transport']),
       ...(step['permissions'] !== undefined
         ? { permissions: kernelPermissionsToAuthoring(step['permissions'], `${at}.permissions`) }
         : {}),
@@ -691,6 +692,7 @@ function toKernelStep(step: StepSpec, cliIdentity?: string): ResolvedKernelStepS
         ...(step.cli !== undefined ? { cli: step.cli } : {}),
         ...(step.model !== undefined ? { model: step.model } : {}),
         ...(step.cwd !== undefined ? { cwd: step.cwd } : {}),
+        ...(step.resume !== undefined ? { resume: step.resume } : {}),
         ...(step.transport !== undefined ? { transport: step.transport } : {}),
         recovery_mode: step.recoveryMode ?? 'reset',
       };

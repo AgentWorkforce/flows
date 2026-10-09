@@ -328,3 +328,61 @@ fn agent_timeout_bounds_match_the_kernel_corpus() {
     let parsed = RunSpec::parse(&value).unwrap();
     assert!(serde_json::to_value(parsed).unwrap()["steps"][0].get("timeout_ms").is_none());
 }
+
+/// `resume` (continue a recorded CLI session) crosses the boundary exactly as
+/// `cwd` does: declared on one agent step and not on another, with identical
+/// canonical bytes and hash on both sides.
+#[test]
+fn agent_resume_has_identical_canonical_bytes_and_hash() {
+    assert_parity(
+        include_str!("../../../testdata/agent-resume.spec.canonical.json"),
+        include_str!("../../../testdata/agent-resume.spec.sha256"),
+    );
+}
+
+#[test]
+fn agent_resume_declaration_acceptance_matches_the_sdk_corpus() {
+    let cases: Vec<Value> =
+        serde_json::from_str(include_str!("../../../testdata/agent-resume-cases.json")).unwrap();
+    for case in cases {
+        let spec = serde_json::json!({"steps":[{
+            "id":"s","type":"agent","instruction":"work","resume":case["resume"],
+        }]});
+        let accepted = RunSpec::parse(&spec)
+            .and_then(|spec| spec.validate())
+            .is_ok();
+        assert_eq!(
+            accepted,
+            case["valid"].as_bool().unwrap(),
+            "{}",
+            case["name"]
+        );
+    }
+}
+
+/// An undeclared `resume` is absent from the re-serialized spec, so every
+/// fixture committed before the field existed keeps its bytes and hash; a
+/// non-string spelling fails closed instead of reading as absence.
+#[test]
+fn agent_resume_is_absent_when_undeclared_and_must_be_a_string() {
+    let value =
+        serde_json::json!({"steps": [{"id": "agent", "type": "agent", "instruction": "work"}]});
+    let parsed = RunSpec::parse(&value).expect("an agent step without resume must parse");
+    parsed.validate().expect("and must validate");
+    assert!(
+        serde_json::to_value(parsed).unwrap()["steps"][0]
+            .get("resume")
+            .is_none()
+    );
+    for resume in [
+        serde_json::json!(null),
+        serde_json::json!(7),
+        serde_json::json!({}),
+    ] {
+        let spec = serde_json::json!({"steps": [{"id": "agent", "type": "agent", "instruction": "work", "resume": resume}]});
+        assert!(
+            RunSpec::parse(&spec).is_err(),
+            "resume {resume} must be refused"
+        );
+    }
+}

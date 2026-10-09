@@ -84,7 +84,10 @@ export interface HeadlessAdapter {
   classifyModelProbeFailure?(output: string): ModelProbeFailure | undefined;
 
   /** Agent-step worker argv for an instruction under an optional model. */
-  buildAgentInvocation(instruction: string, model?: string): CliInvocation;
+  buildAgentInvocation(instruction: string, model?: string, resume?: string): CliInvocation;
+
+  /** Whether `buildAgentInvocation` honors `resume`; a step asking another CLI to resume is refused. */
+  readonly resumable?: true;
 
   /** LLM-step worker argv for a prompt under an optional model. */
   buildLlmInvocation(prompt: string, model?: string): CliInvocation;

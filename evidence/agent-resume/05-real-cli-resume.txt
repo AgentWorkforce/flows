@@ -1,0 +1,10 @@
+# Missing session, real Claude CLI (2.x on this host):
+$ claude -p --resume 00000000-0000-4000-8000-0000000000aa "hi" --output-format json
+No conversation found with session ID: 00000000-0000-4000-8000-0000000000aa
+exit=1
+
+# Resume from a different directory than the session was created in:
+$ (cd A && claude -p "Remember the code word PELICAN-42. Reply only with OK." --output-format json)
+A session: 1908508f-989e-4159-82b0-6a676c3d74d3 result: OK
+$ (cd B && claude -p --resume 1908508f-989e-4159-82b0-6a676c3d74d3 "What was the code word? Reply with just it." --output-format json)
+B session: 1908508f-989e-4159-82b0-6a676c3d74d3 result: 'PELICAN-42' error: False

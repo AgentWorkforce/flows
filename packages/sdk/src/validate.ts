@@ -20,6 +20,7 @@ import { SPEC_SCHEMA_VERSION } from './spec.js';
 import { validateOutputDeclaration } from './output-schema.js';
 import { modelNameError } from './model-name.js';
 import { agentCwdDeclarationError, agentCwdTransportError } from './agent-cwd.js';
+import { agentResumeDeclarationError, agentResumeTransportError } from './agent-resume.js';
 import { unknownKeyErrors } from './unknown-keys.js';
 import { stepDependencyErrors } from './step-dependencies.js';
 import { inputBindingErrors } from './input-binding.js';
@@ -513,6 +514,7 @@ class Validator {
     this.validateCli(st.cli, at);
     this.validateModel(st.model, at);
     this.validateCwd(st, at);
+    this.validateResume(st, at);
     if (st.surfaces !== undefined) this.validateSurfaces(st.surfaces, `${at}.surfaces`);
     if (st.permissions !== undefined) this.validatePermissions(st.permissions, `${at}.permissions`);
   }
@@ -537,6 +539,18 @@ class Validator {
       return;
     }
     const unsupported = agentCwdTransportError(st.cwd, st.transport);
+    if (unsupported !== undefined) this.fail(`${at}.${unsupported}`);
+  }
+
+  /** `resume` is a session id, checked lexically as the kernel checks it (`agent-resume.ts`). */
+  private validateResume(st: AgentStepSpec, at: string): void {
+    if (st.resume === undefined) return;
+    const problem = agentResumeDeclarationError(st.resume);
+    if (problem !== undefined) {
+      this.fail(`${at}.resume: ${problem}`);
+      return;
+    }
+    const unsupported = agentResumeTransportError(st.resume, st.transport);
     if (unsupported !== undefined) this.fail(`${at}.${unsupported}`);
   }
 

@@ -1,0 +1,15 @@
+$ (cd packages/sdk && npx vitest run tests/agent-resume.test.ts tests/spec-parity.test.ts)
+ Test Files  2 passed (2)
+      Tests  75 passed (75)
+$ (cd kernel && cargo test -p relayflowd-core)
+test result: ok. 86 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.71s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+$ node scripts/generate-json-schema.mjs && git diff --stat -- packages/schema
+Generated packages/schema/flows.schema.json (74 definitions)
+ packages/schema/flows.schema.json | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+$ (cd packages/schema && bun run test)
+ 86 pass
+ 0 fail

@@ -9,6 +9,7 @@ import { classifyOutcome, type RunLifecycleOptions, type RunReport } from './cli
 import type { PreflightDiagnostic } from './preflight.js';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
 import { agentCwdDeclarationError, agentCwdTransportError } from './agent-cwd.js';
+import { agentResumeDeclarationError, agentResumeTransportError } from './agent-resume.js';
 import type { JournalClient } from './journal-client.js';
 import { SPEC_SCHEMA_VERSION, type FlowSpec, type PermissionsSpec, type StepSpec } from './spec.js';
 import { isSurfaceCompletionReason, readCompletedStepOutput, readRecordedOutcome, readSuccessfulOutput, type AuthoredStepContext, type RecordedRunOutcome } from './authored-step-output.js';
@@ -46,7 +47,7 @@ export function authoredWorkerRunner(
     ...(stepEdges === undefined ? {} : { stepEdges }),
     ...(waitOptions.signal === undefined ? {} : { signal: waitOptions.signal }),
   };
-  async function run(step: StepSpec): Promise<unknown> {
+  async function run(step: StepSpec, onCompleted?: AuthoredStepContext['onCompleted']): Promise<unknown> {
     const id = step.id;
     const authoring: FlowSpec = { version: SPEC_SCHEMA_VERSION, name: `${definition.name}/${id}`, steps: [step], ...(headerBudget === undefined ? {} : { budget: parseBudget(headerBudget) }) };
     // The kernel never resolves a `cli` on its own — every declarative
@@ -152,7 +153,8 @@ export function authoredWorkerRunner(
         details,
       );
     }
-    return readCompletedStepOutput(journal, outcome.run_id, id, journalSteps, context, execution.report.status);
+    return readCompletedStepOutput(journal, outcome.run_id, id, journalSteps,
+      onCompleted === undefined ? context : { ...context, onCompleted }, execution.report.status);
     };
     const admissionKey = authoredChildAdmissionKey(rootRunId, id);
     const admit = async () => budget === undefined
@@ -250,6 +252,11 @@ export function authoredWorkerRunner(
           `f.agent options.recoveryMode must be 'reset', 'inspect', or 'manual' (got ${JSON.stringify(options.recoveryMode)}).`,
         );
       }
+      const resumeProblem = options.resume === undefined ? undefined
+        : agentResumeDeclarationError(options.resume) ?? agentResumeTransportError(options.resume, options.transport);
+      if (resumeProblem !== undefined) {
+        throw new AuthoredFlowExecutionError('agent_cli_unresolved', `f.agent options.resume: ${resumeProblem}.`);
+      }
       const cwdTransport = agentCwdTransportError(declaredCwd, options.transport);
       if (cwdTransport !== undefined) {
         throw new AuthoredFlowExecutionError('agent_cli_unresolved', `f.agent options.${cwdTransport}.`);
@@ -263,6 +270,7 @@ export function authoredWorkerRunner(
             'f.agent timeout requires direct transport and maxIterations 1.');
         }
       }
+      let sessionId: string | undefined;
       const permissions = options.permissions;
       const permissionsSnapshot = permissions === undefined ? undefined
         : snapshotJsonValue(permissions, 'f.agent options.permissions') as unknown as PermissionsSpec;
@@ -275,12 +283,13 @@ export function authoredWorkerRunner(
         ...(options.cli === undefined ? {} : { cli: options.cli }),
         ...(options.model === undefined ? {} : { model: options.model }),
         ...(declaredCwd === undefined ? {} : { cwd: declaredCwd }),
+        ...(options.resume === undefined ? {} : { resume: options.resume }),
         ...(options.transport === undefined ? {} : { transport: options.transport }),
         ...(options.maxIterations === undefined ? {} : { maxIterations: options.maxIterations }),
         ...(options.transportRetries === undefined ? {} : { transportRetries: options.transportRetries }),
         ...(options.recoveryMode === undefined ? {} : { recoveryMode: options.recoveryMode }),
         ...(verification === undefined ? {} : { verification }),
-      });
+      }, (payload) => { sessionId = journaledSessionId(payload); });
       if (typeof output !== 'object' || output === null || Array.isArray(output)) {
         throw new AuthoredFlowExecutionError('journal_protocol_violation', `step "${id}" produced a non-object output`);
       }
@@ -294,7 +303,10 @@ export function authoredWorkerRunner(
       const journaled = 'artifacts' in output ? output.artifacts : undefined;
       const artifacts = Array.isArray(journaled) && journaled.every(entry => typeof entry === 'string')
         ? [...journaled] : [];
-      return { completionReason: 'success', summary: typeof stdout === 'string' ? stdout : JSON.stringify(output), artifacts };
+      return {
+        completionReason: 'success', summary: typeof stdout === 'string' ? stdout : JSON.stringify(output), artifacts,
+        ...(sessionId === undefined ? {} : { sessionId }),
+      };
     },
     async llm(id: string, prompt: string, options?: LlmOptions, verification?: NamedGate): Promise<unknown> {
       if (options !== undefined && (typeof options !== 'object' || options === null || options.output === undefined)) {
@@ -410,4 +422,17 @@ function stepDetails(
     ...(found.journalPath === undefined ? {} : { journalPath: found.journalPath }),
   };
   return Object.keys(details).length === 0 ? undefined : details;
+}
+
+/**
+ * The CLI session the worker journaled for an agent attempt
+ * (`trajectory_tail.transcript.result.session_id`). Evidence, so it is read on
+ * the JSON-answer path too, and offered only when it is a session id a later
+ * `resume` would accept (a bounded label never is one).
+ */
+function journaledSessionId(payload: Readonly<Record<string, unknown>>): string | undefined {
+  const field = (value: unknown, key: string): unknown =>
+    value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>)[key] : undefined;
+  const id = field(field(field(payload.trajectory_tail, 'transcript'), 'result'), 'session_id');
+  return typeof id === 'string' && agentResumeDeclarationError(id) === undefined ? id : undefined;
 }

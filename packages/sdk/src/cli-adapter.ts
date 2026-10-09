@@ -84,8 +84,14 @@ export function agentExecution(
   kind: CliAdapterKind,
   instruction: string,
   model?: string,
+  resume?: string,
 ): CliInvocation {
-  return registeredAdapters()[kind].buildAgentInvocation(instruction, model);
+  return registeredAdapters()[kind].buildAgentInvocation(instruction, model, resume);
+}
+
+/** Whether this CLI can continue a recorded session (`f.agent` `resume`). */
+export function agentResumable(kind: CliAdapterKind): boolean {
+  return registeredAdapters()[kind].resumable === true;
 }
 
 /** Reuse the workspace-free model probe's provider flags for a real LLM call. */

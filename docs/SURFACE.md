@@ -475,6 +475,35 @@ Workspace surfaces are a different thing and are not a directory selector:
 `surfaces.workspace` names the revisions a step pins and writes back to, not a
 path on the host running the CLI.
 
+### Continuing an agent's CLI session (`resume`)
+
+`f.agent` reports the CLI session it ran as in `AgentResult.sessionId`
+(Claude's session id, Codex's thread id). Pass it as a later step's `resume`,
+or the `resume:` key on a declarative agent step, to continue that conversation
+instead of starting a new one:
+
+```ts
+const first = await f.agent("fix", { task: "Address the review feedback." });
+// ...later, in a run on the same host...
+await f.agent("fix-again", { task: "Address the new feedback.", resume: first.sessionId });
+```
+
+- Claude runs `claude -p --resume <id>`; Codex runs `codex exec resume <id>`.
+  Any other CLI refuses the step rather than silently starting cold.
+- The CLI finds the session in its own store (`~/.claude`, `~/.codex`), so a
+  resume works only where that store survives — the same machine, or a
+  sandbox reused for the same pull request. A session the store no longer has
+  fails the step.
+- The id is checked lexically, identically by `flows check` and the kernel:
+  1-200 of `A-Z a-z 0-9 . _ : -`, starting with a letter or digit, so it can
+  never be read as a CLI flag. `resume` is not supported with
+  `transport: "relay"`.
+- `sessionId` is read from the attempt's journaled transcript evidence, so it
+  is reported whether the agent answered in text or with a JSON object. It is
+  omitted when the CLI reported none.
+- Setting `resume` is part of the step's spec hash; omitting it hashes exactly
+  as before.
+
 ### Supported TypeScript LLM calls
 
 The local authored executor supports these signatures:
