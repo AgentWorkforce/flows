@@ -82,7 +82,9 @@ export async function readSignals(c: {
   const bot = c.botLogin.toLowerCase();
   // A boolean for this head, not a history: report count must not grow the payload.
   const marker = `<!-- babysitter:report ${c.owner.toLowerCase()}/${c.repo.toLowerCase()}#${c.number}@${c.head} -->`;
-  const own = (m: any) => String(m.user?.login ?? '').toLowerCase() === bot;
+  // The app login may be shared (Software Garden posts as the same app), so a
+  // comment is Babysitter's only when it also carries a Babysitter marker.
+  const own = (m: any) => String(m.user?.login ?? '').toLowerCase() === bot && String(m.body ?? '').includes('<!-- babysitter:');
   let reported = false, lastOwn = -1;
   comments.forEach((m: any, i: number) => {
     if (!own(m)) return;
@@ -113,7 +115,8 @@ export async function readSignals(c: {
   const since = lastOwn < 0 ? '' : String(comments[lastOwn].created_at ?? '');
   const answered = new Map<number, number>();
   for (const m of inline) {
-    if (!ours.includes(String(m.user?.login ?? '').toLowerCase())) continue;
+    const login = String(m.user?.login ?? '').toLowerCase();
+    if (login === bot ? !own(m) : !ours.includes(login)) continue;
     const thread = m.in_reply_to_id ?? m.id;
     answered.set(thread, Math.max(answered.get(thread) ?? 0, m.id));
   }

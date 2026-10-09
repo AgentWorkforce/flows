@@ -347,7 +347,7 @@ async function readSignals(c) {
   }
   const bot = c.botLogin.toLowerCase();
   const marker = `<!-- babysitter:report ${c.owner.toLowerCase()}/${c.repo.toLowerCase()}#${c.number}@${c.head} -->`;
-  const own = (m) => String(m.user?.login ?? "").toLowerCase() === bot;
+  const own = (m) => String(m.user?.login ?? "").toLowerCase() === bot && String(m.body ?? "").includes("<!-- babysitter:");
   let reported = false, lastOwn = -1;
   comments.forEach((m, i) => {
     if (!own(m)) return;
@@ -372,7 +372,8 @@ async function readSignals(c) {
   const since = lastOwn < 0 ? "" : String(comments[lastOwn].created_at ?? "");
   const answered = /* @__PURE__ */ new Map();
   for (const m of inline) {
-    if (!ours.includes(String(m.user?.login ?? "").toLowerCase())) continue;
+    const login = String(m.user?.login ?? "").toLowerCase();
+    if (login === bot ? !own(m) : !ours.includes(login)) continue;
     const thread = m.in_reply_to_id ?? m.id;
     answered.set(thread, Math.max(answered.get(thread) ?? 0, m.id));
   }
@@ -553,8 +554,11 @@ function boundPullRequest(value) {
   return { owner: pr.owner, repo: pr.repo, number: Number(pr.number), headSha: pr.headSha };
 }
 var reportMarker = (pr, head) => `<!-- babysitter:report ${pr.owner.toLowerCase()}/${pr.repo.toLowerCase()}#${pr.number}@${head} -->`;
+function gardenPullRequest(s, c) {
+  return typeof s.headRef === "string" && s.headRef.startsWith("relayflow/") && String(s.headRepo).toLowerCase() === `${c.owner}/${c.repo}`.toLowerCase();
+}
 function outOfScope(s, c, label) {
-  return eligible(s, c) ?? (Array.isArray(s.labels) && s.labels.some((l) => String(l).toLowerCase() === label) ? void 0 : `Live labels lack the "${label}" opt-in`);
+  return eligible(s, c) ?? (gardenPullRequest(s, c) || Array.isArray(s.labels) && s.labels.some((l) => String(l).toLowerCase() === label) ? void 0 : `Not a Software Garden PR and live labels lack the "${label}" opt-in`);
 }
 function whatChanged(s, author) {
   const directive = [...s.comments].reverse().find((m) => {

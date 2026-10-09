@@ -67,10 +67,20 @@ function boundPullRequest(value: unknown): StandaloneBoundPullRequest | undefine
 export const reportMarker = (pr: BoundPullRequest, head: string): string =>
   `<!-- babysitter:report ${pr.owner.toLowerCase()}/${pr.repo.toLowerCase()}#${pr.number}@${head} -->`;
 
-/** Why live state puts the PR out of scope, if it does: lifecycle, skip labels, or no opt-in label. */
+/** A Software Garden PR: a `relayflow/*` head in the repository itself, never a fork's look-alike. */
+function gardenPullRequest(s: State, c: Config): boolean {
+  return typeof s.headRef === 'string' && s.headRef.startsWith('relayflow/')
+    && String(s.headRepo).toLowerCase() === `${c.owner}/${c.repo}`.toLowerCase();
+}
+
+/**
+ * Why live state puts the PR out of scope, if it does: lifecycle, skip labels,
+ * or neither a Software Garden PR (in scope by default) nor the opt-in label.
+ */
 function outOfScope(s: State, c: Config, label: string): string | undefined {
   return eligible(s, c)
-    ?? (Array.isArray(s.labels) && s.labels.some(l => String(l).toLowerCase() === label) ? undefined : `Live labels lack the "${label}" opt-in`);
+    ?? (gardenPullRequest(s, c) || (Array.isArray(s.labels) && s.labels.some(l => String(l).toLowerCase() === label))
+      ? undefined : `Not a Software Garden PR and live labels lack the "${label}" opt-in`);
 }
 
 /**

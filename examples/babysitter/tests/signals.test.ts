@@ -186,10 +186,10 @@ test('inline review comments from the author, members and allowlisted review bot
 
 test('a thread Babysitter already answered, an outdated comment, and feedback before its last report are not feedback', async () => {
   const s = await read(base({
-    '/issues/7/comments': [{ ...comment(50, 'babysitter[bot]', 'report'), created_at: '2026-10-04T00:00:00Z' }],
+    '/issues/7/comments': [{ ...comment(50, 'babysitter[bot]', `${marker('e'.repeat(40))}\nreport`), created_at: '2026-10-04T00:00:00Z' }],
     '/pulls/7/comments': [
       inline(1, 'dana', 'answered', { association: 'MEMBER' }),
-      inline(2, 'babysitter[bot]', 'Fixed in abc', { replyTo: 1 }),
+      inline(2, 'babysitter[bot]', '<!-- babysitter:reply -->\nFixed in abc', { replyTo: 1 }),
       inline(3, 'dana', 'follow-up after the answer', { association: 'MEMBER', replyTo: 1, at: '2026-10-06T00:00:00Z' }),
       inline(4, 'dana', 'outdated', { association: 'MEMBER', line: null }),
       inline(5, 'dana', 'before the report', { association: 'MEMBER', at: '2026-10-03T00:00:00Z' }),
@@ -228,4 +228,19 @@ test('our own agent accounts are never feedback, and their thread replies answer
     inline(3, 'AgentRelayBot', 'Also consider X', { association: 'MEMBER' }),
   ] }));
   assert.deepEqual(s.reviewFeedback, []);
+});
+
+test('the Garden sharing Babysitter\'s app login does not look like Babysitter: only marked comments move the window or answer threads', async () => {
+  const s = await read(base({
+    '/issues/7/comments': [
+      { ...comment(40, 'alice', '@babysitter fix the review', 'OWNER'), created_at: '2026-10-04T00:00:00Z' },
+      { ...comment(41, 'babysitter[bot]', 'Relayflow: the adversarial review did not pass.'), created_at: '2026-10-04T01:00:00Z' },
+    ],
+    '/pulls/7/comments': [
+      inline(1, 'dana', 'Bound the retries', { association: 'MEMBER', at: '2026-10-03T00:00:00Z' }),
+      inline(2, 'babysitter[bot]', 'Garden note, not a Babysitter reply', { replyTo: 1 }),
+    ],
+  }));
+  assert.deepEqual(s.comments.map((c: any) => c.id), [40, 41]);
+  assert.deepEqual(s.reviewFeedback.map((r: any) => r.id), [1]);
 });

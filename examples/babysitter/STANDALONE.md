@@ -55,7 +55,9 @@ reported by `flows check`.
    `key=babysitter:<event>:<pr>@<head>`, which is the same for every delivery
    of the same event at the same live state.
 4. **Decline when nothing is actionable.** Closed, merged, draft or skip
-   label (`eligible`); the `babysit` label absent from *live* labels; this head
+   label (`eligible`); neither a Software Garden PR (a `relayflow/*` head in
+   the repository itself, in scope by default) nor the `babysit` label on
+   *live* labels (removing it opts out); this head
    already reported by `botLogin` (its own comments' markers, all pages); or no
    failing check run or commit status, standing change request (all review
    pages), unanswered review feedback, or new authorised `@babysitter`
@@ -66,7 +68,9 @@ reported by `flows check`.
    newer than Babysitter's last comment. It counts only from the PR author,
    `OWNER`/`MEMBER`/`COLLABORATOR`, or a policy `reviewBots` login; never from
    `botLogin` or `ownAgents` (our own agents, whose "Fixed in …" replies must
-   not wake Babysitter). Inline comments wake it through
+   not wake Babysitter). Software Garden posts as the same app login as
+   Babysitter, so a `botLogin` comment is Babysitter's own (moves the window,
+   answers a thread) only when it carries a `<!-- babysitter:` marker. Inline comments wake it through
    `pull_request_review.submitted`, which GitHub sends for every review,
    including a single inline comment, so the wake contract and Cloud's
    trigger profile are unchanged. The

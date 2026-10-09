@@ -335,3 +335,18 @@ test('review bots must be a list of [bot] logins', () => {
   assert.throws(() => createStandaloneBabysitter({ ...policy, reviewBots: ['dana'] }), /reviewBots/);
   assert.throws(() => createStandaloneBabysitter({ ...policy, ownAgents: [''] }), /ownAgents/);
 });
+
+test('Software Garden PRs (same-repo relayflow/* heads) are in scope by default; any other PR needs the opt-in label', async () => {
+  let ctx = context({ states: [live({ labels: [], headRef: 'relayflow/relay-software-garden-2f900443' }), live({ labels: [], headRef: 'relayflow/relay-software-garden-2f900443' })] });
+  await body()(ctx.f, input());
+  assert.equal(ctx.agents.length, 1, 'Garden PR without the label');
+
+  ctx = context({ states: [live({ labels: [], headRef: 'feature/x' })] });
+  await body()(ctx.f, input());
+  assert.deepEqual(ctx.reasons, ['declined']);
+  assert.equal(ctx.agents.length, 0, 'ordinary PR without the label');
+
+  ctx = context({ states: [live({ labels: [], headRef: 'relayflow/spoof', headRepo: 'mallory/widgets' })] });
+  await body()(ctx.f, input());
+  assert.equal(ctx.agents.length, 0, 'a fork cannot claim a Garden branch name');
+});
