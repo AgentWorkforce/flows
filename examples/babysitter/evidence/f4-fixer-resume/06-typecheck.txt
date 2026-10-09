@@ -1,0 +1,2 @@
+$ (cd examples/babysitter && ../../packages/sdk/node_modules/.bin/tsc -p tsconfig.json) | grep 'error TS' | grep -v 'TS2345.*Ctx\|relay-helpers\|ai-hist'
+filtered-count=0

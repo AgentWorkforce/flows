@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "artifact": "babysitter-fixer.flow.ts",
-  "bytes": 44812,
-  "sha256": "d69e3e4f511cba1c668438101a2fb7540fc3fc97b31a0c0eb854fab1791a7487",
+  "bytes": 46355,
+  "sha256": "23ad283edac047a601f40f62da3f82baf6466ccd834dae7806e5b002da8b5e5b",
   "policy": "../standalone-policy.json",
   "policySha256": "e2fd08aaef4ea922146ad1330d7b7d7161f078f9c19e1499aa272636ae6e39a2",
   "runtime": {

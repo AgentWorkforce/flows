@@ -417,3 +417,71 @@ test('checkoutHead lifted from the shipped artifact runs under `node -e`', () =>
   const out = JSON.parse(execFileSync('sh', ['-c', command], { cwd: runRoot, encoding: 'utf8', env: { ...process.env, GH_TOKEN: 'test-token' } }));
   assert.deepEqual([out.head, out.reused], [head, false]);
 });
+
+test('a restored PR checkout brings back its session, and a stash records the new one', async () => {
+  const { restoreCheckout, stashCheckout } = await import('../fix.ts');
+  const home = mkdtempSync(join(tmpdir(), 'babysitter-home-'));
+  const pr = { owner: 'acme', repo: 'widgets', number: 7, home };
+  const inRun = async (fn: () => Promise<void>) => {
+    const runRoot = mkdtempSync(join(tmpdir(), 'babysitter-run-'));
+    const saved = { write: process.stdout.write, cwd: process.cwd() }; let out = '';
+    process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
+    process.chdir(runRoot);
+    try { await fn(); } finally { process.stdout.write = saved.write; process.chdir(saved.cwd); }
+    return { runRoot, value: JSON.parse(out) };
+  };
+  const first = await inRun(async () => {
+    mkdirSync(join(process.cwd(), 'babysitter-checkout'));
+    await stashCheckout({ ...pr, session: { cli: 'claude', sessionId: 'sess-1' } });
+  });
+  assert.deepEqual(first.value, { stashed: true });
+  const second = await inRun(() => restoreCheckout(pr));
+  assert.deepEqual(second.value, { restored: true, session: { cli: 'claude', sessionId: 'sess-1' } });
+  // A run whose agent reported no session forgets the old one.
+  await inRun(async () => { mkdirSync(join(process.cwd(), 'babysitter-checkout')); await stashCheckout(pr); });
+  assert.deepEqual((await inRun(() => restoreCheckout(pr))).value, { restored: true });
+});
+
+function resumeContext(restored: Record<string, unknown>, agentFails?: (options: Record<string, unknown>) => boolean) {
+  const ctx = context();
+  (ctx.f as any).run = async (command: string) => {
+    ctx.commands.push(command);
+    if (command.includes('githubRead')) return JSON.stringify(live());
+    if (command.includes('readSignals')) return JSON.stringify(signals);
+    if (command.includes('restoreCheckout')) return JSON.stringify(restored);
+    if (command.includes('checkoutHead')) return JSON.stringify({ dir: '/run/babysitter-checkout', head, reused: true });
+    if (command.includes('proposeChanges')) return JSON.stringify(proposal);
+    if (command.includes('stashCheckout')) return JSON.stringify({ stashed: true });
+    return '';
+  };
+  (ctx.f as any).agent = async (name: string, options: Record<string, unknown>) => {
+    ctx.agents.push({ name, options });
+    if (agentFails?.(options)) throw new Error('No conversation found with session ID: sess-1');
+    return { completionReason: 'success', artifacts: [], summary: '{"summary":"s","replies":[]}', sessionId: 'sess-2' };
+  };
+  return ctx;
+}
+
+test('a wake on a reused box resumes the previous agent session and records the new one', async () => {
+  const ctx = resumeContext({ restored: true, session: { cli: 'claude', sessionId: 'sess-1' } });
+  await body()(ctx.f, input());
+  assert.deepEqual(ctx.reasons, ['success']);
+  assert.equal(ctx.agents[0]!.options.resume, 'sess-1');
+  assert.match(ctx.commands.find(c => c.includes('stashCheckout'))!, /"session":\{"cli":"claude","sessionId":"sess-2"\}/);
+});
+
+test('a fresh box, or a session from another CLI, starts without resume', async () => {
+  for (const restored of [{ restored: false }, { restored: true, session: { cli: 'codex', sessionId: 'sess-1' } }]) {
+    const ctx = resumeContext(restored);
+    await body()(ctx.f, input());
+    assert.equal(ctx.agents[0]!.options.resume, undefined, JSON.stringify(restored));
+  }
+});
+
+test('a session the CLI no longer has falls back to a fresh agent with the origin context', async () => {
+  const ctx = resumeContext({ restored: true, session: { cli: 'claude', sessionId: 'sess-1' } }, options => options.resume !== undefined);
+  await body()(ctx.f, input());
+  assert.deepEqual(ctx.reasons, ['success']);
+  assert.deepEqual(ctx.agents.map(a => [a.name, a.options.resume]), [['babysitter-fix', 'sess-1'], ['babysitter-fix-fresh', undefined]]);
+  assert.match(String(ctx.agents[1]!.options.task), /BEGIN ORIGINAL TASK/);
+});

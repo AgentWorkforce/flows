@@ -37,6 +37,14 @@ from #4226, and Cloud publishes server-side.
      `checkoutHead`, and moved back after the run, whatever its outcome,
      before `f.done`. If the cache is on another filesystem, or damaged, the
      run starts fresh.
+   - **Session resume:** next to the cached checkout, a stash records the
+     agent session the run ran as (`AgentResult.sessionId`). When a later wake
+     restores that checkout on the same box, the agent `resume`s that session,
+     keeping the earlier wake's reading of the code and the original intent.
+     A session from another CLI is never resumed. A session the CLI no longer
+     has fails that step, and the run continues with a fresh agent
+     (`babysitter-fix-fresh`), which carries the origin context either way.
+     A run whose agent reported no session forgets the old one.
 2. **One agent** (`babysitter-fix`, the origin session's CLI, with a literal
    pinned model per CLI, ignoring the policy's `agentCli`) runs in that
    checkout. Its task opens with the origin's first prompt, verbatim and

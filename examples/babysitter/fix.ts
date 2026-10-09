@@ -84,24 +84,35 @@ export async function checkoutHead(c: { owner: string; repo: string; head: strin
  */
 export interface CheckoutCache { owner: string; repo: string; number: number; home?: string }
 
+/** The agent session the previous run on this box left, resumed by the next wake (`f.agent` `resume`). */
+export interface CachedSession { cli: string; sessionId: string }
+
 export async function restoreCheckout(c: CheckoutCache): Promise<void> {
-  const { existsSync, renameSync, rmSync } = await import('node:fs');
+  const { existsSync, readFileSync, renameSync, rmSync } = await import('node:fs');
   const { homedir } = await import('node:os');
   const { join, resolve } = await import('node:path');
   const cache = join(c.home ?? homedir(), '.babysitter', c.owner.toLowerCase(), c.repo.toLowerCase(), String(c.number), 'checkout');
   const dir = resolve('babysitter-checkout');
   let restored = false;
+  let session: CachedSession | undefined;
   try {
     if (existsSync(cache) && !existsSync(dir)) { renameSync(cache, dir); restored = true; }
   } catch {
     // Another filesystem (EXDEV) or an unreadable cache: start fresh rather than copy.
     try { rmSync(cache, { recursive: true, force: true }); } catch { /* the next stash replaces it */ }
   }
-  process.stdout.write(JSON.stringify({ restored }));
+  // A session is only worth resuming beside the checkout it worked on.
+  if (restored) {
+    try {
+      const value = JSON.parse(readFileSync(`${cache}.session.json`, 'utf8'));
+      if (typeof value?.cli === 'string' && typeof value?.sessionId === 'string') session = { cli: value.cli, sessionId: value.sessionId };
+    } catch { /* none recorded */ }
+  }
+  process.stdout.write(JSON.stringify({ restored, ...(session === undefined ? {} : { session }) }));
 }
 
-export async function stashCheckout(c: CheckoutCache): Promise<void> {
-  const { existsSync, mkdirSync, renameSync, rmSync } = await import('node:fs');
+export async function stashCheckout(c: CheckoutCache & { session?: CachedSession }): Promise<void> {
+  const { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } = await import('node:fs');
   const { homedir } = await import('node:os');
   const { dirname, join, resolve } = await import('node:path');
   const cache = join(c.home ?? homedir(), '.babysitter', c.owner.toLowerCase(), c.repo.toLowerCase(), String(c.number), 'checkout');
@@ -114,6 +125,9 @@ export async function stashCheckout(c: CheckoutCache): Promise<void> {
       mkdirSync(dirname(cache), { recursive: true });
       renameSync(dir, cache);
       stashed = true;
+      // The session this run's agent ran as, or none: never a stale one.
+      if (c.session === undefined) rmSync(`${cache}.session.json`, { force: true });
+      else writeFileSync(`${cache}.session.json`, JSON.stringify(c.session));
     }
   } catch { /* fall through: not stashed */ }
   process.stdout.write(JSON.stringify({ stashed }));
@@ -166,12 +180,15 @@ export async function proposeChanges(c: ProposalInput): Promise<void> {
   process.stdout.write(out);
 }
 
-export async function restore(f: Ctx, pr: { owner: string; repo: string; number: number }): Promise<boolean> {
-  return JSON.parse(await f.run(nodeCommand(restoreCheckout, { owner: pr.owner, repo: pr.repo, number: pr.number }), { timeout: '2m' })).restored === true;
+/** The previous run's agent session, when this box still holds its checkout. */
+export async function restore(f: Ctx, pr: { owner: string; repo: string; number: number }): Promise<CachedSession | undefined> {
+  const value = JSON.parse(await f.run(nodeCommand(restoreCheckout, { owner: pr.owner, repo: pr.repo, number: pr.number }), { timeout: '2m' }));
+  return value.restored === true && typeof value.session?.cli === 'string' && typeof value.session?.sessionId === 'string'
+    ? { cli: value.session.cli, sessionId: value.session.sessionId } : undefined;
 }
 
-export async function stash(f: Ctx, pr: { owner: string; repo: string; number: number }): Promise<void> {
-  await f.run(nodeCommand(stashCheckout, { owner: pr.owner, repo: pr.repo, number: pr.number }), { timeout: '2m' });
+export async function stash(f: Ctx, pr: { owner: string; repo: string; number: number }, session?: CachedSession): Promise<void> {
+  await f.run(nodeCommand(stashCheckout, { owner: pr.owner, repo: pr.repo, number: pr.number, ...(session === undefined ? {} : { session }) }), { timeout: '2m' });
 }
 
 export async function checkout(f: Ctx, pr: { owner: string; repo: string }, head: string): Promise<{ dir: string; reused: boolean }> {

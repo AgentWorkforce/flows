@@ -1,0 +1,112 @@
+# fix.ts/fixer.ts at b5939c56 (before adoption); tests from the adoption commit.
+$ node --experimental-strip-types --test tests/fixer.test.ts
+✔ the fixer checks out the bound head, runs one agent there with fix rules, and journals one proposal (4.293578ms)
+✔ the fixer never writes to GitHub itself: no push, merge, review, or comment calls (1.037712ms)
+✔ thread replies go only to inline feedback this run was woken by, once each, marked and neutralised (0.749876ms)
+✔ a head that moves while fixing declines without a proposal (0.497907ms)
+✔ a refused proposal ends needs_human (1.313897ms)
+✔ by default the fixer dispatches no agent and checks nothing out (gate 8 / #442) (0.517434ms)
+✔ the agent outcome is read from a JSON message, a fenced JSON block, or falls back to prose (0.249595ms)
+✔ a real proposal covers edits, new files and the agent's own commits, all against the bound head (76.035092ms)
+✔ workflow, secret, oversized and too-wide proposals are refused whole (318.184465ms)
+✔ an untouched checkout proposes an empty patch (replies and summary may still publish) (41.096425ms)
+✔ the proposal script runs as f.run runs it: a stringified `node -e` command in a shell (68.992223ms)
+✔ the proposal script lifted from the shipped artifact runs under `node -e` (67.01426ms)
+✔ the proposal never runs code the agent planted in the checkout's git config, and its diff format is fixed (49.174572ms)
+✔ paths git would have to quote are refused; a newline cannot split a name past the workflow rule (117.672274ms)
+✔ a non-ASCII name is proposed unquoted, so Cloud parses the same path (42.920333ms)
+✔ the fixer runs the origin session's own CLI with its literal pinned model (1.037202ms)
+✔ a PR checkout survives between runs: restored into the run root, stashed back after (1.349774ms)
+✔ the fixer restores the cached checkout before checking out, and stashes it even when the agent fails (0.942706ms)
+✔ restore and stash lifted from the shipped artifact run under `node -e` (49.813201ms)
+✔ a reused checkout keeps its dependencies but none of the agent's git state, and lands exactly on the head (114.361528ms)
+✔ a dependency manifest that changed between heads drops the cached dependencies (103.235415ms)
+✔ a damaged cached .git is replaced, not reused (53.02841ms)
+✔ cache moves never fail the run: an unwritable cache only means the next run starts fresh (0.736472ms)
+✔ flows check still sees the fixer's agent requirement (0.244435ms)
+✔ checkoutHead lifted from the shipped artifact runs under `node -e` (81.425983ms)
+✖ a restored PR checkout brings back its session, and a stash records the new one (1.970079ms)
+✖ a wake on a reused box resumes the previous agent session and records the new one (0.856034ms)
+✔ a fresh box, or a session from another CLI, starts without resume (0.586652ms)
+✖ a session the CLI no longer has falls back to a fresh agent with the origin context (0.599917ms)
+ℹ tests 29
+ℹ suites 0
+ℹ pass 26
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1343.157983
+
+✖ failing tests:
+
+test at tests/fixer.test.ts:421:1
+✖ a restored PR checkout brings back its session, and a stash records the new one (1.970079ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    {
+      restored: true,
+  -   session: {
+  -     cli: 'claude',
+  -     sessionId: 'sess-1'
+  -   }
+    }
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/tests/fixer.test.ts:439:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { restored: true },
+    expected: { restored: true, session: { cli: 'claude', sessionId: 'sess-1' } },
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/fixer.test.ts:465:1
+✖ a wake on a reused box resumes the previous agent session and records the new one (0.856034ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + undefined
+  - 'sess-1'
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/tests/fixer.test.ts:469:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: 'sess-1',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/fixer.test.ts:481:1
+✖ a session the CLI no longer has falls back to a fresh agent with the origin context (0.599917ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+      [
+        'babysitter-fix',
+  -     'sess-1'
+  -   ],
+  -   [
+  -     'babysitter-fix-fresh',
+        undefined
+      ]
+    ]
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/tests/fixer.test.ts:485:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ [ 'babysitter-fix', undefined ] ],
+    expected: [ [ 'babysitter-fix', 'sess-1' ], [ 'babysitter-fix-fresh', undefined ] ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+exit=1

@@ -1,7 +1,7 @@
 import { flow, type Ctx } from '@relayflows/surface';
 import { admit, neutralise, outOfScope, parsePolicy, type Admitted } from './admission.ts';
 import { capabilities } from './capabilities.ts';
-import { checkout, propose, REPLY_MAX_CHARS, restore, stash, SUMMARY_MAX_CHARS } from './fix.ts';
+import { checkout, propose, REPLY_MAX_CHARS, restore, stash, SUMMARY_MAX_CHARS, type CachedSession } from './fix.ts';
 import { readState } from './github.ts';
 import { record } from './input.ts';
 import { agentTask } from './origin.ts';
@@ -57,18 +57,36 @@ export function createStandaloneFixer(policy: unknown, runtime: { enforcedAgentW
     // (5) The bound head, checked out where the agent works. A reused sandbox
     // brings back the PR's previous checkout, with its dependencies.
     const { pr, wake, origin, c, head, report } = a;
-    await restore(f, pr);
+    const previous = await restore(f, pr);
     let verdict: Verdict;
+    let session: CachedSession | undefined;
     try {
       const work = await checkout(f, pr, head);
       // (6) One agent carrying the original scope edits the working tree. It is
       // the origin session's own CLI, with a literal pinned model per CLI so the
       // shipped-source model audit resolves both pairs; the fixer ignores the
       // policy's agentCli override.
+      //
+      // On a box that still holds this PR's checkout, the agent continues the
+      // session the previous wake ran (`resume`), so it keeps that wake's
+      // reading of the code and the original intent. A session the CLI no
+      // longer has fails that step; the run then starts a fresh agent, which
+      // carries the origin context in its task either way.
       const task = agentTask(origin, `${pr.owner}/${pr.repo}#${pr.number}`, head, a.changed, 'fix');
-      const result = origin.source === 'codex'
-        ? await f.agent('babysitter-fix', { cli: 'codex', model: 'gpt-5.6-sol', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task })
-        : await f.agent('babysitter-fix', { cli: 'claude', model: 'claude-sonnet-5', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task });
+      const resume = previous?.cli === origin.source ? previous.sessionId : undefined;
+      let result;
+      try {
+        result = origin.source === 'codex'
+          ? await f.agent('babysitter-fix', { cli: 'codex', model: 'gpt-5.6-sol', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task, resume })
+          : await f.agent('babysitter-fix', { cli: 'claude', model: 'claude-sonnet-5', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task, resume });
+      } catch (error) {
+        if (resume === undefined) throw error;
+        await report(`${wake.id}: could not resume session ${resume}; starting a fresh agent`);
+        result = origin.source === 'codex'
+          ? await f.agent('babysitter-fix-fresh', { cli: 'codex', model: 'gpt-5.6-sol', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task })
+          : await f.agent('babysitter-fix-fresh', { cli: 'claude', model: 'claude-sonnet-5', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task });
+      }
+      session = result.sessionId === undefined ? undefined : { cli: origin.source, sessionId: result.sessionId };
       // (7) Never propose against a head that no longer exists.
       const final = await readState(f, c);
       if (final.headSha !== head || outOfScope(final, c, configured.label)) {
@@ -92,7 +110,7 @@ export function createStandaloneFixer(policy: unknown, runtime: { enforcedAgentW
     } finally {
       // Back to the PR cache whatever happened, for the next wake on this box;
       // before f.done, so the stash is a step of this run.
-      await stash(f, pr);
+      await stash(f, pr, session);
     }
     f.done(verdict.reason, verdict.detail ? { detail: verdict.detail } : undefined);
   };

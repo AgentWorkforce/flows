@@ -1,0 +1,10 @@
+$ (cd packages/sdk && ./node_modules/.bin/vitest run tests/shipped-source-models.test.ts)
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  21:29:44
+   Duration  42.48s (transform 186ms, setup 16ms, collect 471ms, tests 41.75s, environment 0ms, prepare 66ms)
+
+exit=1

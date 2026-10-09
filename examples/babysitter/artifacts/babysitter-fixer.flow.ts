@@ -653,12 +653,13 @@ async function checkoutHead(c) {
   process.stdout.write(JSON.stringify({ dir, head: c.head, reused }));
 }
 async function restoreCheckout(c) {
-  const { existsSync, renameSync, rmSync } = await import("node:fs");
+  const { existsSync, readFileSync, renameSync, rmSync } = await import("node:fs");
   const { homedir } = await import("node:os");
   const { join, resolve } = await import("node:path");
   const cache = join(c.home ?? homedir(), ".babysitter", c.owner.toLowerCase(), c.repo.toLowerCase(), String(c.number), "checkout");
   const dir = resolve("babysitter-checkout");
   let restored = false;
+  let session;
   try {
     if (existsSync(cache) && !existsSync(dir)) {
       renameSync(cache, dir);
@@ -670,10 +671,17 @@ async function restoreCheckout(c) {
     } catch {
     }
   }
-  process.stdout.write(JSON.stringify({ restored }));
+  if (restored) {
+    try {
+      const value = JSON.parse(readFileSync(`${cache}.session.json`, "utf8"));
+      if (typeof value?.cli === "string" && typeof value?.sessionId === "string") session = { cli: value.cli, sessionId: value.sessionId };
+    } catch {
+    }
+  }
+  process.stdout.write(JSON.stringify({ restored, ...session === void 0 ? {} : { session } }));
 }
 async function stashCheckout(c) {
-  const { existsSync, mkdirSync, renameSync, rmSync } = await import("node:fs");
+  const { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } = await import("node:fs");
   const { homedir } = await import("node:os");
   const { dirname, join, resolve } = await import("node:path");
   const cache = join(c.home ?? homedir(), ".babysitter", c.owner.toLowerCase(), c.repo.toLowerCase(), String(c.number), "checkout");
@@ -685,6 +693,8 @@ async function stashCheckout(c) {
       mkdirSync(dirname(cache), { recursive: true });
       renameSync(dir, cache);
       stashed = true;
+      if (c.session === void 0) rmSync(`${cache}.session.json`, { force: true });
+      else writeFileSync(`${cache}.session.json`, JSON.stringify(c.session));
     }
   } catch {
   }
@@ -727,10 +737,11 @@ async function proposeChanges(c) {
   process.stdout.write(out);
 }
 async function restore(f, pr) {
-  return JSON.parse(await f.run(nodeCommand(restoreCheckout, { owner: pr.owner, repo: pr.repo, number: pr.number }), { timeout: "2m" })).restored === true;
+  const value = JSON.parse(await f.run(nodeCommand(restoreCheckout, { owner: pr.owner, repo: pr.repo, number: pr.number }), { timeout: "2m" }));
+  return value.restored === true && typeof value.session?.cli === "string" && typeof value.session?.sessionId === "string" ? { cli: value.session.cli, sessionId: value.session.sessionId } : void 0;
 }
-async function stash(f, pr) {
-  await f.run(nodeCommand(stashCheckout, { owner: pr.owner, repo: pr.repo, number: pr.number }), { timeout: "2m" });
+async function stash(f, pr, session) {
+  await f.run(nodeCommand(stashCheckout, { owner: pr.owner, repo: pr.repo, number: pr.number, ...session === void 0 ? {} : { session } }), { timeout: "2m" });
 }
 async function checkout(f, pr, head) {
   const value = JSON.parse(await f.run(nodeCommand(checkoutHead, { owner: pr.owner, repo: pr.repo, head }), { timeout: "5m" }));
@@ -785,12 +796,22 @@ function createStandaloneFixer(policy, runtime = capabilities) {
     );
     if (!a) return;
     const { pr, wake, origin, c, head, report } = a;
-    await restore(f, pr);
+    const previous = await restore(f, pr);
     let verdict;
+    let session;
     try {
       const work = await checkout(f, pr, head);
       const task = agentTask(origin, `${pr.owner}/${pr.repo}#${pr.number}`, head, a.changed, "fix");
-      const result = origin.source === "codex" ? await f.agent("babysitter-fix", { cli: "codex", model: "gpt-5.6-sol", cwd: work.dir, permissions: { accessPreset: "readwrite" }, task }) : await f.agent("babysitter-fix", { cli: "claude", model: "claude-sonnet-5", cwd: work.dir, permissions: { accessPreset: "readwrite" }, task });
+      const resume = previous?.cli === origin.source ? previous.sessionId : void 0;
+      let result;
+      try {
+        result = origin.source === "codex" ? await f.agent("babysitter-fix", { cli: "codex", model: "gpt-5.6-sol", cwd: work.dir, permissions: { accessPreset: "readwrite" }, task, resume }) : await f.agent("babysitter-fix", { cli: "claude", model: "claude-sonnet-5", cwd: work.dir, permissions: { accessPreset: "readwrite" }, task, resume });
+      } catch (error) {
+        if (resume === void 0) throw error;
+        await report(`${wake.id}: could not resume session ${resume}; starting a fresh agent`);
+        result = origin.source === "codex" ? await f.agent("babysitter-fix-fresh", { cli: "codex", model: "gpt-5.6-sol", cwd: work.dir, permissions: { accessPreset: "readwrite" }, task }) : await f.agent("babysitter-fix-fresh", { cli: "claude", model: "claude-sonnet-5", cwd: work.dir, permissions: { accessPreset: "readwrite" }, task });
+      }
+      session = result.sessionId === void 0 ? void 0 : { cli: origin.source, sessionId: result.sessionId };
       const final = await readState(f, c);
       if (final.headSha !== head || outOfScope(final, c, configured.label)) {
         await report(`${wake.id}: head moved or PR left scope while fixing; no proposal for ${head}`);
@@ -812,7 +833,7 @@ function createStandaloneFixer(policy, runtime = capabilities) {
         }
       }
     } finally {
-      await stash(f, pr);
+      await stash(f, pr, session);
     }
     f.done(verdict.reason, verdict.detail ? { detail: verdict.detail } : void 0);
   };
