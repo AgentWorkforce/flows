@@ -81,6 +81,7 @@ const VERB_FIELD_VALUES: Record<string, unknown> = {
   permissions: { accessPreset: 'readonly' },
   output: { type: 'object' },
   cwd: '/tmp/foreign-cwd',
+  resume: '1908508f-989e-4159-82b0-6a676c3d74d3',
   transport: 'direct',
   // Not `'fail'`: the default is normalized away on compile, so a default
   // value could pass the YAML round trip on a step type that never allows it.
@@ -205,7 +206,7 @@ describe('closed per-verb step fields', () => {
     expect(STEP_FIELDS_BY_TYPE).toEqual({
       deterministic: ['command', 'timeoutMs', 'lease_ms', 'onNonZero'],
       llm: ['prompt', 'model', 'cli', 'output'],
-      agent: ['timeoutMs', 'instruction', 'agent', 'cli', 'model', 'cwd', 'transport', 'surfaces', 'recoveryMode', 'permissions', 'output'],
+      agent: ['timeoutMs', 'instruction', 'agent', 'cli', 'model', 'cwd', 'resume', 'transport', 'surfaces', 'recoveryMode', 'permissions', 'output'],
     });
     expect(CROSS_VERB_STEP_FIELDS.map(({ label }) => label).sort()).toEqual([
       'agent foreign command',
@@ -221,6 +222,7 @@ describe('closed per-verb step fields', () => {
       'deterministic foreign permissions',
       'deterministic foreign prompt',
       'deterministic foreign recoveryMode',
+      'deterministic foreign resume',
       'deterministic foreign surfaces',
       'deterministic foreign transport',
       'llm foreign agent',
@@ -231,6 +233,7 @@ describe('closed per-verb step fields', () => {
       'llm foreign onNonZero',
       'llm foreign permissions',
       'llm foreign recoveryMode',
+      'llm foreign resume',
       'llm foreign surfaces',
       'llm foreign timeoutMs',
       'llm foreign transport',
