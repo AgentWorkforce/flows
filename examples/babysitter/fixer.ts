@@ -1,5 +1,4 @@
 import { flow, type Ctx } from '@relayflows/surface';
-import { requiredReviewerModel } from './models.ts';
 import { admit, neutralise, outOfScope, parsePolicy, type Admitted } from './admission.ts';
 import { capabilities } from './capabilities.ts';
 import { checkout, propose, REPLY_MAX_CHARS, SUMMARY_MAX_CHARS } from './fix.ts';
@@ -56,14 +55,14 @@ export function createStandaloneFixer(policy: unknown, runtime: { enforcedAgentW
     const { pr, wake, origin, c, head, report } = a;
     // (5) The bound head, checked out where the agent works.
     const work = await checkout(f, pr, head);
-    // (6) One agent carrying the original scope edits the working tree.
-    const cli = String(configured.agentCli ?? origin.source);
-    const model = String(requiredReviewerModel(cli, configured.agentModel));
-    const result = await f.agent('babysitter-fix', {
-      cli, model, cwd: work.dir,
-      permissions: { accessPreset: 'readwrite' },
-      task: agentTask(origin, `${pr.owner}/${pr.repo}#${pr.number}`, head, a.changed, 'fix'),
-    });
+    // (6) One agent carrying the original scope edits the working tree. It is
+    // the origin session's own CLI, with a literal pinned model per CLI so the
+    // shipped-source model audit resolves both pairs; the fixer ignores the
+    // policy's agentCli override.
+    const task = agentTask(origin, `${pr.owner}/${pr.repo}#${pr.number}`, head, a.changed, 'fix');
+    const result = origin.source === 'codex'
+      ? await f.agent('babysitter-fix', { cli: 'codex', model: 'gpt-5.6-sol', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task })
+      : await f.agent('babysitter-fix', { cli: 'claude', model: 'claude-sonnet-5', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task });
     // (7) Never propose against a head that no longer exists.
     const final = await readState(f, c);
     if (final.headSha !== head || outOfScope(final, c, configured.label)) {

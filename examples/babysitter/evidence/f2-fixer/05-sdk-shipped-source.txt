@@ -1,10 +1,12 @@
+$ git diff --quiet origin/main -- packages/sdk/tests/shipped-source-models.test.ts && echo "audit file identical to main"
+audit file identical to main
 $ (cd packages/sdk && ./node_modules/.bin/vitest run tests/shipped-source-models.test.ts)
- ✓ tests/shipped-source-models.test.ts (2 tests) 92740ms
-   ✓ first-party shipped source model pins > gives every TypeScript agent and LLM an explicit supported pair or a pinned named-agent declaration 92704ms
+ ✓ tests/shipped-source-models.test.ts (2 tests) 97038ms
+   ✓ first-party shipped source model pins > gives every TypeScript agent and LLM an explicit supported pair or a pinned named-agent declaration 97009ms
 
  Test Files  1 passed (1)
       Tests  2 passed (2)
-   Start at  19:55:59
-   Duration  93.49s (transform 192ms, setup 17ms, collect 470ms, tests 92.74s, environment 0ms, prepare 88ms)
+   Start at  20:02:07
+   Duration  97.78s (transform 177ms, setup 16ms, collect 465ms, tests 97.04s, environment 0ms, prepare 63ms)
 
 exit=0

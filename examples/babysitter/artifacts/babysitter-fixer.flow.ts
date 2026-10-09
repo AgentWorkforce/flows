@@ -651,12 +651,14 @@ async function proposeChanges(c) {
     encoding: "utf8",
     maxBuffer: 8 * 1024 * 1024,
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/dev/null" }
+    env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_COUNT: "2", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/dev/null", GIT_CONFIG_KEY_1: "core.quotePath", GIT_CONFIG_VALUE_1: "false" }
   }));
   const diff = ["diff", "--cached", "--no-renames", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/"];
   const refuse = (reason) => process.stdout.write(JSON.stringify({ kind: "babysitter-refusal", reason }));
   git("add", "-A");
-  const files = git(...diff, "--name-only", c.head).split("\n").filter(Boolean);
+  const files = git(...diff, "-z", "--name-only", c.head).split("\0").filter(Boolean);
+  const quoted = files.filter((f) => /["\\\x00-\x1f\x7f]/.test(f));
+  if (quoted.length) return refuse(`changes ${quoted.length} path(s) with quotes, backslashes or control characters`);
   const refused = files.filter((f) => new RegExp(c.limits.refused).test(f));
   if (refused.length) return refuse(`changes refused paths: ${refused.slice(0, 5).join(", ")}`);
   if (files.length > c.limits.files) return refuse(`changes ${files.length} files; at most ${c.limits.files}`);
@@ -729,15 +731,8 @@ function createStandaloneFixer(policy, runtime = capabilities) {
     if (!a) return;
     const { pr, wake, origin, c, head, report } = a;
     const work = await checkout(f, pr, head);
-    const cli = String(configured.agentCli ?? origin.source);
-    const model = String(requiredReviewerModel(cli, configured.agentModel));
-    const result = await f.agent("babysitter-fix", {
-      cli,
-      model,
-      cwd: work.dir,
-      permissions: { accessPreset: "readwrite" },
-      task: agentTask(origin, `${pr.owner}/${pr.repo}#${pr.number}`, head, a.changed, "fix")
-    });
+    const task = agentTask(origin, `${pr.owner}/${pr.repo}#${pr.number}`, head, a.changed, "fix");
+    const result = origin.source === "codex" ? await f.agent("babysitter-fix", { cli: "codex", model: "gpt-5.6-sol", cwd: work.dir, permissions: { accessPreset: "readwrite" }, task }) : await f.agent("babysitter-fix", { cli: "claude", model: "claude-sonnet-5", cwd: work.dir, permissions: { accessPreset: "readwrite" }, task });
     const final = await readState(f, c);
     if (final.headSha !== head || outOfScope(final, c, configured.label)) {
       await report(`${wake.id}: head moved or PR left scope while fixing; no proposal for ${head}`);

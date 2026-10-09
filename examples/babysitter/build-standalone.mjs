@@ -77,7 +77,7 @@ for (const target of targets) {
     if (!committedArtifact.equals(artifact) || !committedManifest.equals(manifest)) {
       throw new Error(`Committed ${target.name} artifact drifted; run build-standalone.mjs and commit both generated files.`);
     }
-    process.stdout.write(`Checked ${target.name} sha256:${sha256(artifact)}\n`);
+    process.stdout.write(`Checked sha256:${sha256(artifact)} (${target.name})\n`);
   } else {
     await mkdir(artifactDirectory, { recursive: true });
     await Promise.all([
