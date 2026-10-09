@@ -1,0 +1,50 @@
+$ node --experimental-strip-types --test tests/signals.test.ts
+✔ a failing commit status is a failing check; a newer success on the same context clears an older failure (2.471623ms)
+✔ reviews are paginated before standing verdicts are derived (0.745645ms)
+✔ a report older than any comment window is still found; only comments after the last report are returned (0.70508ms)
+✔ a marker in someone else's comment is not a report (0.401967ms)
+✔ a head that moves during the read refuses (0.786862ms)
+✔ failing check runs at the head are failing checks; running, passing and other-head runs are not (0.764651ms)
+✔ settleReport keeps the earliest report for a head and deletes a later duplicate of its own (0.65117ms)
+✔ a PR full of long reviews, comments and failing checks still fits the journal and keeps every actor (2.43751ms)
+✔ only a report for the current head counts, and report history never grows the payload (2.473708ms)
+✔ when shortened text still overflows, the oldest comments go first at the 200-char floor (4.599588ms)
+✔ inline review comments from the author, members and allowlisted review bots are feedback; outsiders, other bots and this bot are not (6.93042ms)
+✔ a thread Babysitter already answered, an outdated comment, and feedback before its last report are not feedback (0.551435ms)
+✔ a commented review body is feedback; an empty one, an outsider's, or a change request (already a verdict) is not (0.450638ms)
+✔ review feedback is shortened and, past the floor, dropped oldest first so the read still fits the journal (6.595057ms)
+✔ our own agent accounts are never feedback, and their thread replies answer the thread (0.416384ms)
+✖ the Garden sharing Babysitter's app login does not look like Babysitter: only marked comments move the window or answer threads (1.324441ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 15
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 145.768974
+
+✖ failing tests:
+
+test at tests/signals.test.ts:233:1
+✖ the Garden sharing Babysitter's app login does not look like Babysitter: only marked comments move the window or answer threads (1.324441ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+  + []
+  - [
+  -   40,
+  -   41
+  - ]
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f1/examples/babysitter/tests/signals.test.ts:244:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [],
+    expected: [ 40, 41 ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+exit=1

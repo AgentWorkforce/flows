@@ -31,8 +31,9 @@ drain from the bound lineage:
 ```
 
 The committed operator policy is `standalone-policy.json`: `botLogin` is
-`agent-relay-code[bot]` and the opt-in label is `babysit`. It contains no
-credential. With no `agentCli`, the agent runs the origin session's own CLI,
+`agent-relay-code[bot]`, the opt-in label is `babysit`, `reviewBots` lists the
+review bots whose feedback counts, and `ownAgents` lists our own agent
+accounts, whose comments never count. It contains no credential. With no `agentCli`, the agent runs the origin session's own CLI,
 so Claude and Codex sessions both work. The generated manifest therefore
 requires both harnesses explicitly; an operator must connect and declare both
 when deploying this source rather than relying on the static default branch
@@ -54,11 +55,31 @@ reported by `flows check`.
    `key=babysitter:<event>:<pr>@<head>`, which is the same for every delivery
    of the same event at the same live state.
 4. **Decline when nothing is actionable.** Closed, merged, draft or skip
-   label (`eligible`); the `babysit` label absent from *live* labels; this head
+   label (`eligible`); neither a Software Garden PR (a `relayflow/*` head in
+   the repository itself, in scope by default, drafts included, since Garden
+   drafts a PR whose checks fail) nor the `babysit` label on *live* labels
+   (removing it opts out; a label opt-in draft still declines); this head
    already reported by `botLogin` (its own comments' markers, all pages); or no
    failing check run or commit status, standing change request (all review
-   pages), or new authorised `@babysitter` directive (PR author, or
-   `OWNER`/`MEMBER`/`COLLABORATOR`, after Babysitter's last comment). The
+   pages), unanswered review feedback, or new authorised `@babysitter`
+   directive (PR author, or `OWNER`/`MEMBER`/`COLLABORATOR`, after
+   Babysitter's last comment). Review feedback is either an inline review
+   comment (a current line comment, or a file-level comment) with no later
+   reply in its thread from `botLogin` or a policy `ownAgents` account, or a
+   non-empty `COMMENTED` review body. Both must have become visible at or
+   after Babysitter's last comment: a pending review's comments date from
+   the review's submission. Like comments, feedback shares the journal
+   budget and is dropped oldest first past it. It counts only from the PR author,
+   `OWNER`/`MEMBER`/`COLLABORATOR`, or a policy `reviewBots` login; never from
+   `botLogin` or `ownAgents` (our own agents, whose "Fixed in …" replies must
+   not wake Babysitter, nor give it an `@babysitter` directive). Software Garden posts as the same app login as
+   Babysitter, so a `botLogin` comment is Babysitter's own (moves the window,
+   answers a thread) only when it carries a `<!-- babysitter:` marker. Inline comments, thread
+   replies included, wake it through `pull_request_review.submitted`: GitHub
+   files each one as its own submitted `COMMENTED` review, so the wake
+   contract and Cloud's trigger profile are unchanged. Evidence: every reply
+   sampled on flows#624/#628 has its own review with `submitted_at` equal to
+   its `created_at`. The
    signal read always fits the journal (50KB): long text is shortened and
    marked `[truncated]` (never below 200 characters), then the oldest
    comments are dropped. Failing checks and change requests are never

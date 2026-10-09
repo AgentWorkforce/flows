@@ -1,0 +1,22 @@
+# Mutation at c176f9c9 + this round's working tree. Snapshot: /tmp/claude-1000/-home-khaliqgant-Projects-AgentWorkforce-flows/497569fc-550a-44a0-a906-35c233c27ba6/scratchpad/signals.f1.orig
+# Mutation: an ownAgents reply no longer answers its thread.
+$ cp signals.ts /tmp/claude-1000/-home-khaliqgant-Projects-AgentWorkforce-flows/497569fc-550a-44a0-a906-35c233c27ba6/scratchpad/signals.f1.orig
+$ sed -i "s/if (login === bot ? !own(m) : !ours.includes(login)) continue;/if (login === bot ? !own(m) : true) continue;/" signals.ts
+$ diff /tmp/claude-1000/-home-khaliqgant-Projects-AgentWorkforce-flows/497569fc-550a-44a0-a906-35c233c27ba6/scratchpad/signals.f1.orig signals.ts
+119c119
+<     if (login === bot ? !own(m) : !ours.includes(login)) continue;
+---
+>     if (login === bot ? !own(m) : true) continue;
+$ node --experimental-strip-types --test tests/signals.test.ts
+✖ failing tests:
+ℹ fail 1
+ℹ pass 17
+ℹ tests 18
+✖ our own agent accounts are never feedback, and their thread replies answer the thread (1.547633ms)
+$ cp /tmp/claude-1000/-home-khaliqgant-Projects-AgentWorkforce-flows/497569fc-550a-44a0-a906-35c233c27ba6/scratchpad/signals.f1.orig signals.ts
+$ cmp /tmp/claude-1000/-home-khaliqgant-Projects-AgentWorkforce-flows/497569fc-550a-44a0-a906-35c233c27ba6/scratchpad/signals.f1.orig signals.ts && echo identical
+identical
+$ node --experimental-strip-types --test tests/signals.test.ts
+ℹ tests 18
+ℹ pass 18
+ℹ fail 0

@@ -282,6 +282,7 @@ function agentTask(o, pr, head, changed) {
     "== What changed (live GitHub reread) ==",
     ...changed.failingChecks.map((c) => `- Failing check "${c.name}" (${c.conclusion}): ${c.summary || "no summary"}`),
     ...changed.changeRequests.map((r) => `- Changes requested by ${r.login}: ${r.body || "(no body)"}`),
+    ...changed.reviewFeedback.map((r) => r.kind === "inline" ? `- Review comment by ${r.login} on ${r.path}${r.line === void 0 ? "" : `:${r.line}`}: ${r.body}` : `- Review by ${r.login}: ${r.body}`),
     ...changed.directive ? [`- Directive from ${changed.directive.login}: ${changed.directive.body}`] : [],
     ...events ? ["", "== Origin session events (oldest first, bounded) ==", events] : [],
     "",
@@ -328,11 +329,12 @@ async function readSignals(c) {
     }
     throw new Error("Pagination exceeded; signals incomplete");
   }
-  const [runs, statuses, reviews, comments] = await Promise.all([
+  const [runs, statuses, reviews, comments, inline] = await Promise.all([
     pages(`/commits/${c.head}/check-runs?filter=latest`, "check_runs"),
     pages(`/commits/${c.head}/statuses`),
     pages(`/pulls/${c.number}/reviews`),
-    pages(`/issues/${c.number}/comments`)
+    pages(`/issues/${c.number}/comments`),
+    pages(`/pulls/${c.number}/comments`)
   ]);
   const bad = ["failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale", "error"];
   const latestStatus = /* @__PURE__ */ new Map();
@@ -345,7 +347,7 @@ async function readSignals(c) {
   }
   const bot = c.botLogin.toLowerCase();
   const marker = `<!-- babysitter:report ${c.owner.toLowerCase()}/${c.repo.toLowerCase()}#${c.number}@${c.head} -->`;
-  const own = (m) => String(m.user?.login ?? "").toLowerCase() === bot;
+  const own = (m) => String(m.user?.login ?? "").toLowerCase() === bot && String(m.body ?? "").includes("<!-- babysitter:");
   let reported = false, lastOwn = -1;
   comments.forEach((m, i) => {
     if (!own(m)) return;
@@ -358,6 +360,39 @@ async function readSignals(c) {
   ].slice(0, 20);
   const requests = [...standing.values()].filter((r) => r.state === "CHANGES_REQUESTED").slice(0, 20);
   let recent = comments.slice(lastOwn + 1).slice(-50);
+  const author = c.author.toLowerCase(), bots = c.reviewBots.map((b) => b.toLowerCase());
+  const ours = [bot, ...c.ownAgents.map((a) => a.toLowerCase())];
+  const trusted = ["OWNER", "MEMBER", "COLLABORATOR"];
+  const from = (m) => {
+    const login = String(m.user?.login ?? "").toLowerCase();
+    if (!login || ours.includes(login)) return false;
+    if (login.endsWith("[bot]")) return bots.includes(login);
+    return login === author || trusted.includes(m.author_association);
+  };
+  const since = lastOwn < 0 ? "" : String(comments[lastOwn].created_at ?? "");
+  const answered = /* @__PURE__ */ new Map();
+  for (const m of inline) {
+    const login = String(m.user?.login ?? "").toLowerCase();
+    if (login === bot ? !own(m) : !ours.includes(login)) continue;
+    const thread = m.in_reply_to_id ?? m.id;
+    answered.set(thread, Math.max(answered.get(thread) ?? 0, m.id));
+  }
+  const submitted = new Map(reviews.map((r) => [r.id, String(r.submitted_at ?? "")]));
+  const visibleAt = (m) => [String(m.created_at ?? ""), submitted.get(m.pull_request_review_id) ?? ""].sort().at(-1);
+  const current = (m) => m.subject_type === "file" || typeof m.line === "number" && m.position !== null;
+  let feedback = [
+    ...inline.filter((m) => from(m) && current(m) && visibleAt(m) >= since && m.id > (answered.get(m.in_reply_to_id ?? m.id) ?? 0)).map((m) => ({
+      kind: "inline",
+      id: m.id,
+      login: m.user.login,
+      body: m.body,
+      path: m.path,
+      ...typeof m.line === "number" && m.subject_type !== "file" ? { line: m.line } : {},
+      thread: m.in_reply_to_id ?? m.id,
+      createdAt: visibleAt(m)
+    })),
+    ...reviews.filter((r) => r.state === "COMMENTED" && typeof r.body === "string" && r.body.trim() && from(r) && String(r.submitted_at ?? "") >= since).map((r) => ({ kind: "review", id: r.id, login: r.user.login, body: r.body, createdAt: r.submitted_at }))
+  ].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.id - b.id).slice(-100);
   const shape = (text3) => JSON.stringify({
     headSha: c.head,
     failingChecks: checks.map((r) => ({ name: cut(r.name, 200), conclusion: r.conclusion, summary: clip(r.summary, text3), url: cut(r.url, 500) })),
@@ -369,12 +404,22 @@ async function readSignals(c) {
       association: m.author_association ?? "NONE",
       body: clip(m.body, text3),
       createdAt: m.created_at
+    })),
+    reviewFeedback: feedback.map((r) => ({
+      ...r,
+      login: cut(r.login, 100),
+      body: clip(r.body, text3),
+      ...r.path ? { path: cut(r.path, 500) } : {}
     }))
   });
   let text2 = 4e3, out = shape(text2);
   while (Buffer.byteLength(out) > BUDGET && text2 > 200) out = shape(text2 = Math.max(200, Math.floor(text2 / 2)));
   while (Buffer.byteLength(out) > BUDGET && recent.length > 1) {
     recent = recent.slice(1);
+    out = shape(text2);
+  }
+  while (Buffer.byteLength(out) > BUDGET && feedback.length > 1) {
+    feedback = feedback.slice(1);
     out = shape(text2);
   }
   const final = await get(`/pulls/${c.number}`);
@@ -427,8 +472,8 @@ async function annotateReport(c) {
 ${(await current.json()).body}` }) });
   if (!res.ok) throw new Error(`GitHub comment PATCH: ${res.status}`);
 }
-async function readSignalsAt(f, pr, head, botLogin) {
-  const value = JSON.parse(await f.run(nodeCommand(readSignals, { owner: pr.owner, repo: pr.repo, number: pr.number, head, botLogin }), { timeout: "2m" }));
+async function readSignalsAt(f, pr, head, who) {
+  const value = JSON.parse(await f.run(nodeCommand(readSignals, { owner: pr.owner, repo: pr.repo, number: pr.number, head, ...who }), { timeout: "2m" }));
   if (value.headSha !== head) throw new Error("Signals were read for a different head");
   return value;
 }
@@ -486,6 +531,10 @@ function parsePolicy(value) {
   if (x.label !== void 0 && !text(x.label)) throw new Error("Invalid standalone Babysitter policy: label must be nonempty");
   if (x.agentCli !== void 0 && !text(x.agentCli)) throw new Error("Invalid standalone Babysitter policy: agentCli must be nonempty");
   if (x.agentModel !== void 0 && !text(x.agentModel)) throw new Error("Invalid standalone Babysitter policy: agentModel must be nonempty");
+  if (x.reviewBots !== void 0 && !(Array.isArray(x.reviewBots) && x.reviewBots.every((b) => text(b) && b.trim().toLowerCase().endsWith("[bot]"))))
+    throw new Error("Invalid standalone Babysitter policy: reviewBots must be a list of [bot] logins");
+  if (x.ownAgents !== void 0 && !(Array.isArray(x.ownAgents) && x.ownAgents.every(text)))
+    throw new Error("Invalid standalone Babysitter policy: ownAgents must be a list of logins");
   if (typeof x.agentCli === "string") {
     try {
       requiredReviewerModel(x.agentCli, x.agentModel);
@@ -496,6 +545,8 @@ function parsePolicy(value) {
   return {
     botLogin: x.botLogin.trim(),
     label: typeof x.label === "string" ? x.label.trim().toLowerCase() : "babysit",
+    reviewBots: [...new Set((x.reviewBots ?? []).map((b) => b.trim().toLowerCase()))],
+    ownAgents: [...new Set((x.ownAgents ?? []).map((a) => a.trim().toLowerCase()))],
     ...typeof x.agentCli === "string" ? { agentCli: x.agentCli.trim() } : {},
     ...typeof x.agentModel === "string" ? { agentModel: x.agentModel.trim() } : {}
   };
@@ -506,18 +557,23 @@ function boundPullRequest(value) {
   return { owner: pr.owner, repo: pr.repo, number: Number(pr.number), headSha: pr.headSha };
 }
 var reportMarker = (pr, head) => `<!-- babysitter:report ${pr.owner.toLowerCase()}/${pr.repo.toLowerCase()}#${pr.number}@${head} -->`;
-function outOfScope(s, c, label) {
-  return eligible(s, c) ?? (Array.isArray(s.labels) && s.labels.some((l) => String(l).toLowerCase() === label) ? void 0 : `Live labels lack the "${label}" opt-in`);
+function gardenPullRequest(s, c) {
+  return typeof s.headRef === "string" && s.headRef.startsWith("relayflow/") && String(s.headRepo).toLowerCase() === `${c.owner}/${c.repo}`.toLowerCase();
 }
-function whatChanged(s, author) {
+function outOfScope(s, c, label) {
+  const garden = gardenPullRequest(s, c);
+  return eligible(garden ? { ...s, draft: false } : s, c) ?? (garden || Array.isArray(s.labels) && s.labels.some((l) => String(l).toLowerCase() === label) ? void 0 : `Not a Software Garden PR and live labels lack the "${label}" opt-in`);
+}
+function whatChanged(s, author, ownAgents = []) {
   const directive = [...s.comments].reverse().find((m) => {
     const login = m.login.toLowerCase();
-    return DIRECTIVE.test(m.body) && !login.endsWith("[bot]") && (login === author.toLowerCase() || AUTHORISED.includes(m.association));
+    return DIRECTIVE.test(m.body) && !login.endsWith("[bot]") && !ownAgents.includes(login) && (login === author.toLowerCase() || AUTHORISED.includes(m.association));
   });
-  if (s.failingChecks.length === 0 && s.changeRequests.length === 0 && !directive) return void 0;
+  if (s.failingChecks.length === 0 && s.changeRequests.length === 0 && s.reviewFeedback.length === 0 && !directive) return void 0;
   return {
     failingChecks: s.failingChecks,
     changeRequests: s.changeRequests,
+    reviewFeedback: s.reviewFeedback,
     ...directive ? { directive: { login: directive.login, body: directive.body } } : {}
   };
 }
@@ -564,12 +620,17 @@ function createStandaloneBabysitter(policy, runtime = capabilities) {
       await report(`${wake.id}: ${skip}`);
       return f.done("declined");
     }
-    const signals = await readSignalsAt(f, pr, head, configured.botLogin);
+    const signals = await readSignalsAt(f, pr, head, {
+      botLogin: configured.botLogin,
+      author: String(live.author ?? ""),
+      reviewBots: configured.reviewBots,
+      ownAgents: configured.ownAgents
+    });
     if (signals.reported) {
       await report(`${wake.id}: head ${head} already reported`);
       return f.done("declined");
     }
-    const changed = whatChanged(signals, String(live.author));
+    const changed = whatChanged(signals, String(live.author), configured.ownAgents);
     if (!changed) {
       await report(`${wake.id}: nothing actionable at ${head}`);
       return f.done("declined");
@@ -621,7 +682,7 @@ function createStandaloneBabysitter(policy, runtime = capabilities) {
 }
 
 // standalone-entry.ts
-var standalone_entry_default = createStandaloneBabysitter({ "botLogin": "agent-relay-code[bot]", "label": "babysit" }, { enforcedAgentWriteScope: true });
+var standalone_entry_default = createStandaloneBabysitter({ "botLogin": "agent-relay-code[bot]", "label": "babysit", "reviewBots": ["chatgpt-codex-connector[bot]", "coderabbitai[bot]", "cubic-dev-ai[bot]", "cursor[bot]", "devin-ai-integration[bot]"], "ownAgents": ["AgentRelayBot"] }, { enforcedAgentWriteScope: true });
 export {
   standalone_entry_default as default
 };

@@ -57,6 +57,7 @@ function fence(label: string, enclosed: string): string {
 export interface WhatChanged {
   failingChecks: { name: string; conclusion: string; summary: string }[];
   changeRequests: { login: string; body: string }[];
+  reviewFeedback: { kind: 'inline' | 'review'; login: string; body: string; path?: string; line?: number }[];
   directive?: { login: string; body: string };
 }
 
@@ -82,6 +83,9 @@ export function agentTask(o: OriginContext, pr: string, head: string, changed: W
     '== What changed (live GitHub reread) ==',
     ...changed.failingChecks.map(c => `- Failing check "${c.name}" (${c.conclusion}): ${c.summary || 'no summary'}`),
     ...changed.changeRequests.map(r => `- Changes requested by ${r.login}: ${r.body || '(no body)'}`),
+    ...changed.reviewFeedback.map(r => r.kind === 'inline'
+      ? `- Review comment by ${r.login} on ${r.path}${r.line === undefined ? '' : `:${r.line}`}: ${r.body}`
+      : `- Review by ${r.login}: ${r.body}`),
     ...(changed.directive ? [`- Directive from ${changed.directive.login}: ${changed.directive.body}`] : []),
     ...(events ? ['', '== Origin session events (oldest first, bounded) ==', events] : []),
     '',

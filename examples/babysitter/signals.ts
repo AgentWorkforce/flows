@@ -19,6 +19,17 @@ export interface Signals {
   reported: boolean;
   /** Comments after the bot's last comment, newest 50: where a new directive can be. */
   comments: { id: number; login: string; association: string; body: string; createdAt: string }[];
+  /**
+   * Review feedback Babysitter has not answered, oldest first: unresolved
+   * inline comments (not outdated, not followed by this bot's reply in their
+   * thread) and non-empty commented review bodies, newer than its last report.
+   * Only from the PR author, OWNER/MEMBER/COLLABORATOR, or an allowlisted
+   * review bot; never from this bot or another of our own agents.
+   */
+  reviewFeedback: {
+    kind: 'inline' | 'review'; id: number; login: string; body: string;
+    path?: string; line?: number; thread?: number; createdAt: string;
+  }[];
 }
 
 /**
@@ -29,7 +40,9 @@ export interface Signals {
  * never lost to a page edge. Every text field is bounded and is untrusted
  * data. Refuses if the head moves during the read.
  */
-export async function readSignals(c: { owner: string; repo: string; number: number; head: string; botLogin: string }): Promise<void> {
+export async function readSignals(c: {
+  owner: string; repo: string; number: number; head: string; botLogin: string; author: string; reviewBots: string[]; ownAgents: string[];
+}): Promise<void> {
   const api = `https://api.github.com/repos/${c.owner}/${c.repo}`;
   const cut = (s: unknown, n: number) => typeof s === 'string' ? s.slice(0, n) : '';
   // Under the 55KB journal output guard, with room for the step envelope.
@@ -52,9 +65,9 @@ export async function readSignals(c: { owner: string; repo: string; number: numb
     }
     throw new Error('Pagination exceeded; signals incomplete');
   }
-  const [runs, statuses, reviews, comments] = await Promise.all([
+  const [runs, statuses, reviews, comments, inline] = await Promise.all([
     pages(`/commits/${c.head}/check-runs?filter=latest`, 'check_runs'), pages(`/commits/${c.head}/statuses`),
-    pages(`/pulls/${c.number}/reviews`), pages(`/issues/${c.number}/comments`),
+    pages(`/pulls/${c.number}/reviews`), pages(`/issues/${c.number}/comments`), pages(`/pulls/${c.number}/comments`),
   ]);
   const bad = ['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure', 'stale', 'error'];
   // Commit statuses are newest first; an old failure must not outlive a newer success.
@@ -69,7 +82,9 @@ export async function readSignals(c: { owner: string; repo: string; number: numb
   const bot = c.botLogin.toLowerCase();
   // A boolean for this head, not a history: report count must not grow the payload.
   const marker = `<!-- babysitter:report ${c.owner.toLowerCase()}/${c.repo.toLowerCase()}#${c.number}@${c.head} -->`;
-  const own = (m: any) => String(m.user?.login ?? '').toLowerCase() === bot;
+  // The app login may be shared (Software Garden posts as the same app), so a
+  // comment is Babysitter's only when it also carries a Babysitter marker.
+  const own = (m: any) => String(m.user?.login ?? '').toLowerCase() === bot && String(m.body ?? '').includes('<!-- babysitter:');
   let reported = false, lastOwn = -1;
   comments.forEach((m: any, i: number) => {
     if (!own(m)) return;
@@ -84,6 +99,46 @@ export async function readSignals(c: { owner: string; repo: string; number: numb
   ].slice(0, 20);
   const requests = [...standing.values()].filter(r => r.state === 'CHANGES_REQUESTED').slice(0, 20);
   let recent = comments.slice(lastOwn + 1).slice(-50);
+  // Review feedback: who may give it, and only what is newer than the last
+  // report and not already answered in its own thread by this bot.
+  // Our own agents (this bot included) never give feedback, and their reply
+  // in a thread answers it, so an agent's "Fixed in …" cannot wake Babysitter.
+  const author = c.author.toLowerCase(), bots = c.reviewBots.map(b => b.toLowerCase());
+  const ours = [bot, ...c.ownAgents.map(a => a.toLowerCase())];
+  const trusted = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+  const from = (m: any) => {
+    const login = String(m.user?.login ?? '').toLowerCase();
+    if (!login || ours.includes(login)) return false;
+    if (login.endsWith('[bot]')) return bots.includes(login);
+    return login === author || trusted.includes(m.author_association);
+  };
+  const since = lastOwn < 0 ? '' : String(comments[lastOwn].created_at ?? '');
+  const answered = new Map<number, number>();
+  for (const m of inline) {
+    const login = String(m.user?.login ?? '').toLowerCase();
+    if (login === bot ? !own(m) : !ours.includes(login)) continue;
+    const thread = m.in_reply_to_id ?? m.id;
+    answered.set(thread, Math.max(answered.get(thread) ?? 0, m.id));
+  }
+  // A pending review's comments become visible when the review is submitted,
+  // so they date from the later of their creation and that submission. The
+  // cutoff is inclusive: timestamps are per second, and feedback in the
+  // report's own second must not be lost (handling it twice is the safe side).
+  const submitted = new Map<number, string>(reviews.map((r: any) => [r.id, String(r.submitted_at ?? '')]));
+  const visibleAt = (m: any) => [String(m.created_at ?? ''), submitted.get(m.pull_request_review_id) ?? ''].sort().at(-1)!;
+  // File-level comments have no line. A line comment GitHub marked outdated
+  // keeps its blob line but loses its diff position.
+  const current = (m: any) => m.subject_type === 'file' || (typeof m.line === 'number' && m.position !== null);
+  let feedback = [
+    ...inline.filter((m: any) => from(m) && current(m) && visibleAt(m) >= since
+      && m.id > (answered.get(m.in_reply_to_id ?? m.id) ?? 0))
+      .map((m: any) => ({ kind: 'inline', id: m.id, login: m.user.login, body: m.body, path: m.path,
+        ...(typeof m.line === 'number' && m.subject_type !== 'file' ? { line: m.line } : {}),
+        thread: m.in_reply_to_id ?? m.id, createdAt: visibleAt(m) })),
+    ...reviews.filter((r: any) => r.state === 'COMMENTED' && typeof r.body === 'string' && r.body.trim() && from(r)
+      && String(r.submitted_at ?? '') >= since)
+      .map((r: any) => ({ kind: 'review', id: r.id, login: r.user.login, body: r.body, createdAt: r.submitted_at })),
+  ].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.id - b.id).slice(-100);
   // Fit the journal: text shrinks first (halving its cap down to a floor),
   // then the oldest comments go. Failing checks and change requests define
   // actionability and are never dropped, only shortened.
@@ -95,10 +150,14 @@ export async function readSignals(c: { owner: string; repo: string; number: numb
     comments: recent.map((m: any) => ({
       id: m.id, login: m.user?.login ?? '', association: m.author_association ?? 'NONE', body: clip(m.body, text), createdAt: m.created_at,
     })),
+    reviewFeedback: feedback.map((r: any) => ({
+      ...r, login: cut(r.login, 100), body: clip(r.body, text), ...(r.path ? { path: cut(r.path, 500) } : {}),
+    })),
   });
   let text = 4000, out = shape(text);
   while (Buffer.byteLength(out) > BUDGET && text > 200) out = shape(text = Math.max(200, Math.floor(text / 2)));
   while (Buffer.byteLength(out) > BUDGET && recent.length > 1) { recent = recent.slice(1); out = shape(text); }
+  while (Buffer.byteLength(out) > BUDGET && feedback.length > 1) { feedback = feedback.slice(1); out = shape(text); }
   const final = await get(`/pulls/${c.number}`);
   if (final.head?.sha !== c.head) throw new Error('Live PR head moved during signal capture');
   if (Buffer.byteLength(out) > BUDGET) throw new Error('PR signals exceed safe journal output size');
@@ -159,8 +218,10 @@ async function annotateReport(c: { owner: string; repo: string; id: number; note
   if (!res.ok) throw new Error(`GitHub comment PATCH: ${res.status}`);
 }
 
-export async function readSignalsAt(f: Ctx, pr: BoundPullRequest, head: string, botLogin: string): Promise<Signals> {
-  const value = JSON.parse(await f.run(nodeCommand(readSignals, { owner: pr.owner, repo: pr.repo, number: pr.number, head, botLogin }), { timeout: '2m' }));
+export async function readSignalsAt(
+  f: Ctx, pr: BoundPullRequest, head: string, who: { botLogin: string; author: string; reviewBots: string[]; ownAgents: string[] },
+): Promise<Signals> {
+  const value = JSON.parse(await f.run(nodeCommand(readSignals, { owner: pr.owner, repo: pr.repo, number: pr.number, head, ...who }), { timeout: '2m' }));
   if (value.headSha !== head) throw new Error('Signals were read for a different head');
   return value;
 }
