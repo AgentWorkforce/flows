@@ -18,6 +18,7 @@ import { childStop } from './child-stop.js';
 import { reapOnExit } from './agent-reaper.js';
 import {
   agentExecution,
+  agentResumable,
   llmExecution,
   cliAdapterKind,
   resolveCliModel,
@@ -122,8 +123,10 @@ export async function runAgentCli(
   relayContext?: AgentRelayContext,
   processEnvironment: NodeJS.ProcessEnv = process.env,
   cliIdentity?: string,
-  // Trailing parameter preserves existing positional callers.
+  // Trailing parameters preserve existing positional callers.
   stepTimeoutMs?: number,
+  /** A recorded CLI session to continue (`f.agent` `resume`); agent mode only. */
+  resume?: string,
 ): Promise<WorkerCliResult> {
   signal?.throwIfAborted();
   if (signal !== undefined && process.platform === 'win32') {
@@ -133,6 +136,11 @@ export async function runAgentCli(
   const effectiveModel = resolveCliModel(cliIdentity ?? cli, model);
   const argv0 = cliInvocationArgv0(cli, cliIdentity);
 
+  if (resume !== undefined && (mode !== 'agent' || transport === 'relay' || !agentResumable(kind))) {
+    // Running without the session would silently start a new conversation.
+    return { exit_code: null, stdout_tail: '',
+      stderr_tail: `resume is refused for CLI ${JSON.stringify(cli)} (${mode}, ${transport}): only a directly spawned Claude or Codex agent can continue a recorded session` };
+  }
   if (mode === 'agent' && transport === 'relay') {
     return runViaAgentRelay(kind, instruction, wakeContext, effectiveModel, relayContext, cwd, signal);
   }
@@ -193,7 +201,7 @@ export async function runAgentCli(
   // Where this attempt's journal is, so the agent can run `flows status` on
   // itself. Only a worker with a data dir knows; an ad-hoc spawn exports nothing.
   applyStepEnvironment(env, sidechannel);
-  const invocation = mode === 'llm' ? llmExecution(kind, instruction, effectiveModel) : agentExecution(kind, instruction, effectiveModel);
+  const invocation = mode === 'llm' ? llmExecution(kind, instruction, effectiveModel) : agentExecution(kind, instruction, effectiveModel, resume);
 
   if (stepTimeoutMs !== undefined) invocation.timeoutMs = stepTimeoutMs;
 

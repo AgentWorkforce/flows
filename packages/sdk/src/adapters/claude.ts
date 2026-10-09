@@ -14,6 +14,7 @@ const MODEL_PROBE_PROMPT = 'Reply with exactly RELAYFLOWS_MODEL_READY and nothin
 export const claudeAdapter: HeadlessAdapter = {
   kind: 'claude',
   defaultModel: 'claude-opus-5',
+  resumable: true,
 
   buildIdentification(): CliAdapterIdentification {
     return { invocation: { args: ['auth', 'status', '--help'], timeoutMs: 10_000 } };
@@ -46,10 +47,12 @@ export const claudeAdapter: HeadlessAdapter = {
     return undefined;
   },
 
-  buildAgentInvocation(instruction: string, model?: string): CliInvocation {
+  buildAgentInvocation(instruction: string, model?: string, resume?: string): CliInvocation {
     return {
       args: [
         '-p',
+        // Continues the recorded session (it is found by id, from any cwd).
+        ...(resume === undefined ? [] : ['--resume', resume]),
         // Symmetric to codex's --dangerously-bypass-approvals-and-sandbox: in
         // agent mode the flow explicitly delegates writes. Without this
         // claude's headless mode prompts for tool approval, gets no TTY,

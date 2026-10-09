@@ -1,0 +1,19 @@
+# One agent continues the CLI session an earlier step recorded. `resume` is
+# declared on one agent step only and survives the whole boundary — SDK
+# authoring -> compiler -> canonical JSON -> kernel parse -> kernel
+# re-serialize -> the same sha256 — and is absent from the step that does not
+# declare it.
+version: '0.1.0'
+name: agent-resume
+description: A second wake continues the first wake's CLI session.
+steps:
+  - id: first-wake
+    type: agent
+    cli: claude
+    instruction: "Address the review feedback."
+  - id: second-wake
+    type: agent
+    cli: claude
+    dependsOn: [first-wake]
+    instruction: "Address the new review feedback."
+    resume: 1908508f-989e-4159-82b0-6a676c3d74d3

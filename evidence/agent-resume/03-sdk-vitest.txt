@@ -1,0 +1,15 @@
+# Supersedes the earlier capture, whose output filter (Test Files|Tests|×) hid a collection-time FAIL: the verb-field lint, fixed in aa115352.
+# RELAYFLOWD_BIN points at this branch's kernel build (kernel/target/debug/relayflowd); the ambient value named a missing toolchain binary.
+$ (cd packages/sdk && RELAYFLOWD_BIN=$PWD/../../kernel/target/debug/relayflowd npx vitest run) | grep -E "FAIL|Test Files|Tests  | × "
+   ✓ built flows CLI against live relayflowd > hn-monitor analyze-story FAILS verification when the CLI omits required schema fields 340ms
+ FAIL  tests/authored-node-runtime.test.ts [ tests/authored-node-runtime.test.ts ]
+ Test Files  1 failed | 272 passed | 1 skipped (274)
+      Tests  4278 passed | 20 skipped (4298)
+
+# The one FAIL is environmental: the test pins bun 1.4.0 and this host has 1.4.2.
+ FAIL  tests/authored-node-runtime.test.ts [ tests/authored-node-runtime.test.ts ]
+AssertionError: expected '1.4.2' to be '1.4.0' // Object.is equality
+
+Expected: "1.4.0"
+Received: "1.4.2"
+

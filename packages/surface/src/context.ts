@@ -17,6 +17,12 @@ export interface AgentResult {
    * final message is a JSON object (that object is the output, unmodified).
    */
   artifacts: string[];
+  /**
+   * The CLI session this step ran as (Claude's session id, Codex's thread
+   * id), when the CLI reported one. Pass it as a later step's `resume` to
+   * continue the same conversation.
+   */
+  sessionId?: string;
 }
 
 /** Per-step declarations: validated and recorded, not currently enforced (gate 8 / #442).
@@ -52,6 +58,14 @@ export interface AgentOptions {
    * `transport: 'relay'`. See docs/SURFACE.md.
    */
   cwd?: string;
+  /**
+   * Continue a CLI session instead of starting a new one: an earlier step's
+   * `AgentResult.sessionId`. Claude and Codex resume it from their own
+   * session store (`~/.claude`, `~/.codex`), so it works only where that
+   * store survives — such as a sandbox reused for the same pull request.
+   * Other CLIs refuse the step. Not supported with `transport: 'relay'`.
+   */
+  resume?: string;
   /**
    * Dispatch transport (flows#385). `'direct'` (default) spawns the CLI as a
    * local subprocess. `'relay'` posts to agent-relay so the agent registers

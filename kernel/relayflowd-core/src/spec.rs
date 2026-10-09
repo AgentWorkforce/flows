@@ -180,13 +180,27 @@ impl RunSpec {
                     step.id
                 )));
             }
-            if let StepKind::Agent { surfaces, cwd, .. } = &step.kind {
+            if let StepKind::Agent {
+                surfaces,
+                cwd,
+                resume,
+                ..
+            } = &step.kind
+            {
                 if let Some(cwd) = cwd
                     && !is_run_root_relative_path(cwd)
                 {
                     return Err(SpecError::InvalidAgentCwd {
                         step: step.id.clone(),
                         cwd: cwd.clone(),
+                    });
+                }
+                if let Some(resume) = resume
+                    && !is_cli_session_id(resume)
+                {
+                    return Err(SpecError::InvalidAgentResume {
+                        step: step.id.clone(),
+                        resume: resume.clone(),
                     });
                 }
                 for workspace in &surfaces.workspace {
@@ -311,6 +325,17 @@ fn is_run_root_relative_path(path: &str) -> bool {
             if namespace.is_empty() && !components.is_empty())
 }
 
+/// Whether a declared agent `resume` is a CLI session id: 1-200 of
+/// `A-Z a-z 0-9 . _ : -`, starting with a letter or digit, so it can never be
+/// read as a CLI flag. The SDK's `agent-resume.ts` applies the same rule, and
+/// `testdata/agent-resume-cases.json` is the corpus both are tested against.
+pub fn is_cli_session_id(id: &str) -> bool {
+    let mut chars = id.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphanumeric())
+        && id.len() <= 200
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-'))
+}
+
 pub fn is_canonical_external_surface(path: &str) -> bool {
     path_surface_identity(path).is_some()
 }
@@ -363,6 +388,7 @@ const STEP_AGENT_FIELDS: &[&str] = &[
     "cli_identity",
     "model",
     "cwd",
+    "resume",
     "transport",
     "recovery_mode",
     "surfaces",
@@ -386,16 +412,15 @@ fn reject_unknown_step_fields(value: &Value) -> Result<(), SpecError> {
                 // default directory under a spec that declared otherwise. The
                 // shape is checked before serde so a null, a number or an
                 // object is refused instead of silently defaulted.
-                if let Some(cwd) = object.get("cwd")
-                    && !cwd.is_string()
-                {
-                    return Err(SpecError::Malformed(format!(
-                        "step {}: cwd must be a string",
-                        object
-                            .get("id")
-                            .and_then(Value::as_str)
-                            .unwrap_or("?")
-                    )));
+                for field in ["cwd", "resume"] {
+                    if let Some(value) = object.get(field)
+                        && !value.is_string()
+                    {
+                        return Err(SpecError::Malformed(format!(
+                            "step {}: {field} must be a string",
+                            object.get("id").and_then(Value::as_str).unwrap_or("?")
+                        )));
+                    }
                 }
                 STEP_AGENT_FIELDS
             }
@@ -538,6 +563,12 @@ pub enum StepKind {
         /// filesystem. Absent means the run root itself.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cwd: Option<String>,
+        /// A CLI session the attached worker continues instead of starting a
+        /// new one (an earlier step's reported session id). The kernel checks
+        /// its shape and carries it verbatim; resuming is the worker's, which
+        /// shares the CLI's session store.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        resume: Option<String>,
         /// How the attached worker invokes the declared CLI. The kernel does
         /// not implement either transport; it journals and dispatches the
         /// choice so the worker can honor it deterministically.
@@ -874,6 +905,10 @@ pub enum SpecError {
         "agent step {step} declares working directory {cwd:?}, which is not a run-root-relative path (no absolute paths, empty components, \".\" or \"..\")"
     )]
     InvalidAgentCwd { step: String, cwd: String },
+    #[error(
+        "agent step {step} declares resume {resume:?}, which is not a CLI session id (1-200 of A-Z a-z 0-9 . _ : -, starting with a letter or digit)"
+    )]
+    InvalidAgentResume { step: String, resume: String },
     #[error("agent step {step} declares non-canonical external surface {path:?}")]
     InvalidExternalSurface { step: String, path: String },
     #[error("agent step {step} declares non-canonical workspace surface {surface:?}")]
