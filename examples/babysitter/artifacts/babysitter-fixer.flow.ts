@@ -607,7 +607,7 @@ var SUMMARY_MAX_CHARS = 4e3;
 var REFUSED_PATHS = String.raw`^\.github/workflows/|(^|/)\.env($|\.)|\.(pem|key|p12|pfx|jks)$|(^|/)id_(rsa|dsa|ecdsa|ed25519)(\.pub)?$|(^|/)\.(npmrc|netrc|pypirc)$|(^|/)secrets?/`;
 async function checkoutHead(c) {
   const { execFileSync } = await import("node:child_process");
-  const { existsSync, mkdirSync } = await import("node:fs");
+  const { existsSync, mkdirSync, rmSync, writeFileSync } = await import("node:fs");
   const { resolve } = await import("node:path");
   if (!process.env.GH_TOKEN) throw new Error("GH_TOKEN required");
   const dir = resolve("babysitter-checkout");
@@ -631,6 +631,9 @@ async function checkoutHead(c) {
     mkdirSync(dir, { recursive: true });
     git("init", "-q");
   }
+  writeFileSync(`${dir}/.git/config`, "[core]\n	repositoryformatversion = 0\n	filemode = true\n	bare = false\n");
+  rmSync(`${dir}/.git/hooks`, { recursive: true, force: true });
+  rmSync(`${dir}/.git/info/attributes`, { force: true });
   git("fetch", "-q", "--no-tags", "--depth=50", `https://github.com/${c.owner}/${c.repo}.git`, c.head);
   git("checkout", "-q", "--force", "--detach", c.head);
   git("reset", "-q", "--hard", c.head);
@@ -640,19 +643,24 @@ async function checkoutHead(c) {
 }
 async function proposeChanges(c) {
   const { execFileSync } = await import("node:child_process");
+  const { rmSync, writeFileSync } = await import("node:fs");
+  writeFileSync(`${c.dir}/.git/config`, "[core]\n	repositoryformatversion = 0\n	filemode = true\n	bare = false\n");
+  rmSync(`${c.dir}/.git/hooks`, { recursive: true, force: true });
+  rmSync(`${c.dir}/.git/info/attributes`, { force: true });
   const git = (...args) => String(execFileSync("git", ["-C", c.dir, ...args], {
     encoding: "utf8",
     maxBuffer: 8 * 1024 * 1024,
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" }
+    env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/dev/null" }
   }));
+  const diff = ["diff", "--cached", "--no-renames", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/"];
   const refuse = (reason) => process.stdout.write(JSON.stringify({ kind: "babysitter-refusal", reason }));
   git("add", "-A");
-  const files = git("diff", "--cached", "--no-renames", "--name-only", c.head).split("\n").filter(Boolean);
+  const files = git(...diff, "--name-only", c.head).split("\n").filter(Boolean);
   const refused = files.filter((f) => new RegExp(c.limits.refused).test(f));
   if (refused.length) return refuse(`changes refused paths: ${refused.slice(0, 5).join(", ")}`);
   if (files.length > c.limits.files) return refuse(`changes ${files.length} files; at most ${c.limits.files}`);
-  const patch = git("diff", "--cached", "--no-renames", "--binary", "--full-index", c.head);
+  const patch = git(...diff, "--binary", "--full-index", c.head);
   if (Buffer.byteLength(patch) > c.limits.patchBytes) return refuse(`patch is ${Buffer.byteLength(patch)} bytes; at most ${c.limits.patchBytes}`);
   const out = JSON.stringify({
     kind: "babysitter-proposal",

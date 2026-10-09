@@ -25,6 +25,9 @@ from #4226, and Cloud publishes server-side.
 1. **Check out the bound head** in `babysitter-checkout` under the run root.
    - The read token is sent as an HTTP header through `GIT_CONFIG_*`, never in
      argv or in `.git/config`. Hooks are disabled.
+   - Before any git command runs with the token, `.git/config` is replaced
+     with a minimal known config and `.git/hooks` and `.git/info/attributes`
+     are removed: a previous agent turn may have written them.
    - An existing checkout (a reused sandbox) is fetched, reset to the head and
      cleaned in place. Ignored files, such as installed dependencies, survive.
 2. **One agent** (`babysitter-fix`, the origin session's CLI) runs in that
@@ -48,6 +51,12 @@ from #4226, and Cloud publishes server-side.
    ```
    - The patch includes the agent's own commits, because it is taken against
      the bound head.
+   - The agent can write `.git`. So `.git/config`, hooks and
+     `info/attributes` are reset before `git add`/`git diff` run, and the
+     diff passes `--no-ext-diff --no-textconv --src-prefix=a/
+     --dst-prefix=b/`. A planted external diff, clean filter or hook never
+     runs, and the patch format is fixed (`evidence/f2-fixer/07`: the
+     pre-fix code did run both).
    - Limits: patch ≤ 36,000 bytes, ≤ 50 files, whole proposal ≤ 50,000 bytes
      (the kernel keeps a 64 KiB stdout tail).
    - Any path under `.github/workflows/`, `.env*`, keys and certificates,
