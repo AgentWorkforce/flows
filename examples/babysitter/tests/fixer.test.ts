@@ -209,3 +209,26 @@ test('the proposal script lifted from the shipped artifact runs under `node -e`'
   const p = JSON.parse(execFileSync('sh', ['-c', command], { encoding: 'utf8' }));
   assert.deepEqual([p.kind, p.files], ['babysitter-proposal', ['src/queue.ts']]);
 });
+
+test('the proposal never runs code the agent planted in the checkout\'s git config, and its diff format is fixed', async () => {
+  const { dir, base, git } = repo();
+  const proof = join(dir, '..', `pwned-${Date.now()}`);
+  // An agent can write .git/config: an external diff, a clean filter, a hook,
+  // and diff prefixes that would change the patch Cloud parses.
+  git('config', 'diff.external', `sh -c 'touch ${proof}-diff'`);
+  git('config', 'filter.x.clean', `sh -c 'touch ${proof}-filter; cat'`);
+  git('config', 'diff.noprefix', 'true');
+  git('config', 'diff.mnemonicPrefix', 'true');
+  writeFileSync(join(dir, '.gitattributes'), '* filter=x\n');
+  mkdirSync(join(dir, '.git', 'hooks'), { recursive: true });
+  writeFileSync(join(dir, '.git', 'hooks', 'pre-commit'), `#!/bin/sh\ntouch ${proof}-hook\n`, { mode: 0o755 });
+  writeFileSync(join(dir, 'src/queue.ts'), 'export const retries = 3;\n');
+  const p = await runPropose(dir, base);
+  assert.equal(p.kind, 'babysitter-proposal');
+  assert.match(p.patch, /^diff --git a\/\.gitattributes b\/\.gitattributes$/m);
+  assert.match(p.patch, /^--- a\/src\/queue\.ts$/m);
+  assert.match(p.patch, /^\+\+\+ b\/src\/queue\.ts$/m);
+  for (const suffix of ['-diff', '-filter', '-hook']) {
+    assert.throws(() => readFileSync(`${proof}${suffix}`), /ENOENT/, `planted ${suffix} ran`);
+  }
+});

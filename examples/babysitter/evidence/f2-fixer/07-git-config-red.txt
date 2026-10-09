@@ -1,0 +1,48 @@
+# Code at e114b30e; test from the hardening commit.
+$ node --experimental-strip-types --test tests/fixer.test.ts
+✔ the fixer checks out the bound head, runs one agent there with fix rules, and journals one proposal (3.892605ms)
+✔ the fixer never writes to GitHub itself: no push, merge, review, or comment calls (0.874875ms)
+✔ thread replies go only to inline feedback this run was woken by, once each, marked and neutralised (0.672828ms)
+✔ a head that moves while fixing declines without a proposal (0.49753ms)
+✔ a refused proposal ends needs_human (0.514902ms)
+✔ by default the fixer dispatches no agent and checks nothing out (gate 8 / #442) (1.092863ms)
+✔ the agent outcome is read from a JSON message, a fenced JSON block, or falls back to prose (0.278962ms)
+✔ a real proposal covers edits, new files and the agent's own commits, all against the bound head (84.040413ms)
+✔ workflow, secret, oversized and too-wide proposals are refused whole (363.670565ms)
+✔ an untouched checkout proposes an empty patch (replies and summary may still publish) (46.803767ms)
+✔ the proposal script runs as f.run runs it: a stringified `node -e` command in a shell (74.433487ms)
+✔ the proposal script lifted from the shipped artifact runs under `node -e` (73.824919ms)
+✖ the proposal never runs code the agent planted in the checkout's git config, and its diff format is fixed (73.874212ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 12
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 871.22058
+
+✖ failing tests:
+
+test at tests/fixer.test.ts:213:1
+✖ the proposal never runs code the agent planted in the checkout's git config, and its diff format is fixed (73.874212ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /^diff --git a\/\.gitattributes b\/\.gitattributes$/m. Input:
+  
+  ''
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f2/examples/babysitter/tests/fixer.test.ts:228:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: /^diff --git a\/\.gitattributes b\/\.gitattributes$/m,
+    operator: 'match',
+    diff: 'simple'
+  }
+exit=1
+
+# Side effects of the red run above (pre-fix code executed the agent-planted drivers):
+$ ls -l --time-style=full-iso /tmp/pwned-*
+-rw-r--r-- 1 khaliqgant khaliqgant 0 2026-10-08 19:55:21.164481276 -0700 /tmp/pwned-1791514521128-diff
+-rw-r--r-- 1 khaliqgant khaliqgant 0 2026-10-08 19:55:21.161481226 -0700 /tmp/pwned-1791514521128-filter
