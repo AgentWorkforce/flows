@@ -19,6 +19,17 @@ export interface Signals {
   reported: boolean;
   /** Comments after the bot's last comment, newest 50: where a new directive can be. */
   comments: { id: number; login: string; association: string; body: string; createdAt: string }[];
+  /**
+   * Review feedback Babysitter has not answered, oldest first: unresolved
+   * inline comments (not outdated, not followed by this bot's reply in their
+   * thread) and non-empty commented review bodies, newer than its last report.
+   * Only from the PR author, OWNER/MEMBER/COLLABORATOR, or an allowlisted
+   * review bot; never from this bot or another of our own agents.
+   */
+  reviewFeedback: {
+    kind: 'inline' | 'review'; id: number; login: string; body: string;
+    path?: string; line?: number; thread?: number; createdAt: string;
+  }[];
 }
 
 /**
@@ -29,7 +40,9 @@ export interface Signals {
  * never lost to a page edge. Every text field is bounded and is untrusted
  * data. Refuses if the head moves during the read.
  */
-export async function readSignals(c: { owner: string; repo: string; number: number; head: string; botLogin: string }): Promise<void> {
+export async function readSignals(c: {
+  owner: string; repo: string; number: number; head: string; botLogin: string; author: string; reviewBots: string[]; ownAgents: string[];
+}): Promise<void> {
   const api = `https://api.github.com/repos/${c.owner}/${c.repo}`;
   const cut = (s: unknown, n: number) => typeof s === 'string' ? s.slice(0, n) : '';
   // Under the 55KB journal output guard, with room for the step envelope.
@@ -52,9 +65,9 @@ export async function readSignals(c: { owner: string; repo: string; number: numb
     }
     throw new Error('Pagination exceeded; signals incomplete');
   }
-  const [runs, statuses, reviews, comments] = await Promise.all([
+  const [runs, statuses, reviews, comments, inline] = await Promise.all([
     pages(`/commits/${c.head}/check-runs?filter=latest`, 'check_runs'), pages(`/commits/${c.head}/statuses`),
-    pages(`/pulls/${c.number}/reviews`), pages(`/issues/${c.number}/comments`),
+    pages(`/pulls/${c.number}/reviews`), pages(`/issues/${c.number}/comments`), pages(`/pulls/${c.number}/comments`),
   ]);
   const bad = ['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure', 'stale', 'error'];
   // Commit statuses are newest first; an old failure must not outlive a newer success.
@@ -84,6 +97,35 @@ export async function readSignals(c: { owner: string; repo: string; number: numb
   ].slice(0, 20);
   const requests = [...standing.values()].filter(r => r.state === 'CHANGES_REQUESTED').slice(0, 20);
   let recent = comments.slice(lastOwn + 1).slice(-50);
+  // Review feedback: who may give it, and only what is newer than the last
+  // report and not already answered in its own thread by this bot.
+  // Our own agents (this bot included) never give feedback, and their reply
+  // in a thread answers it, so an agent's "Fixed in …" cannot wake Babysitter.
+  const author = c.author.toLowerCase(), bots = c.reviewBots.map(b => b.toLowerCase());
+  const ours = [bot, ...c.ownAgents.map(a => a.toLowerCase())];
+  const trusted = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+  const from = (m: any) => {
+    const login = String(m.user?.login ?? '').toLowerCase();
+    if (!login || ours.includes(login)) return false;
+    if (login.endsWith('[bot]')) return bots.includes(login);
+    return login === author || trusted.includes(m.author_association);
+  };
+  const since = lastOwn < 0 ? '' : String(comments[lastOwn].created_at ?? '');
+  const answered = new Map<number, number>();
+  for (const m of inline) {
+    if (!ours.includes(String(m.user?.login ?? '').toLowerCase())) continue;
+    const thread = m.in_reply_to_id ?? m.id;
+    answered.set(thread, Math.max(answered.get(thread) ?? 0, m.id));
+  }
+  let feedback = [
+    ...inline.filter((m: any) => from(m) && typeof m.line === 'number' && String(m.created_at ?? '') > since
+      && m.id > (answered.get(m.in_reply_to_id ?? m.id) ?? 0))
+      .map((m: any) => ({ kind: 'inline', id: m.id, login: m.user.login, body: m.body, path: m.path, line: m.line,
+        thread: m.in_reply_to_id ?? m.id, createdAt: m.created_at })),
+    ...reviews.filter((r: any) => r.state === 'COMMENTED' && typeof r.body === 'string' && r.body.trim() && from(r)
+      && String(r.submitted_at ?? '') > since)
+      .map((r: any) => ({ kind: 'review', id: r.id, login: r.user.login, body: r.body, createdAt: r.submitted_at })),
+  ].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.id - b.id).slice(-100);
   // Fit the journal: text shrinks first (halving its cap down to a floor),
   // then the oldest comments go. Failing checks and change requests define
   // actionability and are never dropped, only shortened.
@@ -95,10 +137,14 @@ export async function readSignals(c: { owner: string; repo: string; number: numb
     comments: recent.map((m: any) => ({
       id: m.id, login: m.user?.login ?? '', association: m.author_association ?? 'NONE', body: clip(m.body, text), createdAt: m.created_at,
     })),
+    reviewFeedback: feedback.map((r: any) => ({
+      ...r, login: cut(r.login, 100), body: clip(r.body, text), ...(r.path ? { path: cut(r.path, 500) } : {}),
+    })),
   });
   let text = 4000, out = shape(text);
   while (Buffer.byteLength(out) > BUDGET && text > 200) out = shape(text = Math.max(200, Math.floor(text / 2)));
   while (Buffer.byteLength(out) > BUDGET && recent.length > 1) { recent = recent.slice(1); out = shape(text); }
+  while (Buffer.byteLength(out) > BUDGET && feedback.length > 1) { feedback = feedback.slice(1); out = shape(text); }
   const final = await get(`/pulls/${c.number}`);
   if (final.head?.sha !== c.head) throw new Error('Live PR head moved during signal capture');
   if (Buffer.byteLength(out) > BUDGET) throw new Error('PR signals exceed safe journal output size');
@@ -159,8 +205,10 @@ async function annotateReport(c: { owner: string; repo: string; id: number; note
   if (!res.ok) throw new Error(`GitHub comment PATCH: ${res.status}`);
 }
 
-export async function readSignalsAt(f: Ctx, pr: BoundPullRequest, head: string, botLogin: string): Promise<Signals> {
-  const value = JSON.parse(await f.run(nodeCommand(readSignals, { owner: pr.owner, repo: pr.repo, number: pr.number, head, botLogin }), { timeout: '2m' }));
+export async function readSignalsAt(
+  f: Ctx, pr: BoundPullRequest, head: string, who: { botLogin: string; author: string; reviewBots: string[]; ownAgents: string[] },
+): Promise<Signals> {
+  const value = JSON.parse(await f.run(nodeCommand(readSignals, { owner: pr.owner, repo: pr.repo, number: pr.number, head, ...who }), { timeout: '2m' }));
   if (value.headSha !== head) throw new Error('Signals were read for a different head');
   return value;
 }

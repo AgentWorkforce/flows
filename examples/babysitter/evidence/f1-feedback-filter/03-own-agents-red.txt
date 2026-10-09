@@ -1,0 +1,241 @@
+$ node --experimental-strip-types --test tests/signals.test.ts tests/standalone.test.ts
+✔ a failing commit status is a failing check; a newer success on the same context clears an older failure (2.160205ms)
+✔ reviews are paginated before standing verdicts are derived (0.579688ms)
+✔ a report older than any comment window is still found; only comments after the last report are returned (0.514676ms)
+✔ a marker in someone else's comment is not a report (0.307211ms)
+✔ a head that moves during the read refuses (0.609373ms)
+✔ failing check runs at the head are failing checks; running, passing and other-head runs are not (0.387209ms)
+✔ settleReport keeps the earliest report for a head and deletes a later duplicate of its own (0.452421ms)
+✔ a PR full of long reviews, comments and failing checks still fits the journal and keeps every actor (2.518751ms)
+✔ only a report for the current head counts, and report history never grows the payload (1.594593ms)
+✔ when shortened text still overflows, the oldest comments go first at the 200-char floor (4.161854ms)
+✔ inline review comments from the author, members and allowlisted review bots are feedback; outsiders, other bots and this bot are not (6.82857ms)
+✔ a thread Babysitter already answered, an outdated comment, and feedback before its last report are not feedback (0.395345ms)
+✔ a commented review body is feedback; an empty one, an outsider's, or a change request (already a verdict) is not (0.359207ms)
+✔ review feedback is shortened and, past the floor, dropped oldest first so the read still fits the journal (5.999529ms)
+✖ our own agent accounts are never feedback, and their thread replies answer the thread (1.647652ms)
+✔ without originContext the run ends needs_human with zero f.agent calls and no live read (2.827354ms)
+✔ with originContext the agent task carries the first prompt verbatim, delimited as the task definition (1.23264ms)
+✔ two deliveries with different ids and the same live state log the same decision key (0.761264ms)
+✔ anything that is not the bound PR is refused before any effect (1.964772ms)
+✔ a missing or malformed server-claimed head fails closed before live state or diagnosis (0.250485ms)
+✔ a live head different from the server-claimed head declines before signals, diagnosis or comment (0.247681ms)
+✔ live state decides: closed, draft, missing babysit label or nothing actionable decline without an agent (0.557065ms)
+✔ a change request or an authorised directive is actionable; an outsider directive is not (0.775681ms)
+✔ a head already reported by Babysitter declines before the agent (0.222353ms)
+✔ the reader is asked for this bot's reports at the bound head (0.29565ms)
+✔ withdrawing the opt-in label during diagnosis stops the report (0.214729ms)
+✔ a push racing the comment marks the posted report superseded for the new head (0.28004ms)
+✔ a head that moves while the agent runs declines instead of reporting on a stale head (0.218275ms)
+✔ report is one owned PR comment naming the inherited session, never the prompt text, with mentions neutralised (0.413739ms)
+✔ the agent CLI follows the origin session: Claude and Codex both work (0.345061ms)
+✔ by default no agent is dispatched: untrusted PR content needs enforced write scope first (gate 8 / #442) (0.17769ms)
+✔ invalid policy is refused when the source loads (0.237612ms)
+✔ withdrawing the opt-in label while the comment posts marks the report withdrawn (0.257078ms)
+✔ the agent echoing the original prompt does not publish it (0.750113ms)
+✔ a concurrent run that already reported this head wins: the later comment removes itself (0.321578ms)
+✔ unanswered review feedback alone is actionable and reaches the agent with its location (0.271154ms)
+✖ the reader is told the live PR author and the policy's review bots (1.113499ms)
+✖ review bots must be a list of [bot] logins (0.212926ms)
+ℹ tests 38
+ℹ suites 0
+ℹ pass 35
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 131.876437
+
+✖ failing tests:
+
+test at tests/signals.test.ts:224:1
+✖ our own agent accounts are never feedback, and their thread replies answer the thread (1.647652ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+  + [
+  +   {
+  +     body: 'Bound the retries',
+  +     createdAt: '2026-10-05T00:00:00Z',
+  +     id: 1,
+  +     kind: 'inline',
+  +     line: 12,
+  +     login: 'dana',
+  +     path: 'src/queue.ts',
+  +     thread: 1
+  +   },
+  +   {
+  +     body: 'Fixed in abc1234',
+  +     createdAt: '2026-10-05T00:00:00Z',
+  +     id: 2,
+  +     kind: 'inline',
+  +     line: 12,
+  +     login: 'AgentRelayBot',
+  +     path: 'src/queue.ts',
+  +     thread: 1
+  +   },
+  +   {
+  +     body: 'Also consider X',
+  +     createdAt: '2026-10-05T00:00:00Z',
+  +     id: 3,
+  +     kind: 'inline',
+  +     line: 12,
+  +     login: 'AgentRelayBot',
+  +     path: 'src/queue.ts',
+  +     thread: 3
+  +   }
+  + ]
+  - []
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f1/examples/babysitter/tests/signals.test.ts:230:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ { kind: 'inline', id: 1, login: 'dana', body: 'Bound the retries', path: 'src/queue.ts', line: 12, thread: 1, createdAt: '2026-10-05T00:00:00Z' }, { kind: 'inline', id: 2, login: 'AgentRelayBot', body: 'Fixed in abc1234', path: 'src/queue.ts', line: 12, thread: 1, createdAt: '2026-10-05T00:00:00Z' }, { kind: 'inline', id: 3, login: 'AgentRelayBot', body: 'Also consider X', path: 'src/queue.ts', line: 12, thread: 3, createdAt: '2026-10-05T00:00:00Z' } ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/standalone.test.ts:324:1
+✖ the reader is told the live PR author and the policy's review bots (1.113499ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /"ownAgents":\["agentrelaybot"\]/. Input:
+  
+  "node -e '(async function readSignals(c   \n" +
+    '                                                                                                                    \n' +
+    ' )                {\n' +
+    '  const api = `https://api.github.com/repos/${c.owner}/${c.repo}`;\n' +
+    "  const cut = (s         , n        ) => typeof s === '\\''string'\\'' ? s.slice(0, n) : '\\'''\\'';\n" +
+    '  // Under the 55KB journal output guard, with room for the step envelope.\n' +
+    '  const BUDGET = 50_000;\n' +
+    "  const clip = (s         , n        ) => typeof s === '\\''string'\\'' && s.length > n ? `${s.slice(0, n)} [truncated]` : cut(s, n);\n" +
+    '  async function get(path        )               {\n' +
+    "    if (!process.env.GH_TOKEN) throw new Error('\\''GH_TOKEN required'\\'');\n" +
+    "    const res = await fetch(api + path, { headers: { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: '\\''application/vnd.github+json'\\'' } });\n" +
+    '    if (!res.ok) throw new Error(`GitHub GET ${path}: ${res.status}`);\n' +
+    '    return res.json();\n' +
+    '  }\n' +
+    '  async function pages(path        , key         )                 {\n' +
+    '    const all        = [];\n' +
+    '    for (let page = 1; page <= 50; page++) {\n' +
+    "      const value = await get(`${path}${path.includes('\\''?'\\'') ? '\\''&'\\'' : '\\''?'\\''}per_page=100&page=${page}`);\n" +
+    '      const batch = key ? value[key] : value;\n' +
+    "      if (!Array.isArray(batch)) throw new Error('\\''Malformed GitHub list'\\'');\n" +
+    '      all.push(...batch);\n' +
+    '      if (batch.length < 100) return all;\n' +
+    '    }\n' +
+    "    throw new Error('\\''Pagination exceeded; signals incomplete'\\'');\n" +
+    '  }\n' +
+    '  const [runs, statuses, reviews, comments, inline] = await Promise.all([\n' +
+    "    pages(`/commits/${c.head}/check-runs?filter=latest`, '\\''check_runs'\\''), pages(`/commits/${c.head}/statuses`),\n" +
+    '    pages(`/pulls/${c.number}/reviews`), pages(`/issues/${c.number}/comments`), pages(`/pulls/${c.number}/comments`),\n' +
+    '  ]);\n' +
+    "  const bad = ['\\''failure'\\'', '\\''timed_out'\\'', '\\''cancelled'\\'', '\\''action_required'\\'', '\\''startup_failure'\\'', '\\''stale'\\'', '\\''error'\\''];\n" +
+    '  // Commit statuses are newest first; an old failure must not outlive a newer success.\n' +
+    '  const latestStatus = new Map             ();\n' +
+    '  for (const s of statuses) if (!latestStatus.has(s.context)) latestStatus.set(s.context, s);\n' +
+    '  const standing = new Map             ();\n' +
+    '  for (const r of reviews) {\n' +
+    "    if (!['\\''APPROVED'\\'', '\\''CHANGES_REQUESTED'\\'', '\\''DISMISSED'\\''].includes(r.state) || typeof r.user?.login !== '\\''string'\\'') continue;\n" +
+    '    const prior = standing.get(r.user.login.toLowerCase());\n' +
+    '    if (!prior || r.id > prior.id) standing.set(r.user.login.toLowerCase(), r);\n' +
+    '  }\n' +
+    '  const bot = c.botLogin.toLowerCase();\n' +
+    '  // A boolean for this head, not a history: report count must not grow the payload.\n' +
+    '  const marker = `<!-- babysitter:report ${c.owner.toLowerCase()}/${c.repo.toLowerCase()}#${c.number}@${c.head} -->`;\n' +
+    "  const own = (m     ) => String(m.user?.login ?? '\\'''\\'').toLowerCase() === bot;\n" +
+    '  let reported = false, lastOwn = -1;\n' +
+    '  comments.forEach((m     , i        ) => {\n' +
+    '    if (!own(m)) return;\n' +
+    '    lastOwn = i;\n' +
+    "    if (String(m.body ?? '\\'''\\'').includes(marker)) reported = true;\n" +
+    '  });\n' +
+    '  const checks = [\n' +
+    "    ...runs.filter((r     ) => r.head_sha === c.head && r.status === '\\''completed'\\'' && bad.includes(r.conclusion))\n" +
+    '      .map((r     ) => ({ name: r.name, conclusion: r.conclusion, summary: r.output?.summary, url: r.html_url })),\n' +
+    '    ...[...latestStatus.values()].filter(s => bad.includes(s.state))\n' +
+    '      .map(s => ({ name: s.context, conclusion: s.state, summary: s.description, url: s.target_url })),\n' +
+    '  ].slice(0, 20);\n' +
+    "  const requests = [...standing.values()].filter(r => r.state === '\\''CHANGES_REQUESTED'\\'').slice(0, 20);\n" +
+    '  let recent = comments.slice(lastOwn + 1).slice(-50);\n' +
+    '  // Review feedback: who may give it, and only what is newer than the last\n' +
+    '  // report and not already answered in its own thread by this bot.\n' +
+    '  const author = c.author.toLowerCase(), bots = c.reviewBots.map(b => b.toLowerCase());\n' +
+    "  const trusted = ['\\''OWNER'\\'', '\\''MEMBER'\\'', '\\''COLLABORATOR'\\''];\n" +
+    '  const from = (m     ) => {\n' +
+    "    const login = String(m.user?.login ?? '\\'''\\'').toLowerCase();\n" +
+    '    if (!login || login === bot) return false;\n' +
+    "    if (login.endsWith('\\''[bot]'\\'')) return bots.includes(login);\n" +
+    '    return login === author || trusted.includes(m.author_association);\n' +
+    '  };\n' +
+    "  const since = lastOwn < 0 ? '\\'''\\'' : String(comments[lastOwn].created_at ?? '\\'''\\'');\n" +
+    '  const answered = new Map                ();\n' +
+    '  for (const m of inline) {\n' +
+    "    if (String(m.user?.login ?? '\\'''\\'').toLowerCase() !== bot) continue;\n" +
+    '    const thread = m.in_reply_to_id ?? m.id;\n' +
+    '    answered.set(thread, Math.max(answered.get(thread) ?? 0, m.id));\n' +
+    '  }\n' +
+    '  let feedback = [\n' +
+    "    ...inline.filter((m     ) => from(m) && typeof m.line === '\\''number'\\'' && String(m.created_at ?? '\\'''\\'') > since\n" +
+    '      && m.id > (answered.get(m.in_reply_to_id ?? m.id) ?? 0))\n' +
+    "      .map((m     ) => ({ kind: '\\''inline'\\'', id: m.id, login: m.user.login, body: m.body, path: m.path, line: m.line,\n" +
+    '        thread: m.in_reply_to_id ?? m.id, createdAt: m.created_at })),\n' +
+    "    ...reviews.filter((r     ) => r.state === '\\''COMMENTED'\\'' && typeof r.body === '\\''string'\\'' && r.body.trim() && from(r)\n" +
+    "      && String(r.submitted_at ?? '\\'''\\'') > since)\n" +
+    "      .map((r     ) => ({ kind: '\\''review'\\'', id: r.id, login: r.user.login, body: r.body, createdAt: r.submitted_at })),\n" +
+    '  ].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.id - b.id).slice(-100);\n' +
+    '  // Fit the journal: text shrinks first (halving its cap down to a floor),\n' +
+    '  // then the oldest comments go. Failing checks and change requests define\n' +
+    '  // actionability and are never dropped, only shortened.\n' +
+    '  const shape = (text        ) => JSON.stringify({\n' +
+    '    headSha: c.head,\n' +
+    '    failingChecks: checks.map(r => ({ name: cut(r.name, 200), conclusion: r.conclusion, summary: clip(r.summary, text), url: cut(r.url, 500) })),\n' +
+    '    changeRequests: requests.map(r => ({ login: r.user.login, id: r.id, body: clip(r.body, text) })),\n' +
+    '    reported,\n' +
+    '    comments: recent.map((m     ) => ({\n' +
+    "      id: m.id, login: m.user?.login ?? '\\'''\\'', association: m.author_association ?? '\\''NONE'\\'', body: clip(m.body, text), createdAt: m.created_at,\n" +
+    '    })),\n' +
+    '    reviewFeedback: feedback.map((r     ) => ({\n' +
+    '      ...r, login: cut(r.login, 100), body: clip(r.body, text), ...(r.path ? { path: cut(r.path, 500) } : {}),\n' +
+    '    })),\n' +
+    '  });\n' +
+    '  let text = 4000, out = shape(text);\n' +
+    '  while (Buffer.byteLength(out) > BUDGET && text > 200) out = shape(text = Math.max(200, Math.floor(text / 2)));\n' +
+    '  while (Buffer.byteLength(out) > BUDGET && recent.length > 1) { recent = recent.slice(1); out = shape(text); }\n' +
+    '  while (Buffer.byteLength(out) > BUDGET && feedback.length > 1) { feedback = feedback.slice(1); out = shape(text); }\n' +
+    '  const final = await get(`/pulls/${c.number}`);\n' +
+    "  if (final.head?.sha !== c.head) throw new Error('\\''Live PR head moved during signal capture'\\'');\n" +
+    "  if (Buffer.byteLength(out) > BUDGET) throw new Error('\\''PR signals exceed safe journal output size'\\'');\n" +
+    '  process.stdout.write(out);\n' +
+    `})({"owner":"acme","repo":"widgets","number":7,"head":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","botLogin":"babysitter[bot]","author":"alice","reviewBots":["coderabbitai[bot]"]}).catch(e => { console.error(e.message); process.exit(1); })'`
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f1/examples/babysitter/tests/standalone.test.ts:330:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'node -e \'(async function readSignals(c   \n                                                                                                                    \n )                {\n  const api = `https://api.github.com/repos/${c.owner}/${c.repo}`;\n  const cut = (s         , n        ) => typeof s === \'\\\'\'string\'\\\'\' ? s.slice(0, n) : \'\\\'\'\'\\\'\';\n  // Under the 55KB journal output guard, with room for the step envelope.\n  const BUDGET = 50_000;\n  const clip = (s         , n        ) => typeof s === \'\\\'\'string\'\\\'\' && s.length > n ? `${s.slice(0, n)} [truncated]` : cut(s, n);\n  async function get(path        )               {\n    if (!process.env.GH_TOKEN) throw new Error(\'\\\'\'GH_TOKEN required\'\\\'\');\n    const res = await fetch(api + path, { headers: { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: \'\\\'\'application/vnd.github+json\'\\\'\' } });\n    if (!res.ok) throw new Error(`GitHub GET ${path}: ${res.status}`);\n    return res.json();\n  }\n  async function pages(path        , key         )                 {\n    const all        = [];\n    for (let page = 1; page <= 50; page++) {\n      const value = await get(`${path}${path.includes(\'\\\'\'?\'\\\'\') ? \'\\\'\'&\'\\\'\' : \'\\\'\'?\'\\\'\'}per_page=100&page=${page}`);\n      const batch = key ? value[key] : value;\n      if (!Array.isArray(batch)) throw new Error(\'\\\'\'Malformed GitHub list\'\\\'\');\n      all.push(...batch);\n      if (batch.length < 100) return all;\n    }\n    throw new Error(\'\\\'\'Pagination exceeded; signals incomplete\'\\\'\');\n  }\n  const [runs, statuses, reviews, comments, inline] = await Promise.all([\n    pages(`/commits/${c.head}/check-runs?filter=latest`, \'\\\'\'check_runs\'\\\'\'), pages(`/commits/${c.head}/statuses`),\n    pages(`/pulls/${c.number}/reviews`), pages(`/issues/${c.number}/comments`), pages(`/pulls/${c.number}/comments`),\n  ]);\n  const bad = [\'\\\'\'failure\'\\\'\', \'\\\'\'timed_out\'\\\'\', \'\\\'\'cancelled\'\\\'\', \'\\\'\'action_required\'\\\'\', \'\\\'\'startup_failure\'\\\'\', \'\\\'\'stale\'\\\'\', \'\\\'\'error\'\\\'\'];\n  // Commit statuses are newest first; an old failure must not outlive a newer success.\n  const latestStatus = new Map             ();\n  for (const s of statuses) if (!latestStatus.has(s.context)) latestStatus.set(s.context, s);\n  const standing = new Map             ();\n  for (const r of reviews) {\n    if (![\'\\\'\'APPROVED\'\\\'\', \'\\\'\'CHANGES_REQUESTED\'\\\'\', \'\\\'\'DISMISSED\'\\\'\'].includes(r.state) || typeof r.user?.login !== \'\\\'\'string\'\\\'\') continue;\n    const prior = standing.get(r.user.login.toLowerCase());\n    if (!prior || r.id > prior.id) standing.set(r.user.login.toLowerCase(), r);\n  }\n  const bot = c.botLogin.toLowerCase();\n  // A boolean for this head, not a history: report count must not grow the payload.\n  const marker = `<!-- babysitter:report ${c.owner.toLowerCase()}/${c.repo.toLowerCase()}#${c.number}@${c.head} -->`;\n  const own = (m     ) => String(m.user?.login ?? \'\\\'\'\'\\\'\').toLowerCase() === bot;\n  let reported = false, lastOwn = -1;\n  comments.forEach((m     , i        ) => {\n    if (!own(m)) return;\n    lastOwn = i;\n    if (String(m.body ?? \'\\\'\'\'\\\'\').includes(marker)) reported = true;\n  });\n  const checks = [\n    ...runs.filter((r     ) => r.head_sha === c.head && r.status === \'\\\'\'completed\'\\\'\' && bad.includes(r.conclusion))\n      .map((r     ) => ({ name: r.name, conclusion: r.conclusion, summary: r.output?.summary, url: r.html_url })),\n    ...[...latestStatus.values()].filter(s => bad.includes(s.state))\n      .map(s => ({ name: s.context, conclusion: s.state, summary: s.description, url: s.target_url })),\n  ].slice(0, 20);\n  const requests = [...standing.values()].filter(r => r.state === \'\\\'\'CHANGES_REQUESTED\'\\\'\').slice(0, 20);\n  let recent = comments.slice(lastOwn + 1).slice(-50);\n  // Review feedback: who may give it, and only what is newer than the last\n  // report and not already answered in its own thread by this bot.\n  const author = c.author.toLowerCase(), bots = c.reviewBots.map(b => b.toLowerCase());\n  const trusted = [\'\\\'\'OWNER\'\\\'\', \'\\\'\'MEMBER\'\\\'\', \'\\\'\'COLLABORATOR\'\\\'\'];\n  const from = (m     ) => {\n    const login = String(m.user?.login ?? \'\\\'\'\'\\\'\').toLowerCase();\n    if (!login || login === bot) return false;\n    if (login.endsWith(\'\\\'\'[bot]\'\\\'\')) return bots.includes(login);\n    return login === author || trusted.includes(m.author_association);\n  };\n  const since = lastOwn < 0 ? \'\\\'\'\'\\\'\' : String(comments[lastOwn].created_at ?? \'\\\'\'\'\\\'\');\n  const answered = new Map                ();\n  for (const m of inline) {\n    if (String(m.user?.login ?? \'\\\'\'\'\\\'\').toLowerCase() !== bot) continue;\n    const thread = m.in_reply_to_id ?? m.id;\n    answered.set(thread, Math.max(answered.get(thread) ?? 0, m.id));\n  }\n  let feedback = [\n    ...inline.filter((m     ) => from(m) && typeof m.line === \'\\\'\'number\'\\\'\' && String(m.created_at ?? \'\\\'\'\'\\\'\') > since\n      && m.id > (answered.get(m.in_reply_to_id ?? m.id) ?? 0))\n      .map((m     ) => ({ kind: \'\\\'\'inline\'\\\'\', id: m.id, login: m.user.login, body: m.body, path: m.path, line: m.line,\n        thread: m.in_reply_to_id ?? m.id, createdAt: m.created_at })),\n    ...reviews.filter((r     ) => r.state === \'\\\'\'COMMENTED\'\\\'\' && typeof r.body === \'\\\'\'string\'\\\'\' && r.body.trim() && from(r)\n      && String(r.submitted_at ?? \'\\\'\'\'\\\'\') > since)\n      .map((r     ) => ({ kind: \'\\\'\'review\'\\\'\', id: r.id, login: r.user.login, body: r.body, createdAt: r.submitted_at })),\n  ].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.id - b.id).slice(-100);\n  // Fit the journal: text shrinks first (halving its cap down to a floor),\n  // then the oldest comments go. Failing checks and change requests define\n  // actionability and are never dropped, only shortened.\n  const shape = (text        ) => JSON.stringify({\n    headSha: c.head,\n    failingChecks: checks.map(r => ({ name: cut(r.name, 200), conclusion: r.conclusion, summary: clip(r.summary, text), url: cut(r.url, 500) })),\n    changeRequests: requests.map(r => ({ login: r.user.login, id: r.id, body: clip(r.body, text) })),\n    reported,\n    comments: recent.map((m     ) => ({\n      id: m.id, login: m.user?.login ?? \'\\\'\'\'\\\'\', association: m.author_association ?? \'\\\'\'NONE\'\\\'\', body: clip(m.body, text), createdAt: m.created_at,\n    })),\n    reviewFeedback: feedback.map((r     ) => ({\n      ...r, login: cut(r.login, 100), body: clip(r.body, text), ...(r.path ? { path: cut(r.path, 500) } : {}),\n    })),\n  });\n  let text = 4000, out = shape(text);\n  while (Buffer.byteLength(out) > BUDGET && text > 200) out = shape(text = Math.max(200, Math.floor(text / 2)));\n  while (Buffer.byteLength(out) > BUDGET && recent.length > 1) { recent = recent.slice(1); out = shape(text); }\n  while (Buffer.byteLength(out) > BUDGET && feedback.length > 1) { feedback = feedback.slice(1); out = shape(text); }\n  const final = await get(`/pulls/${c.number}`);\n  if (final.head?.sha !== c.head) throw new Error(\'\\\'\'Live PR head moved during signal capture\'\\\'\');\n  if (Buffer.byteLength(out) > BUDGET) throw new Error(\'\\\'\'PR signals exceed safe journal output size\'\\\'\');\n  process.stdout.write(out);\n})({"owner":"acme","repo":"widgets","number":7,"head":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","botLogin":"babysitter[bot]","author":"alice","reviewBots":["coderabbitai[bot]"]}).catch(e => { console.error(e.message); process.exit(1); })\'',
+    expected: /"ownAgents":\["agentrelaybot"\]/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at tests/standalone.test.ts:333:1
+✖ review bots must be a list of [bot] logins (0.212926ms)
+  AssertionError [ERR_ASSERTION]: Missing expected exception.
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f1/examples/babysitter/tests/standalone.test.ts:336:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: /ownAgents/,
+    operator: 'throws',
+    diff: 'simple'
+  }
+exit=1

@@ -35,6 +35,10 @@ test('the committed standalone artifact is exact, reproducible, and explicitly r
   assert.deepEqual(JSON.parse(policyBytes.toString('utf8')), {
     botLogin: 'agent-relay-code[bot]',
     label: 'babysit',
+    reviewBots: [
+      'chatgpt-codex-connector[bot]', 'coderabbitai[bot]', 'cubic-dev-ai[bot]', 'cursor[bot]', 'devin-ai-integration[bot]',
+    ],
+    ownAgents: ['AgentRelayBot', 'kjgbot'],
   });
   assert.match(artifact.toString('utf8'), /enforcedAgentWriteScope:\s*true/);
 

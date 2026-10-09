@@ -1,0 +1,54 @@
+$ node --experimental-strip-types --test tests/signals.test.ts
+✔ a failing commit status is a failing check; a newer success on the same context clears an older failure (2.913465ms)
+✔ reviews are paginated before standing verdicts are derived (0.962498ms)
+✔ a report older than any comment window is still found; only comments after the last report are returned (0.8608ms)
+✔ a marker in someone else's comment is not a report (0.413659ms)
+✔ a head that moves during the read refuses (1.100735ms)
+✔ failing check runs at the head are failing checks; running, passing and other-head runs are not (0.901415ms)
+✔ settleReport keeps the earliest report for a head and deletes a later duplicate of its own (0.869927ms)
+✔ a PR full of long reviews, comments and failing checks still fits the journal and keeps every actor (3.092858ms)
+✔ only a report for the current head counts, and report history never grows the payload (2.598259ms)
+✔ when shortened text still overflows, the oldest comments go first at the 200-char floor (12.446279ms)
+✖ inline review comments from the author, members and allowlisted review bots are feedback; outsiders, other bots and this bot are not (1.09783ms)
+✖ a thread Babysitter already answered, an outdated comment, and feedback before its last report are not feedback (0.755033ms)
+✖ a commented review body is feedback; an empty one, an outsider's, or a change request (already a verdict) is not (0.755585ms)
+✖ review feedback is shortened and, past the floor, dropped oldest first so the read still fits the journal (0.802462ms)
+ℹ tests 14
+ℹ suites 0
+ℹ pass 10
+ℹ fail 4
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 256.559028
+
+✖ failing tests:
+
+test at tests/signals.test.ts:173:1
+✖ inline review comments from the author, members and allowlisted review bots are feedback; outsiders, other bots and this bot are not (1.09783ms)
+  TypeError: Cannot read properties of undefined (reading 'map')
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f1/examples/babysitter/tests/signals.test.ts:182:37)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+
+test at tests/signals.test.ts:187:1
+✖ a thread Babysitter already answered, an outdated comment, and feedback before its last report are not feedback (0.755033ms)
+  TypeError: Cannot read properties of undefined (reading 'map')
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f1/examples/babysitter/tests/signals.test.ts:198:37)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+
+test at tests/signals.test.ts:201:1
+✖ a commented review body is feedback; an empty one, an outsider's, or a change request (already a verdict) is not (0.755585ms)
+  TypeError: Cannot read properties of undefined (reading 'map')
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f1/examples/babysitter/tests/signals.test.ts:210:37)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+
+test at tests/signals.test.ts:214:1
+✖ review feedback is shortened and, past the floor, dropped oldest first so the read still fits the journal (0.802462ms)
+  TypeError: Cannot read properties of undefined (reading 'map')
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-f1/examples/babysitter/tests/signals.test.ts:219:32)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+exit=1

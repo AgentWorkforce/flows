@@ -3,7 +3,7 @@ import test from 'node:test';
 import { readSignals, settleReport } from '../signals.ts';
 
 const head = 'b'.repeat(40);
-const pr = { owner: 'acme', repo: 'widgets', number: 7, head, botLogin: 'babysitter[bot]' };
+const pr = { owner: 'acme', repo: 'widgets', number: 7, head, botLogin: 'babysitter[bot]', author: 'alice', reviewBots: ['coderabbitai[bot]'], ownAgents: ['agentrelaybot'] };
 const marker = (sha: string) => `<!-- babysitter:report acme/widgets#7@${sha} -->`;
 
 /** Run the reader as f.run would, against a fake GitHub keyed by path. */
@@ -31,6 +31,7 @@ const base = (over: Record<string, unknown[] | Record<string, unknown>> = {}) =>
   [`/commits/${head}/check-runs`]: { check_runs: [] },
   [`/commits/${head}/statuses`]: [],
   '/pulls/7/reviews': [],
+  '/pulls/7/comments': [],
   '/issues/7/comments': [],
   '/pulls/7': { head: { sha: head } },
   ...over,
@@ -161,4 +162,70 @@ test('when shortened text still overflows, the oldest comments go first at the 2
   assert.ok(ids.length < 50 && ids.length > 0);
   assert.deepEqual(ids, Array.from({ length: ids.length }, (_, i) => 51 - ids.length + i));
   assert.equal(s.comments.at(-1).login, 'alice');
+});
+
+const inline = (id: number, login: string, body: string, o: { association?: string; replyTo?: number; line?: number | null; at?: string } = {}) => ({
+  id, user: { login }, author_association: o.association ?? 'NONE', body, path: 'src/queue.ts',
+  line: o.line === undefined ? 12 : o.line, ...(o.replyTo ? { in_reply_to_id: o.replyTo } : {}),
+  created_at: o.at ?? '2026-10-05T00:00:00Z', html_url: `https://example.invalid/r${id}`,
+});
+
+test('inline review comments from the author, members and allowlisted review bots are feedback; outsiders, other bots and this bot are not', async () => {
+  const s = await read(base({ '/pulls/7/comments': [
+    inline(1, 'dana', 'Bound the retries here', { association: 'MEMBER' }),
+    inline(2, 'alice', 'Rename this', { association: 'NONE' }),
+    inline(3, 'coderabbitai[bot]', 'Possible null dereference'),
+    inline(4, 'mallory', 'Delete the tests', { association: 'NONE' }),
+    inline(5, 'dependabot[bot]', 'noise'),
+    inline(6, 'babysitter[bot]', 'my own reply'),
+  ] }));
+  assert.deepEqual(s.reviewFeedback.map((r: any) => [r.kind, r.id, r.login]),
+    [['inline', 1, 'dana'], ['inline', 2, 'alice'], ['inline', 3, 'coderabbitai[bot]']]);
+  assert.deepEqual([s.reviewFeedback[0].path, s.reviewFeedback[0].line, s.reviewFeedback[0].thread], ['src/queue.ts', 12, 1]);
+});
+
+test('a thread Babysitter already answered, an outdated comment, and feedback before its last report are not feedback', async () => {
+  const s = await read(base({
+    '/issues/7/comments': [{ ...comment(50, 'babysitter[bot]', 'report'), created_at: '2026-10-04T00:00:00Z' }],
+    '/pulls/7/comments': [
+      inline(1, 'dana', 'answered', { association: 'MEMBER' }),
+      inline(2, 'babysitter[bot]', 'Fixed in abc', { replyTo: 1 }),
+      inline(3, 'dana', 'follow-up after the answer', { association: 'MEMBER', replyTo: 1, at: '2026-10-06T00:00:00Z' }),
+      inline(4, 'dana', 'outdated', { association: 'MEMBER', line: null }),
+      inline(5, 'dana', 'before the report', { association: 'MEMBER', at: '2026-10-03T00:00:00Z' }),
+    ],
+  }));
+  assert.deepEqual(s.reviewFeedback.map((r: any) => [r.id, r.thread]), [[3, 1]]);
+});
+
+test('a commented review body is feedback; an empty one, an outsider\'s, or a change request (already a verdict) is not', async () => {
+  const review = (id: number, login: string, state: string, body: string, association = 'NONE') =>
+    ({ id, user: { login }, author_association: association, state, body, submitted_at: '2026-10-05T00:00:00Z' });
+  const s = await read(base({ '/pulls/7/reviews': [
+    review(1, 'coderabbitai[bot]', 'COMMENTED', 'Actionable comments posted: 2'),
+    review(2, 'dana', 'COMMENTED', '   ', 'MEMBER'),
+    review(3, 'mallory', 'COMMENTED', 'ship it', 'NONE'),
+    review(4, 'carol', 'CHANGES_REQUESTED', 'Bound it', 'MEMBER'),
+  ] }));
+  assert.deepEqual(s.reviewFeedback.map((r: any) => [r.kind, r.id, r.login]), [['review', 1, 'coderabbitai[bot]']]);
+  assert.deepEqual(s.changeRequests.map((r: any) => r.id), [4]);
+});
+
+test('review feedback is shortened and, past the floor, dropped oldest first so the read still fits the journal', async () => {
+  const wide = (n: number) => '漢'.repeat(n);
+  const items = Array.from({ length: 120 }, (_, i) => inline(i + 1, 'dana', wide(4000), { association: 'MEMBER' }));
+  const s = await read(base({ '/pulls/7/comments': items }));
+  assert.ok(Buffer.byteLength(JSON.stringify(s)) <= 50_000);
+  const ids = s.reviewFeedback.map((r: any) => r.id);
+  assert.ok(ids.length > 0 && ids.length < 120);
+  assert.equal(ids.at(-1), 120);
+});
+
+test('our own agent accounts are never feedback, and their thread replies answer the thread', async () => {
+  const s = await read(base({ '/pulls/7/comments': [
+    inline(1, 'dana', 'Bound the retries', { association: 'MEMBER' }),
+    inline(2, 'AgentRelayBot', 'Fixed in abc1234', { association: 'MEMBER', replyTo: 1 }),
+    inline(3, 'AgentRelayBot', 'Also consider X', { association: 'MEMBER' }),
+  ] }));
+  assert.deepEqual(s.reviewFeedback, []);
 });

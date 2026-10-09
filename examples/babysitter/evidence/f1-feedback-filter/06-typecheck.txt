@@ -1,0 +1,7 @@
+# Local env lacks surface deps; main@fe60dd4c has the same error classes. Filtered to errors outside those classes:
+$ (cd examples/babysitter && ../../packages/sdk/node_modules/.bin/tsc -p tsconfig.json) | grep -c "error TS"   # this branch
+75
+$ same, on clean main checkout at fe60dd4c
+73
+$ this branch, errors NOT in {TS2345 Ctx dual-package, relay-helpers, ai-hist}:
+filtered-count=0

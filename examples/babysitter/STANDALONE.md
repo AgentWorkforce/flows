@@ -31,8 +31,9 @@ drain from the bound lineage:
 ```
 
 The committed operator policy is `standalone-policy.json`: `botLogin` is
-`agent-relay-code[bot]` and the opt-in label is `babysit`. It contains no
-credential. With no `agentCli`, the agent runs the origin session's own CLI,
+`agent-relay-code[bot]`, the opt-in label is `babysit`, `reviewBots` lists the
+review bots whose feedback counts, and `ownAgents` lists our own agent
+accounts, whose comments never count. It contains no credential. With no `agentCli`, the agent runs the origin session's own CLI,
 so Claude and Codex sessions both work. The generated manifest therefore
 requires both harnesses explicitly; an operator must connect and declare both
 when deploying this source rather than relying on the static default branch
@@ -57,8 +58,18 @@ reported by `flows check`.
    label (`eligible`); the `babysit` label absent from *live* labels; this head
    already reported by `botLogin` (its own comments' markers, all pages); or no
    failing check run or commit status, standing change request (all review
-   pages), or new authorised `@babysitter` directive (PR author, or
-   `OWNER`/`MEMBER`/`COLLABORATOR`, after Babysitter's last comment). The
+   pages), unanswered review feedback, or new authorised `@babysitter`
+   directive (PR author, or `OWNER`/`MEMBER`/`COLLABORATOR`, after
+   Babysitter's last comment). Review feedback is an inline review comment
+   that is not outdated and has no later reply in its thread from `botLogin`
+   or a policy `ownAgents` account, or a non-empty `COMMENTED` review body,
+   newer than Babysitter's last comment. It counts only from the PR author,
+   `OWNER`/`MEMBER`/`COLLABORATOR`, or a policy `reviewBots` login; never from
+   `botLogin` or `ownAgents` (our own agents, whose "Fixed in …" replies must
+   not wake Babysitter). Inline comments wake it through
+   `pull_request_review.submitted`, which GitHub sends for every review,
+   including a single inline comment, so the wake contract and Cloud's
+   trigger profile are unchanged. The
    signal read always fits the journal (50KB): long text is shortened and
    marked `[truncated]` (never below 200 characters), then the oldest
    comments are dropped. Failing checks and change requests are never

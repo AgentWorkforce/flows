@@ -24,7 +24,9 @@ const REPORT_MAX_CHARS = 12_000;
 const AUTHORISED = ['OWNER', 'MEMBER', 'COLLABORATOR'];
 const DIRECTIVE = /^\s*@babysit(?:ter)?\b/i;
 
-export interface StandalonePolicy { botLogin: string; label: string; agentCli?: string; agentModel?: string }
+export interface StandalonePolicy {
+  botLogin: string; label: string; reviewBots: string[]; ownAgents: string[]; agentCli?: string; agentModel?: string;
+}
 
 function parsePolicy(value: unknown): StandalonePolicy {
   const x = record(value);
@@ -32,6 +34,12 @@ function parsePolicy(value: unknown): StandalonePolicy {
   if (x.label !== undefined && !text(x.label)) throw new Error('Invalid standalone Babysitter policy: label must be nonempty');
   if (x.agentCli !== undefined && !text(x.agentCli)) throw new Error('Invalid standalone Babysitter policy: agentCli must be nonempty');
   if (x.agentModel !== undefined && !text(x.agentModel)) throw new Error('Invalid standalone Babysitter policy: agentModel must be nonempty');
+  // Review bots are the only bot accounts whose feedback can wake Babysitter.
+  if (x.reviewBots !== undefined && !(Array.isArray(x.reviewBots) && x.reviewBots.every(b => text(b) && b.trim().toLowerCase().endsWith('[bot]'))))
+    throw new Error('Invalid standalone Babysitter policy: reviewBots must be a list of [bot] logins');
+  // Our own agents' comments are never feedback (and answer the threads they reply in).
+  if (x.ownAgents !== undefined && !(Array.isArray(x.ownAgents) && x.ownAgents.every(text)))
+    throw new Error('Invalid standalone Babysitter policy: ownAgents must be a list of logins');
   // Resolving now refuses a custom wrapper without a model when the source loads.
   if (typeof x.agentCli === 'string') {
     try { requiredReviewerModel(x.agentCli, x.agentModel as string | undefined); }
@@ -39,6 +47,8 @@ function parsePolicy(value: unknown): StandalonePolicy {
   }
   return {
     botLogin: x.botLogin.trim(), label: typeof x.label === 'string' ? x.label.trim().toLowerCase() : 'babysit',
+    reviewBots: [...new Set(((x.reviewBots ?? []) as string[]).map(b => b.trim().toLowerCase()))],
+    ownAgents: [...new Set(((x.ownAgents ?? []) as string[]).map(a => a.trim().toLowerCase()))],
     ...(typeof x.agentCli === 'string' ? { agentCli: x.agentCli.trim() } : {}),
     ...(typeof x.agentModel === 'string' ? { agentModel: x.agentModel.trim() } : {}),
   };
@@ -74,9 +84,9 @@ export function whatChanged(s: Signals, author: string): WhatChanged | undefined
     return DIRECTIVE.test(m.body) && !login.endsWith('[bot]')
       && (login === author.toLowerCase() || AUTHORISED.includes(m.association));
   });
-  if (s.failingChecks.length === 0 && s.changeRequests.length === 0 && !directive) return undefined;
+  if (s.failingChecks.length === 0 && s.changeRequests.length === 0 && s.reviewFeedback.length === 0 && !directive) return undefined;
   return {
-    failingChecks: s.failingChecks, changeRequests: s.changeRequests,
+    failingChecks: s.failingChecks, changeRequests: s.changeRequests, reviewFeedback: s.reviewFeedback,
     ...(directive ? { directive: { login: directive.login, body: directive.body } } : {}),
   };
 }
@@ -132,7 +142,10 @@ export function createStandaloneBabysitter(policy: unknown, runtime: { enforcedA
     // (4) Decline when live state leaves nothing to do.
     const skip = outOfScope(live, c, configured.label);
     if (skip) { await report(`${wake.id}: ${skip}`); return f.done('declined'); }
-    const signals = await readSignalsAt(f, pr, head, configured.botLogin);
+    const signals = await readSignalsAt(f, pr, head, {
+      botLogin: configured.botLogin, author: String(live.author ?? ''),
+      reviewBots: configured.reviewBots, ownAgents: configured.ownAgents,
+    });
     if (signals.reported) {
       await report(`${wake.id}: head ${head} already reported`); return f.done('declined');
     }

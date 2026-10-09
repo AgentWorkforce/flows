@@ -28,7 +28,7 @@ const live = (over: Record<string, unknown> = {}) => ({
 const signals = (over: Record<string, unknown> = {}) => ({
   headSha: head,
   failingChecks: [{ name: 'ci', conclusion: 'failure', summary: 'queue.test.ts: expected 3 retries, got 1', url: 'https://example.invalid/ci' }],
-  changeRequests: [], comments: [], reported: false, ...over,
+  changeRequests: [], comments: [], reviewFeedback: [], reported: false, ...over,
 });
 function input(over: { deliveryId?: string; eventType?: string; babysitter?: unknown; pullRequest?: unknown } = {}) {
   return {
@@ -306,4 +306,32 @@ test('a concurrent run that already reported this head wins: the later comment r
   assert.ok(settle.includes(`babysitter:report acme/widgets#7@${head}`));
   assert.ok(commands.every(c => !c.includes('annotateReport')));
   assert.deepEqual(reasons, ['declined']);
+});
+
+test('unanswered review feedback alone is actionable and reaches the agent with its location', async () => {
+  const feedback = signals({ failingChecks: [], reviewFeedback: [
+    { kind: 'inline', id: 11, login: 'coderabbitai[bot]', body: 'Possible null dereference of `job`', path: 'src/queue.ts', line: 42, thread: 11, createdAt: '2026-10-05T00:00:00Z' },
+    { kind: 'review', id: 12, login: 'dana', body: 'Please add a regression test', createdAt: '2026-10-05T00:01:00Z' },
+  ] });
+  const ctx = context({ signals: feedback });
+  await body()(ctx.f, input({ eventType: 'pull_request_review.submitted' }));
+  assert.equal(ctx.agents.length, 1);
+  const task = String(ctx.agents[0]!.options.task);
+  assert.match(task, /Review comment by coderabbitai\[bot\] on src\/queue\.ts:42: Possible null dereference/);
+  assert.match(task, /Review by dana: Please add a regression test/);
+});
+
+test('the reader is told the live PR author and the policy\'s review bots', async () => {
+  const { f, commands } = context();
+  await getFlowDefinition(createStandaloneBabysitter({ ...policy, reviewBots: ['CodeRabbitAI[bot]'], ownAgents: ['AgentRelayBot'] }, isolated)).body(f, input());
+  const read = commands.find(c => c.includes('readSignals'))!;
+  assert.match(read, /"author":"alice"/);
+  assert.match(read, /"reviewBots":\["coderabbitai\[bot\]"\]/);
+  assert.match(read, /"ownAgents":\["agentrelaybot"\]/);
+});
+
+test('review bots must be a list of [bot] logins', () => {
+  assert.throws(() => createStandaloneBabysitter({ ...policy, reviewBots: 'coderabbitai[bot]' }), /reviewBots/);
+  assert.throws(() => createStandaloneBabysitter({ ...policy, reviewBots: ['dana'] }), /reviewBots/);
+  assert.throws(() => createStandaloneBabysitter({ ...policy, ownAgents: [''] }), /ownAgents/);
 });

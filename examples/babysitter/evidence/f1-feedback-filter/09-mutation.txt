@@ -1,0 +1,14 @@
+# Mutation: own-agent replies no longer answer a thread (line: if (!ours.includes(...)) continue; -> compare to bot only)
+$ git diff --stat signals.ts
+ examples/babysitter/signals.ts | 58 ++++++++++++++++++++++++++++++++++++++----
+ 1 file changed, 53 insertions(+), 5 deletions(-)
+$ node --experimental-strip-types --test tests/signals.test.ts
+✖ failing tests:
+ℹ fail 1
+ℹ pass 14
+✖ our own agent accounts are never feedback, and their thread replies answer the thread (1.483667ms)
+$ cmp signals.ts <original>  (restored byte-for-byte)
+identical
+$ node --experimental-strip-types --test tests/signals.test.ts
+ℹ pass 15
+ℹ fail 0

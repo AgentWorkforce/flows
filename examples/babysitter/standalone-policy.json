@@ -1,4 +1,12 @@
 {
   "botLogin": "agent-relay-code[bot]",
-  "label": "babysit"
+  "label": "babysit",
+  "reviewBots": [
+    "chatgpt-codex-connector[bot]",
+    "coderabbitai[bot]",
+    "cubic-dev-ai[bot]",
+    "cursor[bot]",
+    "devin-ai-integration[bot]"
+  ],
+  "ownAgents": ["AgentRelayBot", "kjgbot"]
 }
