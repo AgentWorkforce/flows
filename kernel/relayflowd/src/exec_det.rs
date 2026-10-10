@@ -27,14 +27,18 @@ pub(crate) fn execute_placed(
     memory: Option<&relayflowd_core::MemoryInjectedPayload>,
     workspace: Option<&std::path::Path>,
 ) -> AttemptResult {
-    execute_placed_with_input(step, memory, workspace, None)
+    execute_placed_with_input(step, memory, workspace, None, None)
 }
 
+/// `env` is the owning run's step environment. When present it REPLACES the
+/// daemon's environment; when absent (a client that sent none) the command
+/// inherits the daemon's, as before per-run environments existed.
 pub(crate) fn execute_placed_with_input(
     step: &StepSpec,
     memory: Option<&relayflowd_core::MemoryInjectedPayload>,
     workspace: Option<&std::path::Path>,
     input: Option<&serde_json::Map<String, serde_json::Value>>,
+    env: Option<&crate::step_env::StepEnv>,
 ) -> AttemptResult {
     if step.input.is_some() && input.is_none() {
         return worker_error("deterministic step input bindings were not resolved");
@@ -67,6 +71,10 @@ pub(crate) fn execute_placed_with_input(
     };
     if let Some(workspace) = workspace {
         process.current_dir(workspace);
+    }
+    if let Some(env) = env {
+        process.env_clear();
+        process.envs(env.vars());
     }
     process.env_remove("RELAYFLOW_MEMORY");
     if let Some(memory) = memory {

@@ -121,6 +121,12 @@ pub trait StepDispatcher: Send + Sync {
 
     fn dispatch(&self, dispatch: StepDispatch) -> Result<DispatchOutcome>;
 
+    /// The environment the run's client supplied for its deterministic steps.
+    /// `None` means the step inherits this process's environment.
+    fn step_env(&self, _run_id: &str) -> Option<std::sync::Arc<crate::step_env::StepEnv>> {
+        None
+    }
+
     /// Heartbeat-renewed operational deadline for one live assignment. The
     /// journal retains the original grant; a live server projection must use
     /// the assignment it currently owns instead of rewriting that history.

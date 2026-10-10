@@ -163,11 +163,16 @@ impl<C: Clock> Engine<C> {
                             .routing
                             .get(&step.id)
                             .and_then(|r| r.workspace.as_deref());
+                        let env = self
+                            .dispatcher
+                            .as_ref()
+                            .and_then(|dispatcher| dispatcher.step_env(&state.run_id));
                         let mut result = exec_det::execute_placed_with_input(
                             &step,
                             runtime.memory.as_ref(),
                             workspace.map(std::path::Path::new),
                             step.input.as_ref().map(|_| &input),
+                            env.as_deref(),
                         );
                         if let Some(path) = workspace {
                             match crate::workspace::pin(std::path::Path::new(path)) {

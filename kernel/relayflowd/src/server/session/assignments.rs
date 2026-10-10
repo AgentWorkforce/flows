@@ -122,6 +122,10 @@ impl StepDispatcher for ProtocolHub {
         self.executor(step_type).is_some()
     }
 
+    fn step_env(&self, run_id: &str) -> Option<std::sync::Arc<crate::step_env::StepEnv>> {
+        self.bound_step_env(run_id)
+    }
+
     fn reserve_dispatch(
         &self,
         run_id: &str,

@@ -287,12 +287,26 @@ ensureDaemon(dataDir, { spawn = true, timeoutMs = 10_000 }):
 ```
 
 `env: process.env` and `cwd: process.cwd()` belong to the CLI that won the
-start. A later `flows run` that attaches (step B) passes neither, and the
-`run.start` wire params carry no environment. So every deterministic `f.run`
-step spawned by this daemon (`exec_det.rs`) runs with the first CLI's
-environment and, when placement assigns no workspace, its working directory.
-This is a known limitation, not a contract. docs/SURFACE.md ("`f.run` on the
-local daemon") gives the workarounds.
+start, and they are the daemon's own. They are NOT what a run's deterministic
+`f.run` steps get, because a later `flows run` attaches (step B) to the same
+daemon. Instead each run carries its own step environment:
+
+- The daemon lists `step_env` in `hello.features`. A client that sees it sends
+  `env` (its `process.env`) on `run.start` and `run.resume`.
+- `relayflowd` binds that env to the run id in memory
+  (`server/session.rs`, `step_envs`) before the run's first drive. Every
+  `f.run` step of that run is spawned with exactly that env (`exec_det.rs`
+  clears the daemon's first), plus `FLOWS_INPUT` and `RELAYFLOW_MEMORY`. A
+  `run.resume` that carries `env` replaces it. `run.completed` drops it.
+- The values are never journaled, registered, traced or logged, and
+  `StepEnv`'s `Debug` prints no values. The cost: a daemon restart forgets
+  them. A run that a restarted daemon drives before any client resumes it with
+  `env` falls back to the daemon's own environment.
+- A `run.start` / `run.resume` with no `env` (a client that predates
+  `step_env`) keeps the old behavior: steps inherit the daemon's environment.
+
+The working directory is unchanged: with no placed workspace a step still runs
+in the daemon's cwd.
 
 `detached: true` puts the child in its own session and process group. Two
 consequences, both required: it outlives the CLI process, and a `Ctrl-C` sent

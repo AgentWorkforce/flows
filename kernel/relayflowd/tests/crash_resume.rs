@@ -23,6 +23,8 @@ mod parallel_lifecycle;
 mod pin_projection;
 #[path = "crash_resume/protocol_admission.rs"]
 mod protocol_admission;
+#[path = "crash_resume/step_env.rs"]
+mod step_env;
 #[path = "crash_resume/support.rs"]
 mod support;
 #[path = "crash_resume/surface_identity.rs"]
