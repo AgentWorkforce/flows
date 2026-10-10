@@ -249,6 +249,17 @@ test('proposes from a checkout whose index the agent split', async () => {
   assert.deepEqual(p.files, ['src/retry.ts']);
 });
 
+test('a FIFO, directory or symlink named like a shared index in .git is not copied', async () => {
+  const r = forked();
+  writeFileSync(join(r.checkout, 'src/retry.ts'), 'export const attempts = 4;\n');
+  execFileSync('mkfifo', [join(r.checkout, '.git/sharedindex.fifo')]);
+  mkdirSync(join(r.checkout, '.git/sharedindex.dir'));
+  execFileSync('ln', ['-s', '/etc/passwd', join(r.checkout, '.git/sharedindex.link')]);
+  const p = await runPropose(r);
+  assert.equal(p.kind, 'babysitter-proposal');
+  assert.deepEqual(p.files, ['src/retry.ts']);
+});
+
 test('a proposal whose private git dir cannot be set up leaves no scratch behind', async () => {
   const r = forked();
   execFileSync('chmod', ['a-r', join(r.checkout, '.git/index')]);

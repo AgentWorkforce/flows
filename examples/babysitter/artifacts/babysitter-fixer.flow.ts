@@ -762,7 +762,7 @@ async function stashCheckout(c) {
 }
 async function proposeChanges(c) {
   const { execFileSync } = await import("node:child_process");
-  const { copyFileSync, mkdtempSync, readdirSync, rmSync, writeFileSync } = await import("node:fs");
+  const { copyFileSync, lstatSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { resolve } = await import("node:path");
   const environment = { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_COUNT: "2", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/dev/null", GIT_CONFIG_KEY_1: "core.quotePath", GIT_CONFIG_VALUE_1: "false" };
@@ -774,7 +774,11 @@ async function proposeChanges(c) {
     writeFileSync(`${gitDir}/objects/info/alternates`, `${checkoutGit}/objects
 `);
     for (const name of readdirSync(checkoutGit)) {
-      if (name === "index" || name.startsWith("sharedindex.")) copyFileSync(`${checkoutGit}/${name}`, `${gitDir}/${name}`);
+      if (name !== "index" && !name.startsWith("sharedindex.")) continue;
+      const stat = lstatSync(`${checkoutGit}/${name}`);
+      if (!stat.isFile()) continue;
+      copyFileSync(`${checkoutGit}/${name}`, `${gitDir}/${name}`);
+      utimesSync(`${gitDir}/${name}`, stat.atime, stat.mtime);
     }
     const buffer = c.limits.bufferBytes ?? 8 * 1024 * 1024;
     const cwd = resolve(c.dir);

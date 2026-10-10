@@ -160,7 +160,7 @@ export interface ProposalInput {
  */
 export async function proposeChanges(c: ProposalInput): Promise<void> {
   const { execFileSync } = await import('node:child_process');
-  const { copyFileSync, mkdtempSync, readdirSync, rmSync, writeFileSync } = await import('node:fs');
+  const { copyFileSync, lstatSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { resolve } = await import('node:path');
   // The agent could write .git: a config with an external diff, a clean
@@ -178,8 +178,17 @@ export async function proposeChanges(c: ProposalInput): Promise<void> {
   execFileSync('git', ['init', '-q', scratch], { stdio: 'ignore', env: environment });
   const gitDir = `${scratch}/.git`;
   writeFileSync(`${gitDir}/objects/info/alternates`, `${checkoutGit}/objects\n`);
+  // Regular files only: the agent controls .git, and a FIFO, directory or
+  // symlink by one of these names would block or throw in copyFileSync. The
+  // copy keeps the index's mtime: git rechecks the content of an entry no
+  // older than its index, and a fresh mtime would hide a same-size edit made
+  // in the same timestamp tick as the index (racy git).
   for (const name of readdirSync(checkoutGit)) {
-    if (name === 'index' || name.startsWith('sharedindex.')) copyFileSync(`${checkoutGit}/${name}`, `${gitDir}/${name}`);
+    if (name !== 'index' && !name.startsWith('sharedindex.')) continue;
+    const stat = lstatSync(`${checkoutGit}/${name}`);
+    if (!stat.isFile()) continue;
+    copyFileSync(`${checkoutGit}/${name}`, `${gitDir}/${name}`);
+    utimesSync(`${gitDir}/${name}`, stat.atime, stat.mtime);
   }
   const buffer = c.limits.bufferBytes ?? 8 * 1024 * 1024;
   // Run from the checkout, so a path argument means the same file it did

@@ -1,3 +1,3 @@
 $ node examples/babysitter/build-standalone.mjs --check
 Checked sha256:580bab1d31bfe05b2be4cbdfa74f8669efdb1067ba4a4bf126f871b432d7f834 (babysitter-standalone)
-Checked sha256:757cde399d19852c54d0364c6c0929f8f8a091d296d5a468bef57c7826c53372 (babysitter-fixer)
+Checked sha256:9776265f31e56e726e47b4290793d1695c64d3116e66cd1cec3f1f97dfced16f (babysitter-fixer)

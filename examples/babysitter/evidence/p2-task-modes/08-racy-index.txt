@@ -1,0 +1,32 @@
+# Racy-git reproduction for the copied index (flows#646). Script below, run verbatim; output after it.
+# Without keeping the index mtime, a same-size edit in the same timestamp tick as the index is missed.
+# ---- script ----
+# // Commit a file, rewrite it at once with same-size content, then ask a private
+# // git dir (alternates + copied index) whether it changed. Mode "copy" copies
+# // the index; mode "keep" copies it and keeps its mtime.
+# import { execFileSync } from 'node:child_process';
+# import { copyFileSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+# import { tmpdir } from 'node:os';
+# const env = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 'a', GIT_AUTHOR_EMAIL: 'a@a', GIT_COMMITTER_NAME: 'a', GIT_COMMITTER_EMAIL: 'a@a' };
+# const git = (...a) => String(execFileSync('git', a, { env, stdio: ['ignore', 'pipe', 'ignore'] }));
+# const [mode, runs] = [process.argv[2], Number(process.argv[3])];
+# let missed = 0;
+# for (let i = 0; i < runs; i++) {
+#   const repo = mkdtempSync(`${tmpdir()}/racy-repo-`); const scratch = mkdtempSync(`${tmpdir()}/racy-git-`);
+#   writeFileSync(`${repo}/f.ts`, 'export const attempts = 3;\n');
+#   git('-C', repo, 'init', '-q'); git('-C', repo, 'add', '-A'); git('-C', repo, 'commit', '-qm', 'x');
+#   writeFileSync(`${repo}/f.ts`, 'export const attempts = 4;\n');
+#   git('init', '-q', scratch);
+#   writeFileSync(`${scratch}/.git/objects/info/alternates`, `${repo}/.git/objects\n`);
+#   copyFileSync(`${repo}/.git/index`, `${scratch}/.git/index`);
+#   if (mode === 'keep') { const st = statSync(`${repo}/.git/index`); utimesSync(`${scratch}/.git/index`, st.atime, st.mtime); }
+#   const changed = git('--git-dir', `${scratch}/.git`, '--work-tree', repo, 'diff', '--name-only').trim();
+#   if (!changed) missed++;
+#   rmSync(repo, { recursive: true, force: true }); rmSync(scratch, { recursive: true, force: true });
+# }
+# console.log(`${mode}: missed the edit in ${missed}/${runs}`);
+# ---- output ----
++ node .agent-scratch/racy.mjs copy 300
+copy: missed the edit in 19/300
++ node .agent-scratch/racy.mjs keep 300
+keep: missed the edit in 0/300
