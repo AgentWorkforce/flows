@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -207,6 +207,71 @@ const runPropose = (r: { checkout: string; head: string }, over: { mergeParent?:
   },
 }));
 
+// Other test files propose concurrently into the shared temp dir, so a
+// proposal's scratch is counted in a temp dir of its own.
+const inOwnTmp = async <T>(run: () => Promise<T>): Promise<{ result: T; left: string[] }> => {
+  const own = mkdtempSync(join(tmpdir(), 'babysitter-own-tmp-'));
+  const previous = process.env.TMPDIR;
+  process.env.TMPDIR = own;
+  try {
+    return { result: await run(), left: readdirSync(own) };
+  } finally {
+    if (previous === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = previous;
+  }
+};
+
+test('proposes from a checkout whose .git the sandbox left unwritable, touching nothing in it', async () => {
+  // Live run #1 (Cloud run c5c7bb01): after the agent step the checkout's
+  // .git was not writable, and rewriting .git/config failed with EACCES.
+  const r = forked();
+  writeFileSync(join(r.checkout, 'src/retry.ts'), 'export const attempts = 4;\n');
+  const configBefore = readFileSync(join(r.checkout, '.git/config'), 'utf8');
+  execFileSync('chmod', ['-R', 'a-w', join(r.checkout, '.git')]);
+  try {
+    const { result: p, left } = await inOwnTmp(() => runPropose(r));
+    assert.equal(p.kind, 'babysitter-proposal');
+    assert.deepEqual(p.files, ['src/retry.ts']);
+    assert.match(p.patch, /\+export const attempts = 4;/);
+    assert.deepEqual(left, []);
+  } finally {
+    execFileSync('chmod', ['-R', 'u+w', join(r.checkout, '.git')]);
+  }
+  assert.equal(readFileSync(join(r.checkout, '.git/config'), 'utf8'), configBefore);
+});
+
+test('proposes from a checkout whose index the agent split', async () => {
+  const r = forked();
+  writeFileSync(join(r.checkout, 'src/retry.ts'), 'export const attempts = 4;\n');
+  execFileSync('git', ['-C', r.checkout, 'update-index', '--split-index']);
+  assert.ok(readdirSync(join(r.checkout, '.git')).some((name) => name.startsWith('sharedindex.')));
+  const p = await runPropose(r);
+  assert.equal(p.kind, 'babysitter-proposal');
+  assert.deepEqual(p.files, ['src/retry.ts']);
+});
+
+test('a FIFO, directory or symlink named like a shared index in .git is not copied', async () => {
+  const r = forked();
+  writeFileSync(join(r.checkout, 'src/retry.ts'), 'export const attempts = 4;\n');
+  execFileSync('mkfifo', [join(r.checkout, '.git/sharedindex.fifo')]);
+  mkdirSync(join(r.checkout, '.git/sharedindex.dir'));
+  execFileSync('ln', ['-s', '/etc/passwd', join(r.checkout, '.git/sharedindex.link')]);
+  const p = await runPropose(r);
+  assert.equal(p.kind, 'babysitter-proposal');
+  assert.deepEqual(p.files, ['src/retry.ts']);
+});
+
+test('a proposal whose private git dir cannot be set up leaves no scratch behind', async () => {
+  // A .git file (as in a linked worktree) makes reading the checkout's git
+  // dir fail after the scratch dir exists, whatever the user: no reliance on
+  // permissions root would bypass.
+  const r = forked();
+  renameSync(join(r.checkout, '.git'), join(r.checkout, '.git-real'));
+  writeFileSync(join(r.checkout, '.git'), 'gitdir: .git-real\n');
+  const { result: error, left } = await inOwnTmp(() => runPropose(r).then(() => undefined, (e: unknown) => e));
+  assert.match(String(error), /ENOTDIR/);
+  assert.deepEqual(left, []);
+});
+
 test('the merge step leaves the conflicts for the agent and names any in drizzle metadata', async () => {
   const r = forked();
   const merged = await runMerge(r);
@@ -307,7 +372,8 @@ test('an unpublished merge keeps its summary within the summary limit, explanati
   assert.match(p.summary, /was not published/);
 });
 
-test('an unresolved binary conflict is refused rather than published as the PR side', async () => {
+/** A checkout whose merge of trunk left logo.bin as an unresolved binary conflict. */
+async function binaryConflicted() {
   const up = mkdtempSync(join(tmpdir(), 'babysitter-bin-'));
   const u = (...a: string[]) => execFileSync('git', ['-C', up, ...a], { env: gitEnv, encoding: 'utf8' }).trim();
   u('init', '-q', '-b', 'trunk'); u('config', 'uploadpack.allowReachableSHA1InWant', 'true');
@@ -322,9 +388,28 @@ test('an unresolved binary conflict is refused rather than published as the PR s
   const r = { up, head: prHead, trunk: trunkHead, checkout, git: c };
   const merged = await runMerge(r);
   assert.deepEqual(merged.conflicts, ['logo.bin']);
-  const p = await runPropose(r, { mergeParent: trunkHead });
+  return r;
+}
+
+test('an unresolved binary conflict is refused rather than published as the PR side', async () => {
+  const r = await binaryConflicted();
+  const p = await runPropose(r, { mergeParent: r.trunk });
   assert.equal(p.kind, 'babysitter-refusal');
   assert.match(p.reason, /unresolved conflict.*logo\.bin/);
+});
+
+test('an index the agent moved behind a symlink, or deleted, refuses instead of hiding the conflict', async () => {
+  const linked = await binaryConflicted();
+  renameSync(join(linked.checkout, '.git/index'), join(linked.checkout, '.git/index.moved'));
+  symlinkSync('index.moved', join(linked.checkout, '.git/index'));
+  const viaLink = await runPropose(linked, { mergeParent: linked.trunk });
+  assert.equal(viaLink.kind, 'babysitter-refusal');
+  assert.match(viaLink.reason, /\.git\/index is missing or not a regular file/);
+  const deleted = await binaryConflicted();
+  rmSync(join(deleted.checkout, '.git/index'));
+  const without = await runPropose(deleted, { mergeParent: deleted.trunk });
+  assert.equal(without.kind, 'babysitter-refusal');
+  assert.match(without.reason, /\.git\/index is missing or not a regular file/);
 });
 
 test('a marker-less conflict on a text file (merge=binary) is refused too, not only NUL-bearing files', async () => {

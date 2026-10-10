@@ -1,0 +1,9 @@
+# Racy-git reproduction for the copied index (flows#646). Produced from the repository root by running, verbatim:
+#   node examples/babysitter/evidence/p2-task-modes/scripts/racy-index.mjs copy 1000; node examples/babysitter/evidence/p2-task-modes/scripts/racy-index.mjs keep 1000
+# The script is committed at examples/babysitter/evidence/p2-task-modes/scripts/racy-index.mjs. Without keeping the index mtime, a same-size edit in the same timestamp tick as the index is missed.
+# The plain-copy miss count varies per run with machine load (the edit must land in the index's timestamp tick); other runs measured 22/300, 19/300, 7/300 and 1/300. The claim is the keep line: 0 misses.
+# ---- output ----
++ node examples/babysitter/evidence/p2-task-modes/scripts/racy-index.mjs copy 1000
+copy: missed the edit in 2/1000
++ node examples/babysitter/evidence/p2-task-modes/scripts/racy-index.mjs keep 1000
+keep: missed the edit in 0/1000

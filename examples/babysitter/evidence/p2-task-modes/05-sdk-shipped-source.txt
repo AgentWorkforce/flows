@@ -1,12 +1,12 @@
 $ (cd packages/sdk && ./node_modules/.bin/vitest run tests/shipped-source-models.test.ts)
 
- RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows/.claude/worktrees/agent-a2e8e267143c3d877/packages/sdk
+ RUN  v2.1.9 /home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-private-gitdir/packages/sdk
 
- ✓ tests/shipped-source-models.test.ts (2 tests) 122854ms
-   ✓ first-party shipped source model pins > gives every TypeScript agent and LLM an explicit supported pair or a pinned named-agent declaration 122830ms
+ ✓ tests/shipped-source-models.test.ts (2 tests) 157460ms
+   ✓ first-party shipped source model pins > gives every TypeScript agent and LLM an explicit supported pair or a pinned named-agent declaration 157434ms
 
  Test Files  1 passed (1)
       Tests  2 passed (2)
-   Start at  22:43:48
-   Duration  123.63s (transform 183ms, setup 20ms, collect 462ms, tests 122.85s, environment 0ms, prepare 83ms)
+   Start at  23:57:05
+   Duration  158.12s (transform 176ms, setup 14ms, collect 393ms, tests 157.46s, environment 0ms, prepare 68ms)
 

@@ -1,8 +1,334 @@
 $ (cd examples/babysitter && npm test)
-ℹ tests 169
+
+> test
+> node --experimental-strip-types --test tests/*.test.ts
+
+✔ the committed fixer artifact is exact, reproducible, and asserts the enforced agent scope (99.84758ms)
+✔ scripts stringified into f.run never reach a bundler shim: `node -e` has no __require (1.937431ms)
+✔ the fixer checks out the bound head, runs one agent there with fix rules, and journals one proposal (6.859033ms)
+✔ the fixer never writes to GitHub itself: no push, merge, review, or comment calls (1.64165ms)
+✔ thread replies go only to inline feedback this run was woken by, once each, marked and neutralised (3.045546ms)
+✔ a head that moves while fixing declines without a proposal (0.867867ms)
+✔ a refused proposal ends needs_human (0.841879ms)
+✔ by default the fixer dispatches no agent and checks nothing out (gate 8 / #442) (0.588186ms)
+✔ the agent outcome is read from a JSON message, a fenced JSON block, or falls back to prose (0.359079ms)
+✔ a real proposal covers edits, new files and the agent's own commits, all against the bound head (95.371327ms)
+✔ workflow, secret, oversized and too-wide proposals are refused whole (439.104666ms)
+✔ an untouched checkout proposes an empty patch (replies and summary may still publish) (54.24572ms)
+✔ the proposal script runs as f.run runs it: a stringified `node -e` command in a shell (76.751995ms)
+✔ the proposal script lifted from the shipped artifact runs under `node -e` (92.873201ms)
+✔ the proposal never runs code the agent planted in the checkout's git config, and its diff format is fixed (67.186578ms)
+✔ paths git would have to quote are refused; a newline cannot split a name past the workflow rule (159.073762ms)
+✔ a non-ASCII name is proposed unquoted, so Cloud parses the same path (55.365176ms)
+✔ the fixer runs the origin session's own CLI with its literal pinned model (1.527988ms)
+✔ a PR checkout survives between runs: restored into the run root, stashed back after (1.900922ms)
+✔ the fixer restores the cached checkout before checking out, and stashes it even when the agent fails (1.320521ms)
+✔ restore and stash lifted from the shipped artifact run under `node -e` (47.477786ms)
+✔ a reused checkout keeps its dependencies but none of the agent's git state, and lands exactly on the head (140.537795ms)
+✔ a dependency manifest that changed between heads drops the cached dependencies (128.446921ms)
+✔ a damaged cached .git is replaced, not reused (66.23266ms)
+✔ cache moves never fail the run: an unwritable cache only means the next run starts fresh (0.881252ms)
+✔ flows check still sees the fixer's agent requirement (0.277788ms)
+✔ checkoutHead lifted from the shipped artifact runs under `node -e` (102.232464ms)
+✔ a restored PR checkout brings back its session, and a stash records the new one (1.645547ms)
+✔ a wake on a reused box resumes the previous agent session and records the new one (0.802435ms)
+✔ a fresh box, or a session from another CLI, starts without resume (0.726514ms)
+✔ a session the CLI no longer has falls back to a fresh agent with the origin context (0.958446ms)
+✔ only registered direct-probe providers receive generated model pins (2.332326ms)
+✔ provider executable basenames retain generated model defaults (1.092426ms)
+✔ custom reviewer wrappers require and preserve an explicit model (0.528054ms)
+✔ legacy reviewer binds slash-relative wrappers before probing and dispatch (0.138228ms)
+✔ modern reviewer binds slash-relative wrappers before probing and dispatch (0.109925ms)
+✔ legacy reviewer dispatches the same resolved wrapper to host-owned preflight (1.41161ms)
+✔ legacy reviewer leaves provider basenames for host-owned preflight resolution (0.65477ms)
+✔ blank legacy reviewer overrides fail before GitHub or repository effects (0.473192ms)
+✔ approval-only legacy wakes do not probe an unused reviewer pair (1.336391ms)
+✔ malformed input makes zero effects; missing live state declines before agents (0.898876ms)
+✔ duplicate delivery cannot bypass missing publication or agent-scope capability (0.752512ms)
+✔ live-head review/check wakes evaluate merge but do not simulate an unavailable receipt (1.353121ms)
+✔ authorized conflict wakes hand off unresolved semantic work; ordinary/unauthorized comments decline (1.056329ms)
+✔ merge transport sends the bound live SHA and fails if provider does not confirm (0.473763ms)
+⚠ live-head end-to-end review and merge acceptance remains RED (2.003625ms) # Requires enforced agent scopes and durable fenced publication; the passing merge transport unit test is not end-to-end acceptance
+✔ malformed external inputs fail before shell or API (1.423313ms)
+✔ live skip and author rules fail closed (0.382653ms)
+✔ READY rejects missing pending red conflicts stale heads and missing state (0.382022ms)
+✔ a later comment or pending review cannot hide a standing verdict (0.35954ms)
+✔ merge requires opt in org and configured independent approver at exact SHA (0.258442ms)
+✔ conflict command is explicit authorized and same repository only (0.303306ms)
+✔ edits fail closed for semantic changes, fork, protected paths, tests and unresolved conflicts (0.69782ms)
+✔ artifacts are nonempty schema validated exact head and reconcile deterministically (0.984755ms)
+✔ publication refuses stale post race newer verdict spoof and absent atomic capability (0.279842ms)
+✔ once per head keys and sticky CI attribution survive duplicate wake decisions (0.239246ms)
+✔ one bounded infra retry only for 137/143 (0.151052ms)
+✔ every hosted subscription reaches the same authoritative reread with pinned coordinates (4.859567ms)
+✔ hosted delivery fields cannot redirect policy, coordinates or live-head binding (1.442449ms)
+✔ wrong repository, PR, host, provider or subscription refuse before the live read (1.780448ms)
+✔ case-insensitive Cloud coordinates work and policy is snapshotted at construction (0.857859ms)
+✔ normalized comment wake rereads then holds for missing original repair directive (0.920966ms)
+✔ invalid operator policy is refused when the hosted source loads (0.925675ms)
+✔ Cloud's enriched pull request is a hint, not state: draft, labels, author and review cannot decide (1.022436ms)
+✔ a delivered approved review cannot open the merge gate (0.902171ms)
+✔ the manifest declares exactly the subscription contract, family by family (2.39859ms)
+✔ merge-gate is a live-state predicate: no matching PR is a pass, a held gate throws the reason (1.382867ms)
+✔ the manifest budget is the flow header budget, and the entry name is the file the flow lives in (0.53113ms)
+⚠ atomicPrPublication (2.008614ms) # Provider per-PR serialization + head-guarded idempotent owned-comment upsert
+⚠ durableCrossRunNotification (0.403763ms) # Durable per-head notification receipt and atomic delivery claim
+⚠ journaledCiObservation (0.325477ms) # Journal-backed script-memory write/recall across runs (memory.learn currently refuses)
+⚠ enforcedAgentWriteScope (0.232323ms) # Enforced readonly agent workspace and credential scopes (gate 8 / #442)
+⚠ selectiveAgentExitRetry (0.183943ms) # Typed agent exit-code/retry policy in authored Step; AgentResult has summary/artifacts and success/timeout completionReason
+⚠ durableSubscriptionLiveness (0.15583ms) # Durable cross-run wake records for the liveness sweep; a subscription that stops firing is currently indistinguishable from a quiet one
+✔ a failing commit status is a failing check; a newer success on the same context clears an older failure (2.680195ms)
+✔ reviews are paginated before standing verdicts are derived (0.7348ms)
+✔ a report older than any comment window is still found; only comments after the last report are returned (0.650232ms)
+✔ a marker in someone else's comment is not a report (0.388664ms)
+✔ a head that moves during the read refuses (0.508568ms)
+✔ failing check runs at the head are failing checks; running, passing and other-head runs are not (0.367805ms)
+✔ settleReport keeps the earliest report for a head and deletes a later duplicate of its own (0.431895ms)
+✔ a PR full of long reviews, comments and failing checks still fits the journal and keeps every actor (1.928254ms)
+✔ only a report for the current head counts, and report history never grows the payload (1.679339ms)
+✔ when shortened text still overflows, the oldest comments go first at the 200-char floor (5.021108ms)
+✔ inline review comments from the author, members and allowlisted review bots are feedback; outsiders, other bots and this bot are not (6.045006ms)
+✔ a thread Babysitter already answered, an outdated comment, and feedback before its last report are not feedback (0.611249ms)
+✔ a commented review body is feedback; an empty one, an outsider's, or a change request (already a verdict) is not (0.362726ms)
+✔ review feedback is shortened and, past the floor, dropped oldest first so the read still fits the journal (7.768188ms)
+✔ our own agent accounts are never feedback, and their thread replies answer the thread (0.361013ms)
+✔ the Garden sharing Babysitter's app login does not look like Babysitter: only marked comments move the window or answer threads (0.48301ms)
+✔ file-level review comments are feedback; a line comment GitHub marked outdated (no diff position) is not (0.318364ms)
+✔ a pending review comment counts from its review's submission, and feedback at the report's own second is kept (0.304437ms)
+✔ the committed standalone artifact is exact, reproducible, and explicitly read-only (94.138169ms)
+✔ without originContext the run ends needs_human with zero f.agent calls and no live read (5.129419ms)
+✔ with originContext the agent task carries the first prompt verbatim, delimited as the task definition (2.763631ms)
+✔ two deliveries with different ids and the same live state log the same decision key (2.201192ms)
+✔ anything that is not the bound PR is refused before any effect (2.756848ms)
+✔ a missing or malformed server-claimed head fails closed before live state or diagnosis (0.467201ms)
+✔ a live head different from the server-claimed head declines before signals, diagnosis or comment (0.413351ms)
+✔ live state decides: closed, draft, missing babysit label or nothing actionable decline without an agent (0.763523ms)
+✔ a change request or an authorised directive is actionable; an outsider directive is not (1.351179ms)
+✔ a head already reported by Babysitter declines before the agent (0.352597ms)
+✔ the reader is asked for this bot's reports at the bound head (0.613193ms)
+✔ withdrawing the opt-in label during diagnosis stops the report (0.441843ms)
+✔ a push racing the comment marks the posted report superseded for the new head (0.630485ms)
+✔ a head that moves while the agent runs declines instead of reporting on a stale head (0.356855ms)
+✔ report is one owned PR comment naming the inherited session, never the prompt text, with mentions neutralised (0.650102ms)
+✔ the agent CLI follows the origin session: Claude and Codex both work (1.515033ms)
+✔ by default no agent is dispatched: untrusted PR content needs enforced write scope first (gate 8 / #442) (0.463975ms)
+✔ invalid policy is refused when the source loads (0.530699ms)
+✔ withdrawing the opt-in label while the comment posts marks the report withdrawn (0.523485ms)
+✔ the agent echoing the original prompt does not publish it (0.391971ms)
+✔ a concurrent run that already reported this head wins: the later comment removes itself (0.693221ms)
+✔ unanswered review feedback alone is actionable and reaches the agent with its location (0.612101ms)
+✔ the reader is told the live PR author and the policy's review bots (0.436514ms)
+✔ review bots must be a list of [bot] logins (0.220992ms)
+✔ Software Garden PRs (same-repo relayflow/* heads) are in scope by default; any other PR needs the opt-in label (0.581294ms)
+✔ a Software Garden draft is babysat (Garden drafts failing PRs); a label opt-in draft is not (0.441142ms)
+✔ an @babysitter directive from one of our own agents is not a directive (0.253382ms)
+✔ file-level review feedback renders its path without a line (0.320718ms)
+✔ a task is parsed strictly: exact keys, bounded values, a full trunk sha (2.878565ms)
+✔ a malformed task stops the run before any live read or agent (1.559867ms)
+✔ a task run is admitted only from a merge-train event for the bound PR, and a merge-train event never runs without a task (1.517378ms)
+✔ fix_ci admits a merge-train PR with no review feedback and no opt-in label, and gives the agent the failing checks (2.685405ms)
+✔ answer_threads addresses only the requested threads and replies only to them (2.238011ms)
+✔ answer_threads declines without an agent when the requested threads are no longer open (0.626017ms)
+✔ a task run still declines a closed or merged PR, and one whose head moved (0.827392ms)
+✔ resolve_conflict merges trunk before the agent and proposes with trunk as the merge parent (1.028918ms)
+✔ resolve_conflict stops without an agent when drizzle metadata conflicts, and still stashes the checkout (0.535869ms)
+✔ a merge too large to publish ends needs_human with an explanation instead of a patch (0.680879ms)
+✔ proposes from a checkout whose .git the sandbox left unwritable, touching nothing in it (196.505073ms)
+✔ proposes from a checkout whose index the agent split (200.969524ms)
+✔ a FIFO, directory or symlink named like a shared index in .git is not copied (189.485011ms)
+✔ a proposal whose private git dir cannot be set up leaves no scratch behind (174.443197ms)
+✔ the merge step leaves the conflicts for the agent and names any in drizzle metadata (206.21481ms)
+✔ a resolved merge proposes schema 2: trunk as merge parent, patch from the head to the merged tree (247.615961ms)
+✔ a merge that changes trunk outside the PR's own files, or leaves conflict markers, is refused (488.826014ms)
+✔ a resolved merge over the patch cap publishes no code and says why (238.363397ms)
+✔ an agent change to drizzle metadata is refused for every proposal (173.663142ms)
+✔ answer_threads acts on a still-open reply in a requested thread, matched by its root (1.338274ms)
+✔ answer_threads ends needs_human, with no proposal, when a requested thread gets no reply (0.607512ms)
+✔ check names never reach the trusted task section, and control characters in them are refused (0.520751ms)
+✔ the merge step refuses when git does not start the merge, instead of reporting a clean merge (228.459678ms)
+✔ an unpublished merge keeps its summary within the summary limit, explanation included (217.148637ms)
+✔ an unresolved binary conflict is refused rather than published as the PR side (207.246813ms)
+✔ an index the agent moved behind a symlink, or deleted, refuses instead of hiding the conflict (394.992511ms)
+✔ a marker-less conflict on a text file (merge=binary) is refused too, not only NUL-bearing files (205.200299ms)
+✔ a conflict blob too large to read is refused, not a crashed run (211.443765ms)
+✔ a merge patch too large to even read publishes no code instead of failing the run (245.724936ms)
+✔ the declared subscription contract is exactly the required resident set (1.145866ms)
+✔ every declared subscription registers one handler bound to the one body (0.281755ms)
+✔ each trigger filters to its own provider, type and action (0.340966ms)
+✔ compatibility entry points still resolve to this one implementation (0.359049ms)
+✔ subscription preflight passes the declared contract and has teeth (0.304147ms)
+✔ preflight refuses an undeliverable subscription rather than deploying it (0.173714ms)
+✔ a delivery is accepted as a hint; only routing is enforced (1.028507ms)
+✔ a fork check_run with no PR attribution still wakes and rereads (0.795984ms)
+✔ repository routing compares owner and repository case-insensitively (0.192619ms)
+✔ a stale hinted head is recorded, never enforced, and never binds (0.166851ms)
+✔ an operator pin constrains the run; it never substitutes for live state (0.15539ms)
+✔ every wake rereads live state before it decides anything (0.706066ms)
+✔ a payload that disagrees with live state loses: closed hint, open PR (0.159878ms)
+✔ a payload that disagrees with live state loses: open hint, closed PR (0.128379ms)
+✔ a label hint is re-read from live state in both directions (0.139751ms)
+✔ a review hint cannot assert an approval live state does not show (0.181307ms)
+✔ a check hint cannot assert a conclusion live state does not show (0.105927ms)
+✔ duplicate delivery repeats a decision instead of adding one (0.273329ms)
+✔ out-of-order delivery decides about the head that exists now (0.141934ms)
+✔ the decision key names the subscription and the live head, never the hint (0.100027ms)
+✔ each wake emits one deterministic observation line (0.219278ms)
+✔ the sweep separates a quiet subscription from a dead one (0.304548ms)
+✔ a young subscription is pending, an old silent one is never (0.157253ms)
+✔ the sweep refuses impossible windows and clock-faulted records (0.179554ms)
+✔ the sweep expects exactly the subscriptions the flow registers (0.048721ms)
+ℹ tests 174
 ℹ suites 0
-ℹ pass 162
+ℹ pass 167
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 7
+ℹ duration_ms 4097.540797
+
+✖ failing tests:
+
+test at tests/flow.test.ts:175:1
+⚠ live-head end-to-end review and merge acceptance remains RED (2.003625ms) # Requires enforced agent scopes and durable fenced publication; the passing merge transport unit test is not end-to-end acceptance
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   'needs_human'
+  -   'success'
+    ]
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-private-gitdir/examples/babysitter/tests/flow.test.ts:177:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'needs_human' ],
+    expected: [ 'success' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests/platform.test.ts:14:3
+⚠ atomicPrPublication (2.008614ms) # Provider per-PR serialization + head-guarded idempotent owned-comment upsert
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-private-gitdir/examples/babysitter/tests/platform.test.ts:14:49)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/platform.test.ts:14:3
+⚠ durableCrossRunNotification (0.403763ms) # Durable per-head notification receipt and atomic delivery claim
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-private-gitdir/examples/babysitter/tests/platform.test.ts:14:49)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/platform.test.ts:14:3
+⚠ journaledCiObservation (0.325477ms) # Journal-backed script-memory write/recall across runs (memory.learn currently refuses)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-private-gitdir/examples/babysitter/tests/platform.test.ts:14:49)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/platform.test.ts:14:3
+⚠ enforcedAgentWriteScope (0.232323ms) # Enforced readonly agent workspace and credential scopes (gate 8 / #442)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-private-gitdir/examples/babysitter/tests/platform.test.ts:14:49)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/platform.test.ts:14:3
+⚠ selectiveAgentExitRetry (0.183943ms) # Typed agent exit-code/retry policy in authored Step; AgentResult has summary/artifacts and success/timeout completionReason
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-private-gitdir/examples/babysitter/tests/platform.test.ts:14:49)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/platform.test.ts:14:3
+⚠ durableSubscriptionLiveness (0.15583ms) # Durable cross-run wake records for the liveness sweep; a subscription that stops firing is currently indistinguishable from a quiet one
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-private-gitdir/examples/babysitter/tests/platform.test.ts:14:49)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

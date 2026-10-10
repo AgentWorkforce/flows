@@ -160,17 +160,48 @@ export interface ProposalInput {
  */
 export async function proposeChanges(c: ProposalInput): Promise<void> {
   const { execFileSync } = await import('node:child_process');
-  const { rmSync, writeFileSync } = await import('node:fs');
-  // The agent could write .git: an external diff, a clean filter or a hook
-  // would otherwise run here, and its diff settings would change the patch
-  // format Cloud parses. Reset them before git runs.
-  writeFileSync(`${c.dir}/.git/config`, '[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n');
-  rmSync(`${c.dir}/.git/hooks`, { recursive: true, force: true });
-  rmSync(`${c.dir}/.git/info/attributes`, { force: true });
+  const { copyFileSync, lstatSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { resolve } = await import('node:path');
+  // The agent could write .git: a config with an external diff, a clean
+  // filter or fsmonitor, a hook, or attributes would otherwise run here, and
+  // its diff settings would change the patch format Cloud parses. And the
+  // sandbox may leave .git unwritable after the agent step. So git never
+  // reads the checkout's .git as a repository: it runs in a fresh private
+  // git dir that only borrows the checkout's objects (read-only, via
+  // alternates) and a copy of its index (which keeps any unmerged stages,
+  // and the shared index files a split index points at).
+  const environment = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: '/dev/null', GIT_CONFIG_KEY_1: 'core.quotePath', GIT_CONFIG_VALUE_1: 'false' };
+  const checkoutGit = resolve(c.dir, '.git');
+  const scratch = mkdtempSync(`${tmpdir()}/babysitter-gitdir-`);
+  try {
+  execFileSync('git', ['init', '-q', scratch], { stdio: 'ignore', env: environment });
+  const gitDir = `${scratch}/.git`;
+  writeFileSync(`${gitDir}/objects/info/alternates`, `${checkoutGit}/objects\n`);
+  // Regular files only: the agent controls .git, and a FIFO, directory or
+  // symlink by one of these names would block or throw in copyFileSync. The
+  // copy keeps the index's mtime: git rechecks the content of an entry no
+  // older than its index, and a fresh mtime would hide a same-size edit made
+  // in the same timestamp tick as the index (racy git).
+  // The conflict guards read the unmerged stages in the active index, so a
+  // missing or non-regular one (say, a symlink to a moved index) refuses
+  // rather than being treated as absent.
+  if (!lstatSync(`${checkoutGit}/index`, { throwIfNoEntry: false })?.isFile())
+    return process.stdout.write(JSON.stringify({ kind: 'babysitter-refusal', reason: "the checkout's .git/index is missing or not a regular file" }));
+  for (const name of readdirSync(checkoutGit)) {
+    if (name !== 'index' && !name.startsWith('sharedindex.')) continue;
+    const stat = lstatSync(`${checkoutGit}/${name}`);
+    if (!stat.isFile()) continue;
+    copyFileSync(`${checkoutGit}/${name}`, `${gitDir}/${name}`);
+    utimesSync(`${gitDir}/${name}`, stat.atime, stat.mtime);
+  }
   const buffer = c.limits.bufferBytes ?? 8 * 1024 * 1024;
-  const gitWith = (maxBuffer: number, ...args: string[]) => String(execFileSync('git', ['-C', c.dir, ...args], {
-    encoding: 'utf8', maxBuffer, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: '/dev/null', GIT_CONFIG_KEY_1: 'core.quotePath', GIT_CONFIG_VALUE_1: 'false' },
+  // Run from the checkout, so a path argument means the same file it did
+  // under `git -C <checkout>`.
+  const cwd = resolve(c.dir);
+  const where = ['--git-dir', gitDir, '--work-tree', cwd];
+  const gitWith = (maxBuffer: number, ...args: string[]) => String(execFileSync('git', [...where, ...args], {
+    encoding: 'utf8', maxBuffer, stdio: ['ignore', 'pipe', 'pipe'], env: environment, cwd,
   }));
   const git = (...args: string[]) => gitWith(8 * 1024 * 1024, ...args);
   const diff = ['diff', '--cached', '--no-renames', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/'];
@@ -188,7 +219,7 @@ export async function proposeChanges(c: ProposalInput): Promise<void> {
     // refused rather than crashing the run.
     const blobIsBinary = (blob: string) => {
       try {
-        const bytes = run('git', ['-C', c.dir, 'cat-file', 'blob', blob], { maxBuffer: buffer, stdio: ['ignore', 'pipe', 'ignore'] });
+        const bytes = run('git', [...where, 'cat-file', 'blob', blob], { maxBuffer: buffer, stdio: ['ignore', 'pipe', 'ignore'], env: environment, cwd });
         return bytes.subarray(0, 8000).includes(0);
       } catch { return true; }
     };
@@ -266,6 +297,9 @@ export async function proposeChanges(c: ProposalInput): Promise<void> {
     });
   if (Buffer.byteLength(out) > c.limits.proposalBytes) return refuse('proposal exceeds the journal output bound');
   process.stdout.write(out);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 }
 
 /** The previous run's agent session, when this box still holds its checkout. */
