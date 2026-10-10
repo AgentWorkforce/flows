@@ -1,5 +1,5 @@
 $ (cd packages/sdk && ./node_modules/.bin/vitest run tests/shipped-source-models.test.ts)
- ✓ tests/shipped-source-models.test.ts (2 tests) 167282ms
-   ✓ first-party shipped source model pins > gives every TypeScript agent and LLM an explicit supported pair or a pinned named-agent declaration 167249ms
+ ✓ tests/shipped-source-models.test.ts (2 tests) 128890ms
+   ✓ first-party shipped source model pins > gives every TypeScript agent and LLM an explicit supported pair or a pinned named-agent declaration 128859ms
  Test Files  1 passed (1)
       Tests  2 passed (2)

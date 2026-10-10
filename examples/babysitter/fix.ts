@@ -139,7 +139,11 @@ export interface ProposalInput {
   summary: string; replies: { commentId: number; body: string }[];
   /** `resolve_conflict` only: the trunk commit merged into the head (the merge commit's second parent). */
   mergeParent?: string;
-  limits: { patchBytes: number; files: number; proposalBytes: number; refused: string; meta: string };
+  limits: {
+    patchBytes: number; files: number; proposalBytes: number; summaryChars: number; refused: string; meta: string;
+    /** The most patch output read at all (default 8 MiB); more is over the cap, not a crash. */
+    bufferBytes?: number;
+  };
 }
 
 /**
@@ -163,12 +167,32 @@ export async function proposeChanges(c: ProposalInput): Promise<void> {
   writeFileSync(`${c.dir}/.git/config`, '[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n');
   rmSync(`${c.dir}/.git/hooks`, { recursive: true, force: true });
   rmSync(`${c.dir}/.git/info/attributes`, { force: true });
-  const git = (...args: string[]) => String(execFileSync('git', ['-C', c.dir, ...args], {
-    encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'],
+  const buffer = c.limits.bufferBytes ?? 8 * 1024 * 1024;
+  const gitWith = (maxBuffer: number, ...args: string[]) => String(execFileSync('git', ['-C', c.dir, ...args], {
+    encoding: 'utf8', maxBuffer, stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: '/dev/null', GIT_CONFIG_KEY_1: 'core.quotePath', GIT_CONFIG_VALUE_1: 'false' },
   }));
+  const git = (...args: string[]) => gitWith(8 * 1024 * 1024, ...args);
   const diff = ['diff', '--cached', '--no-renames', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/'];
   const refuse = (reason: string) => process.stdout.write(JSON.stringify({ kind: 'babysitter-refusal', reason }));
+  if (c.mergeParent) {
+    // Staging clears the unmerged index. Git leaves a binary conflict as the
+    // PR's side with no markers, so one the agent never touched would publish
+    // the PR's blob and drop trunk's. Refuse those before staging.
+    const { readFileSync } = await import('node:fs');
+    const unmerged = git('diff', '--name-only', '--diff-filter=U', '-z').split('\0').filter(Boolean);
+    const untouched = unmerged.filter(path => {
+      const stages = git('ls-files', '-u', '-z', '--', path).split('\0').filter(Boolean)
+        .map(line => ({ stage: line.split(/\s+/)[2], blob: line.split(/\s+/)[1] }));
+      const ours = stages.find(s => s.stage === '2')?.blob;
+      const theirs = stages.find(s => s.stage === '3')?.blob;
+      if (!ours || !theirs || ours === theirs) return false;
+      let content: Uint8Array;
+      try { content = readFileSync(`${c.dir}/${path}`); } catch { return false; }
+      return content.subarray(0, 8000).includes(0) && git('hash-object', '--', path).trim() === ours;
+    });
+    if (untouched.length) return refuse(`unresolved conflict(s) in binary file(s): ${untouched.slice(0, 5).join(', ')}`);
+  }
   git('add', '-A');
   // NUL-delimited: a newline in a name cannot split it. A name git would
   // have to quote in the patch is refused outright, so the paths Cloud parses
@@ -193,14 +217,27 @@ export async function proposeChanges(c: ProposalInput): Promise<void> {
     if (marked.length) return refuse(`conflict markers remain in ${marked.slice(0, 5).join(', ')}`);
   }
   const wide = files.length > c.limits.files;
-  const patch = wide ? '' : git(...diff, '--binary', '--full-index', c.head);
+  let patch = '';
+  let unreadable = false;
+  if (!wide) {
+    try { patch = gitWith(buffer, ...diff, '--binary', '--full-index', c.head); } catch (error) {
+      const code = (error as { code?: unknown }).code;
+      if (code !== 'ENOBUFS' && !/maxBuffer/.test(String((error as { message?: unknown }).message))) throw error;
+      unreadable = true;
+    }
+  }
   const over = wide ? `changes ${files.length} files; at most ${c.limits.files}`
+    : unreadable ? `patch is larger than ${buffer} bytes; at most ${c.limits.patchBytes}`
     : Buffer.byteLength(patch) > c.limits.patchBytes ? `patch is ${Buffer.byteLength(patch)} bytes; at most ${c.limits.patchBytes}` : undefined;
   if (over && !c.mergeParent) return refuse(over);
   const out = JSON.stringify(over
     ? {
       kind: 'babysitter-proposal', schemaVersion: 1, pullRequest: c.pullRequest, baseHead: c.head, files: [], patch: '',
-      summary: `${c.summary}\n\nThe conflict resolution was not published: the merge ${over}. A person needs to resolve it.`,
+      // The explanation always shows; the agent's summary yields room for it.
+      summary: (() => {
+        const why = `\n\nThe conflict resolution was not published: the merge ${over}. A person needs to resolve it.`;
+        return `${c.summary.slice(0, Math.max(0, c.limits.summaryChars - why.length))}${why}`;
+      })(),
       replies: c.replies, unpublished: over,
     }
     : {
@@ -235,7 +272,7 @@ export type Proposal =
 export async function propose(f: Ctx, input: Omit<ProposalInput, 'limits'>): Promise<Proposal> {
   const value = JSON.parse(await f.run(nodeCommand(proposeChanges, {
     ...input,
-    limits: { patchBytes: PATCH_MAX_BYTES, files: PATCH_MAX_FILES, proposalBytes: PROPOSAL_MAX_BYTES, refused: REFUSED_PATHS, meta: DRIZZLE_META },
+    limits: { patchBytes: PATCH_MAX_BYTES, files: PATCH_MAX_FILES, proposalBytes: PROPOSAL_MAX_BYTES, summaryChars: SUMMARY_MAX_CHARS, refused: REFUSED_PATHS, meta: DRIZZLE_META },
   }), { timeout: '2m' }));
   if (value.kind === 'babysitter-refusal' && typeof value.reason === 'string') return value;
   if (value.kind !== 'babysitter-proposal' || value.baseHead !== input.head || !Array.isArray(value.files) || typeof value.patch !== 'string')

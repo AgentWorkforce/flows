@@ -80,10 +80,22 @@ async function afterAgent(f: Ctx, a: FixerAdmitted, dir: string, summary: string
   }
   // (8) One journaled proposal. Cloud publishes it; this run never writes code to GitHub.
   const outcome = parseOutcome(summary);
+  const replies = threadReplies(a, outcome.replies);
+  // answer_threads exists to answer the requested threads: one left without
+  // a reply would leave the merge train held while the run says success.
+  if (a.task?.kind === 'answer_threads') {
+    const inline = a.changed.reviewFeedback.filter(r => r.kind === 'inline');
+    const replied = new Set(replies.map(r => inline.find(i => i.id === r.commentId)?.thread ?? r.commentId));
+    const unanswered = [...new Set(inline.map(r => r.thread ?? r.id))].filter(t => !replied.has(t));
+    if (unanswered.length) {
+      await report(`${wake.id}: no reply for requested thread(s) ${unanswered.map(t => `#${t}`).join(', ')}`);
+      return { reason: 'needs_human', detail: `Babysitter left requested thread(s) unanswered: ${unanswered.map(t => `#${t}`).join(', ')}` };
+    }
+  }
   const proposal = await propose(f, {
     dir, head, pullRequest: { owner: pr.owner, repo: pr.repo, number: pr.number },
     summary: neutralise(outcome.summary, origin.firstPrompt).slice(0, SUMMARY_MAX_CHARS),
-    replies: threadReplies(a, outcome.replies),
+    replies,
     ...(a.task?.kind === 'resolve_conflict' ? { mergeParent: a.task.trunkSha } : {}),
   });
   if (proposal.kind === 'babysitter-refusal') {

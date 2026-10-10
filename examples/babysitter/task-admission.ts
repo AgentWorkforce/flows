@@ -50,7 +50,9 @@ async function taskChanges(f: Ctx, pr: StandaloneBoundPullRequest, head: string,
     botLogin: configured.botLogin, author: String(live.author ?? ''), reviewBots: configured.reviewBots, ownAgents: configured.ownAgents,
   });
   const wanted = new Set(task.threadIds);
-  const reviewFeedback = signals.reviewFeedback.filter(r => r.kind === 'inline' && wanted.has(r.id));
+  // A follow-up in a requested thread carries that thread's root in `thread`;
+  // replies still go to each comment's own id (fixer.ts threadReplies).
+  const reviewFeedback = signals.reviewFeedback.filter(r => r.kind === 'inline' && wanted.has(r.thread ?? r.id));
   return reviewFeedback.length ? { failingChecks: [], changeRequests: [], reviewFeedback } : undefined;
 }
 

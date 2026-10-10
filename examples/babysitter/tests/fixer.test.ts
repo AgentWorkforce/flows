@@ -130,7 +130,7 @@ async function runPropose(dir: string, base: string, limits: Partial<{ patchByte
   process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
   try {
     await proposeChanges({ dir, head: base, pullRequest: { owner: 'acme', repo: 'widgets', number: 7 }, summary: 's', replies: [],
-      limits: { patchBytes: 36_000, files: 50, proposalBytes: 50_000, refused: REFUSED_PATHS, meta: DRIZZLE_META, ...limits } });
+      limits: { patchBytes: 36_000, files: 50, proposalBytes: 50_000, summaryChars: 4_000, refused: REFUSED_PATHS, meta: DRIZZLE_META, ...limits } });
   } finally { process.stdout.write = saved; }
   return JSON.parse(out);
 }

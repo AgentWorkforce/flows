@@ -130,7 +130,7 @@ a typed task instead of a GitHub delivery (`task.ts`, `task-admission.ts`).
   "event": { "provider": "merge_train", "eventType": "merge_train.task", "deliveryId": "<[A-Za-z0-9_.:-]{1,200}>" },
   "babysitter": {
     "pullRequest": { "owner": "acme", "repo": "widgets", "number": 7, "headSha": "<claimed head>" },
-    "originContext": { … },   // as for any run: no origin, no agent
+    "originContext": { … },   // required for every run; without it the run ends needs_human before any agent
     "task": { "kind": "fix_ci", "checks": [{ "name": "…", "conclusion": "failure", "logTail": "<≤ 6,000 chars>" }] }   // 1–20 checks
          // | { "kind": "answer_threads", "threadIds": [11, 12] }                                                    // 1–50 distinct ids
          // | { "kind": "resolve_conflict", "trunkSha": "<40-hex trunk commit>" }
@@ -201,7 +201,10 @@ every other proposal stays schema 1, byte-compatible with today's parser.
    paths; those are trunk's, which is why the rule is on the delta.)
 4. Treat `unpublished` (or an empty patch) as summary-only: post the
    summary, push nothing.
-5. Refuse any proposal touching drizzle metadata (`packages/web/drizzle/meta/`).
+5. Refuse drizzle metadata (`packages/web/drizzle/meta/`) in what the agent
+   authored: the patch for schema 1, and for schema 2 the tree delta against
+   `mergeParent` (trunk's own metadata changes ride in the head -> merged
+   patch and are not the agent's).
 
 ## Verify
 

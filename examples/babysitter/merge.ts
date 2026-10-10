@@ -36,8 +36,19 @@ export async function mergeTrunk(c: { dir: string; owner: string; repo: string; 
   git('fetch', '-q', '--no-tags', '--deepen=500', url, c.head);
   let mergeBase: string;
   try { mergeBase = git('merge-base', c.head, c.trunkSha); } catch { return refuse('no merge base between the head and trunk within the fetched history'); }
-  try { git('merge', '-q', '--no-commit', '--no-ff', c.trunkSha); } catch { /* conflicts are listed below */ }
+  let failure: string | undefined;
+  try { git('merge', '-q', '--no-commit', '--no-ff', c.trunkSha); } catch (error) {
+    failure = String((error as { stderr?: unknown }).stderr ?? error).split('\n').find(Boolean) ?? 'git merge failed';
+  }
   const conflicts = git('diff', '--name-only', '--diff-filter=U', '-z').split('\0').filter(Boolean);
+  // Only a merge in progress counts: a conflict exit leaves unmerged paths, a
+  // clean --no-commit merge leaves MERGE_HEAD. A refusal before the merge
+  // starts (an untracked file in the way) leaves neither, and must not read
+  // as "trunk is merged".
+  let mergeHead = '';
+  try { mergeHead = git('rev-parse', '-q', '--verify', 'MERGE_HEAD'); } catch { /* no merge in progress */ }
+  if (mergeHead !== c.trunkSha || (failure !== undefined && conflicts.length === 0))
+    return refuse(`the merge did not start: ${failure ?? 'no merge in progress'}`);
   const metaConflicts = conflicts.filter(p => new RegExp(c.meta).test(p));
   process.stdout.write(JSON.stringify({ kind: 'babysitter-merge', mergeBase, conflicts, metaConflicts }));
 }
