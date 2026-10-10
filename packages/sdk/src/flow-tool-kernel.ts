@@ -52,8 +52,6 @@ interface RunBinding {
   flow_digest: string;
   input_digest: string;
   principal_digest: string;
-  catalog_digest: string;
-  business_verdict: string;
 }
 
 interface JournalEntry {
@@ -103,6 +101,12 @@ async function loadDeployment(deployment: KernelFlowToolDeployment): Promise<Loa
   try { entry = parseFlowToolEntry(deployment.entry); } catch { runtimeFailure('invalid_contract'); }
   if (entry.effects.length !== 0 || entry.requires_human.length !== 0
     || !entry.business_verdicts.includes(deployment.businessVerdict)) runtimeFailure();
+  // This runtime prints the invocation input and nothing else. A result schema
+  // that is not that same document would journal success and then have to
+  // invent a different public reason. Refuse the deployment instead.
+  if (canonicalize(entry.manifest.inputSchema) !== canonicalize(entry.manifest.resultSchema)) {
+    runtimeFailure('unsupported');
+  }
   const expected = entry.manifest.flow.digest.slice('sha256:'.length);
   try {
     const before = await readFile(join(deployment.bundlePath, 'spec.canonical.json'));
@@ -132,13 +136,11 @@ function parseBinding(entries: readonly JournalEntry[]): RunBinding {
     if (!record(value) || value['kind'] !== 'relayflows.flow-tool-run.v1'
       || typeof value['deployment_id'] !== 'string' || typeof value['manifest_digest'] !== 'string'
       || typeof value['flow_digest'] !== 'string' || typeof value['input_digest'] !== 'string'
-      || typeof value['principal_digest'] !== 'string' || typeof value['catalog_digest'] !== 'string'
-      || typeof value['business_verdict'] !== 'string'
+      || typeof value['principal_digest'] !== 'string'
       || !/^sha256:[a-f0-9]{64}$/.test(value['manifest_digest'])
       || !/^sha256:[a-f0-9]{64}$/.test(value['flow_digest'])
       || !/^sha256:[a-f0-9]{64}$/.test(value['input_digest'])
-      || !/^[a-f0-9]{64}$/.test(value['principal_digest'])
-      || !/^[a-f0-9]{64}$/.test(value['catalog_digest'])) runtimeFailure('invalid_contract');
+      || !/^[a-f0-9]{64}$/.test(value['principal_digest'])) runtimeFailure('invalid_contract');
     return value as unknown as RunBinding;
   } catch (error) {
     if (error instanceof FlowToolError) throw error;
@@ -209,9 +211,7 @@ export async function createKernelFlowToolControlPlane(
     const deployment = deployments.get(binding.deployment_id);
     if (deployment === undefined || !authorized(deployment) || binding.principal_digest !== principalDigest
       || binding.manifest_digest !== deployment.entry.manifest.digest
-      || binding.flow_digest !== deployment.entry.manifest.flow.digest
-      || binding.catalog_digest !== sha256(canonicalize(deployment.entry))
-      || binding.business_verdict !== deployment.businessVerdict) throw new FlowToolError('not_authorized');
+      || binding.flow_digest !== deployment.entry.manifest.flow.digest) throw new FlowToolError('not_authorized');
     return { deployment, binding, entries: entries! };
   }
 
@@ -225,11 +225,12 @@ export async function createKernelFlowToolControlPlane(
     if (reason === null && ['failed', 'interrupted'].includes(snapshot!.status)) reason = 'execution_failed';
     let result: Readonly<Record<string, FlowToolJson>> | null = null;
     if (reason === 'success') {
-      try {
-        const output = completed?.payload['output'];
-        if (!record(output) || typeof output['stdout_tail'] !== 'string') throw new Error('missing output');
-        result = validateFlowToolResult(deployment.entry.manifest, JSON.parse(output['stdout_tail']));
-      } catch { reason = 'execution_failed'; }
+      // The journal already recorded success. Do not publish a different
+      // terminal reason from a projection-time check the journal never stored.
+      const output = completed?.payload['output'];
+      if (!record(output) || typeof output['stdout_tail'] !== 'string') throw new FlowToolError('unavailable');
+      try { result = validateFlowToolResult(deployment.entry.manifest, JSON.parse(output['stdout_tail'])); }
+      catch { throw new FlowToolError('unavailable'); }
     }
     const state = runState(snapshot!.status, reason);
     const sequence = Math.max(0, ...entries.map(entry => entry.seq));
@@ -278,10 +279,13 @@ export async function createKernelFlowToolControlPlane(
         const body = parseFlowToolInvocation(request.body, deployment.entry);
         const encoded = canonicalize(body.input);
         if (Buffer.byteLength(encoded) > MAX_RESULT_BYTES) throw new FlowToolError('unsupported');
+        // Catalog bytes and the operator verdict label are not part of the
+        // admitted program. Putting them in the spec description changes the
+        // kernel spec hash, so a budget or verdict reload conflicts with the
+        // same operation key and the original run can no longer be read.
         const binding: RunBinding = { kind: 'relayflows.flow-tool-run.v1', deployment_id: deployment.entry.deployment_id,
           manifest_digest: deployment.entry.manifest.digest, flow_digest: deployment.entry.manifest.flow.digest,
-          input_digest: body.input_digest, principal_digest: principalDigest,
-          catalog_digest: sha256(canonicalize(deployment.entry)), business_verdict: deployment.businessVerdict };
+          input_digest: body.input_digest, principal_digest: principalDigest };
         const step = deployment.template.steps[0]! as unknown as KernelArgvStep;
         const spec: KernelRunSpec = { ...deployment.template, description: bindingDescription(binding), steps: [{
           ...step, command: [step.command[0]!, '%s', encoded],

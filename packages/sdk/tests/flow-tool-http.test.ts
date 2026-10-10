@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createFlowToolHttpTransport } from '../src/flow-tool-http.js';
 import { FlowToolClient } from '../src/flow-tool-client.js';
-import { flowToolInputDigest, flowToolRunLinks } from '../src/flow-tool-wire.js';
+import { FLOW_TOOL_ENVELOPE_LIMITS, flowToolInputDigest, flowToolRunLinks } from '../src/flow-tool-wire.js';
 import { entry } from './flow-tool-control-fixture.js';
 import type { FlowToolRunV1 } from '../src/flow-tool-contract.js';
 
@@ -60,6 +60,17 @@ describe('explicit authenticated Flow Tool HTTP transport (fetch fixtures)', () 
     const fetcher = vi.fn<typeof fetch>();
     await expect(transport(fetcher).request({ method: 'GET', path })).rejects.toMatchObject({ code: 'invalid_contract' });
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('reads a JSON body larger than one document budget and still under the envelope budget', async () => {
+    const pad = 'a'.repeat(300_000);
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ pad }), { headers: { 'content-type': 'application/json' } }));
+    await expect(transport(fetcher).request({ method: 'GET', path: '/api/v1/flow-tools' })).resolves.toEqual({ pad });
+  });
+
+  it('refuses a response above the envelope budget', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response('x'.repeat(FLOW_TOOL_ENVELOPE_LIMITS.maxBytes + 1), { headers: { 'content-type': 'application/json' } }));
+    await expect(transport(fetcher).request({ method: 'GET', path: '/api/v1/flow-tools' })).rejects.toMatchObject({ code: 'invalid_contract' });
   });
 
   it.each([

@@ -2,6 +2,7 @@ import { canonicalize } from './canonical.js';
 import { cloudConnection } from './cloud-http.js';
 import { FlowToolError } from './flow-tool-contract.js';
 import { flowToolOperationKey, type FlowToolRequest, type FlowToolTransport } from './flow-tool-client.js';
+import { FLOW_TOOL_ENVELOPE_LIMITS } from './flow-tool-wire.js';
 
 export interface FlowToolHttpOptions {
   /** Explicit trusted HTTPS API origin/base path. No implicit production endpoint. */
@@ -77,7 +78,7 @@ export function createFlowToolHttpTransport(options: FlowToolHttpOptions): FlowT
           ...(request.body === undefined ? {} : { body: canonicalize(request.body) }),
         }, 'application/json');
         let body = '';
-        for await (const chunk of chunks(result, 262144)) body += chunk;
+        for await (const chunk of chunks(result, FLOW_TOOL_ENVELOPE_LIMITS.maxBytes)) body += chunk;
         try { return JSON.parse(body); } catch { throw new FlowToolError('invalid_contract'); }
       } catch (error) { return safeError(error); }
     },
