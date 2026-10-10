@@ -1,7 +1,7 @@
-# flows#646 mutation evidence. Produced from the repository root by running, verbatim:
+# flows#646 mutation evidence. Produced from the repository root, at the commit that contains this file's script, by running verbatim:
 #   bash examples/babysitter/evidence/p2-task-modes/scripts/mutation.sh
-# The script is committed at examples/babysitter/evidence/p2-task-modes/scripts/mutation.sh. Each '+ ' line below is the command, printed shell-escaped (printf %q); everything else is its captured output, unedited.
-# A mutation edit that fails to apply aborts the script; its EXIT trap restores fix.ts either way. M3 reverts to the PR's base commit 620dc0da (immutable).
+# The script is committed at examples/babysitter/evidence/p2-task-modes/scripts/mutation.sh. Each '+ ' line below is the exact command run, printed shell-escaped (printf %q); everything else is its captured output, unedited.
+# Mutations start from fix.ts as committed at HEAD and are restored with 'git restore --source=HEAD'; the EXIT trap restores it on any failure. M3 reverts to the PR's base commit 620dc0da (immutable).
 # Restore check: the sha256 after each restore must equal the first line.
 # ---- output ----
 + sha256sum fix.ts
@@ -13,7 +13,7 @@
  examples/babysitter/fix.ts | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 + node --experimental-strip-types --test --test-name-pattern=split tests/task.test.ts
-✖ proposes from a checkout whose index the agent split (1208.297442ms)
+✖ proposes from a checkout whose index the agent split (185.359892ms)
 ℹ tests 1
 ℹ suites 0
 ℹ pass 0
@@ -21,14 +21,14 @@
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 1712.00134
+ℹ duration_ms 310.645557
 
 ✖ failing tests:
 
 test at tests/task.test.ts:242:1
-✖ proposes from a checkout whose index the agent split (1208.297442ms)
-  Error: Command failed: git --git-dir /home/khaliqgant/.agent-tmp/babysitter-gitdir-ZOoSaq/.git --work-tree /home/khaliqgant/.agent-tmp/babysitter-checkout-aS8FKk add -A
-  fatal: /home/khaliqgant/.agent-tmp/babysitter-gitdir-ZOoSaq/.git/sharedindex.c8eddda7d0baf3e491041f391fa58965920aa087: index file open failed: No such file or directory
+✖ proposes from a checkout whose index the agent split (185.359892ms)
+  Error: Command failed: git --git-dir /home/khaliqgant/.agent-tmp/babysitter-gitdir-WY75js/.git --work-tree /home/khaliqgant/.agent-tmp/babysitter-checkout-Z4VAXB add -A
+  fatal: /home/khaliqgant/.agent-tmp/babysitter-gitdir-WY75js/.git/sharedindex.bfbdf21c9fcb9fb19c844a6cc78551d50fcf640e: index file open failed: No such file or directory
   
       at genericNodeError (node:internal/errors:999:15)
       at wrappedFn (node:internal/errors:544:14)
@@ -42,12 +42,12 @@ test at tests/task.test.ts:242:1
       at async Test.run (node:internal/test_runner/test:1409:7) {
     status: 128,
     signal: null,
-    output: [ null, '', 'fatal: /home/khaliqgant/.agent-tmp/babysitter-gitdir-ZOoSaq/.git/sharedindex.c8eddda7d0baf3e491041f391fa58965920aa087: index file open failed: No such file or directory\n' ],
-    pid: 2864801,
+    output: [ null, '', 'fatal: /home/khaliqgant/.agent-tmp/babysitter-gitdir-WY75js/.git/sharedindex.bfbdf21c9fcb9fb19c844a6cc78551d50fcf640e: index file open failed: No such file or directory\n' ],
+    pid: 2934751,
     stdout: '',
-    stderr: 'fatal: /home/khaliqgant/.agent-tmp/babysitter-gitdir-ZOoSaq/.git/sharedindex.c8eddda7d0baf3e491041f391fa58965920aa087: index file open failed: No such file or directory\n'
+    stderr: 'fatal: /home/khaliqgant/.agent-tmp/babysitter-gitdir-WY75js/.git/sharedindex.bfbdf21c9fcb9fb19c844a6cc78551d50fcf640e: index file open failed: No such file or directory\n'
   }
-+ cp /home/khaliqgant/.agent-tmp/tmp.nF5G5YfAdE/fix.ts fix.ts
++ git restore --source=HEAD -- fix.ts
 + sha256sum fix.ts
 880753a90f16de6681c6876737a4157ebf6822c12adcd17f79de537a26ef51bb  fix.ts
 
@@ -75,7 +75,7 @@ index 635a2b2a..7406c8ab 100644
    // Run from the checkout, so a path argument means the same file it did
    // under `git -C <checkout>`.
 + node --experimental-strip-types --test --test-name-pattern=scratch\ behind tests/task.test.ts
-✖ a proposal whose private git dir cannot be set up leaves no scratch behind (1137.998818ms)
+✖ a proposal whose private git dir cannot be set up leaves no scratch behind (164.884049ms)
 ℹ tests 1
 ℹ suites 0
 ℹ pass 0
@@ -83,17 +83,17 @@ index 635a2b2a..7406c8ab 100644
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 1544.046914
+ℹ duration_ms 306.862628
 
 ✖ failing tests:
 
 test at tests/task.test.ts:263:1
-✖ a proposal whose private git dir cannot be set up leaves no scratch behind (1137.998818ms)
+✖ a proposal whose private git dir cannot be set up leaves no scratch behind (164.884049ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
   + actual - expected
   
   + [
-  +   'babysitter-gitdir-TTEpmg'
+  +   'babysitter-gitdir-x3WGv5'
   + ]
   - []
   
@@ -102,20 +102,19 @@ test at tests/task.test.ts:263:1
       at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
     generatedMessage: true,
     code: 'ERR_ASSERTION',
-    actual: [ 'babysitter-gitdir-TTEpmg' ],
+    actual: [ 'babysitter-gitdir-x3WGv5' ],
     expected: [],
     operator: 'deepStrictEqual',
     diff: 'simple'
   }
-+ cp /home/khaliqgant/.agent-tmp/tmp.nF5G5YfAdE/fix.ts fix.ts
++ git restore --source=HEAD -- fix.ts
 + sha256sum fix.ts
 880753a90f16de6681c6876737a4157ebf6822c12adcd17f79de537a26ef51bb  fix.ts
 
 ### M3: fix.ts from the PR's base 620dc0daa48bf4fccc1c1518e52d3edcc2433746 (rewrites the checkout's .git/config)
-+ git show 620dc0daa48bf4fccc1c1518e52d3edcc2433746:examples/babysitter/fix.ts
-+ cp /home/khaliqgant/.agent-tmp/tmp.nF5G5YfAdE/base.ts fix.ts
++ git restore --source=620dc0daa48bf4fccc1c1518e52d3edcc2433746 -- fix.ts
 + node --experimental-strip-types --test --test-name-pattern=unwritable tests/task.test.ts
-✖ proposes from a checkout whose .git the sandbox left unwritable, touching nothing in it (1332.183779ms)
+✖ proposes from a checkout whose .git the sandbox left unwritable, touching nothing in it (167.254286ms)
 ℹ tests 1
 ℹ suites 0
 ℹ pass 0
@@ -123,13 +122,13 @@ test at tests/task.test.ts:263:1
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 2083.513881
+ℹ duration_ms 285.067126
 
 ✖ failing tests:
 
 test at tests/task.test.ts:223:1
-✖ proposes from a checkout whose .git the sandbox left unwritable, touching nothing in it (1332.183779ms)
-  Error: EACCES: permission denied, open '/home/khaliqgant/.agent-tmp/babysitter-checkout-lsjhuq/.git/config'
+✖ proposes from a checkout whose .git the sandbox left unwritable, touching nothing in it (167.254286ms)
+  Error: EACCES: permission denied, open '/home/khaliqgant/.agent-tmp/babysitter-checkout-Wg78Mw/.git/config'
       at writeFileSync (node:fs:2997:20)
       at proposeChanges (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-private-gitdir/examples/babysitter/fix.ts:167:3)
       at async capture (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-private-gitdir/examples/babysitter/tests/task.test.ts:193:9)
@@ -140,9 +139,9 @@ test at tests/task.test.ts:223:1
     errno: -13,
     code: 'EACCES',
     syscall: 'open',
-    path: '/home/khaliqgant/.agent-tmp/babysitter-checkout-lsjhuq/.git/config'
+    path: '/home/khaliqgant/.agent-tmp/babysitter-checkout-Wg78Mw/.git/config'
   }
-+ cp /home/khaliqgant/.agent-tmp/tmp.nF5G5YfAdE/fix.ts fix.ts
++ git restore --source=HEAD -- fix.ts
 + sha256sum fix.ts
 880753a90f16de6681c6876737a4157ebf6822c12adcd17f79de537a26ef51bb  fix.ts
 + git status --short -- .
@@ -160,7 +159,11 @@ test at tests/task.test.ts:223:1
 Interrupted while running:
 
 ⚠ tests/task.test.ts (tests/task.test.ts:1:1)
-✖ tests/task.test.ts (59855.814643ms)
+
+Interrupted while running:
+
+⚠ tests/task.test.ts (tests/task.test.ts:1:1)
+✖ tests/task.test.ts (59978.953935ms)
 ℹ tests 1
 ℹ suites 0
 ℹ pass 0
@@ -168,14 +171,14 @@ Interrupted while running:
 ℹ cancelled 1
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 59875.326451
+ℹ duration_ms 59982.626848
 
 ✖ failing tests:
 
 test at tests/task.test.ts:1:1
-✖ tests/task.test.ts (59855.814643ms)
+✖ tests/task.test.ts (59978.953935ms)
   'Promise resolution is still pending but the event loop has already resolved'
-+ cp /home/khaliqgant/.agent-tmp/tmp.nF5G5YfAdE/fix.ts fix.ts
++ git restore --source=HEAD -- fix.ts
 + sha256sum fix.ts
 880753a90f16de6681c6876737a4157ebf6822c12adcd17f79de537a26ef51bb  fix.ts
 
@@ -185,7 +188,7 @@ test at tests/task.test.ts:1:1
  examples/babysitter/fix.ts | 2 --
  1 file changed, 2 deletions(-)
 + node --experimental-strip-types --test --test-name-pattern=symlink\,\ or\ deleted tests/task.test.ts
-✖ an index the agent moved behind a symlink, or deleted, refuses instead of hiding the conflict (2788.558501ms)
+✖ an index the agent moved behind a symlink, or deleted, refuses instead of hiding the conflict (245.539853ms)
 ℹ tests 1
 ℹ suites 0
 ℹ pass 0
@@ -193,12 +196,12 @@ test at tests/task.test.ts:1:1
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 3900.327409
+ℹ duration_ms 398.758936
 
 ✖ failing tests:
 
 test at tests/task.test.ts:401:1
-✖ an index the agent moved behind a symlink, or deleted, refuses instead of hiding the conflict (2788.558501ms)
+✖ an index the agent moved behind a symlink, or deleted, refuses instead of hiding the conflict (245.539853ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
   + actual - expected
   
@@ -216,41 +219,41 @@ test at tests/task.test.ts:401:1
     operator: 'strictEqual',
     diff: 'simple'
   }
-+ cp /home/khaliqgant/.agent-tmp/tmp.nF5G5YfAdE/fix.ts fix.ts
++ git restore --source=HEAD -- fix.ts
 + sha256sum fix.ts
 880753a90f16de6681c6876737a4157ebf6822c12adcd17f79de537a26ef51bb  fix.ts
 
 ### Restored: the full suite
 + node --experimental-strip-types --test tests/task.test.ts
-✔ a task is parsed strictly: exact keys, bounded values, a full trunk sha (6.900969ms)
-✔ a malformed task stops the run before any live read or agent (11.08191ms)
-✔ a task run is admitted only from a merge-train event for the bound PR, and a merge-train event never runs without a task (7.752806ms)
-✔ fix_ci admits a merge-train PR with no review feedback and no opt-in label, and gives the agent the failing checks (22.864194ms)
-✔ answer_threads addresses only the requested threads and replies only to them (22.281939ms)
-✔ answer_threads declines without an agent when the requested threads are no longer open (3.10733ms)
-✔ a task run still declines a closed or merged PR, and one whose head moved (2.953884ms)
-✔ resolve_conflict merges trunk before the agent and proposes with trunk as the merge parent (1.890683ms)
-✔ resolve_conflict stops without an agent when drizzle metadata conflicts, and still stashes the checkout (4.158138ms)
-✔ a merge too large to publish ends needs_human with an explanation instead of a patch (2.168401ms)
-✔ proposes from a checkout whose .git the sandbox left unwritable, touching nothing in it (1781.652248ms)
-✔ proposes from a checkout whose index the agent split (1674.888867ms)
-✔ a FIFO, directory or symlink named like a shared index in .git is not copied (1518.048045ms)
-✔ a proposal whose private git dir cannot be set up leaves no scratch behind (1336.037932ms)
-✔ the merge step leaves the conflicts for the agent and names any in drizzle metadata (1703.363404ms)
-✔ a resolved merge proposes schema 2: trunk as merge parent, patch from the head to the merged tree (1595.352178ms)
-✔ a merge that changes trunk outside the PR's own files, or leaves conflict markers, is refused (2615.412144ms)
-✔ a resolved merge over the patch cap publishes no code and says why (1052.225502ms)
-✔ an agent change to drizzle metadata is refused for every proposal (534.622457ms)
-✔ answer_threads acts on a still-open reply in a requested thread, matched by its root (1.097245ms)
-✔ answer_threads ends needs_human, with no proposal, when a requested thread gets no reply (1.29353ms)
-✔ check names never reach the trusted task section, and control characters in them are refused (1.164981ms)
-✔ the merge step refuses when git does not start the merge, instead of reporting a clean merge (543.225097ms)
-✔ an unpublished merge keeps its summary within the summary limit, explanation included (510.309794ms)
-✔ an unresolved binary conflict is refused rather than published as the PR side (454.128397ms)
-✔ an index the agent moved behind a symlink, or deleted, refuses instead of hiding the conflict (790.597693ms)
-✔ a marker-less conflict on a text file (merge=binary) is refused too, not only NUL-bearing files (358.472255ms)
-✔ a conflict blob too large to read is refused, not a crashed run (377.190244ms)
-✔ a merge patch too large to even read publishes no code instead of failing the run (420.657268ms)
+✔ a task is parsed strictly: exact keys, bounded values, a full trunk sha (2.138264ms)
+✔ a malformed task stops the run before any live read or agent (1.537044ms)
+✔ a task run is admitted only from a merge-train event for the bound PR, and a merge-train event never runs without a task (1.406871ms)
+✔ fix_ci admits a merge-train PR with no review feedback and no opt-in label, and gives the agent the failing checks (2.175313ms)
+✔ answer_threads addresses only the requested threads and replies only to them (2.426562ms)
+✔ answer_threads declines without an agent when the requested threads are no longer open (0.460148ms)
+✔ a task run still declines a closed or merged PR, and one whose head moved (0.617301ms)
+✔ resolve_conflict merges trunk before the agent and proposes with trunk as the merge parent (0.780595ms)
+✔ resolve_conflict stops without an agent when drizzle metadata conflicts, and still stashes the checkout (0.465838ms)
+✔ a merge too large to publish ends needs_human with an explanation instead of a patch (0.627439ms)
+✔ proposes from a checkout whose .git the sandbox left unwritable, touching nothing in it (204.674799ms)
+✔ proposes from a checkout whose index the agent split (219.56283ms)
+✔ a FIFO, directory or symlink named like a shared index in .git is not copied (215.654648ms)
+✔ a proposal whose private git dir cannot be set up leaves no scratch behind (196.515526ms)
+✔ the merge step leaves the conflicts for the agent and names any in drizzle metadata (222.24096ms)
+✔ a resolved merge proposes schema 2: trunk as merge parent, patch from the head to the merged tree (345.257206ms)
+✔ a merge that changes trunk outside the PR's own files, or leaves conflict markers, is refused (652.339932ms)
+✔ a resolved merge over the patch cap publishes no code and says why (338.429974ms)
+✔ an agent change to drizzle metadata is refused for every proposal (240.682703ms)
+✔ answer_threads acts on a still-open reply in a requested thread, matched by its root (0.973383ms)
+✔ answer_threads ends needs_human, with no proposal, when a requested thread gets no reply (0.587615ms)
+✔ check names never reach the trusted task section, and control characters in them are refused (0.533274ms)
+✔ the merge step refuses when git does not start the merge, instead of reporting a clean merge (304.715234ms)
+✔ an unpublished merge keeps its summary within the summary limit, explanation included (271.889811ms)
+✔ an unresolved binary conflict is refused rather than published as the PR side (230.524615ms)
+✔ an index the agent moved behind a symlink, or deleted, refuses instead of hiding the conflict (431.919293ms)
+✔ a marker-less conflict on a text file (merge=binary) is refused too, not only NUL-bearing files (245.595657ms)
+✔ a conflict blob too large to read is refused, not a crashed run (247.99643ms)
+✔ a merge patch too large to even read publishes no code instead of failing the run (283.226785ms)
 ℹ tests 29
 ℹ suites 0
 ℹ pass 29
@@ -258,4 +261,4 @@ test at tests/task.test.ts:401:1
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 18606.189397
+ℹ duration_ms 4825.434858
