@@ -10,7 +10,7 @@ import type { SlackCall } from './slack-writeback.js';
 import { checkMcpHeader, McpPreflightError } from './cli/check-typescript.js';
 import { buildMcpProxy, runMcpEffect } from './authored-mcp.js';
 import { AuthoredBudget } from './authored-budget.js';
-import { assertMemoryReachable, authoredMemory, scriptMemoryScope } from './authored-memory.js';
+import { assertMemoryReachable, authoredMemory, journalLearnLedger, MemoryWriteTracker, scriptMemoryScope } from './authored-memory.js';
 import { authoredDeterministicRunner, authoredWorkerRunner } from './authored-worker-step.js';
 import { isSurfaceFlowCompletionReason, isSurfaceRunCompletionReason } from './authored-step-output.js';
 import {
@@ -285,6 +285,7 @@ export async function executeAuthoredFlow<Input = undefined>(
 
   const journalSteps: AuthoredFlowJournalStep[] = [];
   const authoredSteps: AuthoredFlowOperation<unknown>[] = [];
+  const memoryWrites = new MemoryWriteTracker();
   const lifecycle = new AuthoredFlowLifecycle();
   const activities = new AuthoredActivities(journal, options.rootRunId);
   const edgeOverrides = new Map<string, AuthoredStepEdges>();
@@ -563,6 +564,8 @@ export async function executeAuthoredFlow<Input = undefined>(
       scriptMemoryScope(flowPath, definition.name),
       () => assertOperationAllowed('memory', definition.name, requestedCompletion),
       definition.header.memory?.script !== false,
+      memoryWrites,
+      options.rootRunId === undefined ? undefined : journalLearnLedger(journal, options.rootRunId),
     ),
     run: runOperation,
     llm: llmOperation,
@@ -818,6 +821,10 @@ export async function executeAuthoredFlow<Input = undefined>(
     bodyFailure = error;
   }
   if (bodyFailed) {
+    // An in-flight learn must land or fail before this attempt gives the root
+    // back: a re-driven attempt reads the memory-learn stream, and must not
+    // race a commit this one is still making.
+    await memoryWrites.settle();
     try {
       worker.stop(bodyFailure);
       await stopAuthoredOperations(authoredSteps, bodyFailure);
@@ -850,6 +857,8 @@ export async function executeAuthoredFlow<Input = undefined>(
       'missing_completion',
       `flow "${definition.name}" returned without done()`,
     );
+    // Same as a failed body: no learn may outlive the attempt that started it.
+    await memoryWrites.settle();
     try {
       worker.stop(missingCompletion);
       await stopAuthoredOperations(authoredSteps, missingCompletion);
@@ -860,6 +869,14 @@ export async function executeAuthoredFlow<Input = undefined>(
     throw missingCompletion;
   }
   try {
+    // A `learn` whose outcome the body never awaited may have failed, or may
+    // still be racing done(), so the run cannot claim the finding was kept.
+    // Let each settle, then fail the run rather than report success over it.
+    const unawaitedLearns = await memoryWrites.unawaited();
+    if (unawaitedLearns > 0) {
+      throw new AuthoredFlowExecutionError('unawaited_step',
+        `flow "${definition.name}" returned with ${unawaitedLearns} unawaited f.memory.learn call${unawaitedLearns === 1 ? '' : 's'}; await each learn before done()`);
+    }
     await verifyAuthoredOperations(definition.name, authoredSteps, lifecycle);
   } catch (error) {
     try {

@@ -1,7 +1,16 @@
 # Minimal local script-memory example
 
-This slice implements `f.memory.recall` and `f.memory.why` through ai-hist
-0.4.1. Reads have no journal steps. `memory: { script: true }` is already part
+This slice implements `f.memory.recall`, `f.memory.why`, and `f.memory.learn`
+through ai-hist 0.4.1. Reads journal nothing. `learn` stages a compacted
+trajectory file, appends the finding to the durable root run's
+`memory-learn` stream, then renames the file into place at
+`<db-dir>/flows-memory/<scope-hash>/.trajectories/compacted/<id>.json`; the
+file cites the commit. ai-hist 0.4.1 has no trajectory writer and its database is
+never modified; reads merge the database with the scope's learned files. A
+resumed body re-running `learn` republishes from the commit instead of
+journaling twice, and `learn` refuses (`memory_unjournaled`) without a root
+run. `tests/memory-learn-live.test.ts` exercises it through the built CLI and
+a real kernel. `memory: { script: true }` is already part
 of the surface header contract and now works in the internal authored executor.
 
 `seed.mjs` creates a new deterministic SQLite database with two script scopes,
@@ -42,10 +51,6 @@ than ai-hist's automatic scan of unrelated local JSONL history.
 
 ## Deferred acceptance work
 
-- `learn` and journal effect record/confirm idempotency. ai-hist 0.4.1 exposes
-  reads and tag writes, but no public trajectory writer. The authored executor
-  also lacks a durable root run ID. `learn` explicitly refuses until both seams
-  are available; no unjournaled write is substituted.
 - Identity-scoped agent context injection. `memory.agent: true` explicitly
   refuses; it must not silently read script scope.
 - CLI-only provider operation and automatic creation of a fresh database.
@@ -54,5 +59,5 @@ than ai-hist's automatic scan of unrelated local JSONL history.
 - Automatic trajectory import and the behavioural Gate 5 acceptance example.
 - Cloud push and pair mode, per the original exclusions.
 
-This is a read-only proof slice, not completion of Gate 5 or the full original
+This is a local slice, not completion of Gate 5 or the full original
 recall/why/learn acceptance matrix. The lead owns PR creation and CI review.

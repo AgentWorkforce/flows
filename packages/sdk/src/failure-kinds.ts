@@ -138,6 +138,14 @@ export const RUN_FAILURE_KINDS = [
   'gate_failed',
   /** `flows answer` named a wait the run is not asking: unknown, or already answered. */
   'human_wait_unknown',
+  /** `f.memory.learn` was given a finding without non-empty string fields. */
+  'memory_finding_invalid',
+  /** `f.memory.learn` could not persist the finding to script memory. */
+  'memory_unwritable',
+  /** `f.memory.learn` ran without a durable root run to journal the finding in. */
+  'memory_unjournaled',
+  /** `f.memory` lost its database, or found a damaged learned finding, after the run started. */
+  'memory_unreachable',
   /**
    * `--local-agent` cannot be honoured for this invocation, so it is refused
    * rather than accepted and ignored. A local agent worker is admitted at run

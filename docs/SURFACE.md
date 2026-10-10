@@ -128,15 +128,42 @@ No process runs between events: the handler wakes, executes to its next await, p
    `close-merge-request` in addition to comments and discussions; the earlier
    comment-only gap was closed by the pinned relay-helpers release.
 
-   The initial local memory slice supports `recall` and `why` in authored flows,
-   with no journal step for either read. Script scope is stable across runs of
+   The local memory slice supports `recall`, `why`, and `learn` in authored
+   flows. None of them is a journal step: reads journal nothing, and `learn`
+   appends a record to the root run's `memory-learn` stream. Script scope is stable across runs of
    the same flow file and name; reads cannot widen it to another flow. The
    existing `memory: { script: true }` header enables an eager reachability
    check; direct `.memory` use also triggers it. Aliased access is checked at
    call time. The local Node SDK and an existing readable SQLite DB are required
    (`AI_HIST_DB` overrides `defaultDbPath()`); JSONL fallback is disabled.
-   `learn` and `memory: { agent: true }` refuse pending the journal-backed write
-   and identity-scoped agent follow-ups. CLI-only operation is also deferred.
+   `learn(finding)` journals first. It stages the finding's compacted
+   trajectory file (the format `ai-hist sync` ingests) under a temporary name,
+   appends the finding to the durable root run's `memory-learn` stream, and
+   only then renames the file into place at
+   `<db-dir>/flows-memory/<scope-hash>/.trajectories/compacted/<id>.json`, so
+   nothing is recallable that the journal does not record, and disk failures
+   happen before anything is journaled. Files live beside the ai-hist DB, not
+   the flow source, so a flow deployed from a read-only checkout can still
+   learn. A file is derived only from its commit, which it cites
+   (`journal: { runId, stream, id }`); if another attempt on the root
+   committed the same finding first, that commit wins, so every attempt
+   publishes the same bytes. A resumed body that re-runs `learn` finds the
+   commit and publishes it without journaling again. Journal errors propagate
+   unchanged, so a read interruption or lost lease leaves the root resumable.
+   `learn` without a durable root run refuses (`memory_unjournaled`). `recall`
+   and `why` read the ai-hist DB plus the scope's learned files, so the next
+   run sees a finding before any sync; a synced copy is deduplicated in favour
+   of the DB row (an unsynced `recall` entry has a negative `id`), and a
+   damaged learned file fails the read (`memory_unreachable`) rather than
+   being skipped. The id hashes scope and finding, so re-learning a finding
+   atomically replaces one file. Trajectory files need no lock: each is
+   staged privately and published by atomic rename, and `learn` never
+   modifies the ai-hist DB; ordering between writers comes from the root run's
+   stream. A file takes the DB's mode, and a failed `learn`
+   (`memory_finding_invalid`, `memory_unwritable`) publishes nothing. A body
+   must await `learn`: a call whose outcome the body never consumed fails the
+   run with `unawaited_step`. `memory: { agent: true }` refuses pending the
+   identity-scoped agent follow-up. CLI-only operation is also deferred.
 
 4. **`{{prev}}` / return-value chaining.** Output flows downward implicitly; naming steps is for reaching back, not bookkeeping.
 5. **Headers are optional escalation.** identity, memory, budget, tools appear only when used. The empty header is the common case. [Budget headers and spend](BUDGET.md) specifies parsing, prices, journal attribution, and admission limits.
