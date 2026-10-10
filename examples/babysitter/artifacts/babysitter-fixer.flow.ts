@@ -904,7 +904,10 @@ async function stash(f, pr, session) {
 }
 async function checkout(f, pr, head, trunkSha) {
   const command = nodeCommand(checkoutHead, { owner: pr.owner, repo: pr.repo, head });
-  const output = await f.run(trunkSha === void 0 ? command : `${command} && printf '\\n' && ${nodeCommand(mergeTrunk, { dir: "babysitter-checkout", owner: pr.owner, repo: pr.repo, head, trunkSha, meta: DRIZZLE_META })}`, { timeout: "5m" });
+  const output = await f.run(
+    trunkSha === void 0 ? command : `${command} && printf '\\n' && ${nodeCommand(mergeTrunk, { dir: "babysitter-checkout", owner: pr.owner, repo: pr.repo, head, trunkSha, meta: DRIZZLE_META })}`,
+    { timeout: trunkSha === void 0 ? "5m" : "10m" }
+  );
   const newline = output.indexOf("\n");
   const value = JSON.parse(trunkSha === void 0 || newline < 0 ? output : output.slice(0, newline));
   if (value.head !== head || typeof value.dir !== "string") throw new Error("Checkout did not report the bound head");

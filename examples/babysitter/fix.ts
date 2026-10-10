@@ -324,8 +324,10 @@ export async function stash(f: Ctx, pr: { owner: string; repo: string; number: n
  */
 export async function checkout(f: Ctx, pr: { owner: string; repo: string }, head: string, trunkSha?: string): Promise<{ dir: string; reused: boolean; merged?: Merge }> {
   const command = nodeCommand(checkoutHead, { owner: pr.owner, repo: pr.repo, head });
+  // Merging keeps the five minutes it had as a step of its own.
   const output = await f.run(trunkSha === undefined ? command
-    : `${command} && printf '\\n' && ${nodeCommand(mergeTrunk, { dir: 'babysitter-checkout', owner: pr.owner, repo: pr.repo, head, trunkSha, meta: DRIZZLE_META })}`, { timeout: '5m' });
+    : `${command} && printf '\\n' && ${nodeCommand(mergeTrunk, { dir: 'babysitter-checkout', owner: pr.owner, repo: pr.repo, head, trunkSha, meta: DRIZZLE_META })}`,
+  { timeout: trunkSha === undefined ? '5m' : '10m' });
   const newline = output.indexOf('\n');
   const value = JSON.parse(trunkSha === undefined || newline < 0 ? output : output.slice(0, newline));
   if (value.head !== head || typeof value.dir !== 'string') throw new Error('Checkout did not report the bound head');

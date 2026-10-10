@@ -163,6 +163,19 @@ test('resolve_conflict stops without an agent when drizzle metadata conflicts, a
   assert.ok(commands.some(c => c.includes('stashCheckout')));
 });
 
+test('the combined checkout and merge step keeps both operations\' time', async () => {
+  const { f } = context();
+  const run = f.run;
+  const timeouts: Record<string, unknown> = {};
+  (f as { run: unknown }).run = async (command: string, options?: { timeout?: string }) => {
+    if (command.includes('checkoutHead')) timeouts[command.includes('mergeTrunk') ? 'merge' : 'checkout'] = options?.timeout;
+    return run(command);
+  };
+  await body()(f, input({ kind: 'resolve_conflict', trunkSha: trunk }));
+  await body()(f, input({ kind: 'fix_ci', checks: [{ name: 'web-tests', conclusion: 'failure', logTail: 'boom' }] }));
+  assert.deepEqual(timeouts, { merge: '10m', checkout: '5m' });
+});
+
 test('a run whose step fails reports that failure, not the stash the budget then refuses', async () => {
   // Cloud run b8e5eb96: the merge failed, and the stash after it threw the
   // budget's "A prior budgeted step did not finish successfully", which
