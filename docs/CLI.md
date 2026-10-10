@@ -126,6 +126,26 @@ List this workspace’s hosted trigger listeners
 | --- | --- | --- |
 | `--json` | Emit one machine-readable JSON object instead of text | — |
 
+## flows eval
+
+Re-execute a flow against a frozen suite of input cases and gate on the score report
+
+| Argument | Required | Description |
+| --- | --- | --- |
+| `flow` | Yes | flow.ts, flow.yaml, or spec.json: the exact version to evaluate |
+
+| Option | Description | Default |
+| --- | --- | --- |
+| `--cases <suite.json>` | Frozen suite: { name, cases: [{ id, input?, expect? }], thresholds? } | — |
+| `--json` | Emit one machine-readable JSON object instead of text | — |
+| `--cloud` | Execute each case as a hosted Cloud run instead of a local run | — |
+| `--data-dir <dir>` | Daemon data directory | `.relayflowd` |
+| `--local-agent` | Attach a local agent worker to each local run | — |
+| `--concurrency <n>` | Cases executed at once | `1` |
+| `--report <file>` | Also write the JSON report to this file | — |
+| `--baseline <report.json>` | Fail the gate on any case that passed in this prior report | — |
+| `--expect-version <sha256:hex>` | Refuse unless the flow source hashes to exactly this | — |
+
 ## flows hn-monitor
 
 Hacker News monitor: poll for matching stories and launch a flow per hit

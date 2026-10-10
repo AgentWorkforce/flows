@@ -125,6 +125,14 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
   { verb: 'observer', argv: ['observer'], variant: 'observer' },
   { verb: 'observer', argv: ['observer', '--data-dir', '.relayflowd'], variant: 'observer' },
   { verb: 'replay', argv: ['replay', RUN_ID], variant: 'replay' },
+  { verb: 'eval', argv: ['eval', 'review.flow.ts', '--cases', 'suite.json'], variant: 'eval' },
+  {
+    verb: 'eval',
+    argv: ['eval', '--json', '--data-dir', '.relayflowd', '--local-agent', '--concurrency', '2',
+      '--report', 'report.json', '--baseline', 'prior.json', '--expect-version', 'sha256:abc', 'review.flow.ts', '--cases', 'suite.json'],
+    variant: 'eval',
+  },
+  { verb: 'eval', argv: ['eval', '--cloud', 'review.flow.ts', '--cases', 'suite.json'], variant: 'eval' },
   {
     verb: 'replay',
     argv: ['replay', '--json', '--data-dir', '.relayflowd', '--at', 'step-1',

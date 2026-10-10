@@ -93,7 +93,7 @@ test('all named gate variants and both gate overloads are documented', () => {
 test('CLI includes every declared verb, subcommand and literal flag', () => {
   const text = read('packages/sdk/src/cli-commands.ts');
   const names = [...text.matchAll(/^    name: '([^']+)'/gm)].map(match => match[1]);
-  assert.equal(names.length, 24);
+  assert.equal(names.length, 25);
   for (const name of names) assert.ok(cli.includes(`## flows ${name}\n`), name);
   for (const [, flag] of text.matchAll(/flags: '([^']+)'/g)) assert.ok(cli.includes(flag.replaceAll('|', '\\|')), flag);
   for (const name of ['hn-monitor start', 'tick start', 'plugin list', 'plugin verify', 'plugin remove', 'plugin update']) assert.ok(cli.includes(`## flows ${name}\n`));

@@ -119,6 +119,19 @@ export {
 } from './flow-requirements.js';
 export { parseHumanTo, parseHumanRecipient, humanRecipientProvider, type HumanRecipient, type HumanRecipientParse } from './human-to.js';
 
+export {
+  evaluateFlow, parseFlowEvalSuite, loadFlowEvalSuite, flowEvalSuiteSha256, flowEvalVersion,
+  FlowEvalError, FLOW_EVAL_REPORT_SCHEMA_VERSION, MAX_FLOW_EVAL_CASES,
+  type EvaluateFlowOptions, type FlowEvalCase, type FlowEvalCaseResult, type FlowEvalErrorCode,
+  type FlowEvalExecutionRequest, type FlowEvalExecutor, type FlowEvalExpectation, type FlowEvalOutcome,
+  type FlowEvalReport, type FlowEvalRun, type FlowEvalScore, type FlowEvalScorer, type FlowEvalStep,
+  type FlowEvalSuite, type FlowEvalTarget, type FlowEvalThresholds,
+} from './flow-eval.js';
+export {
+  localFlowEvalExecutor, cloudFlowEvalExecutor,
+  type LocalFlowEvalExecutorOptions, type CloudFlowEvalExecutorOptions,
+} from './flow-eval-executors.js';
+
 export { canonicalize, specHash } from './canonical.js';
 export {
   compileAndHash,

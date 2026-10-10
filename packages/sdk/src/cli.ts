@@ -38,6 +38,7 @@ import { checkAuthoredTriggers } from './cli/check-triggers.js';
 import { parseWebhookArgs, runServeWebhook } from './cli/serve-webhook.js';
 import { runDirectFlow } from './cli/direct-run.js';
 import { parseReplayArgs, replayJournal, type ReplayArgs } from './cli/replay.js';
+import { parseEvalArgs, runEvalCli, type EvalArgs } from './cli/eval.js';
 import { parseStatusArgs, runStatus, type StatusArgs } from './cli/status.js';
 import {
   parseLogsArgs, parseRunsArgs, runCloudLogsCli, runCloudRunsCli, runCloudStatusCli,
@@ -94,6 +95,7 @@ export type ParsedArgs =
   | { command: 'add'; value: string }
   | PluginArgs
   | ReplayArgs
+  | EvalArgs
   | StatusArgs
   | BuildArgs
   | DeployArgs
@@ -154,6 +156,7 @@ const USAGE = [
   'flows answer --cloud [--json] [--note <text>] [--source <path>] <run-id> <yes|no>',
   'flows answer [--json] [--no-spawn] [--data-dir <dir>] [--note <text>] [--by <identity>] <run-id> <wait-id> <yes|no>',
   'flows replay [--allow-human-influenced] [--json] [--data-dir <dir>] <run-id> [--at <step-id>]',
+  'flows eval [--json] [--cloud] [--data-dir <dir>] [--local-agent] [--concurrency <n>] [--report <file>] [--baseline <report.json>] [--expect-version <sha256:hex>] <flow> --cases <suite.json>',
   'flows status [--json] [--data-dir <dir>] [--tail <n>] [<run-id>]',
   'flows status --cloud [--json] [--watch] <run-id>',
   'flows runs [--limit <n>] [--json]',
@@ -282,6 +285,10 @@ export async function runCli(
   if (parsed.command === 'schedules') return runCloudSchedulesCli(parsed, io);
   if (parsed.command === 'unschedule') return runCloudUnscheduleCli(parsed, io);
   if (parsed.command === 'replay') return replayJournal(parsed, io);
+  if (parsed.command === 'eval') {
+    const evaluation = parsed;
+    return withInterrupt(options.signal, (signal) => runEvalCli(evaluation, io, signal));
+  }
   // Daemon-free like `check`: reads one journal file and nothing else, so it
   // works inside a step of a run whose daemon is gone (kernel/DAEMON-LIFECYCLE.md §4).
   if (parsed.command === 'status') {
@@ -665,6 +672,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   if (command === 'add') return args.length === 2 ? { command: 'add', value: args[1]! } : undefined;
   if (command === 'plugin') return parsePluginArgs(args.slice(1));
   if (command === 'replay') return parseReplayArgs(args.slice(1));
+  if (command === 'eval') return parseEvalArgs(args.slice(1));
   if (command === 'status') return parseStatusArgs(args.slice(1));
   if (command === 'runs') return parseRunsArgs(args.slice(1));
   if (command === 'logs') return parseLogsArgs(args.slice(1));
