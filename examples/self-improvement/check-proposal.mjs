@@ -126,7 +126,7 @@ function stageEdit() {
   const diff = diffSpecs(before, after);
   need(diff.prompt.length > 0, "the compiled flow has no prompt (instruction/prompt) change");
   need(diff.structure.length > 0, "the compiled flow has no structural change (steps, dependsOn, verification, retries, timeouts, budget…)");
-  for (const problem of coverage(diff, proposal, after)) problems.push(problem);
+  for (const problem of coverage(diff, proposal, after, before)) problems.push(problem);
   if (problems.length === 0) {
     writeFileSync(join(args.dir, "pr-body.md"), prBody(proposal, diff, readJson(join(args.dir, "digest.json"))));
     console.log(`prompt edits: ${diff.prompt.length}; structural edits: ${diff.structure.length}`);

@@ -79,10 +79,13 @@ const sameText = (a, b) => a.replace(/\n$/u, "") === b.replace(/\n$/u, "");
  * `removed`, or a flow-level key with step "flow"). Every proposed pair must
  * appear in the diff, and every structural change in the diff must be a
  * proposed pair, unless it is
- *   - a change to `<step>.gate`, the one step id the compiler derives: a named
- *     gate on <step> lowers to it (packages/sdk, docs/SURFACE.md §6). Only
- *     for a step whose proposal changes `verification` or adds the step; a
- *     user-authored dotted id such as `classify.audit` is never exempt.
+ *   - a change to the gate step the compiler lowers a named gate on <step>
+ *     to (packages/sdk/src/named-gate-lowering.ts), only for a step whose
+ *     proposal changes `verification` or adds the step. It is recognised by
+ *     shape, not by name: deterministic, bound to <step>'s output
+ *     (`input.output.step`), and named <step>.gate — or <step>.gate.gate when
+ *     an authored step already holds <step>.gate. An authored step is never
+ *     exempt, whatever it is called.
  *   - a `depends_on` change elsewhere that only rewires around an inserted or
  *     removed step. Each added or dropped dependency must be a step the
  *     proposal adds or removes, a derived gate step, or the parent a derived
@@ -93,12 +96,23 @@ const sameText = (a, b) => a.replace(/\n$/u, "") === b.replace(/\n$/u, "");
  *
  * @returns {string[]} problems; empty when the diff and the proposal agree.
  */
-export function coverage(diff, proposal, after) {
+/** The ids of steps in `spec` that are the lowered gate of `producer`. */
+function loweredGates(spec, producer) {
+  const name = new RegExp(`^${producer.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}(?:\\.gate)+$`, "u");
+  return (spec.steps ?? [])
+    .filter((s) => s.type === "deterministic" && s.input?.output?.step === producer && name.test(s.id))
+    .map((s) => s.id);
+}
+
+export function coverage(diff, proposal, after, before) {
   const prompts = proposal.prompt_edits ?? [];
   const structural = proposal.structure_edits ?? [];
   const named = new Set([...prompts.map((e) => e.step), ...structural.map((e) => e.step)]);
   const proposed = (step, field) => structural.some((e) => e.step === step && e.field === field);
-  const derived = new Set(structural.filter((e) => e.field === "verification" || e.field === "added").map((e) => `${e.step}.gate`));
+  const derived = new Set(structural
+    .filter((e) => e.field === "verification" || e.field === "added")
+    .flatMap((e) => [...loweredGates(before, e.step), ...loweredGates(after, e.step)]));
+  const parentOf = (id) => structural.find((e) => [...loweredGates(before, e.step), ...loweredGates(after, e.step)].includes(id))?.step;
   const insertedOrRemoved = new Set([
     ...structural.filter((e) => e.field === "added" || e.field === "removed").map((e) => e.step),
     ...derived,
@@ -109,8 +123,8 @@ export function coverage(diff, proposal, after) {
     const now = new Set(s.after ?? []);
     const added = [...now].filter((d) => !was.has(d));
     const dropped = [...was].filter((d) => !now.has(d));
-    return added.every((d) => insertedOrRemoved.has(d) || dropped.some((x) => `${d}.gate` === x && derived.has(x)))
-      && dropped.every((d) => insertedOrRemoved.has(d) || added.some((x) => `${d}.gate` === x && derived.has(x)));
+    return added.every((d) => insertedOrRemoved.has(d) || dropped.some((x) => derived.has(x) && parentOf(x) === d))
+      && dropped.every((d) => insertedOrRemoved.has(d) || added.some((x) => derived.has(x) && parentOf(x) === d));
   };
   const problems = [];
 
