@@ -1591,6 +1591,12 @@ authored done("step_failed"): review found 1 P2: `review.clean` was not created
 steps 1: 1 done
 ```
 
+A `done()` with no detail still gets the labelled line, as just
+`authored done("step_failed")`, and `--json` carries
+`authored_completion: { reason }` without a `detail`. That holds for every
+reason except `success`, because the first line's `finished success` is the
+kernel's account and would otherwise be the only thing a reader saw.
+
 A verdict that carries a detail is **committed before the marker run is
 opened**, on a stream of the flow's own root, exactly as a predicate gate's
 verdict is. That is what makes it survive a resume: redaction reads the

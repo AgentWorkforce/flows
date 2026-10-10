@@ -268,12 +268,14 @@ type Presented = Omit<RunView, 'steps'> & {
    * what the journal recorded, because they are true: an authored
    * `step_failed` run completes with a root step that succeeded.
    *
-   * Present only when the body actually said why. A one-argument `done()`
-   * adds nothing a reader could not already see from `completion_reason`, and
-   * emitting a null here for every legacy and non-authored run would change a
-   * shape that nobody asked to change.
+   * Present when the body declared anything other than a bare success, or
+   * said why. A one-argument `done("step_failed")` is NOT visible from
+   * `completion_reason` — that stays the kernel's `success` — so omitting it
+   * made a failed run read as "finished success". A plain successful run, a
+   * legacy run and a non-authored run still carry no key, so their shape is
+   * unchanged.
    */
-  authored_completion?: { reason: string; detail: string };
+  authored_completion?: { reason: string; detail?: string };
 };
 
 /** Apply the redaction and size bounds the on-disk model does not have. */
@@ -287,12 +289,15 @@ function present(
   return {
     ...view,
     this_step: thisStep,
-    ...(authored?.detail === undefined ? {} : {
-      // Redacted again on the way out. It was redacted before it was
-      // journaled, by this same redactor against a different environment;
-      // doing it here too costs nothing and keeps this module the one place
-      // that decides what reaches an agent-facing page.
-      authored_completion: { reason: authored.reason, detail: redact(authored.detail, env) },
+    ...(authored === null || (authored.reason === 'success' && authored.detail === undefined) ? {} : {
+      authored_completion: {
+        reason: authored.reason,
+        // Redacted again on the way out. It was redacted before it was
+        // journaled, by this same redactor against a different environment;
+        // doing it here too costs nothing and keeps this module the one place
+        // that decides what reaches an agent-facing page.
+        ...(authored.detail === undefined ? {} : { detail: redact(authored.detail, env) }),
+      },
     }),
     steps: view.steps.map((step) => ({
       ...step,
@@ -360,8 +365,9 @@ function renderText(view: Presented, partial: string[], wantTails: boolean): str
   // Labelled, so nobody reads a failure explanation as a claim that the run's
   // kernel status is anything other than the line above says it is.
   if (view.authored_completion !== undefined) {
-    lines.push(`authored done("${safe(view.authored_completion.reason)}"): `
-      + safe(singleLineCompletionDetail(view.authored_completion.detail)));
+    const { reason, detail } = view.authored_completion;
+    lines.push(`authored done("${safe(reason)}")`
+      + (detail === undefined ? '' : `: ${safe(singleLineCompletionDetail(detail))}`));
   }
   const counts = (['done', 'running', 'pending', 'backoff', 'waiting', 'needs_human'] as const)
     .filter((key) => view.counts[key] > 0).map((key) => `${view.counts[key]} ${key}`);

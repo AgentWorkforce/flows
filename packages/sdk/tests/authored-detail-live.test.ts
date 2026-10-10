@@ -109,7 +109,7 @@ export default flow('split-emoji', async (f) => {
     .toBe('Flow "split-emoji" declared done("step_failed"): review found 1 P2: \uFFFD');
 }, 60_000);
 
-it('leaves a one-argument done("step_failed") reporting exactly as it always did', async () => {
+it('reports a one-argument done("step_failed") with no detail, but still as step_failed', async () => {
   const runtime = chainFixture();
   cleanups.push(() => runtime.close());
   const client = await runtime.connect();
@@ -138,6 +138,9 @@ export default flow('software-factory', async (f) => {
     entry.entry_type === 'step.completed') as any).payload.output.stdout_tail)
     .toBe('{"completionReason":"step_failed"}');
 
+  // No detail, but the verdict still shows: the kernel line alone says success.
   const status = runtime.invoke('status', report.runId, '--data-dir', runtime.data, '--json');
-  expect('authored_completion' in JSON.parse(status.stdout)).toBe(false);
+  expect(JSON.parse(status.stdout).authored_completion).toEqual({ reason: 'step_failed' });
+  const text = runtime.invoke('status', report.runId, '--data-dir', runtime.data);
+  expect(text.stdout.trim().split('\n')[1]).toBe('authored done("step_failed")');
 }, 60_000);
