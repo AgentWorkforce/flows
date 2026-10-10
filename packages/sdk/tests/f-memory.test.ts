@@ -1,19 +1,20 @@
-import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { hostname, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { flow } from '@relayflows/surface';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-let failRenameTo: string | undefined;
+let failRename: ((to: string) => boolean) | undefined;
 vi.mock('node:fs/promises', async importOriginal => {
   const actual = await importOriginal<typeof import('node:fs/promises')>();
   return {
     ...actual,
     rename: async (from: string, to: string) => {
-      if (to === failRenameTo) throw Object.assign(new Error('injected rename failure'), { code: 'EIO' });
+      if (failRename?.(to)) throw Object.assign(new Error('injected rename failure'), { code: 'EIO' });
       return actual.rename(from, to);
     },
   };
@@ -181,83 +182,77 @@ it('rejects invalid findings before writing, and unwritable stores', async () =>
   }
 });
 
-it('serializes concurrent learns so no finding is lost from the database', async () => {
+const compactedDir = () => join(scope, '.trajectories', 'compacted');
+const dbDigest = () => createHash('sha256').update(readFileSync(dbPath)).digest('hex');
+
+it('keeps concurrent findings without touching the shared database', async () => {
+  const before = dbDigest();
   const memory = authoredMemory(scope, () => {}, true);
   await Promise.all(Array.from({ length: 6 }, (_, i) =>
     memory.learn({ question: `parallel finding ${i}`, chosen: 'c', reasoning: 'r' })));
   expect(await memory.recall('parallel finding')).toHaveLength(6);
-  expect(existsSync(`${dbPath}.flows-memory.lock`)).toBe(false);
+  expect(dbDigest()).toBe(before);
+  expect(readdirSync(compactedDir()).filter(name => !name.endsWith('.json'))).toEqual([]);
 });
 
-async function until(predicate: () => boolean): Promise<void> {
-  for (let i = 0; i < 400 && !predicate(); i += 1) await new Promise(resolve => setTimeout(resolve, 10));
-  expect(predicate()).toBe(true);
-}
-
-it('waits on a lock held by a live process, then proceeds once it is released', async () => {
-  const lock = `${dbPath}.flows-memory.lock`;
-  writeFileSync(lock, JSON.stringify({ pid: process.pid, host: hostname(), token: 'another-writer' }));
-  // Live local owners never expire by age, however old the lock looks.
-  utimesSync(lock, new Date(0), new Date(0));
+it('dedupes a finding once ai-hist sync has indexed it, preferring the synced row', async () => {
   const memory = authoredMemory(scope, () => {}, true);
-  let settled = false;
-  const pending = memory.learn({ question: 'locked finding', chosen: 'c', reasoning: 'r' }).then(() => { settled = true; });
-  // The writer stages its own lock file before contending; once it exists, the wait is under way.
-  await until(() => readdirSync(dir).some(name => name.startsWith('fixture.db.flows-memory.lock.') && name.endsWith('.tmp')));
-  await new Promise(resolve => setTimeout(resolve, 150));
-  expect(settled).toBe(false);
-  expect(JSON.parse(readFileSync(lock, 'utf8'))).toMatchObject({ token: 'another-writer' });
-  rmSync(lock);
-  await pending;
-  expect(await memory.recall('locked finding')).toHaveLength(1);
-  expect(existsSync(lock)).toBe(false);
-});
+  await memory.learn({ question: 'synced finding', chosen: 'c', reasoning: 'r' });
+  const [diskEntry] = await memory.recall('synced finding');
+  expect(diskEntry).toMatchObject({ source: 'trajectory', project: scope });
+  expect(diskEntry!.id).toBeLessThan(0);
 
-it('breaks a lock whose owner process is gone, or that is past the age backstop', async () => {
-  const lock = `${dbPath}.flows-memory.lock`;
-  const memory = authoredMemory(scope, () => {}, true);
-  const deadPid = spawnSync(process.execPath, ['-e', '']).pid;
-  writeFileSync(lock, JSON.stringify({ pid: deadPid, host: hostname(), token: 'crashed-writer' }));
-  await memory.learn({ question: 'after dead owner', chosen: 'c', reasoning: 'r' });
-  expect(await memory.recall('after dead owner')).toHaveLength(1);
-
-  writeFileSync(lock, '');
-  utimesSync(lock, new Date(0), new Date(0));
-  await memory.learn({ question: 'after aged lock', chosen: 'c', reasoning: 'r' });
-  expect(await memory.recall('after aged lock')).toHaveLength(1);
-  expect(readdirSync(dir).filter(name => name.includes('.flows-memory.lock'))).toEqual([]);
-});
-
-it.skipIf(process.platform === 'win32')('keeps the database file mode, and gives the trajectory the same mode', async () => {
-  chmodSync(dbPath, 0o600);
-  await authoredMemory(scope, () => {}, true).learn({ question: 'private', chosen: 'c', reasoning: 'r' });
-  expect(statSync(dbPath).mode & 0o777).toBe(0o600);
-  const compacted = join(scope, '.trajectories', 'compacted');
-  expect(statSync(join(compacted, readdirSync(compacted)[0]!)).mode & 0o777).toBe(0o600);
-});
-
-it('migrates a pre-handoff history table without git_branch', async () => {
+  // What `ai-hist sync` writes for the trajectory file.
+  const [name] = readdirSync(compactedDir());
+  const raw = JSON.parse(readFileSync(join(compactedDir(), name!), 'utf8'));
   const require = createRequire(import.meta.url);
   const SQL = await createRequire(require.resolve('ai-hist/package.json'))('sql.js')();
-  const db = new SQL.Database();
-  db.run('CREATE TABLE history (id INTEGER PRIMARY KEY, source TEXT, session_id TEXT, project TEXT, prompt TEXT, timestamp_ms INTEGER)');
+  const db = new SQL.Database(readFileSync(dbPath));
+  const ts = Date.parse(raw.completedAt);
+  db.run('INSERT INTO trajectories VALUES (?, 1, NULL, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
+    raw.id, scope, raw.task.title, 'completed', raw.startedAt, raw.completedAt,
+    JSON.stringify(raw.decisions), JSON.stringify(raw.retrospective), diskEntry!.prompt, join(compactedDir(), name!), ts, ts]);
+  db.run('INSERT INTO history VALUES (?, ?, ?, ?, ?, ?, ?)', [99, 'trajectory', raw.id, scope, diskEntry!.prompt, ts, null]);
   writeFileSync(dbPath, Buffer.from(db.export()));
   db.close();
-  const memory = authoredMemory(scope, () => {}, true);
-  await memory.learn({ question: 'old database', chosen: 'c', reasoning: 'r' });
-  expect(await memory.recall('old database')).toMatchObject([{ source: 'trajectory', gitBranch: null }]);
+
+  expect(await memory.recall('synced finding')).toMatchObject([{ id: 99, sessionId: raw.id }]);
+  expect(await memory.why('synced finding')).toMatchObject([{ id: raw.id }]);
 });
 
-it('removes the trajectory file when the database replace fails', async () => {
+it('applies recall options to findings not yet synced', async () => {
   const memory = authoredMemory(scope, () => {}, true);
-  failRenameTo = dbPath;
+  await memory.learn({ question: 'option finding', chosen: 'c', reasoning: 'r' });
+  expect(await memory.recall('option finding', { source: 'claude' })).toEqual([]);
+  expect(await memory.recall('option finding', { tag: 'anything' })).toEqual([]);
+  expect(await memory.recall('option finding', { beforeMs: 1 })).toEqual([]);
+  expect(await memory.recall('', { limit: 1 })).toHaveLength(1);
+  expect(await memory.recall('')).toHaveLength(2);
+});
+
+it.skipIf(process.platform === 'win32')('gives the trajectory file the database file mode', async () => {
+  chmodSync(dbPath, 0o600);
+  await authoredMemory(scope, () => {}, true).learn({ question: 'private', chosen: 'c', reasoning: 'r' });
+  expect(statSync(join(compactedDir(), readdirSync(compactedDir())[0]!)).mode & 0o777).toBe(0o600);
+});
+
+it('leaves nothing behind when the trajectory cannot be published', async () => {
+  const memory = authoredMemory(scope, () => {}, true);
+  failRename = to => to.startsWith(compactedDir()) && to.endsWith('.json');
   try {
     await expect(memory.learn({ question: 'doomed', chosen: 'c', reasoning: 'r' }))
       .rejects.toMatchObject({ code: 'memory_unwritable' });
-  } finally { failRenameTo = undefined; }
-  expect(readdirSync(join(scope, '.trajectories', 'compacted'))).toEqual([]);
-  expect(readdirSync(dir).filter(name => name.endsWith('.tmp') || name.endsWith('.lock'))).toEqual([]);
+  } finally { failRename = undefined; }
+  expect(readdirSync(compactedDir())).toEqual([]);
   expect(await memory.recall('doomed')).toEqual([]);
+});
+
+it('fails the run when the body does not await learn', async () => {
+  await expect(executeAuthoredFlow(flow('memory-example', { memory: { script: true } }, async f => {
+    void f.memory.learn({ question: 'unawaited', chosen: 'c', reasoning: 'r' });
+    f.done('success');
+  }), completingJournal(), undefined, { flowPath: join(dir, 'test.flow.ts') }))
+    .rejects.toMatchObject({ code: 'unawaited_step' });
 });
 
 it('reports learn failures with their own kind, not protocol_error', () => {

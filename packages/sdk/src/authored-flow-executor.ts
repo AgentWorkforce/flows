@@ -10,7 +10,7 @@ import type { SlackCall } from './slack-writeback.js';
 import { checkMcpHeader, McpPreflightError } from './cli/check-typescript.js';
 import { buildMcpProxy, runMcpEffect } from './authored-mcp.js';
 import { AuthoredBudget } from './authored-budget.js';
-import { assertMemoryReachable, authoredMemory, scriptMemoryScope } from './authored-memory.js';
+import { assertMemoryReachable, authoredMemory, scriptMemoryScope, type MemoryWriteTracker } from './authored-memory.js';
 import { authoredDeterministicRunner, authoredWorkerRunner } from './authored-worker-step.js';
 import { isSurfaceFlowCompletionReason, isSurfaceRunCompletionReason } from './authored-step-output.js';
 import {
@@ -285,6 +285,7 @@ export async function executeAuthoredFlow<Input = undefined>(
 
   const journalSteps: AuthoredFlowJournalStep[] = [];
   const authoredSteps: AuthoredFlowOperation<unknown>[] = [];
+  const memoryWrites: MemoryWriteTracker = { pending: new Set() };
   const lifecycle = new AuthoredFlowLifecycle();
   const activities = new AuthoredActivities(journal, options.rootRunId);
   const edgeOverrides = new Map<string, AuthoredStepEdges>();
@@ -563,6 +564,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       scriptMemoryScope(flowPath, definition.name),
       () => assertOperationAllowed('memory', definition.name, requestedCompletion),
       definition.header.memory?.script !== false,
+      memoryWrites,
     ),
     run: runOperation,
     llm: llmOperation,
@@ -860,6 +862,15 @@ export async function executeAuthoredFlow<Input = undefined>(
     throw missingCompletion;
   }
   try {
+    // A `learn` still running when the body returns was not awaited: it races
+    // done(), so the run cannot claim the finding was kept. Let it settle,
+    // then fail the run rather than report success over an unconfirmed write.
+    if (memoryWrites.pending.size > 0) {
+      const unsettled = memoryWrites.pending.size;
+      await Promise.allSettled([...memoryWrites.pending]);
+      throw new AuthoredFlowExecutionError('unawaited_step',
+        `flow "${definition.name}" returned with ${unsettled} unawaited f.memory.learn call${unsettled === 1 ? '' : 's'}; await each learn before done()`);
+    }
     await verifyAuthoredOperations(definition.name, authoredSteps, lifecycle);
   } catch (error) {
     try {

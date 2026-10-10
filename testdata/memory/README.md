@@ -43,19 +43,16 @@ than ai-hist's automatic scan of unrelated local JSONL history.
 ## Deferred acceptance work
 
 - Journaled `learn` effects. ai-hist 0.4.1 has no public trajectory writer,
-  so `learn` writes the finding twice under the script scope: a compacted
-  trajectory file at `<scope>/.trajectories/compacted/<id>.json` (the format
-  `ai-hist sync` ingests), and the matching `trajectories`/`history` rows in the
-  ai-hist database (atomic file replace) so the next run recalls it without a
-  sync. The id is a hash of scope and finding, so a resumed body re-running
-  `learn`, or a later run learning the same thing, upserts one record. Writes
-  are serialized in-process and across flows processes by
-  `<db>.flows-memory.lock` (stale once its local owner process is gone; the 5-minute age
-  backstop applies only to owners this host cannot probe), keep the database's file mode (also used for the trajectory file),
-  migrate a missing `history.git_branch`, and roll back the trajectory file if
-  the database replace fails. It is still not a journaled effect, and
-  `ai-hist sync` does not take the lock, so a concurrent sync can race the row
-  write; the trajectory file survives and the sync re-ingests it.
+  so `learn` writes the finding as an immutable compacted trajectory file at
+  `<scope>/.trajectories/compacted/<id>.json` (the format `ai-hist sync`
+  ingests), staged and atomically renamed, with the database's file mode.
+  `recall`/`why` read the database plus those files, deduplicating synced
+  copies, so the next run sees the finding without a sync. The ai-hist
+  database is never written, so there is no lock and no race with
+  `ai-hist sync`. The id is a hash of scope and finding, so a resumed body
+  re-running `learn`, or a later run learning the same thing, rewrites one
+  file. An unawaited `learn` fails the run with `unawaited_step`. It is still
+  not a journaled effect.
 - Identity-scoped agent context injection. `memory.agent: true` explicitly
   refuses; it must not silently read script scope.
 - CLI-only provider operation and automatic creation of a fresh database.

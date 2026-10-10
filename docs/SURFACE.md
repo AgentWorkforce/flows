@@ -135,16 +135,18 @@ No process runs between events: the handler wakes, executes to its next await, p
    check; direct `.memory` use also triggers it. Aliased access is checked at
    call time. The local Node SDK and an existing readable SQLite DB are required
    (`AI_HIST_DB` overrides `defaultDbPath()`); JSONL fallback is disabled.
-   `learn(finding)` persists the finding under the same script scope: a
-   compacted trajectory file at `<scope>/.trajectories/compacted/<id>.json`
-   (which `ai-hist sync` ingests) plus the matching rows in the ai-hist DB, so
-   the next run recalls it. The id hashes scope and finding, so re-learning the
-   same finding upserts one record. `learn` writes are serialized with each
-   other by a lock file next to the DB; `ai-hist sync` does not take that lock,
-   so a concurrent sync can race the DB replace (the trajectory file survives
-   and the next sync re-ingests it). Writes keep the DB's file mode and leave
-   nothing behind when they fail (`memory_finding_invalid`,
-   `memory_unwritable`). `learn` is not yet a
+   `learn(finding)` writes the finding as an immutable compacted trajectory
+   file under the script scope (`<scope>/.trajectories/compacted/<id>.json`,
+   the format `ai-hist sync` ingests). `recall` and `why` read the ai-hist DB
+   plus the scope's own trajectory files, so the next run sees a finding
+   before any sync, and a synced copy is deduplicated in favour of the DB row
+   (an unsynced `recall` entry has a negative `id`). The id hashes scope and
+   finding, so re-learning the same finding rewrites one file. `learn` never
+   modifies the ai-hist DB and shares no state between writers, so it needs no
+   lock; the file takes the DB's mode and is published by atomic rename, so a
+   failed `learn` (`memory_finding_invalid`, `memory_unwritable`) leaves
+   nothing behind. A body must await `learn`: one still pending when the body
+   returns fails the run with `unawaited_step`. `learn` is not yet a
    journaled effect. `memory: { agent: true }` refuses pending the
    identity-scoped agent follow-up. CLI-only operation is also deferred.
 
