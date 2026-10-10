@@ -416,7 +416,12 @@ function finalStep(
   const summary = text(verification?.detail, env, OUTPUT_SUMMARY_MAX_CHARS)
     ?? `step ${succeeded ? 'completed' : 'ended'}: ${identifier(completionReason, env) ?? 'unknown'}`;
   const model = identifier(transcript?.model, env);
-  const error = succeeded ? undefined : text(failure?.excerpt, env, ERROR_MAX_CHARS);
+  // Agent attempts carry a transcript failure excerpt; deterministic timeouts
+  // do not. Their execution failure is journaled in verification.detail, so
+  // fall back to that same record for a timeout instead of publishing a failed
+  // dashboard row with an empty error column.
+  const error = succeeded ? undefined : text(failure?.excerpt, env, ERROR_MAX_CHARS)
+    ?? (completionReason === 'timeout' ? text(verification?.detail, env, ERROR_MAX_CHARS) : undefined);
   return {
     stepName,
     stepType,

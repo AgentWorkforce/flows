@@ -356,10 +356,9 @@ describe('PR state parsing and shell boundaries', () => {
     expect(parsePrNumber('https://github.com/acme/repo/pull/7\n')).toBe(7);
     expect(() => parsePrNumber('failed: 7')).toThrow();
   });
-  it('caps pollIntervalSeconds so sleep fits under the deterministic-step lease', () => {
-    // Callers may pass 60/120 without realizing the sleep runs inside f.run
-    // whose default kernel lease is ~30s. parseInput must clamp silently rather
-    // than throw or let a step_failed propagate at runtime.
+  it('caps pollIntervalSeconds so review polling stays responsive', () => {
+    // Callers may pass 60/120 without realizing the sleep runs inside f.run.
+    // parseInput preserves the sub-30-second feedback cadence.
     expect(parseInput(JSON.stringify({ ...baseInput, pollIntervalSeconds: 60 })).pollIntervalSeconds).toBe(25);
     expect(parseInput(JSON.stringify({ ...baseInput, pollIntervalSeconds: 25 })).pollIntervalSeconds).toBe(25);
     expect(parseInput(JSON.stringify({ ...baseInput, pollIntervalSeconds: 15 })).pollIntervalSeconds).toBe(15);

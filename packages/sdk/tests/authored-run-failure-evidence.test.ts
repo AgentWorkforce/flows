@@ -168,6 +168,9 @@ exit 1`);
     expect(failure?.code).toBe('lease_exceeded');
     expect(failure?.details?.['stepId']).toBe('run-1');
     expect(failure?.details?.['completionReason']).toMatch(/timeout|lease_expired/u);
+    expect(String((failure as { message?: unknown })?.message)).toContain(
+      'command timed out after 150ms (explicit timeout)',
+    );
   }, 30_000);
 });
 

@@ -156,6 +156,30 @@ describe('mirrorJournal', () => {
     expect(step!.error).not.toContain('sk-ant-abcdefghijkl');
   });
 
+  it('publishes a deterministic timeout detail as the dashboard step error', () => {
+    seq = 0;
+    const detail = 'command timed out after 10m (default timeout; set an explicit timeout to override)';
+    const events = [
+      entry({
+        entry_type: 'run.spawned',
+        payload: { spec: { name: 'setup', steps: [{ id: 'install', type: 'deterministic', after: [] }] } },
+      }),
+      entry({ entry_type: 'step.attempt.started', step_id: 'install', attempt: 1, payload: {} }),
+      entry({
+        entry_type: 'step.completed', step_id: 'install', attempt: 1,
+        payload: {
+          completionReason: 'timeout', disposition: 'step_done', output: null,
+          verification: { gate: 'execution', verdict: 'fail', detail },
+        },
+      }),
+    ];
+    const [step] = mirrorJournal('01RUN', events, 1_700_000_010_000, {}).finals;
+
+    expect(step).toMatchObject({
+      status: 'failed', completionReason: 'timeout', outputSummary: detail, error: detail,
+    });
+  });
+
   it('never publishes the authored root as a step of its own flow', () => {
     seq = 0;
     const events = [

@@ -35,5 +35,7 @@ pub use state::{RunState, StateError, StepRuntime, StepState};
 
 pub const JOURNAL_VERSION: u32 = 1;
 pub const PROTOCOL_VERSION: u32 = 0;
+/** Default execution lease for deterministic commands without an override. */
+pub const DEFAULT_DETERMINISTIC_TIMEOUT_MS: u64 = 10 * 60_000;
 
 pub mod memoization;

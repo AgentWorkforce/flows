@@ -7,12 +7,14 @@ use std::sync::{Arc, Mutex};
 
 use relayflowd::worker::{DispatchOutcome, JournalObserver, StepDispatch, StepDispatcher};
 use relayflowd::{Engine, RunStatus};
-use relayflowd_core::{EntryType, JournalEntry, RunSpec, StepType};
+use relayflowd_core::{
+    DEFAULT_DETERMINISTIC_TIMEOUT_MS, EntryType, JournalEntry, RunSpec, StepType,
+};
 use serde_json::json;
 use tempfile::tempdir;
 
-/// The kernel's default lease for a step that declares none.
-const DEFAULT_LEASE_MS: i64 = 30_000;
+/// The worker lease remains independent from deterministic command timeouts.
+const DEFAULT_WORKER_LEASE_MS: i64 = 30_000;
 
 #[derive(Default)]
 struct Recorder {
@@ -81,14 +83,16 @@ fn a_start_after_a_slow_deterministic_peer_is_stamped_when_journaled() {
         slow_done.at_ms
     );
     assert_eq!(
-        quick_done.payload["spend"]["wallclock_ms"].as_i64().unwrap(),
+        quick_done.payload["spend"]["wallclock_ms"]
+            .as_i64()
+            .unwrap(),
         quick_done.at_ms - quick_start.at_ms,
     );
     for step in ["slow", "quick"] {
         let start = entry_of(&entries, EntryType::StepAttemptStarted, step);
         assert_eq!(
             start.payload["lease_deadline_ms"].as_i64().unwrap() - start.at_ms,
-            DEFAULT_LEASE_MS,
+            i64::try_from(DEFAULT_DETERMINISTIC_TIMEOUT_MS).unwrap(),
             "{step}'s lease must run from its own start"
         );
     }
@@ -126,5 +130,8 @@ fn a_dispatch_after_a_slow_deterministic_peer_keeps_its_full_lease() {
         dispatch.lease_deadline_ms,
         start.payload["lease_deadline_ms"].as_i64().unwrap()
     );
-    assert_eq!(dispatch.lease_deadline_ms - start.at_ms, DEFAULT_LEASE_MS);
+    assert_eq!(
+        dispatch.lease_deadline_ms - start.at_ms,
+        DEFAULT_WORKER_LEASE_MS
+    );
 }

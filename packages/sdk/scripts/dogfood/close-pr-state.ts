@@ -3,11 +3,9 @@ import { modelNameError } from '../../src/model-name.js';
 
 export const MAX_REPAIR_ITERATIONS = 3;
 
-// Sleep between polls runs inside a f.run step whose default kernel lease is
-// 30 s (see flows#343 / slice W for the per-step timeout override). Any poll
-// interval larger than that either times out the step or, worse, sleeps under
-// a lease renewal window and races. Cap silently so a caller who sets
-// `pollIntervalSeconds: 60` still gets a poll cycle instead of a step_failed.
+// Preserve a sub-30-second feedback cadence even though f.run's default lease
+// is much longer. Cap silently so a caller who sets `pollIntervalSeconds: 60`
+// does not turn a review cycle into a minute-long idle wait.
 export const MAX_POLL_INTERVAL_SECONDS = 25;
 
 export interface ClosePrInput {
