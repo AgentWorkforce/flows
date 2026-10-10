@@ -1,0 +1,177 @@
+{
+  "fixture_only": true,
+  "catalog": {
+    "api_version": 1,
+    "tools": [
+      {
+        "manifest": {
+          "manifestVersion": 1,
+          "schemaDialect": "https://json-schema.org/draft/2020-12/schema",
+          "name": "review_pr",
+          "description": "Read-only review; a hold is not approval.",
+          "flow": {
+            "name": "review-pr",
+            "version": "1.0.0",
+            "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "pr": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "pr"
+            ],
+            "additionalProperties": false
+          },
+          "resultSchema": {
+            "type": "object",
+            "properties": {
+              "findings": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "findings"
+            ],
+            "additionalProperties": false
+          },
+          "digest": "sha256:24802f6cbe59f6534d1e60bd6cd5eaad9bff5334d8dd36c117a778625744dabf"
+        },
+        "deployment_id": "deployment_1",
+        "read_only": true,
+        "effects": [
+          "github:read"
+        ],
+        "requires_human": [],
+        "business_verdicts": [
+          "pass",
+          "hold"
+        ],
+        "budget": {
+          "max_tokens": 1000,
+          "max_dollars": "1.00",
+          "max_wallclock_ms": 10000
+        }
+      }
+    ]
+  },
+  "invoke": {
+    "api_version": 1,
+    "flow": "review-pr@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "deployment_id": "deployment_1",
+    "manifest_digest": "sha256:24802f6cbe59f6534d1e60bd6cd5eaad9bff5334d8dd36c117a778625744dabf",
+    "input": {
+      "pr": 42
+    },
+    "input_digest": "sha256:c4bbf2df03603acfb40a2f3172e590cfd2e8cfb443cbfd0f841f08f625ae7e46",
+    "mode": "async",
+    "wait_ms": 0
+  },
+  "receipt": {
+    "api_version": 1,
+    "accepted": true,
+    "run_id": "run_fixture",
+    "tool_name": "review_pr",
+    "deployment_id": "deployment_1",
+    "manifest_digest": "sha256:24802f6cbe59f6534d1e60bd6cd5eaad9bff5334d8dd36c117a778625744dabf",
+    "flow_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "input_digest": "sha256:c4bbf2df03603acfb40a2f3172e590cfd2e8cfb443cbfd0f841f08f625ae7e46",
+    "state": "accepted",
+    "sequence": 1,
+    "terminal": null,
+    "status_url": "/api/v1/flow-runs/run_fixture",
+    "events_url": "/api/v1/flow-runs/run_fixture/events",
+    "evidence_url": "/api/v1/flow-runs/run_fixture/evidence",
+    "cancel_url": "/api/v1/flow-runs/run_fixture/cancel",
+    "resume_url": "/api/v1/flow-runs/run_fixture/resume"
+  },
+  "terminal": {
+    "api_version": 1,
+    "accepted": true,
+    "run_id": "run_fixture",
+    "tool_name": "review_pr",
+    "deployment_id": "deployment_1",
+    "manifest_digest": "sha256:24802f6cbe59f6534d1e60bd6cd5eaad9bff5334d8dd36c117a778625744dabf",
+    "flow_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "input_digest": "sha256:c4bbf2df03603acfb40a2f3172e590cfd2e8cfb443cbfd0f841f08f625ae7e46",
+    "state": "completed",
+    "sequence": 2,
+    "terminal": {
+      "terminal_reason": "success",
+      "business_verdict": "hold",
+      "result": {
+        "findings": 1
+      },
+      "gates": [
+        {
+          "name": "review",
+          "status": "fail",
+          "evidence_ref": "artifact_1"
+        }
+      ],
+      "evidence": {
+        "journal_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "flow_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "artifacts": [
+          {
+            "name": "review",
+            "ref": "artifact_1",
+            "media_type": "application/json"
+          }
+        ],
+        "redacted_transcript_refs": []
+      },
+      "spend": {
+        "tokens_in": 20,
+        "tokens_out": 5,
+        "dollars": "0.01",
+        "dollars_unmetered": false
+      }
+    },
+    "status_url": "/api/v1/flow-runs/run_fixture",
+    "events_url": "/api/v1/flow-runs/run_fixture/events",
+    "evidence_url": "/api/v1/flow-runs/run_fixture/evidence",
+    "cancel_url": "/api/v1/flow-runs/run_fixture/cancel",
+    "resume_url": "/api/v1/flow-runs/run_fixture/resume"
+  },
+  "evidence": {
+    "api_version": 1,
+    "run_id": "run_fixture",
+    "evidence": {
+      "journal_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "flow_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "artifacts": [
+        {
+          "name": "review",
+          "ref": "artifact_1",
+          "media_type": "application/json"
+        }
+      ],
+      "redacted_transcript_refs": []
+    }
+  },
+  "events": [
+    {
+      "api_version": 1,
+      "run_id": "run_fixture",
+      "flow_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sequence": 1,
+      "type": "run.accepted",
+      "state": "accepted"
+    },
+    {
+      "api_version": 1,
+      "run_id": "run_fixture",
+      "flow_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sequence": 2,
+      "type": "run.terminal",
+      "state": "completed",
+      "terminal_reason": "success"
+    }
+  ]
+}
