@@ -207,24 +207,58 @@ const runPropose = (r: { checkout: string; head: string }, over: { mergeParent?:
   },
 }));
 
+// Other test files propose concurrently into the shared temp dir, so a
+// proposal's scratch is counted in a temp dir of its own.
+const inOwnTmp = async <T>(run: () => Promise<T>): Promise<{ result: T; left: string[] }> => {
+  const own = mkdtempSync(join(tmpdir(), 'babysitter-own-tmp-'));
+  const previous = process.env.TMPDIR;
+  process.env.TMPDIR = own;
+  try {
+    return { result: await run(), left: readdirSync(own) };
+  } finally {
+    if (previous === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = previous;
+  }
+};
+
 test('proposes from a checkout whose .git the sandbox left unwritable, touching nothing in it', async () => {
   // Live run #1 (Cloud run c5c7bb01): after the agent step the checkout's
   // .git was not writable, and rewriting .git/config failed with EACCES.
   const r = forked();
   writeFileSync(join(r.checkout, 'src/retry.ts'), 'export const attempts = 4;\n');
   const configBefore = readFileSync(join(r.checkout, '.git/config'), 'utf8');
-  const scratchBefore = readdirSync(tmpdir()).filter((name) => name.startsWith('babysitter-gitdir-')).length;
   execFileSync('chmod', ['-R', 'a-w', join(r.checkout, '.git')]);
   try {
-    const p = await runPropose(r);
+    const { result: p, left } = await inOwnTmp(() => runPropose(r));
     assert.equal(p.kind, 'babysitter-proposal');
     assert.deepEqual(p.files, ['src/retry.ts']);
     assert.match(p.patch, /\+export const attempts = 4;/);
+    assert.deepEqual(left, []);
   } finally {
     execFileSync('chmod', ['-R', 'u+w', join(r.checkout, '.git')]);
   }
   assert.equal(readFileSync(join(r.checkout, '.git/config'), 'utf8'), configBefore);
-  assert.equal(readdirSync(tmpdir()).filter((name) => name.startsWith('babysitter-gitdir-')).length, scratchBefore);
+});
+
+test('proposes from a checkout whose index the agent split', async () => {
+  const r = forked();
+  writeFileSync(join(r.checkout, 'src/retry.ts'), 'export const attempts = 4;\n');
+  execFileSync('git', ['-C', r.checkout, 'update-index', '--split-index']);
+  assert.ok(readdirSync(join(r.checkout, '.git')).some((name) => name.startsWith('sharedindex.')));
+  const p = await runPropose(r);
+  assert.equal(p.kind, 'babysitter-proposal');
+  assert.deepEqual(p.files, ['src/retry.ts']);
+});
+
+test('a proposal whose private git dir cannot be set up leaves no scratch behind', async () => {
+  const r = forked();
+  execFileSync('chmod', ['a-r', join(r.checkout, '.git/index')]);
+  try {
+    const { result: error, left } = await inOwnTmp(() => runPropose(r).then(() => undefined, (e: unknown) => e));
+    assert.match(String(error), /EACCES/);
+    assert.deepEqual(left, []);
+  } finally {
+    execFileSync('chmod', ['u+r', join(r.checkout, '.git/index')]);
+  }
 });
 
 test('the merge step leaves the conflicts for the agent and names any in drizzle metadata', async () => {
