@@ -197,6 +197,8 @@ async function until(predicate: () => boolean): Promise<void> {
 it('waits on a lock held by a live process, then proceeds once it is released', async () => {
   const lock = `${dbPath}.flows-memory.lock`;
   writeFileSync(lock, JSON.stringify({ pid: process.pid, host: hostname(), token: 'another-writer' }));
+  // Live local owners never expire by age, however old the lock looks.
+  utimesSync(lock, new Date(0), new Date(0));
   const memory = authoredMemory(scope, () => {}, true);
   let settled = false;
   const pending = memory.learn({ question: 'locked finding', chosen: 'c', reasoning: 'r' }).then(() => { settled = true; });
@@ -226,10 +228,12 @@ it('breaks a lock whose owner process is gone, or that is past the age backstop'
   expect(readdirSync(dir).filter(name => name.includes('.flows-memory.lock'))).toEqual([]);
 });
 
-it.skipIf(process.platform === 'win32')('keeps the database file mode', async () => {
+it.skipIf(process.platform === 'win32')('keeps the database file mode, and gives the trajectory the same mode', async () => {
   chmodSync(dbPath, 0o600);
   await authoredMemory(scope, () => {}, true).learn({ question: 'private', chosen: 'c', reasoning: 'r' });
   expect(statSync(dbPath).mode & 0o777).toBe(0o600);
+  const compacted = join(scope, '.trajectories', 'compacted');
+  expect(statSync(join(compacted, readdirSync(compacted)[0]!)).mode & 0o777).toBe(0o600);
 });
 
 it('migrates a pre-handoff history table without git_branch', async () => {

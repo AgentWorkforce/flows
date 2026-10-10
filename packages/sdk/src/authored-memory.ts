@@ -103,7 +103,7 @@ function normalizeFinding(finding: MemoryFinding): Required<MemoryFinding> {
 const tempPath = (path: string): string => `${path}.${process.pid}.${randomUUID()}.tmp`;
 
 const LOCK_WAIT_MS = 10_000;
-/** Backstop for an owner this host cannot probe (another host, or a reused pid). Writers hold the lock for milliseconds. */
+/** Backstop for an owner this host cannot probe (another host, or an unreadable lock). Writers hold the lock for milliseconds. */
 const LOCK_STALE_MS = 5 * 60_000;
 const inProcess = new Map<string, Promise<unknown>>();
 
@@ -121,10 +121,14 @@ async function readLockOwner(path: string): Promise<{ owner?: LockOwner; ageMs: 
   }
 }
 
+/** A local owner is judged by whether its process exists, never by age; the age backstop is only for owners this host cannot probe. */
 function lockIsStale({ owner, ageMs }: { owner?: LockOwner; ageMs: number }): boolean {
-  if (owner !== undefined && owner.host === hostname() && Number.isInteger(owner.pid)) {
-    try { process.kill(owner.pid, 0); } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ESRCH') return true;
+  if (owner !== undefined && owner.host === hostname() && Number.isInteger(owner.pid) && owner.pid > 0) {
+    try {
+      process.kill(owner.pid, 0);
+      return false;
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === 'ESRCH';
     }
   }
   return ageMs > LOCK_STALE_MS;
@@ -233,7 +237,10 @@ async function persistFinding(dbPath: string, scope: string, decision: Required<
   const stagedFile = tempPath(file);
   let stagedDb: string | undefined;
   try {
-    await writeFile(stagedFile, `${JSON.stringify(trajectory, null, 2)}\n`);
+    // The trajectory holds the same finding as the DB row, so it gets the DB's permissions, not the umask's.
+    const fileMode = (await stat(dbPath)).mode & 0o777;
+    await writeFile(stagedFile, `${JSON.stringify(trajectory, null, 2)}\n`, { mode: fileMode });
+    await chmod(stagedFile, fileMode);
     await withDatabaseLock(dbPath, async assertHeld => {
       // Keep the database's own permissions: a 0600 history file must not become world-readable.
       const mode = (await stat(dbPath)).mode & 0o777;
