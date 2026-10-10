@@ -85,10 +85,13 @@ it('preserves collection drafts, item paths, and confirmed receipts in mount mod
 
 it('never confirms pending delivery or permits upstream created() to swallow a pending error', async () => {
   const dir = temporary(); mkdirSync(join(dir, 'github')); vi.stubEnv('RELAYFILE_MOUNT_PATH', dir); vi.stubEnv('RELAYFLOWS_GITHUB_MOCK', '');
+  // The receipt poll waits out its budget. The default is 60s, longer than this test.
+  vi.stubEnv('RELAYFLOW_HELPER_RECEIPT_TIMEOUT_MS', '20');
   const write = vi.mocked(vfs.writeJsonFile).mockResolvedValue({ path: 'pending', absolutePath: 'pending', deliveryStatus: 'pending' });
   await expect(helperWriteback(github, dir, 'run', 'step', signal())).rejects.toThrow('pending');
+  // A second step still calls the adapter. The first left its intent, and a resume must not re-issue that write.
   write.mockRejectedValue(new vfs.RelayfileWritebackPendingError({ provider: 'github', operation: 'write.issues', path: 'pending', opId: 'op', status: 'pending', timeoutMs: 1 }));
-  await expect(helperWriteback(github, dir, 'run', 'step', signal())).rejects.toThrow();
+  await expect(helperWriteback(github, dir, 'run', 'fresh', signal())).rejects.toThrow();
 });
 
 it('blocks Notion append in mount mode and tests its lowering in mock mode', async () => {

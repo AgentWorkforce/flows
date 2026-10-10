@@ -35,6 +35,8 @@ it('propagates heartbeat lease loss from a helper effect instead of failing the 
         spec: { type: 'agent' } } }), 20);
     },
     'run.resume': ctx => sendResult(ctx, { run_id: 'helper-run', status: 'running', completion_reason: null, completed_steps: 0 }),
+    // Resume reads the journal for a parked helper receipt before the lease can be lost.
+    'journal.read': ctx => sendResult(ctx, { entries: [] }),
     'step.complete': ctx => { completions += 1; sendResult(ctx, {}); },
   });
   await once(server, 'listening');
