@@ -1,6 +1,6 @@
 {
   "name": "relayflows",
-  "version": "2.0.43",
+  "version": "2.0.44",
   "description": "Relayflow v2 CLI. Installs the `flows` command — a thin wrapper around @relayflows/sdk, published under the unscoped name for `npm install -g relayflows`.",
   "type": "module",
   "license": "Apache-2.0",
@@ -16,11 +16,11 @@
     "flows": "./bin/flows.js"
   },
   "dependencies": {
-    "@relayflows/sdk": "2.0.43"
+    "@relayflows/sdk": "2.0.44"
   },
   "optionalDependencies": {
-    "@relayflows/runtime-linux-x64": "2.0.43",
-    "@relayflows/runtime-darwin-arm64": "2.0.43"
+    "@relayflows/runtime-linux-x64": "2.0.44",
+    "@relayflows/runtime-darwin-arm64": "2.0.44"
   },
   "engines": {
     "node": ">=20"
