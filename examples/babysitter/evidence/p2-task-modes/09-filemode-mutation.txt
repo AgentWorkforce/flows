@@ -1,0 +1,102 @@
+# Lost-executable-bit fix: mutation evidence. Produced from the repository root, at the commit that contains this file's script, by running verbatim:
+#   bash examples/babysitter/evidence/p2-task-modes/scripts/filemode-mutation.sh
+# Each '+ ' line is the exact command run, printed shell-escaped (printf %q); everything else is its captured output, unedited.
+# ---- output ----
++ sha256sum fix.ts
+47b09cd11a13ccf9c88ddb3a52c6cab1c3452faf4173c23f410169a35adc7f3d  fix.ts
+
+### M1: the private git dir compares file modes (no core.fileMode=false)
++ python3 -c p=\'fix.ts\'\;s=open\(p\).read\(\)\;o=\"GIT_CONFIG_COUNT:\ \'3\'\,\ GIT_CONFIG_KEY_0:\ \'core.hooksPath\'\"\;assert\ o\ in\ s\;s=s.replace\(o\,\"GIT_CONFIG_COUNT:\ \'2\'\,\ GIT_CONFIG_KEY_0:\ \'core.hooksPath\'\"\,1\)\;open\(p\,\'w\'\).write\(s\)
++ git diff --stat -- fix.ts
+ examples/babysitter/fix.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
++ node --experimental-strip-types --test --test-name-pattern=dropped\ executable\ bits tests/task.test.ts
+✖ a checkout whose filesystem dropped executable bits proposes only the real edits (187.191085ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 335.777005
+
+✖ failing tests:
+
+test at tests/task.test.ts:224:1
+✖ a checkout whose filesystem dropped executable bits proposes only the real edits (187.191085ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   'scripts/a.sh',
+  +   'scripts/b.sh',
+      'src/retry.ts'
+    ]
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-filemode/examples/babysitter/tests/task.test.ts:232:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'scripts/a.sh', 'scripts/b.sh', 'src/retry.ts' ],
+    expected: [ 'src/retry.ts' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
++ git restore --source=HEAD -- fix.ts
++ sha256sum fix.ts
+47b09cd11a13ccf9c88ddb3a52c6cab1c3452faf4173c23f410169a35adc7f3d  fix.ts
+
+### M2: the checkout's config compares file modes (no git config core.fileMode false)
++ python3 -c p=\'fix.ts\'\;s=open\(p\).read\(\)\;o=\"\ \ git\(\'config\'\,\ \'core.fileMode\'\,\ \'false\'\)\;\\n\"\;assert\ o\ in\ s\;open\(p\,\'w\'\).write\(s.replace\(o\,\'\'\,1\)\)
++ git diff --stat -- fix.ts
+ examples/babysitter/fix.ts | 1 -
+ 1 file changed, 1 deletion(-)
++ node --experimental-strip-types --test --test-name-pattern=dropped\ executable\ bits tests/fixer.test.ts
+✖ a checkout whose filesystem dropped executable bits reads as clean (122.230312ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 267.424655
+
+✖ failing tests:
+
+test at tests/fixer.test.ts:348:1
+✖ a checkout whose filesystem dropped executable bits reads as clean (122.230312ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + ' M bin/run.sh\n'
+  - ''
+  
+      at TestContext.<anonymous> (file:///home/khaliqgant/Projects/AgentWorkforce/flows-worktrees/babysitter-filemode/examples/babysitter/tests/fixer.test.ts:358:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: ' M bin/run.sh\n',
+    expected: '',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
++ git restore --source=HEAD -- fix.ts
++ sha256sum fix.ts
+47b09cd11a13ccf9c88ddb3a52c6cab1c3452faf4173c23f410169a35adc7f3d  fix.ts
+
+### Restored: both tests
++ node --experimental-strip-types --test --test-name-pattern=dropped\ executable\ bits tests/fixer.test.ts tests/task.test.ts
+✔ a checkout whose filesystem dropped executable bits reads as clean (121.761698ms)
+✔ a checkout whose filesystem dropped executable bits proposes only the real edits (193.143973ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 344.756149
