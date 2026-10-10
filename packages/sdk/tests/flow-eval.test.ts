@@ -178,12 +178,18 @@ describe('evaluateFlow', () => {
     ]);
   });
 
-  it('judges the cost ceiling on the exact sum, not the rounded summary figure', async () => {
-    const executor: FlowEvalExecutor = async ({ caseId }) => ({ completionReason: 'success', costUsd: caseId === 'a' ? 0.5 : 0.5000004 });
-    const report = await evaluateFlow({ flow: { path: flowFile() }, executor,
-      suite: { name: 's', cases: [{ id: 'a' }, { id: 'b' }], thresholds: { maxTotalCostUsd: 1.0000001 } } });
-    expect(report.summary.totalCostUsd).toBe(1);
-    expect(report.gate.pass).toBe(false);
+  it('judges the cost ceiling in exact decimal, neither rounding an overage away nor inventing one', async () => {
+    const run = async (a: number, b: number, ceiling: number) => evaluateFlow({ flow: { path: flowFile() },
+      executor: async ({ caseId }) => ({ completionReason: 'success', costUsd: caseId === 'a' ? a : b }),
+      suite: { name: 's', cases: [{ id: 'a' }, { id: 'b' }], thresholds: { maxTotalCostUsd: ceiling } } });
+    // 0.1 + 0.2 is 0.30000000000000004 in binary; in dollars it is exactly the ceiling.
+    const met = await run(0.1, 0.2, 0.3);
+    expect(met.summary.totalCostUsd).toBe(0.3);
+    expect(met.gate.pass).toBe(true);
+    // A total a fraction of a cent over the ceiling still fails, and says so precisely.
+    const over = await run(0.5, 0.5000004, 1.0000001);
+    expect(over.gate.pass).toBe(false);
+    expect(over.gate.reasons).toEqual(['total cost $1.0000004 exceeds $1.0000001']);
   });
 
   it('applies caller scorers as metrics and as pass/fail', async () => {

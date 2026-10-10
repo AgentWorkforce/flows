@@ -45,7 +45,7 @@ export function summarizeFlowEval(results: readonly FlowEvalCaseResult[]): FlowE
   return {
     total: results.length, passed, failed, errored,
     passRate: results.length === 0 ? 0 : passed / results.length,
-    totalCostUsd: costs.some(c => c === null) ? null : roundUsd(costs.reduce<number>((sum, c) => sum + c!, 0)),
+    totalCostUsd: costs.some(c => c === null) ? null : fromNanos(sumNanos(costs as number[])),
     latencyMs: { p50: percentile(latencies, 0.5), p95: percentile(latencies, 0.95), max: latencies.at(-1) ?? 0 },
   };
 }
@@ -66,11 +66,17 @@ export function decideFlowEvalGate(
   // so a tolerance for quality misses must not absorb it.
   if (summary.errored > 0) reasons.push(`${summary.errored} case(s) errored before a verdict`);
   if (thresholds.maxTotalCostUsd !== undefined) {
-    // Judge the exact sum: the rounded summary figure is for display, and
-    // rounding could carry a total just over the ceiling under it.
-    const exact = results.some(r => r.costUsd === null) ? null : results.reduce((sum, r) => sum + r.costUsd!, 0);
-    if (exact === null) reasons.push(`total cost is unknown; the suite caps it at $${thresholds.maxTotalCostUsd}`);
-    else if (exact > thresholds.maxTotalCostUsd) reasons.push(`total cost $${summary.totalCostUsd} exceeds $${thresholds.maxTotalCostUsd}`);
+    // Decimal, not binary: costs and the ceiling are compared in whole
+    // nanodollars, so 0.1 + 0.2 meets a 0.3 ceiling exactly and a total a
+    // fraction of a cent over it still fails. No display rounding is involved.
+    const costs = results.map(r => r.costUsd);
+    if (costs.some(c => c === null)) reasons.push(`total cost is unknown; the suite caps it at $${thresholds.maxTotalCostUsd}`);
+    else {
+      const total = sumNanos(costs as number[]);
+      if (total > toNanos(thresholds.maxTotalCostUsd)) {
+        reasons.push(`total cost $${fromNanos(total)} exceeds $${thresholds.maxTotalCostUsd}`);
+      }
+    }
   }
   if (thresholds.maxP95LatencyMs !== undefined && summary.latencyMs.p95 > thresholds.maxP95LatencyMs) {
     reasons.push(`p95 latency ${summary.latencyMs.p95}ms exceeds ${thresholds.maxP95LatencyMs}ms`);
@@ -90,8 +96,17 @@ function percentile(sorted: readonly number[], p: number): number {
   return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1))]!;
 }
 
-function roundUsd(value: number): number {
-  return Math.round(value * 1e6) / 1e6;
+/** Dollars as whole nanodollars: exact for any cost a run reports, far below a cent. */
+function toNanos(usd: number): bigint {
+  return BigInt(Math.round(usd * 1e9));
+}
+
+function sumNanos(costs: readonly number[]): bigint {
+  return costs.reduce((sum, cost) => sum + toNanos(cost), 0n);
+}
+
+function fromNanos(nanos: bigint): number {
+  return Number(nanos) / 1e9;
 }
 
 function formatRate(rate: number): string {
