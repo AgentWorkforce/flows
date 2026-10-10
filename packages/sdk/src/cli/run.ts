@@ -449,7 +449,7 @@ export async function resumeFlow(
     if (pending !== undefined) {
       return { exitCode: 3, report: { ...base, ok: false,
         runId: pending.rootRunId ?? pending.runId, rootRunId: pending.rootRunId, socketPath, status: 'parked',
-        diagnostics: [...base.diagnostics, { severity: 'parked', kind: pending.code,
+        diagnostics: [...base.diagnostics, { severity: 'parked', kind: 'helper_writeback_pending',
           message: pending.message + ` Continue with: ${resumeCommand(pending.rootRunId ?? pending.runId ?? runId, dataDir, options.localAgent === true)}.` }] } };
     }
     if (error instanceof AuthoredFlowExecutionError && (error.code === 'agent_parked' || error.code === 'llm_parked')) {
