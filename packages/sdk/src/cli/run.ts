@@ -12,6 +12,7 @@ import { attachReuseSummary } from './reuse.js';
 import { resumeHelperEffect } from '../authored-helper-effect.js';
 import { AuthoredFlowExecutionError, AuthoredHumanParked, type AuthoredHumanWait } from '../authored-flow-error.js';
 import { answerCommand, resumeCommand } from '../authored-human.js';
+import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { ProgressEvent } from '../progress.js';
 import type { JournalEvent } from '../journal-reader.js';
@@ -255,7 +256,14 @@ async function executeCheckedFlow(
         diagnostics: [...base.diagnostics, { severity: failed ? 'failure' : 'refusal',
           kind: error.code, message: error.message }] } };
     }
-    return protocolFailure('run', base, socketPath, communicationWorkers?.failure ?? localAgent?.failure ?? error);
+    const cause = communicationWorkers?.failure ?? localAgent?.failure ?? error;
+    if (cause instanceof AuthoredFlowExecutionError && cause.code === 'helper_writeback_pending') {
+      return { exitCode: 3, report: { ...base, ok: false, runId: cause.rootRunId ?? cause.runId ?? base.runId,
+        rootRunId: cause.rootRunId, socketPath, status: 'parked',
+        diagnostics: [...base.diagnostics, { severity: 'parked', kind: cause.code,
+          message: cause.message + ` Continue with: ${resumeCommand(cause.rootRunId ?? cause.runId ?? base.runId ?? '', dataDir, options.localAgent === true)}.` }] } };
+    }
+    return protocolFailure('run', base, socketPath, cause);
   } finally {
     if (options.onJournalEntry !== undefined) client.off('entry', options.onJournalEntry);
     try { await communicationWorkers?.close(); } finally { try { await localAgent?.close(); } finally { client.close(); } }
@@ -384,6 +392,12 @@ export async function resumeFlow(
       // the run unprojected, and the resume below reports the run's own fate.
       await client.runWatch(runId).catch(() => client.off('entry', onEntry));
     }
+    // A helper child answers its own park after its worker attaches.
+    // Emitting here, with no worker, journals the next attempt as a crash.
+    if (options.localAgent && !existsSync(join(dataDir, 'helper-runs', `${runId}.json`))) {
+      const { releaseHelperReceiptWaits } = await import('../helper-park.js');
+      await releaseHelperReceiptWaits(client, runId);
+    }
     let outcome = await client.runResume(runId, options.allowHumanInfluenced);
     options.onRunReceipt?.({ runId, flow: 'flow' });
     if (await resumeHelperEffect(client, runId, dataDir)) {
@@ -428,11 +442,15 @@ export async function resumeFlow(
     // only honest instruction is a new run carrying the same `--input`.
     // `runId` here is the CHILD run holding the evidence; the root this resume
     // named stays separate, so `flows` can still collect it.
-    if (error instanceof AuthoredFlowExecutionError && error.code === 'helper_writeback_pending') {
+    const pending = error instanceof AuthoredFlowExecutionError && error.code === 'helper_writeback_pending'
+      ? error
+      : authoredAgent?.failure instanceof AuthoredFlowExecutionError && authoredAgent.failure.code === 'helper_writeback_pending'
+        ? authoredAgent.failure : undefined;
+    if (pending !== undefined) {
       return { exitCode: 3, report: { ...base, ok: false,
-        runId: error.rootRunId ?? error.runId, rootRunId: error.rootRunId, socketPath, status: 'parked',
-        diagnostics: [...base.diagnostics, { severity: 'parked', kind: error.code,
-          message: error.message + ` Continue with: ${resumeCommand(error.rootRunId ?? error.runId ?? runId, dataDir, options.localAgent === true)}.` }] } };
+        runId: pending.rootRunId ?? pending.runId, rootRunId: pending.rootRunId, socketPath, status: 'parked',
+        diagnostics: [...base.diagnostics, { severity: 'parked', kind: pending.code,
+          message: pending.message + ` Continue with: ${resumeCommand(pending.rootRunId ?? pending.runId ?? runId, dataDir, options.localAgent === true)}.` }] } };
     }
     if (error instanceof AuthoredFlowExecutionError && (error.code === 'agent_parked' || error.code === 'llm_parked')) {
       return {

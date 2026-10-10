@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { resolve, relative, isAbsolute } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { writeJsonFile, type WritebackResult, type WritebackReceipt } from '@relayfile/adapter-core/vfs-client';
+import { writeJsonFile, type WritebackReceipt, type WritebackResult } from '@relayfile/adapter-core/vfs-client';
 import { atomicJson, receiptPath, readHelperReceipt } from './helper-storage.js';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
 
@@ -36,7 +36,8 @@ export async function writeHelperDraft(mount: string, provider: string, operatio
     intent = { path, absolutePath, body };
     await atomicJson(file, intent);
     signal.throwIfAborted();
-    await writeJsonFile({ relayfileMountRoot: mount, writebackTimeoutMs: 0 }, provider, operation, path, body);
+    const submitted = await writeJsonFile({ relayfileMountRoot: mount, writebackTimeoutMs: 0 }, provider, operation, path, body);
+    if (providerReceipt(submitted.receipt, intent.body)) return { ...submitted, deliveryStatus: 'confirmed', receipt: submitted.receipt };
   }
   const deadline = Date.now() + timeout;
   do {
@@ -46,10 +47,9 @@ export async function writeHelperDraft(mount: string, provider: string, operatio
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
     }
-    if (receipt && typeof receipt === 'object' && !Array.isArray(receipt)
-      && JSON.stringify(receipt) !== JSON.stringify(intent.body)
-      && (['created', 'path', 'id', 'externalId', 'ts', 'sha'].some(key => typeof receipt![key] === 'string')
-        || typeof receipt.merged === 'boolean' || typeof receipt.merged === 'string')) {
+    // Identity fields only. A path, timestamp, or error object written while
+    // the adapter is still flushing is not a provider delivery.
+    if (providerReceipt(receipt, intent.body)) {
       return { path: intent.path, absolutePath: intent.absolutePath, deliveryStatus: 'confirmed', receipt };
     }
     const remaining = deadline - Date.now();
@@ -57,4 +57,13 @@ export async function writeHelperDraft(mount: string, provider: string, operatio
     await delay(Math.min(250, remaining), undefined, { signal });
   } while (Date.now() <= deadline);
   throw new HelperWritebackPending(writeId, intent.path, runId);
+}
+
+/** A provider id the draft did not already carry. Path and created are not delivery. */
+function providerReceipt(receipt: WritebackReceipt | undefined, draft: Record<string, unknown>): receipt is WritebackReceipt {
+  if (receipt === undefined || typeof receipt !== 'object' || Array.isArray(receipt)) return false;
+  return (['id', 'externalId', 'ts'] as const).some(key => {
+    const value = receipt[key];
+    return typeof value === 'string' && value.length > 0 && value !== draft[key];
+  });
 }

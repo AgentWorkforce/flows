@@ -218,3 +218,85 @@ it('resumes an accepted mount write after receipt timeout and daemon restart wit
   expect(entries.filter(entry => entry.entry_type === 'effect.confirmed')).toHaveLength(1);
   expect(entries.filter(entry => entry.entry_type === 'step.completed' && entry.payload.completionReason === 'success')).toHaveLength(1);
 }, 30_000);
+
+it('parks repeated pending resumes before the receipt, then confirms the accepted write once', async () => {
+  const dataDir = temporary();
+  mkdirSync(join(dataDir, 'github'));
+  vi.stubEnv('RELAYFILE_MOUNT_PATH', dataDir);
+  vi.stubEnv('RELAYFLOWS_GITHUB_MOCK', '0');
+  vi.stubEnv('RELAYFLOW_HELPER_RECEIPT_TIMEOUT_MS', '20');
+  const call = {
+    type: 'effect' as const, provider: 'github' as const, verb: 'comment' as const,
+    args: [{ owner: 'org', repo: 'repo', number: 1 }, 'hi'],
+  };
+  const first = await start(dataDir);
+  await expect(runHelperEffect(first.client, 'pending-helper', 'comment', call, dataDir, []))
+    .rejects.toMatchObject({ code: 'helper_writeback_pending' });
+  const runId = readdirSync(join(dataDir, 'helper-runs'))[0]!.replace(/\.json$/, '');
+  const pendingFile = readdirSync(join(dataDir, 'helper-receipts')).find(file => file.endsWith('.pending'))!;
+  const intent = JSON.parse(readFileSync(join(dataDir, 'helper-receipts', pendingFile), 'utf8'));
+  const inode = statSync(intent.absolutePath).ino;
+  const openParks = async (client: JournalClient) => {
+    const entries = (await client.journalRead(runId, 1)).entries as Array<{ entry_type: string; payload: { wait_id?: string; completionReason?: string } }>;
+    const closed = new Set(entries.filter(entry => entry.entry_type === 'wait.completed').map(entry => entry.payload.wait_id));
+    return {
+      entries,
+      open: entries.filter(entry => entry.entry_type === 'wait.human' && entry.payload.wait_id?.startsWith('helper-receipt:') && !closed.has(entry.payload.wait_id)),
+    };
+  };
+  const initial = await openParks(first.client);
+  expect(initial.open.length).toBeGreaterThan(0);
+  expect(initial.entries.filter(entry => entry.entry_type === 'effect.confirmed')).toHaveLength(0);
+  expect(initial.entries.filter(entry => entry.entry_type === 'step.completed' && entry.payload.completionReason === 'success')).toHaveLength(0);
+  first.client.close(); await kill(first.daemon);
+  for (let pendingResume = 0; pendingResume < 2; pendingResume++) {
+    const daemon = await start(dataDir);
+    await expect(resumeHelperEffect(daemon.client, runId, dataDir)).rejects.toMatchObject({ code: 'helper_writeback_pending' });
+    const parked = await openParks(daemon.client);
+    expect(parked.open.length).toBeGreaterThan(0);
+    expect(parked.entries.filter(entry => entry.entry_type === 'effect.confirmed')).toHaveLength(0);
+    expect(parked.entries.filter(entry => entry.entry_type === 'step.completed' && entry.payload.completionReason === 'success')).toHaveLength(0);
+    expect(parked.entries.filter(entry => entry.entry_type === 'step.completed' && entry.payload.completionReason === 'crashed')).toHaveLength(0);
+    daemon.client.close(); await kill(daemon.daemon);
+  }
+  writeFileSync(intent.absolutePath, JSON.stringify({ id: '5738826838' }));
+  const delivered = await start(dataDir);
+  await expect(resumeHelperEffect(delivered.client, runId, dataDir)).resolves.toBe(true);
+  expect(statSync(intent.absolutePath).ino).toBe(inode);
+  const entries = (await delivered.client.journalRead(runId, 1)).entries as Array<{ entry_type: string; payload: { completionReason?: string } }>;
+  expect(entries.filter(entry => entry.entry_type === 'effect.confirmed')).toHaveLength(1);
+  expect(entries.filter(entry => entry.entry_type === 'step.completed' && entry.payload.completionReason === 'success')).toHaveLength(1);
+  expect(entries.filter(entry => entry.entry_type === 'step.completed' && entry.payload.completionReason === 'crashed')).toHaveLength(0);
+}, 30_000);
+
+it('parks an authored github write across pending resumes and confirms it once', async () => {
+  const dataDir = temporary();
+  mkdirSync(join(dataDir, 'github'));
+  vi.stubEnv('RELAYFILE_MOUNT_PATH', dataDir);
+  vi.stubEnv('RELAYFLOWS_GITHUB_MOCK', '0');
+  vi.stubEnv('RELAYFLOW_HELPER_RECEIPT_TIMEOUT_MS', '20');
+  const first = await start(dataDir);
+  await expect(executeAuthoredFlow(flow('pending-root', async f => {
+    await f.github.comment({ owner: 'org', repo: 'repo', number: 1 }, 'hi');
+    f.done('success');
+  }), first.client, undefined, { dataDir })).rejects.toMatchObject({ code: 'helper_writeback_pending' });
+  const runId = readdirSync(join(dataDir, 'helper-runs'))[0]!.replace(/\.json$/, '');
+  const pendingFile = readdirSync(join(dataDir, 'helper-receipts')).find(file => file.endsWith('.pending'))!;
+  const intent = JSON.parse(readFileSync(join(dataDir, 'helper-receipts', pendingFile), 'utf8')) as { absolutePath: string };
+  first.client.close(); await kill(first.daemon);
+  const again = await start(dataDir);
+  const parked = await resumeFlow(runId, dataDir, { daemon: { spawn: false } });
+  expect(parked.exitCode, JSON.stringify(parked.report)).toBe(3);
+  expect(parked.report.status).toBe('parked');
+  const mid = (await again.client.journalRead(runId, 1)).entries as Array<{ entry_type: string; payload: { completionReason?: string } }>;
+  expect(mid.filter(entry => entry.entry_type === 'effect.confirmed')).toHaveLength(0);
+  expect(mid.filter(entry => entry.entry_type === 'step.completed' && entry.payload.completionReason === 'crashed')).toHaveLength(0);
+  again.client.close(); await kill(again.daemon);
+  writeFileSync(intent.absolutePath, JSON.stringify({ id: '5738826838' }));
+  const delivered = await start(dataDir);
+  const resumed = await resumeFlow(runId, dataDir, { daemon: { spawn: false } });
+  expect(resumed.exitCode, JSON.stringify(resumed.report)).toBe(0);
+  const entries = (await delivered.client.journalRead(runId, 1)).entries as Array<{ entry_type: string; payload: { completionReason?: string } }>;
+  expect(entries.filter(entry => entry.entry_type === 'effect.confirmed')).toHaveLength(1);
+  expect(entries.filter(entry => entry.entry_type === 'step.completed' && entry.payload.completionReason === 'success')).toHaveLength(1);
+}, 30_000);

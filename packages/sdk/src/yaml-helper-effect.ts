@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
-import { writeHelperDraft } from './helper-receipt.js';
+import { HelperWritebackPending, writeHelperDraft } from './helper-receipt.js';
+import { parkHelperReceipt } from './helper-park.js';
 import type { RelayTransport } from '@relayfile/relay-helpers';
 import type { JournalClient } from './journal-client.js';
 import type { StepDispatchEvent } from './protocol.js';
@@ -54,7 +55,9 @@ export async function completeHelperDispatch(
   client: JournalClient, dispatch: StepDispatchEvent, call: HelperCall, dataDir: string,
 ): Promise<void> {
   const surfacePath = `/${call.provider}`;
-  const output = await withWorkerLease(client, dispatch, async signal => {
+  let output: { idempotencyKey: string; receipt: unknown };
+  try {
+    output = await withWorkerLease(client, dispatch, async signal => {
     const file = receiptPath(dataDir, dispatch.run_id, dispatch.step_id);
     let receipt: unknown;
     await client.performEffect({
@@ -72,7 +75,11 @@ export async function completeHelperDispatch(
     });
     if (receipt === undefined) receipt = await readSlackReceipt(file);
     return { ...call, idempotencyKey: `${dispatch.run_id}:${dispatch.step_id}`, receipt };
-  });
+    });
+  } catch (error) {
+    if (error instanceof HelperWritebackPending) await parkHelperReceipt(client, dispatch, error);
+    throw error;
+  }
   await client.stepComplete(dispatch.run_id, dispatch.step_id, dispatch.attempt,
     dispatch.idempotency_key, 'success', { output, started_pins: dispatch.pins, end_pins: dispatch.pins, reported_cost: NO_MODEL_COST,
       effects: [{ surface_path: surfacePath, idempotency_key: dispatch.idempotency_key }] });

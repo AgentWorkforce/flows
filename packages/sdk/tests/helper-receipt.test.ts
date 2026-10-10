@@ -58,6 +58,25 @@ it('names the pending GitHub write and resumes receipt polling without overwriti
   await expect(write()).resolves.toMatchObject({ receipt: { id: '5738826838' }, deliveryStatus: 'confirmed' });
   expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({ id: '5738826838' });
 });
+it('does not treat a path and created stamp as provider delivery', async () => {
+  const dir = setup('400');
+  const call = { type: 'effect' as const, provider: 'github', verb: 'comment',
+    args: [{ owner: 'org', repo: 'repo', number: 1 }, 'hi'] };
+  const { helperTransport } = await import('../src/helper-writeback.js');
+  const request = { provider: 'github', resource: 'issue-comments', path: '/github/repos/org/repo/issues/1/comments',
+    parameters: {}, body: { body: 'hi' } };
+  const pending = helperTransport(call, dir, 'run', 'step', signal()).transport.write(request);
+  await vi.waitFor(() => expect(intent(dir).absolutePath).toBeDefined());
+  writeFileSync(intent(dir).absolutePath, JSON.stringify({ path: request.path, created: '2020-01-01T00:00:00Z' }));
+  await expect(pending).rejects.toMatchObject({ code: 'helper_writeback_pending' });
+});
+it('returns a provider id from the adapter without waiting out the receipt budget', async () => {
+  const dir = setup('50');
+  vi.stubEnv('RELAYFLOWS_GITHUB_MOCK', '1');
+  await expect(helperWriteback({ type: 'effect', provider: 'github', verb: 'comment',
+    args: [{ owner: 'org', repo: 'repo', number: 1 }, 'hi'] }, dir, 'run', 'step', signal()))
+    .resolves.toMatchObject({ status: 'confirmed', receipt: { externalId: 'mock-step' } });
+});
 it('preserves the pending outcome through the authored helper wrapper', async () => {
   const dir = setup('20');
   await expect(helperWriteback({ type: 'effect', provider: 'github', verb: 'comment',

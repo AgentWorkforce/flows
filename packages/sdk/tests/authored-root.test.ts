@@ -417,6 +417,14 @@ describe('durable authored root', () => {
         code: 'helper_writeback_pending', rootRunId: 'root-run',
       });
     expect(journal.peer.completions).toEqual([]);
+    expect(journal.peer.waits).toEqual([{
+      attempt: 1,
+      wait: expect.objectContaining({
+        wait_id: 'helper-receipt:authored-root:1',
+        requested_of: 'relayfile-receipt',
+        options: ['resume'],
+      }),
+    }]);
   });
 
   it('still terminalizes a timed-out mutation as a body failure', async () => {

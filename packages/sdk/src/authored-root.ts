@@ -19,6 +19,7 @@ import type { RunLifecycleOptions } from './cli/run.js';
 import { isLeaseLost, withWorkerLease } from './worker-lease.js';
 import { AuthoredFlowExecutionError, AuthoredHumanParked } from './authored-flow-error.js';
 import { readOpenHumanWaits, resumeCommand } from './authored-human.js';
+import { helperReceiptWaitId, releaseHelperReceiptWaits } from './helper-park.js';
 import { readSubscriptionPark } from './authored-subscription-park.js';
 import { localAgentCredentialEnvironment } from './local-agent-environment.js';
 import { completedResult, rootKernelStep, rootStepIfPresent } from './authored-root-readback.js';
@@ -123,6 +124,7 @@ export async function executeDurableAuthoredFlow(
       return await completedResult(journal, outcome, outcome.run_id);
     }
     assertRootCanDispatch(outcome);
+    await releaseHelperReceiptWaits(journal, outcome.run_id);
     options.lifecycle?.onRunStarted?.({ runId: outcome.run_id, flow: definition.name });
     // `run.start` is an idempotent receipt. If the first caller died after
     // the daemon dispatched this root, a same-daemon retry sees the existing
@@ -166,6 +168,7 @@ export async function resumeDurableAuthoredFlow(
     await peer.workerAttach(`worker-${stream}-${randomUUID()}`, ['agent'], {
       workspace: [], streams: [{ stream, read_offset: 0 }],
     });
+    await releaseHelperReceiptWaits(journal, rootRunId);
     const outcome = await journal.runResume(rootRunId);
     options.lifecycle?.onRunReceipt?.({ runId: rootRunId, flow: metadata.flowName });
     if (outcome.status === 'completed') {
@@ -411,7 +414,17 @@ async function driveRoot(
       throw error;
     }
     if (error instanceof AuthoredFlowExecutionError && error.code === 'helper_writeback_pending') {
+      // Same durable park as the helper child, including a pending error
+      // rebuilt from the Node child's frame (that one is not the subclass).
+      // Closing this leased root without the park spends the root's transport
+      // budget on an accepted write.
       error.rootRunId = dispatch.run_id;
+      await peer.stepWait(dispatch.run_id, dispatch.step_id, dispatch.attempt, dispatch.idempotency_key, {
+        wait_id: helperReceiptWaitId(dispatch.step_id, dispatch.attempt),
+        prompt: error.message,
+        requested_of: 'relayfile-receipt',
+        options: ['resume'],
+      });
       throw error;
     }
     await terminalizeRootFailure(peer, dispatch, error);
