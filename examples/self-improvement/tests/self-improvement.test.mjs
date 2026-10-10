@@ -286,3 +286,17 @@ test("a generated id the editor re-authors is not exempt", () => {
   assert.match(coverage(diffSpecs(before, after), proposal, after, before, authored).join("\n"),
     /step classify.gate: command changed, but no structure edit proposes classify.gate.command/);
 });
+
+test("the flow's symlink refusal runs before `flows check` reads the target file", () => {
+  // compile-spec.mjs refuses a flow path that resolves out of the checkout;
+  // `flows check` does not. Every command that checks the target must
+  // therefore run compile-spec first, or `flows check` reads through the link.
+  const source = readFileSync(join(here, "self-improvement.flow.ts"), "utf8").replace(/^const HELPERS = .*$/mu, "");
+  const checks = [...source.matchAll(/flows check \$\{shellWord\(flowFile\)\}/gu)];
+  assert.ok(checks.length >= 2, "expected the before and after checks");
+  for (const check of checks) {
+    const start = Math.max(source.lastIndexOf("await f.run(", check.index), source.lastIndexOf("const recheck", check.index));
+    const stmt = source.slice(start, check.index);
+    assert.match(stmt, /compile-spec\.mjs/, `\`flows check\` at offset ${check.index} runs before compile-spec's symlink refusal`);
+  }
+});

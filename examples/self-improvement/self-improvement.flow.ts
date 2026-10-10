@@ -170,7 +170,9 @@ export default flow<SelfImprovementInput>(
     }
     const baseSha = (await f.run(`git -C ${TARGET} rev-parse HEAD`)).trim();
     if (!GIT_SHA.test(baseSha)) throw new Error(`self-improvement: unexpected base commit ${baseSha}`);
-    await f.run(`flows check ${shellWord(flowFile)} && ${helper(`compile-spec.mjs ${TARGET} ${shellWord(flowFile)} ${OUT}/before.spec.json ${OUT}/before.authored.json`)}`,
+    // compile-spec first: it refuses a flowPath that resolves out of the
+    // checkout, and `flows check` would read through such a symlink.
+    await f.run(`${helper(`compile-spec.mjs ${TARGET} ${shellWord(flowFile)} ${OUT}/before.spec.json ${OUT}/before.authored.json`)} && flows check ${shellWord(flowFile)}`,
       { timeout: "3m" });
 
     // ── 2. Observe: last N terminal runs of *this* flow, per-step rows, leverage ranking. ──
@@ -242,8 +244,9 @@ export default flow<SelfImprovementInput>(
     const recheck =
       `${verify(sealed)} && test "$(${git} rev-parse HEAD)" = ${baseSha} && `
         + `${git} add -A && ${git} diff --cached --name-only ${baseSha} > ${OUT}/changed.txt && `
-        + `${sameBytes("")} && flows check ${shellWord(flowFile)} && `
+        + `${sameBytes("")} && `
         + `${helper(`compile-spec.mjs ${TARGET} ${shellWord(flowFile)} ${OUT}/after.spec.json ${OUT}/after.authored.json`)} && `
+        + `flows check ${shellWord(flowFile)} && `
         + `node ${H}/check-proposal.mjs edit --dir ${OUT} --flow-path ${shellWord(input.flowPath)} `
         + `--changed ${OUT}/changed.txt --before ${OUT}/before.spec.json --after ${OUT}/after.spec.json `
         + `--before-authored ${OUT}/before.authored.json --after-authored ${OUT}/after.authored.json`;
