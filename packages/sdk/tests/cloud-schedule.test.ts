@@ -161,6 +161,19 @@ describe('flows schedule / schedules / unschedule', () => {
     expect(calls[1]!.body).toMatchObject({ name: 'Morning', cron_expression: '30 6 * * *', timezone: 'Europe/Oslo' });
   });
 
+  it('never stores envSecrets in a schedule, even when a caller passes them anyway', async () => {
+    const secret = 'schedule-path-short-lived-token-0123456789';
+    const dir = await tempDir('cloud-schedule-env-');
+    const yaml = join(dir, 'monitor.flow.yaml');
+    await writeFile(yaml, JSON.stringify({ version: '0.1.0', name: 'monitor', steps: [{ id: 'ls', type: 'deterministic', command: 'ls' }] }));
+    const calls = cloud({ '/api/v1/workflows/schedules': () => ({ status: 201, body: { schedule: SCHEDULE_ROW } }) });
+    // scheduleInCloud's options type has no envSecrets; an untyped caller can still pass one.
+    const options = { envSecrets: { NATIVE_API_TOKEN: secret } } as Parameters<typeof scheduleInCloud>[1];
+    await scheduleInCloud({ flow: { path: yaml }, every: '15m' }, options);
+    expect(calls).toHaveLength(1);
+    expect(JSON.stringify(calls[0]!.body)).not.toContain(secret);
+  });
+
   it('refuses bad crons, bad zones, missing declarations and both flags before HTTP', async () => {
     const path = await authoredFlow("export default flow('plain', async f => f.done('success'));", 'plain');
     const calls = cloud({});

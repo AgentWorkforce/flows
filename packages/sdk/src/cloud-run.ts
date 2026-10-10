@@ -109,6 +109,21 @@ function snapshotEnvSecrets(value: unknown): Record<string, string> | undefined 
 }
 
 /**
+ * A Cloud refusal's message is Cloud's own text. Should it ever quote an
+ * envSecrets value, keep the refusal code and drop the text, so the value never
+ * reaches an error message, a log line or a caller's error report.
+ */
+function withheldIfQuotingSecret(error: unknown, envSecrets: Record<string, string> | undefined): unknown {
+  if (envSecrets === undefined || !(error instanceof CloudFlowError) || error.refusal === undefined) return error;
+  const values = Object.values(envSecrets).filter(value => value.length > 0);
+  if (!values.some(value => error.message.includes(value) || error.refusal!.error.includes(value))) return error;
+  const code = values.some(value => error.refusal!.code.includes(value)) ? 'withheld' : error.refusal.code;
+  return new CloudFlowError(error.code,
+    `Cloud refused (${code}); its message was withheld because it quoted an envSecrets value.`,
+    error.status, { code, error: 'withheld: quoted an envSecrets value' });
+}
+
+/**
  * Submit a declarative flow to Cloud's pinned v2 runtime. Compilation only
  * happens here; Cloud owns provisioning and the Rust engine owns execution.
  * Returns acceptance, not completion. No local daemon, CLI probe, or node up.
@@ -297,7 +312,7 @@ export async function runInCloud(
         + 'Install the matching relayflows release, or deploy the flow with `flows deploy`, which uses Cloud\'s own Surface.',
         error.status, error.refusal);
     }
-    throw error;
+    throw withheldIfQuotingSecret(error, envSecrets);
   }
   if (!isCloudRecord(result) || (result.status !== 'pending' && result.status !== 'running')) {
     throw new CloudFlowError('invalid_response', 'Cloud did not return an accepted run.');

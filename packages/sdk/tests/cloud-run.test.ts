@@ -669,4 +669,33 @@ describe('per-run envSecrets', () => {
     expect(JSON.stringify({ message: (failure as Error).message, refusal: (failure as CloudFlowError).refusal }))
       .not.toContain(SECRET);
   });
+
+  it('withholds a Cloud refusal message that quotes an envSecrets value, keeping its code', async () => {
+    const options = await cloud(() => ({ code: 'invalid_env_secrets', error: `NATIVE_API_TOKEN=${SECRET} is not allowed` }), 400);
+    const failure = await runInCloud(flow, { ...options, envSecrets: { NATIVE_API_TOKEN: SECRET } })
+      .catch((error: unknown) => error as CloudFlowError);
+    expect(failure).toMatchObject({ code: 'http_error', status: 400, refusal: { code: 'invalid_env_secrets' } });
+    expect((failure as Error).message).toContain('invalid_env_secrets');
+    expect(JSON.stringify({ message: (failure as Error).message, refusal: (failure as CloudFlowError).refusal,
+      stack: (failure as Error).stack })).not.toContain(SECRET);
+  });
+
+  it('keeps an unrelated Cloud refusal message as Cloud wrote it', async () => {
+    const options = await cloud(() => ({ code: 'quota_exceeded', error: 'Workspace run quota exceeded' }), 429);
+    const failure = await runInCloud(flow, { ...options, envSecrets: { NATIVE_API_TOKEN: SECRET } })
+      .catch((error: unknown) => error as CloudFlowError);
+    expect((failure as Error).message).toBe('Cloud refused (quota_exceeded): Workspace run quota exceeded');
+  });
+
+  it('scopes envSecrets to the one run: a later run on the same options sends none', async () => {
+    const bodies: unknown[] = [];
+    const options = await cloud((_path, body) => {
+      bodies.push(body);
+      return { runId: `run-${bodies.length}`, status: 'pending' };
+    });
+    await runInCloud(flow, { ...options, envSecrets: { NATIVE_API_TOKEN: SECRET } });
+    await runInCloud(flow, options);
+    expect(bodies[0]).toMatchObject({ envSecrets: { NATIVE_API_TOKEN: SECRET } });
+    expect(JSON.stringify(bodies[1])).not.toContain(SECRET);
+  });
 });
