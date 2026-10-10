@@ -8,12 +8,14 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { createRequire } from "node:module";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-export async function loadSdk() {
-  if (process.env.RELAYFLOWS_SDK) return import(pathToFileURL(process.env.RELAYFLOWS_SDK).href);
+/** Absolute path of the SDK's ESM entry. */
+function sdkEntry() {
+  if (process.env.RELAYFLOWS_SDK) return process.env.RELAYFLOWS_SDK;
   try {
-    return await import("@relayflows/sdk");
+    return fileURLToPath(import.meta.resolve("@relayflows/sdk"));
   } catch { /* not a project dependency; fall through to the CLI's copy */ }
   let bin;
   try {
@@ -28,5 +30,14 @@ export async function loadSdk() {
   if (dir === undefined) throw new Error(`cannot find @relayflows/sdk beside the flows CLI at ${cli}; set RELAYFLOWS_SDK`);
   const entry = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).exports?.["."]?.import;
   if (typeof entry !== "string") throw new Error(`@relayflows/sdk at ${dir} declares no ESM entry; set RELAYFLOWS_SDK`);
-  return import(pathToFileURL(join(dir, entry)).href);
+  return join(dir, entry);
+}
+
+export async function loadSdk() {
+  return import(pathToFileURL(sdkEntry()).href);
+}
+
+/** The YAML parser the SDK's own compiler uses (`yaml`, an SDK dependency). */
+export function loadYaml() {
+  return createRequire(sdkEntry())("yaml");
 }

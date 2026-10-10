@@ -17,6 +17,11 @@ const step = (name, extra = {}) => ({ step_name: name, step_type: "agent", statu
   duration_ms: 1000, cost_usd: 0.1, retry_count: 0, attempts: [], gate: null, transcript: null, ...extra });
 const spec = (steps, extra = {}) => ({ name: "t", description: "d", steps, ...extra });
 const agent = (id, instruction, extra = {}) => ({ id, type: "agent", instruction, depends_on: [], max_iterations: 1, ...extra });
+/** What compile-spec.mjs records: every step id except those the compiler generated. */
+const authoredOf = (before, after, generated = []) => ({
+  before: new Set(before.steps.map((s) => s.id).filter((id) => !generated.includes(id))),
+  after: new Set(after.steps.map((s) => s.id).filter((id) => !generated.includes(id))),
+});
 
 /** The example target's step ids, as its compiled spec names them. */
 function targetSpec() {
@@ -94,7 +99,7 @@ test("coverage accepts exactly the proposal, including the steps the compiler de
   ]);
   const proposal = { target_step: "classify", prompt_edits: [{ step: "classify", new_text: "new" }],
     structure_edits: [{ step: "classify", field: "verification" }] };
-  const check = (spec2, p = proposal) => coverage(diffSpecs(before, spec2), p, spec2, before).join("\n");
+  const check = (spec2, p = proposal) => coverage(diffSpecs(before, spec2), p, spec2, before, authoredOf(before, spec2, ["classify.gate"])).join("\n");
   assert.equal(check(after), "");
   const stray = spec([...after.steps.slice(0, 2), agent("reply", "rewritten", { depends_on: ["classify.gate"] })]);
   assert.match(check(stray), /step reply: instruction changed, but the proposal has no prompt edit/);
@@ -107,11 +112,11 @@ test("coverage compares fields and prompt text, not just step ids", () => {
   const after = spec([agent("classify", "new", { timeout_ms: 5000 })]);
   const proposal = { target_step: "classify", prompt_edits: [{ step: "classify", new_text: "new" }],
     structure_edits: [{ step: "classify", field: "max_iterations" }] };
-  const problems = coverage(diffSpecs(before, after), proposal, after, before).join("\n");
+  const problems = coverage(diffSpecs(before, after), proposal, after, before, authoredOf(before, after)).join("\n");
   assert.match(problems, /step classify: timeout_ms changed, but no structure edit proposes classify.timeout_ms/);
   assert.match(problems, /proposed structure edit classify.max_iterations is not in the compiled flow/);
   const otherText = { ...proposal, prompt_edits: [{ step: "classify", new_text: "something else" }] };
-  assert.match(coverage(diffSpecs(before, after), otherText, after, before).join("\n"), /compiled prompt is not the proposed new_text/);
+  assert.match(coverage(diffSpecs(before, after), otherText, after, before, authoredOf(before, after)).join("\n"), /compiled prompt is not the proposed new_text/);
 });
 
 test("a prompt edit on a step the proposal adds is checked like any other", () => {
@@ -119,9 +124,9 @@ test("a prompt edit on a step the proposal adds is checked like any other", () =
   const after = spec([agent("a", "y"), agent("verify", "check a", { depends_on: ["a"] })]);
   const proposal = { target_step: "a", prompt_edits: [{ step: "a", new_text: "y" }, { step: "verify", new_text: "check a" }],
     structure_edits: [{ step: "verify", field: "added" }] };
-  assert.deepEqual(coverage(diffSpecs(before, after), proposal, after, before), []);
+  assert.deepEqual(coverage(diffSpecs(before, after), proposal, after, before, authoredOf(before, after)), []);
   const missing = { ...proposal, prompt_edits: [{ step: "a", new_text: "y" }] };
-  assert.match(coverage(diffSpecs(before, after), missing, after, before).join("\n"), /step verify: instruction changed, but the proposal has no prompt edit/);
+  assert.match(coverage(diffSpecs(before, after), missing, after, before, authoredOf(before, after)).join("\n"), /step verify: instruction changed, but the proposal has no prompt edit/);
 });
 
 test("only <step>.gate is compiler-derived, and only for a verification or added edit", () => {
@@ -129,7 +134,7 @@ test("only <step>.gate is compiler-derived, and only for a verification or added
   const after = spec([agent("classify", "new", { max_iterations: 2 }), agent("classify.audit", "a", { depends_on: ["classify"], timeout_ms: 9 })]);
   const proposal = { target_step: "classify", prompt_edits: [{ step: "classify", new_text: "new" }],
     structure_edits: [{ step: "classify", field: "max_iterations" }] };
-  assert.match(coverage(diffSpecs(before, after), proposal, after, before).join("\n"), /classify.audit: timeout_ms changed, but no structure edit proposes/);
+  assert.match(coverage(diffSpecs(before, after), proposal, after, before, authoredOf(before, after)).join("\n"), /classify.audit: timeout_ms changed, but no structure edit proposes/);
 });
 
 test("depends_on rewiring is exempt only around an inserted or removed step", () => {
@@ -137,7 +142,7 @@ test("depends_on rewiring is exempt only around an inserted or removed step", ()
   const after = spec([agent("classify", "new", { max_iterations: 2 }), agent("reply", "r", { depends_on: ["classify"] })]);
   const proposal = { target_step: "classify", prompt_edits: [{ step: "classify", new_text: "new" }],
     structure_edits: [{ step: "classify", field: "max_iterations" }] };
-  assert.match(coverage(diffSpecs(before, after), proposal, after, before).join("\n"), /step reply: depends_on changed, but no structure edit proposes reply.depends_on/);
+  assert.match(coverage(diffSpecs(before, after), proposal, after, before, authoredOf(before, after)).join("\n"), /step reply: depends_on changed, but no structure edit proposes reply.depends_on/);
 });
 
 function proposalDir() {
@@ -172,8 +177,11 @@ test("check-proposal edit needs the proposal's prompt and structural changes, in
   const run = (after, changed) => {
     writeFileSync(join(dir, "after.json"), JSON.stringify(after));
     writeFileSync(join(dir, "changed.txt"), changed.join("\n"));
+    writeFileSync(join(dir, "before.authored.json"), JSON.stringify(JSON.parse(readFileSync(join(dir, "before.json"), "utf8")).steps.map((s) => s.id)));
+    writeFileSync(join(dir, "after.authored.json"), JSON.stringify(after.steps.map((s) => s.id)));
     return node(["check-proposal.mjs", "edit", "--dir", dir, "--flow-path", flowPath, "--changed", join(dir, "changed.txt"),
-      "--before", join(dir, "before.json"), "--after", join(dir, "after.json")]);
+      "--before", join(dir, "before.json"), "--after", join(dir, "after.json"),
+      "--before-authored", join(dir, "before.authored.json"), "--after-authored", join(dir, "after.authored.json")]);
   };
   const promptOnly = run(spec([agent("fetch", "x"), agent("classify", "new")]), [flowPath]);
   assert.equal(promptOnly.status, 1);
@@ -243,21 +251,25 @@ test("check-proposal treats only field \"added\" as creating a step", () => {
 test("prompt text must match exactly, bar the newline a YAML block scalar appends", () => {
   const before = spec([agent("a", "old")]);
   const proposal = { target_step: "a", prompt_edits: [{ step: "a", new_text: "new" }], structure_edits: [] };
-  const problems = (text) => coverage(diffSpecs(before, spec([agent("a", text)])), proposal, spec([agent("a", text)]), before).join("\n");
+  const problems = (text) => coverage(diffSpecs(before, spec([agent("a", text)])), proposal, spec([agent("a", text)]), before, authoredOf(before, spec([agent("a", text)]))).join("\n");
   assert.equal(problems("new\n"), "");
   assert.match(problems("  new"), /compiled prompt is not the proposed new_text/);
   assert.match(problems("new \n"), /compiled prompt is not the proposed new_text/);
 });
 
-test("an authored step named <step>.gate is not exempt; the lowered <step>.gate.gate is", () => {
-  const userGate = { id: "classify.gate", type: "deterministic", command: "printf user", depends_on: ["classify"] };
+test("an authored step is never exempt, even one that imitates a lowered gate exactly", () => {
+  // The realistic custom gate: authored as classify.gate, bound to classify's output.
+  const userGate = { id: "classify.gate", type: "deterministic", command: "printf user", depends_on: ["classify"], input: { output: { step: "classify" } } };
   const before = spec([agent("classify", "old"), userGate]);
   const lowered = { id: "classify.gate.gate", type: "deterministic", command: "node", depends_on: ["classify"], input: { output: { step: "classify" } } };
   const after = spec([agent("classify", "new", { verification: { json_schema: true } }), lowered,
     { ...userGate, command: "printf tampered", depends_on: ["classify", "classify.gate.gate"] }]);
   const proposal = { target_step: "classify", prompt_edits: [{ step: "classify", new_text: "new" }],
     structure_edits: [{ step: "classify", field: "verification" }] };
-  const problems = coverage(diffSpecs(before, after), proposal, after, before).join("\n");
+  const problems = coverage(diffSpecs(before, after), proposal, after, before, authoredOf(before, after, ["classify.gate.gate"])).join("\n");
   assert.match(problems, /step classify.gate: command changed, but no structure edit proposes classify.gate.command/);
   assert.doesNotMatch(problems, /classify\.gate\.gate/);
+  // Untouched, the same authored gate passes: only its compiler-forced rewiring changed.
+  const clean = spec([after.steps[0], lowered, { ...userGate, depends_on: ["classify", "classify.gate.gate"] }]);
+  assert.deepEqual(coverage(diffSpecs(before, clean), proposal, clean, before, authoredOf(before, clean, ["classify.gate.gate"])), []);
 });

@@ -79,13 +79,13 @@ const sameText = (a, b) => a.replace(/\n$/u, "") === b.replace(/\n$/u, "");
  * `removed`, or a flow-level key with step "flow"). Every proposed pair must
  * appear in the diff, and every structural change in the diff must be a
  * proposed pair, unless it is
- *   - a change to the gate step the compiler lowers a named gate on <step>
- *     to (packages/sdk/src/named-gate-lowering.ts), only for a step whose
- *     proposal changes `verification` or adds the step. It is recognised by
- *     shape, not by name: deterministic, bound to <step>'s output
- *     (`input.output.step`), and named <step>.gate — or <step>.gate.gate when
- *     an authored step already holds <step>.gate. An authored step is never
- *     exempt, whatever it is called.
+ *   - a change to a step the compiler made from a step whose proposal
+ *     changes `verification` or adds the step: a compiled step whose id the
+ *     YAML does not declare (`authored`, from compile-spec.mjs), bound to
+ *     that step's output (`input.output.step`) — the gate a named gate
+ *     lowers to (packages/sdk/src/named-gate-lowering.ts). Only absence from
+ *     the YAML proves the compiler made it: an authored step can copy any
+ *     name or shape, and is never exempt.
  *   - a `depends_on` change elsewhere that only rewires around an inserted or
  *     removed step. Each added or dropped dependency must be a step the
  *     proposal adds or removes, a derived gate step, or the parent a derived
@@ -96,23 +96,27 @@ const sameText = (a, b) => a.replace(/\n$/u, "") === b.replace(/\n$/u, "");
  *
  * @returns {string[]} problems; empty when the diff and the proposal agree.
  */
-/** The ids of steps in `spec` that are the lowered gate of `producer`. */
-function loweredGates(spec, producer) {
-  const name = new RegExp(`^${producer.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}(?:\\.gate)+$`, "u");
+/** Steps in `spec` the compiler generated from `producer`'s gate: not authored, bound to its output. */
+function generatedFrom(spec, producer, authored) {
   return (spec.steps ?? [])
-    .filter((s) => s.type === "deterministic" && s.input?.output?.step === producer && name.test(s.id))
+    .filter((s) => !authored.has(s.id) && s.input?.output?.step === producer)
     .map((s) => s.id);
 }
 
-export function coverage(diff, proposal, after, before) {
+/**
+ * @param {{before: Set<string>, after: Set<string>}} authored the step ids each
+ *   YAML declares, as compile-spec.mjs writes them.
+ */
+export function coverage(diff, proposal, after, before, authored) {
   const prompts = proposal.prompt_edits ?? [];
   const structural = proposal.structure_edits ?? [];
   const named = new Set([...prompts.map((e) => e.step), ...structural.map((e) => e.step)]);
   const proposed = (step, field) => structural.some((e) => e.step === step && e.field === field);
   const derived = new Set(structural
     .filter((e) => e.field === "verification" || e.field === "added")
-    .flatMap((e) => [...loweredGates(before, e.step), ...loweredGates(after, e.step)]));
-  const parentOf = (id) => structural.find((e) => [...loweredGates(before, e.step), ...loweredGates(after, e.step)].includes(id))?.step;
+    .flatMap((e) => [...generatedFrom(before, e.step, authored.before), ...generatedFrom(after, e.step, authored.after)]));
+  const parentOf = (id) => structural.find((e) =>
+    [...generatedFrom(before, e.step, authored.before), ...generatedFrom(after, e.step, authored.after)].includes(id))?.step;
   const insertedOrRemoved = new Set([
     ...structural.filter((e) => e.field === "added" || e.field === "removed").map((e) => e.step),
     ...derived,

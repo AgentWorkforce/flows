@@ -4,6 +4,7 @@
 //   node check-proposal.mjs proposal --dir <improve> --spec <before spec json>
 //   node check-proposal.mjs edit --dir <improve> --flow-path <path> --changed <file>
 //                                --before <spec json> --after <spec json>
+//                                --before-authored <ids json> --after-authored <ids json>
 //
 // `proposal` refuses a proposal.json that is malformed, names a step the flow
 // does not have, or cites a run that was not collected. `edit` repeats every
@@ -33,6 +34,7 @@ const { positionals: [stage], values: args } = parseArgs({
   options: {
     dir: { type: "string" }, spec: { type: "string" }, "flow-path": { type: "string" },
     changed: { type: "string" }, before: { type: "string" }, after: { type: "string" },
+    "before-authored": { type: "string" }, "after-authored": { type: "string" },
   },
 });
 
@@ -126,7 +128,8 @@ function stageEdit() {
   const diff = diffSpecs(before, after);
   need(diff.prompt.length > 0, "the compiled flow has no prompt (instruction/prompt) change");
   need(diff.structure.length > 0, "the compiled flow has no structural change (steps, dependsOn, verification, retries, timeouts, budget…)");
-  for (const problem of coverage(diff, proposal, after, before)) problems.push(problem);
+  for (const problem of coverage(diff, proposal, after, before,
+    { before: new Set(readJson(args["before-authored"])), after: new Set(readJson(args["after-authored"])) })) problems.push(problem);
   if (problems.length === 0) {
     writeFileSync(join(args.dir, "pr-body.md"), prBody(proposal, diff, readJson(join(args.dir, "digest.json"))));
     console.log(`prompt edits: ${diff.prompt.length}; structural edits: ${diff.structure.length}`);
