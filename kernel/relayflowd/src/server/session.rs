@@ -12,7 +12,7 @@ use relayflowd_core::{
 };
 use serde_json::json;
 
-use crate::worker::JournalObserver;
+use crate::{step_env::StepEnv, worker::JournalObserver};
 
 const LEASE_RENEWAL_MS: i64 = 30_000;
 
@@ -98,6 +98,9 @@ pub struct ProtocolHub {
     /// scheduling decision is atomic and a step can never be double-dispatched.
     run_locks: Mutex<BTreeMap<String, Arc<Mutex<()>>>>,
     pending_abandonments: Mutex<Vec<PendingAbandonment>>,
+    /// Each live run's client-supplied step environment. Memory only: never
+    /// journaled, so it ends with the run or with this process.
+    step_envs: Mutex<BTreeMap<String, Arc<StepEnv>>>,
 }
 
 impl ProtocolHub {
@@ -119,6 +122,30 @@ impl ProtocolHub {
             .entry(run_id.to_owned())
             .or_default()
             .clone()
+    }
+
+    /// Bind the environment `run_id`'s deterministic steps spawn with. A later
+    /// `run.resume` that carries one replaces it.
+    pub fn set_step_env(&self, run_id: &str, env: StepEnv) {
+        self.step_envs
+            .lock()
+            .expect("step envs lock")
+            .insert(run_id.to_owned(), Arc::new(env));
+    }
+
+    pub fn clear_step_env(&self, run_id: &str) {
+        self.step_envs
+            .lock()
+            .expect("step envs lock")
+            .remove(run_id);
+    }
+
+    pub(super) fn bound_step_env(&self, run_id: &str) -> Option<Arc<StepEnv>> {
+        self.step_envs
+            .lock()
+            .expect("step envs lock")
+            .get(run_id)
+            .cloned()
     }
 
     pub fn attach_worker(
@@ -279,6 +306,9 @@ impl ProtocolHub {
 
 impl JournalObserver for ProtocolHub {
     fn appended(&self, entry: &JournalEntry) {
+        if entry.entry_type == EntryType::RunCompleted {
+            self.clear_step_env(&entry.run_id);
+        }
         let mut sessions = self.sessions.lock().expect("protocol sessions lock");
         // Capacity returns only after the completion is a durable journal
         // fact. This callback runs after append and before the driver elects

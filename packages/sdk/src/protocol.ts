@@ -126,6 +126,11 @@ export interface RunStartParams {
   admission_key?: string;
   /** Push the new run's entries to this connection from `run.spawned` on, as `run.watch` does. */
   watch?: boolean;
+  /**
+   * Environment for this run's deterministic steps, replacing the daemon's.
+   * Daemon feature `step_env`. Held in daemon memory only, never journaled.
+   */
+  env?: Record<string, string>;
   reuse_from_run_id?: string;
   /**
    * The kernel spec dialect — the ONE boundary shape `RunSpec::parse`
@@ -148,6 +153,8 @@ export type RunStartResult = RunOutcome;
 
 export interface RunResumeParams {
   allow_human_influenced?: boolean;
+  /** Replaces the run's step environment (feature `step_env`); see `RunStartParams.env`. */
+  env?: Record<string, string>;
   run_id: string;
 }
 export type RunResumeResult = RunOutcome;

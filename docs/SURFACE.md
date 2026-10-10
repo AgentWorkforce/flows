@@ -952,7 +952,7 @@ If a process-wide intrinsic replacement is unacceptable in your deployment, do
 not run authored TypeScript bodies in that process; the declarative YAML path
 does not install it.
 
-### `f.run` on the local daemon: one at a time, in the daemon's environment
+### `f.run` on the local daemon: one at a time, in the run's environment
 
 Two properties of `f.run` on a local `relayflowd` surprise people. Both are how
 the current kernel works, not promises of the Surface.
@@ -981,24 +981,23 @@ What runs concurrently today:
 `f.dispatch` children share their parent body's connection, so they are
 serialized too.
 
-**`f.run` inherits the daemon's environment and working directory, not the
-CLI's.** The first `flows run` on a data dir starts `relayflowd` with its own
-`process.env` and `process.cwd()` (see `kernel/DAEMON-LIFECYCLE.md`). Every
-later `flows run` on that data dir attaches to the same daemon. The shell step
-is spawned by the daemon with only `FLOWS_INPUT` and `RELAYFLOW_MEMORY` added.
-Exporting a variable before a later `flows run` therefore does not reach its
-`f.run` steps. `f.agent` and `f.llm` workers run in the CLI process, so they do
-see the current run's environment.
+**`f.run` gets the environment of the `flows run` that started the run,
+but the daemon's working directory.** Every `flows run` on a data dir attaches
+to the same `relayflowd`, which spawns the shell steps. The CLI sends its
+`process.env` with the run, and that run's steps are spawned with exactly
+that environment, plus `FLOWS_INPUT` and `RELAYFLOW_MEMORY`. Two runs on one
+daemon each see their own variables. `flows resume` sends the resuming CLI's
+environment, which replaces the run's from then on.
 
-Until per-run step environments exist:
+The environment is held in daemon memory only. It is never written to the
+journal, run records, step rows or traces. If the daemon restarts before the
+run finishes, the run's steps fall back to the daemon's own environment until a
+`flows resume` supplies one again. A CLI older than this feature sends no
+environment, and its steps get the daemon's too. `kernel/DAEMON-LIFECYCLE.md`
+§3 has the protocol.
 
-- Pass per-run values as input (`--input`). They reach the command as
-  `FLOWS_INPUT`, or through the body as part of the command string.
-- Give runs that need different environments their own data dir
-  (`--data-dir`). Each data dir gets its own daemon, started by the first run
-  that uses it.
-- After changing the environment a shared daemon should have, stop that
-  daemon so the next `flows run` starts a fresh one.
+A step with no placed workspace still runs in the daemon's working directory,
+which is the directory of the `flows run` that started the daemon.
 
 ## 3. Plugins: the kernel is closed, the surface is open
 

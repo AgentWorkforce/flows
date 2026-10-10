@@ -132,12 +132,32 @@ export class JournalClient extends JournalConnection {
       ...(reuseFromRunId === undefined ? {} : { reuse_from_run_id: reuseFromRunId }),
       ...(admissionKey === undefined ? {} : { admission_key: admissionKey }),
       ...(watch ? { watch: true } : {}),
+      ...this.stepEnv(),
     }, null);
   }
 
   /** §3 memoized resume. */
   runResume(runId: string, allowHumanInfluenced = false): Promise<VerbContract['run.resume']['result']> {
-    return this.request('run.resume', { run_id: runId, ...(allowHumanInfluenced ? { allow_human_influenced: true } : {}) }, null);
+    return this.request('run.resume', {
+      run_id: runId,
+      ...(allowHumanInfluenced ? { allow_human_influenced: true } : {}),
+      ...this.stepEnv(),
+    }, null);
+  }
+
+  /**
+   * This process's environment, for the run's `f.run` steps. A shared daemon
+   * otherwise spawns them in the environment of whichever CLI started it
+   * (kernel/DAEMON-LIFECYCLE.md §3). Sent only to a daemon that lists
+   * `step_env`, so an older one never sees an unknown field.
+   */
+  private stepEnv(): { env?: Record<string, string> } {
+    if (!this.features.has('step_env')) return {};
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(process.env)) {
+      if (value !== undefined) env[key] = value;
+    }
+    return { env };
   }
 
   /** Durably request cancellation and return the terminal run fact. */

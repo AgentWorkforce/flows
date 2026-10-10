@@ -4,6 +4,8 @@ use relayflowd_core::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::step_env::StepEnv;
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Request {
@@ -46,6 +48,9 @@ pub(super) struct RunStartParams {
     /// Stream the new run's entries to this connection, as `run.watch` does.
     #[serde(default)]
     pub watch: bool,
+    /// The run's deterministic step environment (feature `step_env`).
+    #[serde(default)]
+    pub env: Option<StepEnv>,
 }
 
 #[derive(Deserialize)]
@@ -54,6 +59,9 @@ pub(super) struct RunResumeParams {
     pub run_id: String,
     #[serde(default)]
     pub allow_human_influenced: bool,
+    /// Replaces the run's step environment for this and later drives.
+    #[serde(default)]
+    pub env: Option<StepEnv>,
 }
 
 #[derive(Deserialize)]

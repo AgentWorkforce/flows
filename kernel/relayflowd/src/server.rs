@@ -169,11 +169,12 @@ fn handle_request(
             Ok(json!({
                 "protocol": PROTOCOL_VERSION,
                 "server": "relayflowd",
-                "features": ["reported_cost"],
+                "features": ["reported_cost", "step_env"],
             }))
         }
         "run.start" => {
             let params: RunStartParams = decode_params(request.params)?;
+            validate_step_env(params.env.as_ref())?;
             let spec = RunSpec::parse(&params.spec)
                 .map_err(|error| ("invalid_spec", error.to_string()))?;
             spec.validate()
@@ -182,6 +183,10 @@ fn handle_request(
             // replay: the watcher goes live and receives every entry once.
             let watched = std::cell::RefCell::new(None::<String>);
             let watch = |run_id: &str, existing: bool| {
+                // Bound before the run's first drive, which may spawn steps.
+                if let Some(env) = &params.env {
+                    hub.set_step_env(run_id, env.clone());
+                }
                 if params.watch {
                     if existing {
                         // Projection failure must never gate admission/recovery.
@@ -212,10 +217,18 @@ fn handle_request(
                     hub.unwatch(connection_id, run_id);
                 }
             }
+            // An admission retry can land on a run that finished long ago,
+            // so `run.completed` will not arrive to clear what was bound.
+            if let Ok(outcome) = &outcome
+                && outcome.completion_reason.is_some()
+            {
+                hub.clear_step_env(&outcome.run_id);
+            }
             to_value(outcome?)
         }
         "run.resume" => {
             let params: RunResumeParams = decode_params(request.params)?;
+            validate_step_env(params.env.as_ref())?;
             let registry = relayflowd_journal::Registry::open(data_dir.join("relayflowd.sqlite3"))
                 .map_err(|error| internal_error(error.into()))?;
             if registry
@@ -287,6 +300,9 @@ fn handle_request(
             // step Runnable and double-dispatch the same attempt.
             let lock = hub.run_lock(&params.run_id);
             let _guard = lock.lock().expect("run lock");
+            if let Some(env) = params.env {
+                hub.set_step_env(&params.run_id, env);
+            }
             // Live resume: attempts with a valid, heartbeating lease on this
             // hub stay running; only genuinely dead attempts are recovered.
             let outcome = engine
@@ -307,6 +323,7 @@ fn handle_request(
                 })?;
             if outcome.completion_reason.is_some() {
                 hub.finish_run(&params.run_id);
+                hub.clear_step_env(&params.run_id);
             }
             to_value(outcome)
         }

@@ -204,8 +204,14 @@ impl ServerGuard {
     }
 
     pub fn start_at(data_dir: &Path, socket: &Path) -> Self {
+        Self::start_with_env(data_dir, socket, &[])
+    }
+
+    /// The daemon's own environment: what its first CLI would have exported.
+    pub fn start_with_env(data_dir: &Path, socket: &Path, env: &[(&str, &str)]) -> Self {
         let child = Command::new(env!("CARGO_BIN_EXE_relayflowd"))
             .args(["--data-dir", data_dir.to_str().unwrap(), "serve"])
+            .envs(env.iter().copied())
             .process_group(0)
             .spawn()
             .unwrap();
@@ -292,7 +298,7 @@ impl ProtocolClient {
         frame["error"]["code"].as_str().unwrap().to_owned()
     }
 
-    fn request_frame(&mut self, verb: &str, params: Value) -> Result<Value> {
+    pub fn request_frame(&mut self, verb: &str, params: Value) -> Result<Value> {
         let id = format!("test-{}", self.next_id);
         self.next_id += 1;
         serde_json::to_writer(

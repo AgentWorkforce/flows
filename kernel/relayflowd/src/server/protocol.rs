@@ -128,3 +128,9 @@ pub(super) fn now_ms() -> i64 {
         .as_millis()
         .min(i64::MAX as u128) as i64
 }
+
+pub(super) fn validate_step_env(env: Option<&crate::step_env::StepEnv>) -> ProtocolResult<()> {
+    env.map_or(Ok(()), |env| {
+        env.validate().map_err(|error| ("bad_request", error))
+    })
+}
