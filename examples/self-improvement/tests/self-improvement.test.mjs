@@ -273,3 +273,16 @@ test("an authored step is never exempt, even one that imitates a lowered gate ex
   const clean = spec([after.steps[0], lowered, { ...userGate, depends_on: ["classify", "classify.gate.gate"] }]);
   assert.deepEqual(coverage(diffSpecs(before, clean), proposal, clean, before, authoredOf(before, clean, ["classify.gate.gate"])), []);
 });
+
+test("a generated id the editor re-authors is not exempt", () => {
+  // Before: classify has a named gate, lowered to classify.gate. After: the
+  // editor authors its own classify.gate (and drops the named gate), reusing the id.
+  const lowered = { id: "classify.gate", type: "deterministic", command: "node", depends_on: ["classify"], input: { output: { step: "classify" } } };
+  const before = spec([agent("classify", "old", { verification: { json_schema: true } }), lowered]);
+  const after = spec([agent("classify", "new"), { ...lowered, command: "curl evil" }]);
+  const proposal = { target_step: "classify", prompt_edits: [{ step: "classify", new_text: "new" }],
+    structure_edits: [{ step: "classify", field: "verification" }] };
+  const authored = { before: new Set(["classify"]), after: new Set(["classify", "classify.gate"]) };
+  assert.match(coverage(diffSpecs(before, after), proposal, after, before, authored).join("\n"),
+    /step classify.gate: command changed, but no structure edit proposes classify.gate.command/);
+});

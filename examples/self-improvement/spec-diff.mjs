@@ -96,10 +96,15 @@ const sameText = (a, b) => a.replace(/\n$/u, "") === b.replace(/\n$/u, "");
  *
  * @returns {string[]} problems; empty when the diff and the proposal agree.
  */
-/** Steps in `spec` the compiler generated from `producer`'s gate: not authored, bound to its output. */
+/**
+ * Steps in `spec` the compiler generated from `producer`'s gate: bound to its
+ * output and declared by *neither* YAML. An id generated before but authored
+ * after (or the reverse) is an authored step reusing a generated id, and is
+ * never exempt.
+ */
 function generatedFrom(spec, producer, authored) {
   return (spec.steps ?? [])
-    .filter((s) => !authored.has(s.id) && s.input?.output?.step === producer)
+    .filter((s) => !authored.before.has(s.id) && !authored.after.has(s.id) && s.input?.output?.step === producer)
     .map((s) => s.id);
 }
 
@@ -114,9 +119,9 @@ export function coverage(diff, proposal, after, before, authored) {
   const proposed = (step, field) => structural.some((e) => e.step === step && e.field === field);
   const derived = new Set(structural
     .filter((e) => e.field === "verification" || e.field === "added")
-    .flatMap((e) => [...generatedFrom(before, e.step, authored.before), ...generatedFrom(after, e.step, authored.after)]));
+    .flatMap((e) => [...generatedFrom(before, e.step, authored), ...generatedFrom(after, e.step, authored)]));
   const parentOf = (id) => structural.find((e) =>
-    [...generatedFrom(before, e.step, authored.before), ...generatedFrom(after, e.step, authored.after)].includes(id))?.step;
+    [...generatedFrom(before, e.step, authored), ...generatedFrom(after, e.step, authored)].includes(id))?.step;
   const insertedOrRemoved = new Set([
     ...structural.filter((e) => e.field === "added" || e.field === "removed").map((e) => e.step),
     ...derived,
