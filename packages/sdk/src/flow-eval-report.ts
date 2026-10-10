@@ -35,6 +35,7 @@ export interface FlowEvalRun {
 }
 
 export interface FlowEvalExecutionRequest {
+  /** The sealed snapshot to execute (a path inside it, or the in-memory spec), never the working tree. */
   flow: FlowEvalTarget;
   caseId: string;
   /** Absent when the case declares no input. */

@@ -223,7 +223,7 @@ function readBudget(value: unknown): { dollars: number | null; tokensIn: number;
   const budget = value as Record<string, unknown>;
   const dollars = typeof budget['dollars'] === 'string' ? Number(budget['dollars']) : NaN;
   return {
-    dollars: budget['dollars_unmetered'] === true || !Number.isFinite(dollars) ? null : dollars,
+    dollars: budget['dollars_unmetered'] === true || !Number.isFinite(dollars) || dollars < 0 ? null : dollars,
     tokensIn: typeof budget['tokens_in'] === 'number' ? budget['tokens_in'] : 0,
     tokensOut: typeof budget['tokens_out'] === 'number' ? budget['tokens_out'] : 0,
   };

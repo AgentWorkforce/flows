@@ -264,11 +264,27 @@ describe('flow version', () => {
     const { root, entry } = authoredProject();
     const before = await flowEvalSources({ path: entry });
     expect(before.files).toEqual(['child.flow.ts', 'flows.json', 'lib/prompt.ts', 'main.flow.ts']);
+    // A stale compiled sibling is covered too, whichever one a loader picks.
+    writeFileSync(join(root, 'lib', 'prompt.js'), "export const PROMPT = 'stale';\n");
+    expect((await flowEvalSources({ path: entry })).files).toContain('lib/prompt.js');
     writeFileSync(join(root, 'lib', 'prompt.ts'), "export const PROMPT = 'something else';\n");
     const afterHelper = await flowEvalVersion({ path: entry });
     expect(afterHelper).not.toBe(before.version);
     writeFileSync(join(root, 'child.flow.ts'), "export default 2;\n");
     expect(await flowEvalVersion({ path: entry })).not.toBe(afterHelper);
+  });
+
+  it('pins a package lockfile found beside package.json without a flows.json', async () => {
+    const root = scratch();
+    writeFileSync(join(root, 'package.json'), '{"type":"module"}');
+    writeFileSync(join(root, 'package-lock.json'), '{"lockfileVersion":3}');
+    mkdirSync(join(root, 'flows'));
+    const entry = join(root, 'flows', 'standalone.flow.ts');
+    writeFileSync(entry, "export default 1;\n");
+    const before = await flowEvalSources({ path: entry });
+    expect(before.files).toEqual(['../package-lock.json', '../package.json', 'standalone.flow.ts']);
+    writeFileSync(join(root, 'package-lock.json'), '{"lockfileVersion":3,"packages":{}}');
+    expect(await flowEvalVersion({ path: entry })).not.toBe(before.version);
   });
 
   it('finds import, re-export, dynamic import and use-path specifiers lexically', () => {
@@ -279,25 +295,33 @@ describe('flow version', () => {
     ].join('\n')).sort()).toEqual(['../b', './a.js', './c.ts', './d.js', './e.flow.ts', './side-effect.js']);
   });
 
-  it('errors the remaining cases and fails the gate when the source changes mid-evaluation', async () => {
-    const path = flowFile();
-    const executor: FlowEvalExecutor = async ({ caseId }) => {
-      if (caseId === 'happy') writeFileSync(path, 'version: "1"\nsteps: []\n# edited mid-run\n');
-      return { completionReason: caseId === 'declines-empty' ? 'declined' : 'success', completionDetail: 'AR-2', costUsd: 0 };
+  it('executes a sealed read-only snapshot, so working-tree edits during the evaluation never run', async () => {
+    const { root, entry } = authoredProject();
+    const version = await flowEvalVersion({ path: entry });
+    const seen: string[] = [];
+    const executor: FlowEvalExecutor = async ({ flow }) => {
+      const sealed = (flow as { path: string }).path;
+      expect(sealed).not.toBe(entry);
+      seen.push(readFileSync(join(sealed, '..', 'lib', 'prompt.ts'), 'utf8'));
+      expect(() => writeFileSync(sealed, 'tampered')).toThrow();
+      // Edit the working tree mid-evaluation; the next case must not see it.
+      writeFileSync(join(root, 'lib', 'prompt.ts'), "export const PROMPT = 'edited';\n");
+      return { completionReason: 'success', costUsd: 0 };
     };
-    const report = await evaluateFlow({ flow: { path }, suite: SUITE, executor });
-    expect(report.cases.map(c => c.outcome)).toEqual(['pass', 'error', 'error']);
-    expect(report.cases[1]!.failures[0]).toContain('flow source changed during the evaluation');
-    expect(report.gate.pass).toBe(false);
+    const report = await evaluateFlow({ flow: { path: entry }, executor,
+      suite: { name: 's', cases: [{ id: 'one' }, { id: 'two' }] } });
+    expect(seen).toEqual(["export const PROMPT = 'triage';\n", "export const PROMPT = 'triage';\n"]);
+    expect(report.flow.version).toBe(version);
+    expect(report.gate.pass).toBe(true);
   });
 
-  it('fails the gate when the source changes after the last case ran', async () => {
-    const path = flowFile();
-    const report = await evaluateFlow({ flow: { path }, suite: { name: 's', cases: [{ id: 'only' }] },
-      executor: async () => { writeFileSync(path, 'version: "1"\nsteps: []\n# late\n'); return { completionReason: 'success' }; } });
-    expect(report.cases[0]!.outcome).toBe('pass');
+  it('treats a negative reported cost as unknown, so it fails cost ceilings instead of offsetting', async () => {
+    const executor: FlowEvalExecutor = async ({ caseId }) => ({ completionReason: 'success', costUsd: caseId === 'a' ? 5 : -5 });
+    const report = await evaluateFlow({ flow: { path: flowFile() }, executor,
+      suite: { name: 's', cases: [{ id: 'a' }, { id: 'b' }], thresholds: { maxTotalCostUsd: 1 } } });
+    expect(report.cases[1]!.costUsd).toBeNull();
+    expect(report.summary.totalCostUsd).toBeNull();
     expect(report.gate.pass).toBe(false);
-    expect(report.gate.reasons.at(-1)).toContain('the results judge no single version');
   });
 
   it('refuses a malformed baseline before running any case', async () => {
@@ -341,6 +365,8 @@ describe('executor mappings', () => {
       completionDetail: 'filed AR-2', diagnostics: [] }), 'run-1')).toEqual({ completionReason: 'success', completionDetail: 'filed AR-2' });
     expect(cloudRunOutcome(record('failed', { ok: false, status: 'failed', completionReason: 'step_failed',
       completionDetail: 'n=5 is too large', diagnostics: [] }), 'run-1')).toEqual({ completionReason: 'step_failed', completionDetail: 'n=5 is too large' });
+    expect(cloudRunOutcome(record('failed', { ok: false, status: 'parked', parkCause: 'worker_unavailable',
+      completionReason: 'needs_human', humanWait: undefined, diagnostics: [] }), 'run-1')).toMatchObject({ completionReason: 'worker_unavailable' });
     expect(() => cloudRunOutcome({ runId: 'other' }, 'run-1')).toThrow();
   });
 

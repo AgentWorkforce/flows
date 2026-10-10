@@ -64,6 +64,8 @@ export function cloudRunOutcome(record: unknown, runId: string): Pick<FlowEvalRu
   const state = cloudRunState(record, runId);
   const report = isCloudRecord(record) && isCloudRecord(record.result) ? record.result : {};
   const mapped = runReportOutcome(report);
+  // A park with nothing attached to run it is the same fact on both sides.
+  if (mapped.completionReason === 'worker_unavailable') return mapped;
   if (state.status === 'needs_human') return { ...mapped, completionReason: 'needs_human' };
   if (!('completionReason' in state)) return { ...mapped, completionReason: state.status };
   if (state.completionReason === 'success') return mapped.completionReason === 'declined' ? mapped : { ...mapped, completionReason: 'success' };
@@ -74,7 +76,7 @@ export function cloudRunOutcome(record: unknown, runId: string): Pick<FlowEvalRu
 export function cloudSpend(steps: readonly CloudStep[] | undefined): Pick<FlowEvalRun, 'costUsd' | 'tokensIn' | 'tokensOut' | 'steps'> {
   if (steps === undefined) return { costUsd: null, tokensIn: null, tokensOut: null };
   const known = (values: Array<number | null>): number | null =>
-    values.some(v => v === null) ? null : values.reduce<number>((sum, v) => sum + v!, 0);
+    values.some(v => v === null || !Number.isFinite(v) || v < 0) ? null : values.reduce<number>((sum, v) => sum + v!, 0);
   const costed = steps.filter(step => step.step_type === 'agent' || step.step_type === 'llm' || step.cost_usd !== null);
   return {
     costUsd: known(costed.map(step => step.cost_usd)),

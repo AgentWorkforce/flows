@@ -25,7 +25,8 @@ against a frozen suite of input cases and return a score report. The report's
   `worker_unavailable` (parked with no worker attached), `refused`.
 - **`expect.detailIncludes` / `detailMatches`** check the run's completion
   detail, which is what the body passed to `f.done(reason, { detail })`.
-- **An unknown cost never passes a cost ceiling.**
+- **An unknown cost never passes a cost ceiling.** A negative or non-finite
+  reported cost counts as unknown.
 - **`minPassRate` defaults to 1.** An *errored* case was never judged, so it
   fails the gate whatever the pass rate is.
 - **Unknown fields are refused.** A typo in `expect` cannot silently weaken a gate.
@@ -36,8 +37,9 @@ Every report records:
 
 - **`flow.version`**: for a flow file, the sha256 of a manifest of every
   local source the run reads. That covers the entry, its relative imports and
-  `use`d flows, transitively, plus the project's `flows.json`,
-  `flows.lock.json` and package lockfile. `flow.files` lists them. For an
+  `use`d flows, transitively (both siblings when `./x.js` and `./x.ts` exist),
+  plus the nearest `package.json`, `flows.json`, `flows.lock.json` and
+  package lockfile. `flow.files` lists them. For an
   in-memory spec, it is the compiled kernel spec hash. Packages under
   `node_modules` are pinned by the lockfile in the manifest, not hashed
   file by file;
@@ -45,9 +47,15 @@ Every report records:
 
 `--expect-version` (`expectVersion`) refuses to evaluate any flow bytes other
 than the pinned ones. `expectSuiteSha256` refuses any other suite.
-The version is checked again before every case and once after the last one.
-If the source changed mid-evaluation, the affected cases error without
-running and the gate fails. The results would otherwise judge no single version.
+**Every case executes a sealed snapshot, never the working tree.** Before the
+first case, the manifest's files are copied into a read-only temporary
+directory from the same bytes the version hashes. `node_modules` is linked,
+not copied, because the lockfile pins it. Every executor receives the
+snapshot's path. An edit to the working tree during the evaluation therefore
+cannot run under the judged version. A local module the manifest cannot see,
+such as a computed `import(\`./rules/${kind}.js\`)` or a file read at
+runtime, is absent from the snapshot, so that run fails instead of executing
+unjudged code. Write such modules as static imports.
 
 `--baseline <report.json>` fails the gate on every case that passed in the
 baseline and does not pass now. The baseline must have been produced from the

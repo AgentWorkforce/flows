@@ -12,9 +12,10 @@
 //
 // Two things are frozen and recorded in every report, so a verdict names
 // exactly what it judged: the flow version (flow-eval-version.ts) and the suite
-// (flow-eval-suite.ts). The version is re-checked before every case and after
-// the last one; a change fails the gate rather than being scored as the
-// original. Aggregation and the verdict itself live in flow-eval-gate.ts.
+// (flow-eval-suite.ts). Every case executes a sealed, read-only snapshot
+// written from the very bytes the version hashes, never the working tree, so
+// an edit during the evaluation cannot run under the judged version.
+// Aggregation and the verdict itself live in flow-eval-gate.ts.
 
 import { FlowEvalError } from './flow-eval-error.js';
 import { decideFlowEvalGate, parseFlowEvalBaseline, summarizeFlowEval } from './flow-eval-gate.js';
@@ -23,7 +24,7 @@ import {
   type FlowEvalCaseResult, type FlowEvalExecutor, type FlowEvalReport, type FlowEvalRun, type FlowEvalScorer,
 } from './flow-eval-report.js';
 import { flowEvalSuiteSha256, parseFlowEvalSuite, type FlowEvalCase, type FlowEvalSuite } from './flow-eval-suite.js';
-import { flowEvalSources, flowEvalVersion, isPathTarget, type FlowEvalTarget } from './flow-eval-version.js';
+import { isPathTarget, sealFlowEvalSnapshot, type FlowEvalTarget } from './flow-eval-version.js';
 
 export { FlowEvalError, type FlowEvalErrorCode } from './flow-eval-error.js';
 export { parseFlowEvalBaseline, type FlowEvalBaseline } from './flow-eval-gate.js';
@@ -33,8 +34,8 @@ export {
   type FlowEvalCase, type FlowEvalExpectation, type FlowEvalSuite, type FlowEvalThresholds,
 } from './flow-eval-suite.js';
 export {
-  MAX_FLOW_EVAL_SOURCES, flowEvalSources, flowEvalVersion,
-  type FlowEvalTarget, type FlowEvalVersion,
+  MAX_FLOW_EVAL_SOURCES, flowEvalSources, flowEvalVersion, sealFlowEvalSnapshot,
+  type FlowEvalSnapshot, type FlowEvalTarget, type FlowEvalVersion,
 } from './flow-eval-version.js';
 
 export interface EvaluateFlowOptions {
@@ -83,11 +84,6 @@ export async function evaluateFlow(options: EvaluateFlowOptions): Promise<FlowEv
     }
     names.add(scorer.name);
   }
-  const sources = await flowEvalSources(options.flow);
-  const { version } = sources;
-  if (options.expectVersion !== undefined && options.expectVersion !== version) {
-    throw new FlowEvalError('version_mismatch', `Flow version is ${version}; expected ${options.expectVersion}.`);
-  }
   const suiteSha256 = flowEvalSuiteSha256(suite);
   if (options.expectSuiteSha256 !== undefined && options.expectSuiteSha256 !== suiteSha256) {
     throw new FlowEvalError('suite_mismatch', `Suite hashes to ${suiteSha256}; expected ${options.expectSuiteSha256}.`);
@@ -96,33 +92,37 @@ export async function evaluateFlow(options: EvaluateFlowOptions): Promise<FlowEv
   if (baseline !== undefined && baseline.suiteSha256 !== suiteSha256) {
     throw new FlowEvalError('suite_mismatch', 'The baseline report was produced from a different suite; regressions would not be comparable.');
   }
-
-  const startedAt = now();
-  const results: FlowEvalCaseResult[] = new Array(suite.cases.length);
-  let next = 0;
-  const worker = async (): Promise<void> => {
-    for (;;) {
-      options.signal?.throwIfAborted();
-      const index = next++;
-      if (index >= suite.cases.length) return;
-      results[index] = await runCase(suite.cases[index]!, options, now, version);
+  const snapshot = await sealFlowEvalSnapshot(options.flow);
+  const { version } = snapshot;
+  let results: FlowEvalCaseResult[];
+  let startedAt: number;
+  try {
+    if (options.expectVersion !== undefined && options.expectVersion !== version) {
+      throw new FlowEvalError('version_mismatch', `Flow version is ${version}; expected ${options.expectVersion}.`);
     }
-  };
-  await Promise.all(Array.from({ length: Math.min(concurrency, suite.cases.length) }, worker));
-  options.signal?.throwIfAborted();
+    startedAt = now();
+    results = new Array(suite.cases.length);
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      for (;;) {
+        options.signal?.throwIfAborted();
+        const index = next++;
+        if (index >= suite.cases.length) return;
+        results[index] = await runCase(suite.cases[index]!, options, now, snapshot.flow);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(concurrency, suite.cases.length) }, worker));
+    options.signal?.throwIfAborted();
+  } finally {
+    await snapshot.dispose();
+  }
 
   const summary = summarizeFlowEval(results);
   const gate = decideFlowEvalGate(suite, results, summary, baseline);
-  // The last case may have run before an edit the per-case check could not see.
-  const after = await flowEvalVersion(options.flow).catch(() => 'unreadable');
-  if (after !== version) {
-    gate.pass = false;
-    gate.reasons.push(`flow source changed during the evaluation (${version} is now ${after}); the results judge no single version`);
-  }
   return {
     schemaVersion: FLOW_EVAL_REPORT_SCHEMA_VERSION,
     kind: 'flows.eval.report',
-    flow: { ...(isPathTarget(options.flow) ? { path: options.flow.path } : {}), version, files: sources.files },
+    flow: { ...(isPathTarget(options.flow) ? { path: options.flow.path } : {}), version, files: snapshot.files },
     suite: { name: suite.name, sha256: suiteSha256, cases: suite.cases.length },
     executor: options.executorName ?? 'custom',
     startedAt: new Date(startedAt).toISOString(),
@@ -134,23 +134,13 @@ export async function evaluateFlow(options: EvaluateFlowOptions): Promise<FlowEv
 }
 
 async function runCase(
-  testCase: FlowEvalCase, options: EvaluateFlowOptions, now: () => number, version: string,
+  testCase: FlowEvalCase, options: EvaluateFlowOptions, now: () => number, sealed: FlowEvalTarget,
 ): Promise<FlowEvalCaseResult> {
   const started = now();
-  // Every case re-proves it runs the judged version. An executor reads the
-  // flow from disk, so an edit mid-evaluation would otherwise be scored under
-  // the version recorded before it.
-  const current = await flowEvalVersion(options.flow).catch(() => 'unreadable');
-  if (current !== version) {
-    return {
-      id: testCase.id, outcome: 'error', latencyMs: 0, costUsd: null, tokensIn: null, tokensOut: null, metrics: {},
-      failures: [`flow source changed during the evaluation (${version} is now ${current}); this case was not run`],
-    };
-  }
   let run: FlowEvalRun;
   try {
     run = await options.executor({
-      flow: options.flow, caseId: testCase.id,
+      flow: sealed, caseId: testCase.id,
       ...(testCase.input === undefined ? {} : { input: testCase.input }),
       ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
@@ -216,8 +206,9 @@ async function runCase(
   };
 }
 
+/** A negative or non-finite figure is malformed; as unknown it fails every ceiling instead of offsetting other cases. */
 function finiteOrNull(value: number | null | undefined): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
 function truncate(text: string): string {
