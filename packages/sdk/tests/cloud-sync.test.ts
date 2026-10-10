@@ -261,6 +261,32 @@ describe('runInCloud with syncCode', () => {
     expect(receipt).toMatchObject({ runId: 'prepared-run', synced: { files: 2 } });
   });
 
+  it('carries envSecrets only on the run submission, never on prepare or the code upload', async () => {
+    const secret = 'sync-path-short-lived-token-0123456789';
+    const root = await tempDir('cloud-sync-env-');
+    await writeFile(join(root, 'flow.yaml'), JSON.stringify({
+      version: '0.1.0', name: 'synced', steps: [{ id: 'ls', type: 'deterministic', command: 'ls' }],
+    }));
+    const { calls, options } = cloud({
+      '/api/v1/workflows/prepare': () => PREPARED,
+      '/api/v1/workflows/runs/prepared-run/storage/code.tar.gz': () => ({ ok: true }),
+      '/api/v1/workflows/run': () => ({ runId: 'prepared-run', status: 'pending' }),
+    });
+
+    const receipt = await runInCloud({ path: join(root, 'flow.yaml') },
+      { ...options, syncCode: { root }, envSecrets: { NATIVE_API_TOKEN: secret } });
+
+    expect(calls.map(call => call.path)).toEqual([
+      '/api/v1/workflows/prepare',
+      '/api/v1/workflows/runs/prepared-run/storage/code.tar.gz',
+      '/api/v1/workflows/run',
+    ]);
+    expect(JSON.stringify(calls[0]!.body ?? null)).not.toContain(secret);
+    expect(gunzipSync(calls[1]!.body as Buffer).toString('latin1')).not.toContain(secret);
+    expect(calls[2]!.body).toMatchObject({ envSecrets: { NATIVE_API_TOKEN: secret } });
+    expect(JSON.stringify(receipt)).not.toContain(secret);
+  });
+
   it('refuses an accepted run whose ID differs from the prepared upload', async () => {
     const root = await tempDir('cloud-sync-mismatch-');
     await writeFile(join(root, 'flow.yaml'), JSON.stringify({
