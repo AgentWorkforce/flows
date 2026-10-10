@@ -1487,7 +1487,7 @@ describe('JournalClient wire conformance against live relayflowd', () => {
     await startDaemon(dataDir);
     const client = await connectClient(dataDir);
 
-    expect(await client.hello('live-conformance')).toEqual({ protocol: 0, server: 'relayflowd', features: ['reported_cost'] });
+    expect(await client.hello('live-conformance')).toEqual({ protocol: 0, server: 'relayflowd', features: ['reported_cost', 'step_env'] });
     const deterministic = await client.runStart(toKernelSpec(compileYaml(`
 version: '0.1.0'
 steps:
