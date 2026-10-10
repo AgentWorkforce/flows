@@ -10,7 +10,8 @@
 // proposal check (the proposal is re-read after an agent with write access
 // has run), then refuses an edit that touched any file but the flow, that
 // lacks a prompt change or a structural change in the compiled spec, or whose
-// compiled changes are not exactly the proposal's (spec-diff.mjs `coverage`).
+// compiled changes are not exactly the proposal's: each prompt by its exact
+// new text, each structural change by step and field (spec-diff.mjs `coverage`).
 // On success it writes <dir>/pr-body.md. Every refusal names what was wrong,
 // on stderr, so the agent can be handed it verbatim.
 //
@@ -24,6 +25,7 @@ import { FLOW, coverage, describeChange, diffSpecs } from "./spec-diff.mjs";
 
 const SIGNALS = new Set(["failing", "slow", "costly", "weak"]);
 const STEP_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,199}$/u;
+const FIELD = /^[a-z][a-z0-9_]{0,63}$/u;
 
 const { positionals: [stage], values: args } = parseArgs({
   allowPositionals: true,
@@ -45,11 +47,12 @@ function checkShape(p) {
   need(Array.isArray(p.evidence) && p.evidence.length > 0, "evidence must cite at least one run");
   for (const e of p.evidence ?? []) need(text(e.run_id, 100) && text(e.observation), "each evidence entry needs run_id and observation");
   need(Array.isArray(p.prompt_edits) && p.prompt_edits.length > 0, "prompt_edits must propose at least one prompt change");
-  for (const e of p.prompt_edits ?? []) need(text(e.step, 200) && text(e.change) && text(e.rationale), "each prompt edit needs step, change, rationale");
+  for (const e of p.prompt_edits ?? []) need(text(e.step, 200) && text(e.new_text, 20000) && text(e.rationale), "each prompt edit needs step, new_text (the complete new prompt), rationale");
   need(Array.isArray(p.structure_edits) && p.structure_edits.length > 0, "structure_edits must propose at least one structural change");
   for (const e of p.structure_edits ?? []) {
-    need(typeof e.step === "string" && (e.step === FLOW || STEP_ID.test(e.step)) && text(e.change) && text(e.rationale),
-      `each structure edit needs step (a step id, a new step's id, or "${FLOW}"), change, rationale`);
+    need(typeof e.step === "string" && (e.step === FLOW || STEP_ID.test(e.step)) && FIELD.test(e.field ?? "") && text(e.change) && text(e.rationale),
+      `each structure edit needs step (a step id, a new step's id, or "${FLOW}"), field (the compiled-spec key it changes, `
+        + `e.g. max_iterations, verification, depends_on, added, removed), change, rationale`);
   }
   const h = p.hypothesis ?? {};
   for (const key of ["before", "after", "metric", "expected", "falsified_if"]) need(text(h[key]), `hypothesis.${key} must be non-empty`);
@@ -96,9 +99,9 @@ function prBody(proposal, diff, digest) {
   }
   for (const e of proposal.evidence) lines.push(`- \`${e.run_id}\`: ${e.observation}`);
   lines.push("", "## Prompt edits", "");
-  for (const e of proposal.prompt_edits) lines.push(`- \`${e.step}\`: ${e.change} — ${e.rationale}`);
+  for (const e of proposal.prompt_edits) lines.push(`- \`${e.step}\` — ${e.rationale}`, "", "  ```text", ...e.new_text.split("\n").map((l) => `  ${l}`), "  ```");
   lines.push("", "## Structure edits", "");
-  for (const e of proposal.structure_edits) lines.push(`- \`${e.step}\`: ${e.change} — ${e.rationale}`);
+  for (const e of proposal.structure_edits) lines.push(`- \`${e.step}.${e.field}\`: ${e.change} — ${e.rationale}`);
   lines.push("", "## Compiled-spec diff (checked against the proposal)", "");
   for (const p of diff.prompt) lines.push(`- prompt: step \`${p.step}\` ${p.field}`);
   for (const s of diff.structure) lines.push(`- structure: ${describeChange(s)}`);
@@ -113,10 +116,11 @@ function stageEdit() {
   const changed = readFileSync(args.changed, "utf8").split("\n").map((l) => l.trim()).filter(Boolean);
   need(changed.length === 1 && changed[0] === args["flow-path"],
     `the edit must change exactly ${args["flow-path"]}; it changed: ${changed.join(", ") || "(nothing)"}`);
-  const diff = diffSpecs(before, readJson(args.after));
+  const after = readJson(args.after);
+  const diff = diffSpecs(before, after);
   need(diff.prompt.length > 0, "the compiled flow has no prompt (instruction/prompt) change");
   need(diff.structure.length > 0, "the compiled flow has no structural change (steps, dependsOn, verification, retries, timeouts, budget…)");
-  for (const problem of coverage(diff, proposal)) problems.push(problem);
+  for (const problem of coverage(diff, proposal, after)) problems.push(problem);
   if (problems.length === 0) {
     writeFileSync(join(args.dir, "pr-body.md"), prBody(proposal, diff, readJson(join(args.dir, "digest.json"))));
     console.log(`prompt edits: ${diff.prompt.length}; structural edits: ${diff.structure.length}`);

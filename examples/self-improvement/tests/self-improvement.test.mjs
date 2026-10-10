@@ -88,16 +88,40 @@ test("spec-diff separates prompt edits from structural ones and ignores labels a
 test("coverage accepts exactly the proposal, including the steps the compiler derives from it", () => {
   const before = spec([agent("classify", "old"), agent("reply", "r", { depends_on: ["classify"] })]);
   const after = spec([
-    agent("classify", "new", { max_iterations: 2 }),
+    agent("classify", "new", { verification: { regex: "x" } }),
     { id: "classify.gate", type: "deterministic", command: "node", depends_on: ["classify"] },
     agent("reply", "r", { depends_on: ["classify.gate"] }),
   ]);
-  const proposal = { target_step: "classify", prompt_edits: [{ step: "classify" }], structure_edits: [{ step: "classify" }] };
-  assert.deepEqual(coverage(diffSpecs(before, after), proposal), []);
+  const proposal = { target_step: "classify", prompt_edits: [{ step: "classify", new_text: "new" }],
+    structure_edits: [{ step: "classify", field: "verification" }] };
+  const check = (spec2, p = proposal) => coverage(diffSpecs(before, spec2), p, spec2).join("\n");
+  assert.equal(check(after), "");
   const stray = spec([...after.steps.slice(0, 2), agent("reply", "rewritten", { depends_on: ["classify.gate"] })]);
-  assert.match(coverage(diffSpecs(before, stray), proposal).join("\n"), /step reply: instruction changed, but the proposal has no edit/);
-  const unapplied = { ...proposal, structure_edits: [{ step: "classify" }, { step: "flow" }] };
-  assert.match(coverage(diffSpecs(before, after), unapplied).join("\n"), /proposed structure edit to flow is not in the compiled flow/);
+  assert.match(check(stray), /step reply: instruction changed, but the proposal has no prompt edit/);
+  assert.match(check(after, { ...proposal, structure_edits: [{ step: "classify", field: "verification" }, { step: "flow", field: "budget" }] }),
+    /proposed structure edit flow.budget is not in the compiled flow/);
+});
+
+test("coverage compares fields and prompt text, not just step ids", () => {
+  const before = spec([agent("classify", "old")]);
+  const after = spec([agent("classify", "new", { timeout_ms: 5000 })]);
+  const proposal = { target_step: "classify", prompt_edits: [{ step: "classify", new_text: "new" }],
+    structure_edits: [{ step: "classify", field: "max_iterations" }] };
+  const problems = coverage(diffSpecs(before, after), proposal, after).join("\n");
+  assert.match(problems, /step classify: timeout_ms changed, but no structure edit proposes classify.timeout_ms/);
+  assert.match(problems, /proposed structure edit classify.max_iterations is not in the compiled flow/);
+  const otherText = { ...proposal, prompt_edits: [{ step: "classify", new_text: "something else" }] };
+  assert.match(coverage(diffSpecs(before, after), otherText, after).join("\n"), /compiled prompt is not the proposed new_text/);
+});
+
+test("a prompt edit on a step the proposal adds is checked like any other", () => {
+  const before = spec([agent("a", "x")]);
+  const after = spec([agent("a", "y"), agent("verify", "check a", { depends_on: ["a"] })]);
+  const proposal = { target_step: "a", prompt_edits: [{ step: "a", new_text: "y" }, { step: "verify", new_text: "check a" }],
+    structure_edits: [{ step: "verify", field: "added" }] };
+  assert.deepEqual(coverage(diffSpecs(before, after), proposal, after), []);
+  const missing = { ...proposal, prompt_edits: [{ step: "a", new_text: "y" }] };
+  assert.match(coverage(diffSpecs(before, after), missing, after).join("\n"), /step verify: instruction changed, but the proposal has no prompt edit/);
 });
 
 function proposalDir() {
@@ -106,8 +130,8 @@ function proposalDir() {
   const proposal = {
     target_step: "classify", signal: "failing", diagnosis: "The instruction never asks for the LABEL: line.",
     evidence: [{ run_id: "run-2026-10-07-b", observation: "Prose classification, no LABEL: line." }],
-    prompt_edits: [{ step: "classify", change: "End with exactly one line LABEL: <bug|feature|question|docs>.", rationale: "The gate checks for it." }],
-    structure_edits: [{ step: "classify", change: "classify.maxIterations: 2", rationale: "One repair pass on a gate miss." }],
+    prompt_edits: [{ step: "classify", new_text: "new", rationale: "The gate checks for a LABEL: line." }],
+    structure_edits: [{ step: "classify", field: "max_iterations", change: "classify.maxIterations: 2", rationale: "One repair pass on a gate miss." }],
     hypothesis: { before: "2/6 runs fail at classify", after: "0/6", metric: "classify failure rate", expected: "below 5%", falsified_if: "any verification_failed at classify in the next 10 runs" },
   };
   writeFileSync(join(dir, "proposal.json"), JSON.stringify(proposal));
@@ -144,7 +168,7 @@ test("check-proposal edit needs the proposal's prompt and structural changes, in
   assert.match(strayFile.stderr, /must change exactly/);
   const offProposal = run(spec([agent("fetch", "x", { max_iterations: 3 }), agent("classify", "new", { max_iterations: 2 })]), [flowPath]);
   assert.equal(offProposal.status, 1);
-  assert.match(offProposal.stderr, /step fetch: max_iterations changed, but the proposal has no edit/);
+  assert.match(offProposal.stderr, /step fetch: max_iterations changed, but no structure edit proposes fetch.max_iterations/);
   // The proposal is re-validated at the edit stage: rewriting it after its own check fails here too.
   writeFileSync(join(dir, "proposal.json"), JSON.stringify({ ...proposal, evidence: [{ run_id: "made-up", observation: "x" }] }));
   assert.match(run(both, [flowPath]).stderr, /run "made-up", which was not collected/);

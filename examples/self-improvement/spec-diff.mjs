@@ -19,7 +19,8 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 /**
  * @returns {{ prompt: {step: string, field: string}[],
  *             structure: {step: string, field: string, before?: unknown, after?: unknown}[] }}
- *   `prompt` lists every step whose prompt text changed. `structure` lists
+ *   `prompt` lists every step whose prompt text changed, including a new
+ *   step that carries one. `structure` lists
  *   every other change: `field` is the changed key, or `added`/`removed` for
  *   a whole step; flow-level changes carry `step: "flow"`.
  */
@@ -37,7 +38,12 @@ export function diffSpecs(before, after) {
   for (const id of beforeSteps.keys()) if (!afterSteps.has(id)) structure.push({ step: id, field: "removed" });
   for (const [id, step] of afterSteps) {
     const old = beforeSteps.get(id);
-    if (old === undefined) { structure.push({ step: id, field: "added", after: step.type }); continue; }
+    if (old === undefined) {
+      // A new agent/llm step is both a structural change and a new prompt.
+      structure.push({ step: id, field: "added", after: step.type });
+      for (const key of PROMPT_FIELDS) if (step[key] !== undefined) prompt.push({ step: id, field: key });
+      continue;
+    }
     for (const key of new Set([...Object.keys(old), ...Object.keys(step)])) {
       if (same(normalize(key, old[key]), normalize(key, step[key]))) continue;
       if (PROMPT_FIELDS.has(key)) prompt.push({ step: id, field: key });
@@ -55,42 +61,65 @@ export function describeChange(change) {
   return `step ${change.step}: ${change.field} changed`;
 }
 
+/** The prompt text a compiled step is handed, whichever field carries it. */
+const promptOf = (step) => step?.instruction ?? step?.prompt;
+
 /**
  * Does the compiled diff implement the proposal, and only the proposal?
  *
- * A change is owned by a proposed step when it is that step, or a step the
- * compiler derived from it (`<step>.<suffix>`, e.g. the `classify.gate` step a
- * named gate lowers to). A `depends_on` change elsewhere is owned when every
- * dependency it adds or drops is itself owned: that is the rewiring an
- * inserted or removed step forces on its dependents.
+ * Prompt edits are checked by value: the step's compiled `instruction` (or
+ * `prompt`) must be exactly the proposed `new_text`. Structure edits are
+ * checked by (step, field) — `field` is the compiled-spec key the edit
+ * changes (`max_iterations`, `verification`, `depends_on`, `added`,
+ * `removed`, or a flow-level key with step "flow"). Every proposed pair must
+ * appear in the diff, and every structural change in the diff must be a
+ * proposed pair, unless it is
+ *   - a change to a step the compiler derived from a step with a proposed
+ *     structure edit (`classify.gate`, which a named gate on `classify`
+ *     lowers to), or
+ *   - a `depends_on` change elsewhere whose added and dropped dependencies
+ *     are all proposed or derived steps: the rewiring an inserted or removed
+ *     step forces on its dependents.
+ * Values of structural fields are not compared: the YAML an agent writes and
+ * the canonical form it compiles to differ (a named gate lowers to a step),
+ * so the field is the finest grain that is checkable without guessing.
  *
  * @returns {string[]} problems; empty when the diff and the proposal agree.
  */
-export function coverage(diff, proposal) {
-  const named = new Set([
-    ...(proposal.prompt_edits ?? []).map((e) => e.step),
-    ...(proposal.structure_edits ?? []).map((e) => e.step),
-  ]);
-  const owner = (id) => (named.has(id) ? id : [...named].find((n) => n !== FLOW && id.startsWith(`${n}.`)) ?? null);
+export function coverage(diff, proposal, after) {
+  const prompts = proposal.prompt_edits ?? [];
+  const structural = proposal.structure_edits ?? [];
+  const restructured = new Set(structural.map((e) => e.step));
+  const named = new Set([...prompts.map((e) => e.step), ...restructured]);
+  const derivedFrom = (id, steps) => [...steps].some((n) => n !== FLOW && id.startsWith(`${n}.`));
+  const owned = (id) => named.has(id) || derivedFrom(id, named);
+  const proposed = (step, field) => structural.some((e) => e.step === step && e.field === field);
+  const afterSteps = new Map((after.steps ?? []).map((s) => [s.id, s]));
   const problems = [];
+
   for (const p of diff.prompt) {
-    if (owner(p.step) === null) problems.push(`step ${p.step}: ${p.field} changed, but the proposal has no edit for that step`);
+    if (!prompts.some((e) => e.step === p.step)) problems.push(`step ${p.step}: ${p.field} changed, but the proposal has no prompt edit for it`);
+  }
+  for (const e of prompts) {
+    const text = promptOf(afterSteps.get(e.step));
+    if (text === undefined) problems.push(`proposed prompt edit to ${e.step}: the compiled flow has no such step with a prompt`);
+    else if (text.trim() !== String(e.new_text).trim()) problems.push(`proposed prompt edit to ${e.step}: its compiled prompt is not the proposed new_text`);
+    else if (!diff.prompt.some((p) => p.step === e.step)) problems.push(`proposed prompt edit to ${e.step} does not change it`);
   }
   for (const s of diff.structure) {
-    if (owner(s.step) !== null) continue;
+    if (proposed(s.step, s.field) || derivedFrom(s.step, restructured)) continue;
     if (s.field === "depends_on") {
       const was = new Set(s.before ?? []);
       const now = new Set(s.after ?? []);
       const moved = [...was].filter((d) => !now.has(d)).concat([...now].filter((d) => !was.has(d)));
-      if (moved.every((d) => owner(d) !== null)) continue;
+      if (moved.every(owned)) continue;
     }
-    problems.push(`${describeChange(s)}, but the proposal has no edit for that step`);
+    problems.push(`${describeChange(s)}, but no structure edit proposes ${s.step}.${s.field}`);
   }
-  for (const e of proposal.prompt_edits ?? []) {
-    if (!diff.prompt.some((p) => owner(p.step) === e.step)) problems.push(`proposed prompt edit to ${e.step} is not in the compiled flow`);
-  }
-  for (const e of proposal.structure_edits ?? []) {
-    if (!diff.structure.some((s) => owner(s.step) === e.step)) problems.push(`proposed structure edit to ${e.step} is not in the compiled flow`);
+  for (const e of structural) {
+    if (!diff.structure.some((s) => s.step === e.step && s.field === e.field)) {
+      problems.push(`proposed structure edit ${e.step}.${e.field} is not in the compiled flow`);
+    }
   }
   if (!named.has(proposal.target_step)) problems.push(`target_step ${proposal.target_step} has no proposed edit`);
   return problems;

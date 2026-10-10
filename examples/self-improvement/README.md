@@ -67,13 +67,20 @@ flows run examples/self-improvement/self-improvement.flow.ts --local-agent --inp
 }'
 ```
 
-Then put it on a schedule:
+### Schedule it
 
-```sh
-flows schedule examples/self-improvement/self-improvement.flow.ts \
-  --cron "0 6 * * 1" --tz UTC \
-  --input '{"flowName":"issue-triage","repo":"acme/flows","flowPath":"flows/issue-triage.flow.yaml"}'
+Run that same command from cron, or from a CI job on a schedule, on a host
+where `FLOWS_CLOUD_TOKEN` is available:
+
+```cron
+0 6 * * 1  cd /srv/flows && flows run examples/self-improvement/self-improvement.flow.ts --local-agent --input /srv/self-improvement/issue-triage.json
 ```
+
+`flows schedule` (a hosted Cloud schedule) does **not** work for this flow
+yet. A hosted fire holds only a run-scoped sandbox token, which cannot read
+other runs, and Cloud has no way to give a scheduled run a workspace read
+token. Every hosted fire would fail at the collect step. See
+[What it does not do](#what-it-does-not-do).
 
 | Input | Default | Meaning |
 |---|---|---|
@@ -115,15 +122,25 @@ cites any other run.
   `falsified_if`. Every edit names the step it changes (`flow` for a
   flow-level field).
 - **The edit is the proposal, and only that.** Exactly one file changes (the
-  flow), and `flows check` passes. The compiled canonical spec (from the SDK's
-  own `compileYamlToCanonicalJson`) is diffed before against after, and the
-  diff must match the proposal step for step. It needs at least one
-  `instruction`/`prompt` change and at least one structural change. Every
-  changed step has to be one the proposal names, or a step the compiler
-  derives from one (`classify.gate`). Every proposed edit has to appear. A
-  `dependsOn` change elsewhere is accepted only when it is the rewiring an
-  inserted or removed proposed step forces. Comment churn and dependency
-  reordering do not count as edits.
+  flow), and `flows check` passes. The compiled canonical spec (from the
+  SDK's own `compileYamlToCanonicalJson`) is diffed before against after,
+  and the diff must match the proposal. There must be at least one prompt
+  change and at least one structural change.
+  - Each prompt edit carries its complete `new_text`. The step's compiled
+    `instruction`/`prompt` must equal it exactly, and any prompt change the
+    proposal does not list is refused. A step the proposal adds counts as a
+    prompt change too.
+  - Each structure edit names its step and the compiled-spec `field` it
+    changes (`max_iterations`, `verification`, `added`, … or `budget` on step
+    `flow`). Every proposed (step, field) pair must appear in the diff. Every
+    structural change must be a proposed pair, a change to a step the
+    compiler derives from a restructured step (`classify.gate`), or the
+    `depends_on` rewiring an inserted or removed proposed step forces.
+  - Structural *values* are not compared. The YAML an agent writes and its
+    compiled form differ (for example, a named gate lowers to an extra step),
+    so the field is the finest grain that can be checked without guessing.
+    Reviewers should read the YAML diff for the values.
+  - Comment churn and dependency reordering do not count as edits.
 - **No agent can move the goalposts.** `permissions.accessPreset` is
   recorded, not enforced, so an agent could write anywhere the run can. The
   gate scripts are embedded in the flow source and rewritten from it before
@@ -181,11 +198,35 @@ The test suite fails if the embedded copy is stale.
 | Need | Credential | Notes |
 |---|---|---|
 | Read other runs | `FLOWS_CLOUD_TOKEN`: a workspace API token with purpose `workflow` | Resolved by the SDK (`cloud-http.ts`). It falls back to the `agent-relay cloud login` store. |
-| Clone, push, open the PR | `GH_TOKEN` | Locally, `gh auth token`. On Cloud, the GitHub App installation token in the sandbox. It cannot push to forks. |
+| Clone, push, open the PR | a credential `gh` can use | Locally, your `gh` login (or `GH_TOKEN`). On Cloud, the GitHub App installation token in the sandbox. It cannot push to forks. |
+
+### Credential exposure
+
+The agent steps can reach both credentials. Agent CLIs inherit the run's
+environment, and the SDK has no per-step environment scoping.
+`permissions.accessPreset` is recorded but not enforced. A local `gh` login
+is ambient to every process you run anyway.
+
+The gates above keep an agent from *forging what this flow publishes*. They
+do not stop a misbehaving or prompt-injected agent from using `gh` or the
+Cloud token directly, for example to push a branch of its own. Contain that
+outside the flow:
+
+- Give the run a GitHub credential scoped to the target repository only, with
+  `contents` and `pull_requests` write, such as a fine-grained token or an App
+  installation. Do not use your personal login.
+- Protect the target's default branch. No agent, and no step of this flow,
+  can then merge or push to it.
+- Mint `FLOWS_CLOUD_TOKEN` with the narrowest scopes Cloud allows. The
+  collect step needs only `workflow:runs:read`. A `workflow`-purpose token
+  can also carry `flows:listeners:write`, which deploys any flow its owner
+  owns, so do not give this flow a token that holds that scope.
+
+Closing this properly needs credential scoping per step in the SDK: a step
+declares which secrets it may see. That is out of scope here.
 
 `collect-runs.mjs` and `compile-spec.mjs` load `@relayflows/sdk` from the
-installed `flows` CLI, so
-the reader and the runtime are always one version. Set `RELAYFLOWS_SDK` to a
+installed `flows` CLI, so the reader and the runtime are always one version. Set `RELAYFLOWS_SDK` to a
 `dist/index.js` path to override.
 
 ## What it does not do
@@ -202,8 +243,8 @@ stops. These are the gaps that stop the loop at the PR:
   and a run's sandbox token has no deploy scope. Merging the PR does not
   redeploy anything.
 - **No memory writes.** `f.memory.learn` throws, so the flow cannot remember
-  rejected proposals. The one-open-PR rule and the closed PRs themselves are
-  its only record.
+  rejected proposals. The `self-improve/<flow>` branch is its only record: it
+  stays until a human deletes it.
 - **No hosted cross-run read token.** A Cloud sandbox token reads only its
   own run, and Cloud has no first-class way to inject a workspace `workflow`
   token into a scheduled run. Until it does, run the flow where
