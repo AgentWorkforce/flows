@@ -6,6 +6,7 @@ import type {
 } from './protocol.js';
 
 export type AuthoredFlowExecutionErrorCode =
+  | 'helper_writeback_pending'
   | 'helper_provider.mount_required'
   | 'helper_provider.unsupported'
   | 'helper_slack.credential_missing'

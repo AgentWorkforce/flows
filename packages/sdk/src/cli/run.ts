@@ -12,6 +12,7 @@ import { attachReuseSummary } from './reuse.js';
 import { resumeHelperEffect } from '../authored-helper-effect.js';
 import { AuthoredFlowExecutionError, AuthoredHumanParked, type AuthoredHumanWait } from '../authored-flow-error.js';
 import { answerCommand, resumeCommand } from '../authored-human.js';
+import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { ProgressEvent } from '../progress.js';
 import type { JournalEvent } from '../journal-reader.js';
@@ -255,7 +256,14 @@ async function executeCheckedFlow(
         diagnostics: [...base.diagnostics, { severity: failed ? 'failure' : 'refusal',
           kind: error.code, message: error.message }] } };
     }
-    return protocolFailure('run', base, socketPath, communicationWorkers?.failure ?? localAgent?.failure ?? error);
+    const cause = communicationWorkers?.failure ?? localAgent?.failure ?? error;
+    if (cause instanceof AuthoredFlowExecutionError && cause.code === 'helper_writeback_pending') {
+      return { exitCode: 3, report: { ...base, ok: false, runId: cause.rootRunId ?? cause.runId ?? base.runId,
+        rootRunId: cause.rootRunId, socketPath, status: 'parked',
+        diagnostics: [...base.diagnostics, { severity: 'parked', kind: cause.code,
+          message: cause.message + ` Continue with: ${resumeCommand(cause.rootRunId ?? cause.runId ?? base.runId ?? '', dataDir, options.localAgent === true)}.` }] } };
+    }
+    return protocolFailure('run', base, socketPath, cause);
   } finally {
     if (options.onJournalEntry !== undefined) client.off('entry', options.onJournalEntry);
     try { await communicationWorkers?.close(); } finally { try { await localAgent?.close(); } finally { client.close(); } }
@@ -364,7 +372,11 @@ export async function resumeFlow(
     // slack effect resume plus every other provider from N's codegen. The
     // second call the earlier rebase left is a stale reference from before
     // the helper fanout renamed the API.
-    if (options.localAgent) {
+    // A helper child brings its own worker in resumeHelperEffect. A local agent
+    // pinned to that stream first receives the park's redispatch and does not
+    // understand the authored helper instruction.
+    const helperChild = existsSync(join(dataDir, 'helper-runs', `${runId}.json`));
+    if (options.localAgent && !helperChild) {
       const entries = (await client.journalRead(runId, 1)).entries as Array<{ entry_type: string; payload?: { spec?: import('../spec.js').KernelRunSpec } }>;
       const spec = entries.find(entry => entry.entry_type === 'run.spawned')?.payload?.spec;
       if (!spec) throw new Error('Cannot attach a local worker: the journaled run spec is missing');
@@ -383,6 +395,12 @@ export async function resumeFlow(
       // Observation never decides a resume: a watch the daemon refuses leaves
       // the run unprojected, and the resume below reports the run's own fate.
       await client.runWatch(runId).catch(() => client.off('entry', onEntry));
+    }
+    // A helper child answers its own park after its worker attaches.
+    // Emitting here, with no worker, journals the next attempt as a crash.
+    if (options.localAgent && !helperChild) {
+      const { releaseHelperReceiptWaits } = await import('../helper-park.js');
+      await releaseHelperReceiptWaits(client, runId);
     }
     let outcome = await client.runResume(runId, options.allowHumanInfluenced);
     options.onRunReceipt?.({ runId, flow: 'flow' });
@@ -432,6 +450,16 @@ export async function resumeFlow(
     // only honest instruction is a new run carrying the same `--input`.
     // `runId` here is the CHILD run holding the evidence; the root this resume
     // named stays separate, so `flows` can still collect it.
+    const pending = error instanceof AuthoredFlowExecutionError && error.code === 'helper_writeback_pending'
+      ? error
+      : authoredAgent?.failure instanceof AuthoredFlowExecutionError && authoredAgent.failure.code === 'helper_writeback_pending'
+        ? authoredAgent.failure : undefined;
+    if (pending !== undefined) {
+      return { exitCode: 3, report: { ...base, ok: false,
+        runId: pending.rootRunId ?? pending.runId, rootRunId: pending.rootRunId, socketPath, status: 'parked',
+        diagnostics: [...base.diagnostics, { severity: 'parked', kind: 'helper_writeback_pending',
+          message: pending.message + ` Continue with: ${resumeCommand(pending.rootRunId ?? pending.runId ?? runId, dataDir, options.localAgent === true)}.` }] } };
+    }
     if (error instanceof AuthoredFlowExecutionError && (error.code === 'agent_parked' || error.code === 'llm_parked')) {
       return {
         exitCode: 3,

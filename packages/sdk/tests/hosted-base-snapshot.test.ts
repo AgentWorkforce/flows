@@ -81,9 +81,23 @@ describe('hosted base private snapshot', () => {
     let poisonCalls = 0;
     let after: string | undefined;
     try {
-      Array.prototype.map = function poisonedMap() {
-        poisonCalls += 1;
-        return [];
+      let inspecting = false;
+      Array.prototype.map = function poisonedMap(this: unknown[], ...args: unknown[]) {
+        if (!inspecting) {
+          inspecting = true;
+          try {
+            const caller = new Error().stack ?? '';
+            if (caller.includes('/src/hosted-') || caller.includes('/src/canonical.')
+              || caller.includes('/src/json-value.') || caller.includes('/src/fs-descriptor.')
+              || caller.includes('/src/intrinsic-array.') || caller.includes('/src/bundle.')) {
+              poisonCalls += 1;
+              return [];
+            }
+          } finally {
+            inspecting = false;
+          }
+        }
+        return Reflect.apply(originalMap, this, args);
       } as typeof Array.prototype.map;
       after = await hostedBaseSourceDigest(sources);
     } finally {

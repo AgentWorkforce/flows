@@ -11,6 +11,8 @@ import type { StepDispatchEvent } from './protocol.js';
 import { isLeaseLost, withWorkerLease } from './worker-lease.js';
 import { helperProviders, type HelperCall } from '@relayflows/surface/runtime';
 import { helperWriteback, HelperDeliveryError } from './helper-writeback.js';
+import { HelperWritebackPending } from './helper-receipt.js';
+import { parkHelperReceipt, releaseHelperReceiptWaits } from './helper-park.js';
 import { checkSlackHelpers } from './slack-preflight.js';
 import { atomicJson, readSlackReceipt, receiptPath, slackWriteback, type SlackCall } from './slack-writeback.js';
 import { authoredChildAdmissionKey } from './authored-admission.js';
@@ -94,6 +96,9 @@ async function driveHelperEffect(
     await client.connect();
     await client.hello('flows-provider-helper');
     await client.workerAttach(`${call.provider}-${randomUUID()}`, ['agent'], pins, 1);
+    // Answer only after this worker is attached. `event.emit` drives the next
+    // attempt immediately, and a drive with no worker journals a crash.
+    await releaseHelperReceiptWaits(journal, runId);
     const outcome = await journal.runResume(runId);
     if (outcome.status === 'completed') return;
     if (outcome.status === 'failed') {
@@ -133,6 +138,10 @@ async function completeHelperDispatch(client: JournalClient, dispatch: StepDispa
       return { ...call, idempotencyKey: `${dispatch.run_id}:${dispatch.step_id}`, receipt };
     });
   } catch (error) {
+    if (error instanceof HelperWritebackPending) {
+      await parkHelperReceipt(client, dispatch, error);
+      throw error;
+    }
     if (!(error instanceof HelperDeliveryError)) throw error;
     await client.stepComplete(dispatch.run_id, dispatch.step_id, dispatch.attempt,
       dispatch.idempotency_key, 'worker_error', {
