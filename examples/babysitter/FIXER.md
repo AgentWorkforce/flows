@@ -117,10 +117,97 @@ fixer manifest's, under the same idempotent claim pattern as
 6. **Never merge or review.** No merge, approve or request-changes call
    exists on this path.
 
+## Merge-train task modes (P2)
+
+Cloud's merge train launches the same artifact for a PR it is holding, with
+a typed task instead of a GitHub delivery (`task.ts`, `task-admission.ts`).
+
+**Launch input (Cloud P1 writes all of it server-side):**
+
+```jsonc
+{
+  "pullRequest": { "owner": "acme", "repo": "widgets", "number": 7, "headSha": "…" },
+  "event": { "provider": "merge_train", "eventType": "merge_train.task", "deliveryId": "<[A-Za-z0-9_.:-]{1,200}>" },
+  "babysitter": {
+    "pullRequest": { "owner": "acme", "repo": "widgets", "number": 7, "headSha": "<claimed head>" },
+    "originContext": { … },   // as for any run: no origin, no agent
+    "task": { "kind": "fix_ci", "checks": [{ "name": "…", "conclusion": "failure", "logTail": "<≤ 6,000 chars>" }] }   // 1–20 checks
+         // | { "kind": "answer_threads", "threadIds": [11, 12] }                                                    // 1–50 distinct ids
+         // | { "kind": "resolve_conflict", "trunkSha": "<40-hex trunk commit>" }
+  }
+}
+```
+
+- A `babysitter.task` key routes the run to task admission. A malformed task
+  (unknown kind, extra key, out-of-bounds value, short sha) ends
+  `needs_human` before any live read.
+- Task admission accepts only the `merge_train` event above, for the bound
+  PR; a GitHub event with a task, or a `merge_train` event without one,
+  throws as misrouted.
+- The task replaces the review-feedback requirement and the Garden/`babysit`
+  scope. Everything else is unchanged: origin context required, live head
+  must equal the claimed head, closed or merged declines, enforced agent
+  write scope required. `answer_threads` keeps only the requested threads
+  among the live, still-unanswered inline review comments (the same
+  `readSignals` reader, so a thread older than Babysitter's last report is
+  not seen); none left declines.
+- `resolve_conflict`: before the agent, a deterministic step fetches the
+  trunk commit with the same header-only token and runs
+  `git merge --no-commit --no-ff <trunkSha>`, leaving conflicts in the files.
+  A conflict under `packages/web/drizzle/meta/` stops the run
+  (`needs_human`): migrations are renumbered deterministically, never by an
+  agent. The agent only resolves; it never commits.
+- Without a task, admission and the run are exactly as above.
+
+**Proposal v2.** `schemaVersion` is 2 only when `mergeParent` is present;
+every other proposal stays schema 1, byte-compatible with today's parser.
+
+```jsonc
+{
+  "kind": "babysitter-proposal", "schemaVersion": 2,
+  "pullRequest": { … }, "baseHead": "<bound head>",
+  "mergeParent": "<the task's trunkSha>",   // the merge commit's second parent
+  "files": [ … ],                           // head -> merged tree, as in schema 1
+  "patch": "diff --git …",                  // head -> merged tree, as in schema 1
+  "summary": "…", "replies": [ … ]
+}
+```
+
+- The patch is taken against the bound head, so it carries trunk's changes.
+  The rules apply to what the agent authored, the merged tree against trunk:
+  it may differ from trunk only in files the PR itself changed (merge base
+  to head), with no `<<<<<<<`/`>>>>>>>` markers left, no refused path, and
+  no drizzle metadata. Any breach is a `babysitter-refusal`.
+- **Over the caps** (36,000 bytes / 50 files) a merge publishes no code: the
+  run journals a schema-1 proposal with `"patch": ""`, `"files": []`, no
+  `mergeParent`, `"unpublished": "<why>"`, and a summary that says the
+  resolution was not published. The run ends `needs_human`. Cloud posts the
+  summary and pushes nothing.
+- Every proposal, task or not, is refused if the agent changed
+  `packages/web/drizzle/meta/`.
+
+**What Cloud P3 must change:**
+
+1. Accept `schemaVersion: 2` only with a `mergeParent` that is a 40-hex sha
+   equal to the trunk sha Cloud put in the task (from the run's server
+   record, never from the proposal).
+2. Build one commit whose tree is the bound head plus the patch and whose
+   parents are `[boundHead, mergeParent]`; update the ref with
+   `force: false`, as for schema 1.
+3. Re-check the authored-diff rules server-side against `mergeParent`:
+   refused paths and drizzle metadata on the tree delta against trunk, and
+   that delta confined to the PR's own files. Apply the caps to the patch.
+   (The head -> merged patch may contain trunk's own changes to refused
+   paths; those are trunk's, which is why the rule is on the delta.)
+4. Treat `unpublished` (or an empty patch) as summary-only: post the
+   summary, push nothing.
+5. Refuse any proposal touching drizzle metadata (`packages/web/drizzle/meta/`).
+
 ## Verify
 
 ```bash
 node --experimental-strip-types --test examples/babysitter/tests/fixer.test.ts
+node --experimental-strip-types --test examples/babysitter/tests/task.test.ts
 node examples/babysitter/build-standalone.mjs --check
 node packages/sdk/dist/cli.js check examples/babysitter/artifacts/babysitter-fixer.flow.ts
 ```

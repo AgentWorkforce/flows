@@ -10,6 +10,7 @@ import type { Ctx } from '@relayflows/surface';
 import { createStandaloneFixer, parseOutcome } from '../fixer.ts';
 import { proposeChanges, PATCH_MAX_BYTES, PATCH_MAX_FILES, PROPOSAL_MAX_BYTES, REFUSED_PATHS } from '../fix.ts';
 import { nodeCommand } from '../github.ts';
+import { DRIZZLE_META } from '../merge.ts';
 
 const head = 'b'.repeat(40);
 const moved = 'f'.repeat(40);
@@ -129,7 +130,7 @@ async function runPropose(dir: string, base: string, limits: Partial<{ patchByte
   process.stdout.write = ((chunk: string) => { out += chunk; return true; }) as typeof process.stdout.write;
   try {
     await proposeChanges({ dir, head: base, pullRequest: { owner: 'acme', repo: 'widgets', number: 7 }, summary: 's', replies: [],
-      limits: { patchBytes: 36_000, files: 50, proposalBytes: 50_000, refused: REFUSED_PATHS, ...limits } });
+      limits: { patchBytes: 36_000, files: 50, proposalBytes: 50_000, refused: REFUSED_PATHS, meta: DRIZZLE_META, ...limits } });
   } finally { process.stdout.write = saved; }
   return JSON.parse(out);
 }
@@ -181,7 +182,7 @@ test('the proposal script runs as f.run runs it: a stringified `node -e` command
   writeFileSync(join(dir, 'src/queue.ts'), 'export const retries = 3;\n');
   const command = nodeCommand(proposeChanges, {
     dir, head: base, pullRequest: { owner: 'acme', repo: 'widgets', number: 7 }, summary: "it's fixed", replies: [{ commentId: 11, body: 'done' }],
-    limits: { patchBytes: PATCH_MAX_BYTES, files: PATCH_MAX_FILES, proposalBytes: PROPOSAL_MAX_BYTES, refused: REFUSED_PATHS },
+    limits: { patchBytes: PATCH_MAX_BYTES, files: PATCH_MAX_FILES, proposalBytes: PROPOSAL_MAX_BYTES, refused: REFUSED_PATHS, meta: DRIZZLE_META },
   });
   const p = JSON.parse(execFileSync('sh', ['-c', command], { encoding: 'utf8' }));
   assert.deepEqual([p.kind, p.files, p.summary, p.replies], ['babysitter-proposal', ['src/queue.ts'], "it's fixed", [{ commentId: 11, body: 'done' }]]);
@@ -206,7 +207,7 @@ test('the proposal script lifted from the shipped artifact runs under `node -e`'
   const fn = { toString: () => shippedFunction('proposeChanges') } as unknown as Function;
   const command = nodeCommand(fn, {
     dir, head: base, pullRequest: { owner: 'acme', repo: 'widgets', number: 7 }, summary: 's', replies: [],
-    limits: { patchBytes: PATCH_MAX_BYTES, files: PATCH_MAX_FILES, proposalBytes: PROPOSAL_MAX_BYTES, refused: REFUSED_PATHS },
+    limits: { patchBytes: PATCH_MAX_BYTES, files: PATCH_MAX_FILES, proposalBytes: PROPOSAL_MAX_BYTES, refused: REFUSED_PATHS, meta: DRIZZLE_META },
   });
   const p = JSON.parse(execFileSync('sh', ['-c', command], { encoding: 'utf8' }));
   assert.deepEqual([p.kind, p.files], ['babysitter-proposal', ['src/queue.ts']]);

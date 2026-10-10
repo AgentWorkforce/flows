@@ -4,8 +4,12 @@ import { capabilities } from './capabilities.ts';
 import { checkout, propose, REPLY_MAX_CHARS, restore, stash, SUMMARY_MAX_CHARS, type CachedSession } from './fix.ts';
 import { readState } from './github.ts';
 import { record } from './input.ts';
+import { merge } from './merge.ts';
 import { agentTask } from './origin.ts';
+import { eligible } from './state.ts';
 import { subscriptions } from './subscriptions.ts';
+import { admitTask, hasTask } from './task-admission.ts';
+import { taskInstructions, type Task } from './task.ts';
 
 /**
  * Babysitter fixer, standalone. After `admit` (admission.ts) it checks out the
@@ -46,66 +50,103 @@ function threadReplies(a: Admitted, replies: { id: number; body: string }[]): { 
 }
 
 type Verdict = { reason: 'success' | 'declined' | 'needs_human'; detail?: string };
+/** Either admission's result; a merge-train run also carries its task (task-admission.ts). */
+type FixerAdmitted = Admitted & { task?: Task };
+
+/**
+ * For resolve_conflict, trunk is merged into the checkout before the agent
+ * starts, so the agent only resolves. Why the run must stop instead, if it
+ * must: the merge was refused, or drizzle metadata conflicts (not agent work).
+ */
+async function mergeFirst(f: Ctx, a: FixerAdmitted, dir: string): Promise<string | undefined> {
+  if (a.task?.kind !== 'resolve_conflict') return undefined;
+  const merged = await merge(f, { dir, owner: a.pr.owner, repo: a.pr.repo, head: a.head, trunkSha: a.task.trunkSha });
+  if (merged.kind === 'babysitter-refusal') return merged.reason;
+  return merged.metaConflicts.length
+    ? `drizzle metadata conflicts with trunk (${merged.metaConflicts.join(', ')}); it needs a deterministic migration renumber, not an agent`
+    : undefined;
+}
+
+/** After the agent: never propose against a moved head; otherwise one journaled proposal. */
+async function afterAgent(f: Ctx, a: FixerAdmitted, dir: string, summary: string, label: string): Promise<Verdict> {
+  const { pr, wake, origin, c, head, report } = a;
+  // (7) Never propose against a head that no longer exists, or a PR that left
+  // scope; a task run's scope is lifecycle only (task-admission.ts).
+  const final = await readState(f, c);
+  const left = a.task ? eligible({ ...final, draft: false }, c) : outOfScope(final, c, label);
+  if (final.headSha !== head || left) {
+    await report(`${wake.id}: head moved or PR left scope while fixing; no proposal for ${head}`);
+    return { reason: 'declined' };
+  }
+  // (8) One journaled proposal. Cloud publishes it; this run never writes code to GitHub.
+  const outcome = parseOutcome(summary);
+  const proposal = await propose(f, {
+    dir, head, pullRequest: { owner: pr.owner, repo: pr.repo, number: pr.number },
+    summary: neutralise(outcome.summary, origin.firstPrompt).slice(0, SUMMARY_MAX_CHARS),
+    replies: threadReplies(a, outcome.replies),
+    ...(a.task?.kind === 'resolve_conflict' ? { mergeParent: a.task.trunkSha } : {}),
+  });
+  if (proposal.kind === 'babysitter-refusal') {
+    await report(`${wake.id}: proposal refused: ${proposal.reason}`);
+    return { reason: 'needs_human', detail: `Babysitter proposal refused: ${proposal.reason}` };
+  }
+  if (proposal.unpublished) {
+    await report(`${wake.id}: conflict resolution not published: ${proposal.unpublished}`);
+    return { reason: 'needs_human', detail: `Babysitter conflict resolution not published: ${proposal.unpublished}` };
+  }
+  return { reason: 'success', detail: `Babysitter proposal for ${head}: ${proposal.files.length} file(s)` };
+}
 
 export function createStandaloneFixer(policy: unknown, runtime: { enforcedAgentWriteScope: boolean } = capabilities) {
   const configured = parsePolicy(policy);
   const enforced = runtime.enforcedAgentWriteScope;
   const body = async (f: Ctx, value: unknown): Promise<void> => {
-    const a = await admit(f, value, configured, enforced,
-      'Babysitter fix blocked: the agent would inherit push-capable repository credentials; needs enforced agent write scope (gate 8 / #442).');
+    const blocked = 'Babysitter fix blocked: the agent would inherit push-capable repository credentials; needs enforced agent write scope (gate 8 / #442).';
+    // A merge-train task (task-admission.ts) replaces the review-feedback admission.
+    const a: FixerAdmitted | undefined = hasTask(value)
+      ? await admitTask(f, value, configured, enforced, blocked)
+      : await admit(f, value, configured, enforced, blocked);
     if (!a) return;
     // (5) The bound head, checked out where the agent works. A reused sandbox
     // brings back the PR's previous checkout, with its dependencies.
-    const { pr, wake, origin, c, head, report } = a;
+    const { pr, wake, origin, head, report } = a;
     const previous = await restore(f, pr);
     let verdict: Verdict;
     let session: CachedSession | undefined;
     try {
       const work = await checkout(f, pr, head);
-      // (6) One agent carrying the original scope edits the working tree. It is
-      // the origin session's own CLI, with a literal pinned model per CLI so the
-      // shipped-source model audit resolves both pairs; the fixer ignores the
-      // policy's agentCli override.
-      //
-      // On a box that still holds this PR's checkout, the agent continues the
-      // session the previous wake ran (`resume`), so it keeps that wake's
-      // reading of the code and the original intent. A session the CLI no
-      // longer has fails that step; the run then starts a fresh agent, which
-      // carries the origin context in its task either way.
-      const task = agentTask(origin, `${pr.owner}/${pr.repo}#${pr.number}`, head, a.changed, 'fix');
-      const resume = previous?.cli === origin.source ? previous.sessionId : undefined;
-      let result;
-      try {
-        result = origin.source === 'codex'
-          ? await f.agent('babysitter-fix', { cli: 'codex', model: 'gpt-5.6-sol', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task, resume })
-          : await f.agent('babysitter-fix', { cli: 'claude', model: 'claude-sonnet-5', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task, resume });
-      } catch (error) {
-        if (resume === undefined) throw error;
-        await report(`${wake.id}: could not resume session ${resume}; starting a fresh agent`);
-        result = origin.source === 'codex'
-          ? await f.agent('babysitter-fix-fresh', { cli: 'codex', model: 'gpt-5.6-sol', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task })
-          : await f.agent('babysitter-fix-fresh', { cli: 'claude', model: 'claude-sonnet-5', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task });
-      }
-      session = result.sessionId === undefined ? undefined : { cli: origin.source, sessionId: result.sessionId };
-      // (7) Never propose against a head that no longer exists.
-      const final = await readState(f, c);
-      if (final.headSha !== head || outOfScope(final, c, configured.label)) {
-        await report(`${wake.id}: head moved or PR left scope while fixing; no proposal for ${head}`);
-        verdict = { reason: 'declined' };
+      const stopped = await mergeFirst(f, a, work.dir);
+      if (stopped) {
+        await report(`${wake.id}: not resolving the conflict: ${stopped}`);
+        verdict = { reason: 'needs_human', detail: `Babysitter conflict resolution stopped: ${stopped}` };
       } else {
-        // (8) One journaled proposal. Cloud publishes it; this run never writes code to GitHub.
-        const outcome = parseOutcome(result.summary);
-        const proposal = await propose(f, {
-          dir: work.dir, head, pullRequest: { owner: pr.owner, repo: pr.repo, number: pr.number },
-          summary: neutralise(outcome.summary, origin.firstPrompt).slice(0, SUMMARY_MAX_CHARS),
-          replies: threadReplies(a, outcome.replies),
-        });
-        if (proposal.kind === 'babysitter-refusal') {
-          await report(`${wake.id}: proposal refused: ${proposal.reason}`);
-          verdict = { reason: 'needs_human', detail: `Babysitter proposal refused: ${proposal.reason}` };
-        } else {
-          verdict = { reason: 'success', detail: `Babysitter proposal for ${head}: ${proposal.files.length} file(s)` };
+        // (6) One agent carrying the original scope edits the working tree. It is
+        // the origin session's own CLI, with a literal pinned model per CLI so the
+        // shipped-source model audit resolves both pairs; the fixer ignores the
+        // policy's agentCli override. The calls stay in this body: requirement
+        // and model scans read the default body's own source.
+        //
+        // On a box that still holds this PR's checkout, the agent continues the
+        // session the previous wake ran (`resume`), so it keeps that wake's
+        // reading of the code and the original intent. A session the CLI no
+        // longer has fails that step; the run then starts a fresh agent, which
+        // carries the origin context in its task either way.
+        const task = agentTask(origin, `${pr.owner}/${pr.repo}#${pr.number}`, head, a.changed, 'fix') + (a.task ? taskInstructions(a.task) : '');
+        const resume = previous?.cli === origin.source ? previous.sessionId : undefined;
+        let result;
+        try {
+          result = origin.source === 'codex'
+            ? await f.agent('babysitter-fix', { cli: 'codex', model: 'gpt-5.6-sol', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task, resume })
+            : await f.agent('babysitter-fix', { cli: 'claude', model: 'claude-sonnet-5', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task, resume });
+        } catch (error) {
+          if (resume === undefined) throw error;
+          await report(`${wake.id}: could not resume session ${resume}; starting a fresh agent`);
+          result = origin.source === 'codex'
+            ? await f.agent('babysitter-fix-fresh', { cli: 'codex', model: 'gpt-5.6-sol', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task })
+            : await f.agent('babysitter-fix-fresh', { cli: 'claude', model: 'claude-sonnet-5', cwd: work.dir, permissions: { accessPreset: 'readwrite' }, task });
         }
+        session = result.sessionId === undefined ? undefined : { cli: origin.source, sessionId: result.sessionId };
+        verdict = await afterAgent(f, a, work.dir, result.summary, configured.label);
       }
     } finally {
       // Back to the PR cache whatever happened, for the next wake on this box;

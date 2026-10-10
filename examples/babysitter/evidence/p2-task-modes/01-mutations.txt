@@ -1,0 +1,39 @@
+== M1 task admission disabled (always feedback admission): mutated fixer.ts (s/const a: FixerAdmitted | undefined = hasTask(value)/const a: FixerAdmitted | undefined = false/)
+$ node --experimental-strip-types --test --test-name-pattern="fix_ci admits" tests/task.test.ts
+✖ fix_ci admits a merge-train PR with no review feedback and no opt-in label, and gives the agent the failing checks (14.039371ms)
+ℹ pass 0
+ℹ fail 1
+✖ failing tests:
+✖ fix_ci admits a merge-train PR with no review feedback and no opt-in label, and gives the agent the failing checks (14.039371ms)
+-- restored byte-for-byte (sha256 matches the pre-mutation file)
+$ node --experimental-strip-types --test --test-name-pattern="fix_ci admits" tests/task.test.ts
+✔ fix_ci admits a merge-train PR with no review feedback and no opt-in label, and gives the agent the failing checks (17.23942ms)
+ℹ pass 1
+ℹ fail 0
+
+== M2 drizzle metadata refusal removed: mutated fix.ts (s/  if (meta.length) return refuse(/  if (false) return refuse(/)
+$ node --experimental-strip-types --test --test-name-pattern="drizzle metadata is refused" tests/task.test.ts
+✖ an agent change to drizzle metadata is refused for every proposal (1788.511021ms)
+ℹ pass 0
+ℹ fail 1
+✖ failing tests:
+✖ an agent change to drizzle metadata is refused for every proposal (1788.511021ms)
+-- restored byte-for-byte (sha256 matches the pre-mutation file)
+$ node --experimental-strip-types --test --test-name-pattern="drizzle metadata is refused" tests/task.test.ts
+✔ an agent change to drizzle metadata is refused for every proposal (1108.778066ms)
+ℹ pass 1
+ℹ fail 0
+
+== M3 merge outside-PR-files rule removed: mutated fix.ts (s/    if (outside.length) return refuse(/    if (false) return refuse(/)
+$ node --experimental-strip-types --test --test-name-pattern="outside the PR" tests/task.test.ts
+✖ a merge that changes trunk outside the PR's own files, or leaves conflict markers, is refused (1526.93851ms)
+ℹ pass 0
+ℹ fail 1
+✖ failing tests:
+✖ a merge that changes trunk outside the PR's own files, or leaves conflict markers, is refused (1526.93851ms)
+-- restored byte-for-byte (sha256 matches the pre-mutation file)
+$ node --experimental-strip-types --test --test-name-pattern="outside the PR" tests/task.test.ts
+✔ a merge that changes trunk outside the PR's own files, or leaves conflict markers, is refused (2477.198594ms)
+ℹ pass 1
+ℹ fail 0
+
