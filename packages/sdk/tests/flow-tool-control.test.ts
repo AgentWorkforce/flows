@@ -5,8 +5,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ToolSchema, CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 import { FlowToolClient, type FlowToolTransport } from '../src/flow-tool-client.js';
 import { createFlowToolAdapters } from '../src/flow-tool-adapters.js';
-import { parseFlowToolCatalog, canonicalFlowToolCatalog, parseFlowToolInvocation, parseFlowToolRun, parseFlowToolEvent } from '../src/flow-tool-wire.js';
-import { createFlowToolManifest } from '../src/flow-tool-manifest.js';
+import { parseFlowToolCatalog, canonicalFlowToolCatalog, parseFlowToolInvocation, parseFlowToolRun, parseFlowToolEvent, flowToolRunLinks } from '../src/flow-tool-wire.js';
+import { createFlowToolManifest, validateFlowToolResult } from '../src/flow-tool-manifest.js';
+import { FLOW_TOOL_LIMITS } from '../src/flow-tool-schema.js';
+import { snapshotJsonValue } from '../src/json-value.js';
+import { sha256 } from '../src/bundle.js';
+import { canonicalize } from '../src/canonical.js';
 import { FixtureControlPlane, entry, copy } from './flow-tool-control-fixture.js';
 
 const directories: string[] = [];
@@ -144,6 +148,61 @@ describe('fail-closed public projections', () => {
     }) };
     expect(canonicalFlowToolCatalog({ api_version: 1, tools: [entry, second] }))
       .toBe(canonicalFlowToolCatalog({ tools: [second, entry], api_version: 1 }));
+  });
+
+  it('budgets each manifest and result on its own, not against the envelope that carries it', () => {
+    const padding = 140_000;
+    const fat = (name: string) => createFlowToolManifest({
+      name, description: 'Independently bounded document.',
+      flow: { name: 'bounded-flow', version: '1.0.0', digest: `sha256:${'a'.repeat(64)}` },
+      inputSchema: { type: 'object', additionalProperties: false },
+      resultSchema: { type: 'object', properties: { blob: { const: 'y'.repeat(padding) } }, required: ['blob'], additionalProperties: false },
+    });
+    const catalogEntry = (name: string) => ({
+      manifest: fat(name), deployment_id: `deployment_${name}`, read_only: true as const,
+      effects: ['github:read'], requires_human: [], business_verdicts: ['pass'],
+      budget: { max_tokens: 1000, max_dollars: null, max_wallclock_ms: 10000 },
+    });
+    const tools = [catalogEntry('left_tool'), catalogEntry('right_tool')];
+    const catalog = { api_version: 1, tools };
+    expect(() => snapshotJsonValue(catalog, 'catalog', FLOW_TOOL_LIMITS)).toThrow(/byte limit/);
+    expect(parseFlowToolCatalog(catalog).tools.map(tool => tool.manifest.name)).toEqual(['left_tool', 'right_tool']);
+    const oversize = copy(tools[0]!);
+    oversize.manifest = copy(oversize.manifest);
+    (oversize.manifest.resultSchema.properties as { blob: { const: string } }).blob.const = 'z'.repeat(FLOW_TOOL_LIMITS.maxBytes);
+    expect(() => parseFlowToolCatalog({ api_version: 1, tools: [oversize] })).toThrow('invalid_contract');
+
+    const selected = createFlowToolManifest({
+      name: 'blob_tool', description: 'Result carries its own byte budget.',
+      flow: { name: 'bounded-flow', version: '1.0.0', digest: `sha256:${'b'.repeat(64)}` },
+      inputSchema: { type: 'object', additionalProperties: false },
+      resultSchema: { type: 'object', properties: { blob: { type: 'string', maxLength: 262_000 } }, required: ['blob'], additionalProperties: false },
+    });
+    const result = { blob: 'x'.repeat(261_500) };
+    expect(() => snapshotJsonValue(result, 'result', FLOW_TOOL_LIMITS)).not.toThrow();
+    const tool = {
+      manifest: selected, deployment_id: 'deployment_blob', read_only: true as const,
+      effects: ['github:read'], requires_human: [], business_verdicts: ['pass'],
+      budget: { max_tokens: 1000, max_dollars: null, max_wallclock_ms: 10000 },
+    };
+    const runId = 'run_budget_1';
+    const inputDigest = `sha256:${'c'.repeat(64)}` as const;
+    const run = {
+      api_version: 1, accepted: true, run_id: runId, tool_name: selected.name,
+      deployment_id: tool.deployment_id, manifest_digest: selected.digest,
+      flow_digest: selected.flow.digest, input_digest: inputDigest,
+      state: 'completed', sequence: 2, ...flowToolRunLinks(runId),
+      terminal: {
+        terminal_reason: 'success', business_verdict: 'pass', result,
+        gates: [], evidence: {
+          journal_digest: `sha256:${sha256(canonicalize({ runId }))}`, flow_digest: selected.flow.digest,
+          artifacts: [], redacted_transcript_refs: [],
+        },
+        spend: { tokens_in: 1, tokens_out: 1, dollars: '0', dollars_unmetered: false },
+      },
+    };
+    expect(() => snapshotJsonValue(run, 'run', FLOW_TOOL_LIMITS)).toThrow(/byte limit/);
+    expect(parseFlowToolRun(run, tool).terminal?.result).toEqual(validateFlowToolResult(selected, result));
   });
 
   it('rejects admission receipt bound to a different canonical input', async () => {

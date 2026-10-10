@@ -11,9 +11,20 @@ import {
 // Compile only our fixed protocol schemas; never cache caller-controlled schemas globally.
 const validators = new Map([FLOW_TOOL_CATALOG_SCHEMA, FLOW_TOOL_RUN_SCHEMA, FLOW_TOOL_EVIDENCE_SCHEMA, FLOW_TOOL_EVENT_SCHEMA, FLOW_TOOL_INVOKE_SCHEMA]
   .map(schema => [schema, compileFlowToolSchema(schema)]));
+// FLOW_TOOL_LIMITS bounds one manifest, input, or result. A catalog holds up
+// to 64 of those documents, and a run or invoke envelope wraps one of them.
+// Snapshotting the envelope with the single-document budget rejects a valid
+// catalog or a near-limit result before that document is checked on its own.
+const CATALOG_TOOL_CAP = 64;
+const ENVELOPE_LIMITS = Object.freeze({
+  maxDepth: FLOW_TOOL_LIMITS.maxDepth,
+  maxNodes: FLOW_TOOL_LIMITS.maxNodes * CATALOG_TOOL_CAP + FLOW_TOOL_LIMITS.maxNodes,
+  maxBytes: FLOW_TOOL_LIMITS.maxBytes * CATALOG_TOOL_CAP + FLOW_TOOL_LIMITS.maxBytes,
+});
+const ENVELOPE_SCHEMAS = new Set<FlowToolObjectSchema>([FLOW_TOOL_CATALOG_SCHEMA, FLOW_TOOL_RUN_SCHEMA, FLOW_TOOL_INVOKE_SCHEMA]);
 function wire<T>(value: unknown, schema: FlowToolObjectSchema): T {
   try {
-    const snapshot = snapshotJsonValue(value, 'flow tool protocol', FLOW_TOOL_LIMITS);
+    const snapshot = snapshotJsonValue(value, 'flow tool protocol', ENVELOPE_SCHEMAS.has(schema) ? ENVELOPE_LIMITS : FLOW_TOOL_LIMITS);
     if (!validators.get(schema)!(snapshot)) throw new FlowToolError('invalid_contract');
     return snapshot as T;
   } catch { throw new FlowToolError('invalid_contract'); }
