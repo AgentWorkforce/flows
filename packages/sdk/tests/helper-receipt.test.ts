@@ -58,6 +58,18 @@ it('names the pending GitHub write and resumes receipt polling without overwriti
   await expect(write()).resolves.toMatchObject({ receipt: { id: '5738826838' }, deliveryStatus: 'confirmed' });
   expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({ id: '5738826838' });
 });
+it('confirms a numeric GitHub id from a mount receipt', async () => {
+  const dir = setup('400');
+  const call = { type: 'effect' as const, provider: 'github', verb: 'comment',
+    args: [{ owner: 'org', repo: 'repo', number: 1 }, 'hi'] };
+  const { helperTransport } = await import('../src/helper-writeback.js');
+  const request = { provider: 'github', resource: 'issue-comments', path: '/github/repos/org/repo/issues/1/comments',
+    parameters: {}, body: { body: 'hi' } };
+  const pending = helperTransport(call, dir, 'run', 'step', signal()).transport.write(request);
+  await vi.waitFor(() => expect(intent(dir).absolutePath).toBeDefined());
+  writeFileSync(intent(dir).absolutePath, JSON.stringify({ id: 5738826838 }));
+  await expect(pending).resolves.toMatchObject({ receipt: { id: '5738826838' }, deliveryStatus: 'confirmed' });
+});
 it('does not treat a path and created stamp as provider delivery', async () => {
   const dir = setup('400');
   const call = { type: 'effect' as const, provider: 'github', verb: 'comment',

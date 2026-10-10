@@ -372,7 +372,11 @@ export async function resumeFlow(
     // slack effect resume plus every other provider from N's codegen. The
     // second call the earlier rebase left is a stale reference from before
     // the helper fanout renamed the API.
-    if (options.localAgent) {
+    // A helper child brings its own worker in resumeHelperEffect. A local agent
+    // pinned to that stream first receives the park's redispatch and does not
+    // understand the authored helper instruction.
+    const helperChild = existsSync(join(dataDir, 'helper-runs', `${runId}.json`));
+    if (options.localAgent && !helperChild) {
       const entries = (await client.journalRead(runId, 1)).entries as Array<{ entry_type: string; payload?: { spec?: import('../spec.js').KernelRunSpec } }>;
       const spec = entries.find(entry => entry.entry_type === 'run.spawned')?.payload?.spec;
       if (!spec) throw new Error('Cannot attach a local worker: the journaled run spec is missing');
@@ -394,7 +398,7 @@ export async function resumeFlow(
     }
     // A helper child answers its own park after its worker attaches.
     // Emitting here, with no worker, journals the next attempt as a crash.
-    if (options.localAgent && !existsSync(join(dataDir, 'helper-runs', `${runId}.json`))) {
+    if (options.localAgent && !helperChild) {
       const { releaseHelperReceiptWaits } = await import('../helper-park.js');
       await releaseHelperReceiptWaits(client, runId);
     }

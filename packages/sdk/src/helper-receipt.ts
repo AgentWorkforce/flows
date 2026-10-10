@@ -37,7 +37,9 @@ export async function writeHelperDraft(mount: string, provider: string, operatio
     await atomicJson(file, intent);
     signal.throwIfAborted();
     const submitted = await writeJsonFile({ relayfileMountRoot: mount, writebackTimeoutMs: 0 }, provider, operation, path, body);
-    if (providerReceipt(submitted.receipt, intent.body)) return { ...submitted, deliveryStatus: 'confirmed', receipt: submitted.receipt };
+    if (providerReceipt(submitted.receipt, intent.body)) {
+      return { ...submitted, deliveryStatus: 'confirmed', receipt: stringReceipt(submitted.receipt) };
+    }
   }
   const deadline = Date.now() + timeout;
   do {
@@ -50,7 +52,7 @@ export async function writeHelperDraft(mount: string, provider: string, operatio
     // Identity fields only. A path, timestamp, or error object written while
     // the adapter is still flushing is not a provider delivery.
     if (providerReceipt(receipt, intent.body)) {
-      return { path: intent.path, absolutePath: intent.absolutePath, deliveryStatus: 'confirmed', receipt };
+      return { path: intent.path, absolutePath: intent.absolutePath, deliveryStatus: 'confirmed', receipt: stringReceipt(receipt) };
     }
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
@@ -63,7 +65,26 @@ export async function writeHelperDraft(mount: string, provider: string, operatio
 function providerReceipt(receipt: WritebackReceipt | undefined, draft: Record<string, unknown>): receipt is WritebackReceipt {
   if (receipt === undefined || typeof receipt !== 'object' || Array.isArray(receipt)) return false;
   return (['id', 'externalId', 'ts'] as const).some(key => {
-    const value = receipt[key];
-    return typeof value === 'string' && value.length > 0 && value !== draft[key];
+    const value = receiptIdentity(receipt[key]);
+    return value !== undefined && value !== receiptIdentity(draft[key]);
   });
+}
+
+/** GitHub mount files store comment and issue ids as JSON numbers. */
+function receiptIdentity(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  if (typeof value === 'number' && Number.isSafeInteger(value)) return String(value);
+  return undefined;
+}
+
+function stringReceipt(receipt: WritebackReceipt): WritebackReceipt {
+  const next: WritebackReceipt = { ...receipt };
+  for (const key of ['id', 'externalId', 'ts'] as const) {
+    const value = receiptIdentity(receipt[key]);
+    if (value !== undefined) next[key] = value;
+  }
+  return next;
 }

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -251,5 +251,45 @@ describe('an authored resume that parks for want of a worker', () => {
     expect(result.exitCode).toBe(3);
     // Fail closed: an unclassified park gets no guess.
     expect(result.report.diagnostics.at(-1)!.message).not.toContain('--local-agent');
+  });
+});
+
+describe('flows resume --local-agent against a helper child', () => {
+  it('leaves the helper stream for the helper worker', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'flows-resume-helper-'));
+    directories.push(dir);
+    mkdirSync(join(dir, 'helper-runs'));
+    writeFileSync(join(dir, 'helper-runs', `${RUN_ID}.json`), JSON.stringify({ provider: 'github' }));
+    let attached = 0;
+    vi.spyOn(daemonLifecycle, 'ensureDaemon').mockResolvedValue({
+      kind: 'attached', socketPath: socketPathFor(dir), connection: null,
+    });
+    vi.spyOn(JournalClient.prototype, 'connect').mockResolvedValue(undefined);
+    vi.spyOn(JournalClient.prototype, 'hello').mockResolvedValue({
+      protocol: PROTOCOL_VERSION, server: 'relayflowd-test',
+    });
+    vi.spyOn(JournalClient.prototype, 'close').mockReturnValue(undefined);
+    vi.spyOn(JournalClient.prototype, 'journalRead').mockResolvedValue({
+      entries: [{ entry_type: 'run.spawned', payload: { spec: { steps: [{
+        id: 'comment', type: 'agent',
+        instruction: JSON.stringify({ type: 'effect', provider: 'github', verb: 'comment', args: [] }),
+        surfaces: { streams: [{ stream: 'github-helper-0123456789abcdef' }] },
+      }] } } }],
+    } as never);
+    vi.spyOn(JournalClient.prototype, 'runGet').mockResolvedValue({
+      run_id: RUN_ID, status: 'completed', completion_reason: 'success', completed_steps: 1,
+    } as never);
+    vi.spyOn(JournalClient.prototype, 'runResume').mockResolvedValue({
+      run_id: RUN_ID, status: 'completed', completion_reason: 'success', completed_steps: 1,
+    } as never);
+    vi.spyOn(localAgent, 'attachLocalAgent').mockImplementation(async () => {
+      attached += 1;
+      throw new Error('a local agent must not attach to a helper child');
+    });
+
+    const result = await resumeFlow(RUN_ID, dir, { localAgent: true });
+
+    expect(attached).toBe(0);
+    expect(result.exitCode).toBe(0);
   });
 });
