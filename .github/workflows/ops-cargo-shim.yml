@@ -1,0 +1,37 @@
+name: ops cargo host shim
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/ops-cargo-shim.yml"
+      - "ops/cargo.sh"
+      - "ops/cargo-host-shim.test.mjs"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/ops-cargo-shim.yml"
+      - "ops/cargo.sh"
+      - "ops/cargo-host-shim.test.mjs"
+
+permissions:
+  contents: read
+
+jobs:
+  host-shim:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Same as the artifact workflow: test the PR head, not GitHub's
+          # ephemeral merge ref.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Prove cargo.sh does not break a host rustup shim
+        run: node --test ops/cargo-host-shim.test.mjs
