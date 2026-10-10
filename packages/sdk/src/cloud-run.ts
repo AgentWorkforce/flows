@@ -88,10 +88,17 @@ function snapshotEnvSecrets(value: unknown): Record<string, string> | undefined 
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new CloudFlowError('invalid_input', 'envSecrets must be an object mapping variable names to string values.');
   }
-  const copy: Record<string, string> = {};
+  // Null prototype: an own `__proto__` key (JSON.parse creates one) must not
+  // hit the inherited setter and vanish from the copy.
+  const copy: Record<string, string> = Object.create(null) as Record<string, string>;
   for (const [name, secret] of Object.entries(value)) {
     if (!ENV_SECRET_NAME.test(name)) {
       throw new CloudFlowError('invalid_input', `envSecrets name "${name}" must match ^[A-Za-z_][A-Za-z0-9_]*$.`);
+    }
+    if (name === '__proto__') {
+      // Valid shell syntax, but Cloud's plain-object env handling cannot carry
+      // it and refuses it; fail here, by name, instead of losing it silently.
+      throw new CloudFlowError('invalid_input', 'envSecrets name "__proto__" cannot be delivered to a hosted run.');
     }
     if (typeof secret !== 'string') {
       throw new CloudFlowError('invalid_input', `envSecrets value for "${name}" must be a string.`);

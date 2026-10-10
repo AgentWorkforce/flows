@@ -645,6 +645,8 @@ describe('per-run envSecrets', () => {
     [{ 'NOT-VALID': SECRET }, 'envSecrets name "NOT-VALID"'],
     [{ '1LEADING_DIGIT': SECRET }, 'envSecrets name "1LEADING_DIGIT"'],
     [{ NATIVE_API_TOKEN: 42 }, 'envSecrets value for "NATIVE_API_TOKEN" must be a string'],
+    [JSON.parse('{"__proto__":"native-short-lived-token-value-0123456789"}'), 'envSecrets name "__proto__" cannot be delivered'],
+    [JSON.parse('{"NATIVE_API_TOKEN":"x","__proto__":"native-short-lived-token-value-0123456789"}'), 'envSecrets name "__proto__" cannot be delivered'],
     [['NATIVE_API_TOKEN'], 'envSecrets must be an object'],
     [null, 'envSecrets must be an object'],
   ])('refuses %j before any HTTP request, without echoing a value', async (envSecrets, message) => {
