@@ -779,8 +779,12 @@ async function proposeChanges(c) {
   if (c.mergeParent) {
     const { execFileSync: run } = await import("node:child_process");
     const blobIsBinary = (blob) => {
-      const bytes = run("git", ["-C", c.dir, "cat-file", "blob", blob], { maxBuffer: buffer, stdio: ["ignore", "pipe", "ignore"] });
-      return bytes.subarray(0, 8e3).includes(0);
+      try {
+        const bytes = run("git", ["-C", c.dir, "cat-file", "blob", blob], { maxBuffer: buffer, stdio: ["ignore", "pipe", "ignore"] });
+        return bytes.subarray(0, 8e3).includes(0);
+      } catch {
+        return true;
+      }
     };
     const binaryAttribute = (path) => [c.head, c.mergeParent].some((source) => {
       try {

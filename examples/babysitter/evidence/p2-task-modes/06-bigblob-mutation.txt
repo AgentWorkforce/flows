@@ -1,0 +1,8 @@
+$ (cd examples/babysitter && node --experimental-strip-types --test tests/task.test.ts)   # blob read failure NOT caught
+✖ a conflict blob too large to read is refused, not a crashed run (185.387509ms)
+ℹ fail 1
+ℹ pass 23
+restored sha ok: yes
+$ (cd examples/babysitter && node --experimental-strip-types --test tests/task.test.ts)   # restored
+ℹ pass 24
+ℹ fail 0

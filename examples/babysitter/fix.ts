@@ -183,9 +183,14 @@ export async function proposeChanges(c: ProposalInput): Promise<void> {
     // staging. A text conflict always gets markers, so keeping the PR's side
     // of one is the agent's choice and stays allowed.
     const { execFileSync: run } = await import('node:child_process');
+    // A blob too large to read under the bound, or not a blob, cannot be
+    // shown to be text: it counts as marker-less, so an untouched one is
+    // refused rather than crashing the run.
     const blobIsBinary = (blob: string) => {
-      const bytes = run('git', ['-C', c.dir, 'cat-file', 'blob', blob], { maxBuffer: buffer, stdio: ['ignore', 'pipe', 'ignore'] });
-      return bytes.subarray(0, 8000).includes(0);
+      try {
+        const bytes = run('git', ['-C', c.dir, 'cat-file', 'blob', blob], { maxBuffer: buffer, stdio: ['ignore', 'pipe', 'ignore'] });
+        return bytes.subarray(0, 8000).includes(0);
+      } catch { return true; }
     };
     // Attributes as the two merged commits declare them, not as the agent may
     // have edited .gitattributes since. Unreadable counts as marker-less.
