@@ -1,9 +1,10 @@
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync, symlinkSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
+import { copyPrivateSurface, surfaceDistConsistent } from './private-surface.mjs';
 
 const repo = resolve(process.argv[2]);
 const { JournalClient } = await import(pathToFileURL(join(repo, 'packages/sdk/dist/journal-client.js')));
@@ -11,7 +12,14 @@ const { socketPathFor } = await import(pathToFileURL(join(repo, 'packages/sdk/di
 const root = mkdtempSync(join(tmpdir(), 'event-await-cli-'));
 const data = join(root, 'data');
 mkdirSync(join(root, 'node_modules', '@relayflows'), { recursive: true });
-symlinkSync(join(repo, 'packages/surface'), join(root, 'node_modules', '@relayflows', 'surface'));
+const surface = join(root, 'node_modules', '@relayflows', 'surface');
+for (let attempt = 0; ; attempt++) {
+  rmSync(surface, { recursive: true, force: true });
+  copyPrivateSurface(join(repo, 'packages/surface'), surface);
+  if (surfaceDistConsistent(surface)) break;
+  if (attempt === 19) throw new Error('Surface dist stayed inconsistent across concurrent builds');
+  await new Promise(resolve => setTimeout(resolve, 200));
+}
 writeFileSync(join(root, 'package.json'), '{"type":"module"}');
 writeFileSync(join(root, 'await.flow.ts'), `import {flow,webhook} from '@relayflows/surface';
 export default flow('event-await-cli', async f => {
@@ -55,7 +63,7 @@ async function connect() {
   await client.hello('event-await-cli-probe');
 }
 function expectPark(result, phase) {
-  assert.equal(result.status, 4);
+  assert.equal(result.status, 4, `Expected ${phase} park: ${JSON.stringify(result)}`);
   assert.equal(result.report.suspension.kind, phase);
 }
 try {
