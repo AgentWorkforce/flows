@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -94,10 +94,82 @@ it('maps an unavailable provider probe to memory_unreachable', async () => {
     .toMatchObject({ severity: 'refusal', kind: 'memory_unreachable' });
 });
 
-it('fails closed for deferred writes, agent scope, disabled script memory, and reads after done', async () => {
-  await expect(authoredMemory(scope, () => {}, true).learn({ question: 'q', chosen: 'a', reasoning: 'r' }))
-    .rejects.toMatchObject({ code: 'unsupported_verb' });
+function completingJournal(): JournalClient {
+  const journal = new JournalClient('/unused');
+  vi.spyOn(journal, 'runStart').mockResolvedValue({
+    run_id: 'completion', status: 'completed', completion_reason: 'success', completed_steps: 1,
+  });
+  vi.spyOn(journal, 'journalRead').mockResolvedValue({ entries: [{
+    entry_type: 'step.completed', step_id: 'complete-1', payload: {
+      completionReason: 'success', disposition: 'step_done',
+      output: { exit_code: 0, stdout_tail: '', stderr_tail: '' },
+    },
+  }] } as never);
+  return journal;
+}
+
+it('persists a learned finding that a later run of the same flow recalls', async () => {
+  const flowPath = join(dir, 'test.flow.ts');
+  const finding = {
+    question: 'how should the webhook retry', chosen: 'exponential backoff',
+    reasoning: 'the provider rate-limits bursts', alternatives: ['fixed delay'],
+  };
+  await executeAuthoredFlow(flow('memory-example', { memory: { script: true } }, async f => {
+    expect(await f.memory.why('webhook retry')).toEqual([]);
+    await f.memory.learn(finding);
+    f.done('success');
+  }), completingJournal(), undefined, { flowPath });
+
+  let recalled: unknown[] = [];
+  let why: unknown[] = [];
+  await executeAuthoredFlow(flow('memory-example', { memory: { script: true } }, async f => {
+    recalled = await f.memory.recall('exponential backoff');
+    why = await f.memory.why('webhook retry');
+    f.done('success');
+  }), completingJournal(), undefined, { flowPath });
+  expect(recalled).toMatchObject([{ source: 'trajectory', project: scope }]);
+  expect(why).toMatchObject([{ projectId: scope, decisions: [finding] }]);
+
+  // The trajectory file is what a later `ai-hist sync` re-ingests.
+  const compacted = join(scope, '.trajectories', 'compacted');
+  const [file] = readdirSync(compacted);
+  expect(JSON.parse(readFileSync(join(compacted, file!), 'utf8'))).toMatchObject({ projectId: scope, decisions: [finding] });
+});
+
+it('learns idempotently and only into its own script scope', async () => {
+  const memory = authoredMemory(scope, () => {}, true);
+  const finding = { question: 'cache invalidation', chosen: 'ttl', reasoning: 'simple' };
+  await memory.learn(finding);
+  await memory.learn(finding);
+  expect(await memory.recall('cache invalidation')).toHaveLength(1);
+  expect(readdirSync(join(scope, '.trajectories', 'compacted'))).toHaveLength(1);
+  expect(await memory.recall('retry safely')).toHaveLength(1);
+
+  const other = authoredMemory(scriptMemoryScope(join(dir, 'test.flow.ts'), 'another-flow'), () => {}, true);
+  expect(await other.recall('cache invalidation')).toEqual([]);
+  expect(await other.why('cache invalidation')).toEqual([]);
+});
+
+it('rejects invalid findings before writing, and unwritable stores', async () => {
+  const memory = authoredMemory(scope, () => {}, true);
+  await expect(memory.learn({ question: '', chosen: 'a', reasoning: 'r' }))
+    .rejects.toMatchObject({ code: 'memory_finding_invalid' });
+  await expect(memory.learn({ question: 'q', chosen: 'a', reasoning: 'r', alternatives: [1] } as never))
+    .rejects.toMatchObject({ code: 'memory_finding_invalid' });
+  expect(existsSync(join(scope, '.trajectories'))).toBe(false);
+  if (process.getuid?.() !== 0) {
+    chmodSync(dir, 0o500);
+    try {
+      await expect(memory.learn({ question: 'q', chosen: 'a', reasoning: 'r' }))
+        .rejects.toMatchObject({ code: 'memory_unwritable' });
+    } finally { chmodSync(dir, 0o700); }
+  }
+});
+
+it('fails closed for agent scope, disabled script memory, and memory use after done', async () => {
   await expect(authoredMemory(scope, () => {}, false).recall('q'))
+    .rejects.toMatchObject({ code: 'unsupported_header' });
+  await expect(authoredMemory(scope, () => {}, false).learn({ question: 'q', chosen: 'a', reasoning: 'r' }))
     .rejects.toMatchObject({ code: 'unsupported_header' });
   await expect(executeAuthoredFlow(flow('agent', { memory: { agent: true } }, async f => f.done('success')), new JournalClient('/unused')))
     .rejects.toMatchObject({ code: 'unsupported_header' });

@@ -1,7 +1,7 @@
 # Minimal local script-memory example
 
-This slice implements `f.memory.recall` and `f.memory.why` through ai-hist
-0.4.1. Reads have no journal steps. `memory: { script: true }` is already part
+This slice implements `f.memory.recall`, `f.memory.why`, and `f.memory.learn`
+through ai-hist 0.4.1. None of them journal a step. `memory: { script: true }` is already part
 of the surface header contract and now works in the internal authored executor.
 
 `seed.mjs` creates a new deterministic SQLite database with two script scopes,
@@ -42,10 +42,15 @@ than ai-hist's automatic scan of unrelated local JSONL history.
 
 ## Deferred acceptance work
 
-- `learn` and journal effect record/confirm idempotency. ai-hist 0.4.1 exposes
-  reads and tag writes, but no public trajectory writer. The authored executor
-  also lacks a durable root run ID. `learn` explicitly refuses until both seams
-  are available; no unjournaled write is substituted.
+- Journaled `learn` effects. ai-hist 0.4.1 has no public trajectory writer,
+  so `learn` writes the finding twice under the script scope: a compacted
+  trajectory file at `<scope>/.trajectories/compacted/<id>.json` (the format
+  `ai-hist sync` ingests), and the matching `trajectories`/`history` rows in the
+  ai-hist database (atomic file replace) so the next run recalls it without a
+  sync. The id is a hash of scope and finding, so a resumed body re-running
+  `learn`, or a later run learning the same thing, upserts one record. It is
+  still not a journaled effect, and a concurrent `ai-hist sync` writing the same
+  database can race the row write; the trajectory file survives either way.
 - Identity-scoped agent context injection. `memory.agent: true` explicitly
   refuses; it must not silently read script scope.
 - CLI-only provider operation and automatic creation of a fresh database.
@@ -54,5 +59,5 @@ than ai-hist's automatic scan of unrelated local JSONL history.
 - Automatic trajectory import and the behavioural Gate 5 acceptance example.
 - Cloud push and pair mode, per the original exclusions.
 
-This is a read-only proof slice, not completion of Gate 5 or the full original
+This is a local proof slice, not completion of Gate 5 or the full original
 recall/why/learn acceptance matrix. The lead owns PR creation and CI review.

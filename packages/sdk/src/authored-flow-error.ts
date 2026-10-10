@@ -26,6 +26,10 @@ export type AuthoredFlowExecutionErrorCode =
   | 'journal_protocol_violation'
   | 'missing_completion'
   | 'memory_unreachable'
+  /** `f.memory.learn` was given a finding without non-empty string fields. */
+  | 'memory_finding_invalid'
+  /** `f.memory.learn` could not persist the finding to script memory. */
+  | 'memory_unwritable'
   | 'operation_after_completion'
   | 'operation_callback_failed'
   | 'step_failed'

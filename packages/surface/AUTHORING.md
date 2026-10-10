@@ -212,6 +212,14 @@ export interface AgentOptions {
    */
   cwd?: string;
   /**
+   * Continue a CLI session instead of starting a new one: an earlier step's
+   * `AgentResult.sessionId`. Claude and Codex resume it from their own
+   * session store (`~/.claude`, `~/.codex`), so it works only where that
+   * store survives — such as a sandbox reused for the same pull request.
+   * Other CLIs refuse the step. Not supported with `transport: 'relay'`.
+   */
+  resume?: string;
+  /**
    * Dispatch transport (flows#385). `'direct'` (default) spawns the CLI as a
    * local subprocess. `'relay'` posts to agent-relay so the agent registers
    * as a first-class workspace participant that DMs can steer.
@@ -253,6 +261,12 @@ export interface AgentResult {
    * final message is a JSON object (that object is the output, unmodified).
    */
   artifacts: string[];
+  /**
+   * The CLI session this step ran as (Claude's session id, Codex's thread
+   * id), when the CLI reported one. Pass it as a later step's `resume` to
+   * continue the same conversation.
+   */
+  sessionId?: string;
 }
 ```
 
@@ -1276,7 +1290,7 @@ export interface MemoryHelper {
   recall(query: string, options?: MemoryRecallOptions): Promise<HistoryEntry[]>;
   /** Best matching decision trajectory, or an empty array. No journal step. */
   why(task: string): Promise<TrajectoryEntry[]>;
-  /** Reserved for the journal-backed write slice; currently refuses. */
+  /** Persists a finding to this flow's script memory; later runs see it via recall/why. Idempotent per finding; no journal step. */
   learn(finding: MemoryFinding): Promise<void>;
 }
 ```
