@@ -4,9 +4,11 @@ set -euo pipefail
 export TMPDIR="$HOME/.agent-tmp"
 cd "$(dirname "$0")/../../.."
 saved="$(mktemp -d)"; trap 'rm -rf "$saved"' EXIT
-run() { echo "+ $*"; "$@" 2>&1 || true; }
+# Commands are printed shell-escaped (printf %q), so a printed line replays as run.
+show() { printf '+'; printf ' %q' "$@"; printf '\n'; }
+run() { show "$@"; "$@" 2>&1 || true; }
 # A mutation edit that does not apply aborts the script (set -e).
-edit() { echo "+ $*"; "$@"; }
+edit() { show "$@"; "$@"; }
 cp fix.ts "$saved/fix.ts"
 run sha256sum fix.ts
 

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -261,15 +261,15 @@ test('a FIFO, directory or symlink named like a shared index in .git is not copi
 });
 
 test('a proposal whose private git dir cannot be set up leaves no scratch behind', async () => {
+  // A .git file (as in a linked worktree) makes reading the checkout's git
+  // dir fail after the scratch dir exists, whatever the user: no reliance on
+  // permissions root would bypass.
   const r = forked();
-  execFileSync('chmod', ['a-r', join(r.checkout, '.git/index')]);
-  try {
-    const { result: error, left } = await inOwnTmp(() => runPropose(r).then(() => undefined, (e: unknown) => e));
-    assert.match(String(error), /EACCES/);
-    assert.deepEqual(left, []);
-  } finally {
-    execFileSync('chmod', ['u+r', join(r.checkout, '.git/index')]);
-  }
+  renameSync(join(r.checkout, '.git'), join(r.checkout, '.git-real'));
+  writeFileSync(join(r.checkout, '.git'), 'gitdir: .git-real\n');
+  const { result: error, left } = await inOwnTmp(() => runPropose(r).then(() => undefined, (e: unknown) => e));
+  assert.match(String(error), /ENOTDIR/);
+  assert.deepEqual(left, []);
 });
 
 test('the merge step leaves the conflicts for the agent and names any in drizzle metadata', async () => {
