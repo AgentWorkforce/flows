@@ -22,7 +22,10 @@ set -eu
 # step either finds a whole toolchain or installs one.
 toolchain_home="${RELAYFLOWS_TOOLCHAIN_HOME:-$HOME/.relayflows-toolchain}"
 export CARGO_HOME="$toolchain_home/cargo"
-export RUSTUP_HOME="$toolchain_home/rustup"
+# Note: RUSTUP_HOME is set only when using the private toolchain home or
+# bootstrapping. Exporting it globally up front breaks host cargo (which is
+# usually a rustup shim) because pointing host shims at an unpopulated
+# $toolchain_home/rustup makes them error with "no default toolchain configured".
 
 # Build OUTPUT must stay out of the propagated tree too, for a different and
 # sharper reason than the toolchain above.
@@ -51,17 +54,23 @@ _worktree_key=$(printf '%s' "$_worktree_root" | cksum | cut -d' ' -f1)
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$toolchain_home/target/$_worktree_key}"
 export RELAYFLOWD_BIN="${RELAYFLOWD_BIN:-$CARGO_TARGET_DIR/debug/relayflowd}"
 
-if command -v cargo >/dev/null 2>&1; then
+cargo_bin=""
+if command -v cargo >/dev/null 2>&1 && cargo --version >/dev/null 2>&1; then
   cargo_bin=cargo
-elif [ -x "${CARGO_INSTALL_ROOT:-}/bin/cargo" ]; then
+elif [ -x "${CARGO_INSTALL_ROOT:-}/bin/cargo" ] && "${CARGO_INSTALL_ROOT}/bin/cargo" --version >/dev/null 2>&1; then
   cargo_bin="${CARGO_INSTALL_ROOT}/bin/cargo"
-elif [ -x "$HOME/.cargo/bin/cargo" ]; then
+elif [ -x "$HOME/.cargo/bin/cargo" ] && "$HOME/.cargo/bin/cargo" --version >/dev/null 2>&1; then
   cargo_bin="$HOME/.cargo/bin/cargo"
-elif [ -x /usr/local/cargo/bin/cargo ]; then
+elif [ -x /usr/local/cargo/bin/cargo ] && /usr/local/cargo/bin/cargo --version >/dev/null 2>&1; then
   cargo_bin=/usr/local/cargo/bin/cargo
 elif [ -x "$CARGO_HOME/bin/cargo" ]; then
-  cargo_bin="$CARGO_HOME/bin/cargo"
-else
+  export RUSTUP_HOME="$toolchain_home/rustup"
+  if "$CARGO_HOME/bin/cargo" --version >/dev/null 2>&1; then
+    cargo_bin="$CARGO_HOME/bin/cargo"
+  fi
+fi
+
+if [ -z "$cargo_bin" ]; then
   # No toolchain anywhere. In a cloud sandbox this is expected, and it is NOT
   # simply "off PATH": the image ships no Rust, and a step that installs one
   # cannot hand it to the next step because artifact propagation drops files
@@ -69,7 +78,7 @@ else
   #   artifact-skip: path ".cargo-home/bin/rustup" reason "size-cap"
   #   (20838840 bytes exceeds per-file cap)
   # So every step that needs cargo must be able to obtain it itself. Install
-  # into the repo-local CARGO_HOME, which is where this wrapper already points.
+  # into the private CARGO_HOME, which is outside the propagated workspace.
   if [ "${RELAYFLOWS_NO_TOOLCHAIN_INSTALL:-0}" = "1" ]; then
     echo "CARGO_NOT_FOUND: no toolchain, and install is disabled by RELAYFLOWS_NO_TOOLCHAIN_INSTALL=1." >&2
     echo "  PATH=$PATH" >&2
@@ -81,9 +90,7 @@ else
     echo "CARGO_BOOTSTRAP_FAILED: curl is not available, so the toolchain cannot be fetched." >&2
     exit 127
   fi
-  # Remove any partial toolchain first: a half-copied one reports
-  # "Missing manifest" rather than "not installed", and rustup will happily
-  # leave it in place.
+  export RUSTUP_HOME="$toolchain_home/rustup"
   rm -rf "$toolchain_home"
   mkdir -p "$toolchain_home"
   # Bound the install ourselves. On run 457a6102 verify-1 sat for 31 minutes
