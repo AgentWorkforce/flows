@@ -92,6 +92,17 @@ export async function evaluateFlow(options: EvaluateFlowOptions): Promise<FlowEv
   if (baseline !== undefined && baseline.suiteSha256 !== suiteSha256) {
     throw new FlowEvalError('suite_mismatch', 'The baseline report was produced from a different suite; regressions would not be comparable.');
   }
+  if (baseline !== undefined) {
+    // The hash is a claim; the cases are the evidence. A baseline missing a
+    // case would silently skip that case's regression check.
+    const ids = new Set(suite.cases.map(c => c.id));
+    const extra = [...baseline.outcomes.keys()].filter(id => !ids.has(id));
+    const absent = [...ids].filter(id => !baseline.outcomes.has(id));
+    if (extra.length > 0 || absent.length > 0) {
+      throw new FlowEvalError('invalid_baseline', 'The baseline report does not cover exactly this suite\'s cases'
+        + (absent.length > 0 ? `; missing ${absent.join(', ')}` : '') + (extra.length > 0 ? `; unknown ${extra.join(', ')}` : '') + '.');
+    }
+  }
   const snapshot = await sealFlowEvalSnapshot(options.flow);
   const { version } = snapshot;
   let results: FlowEvalCaseResult[];

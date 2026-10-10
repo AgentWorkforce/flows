@@ -57,9 +57,22 @@ such as a computed `import(\`./rules/${kind}.js\`)` or a file read at
 runtime, is absent from the snapshot, so that run fails instead of executing
 unjudged code. Write such modules as static imports.
 
+Each local run also starts in the snapshot directory, so a relative read
+(`readFileSync('./prompt.txt')`) resolves inside the sealed copy and fails
+there if the file is not part of the version. Passing `cwd` to
+`localFlowEvalExecutor` deliberately reintroduces the working tree.
+
+A version cannot pin everything:
+
+- **Absolute paths and other external state** such as the network are
+  outside any version. This is the same as for a deployed flow.
+- **Deterministic step commands** run in the daemon's working directory,
+  which this evaluation does not choose when it attaches to an existing
+  daemon.
+
 `--baseline <report.json>` fails the gate on every case that passed in the
 baseline and does not pass now. The baseline must have been produced from the
-same suite.
+same suite and must cover exactly its cases.
 
 Each case reports:
 
@@ -86,6 +99,8 @@ Each case reports:
   report, so `declined` and `detailIncludes` mean the same thing as they do
   locally. Spend comes from the run's steps.
   - It needs `workflow:invoke:write` and `runs:read`.
+  - **Cloud runs the entry file alone,** so a flow that imports local modules is
+    refused before anything is submitted. Evaluate that flow locally.
   - Inside a Cloud step that means an injected workspace token, because a
     sandbox token reads only its own run.
 - **Custom**: any `(request) => Promise<FlowEvalRun>`.

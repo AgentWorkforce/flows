@@ -9,6 +9,26 @@ import { cloudRequest, isCloudRecord, type CloudConnectionOptions } from './clou
 import { isAuthoredFlowPath } from './direct-input.js';
 import type { FlowEvalExecutor, FlowEvalRun } from './flow-eval-report.js';
 import { runReportOutcome } from './flow-eval-outcome.js';
+import { flowEvalSources, isPathTarget, type FlowEvalTarget } from './flow-eval-version.js';
+
+const MODULE = /\.(?:[mc]?[jt]s)$/u;
+
+/**
+ * Cloud receives the entry file's source alone (cloud-run.ts): a relative
+ * import is not resolved by the hosted runner, even with `syncCode`. A flow
+ * whose version spans local modules would therefore fail only on Cloud, or run
+ * something other than what was judged. Refuse it before submitting anything.
+ */
+async function refuseLocalImports(flow: FlowEvalTarget): Promise<void> {
+  if (!isPathTarget(flow) || !MODULE.test(flow.path)) return;
+  const { files } = await flowEvalSources(flow);
+  const entry = files.find(file => !file.includes('/') && flow.path.endsWith(file));
+  const modules = files.filter(file => MODULE.test(file) && file !== entry);
+  if (modules.length > 0) {
+    throw new Error(`Cloud evaluation runs the entry file alone, and this flow imports local modules (${modules.join(', ')}). `
+      + 'Evaluate it locally, or inline those modules.');
+  }
+}
 
 export interface CloudFlowEvalExecutorOptions extends CloudConnectionOptions {
   workspaceId?: string;
@@ -23,6 +43,7 @@ export interface CloudFlowEvalExecutorOptions extends CloudConnectionOptions {
  */
 export function cloudFlowEvalExecutor(options: CloudFlowEvalExecutorOptions = {}): FlowEvalExecutor {
   return async ({ flow, input, signal }) => {
+    await refuseLocalImports(flow);
     const connection: CloudConnectionOptions = {
       ...(options.apiUrl === undefined ? {} : { apiUrl: options.apiUrl }),
       ...(options.token === undefined ? {} : { token: options.token }),

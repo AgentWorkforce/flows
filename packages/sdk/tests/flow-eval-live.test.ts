@@ -37,7 +37,7 @@ it('re-executes a flow version once per case and reports a passing gate', async 
   const candidate = join(runtime.root, 'candidate.flow.ts');
   writeFileSync(candidate, CANDIDATE);
 
-  const executor = localFlowEvalExecutor({ dataDir: runtime.data, daemon: { spawn: false }, cwd: runtime.root });
+  const executor = localFlowEvalExecutor({ dataDir: runtime.data, daemon: { spawn: false } });
   const first = await evaluateFlow({ flow: { path: candidate }, suite: SUITE, executor, executorName: 'local' });
   expect(first.gate, JSON.stringify(first, null, 2)).toEqual({ pass: true, reasons: [], regressions: [] });
   expect(first.cases.map(c => [c.id, c.outcome, c.completionReason])).toEqual([

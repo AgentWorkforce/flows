@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { canonicalize } from './canonical.js';
 import { isAuthoredFlowPath } from './direct-input.js';
@@ -26,7 +26,13 @@ export interface LocalFlowEvalExecutorOptions {
   daemon?: { spawn?: boolean };
   /** The `flows` CLI entry point. Defaults to this package's own `dist/cli.js`. */
   cliPath?: string;
-  /** Working directory for each run. Defaults to this process's. */
+  /**
+   * Working directory for each run. Defaults to the snapshot directory holding
+   * the flow, so a relative read (`readFileSync('./prompt.txt')`) resolves
+   * inside the sealed copy — and fails there if the file is not part of the
+   * version — instead of reading the caller's mutable working tree. Setting it
+   * deliberately reintroduces that dependency.
+   */
   cwd?: string;
 }
 
@@ -65,7 +71,7 @@ export function localFlowEvalExecutor(options: LocalFlowEvalExecutorOptions = {}
         await writeFile(inputPath, canonicalize(input ?? {}));
         args.push('--input', inputPath);
       }
-      const execution = await runCliProcess(args, options.cwd, signal);
+      const execution = await runCliProcess(args, options.cwd ?? dirname(resolve(flow.path)), signal);
       const run = localRunOutcome(execution);
       if (run.runId !== undefined && run.completionReason !== 'refused') {
         Object.assign(run, await localRunSpend(run.runId, dataDir));

@@ -7,7 +7,7 @@ import {
   type FlowEvalExecutor, type FlowEvalRun, type FlowEvalSuite,
 } from '../src/flow-eval.js';
 import { localRunOutcome, localRunSpend } from '../src/flow-eval-local.js';
-import { cloudRunOutcome, cloudSpend } from '../src/flow-eval-cloud.js';
+import { cloudFlowEvalExecutor, cloudRunOutcome, cloudSpend } from '../src/flow-eval-cloud.js';
 import { flowEvalSources, localSpecifiers } from '../src/flow-eval-version.js';
 import type { CloudStep } from '../src/cloud-read.js';
 import type { JournalEvent } from '../src/journal-client.js';
@@ -322,6 +322,23 @@ describe('flow version', () => {
     expect(report.cases[1]!.costUsd).toBeNull();
     expect(report.summary.totalCostUsd).toBeNull();
     expect(report.gate.pass).toBe(false);
+  });
+
+  it('refuses a baseline that does not cover exactly the suite cases', async () => {
+    const clock = scriptedClock();
+    const path = flowFile();
+    const baseline = await evaluateFlow({ flow: { path }, suite: SUITE, now: clock.now, executor: scriptedExecutor(clock, {}).executor });
+    const truncated = { ...baseline, cases: baseline.cases.filter(c => c.id !== 'names-ticket') };
+    await expect(evaluateFlow({ flow: { path }, suite: SUITE, baseline: truncated, executor: scriptedExecutor(clock, {}).executor }))
+      .rejects.toMatchObject({ code: 'invalid_baseline', message: expect.stringContaining('missing names-ticket') });
+  });
+
+  it('refuses a Cloud evaluation of a flow that imports local modules, before submitting', async () => {
+    const { entry } = authoredProject();
+    const report = await evaluateFlow({ flow: { path: entry }, executor: cloudFlowEvalExecutor({ apiUrl: 'http://127.0.0.1:9' }),
+      suite: { name: 's', cases: [{ id: 'one' }] } });
+    expect(report.cases[0]).toMatchObject({ outcome: 'error' });
+    expect(report.cases[0]!.failures[0]).toContain('imports local modules (child.flow.ts, lib/prompt.ts)');
   });
 
   it('refuses a malformed baseline before running any case', async () => {
