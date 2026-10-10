@@ -593,3 +593,80 @@ describe('Cloud human park', () => {
     if (json) expect(JSON.parse(stdout[0]!)).toMatchObject({ ok: false, status: 'needs_human', completionReason: 'needs_human' });
   });
 });
+
+describe('per-run envSecrets', () => {
+  const SECRET = 'native-short-lived-token-value-0123456789';
+
+  it('sends envSecrets in the run submission and nowhere else', async () => {
+    const requests: { path: string; body: unknown }[] = [];
+    const options = await cloud((path, body) => {
+      requests.push({ path, body });
+      return { runId: 'run-env', status: 'pending' };
+    });
+    const receipt = await runInCloud(flow, { ...options, envSecrets: { NATIVE_API_TOKEN: SECRET } });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      path: '/api/v1/workflows/run',
+      body: { envSecrets: { NATIVE_API_TOKEN: SECRET } },
+    });
+    // Not folded into the flow source, inputs, or the receipt.
+    const body = requests[0]!.body as { workflow: string; inputs?: unknown };
+    expect(body.workflow).not.toContain(SECRET);
+    expect(body.inputs).toBeUndefined();
+    expect(JSON.stringify(receipt)).not.toContain(SECRET);
+  });
+
+  it('omits envSecrets when absent or empty', async () => {
+    const bodies: unknown[] = [];
+    const options = await cloud((_path, body) => {
+      bodies.push(body);
+      return { runId: 'run-plain', status: 'pending' };
+    });
+    await runInCloud(flow, options);
+    await runInCloud(flow, { ...options, envSecrets: {} });
+    for (const body of bodies) expect(body).not.toHaveProperty('envSecrets');
+  });
+
+  it('snapshots the map so later mutation cannot change what was validated', async () => {
+    const bodies: unknown[] = [];
+    const options = await cloud((_path, body) => {
+      bodies.push(body);
+      return { runId: 'run-snap', status: 'pending' };
+    });
+    const envSecrets: Record<string, string> = { NATIVE_API_TOKEN: SECRET };
+    const pending = runInCloud(flow, { ...options, envSecrets });
+    envSecrets['1BAD'] = 'mutated-after-call';
+    await pending;
+    expect(bodies[0]).toMatchObject({ envSecrets: { NATIVE_API_TOKEN: SECRET } });
+    expect(JSON.stringify(bodies[0])).not.toContain('mutated-after-call');
+  });
+
+  it.each([
+    [{ 'NOT-VALID': SECRET }, 'envSecrets name "NOT-VALID"'],
+    [{ '1LEADING_DIGIT': SECRET }, 'envSecrets name "1LEADING_DIGIT"'],
+    [{ NATIVE_API_TOKEN: 42 }, 'envSecrets value for "NATIVE_API_TOKEN" must be a string'],
+    [JSON.parse('{"__proto__":"native-short-lived-token-value-0123456789"}'), 'envSecrets name "__proto__" cannot be delivered'],
+    [JSON.parse('{"NATIVE_API_TOKEN":"x","__proto__":"native-short-lived-token-value-0123456789"}'), 'envSecrets name "__proto__" cannot be delivered'],
+    [['NATIVE_API_TOKEN'], 'envSecrets must be an object'],
+    [null, 'envSecrets must be an object'],
+  ])('refuses %j before any HTTP request, without echoing a value', async (envSecrets, message) => {
+    const fetch = vi.spyOn(globalThis, 'fetch');
+    const failure = await runInCloud(flow, {
+      token: 'test-token',
+      envSecrets: envSecrets as unknown as RunInCloudOptions['envSecrets'],
+    }).catch((error: unknown) => error as CloudFlowError);
+    expect(failure).toMatchObject({ code: 'invalid_input' });
+    expect((failure as Error).message).toContain(message);
+    expect((failure as Error).message).not.toContain(SECRET);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('does not echo envSecrets values when Cloud refuses the submission', async () => {
+    const options = await cloud(() => ({ error: 'Invalid request body' }), 400);
+    const failure = await runInCloud(flow, { ...options, envSecrets: { RUN_ID: SECRET } })
+      .catch((error: unknown) => error as CloudFlowError);
+    expect(failure).toMatchObject({ code: 'http_error', status: 400 });
+    expect(JSON.stringify({ message: (failure as Error).message, refusal: (failure as CloudFlowError).refusal }))
+      .not.toContain(SECRET);
+  });
+});

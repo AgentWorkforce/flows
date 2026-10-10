@@ -33,6 +33,30 @@ SDK options `token` and `apiUrl` override the environment. The token must be a
 Cloud token, not a Relay workspace or observer key. Cloud v2 admission and its
 pinned runtime must be enabled by that deployment's operator.
 
+### Per-run secrets
+
+`envSecrets` gives one hosted run environment variables, typically a short-lived
+token for your own API that a step reads as `process.env.NATIVE_API_TOKEN`:
+
+```ts
+await runInCloud({ path: './onboard.flow.ts' }, {
+  input: { signupId },
+  envSecrets: { NATIVE_API_TOKEN: mintedPerSignupToken },
+});
+```
+
+They travel only with that run's submission: not in the flow source, its
+inputs, the receipt, or a schedule (`scheduleInCloud` cannot carry them). Names
+must match `^[A-Za-z_][A-Za-z0-9_]*$` and are checked before any request; Cloud
+refuses names it owns (run identity, Relay/Relayfile auth, provider keys such as
+`ANTHROPIC_API_KEY`). Cloud masks the values in captured run output (logs,
+step rows, transcripts) by name, regardless of what the variable is called,
+once AgentWorkforce/cloud#4469 is deployed; before that, only names containing
+TOKEN, SECRET, KEY, AUTH or similar are masked, so prefer a name like
+`NATIVE_API_TOKEN`. Steps can still read the values, so keep the token
+short-lived and narrowly scoped. A run that parks on `f.human` and is resumed
+does not get them back.
+
 ```sh
 flows run --cloud examples/cloud-gates/cloud-gates.flow.yaml
 flows run --cloud --wait --json examples/cloud-gates/cloud-gates.flow.yaml

@@ -37,6 +37,15 @@ export interface RunInCloudOptions extends CloudConnectionOptions {
    * admitted" from "admission unknown".
    */
   onSubmit?: () => void;
+  /**
+   * Per-run environment variables for the hosted sandbox, e.g. a short-lived
+   * token for the caller's own API. Sent with this run's submission only: never
+   * part of {@link cloudSubmissionBody}, so a schedule never stores them, and
+   * never echoed in errors or the receipt. Names must match
+   * `^[A-Za-z_][A-Za-z0-9_]*$`; Cloud refuses names it owns (run identity,
+   * Relay/Relayfile auth, provider keys such as `ANTHROPIC_API_KEY`).
+   */
+  envSecrets?: Readonly<Record<string, string>>;
 }
 export interface CloudRunReceipt {
   runId: string;
@@ -67,6 +76,37 @@ export function cloudSubmissionBody(submission: CloudSubmission): Record<string,
 }
 
 export type { CloudRunState };
+
+const ENV_SECRET_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/u;
+
+/**
+ * Validate and copy per-run env secrets before any network call. Errors name
+ * the offending variable, never its value.
+ */
+function snapshotEnvSecrets(value: unknown): Record<string, string> | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new CloudFlowError('invalid_input', 'envSecrets must be an object mapping variable names to string values.');
+  }
+  // Null prototype: an own `__proto__` key (JSON.parse creates one) must not
+  // hit the inherited setter and vanish from the copy.
+  const copy: Record<string, string> = Object.create(null) as Record<string, string>;
+  for (const [name, secret] of Object.entries(value)) {
+    if (!ENV_SECRET_NAME.test(name)) {
+      throw new CloudFlowError('invalid_input', `envSecrets name "${name}" must match ^[A-Za-z_][A-Za-z0-9_]*$.`);
+    }
+    if (name === '__proto__') {
+      // Valid shell syntax, but Cloud's plain-object env handling cannot carry
+      // it and refuses it; fail here, by name, instead of losing it silently.
+      throw new CloudFlowError('invalid_input', 'envSecrets name "__proto__" cannot be delivered to a hosted run.');
+    }
+    if (typeof secret !== 'string') {
+      throw new CloudFlowError('invalid_input', `envSecrets value for "${name}" must be a string.`);
+    }
+    copy[name] = secret;
+  }
+  return Object.keys(copy).length === 0 ? undefined : copy;
+}
 
 /**
  * Submit a declarative flow to Cloud's pinned v2 runtime. Compilation only
@@ -212,6 +252,7 @@ export async function runInCloud(
 ): Promise<CloudRunReceipt> {
   // Validate locally first: resolving the connection may refresh a stored
   // login, which posts the refresh token and rotates the credential file.
+  const envSecrets = snapshotEnvSecrets(options.envSecrets);
   const submission = await prepareCloudSubmission(flow, options);
   const { baseUrl } = await resolveCloudConnection(options);
   const hash = submission.specHash;
@@ -241,6 +282,7 @@ export async function runInCloud(
       ...cloudSubmissionBody(submission),
       ...(options.workspaceId === undefined ? {} : { workspaceId: options.workspaceId }),
       ...(synced === undefined ? {} : { runId: synced.runId, s3CodeKey: synced.codeKey }),
+      ...(envSecrets === undefined ? {} : { envSecrets }),
     }) });
   } catch (error) {
     // Cloud accepts exactly one authored Surface (the one its sandbox runs).
