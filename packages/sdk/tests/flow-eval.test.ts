@@ -377,6 +377,26 @@ describe('flow version', () => {
     expect(report.cases[0]!.failures[0]).toContain('imports local modules (child.flow.ts, lib/prompt.ts)');
   });
 
+  it('does not count sealed extension payloads as local imports for Cloud', async () => {
+    const root = scratch();
+    writeFileSync(join(root, 'flows.json'), '{}');
+    const digest = 'a'.repeat(64);
+    writeFileSync(join(root, 'flows.lock.json'), JSON.stringify({ version: 2, plugins: [{
+      name: 'triage-ext', kind: 'flow-extension', version: '1.0.0', digest, manifestSha256: 'b'.repeat(64), order: 1,
+      resolvedAt: '2026-10-01T00:00:00.000Z',
+      source: { host: 'github', owner: 'AgentWorkforce', repo: 'ext', sha: 'c'.repeat(40), path: 'triage' },
+    }] }));
+    const store = join(root, '.flows', 'plugins', `triage-ext@sha256:${digest}`);
+    mkdirSync(store, { recursive: true });
+    writeFileSync(join(store, 'extension.mjs'), 'export default 1;\n');
+    const entry = join(root, 'standalone.flow.ts');
+    writeFileSync(entry, "export default 1;\n");
+    const report = await evaluateFlow({ flow: { path: entry }, executor: cloudFlowEvalExecutor({ apiUrl: 'http://127.0.0.1:9' }),
+      suite: { name: 's', cases: [{ id: 'one' }] } });
+    // Gets past the local-import refusal and fails later, at the (unreachable) Cloud request.
+    expect(report.cases[0]!.failures[0]).not.toContain('imports local modules');
+  });
+
   it('refuses a malformed baseline before running any case', async () => {
     const calls: string[] = [];
     const executor: FlowEvalExecutor = async ({ caseId }) => { calls.push(caseId); return { completionReason: 'success' }; };

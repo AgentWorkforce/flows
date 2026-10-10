@@ -12,6 +12,7 @@ import { runReportOutcome } from './flow-eval-outcome.js';
 import { flowEvalSources, isPathTarget, type FlowEvalTarget } from './flow-eval-version.js';
 
 const MODULE = /\.(?:[mc]?[jt]s)$/u;
+const EXTENSION_STORE = /(?:^|\/)\.flows\/plugins\//u;
 
 /**
  * Cloud receives the entry file's source alone (cloud-run.ts): a relative
@@ -23,7 +24,9 @@ async function refuseLocalImports(flow: FlowEvalTarget): Promise<void> {
   if (!isPathTarget(flow) || !MODULE.test(flow.path)) return;
   const { files } = await flowEvalSources(flow);
   const entry = files.find(file => !file.includes('/') && flow.path.endsWith(file));
-  const modules = files.filter(file => MODULE.test(file) && file !== entry);
+  // Locked extension payloads are not imports: Cloud receives them separately
+  // (`extensions` in the submission), so they never make a flow non-self-contained.
+  const modules = files.filter(file => MODULE.test(file) && file !== entry && !EXTENSION_STORE.test(file));
   if (modules.length > 0) {
     throw new Error(`Cloud evaluation runs the entry file alone, and this flow imports local modules (${modules.join(', ')}). `
       + 'Evaluate it locally, or inline those modules.');
