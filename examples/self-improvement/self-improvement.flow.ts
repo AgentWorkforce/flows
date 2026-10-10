@@ -276,8 +276,9 @@ export default flow<SelfImprovementInput>(
     // Re-checked at the last moment: a PR opened on the branch since checkout
     // means it is not abandoned after all, and the takeover is refused.
     const stillOrphan = orphan
-      ? `test -z "$(gh pr list --repo ${shellWord(input.repo)} --head ${shellWord(branch)} --state all --limit 1 --json url --jq '.[0].url // empty')" || `
-        + `{ echo "${branch} gained a PR since checkout; not taking it over" >&2; exit 1; }; `
+      ? `prs=$(gh pr list --repo ${shellWord(input.repo)} --head ${shellWord(branch)} --state all --limit 1 --json url --jq '.[0].url // empty') || `
+        + `{ echo "could not list PRs for ${branch}; not taking it over" >&2; exit 1; }; `
+        + `test -z "$prs" || { echo "${branch} gained a PR since checkout ($prs); not taking it over" >&2; exit 1; }; `
       : "";
     await f.run(
       `if [ "$(${git} ${auth} ls-remote origin ${shellWord(`refs/heads/${branch}`)} | cut -f1)" = "$(${git} rev-parse HEAD)" ]; then echo already pushed; `
