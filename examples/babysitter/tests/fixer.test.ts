@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -344,6 +344,19 @@ function upstream(): { dir: string; commit: (files: Record<string, string>) => s
     },
   };
 }
+
+test('a checkout whose filesystem dropped executable bits reads as clean', async () => {
+  const up = upstream();
+  up.commit({ 'bin/run.sh': '#!/bin/sh\n' });
+  chmodSync(join(up.dir, 'bin/run.sh'), 0o755);
+  const head = up.commit({});
+  const runRoot = mkdtempSync(join(tmpdir(), 'babysitter-run-'));
+  await runCheckout(runRoot, up.dir, head);
+  const dir = join(runRoot, 'babysitter-checkout');
+  chmodSync(join(dir, 'bin/run.sh'), 0o644);
+  const status = execFileSync('git', ['-C', dir, 'status', '--porcelain'], { env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' }, encoding: 'utf8' });
+  assert.equal(status, '');
+});
 
 test('a reused checkout keeps its dependencies but none of the agent\'s git state, and lands exactly on the head', async () => {
   const up = upstream();

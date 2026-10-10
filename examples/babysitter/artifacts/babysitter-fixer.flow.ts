@@ -706,6 +706,7 @@ async function checkoutHead(c) {
   const before = fingerprint();
   rmSync(join(dir, ".git"), { recursive: true, force: true });
   git("init", "-q");
+  git("config", "core.fileMode", "false");
   git("fetch", "-q", "--no-tags", "--depth=50", c.origin ?? `https://github.com/${c.owner}/${c.repo}.git`, c.head);
   git("reset", "-q", "--hard", c.head);
   git("clean", "-q", reused && fingerprint() !== before ? "-fdx" : "-fd");
@@ -765,7 +766,7 @@ async function proposeChanges(c) {
   const { copyFileSync, lstatSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { resolve } = await import("node:path");
-  const environment = { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_COUNT: "2", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/dev/null", GIT_CONFIG_KEY_1: "core.quotePath", GIT_CONFIG_VALUE_1: "false" };
+  const environment = { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_COUNT: "3", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/dev/null", GIT_CONFIG_KEY_1: "core.quotePath", GIT_CONFIG_VALUE_1: "false", GIT_CONFIG_KEY_2: "core.fileMode", GIT_CONFIG_VALUE_2: "false" };
   const checkoutGit = resolve(c.dir, ".git");
   const scratch = mkdtempSync(`${tmpdir()}/babysitter-gitdir-`);
   try {
