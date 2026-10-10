@@ -171,7 +171,24 @@ describe('flows status on a detail-bearing authored run', () => {
   });
 
   it.each([
-    ['a one-argument done()', journal()],
+    ['needs_human', 'needs_human'],
+    ['step_failed', 'step_failed'],
+    ['declined', 'declined'],
+  ])('prints a one-argument done("%s") rather than reading as a plain success', async (_label, reason) => {
+    const dataDir = fixture(journal({ reason }));
+    const text = await status(['--data-dir', dataDir, RUN_ID]);
+    expect(text.stdout[0]).toContain('finished success');
+    expect(text.stdout[1]).toBe(`authored done("${reason}")`);
+    expect(text.stdout[2]!.startsWith('steps ')).toBe(true);
+    const json = await status(['--json', '--data-dir', dataDir, RUN_ID]);
+    const view = JSON.parse(json.stdout[0]!);
+    expect(view.authored_completion).toEqual({ reason });
+    expect(view.completion_reason).toBe('success');
+    expect(json.stdout[0]).toBe(canonicalize(view));
+  });
+
+  it.each([
+    ['a one-argument done("success")', journal({ reason: 'success' })],
     ['an ordinary run that happens to name a step authored-root', journal({ kind: null, detail: FINDING })],
     ['a malformed authored output', journal({ detail: 7 })],
   ])('adds no line and no JSON key for %s', async (_label, events) => {
