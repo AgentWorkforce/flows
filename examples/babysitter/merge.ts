@@ -1,6 +1,3 @@
-import type { Ctx } from '@relayflows/surface';
-import { nodeCommand } from './github.ts';
-
 // Stringified by `nodeCommand` and run by `node -e` inside an `f.run` step,
 // never in this process (see github.ts and fix.ts).
 declare const process: { env: Record<string, string | undefined>; stdout: { write(chunk: string): void } };
@@ -32,8 +29,10 @@ export async function mergeTrunk(c: { dir: string; owner: string; repo: string; 
   const refuse = (reason: string) => process.stdout.write(JSON.stringify({ kind: 'babysitter-refusal', reason }));
   const url = c.origin ?? `https://github.com/${c.owner}/${c.repo}.git`;
   if (git('rev-parse', 'HEAD') !== c.head) return refuse('checkout is not at the bound head');
-  git('fetch', '-q', '--no-tags', '--depth=500', url, c.trunkSha);
-  git('fetch', '-q', '--no-tags', '--deepen=500', url, c.head);
+  // The relayfile mount makes files a step leaves in .git read-only (Cloud
+  // run b8e5eb96), and FETCH_HEAD is rewritten in place; nothing here reads it.
+  git('fetch', '-q', '--no-tags', '--no-write-fetch-head', '--depth=500', url, c.trunkSha);
+  git('fetch', '-q', '--no-tags', '--no-write-fetch-head', '--deepen=500', url, c.head);
   let mergeBase: string;
   try { mergeBase = git('merge-base', c.head, c.trunkSha); } catch { return refuse('no merge base between the head and trunk within the fetched history'); }
   let failure: string | undefined;
@@ -57,10 +56,10 @@ export type Merge =
   | { kind: 'babysitter-merge'; mergeBase: string; conflicts: string[]; metaConflicts: string[] }
   | { kind: 'babysitter-refusal'; reason: string };
 
-export async function merge(f: Ctx, input: { dir: string; owner: string; repo: string; head: string; trunkSha: string }): Promise<Merge> {
-  const value = JSON.parse(await f.run(nodeCommand(mergeTrunk, { ...input, meta: DRIZZLE_META }), { timeout: '5m' }));
-  if (value.kind === 'babysitter-refusal' && typeof value.reason === 'string') return value;
+/** Checks the merge step's output; a malformed one fails the run. */
+export function parseMerge(value: { kind?: unknown; reason?: unknown; mergeBase?: unknown; conflicts?: unknown; metaConflicts?: unknown }): Merge {
+  if (value.kind === 'babysitter-refusal' && typeof value.reason === 'string') return { kind: value.kind, reason: value.reason };
   if (value.kind !== 'babysitter-merge' || typeof value.mergeBase !== 'string' || !Array.isArray(value.conflicts) || !Array.isArray(value.metaConflicts))
     throw new Error('Merge step returned a malformed result');
-  return value;
+  return value as Merge;
 }

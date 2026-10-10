@@ -1,6 +1,6 @@
 import type { Ctx } from '@relayflows/surface';
 import { nodeCommand } from './github.ts';
-import { DRIZZLE_META } from './merge.ts';
+import { DRIZZLE_META, mergeTrunk, parseMerge, type Merge } from './merge.ts';
 
 // Both functions below are stringified by `nodeCommand` and run by `node -e`
 // inside an `f.run` step, never in this process (see github.ts). They load
@@ -316,10 +316,25 @@ export async function stash(f: Ctx, pr: { owner: string; repo: string; number: n
   await f.run(nodeCommand(stashCheckout, { owner: pr.owner, repo: pr.repo, number: pr.number, ...(session === undefined ? {} : { session }) }), { timeout: '2m' });
 }
 
-export async function checkout(f: Ctx, pr: { owner: string; repo: string }, head: string): Promise<{ dir: string; reused: boolean }> {
-  const value = JSON.parse(await f.run(nodeCommand(checkoutHead, { owner: pr.owner, repo: pr.repo, head }), { timeout: '5m' }));
+/**
+ * Checks out the bound head; for `resolve_conflict`, also merges trunk in
+ * the same step. The Cloud sandbox leaves the checkout's .git unwritable
+ * after the step that wrote it (Cloud run b8e5eb96: a later merge step's
+ * fetch failed on .git/FETCH_HEAD), and the merge must write .git.
+ */
+export async function checkout(f: Ctx, pr: { owner: string; repo: string }, head: string, trunkSha?: string): Promise<{ dir: string; reused: boolean; merged?: Merge }> {
+  const command = nodeCommand(checkoutHead, { owner: pr.owner, repo: pr.repo, head });
+  // Merging keeps the five minutes it had as a step of its own.
+  const output = await f.run(trunkSha === undefined ? command
+    : `${command} && printf '\\n' && ${nodeCommand(mergeTrunk, { dir: 'babysitter-checkout', owner: pr.owner, repo: pr.repo, head, trunkSha, meta: DRIZZLE_META })}`,
+  { timeout: trunkSha === undefined ? '5m' : '10m' });
+  const newline = output.indexOf('\n');
+  const value = JSON.parse(trunkSha === undefined || newline < 0 ? output : output.slice(0, newline));
   if (value.head !== head || typeof value.dir !== 'string') throw new Error('Checkout did not report the bound head');
-  return { dir: value.dir, reused: value.reused === true };
+  const work = { dir: value.dir, reused: value.reused === true };
+  if (trunkSha === undefined) return work;
+  if (newline < 0) throw new Error('Merge step returned no result');
+  return { ...work, merged: parseMerge(JSON.parse(output.slice(newline + 1))) };
 }
 
 export type Proposal =

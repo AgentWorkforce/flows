@@ -625,8 +625,8 @@ async function mergeTrunk(c) {
   const refuse = (reason) => process.stdout.write(JSON.stringify({ kind: "babysitter-refusal", reason }));
   const url = c.origin ?? `https://github.com/${c.owner}/${c.repo}.git`;
   if (git("rev-parse", "HEAD") !== c.head) return refuse("checkout is not at the bound head");
-  git("fetch", "-q", "--no-tags", "--depth=500", url, c.trunkSha);
-  git("fetch", "-q", "--no-tags", "--deepen=500", url, c.head);
+  git("fetch", "-q", "--no-tags", "--no-write-fetch-head", "--depth=500", url, c.trunkSha);
+  git("fetch", "-q", "--no-tags", "--no-write-fetch-head", "--deepen=500", url, c.head);
   let mergeBase;
   try {
     mergeBase = git("merge-base", c.head, c.trunkSha);
@@ -650,9 +650,8 @@ async function mergeTrunk(c) {
   const metaConflicts = conflicts.filter((p) => new RegExp(c.meta).test(p));
   process.stdout.write(JSON.stringify({ kind: "babysitter-merge", mergeBase, conflicts, metaConflicts }));
 }
-async function merge(f, input) {
-  const value = JSON.parse(await f.run(nodeCommand(mergeTrunk, { ...input, meta: DRIZZLE_META }), { timeout: "5m" }));
-  if (value.kind === "babysitter-refusal" && typeof value.reason === "string") return value;
+function parseMerge(value) {
+  if (value.kind === "babysitter-refusal" && typeof value.reason === "string") return { kind: value.kind, reason: value.reason };
   if (value.kind !== "babysitter-merge" || typeof value.mergeBase !== "string" || !Array.isArray(value.conflicts) || !Array.isArray(value.metaConflicts))
     throw new Error("Merge step returned a malformed result");
   return value;
@@ -903,10 +902,19 @@ async function restore(f, pr) {
 async function stash(f, pr, session) {
   await f.run(nodeCommand(stashCheckout, { owner: pr.owner, repo: pr.repo, number: pr.number, ...session === void 0 ? {} : { session } }), { timeout: "2m" });
 }
-async function checkout(f, pr, head) {
-  const value = JSON.parse(await f.run(nodeCommand(checkoutHead, { owner: pr.owner, repo: pr.repo, head }), { timeout: "5m" }));
+async function checkout(f, pr, head, trunkSha) {
+  const command = nodeCommand(checkoutHead, { owner: pr.owner, repo: pr.repo, head });
+  const output = await f.run(
+    trunkSha === void 0 ? command : `${command} && printf '\\n' && ${nodeCommand(mergeTrunk, { dir: "babysitter-checkout", owner: pr.owner, repo: pr.repo, head, trunkSha, meta: DRIZZLE_META })}`,
+    { timeout: trunkSha === void 0 ? "5m" : "10m" }
+  );
+  const newline = output.indexOf("\n");
+  const value = JSON.parse(trunkSha === void 0 || newline < 0 ? output : output.slice(0, newline));
   if (value.head !== head || typeof value.dir !== "string") throw new Error("Checkout did not report the bound head");
-  return { dir: value.dir, reused: value.reused === true };
+  const work = { dir: value.dir, reused: value.reused === true };
+  if (trunkSha === void 0) return work;
+  if (newline < 0) throw new Error("Merge step returned no result");
+  return { ...work, merged: parseMerge(JSON.parse(output.slice(newline + 1))) };
 }
 async function propose(f, input) {
   const value = JSON.parse(await f.run(nodeCommand(proposeChanges, {
@@ -1074,9 +1082,8 @@ function threadReplies(a, replies) {
 ${neutralise(r.body, a.origin.firstPrompt).slice(0, REPLY_MAX_CHARS)}`
   }));
 }
-async function mergeFirst(f, a, dir) {
-  if (a.task?.kind !== "resolve_conflict") return void 0;
-  const merged = await merge(f, { dir, owner: a.pr.owner, repo: a.pr.repo, head: a.head, trunkSha: a.task.trunkSha });
+function mergeStopped(merged) {
+  if (merged === void 0) return void 0;
   if (merged.kind === "babysitter-refusal") return merged.reason;
   return merged.metaConflicts.length ? `drizzle metadata conflicts with trunk (${merged.metaConflicts.join(", ")}); it needs a deterministic migration renumber, not an agent` : void 0;
 }
@@ -1129,8 +1136,8 @@ function createStandaloneFixer(policy, runtime = capabilities) {
     let verdict;
     let session;
     try {
-      const work = await checkout(f, pr, head);
-      const stopped = await mergeFirst(f, a, work.dir);
+      const work = await checkout(f, pr, head, a.task?.kind === "resolve_conflict" ? a.task.trunkSha : void 0);
+      const stopped = mergeStopped(work.merged);
       if (stopped) {
         await report(`${wake.id}: not resolving the conflict: ${stopped}`);
         verdict = { reason: "needs_human", detail: `Babysitter conflict resolution stopped: ${stopped}` };
@@ -1148,9 +1155,11 @@ function createStandaloneFixer(policy, runtime = capabilities) {
         session = result.sessionId === void 0 ? void 0 : { cli: origin.source, sessionId: result.sessionId };
         verdict = await afterAgent(f, a, work.dir, result.summary, configured.label);
       }
-    } finally {
-      await stash(f, pr, session);
+    } catch (error) {
+      await stash(f, pr, session).catch(() => void 0);
+      throw error;
     }
+    await stash(f, pr, session);
     f.done(verdict.reason, verdict.detail ? { detail: verdict.detail } : void 0);
   };
   return subscriptions.reduce(

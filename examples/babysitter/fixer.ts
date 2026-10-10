@@ -4,7 +4,7 @@ import { capabilities } from './capabilities.ts';
 import { checkout, propose, REPLY_MAX_CHARS, restore, stash, SUMMARY_MAX_CHARS, type CachedSession } from './fix.ts';
 import { readState } from './github.ts';
 import { record } from './input.ts';
-import { merge } from './merge.ts';
+import type { Merge } from './merge.ts';
 import { agentTask } from './origin.ts';
 import { eligible } from './state.ts';
 import { subscriptions } from './subscriptions.ts';
@@ -55,12 +55,12 @@ type FixerAdmitted = Admitted & { task?: Task };
 
 /**
  * For resolve_conflict, trunk is merged into the checkout before the agent
- * starts, so the agent only resolves. Why the run must stop instead, if it
- * must: the merge was refused, or drizzle metadata conflicts (not agent work).
+ * starts (in the checkout's own step, see fix.ts `checkout`), so the agent
+ * only resolves. Why the run must stop instead, if it must: the merge was
+ * refused, or drizzle metadata conflicts (not agent work).
  */
-async function mergeFirst(f: Ctx, a: FixerAdmitted, dir: string): Promise<string | undefined> {
-  if (a.task?.kind !== 'resolve_conflict') return undefined;
-  const merged = await merge(f, { dir, owner: a.pr.owner, repo: a.pr.repo, head: a.head, trunkSha: a.task.trunkSha });
+function mergeStopped(merged: Merge | undefined): string | undefined {
+  if (merged === undefined) return undefined;
   if (merged.kind === 'babysitter-refusal') return merged.reason;
   return merged.metaConflicts.length
     ? `drizzle metadata conflicts with trunk (${merged.metaConflicts.join(', ')}); it needs a deterministic migration renumber, not an agent`
@@ -126,8 +126,8 @@ export function createStandaloneFixer(policy: unknown, runtime: { enforcedAgentW
     let verdict: Verdict;
     let session: CachedSession | undefined;
     try {
-      const work = await checkout(f, pr, head);
-      const stopped = await mergeFirst(f, a, work.dir);
+      const work = await checkout(f, pr, head, a.task?.kind === 'resolve_conflict' ? a.task.trunkSha : undefined);
+      const stopped = mergeStopped(work.merged);
       if (stopped) {
         await report(`${wake.id}: not resolving the conflict: ${stopped}`);
         verdict = { reason: 'needs_human', detail: `Babysitter conflict resolution stopped: ${stopped}` };
@@ -160,11 +160,16 @@ export function createStandaloneFixer(policy: unknown, runtime: { enforcedAgentW
         session = result.sessionId === undefined ? undefined : { cli: origin.source, sessionId: result.sessionId };
         verdict = await afterAgent(f, a, work.dir, result.summary, configured.label);
       }
-    } finally {
-      // Back to the PR cache whatever happened, for the next wake on this box;
-      // before f.done, so the stash is a step of this run.
-      await stash(f, pr, session);
+    } catch (error) {
+      // Still back to the PR cache, but the run fails with its own error: once
+      // a step has failed, the budget refuses the stash too (Cloud run
+      // b8e5eb96), and that refusal must not replace the cause.
+      await stash(f, pr, session).catch(() => undefined);
+      throw error;
     }
+    // Back to the PR cache, for the next wake on this box; before f.done, so
+    // the stash is a step of this run.
+    await stash(f, pr, session);
     f.done(verdict.reason, verdict.detail ? { detail: verdict.detail } : undefined);
   };
   return subscriptions.reduce<ReturnType<typeof flow>>(
