@@ -165,10 +165,14 @@ cites any other run.
 - **There is one proposal per flow at a time.** All proposals use the branch
   `self-improve/<flow>`. If a PR has ever used that branch, whether it is
   still open or was closed without the branch being deleted, the flow ends
-  `declined`. Delete the branch to re-arm it. A branch that no PR ever used
-  is left over from a run that pushed and then failed to open its PR. That
-  branch is taken over with `--force-with-lease`, pinned to the sha seen
-  at checkout, so when two runs race, the second run's push fails closed.
+  `declined`. Delete the branch to re-arm it. A branch that no PR has used
+  may belong to a run that has pushed and is about to open its PR, so the
+  flow declines that too, unless the branch tip is over an hour old. The run
+  budget is 45 minutes, so no live run can own a branch that old. Such a
+  branch is left over from a run that failed between the push and the PR.
+  It is taken over with `--force-with-lease`, pinned to the sha seen at
+  checkout, after re-checking that no PR has appeared. When two runs race,
+  the second run's push fails closed.
 - **Publishing survives a crash.** Commit, push and PR creation are separate
   steps, and each is safe to repeat: it skips the commit when it is already
   there, pushes the same commit again as a no-op, and reuses an open PR

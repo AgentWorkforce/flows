@@ -54,6 +54,10 @@ export interface SelfImprovementInput {
   model?: string;
 }
 
+/** The run's wallclock budget; a branch tip older than ORPHAN_AGE_S cannot belong to a live run. */
+const WALLCLOCK = "45m";
+const ORPHAN_AGE_S = 60 * 60;
+
 const OUT = "improve";
 /** Marks ./improve as this flow's scratch dir; any other ./improve is never deleted. */
 const MARKER = `${OUT}/.self-improvement`;
@@ -96,7 +100,7 @@ const untrusted = (files: string): string =>
 
 export default flow<SelfImprovementInput>(
   "self-improvement",
-  { budget: { tokens: 1_500_000, dollars: 15, wallclock: "45m" } },
+  { budget: { tokens: 1_500_000, dollars: 15, wallclock: WALLCLOCK } },
   async (f, input) => {
     if (!FLOW_NAME.test(input.flowName ?? "")) throw new Error("self-improvement: flowName must be a flow name");
     if (!FLOW_PATH.test(input.flowPath ?? "")) throw new Error("self-improvement: flowPath must be a relative .flow.yaml path");
@@ -140,8 +144,20 @@ export default flow<SelfImprovementInput>(
         if (used.trim()) {
           return f.done("declined", { detail: `${branch} already carries a proposal (${used.trim()}); delete the branch to re-arm` });
         }
-        orphan = existing.stdout.trim().split(/\s+/u)[0] ?? "";
-        if (!GIT_SHA.test(orphan)) throw new Error(`self-improvement: unexpected ls-remote output: ${existing.stdout}`);
+        // No PR yet could also mean a live run that has pushed and is about to
+        // open one; only a tip older than any run can live is abandoned.
+        const tip = existing.stdout.trim().split(/\s+/u)[0] ?? "";
+        if (!GIT_SHA.test(tip)) throw new Error(`self-improvement: unexpected ls-remote output: ${existing.stdout}`);
+        const age = Number((await f.run(
+          `git -C ${TARGET} fetch -q --depth 1 origin ${shellWord(`refs/heads/${branch}`)} && `
+            + `test "$(git -C ${TARGET} rev-parse FETCH_HEAD)" = ${tip} && `
+            + `echo $(( $(date +%s) - $(git -C ${TARGET} log -1 --format=%ct FETCH_HEAD) ))`,
+          { timeout: "2m" },
+        )).trim());
+        if (!(age >= ORPHAN_AGE_S)) {
+          return f.done("declined", { detail: `${branch} was pushed ${age}s ago with no PR yet; another run may be publishing it` });
+        }
+        orphan = tip;
       } else if (existing.exitCode !== 2) {
         throw new Error(`self-improvement: could not read ${input.repo}'s branches: ${existing.output}`);
       }
@@ -257,9 +273,16 @@ export default flow<SelfImprovementInput>(
       .gate((out) => out.trim() === input.flowPath, "the commit must change exactly the target flow");
     // Already there (a re-run after this push landed) is success, not a lease failure.
     const auth = `-c credential.helper= -c 'credential.helper=!gh auth git-credential'`;
+    // Re-checked at the last moment: a PR opened on the branch since checkout
+    // means it is not abandoned after all, and the takeover is refused.
+    const stillOrphan = orphan
+      ? `test -z "$(gh pr list --repo ${shellWord(input.repo)} --head ${shellWord(branch)} --state all --limit 1 --json url --jq '.[0].url // empty')" || `
+        + `{ echo "${branch} gained a PR since checkout; not taking it over" >&2; exit 1; }; `
+      : "";
     await f.run(
       `if [ "$(${git} ${auth} ls-remote origin ${shellWord(`refs/heads/${branch}`)} | cut -f1)" = "$(${git} rev-parse HEAD)" ]; then echo already pushed; `
-        + `else ${git} ${auth} push --no-verify -q `
+        + `else ${stillOrphan}`
+        + `${git} ${auth} push --no-verify -q `
         + (orphan ? `--force-with-lease=${shellWord(`refs/heads/${branch}:${orphan}`)} ` : "")
         + `origin HEAD:refs/heads/${shellWord(branch)}; fi`,
       { timeout: "5m" },
