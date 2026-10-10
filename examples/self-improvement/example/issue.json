@@ -1,0 +1,6 @@
+{
+  "number": 412,
+  "title": "CSV export is slow, and is JSON export planned?",
+  "body": "Exporting ~50k rows to CSV takes over two minutes since 3.2. Separately: is a JSON export on the roadmap?",
+  "author": "example-user"
+}

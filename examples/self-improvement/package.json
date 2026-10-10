@@ -1,0 +1,9 @@
+{
+  "name": "@relayflows/self-improvement-flow",
+  "private": true,
+  "type": "module",
+  "description": "The self-improvement example: the deterministic helpers the flow's shell steps run. `npm test` runs their node:test suite; the flow itself typechecks with the other examples (cd packages/surface && npm run typecheck:examples).",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  }
+}
