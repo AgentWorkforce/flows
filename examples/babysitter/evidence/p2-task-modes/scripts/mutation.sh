@@ -3,7 +3,9 @@
 set -euo pipefail
 export TMPDIR="$HOME/.agent-tmp"
 cd "$(dirname "$0")/../../.."
-saved="$(mktemp -d)"; trap 'rm -rf "$saved"' EXIT
+saved="$(mktemp -d)"
+# Whatever happens, fix.ts ends as it started: the trap restores it.
+trap 'cp "$saved/fix.ts" fix.ts 2>/dev/null; rm -rf "$saved"' EXIT
 # Commands are printed shell-escaped (printf %q), so a printed line replays as run.
 show() { printf '+'; printf ' %q' "$@"; printf '\n'; }
 run() { show "$@"; "$@" 2>&1 || true; }
@@ -37,8 +39,13 @@ run node --experimental-strip-types --test --test-name-pattern='scratch behind' 
 run cp "$saved/fix.ts" fix.ts
 run sha256sum fix.ts
 
-echo; echo "### M3: fix.ts from origin/main (rewrites the checkout's .git/config)"
-echo "+ git show origin/main:examples/babysitter/fix.ts > fix.ts"; git show origin/main:examples/babysitter/fix.ts > fix.ts
+# The PR's base (the flows#644 merge, 620dc0da): an immutable commit whose
+# fix.ts still rewrites the checkout's .git/config.
+BASE=620dc0daa48bf4fccc1c1518e52d3edcc2433746
+echo; echo "### M3: fix.ts from the PR's base $BASE (rewrites the checkout's .git/config)"
+show git show "$BASE:examples/babysitter/fix.ts"
+git show "$BASE:examples/babysitter/fix.ts" > "$saved/base.ts"
+run cp "$saved/base.ts" fix.ts
 run node --experimental-strip-types --test --test-name-pattern='unwritable' tests/task.test.ts
 run cp "$saved/fix.ts" fix.ts
 run sha256sum fix.ts
