@@ -361,6 +361,27 @@ it('publishes the first commit when another attempt on the root committed the sa
   expect(JSON.parse(readFileSync(join(compactedDir(), name!), 'utf8'))).toMatchObject({ completedAt: '2020-01-01T00:00:00.000Z' });
 });
 
+it('lets an in-flight learn land before a body without done() hands the root back', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const realAppend = store.streamAppend.bind(store);
+  vi.spyOn(store, 'streamAppend').mockImplementation(async (runId, stream, message) => {
+    if (stream === MEMORY_LEARN_STREAM) await gate;
+    return realAppend(runId, stream, message);
+  });
+  const incomplete = executeAuthoredFlow(flow('memory-example', { memory: { script: true } }, async f => {
+    void f.memory.learn({ question: 'no done', chosen: 'c', reasoning: 'r' });
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }), completingJournal(), undefined, { flowPath: join(dir, 'test.flow.ts'), rootRunId: 'root-1' });
+  let settled = false;
+  void incomplete.catch(() => { settled = true; });
+  await new Promise(resolve => setTimeout(resolve, 100));
+  expect(settled).toBe(false);
+  release();
+  await expect(incomplete).rejects.toMatchObject({ code: 'missing_completion' });
+  expect(store.list('root-1', MEMORY_LEARN_STREAM)).toHaveLength(1);
+});
+
 it('lets an in-flight learn land before a failed body hands the root back', async () => {
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });

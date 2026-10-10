@@ -857,6 +857,8 @@ export async function executeAuthoredFlow<Input = undefined>(
       'missing_completion',
       `flow "${definition.name}" returned without done()`,
     );
+    // Same as a failed body: no learn may outlive the attempt that started it.
+    await memoryWrites.settle();
     try {
       worker.stop(missingCompletion);
       await stopAuthoredOperations(authoredSteps, missingCompletion);
