@@ -773,6 +773,8 @@ async function proposeChanges(c) {
     const gitDir = `${scratch}/.git`;
     writeFileSync(`${gitDir}/objects/info/alternates`, `${checkoutGit}/objects
 `);
+    if (!lstatSync(`${checkoutGit}/index`, { throwIfNoEntry: false })?.isFile())
+      return process.stdout.write(JSON.stringify({ kind: "babysitter-refusal", reason: "the checkout's .git/index is missing or not a regular file" }));
     for (const name of readdirSync(checkoutGit)) {
       if (name !== "index" && !name.startsWith("sharedindex.")) continue;
       const stat = lstatSync(`${checkoutGit}/${name}`);

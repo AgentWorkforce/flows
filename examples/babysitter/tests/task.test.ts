@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -372,7 +372,8 @@ test('an unpublished merge keeps its summary within the summary limit, explanati
   assert.match(p.summary, /was not published/);
 });
 
-test('an unresolved binary conflict is refused rather than published as the PR side', async () => {
+/** A checkout whose merge of trunk left logo.bin as an unresolved binary conflict. */
+async function binaryConflicted() {
   const up = mkdtempSync(join(tmpdir(), 'babysitter-bin-'));
   const u = (...a: string[]) => execFileSync('git', ['-C', up, ...a], { env: gitEnv, encoding: 'utf8' }).trim();
   u('init', '-q', '-b', 'trunk'); u('config', 'uploadpack.allowReachableSHA1InWant', 'true');
@@ -387,9 +388,28 @@ test('an unresolved binary conflict is refused rather than published as the PR s
   const r = { up, head: prHead, trunk: trunkHead, checkout, git: c };
   const merged = await runMerge(r);
   assert.deepEqual(merged.conflicts, ['logo.bin']);
-  const p = await runPropose(r, { mergeParent: trunkHead });
+  return r;
+}
+
+test('an unresolved binary conflict is refused rather than published as the PR side', async () => {
+  const r = await binaryConflicted();
+  const p = await runPropose(r, { mergeParent: r.trunk });
   assert.equal(p.kind, 'babysitter-refusal');
   assert.match(p.reason, /unresolved conflict.*logo\.bin/);
+});
+
+test('an index the agent moved behind a symlink, or deleted, refuses instead of hiding the conflict', async () => {
+  const linked = await binaryConflicted();
+  renameSync(join(linked.checkout, '.git/index'), join(linked.checkout, '.git/index.moved'));
+  symlinkSync('index.moved', join(linked.checkout, '.git/index'));
+  const viaLink = await runPropose(linked, { mergeParent: linked.trunk });
+  assert.equal(viaLink.kind, 'babysitter-refusal');
+  assert.match(viaLink.reason, /\.git\/index is missing or not a regular file/);
+  const deleted = await binaryConflicted();
+  rmSync(join(deleted.checkout, '.git/index'));
+  const without = await runPropose(deleted, { mergeParent: deleted.trunk });
+  assert.equal(without.kind, 'babysitter-refusal');
+  assert.match(without.reason, /\.git\/index is missing or not a regular file/);
 });
 
 test('a marker-less conflict on a text file (merge=binary) is refused too, not only NUL-bearing files', async () => {

@@ -51,5 +51,12 @@ run timeout 60 node --experimental-strip-types --test --test-timeout=20000 --tes
 run cp "$saved/fix.ts" fix.ts
 run sha256sum fix.ts
 
+echo; echo "### M5: a missing or non-regular active index is skipped, not refused"
+edit python3 -c "p='fix.ts';s=open(p).read();i=s.index('  if (!lstatSync(');j=s.index('\n', s.index('return process.stdout.write', i))+1;open(p,'w').write(s[:i]+s[j:])"
+run git diff --stat -- fix.ts
+run node --experimental-strip-types --test --test-name-pattern='symlink, or deleted' tests/task.test.ts
+run cp "$saved/fix.ts" fix.ts
+run sha256sum fix.ts
+
 echo; echo "### Restored: the full suite"
 run node --experimental-strip-types --test tests/task.test.ts

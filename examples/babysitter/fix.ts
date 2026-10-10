@@ -183,6 +183,11 @@ export async function proposeChanges(c: ProposalInput): Promise<void> {
   // copy keeps the index's mtime: git rechecks the content of an entry no
   // older than its index, and a fresh mtime would hide a same-size edit made
   // in the same timestamp tick as the index (racy git).
+  // The conflict guards read the unmerged stages in the active index, so a
+  // missing or non-regular one (say, a symlink to a moved index) refuses
+  // rather than being treated as absent.
+  if (!lstatSync(`${checkoutGit}/index`, { throwIfNoEntry: false })?.isFile())
+    return process.stdout.write(JSON.stringify({ kind: 'babysitter-refusal', reason: "the checkout's .git/index is missing or not a regular file" }));
   for (const name of readdirSync(checkoutGit)) {
     if (name !== 'index' && !name.startsWith('sharedindex.')) continue;
     const stat = lstatSync(`${checkoutGit}/${name}`);
