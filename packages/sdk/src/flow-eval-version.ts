@@ -10,12 +10,14 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { canonicalize, specHash } from './canonical.js';
 import { compileSpec, toKernelSpec } from './compile.js';
 import { FlowEvalError } from './flow-eval-error.js';
+import { parsePluginLock, type PluginLock } from './plugin-lock.js';
+import { pluginStoreDirectory } from './plugin-store.js';
 import type { FlowSpec } from './spec.js';
 
 /** A flow source path (`.flow.ts`, `.flow.yaml`, spec JSON) or an in-memory spec. */
@@ -50,55 +52,92 @@ export async function flowEvalSources(flow: FlowEvalTarget): Promise<FlowEvalVer
   return { version, files: files.map(file => file.path) };
 }
 
-/** A sealed, read-only copy of exactly the bytes a version names. */
+/** The sealed bytes a version names, from which every case gets its own copy. */
 export interface FlowEvalSnapshot extends FlowEvalVersion {
-  /** What every case executes: the snapshot's copy of the entry, or the in-memory spec itself. */
-  flow: FlowEvalTarget;
-  dispose(): Promise<void>;
+  /**
+   * A fresh, read-only copy for one case: its own directory, files and
+   * directories without write permission, written from the buffers the
+   * version hashed. An in-memory spec yields a deep-frozen clone.
+   */
+  materialize(): Promise<{ flow: FlowEvalTarget; dispose(): Promise<void> }>;
 }
 
 /**
- * Seal the flow before any case runs, and execute only the seal.
+ * Seal the flow before any case runs, and execute only copies of the seal.
  *
  * Hashing the working tree and then running it would let the tree change
  * between the two — an edit made after a check and restored before the next
- * would run bytes the report never named. The snapshot is written from the
- * same buffers the version hashes, made read-only, and is what every case
- * executes. A local module the manifest could not see (a computed
+ * would run bytes the report never named. The sources are read once, hashed,
+ * and held in memory; each case then runs a fresh read-only copy written from
+ * those buffers, so nothing a case does to its copy reaches the next case. A
+ * local module the manifest could not see (a computed
  * `import(\`./rules/${kind}.js\`)`, a file read at runtime) is simply absent
- * from it, so such a run fails instead of executing unjudged code.
+ * from the copy, so such a run fails instead of executing unjudged code.
  *
- * `node_modules` is linked, not copied: packages are pinned by the lockfile,
- * which is in the manifest.
+ * Trust boundary: evaluated code runs as the caller, so it can still reach
+ * anything the caller can — including `node_modules`, which is linked rather
+ * than copied and pinned by the lockfile in the manifest. Containing hostile
+ * code needs a sandbox; this seal makes sure the code that runs is the code
+ * the version names.
  */
 export async function sealFlowEvalSnapshot(flow: FlowEvalTarget): Promise<FlowEvalSnapshot> {
   if (!isPathTarget(flow)) {
-    return { ...(await flowEvalSources(flow)), flow, dispose: async () => {} };
+    // Hash and execute the same detached copy: a caller mutating its object
+    // later cannot change what the remaining cases run.
+    const frozen = deepFreeze(structuredClone(flow));
+    return { ...(await flowEvalSources(frozen)), materialize: async () => ({ flow: frozen, dispose: async () => {} }) };
   }
   const sources = await collectSources(flow.path);
   const root = commonDirectory(sources.absolute.map(file => file.path));
-  const directory = await mkdtemp(join(tmpdir(), 'flows-eval-snapshot-'));
-  try {
-    for (const file of sources.absolute) {
-      const target = join(directory, relative(root, file.path));
-      await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, file.bytes, { mode: 0o444 });
-    }
-    const modules = nearestNodeModules(dirname(sources.entry));
-    if (modules !== undefined) await symlink(modules, join(directory, 'node_modules'), 'dir');
-  } catch (error) {
-    await rm(directory, { recursive: true, force: true });
-    throw error;
-  }
+  const modules = nearestNodeModules(dirname(sources.entry));
   return {
     version: sources.version,
     files: sources.files.map(file => file.path),
-    flow: { path: join(directory, relative(root, sources.entry)) },
-    dispose: async () => {
-      // Read-only files in writable directories: removal needs no chmod.
-      await rm(directory, { recursive: true, force: true });
+    materialize: async () => {
+      const directory = await mkdtemp(join(tmpdir(), 'flows-eval-snapshot-'));
+      const dispose = async (): Promise<void> => {
+        await makeWritable(directory);
+        await rm(directory, { recursive: true, force: true });
+      };
+      try {
+        for (const file of sources.absolute) {
+          const target = join(directory, relative(root, file.path));
+          await mkdir(dirname(target), { recursive: true });
+          await writeFile(target, file.bytes, { mode: 0o444 });
+        }
+        if (modules !== undefined) await symlink(modules, join(directory, 'node_modules'), 'dir');
+        await makeReadOnly(directory);
+      } catch (error) {
+        await dispose();
+        throw error;
+      }
+      return { flow: { path: join(directory, relative(root, sources.entry)) }, dispose };
     },
   };
+}
+
+async function makeReadOnly(directory: string): Promise<void> {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (entry.isDirectory()) await makeReadOnly(join(directory, entry.name));
+  }
+  await chmod(directory, 0o555);
+}
+
+async function makeWritable(directory: string): Promise<void> {
+  try {
+    await chmod(directory, 0o755);
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (entry.isDirectory()) await makeWritable(join(directory, entry.name));
+    }
+  } catch { /* already gone */ }
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const nested of Object.values(value as Record<string, unknown>)) deepFreeze(nested);
+  }
+  return value;
 }
 
 interface CollectedSources {
@@ -147,6 +186,24 @@ async function collectSources(path: string): Promise<CollectedSources> {
     const file = nearestFile(root, name);
     if (file !== undefined && !contents.has(file)) contents.set(file, await readFile(file));
   }
+  // Locked flow extensions load from the project's content-addressed store,
+  // so their payloads are part of what runs: hash and seal them too.
+  const lockPath = nearestFile(root, 'flows.lock.json');
+  if (lockPath !== undefined) {
+    let lock: PluginLock;
+    try {
+      lock = parsePluginLock(JSON.parse(contents.get(lockPath)!.toString('utf8')));
+    } catch (error) {
+      throw new FlowEvalError('unreadable_flow', `flows.lock.json is not a valid plugin lock: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    for (const entry of lock.plugins) {
+      const store = pluginStoreDirectory(dirname(lockPath), entry.name, entry.digest);
+      if (!existsSync(store)) {
+        throw new FlowEvalError('unreadable_flow', `Locked extension ${entry.name} is not materialized at ${store}; run \`flows plugin verify\`.`);
+      }
+      for (const file of await listFiles(store)) if (!contents.has(file)) contents.set(file, await readFile(file));
+    }
+  }
   const absolute = [...contents.entries()].map(([file, bytes]) => ({ path: file, bytes }));
   const files = absolute
     .map(file => ({ path: relative(root, file.path) || basename(file.path), sha256: sha256(file.bytes) }))
@@ -154,6 +211,16 @@ async function collectSources(path: string): Promise<CollectedSources> {
   // An unresolved import is part of the identity too: creating that file later changes what runs.
   const manifest = { entry: basename(entry), files, missing: [...missing].sort() };
   return { entry, version: `sha256:${sha256(canonicalize(manifest))}`, files, absolute };
+}
+
+async function listFiles(directory: string): Promise<string[]> {
+  const files: string[] = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...await listFiles(path));
+    else if (entry.isFile()) files.push(path);
+  }
+  return files;
 }
 
 function commonDirectory(paths: readonly string[]): string {

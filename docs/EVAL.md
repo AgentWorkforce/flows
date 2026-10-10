@@ -47,12 +47,14 @@ Every report records:
 
 `--expect-version` (`expectVersion`) refuses to evaluate any flow bytes other
 than the pinned ones. `expectSuiteSha256` refuses any other suite.
-**Every case executes a sealed snapshot, never the working tree.** Before the
-first case, the manifest's files are copied into a read-only temporary
-directory from the same bytes the version hashes. `node_modules` is linked,
-not copied, because the lockfile pins it. Every executor receives the
-snapshot's path. An edit to the working tree during the evaluation therefore
-cannot run under the judged version. A local module the manifest cannot see,
+**Every case executes its own sealed copy, never the working tree.** The
+manifest's files are read once, hashed and held in memory. That includes the
+payloads of locked flow extensions from `.flows/plugins`. Each case then gets a
+fresh temporary copy written from those bytes, with read-only files and
+directories, and the executor receives that copy's path. An edit to the
+working tree during the evaluation cannot run under the judged version, and
+neither can anything an earlier case did to its own copy. An in-memory spec
+is cloned and frozen before it is hashed, and every case executes that clone. A local module the manifest cannot see,
 such as a computed `import(\`./rules/${kind}.js\`)` or a file read at
 runtime, is absent from the snapshot, so that run fails instead of executing
 unjudged code. Write such modules as static imports.
@@ -62,7 +64,12 @@ Each local run also starts in the snapshot directory, so a relative read
 there if the file is not part of the version. Passing `cwd` to
 `localFlowEvalExecutor` deliberately reintroduces the working tree.
 
-A version cannot pin everything:
+A version cannot pin everything. **Evaluated code runs as the caller**, so it
+can still reach anything the caller can:
+
+- **`node_modules`** is linked into each copy, not copied. The lockfile in
+  the manifest pins it. Containing hostile code needs a sandbox; the seal
+  guarantees that the code which runs is the code the version names.
 
 - **Absolute paths and other external state** such as the network are
   outside any version. This is the same as for a deployed flow.

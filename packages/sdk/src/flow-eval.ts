@@ -12,9 +12,10 @@
 //
 // Two things are frozen and recorded in every report, so a verdict names
 // exactly what it judged: the flow version (flow-eval-version.ts) and the suite
-// (flow-eval-suite.ts). Every case executes a sealed, read-only snapshot
+// (flow-eval-suite.ts). Every case executes its own fresh, read-only copy
 // written from the very bytes the version hashes, never the working tree, so
-// an edit during the evaluation cannot run under the judged version.
+// neither an edit during the evaluation nor an earlier case can change what
+// runs under the judged version.
 // Aggregation and the verdict itself live in flow-eval-gate.ts.
 
 import { FlowEvalError } from './flow-eval-error.js';
@@ -24,7 +25,7 @@ import {
   type FlowEvalCaseResult, type FlowEvalExecutor, type FlowEvalReport, type FlowEvalRun, type FlowEvalScorer,
 } from './flow-eval-report.js';
 import { flowEvalSuiteSha256, parseFlowEvalSuite, type FlowEvalCase, type FlowEvalSuite } from './flow-eval-suite.js';
-import { isPathTarget, sealFlowEvalSnapshot, type FlowEvalTarget } from './flow-eval-version.js';
+import { isPathTarget, sealFlowEvalSnapshot, type FlowEvalSnapshot, type FlowEvalTarget } from './flow-eval-version.js';
 
 export { FlowEvalError, type FlowEvalErrorCode } from './flow-eval-error.js';
 export { parseFlowEvalBaseline, type FlowEvalBaseline } from './flow-eval-gate.js';
@@ -105,28 +106,22 @@ export async function evaluateFlow(options: EvaluateFlowOptions): Promise<FlowEv
   }
   const snapshot = await sealFlowEvalSnapshot(options.flow);
   const { version } = snapshot;
-  let results: FlowEvalCaseResult[];
-  let startedAt: number;
-  try {
-    if (options.expectVersion !== undefined && options.expectVersion !== version) {
-      throw new FlowEvalError('version_mismatch', `Flow version is ${version}; expected ${options.expectVersion}.`);
-    }
-    startedAt = now();
-    results = new Array(suite.cases.length);
-    let next = 0;
-    const worker = async (): Promise<void> => {
-      for (;;) {
-        options.signal?.throwIfAborted();
-        const index = next++;
-        if (index >= suite.cases.length) return;
-        results[index] = await runCase(suite.cases[index]!, options, now, snapshot.flow);
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(concurrency, suite.cases.length) }, worker));
-    options.signal?.throwIfAborted();
-  } finally {
-    await snapshot.dispose();
+  if (options.expectVersion !== undefined && options.expectVersion !== version) {
+    throw new FlowEvalError('version_mismatch', `Flow version is ${version}; expected ${options.expectVersion}.`);
   }
+  const startedAt = now();
+  const results: FlowEvalCaseResult[] = new Array(suite.cases.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      options.signal?.throwIfAborted();
+      const index = next++;
+      if (index >= suite.cases.length) return;
+      results[index] = await runCase(suite.cases[index]!, options, now, snapshot);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, suite.cases.length) }, worker));
+  options.signal?.throwIfAborted();
 
   const summary = summarizeFlowEval(results);
   const gate = decideFlowEvalGate(suite, results, summary, baseline);
@@ -145,6 +140,17 @@ export async function evaluateFlow(options: EvaluateFlowOptions): Promise<FlowEv
 }
 
 async function runCase(
+  testCase: FlowEvalCase, options: EvaluateFlowOptions, now: () => number, snapshot: FlowEvalSnapshot,
+): Promise<FlowEvalCaseResult> {
+  const copy = await snapshot.materialize();
+  try {
+    return await scoreCase(testCase, options, now, copy.flow);
+  } finally {
+    await copy.dispose();
+  }
+}
+
+async function scoreCase(
   testCase: FlowEvalCase, options: EvaluateFlowOptions, now: () => number, sealed: FlowEvalTarget,
 ): Promise<FlowEvalCaseResult> {
   const started = now();

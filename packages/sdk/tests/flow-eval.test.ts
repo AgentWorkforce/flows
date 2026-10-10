@@ -295,15 +295,20 @@ describe('flow version', () => {
     ].join('\n')).sort()).toEqual(['../b', './a.js', './c.ts', './d.js', './e.flow.ts', './side-effect.js']);
   });
 
-  it('executes a sealed read-only snapshot, so working-tree edits during the evaluation never run', async () => {
+  it('gives every case its own read-only copy, so neither the working tree nor an earlier case changes what runs', async () => {
     const { root, entry } = authoredProject();
     const version = await flowEvalVersion({ path: entry });
     const seen: string[] = [];
+    const copies = new Set<string>();
     const executor: FlowEvalExecutor = async ({ flow }) => {
       const sealed = (flow as { path: string }).path;
       expect(sealed).not.toBe(entry);
-      seen.push(readFileSync(join(sealed, '..', 'lib', 'prompt.ts'), 'utf8'));
+      copies.add(sealed);
+      const helper = join(sealed, '..', 'lib', 'prompt.ts');
+      seen.push(readFileSync(helper, 'utf8'));
+      // Neither the file nor its directory is writable inside a copy.
       expect(() => writeFileSync(sealed, 'tampered')).toThrow();
+      expect(() => rmSync(helper)).toThrow();
       // Edit the working tree mid-evaluation; the next case must not see it.
       writeFileSync(join(root, 'lib', 'prompt.ts'), "export const PROMPT = 'edited';\n");
       return { completionReason: 'success', costUsd: 0 };
@@ -311,8 +316,39 @@ describe('flow version', () => {
     const report = await evaluateFlow({ flow: { path: entry }, executor,
       suite: { name: 's', cases: [{ id: 'one' }, { id: 'two' }] } });
     expect(seen).toEqual(["export const PROMPT = 'triage';\n", "export const PROMPT = 'triage';\n"]);
+    expect(copies.size).toBe(2);
+    for (const copy of copies) expect(() => readFileSync(copy)).toThrow();
     expect(report.flow.version).toBe(version);
     expect(report.gate.pass).toBe(true);
+  });
+
+  it('executes a frozen clone of an in-memory spec, never the caller\'s object', async () => {
+    const spec = { version: '0.1.0', name: 'inline', steps: [{ id: 'a', type: 'deterministic', command: 'true' }] } as never;
+    const received: unknown[] = [];
+    const report = await evaluateFlow({ flow: spec, suite: { name: 's', cases: [{ id: 'one' }, { id: 'two' }] },
+      executor: async ({ flow }) => { received.push(flow); return { completionReason: 'success' }; } });
+    expect(received[0]).not.toBe(spec);
+    expect(received[0]).toBe(received[1]);
+    expect(Object.isFrozen(received[0])).toBe(true);
+    expect(report.flow.version).toBe(await flowEvalVersion(spec));
+  });
+
+  it('hashes and seals the payloads of locked flow extensions', async () => {
+    const { root, entry } = authoredProject();
+    const digest = 'a'.repeat(64);
+    writeFileSync(join(root, 'flows.lock.json'), JSON.stringify({ version: 2, plugins: [{
+      name: 'triage-ext', kind: 'flow-extension', version: '1.0.0', digest, manifestSha256: 'b'.repeat(64), order: 1,
+      resolvedAt: '2026-10-01T00:00:00.000Z',
+      source: { host: 'github', owner: 'AgentWorkforce', repo: 'ext', sha: 'c'.repeat(40), path: 'triage' },
+    }] }));
+    await expect(flowEvalSources({ path: entry })).rejects.toMatchObject({ code: 'unreadable_flow' });
+    const store = join(root, '.flows', 'plugins', `triage-ext@sha256:${digest}`);
+    mkdirSync(store, { recursive: true });
+    writeFileSync(join(store, 'extension.mjs'), 'export default 1;\n');
+    const before = await flowEvalSources({ path: entry });
+    expect(before.files).toContain(`.flows/plugins/triage-ext@sha256:${digest}/extension.mjs`);
+    writeFileSync(join(store, 'extension.mjs'), 'export default 2;\n');
+    expect(await flowEvalVersion({ path: entry })).not.toBe(before.version);
   });
 
   it('treats a negative reported cost as unknown, so it fails cost ceilings instead of offsetting', async () => {
