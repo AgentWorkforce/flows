@@ -48,8 +48,9 @@ export default flow<{ base: string }>("release-note", {}, async (f, input) => {
 });
 ```
 
-Commands lease for **30s by default**, **15m maximum**. Pass `{ timeout: '5m' }`
-for longer work, for example `await f.run('git fetch', { timeout: '5m' })`.
+Commands lease for **10m by default**, **15m maximum**. Pass an explicit
+`{ timeout }` when a command needs a tighter or longer bound, for example
+`await f.run('git fetch', { timeout: '15m' })`.
 See the shipped [authoring reference](AUTHORING.md) for this package's
 signatures, option fields, completion reasons, named gates and helper
 namespaces. Dependency types, such as helper clients, are named by import.

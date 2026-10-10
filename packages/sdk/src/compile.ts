@@ -75,6 +75,7 @@ export class CompileError extends Error {
  * being rejected by `isSafeInteger`.
  */
 export const AGENT_STEP_TIMEOUT_MAX_MS = 60 * 60_000;
+export const RUN_STEP_TIMEOUT_MAX_MS = 15 * 60_000;
 export function parseAgentStepTimeout(timeout: unknown): number {
   return parseStepTimeout(timeout, true);
 }
@@ -103,7 +104,7 @@ export function parseStepTimeout(timeout: unknown, agent = false): number {
   if (!Number.isSafeInteger(milliseconds) || milliseconds <= 0) {
     throw new CompileError([`${agent ? 'f.agent' : 'f.run'} timeout must be a positive whole number of milliseconds or a duration such as "10s" or "5m".`], 'timeout_invalid');
   }
-  if (milliseconds > (agent ? AGENT_STEP_TIMEOUT_MAX_MS : 15 * 60_000)) {
+  if (milliseconds > (agent ? AGENT_STEP_TIMEOUT_MAX_MS : RUN_STEP_TIMEOUT_MAX_MS)) {
     throw new CompileError([`${agent ? 'f.agent' : 'f.run'} timeout exceeds the maximum of ${agent ? 60 : 15} minutes declared in SURFACE.md.`], 'lease_exceeded');
   }
   return milliseconds;

@@ -169,6 +169,20 @@ describe('flows status', () => {
     expect(explicit.stdout[3]).not.toContain('← this step');
   });
 
+  it('renders the journaled f.run timeout source and remedy', async () => {
+    const detail = 'command timed out after 10m (default timeout; set an explicit timeout to override)';
+    const events = inFlight(detail);
+    const spawned = structuredClone(events[0]!) as JournalEvent;
+    const spec = (spawned.payload as { spec: { steps: Array<{ type: string }> } }).spec;
+    spec.steps[0]!.type = 'deterministic';
+    events[0] = spawned;
+    const { dataDir, writer } = fixture(events);
+    writer.close();
+
+    const output = await status(['--data-dir', dataDir, RUN_ID]);
+    expect(output.stdout).toContain(`        gate: execution FAIL — ${JSON.stringify(detail)}`);
+  });
+
   it('shows an overdue lease from the clock alone', async () => {
     const { dataDir, writer } = fixture(inFlight('x'));
     writer.close();

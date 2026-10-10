@@ -854,7 +854,14 @@ fn every_reason_label_matches_its_serialized_form() {
 
 #[test]
 fn deterministic_lease_override_and_default_are_journaled() {
-    for (lease, duration) in [(None, 30_000), (Some(300_000), 300_000), (Some(10), 10)] {
+    for (lease, duration) in [
+        (
+            None,
+            i64::try_from(crate::DEFAULT_DETERMINISTIC_TIMEOUT_MS).unwrap(),
+        ),
+        (Some(300_000), 300_000),
+        (Some(10), 10),
+    ] {
         let mut value =
             json!({"steps": [{"id": "cmd", "type": "deterministic", "command": "true"}]});
         if let Some(ms) = lease {

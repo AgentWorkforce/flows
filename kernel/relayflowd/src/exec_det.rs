@@ -5,12 +5,14 @@ use std::{
     time::Duration,
 };
 
-use relayflowd_core::{AttemptResult, Budget, CommandSpec, CompletionReason, StepKind, StepSpec};
+use relayflowd_core::{
+    AttemptResult, Budget, CommandSpec, CompletionReason, DEFAULT_DETERMINISTIC_TIMEOUT_MS,
+    StepKind, StepSpec,
+};
 use serde_json::{Value, json};
 use wait_timeout::ChildExt;
 
 const OUTPUT_TAIL_BYTES: usize = 64 * 1024;
-
 pub fn execute(step: &StepSpec) -> AttemptResult {
     execute_with_memory(step, None)
 }
@@ -105,11 +107,7 @@ pub(crate) fn execute_placed_with_input(
     let stderr = child.stderr.take().expect("piped stderr");
     let stdout_reader = thread::spawn(move || read_all(stdout));
     let stderr_reader = thread::spawn(move || read_all(stderr));
-    let timeout = Duration::from_millis(match (lease_ms, timeout_ms) {
-        (Some(lease), Some(command)) => (*lease).min(*command),
-        (Some(lease), None) => *lease,
-        (None, command) => command.unwrap_or(30_000),
-    });
+    let (timeout, timeout_is_default) = command_timeout(*lease_ms, *timeout_ms);
     let (status, timed_out) = match child.wait_timeout(timeout) {
         Ok(Some(status)) => (Some(status), false),
         Ok(None) => {
@@ -142,9 +140,40 @@ pub(crate) fn execute_placed_with_input(
         effects: vec![],
         trajectory_tail,
         failure_reason: timed_out.then_some(CompletionReason::Timeout),
-        failure_detail: timed_out
-            .then(|| format!("step exceeded its {} ms timeout", timeout.as_millis())),
+        failure_detail: timed_out.then(|| timeout_failure_detail(timeout, timeout_is_default)),
         reported_cost: None,
+    }
+}
+
+fn command_timeout(lease_ms: Option<u64>, timeout_ms: Option<u64>) -> (Duration, bool) {
+    let is_default = lease_ms.is_none() && timeout_ms.is_none();
+    let timeout_ms = match (lease_ms, timeout_ms) {
+        (Some(lease), Some(command)) => lease.min(command),
+        (Some(lease), None) => lease,
+        (None, Some(command)) => command,
+        (None, None) => DEFAULT_DETERMINISTIC_TIMEOUT_MS,
+    };
+    (Duration::from_millis(timeout_ms), is_default)
+}
+
+fn timeout_failure_detail(timeout: Duration, is_default: bool) -> String {
+    let elapsed = format_duration(timeout.as_millis());
+    if is_default {
+        format!(
+            "command timed out after {elapsed} (default timeout; set an explicit timeout to override)"
+        )
+    } else {
+        format!("command timed out after {elapsed} (explicit timeout)")
+    }
+}
+
+fn format_duration(milliseconds: u128) -> String {
+    if milliseconds % 60_000 == 0 {
+        format!("{}m", milliseconds / 60_000)
+    } else if milliseconds % 1_000 == 0 {
+        format!("{}s", milliseconds / 1_000)
+    } else {
+        format!("{milliseconds}ms")
     }
 }
 
@@ -245,6 +274,32 @@ mod tests {
         .unwrap();
         let result = execute(&step);
         assert_eq!(result.failure_reason, Some(CompletionReason::Timeout));
+        assert_eq!(
+            result.failure_detail.as_deref(),
+            Some("command timed out after 5ms (explicit timeout)")
+        );
+    }
+
+    #[test]
+    fn default_timeout_is_ten_minutes_and_names_the_override() {
+        let (timeout, is_default) = command_timeout(None, None);
+        assert_eq!(timeout, Duration::from_secs(10 * 60));
+        assert!(is_default);
+        assert_eq!(
+            timeout_failure_detail(timeout, is_default),
+            "command timed out after 10m (default timeout; set an explicit timeout to override)"
+        );
+
+        let (explicit, is_default) = command_timeout(None, Some(DEFAULT_DETERMINISTIC_TIMEOUT_MS));
+        assert_eq!(explicit, timeout);
+        assert!(
+            !is_default,
+            "an explicit value equal to the default stays explicit"
+        );
+        assert_eq!(
+            timeout_failure_detail(explicit, is_default),
+            "command timed out after 10m (explicit timeout)"
+        );
     }
 
     #[test]

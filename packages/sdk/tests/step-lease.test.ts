@@ -1,9 +1,13 @@
 import { flow } from '@relayflows/surface';
 import { describe, expect, it, vi } from 'vitest';
 import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
-import { compileSpec, kernelToAuthoring, parseStepTimeout, toKernelSpec } from '../src/compile.js';
+import {
+  compileSpec, kernelToAuthoring, parseStepTimeout, RUN_STEP_TIMEOUT_MAX_MS, toKernelSpec,
+} from '../src/compile.js';
 import { JournalClient } from '../src/journal-client.js';
 import { chainFixture } from './flow-chain-fixture.js';
+
+const DEFAULT_DETERMINISTIC_TIMEOUT_MS = 10 * 60_000;
 
 const commandSpec = (lease_ms?: number) => ({
   version: '0.1.0', steps: [{ id: 'cmd', type: 'deterministic', command: 'true',
@@ -44,7 +48,8 @@ describe('deterministic step lease compilation', () => {
   );
 
   it('enforces the ceiling for direct specs and omits an unspecified lease', () => {
-    expect(() => compileSpec(commandSpec(900_001))).toThrow(/maximum of 15 minutes/);
+    expect(RUN_STEP_TIMEOUT_MAX_MS).toBe(900_000);
+    expect(() => compileSpec(commandSpec(RUN_STEP_TIMEOUT_MAX_MS + 1))).toThrow(/maximum of 15 minutes/);
     expect(toKernelSpec(compileSpec(commandSpec())).steps[0]).not.toHaveProperty('lease_ms');
   });
 });
@@ -96,7 +101,7 @@ describe('f.run leases against the live kernel', () => {
   it.each([
     { command: 'sleep 5; printf ok', timeout: '10s', lease: 10_000, succeeds: true },
     { command: 'sleep 31; printf ok', timeout: '40s', lease: 40_000, succeeds: true },
-    { command: 'sleep 31; printf ok', timeout: undefined, lease: 30_000, succeeds: false },
+    { command: 'sleep 31; printf ok', timeout: undefined, lease: DEFAULT_DETERMINISTIC_TIMEOUT_MS, succeeds: true },
     { command: 'sleep 5', timeout: 100, lease: 100, succeeds: false },
   ])('enforces $lease ms for $command', async ({ command, timeout, lease, succeeds }) => {
     const fixture = chainFixture();
@@ -129,6 +134,12 @@ describe('f.run leases against the live kernel', () => {
       expect(attempt.payload.lease_deadline_ms).toBe(attempt.at_ms + lease);
       const completed = entries.find(entry => entry.entry_type === 'step.completed')!;
       expect(completed.payload.completionReason).toBe(succeeds ? 'success' : 'timeout');
+      if (!succeeds) {
+        expect(completed.payload.verification).toMatchObject({
+          gate: 'execution', verdict: 'fail',
+          detail: expect.stringMatching(/command timed out after .*explicit timeout/u),
+        });
+      }
     } finally {
       await fixture.close();
     }

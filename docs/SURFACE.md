@@ -699,16 +699,18 @@ older kernels refuse the new field.
 ### Command timeouts
 
 `f.run(command, { timeout?: string | number })` gives each command its own
-lease. The default is **30 seconds**. Use `await f.run(command, { timeout: '5m' })`
-or `{ timeout: 300000 }` for longer work. Strings accept `ms`, `s`, and `m`;
+lease. The default is **10 minutes**. Use `await f.run(command, { timeout: '15m' })`
+or `{ timeout: 900000 }` when a command needs the full allowed window. Strings accept `ms`, `s`, and `m`;
 the resolved value must be a positive whole number of milliseconds.
 
 The hard ceiling is **15 minutes** (900000 ms), inclusive. A larger timeout
 is refused during step compilation, before dispatch, with `lease_exceeded`;
 malformed durations are refused with `timeout_invalid`. On reaching its timeout,
 the kernel kills the command's process group and journals `completionReason: timeout`;
-`f.run` refuses with code `lease_exceeded`. The override applies only to that
-invocation; calls without options retain the default.
+`f.run` refuses with code `lease_exceeded`. The journaled execution detail — and
+therefore CLI output, `flows status`, and the Cloud dashboard step error — names
+the elapsed bound and whether it was the default or an explicit override. The
+override applies only to that invocation; calls without options retain the default.
 
 ### Agent step timeouts
 

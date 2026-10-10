@@ -288,6 +288,9 @@ fn start_actions(state: &RunState, step: &StepSpec, attempt: u32, now_ms: i64) -
         StepKind::Deterministic {
             lease_ms: Some(ms), ..
         } => i64::try_from(*ms).unwrap_or(i64::MAX),
+        StepKind::Deterministic { lease_ms: None, .. } => {
+            i64::try_from(crate::DEFAULT_DETERMINISTIC_TIMEOUT_MS).unwrap_or(i64::MAX)
+        }
         _ => LEASE_DURATION_MS,
     };
     let lease_deadline_ms = now_ms.saturating_add(lease_duration_ms);

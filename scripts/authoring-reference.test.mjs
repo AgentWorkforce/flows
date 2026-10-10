@@ -48,7 +48,7 @@ test('run documents every exported overload and the lease comment', () => {
   for (const signature of overloads) assert.ok(authoring.includes(signature));
   const comment = context.match(/Command lease:[^\n]+/)[0];
   assert.ok(authoring.includes(comment));
-  assert.match(authoring, /default 30s, maximum 15m/);
+  assert.match(authoring, /default 10m, maximum 15m/);
 });
 test('done documents all three distinct completion vocabularies', () => {
   const text = read('packages/surface/src/completion.ts');
@@ -101,18 +101,20 @@ test('CLI includes every declared verb, subcommand and literal flag', () => {
   assert.match(cli, /`\.relayflowd`/);
 });
 test('lease prose agrees with type, kernel default and compiler ceiling', () => {
-  const [, seconds, minutes] = context.match(/default (\d+)s, maximum (\d+)m/);
-  const kernel = read('kernel/relayflowd-core/src/machine.rs').match(/const LEASE_DURATION_MS: i64 = ([\d_]+);/)[1];
-  assert.equal(Number(kernel.replaceAll('_', '')), Number(seconds) * 1000);
+  const [, defaultMinutes, maximumMinutes] = context.match(/default (\d+)m, maximum (\d+)m/);
+  const kernelSource = read('kernel/relayflowd-core/src/lib.rs');
+  const kernel = kernelSource
+    .match(/DEFAULT_DETERMINISTIC_TIMEOUT_MS: u64 = (\d+) \* 60_000;/)[1];
+  assert.equal(kernel, defaultMinutes);
   const compiler = read('packages/sdk/src/compile.ts');
-  assert.ok(compiler.includes(`agent ? 60 : ${minutes}} minutes`));
-  assert.ok(compiler.includes(`agent ? AGENT_STEP_TIMEOUT_MAX_MS : ${minutes} * 60_000`));
+  assert.ok(compiler.includes(`RUN_STEP_TIMEOUT_MAX_MS = ${maximumMinutes} * 60_000`));
+  assert.ok(compiler.includes('agent ? AGENT_STEP_TIMEOUT_MAX_MS : RUN_STEP_TIMEOUT_MAX_MS'));
   const surface = read('docs/SURFACE.md').split('### Command timeouts')[1].split('\n### ')[0];
-  assert.ok(surface.includes(`default is **${seconds} seconds**`));
-  assert.ok(surface.includes(`**${minutes} minutes**`));
+  assert.ok(surface.includes(`default is **${defaultMinutes} minutes**`));
+  assert.ok(surface.includes(`**${maximumMinutes} minutes**`));
   const readme = read('packages/surface/README.md');
-  assert.ok(readme.includes(`**${seconds}s by default**`));
-  assert.ok(readme.includes(`**${minutes}m maximum**`));
+  assert.ok(readme.includes(`**${defaultMinutes}m by default**`));
+  assert.ok(readme.includes(`**${maximumMinutes}m maximum**`));
 });
 test('checker accepts exact docs, rejects drift or missing docs, and accepts restoration', () => {
   const dir = mkdtempSync(join(tmpdir(), 'authoring-check-'));

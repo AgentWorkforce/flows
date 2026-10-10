@@ -140,7 +140,7 @@ export interface Ctx extends Helpers {
 
 ```ts
 export interface RunOptions {
-  /** Command lease: milliseconds or a duration such as "5m"; default 30s, maximum 15m. */
+  /** Command lease: milliseconds or a duration such as "5m"; default 10m, maximum 15m. */
   timeout?: string | number;
   /**
    * What a nonzero exit means. `'fail'` (the default) throws, ending the flow
