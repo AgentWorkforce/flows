@@ -127,15 +127,20 @@ cites any other run.
   and the diff must match the proposal. There must be at least one prompt
   change and at least one structural change.
   - Each prompt edit carries its complete `new_text`. The step's compiled
-    `instruction`/`prompt` must equal it exactly, and any prompt change the
+    `instruction`/`prompt` must equal it exactly, apart from the single
+    trailing newline a YAML `|` block adds. Any prompt change the
     proposal does not list is refused. A step the proposal adds counts as a
     prompt change too.
   - Each structure edit names its step and the compiled-spec `field` it
     changes (`max_iterations`, `verification`, `added`, … or `budget` on step
     `flow`). Every proposed (step, field) pair must appear in the diff. Every
-    structural change must be a proposed pair, a change to a step the
-    compiler derives from a restructured step (`classify.gate`), or the
-    `depends_on` rewiring an inserted or removed proposed step forces.
+    structural change must be one of three things. It can be a proposed
+    pair. It can be a change to `<step>.gate`, the one step id the compiler
+    derives (a named gate lowers to it), and only for a step whose proposal
+    changes `verification` or adds the step. A user-authored dotted id such
+    as `classify.audit` is never exempt. Or it can be a `depends_on` change
+    whose added and dropped dependencies are all steps the proposal adds or
+    removes, or a derived gate step replacing its parent.
   - Structural *values* are not compared. The YAML an agent writes and its
     compiled form differ (for example, a named gate lowers to an extra step),
     so the field is the finest grain that can be checked without guessing.
@@ -148,16 +153,22 @@ cites any other run.
   (`runs.json`, `digest.json`, the before spec, then `proposal.json` once it
   passes) is sealed with sha256 hashes. The seal is carried in the later
   steps' journaled command text, and any change refuses the check. The
-  target checkout must still be at its base commit. Commit and push run with
-  git hooks disabled, because an agent-written `.git/hooks` script would
-  otherwise run with `GH_TOKEN`.
+  target checkout must still be at its base commit.
+- **What is published is what was checked.** After the agents run, git runs
+  with hooks and the fsmonitor command disabled, because an agent could have
+  planted either in `.git`. An agent-defined `clean` filter could still
+  rewrite what `git add` stages. The staged blob is therefore compared byte
+  for byte with the file the checks read, that file is sealed, and the
+  committed blob is compared again before anything is pushed.
 - **The flow is not tricked by a symlink.** A `flowPath` that resolves outside
   the checkout is refused before it is read.
 - **There is one proposal per flow at a time.** All proposals use the branch
-  `self-improve/<flow>`. If that branch exists, whether its PR is open or was
-  closed without the branch being deleted, the flow ends `declined`. Delete
-  the branch to re-arm it. Two concurrent runs cannot both publish, because
-  the second run's non-force push of the same branch is rejected.
+  `self-improve/<flow>`. If a PR has ever used that branch, whether it is
+  still open or was closed without the branch being deleted, the flow ends
+  `declined`. Delete the branch to re-arm it. A branch that no PR ever used
+  is left over from a run that pushed and then failed to open its PR. That
+  branch is taken over with `--force-with-lease`, pinned to the sha seen
+  at checkout, so when two runs race, the second run's push fails closed.
 - **Publishing survives a crash.** Commit, push and PR creation are separate
   steps, and each is safe to repeat: it skips the commit when it is already
   there, pushes the same commit again as a no-op, and reuses an open PR

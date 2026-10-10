@@ -24,7 +24,8 @@ import { parseArgs } from "node:util";
 import { FLOW, coverage, describeChange, diffSpecs } from "./spec-diff.mjs";
 
 const SIGNALS = new Set(["failing", "slow", "costly", "weak"]);
-const STEP_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,199}$/u;
+/** The flow schema puts no pattern on step ids; refuse only what cannot be one. */
+const STEP_ID = /^[^\p{Cc}]{1,200}$/u;
 const FIELD = /^[a-z][a-z0-9_]{0,63}$/u;
 
 const { positionals: [stage], values: args } = parseArgs({
@@ -62,10 +63,15 @@ function checkShape(p) {
 function checkProposal(proposal, beforeSpec) {
   checkShape(proposal);
   const steps = new Set(beforeSpec.steps.map((s) => s.id));
-  const added = new Set((proposal.structure_edits ?? []).map((e) => e.step));
+  const added = new Set((proposal.structure_edits ?? []).filter((e) => e.field === "added").map((e) => e.step));
   need(steps.has(proposal.target_step), `target_step "${proposal.target_step}" is not a step of the flow`);
   for (const e of proposal.prompt_edits ?? []) {
     need(steps.has(e.step) || added.has(e.step), `prompt edit names step "${e.step}", which neither exists nor is added by a structure edit`);
+  }
+  for (const e of proposal.structure_edits ?? []) {
+    if (e.step === FLOW) continue;
+    if (e.field === "added") need(!steps.has(e.step), `structure edit adds step "${e.step}", which already exists`);
+    else need(steps.has(e.step), `structure edit ${e.step}.${e.field} names a step the flow does not have (to create it, use field "added")`);
   }
   const collected = new Set(readJson(join(args.dir, "runs.json")).runs.map((r) => r.run_id));
   for (const e of proposal.evidence ?? []) need(collected.has(e.run_id), `evidence cites run "${e.run_id}", which was not collected`);

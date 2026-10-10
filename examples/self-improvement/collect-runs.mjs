@@ -60,7 +60,7 @@ if (!Number.isSafeInteger(scan) || scan < want || scan > 1000) fail("--scan must
 const ids = new Set(JSON.parse(readFileSync(args.spec, "utf8")).steps.map((s) => s.id));
 const candidate = (run) => run.name === args.flow && TERMINAL_RUN_STATUSES.has(run.status);
 const ours = (steps) => {
-  const ran = steps.filter((s) => !["pending", "skipped", "queued"].includes(s.status));
+  const ran = steps.filter((s) => !["pending", "skipped", "queued", "unknown"].includes(s.status));
   return ran.length > 0 && ran.filter((s) => ids.has(s.step_name)).length * 2 >= ran.length;
 };
 

@@ -124,6 +124,22 @@ test("a prompt edit on a step the proposal adds is checked like any other", () =
   assert.match(coverage(diffSpecs(before, after), missing, after).join("\n"), /step verify: instruction changed, but the proposal has no prompt edit/);
 });
 
+test("only <step>.gate is compiler-derived, and only for a verification or added edit", () => {
+  const before = spec([agent("classify", "old"), agent("classify.audit", "a", { depends_on: ["classify"] })]);
+  const after = spec([agent("classify", "new", { max_iterations: 2 }), agent("classify.audit", "a", { depends_on: ["classify"], timeout_ms: 9 })]);
+  const proposal = { target_step: "classify", prompt_edits: [{ step: "classify", new_text: "new" }],
+    structure_edits: [{ step: "classify", field: "max_iterations" }] };
+  assert.match(coverage(diffSpecs(before, after), proposal, after).join("\n"), /classify.audit: timeout_ms changed, but no structure edit proposes/);
+});
+
+test("depends_on rewiring is exempt only around an inserted or removed step", () => {
+  const before = spec([agent("classify", "old"), agent("reply", "r", { depends_on: [] })]);
+  const after = spec([agent("classify", "new", { max_iterations: 2 }), agent("reply", "r", { depends_on: ["classify"] })]);
+  const proposal = { target_step: "classify", prompt_edits: [{ step: "classify", new_text: "new" }],
+    structure_edits: [{ step: "classify", field: "max_iterations" }] };
+  assert.match(coverage(diffSpecs(before, after), proposal, after).join("\n"), /step reply: depends_on changed, but no structure edit proposes reply.depends_on/);
+});
+
 function proposalDir() {
   const dir = scratch();
   assert.equal(collect(dir).status, 0);
@@ -206,4 +222,29 @@ test("compile-spec refuses a flow path that is a symlink out of the checkout", (
 test("the flow embeds the current helpers", () => {
   const result = node(["bundle.mjs", "--check"]);
   assert.equal(result.status, 0, result.stderr);
+});
+
+test("check-proposal treats only field \"added\" as creating a step", () => {
+  const { dir, proposal } = proposalDir();
+  const run = (p) => {
+    writeFileSync(join(dir, "proposal.json"), JSON.stringify(p));
+    return node(["check-proposal.mjs", "proposal", "--dir", dir, "--spec", join(dir, "before.json")]);
+  };
+  const ghost = run({ ...proposal, prompt_edits: [...proposal.prompt_edits, { step: "ghost", new_text: "x", rationale: "r" }],
+    structure_edits: [...proposal.structure_edits, { step: "ghost", field: "max_iterations", change: "c", rationale: "r" }] });
+  assert.equal(ghost.status, 1);
+  assert.match(ghost.stderr, /prompt edit names step "ghost", which neither exists nor is added/);
+  assert.match(ghost.stderr, /structure edit ghost.max_iterations names a step the flow does not have/);
+  const added = run({ ...proposal, prompt_edits: [...proposal.prompt_edits, { step: "verify", new_text: "x", rationale: "r" }],
+    structure_edits: [...proposal.structure_edits, { step: "verify", field: "added", change: "c", rationale: "r" }] });
+  assert.equal(added.status, 0, added.stderr);
+});
+
+test("prompt text must match exactly, bar the newline a YAML block scalar appends", () => {
+  const before = spec([agent("a", "old")]);
+  const proposal = { target_step: "a", prompt_edits: [{ step: "a", new_text: "new" }], structure_edits: [] };
+  const problems = (text) => coverage(diffSpecs(before, spec([agent("a", text)])), proposal, spec([agent("a", text)])).join("\n");
+  assert.equal(problems("new\n"), "");
+  assert.match(problems("  new"), /compiled prompt is not the proposed new_text/);
+  assert.match(problems("new \n"), /compiled prompt is not the proposed new_text/);
 });

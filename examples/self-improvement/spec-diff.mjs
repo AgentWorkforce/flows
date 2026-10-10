@@ -63,6 +63,11 @@ export function describeChange(change) {
 
 /** The prompt text a compiled step is handed, whichever field carries it. */
 const promptOf = (step) => step?.instruction ?? step?.prompt;
+/**
+ * Exact, except for the one newline a YAML `|` block scalar appends: the
+ * proposal cannot know which scalar style the editor will choose.
+ */
+const sameText = (a, b) => a.replace(/\n$/u, "") === b.replace(/\n$/u, "");
 
 /**
  * Does the compiled diff implement the proposal, and only the proposal?
@@ -74,12 +79,14 @@ const promptOf = (step) => step?.instruction ?? step?.prompt;
  * `removed`, or a flow-level key with step "flow"). Every proposed pair must
  * appear in the diff, and every structural change in the diff must be a
  * proposed pair, unless it is
- *   - a change to a step the compiler derived from a step with a proposed
- *     structure edit (`classify.gate`, which a named gate on `classify`
- *     lowers to), or
- *   - a `depends_on` change elsewhere whose added and dropped dependencies
- *     are all proposed or derived steps: the rewiring an inserted or removed
- *     step forces on its dependents.
+ *   - a change to `<step>.gate`, the one step id the compiler derives: a named
+ *     gate on <step> lowers to it (packages/sdk, docs/SURFACE.md §6). Only
+ *     for a step whose proposal changes `verification` or adds the step; a
+ *     user-authored dotted id such as `classify.audit` is never exempt.
+ *   - a `depends_on` change elsewhere that only rewires around an inserted or
+ *     removed step. Each added or dropped dependency must be a step the
+ *     proposal adds or removes, a derived gate step, or the parent a derived
+ *     gate step replaces in the same list.
  * Values of structural fields are not compared: the YAML an agent writes and
  * the canonical form it compiles to differ (a named gate lowers to a step),
  * so the field is the finest grain that is checkable without guessing.
@@ -89,12 +96,22 @@ const promptOf = (step) => step?.instruction ?? step?.prompt;
 export function coverage(diff, proposal, after) {
   const prompts = proposal.prompt_edits ?? [];
   const structural = proposal.structure_edits ?? [];
-  const restructured = new Set(structural.map((e) => e.step));
-  const named = new Set([...prompts.map((e) => e.step), ...restructured]);
-  const derivedFrom = (id, steps) => [...steps].some((n) => n !== FLOW && id.startsWith(`${n}.`));
-  const owned = (id) => named.has(id) || derivedFrom(id, named);
+  const named = new Set([...prompts.map((e) => e.step), ...structural.map((e) => e.step)]);
   const proposed = (step, field) => structural.some((e) => e.step === step && e.field === field);
+  const derived = new Set(structural.filter((e) => e.field === "verification" || e.field === "added").map((e) => `${e.step}.gate`));
+  const insertedOrRemoved = new Set([
+    ...structural.filter((e) => e.field === "added" || e.field === "removed").map((e) => e.step),
+    ...derived,
+  ]);
   const afterSteps = new Map((after.steps ?? []).map((s) => [s.id, s]));
+  const rewiring = (s) => {
+    const was = new Set(s.before ?? []);
+    const now = new Set(s.after ?? []);
+    const added = [...now].filter((d) => !was.has(d));
+    const dropped = [...was].filter((d) => !now.has(d));
+    return added.every((d) => insertedOrRemoved.has(d) || dropped.some((x) => `${d}.gate` === x && derived.has(x)))
+      && dropped.every((d) => insertedOrRemoved.has(d) || added.some((x) => `${d}.gate` === x && derived.has(x)));
+  };
   const problems = [];
 
   for (const p of diff.prompt) {
@@ -103,17 +120,12 @@ export function coverage(diff, proposal, after) {
   for (const e of prompts) {
     const text = promptOf(afterSteps.get(e.step));
     if (text === undefined) problems.push(`proposed prompt edit to ${e.step}: the compiled flow has no such step with a prompt`);
-    else if (text.trim() !== String(e.new_text).trim()) problems.push(`proposed prompt edit to ${e.step}: its compiled prompt is not the proposed new_text`);
+    else if (!sameText(text, String(e.new_text))) problems.push(`proposed prompt edit to ${e.step}: its compiled prompt is not the proposed new_text`);
     else if (!diff.prompt.some((p) => p.step === e.step)) problems.push(`proposed prompt edit to ${e.step} does not change it`);
   }
   for (const s of diff.structure) {
-    if (proposed(s.step, s.field) || derivedFrom(s.step, restructured)) continue;
-    if (s.field === "depends_on") {
-      const was = new Set(s.before ?? []);
-      const now = new Set(s.after ?? []);
-      const moved = [...was].filter((d) => !now.has(d)).concat([...now].filter((d) => !was.has(d)));
-      if (moved.every(owned)) continue;
-    }
+    if (proposed(s.step, s.field) || derived.has(s.step)) continue;
+    if (s.field === "depends_on" && rewiring(s)) continue;
     problems.push(`${describeChange(s)}, but no structure edit proposes ${s.step}.${s.field}`);
   }
   for (const e of structural) {
