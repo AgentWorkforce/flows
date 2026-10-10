@@ -45,8 +45,9 @@ function context(o: {
         commands.push(command);
         if (command.includes('githubRead')) return JSON.stringify(states.length > 1 ? states.shift() : states[0]);
         if (command.includes('readSignals')) return JSON.stringify({ headSha: head, failingChecks: [], changeRequests: [], comments: [], reviewFeedback: o.feedback ?? feedback, reported: true });
-        if (command.includes('checkoutHead')) return JSON.stringify({ dir: '/run/babysitter-checkout', head, reused: false });
-        if (command.includes('mergeTrunk')) return JSON.stringify(o.merged ?? { kind: 'babysitter-merge', mergeBase: 'e'.repeat(40), conflicts: ['src/retry.ts'], metaConflicts: [] });
+        if (command.includes('checkoutHead')) return JSON.stringify({ dir: '/run/babysitter-checkout', head, reused: false })
+          + (command.includes('mergeTrunk') ? `\n${JSON.stringify(o.merged ?? { kind: 'babysitter-merge', mergeBase: 'e'.repeat(40), conflicts: ['src/retry.ts'], metaConflicts: [] })}` : '');
+        if (command.includes('mergeTrunk')) throw new Error('mergeTrunk ran outside the checkout step');
         if (command.includes('proposeChanges')) return JSON.stringify(o.proposed ?? { kind: 'babysitter-proposal', schemaVersion: 1, baseHead: head, files: ['src/retry.ts'], patch: 'diff' });
         if (command.includes('restoreCheckout')) return JSON.stringify({ restored: false });
         if (command.includes('stashCheckout')) return JSON.stringify({ stashed: true });
@@ -141,9 +142,14 @@ test('resolve_conflict merges trunk before the agent and proposes with trunk as 
   const { f, reasons, agents, commands } = context({ proposed: { kind: 'babysitter-proposal', schemaVersion: 2, baseHead: head, mergeParent: trunk, files: ['src/retry.ts'], patch: 'diff' } });
   await body()(f, input({ kind: 'resolve_conflict', trunkSha: trunk }));
   assert.deepEqual(reasons, ['success']);
-  const order = commands.map(c => ['checkoutHead', 'mergeTrunk', 'proposeChanges'].find(n => c.includes(n))).filter(Boolean);
-  assert.deepEqual(order, ['checkoutHead', 'mergeTrunk', 'proposeChanges']);
-  assert.ok(commands.find(c => c.includes('mergeTrunk'))!.includes(`"trunkSha":"${trunk}"`));
+  // One step: the sandbox makes files a step leaves in .git read-only, and
+  // the merge writes .git (Cloud run b8e5eb96).
+  const merging = commands.filter(c => c.includes('mergeTrunk'));
+  assert.equal(merging.length, 1);
+  assert.ok(merging[0]!.indexOf('checkoutHead') < merging[0]!.indexOf('mergeTrunk'));
+  const order = commands.map(c => ['checkoutHead', 'proposeChanges'].find(n => c.includes(n))).filter(Boolean);
+  assert.deepEqual(order, ['checkoutHead', 'proposeChanges']);
+  assert.ok(merging[0]!.includes(`"trunkSha":"${trunk}"`));
   assert.match(String(agents[0]!.options.task), new RegExp(`Trunk ${trunk} is already merged into this checkout`));
   assert.ok(propose(commands)!.includes(`"mergeParent":"${trunk}"`));
 });
@@ -155,6 +161,31 @@ test('resolve_conflict stops without an agent when drizzle metadata conflicts, a
   assert.equal(agents.length, 0);
   assert.equal(propose(commands), undefined);
   assert.ok(commands.some(c => c.includes('stashCheckout')));
+});
+
+test('a run whose step fails reports that failure, not the stash the budget then refuses', async () => {
+  // Cloud run b8e5eb96: the merge failed, and the stash after it threw the
+  // budget's "A prior budgeted step did not finish successfully", which
+  // replaced the cause.
+  const { f, commands } = context();
+  const run = f.run;
+  (f as { run: unknown }).run = async (command: string) => {
+    if (command.includes('stashCheckout')) { commands.push(command); throw new Error('A prior budgeted step did not finish successfully.'); }
+    if (command.includes('mergeTrunk')) { commands.push(command); throw new Error("cannot open '.git/FETCH_HEAD': Permission denied"); }
+    return run(command);
+  };
+  await assert.rejects(body()(f, input({ kind: 'resolve_conflict', trunkSha: trunk })), /FETCH_HEAD/);
+  assert.ok(commands.some(c => c.includes('stashCheckout')));
+});
+
+test('a stash that fails after a successful run still fails the run', async () => {
+  const { f } = context();
+  const run = f.run;
+  (f as { run: unknown }).run = async (command: string) => {
+    if (command.includes('stashCheckout')) throw new Error('stash failed');
+    return run(command);
+  };
+  await assert.rejects(body()(f, input({ kind: 'resolve_conflict', trunkSha: trunk })), /stash failed/);
 });
 
 test('a merge too large to publish ends needs_human with an explanation instead of a patch', async () => {
@@ -360,6 +391,22 @@ test('check names never reach the trusted task section, and control characters i
   await body()(f, input({ kind: 'fix_ci', checks: [{ name: 'web-tests', conclusion: 'failure', logTail: 'boom' }] }));
   const task = String(agents[0]!.options.task);
   assert.doesNotMatch(task.slice(task.indexOf('== Merge-train task')), /web-tests/);
+});
+
+test('the merge step runs on a checkout whose earlier files the sandbox made read-only', async () => {
+  // Cloud run b8e5eb96: the relayfile mount removes write permission from
+  // the files a step leaves in a nested .git, and the merge's fetch failed
+  // rewriting .git/FETCH_HEAD. Directories stay writable.
+  const r = forked();
+  writeFileSync(join(r.checkout, '.git/FETCH_HEAD'), '');
+  execFileSync('find', [join(r.checkout, '.git'), '-type', 'f', '-exec', 'chmod', 'a-w', '{}', '+']);
+  try {
+    const merged = await runMerge(r);
+    assert.equal(merged.kind, 'babysitter-merge');
+    assert.deepEqual(merged.conflicts, ['src/retry.ts']);
+  } finally {
+    execFileSync('chmod', ['-R', 'u+w', join(r.checkout, '.git')]);
+  }
 });
 
 test('the merge step refuses when git does not start the merge, instead of reporting a clean merge', async () => {
