@@ -1,11 +1,11 @@
 # Minimal local script-memory example
 
 This slice implements `f.memory.recall`, `f.memory.why`, and `f.memory.learn`
-through ai-hist 0.4.1. Reads journal nothing. `learn` appends the finding to
-the durable root run's `memory-learn` stream first, then projects it as a
-compacted trajectory file at
-`<db-dir>/flows-memory/<scope-hash>/.trajectories/compacted/<id>.json` that
-cites the commit. ai-hist 0.4.1 has no trajectory writer and its database is
+through ai-hist 0.4.1. Reads journal nothing. `learn` stages a compacted
+trajectory file, appends the finding to the durable root run's
+`memory-learn` stream, then renames the file into place at
+`<db-dir>/flows-memory/<scope-hash>/.trajectories/compacted/<id>.json`; the
+file cites the commit. ai-hist 0.4.1 has no trajectory writer and its database is
 never modified; reads merge the database with the scope's learned files. A
 resumed body re-running `learn` republishes from the commit instead of
 journaling twice, and `learn` refuses (`memory_unjournaled`) without a root

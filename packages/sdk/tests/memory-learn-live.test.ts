@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MEMORY_LEARN_STREAM, scriptMemoryScope } from '../src/authored-memory.js';
 import { JournalClient } from '../src/journal-client.js';
 import { socketPathFor } from '../src/daemon-connection.js';
@@ -10,7 +10,7 @@ import { chainFixture } from './flow-chain-fixture.js';
 const closes: Array<() => Promise<void>> = [];
 afterEach(async () => {
   for (const close of closes.splice(0).reverse()) await close();
-  delete process.env.AI_HIST_DB;
+  vi.unstubAllEnvs();
 });
 
 describe('f.memory.learn through the built CLI and a real kernel', () => {
@@ -20,7 +20,7 @@ describe('f.memory.learn through the built CLI and a real kernel', () => {
     const dbPath = join(fixture.root, 'ai-history.db');
     const scope = scriptMemoryScope(fixture.flowPath, 'learner');
     execFileSync(process.execPath, [resolve('../../testdata/memory/seed.mjs'), dbPath, scope]);
-    process.env.AI_HIST_DB = dbPath;
+    vi.stubEnv('AI_HIST_DB', dbPath);
 
     writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
 export default flow('learner', { memory: { script: true } }, async f => {
@@ -45,7 +45,7 @@ export default flow('learner', { memory: { script: true } }, async f => {
     const compacted = join(fixture.root, 'flows-memory', basename(scope), '.trajectories', 'compacted');
     const [file] = readdirSync(compacted);
     expect(JSON.parse(readFileSync(join(compacted, file!), 'utf8')))
-      .toMatchObject({ id: records[0]!.id, journal: { runId: report.runId, stream: MEMORY_LEARN_STREAM, offset: 0 } });
+      .toMatchObject({ id: records[0]!.id, journal: { runId: report.runId, stream: MEMORY_LEARN_STREAM, id: records[0]!.id } });
     expect(existsSync(scope)).toBe(false);
 
     writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';

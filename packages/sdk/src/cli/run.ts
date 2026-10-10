@@ -1103,7 +1103,7 @@ async function inspectOutOfBandStep(
 const EXPIRED_LEASE_POLL_MS = 250;
 
 /**
- * `f.memory.learn` failures keep their own kind instead of collapsing into
+ * `f.memory` failures keep their own kind instead of collapsing into
  * `protocol_error`. By then the root has been terminalized as failed, so the
  * report names it the way a step failure does.
  */
@@ -1114,7 +1114,8 @@ export function memoryWriteFailure(
   error: AuthoredFlowExecutionError,
   fallbackRunId?: string,
 ): RunExecution | undefined {
-  if (error.code !== 'memory_finding_invalid' && error.code !== 'memory_unwritable' && error.code !== 'memory_unjournaled') return undefined;
+  if (error.code !== 'memory_finding_invalid' && error.code !== 'memory_unwritable'
+    && error.code !== 'memory_unjournaled' && error.code !== 'memory_unreachable') return undefined;
   const rootRunId = error.rootRunId ?? fallbackRunId;
   const runId = error.runId ?? rootRunId;
   return {
@@ -1127,7 +1128,11 @@ export function memoryWriteFailure(
       socketPath,
       status: 'failed',
       completionReason: 'step_failed',
-      diagnostics: [...base.diagnostics, { severity: 'failure', kind: error.code, message: error.message }],
+      diagnostics: [...base.diagnostics, {
+        severity: 'failure', kind: error.code,
+        // The `<code>: ` prefix `AuthoredFlowExecutionError` adds is redundant once the diagnostic is labelled.
+        message: error.message.startsWith(`${error.code}: `) ? error.message.slice(error.code.length + 2) : error.message,
+      }],
     },
   };
 }

@@ -144,6 +144,8 @@ export const RUN_FAILURE_KINDS = [
   'memory_unwritable',
   /** `f.memory.learn` ran without a durable root run to journal the finding in. */
   'memory_unjournaled',
+  /** `f.memory` lost its database, or found a damaged learned finding, after the run started. */
+  'memory_unreachable',
   /**
    * `--local-agent` cannot be honoured for this invocation, so it is refused
    * rather than accepted and ignored. A local agent worker is admitted at run

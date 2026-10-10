@@ -56,6 +56,10 @@ export class MemoryWriteTracker {
     this.calls.push(call);
     return call;
   }
+  /** Wait for every call to settle, so no write outlives the execution that started it. */
+  async settle(): Promise<void> {
+    await Promise.allSettled(this.calls.map(call => Promise.prototype.then.call(call, () => {}, () => {})));
+  }
   /** Every call the body did not await, after letting each one settle. */
   async unawaited(): Promise<number> {
     const unobserved = this.calls.filter(call => !call.observed || !call.settled);
@@ -78,13 +82,21 @@ export interface LearnRecord {
 export interface CommittedLearn {
   readonly record: LearnRecord;
   readonly runId: string;
-  readonly offset: number;
 }
 
 /** Where `learn` journals a finding before it may become recallable. */
 export interface LearnLedger {
-  /** The recorded commit for `id`, or a new one journaled from `build()`. Concurrent calls for one id share one commit. */
-  commit(id: string, build: () => LearnRecord): Promise<CommittedLearn>;
+  /** The durable root run this ledger journals on. */
+  readonly runId: string;
+  /** The commit already recorded for `id`, if any. */
+  recorded(id: string): Promise<CommittedLearn | undefined>;
+  /**
+   * Journal `record`, then return the commit that wins for its id: the first
+   * one in the stream. Usually that is `record`; if another attempt on this
+   * root committed the same finding first, it is theirs, so every attempt
+   * projects the same bytes.
+   */
+  append(record: LearnRecord): Promise<CommittedLearn>;
 }
 
 function canonicalLearnRecord(raw: unknown): LearnRecord | undefined {
@@ -108,45 +120,41 @@ function canonicalLearnRecord(raw: unknown): LearnRecord | undefined {
 
 /**
  * A ledger on the durable root run's `memory-learn` stream. The stream is read
- * once per execution, so a resumed body finds what an earlier attempt already
- * committed and does not journal it twice.
+ * once per execution and re-read after each append, so a resumed or re-driven
+ * body finds what any earlier attempt committed. A failed read is not cached:
+ * the next call reads again. Journal errors propagate unchanged, so a read
+ * interruption or a lost lease keeps its resumable meaning for the root.
  */
 export function journalLearnLedger(journal: Pick<JournalClient, 'streamAppend' | 'streamRead'>, rootRunId: string): LearnLedger {
   let loaded: Promise<Map<string, CommittedLearn>> | undefined;
-  const inFlight = new Map<string, Promise<CommittedLearn>>();
-  async function load(): Promise<Map<string, CommittedLearn>> {
+  async function read(): Promise<Map<string, CommittedLearn>> {
     const commits = new Map<string, CommittedLearn>();
     let offset = 0;
     for (;;) {
       const page = await journal.streamRead(rootRunId, MEMORY_LEARN_STREAM, offset, 1000);
-      page.messages.forEach((message, index) => {
+      for (const message of page.messages) {
         const record = canonicalLearnRecord((message as { message?: unknown }).message ?? message);
-        // The first commit for an id wins; it is the one its file cites.
-        if (record !== undefined && !commits.has(record.id)) commits.set(record.id, { record, runId: rootRunId, offset: offset + index });
-      });
+        // The first commit for an id wins; it is the one its file is built from.
+        if (record !== undefined && !commits.has(record.id)) commits.set(record.id, { record, runId: rootRunId });
+      }
       if (page.messages.length === 0 || page.next_offset <= offset) break;
       offset = page.next_offset;
     }
     return commits;
   }
+  function load(): Promise<Map<string, CommittedLearn>> {
+    loaded ??= read().catch(error => { loaded = undefined; throw error; });
+    return loaded;
+  }
   return {
-    commit(id, build) {
-      const pending = inFlight.get(id);
-      if (pending !== undefined) return pending;
-      const committing = (async () => {
-        loaded ??= load();
-        const commits = await loaded;
-        const existing = commits.get(id);
-        if (existing !== undefined) return existing;
-        const record = build();
-        const { offset } = await journal.streamAppend(rootRunId, MEMORY_LEARN_STREAM, record);
-        const committed = { record, runId: rootRunId, offset };
-        commits.set(id, committed);
-        return committed;
-      })();
-      inFlight.set(id, committing);
-      void committing.then(() => inFlight.delete(id), () => inFlight.delete(id));
-      return committing;
+    runId: rootRunId,
+    async recorded(id) {
+      return (await load()).get(id);
+    },
+    async append(record) {
+      await journal.streamAppend(rootRunId, MEMORY_LEARN_STREAM, record);
+      loaded = undefined;
+      return (await load()).get(record.id) ?? { record, runId: rootRunId };
     },
   };
 }
@@ -172,14 +180,46 @@ export function authoredMemory(
     try { return action(reader, learned); } finally { reader.close(); }
   }
   /**
-   * Journal first, then project. The finding is committed to the root run's
-   * `memory-learn` stream before its trajectory file exists, so nothing is
-   * recallable that the journal does not record. A crash between the two
-   * leaves a journaled finding without its file; the resumed body re-runs
-   * `learn`, finds the commit, and republishes the identical file from it
-   * without journaling again. With no durable root run there is nowhere to
-   * journal, so `learn` refuses rather than write unrecorded memory.
+   * Journal first, then publish. The trajectory file is staged under a name
+   * no read lists, the finding is committed to the root run's `memory-learn`
+   * stream, and only then is the file renamed into place. Nothing is
+   * recallable that the journal does not record, and the failures a disk
+   * write can have (space, permissions) happen while staging, before anything
+   * is journaled. If the process dies between the commit and the rename, the
+   * resumed body re-runs `learn`, finds the commit, and publishes the same
+   * file from it without journaling again. With no durable root run there is
+   * nowhere to journal, so `learn` refuses rather than write unrecorded memory.
    */
+  const learning = new Map<string, Promise<void>>();
+  async function learnOnce(decision: Required<MemoryFinding>, journaled: LearnLedger): Promise<void> {
+    const { dbPath, mode } = await learnTarget();
+    const id = learnedId(scope, decision);
+    const existing = await journaled.recorded(id);
+    if (existing !== undefined) {
+      await publishLearned(dbPath, existing, mode);
+      return;
+    }
+    const record: LearnRecord = { memory: 'learn', id, scope, decision, learnedAt: new Date().toISOString() };
+    let staged: StagedLearned;
+    try {
+      staged = await stageLearned(dbPath, { record, runId: journaled.runId }, mode);
+    } catch (error) {
+      throw new AuthoredFlowExecutionError('memory_unwritable', `f.memory.learn could not stage the finding: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    try {
+      // The last point a body that already called done() can be refused: past
+      // here the finding is journaled and will be published.
+      assertOpen();
+      const winner = await journaled.append(record);
+      try {
+        await staged.publish(winner);
+      } catch (error) {
+        throw new AuthoredFlowExecutionError('memory_unwritable', `f.memory.learn journaled the finding (root run ${winner.runId}, stream ${MEMORY_LEARN_STREAM}, id ${id}) but could not publish it: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    } finally {
+      await staged.discard();
+    }
+  }
   async function learn(finding: MemoryFinding): Promise<void> {
     assertOpen();
     assertEnabled();
@@ -187,22 +227,15 @@ export function authoredMemory(
     if (ledger === undefined) {
       throw new AuthoredFlowExecutionError('memory_unjournaled', 'f.memory.learn requires a durable root run to journal the finding; run the flow through flows run');
     }
-    await assertMemoryReachable();
-    assertOpen();
     const id = learnedId(scope, decision);
-    let committed: CommittedLearn;
-    try {
-      committed = await ledger.commit(id, () => ({ memory: 'learn', id, scope, decision, learnedAt: new Date().toISOString() }));
-    } catch (error) {
-      throw new AuthoredFlowExecutionError('memory_unwritable', `f.memory.learn could not journal the finding: ${error instanceof Error ? error.message : String(error)}`);
+    // Concurrent learns of one finding in this execution share one commit.
+    let pending = learning.get(id);
+    if (pending === undefined) {
+      pending = learnOnce(decision, ledger);
+      learning.set(id, pending);
+      void pending.then(() => learning.delete(id), () => learning.delete(id));
     }
-    const { defaultDbPath } = await import('ai-hist');
-    const dbPath = defaultDbPath();
-    try {
-      await writeLearned(dbPath, committed, (await stat(dbPath)).mode & 0o777);
-    } catch (error) {
-      throw new AuthoredFlowExecutionError('memory_unwritable', `f.memory.learn journaled the finding but could not publish it: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    await pending;
   }
   return {
     recall: (query, options) => read((reader, learned) => recallMerged(reader, learned, scope, query, options)),
@@ -245,8 +278,10 @@ function normalizeFinding(finding: MemoryFinding): Required<MemoryFinding> {
  * Learned findings live beside the ai-hist database, not beside the flow
  * source: a flow deployed from a read-only checkout, package or image can
  * still learn. The directory is keyed by the scope's hash, and each file
- * still names the scope as its `projectId`. `ai-hist sync` indexes them when
- * `TRAJECTORY_ROOT` includes `<db-dir>/flows-memory`; reads here do not need it.
+ * still names the scope as its `projectId`. Reads here do not need
+ * `ai-hist sync`. For sync to index them too, add `<db-dir>/flows-memory` to
+ * `TRAJECTORY_ROOT` together with the roots it already scans: setting it
+ * replaces ai-hist's default `~/Projects` scan rather than adding to it.
  */
 const learnedDir = (dbPath: string, scope: string): string =>
   join(dirname(dbPath), 'flows-memory', basename(scope), '.trajectories', 'compacted');
@@ -256,17 +291,22 @@ const learnedId = (scope: string, decision: Required<MemoryFinding>): string =>
   `${LEARNED_PREFIX}${createHash('sha256').update(JSON.stringify([scope, decision])).digest('hex').slice(0, 32)}`;
 
 /**
- * Project one committed finding as an immutable compacted trajectory file, the
- * format `ai-hist sync` ingests. Its content is derived only from the journal
- * commit (including the time it was learned and a citation of the commit), so
- * republishing on resume writes the same bytes. The file name is a hash of
- * scope and finding, so re-learning the same finding rewrites one file. It is
- * staged and renamed into place, so it appears whole or not at all, and the
- * ai-hist database is never modified. It takes the database's mode, so a
- * private history does not leak findings through a world-readable file.
+ * `learn` never reads the ai-hist database, so it does not load it: it needs
+ * only the directory it lives in and its mode. A missing database is the same
+ * refusal reads give.
  */
-async function writeLearned(dbPath: string, { record, runId, offset }: CommittedLearn, mode: number): Promise<void> {
-  const trajectory = {
+async function learnTarget(): Promise<{ dbPath: string; mode: number }> {
+  const { defaultDbPath } = await import('ai-hist');
+  const dbPath = defaultDbPath();
+  const info = await stat(dbPath).catch(() => undefined);
+  if (info === undefined || !info.isFile()) {
+    throw new AuthoredFlowExecutionError('memory_unreachable', `memory database ${dbPath} is missing or not a file`);
+  }
+  return { dbPath, mode: info.mode & 0o777 };
+}
+
+function learnedContent({ record, runId }: CommittedLearn): string {
+  return `${JSON.stringify({
     id: record.id,
     version: 1,
     type: 'compacted',
@@ -277,17 +317,66 @@ async function writeLearned(dbPath: string, { record, runId, offset }: Committed
     completedAt: record.learnedAt,
     decisions: [record.decision],
     retrospective: { summary: null, approach: null, learnings: [], confidence: null },
-    journal: { runId, stream: MEMORY_LEARN_STREAM, offset },
-  };
-  const file = join(learnedDir(dbPath, record.scope), `${record.id}.json`);
+    journal: { runId, stream: MEMORY_LEARN_STREAM, id: record.id },
+  }, null, 2)}\n`;
+}
+
+interface StagedLearned {
+  /** Rename into place, rewriting first if the winning commit is not the one staged. */
+  publish(winner: CommittedLearn): Promise<void>;
+  discard(): Promise<void>;
+}
+
+/**
+ * Write a committed finding's compacted trajectory file under a temporary
+ * name. Its content is derived only from the commit (including when it was
+ * learned and which root run journaled it), so every publication of one
+ * commit writes the same bytes. The final name is a hash of scope and
+ * finding, so re-learning a finding atomically replaces one file. The file
+ * takes the database's mode, so a private history does not leak findings
+ * through a world-readable file. The ai-hist database is never modified.
+ */
+async function stageLearned(dbPath: string, staging: CommittedLearn, mode: number): Promise<StagedLearned> {
+  const file = join(learnedDir(dbPath, staging.record.scope), `${staging.record.id}.json`);
   await mkdir(dirname(file), { recursive: true });
   const staged = `${file}.${process.pid}.${randomUUID()}.tmp`;
-  try {
-    await writeFile(staged, `${JSON.stringify(trajectory, null, 2)}\n`, { mode });
+  let content = learnedContent(staging);
+  const write = async () => {
+    await writeFile(staged, content, { mode });
     await chmod(staged, mode);
-    await rename(staged, file);
-  } finally {
+  };
+  try {
+    await write();
+  } catch (error) {
     await rm(staged, { force: true });
+    throw error;
+  }
+  return {
+    async publish(winner) {
+      const winning = learnedContent(winner);
+      if (winning !== content) {
+        content = winning;
+        await write();
+      }
+      await rename(staged, file);
+    },
+    discard: () => rm(staged, { force: true }),
+  };
+}
+
+async function publishLearned(dbPath: string, committed: CommittedLearn, mode: number): Promise<void> {
+  let staged: StagedLearned;
+  try {
+    staged = await stageLearned(dbPath, committed, mode);
+  } catch (error) {
+    throw new AuthoredFlowExecutionError('memory_unwritable', `f.memory.learn could not publish journaled finding ${committed.record.id}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  try {
+    await staged.publish(committed);
+  } catch (error) {
+    throw new AuthoredFlowExecutionError('memory_unwritable', `f.memory.learn could not publish journaled finding ${committed.record.id}: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    await staged.discard();
   }
 }
 
@@ -304,46 +393,61 @@ async function readLearned(dbPath: string, scope: string): Promise<LearnedTrajec
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
     throw error;
   }
-  const learned: LearnedTrajectory[] = [];
-  for (const name of names) {
-    if (!name.startsWith(LEARNED_PREFIX) || !name.endsWith('.json')) continue;
-    const path = join(dir, name);
-    let raw: Record<string, unknown>;
-    try {
-      raw = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
-      // Files here are only ever published whole, so an unreadable one is real
-      // damage; recalling around it would silently drop journaled memory.
-      throw new AuthoredFlowExecutionError('memory_unreachable', `learned finding ${path} is unreadable: ${error instanceof Error ? error.message : String(error)}`);
+  const learned = await Promise.all(names
+    .filter(name => name.startsWith(LEARNED_PREFIX) && name.endsWith('.json'))
+    .map(async name => {
+      const path = join(dir, name);
+      try {
+        return learnedEntry(scope, path, await readFile(path, 'utf8'), Math.trunc((await stat(path)).mtimeMs));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+        // Files here are only ever published whole, so an unreadable one is
+        // real damage; recalling around it would silently drop journaled memory.
+        throw new AuthoredFlowExecutionError('memory_unreachable', `learned finding ${path} is unreadable: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }));
+  return learned.filter((entry): entry is LearnedTrajectory => entry !== undefined);
+}
+
+function learnedEntry(scope: string, path: string, text: string, updatedMs: number): LearnedTrajectory {
+  const raw: unknown = JSON.parse(text);
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error('not a trajectory object');
+  const value = raw as Record<string, unknown>;
+  const decisions = value.decisions;
+  if (typeof value.id !== 'string' || !Array.isArray(decisions)) throw new Error('missing id or decisions');
+  const parsed = decisions.map(decision => {
+    const d = decision as Record<string, unknown> | null;
+    if (typeof d !== 'object' || d === null || typeof d.question !== 'string' || typeof d.chosen !== 'string'
+      || typeof d.reasoning !== 'string' || !Array.isArray(d.alternatives) || d.alternatives.some(a => typeof a !== 'string')) {
+      throw new Error('malformed decision');
     }
-    const decisions = Array.isArray(raw.decisions) ? raw.decisions as TrajectoryEntry['decisions'] : [];
-    const task = (raw.task ?? {}) as { title?: string | null; description?: string | null };
-    const id = typeof raw.id === 'string' ? raw.id : name.slice(0, -'.json'.length);
-    const completedAt = typeof raw.completedAt === 'string' ? raw.completedAt : null;
-    const updatedMs = Math.trunc((await stat(path)).mtimeMs);
-    const timestampMs = completedAt !== null && Number.isFinite(Date.parse(completedAt)) ? Date.parse(completedAt) : updatedMs;
-    // Same field order ai-hist's buildSearchText uses, so matching agrees with a later sync.
-    const searchText = [id, scope, 'completed', task.title ?? null, task.description ?? null,
-      ...decisions.flatMap(d => [d.question, d.chosen, d.reasoning, ...(d.alternatives ?? [])])]
-      .filter((part): part is string => typeof part === 'string' && part.length > 0).join('\n');
-    learned.push({
-      trajectory: {
-        id, version: 1, personaId: null, projectId: scope,
-        task: { title: task.title ?? null, description: task.description ?? null },
-        status: 'completed', startedAt: typeof raw.startedAt === 'string' ? raw.startedAt : null, completedAt,
-        decisions, retrospective: { summary: null, approach: null, learnings: [], confidence: null },
-        searchText, path, updatedMs, timestampMs,
-      },
-      // Not yet in the ai-hist database, so it has no row id; a negative id
-      // derived from the trajectory id marks it as read from disk.
-      history: {
-        id: -Number.parseInt(createHash('sha256').update(id).digest('hex').slice(0, 12), 16),
-        source: 'trajectory', sessionId: id, project: scope, prompt: searchText, timestampMs, gitBranch: null,
-      },
-    });
-  }
-  return learned;
+    return { question: d.question, chosen: d.chosen, reasoning: d.reasoning, alternatives: d.alternatives as string[] };
+  });
+  const task = (typeof value.task === 'object' && value.task !== null ? value.task : {}) as Record<string, unknown>;
+  const title = typeof task.title === 'string' ? task.title : null;
+  const description = typeof task.description === 'string' ? task.description : null;
+  const id = value.id;
+  const completedAt = typeof value.completedAt === 'string' ? value.completedAt : null;
+  const timestampMs = completedAt !== null && Number.isFinite(Date.parse(completedAt)) ? Date.parse(completedAt) : updatedMs;
+  // Same field order ai-hist's buildSearchText uses, so matching agrees with a later sync.
+  const searchText = [id, scope, 'completed', title, description,
+    ...parsed.flatMap(d => [d.question, d.chosen, d.reasoning, ...d.alternatives])]
+    .filter((part): part is string => typeof part === 'string' && part.length > 0).join('\n');
+  return {
+    trajectory: {
+      id, version: 1, personaId: null, projectId: scope,
+      task: { title, description },
+      status: 'completed', startedAt: typeof value.startedAt === 'string' ? value.startedAt : null, completedAt,
+      decisions: parsed, retrospective: { summary: null, approach: null, learnings: [], confidence: null },
+      searchText, path, updatedMs, timestampMs,
+    },
+    // Not yet in the ai-hist database, so it has no row id; a negative id
+    // derived from the trajectory id marks it as read from disk.
+    history: {
+      id: -Number.parseInt(createHash('sha256').update(id).digest('hex').slice(0, 12), 16),
+      source: 'trajectory', sessionId: id, project: scope, prompt: searchText, timestampMs, gitBranch: null,
+    },
+  };
 }
 
 const includesFolded = (haystack: string | null | undefined, needle: string): boolean =>

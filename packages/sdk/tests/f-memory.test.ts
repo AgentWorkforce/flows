@@ -50,7 +50,7 @@ function streamStore() {
     async streamAppend(runId: string, stream: string, message: unknown) {
       const list = stored.get(key(runId, stream)) ?? [];
       stored.set(key(runId, stream), list);
-      appended.push({ stream, message, fileExisted: existsSync(compactedDir()) && readdirSync(compactedDir()).length > 0 });
+      appended.push({ stream, message, fileExisted: existsSync(compactedDir()) && readdirSync(compactedDir()).some(name => name.endsWith('.json')) });
       // Stored the way the journal stores it: keys sorted.
       list.push(JSON.parse(JSON.stringify(message, Object.keys(flatKeys(message)).sort())));
       return { offset: list.length - 1 };
@@ -315,7 +315,7 @@ it('journals the finding on the root run before it becomes recallable, and cites
   }), fileExisted: false }]);
   const [name] = readdirSync(compactedDir());
   expect(JSON.parse(readFileSync(join(compactedDir(), name!), 'utf8')))
-    .toMatchObject({ journal: { runId: 'root-1', stream: MEMORY_LEARN_STREAM, offset: 0 }, decisions: [finding] });
+    .toMatchObject({ journal: { runId: 'root-1', stream: MEMORY_LEARN_STREAM, id: expect.stringMatching(/^flows-memory-/) }, decisions: [finding] });
 });
 
 it('refuses to learn without a durable root run, writing nothing', async () => {
@@ -329,13 +329,59 @@ it('refuses to learn without a durable root run, writing nothing', async () => {
   expect(existsSync(join(dir, 'flows-memory'))).toBe(false);
 });
 
-it('publishes nothing when the journal append fails', async () => {
-  vi.spyOn(store, 'streamAppend').mockRejectedValueOnce(new Error('journal down'));
+it('publishes nothing when the journal append fails, and passes the journal error through unchanged', async () => {
+  const journalDown = new Error('journal down');
+  vi.spyOn(store, 'streamAppend').mockRejectedValueOnce(journalDown);
   const memory = memoryFor(scope);
-  await expect(memory.learn({ question: 'not journaled', chosen: 'c', reasoning: 'r' }))
-    .rejects.toMatchObject({ code: 'memory_unwritable', message: expect.stringContaining('could not journal') });
-  expect(existsSync(join(dir, 'flows-memory'))).toBe(false);
+  await expect(memory.learn({ question: 'not journaled', chosen: 'c', reasoning: 'r' })).rejects.toBe(journalDown);
+  expect(readdirSync(compactedDir())).toEqual([]);
   expect(await memory.recall('not journaled')).toEqual([]);
+});
+
+it('reads the stream again after a failed read instead of caching the failure', async () => {
+  const interrupted = new Error('read interrupted');
+  vi.spyOn(store, 'streamRead').mockRejectedValueOnce(interrupted);
+  const memory = memoryFor(scope);
+  const finding = { question: 'retry after blip', chosen: 'c', reasoning: 'r' };
+  await expect(memory.learn(finding)).rejects.toBe(interrupted);
+  await memory.learn(finding);
+  expect(store.list('root-1', MEMORY_LEARN_STREAM)).toHaveLength(1);
+  expect(await memory.recall('retry after blip')).toHaveLength(1);
+});
+
+it('publishes the first commit when another attempt on the root committed the same finding first', async () => {
+  const realAppend = store.streamAppend.bind(store);
+  vi.spyOn(store, 'streamAppend').mockImplementationOnce(async (runId, stream, message) => {
+    // A re-driven attempt's append lands first, with its own learnedAt.
+    await realAppend(runId, stream, { ...(message as object), learnedAt: '2020-01-01T00:00:00.000Z' });
+    return realAppend(runId, stream, message);
+  });
+  await memoryFor(scope).learn({ question: 'raced finding', chosen: 'c', reasoning: 'r' });
+  const [name] = readdirSync(compactedDir());
+  expect(JSON.parse(readFileSync(join(compactedDir(), name!), 'utf8'))).toMatchObject({ completedAt: '2020-01-01T00:00:00.000Z' });
+});
+
+it('lets an in-flight learn land before a failed body hands the root back', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const realAppend = store.streamAppend.bind(store);
+  vi.spyOn(store, 'streamAppend').mockImplementation(async (runId, stream, message) => {
+    if (stream === MEMORY_LEARN_STREAM) await gate;
+    return realAppend(runId, stream, message);
+  });
+  const failing = executeAuthoredFlow(flow('memory-example', { memory: { script: true } }, async f => {
+    void f.memory.learn({ question: 'in flight', chosen: 'c', reasoning: 'r' });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    throw new Error('body failed');
+  }), completingJournal(), undefined, { flowPath: join(dir, 'test.flow.ts'), rootRunId: 'root-1' });
+  let settled = false;
+  void failing.catch(() => { settled = true; });
+  await new Promise(resolve => setTimeout(resolve, 100));
+  expect(settled).toBe(false);
+  release();
+  await expect(failing).rejects.toThrow('body failed');
+  expect(store.list('root-1', MEMORY_LEARN_STREAM)).toHaveLength(1);
+  expect(readdirSync(compactedDir()).filter(name => name.endsWith('.json'))).toHaveLength(1);
 });
 
 it('on resume, republishes a journaled finding from its commit without journaling it again', async () => {
@@ -365,8 +411,11 @@ it('fails recall closed on a damaged learned file instead of skipping it', async
   const memory = memoryFor(scope);
   await memory.learn({ question: 'damaged', chosen: 'c', reasoning: 'r' });
   const [name] = readdirSync(compactedDir());
-  writeFileSync(join(compactedDir(), name!), '{ not json');
-  await expect(memory.recall('damaged')).rejects.toMatchObject({ code: 'memory_unreachable' });
+  for (const damage of ['{ not json', 'null', '[]', '{"id":"x","decisions":[null]}']) {
+    writeFileSync(join(compactedDir(), name!), damage);
+    await expect(memory.recall('damaged')).rejects.toMatchObject({ code: 'memory_unreachable' });
+    await expect(memory.why('damaged')).rejects.toMatchObject({ code: 'memory_unreachable' });
+  }
 });
 
 it('keeps learned files out of the flow source directory', async () => {
@@ -376,11 +425,11 @@ it('keeps learned files out of the flow source directory', async () => {
 });
 
 it('reports learn failures with their own kind, not protocol_error', () => {
-  for (const code of ['memory_finding_invalid', 'memory_unwritable', 'memory_unjournaled'] as const) {
+  for (const code of ['memory_finding_invalid', 'memory_unwritable', 'memory_unjournaled', 'memory_unreachable'] as const) {
     const error = Object.assign(new AuthoredFlowExecutionError(code, 'nope'), { rootRunId: 'root-1' });
     expect(memoryWriteFailure('run', emptyReport('run'), '/sock', error)).toMatchObject({ exitCode: 1, report: {
       runId: 'root-1', rootRunId: 'root-1', status: 'failed', completionReason: 'step_failed',
-      diagnostics: [{ severity: 'failure', kind: code }],
+      diagnostics: [{ severity: 'failure', kind: code, message: 'nope' }],
     } });
   }
   expect(memoryWriteFailure('run', emptyReport('run'), '/sock', new AuthoredFlowExecutionError('step_failed', 'x'))).toBeUndefined();

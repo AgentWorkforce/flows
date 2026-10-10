@@ -821,6 +821,10 @@ export async function executeAuthoredFlow<Input = undefined>(
     bodyFailure = error;
   }
   if (bodyFailed) {
+    // An in-flight learn must land or fail before this attempt gives the root
+    // back: a re-driven attempt reads the memory-learn stream, and must not
+    // race a commit this one is still making.
+    await memoryWrites.settle();
     try {
       worker.stop(bodyFailure);
       await stopAuthoredOperations(authoredSteps, bodyFailure);
