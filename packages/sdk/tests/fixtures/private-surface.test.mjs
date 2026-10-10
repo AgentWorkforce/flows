@@ -3,7 +3,7 @@ import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, w
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { copyPrivateSurface } from './private-surface.mjs';
+import { copyPrivateSurface, surfaceDistConsistent } from './private-surface.mjs';
 
 test('private Surface stays unchanged across shared build writes and cleanup', () => {
   const root = mkdtempSync(join(tmpdir(), 'private-surface-test-'));
@@ -24,6 +24,23 @@ test('private Surface stays unchanged across shared build writes and cleanup', (
     writeFileSync(join(source, 'src', 'flow.ts'), 'rebuilt');
     rmSync(source, { recursive: true });
     assert.equal(readFileSync(join(destination, 'src', 'flow.ts'), 'utf8'), 'original');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a private Surface snapshot must export every helper the index imports', () => {
+  const root = mkdtempSync(join(tmpdir(), 'private-surface-dist-'));
+  try {
+    const helpers = join(root, 'dist', 'helpers');
+    mkdirSync(helpers, { recursive: true });
+    writeFileSync(join(helpers, 'index.js'), 'export const ready = true;\n');
+    writeFileSync(join(helpers, 'postgres.js'), 'export const other = true;\n');
+    assert.equal(surfaceDistConsistent(root), true);
+    writeFileSync(join(helpers, 'index.js'), 'import { createPostgresHelper } from "./postgres.js";\nexport const ready = true;\n');
+    assert.equal(surfaceDistConsistent(root), false);
+    writeFileSync(join(helpers, 'postgres.js'), 'export const createPostgresHelper = () => {};\n');
+    assert.equal(surfaceDistConsistent(root), true);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
