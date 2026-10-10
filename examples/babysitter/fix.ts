@@ -176,10 +176,25 @@ export async function proposeChanges(c: ProposalInput): Promise<void> {
   const diff = ['diff', '--cached', '--no-renames', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/'];
   const refuse = (reason: string) => process.stdout.write(JSON.stringify({ kind: 'babysitter-refusal', reason }));
   if (c.mergeParent) {
-    // Staging clears the unmerged index. Git leaves a binary conflict as the
-    // PR's side with no markers, so one the agent never touched would publish
-    // the PR's blob and drop trunk's. Refuse those before staging.
-    const { readFileSync } = await import('node:fs');
+    // Staging clears the unmerged index. Git leaves a conflict as the PR's
+    // side with NO markers when either side is binary or the path has a
+    // `binary` / `merge=binary` attribute; one the agent never touched would
+    // publish the PR's blob and drop trunk's. Those are refused before
+    // staging. A text conflict always gets markers, so keeping the PR's side
+    // of one is the agent's choice and stays allowed.
+    const { execFileSync: run } = await import('node:child_process');
+    const blobIsBinary = (blob: string) => {
+      const bytes = run('git', ['-C', c.dir, 'cat-file', 'blob', blob], { maxBuffer: buffer, stdio: ['ignore', 'pipe', 'ignore'] });
+      return bytes.subarray(0, 8000).includes(0);
+    };
+    // Attributes as the two merged commits declare them, not as the agent may
+    // have edited .gitattributes since. Unreadable counts as marker-less.
+    const binaryAttribute = (path: string) => [c.head, c.mergeParent].some((source) => {
+      try {
+        const out = git('check-attr', `--source=${source}`, 'binary', 'merge', '--', path);
+        return /: binary: set$/m.test(out) || /: merge: (binary|unset)$/m.test(out);
+      } catch { return true; }
+    });
     const unmerged = git('diff', '--name-only', '--diff-filter=U', '-z').split('\0').filter(Boolean);
     const untouched = unmerged.filter(path => {
       const stages = git('ls-files', '-u', '-z', '--', path).split('\0').filter(Boolean)
@@ -187,11 +202,11 @@ export async function proposeChanges(c: ProposalInput): Promise<void> {
       const ours = stages.find(s => s.stage === '2')?.blob;
       const theirs = stages.find(s => s.stage === '3')?.blob;
       if (!ours || !theirs || ours === theirs) return false;
-      let content: Uint8Array;
-      try { content = readFileSync(`${c.dir}/${path}`); } catch { return false; }
-      return content.subarray(0, 8000).includes(0) && git('hash-object', '--', path).trim() === ours;
+      let unchanged: boolean;
+      try { unchanged = git('hash-object', '--', path).trim() === ours; } catch { return false; }
+      return unchanged && (blobIsBinary(ours) || blobIsBinary(theirs) || binaryAttribute(path));
     });
-    if (untouched.length) return refuse(`unresolved conflict(s) in binary file(s): ${untouched.slice(0, 5).join(', ')}`);
+    if (untouched.length) return refuse(`unresolved conflict(s) left as the PR's side with no markers: ${untouched.slice(0, 5).join(', ')}`);
   }
   git('add', '-A');
   // NUL-delimited: a newline in a name cannot split it. A name git would

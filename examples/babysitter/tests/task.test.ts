@@ -327,6 +327,27 @@ test('an unresolved binary conflict is refused rather than published as the PR s
   assert.match(p.reason, /unresolved conflict.*logo\.bin/);
 });
 
+test('a marker-less conflict on a text file (merge=binary) is refused too, not only NUL-bearing files', async () => {
+  const up = mkdtempSync(join(tmpdir(), 'babysitter-attr-'));
+  const u = (...a: string[]) => execFileSync('git', ['-C', up, ...a], { env: gitEnv, encoding: 'utf8' }).trim();
+  u('init', '-q', '-b', 'trunk'); u('config', 'uploadpack.allowReachableSHA1InWant', 'true');
+  writeFileSync(join(up, '.gitattributes'), 'config.txt merge=binary\n');
+  writeFileSync(join(up, 'config.txt'), 'mode=base\n'); u('add', '-A'); u('commit', '-qm', 'base');
+  u('checkout', '-qb', 'pr'); writeFileSync(join(up, 'config.txt'), 'mode=pr\n'); u('add', '-A'); u('commit', '-qm', 'pr');
+  const prHead = u('rev-parse', 'HEAD');
+  u('checkout', '-q', 'trunk'); writeFileSync(join(up, 'config.txt'), 'mode=trunk\n'); u('add', '-A'); u('commit', '-qm', 'trunk');
+  const trunkHead = u('rev-parse', 'HEAD');
+  const checkout = mkdtempSync(join(tmpdir(), 'babysitter-attr-checkout-'));
+  const c = (...a: string[]) => execFileSync('git', ['-C', checkout, ...a], { env: gitEnv, encoding: 'utf8' }).trim();
+  c('init', '-q'); c('fetch', '-q', up, prHead); c('reset', '-q', '--hard', prHead);
+  const r = { up, head: prHead, trunk: trunkHead, checkout, git: c };
+  const merged = await runMerge(r);
+  assert.deepEqual(merged.conflicts, ['config.txt']);
+  const p = await runPropose(r, { mergeParent: trunkHead });
+  assert.equal(p.kind, 'babysitter-refusal');
+  assert.match(p.reason, /unresolved conflict.*config\.txt/);
+});
+
 test('a merge patch too large to even read publishes no code instead of failing the run', async () => {
   const r = forked();
   await runMerge(r);

@@ -129,3 +129,18 @@ $ node --experimental-strip-types --test --test-name-pattern="too large to even 
 ℹ fail 0
 
 exit=0
+
+# review round 2 (Cursor PRRT_kwDOUF0ysM6rBIa9): marker-less conflicts
+== red: attribute check disabled
+✖ a marker-less conflict on a text file (merge=binary) is refused too, not only NUL-bearing files (198.075321ms)
+ℹ fail 1
+ℹ pass 22
+   restored sha ok: yes
+== red: binary-blob checks disabled
+✖ an unresolved binary conflict is refused rather than published as the PR side (199.301968ms)
+ℹ fail 1
+ℹ pass 22
+   restored sha ok: yes
+== green: restored
+ℹ fail 0
+ℹ pass 23

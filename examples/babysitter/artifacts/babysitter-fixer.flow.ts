@@ -777,22 +777,34 @@ async function proposeChanges(c) {
   const diff = ["diff", "--cached", "--no-renames", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/"];
   const refuse = (reason) => process.stdout.write(JSON.stringify({ kind: "babysitter-refusal", reason }));
   if (c.mergeParent) {
-    const { readFileSync } = await import("node:fs");
+    const { execFileSync: run } = await import("node:child_process");
+    const blobIsBinary = (blob) => {
+      const bytes = run("git", ["-C", c.dir, "cat-file", "blob", blob], { maxBuffer: buffer, stdio: ["ignore", "pipe", "ignore"] });
+      return bytes.subarray(0, 8e3).includes(0);
+    };
+    const binaryAttribute = (path) => [c.head, c.mergeParent].some((source) => {
+      try {
+        const out2 = git("check-attr", `--source=${source}`, "binary", "merge", "--", path);
+        return /: binary: set$/m.test(out2) || /: merge: (binary|unset)$/m.test(out2);
+      } catch {
+        return true;
+      }
+    });
     const unmerged = git("diff", "--name-only", "--diff-filter=U", "-z").split("\0").filter(Boolean);
     const untouched = unmerged.filter((path) => {
       const stages = git("ls-files", "-u", "-z", "--", path).split("\0").filter(Boolean).map((line) => ({ stage: line.split(/\s+/)[2], blob: line.split(/\s+/)[1] }));
       const ours = stages.find((s) => s.stage === "2")?.blob;
       const theirs = stages.find((s) => s.stage === "3")?.blob;
       if (!ours || !theirs || ours === theirs) return false;
-      let content;
+      let unchanged;
       try {
-        content = readFileSync(`${c.dir}/${path}`);
+        unchanged = git("hash-object", "--", path).trim() === ours;
       } catch {
         return false;
       }
-      return content.subarray(0, 8e3).includes(0) && git("hash-object", "--", path).trim() === ours;
+      return unchanged && (blobIsBinary(ours) || blobIsBinary(theirs) || binaryAttribute(path));
     });
-    if (untouched.length) return refuse(`unresolved conflict(s) in binary file(s): ${untouched.slice(0, 5).join(", ")}`);
+    if (untouched.length) return refuse(`unresolved conflict(s) left as the PR's side with no markers: ${untouched.slice(0, 5).join(", ")}`);
   }
   git("add", "-A");
   const names = (...range) => git(...diff, "-z", "--name-only", ...range).split("\0").filter(Boolean);
