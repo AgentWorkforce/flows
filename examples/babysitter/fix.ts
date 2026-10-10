@@ -1,5 +1,6 @@
 import type { Ctx } from '@relayflows/surface';
 import { nodeCommand } from './github.ts';
+import { DRIZZLE_META } from './merge.ts';
 
 // Both functions below are stringified by `nodeCommand` and run by `node -e`
 // inside an `f.run` step, never in this process (see github.ts). They load
@@ -136,7 +137,13 @@ export async function stashCheckout(c: CheckoutCache & { session?: CachedSession
 export interface ProposalInput {
   dir: string; head: string; pullRequest: { owner: string; repo: string; number: number };
   summary: string; replies: { commentId: number; body: string }[];
-  limits: { patchBytes: number; files: number; proposalBytes: number; refused: string };
+  /** `resolve_conflict` only: the trunk commit merged into the head (the merge commit's second parent). */
+  mergeParent?: string;
+  limits: {
+    patchBytes: number; files: number; proposalBytes: number; summaryChars: number; refused: string; meta: string;
+    /** The most patch output read at all (default 8 MiB); more is over the cap, not a crash. */
+    bufferBytes?: number;
+  };
 }
 
 /**
@@ -144,6 +151,12 @@ export interface ProposalInput {
  * against the bound head) into the run's one proposal: a bounded binary-safe
  * patch plus thread replies. Prints the proposal, or a refusal, as JSON. It
  * never commits or pushes; Cloud publishes a proposal server-side.
+ *
+ * With `mergeParent` (schema 2) the patch is still head -> merged tree, but
+ * the rules apply to what the agent authored, the tree against trunk: it may
+ * differ from trunk only in the PR's own files, with no conflict markers and
+ * no drizzle metadata. A merge whose patch exceeds the caps publishes no
+ * code: the proposal carries an empty patch and says why (`unpublished`).
  */
 export async function proposeChanges(c: ProposalInput): Promise<void> {
   const { execFileSync } = await import('node:child_process');
@@ -154,28 +167,103 @@ export async function proposeChanges(c: ProposalInput): Promise<void> {
   writeFileSync(`${c.dir}/.git/config`, '[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n');
   rmSync(`${c.dir}/.git/hooks`, { recursive: true, force: true });
   rmSync(`${c.dir}/.git/info/attributes`, { force: true });
-  const git = (...args: string[]) => String(execFileSync('git', ['-C', c.dir, ...args], {
-    encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'],
+  const buffer = c.limits.bufferBytes ?? 8 * 1024 * 1024;
+  const gitWith = (maxBuffer: number, ...args: string[]) => String(execFileSync('git', ['-C', c.dir, ...args], {
+    encoding: 'utf8', maxBuffer, stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'core.hooksPath', GIT_CONFIG_VALUE_0: '/dev/null', GIT_CONFIG_KEY_1: 'core.quotePath', GIT_CONFIG_VALUE_1: 'false' },
   }));
+  const git = (...args: string[]) => gitWith(8 * 1024 * 1024, ...args);
   const diff = ['diff', '--cached', '--no-renames', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/'];
   const refuse = (reason: string) => process.stdout.write(JSON.stringify({ kind: 'babysitter-refusal', reason }));
+  if (c.mergeParent) {
+    // Staging clears the unmerged index. Git leaves a conflict as the PR's
+    // side with NO markers when either side is binary or the path has a
+    // `binary` / `merge=binary` attribute; one the agent never touched would
+    // publish the PR's blob and drop trunk's. Those are refused before
+    // staging. A text conflict always gets markers, so keeping the PR's side
+    // of one is the agent's choice and stays allowed.
+    const { execFileSync: run } = await import('node:child_process');
+    // A blob too large to read under the bound, or not a blob, cannot be
+    // shown to be text: it counts as marker-less, so an untouched one is
+    // refused rather than crashing the run.
+    const blobIsBinary = (blob: string) => {
+      try {
+        const bytes = run('git', ['-C', c.dir, 'cat-file', 'blob', blob], { maxBuffer: buffer, stdio: ['ignore', 'pipe', 'ignore'] });
+        return bytes.subarray(0, 8000).includes(0);
+      } catch { return true; }
+    };
+    // Attributes as the two merged commits declare them, not as the agent may
+    // have edited .gitattributes since. Unreadable counts as marker-less.
+    const binaryAttribute = (path: string) => [c.head, c.mergeParent].some((source) => {
+      try {
+        const out = git('check-attr', `--source=${source}`, 'binary', 'merge', '--', path);
+        return /: binary: set$/m.test(out) || /: merge: (binary|unset)$/m.test(out);
+      } catch { return true; }
+    });
+    const unmerged = git('diff', '--name-only', '--diff-filter=U', '-z').split('\0').filter(Boolean);
+    const untouched = unmerged.filter(path => {
+      const stages = git('ls-files', '-u', '-z', '--', path).split('\0').filter(Boolean)
+        .map(line => ({ stage: line.split(/\s+/)[2], blob: line.split(/\s+/)[1] }));
+      const ours = stages.find(s => s.stage === '2')?.blob;
+      const theirs = stages.find(s => s.stage === '3')?.blob;
+      if (!ours || !theirs || ours === theirs) return false;
+      let unchanged: boolean;
+      try { unchanged = git('hash-object', '--', path).trim() === ours; } catch { return false; }
+      return unchanged && (blobIsBinary(ours) || blobIsBinary(theirs) || binaryAttribute(path));
+    });
+    if (untouched.length) return refuse(`unresolved conflict(s) left as the PR's side with no markers: ${untouched.slice(0, 5).join(', ')}`);
+  }
   git('add', '-A');
   // NUL-delimited: a newline in a name cannot split it. A name git would
   // have to quote in the patch is refused outright, so the paths Cloud parses
   // back out of the patch are exactly these.
-  const files = git(...diff, '-z', '--name-only', c.head).split('\0').filter(Boolean);
-  const quoted = files.filter(f => /["\\\x00-\x1f\x7f]/.test(f));
+  const names = (...range: string[]) => git(...diff, '-z', '--name-only', ...range).split('\0').filter(Boolean);
+  const files = names(c.head);
+  // What the agent authored: against the bound head, or against trunk for a merge.
+  const authored = c.mergeParent ? names(c.mergeParent) : files;
+  const quoted = [...files, ...authored].filter(f => /["\\\x00-\x1f\x7f]/.test(f));
   if (quoted.length) return refuse(`changes ${quoted.length} path(s) with quotes, backslashes or control characters`);
-  const refused = files.filter(f => new RegExp(c.limits.refused).test(f));
+  const refused = authored.filter(f => new RegExp(c.limits.refused).test(f));
   if (refused.length) return refuse(`changes refused paths: ${refused.slice(0, 5).join(', ')}`);
-  if (files.length > c.limits.files) return refuse(`changes ${files.length} files; at most ${c.limits.files}`);
-  const patch = git(...diff, '--binary', '--full-index', c.head);
-  if (Buffer.byteLength(patch) > c.limits.patchBytes) return refuse(`patch is ${Buffer.byteLength(patch)} bytes; at most ${c.limits.patchBytes}`);
-  const out = JSON.stringify({
-    kind: 'babysitter-proposal', schemaVersion: 1, pullRequest: c.pullRequest, baseHead: c.head,
-    files, patch, summary: c.summary, replies: c.replies,
-  });
+  const meta = authored.filter(f => new RegExp(c.limits.meta).test(f));
+  if (meta.length) return refuse(`changes drizzle metadata (${meta.slice(0, 3).join(', ')}); migrations are renumbered by Cloud, never by an agent`);
+  if (c.mergeParent) {
+    const { existsSync, readFileSync } = await import('node:fs');
+    const base = git('merge-base', c.head, c.mergeParent).trim();
+    const own = new Set(git('diff', '-z', '--name-only', '--no-renames', '--no-ext-diff', base, c.head).split('\0').filter(Boolean));
+    const outside = authored.filter(f => !own.has(f));
+    if (outside.length) return refuse(`the merge changes trunk outside the PR's own files: ${outside.slice(0, 5).join(', ')}`);
+    const marked = authored.filter(f => existsSync(`${c.dir}/${f}`) && /^(<<<<<<<|>>>>>>>) /m.test(readFileSync(`${c.dir}/${f}`, 'utf8')));
+    if (marked.length) return refuse(`conflict markers remain in ${marked.slice(0, 5).join(', ')}`);
+  }
+  const wide = files.length > c.limits.files;
+  let patch = '';
+  let unreadable = false;
+  if (!wide) {
+    try { patch = gitWith(buffer, ...diff, '--binary', '--full-index', c.head); } catch (error) {
+      const code = (error as { code?: unknown }).code;
+      if (code !== 'ENOBUFS' && !/maxBuffer/.test(String((error as { message?: unknown }).message))) throw error;
+      unreadable = true;
+    }
+  }
+  const over = wide ? `changes ${files.length} files; at most ${c.limits.files}`
+    : unreadable ? `patch is larger than ${buffer} bytes; at most ${c.limits.patchBytes}`
+    : Buffer.byteLength(patch) > c.limits.patchBytes ? `patch is ${Buffer.byteLength(patch)} bytes; at most ${c.limits.patchBytes}` : undefined;
+  if (over && !c.mergeParent) return refuse(over);
+  const out = JSON.stringify(over
+    ? {
+      kind: 'babysitter-proposal', schemaVersion: 1, pullRequest: c.pullRequest, baseHead: c.head, files: [], patch: '',
+      // The explanation always shows; the agent's summary yields room for it.
+      summary: (() => {
+        const why = `\n\nThe conflict resolution was not published: the merge ${over}. A person needs to resolve it.`;
+        return `${c.summary.slice(0, Math.max(0, c.limits.summaryChars - why.length))}${why}`;
+      })(),
+      replies: c.replies, unpublished: over,
+    }
+    : {
+      kind: 'babysitter-proposal', schemaVersion: c.mergeParent ? 2 : 1, pullRequest: c.pullRequest, baseHead: c.head,
+      ...(c.mergeParent ? { mergeParent: c.mergeParent } : {}), files, patch, summary: c.summary, replies: c.replies,
+    });
   if (Buffer.byteLength(out) > c.limits.proposalBytes) return refuse('proposal exceeds the journal output bound');
   process.stdout.write(out);
 }
@@ -198,13 +286,13 @@ export async function checkout(f: Ctx, pr: { owner: string; repo: string }, head
 }
 
 export type Proposal =
-  | { kind: 'babysitter-proposal'; files: string[]; patch: string }
+  | { kind: 'babysitter-proposal'; files: string[]; patch: string; mergeParent?: string; unpublished?: string }
   | { kind: 'babysitter-refusal'; reason: string };
 
 export async function propose(f: Ctx, input: Omit<ProposalInput, 'limits'>): Promise<Proposal> {
   const value = JSON.parse(await f.run(nodeCommand(proposeChanges, {
     ...input,
-    limits: { patchBytes: PATCH_MAX_BYTES, files: PATCH_MAX_FILES, proposalBytes: PROPOSAL_MAX_BYTES, refused: REFUSED_PATHS },
+    limits: { patchBytes: PATCH_MAX_BYTES, files: PATCH_MAX_FILES, proposalBytes: PROPOSAL_MAX_BYTES, summaryChars: SUMMARY_MAX_CHARS, refused: REFUSED_PATHS, meta: DRIZZLE_META },
   }), { timeout: '2m' }));
   if (value.kind === 'babysitter-refusal' && typeof value.reason === 'string') return value;
   if (value.kind !== 'babysitter-proposal' || value.baseHead !== input.head || !Array.isArray(value.files) || typeof value.patch !== 'string')

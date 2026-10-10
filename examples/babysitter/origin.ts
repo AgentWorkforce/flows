@@ -57,7 +57,8 @@ function fence(label: string, enclosed: string): string {
 export interface WhatChanged {
   failingChecks: { name: string; conclusion: string; summary: string }[];
   changeRequests: { login: string; body: string }[];
-  reviewFeedback: { kind: 'inline' | 'review'; id: number; login: string; body: string; path?: string; line?: number }[];
+  /** `thread`: an inline comment's thread root (its own id when it starts the thread). */
+  reviewFeedback: { kind: 'inline' | 'review'; id: number; login: string; body: string; path?: string; line?: number; thread?: number }[];
   directive?: { login: string; body: string };
 }
 

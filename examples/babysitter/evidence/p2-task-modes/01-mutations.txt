@@ -1,0 +1,146 @@
+== M1 task admission disabled (always feedback admission): mutated fixer.ts (s/const a: FixerAdmitted | undefined = hasTask(value)/const a: FixerAdmitted | undefined = false/)
+$ node --experimental-strip-types --test --test-name-pattern="fix_ci admits" tests/task.test.ts
+✖ fix_ci admits a merge-train PR with no review feedback and no opt-in label, and gives the agent the failing checks (3.881418ms)
+ℹ pass 0
+ℹ fail 1
+✖ failing tests:
+✖ fix_ci admits a merge-train PR with no review feedback and no opt-in label, and gives the agent the failing checks (3.881418ms)
+-- restored byte-for-byte (sha256 matches the pre-mutation file)
+$ node --experimental-strip-types --test --test-name-pattern="fix_ci admits" tests/task.test.ts
+✔ fix_ci admits a merge-train PR with no review feedback and no opt-in label, and gives the agent the failing checks (3.398779ms)
+ℹ pass 1
+ℹ fail 0
+
+== M2 drizzle metadata refusal removed: mutated fix.ts (s/  if (meta.length) return refuse(/  if (false) return refuse(/)
+$ node --experimental-strip-types --test --test-name-pattern="drizzle metadata is refused" tests/task.test.ts
+✖ an agent change to drizzle metadata is refused for every proposal (228.2828ms)
+ℹ pass 0
+ℹ fail 1
+✖ failing tests:
+✖ an agent change to drizzle metadata is refused for every proposal (228.2828ms)
+-- restored byte-for-byte (sha256 matches the pre-mutation file)
+$ node --experimental-strip-types --test --test-name-pattern="drizzle metadata is refused" tests/task.test.ts
+✔ an agent change to drizzle metadata is refused for every proposal (199.806695ms)
+ℹ pass 1
+ℹ fail 0
+
+== M3 merge outside-PR-files rule removed: mutated fix.ts (s/    if (outside.length) return refuse(/    if (false) return refuse(/)
+$ node --experimental-strip-types --test --test-name-pattern="outside the PR" tests/task.test.ts
+✖ a merge that changes trunk outside the PR's own files, or leaves conflict markers, is refused (239.355601ms)
+ℹ pass 0
+ℹ fail 1
+✖ failing tests:
+✖ a merge that changes trunk outside the PR's own files, or leaves conflict markers, is refused (239.355601ms)
+-- restored byte-for-byte (sha256 matches the pre-mutation file)
+$ node --experimental-strip-types --test --test-name-pattern="outside the PR" tests/task.test.ts
+✔ a merge that changes trunk outside the PR's own files, or leaves conflict markers, is refused (471.807728ms)
+ℹ pass 1
+ℹ fail 0
+
+== M4 thread filter back on comment ids: mutated task-admission.ts (s/wanted.has(r.thread ?? r.id)/wanted.has(r.id)/)
+$ node --experimental-strip-types --test --test-name-pattern="matched by its root" tests/task.test.ts
+✖ answer_threads acts on a still-open reply in a requested thread, matched by its root (4.338569ms)
+ℹ pass 0
+ℹ fail 1
+✖ failing tests:
+✖ answer_threads acts on a still-open reply in a requested thread, matched by its root (4.338569ms)
+-- restored byte-for-byte (sha256 matches the pre-mutation file)
+$ node --experimental-strip-types --test --test-name-pattern="matched by its root" tests/task.test.ts
+✔ answer_threads acts on a still-open reply in a requested thread, matched by its root (4.623019ms)
+ℹ pass 1
+ℹ fail 0
+
+== M5 requested-thread coverage check removed: mutated fixer.ts (s/    if (unanswered.length) {/    if (false) {/)
+$ node --experimental-strip-types --test --test-name-pattern="gets no reply" tests/task.test.ts
+✖ answer_threads ends needs_human, with no proposal, when a requested thread gets no reply (5.232112ms)
+ℹ pass 0
+ℹ fail 1
+✖ failing tests:
+✖ answer_threads ends needs_human, with no proposal, when a requested thread gets no reply (5.232112ms)
+-- restored byte-for-byte (sha256 matches the pre-mutation file)
+$ node --experimental-strip-types --test --test-name-pattern="gets no reply" tests/task.test.ts
+✔ answer_threads ends needs_human, with no proposal, when a requested thread gets no reply (4.504919ms)
+ℹ pass 1
+ℹ fail 0
+
+== M6 control characters allowed in check names: mutated task.ts (s/!label(c.name, NAME_MAX_CHARS)/!bounded(c.name, NAME_MAX_CHARS)/)
+$ node --experimental-strip-types --test --test-name-pattern="check names never reach" tests/task.test.ts
+✖ check names never reach the trusted task section, and control characters in them are refused (2.415458ms)
+ℹ pass 0
+ℹ fail 1
+✖ failing tests:
+✖ check names never reach the trusted task section, and control characters in them are refused (2.415458ms)
+-- restored byte-for-byte (sha256 matches the pre-mutation file)
+$ node --experimental-strip-types --test --test-name-pattern="check names never reach" tests/task.test.ts
+✔ check names never reach the trusted task section, and control characters in them are refused (4.093212ms)
+ℹ pass 1
+ℹ fail 0
+
+== M7 merge-start check removed: mutated merge.ts (s/  if (mergeHead !== c.trunkSha || (failure !== undefined \&\& conflicts.length === 0))/  if (false)/)
+$ node --experimental-strip-types --test --test-name-pattern="does not start the merge" tests/task.test.ts
+✖ the merge step refuses when git does not start the merge, instead of reporting a clean merge (217.276309ms)
+ℹ pass 0
+ℹ fail 1
+✖ failing tests:
+✖ the merge step refuses when git does not start the merge, instead of reporting a clean merge (217.276309ms)
+-- restored byte-for-byte (sha256 matches the pre-mutation file)
+$ node --experimental-strip-types --test --test-name-pattern="does not start the merge" tests/task.test.ts
+✔ the merge step refuses when git does not start the merge, instead of reporting a clean merge (217.709005ms)
+ℹ pass 1
+ℹ fail 0
+
+== M8 unpublished summary uncapped: mutated fix.ts (s/c.limits.summaryChars - why.length/Infinity/)
+$ node --experimental-strip-types --test --test-name-pattern="within the summary limit" tests/task.test.ts
+✖ an unpublished merge keeps its summary within the summary limit, explanation included (197.820119ms)
+ℹ pass 0
+ℹ fail 1
+✖ failing tests:
+✖ an unpublished merge keeps its summary within the summary limit, explanation included (197.820119ms)
+-- restored byte-for-byte (sha256 matches the pre-mutation file)
+$ node --experimental-strip-types --test --test-name-pattern="within the summary limit" tests/task.test.ts
+✔ an unpublished merge keeps its summary within the summary limit, explanation included (201.113462ms)
+ℹ pass 1
+ℹ fail 0
+
+== M9 binary-conflict refusal removed: mutated fix.ts (s/    if (untouched.length) return refuse(/    if (false) return refuse(/)
+$ node --experimental-strip-types --test --test-name-pattern="unresolved binary conflict" tests/task.test.ts
+✖ an unresolved binary conflict is refused rather than published as the PR side (200.038943ms)
+ℹ pass 0
+ℹ fail 1
+✖ failing tests:
+✖ an unresolved binary conflict is refused rather than published as the PR side (200.038943ms)
+-- restored byte-for-byte (sha256 matches the pre-mutation file)
+$ node --experimental-strip-types --test --test-name-pattern="unresolved binary conflict" tests/task.test.ts
+✔ an unresolved binary conflict is refused rather than published as the PR side (185.125241ms)
+ℹ pass 1
+ℹ fail 0
+
+== M10 buffer overflow fails the run again: mutated fix.ts (s/      unreadable = true;/      throw error;/)
+$ node --experimental-strip-types --test --test-name-pattern="too large to even read" tests/task.test.ts
+✖ a merge patch too large to even read publishes no code instead of failing the run (204.796782ms)
+ℹ pass 0
+ℹ fail 1
+✖ failing tests:
+✖ a merge patch too large to even read publishes no code instead of failing the run (204.796782ms)
+-- restored byte-for-byte (sha256 matches the pre-mutation file)
+$ node --experimental-strip-types --test --test-name-pattern="too large to even read" tests/task.test.ts
+✔ a merge patch too large to even read publishes no code instead of failing the run (197.988686ms)
+ℹ pass 1
+ℹ fail 0
+
+exit=0
+
+# review round 2 (Cursor PRRT_kwDOUF0ysM6rBIa9): marker-less conflicts
+== red: attribute check disabled
+✖ a marker-less conflict on a text file (merge=binary) is refused too, not only NUL-bearing files (198.075321ms)
+ℹ fail 1
+ℹ pass 22
+   restored sha ok: yes
+== red: binary-blob checks disabled
+✖ an unresolved binary conflict is refused rather than published as the PR side (199.301968ms)
+ℹ fail 1
+ℹ pass 22
+   restored sha ok: yes
+== green: restored
+ℹ fail 0
+ℹ pass 23
