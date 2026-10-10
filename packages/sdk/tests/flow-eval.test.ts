@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -6,7 +6,9 @@ import {
   evaluateFlow, flowEvalSuiteSha256, flowEvalVersion, FlowEvalError, parseFlowEvalSuite,
   type FlowEvalExecutor, type FlowEvalRun, type FlowEvalSuite,
 } from '../src/flow-eval.js';
-import { cloudSpend, localRunOutcome, localRunSpend } from '../src/flow-eval-executors.js';
+import { localRunOutcome, localRunSpend } from '../src/flow-eval-local.js';
+import { cloudRunOutcome, cloudSpend } from '../src/flow-eval-cloud.js';
+import { flowEvalSources, localSpecifiers } from '../src/flow-eval-version.js';
 import type { CloudStep } from '../src/cloud-read.js';
 import type { JournalEvent } from '../src/journal-client.js';
 import { runCli } from '../src/cli.js';
@@ -242,6 +244,72 @@ describe('evaluateFlow', () => {
   });
 });
 
+describe('flow version', () => {
+  function authoredProject() {
+    const root = scratch();
+    writeFileSync(join(root, 'flows.json'), '{}');
+    mkdirSync(join(root, 'lib'));
+    writeFileSync(join(root, 'lib', 'prompt.ts'), "export const PROMPT = 'triage';\n");
+    writeFileSync(join(root, 'child.flow.ts'), "export default 1;\n");
+    const entry = join(root, 'main.flow.ts');
+    writeFileSync(entry, [
+      "import { flow } from '@relayflows/surface';",
+      "import { PROMPT } from './lib/prompt.js';",
+      "export default flow({ name: 'main', use: ['./child.flow.ts'] }, async (f) => { await f.run(PROMPT); });",
+    ].join('\n'));
+    return { root, entry };
+  }
+
+  it('covers relative imports, used flows and the project config, not just the entry', async () => {
+    const { root, entry } = authoredProject();
+    const before = await flowEvalSources({ path: entry });
+    expect(before.files).toEqual(['child.flow.ts', 'flows.json', 'lib/prompt.ts', 'main.flow.ts']);
+    writeFileSync(join(root, 'lib', 'prompt.ts'), "export const PROMPT = 'something else';\n");
+    const afterHelper = await flowEvalVersion({ path: entry });
+    expect(afterHelper).not.toBe(before.version);
+    writeFileSync(join(root, 'child.flow.ts'), "export default 2;\n");
+    expect(await flowEvalVersion({ path: entry })).not.toBe(afterHelper);
+  });
+
+  it('finds import, re-export, dynamic import and use-path specifiers lexically', () => {
+    expect(localSpecifiers([
+      "import { a } from './a.js';", "import type { B } from '../b';", "export * from './c.ts';",
+      "import './side-effect.js';", "const d = await import('./d.js');", "use: ['./e.flow.ts']",
+      "import { x } from 'some-package';",
+    ].join('\n')).sort()).toEqual(['../b', './a.js', './c.ts', './d.js', './e.flow.ts', './side-effect.js']);
+  });
+
+  it('errors the remaining cases and fails the gate when the source changes mid-evaluation', async () => {
+    const path = flowFile();
+    const executor: FlowEvalExecutor = async ({ caseId }) => {
+      if (caseId === 'happy') writeFileSync(path, 'version: "1"\nsteps: []\n# edited mid-run\n');
+      return { completionReason: caseId === 'declines-empty' ? 'declined' : 'success', completionDetail: 'AR-2', costUsd: 0 };
+    };
+    const report = await evaluateFlow({ flow: { path }, suite: SUITE, executor });
+    expect(report.cases.map(c => c.outcome)).toEqual(['pass', 'error', 'error']);
+    expect(report.cases[1]!.failures[0]).toContain('flow source changed during the evaluation');
+    expect(report.gate.pass).toBe(false);
+  });
+
+  it('fails the gate when the source changes after the last case ran', async () => {
+    const path = flowFile();
+    const report = await evaluateFlow({ flow: { path }, suite: { name: 's', cases: [{ id: 'only' }] },
+      executor: async () => { writeFileSync(path, 'version: "1"\nsteps: []\n# late\n'); return { completionReason: 'success' }; } });
+    expect(report.cases[0]!.outcome).toBe('pass');
+    expect(report.gate.pass).toBe(false);
+    expect(report.gate.reasons.at(-1)).toContain('the results judge no single version');
+  });
+
+  it('refuses a malformed baseline before running any case', async () => {
+    const calls: string[] = [];
+    const executor: FlowEvalExecutor = async ({ caseId }) => { calls.push(caseId); return { completionReason: 'success' }; };
+    const baseline = { kind: 'flows.eval.report', suite: { sha256: flowEvalSuiteSha256(SUITE) }, cases: [null] };
+    await expect(evaluateFlow({ flow: { path: flowFile() }, suite: SUITE, executor, baseline }))
+      .rejects.toMatchObject({ code: 'invalid_baseline' });
+    expect(calls).toEqual([]);
+  });
+});
+
 describe('executor mappings', () => {
   it('maps local run reports onto eval completion reasons', () => {
     const base = { command: 'run' as const, resolutions: [], diagnostics: [] };
@@ -254,9 +322,26 @@ describe('executor mappings', () => {
       completionDetail: 'checks failed' } })).toEqual({ runId: 'r3', completionReason: 'step_failed', completionDetail: 'checks failed' });
     expect(localRunOutcome({ exitCode: 3, report: { ...base, ok: false, runId: 'r4', status: 'parked' } }))
       .toMatchObject({ completionReason: 'needs_human' });
+    expect(localRunOutcome({ exitCode: 3, report: { ...base, ok: false, runId: 'r5', status: 'parked', parkCause: 'worker_unavailable' } }))
+      .toMatchObject({ completionReason: 'worker_unavailable' });
+    // A failed authored run names its failing child as runId; spend is read from the root.
+    expect(localRunOutcome({ exitCode: 1, report: { ...base, ok: false, runId: 'child-3', rootRunId: 'root-1', status: 'failed',
+      completionReason: 'step_failed' } })).toMatchObject({ runId: 'root-1', completionReason: 'step_failed' });
     expect(localRunOutcome({ exitCode: 2, report: { ...base, ok: false,
       diagnostics: [{ severity: 'refusal', kind: 'invalid_spec', message: 'bad spec' }] } as never }))
       .toEqual({ completionReason: 'refused', completionDetail: 'bad spec' });
+  });
+
+  it('maps a hosted run report to the same verdict and detail as a local one', () => {
+    const record = (status: string, result: Record<string, unknown>) => ({ runId: 'run-1', relayflowVersion: 'v2', status, result });
+    expect(cloudRunOutcome(record('completed', { ok: true, status: 'completed', completionReason: 'success',
+      diagnostics: [{ severity: 'declined', kind: 'run_declined', message: 'Flow deliberately chose not to act.' }] }), 'run-1'))
+      .toEqual({ completionReason: 'declined' });
+    expect(cloudRunOutcome(record('completed', { ok: true, status: 'completed', completionReason: 'success',
+      completionDetail: 'filed AR-2', diagnostics: [] }), 'run-1')).toEqual({ completionReason: 'success', completionDetail: 'filed AR-2' });
+    expect(cloudRunOutcome(record('failed', { ok: false, status: 'failed', completionReason: 'step_failed',
+      completionDetail: 'n=5 is too large', diagnostics: [] }), 'run-1')).toEqual({ completionReason: 'step_failed', completionDetail: 'n=5 is too large' });
+    expect(() => cloudRunOutcome({ runId: 'other' }, 'run-1')).toThrow();
   });
 
   it('sums hosted step spend and reports unknown when an agent step has no cost', () => {
@@ -276,26 +361,39 @@ describe('executor mappings', () => {
     expect(cloudSpend(undefined)).toEqual({ costUsd: null, tokensIn: null, tokensOut: null });
   });
 
-  it('reads local spend from the root journal and the authored child runs it names', async () => {
+  it('sums per-step spend across the root and every authored child, never cumulative run totals', async () => {
     const dataDir = scratch();
     const event = (runId: string, seq: number, entry_type: string, step_id: string | null, payload: unknown, at_ms = seq * 100): JournalEvent =>
       ({ seq, segment_id: 1, entry_type, run_id: runId, step_id, attempt: step_id === null ? null : 1, at_ms, payload });
     const budget = (dollars: string, tokens: number) => ({ tokens_in: tokens, tokens_out: tokens / 2, dollars });
+    const indexed = (runId: string) => ({ stream: 'authored-steps', message: {
+      index: 'relayflows.authored-step.v1', step: runId, runId, state: 'admitted' } });
+    // Child 2 started from child 1's prior spend: its run total ($0.30) includes child 1's $0.10.
     writeJournalFixture(dataDir, 'child1', [
-      event('child1', 1, 'step.attempt.started', 'worker', {}),
-      event('child1', 2, 'step.completed', 'worker', { completionReason: 'success', budget: budget('0.120000', 100) }),
+      event('child1', 1, 'step.attempt.started', 'one', {}),
+      event('child1', 2, 'step.completed', 'one', { completionReason: 'success', budget: budget('0.100000', 100) }),
+      event('child1', 3, 'run.completed', null, { budget_total: budget('0.100000', 100) }),
     ]).writer.close();
+    writeJournalFixture(dataDir, 'child2', [
+      event('child2', 1, 'step.attempt.started', 'two', {}),
+      event('child2', 2, 'step.completed', 'two', { completionReason: 'step_failed', budget: budget('0.200000', 200) }),
+      event('child2', 3, 'run.completed', null, { budget_total: budget('0.300000', 300) }),
+    ]).writer.close();
+    // A failed root: its completion output names no child, but its index stream does.
     writeJournalFixture(dataDir, 'root1', [
       event('root1', 1, 'step.attempt.started', 'root', {}),
-      event('root1', 2, 'step.completed', 'root', { completionReason: 'success', budget: budget('0', 0),
-        output: { journalSteps: [{ runId: 'child1' }, { runId: '../escape' }] } }),
-      event('root1', 3, 'run.completed', null, { budget_total: budget('0', 0) }),
+      event('root1', 2, 'stream.appended', null, indexed('child1')),
+      event('root1', 3, 'stream.appended', null, indexed('child2')),
+      event('root1', 4, 'stream.appended', null, { stream: 'authored-steps', message: { index: 'relayflows.authored-step.v1', runId: '../escape' } }),
+      event('root1', 5, 'step.completed', 'root', { completionReason: 'worker_error', output: { error: 'body failed' } }),
+      event('root1', 6, 'run.completed', null, { budget_total: budget('0', 0) }),
     ]).writer.close();
     expect(await localRunSpend('root1', dataDir)).toEqual({
-      costUsd: 0.12, tokensIn: 100, tokensOut: 50,
+      costUsd: 0.3, tokensIn: 300, tokensOut: 150,
       steps: [
-        { id: 'root', status: 'success', durationMs: 100, costUsd: 0 },
-        { id: 'worker', status: 'success', durationMs: 100, costUsd: 0.12 },
+        { id: 'root', status: 'worker_error', durationMs: 400 },
+        { id: 'one', status: 'success', durationMs: 100, costUsd: 0.1 },
+        { id: 'two', status: 'step_failed', durationMs: 100, costUsd: 0.2 },
       ],
     });
     expect(await localRunSpend('missing', dataDir)).toEqual({ costUsd: null, tokensIn: null, tokensOut: null });
@@ -335,6 +433,16 @@ describe('flows eval', () => {
     expect(await runEvalCli({ ...args, json: true, report: undefined }, failing.io, new AbortController().signal,
       scriptedExecutor(clock, {}).executor)).toBe(1);
     expect(JSON.parse(failing.stdout[0]!)).toMatchObject({ gate: { pass: false }, summary: { passed: 1, failed: 2 } });
+  });
+
+  it('reports a refusal as JSON under --json, including a report it could not write', async () => {
+    const directory = scratch();
+    const suitePath = join(directory, 'suite.json');
+    writeFileSync(suitePath, JSON.stringify({ name: 's', cases: [{ id: 'a' }] }));
+    const out = io();
+    const args = parseEvalArgs([flowFile(), '--cases', suitePath, '--json', '--report', join(directory, 'missing-dir', 'r.json')])!;
+    expect(await runEvalCli(args, out.io, new AbortController().signal, async () => ({ completionReason: 'success' }))).toBe(2);
+    expect(JSON.parse(out.stdout.at(-1)!)).toMatchObject({ ok: false, diagnostics: [{ severity: 'refusal', kind: 'report_unwritable' }] });
   });
 
   it('refuses an unreadable suite with exit 2 through the real CLI dispatcher', async () => {

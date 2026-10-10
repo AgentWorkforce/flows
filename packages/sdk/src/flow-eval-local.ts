@@ -1,7 +1,7 @@
-// The two built-in executors for `evaluateFlow`: one fresh local run per case
-// through relayflowd, or one fresh hosted run per case through Cloud. Neither
-// reuses a prior run's outputs — `--reuse-from` memoization would make an eval
-// judge the old version's step results, which is exactly what it must not do.
+// The local executor for `evaluateFlow`: one fresh `flows run` per case
+// against relayflowd, and the case's spend read back from the journals.
+// Memoization (`--reuse-from`) is never used: an evaluation must judge the
+// candidate's own step results, not a prior version's.
 
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -10,12 +10,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { canonicalize } from './canonical.js';
-import { getCloudRunSteps, type CloudStep } from './cloud-read.js';
-import { runInCloud, waitForCloudFlowRun, type RunInCloudOptions } from './cloud-run.js';
-import type { CloudConnectionOptions } from './cloud-http.js';
 import { isAuthoredFlowPath } from './direct-input.js';
 import { walkJournal } from './journal-reader.js';
-import type { FlowEvalExecutor, FlowEvalRun, FlowEvalStep } from './flow-eval.js';
+import type { FlowEvalExecutor, FlowEvalRun, FlowEvalStep } from './flow-eval-report.js';
+import { runReportOutcome } from './flow-eval-outcome.js';
 import type { RunExecution } from './cli/run.js';
 
 export interface LocalFlowEvalExecutorOptions {
@@ -114,34 +112,42 @@ function runCliProcess(args: string[], cwd: string | undefined, signal: AbortSig
 /** Map a local `RunExecution` onto the eval vocabulary. Exported for tests. */
 export function localRunOutcome(execution: RunExecution): FlowEvalRun {
   const { report } = execution;
-  const runId = report.runId ?? report.rootRunId;
-  const detail = report.completionDetail
-    ?? report.diagnostics.find(d => d.severity === 'failure' || d.severity === 'refusal' || d.severity === 'parked')?.message;
-  let completionReason: string;
-  if (execution.exitCode === 2) completionReason = 'refused';
-  else if (report.status === 'parked' || execution.exitCode === 3) completionReason = 'needs_human';
-  else if (report.ok && report.diagnostics.some(d => d.kind === 'run_declined')) completionReason = 'declined';
-  else if (report.ok) completionReason = 'success';
-  else completionReason = report.completionReason ?? (report.status === 'suspended' ? 'suspended' : 'failed');
-  return {
-    ...(runId === undefined ? {} : { runId }),
-    completionReason,
-    ...(detail === undefined ? {} : { completionDetail: detail }),
-  };
+  // The root, not the failing child: a failed authored run reports the child
+  // that failed as `runId`, and spend must be read from the whole run.
+  const runId = report.rootRunId ?? report.runId;
+  return { ...(runId === undefined ? {} : { runId }), ...runReportOutcome(report, execution.exitCode) };
 }
 
 /**
- * Spend from the local journals: `run.completed.budget_total` when the run
- * terminated, else the sum of its steps' completions. An authored root runs
- * each step as a child run with its own journal; those children are named in
- * the root step's output (`journalSteps`) and their spend is added here, so an
- * authored flow's cost is not reported as the root's near-zero bookkeeping.
+ * Spend from the local journals.
+ *
+ * Summed from each step's own `step.completed` budget, never from a run's
+ * `budget_total`: an authored child run starts from the flow's `prior_spend`,
+ * so its total already includes every earlier child, and adding totals would
+ * count the same dollars repeatedly.
+ *
+ * An authored root runs each step as a child run with its own journal. The
+ * children are found in the root's `authored-steps` stream, which is written
+ * as each child opens and so survives a failed body, and in the root step's
+ * success output (`journalSteps`).
  */
 export async function localRunSpend(runId: string, dataDir: string): Promise<Pick<FlowEvalRun, 'costUsd' | 'tokensIn' | 'tokensOut' | 'steps'>> {
   try {
+    const spend: Spend = { dollars: 0, tokensIn: 0, tokensOut: 0 };
+    const steps: FlowEvalStep[] = [];
     const visited = new Set<string>();
-    const spend = await journalSpend(runId, dataDir, visited, 0);
-    return { costUsd: spend.dollars, tokensIn: spend.tokensIn, tokensOut: spend.tokensOut, steps: spend.steps };
+    const queue: Array<{ runId: string; depth: number }> = [{ runId, depth: 0 }];
+    while (queue.length > 0) {
+      const next = queue.shift()!;
+      if (visited.has(next.runId)) continue;
+      visited.add(next.runId);
+      const read = await readJournal(next.runId, dataDir);
+      addSpend(spend, read.spend);
+      steps.push(...read.steps);
+      // Bounded like `f.dispatch` (depth <= 3).
+      if (next.depth < 3) for (const child of read.children) queue.push({ runId: child, depth: next.depth + 1 });
+    }
+    return { costUsd: spend.dollars === null ? null : roundUsd(spend.dollars), tokensIn: spend.tokensIn, tokensOut: spend.tokensOut, steps };
   } catch {
     // Spend is evidence, not the verdict: an unreadable journal leaves cost unknown.
     return { costUsd: null, tokensIn: null, tokensOut: null };
@@ -150,14 +156,13 @@ export async function localRunSpend(runId: string, dataDir: string): Promise<Pic
 
 interface Spend { dollars: number | null; tokensIn: number; tokensOut: number }
 
-async function journalSpend(
-  runId: string, dataDir: string, visited: Set<string>, depth: number,
-): Promise<Spend & { steps: FlowEvalStep[] }> {
-  visited.add(runId);
-  let total: Spend | undefined;
-  const summed: Spend = { dollars: 0, tokensIn: 0, tokensOut: 0 };
+const AUTHORED_STEP_RECORD = 'relayflows.authored-step.v1';
+const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/u;
+
+async function readJournal(runId: string, dataDir: string): Promise<{ spend: Spend; steps: FlowEvalStep[]; children: string[] }> {
+  const spend: Spend = { dollars: 0, tokensIn: 0, tokensOut: 0 };
   const steps = new Map<string, FlowEvalStep & { startedAt?: number }>();
-  const children: string[] = [];
+  const children = new Set<string>();
   for await (const event of walkJournal(runId, dataDir)) {
     const payload = (event.payload !== null && typeof event.payload === 'object' ? event.payload : {}) as Record<string, unknown>;
     if (event.entry_type === 'step.attempt.started' && event.step_id !== null) {
@@ -171,36 +176,36 @@ async function journalSpend(
       if (step.startedAt !== undefined) step.durationMs = event.at_ms - step.startedAt;
       if (budget !== undefined) {
         step.costUsd = budget.dollars;
-        addSpend(summed, budget);
+        addSpend(spend, budget);
       }
       steps.set(event.step_id, step);
-      children.push(...childRunIds(payload['output']));
-    } else if (event.entry_type === 'run.completed') {
-      total = readBudget(payload['budget_total']);
+      for (const child of journalStepRunIds(payload['output'])) children.add(child);
+    } else if (event.entry_type === 'stream.appended') {
+      for (const child of authoredStepRunIds(payload)) children.add(child);
     }
   }
-  const spend: Spend = { ...(total ?? summed) };
-  const all: FlowEvalStep[] = [...steps.values()].map(({ startedAt: _startedAt, ...step }) => step);
-  // Bounded like `f.dispatch` (depth <= 3), and cycle-safe.
-  if (depth < 3) {
-    for (const child of children) {
-      if (visited.has(child)) continue;
-      const nested = await journalSpend(child, dataDir, visited, depth + 1);
-      addSpend(spend, nested);
-      all.push(...nested.steps);
-    }
-  }
-  return { ...spend, steps: all };
+  children.delete(runId);
+  return { spend, steps: [...steps.values()].map(({ startedAt: _startedAt, ...step }) => step), children: [...children] };
 }
 
-function childRunIds(output: unknown): string[] {
+function journalStepRunIds(output: unknown): string[] {
   if (output === null || typeof output !== 'object') return [];
   const journalSteps = (output as Record<string, unknown>)['journalSteps'];
   if (!Array.isArray(journalSteps)) return [];
-  return journalSteps.flatMap(step => step !== null && typeof step === 'object'
-    && typeof (step as Record<string, unknown>)['runId'] === 'string'
-    && /^[A-Za-z0-9][A-Za-z0-9_-]*$/u.test((step as Record<string, unknown>)['runId'] as string)
-    ? [(step as Record<string, unknown>)['runId'] as string] : []);
+  return journalSteps.flatMap(step => {
+    const id = step !== null && typeof step === 'object' ? (step as Record<string, unknown>)['runId'] : undefined;
+    return typeof id === 'string' && RUN_ID.test(id) ? [id] : [];
+  });
+}
+
+/** Child run ids from an `authored-steps` index record, wherever the stream envelope nests it. */
+function authoredStepRunIds(value: unknown, depth = 0): string[] {
+  if (value === null || typeof value !== 'object' || depth > 4) return [];
+  const record = value as Record<string, unknown>;
+  if (record['index'] === AUTHORED_STEP_RECORD) {
+    return typeof record['runId'] === 'string' && RUN_ID.test(record['runId']) ? [record['runId']] : [];
+  }
+  return Object.values(record).flatMap(nested => authoredStepRunIds(nested, depth + 1));
 }
 
 function addSpend(into: Spend, add: Spend): void {
@@ -209,59 +214,8 @@ function addSpend(into: Spend, add: Spend): void {
   into.dollars = into.dollars === null || add.dollars === null ? null : into.dollars + add.dollars;
 }
 
-export interface CloudFlowEvalExecutorOptions extends CloudConnectionOptions {
-  workspaceId?: string;
-  syncCode?: RunInCloudOptions['syncCode'];
-  pollIntervalMs?: number;
-}
-
-/**
- * Execute each case as a fresh hosted run and wait for it. Needs a token with
- * `workflow:invoke:write` and `runs:read`; inside a Cloud step that means an
- * injected workspace token, since a run-scoped sandbox token reads only its own run.
- */
-export function cloudFlowEvalExecutor(options: CloudFlowEvalExecutorOptions = {}): FlowEvalExecutor {
-  return async ({ flow, input, signal }) => {
-    const connection: CloudConnectionOptions = {
-      ...(options.apiUrl === undefined ? {} : { apiUrl: options.apiUrl }),
-      ...(options.token === undefined ? {} : { token: options.token }),
-      ...(options.requestTimeoutMs === undefined ? {} : { requestTimeoutMs: options.requestTimeoutMs }),
-      ...(signal === undefined ? {} : { signal }),
-    };
-    const receipt = await runInCloud(flow, {
-      ...connection,
-      ...(options.workspaceId === undefined ? {} : { workspaceId: options.workspaceId }),
-      ...(options.syncCode === undefined ? {} : { syncCode: options.syncCode }),
-      // Cloud requires an explicit input for authored source; `{}` is the
-      // documented "no fields", matching the local executor's default.
-      ...(input !== undefined ? { input } : 'path' in flow && isAuthoredFlowPath(flow.path) ? { input: {} } : {}),
-    });
-    const state = await waitForCloudFlowRun(receipt.runId, {
-      ...connection, ...(options.pollIntervalMs === undefined ? {} : { pollIntervalMs: options.pollIntervalMs }),
-    });
-    const completionReason = 'completionReason' in state ? state.completionReason : state.status;
-    let steps: CloudStep[] | undefined;
-    try {
-      steps = await getCloudRunSteps(receipt.runId, connection);
-    } catch {
-      // As locally: spend is evidence, not the verdict.
-    }
-    return { runId: receipt.runId, completionReason, ...cloudSpend(steps) };
-  };
-}
-
-/** Sum hosted step spend; any step with unknown cost makes the total unknown. Exported for tests. */
-export function cloudSpend(steps: readonly CloudStep[] | undefined): Pick<FlowEvalRun, 'costUsd' | 'tokensIn' | 'tokensOut' | 'steps'> {
-  if (steps === undefined) return { costUsd: null, tokensIn: null, tokensOut: null };
-  const known = (values: Array<number | null>): number | null =>
-    values.some(v => v === null) ? null : values.reduce<number>((sum, v) => sum + v!, 0);
-  const costed = steps.filter(step => step.step_type === 'agent' || step.step_type === 'llm' || step.cost_usd !== null);
-  return {
-    costUsd: known(costed.map(step => step.cost_usd)),
-    tokensIn: known(costed.map(step => step.tokens_in)),
-    tokensOut: known(costed.map(step => step.tokens_out)),
-    steps: steps.map(step => ({ id: step.step_name, status: step.status, durationMs: step.duration_ms, costUsd: step.cost_usd })),
-  };
+function roundUsd(value: number): number {
+  return Math.round(value * 1e6) / 1e6;
 }
 
 function readBudget(value: unknown): { dollars: number | null; tokensIn: number; tokensOut: number } | undefined {

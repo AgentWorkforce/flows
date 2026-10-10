@@ -120,17 +120,15 @@ export {
 export { parseHumanTo, parseHumanRecipient, humanRecipientProvider, type HumanRecipient, type HumanRecipientParse } from './human-to.js';
 
 export {
-  evaluateFlow, parseFlowEvalSuite, loadFlowEvalSuite, flowEvalSuiteSha256, flowEvalVersion,
-  FlowEvalError, FLOW_EVAL_REPORT_SCHEMA_VERSION, MAX_FLOW_EVAL_CASES,
-  type EvaluateFlowOptions, type FlowEvalCase, type FlowEvalCaseResult, type FlowEvalErrorCode,
+  evaluateFlow, parseFlowEvalSuite, loadFlowEvalSuite, flowEvalSuiteSha256, flowEvalVersion, flowEvalSources,
+  parseFlowEvalBaseline, FlowEvalError, FLOW_EVAL_REPORT_SCHEMA_VERSION, MAX_FLOW_EVAL_CASES, MAX_FLOW_EVAL_SOURCES,
+  type EvaluateFlowOptions, type FlowEvalBaseline, type FlowEvalCase, type FlowEvalCaseResult, type FlowEvalErrorCode,
   type FlowEvalExecutionRequest, type FlowEvalExecutor, type FlowEvalExpectation, type FlowEvalOutcome,
   type FlowEvalReport, type FlowEvalRun, type FlowEvalScore, type FlowEvalScorer, type FlowEvalStep,
-  type FlowEvalSuite, type FlowEvalTarget, type FlowEvalThresholds,
+  type FlowEvalSuite, type FlowEvalTarget, type FlowEvalThresholds, type FlowEvalVersion,
 } from './flow-eval.js';
-export {
-  localFlowEvalExecutor, cloudFlowEvalExecutor,
-  type LocalFlowEvalExecutorOptions, type CloudFlowEvalExecutorOptions,
-} from './flow-eval-executors.js';
+export { localFlowEvalExecutor, type LocalFlowEvalExecutorOptions } from './flow-eval-local.js';
+export { cloudFlowEvalExecutor, type CloudFlowEvalExecutorOptions } from './flow-eval-cloud.js';
 
 export { canonicalize, specHash } from './canonical.js';
 export {

@@ -21,7 +21,8 @@ against a frozen suite of input cases and return a score report. The report's
 ```
 
 - **`expect.completionReason`** defaults to `success`. Other values: `declined`,
-  `step_failed`, `budget_exceeded`, `canceled`, `needs_human`, `refused`.
+  `step_failed`, `budget_exceeded`, `canceled`, `needs_human`,
+  `worker_unavailable` (parked with no worker attached), `refused`.
 - **`expect.detailIncludes` / `detailMatches`** check the run's completion
   detail, which is what the body passed to `f.done(reason, { detail })`.
 - **An unknown cost never passes a cost ceiling.**
@@ -33,11 +34,21 @@ against a frozen suite of input cases and return a score report. The report's
 
 Every report records:
 
-- **`flow.version`**: the sha256 of the flow source bytes;
+- **`flow.version`**: for a flow file, the sha256 of a manifest of every
+  local source the run reads. That covers the entry, its relative imports and
+  `use`d flows, transitively, plus the project's `flows.json`,
+  `flows.lock.json` and package lockfile. `flow.files` lists them. For an
+  in-memory spec, it is the compiled kernel spec hash. Packages under
+  `node_modules` are pinned by the lockfile in the manifest, not hashed
+  file by file;
 - **`suite.sha256`**: the sha256 of the suite's canonical JSON.
 
 `--expect-version` (`expectVersion`) refuses to evaluate any flow bytes other
 than the pinned ones. `expectSuiteSha256` refuses any other suite.
+The version is checked again before every case and once after the last one.
+If the source changed mid-evaluation, the affected cases error without
+running and the gate fails. The results would otherwise judge no single version.
+
 `--baseline <report.json>` fails the gate on every case that passed in the
 baseline and does not pass now. The baseline must have been produced from the
 same suite.
@@ -45,7 +56,8 @@ same suite.
 Each case reports:
 
 - its outcome (`pass`, `fail` or `error`) and the reasons it failed;
-- its run id, wall-clock latency, cost and tokens, per-step status and duration;
+- wall-clock latency, cost and tokens, plus its run id and per-step status and
+  duration when the executor supplies them;
 - any caller-defined metrics.
 
 ## Executors
@@ -56,10 +68,15 @@ Each case reports:
     `import()`, and an ES module is cached for the life of a process. A
     long-lived caller would otherwise keep executing the first version it
     loaded.
-  - **Cost** is read from the run's journal and the journals of its authored
-    child runs.
+  - **Cost** is the sum of each step's own budget across the run and its
+    authored child runs. The children are found through the root's
+    `authored-steps` index, which also survives a failed body. A run's
+    cumulative `budget_total` is never added, because an authored child starts
+    from the flow's prior spend.
 - **Cloud** (`--cloud`): each case runs as a hosted run and is waited on.
-  Spend comes from the run's steps.
+  The verdict and the completion detail come from the hosted run's stored
+  report, so `declined` and `detailIncludes` mean the same thing as they do
+  locally. Spend comes from the run's steps.
   - It needs `workflow:invoke:write` and `runs:read`.
   - Inside a Cloud step that means an injected workspace token, because a
     sandbox token reads only its own run.
@@ -90,8 +107,8 @@ const report = await evaluateFlow({
   flow: { path: 'candidate.flow.ts' },
   suite: await loadFlowEvalSuite('suite.json'),
   executor: localFlowEvalExecutor({ dataDir: '.eval' }),
-  expectVersion,            // optional pin
-  baseline,                 // optional prior report
+  expectVersion: undefined, // optional: a pinned `sha256:` version
+  baseline: undefined,      // optional: a prior report (parsed JSON)
   scorers: [{ name: 'quality', score: run => ({ value: 1, pass: true }) }],
 });
 if (!report.gate.pass) { /* do not deploy */ }

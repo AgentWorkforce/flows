@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { evaluateFlow, type FlowEvalSuite } from '../src/flow-eval.js';
-import { localFlowEvalExecutor } from '../src/flow-eval-executors.js';
+import { localFlowEvalExecutor } from '../src/flow-eval-local.js';
 import { chainFixture, shellWord } from './flow-chain-fixture.js';
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -71,6 +71,13 @@ it('lets a flow step run the evaluation and gate on its verdict', async () => {
   // The evaluation runs its cases on its own daemon, so the gate run's daemon
   // is never asked to host the runs it is waiting on.
   const evalData = join(runtime.root, 'eval-data');
+  // Registered before any assertion: a failure must not leave the nested daemon running.
+  cleanups.unshift(async () => {
+    try {
+      const { pid } = JSON.parse(readFileSync(join(evalData, 'connection.json'), 'utf8'));
+      process.kill(pid, 'SIGTERM');
+    } catch { /* never started, or already exited */ }
+  });
   const command = [
     `RELAYFLOWD_BIN=${shellWord(runtime.binary)}`, shellWord(process.execPath), shellWord(resolve('dist/cli.js')),
     'eval', shellWord(join(runtime.root, 'candidate.flow.ts')), '--cases', shellWord(join(runtime.root, 'suite.json')),
@@ -91,8 +98,4 @@ export default flow('deploy-gate', async (f) => {
   const report = JSON.parse(readFileSync(join(runtime.root, 'report.json'), 'utf8'));
   expect(report).toMatchObject({ kind: 'flows.eval.report', executor: 'local', gate: { pass: true },
     summary: { total: 3, passed: 3 } });
-  try {
-    const { pid } = JSON.parse(readFileSync(join(evalData, 'connection.json'), 'utf8'));
-    process.kill(pid, 'SIGTERM');
-  } catch { /* the nested daemon already exited */ }
 }, 120_000);

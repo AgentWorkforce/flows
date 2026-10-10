@@ -5,7 +5,8 @@ import {
   evaluateFlow, FlowEvalError, loadFlowEvalSuite,
   type FlowEvalExecutor, type FlowEvalReport,
 } from '../flow-eval.js';
-import { cloudFlowEvalExecutor, localFlowEvalExecutor } from '../flow-eval-executors.js';
+import { cloudFlowEvalExecutor } from '../flow-eval-cloud.js';
+import { localFlowEvalExecutor } from '../flow-eval-local.js';
 
 export interface EvalArgs {
   command: 'eval';
@@ -78,15 +79,12 @@ export async function runEvalCli(
   let report: FlowEvalReport;
   try {
     const suite = await loadFlowEvalSuite(args.cases);
-    let baseline: FlowEvalReport | undefined;
+    let baseline: unknown;
     if (args.baseline !== undefined) {
       try {
-        baseline = JSON.parse(await readFile(args.baseline, 'utf8')) as FlowEvalReport;
+        baseline = JSON.parse(await readFile(args.baseline, 'utf8'));
       } catch {
-        throw new FlowEvalError('invalid_options', `Baseline report "${args.baseline}" is not readable JSON.`);
-      }
-      if (baseline?.kind !== 'flows.eval.report' || !Array.isArray(baseline.cases)) {
-        throw new FlowEvalError('invalid_options', `Baseline "${args.baseline}" is not a flows eval report.`);
+        throw new FlowEvalError('invalid_baseline', `Baseline report "${args.baseline}" is not readable JSON.`);
       }
     }
     report = await evaluateFlow({
@@ -108,16 +106,13 @@ export async function runEvalCli(
     }
     const kind = error instanceof FlowEvalError || error instanceof CloudFlowError ? error.code : 'eval_failed';
     const message = error instanceof Error ? error.message : String(error);
-    if (args.json) io.stdout(JSON.stringify({ ok: false, diagnostics: [{ severity: 'refusal', kind, message }] }));
-    else io.stderr(`REFUSED [${kind}] ${message}`);
-    return 2;
+    return refuse(args, io, kind, message);
   }
   if (args.report !== undefined) {
     try {
       await writeFile(args.report, `${JSON.stringify(report, null, 2)}\n`);
     } catch {
-      io.stderr(`REFUSED [report_unwritable] Could not write the report to "${args.report}".`);
-      return 2;
+      return refuse(args, io, 'report_unwritable', `Could not write the report to "${args.report}".`);
     }
   }
   if (args.json) {
@@ -137,4 +132,10 @@ export async function runEvalCli(
     io.stdout(report.gate.pass ? 'GATE PASS' : `GATE FAIL: ${report.gate.reasons.join('; ')}`);
   }
   return report.gate.pass ? 0 : 1;
+}
+
+function refuse(args: EvalArgs, io: CliIo, kind: string, message: string): 2 {
+  if (args.json) io.stdout(JSON.stringify({ ok: false, diagnostics: [{ severity: 'refusal', kind, message }] }));
+  else io.stderr(`REFUSED [${kind}] ${message}`);
+  return 2;
 }

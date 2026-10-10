@@ -201,7 +201,7 @@ export const CLI_VERBS = [
     description: 'Re-execute a flow against a frozen suite of input cases and gate on the score report',
     args: [{ name: 'flow', description: 'flow.ts, flow.yaml, or spec.json: the exact version to evaluate', required: true }],
     options: [
-      { flags: '--cases <suite.json>', description: 'Frozen suite: { name, cases: [{ id, input?, expect? }], thresholds? }' },
+      { flags: '--cases <suite.json>', description: 'Required. Frozen suite: { name, cases: [{ id, input?, expect? }], thresholds? }' },
       JSON_OPTION,
       { flags: '--cloud', description: 'Execute each case as a hosted Cloud run instead of a local run' },
       DATA_DIR_OPTION,
@@ -209,7 +209,7 @@ export const CLI_VERBS = [
       { flags: '--concurrency <n>', description: 'Cases executed at once', defaultValue: '1' },
       { flags: '--report <file>', description: 'Also write the JSON report to this file' },
       { flags: '--baseline <report.json>', description: 'Fail the gate on any case that passed in this prior report' },
-      { flags: '--expect-version <sha256:hex>', description: 'Refuse unless the flow source hashes to exactly this' },
+      { flags: '--expect-version <sha256:hex>', description: 'Refuse unless the flow version (its local source manifest) hashes to exactly this' },
     ],
     variants: ['eval'],
   },

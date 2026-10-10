@@ -136,7 +136,7 @@ Re-execute a flow against a frozen suite of input cases and gate on the score re
 
 | Option | Description | Default |
 | --- | --- | --- |
-| `--cases <suite.json>` | Frozen suite: { name, cases: [{ id, input?, expect? }], thresholds? } | — |
+| `--cases <suite.json>` | Required. Frozen suite: { name, cases: [{ id, input?, expect? }], thresholds? } | — |
 | `--json` | Emit one machine-readable JSON object instead of text | — |
 | `--cloud` | Execute each case as a hosted Cloud run instead of a local run | — |
 | `--data-dir <dir>` | Daemon data directory | `.relayflowd` |
@@ -144,7 +144,7 @@ Re-execute a flow against a frozen suite of input cases and gate on the score re
 | `--concurrency <n>` | Cases executed at once | `1` |
 | `--report <file>` | Also write the JSON report to this file | — |
 | `--baseline <report.json>` | Fail the gate on any case that passed in this prior report | — |
-| `--expect-version <sha256:hex>` | Refuse unless the flow source hashes to exactly this | — |
+| `--expect-version <sha256:hex>` | Refuse unless the flow version (its local source manifest) hashes to exactly this | — |
 
 ## flows hn-monitor
 
