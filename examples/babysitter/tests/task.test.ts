@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -165,7 +165,7 @@ test('a merge too large to publish ends needs_human with an explanation instead 
 
 // Real repositories: a PR branch and a trunk that moved under it.
 const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
-function forked(): { up: string; head: string; trunk: string; checkout: string; git: (...a: string[]) => string } {
+function forked(o: { executable?: string[] } = {}): { up: string; head: string; trunk: string; checkout: string; git: (...a: string[]) => string } {
   const up = mkdtempSync(join(tmpdir(), 'babysitter-trunk-'));
   const g = (dir: string) => (...a: string[]) => execFileSync('git', ['-C', dir, ...a], { env: gitEnv, encoding: 'utf8' }).trim();
   const u = g(up);
@@ -175,6 +175,7 @@ function forked(): { up: string; head: string; trunk: string; checkout: string; 
   u('add', '-A'); u('commit', '-qm', 'base');
   u('checkout', '-qb', 'pr');
   write({ 'src/retry.ts': 'export const attempts = 3;\n', 'src/pr-only.ts': 'pr\n' });
+  for (const path of o.executable ?? []) { write({ [path]: '#!/bin/sh\n' }); chmodSync(join(up, path), 0o755); }
   u('add', '-A'); u('commit', '-qm', 'pr');
   const prHead = u('rev-parse', 'HEAD');
   u('checkout', '-q', 'trunk');
@@ -219,6 +220,17 @@ const inOwnTmp = async <T>(run: () => Promise<T>): Promise<{ result: T; left: st
     if (previous === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = previous;
   }
 };
+
+test('a checkout whose filesystem dropped executable bits proposes only the real edits', async () => {
+  // Live run #2 (Cloud run ba91b3b1): the sandbox checkout lost the mode of
+  // all 61 executables, and the proposal was refused for 63 changed files.
+  const r = forked({ executable: ['scripts/a.sh', 'scripts/b.sh'] });
+  for (const path of ['scripts/a.sh', 'scripts/b.sh']) chmodSync(join(r.checkout, path), 0o644);
+  writeFileSync(join(r.checkout, 'src/retry.ts'), 'export const attempts = 4;\n');
+  const p = await runPropose(r);
+  assert.equal(p.kind, 'babysitter-proposal');
+  assert.deepEqual(p.files, ['src/retry.ts']);
+});
 
 test('proposes from a checkout whose .git the sandbox left unwritable, touching nothing in it', async () => {
   // Live run #1 (Cloud run c5c7bb01): after the agent step the checkout's
