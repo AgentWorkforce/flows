@@ -128,9 +128,13 @@ describe('first-party shipped source model pins', () => {
       expect(result.missing, `${name}: every declarative agent/LLM needs an effective CLI and explicit model`).toEqual([]);
       for (const pair of result.pairs) expectSupported(pair, name);
     }
-    expect(currentFiles).toBe(7);
-    expect(modelSteps).toBe(8);
-    expect(activeV1Files).toBe(4);
-    expect(activeV1ModelSteps).toBe(10);
+    // Includes examples/self-improvement/example/issue-triage.flow.yaml: the
+    // target the self-improvement example edits, with two pinned agent steps.
+    expect(currentFiles).toBe(8);
+    expect(modelSteps).toBe(10);
+    // 639262cf removed workflows/watchdog.yaml (one model step), the
+    // flows-watchdog schedule source, and left these at 4 and 10.
+    expect(activeV1Files).toBe(3);
+    expect(activeV1ModelSteps).toBe(9);
   });
 });

@@ -29,7 +29,7 @@
 // Agent steps inherit the run's environment and the SDK has no per-step
 // scoping, so the agents can reach both: see README, "Credential exposure".
 
-import { flow, type AgentOptions, type Ctx } from "@relayflows/surface";
+import { flow, type Ctx } from "@relayflows/surface";
 
 export interface SelfImprovementInput {
   /** The target flow's declared name, as `flows runs` prints it. */
@@ -50,13 +50,19 @@ export interface SelfImprovementInput {
   apiUrl?: string;
   /** Stop after the checked edit: print the diff and PR body, push nothing. */
   dryRun?: boolean;
-  cli?: string;
-  model?: string;
 }
 
 /** The run's wallclock budget; a branch tip older than ORPHAN_AGE_S cannot belong to a live run. */
 const WALLCLOCK = "45m";
 const ORPHAN_AGE_S = 60 * 60;
+
+/**
+ * Every agent's CLI and model, pinned: a Cloud sandbox has no flows.json to
+ * resolve either, and shipped sources must name a supported pair literally
+ * (packages/sdk/tests/shipped-source-models.test.ts).
+ */
+const CLI = "claude";
+const MODEL = "claude-sonnet-5";
 
 const OUT = "improve";
 /** Marks ./improve as this flow's scratch dir; any other ./improve is never deleted. */
@@ -114,8 +120,6 @@ export default flow<SelfImprovementInput>(
     const runs = int(input.runs, 10, 1, 50, "runs");
     const scan = int(input.scan, 200, runs, 1000, "scan");
     const minRuns = int(input.minRuns, Math.min(3, runs), 1, runs, "minRuns");
-    const cli = input.cli ?? "claude";
-    const model = input.model ?? "claude-sonnet-5"; // pinned: a Cloud sandbox has no flows.json to resolve it
     const flowFile = `${TARGET}/${input.flowPath}`;
     // One branch per target flow. While a PR has used it — an open proposal,
     // or a closed one nobody deleted — no new proposal is made. A branch no PR
@@ -220,7 +224,10 @@ export default flow<SelfImprovementInput>(
       `   "metric": "<how to measure it from future runs>", "expected": "<the claim>", "falsified_if": "<what would disprove it>"}}\n` +
       `Do not edit the flow or any other file. ` +
       untrusted(`${OUT}/runs.json, ${OUT}/digest.json and ${flowFile}`);
-    await attempt(f, "analyst", analystTask, { cli, model, permissions: { accessPreset: "readonly" } },
+    await attempt(f,
+      (repair) => repair === undefined
+        ? f.agent("analyst", { cli: CLI, model: MODEL, permissions: { accessPreset: "readonly" }, task: analystTask })
+        : f.agent("analyst-repair", { cli: CLI, model: MODEL, permissions: { accessPreset: "readonly" }, task: analystTask + repair }),
       `${verify(evidence)} && ${helper(`check-proposal.mjs proposal --dir ${OUT} --spec ${OUT}/before.spec.json`)}`,
       `${OUT}/proposal.json`);
     const sealed = { ...evidence, ...await sealOf(f, [`${OUT}/proposal.json`]) };
@@ -250,7 +257,10 @@ export default flow<SelfImprovementInput>(
         + `node ${H}/check-proposal.mjs edit --dir ${OUT} --flow-path ${shellWord(input.flowPath)} `
         + `--changed ${OUT}/changed.txt --before ${OUT}/before.spec.json --after ${OUT}/after.spec.json `
         + `--before-authored ${OUT}/before.authored.json --after-authored ${OUT}/after.authored.json`;
-    await attempt(f, "editor", editorTask, { cli, model, cwd: TARGET, permissions: { accessPreset: "readwrite" } },
+    await attempt(f,
+      (repair) => repair === undefined
+        ? f.agent("editor", { cli: CLI, model: MODEL, cwd: TARGET, permissions: { accessPreset: "readwrite" }, task: editorTask })
+        : f.agent("editor-repair", { cli: CLI, model: MODEL, cwd: TARGET, permissions: { accessPreset: "readwrite" }, task: editorTask + repair }),
       recheck, input.flowPath);
     // The checked bytes, sealed: nothing after this may change them.
     const checked = { ...sealed, ...await sealOf(f, [flowFile]) };
@@ -317,16 +327,17 @@ async function sealOf(f: Ctx, files: string[]): Promise<Record<string, string>> 
  * pass handed the check's own output, then the check again — red twice ends
  * the flow there. The agent's claim of success counts for nothing: only the
  * check opens the next step.
+ *
+ * `pass` runs the agent: with no argument the first pass, with the repair
+ * note the repair pass. Each caller spells both `f.agent` calls out with a
+ * literal name and a literal CLI/model, so every agent this flow can start is
+ * statically provable (packages/sdk/tests/shipped-source-models.test.ts).
  */
-async function attempt(f: Ctx, name: string, task: string, config: Omit<AgentOptions, "task">, check: string, artifact: string): Promise<void> {
-  await f.agent(name, { ...config, task });
+async function attempt(f: Ctx, pass: (repair?: string) => PromiseLike<unknown>, check: string, artifact: string): Promise<void> {
+  await pass();
   const first = await f.run(check, { onNonZero: "record", timeout: "3m" });
   if (first.ok) return;
-  await f.agent(`${name}-repair`, {
-    ...config,
-    task: `${task}\n\nYour previous attempt was refused by the deterministic check. Fix ${artifact} ` +
-      `so this passes:\n${first.output}`,
-  });
+  await pass(`\n\nYour previous attempt was refused by the deterministic check. Fix ${artifact} so this passes:\n${first.output}`);
   await f.run(check, { timeout: "3m" });
 }
 

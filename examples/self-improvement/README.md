@@ -93,7 +93,6 @@ token. Every hosted fire would fail at the collect step. See
 | `minRuns` | `min(3, runs)` | Ends `declined` with fewer than this many runs |
 | `fixture` | — | Read runs from a file instead of Cloud |
 | `dryRun` | `false` | Stop after the checked edit: push nothing, open nothing |
-| `cli`, `model` | `claude`, `claude-sonnet-5` | Agent for the analyst and editor steps |
 
 ### How the step is chosen
 
