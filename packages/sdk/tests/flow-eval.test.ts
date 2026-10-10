@@ -65,10 +65,18 @@ const SUITE: FlowEvalSuite = {
 };
 
 describe('parseFlowEvalSuite', () => {
-  it('accepts a well-formed suite and keeps inputs as frozen JSON', () => {
+  it('accepts a well-formed suite and returns it deeply frozen', () => {
     const suite = parseFlowEvalSuite(JSON.parse(JSON.stringify({ ...SUITE, thresholds: { minPassRate: 0.5, maxTotalCostUsd: 1 } })));
     expect(suite.cases.map(c => c.id)).toEqual(['happy', 'declines-empty', 'names-ticket']);
     expect(suite.thresholds).toEqual({ minPassRate: 0.5, maxTotalCostUsd: 1 });
+    for (const value of [suite, suite.cases, suite.cases[0], suite.cases[0]!.input, suite.cases[2]!.expect, suite.thresholds]) {
+      expect(Object.isFrozen(value)).toBe(true);
+    }
+  });
+
+  it('refuses a case input larger than flows run accepts', () => {
+    expect(() => parseFlowEvalSuite({ name: 'x', cases: [{ id: 'a', input: { blob: 'x'.repeat(1_048_577) } }] }))
+      .toThrow('cases[0].input is not JSON data');
   });
 
   it.each([
@@ -168,6 +176,14 @@ describe('evaluateFlow', () => {
       'total cost is unknown; the suite caps it at $1',
       'p95 latency 900ms exceeds 100ms',
     ]);
+  });
+
+  it('judges the cost ceiling on the exact sum, not the rounded summary figure', async () => {
+    const executor: FlowEvalExecutor = async ({ caseId }) => ({ completionReason: 'success', costUsd: caseId === 'a' ? 0.5 : 0.5000004 });
+    const report = await evaluateFlow({ flow: { path: flowFile() }, executor,
+      suite: { name: 's', cases: [{ id: 'a' }, { id: 'b' }], thresholds: { maxTotalCostUsd: 1.0000001 } } });
+    expect(report.summary.totalCostUsd).toBe(1);
+    expect(report.gate.pass).toBe(false);
   });
 
   it('applies caller scorers as metrics and as pass/fail', async () => {
@@ -274,6 +290,17 @@ describe('flow version', () => {
     expect(await flowEvalVersion({ path: entry })).not.toBe(afterHelper);
   });
 
+  it('includes the package.json that governs each imported file, including nested scopes', async () => {
+    const root = scratch();
+    writeFileSync(join(root, 'package.json'), '{"type":"module"}');
+    mkdirSync(join(root, 'legacy'));
+    writeFileSync(join(root, 'legacy', 'package.json'), '{"type":"commonjs"}');
+    writeFileSync(join(root, 'legacy', 'rules.js'), 'module.exports = 1;\n');
+    const entry = join(root, 'main.flow.ts');
+    writeFileSync(entry, "import rules from './legacy/rules.js';\nexport default rules;\n");
+    expect((await flowEvalSources({ path: entry })).files).toEqual(['legacy/package.json', 'legacy/rules.js', 'main.flow.ts', 'package.json']);
+  });
+
   it('pins a package lockfile found beside package.json without a flows.json', async () => {
     const root = scratch();
     writeFileSync(join(root, 'package.json'), '{"type":"module"}');
@@ -306,9 +333,11 @@ describe('flow version', () => {
       copies.add(sealed);
       const helper = join(sealed, '..', 'lib', 'prompt.ts');
       seen.push(readFileSync(helper, 'utf8'));
-      // Neither the file nor its directory is writable inside a copy.
-      expect(() => writeFileSync(sealed, 'tampered')).toThrow();
-      expect(() => rmSync(helper)).toThrow();
+      // Neither the file nor its directory is writable inside a copy (root ignores modes).
+      if (process.getuid?.() !== 0) {
+        expect(() => writeFileSync(sealed, 'tampered')).toThrow();
+        expect(() => rmSync(helper)).toThrow();
+      }
       // Edit the working tree mid-evaluation; the next case must not see it.
       writeFileSync(join(root, 'lib', 'prompt.ts'), "export const PROMPT = 'edited';\n");
       return { completionReason: 'success', costUsd: 0 };
@@ -375,6 +404,17 @@ describe('flow version', () => {
       suite: { name: 's', cases: [{ id: 'one' }] } });
     expect(report.cases[0]).toMatchObject({ outcome: 'error' });
     expect(report.cases[0]!.failures[0]).toContain('imports local modules (child.flow.ts, lib/prompt.ts)');
+  });
+
+  it('counts an imported JSON file as a local import for Cloud, but not project metadata', async () => {
+    const root = scratch();
+    writeFileSync(join(root, 'package.json'), '{"type":"module"}');
+    writeFileSync(join(root, 'rules.json'), '{"max":1}');
+    const entry = join(root, 'main.flow.ts');
+    writeFileSync(entry, "import rules from './rules.json' with { type: 'json' };\nexport default rules;\n");
+    const report = await evaluateFlow({ flow: { path: entry }, executor: cloudFlowEvalExecutor({ apiUrl: 'http://127.0.0.1:9' }),
+      suite: { name: 's', cases: [{ id: 'one' }] } });
+    expect(report.cases[0]!.failures[0]).toContain('imports local modules (rules.json)');
   });
 
   it('does not count sealed extension payloads as local imports for Cloud', async () => {

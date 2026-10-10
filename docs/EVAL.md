@@ -67,7 +67,8 @@ there if the file is not part of the version. Passing `cwd` to
 A version cannot pin everything. **Evaluated code runs as the caller**, so it
 can still reach anything the caller can:
 
-- **`node_modules`** is linked into each copy, not copied. The lockfile in
+- **`node_modules`** is linked into each copy, not copied. Every ancestor
+  `node_modules` Node would consult is linked at the same relative place. The lockfile in
   the manifest pins it. Containing hostile code needs a sandbox; the seal
   guarantees that the code which runs is the code the version names.
 

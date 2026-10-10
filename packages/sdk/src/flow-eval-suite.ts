@@ -5,9 +5,14 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { canonicalize } from './canonical.js';
 import { FlowEvalError } from './flow-eval-error.js';
-import { snapshotJsonValue, type JsonValue } from './json-value.js';
+import { snapshotJsonValue, type JsonSnapshotLimits, type JsonValue } from './json-value.js';
+import { MAX_DIRECT_INPUT_BYTES } from './direct-input.js';
+import { deepFreeze } from './flow-eval-version.js';
 
 export const MAX_FLOW_EVAL_CASES = 1_000;
+
+/** One case's input: no larger than `flows run --input` accepts. */
+const INPUT_LIMITS: JsonSnapshotLimits = Object.freeze({ maxDepth: 64, maxNodes: 262_144, maxBytes: MAX_DIRECT_INPUT_BYTES });
 
 /** What a case must observe to pass. Every field present must hold. */
 export interface FlowEvalExpectation {
@@ -74,7 +79,7 @@ export function parseFlowEvalSuite(value: unknown): FlowEvalSuite {
     const testCase: FlowEvalCase = { id };
     if (Object.prototype.hasOwnProperty.call(item, 'input')) {
       try {
-        testCase.input = snapshotJsonValue(item.input, `${at}.input`);
+        testCase.input = snapshotJsonValue(item.input, `${at}.input`, INPUT_LIMITS);
       } catch (error) {
         fail(`${at}.input is not JSON data: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -96,7 +101,9 @@ export function parseFlowEvalSuite(value: unknown): FlowEvalSuite {
     if (t.maxP95LatencyMs !== undefined) thresholds.maxP95LatencyMs = nonNegative(t.maxP95LatencyMs, 'thresholds.maxP95LatencyMs', fail);
     suite.thresholds = thresholds;
   }
-  return suite;
+  // Frozen in fact, not just by name: a scorer receives these cases, and must
+  // not be able to rename one or loosen an expectation for the cases after it.
+  return deepFreeze(suite);
 }
 
 /** Read and validate a suite file (JSON). */

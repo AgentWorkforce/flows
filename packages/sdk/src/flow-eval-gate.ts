@@ -66,8 +66,11 @@ export function decideFlowEvalGate(
   // so a tolerance for quality misses must not absorb it.
   if (summary.errored > 0) reasons.push(`${summary.errored} case(s) errored before a verdict`);
   if (thresholds.maxTotalCostUsd !== undefined) {
-    if (summary.totalCostUsd === null) reasons.push(`total cost is unknown; the suite caps it at $${thresholds.maxTotalCostUsd}`);
-    else if (summary.totalCostUsd > thresholds.maxTotalCostUsd) reasons.push(`total cost $${summary.totalCostUsd} exceeds $${thresholds.maxTotalCostUsd}`);
+    // Judge the exact sum: the rounded summary figure is for display, and
+    // rounding could carry a total just over the ceiling under it.
+    const exact = results.some(r => r.costUsd === null) ? null : results.reduce((sum, r) => sum + r.costUsd!, 0);
+    if (exact === null) reasons.push(`total cost is unknown; the suite caps it at $${thresholds.maxTotalCostUsd}`);
+    else if (exact > thresholds.maxTotalCostUsd) reasons.push(`total cost $${summary.totalCostUsd} exceeds $${thresholds.maxTotalCostUsd}`);
   }
   if (thresholds.maxP95LatencyMs !== undefined && summary.latencyMs.p95 > thresholds.maxP95LatencyMs) {
     reasons.push(`p95 latency ${summary.latencyMs.p95}ms exceeds ${thresholds.maxP95LatencyMs}ms`);

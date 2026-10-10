@@ -88,8 +88,10 @@ export async function sealFlowEvalSnapshot(flow: FlowEvalTarget): Promise<FlowEv
     return { ...(await flowEvalSources(frozen)), materialize: async () => ({ flow: frozen, dispose: async () => {} }) };
   }
   const sources = await collectSources(flow.path);
-  const root = commonDirectory(sources.absolute.map(file => file.path));
-  const modules = nearestNodeModules(dirname(sources.entry));
+  // Every node_modules Node would consult from the entry, at the same relative
+  // place: a nested package resolves some dependencies from higher levels.
+  const modules = ancestorNodeModules(dirname(sources.entry));
+  const root = commonDirectory([...sources.absolute.map(file => file.path), ...modules.map(dir => join(dir, '.'))]);
   return {
     version: sources.version,
     files: sources.files.map(file => file.path),
@@ -105,7 +107,11 @@ export async function sealFlowEvalSnapshot(flow: FlowEvalTarget): Promise<FlowEv
           await mkdir(dirname(target), { recursive: true });
           await writeFile(target, file.bytes, { mode: 0o444 });
         }
-        if (modules !== undefined) await symlink(modules, join(directory, 'node_modules'), 'dir');
+        for (const dir of modules) {
+          const link = join(directory, relative(root, dir));
+          await mkdir(dirname(link), { recursive: true });
+          await symlink(dir, link, 'dir');
+        }
         await makeReadOnly(directory);
       } catch (error) {
         await dispose();
@@ -132,7 +138,7 @@ async function makeWritable(directory: string): Promise<void> {
   } catch { /* already gone */ }
 }
 
-function deepFreeze<T>(value: T): T {
+export function deepFreeze<T>(value: T): T {
   if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
     Object.freeze(value);
     for (const nested of Object.values(value as Record<string, unknown>)) deepFreeze(nested);
@@ -157,12 +163,13 @@ async function collectSources(path: string): Promise<CollectedSources> {
   const root = dirname(entry);
   const contents = new Map<string, Buffer>();
   const missing = new Set<string>();
-  const pending = [entry];
-  while (pending.length > 0) {
-    const file = pending.pop()!;
-    if (contents.has(file)) continue;
+  // One cap over everything sealed — sources, manifests, extension payloads —
+  // so no category can grow a version past it.
+  const add = async (file: string): Promise<Buffer> => {
+    const known = contents.get(file);
+    if (known !== undefined) return known;
     if (contents.size >= MAX_FLOW_EVAL_SOURCES) {
-      throw new FlowEvalError('unreadable_flow', `Flow "${path}" reaches more than ${MAX_FLOW_EVAL_SOURCES} local source files.`);
+      throw new FlowEvalError('unreadable_flow', `Flow "${path}" reaches more than ${MAX_FLOW_EVAL_SOURCES} local files.`);
     }
     let bytes: Buffer;
     try {
@@ -171,6 +178,17 @@ async function collectSources(path: string): Promise<CollectedSources> {
       throw new FlowEvalError('unreadable_flow', `Flow source "${file}" is not readable.`);
     }
     contents.set(file, bytes);
+    return bytes;
+  };
+  const pending = [entry];
+  while (pending.length > 0) {
+    const file = pending.pop()!;
+    if (contents.has(file)) continue;
+    const bytes = await add(file);
+    // The package scope that decides how this file loads (`"type"`), per file:
+    // a nested package.json can differ from the entry's.
+    const scope = nearestFile(dirname(file), 'package.json');
+    if (scope !== undefined) await add(scope);
     if (!/\.(?:[mc]?[jt]s)$/u.test(file)) continue;
     for (const specifier of localSpecifiers(bytes.toString('utf8'))) {
       const targets = resolveLocal(dirname(file), specifier);
@@ -184,7 +202,7 @@ async function collectSources(path: string): Promise<CollectedSources> {
   // beside flows.json) still pins the version.
   for (const name of PROJECT_FILES) {
     const file = nearestFile(root, name);
-    if (file !== undefined && !contents.has(file)) contents.set(file, await readFile(file));
+    if (file !== undefined) await add(file);
   }
   // Locked flow extensions load from the project's content-addressed store,
   // so their payloads are part of what runs: hash and seal them too.
@@ -201,7 +219,7 @@ async function collectSources(path: string): Promise<CollectedSources> {
       if (!existsSync(store)) {
         throw new FlowEvalError('unreadable_flow', `Locked extension ${entry.name} is not materialized at ${store}; run \`flows plugin verify\`.`);
       }
-      for (const file of await listFiles(store)) if (!contents.has(file)) contents.set(file, await readFile(file));
+      for (const file of await listFiles(store)) await add(file);
     }
   }
   const absolute = [...contents.entries()].map(([file, bytes]) => ({ path: file, bytes }));
@@ -239,9 +257,15 @@ function nearestFile(start: string, name: string): string | undefined {
   }
 }
 
-function nearestNodeModules(start: string): string | undefined {
-  const found = nearestFile(start, 'node_modules');
-  return found !== undefined && statSync(found).isDirectory() ? found : undefined;
+function ancestorNodeModules(start: string): string[] {
+  const found: string[] = [];
+  for (let directory = start; ; directory = dirname(directory)) {
+    const candidate = join(directory, 'node_modules');
+    try {
+      if (statSync(candidate).isDirectory()) found.push(candidate);
+    } catch { /* none here */ }
+    if (dirname(directory) === directory) return found;
+  }
 }
 
 /**
