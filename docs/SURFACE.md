@@ -139,9 +139,12 @@ No process runs between events: the handler wakes, executes to its next await, p
    compacted trajectory file at `<scope>/.trajectories/compacted/<id>.json`
    (which `ai-hist sync` ingests) plus the matching rows in the ai-hist DB, so
    the next run recalls it. The id hashes scope and finding, so re-learning the
-   same finding upserts one record. Writes are serialized by a lock file next
-   to the DB, keep the DB's file mode, and leave nothing behind when they fail
-   (`memory_finding_invalid`, `memory_unwritable`). `learn` is not yet a
+   same finding upserts one record. `learn` writes are serialized with each
+   other by a lock file next to the DB; `ai-hist sync` does not take that lock,
+   so a concurrent sync can race the DB replace (the trajectory file survives
+   and the next sync re-ingests it). Writes keep the DB's file mode and leave
+   nothing behind when they fail (`memory_finding_invalid`,
+   `memory_unwritable`). `learn` is not yet a
    journaled effect. `memory: { agent: true }` refuses pending the
    identity-scoped agent follow-up. CLI-only operation is also deferred.
 

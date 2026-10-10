@@ -1,7 +1,8 @@
 import type { MemoryHelper } from '@relayflows/surface';
 import type { MemoryFinding } from '@relayflows/surface';
 import { createHash, randomUUID } from 'node:crypto';
-import { access, chmod, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { access, chmod, link, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { hostname } from 'node:os';
 import { constants } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
@@ -102,36 +103,87 @@ function normalizeFinding(finding: MemoryFinding): Required<MemoryFinding> {
 const tempPath = (path: string): string => `${path}.${process.pid}.${randomUUID()}.tmp`;
 
 const LOCK_WAIT_MS = 10_000;
-const LOCK_STALE_MS = 30_000;
+/** Backstop for an owner this host cannot probe (another host, or a reused pid). Writers hold the lock for milliseconds. */
+const LOCK_STALE_MS = 5 * 60_000;
 const inProcess = new Map<string, Promise<unknown>>();
+
+interface LockOwner { pid: number; host: string; token: string }
+
+async function readLockOwner(path: string): Promise<{ owner?: LockOwner; ageMs: number } | undefined> {
+  try {
+    const [raw, info] = await Promise.all([readFile(path, 'utf8'), stat(path)]);
+    let owner: LockOwner | undefined;
+    try { owner = JSON.parse(raw) as LockOwner; } catch { owner = undefined; }
+    return { owner, ageMs: Date.now() - info.mtimeMs };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw error;
+  }
+}
+
+function lockIsStale({ owner, ageMs }: { owner?: LockOwner; ageMs: number }): boolean {
+  if (owner !== undefined && owner.host === hostname() && Number.isInteger(owner.pid)) {
+    try { process.kill(owner.pid, 0); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') return true;
+    }
+  }
+  return ageMs > LOCK_STALE_MS;
+}
 
 /**
  * Serialize read-modify-replace of one database file: a promise chain within
- * this process, and an exclusive lock file across flows processes. A lock left
- * by a crashed writer is broken once it is older than LOCK_STALE_MS. Writers
- * that do not take this lock (`ai-hist sync`) are not serialized against it.
+ * this process, and an exclusive lock file across flows processes.
+ *
+ * The lock is published with `link`, so it appears complete or not at all and
+ * never replaces another lock. It is stale only when its owner process is gone
+ * (or, as a backstop, after LOCK_STALE_MS). Takeover renames the lock aside
+ * first, so two breakers cannot both remove it; a breaker that finds it moved
+ * a live lock links it back. The task gets `assertHeld` to re-check ownership
+ * right before it commits. Writers that do not take this lock (`ai-hist sync`)
+ * are not serialized against it.
  */
-async function withDatabaseLock<T>(dbPath: string, task: () => Promise<T>): Promise<T> {
+async function withDatabaseLock<T>(dbPath: string, task: (assertHeld: () => Promise<void>) => Promise<T>): Promise<T> {
   const previous = inProcess.get(dbPath) ?? Promise.resolve();
   const run = previous.catch(() => {}).then(async () => {
     const lock = `${dbPath}.flows-memory.lock`;
+    const self: LockOwner = { pid: process.pid, host: hostname(), token: randomUUID() };
+    const staged = tempPath(lock);
+    await writeFile(staged, JSON.stringify(self));
     const deadline = Date.now() + LOCK_WAIT_MS;
-    for (;;) {
-      try {
-        await (await open(lock, 'wx')).close();
-        break;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-        const held = await stat(lock).catch(() => undefined);
-        if (held !== undefined && Date.now() - held.mtimeMs > LOCK_STALE_MS) {
-          await rm(lock, { force: true });
+    try {
+      for (;;) {
+        try {
+          await link(staged, lock);
+          break;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        }
+        const held = await readLockOwner(lock);
+        if (held !== undefined && lockIsStale(held)) {
+          const aside = `${lock}.${self.token}.stale`;
+          try { await rename(lock, aside); } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+            continue;
+          }
+          const moved = await readLockOwner(aside);
+          if (moved !== undefined && !lockIsStale(moved)) await link(aside, lock).catch(() => {});
+          await rm(aside, { force: true });
           continue;
         }
         if (Date.now() > deadline) throw new Error(`timed out waiting for ${lock}`);
         await new Promise(resolve => setTimeout(resolve, 25));
       }
+    } finally {
+      await rm(staged, { force: true });
     }
-    try { return await task(); } finally { await rm(lock, { force: true }); }
+    const assertHeld = async () => {
+      if ((await readLockOwner(lock))?.owner?.token !== self.token) throw new Error(`lost ${lock} before commit`);
+    };
+    try {
+      return await task(assertHeld);
+    } finally {
+      if ((await readLockOwner(lock).catch(() => undefined))?.owner?.token === self.token) await rm(lock, { force: true });
+    }
   });
   inProcess.set(dbPath, run);
   try { return await run; } finally { if (inProcess.get(dbPath) === run) inProcess.delete(dbPath); }
@@ -182,7 +234,7 @@ async function persistFinding(dbPath: string, scope: string, decision: Required<
   let stagedDb: string | undefined;
   try {
     await writeFile(stagedFile, `${JSON.stringify(trajectory, null, 2)}\n`);
-    await withDatabaseLock(dbPath, async () => {
+    await withDatabaseLock(dbPath, async assertHeld => {
       // Keep the database's own permissions: a 0600 history file must not become world-readable.
       const mode = (await stat(dbPath)).mode & 0o777;
       const db = new SQL.Database(await readFile(dbPath));
@@ -213,6 +265,7 @@ async function persistFinding(dbPath: string, scope: string, decision: Required<
       } finally {
         db.close();
       }
+      await assertHeld();
       const existed = await stat(file).then(() => true, () => false);
       await rename(stagedFile, file);
       try {

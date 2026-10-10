@@ -1102,22 +1102,31 @@ async function inspectOutOfBandStep(
 
 const EXPIRED_LEASE_POLL_MS = 250;
 
-/** `f.memory.learn` failures keep their own kind instead of collapsing into `protocol_error`. */
+/**
+ * `f.memory.learn` failures keep their own kind instead of collapsing into
+ * `protocol_error`. By then the root has been terminalized as failed, so the
+ * report names it the way a step failure does.
+ */
 export function memoryWriteFailure(
   command: RunCommand,
   base: CheckReport | RunReport,
   socketPath: string,
   error: AuthoredFlowExecutionError,
-  runId?: string,
+  fallbackRunId?: string,
 ): RunExecution | undefined {
   if (error.code !== 'memory_finding_invalid' && error.code !== 'memory_unwritable') return undefined;
-  const id = runId ?? error.runId;
+  const rootRunId = error.rootRunId ?? fallbackRunId;
+  const runId = error.runId ?? rootRunId;
   return {
     exitCode: 1,
     report: {
       ...fromBase(command, base),
-      ...(id !== undefined ? { runId: id } : {}),
+      ok: false,
+      ...(runId === undefined ? {} : { runId }),
+      ...(rootRunId === undefined ? {} : { rootRunId }),
       socketPath,
+      status: 'failed',
+      completionReason: 'step_failed',
       diagnostics: [...base.diagnostics, { severity: 'failure', kind: error.code, message: error.message }],
     },
   };

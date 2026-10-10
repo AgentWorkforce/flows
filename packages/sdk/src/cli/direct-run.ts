@@ -221,7 +221,7 @@ export async function runDirectFlow(
       return completedResultUnreadableReport('run', base, socketPath, error);
     }
     if (error instanceof AuthoredFlowExecutionError) {
-      const memoryFailure = memoryWriteFailure('run', base, socketPath, error);
+      const memoryFailure = memoryWriteFailure('run', base, socketPath, error, base.rootRunId);
       if (memoryFailure !== undefined) return memoryFailure;
     }
     if (isReadInterruption(error)) return daemonUnresponsiveReport('run', base, socketPath, error, base.rootRunId, options, dataDir);

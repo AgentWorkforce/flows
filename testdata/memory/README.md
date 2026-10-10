@@ -50,7 +50,8 @@ than ai-hist's automatic scan of unrelated local JSONL history.
   sync. The id is a hash of scope and finding, so a resumed body re-running
   `learn`, or a later run learning the same thing, upserts one record. Writes
   are serialized in-process and across flows processes by
-  `<db>.flows-memory.lock` (stale after 30s), keep the database's file mode,
+  `<db>.flows-memory.lock` (stale once its owner process is gone, or after 5
+  minutes), keep the database's file mode,
   migrate a missing `history.git_branch`, and roll back the trajectory file if
   the database replace fails. It is still not a journaled effect, and
   `ai-hist sync` does not take the lock, so a concurrent sync can race the row

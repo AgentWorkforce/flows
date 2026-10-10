@@ -1,7 +1,7 @@
-import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { flow } from '@relayflows/surface';
@@ -189,23 +189,41 @@ it('serializes concurrent learns so no finding is lost from the database', async
   expect(existsSync(`${dbPath}.flows-memory.lock`)).toBe(false);
 });
 
-it('waits for a live lock and breaks a stale one', async () => {
+async function until(predicate: () => boolean): Promise<void> {
+  for (let i = 0; i < 400 && !predicate(); i += 1) await new Promise(resolve => setTimeout(resolve, 10));
+  expect(predicate()).toBe(true);
+}
+
+it('waits on a lock held by a live process, then proceeds once it is released', async () => {
   const lock = `${dbPath}.flows-memory.lock`;
-  writeFileSync(lock, '');
+  writeFileSync(lock, JSON.stringify({ pid: process.pid, host: hostname(), token: 'another-writer' }));
   const memory = authoredMemory(scope, () => {}, true);
   let settled = false;
   const pending = memory.learn({ question: 'locked finding', chosen: 'c', reasoning: 'r' }).then(() => { settled = true; });
+  // The writer stages its own lock file before contending; once it exists, the wait is under way.
+  await until(() => readdirSync(dir).some(name => name.startsWith('fixture.db.flows-memory.lock.') && name.endsWith('.tmp')));
   await new Promise(resolve => setTimeout(resolve, 150));
   expect(settled).toBe(false);
+  expect(JSON.parse(readFileSync(lock, 'utf8'))).toMatchObject({ token: 'another-writer' });
   rmSync(lock);
   await pending;
   expect(await memory.recall('locked finding')).toHaveLength(1);
+  expect(existsSync(lock)).toBe(false);
+});
+
+it('breaks a lock whose owner process is gone, or that is past the age backstop', async () => {
+  const lock = `${dbPath}.flows-memory.lock`;
+  const memory = authoredMemory(scope, () => {}, true);
+  const deadPid = spawnSync(process.execPath, ['-e', '']).pid;
+  writeFileSync(lock, JSON.stringify({ pid: deadPid, host: hostname(), token: 'crashed-writer' }));
+  await memory.learn({ question: 'after dead owner', chosen: 'c', reasoning: 'r' });
+  expect(await memory.recall('after dead owner')).toHaveLength(1);
 
   writeFileSync(lock, '');
-  const { utimesSync } = await import('node:fs');
   utimesSync(lock, new Date(0), new Date(0));
-  await memory.learn({ question: 'after stale lock', chosen: 'c', reasoning: 'r' });
-  expect(await memory.recall('after stale lock')).toHaveLength(1);
+  await memory.learn({ question: 'after aged lock', chosen: 'c', reasoning: 'r' });
+  expect(await memory.recall('after aged lock')).toHaveLength(1);
+  expect(readdirSync(dir).filter(name => name.includes('.flows-memory.lock'))).toEqual([]);
 });
 
 it.skipIf(process.platform === 'win32')('keeps the database file mode', async () => {
@@ -240,8 +258,11 @@ it('removes the trajectory file when the database replace fails', async () => {
 
 it('reports learn failures with their own kind, not protocol_error', () => {
   for (const code of ['memory_finding_invalid', 'memory_unwritable'] as const) {
-    const execution = memoryWriteFailure('run', emptyReport('run'), '/sock', new AuthoredFlowExecutionError(code, 'nope'), 'run-1');
-    expect(execution).toMatchObject({ exitCode: 1, report: { runId: 'run-1', diagnostics: [{ severity: 'failure', kind: code }] } });
+    const error = Object.assign(new AuthoredFlowExecutionError(code, 'nope'), { rootRunId: 'root-1' });
+    expect(memoryWriteFailure('run', emptyReport('run'), '/sock', error)).toMatchObject({ exitCode: 1, report: {
+      runId: 'root-1', rootRunId: 'root-1', status: 'failed', completionReason: 'step_failed',
+      diagnostics: [{ severity: 'failure', kind: code }],
+    } });
   }
   expect(memoryWriteFailure('run', emptyReport('run'), '/sock', new AuthoredFlowExecutionError('step_failed', 'x'))).toBeUndefined();
 });
