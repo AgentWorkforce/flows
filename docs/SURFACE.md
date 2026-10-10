@@ -128,15 +128,22 @@ No process runs between events: the handler wakes, executes to its next await, p
    `close-merge-request` in addition to comments and discussions; the earlier
    comment-only gap was closed by the pinned relay-helpers release.
 
-   The initial local memory slice supports `recall` and `why` in authored flows,
-   with no journal step for either read. Script scope is stable across runs of
+   The local memory slice supports `recall`, `why`, and `learn` in authored
+   flows, with no journal step for any of them. Script scope is stable across runs of
    the same flow file and name; reads cannot widen it to another flow. The
    existing `memory: { script: true }` header enables an eager reachability
    check; direct `.memory` use also triggers it. Aliased access is checked at
    call time. The local Node SDK and an existing readable SQLite DB are required
    (`AI_HIST_DB` overrides `defaultDbPath()`); JSONL fallback is disabled.
-   `learn` and `memory: { agent: true }` refuse pending the journal-backed write
-   and identity-scoped agent follow-ups. CLI-only operation is also deferred.
+   `learn(finding)` persists the finding under the same script scope: a
+   compacted trajectory file at `<scope>/.trajectories/compacted/<id>.json`
+   (which `ai-hist sync` ingests) plus the matching rows in the ai-hist DB, so
+   the next run recalls it. The id hashes scope and finding, so re-learning the
+   same finding upserts one record. Writes are serialized by a lock file next
+   to the DB, keep the DB's file mode, and leave nothing behind when they fail
+   (`memory_finding_invalid`, `memory_unwritable`). `learn` is not yet a
+   journaled effect. `memory: { agent: true }` refuses pending the
+   identity-scoped agent follow-up. CLI-only operation is also deferred.
 
 4. **`{{prev}}` / return-value chaining.** Output flows downward implicitly; naming steps is for reaching back, not bookkeeping.
 5. **Headers are optional escalation.** identity, memory, budget, tools appear only when used. The empty header is the common case. [Budget headers and spend](BUDGET.md) specifies parsing, prices, journal attribution, and admission limits.

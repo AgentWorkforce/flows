@@ -48,9 +48,13 @@ than ai-hist's automatic scan of unrelated local JSONL history.
   `ai-hist sync` ingests), and the matching `trajectories`/`history` rows in the
   ai-hist database (atomic file replace) so the next run recalls it without a
   sync. The id is a hash of scope and finding, so a resumed body re-running
-  `learn`, or a later run learning the same thing, upserts one record. It is
-  still not a journaled effect, and a concurrent `ai-hist sync` writing the same
-  database can race the row write; the trajectory file survives either way.
+  `learn`, or a later run learning the same thing, upserts one record. Writes
+  are serialized in-process and across flows processes by
+  `<db>.flows-memory.lock` (stale after 30s), keep the database's file mode,
+  migrate a missing `history.git_branch`, and roll back the trajectory file if
+  the database replace fails. It is still not a journaled effect, and
+  `ai-hist sync` does not take the lock, so a concurrent sync can race the row
+  write; the trajectory file survives and the sync re-ingests it.
 - Identity-scoped agent context injection. `memory.agent: true` explicitly
   refuses; it must not silently read script scope.
 - CLI-only provider operation and automatic creation of a fresh database.

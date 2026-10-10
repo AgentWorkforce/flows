@@ -1,7 +1,7 @@
 import type { MemoryHelper } from '@relayflows/surface';
 import type { MemoryFinding } from '@relayflows/surface';
 import { createHash, randomUUID } from 'node:crypto';
-import { access, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
@@ -67,6 +67,7 @@ export function authoredMemory(
 
 interface SqlDatabase {
   run(sql: string, params?: unknown[]): void;
+  exec(sql: string): Array<{ columns: string[]; values: unknown[][] }>;
   export(): Uint8Array;
   close(): void;
 }
@@ -98,10 +99,42 @@ function normalizeFinding(finding: MemoryFinding): Required<MemoryFinding> {
   };
 }
 
-async function writeAtomic(path: string, data: string | Uint8Array): Promise<void> {
-  const temp = `${path}.${process.pid}.${randomUUID()}.tmp`;
-  await writeFile(temp, data);
-  await rename(temp, path);
+const tempPath = (path: string): string => `${path}.${process.pid}.${randomUUID()}.tmp`;
+
+const LOCK_WAIT_MS = 10_000;
+const LOCK_STALE_MS = 30_000;
+const inProcess = new Map<string, Promise<unknown>>();
+
+/**
+ * Serialize read-modify-replace of one database file: a promise chain within
+ * this process, and an exclusive lock file across flows processes. A lock left
+ * by a crashed writer is broken once it is older than LOCK_STALE_MS. Writers
+ * that do not take this lock (`ai-hist sync`) are not serialized against it.
+ */
+async function withDatabaseLock<T>(dbPath: string, task: () => Promise<T>): Promise<T> {
+  const previous = inProcess.get(dbPath) ?? Promise.resolve();
+  const run = previous.catch(() => {}).then(async () => {
+    const lock = `${dbPath}.flows-memory.lock`;
+    const deadline = Date.now() + LOCK_WAIT_MS;
+    for (;;) {
+      try {
+        await (await open(lock, 'wx')).close();
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        const held = await stat(lock).catch(() => undefined);
+        if (held !== undefined && Date.now() - held.mtimeMs > LOCK_STALE_MS) {
+          await rm(lock, { force: true });
+          continue;
+        }
+        if (Date.now() > deadline) throw new Error(`timed out waiting for ${lock}`);
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+    }
+    try { return await task(); } finally { await rm(lock, { force: true }); }
+  });
+  inProcess.set(dbPath, run);
+  try { return await run; } finally { if (inProcess.get(dbPath) === run) inProcess.delete(dbPath); }
 }
 
 /**
@@ -112,6 +145,10 @@ async function writeAtomic(path: string, data: string | Uint8Array): Promise<voi
  *   format ai-hist ingests, so a later `ai-hist sync` re-indexes it;
  * - the matching `trajectories` and `history` rows in the ai-hist database,
  *   mirroring ai-hist's own ingestion, so the next run sees it without a sync.
+ *
+ * Both are staged as temp files first and published only once the database
+ * image is built; if the database replace fails, a newly published trajectory
+ * file is removed, so a rejected learn leaves nothing for a later sync to index.
  */
 async function persistFinding(dbPath: string, scope: string, decision: Required<MemoryFinding>): Promise<void> {
   const now = new Date();
@@ -133,36 +170,60 @@ async function persistFinding(dbPath: string, scope: string, decision: Required<
     retrospective,
   };
   const file = join(scope, '.trajectories', 'compacted', `${id}.json`);
-  await mkdir(dirname(file), { recursive: true });
-  await writeAtomic(file, `${JSON.stringify(trajectory, null, 2)}\n`);
-
   // Same field order ai-hist's buildSearchText uses, so search ranks identically after a sync.
   const searchText = [
     id, scope, trajectory.status, decision.question,
     decision.question, decision.chosen, decision.reasoning, ...decision.alternatives,
   ].filter(part => part.length > 0).join('\n');
   const SQL = await loadSqlJs();
-  const db = new SQL.Database(await readFile(dbPath));
+
+  await mkdir(dirname(file), { recursive: true });
+  const stagedFile = tempPath(file);
+  let stagedDb: string | undefined;
   try {
-    db.run(`CREATE TABLE IF NOT EXISTS trajectories (
-      id TEXT PRIMARY KEY, version INTEGER, persona_id TEXT, project_id TEXT,
-      task_title TEXT, task_description TEXT, status TEXT, started_at TEXT,
-      completed_at TEXT, decisions_json TEXT NOT NULL, retrospective_json TEXT NOT NULL,
-      search_text TEXT NOT NULL, path TEXT, updated_ms INTEGER NOT NULL, timestamp_ms INTEGER NOT NULL
-    )`);
-    db.run(`INSERT OR REPLACE INTO trajectories
-      (id, version, persona_id, project_id, task_title, task_description, status,
-       started_at, completed_at, decisions_json, retrospective_json, search_text,
-       path, updated_ms, timestamp_ms)
-      VALUES (?, 1, NULL, ?, ?, NULL, 'completed', ?, ?, ?, ?, ?, ?, ?, ?)`, [
-      id, scope, decision.question, trajectory.startedAt, trajectory.completedAt,
-      JSON.stringify([decision]), JSON.stringify(retrospective), searchText, file, timestampMs, timestampMs,
-    ]);
-    db.run(`DELETE FROM history WHERE source = 'trajectory' AND session_id = ?`, [id]);
-    db.run(`INSERT OR IGNORE INTO history (source, session_id, project, prompt, timestamp_ms, git_branch)
-      VALUES ('trajectory', ?, ?, ?, ?, NULL)`, [id, scope, searchText, timestampMs]);
-    await writeAtomic(dbPath, db.export());
+    await writeFile(stagedFile, `${JSON.stringify(trajectory, null, 2)}\n`);
+    await withDatabaseLock(dbPath, async () => {
+      // Keep the database's own permissions: a 0600 history file must not become world-readable.
+      const mode = (await stat(dbPath)).mode & 0o777;
+      const db = new SQL.Database(await readFile(dbPath));
+      try {
+        db.run(`CREATE TABLE IF NOT EXISTS trajectories (
+          id TEXT PRIMARY KEY, version INTEGER, persona_id TEXT, project_id TEXT,
+          task_title TEXT, task_description TEXT, status TEXT, started_at TEXT,
+          completed_at TEXT, decisions_json TEXT NOT NULL, retrospective_json TEXT NOT NULL,
+          search_text TEXT NOT NULL, path TEXT, updated_ms INTEGER NOT NULL, timestamp_ms INTEGER NOT NULL
+        )`);
+        // ai-hist adds this column only to its in-memory copy of pre-handoff databases.
+        const historyColumns = db.exec('PRAGMA table_info(history)')[0]?.values.map(row => row[1]) ?? [];
+        if (!historyColumns.includes('git_branch')) db.run('ALTER TABLE history ADD COLUMN git_branch TEXT');
+        db.run(`INSERT OR REPLACE INTO trajectories
+          (id, version, persona_id, project_id, task_title, task_description, status,
+           started_at, completed_at, decisions_json, retrospective_json, search_text,
+           path, updated_ms, timestamp_ms)
+          VALUES (?, 1, NULL, ?, ?, NULL, 'completed', ?, ?, ?, ?, ?, ?, ?, ?)`, [
+          id, scope, decision.question, trajectory.startedAt, trajectory.completedAt,
+          JSON.stringify([decision]), JSON.stringify(retrospective), searchText, file, timestampMs, timestampMs,
+        ]);
+        db.run(`DELETE FROM history WHERE source = 'trajectory' AND session_id = ?`, [id]);
+        db.run(`INSERT OR IGNORE INTO history (source, session_id, project, prompt, timestamp_ms, git_branch)
+          VALUES ('trajectory', ?, ?, ?, ?, NULL)`, [id, scope, searchText, timestampMs]);
+        stagedDb = tempPath(dbPath);
+        await writeFile(stagedDb, db.export(), { mode });
+        await chmod(stagedDb, mode);
+      } finally {
+        db.close();
+      }
+      const existed = await stat(file).then(() => true, () => false);
+      await rename(stagedFile, file);
+      try {
+        await rename(stagedDb, dbPath);
+      } catch (error) {
+        if (!existed) await rm(file, { force: true });
+        throw error;
+      }
+    });
   } finally {
-    db.close();
+    await rm(stagedFile, { force: true });
+    if (stagedDb !== undefined) await rm(stagedDb, { force: true });
   }
 }

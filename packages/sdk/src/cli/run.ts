@@ -418,6 +418,10 @@ export async function resumeFlow(
     if (error instanceof AuthoredFlowExecutionError && error.code === 'result_unreadable') {
       return completedResultUnreadableReport('resume', base, socketPath, error);
     }
+    if (error instanceof AuthoredFlowExecutionError) {
+      const memoryFailure = memoryWriteFailure('resume', base, socketPath, error, runId);
+      if (memoryFailure !== undefined) return memoryFailure;
+    }
     if (isReadInterruption(error)) return daemonUnresponsiveReport('resume', base, socketPath, error, runId, options, dataDir);
     if (error instanceof AuthoredFlowExecutionError && error.code === 'root_lease_lost') {
       return rootLeaseLostReport('resume', base, socketPath, error, runId);
@@ -1097,6 +1101,27 @@ async function inspectOutOfBandStep(
 }
 
 const EXPIRED_LEASE_POLL_MS = 250;
+
+/** `f.memory.learn` failures keep their own kind instead of collapsing into `protocol_error`. */
+export function memoryWriteFailure(
+  command: RunCommand,
+  base: CheckReport | RunReport,
+  socketPath: string,
+  error: AuthoredFlowExecutionError,
+  runId?: string,
+): RunExecution | undefined {
+  if (error.code !== 'memory_finding_invalid' && error.code !== 'memory_unwritable') return undefined;
+  const id = runId ?? error.runId;
+  return {
+    exitCode: 1,
+    report: {
+      ...fromBase(command, base),
+      ...(id !== undefined ? { runId: id } : {}),
+      socketPath,
+      diagnostics: [...base.diagnostics, { severity: 'failure', kind: error.code, message: error.message }],
+    },
+  };
+}
 
 export function protocolFailure(
   command: RunCommand,
