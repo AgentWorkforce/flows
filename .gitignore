@@ -25,3 +25,5 @@ dist/
 # workflows/pr-review.flow.ts scratch dir (findings, diff, publisher script)
 review/
 parity/
+# examples/self-improvement scratch dir (collected runs, proposal, target checkout)
+improve/

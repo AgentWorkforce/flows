@@ -1,0 +1,7 @@
+{
+  "flowName": "issue-triage",
+  "flowPath": "examples/self-improvement/example/issue-triage.flow.yaml",
+  "fixture": "examples/self-improvement/example/runs.fixture.json",
+  "runs": 10,
+  "dryRun": true
+}

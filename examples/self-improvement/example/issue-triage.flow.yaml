@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=https://schema.relayflows.dev/v0.1/flows.schema.json
+# The target the self-improvement example improves: a small, deliberately
+# imperfect issue-triage flow. Its recorded runs (runs.fixture.json) show the
+# `classify` agent failing its label check a third of the time and the
+# `draft-reply` agent costing most of each run.
+version: '0.1.0'
+name: issue-triage
+description: Fetch an issue, classify it, draft a first reply.
+steps:
+  - id: fetch
+    type: deterministic
+    command: "cat issue.json"
+    timeoutMs: 30000
+  - id: classify
+    type: agent
+    dependsOn: [fetch]
+    instruction: "Read the issue and decide what kind of issue it is. Explain your reasoning."
+    cli: claude
+    model: claude-sonnet-5
+    verification:
+      type: output_contains
+      value: "LABEL:"
+  - id: draft-reply
+    type: agent
+    dependsOn: [classify]
+    instruction: "Write a helpful first reply to the issue author, covering everything that might be relevant."
+    cli: claude
+    model: claude-sonnet-5
+  - id: record
+    type: deterministic
+    dependsOn: [draft-reply]
+    command: "printf recorded"
+budget:
+  maxDollars: "2.00"
