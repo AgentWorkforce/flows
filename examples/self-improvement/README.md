@@ -7,13 +7,13 @@ prompts and its structure, and carries a before/after hypothesis that future
 runs can confirm or falsify.
 
 ```
-collect (deterministic)    listCloudRuns → getCloudRunSteps, per run → runs.json + digest.json
-checkout (deterministic)   gh repo clone; refuse if a self-improve PR is already open; compile-spec → before spec
+checkout (deterministic)   gh repo clone; decline if self-improve/<flow> exists; compile-spec → before spec
+collect (deterministic)    listCloudRuns → getCloudRunSteps, per run → runs.json + digest.json; seal them
 analyst (agent, readonly)  pick the step, diagnose it, write proposal.json
-  └ check-proposal         schema, real step ids, cited runs were collected   (one repair pass, then fail)
+  └ check-proposal         seal intact; schema, real step ids, cited runs were collected  (one repair pass)
 editor (agent, cwd=target) apply the proposal to the .flow.yaml
-  └ check-proposal edit    only the flow file changed; flows check; compiled spec has ≥1 prompt AND ≥1 structural change
-pr (deterministic)         branch self-improve/<flow>/<stamp>, push, gh pr create with the hypothesis
+  └ check-proposal edit    seals intact; only the flow changed; flows check; compiled diff == the proposal
+pr (deterministic)         commit → push self-improve/<flow> → gh pr create; each step safe to re-run
 ```
 
 The flow stops at the PR. It does **not** replay, evaluate, merge or deploy.
@@ -34,7 +34,8 @@ flows run examples/self-improvement/self-improvement.flow.ts --local-agent \
 ```
 
 The run ends `success` with the checked diff and the PR body it would have
-opened. Everything it produced is in `./improve/`:
+opened. Everything it produced is in `./improve/`. The flow refuses to run if
+`./improve` exists and is not its own scratch directory from an earlier run.
 
 - `digest.json`: the per-step ranking;
 - `proposal.json`: the analyst's choice and hypothesis;
@@ -82,7 +83,7 @@ flows schedule examples/self-improvement/self-improvement.flow.ts \
 | `baseBranch` | `main` | Branch to clone, and the base of the PR |
 | `runs` | `10` | Terminal runs to read (1-50) |
 | `scan` | `200` | Newest workspace runs to scan for them (the list route has no flow filter) |
-| `minRuns` | `3` | Ends `declined` with fewer than this many runs |
+| `minRuns` | `min(3, runs)` | Ends `declined` with fewer than this many runs |
 | `fixture` | — | Read runs from a file instead of Cloud |
 | `dryRun` | `false` | Stop after the checked edit: push nothing, open nothing |
 | `cli`, `model` | `claude`, `claude-sonnet-5` | Agent for the analyst and editor steps |
@@ -108,25 +109,72 @@ cites any other run.
 
 ### What the gates guarantee
 
-- **The proposal is real.** It names a step that exists in the compiled flow,
-  cites only runs that were collected, and proposes at least one prompt edit,
-  at least one structure edit, and a hypothesis with a `falsified_if`.
+- **The proposal is real.** It names steps that exist in the compiled flow (or
+  that a structure edit adds), cites only runs that were collected, and has at
+  least one prompt edit, at least one structure edit, and a hypothesis with a
+  `falsified_if`. Every edit names the step it changes (`flow` for a
+  flow-level field).
 - **The edit is the proposal, and only that.** Exactly one file changes (the
-  flow), `flows check` passes, and diffing the compiled canonical spec
-  before and after shows at least one `instruction`/`prompt` change *and* at
-  least one structural change (steps, `dependsOn`, verification, iterations,
-  timeouts, model, budget). The spec is compiled with the SDK's own
-  `compileYamlToCanonicalJson`. Comment and formatting churn cannot pass for an
-  edit.
-- **There is one open proposal per flow.** If a PR from
-  `self-improve/<flow>/…` is still open, the flow ends `declined` instead of
-  stacking a second one.
+  flow), and `flows check` passes. The compiled canonical spec (from the SDK's
+  own `compileYamlToCanonicalJson`) is diffed before against after, and the
+  diff must match the proposal step for step. It needs at least one
+  `instruction`/`prompt` change and at least one structural change. Every
+  changed step has to be one the proposal names, or a step the compiler
+  derives from one (`classify.gate`). Every proposed edit has to appear. A
+  `dependsOn` change elsewhere is accepted only when it is the rewiring an
+  inserted or removed proposed step forces. Comment churn and dependency
+  reordering do not count as edits.
+- **No agent can move the goalposts.** `permissions.accessPreset` is
+  recorded, not enforced, so an agent could write anywhere the run can. The
+  gate scripts are embedded in the flow source and rewritten from it before
+  every check, so an edited copy on disk is simply replaced. The evidence
+  (`runs.json`, `digest.json`, the before spec, then `proposal.json` once it
+  passes) is sealed with sha256 hashes. The seal is carried in the later
+  steps' journaled command text, and any change refuses the check. The
+  target checkout must still be at its base commit. Commit and push run with
+  git hooks disabled, because an agent-written `.git/hooks` script would
+  otherwise run with `GH_TOKEN`.
+- **The flow is not tricked by a symlink.** A `flowPath` that resolves outside
+  the checkout is refused before it is read.
+- **There is one proposal per flow at a time.** All proposals use the branch
+  `self-improve/<flow>`. If that branch exists, whether its PR is open or was
+  closed without the branch being deleted, the flow ends `declined`. Delete
+  the branch to re-arm it. Two concurrent runs cannot both publish, because
+  the second run's non-force push of the same branch is rejected.
+- **Publishing survives a crash.** Commit, push and PR creation are separate
+  steps, and each is safe to repeat: it skips the commit when it is already
+  there, pushes the same commit again as a no-op, and reuses an open PR
+  instead of creating a second one.
 - **Run output is not obeyed.** Output summaries and tool excerpts in
-  `runs.json` are other agents' output. Both agent prompts treat them as data
-  and never as instructions.
+  `runs.json` are other agents' output, and the target YAML comes from a
+  repository. Both agent prompts name those files as untrusted data.
 
 Each check gets one repair pass, which hands the agent the check's own
 output. If the check fails again, the flow fails at that step.
+
+### Whose runs are read
+
+Cloud's run list identifies a flow only by its declared name. Two flows that
+share a name, in two repositories for example, would otherwise pool their
+runs. A run is therefore kept only when at least half of the steps it
+executed are steps of the target's compiled spec. This keeps the target's own
+history (a step added or renamed since) and drops a namesake. Dropped runs are
+counted in `runs.json` (`dropped_foreign`) and do not count toward `runs`.
+
+Costs are as Cloud reports them. An unmetered attempt makes a step's cost a
+lower bound, and `getCloudRunSteps` carries no flag that says so.
+
+## Helpers
+
+The `.mjs` files here are the source of truth for the deterministic steps.
+`self-improvement.flow.ts` embeds them, and a hosted run receives only that one
+file. After editing a helper, regenerate the embedded copy:
+
+```sh
+node examples/self-improvement/bundle.mjs --write
+```
+
+The test suite fails if the embedded copy is stale.
 
 ## Credentials
 

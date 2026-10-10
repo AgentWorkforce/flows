@@ -9,7 +9,7 @@ description: Fetch an issue, classify it, draft a first reply.
 steps:
   - id: fetch
     type: deterministic
-    command: "cat issue.json"
+    command: "cat examples/self-improvement/example/issue.json"
     timeoutMs: 30000
   - id: classify
     type: agent

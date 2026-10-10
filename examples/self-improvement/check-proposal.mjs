@@ -1,23 +1,29 @@
 #!/usr/bin/env node
 // check-proposal — the deterministic gates between the agents and the PR.
 //
-//   node check-proposal.mjs proposal --dir <improve> --spec <before spec.canonical.json>
+//   node check-proposal.mjs proposal --dir <improve> --spec <before spec json>
 //   node check-proposal.mjs edit --dir <improve> --flow-path <path> --changed <file>
-//                                --before <spec.canonical.json> --after <spec.canonical.json>
+//                                --before <spec json> --after <spec json>
 //
-// `proposal` refuses a proposal.json that is malformed, targets a step the
-// flow does not have, or cites a run that was not collected. `edit` refuses an
-// edit that touched any file but the flow, or that does not change BOTH a
-// prompt and the flow's structure in the compiled spec; on success it writes
-// <dir>/pr-body.md. Every refusal names what was wrong, on stderr, so the
-// editor agent can be handed it verbatim.
+// `proposal` refuses a proposal.json that is malformed, names a step the flow
+// does not have, or cites a run that was not collected. `edit` repeats every
+// proposal check (the proposal is re-read after an agent with write access
+// has run), then refuses an edit that touched any file but the flow, that
+// lacks a prompt change or a structural change in the compiled spec, or whose
+// compiled changes are not exactly the proposal's (spec-diff.mjs `coverage`).
+// On success it writes <dir>/pr-body.md. Every refusal names what was wrong,
+// on stderr, so the agent can be handed it verbatim.
+//
+// Tampering with these inputs between steps is caught by the flow's seals
+// (seal.mjs), not here; this script trusts the files it is pointed at.
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { diffSpecs } from "./spec-diff.mjs";
+import { FLOW, coverage, describeChange, diffSpecs } from "./spec-diff.mjs";
 
 const SIGNALS = new Set(["failing", "slow", "costly", "weak"]);
+const STEP_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,199}$/u;
 
 const { positionals: [stage], values: args } = parseArgs({
   allowPositionals: true,
@@ -41,17 +47,23 @@ function checkShape(p) {
   need(Array.isArray(p.prompt_edits) && p.prompt_edits.length > 0, "prompt_edits must propose at least one prompt change");
   for (const e of p.prompt_edits ?? []) need(text(e.step, 200) && text(e.change) && text(e.rationale), "each prompt edit needs step, change, rationale");
   need(Array.isArray(p.structure_edits) && p.structure_edits.length > 0, "structure_edits must propose at least one structural change");
-  for (const e of p.structure_edits ?? []) need(text(e.change) && text(e.rationale), "each structure edit needs change, rationale");
+  for (const e of p.structure_edits ?? []) {
+    need(typeof e.step === "string" && (e.step === FLOW || STEP_ID.test(e.step)) && text(e.change) && text(e.rationale),
+      `each structure edit needs step (a step id, a new step's id, or "${FLOW}"), change, rationale`);
+  }
   const h = p.hypothesis ?? {};
   for (const key of ["before", "after", "metric", "expected", "falsified_if"]) need(text(h[key]), `hypothesis.${key} must be non-empty`);
 }
 
-function stageProposal() {
-  const proposal = readJson(join(args.dir, "proposal.json"));
+/** Every check a proposal must pass, against the flow as it was before any edit. */
+function checkProposal(proposal, beforeSpec) {
   checkShape(proposal);
-  const steps = new Set(readJson(args.spec).steps.map((s) => s.id));
+  const steps = new Set(beforeSpec.steps.map((s) => s.id));
+  const added = new Set((proposal.structure_edits ?? []).map((e) => e.step));
   need(steps.has(proposal.target_step), `target_step "${proposal.target_step}" is not a step of the flow`);
-  for (const e of proposal.prompt_edits ?? []) need(steps.has(e.step), `prompt edit names unknown step "${e.step}"`);
+  for (const e of proposal.prompt_edits ?? []) {
+    need(steps.has(e.step) || added.has(e.step), `prompt edit names step "${e.step}", which neither exists nor is added by a structure edit`);
+  }
   const collected = new Set(readJson(join(args.dir, "runs.json")).runs.map((r) => r.run_id));
   for (const e of proposal.evidence ?? []) need(collected.has(e.run_id), `evidence cites run "${e.run_id}", which was not collected`);
 }
@@ -78,7 +90,7 @@ function prBody(proposal, diff, digest) {
     "",
   ];
   if (row) {
-    lines.push("| executions | failures | weak | p50 ms | p95 ms | mean $ | leverage |", "|---|---|---|---|---|---|---|",
+    lines.push("| executions | failures | weak | p50 ms | p95 ms | mean $ (as reported) | leverage |", "|---|---|---|---|---|---|---|",
       `| ${row.executions} | ${row.failures} | ${row.weak} | ${row.p50_ms ?? "–"} | ${row.p95_ms ?? "–"} | `
         + `${row.mean_cost_usd === null ? "–" : row.mean_cost_usd.toFixed(4)} | ${row.leverage} |`, "");
   }
@@ -86,30 +98,32 @@ function prBody(proposal, diff, digest) {
   lines.push("", "## Prompt edits", "");
   for (const e of proposal.prompt_edits) lines.push(`- \`${e.step}\`: ${e.change} — ${e.rationale}`);
   lines.push("", "## Structure edits", "");
-  for (const e of proposal.structure_edits) lines.push(`- ${e.change} — ${e.rationale}`);
-  lines.push("", "## Compiled-spec diff (checked)", "");
+  for (const e of proposal.structure_edits) lines.push(`- \`${e.step}\`: ${e.change} — ${e.rationale}`);
+  lines.push("", "## Compiled-spec diff (checked against the proposal)", "");
   for (const p of diff.prompt) lines.push(`- prompt: step \`${p.step}\` ${p.field}`);
-  for (const s of diff.structure) lines.push(`- structure: ${s}`);
+  for (const s of diff.structure) lines.push(`- structure: ${describeChange(s)}`);
   lines.push("", "Not replayed, not deployed. A human reviews and merges; deploying the merged flow is a separate, manual step.");
   return lines.join("\n") + "\n";
 }
 
 function stageEdit() {
   const proposal = readJson(join(args.dir, "proposal.json"));
-  checkShape(proposal);
+  const before = readJson(args.before);
+  checkProposal(proposal, before);
   const changed = readFileSync(args.changed, "utf8").split("\n").map((l) => l.trim()).filter(Boolean);
   need(changed.length === 1 && changed[0] === args["flow-path"],
     `the edit must change exactly ${args["flow-path"]}; it changed: ${changed.join(", ") || "(nothing)"}`);
-  const diff = diffSpecs(readJson(args.before), readJson(args.after));
+  const diff = diffSpecs(before, readJson(args.after));
   need(diff.prompt.length > 0, "the compiled flow has no prompt (instruction/prompt) change");
   need(diff.structure.length > 0, "the compiled flow has no structural change (steps, dependsOn, verification, retries, timeouts, budget…)");
+  for (const problem of coverage(diff, proposal)) problems.push(problem);
   if (problems.length === 0) {
     writeFileSync(join(args.dir, "pr-body.md"), prBody(proposal, diff, readJson(join(args.dir, "digest.json"))));
     console.log(`prompt edits: ${diff.prompt.length}; structural edits: ${diff.structure.length}`);
   }
 }
 
-if (stage === "proposal") stageProposal();
+if (stage === "proposal") checkProposal(readJson(join(args.dir, "proposal.json")), readJson(args.spec));
 else if (stage === "edit") stageEdit();
 else problems.push("stage must be `proposal` or `edit`");
 

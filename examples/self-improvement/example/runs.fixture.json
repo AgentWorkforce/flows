@@ -1,5 +1,5 @@
 {
-  "//": "Six terminal runs of issue-triage in the CloudStep shape getCloudRunSteps returns (packages/sdk/src/cloud-read.ts), newest first, plus a cancelled run and another flow's run that the collector must skip. Synthetic.",
+  "//": "Six terminal runs of issue-triage in the CloudStep shape getCloudRunSteps returns (packages/sdk/src/cloud-read.ts), newest first, plus three runs the collector must skip: a cancelled run, another flow's run, and a different flow that shares the name issue-triage (its steps are not this flow's). Synthetic.",
   "runs": [
     {
       "run_id": "run-2026-10-08-a",
@@ -122,6 +122,60 @@
       "pull_request_url": null,
       "error": null,
       "steps": []
+    },
+    {
+      "run_id": "run-2026-10-08-z",
+      "name": "issue-triage",
+      "status": "failed",
+      "completion_reason": "step_failed",
+      "created_at": "2026-10-08T06:00:00Z",
+      "updated_at": null,
+      "pull_request_url": null,
+      "error": null,
+      "steps": [
+        {
+          "step_name": "scrape",
+          "step_type": "agent",
+          "status": "completed",
+          "completion_reason": "success",
+          "cli": "claude",
+          "model": "claude-sonnet-5",
+          "sandbox_id": "scrape",
+          "started_at": null,
+          "ended_at": null,
+          "duration_ms": 5000,
+          "exit_code": 0,
+          "retry_count": 0,
+          "tokens_in": 100,
+          "tokens_out": 50,
+          "cost_usd": 3.0,
+          "output_summary": "unrelated",
+          "gate": null,
+          "attempts": [],
+          "transcript": null
+        },
+        {
+          "step_name": "summarize",
+          "step_type": "agent",
+          "status": "failed",
+          "completion_reason": "timeout",
+          "cli": "claude",
+          "model": "claude-sonnet-5",
+          "sandbox_id": "summarize",
+          "started_at": null,
+          "ended_at": null,
+          "duration_ms": 5000,
+          "exit_code": 0,
+          "retry_count": 0,
+          "tokens_in": 100,
+          "tokens_out": 50,
+          "cost_usd": 3.0,
+          "output_summary": "unrelated",
+          "gate": null,
+          "attempts": [],
+          "transcript": null
+        }
+      ]
     },
     {
       "run_id": "run-2026-10-07-b",

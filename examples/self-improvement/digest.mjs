@@ -29,6 +29,11 @@ function quantile(sorted, q) {
   return sorted[at];
 }
 
+/**
+ * Cost as Cloud reports it. An unmetered attempt makes that a lower bound, and
+ * `getCloudRunSteps` carries no flag saying so, so cost shares are "as
+ * reported" — the analyst is told the same.
+ */
 function stepCost(step) {
   return finite(step.cost_usd) ?? finite(step.transcript?.total_cost_usd);
 }

@@ -26,4 +26,4 @@ dist/
 review/
 parity/
 # examples/self-improvement scratch dir (collected runs, proposal, target checkout)
-improve/
+/improve/
