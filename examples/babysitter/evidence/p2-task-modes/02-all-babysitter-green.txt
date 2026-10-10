@@ -1,7 +1,7 @@
 $ (cd examples/babysitter && npm test)
-ℹ tests 169
+ℹ tests 170
 ℹ suites 0
-ℹ pass 162
+ℹ pass 163
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0

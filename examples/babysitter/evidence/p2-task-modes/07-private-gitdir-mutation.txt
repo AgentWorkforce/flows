@@ -1,0 +1,10 @@
+$ (cd examples/babysitter && node --experimental-strip-types --test tests/task.test.ts)   # fix.ts at origin/main (rewrites .git/config)
+    code: 'EACCES',
+  Error: EACCES: permission denied, open '/home/khaliqgant/.agent-tmp/babysitter-checkout-wza2lF/.git/config'
+ℹ fail 1
+ℹ pass 24
+✖ proposes from a checkout whose .git the sandbox left unwritable, touching nothing in it (166.662091ms)
+restored sha ok: yes
+$ (cd examples/babysitter && node --experimental-strip-types --test tests/task.test.ts)   # private git dir
+ℹ pass 25
+ℹ fail 0

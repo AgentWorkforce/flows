@@ -762,116 +762,130 @@ async function stashCheckout(c) {
 }
 async function proposeChanges(c) {
   const { execFileSync } = await import("node:child_process");
-  const { rmSync, writeFileSync } = await import("node:fs");
-  writeFileSync(`${c.dir}/.git/config`, "[core]\n	repositoryformatversion = 0\n	filemode = true\n	bare = false\n");
-  rmSync(`${c.dir}/.git/hooks`, { recursive: true, force: true });
-  rmSync(`${c.dir}/.git/info/attributes`, { force: true });
-  const buffer = c.limits.bufferBytes ?? 8 * 1024 * 1024;
-  const gitWith = (maxBuffer, ...args) => String(execFileSync("git", ["-C", c.dir, ...args], {
-    encoding: "utf8",
-    maxBuffer,
-    stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_COUNT: "2", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/dev/null", GIT_CONFIG_KEY_1: "core.quotePath", GIT_CONFIG_VALUE_1: "false" }
-  }));
-  const git = (...args) => gitWith(8 * 1024 * 1024, ...args);
-  const diff = ["diff", "--cached", "--no-renames", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/"];
-  const refuse = (reason) => process.stdout.write(JSON.stringify({ kind: "babysitter-refusal", reason }));
-  if (c.mergeParent) {
-    const { execFileSync: run } = await import("node:child_process");
-    const blobIsBinary = (blob) => {
-      try {
-        const bytes = run("git", ["-C", c.dir, "cat-file", "blob", blob], { maxBuffer: buffer, stdio: ["ignore", "pipe", "ignore"] });
-        return bytes.subarray(0, 8e3).includes(0);
-      } catch {
-        return true;
-      }
-    };
-    const binaryAttribute = (path) => [c.head, c.mergeParent].some((source) => {
-      try {
-        const out2 = git("check-attr", `--source=${source}`, "binary", "merge", "--", path);
-        return /: binary: set$/m.test(out2) || /: merge: (binary|unset)$/m.test(out2);
-      } catch {
-        return true;
-      }
-    });
-    const unmerged = git("diff", "--name-only", "--diff-filter=U", "-z").split("\0").filter(Boolean);
-    const untouched = unmerged.filter((path) => {
-      const stages = git("ls-files", "-u", "-z", "--", path).split("\0").filter(Boolean).map((line) => ({ stage: line.split(/\s+/)[2], blob: line.split(/\s+/)[1] }));
-      const ours = stages.find((s) => s.stage === "2")?.blob;
-      const theirs = stages.find((s) => s.stage === "3")?.blob;
-      if (!ours || !theirs || ours === theirs) return false;
-      let unchanged;
-      try {
-        unchanged = git("hash-object", "--", path).trim() === ours;
-      } catch {
-        return false;
-      }
-      return unchanged && (blobIsBinary(ours) || blobIsBinary(theirs) || binaryAttribute(path));
-    });
-    if (untouched.length) return refuse(`unresolved conflict(s) left as the PR's side with no markers: ${untouched.slice(0, 5).join(", ")}`);
-  }
-  git("add", "-A");
-  const names = (...range) => git(...diff, "-z", "--name-only", ...range).split("\0").filter(Boolean);
-  const files = names(c.head);
-  const authored = c.mergeParent ? names(c.mergeParent) : files;
-  const quoted = [...files, ...authored].filter((f) => /["\\\x00-\x1f\x7f]/.test(f));
-  if (quoted.length) return refuse(`changes ${quoted.length} path(s) with quotes, backslashes or control characters`);
-  const refused = authored.filter((f) => new RegExp(c.limits.refused).test(f));
-  if (refused.length) return refuse(`changes refused paths: ${refused.slice(0, 5).join(", ")}`);
-  const meta = authored.filter((f) => new RegExp(c.limits.meta).test(f));
-  if (meta.length) return refuse(`changes drizzle metadata (${meta.slice(0, 3).join(", ")}); migrations are renumbered by Cloud, never by an agent`);
-  if (c.mergeParent) {
-    const { existsSync, readFileSync } = await import("node:fs");
-    const base = git("merge-base", c.head, c.mergeParent).trim();
-    const own = new Set(git("diff", "-z", "--name-only", "--no-renames", "--no-ext-diff", base, c.head).split("\0").filter(Boolean));
-    const outside = authored.filter((f) => !own.has(f));
-    if (outside.length) return refuse(`the merge changes trunk outside the PR's own files: ${outside.slice(0, 5).join(", ")}`);
-    const marked = authored.filter((f) => existsSync(`${c.dir}/${f}`) && /^(<<<<<<<|>>>>>>>) /m.test(readFileSync(`${c.dir}/${f}`, "utf8")));
-    if (marked.length) return refuse(`conflict markers remain in ${marked.slice(0, 5).join(", ")}`);
-  }
-  const wide = files.length > c.limits.files;
-  let patch = "";
-  let unreadable = false;
-  if (!wide) {
-    try {
-      patch = gitWith(buffer, ...diff, "--binary", "--full-index", c.head);
-    } catch (error) {
-      const code = error.code;
-      if (code !== "ENOBUFS" && !/maxBuffer/.test(String(error.message))) throw error;
-      unreadable = true;
+  const { copyFileSync, existsSync: present, mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { resolve } = await import("node:path");
+  const environment = { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_COUNT: "2", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/dev/null", GIT_CONFIG_KEY_1: "core.quotePath", GIT_CONFIG_VALUE_1: "false" };
+  const checkoutGit = resolve(c.dir, ".git");
+  const scratch = mkdtempSync(`${tmpdir()}/babysitter-gitdir-`);
+  execFileSync("git", ["init", "-q", scratch], { stdio: "ignore", env: environment });
+  const gitDir = `${scratch}/.git`;
+  writeFileSync(`${gitDir}/objects/info/alternates`, `${checkoutGit}/objects
+`);
+  if (present(`${checkoutGit}/index`)) copyFileSync(`${checkoutGit}/index`, `${gitDir}/index`);
+  try {
+    const buffer = c.limits.bufferBytes ?? 8 * 1024 * 1024;
+    const cwd = resolve(c.dir);
+    const where = ["--git-dir", gitDir, "--work-tree", cwd];
+    const gitWith = (maxBuffer, ...args) => String(execFileSync("git", [...where, ...args], {
+      encoding: "utf8",
+      maxBuffer,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: environment,
+      cwd
+    }));
+    const git = (...args) => gitWith(8 * 1024 * 1024, ...args);
+    const diff = ["diff", "--cached", "--no-renames", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/"];
+    const refuse = (reason) => process.stdout.write(JSON.stringify({ kind: "babysitter-refusal", reason }));
+    if (c.mergeParent) {
+      const { execFileSync: run } = await import("node:child_process");
+      const blobIsBinary = (blob) => {
+        try {
+          const bytes = run("git", [...where, "cat-file", "blob", blob], { maxBuffer: buffer, stdio: ["ignore", "pipe", "ignore"], env: environment, cwd });
+          return bytes.subarray(0, 8e3).includes(0);
+        } catch {
+          return true;
+        }
+      };
+      const binaryAttribute = (path) => [c.head, c.mergeParent].some((source) => {
+        try {
+          const out2 = git("check-attr", `--source=${source}`, "binary", "merge", "--", path);
+          return /: binary: set$/m.test(out2) || /: merge: (binary|unset)$/m.test(out2);
+        } catch {
+          return true;
+        }
+      });
+      const unmerged = git("diff", "--name-only", "--diff-filter=U", "-z").split("\0").filter(Boolean);
+      const untouched = unmerged.filter((path) => {
+        const stages = git("ls-files", "-u", "-z", "--", path).split("\0").filter(Boolean).map((line) => ({ stage: line.split(/\s+/)[2], blob: line.split(/\s+/)[1] }));
+        const ours = stages.find((s) => s.stage === "2")?.blob;
+        const theirs = stages.find((s) => s.stage === "3")?.blob;
+        if (!ours || !theirs || ours === theirs) return false;
+        let unchanged;
+        try {
+          unchanged = git("hash-object", "--", path).trim() === ours;
+        } catch {
+          return false;
+        }
+        return unchanged && (blobIsBinary(ours) || blobIsBinary(theirs) || binaryAttribute(path));
+      });
+      if (untouched.length) return refuse(`unresolved conflict(s) left as the PR's side with no markers: ${untouched.slice(0, 5).join(", ")}`);
     }
-  }
-  const over = wide ? `changes ${files.length} files; at most ${c.limits.files}` : unreadable ? `patch is larger than ${buffer} bytes; at most ${c.limits.patchBytes}` : Buffer.byteLength(patch) > c.limits.patchBytes ? `patch is ${Buffer.byteLength(patch)} bytes; at most ${c.limits.patchBytes}` : void 0;
-  if (over && !c.mergeParent) return refuse(over);
-  const out = JSON.stringify(over ? {
-    kind: "babysitter-proposal",
-    schemaVersion: 1,
-    pullRequest: c.pullRequest,
-    baseHead: c.head,
-    files: [],
-    patch: "",
-    // The explanation always shows; the agent's summary yields room for it.
-    summary: (() => {
-      const why = `
+    git("add", "-A");
+    const names = (...range) => git(...diff, "-z", "--name-only", ...range).split("\0").filter(Boolean);
+    const files = names(c.head);
+    const authored = c.mergeParent ? names(c.mergeParent) : files;
+    const quoted = [...files, ...authored].filter((f) => /["\\\x00-\x1f\x7f]/.test(f));
+    if (quoted.length) return refuse(`changes ${quoted.length} path(s) with quotes, backslashes or control characters`);
+    const refused = authored.filter((f) => new RegExp(c.limits.refused).test(f));
+    if (refused.length) return refuse(`changes refused paths: ${refused.slice(0, 5).join(", ")}`);
+    const meta = authored.filter((f) => new RegExp(c.limits.meta).test(f));
+    if (meta.length) return refuse(`changes drizzle metadata (${meta.slice(0, 3).join(", ")}); migrations are renumbered by Cloud, never by an agent`);
+    if (c.mergeParent) {
+      const { existsSync, readFileSync } = await import("node:fs");
+      const base = git("merge-base", c.head, c.mergeParent).trim();
+      const own = new Set(git("diff", "-z", "--name-only", "--no-renames", "--no-ext-diff", base, c.head).split("\0").filter(Boolean));
+      const outside = authored.filter((f) => !own.has(f));
+      if (outside.length) return refuse(`the merge changes trunk outside the PR's own files: ${outside.slice(0, 5).join(", ")}`);
+      const marked = authored.filter((f) => existsSync(`${c.dir}/${f}`) && /^(<<<<<<<|>>>>>>>) /m.test(readFileSync(`${c.dir}/${f}`, "utf8")));
+      if (marked.length) return refuse(`conflict markers remain in ${marked.slice(0, 5).join(", ")}`);
+    }
+    const wide = files.length > c.limits.files;
+    let patch = "";
+    let unreadable = false;
+    if (!wide) {
+      try {
+        patch = gitWith(buffer, ...diff, "--binary", "--full-index", c.head);
+      } catch (error) {
+        const code = error.code;
+        if (code !== "ENOBUFS" && !/maxBuffer/.test(String(error.message))) throw error;
+        unreadable = true;
+      }
+    }
+    const over = wide ? `changes ${files.length} files; at most ${c.limits.files}` : unreadable ? `patch is larger than ${buffer} bytes; at most ${c.limits.patchBytes}` : Buffer.byteLength(patch) > c.limits.patchBytes ? `patch is ${Buffer.byteLength(patch)} bytes; at most ${c.limits.patchBytes}` : void 0;
+    if (over && !c.mergeParent) return refuse(over);
+    const out = JSON.stringify(over ? {
+      kind: "babysitter-proposal",
+      schemaVersion: 1,
+      pullRequest: c.pullRequest,
+      baseHead: c.head,
+      files: [],
+      patch: "",
+      // The explanation always shows; the agent's summary yields room for it.
+      summary: (() => {
+        const why = `
 
 The conflict resolution was not published: the merge ${over}. A person needs to resolve it.`;
-      return `${c.summary.slice(0, Math.max(0, c.limits.summaryChars - why.length))}${why}`;
-    })(),
-    replies: c.replies,
-    unpublished: over
-  } : {
-    kind: "babysitter-proposal",
-    schemaVersion: c.mergeParent ? 2 : 1,
-    pullRequest: c.pullRequest,
-    baseHead: c.head,
-    ...c.mergeParent ? { mergeParent: c.mergeParent } : {},
-    files,
-    patch,
-    summary: c.summary,
-    replies: c.replies
-  });
-  if (Buffer.byteLength(out) > c.limits.proposalBytes) return refuse("proposal exceeds the journal output bound");
-  process.stdout.write(out);
+        return `${c.summary.slice(0, Math.max(0, c.limits.summaryChars - why.length))}${why}`;
+      })(),
+      replies: c.replies,
+      unpublished: over
+    } : {
+      kind: "babysitter-proposal",
+      schemaVersion: c.mergeParent ? 2 : 1,
+      pullRequest: c.pullRequest,
+      baseHead: c.head,
+      ...c.mergeParent ? { mergeParent: c.mergeParent } : {},
+      files,
+      patch,
+      summary: c.summary,
+      replies: c.replies
+    });
+    if (Buffer.byteLength(out) > c.limits.proposalBytes) return refuse("proposal exceeds the journal output bound");
+    process.stdout.write(out);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 }
 async function restore(f, pr) {
   const value = JSON.parse(await f.run(nodeCommand(restoreCheckout, { owner: pr.owner, repo: pr.repo, number: pr.number }), { timeout: "2m" }));

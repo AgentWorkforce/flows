@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -206,6 +206,26 @@ const runPropose = (r: { checkout: string; head: string }, over: { mergeParent?:
     ...(over.bufferBytes ? { bufferBytes: over.bufferBytes } : {}),
   },
 }));
+
+test('proposes from a checkout whose .git the sandbox left unwritable, touching nothing in it', async () => {
+  // Live run #1 (Cloud run c5c7bb01): after the agent step the checkout's
+  // .git was not writable, and rewriting .git/config failed with EACCES.
+  const r = forked();
+  writeFileSync(join(r.checkout, 'src/retry.ts'), 'export const attempts = 4;\n');
+  const configBefore = readFileSync(join(r.checkout, '.git/config'), 'utf8');
+  const scratchBefore = readdirSync(tmpdir()).filter((name) => name.startsWith('babysitter-gitdir-')).length;
+  execFileSync('chmod', ['-R', 'a-w', join(r.checkout, '.git')]);
+  try {
+    const p = await runPropose(r);
+    assert.equal(p.kind, 'babysitter-proposal');
+    assert.deepEqual(p.files, ['src/retry.ts']);
+    assert.match(p.patch, /\+export const attempts = 4;/);
+  } finally {
+    execFileSync('chmod', ['-R', 'u+w', join(r.checkout, '.git')]);
+  }
+  assert.equal(readFileSync(join(r.checkout, '.git/config'), 'utf8'), configBefore);
+  assert.equal(readdirSync(tmpdir()).filter((name) => name.startsWith('babysitter-gitdir-')).length, scratchBefore);
+});
 
 test('the merge step leaves the conflicts for the agent and names any in drizzle metadata', async () => {
   const r = forked();
