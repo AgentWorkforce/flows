@@ -135,19 +135,26 @@ No process runs between events: the handler wakes, executes to its next await, p
    check; direct `.memory` use also triggers it. Aliased access is checked at
    call time. The local Node SDK and an existing readable SQLite DB are required
    (`AI_HIST_DB` overrides `defaultDbPath()`); JSONL fallback is disabled.
-   `learn(finding)` writes the finding as an immutable compacted trajectory
-   file under the script scope (`<scope>/.trajectories/compacted/<id>.json`,
-   the format `ai-hist sync` ingests). `recall` and `why` read the ai-hist DB
-   plus the scope's own trajectory files, so the next run sees a finding
-   before any sync, and a synced copy is deduplicated in favour of the DB row
-   (an unsynced `recall` entry has a negative `id`). The id hashes scope and
-   finding, so re-learning the same finding rewrites one file. `learn` never
-   modifies the ai-hist DB and shares no state between writers, so it needs no
-   lock; the file takes the DB's mode and is published by atomic rename, so a
-   failed `learn` (`memory_finding_invalid`, `memory_unwritable`) leaves
-   nothing behind. A body must await `learn`: one still pending when the body
-   returns fails the run with `unawaited_step`. `learn` is not yet a
-   journaled effect. `memory: { agent: true }` refuses pending the
+   `learn(finding)` journals first: the finding is appended to the durable
+   root run's `memory-learn` stream before it can be recalled. It is then
+   projected as a compacted trajectory file (the format `ai-hist sync`
+   ingests) at `<db-dir>/flows-memory/<scope-hash>/.trajectories/compacted/<id>.json`,
+   beside the ai-hist DB rather than the flow source, so a flow deployed from a
+   read-only checkout can still learn. The file cites its commit
+   (`journal: { runId, stream, offset }`) and is derived only from it, so a
+   resumed body that re-runs `learn` finds the commit and republishes the same
+   bytes without journaling again. `learn` without a durable root run refuses
+   (`memory_unjournaled`). `recall` and `why` read the ai-hist DB plus the
+   scope's learned files, so the next run sees a finding before any sync; a
+   synced copy is deduplicated in favour of the DB row (an unsynced `recall`
+   entry has a negative `id`), and a damaged learned file fails the read
+   (`memory_unreachable`) rather than being skipped. The id hashes scope and
+   finding, so re-learning a finding atomically replaces one file. `learn`
+   never modifies the ai-hist DB and shares no state between writers, so it
+   needs no lock; the file takes the DB's mode, and a failed `learn`
+   (`memory_finding_invalid`, `memory_unwritable`) publishes nothing. A body
+   must await `learn`: a call whose outcome the body never consumed fails the
+   run with `unawaited_step`. `memory: { agent: true }` refuses pending the
    identity-scoped agent follow-up. CLI-only operation is also deferred.
 
 4. **`{{prev}}` / return-value chaining.** Output flows downward implicitly; naming steps is for reaching back, not bookkeeping.

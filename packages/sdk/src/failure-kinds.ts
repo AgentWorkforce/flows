@@ -142,6 +142,8 @@ export const RUN_FAILURE_KINDS = [
   'memory_finding_invalid',
   /** `f.memory.learn` could not persist the finding to script memory. */
   'memory_unwritable',
+  /** `f.memory.learn` ran without a durable root run to journal the finding in. */
+  'memory_unjournaled',
   /**
    * `--local-agent` cannot be honoured for this invocation, so it is refused
    * rather than accepted and ignored. A local agent worker is admitted at run

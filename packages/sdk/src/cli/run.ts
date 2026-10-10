@@ -1114,7 +1114,7 @@ export function memoryWriteFailure(
   error: AuthoredFlowExecutionError,
   fallbackRunId?: string,
 ): RunExecution | undefined {
-  if (error.code !== 'memory_finding_invalid' && error.code !== 'memory_unwritable') return undefined;
+  if (error.code !== 'memory_finding_invalid' && error.code !== 'memory_unwritable' && error.code !== 'memory_unjournaled') return undefined;
   const rootRunId = error.rootRunId ?? fallbackRunId;
   const runId = error.runId ?? rootRunId;
   return {

@@ -1,7 +1,16 @@
 # Minimal local script-memory example
 
 This slice implements `f.memory.recall`, `f.memory.why`, and `f.memory.learn`
-through ai-hist 0.4.1. None of them journal a step. `memory: { script: true }` is already part
+through ai-hist 0.4.1. Reads journal nothing. `learn` appends the finding to
+the durable root run's `memory-learn` stream first, then projects it as a
+compacted trajectory file at
+`<db-dir>/flows-memory/<scope-hash>/.trajectories/compacted/<id>.json` that
+cites the commit. ai-hist 0.4.1 has no trajectory writer and its database is
+never modified; reads merge the database with the scope's learned files. A
+resumed body re-running `learn` republishes from the commit instead of
+journaling twice, and `learn` refuses (`memory_unjournaled`) without a root
+run. `tests/memory-learn-live.test.ts` exercises it through the built CLI and
+a real kernel. `memory: { script: true }` is already part
 of the surface header contract and now works in the internal authored executor.
 
 `seed.mjs` creates a new deterministic SQLite database with two script scopes,
@@ -42,17 +51,6 @@ than ai-hist's automatic scan of unrelated local JSONL history.
 
 ## Deferred acceptance work
 
-- Journaled `learn` effects. ai-hist 0.4.1 has no public trajectory writer,
-  so `learn` writes the finding as an immutable compacted trajectory file at
-  `<scope>/.trajectories/compacted/<id>.json` (the format `ai-hist sync`
-  ingests), staged and atomically renamed, with the database's file mode.
-  `recall`/`why` read the database plus those files, deduplicating synced
-  copies, so the next run sees the finding without a sync. The ai-hist
-  database is never written, so there is no lock and no race with
-  `ai-hist sync`. The id is a hash of scope and finding, so a resumed body
-  re-running `learn`, or a later run learning the same thing, rewrites one
-  file. An unawaited `learn` fails the run with `unawaited_step`. It is still
-  not a journaled effect.
 - Identity-scoped agent context injection. `memory.agent: true` explicitly
   refuses; it must not silently read script scope.
 - CLI-only provider operation and automatic creation of a fresh database.
@@ -61,5 +59,5 @@ than ai-hist's automatic scan of unrelated local JSONL history.
 - Automatic trajectory import and the behavioural Gate 5 acceptance example.
 - Cloud push and pair mode, per the original exclusions.
 
-This is a local proof slice, not completion of Gate 5 or the full original
+This is a local slice, not completion of Gate 5 or the full original
 recall/why/learn acceptance matrix. The lead owns PR creation and CI review.

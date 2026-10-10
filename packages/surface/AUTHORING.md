@@ -1290,7 +1290,7 @@ export interface MemoryHelper {
   recall(query: string, options?: MemoryRecallOptions): Promise<HistoryEntry[]>;
   /** Best matching decision trajectory, or an empty array. No journal step. */
   why(task: string): Promise<TrajectoryEntry[]>;
-  /** Persists a finding to this flow's script memory; later runs see it via recall/why. Idempotent per finding; no journal step. */
+  /** Journals the finding on the durable root run, then persists it to this flow's script memory; later runs see it via recall/why. Idempotent per finding. Must be awaited. */
   learn(finding: MemoryFinding): Promise<void>;
 }
 ```
