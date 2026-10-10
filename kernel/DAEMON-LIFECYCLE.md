@@ -286,6 +286,14 @@ ensureDaemon(dataDir, { spawn = true, timeoutMs = 10_000 }):
        d. past deadline -> refuse (exit 2, daemon_start_timeout)
 ```
 
+`env: process.env` and `cwd: process.cwd()` belong to the CLI that won the
+start. A later `flows run` that attaches (step B) passes neither, and the
+`run.start` wire params carry no environment. So every deterministic `f.run`
+step spawned by this daemon (`exec_det.rs`) runs with the first CLI's
+environment and, when placement assigns no workspace, its working directory.
+This is a known limitation, not a contract. docs/SURFACE.md ("`f.run` on the
+local daemon") gives the workarounds.
+
 `detached: true` puts the child in its own session and process group. Two
 consequences, both required: it outlives the CLI process, and a `Ctrl-C` sent
 to the CLI's process group does not reach it. `stdio` never inherits the CLI's

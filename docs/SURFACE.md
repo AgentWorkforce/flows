@@ -952,6 +952,54 @@ If a process-wide intrinsic replacement is unacceptable in your deployment, do
 not run authored TypeScript bodies in that process; the declarative YAML path
 does not install it.
 
+### `f.run` on the local daemon: one at a time, in the daemon's environment
+
+Two properties of `f.run` on a local `relayflowd` surprise people. Both are how
+the current kernel works, not promises of the Surface.
+
+**Within one run, `f.run` steps run one after another.** `Promise.all` over two
+`f.run('sleep 2')` steps takes about 4s, not 2s. The SDK starts both steps at
+once, but the body talks to the daemon over a single connection. The daemon
+handles each connection's requests in order (`kernel/relayflowd/src/server.rs`),
+and the request that starts a deterministic step returns only after the
+command exits (`engine/drive.rs` → `exec_det.rs`). A declared `budget` also
+queues operations in order (`authored-budget.ts`). `Promise.all` stays correct
+authoring: results come back in declaration order, and the steps will overlap
+once the kernel dispatches in parallel.
+
+What runs concurrently today:
+
+- `f.agent` and `f.llm` steps, up to `--agent-capacity`. They run in worker
+  processes, not in the daemon's request path.
+- Separate `flows run` invocations. Each has its own connection to the daemon,
+  so their `f.run` steps overlap. For parallel shell work, start the lanes as
+  separate runs.
+- Inside one step, a command that waits on its own background jobs, such as
+  `f.run('a & b & wait')`. A single `f.run` cannot start a background job and
+  return before it finishes: the step waits on the command's output pipes.
+
+`f.dispatch` children share their parent body's connection, so they are
+serialized too.
+
+**`f.run` inherits the daemon's environment and working directory, not the
+CLI's.** The first `flows run` on a data dir starts `relayflowd` with its own
+`process.env` and `process.cwd()` (see `kernel/DAEMON-LIFECYCLE.md`). Every
+later `flows run` on that data dir attaches to the same daemon. The shell step
+is spawned by the daemon with only `FLOWS_INPUT` and `RELAYFLOW_MEMORY` added.
+Exporting a variable before a later `flows run` therefore does not reach its
+`f.run` steps. `f.agent` and `f.llm` workers run in the CLI process, so they do
+see the current run's environment.
+
+Until per-run step environments exist:
+
+- Pass per-run values as input (`--input`). They reach the command as
+  `FLOWS_INPUT`, or through the body as part of the command string.
+- Give runs that need different environments their own data dir
+  (`--data-dir`). Each data dir gets its own daemon, started by the first run
+  that uses it.
+- After changing the environment a shared daemon should have, stop that
+  daemon so the next `flows run` starts a fresh one.
+
 ## 3. Plugins: the kernel is closed, the surface is open
 
 The herdr model: first-party helpers are just plugins that ship in the box; the community brings the rest.
