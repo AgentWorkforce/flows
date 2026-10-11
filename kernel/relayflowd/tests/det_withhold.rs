@@ -281,6 +281,7 @@ fn withheld_names_never_reach_a_det_step_of_any_run() {
     }
 }
 
+#[cfg(target_os = "linux")]
 /// The daemon's env as a host or a first CLI might give it: every withheld
 /// value, ordinary names, and a marker proving /proc/<pid>/environ is read.
 fn exported_daemon_env() -> Vec<(String, String)> {
@@ -297,12 +298,14 @@ fn exported_daemon_env() -> Vec<(String, String)> {
     env
 }
 
+#[cfg(target_os = "linux")]
 /// A step that copies its parent's (the daemon's) /proc environ to a file.
 fn parent_environ_step(id: &str, path: &Path) -> Value {
     json!({"id": id, "type": "deterministic",
            "command": format!("tr '\\0' '\\n' < /proc/$PPID/environ > '{}'", path.display())})
 }
 
+#[cfg(target_os = "linux")]
 /// The daemon's /proc environ, as read by a same-uid process: readable (the
 /// marker is there), and no withheld name or value in it.
 fn assert_clean_environ(path: &Path) {
@@ -320,6 +323,9 @@ fn assert_clean_environ(path: &Path) {
     }
 }
 
+// /proc and the clean re-exec are Linux-only; elsewhere a daemon holding a
+// withheld value refuses to start instead.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_daemon_exported_withheld_values_execs_itself_clean_before_serving() {
     let fixture = Fixture::new();
@@ -355,6 +361,9 @@ fn a_daemon_exported_withheld_values_execs_itself_clean_before_serving() {
     }
 }
 
+// /proc and the clean re-exec are Linux-only; elsewhere a daemon holding a
+// withheld value refuses to start instead.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_restarted_daemon_given_the_same_env_execs_clean_again() {
     let fixture = Fixture::new();
