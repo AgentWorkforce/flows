@@ -24,7 +24,7 @@ test('builds and verifies the exact Linux x64 Cloud artifact contract', async ()
     });
     const verified = await verifyCloudArtifact(built.archivePath, built.archiveSha256);
     assert.equal(verified.sourceCommit, 'a'.repeat(40));
-    assert.deepEqual(verified.capabilities, ['local-agent-env-fd-v1']);
+    assert.deepEqual(verified.capabilities, ['local-agent-env-fd-v1', 'det-withhold-v1']);
     assert.deepEqual(
       verified.files.map((file) => file.path),
       ['bin/flows', 'bin/relayflowd'],
@@ -194,6 +194,33 @@ test('verification rejects an artifact without the agent credential isolation ca
       /unsupported schema or target/u,
     );
   });
+});
+
+test('a legacy artifact verifies against its original bytes', async () => {
+  // Built by the released builder (flows 2ee558ee) with the test's fake ELFs
+  // and committed byte-for-byte; nothing here rewrites it.
+  const archive = fileURLToPath(new URL('./fixtures/legacy-local-agent-env-fd-v1.tar.gz', import.meta.url));
+  const verified = await verifyCloudArtifact(
+    archive,
+    'bfb90efe22305a80eaefb7aeeb8015e0606ddd95e0fcb500bf6c79951e9c53fc',
+  );
+  assert.deepEqual(verified.capabilities, ['local-agent-env-fd-v1']);
+  assert.equal(verified.sourceCommit, '2ee558eeeefb99fd37428667746814ca3ab3f486');
+});
+
+test('verification rejects an unknown capability', async () => {
+  for (const capabilities of [
+    ['local-agent-env-fd-v1', 'det-withhold-v1', 'unknown-v1'],
+    ['local-agent-env-fd-v1', 'unknown-v1'],
+    ['det-withhold-v1', 'local-agent-env-fd-v1'],
+  ]) {
+    await withUnpackedArtifact('d', async (root) => {
+      const manifest = await readManifest(root);
+      manifest.capabilities = capabilities;
+      await writeManifest(root, manifest);
+      await assert.rejects(verifyArtifactDirectory(root), /unsupported schema or target/u, capabilities.join(','));
+    });
+  }
 });
 
 test('CLI rejects a misspelled build option in artifact vocabulary', () => {

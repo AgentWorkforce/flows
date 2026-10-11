@@ -22,7 +22,13 @@ import { pathToFileURL } from 'node:url';
 const SHA256 = /^[a-f0-9]{64}$/u;
 const SOURCE_COMMIT = /^[a-f0-9]{40}$/u;
 const REQUIRED_EXECUTABLES = ['bin/flows', 'bin/relayflowd'];
-const RUNTIME_CAPABILITIES = ['local-agent-env-fd-v1'];
+const RUNTIME_CAPABILITIES = ['local-agent-env-fd-v1', 'det-withhold-v1'];
+// Every capability set a published artifact may declare, exactly and in
+// order. Older artifacts keep verifying; an unknown capability never does.
+const KNOWN_CAPABILITY_SETS = [
+  ['local-agent-env-fd-v1'],
+  RUNTIME_CAPABILITIES,
+];
 
 export async function buildCloudArtifact(options) {
   assertSourceCommit(options.sourceCommit);
@@ -147,8 +153,8 @@ function parseManifest(value) {
     value.schemaVersion !== 1 ||
     value.protocolVersion !== '0' ||
     !Array.isArray(value.capabilities) ||
-    value.capabilities.length !== RUNTIME_CAPABILITIES.length ||
-    !RUNTIME_CAPABILITIES.every((capability, index) => value.capabilities[index] === capability) ||
+    !KNOWN_CAPABILITY_SETS.some((known) => known.length === value.capabilities.length
+      && known.every((capability, index) => value.capabilities[index] === capability)) ||
     value.platform !== 'linux' ||
     value.arch !== 'x64' ||
     !SOURCE_COMMIT.test(value.sourceCommit) ||

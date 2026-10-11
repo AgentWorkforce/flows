@@ -57,6 +57,8 @@ export class JournalClient extends JournalConnection {
   private readonly budgetHandshake: boolean;
   /** Additive request capabilities the daemon advertised at `hello`; none until then. */
   private features: ReadonlySet<string> = new Set();
+  /** `hello.det_withheld`: names whose values never go into a sent env. */
+  private withheld: ReadonlySet<string> = new Set();
 
   constructor(socketPath: string, options: JournalClientOptions = {}) {
     super(socketPath, options.requestTimeoutMs ?? 30_000, options.connectTimeoutMs ?? 2_000);
@@ -112,6 +114,8 @@ export class JournalClient extends JournalConnection {
     const result = this.budgeted === undefined || !this.budgetHandshake ? await this.request('hello', params)
       : await this.budgeted.handshake(params, this.requestTimeoutMs);
     this.features = new Set(Array.isArray(result.features) ? result.features.filter(f => typeof f === 'string') : []);
+    this.withheld = new Set(Array.isArray(result.det_withheld)
+      ? result.det_withheld.filter(name => typeof name === 'string') : []);
     return result;
   }
 
@@ -149,13 +153,15 @@ export class JournalClient extends JournalConnection {
    * This process's environment, for the run's `f.run` steps. A shared daemon
    * otherwise spawns them in the environment of whichever CLI started it
    * (kernel/DAEMON-LIFECYCLE.md §3). Sent only to a daemon that lists
-   * `step_env`, so an older one never sees an unknown field.
+   * `step_env`, so an older one never sees an unknown field. Names the
+   * daemon withholds (`hello.det_withheld`) are left out, on start and resume
+   * alike, so their values never cross the socket from this client.
    */
   private stepEnv(): { env?: Record<string, string> } {
     if (!this.features.has('step_env')) return {};
     const env: Record<string, string> = {};
     for (const [key, value] of Object.entries(process.env)) {
-      if (value !== undefined) env[key] = value;
+      if (value !== undefined && !this.withheld.has(key)) env[key] = value;
     }
     return { env };
   }

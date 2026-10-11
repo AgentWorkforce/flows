@@ -53,7 +53,14 @@ enum Command {
         pause_after_request: bool,
     },
     /// Serve journal protocol v0 over a Unix socket.
-    Serve,
+    Serve {
+        /// Comma-separated env names every deterministic step loses, e.g.
+        /// agent-only credentials a host keeps in the CLI env. Omit the flag
+        /// for none; an empty list, a malformed name or a protected name
+        /// (PATH, HOME, LD_*, ...) refuses to start with status 78.
+        #[arg(long)]
+        det_withhold: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -137,7 +144,25 @@ fn main() -> Result<()> {
             };
             println!("{}", serde_json::to_string(&outcome)?);
         }
-        Command::Serve => server::serve(&cli.data_dir)?,
+        Command::Serve { det_withhold } => {
+            let refuse = |refusal: relayflowd::withhold::WithholdRefusal| -> ! {
+                eprintln!("relayflowd: {refusal}");
+                std::process::exit(relayflowd::withhold::REFUSED_EXIT);
+            };
+            let withheld = det_withhold
+                .as_deref()
+                .map(relayflowd::withhold::Withhold::parse)
+                .transpose()
+                .unwrap_or_else(|refusal| refuse(refusal));
+            // Clean before serving: no deterministic work is admitted while
+            // this process's initial environment holds a withheld value.
+            if let Some(withheld) = &withheld
+                && withheld.held_by_this_process()
+            {
+                refuse(withheld.reexec_clean());
+            }
+            server::serve(&cli.data_dir, withheld)?
+        }
     }
     Ok(())
 }

@@ -126,6 +126,10 @@ impl StepDispatcher for ProtocolHub {
         self.bound_step_env(run_id)
     }
 
+    fn withheld(&self) -> Option<std::sync::Arc<crate::withhold::Withhold>> {
+        self.withheld_names()
+    }
+
     fn reserve_dispatch(
         &self,
         run_id: &str,
