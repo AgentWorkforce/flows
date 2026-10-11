@@ -117,8 +117,32 @@ impl Fixture {
         Daemon(Some(child))
     }
 
+    /// Run a daemon that must refuse to start. One that serves instead is
+    /// killed and reported, never waited on forever.
     fn refused(&self, args: &[&str]) -> Output {
-        self.command(args, &[]).output().unwrap()
+        let child = self
+            .command(args, &[])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        let (done, finished) = std::sync::mpsc::channel::<()>();
+        let watchdog = std::thread::spawn(move || {
+            if finished.recv_timeout(Duration::from_secs(5)).is_err() {
+                // SAFETY: kill(2) on a process group touches no memory; the
+                // child has not been reaped yet, so the pid is still its own.
+                unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
+            }
+        });
+        let output = child.wait_with_output().unwrap();
+        let _ = done.send(());
+        watchdog.join().unwrap();
+        assert!(
+            output.status.code().is_some(),
+            "relayflowd started and served instead of refusing {args:?}"
+        );
+        output
     }
 
     fn connect(&self) -> Client {
