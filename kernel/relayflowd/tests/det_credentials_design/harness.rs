@@ -1,17 +1,23 @@
 //! Harness for the trusted det-step credential design fixture.
 //!
-//! Everything a test observes is captured as bytes so the "no value leaks"
+//! Everything a test observes is captured as bytes, so the "no value leaks"
 //! assertions are made on what actually crossed each boundary:
-//! - every byte written to and read from the daemon socket (`Capture`),
-//! - the daemon's own stdout/stderr (`Daemon::output`),
+//! - bytes the test client SENT to the daemon (`Fixture::sent`) and bytes the
+//!   daemon SENT BACK (`Fixture::received`), kept apart: a nonconforming raw
+//!   client can always put its own values on the wire, and the kernel cannot
+//!   erase incoming bytes -- it can only refuse or strip them;
+//! - the daemon's own stdout/stderr (`Daemon::output`);
 //! - every file under the data dir (journal, registry, checkpoints).
+//!
+//! The proposal's interface (frame, pins, challenge-response, builders) lives
+//! in contract.rs; this file is process, wire and evidence plumbing.
 
 use std::{
     fs,
     io::{BufRead, BufReader, Read, Write},
     os::unix::{net::UnixStream, process::CommandExt},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::{Child, Command, ExitStatus, Stdio},
     sync::{Arc, Mutex},
     thread,
     time::{Duration, Instant},
@@ -21,43 +27,19 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 use tempfile::{TempDir, tempdir};
 
+use super::contract::Binding;
+
 pub const PROPOSAL: &str = "docs/proposals/trusted-det-step-credentials.md";
-
-/// The daemon-only credential the host binds (Cloud: the Babysitter token).
-pub const BOUND: &str = "GH_TOKEN";
-pub const BOUND_VALUE: &str = "ghs_fixtureDaemonOnly_7Q2w9E4rT1xY";
-/// The root run's kernel admission key, as the host declares it.
-pub const ROOT_KEY: &str = "authored-root:fixture-owned-root-0001";
-
-/// Agent-only keys the CLI env carries (cloud relayflow-v2-step-env.ts
-/// AGENT_ENV_KEYS) and the host withholds from deterministic steps.
-pub const AGENT_ONLY: &[(&str, &str)] = &[
-    ("ANTHROPIC_API_KEY", "sk-ant-fixtureAgentOnly-5Tz8Lm2Q"),
-    ("OPENAI_API_KEY", "sk-fixtureAgentOnly-openai-3Kd1Vb7"),
-    ("CLAUDE_CODE_OAUTH_TOKEN", "fixture-oauth-agent-only-9HqW4e"),
-];
-
-/// A delivered secret and repository-grant variables: they are in BOTH Cloud
-/// envs and must keep reaching deterministic steps.
-pub const DELIVERED: (&str, &str) = ("DELIVERED_SECRET", "delivered-fixture-value-81Jx");
-pub const REPOSITORY: &[(&str, &str)] = &[
-    ("GH_CONFIG_DIR", "/fixture/gh-config"),
-    ("GIT_CONFIG_NOSYSTEM", "1"),
-];
-
-/// Prints a checksum of the bound credential, never the credential: a step's
-/// stdout is journaled.
-pub const PROBE: &str =
-    r#"if [ -n "${GH_TOKEN+x}" ]; then printf '%s' "$GH_TOKEN" | cksum; else printf unset; fi"#;
 
 pub type Capture = Arc<Mutex<Vec<u8>>>;
 
 pub struct Fixture {
     _directory: TempDir,
     pub data_dir: PathBuf,
-    /// Outside the data dir: where env dumps and gates live.
+    /// Outside the data dir: env dumps, gates, credential source files.
     pub scratch: PathBuf,
-    pub wire: Capture,
+    pub sent: Capture,
+    pub received: Capture,
 }
 
 impl Fixture {
@@ -70,7 +52,8 @@ impl Fixture {
             _directory: directory,
             data_dir,
             scratch,
-            wire: Capture::default(),
+            sent: Capture::default(),
+            received: Capture::default(),
         }
     }
 
@@ -79,37 +62,7 @@ impl Fixture {
     }
 
     pub fn connect(&self) -> Wire {
-        Wire::connect(&self.socket(), self.wire.clone())
-    }
-}
-
-/// The host's declaration (proposal §4.1): names only, in argv.
-pub struct Binding {
-    pub credentials: Vec<&'static str>,
-    pub root: &'static str,
-    pub withhold: Vec<&'static str>,
-}
-
-/// What Cloud's bootstrap would declare for a Babysitter run.
-pub fn cloud_binding() -> Binding {
-    Binding {
-        credentials: vec![BOUND],
-        root: ROOT_KEY,
-        withhold: AGENT_ONLY.iter().map(|(name, _)| *name).collect(),
-    }
-}
-
-impl Binding {
-    fn args(&self) -> Vec<String> {
-        let mut args = vec![];
-        for name in &self.credentials {
-            args.extend(["--det-credential".to_owned(), (*name).to_owned()]);
-        }
-        args.extend(["--det-credential-root".to_owned(), self.root.to_owned()]);
-        for name in &self.withhold {
-            args.extend(["--det-withhold".to_owned(), (*name).to_owned()]);
-        }
-        args
+        Wire::connect(&self.socket(), self.sent.clone(), self.received.clone())
     }
 }
 
@@ -118,10 +71,37 @@ pub struct Daemon {
     output: Capture,
 }
 
+/// A daemon that refused to serve: its exit status and everything it printed.
+pub struct Refused {
+    pub status: ExitStatus,
+    pub output: String,
+}
+
 impl Daemon {
-    /// Start `relayflowd serve` the way a trusted host would: a clean spawn
-    /// env holding the bound value by name, and the binding in argv.
+    /// Start `relayflowd serve` as a trusted host would: a clean spawn env,
+    /// `--det-frame-stdin` in argv, and one stdin frame (contract.rs).
+    ///
+    /// On a kernel without the feature this panics with the design-fixture
+    /// reason: every ignored test then fails at the SAME point, which shows
+    /// the future interface is ABSENT -- not that each test is a distinct
+    /// security regression on main.
     pub fn start(fixture: &Fixture, binding: Option<&Binding>, env: &[(&str, &str)]) -> Self {
+        match Self::try_start(fixture, binding, env) {
+            Ok(daemon) => daemon,
+            Err(refused) => panic!(
+                "DESIGN FIXTURE: relayflowd exited ({}) instead of serving with the trusted \
+                 det-step credential binding. The interface in {PROPOSAL} is absent from this \
+                 kernel. Daemon said: {}",
+                refused.status, refused.output
+            ),
+        }
+    }
+
+    pub fn try_start(
+        fixture: &Fixture,
+        binding: Option<&Binding>,
+        env: &[(&str, &str)],
+    ) -> std::result::Result<Self, Refused> {
         let mut command = Command::new(env!("CARGO_BIN_EXE_relayflowd"));
         command
             .args(["--data-dir", fixture.data_dir.to_str().unwrap(), "serve"])
@@ -137,11 +117,20 @@ impl Daemon {
                     .filter_map(|name| std::env::var_os(name).map(|value| (name, value))),
             )
             .envs(env.iter().copied())
-            .stdin(Stdio::null())
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .process_group(0);
         let mut child = command.spawn().unwrap();
+        {
+            // Dropping the handle closes stdin either way. Writes can fail
+            // with EPIPE when the daemon already exited: that is a refusal,
+            // reported below.
+            let mut stdin = child.stdin.take().unwrap();
+            if let Some(frame) = binding.and_then(Binding::frame) {
+                let _ = stdin.write_all(frame.as_bytes());
+            }
+        }
         let output = Capture::default();
         for pipe in [
             Box::new(child.stdout.take().unwrap()) as Box<dyn Read + Send>,
@@ -153,20 +142,16 @@ impl Daemon {
         let socket = fixture.socket();
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {
-            if UnixStream::connect(&socket).is_ok() {
-                return Self {
-                    child: Some(child),
-                    output,
-                };
-            }
             if let Some(status) = child.try_wait().unwrap() {
                 thread::sleep(Duration::from_millis(50));
-                let said = String::from_utf8_lossy(&output.lock().unwrap()).into_owned();
-                panic!(
-                    "DESIGN FIXTURE: relayflowd exited ({status}) instead of serving with the \
-                     trusted det-step credential binding. This kernel does not implement {PROPOSAL} \
-                     yet. Daemon said: {said}"
-                );
+                let output = String::from_utf8_lossy(&output.lock().unwrap()).into_owned();
+                return Err(Refused { status, output });
+            }
+            if UnixStream::connect(&socket).is_ok() {
+                return Ok(Self {
+                    child: Some(child),
+                    output,
+                });
             }
             assert!(
                 Instant::now() < deadline,
@@ -205,17 +190,18 @@ fn drain(mut pipe: Box<dyn Read + Send>, sink: Capture) {
     }
 }
 
-/// A protocol connection that records every byte in both directions.
+/// A protocol connection that records every byte, per direction.
 pub struct Wire {
     stream: UnixStream,
     reader: BufReader<UnixStream>,
     next_id: u64,
     events: Vec<Value>,
-    capture: Capture,
+    sent: Capture,
+    received: Capture,
 }
 
 impl Wire {
-    fn connect(socket: &Path, capture: Capture) -> Self {
+    fn connect(socket: &Path, sent: Capture, received: Capture) -> Self {
         let stream = UnixStream::connect(socket).unwrap();
         let read_half = stream.try_clone().unwrap();
         read_half
@@ -226,7 +212,8 @@ impl Wire {
             reader: BufReader::new(read_half),
             next_id: 1,
             events: vec![],
-            capture,
+            sent,
+            received,
         }
     }
 
@@ -235,7 +222,7 @@ impl Wire {
         self.next_id += 1;
         let mut line = serde_json::to_vec(&json!({"id": id, "verb": verb, "params": params}))?;
         line.push(b'\n');
-        self.capture.lock().unwrap().extend_from_slice(&line);
+        self.sent.lock().unwrap().extend_from_slice(&line);
         self.stream.write_all(&line)?;
         loop {
             let frame = self.read()?;
@@ -263,16 +250,28 @@ impl Wire {
     }
 
     pub fn event(&mut self, name: &str) -> Value {
+        self.try_event(name, Duration::from_secs(30))
+            .unwrap_or_else(|| panic!("no {name} event arrived"))
+    }
+
+    /// The next `name` event within `wait`, or None.
+    pub fn try_event(&mut self, name: &str, wait: Duration) -> Option<Value> {
         if let Some(index) = self.events.iter().position(|frame| frame["event"] == name) {
-            return self.events.remove(index)["data"].clone();
+            return Some(self.events.remove(index)["data"].clone());
         }
-        loop {
-            let frame = self.read().unwrap();
-            if frame["event"] == name {
-                return frame["data"].clone();
+        self.reader.get_ref().set_read_timeout(Some(wait)).unwrap();
+        let found = loop {
+            match self.read() {
+                Ok(frame) if frame["event"] == name => break Some(frame["data"].clone()),
+                Ok(frame) => self.events.push(frame),
+                Err(_) => break None,
             }
-            self.events.push(frame);
-        }
+        };
+        self.reader
+            .get_ref()
+            .set_read_timeout(Some(Duration::from_secs(30)))
+            .unwrap();
+        found
     }
 
     fn read(&mut self) -> Result<Value> {
@@ -285,69 +284,12 @@ impl Wire {
         {
             bail!("protocol connection closed");
         }
-        self.capture
+        self.received
             .lock()
             .unwrap()
             .extend_from_slice(line.as_bytes());
         serde_json::from_str(&line).context("decode protocol frame")
     }
-}
-
-pub fn det(id: &str, command: &str, credentials: &[&str]) -> Value {
-    let mut step = json!({"id": id, "type": "deterministic", "command": command});
-    if !credentials.is_empty() {
-        step["credentials"] = json!(credentials);
-    }
-    step
-}
-
-pub fn probe(id: &str, credentials: &[&str]) -> Value {
-    det(id, PROBE, credentials)
-}
-
-/// A step that writes its whole process environment to a file outside the
-/// data dir, so the test can inspect names and value bytes directly.
-pub fn dump(id: &str, path: &Path, credentials: &[&str]) -> Value {
-    det(id, &format!("env > '{}'", path.display()), credentials)
-}
-
-pub fn after(mut step: Value, dependency: &str) -> Value {
-    step["depends_on"] = json!([dependency]);
-    step
-}
-
-/// The env the Cloud CLI sends as `run.start.env`: delivered and repository
-/// variables, agent-only keys, and never the daemon-only credential.
-pub fn cli_env() -> Value {
-    let mut env = json!({
-        "PATH": std::env::var("PATH").unwrap_or_default(),
-        "RUN_LABEL": "root",
-        "RELAY_SECRET_ENV_NAMES": format!("[\"{}\"]", DELIVERED.0),
-    });
-    for (name, value) in AGENT_ONLY
-        .iter()
-        .chain(REPOSITORY)
-        .chain(std::iter::once(&DELIVERED))
-    {
-        env[*name] = json!(value);
-    }
-    env
-}
-
-pub fn start(
-    wire: &mut Wire,
-    steps: Vec<Value>,
-    admission_key: Option<&str>,
-    env: Option<Value>,
-) -> Result<Value> {
-    let mut params = json!({"spec": {"name": "det-credentials-design", "steps": steps}});
-    if let Some(key) = admission_key {
-        params["admission_key"] = json!(key);
-    }
-    if let Some(env) = env {
-        params["env"] = env;
-    }
-    wire.request("run.start", params)
 }
 
 pub fn entries(wire: &mut Wire, run_id: &Value) -> Vec<Value> {
@@ -424,5 +366,20 @@ pub fn wait_for(what: &str, mut condition: impl FnMut() -> bool) {
     while !condition() {
         assert!(Instant::now() < deadline, "timed out waiting for {what}");
         thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Copy a directory tree: models Cloud archiving the state dir and restoring
+/// it into a fresh sandbox (relayflow-v2-state-archive.ts, executor :575-622).
+pub fn copy_tree(from: &Path, to: &Path) {
+    fs::create_dir_all(to).unwrap();
+    for entry in fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), target).unwrap();
+        }
     }
 }
