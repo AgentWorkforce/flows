@@ -39,6 +39,45 @@ impl StepEnv {
     }
 }
 
+/// Who supplies a run's deterministic step environment, chosen by the host
+/// that launches the daemon, on the command line (`serve --step-env`).
+///
+/// Only argv selects it: never the daemon's environment (a host may layer
+/// delivered workspace secrets into that), the wire, or `hello` negotiation.
+///
+/// `PerRun` (the default) is the shared-daemon contract above: a client's
+/// `env` replaces the daemon's for that run. `Daemon` is for a host that runs
+/// one daemon per run and has already given it exactly the environment its
+/// steps may see -- a hosted sandbox whose flows CLI holds agent login and
+/// model routing that `f.run` must not inherit. There the daemon does not
+/// advertise `step_env`, refuses a client `env`, and spawns every step with
+/// its own environment.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum StepEnvPolicy {
+    #[default]
+    PerRun,
+    Daemon,
+}
+
+impl StepEnvPolicy {
+    /// An unknown value is refused rather than guessed: a host that asked for
+    /// `daemon` and mistyped it must not silently get client environments.
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "per-run" => Ok(Self::PerRun),
+            "daemon" => Ok(Self::Daemon),
+            other => Err(format!(
+                "--step-env must be \"per-run\" or \"daemon\", got {other:?}"
+            )),
+        }
+    }
+
+    /// Whether `hello` lists `step_env`, inviting clients to send `env`.
+    pub fn accepts_client_env(self) -> bool {
+        self == Self::PerRun
+    }
+}
+
 impl From<BTreeMap<String, String>> for StepEnv {
     fn from(vars: BTreeMap<String, String>) -> Self {
         Self(vars)
@@ -68,6 +107,17 @@ mod tests {
         let printed = format!("{:?}", env(&[("TOKEN", "s3cret-value")]));
         assert!(!printed.contains("s3cret-value"), "{printed}");
         assert!(!printed.contains("TOKEN"), "{printed}");
+    }
+
+    #[test]
+    fn policy_parses_known_values_and_refuses_the_rest() {
+        assert_eq!(StepEnvPolicy::parse("per-run"), Ok(StepEnvPolicy::PerRun));
+        assert_eq!(StepEnvPolicy::parse("daemon"), Ok(StepEnvPolicy::Daemon));
+        assert!(StepEnvPolicy::parse("deamon").is_err());
+        assert!(StepEnvPolicy::parse("").is_err());
+        assert_eq!(StepEnvPolicy::default(), StepEnvPolicy::PerRun);
+        assert!(StepEnvPolicy::PerRun.accepts_client_env());
+        assert!(!StepEnvPolicy::Daemon.accepts_client_env());
     }
 
     #[test]

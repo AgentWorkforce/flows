@@ -12,7 +12,10 @@ use relayflowd_core::{
 };
 use serde_json::json;
 
-use crate::{step_env::StepEnv, worker::JournalObserver};
+use crate::{
+    step_env::{StepEnv, StepEnvPolicy},
+    worker::JournalObserver,
+};
 
 const LEASE_RENEWAL_MS: i64 = 30_000;
 
@@ -101,9 +104,22 @@ pub struct ProtocolHub {
     /// Each live run's client-supplied step environment. Memory only: never
     /// journaled, so it ends with the run or with this process.
     step_envs: Mutex<BTreeMap<String, Arc<StepEnv>>>,
+    /// Whether clients may supply that environment at all (host-chosen).
+    step_env_policy: StepEnvPolicy,
 }
 
 impl ProtocolHub {
+    pub fn with_step_env_policy(step_env_policy: StepEnvPolicy) -> Self {
+        Self {
+            step_env_policy,
+            ..Self::default()
+        }
+    }
+
+    pub fn step_env_policy(&self) -> StepEnvPolicy {
+        self.step_env_policy
+    }
+
     #[cfg(test)]
     pub fn watcher_count(&self, connection_id: u64) -> usize {
         self.sessions

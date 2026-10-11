@@ -142,3 +142,153 @@ fn hello_advertises_step_env() {
         "{hello}"
     );
 }
+
+// ---- `serve --step-env daemon`: a one-run-per-daemon host --------------
+//
+// Cloud's hosted sandbox spawns one relayflowd per Cloud run with an
+// environment it has already sanitized for deterministic steps (repository
+// grant and delivered secrets; no agent login or model routing). The flows CLI
+// beside it holds agent-only keys that `f.run` must not inherit, so the daemon
+// declines client environments. These tests do NOT claim anything about
+// same-user processes reaching the socket or /proc/<pid>/environ.
+
+/// What the host gives relayflowd: a write-capable token and a delivered
+/// secret, and nothing agent-only.
+const HOST_ENV: &[(&str, &str)] = &[
+    ("DAEMON_ONLY", "host-chosen"),
+    ("RUN_LABEL", "daemon"),
+    ("SECRET", "gh-token-for-steps"),
+];
+const CLIENT_SECRET: &str = "agent-only-s3cret";
+
+fn hello_features(client: &mut ProtocolClient) -> Vec<Value> {
+    let hello = client
+        .request(
+            "hello",
+            json!({"protocol": relayflowd_core::PROTOCOL_VERSION, "client": "test"}),
+        )
+        .unwrap();
+    hello["features"].as_array().unwrap().clone()
+}
+
+fn refused_with_env(client: &mut ProtocolClient, verb: &str, run_id: &Value) -> Value {
+    let params = if verb == "run.start" {
+        json!({
+            "spec": {"steps": [{"id": "probe", "type": "deterministic", "command": PROBE}]},
+            "env": {"OPENAI_BASE_URL": CLIENT_SECRET, "SECRET": CLIENT_SECRET}
+        })
+    } else {
+        json!({"run_id": run_id, "env": {"SECRET": CLIENT_SECRET}})
+    };
+    client.request_frame(verb, params).unwrap()
+}
+
+#[test]
+fn a_daemon_policy_host_keeps_steps_on_its_sanitized_env_and_fences_client_env() {
+    let fixture = LlmFixture::completed("step-env-daemon-policy");
+    let _server = ServerGuard::start_with_args(
+        &fixture.data_dir,
+        &fixture.socket(),
+        HOST_ENV,
+        &["--step-env", "daemon"],
+    );
+    let mut client = ProtocolClient::connect(&fixture.socket());
+    let features = hello_features(&mut client);
+    assert!(!features.contains(&json!("step_env")), "{features:?}");
+    assert!(features.contains(&json!("reported_cost")), "{features:?}");
+
+    // An SDK that honors `features` (2.0.46+) or predates them sends no env:
+    // the step runs in the host's environment, secret included.
+    let run = start(&mut client, None);
+    let expected = format!("daemon|host-chosen|{}", "gh-token-for-steps".len());
+    assert_eq!(probe_stdout(&mut client, &run), expected);
+
+    // A second connection (another run on this daemon) gets the same, not
+    // anything a client chooses.
+    let mut other = ProtocolClient::connect(&fixture.socket());
+    let other_run = start(&mut other, None);
+    assert_eq!(probe_stdout(&mut other, &other_run), expected);
+
+    // A client that sends env anyway -- non-conforming, or spoofing another
+    // run's id on resume -- is refused by name: no silent fallback, no value
+    // echoed, nothing written.
+    for (verb, target) in [
+        ("run.start", &Value::Null),
+        ("run.resume", &run["run_id"]),
+        ("run.resume", &other_run["run_id"]),
+    ] {
+        let frame = refused_with_env(&mut client, verb, target);
+        assert_eq!(frame["ok"], false, "{verb}: {frame}");
+        assert_eq!(
+            frame["error"]["code"], "step_env_disabled",
+            "{verb}: {frame}"
+        );
+        assert!(!frame.to_string().contains(CLIENT_SECRET), "{frame}");
+    }
+    assert_eq!(
+        files_containing(&fixture.data_dir, CLIENT_SECRET.as_bytes()),
+        Vec::<String>::new(),
+        "a refused env value reached disk"
+    );
+}
+
+#[test]
+fn only_the_command_line_selects_the_daemon_policy() {
+    // The daemon's environment may carry delivered workspace secrets, so no
+    // variable -- whatever its name -- can switch the policy; the default stays
+    // the shared-daemon F1 contract.
+    let fixture = LlmFixture::completed("step-env-env-cannot-select");
+    let _server = ServerGuard::start_with_env(
+        &fixture.data_dir,
+        &fixture.socket(),
+        &[("RELAYFLOWD_STEP_ENV", "daemon"), ("STEP_ENV", "daemon")],
+    );
+    let mut client = ProtocolClient::connect(&fixture.socket());
+    assert!(hello_features(&mut client).contains(&json!("step_env")));
+}
+
+#[test]
+fn an_unknown_step_env_value_refuses_to_serve() {
+    let fixture = LlmFixture::completed("step-env-bad-flag");
+    let status = std::process::Command::new(env!("CARGO_BIN_EXE_relayflowd"))
+        .args([
+            "--data-dir",
+            fixture.data_dir.to_str().unwrap(),
+            "serve",
+            "--step-env",
+            "deamon",
+        ])
+        .status()
+        .unwrap();
+    assert!(
+        !status.success(),
+        "a mistyped policy must not start a daemon"
+    );
+}
+
+#[test]
+fn the_daemon_policy_survives_a_restart_because_the_host_respawns_it() {
+    let fixture = LlmFixture::completed("step-env-daemon-restart");
+    let args = ["--step-env", "daemon"];
+    let mut server =
+        ServerGuard::start_with_args(&fixture.data_dir, &fixture.socket(), HOST_ENV, &args);
+    let mut client = ProtocolClient::connect(&fixture.socket());
+    let run = start(&mut client, None);
+    let expected = format!("daemon|host-chosen|{}", "gh-token-for-steps".len());
+    assert_eq!(probe_stdout(&mut client, &run), expected);
+    server.kill();
+
+    // The policy is not state: it is the host's argv, given again on respawn.
+    let _server =
+        ServerGuard::start_with_args(&fixture.data_dir, &fixture.socket(), HOST_ENV, &args);
+    let mut client = ProtocolClient::connect(&fixture.socket());
+    assert!(!hello_features(&mut client).contains(&json!("step_env")));
+    let resumed = client
+        .request("run.resume", json!({"run_id": run["run_id"]}))
+        .unwrap();
+    assert_eq!(resumed["status"], "completed", "{resumed}");
+    let frame = refused_with_env(&mut client, "run.resume", &run["run_id"]);
+    assert_eq!(frame["error"]["code"], "step_env_disabled", "{frame}");
+    let after = start(&mut client, None);
+    assert_eq!(probe_stdout(&mut client, &after), expected);
+}

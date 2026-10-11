@@ -37,7 +37,7 @@ use protocol::*;
 mod tests;
 
 #[cfg(unix)]
-pub fn serve(data_dir: &Path) -> Result<()> {
+pub fn serve(data_dir: &Path, step_env_policy: crate::step_env::StepEnvPolicy) -> Result<()> {
     use std::{
         io::{BufRead, BufReader},
         os::unix::net::UnixListener,
@@ -68,7 +68,7 @@ pub fn serve(data_dir: &Path) -> Result<()> {
     let listener = UnixListener::bind(&socket_path)
         .with_context(|| format!("bind socket {}", socket_path.display()))?;
     lifecycle::publish(data_dir, &socket_path)?;
-    let hub = Arc::new(ProtocolHub::default());
+    let hub = Arc::new(ProtocolHub::with_step_env_policy(step_env_policy));
     reconcile::spawn_reconciler(data_dir.to_path_buf(), hub.clone());
     // Trigger-plane liveness sweep (RFC-0001 gate 2, Native silent-death
     // answer). Runs on a coarser cadence than the lease reconciler above
@@ -138,7 +138,7 @@ fn abandon_connection(data_dir: &Path, hub: &std::sync::Arc<ProtocolHub>, connec
 }
 
 #[cfg(not(unix))]
-pub fn serve(_data_dir: &Path) -> Result<()> {
+pub fn serve(_data_dir: &Path, _step_env_policy: crate::step_env::StepEnvPolicy) -> Result<()> {
     anyhow::bail!("journal protocol v0 requires Unix domain sockets")
 }
 
@@ -166,15 +166,20 @@ fn handle_request(
             // Additive capabilities within protocol 0. A client sends an
             // optional request field only when the daemon lists it, so a newer
             // SDK never trips an older daemon's `deny_unknown_fields`.
+            let features: &[&str] = if hub.step_env_policy().accepts_client_env() {
+                &["reported_cost", "step_env"]
+            } else {
+                &["reported_cost"]
+            };
             Ok(json!({
                 "protocol": PROTOCOL_VERSION,
                 "server": "relayflowd",
-                "features": ["reported_cost", "step_env"],
+                "features": features,
             }))
         }
         "run.start" => {
             let params: RunStartParams = decode_params(request.params)?;
-            validate_step_env(params.env.as_ref())?;
+            validate_step_env(hub.step_env_policy(), params.env.as_ref())?;
             let spec = RunSpec::parse(&params.spec)
                 .map_err(|error| ("invalid_spec", error.to_string()))?;
             spec.validate()
@@ -228,7 +233,7 @@ fn handle_request(
         }
         "run.resume" => {
             let params: RunResumeParams = decode_params(request.params)?;
-            validate_step_env(params.env.as_ref())?;
+            validate_step_env(hub.step_env_policy(), params.env.as_ref())?;
             let registry = relayflowd_journal::Registry::open(data_dir.join("relayflowd.sqlite3"))
                 .map_err(|error| internal_error(error.into()))?;
             if registry

@@ -191,8 +191,7 @@ impl LlmFixture {
     }
 
     pub fn socket(&self) -> PathBuf {
-        relayflowd::socket_path::derive_socket_path(&self.data_dir)
-            .expect("derive socket path")
+        relayflowd::socket_path::derive_socket_path(&self.data_dir).expect("derive socket path")
     }
 }
 
@@ -209,8 +208,19 @@ impl ServerGuard {
 
     /// The daemon's own environment: what its first CLI would have exported.
     pub fn start_with_env(data_dir: &Path, socket: &Path, env: &[(&str, &str)]) -> Self {
+        Self::start_with_args(data_dir, socket, env, &[])
+    }
+
+    /// As [`Self::start_with_env`], with extra `serve` arguments from the host.
+    pub fn start_with_args(
+        data_dir: &Path,
+        socket: &Path,
+        env: &[(&str, &str)],
+        serve_args: &[&str],
+    ) -> Self {
         let child = Command::new(env!("CARGO_BIN_EXE_relayflowd"))
             .args(["--data-dir", data_dir.to_str().unwrap(), "serve"])
+            .args(serve_args)
             .envs(env.iter().copied())
             .process_group(0)
             .spawn()

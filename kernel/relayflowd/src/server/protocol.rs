@@ -129,8 +129,19 @@ pub(super) fn now_ms() -> i64 {
         .min(i64::MAX as u128) as i64
 }
 
-pub(super) fn validate_step_env(env: Option<&crate::step_env::StepEnv>) -> ProtocolResult<()> {
-    env.map_or(Ok(()), |env| {
-        env.validate().map_err(|error| ("bad_request", error))
-    })
+pub(super) fn validate_step_env(
+    policy: crate::step_env::StepEnvPolicy,
+    env: Option<&crate::step_env::StepEnv>,
+) -> ProtocolResult<()> {
+    let Some(env) = env else { return Ok(()) };
+    if !policy.accepts_client_env() {
+        // Refused, not ignored: a client that sends `env` here believes its
+        // steps will see it, and silently running them without it is worse.
+        return Err((
+            "step_env_disabled",
+            "this relayflowd spawns steps with its own environment (--step-env daemon); omit env"
+                .to_owned(),
+        ));
+    }
+    env.validate().map_err(|error| ("bad_request", error))
 }

@@ -53,7 +53,18 @@ enum Command {
         pause_after_request: bool,
     },
     /// Serve journal protocol v0 over a Unix socket.
-    Serve,
+    Serve {
+        /// Who supplies each run's deterministic step environment: `per-run`
+        /// (a client's run.start env, the shared-daemon default) or `daemon`
+        /// (this process's own environment; for a host that runs one daemon
+        /// per run and has already sanitized it).
+        #[arg(long, default_value = "per-run", value_parser = parse_step_env_policy)]
+        step_env: relayflowd::step_env::StepEnvPolicy,
+    },
+}
+
+fn parse_step_env_policy(value: &str) -> Result<relayflowd::step_env::StepEnvPolicy, String> {
+    relayflowd::step_env::StepEnvPolicy::parse(value)
 }
 
 fn main() -> Result<()> {
@@ -137,7 +148,7 @@ fn main() -> Result<()> {
             };
             println!("{}", serde_json::to_string(&outcome)?);
         }
-        Command::Serve => server::serve(&cli.data_dir)?,
+        Command::Serve { step_env } => server::serve(&cli.data_dir, step_env)?,
     }
     Ok(())
 }
