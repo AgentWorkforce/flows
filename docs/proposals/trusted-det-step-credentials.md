@@ -25,11 +25,13 @@
 
   §13 maps each finding to its section and test.
 
-> **The binding is NOT usable on today's E2B image (J1 finding).** The memory-posture host gate
-> (§4.3.2) would refuse it. This is Native's production observation, not re-verified here: on
-> 2026-10-10, run `bace8ad1` recorded `user=user` with **passwordless sudo**, so any agent can
-> become root and read any process's memory, K included. Using B on E2B needs an image or template
-> change, such as an unprivileged agent uid with no sudo, which is **outside this design**.
+> **E2B posture: unsafe per a reported historical probe, otherwise unknown (J1).** Native reports
+> that its production probe on run `bace8ad1` (2026-10-10) recorded `user=user` with **passwordless
+> sudo**. On that posture an agent could become root and read any process's memory, K included.
+> This is a reported historical probe, **not** an independently verified statement about the
+> current image. The memory-posture host gate (§4.3.2) fails closed on an **unsafe or unknown**
+> posture, so it refuses binding unless a supported posture is established. This design authorizes
+> **no** image, template, sudo, uid or sysctl change, and **no** new live probe.
 
 ## 1. Problem: #655 broke the boundary in both directions
 
@@ -277,8 +279,9 @@ local check. The kernel's authority pin is the binding check.
   - **no escalation path** (no sudo, setuid or capability gain) for those processes;
   - **no `PR_SET_PTRACER` exceptions** set by any process holding K;
   - **no namespace grant** that gives agents ptrace rights over CLI, authored-child or daemon pids.
-  - **Current E2B posture: UNSUPPORTED**, so the gate refuses. Native observed passwordless sudo on
-    run `bace8ad1` (above).
+  - **E2B:** the posture is unsafe per Native's reported historical probe (run `bace8ad1`,
+    2026-10-10, passwordless sudo) and otherwise unknown, so the gate refuses. Not independently
+    verified (see the summary note).
 
   An unknown posture is **not** safe by inference; the sandbox provider's posture is currently
   unknown. This revision authorizes no live probe or sysctl change; the posture is specified, not
@@ -560,7 +563,7 @@ sends none today).
    | V3 token expiry | trusted `expiresAt` carried through; remaining lifetime checked at acquisition and at bootstrap |
    | registry restoration | the archive lists the whole state dir except cache dirs (`relayflow-v2-state-archive.ts:38-56`); the data dir is `stateDir/journal` (`relayflow-v2-executor.ts:627`), restored at `:575-622` |
    | exact root and source authority | §4.3.1 |
-   | memory posture (J1) | Yama ≥ 1 **and** no `CAP_SYS_PTRACE` for agent, step and authored processes **and** no escalation path **and** no ptracer exceptions **and** no namespace grant; unknown → refuse. **Today's E2B image fails this gate** (Native, run `bace8ad1`: passwordless sudo), so binding is refused until an image change outside this design. |
+   | memory posture (J1) | Yama ≥ 1 **and** no `CAP_SYS_PTRACE` for agent, step and authored processes **and** no escalation path **and** no ptracer exceptions **and** no namespace grant; unknown → refuse. **E2B:** refused, because the posture is unsafe per Native's reported historical probe (run `bace8ad1`, 2026-10-10: passwordless sudo) or else unknown. Not independently verified; no image, template, sudo, uid or sysctl change and no live probe is authorized. |
    | V4 consumer epoch | the B consumer-epoch mapping is **proposed** work: today's helper derives only the existing House/project-default epochs. Exact old-consumer refusal needs a future causal spec. |
 
 6. On a Cloud resume: restore the archive, mint a new K, re-supply the frame, and prove with the new
@@ -614,10 +617,11 @@ CLI fd 3: K
 - **L6. "No files" means kernel and SDK persistence only.** It does not cover env dumps outside the
   data dir (the fixture writes some, deliberately), or anything an entitled step writes.
 - **L7. A raw client's own outgoing bytes** (§4.5).
-- **L10. Today's E2B posture is unsupported.** Per Native's production observation (run
-  `bace8ad1`, passwordless sudo), agents can escalate to root and read any memory. The J1 gate
-  therefore refuses binding on the current image. No part of this design closes that; an image or
-  template change is required.
+- **L10. E2B posture: unsafe per a reported historical probe, or unknown.** Native's run
+  `bace8ad1` (2026-10-10) reported passwordless sudo, under which agents could escalate to root and
+  read any memory. This is not independently verified for the current image. The J1 gate
+  fails closed on that unsafe-or-unknown posture and refuses binding. This design closes nothing
+  here, and authorizes no image, template, sudo, uid or sysctl change and no new live probe.
 - **L9. The authored body shares a heap with K.** The semi-trusted authored body runs in the
   same process as the authored child's copy of K. The SDK keeps K in a closure, but that is **not
   a hard boundary**.
@@ -719,7 +723,7 @@ CLI fd 3: K
 ## 12. Resolved questions
 
 - **Q1 (lead):** the file re-read is dropped; the expiry gates are kept (§4.6).
-- **J1-J5:** the memory posture (E2B currently unsupported), ownership of every lineage mutation,
+- **J1-J5:** the memory posture (E2B refused: unsafe per a reported historical probe, or unknown), ownership of every lineage mutation,
   the resolver byte store, the pipe-evidence limit, and CF-only containment with schema/epoch and
   producer HOLD. Aligned with Native `24c37812`.
 - **Q2 (Native):** the fd-3 transport, synchronous intake, the authored child's fresh pipe, and the
