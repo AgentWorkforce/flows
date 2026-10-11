@@ -14,7 +14,7 @@ import { socketPathFor } from '../src/daemon-connection.js';
  * and an `f.run` step each dump their own environment.
  */
 const sdk = resolve('.');
-const cli = process.env['FLOWS_TEST_CLI'] ?? join(sdk, 'dist/cli.js');
+const cliPath = process.env['FLOWS_TEST_CLI'] ?? join(sdk, 'dist/cli.js');
 const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'claude-stream-json-probe.jsonl');
 const MODEL = 'claude-haiku-4-5-20251001';
 const AGENT: Record<string, string> = {
@@ -60,7 +60,7 @@ async function startDaemon(root: string, dataDir: string, args: string[]): Promi
   }
 }
 
-function fixture() {
+function fixture(peek = '') {
   const root = mkdtempSync(join(tmpdir(), 'flows-det-withhold-live-'));
   roots.push(root);
   symlinkSync(join(sdk, 'node_modules'), join(root, 'node_modules'));
@@ -80,7 +80,7 @@ process.stdout.write(${JSON.stringify(readFileSync(FIXTURE, 'utf8'))});
   writeFileSync(join(root, 'package.json'), '{"type":"module"}');
   writeFileSync(join(root, 'probe.flow.ts'), `import { flow } from '@relayflows/surface';
 export default flow('probe', async f => {
-  await f.run(${JSON.stringify(`env > '${join(root, 'det.env')}'`)});
+  await f.run(${JSON.stringify(`env > '${join(root, 'det.env')}'`)});${peek}
   await f.agent('probe', { task: 'dump env', model: '${MODEL}' });
   f.done('success');
 });
@@ -98,7 +98,7 @@ it('a withheld agent key is absent from the det step and present in the agent st
   const dataDir = join(root, 'data');
   await startDaemon(root, dataDir, ['--det-withhold', Object.keys(AGENT).join(',')]);
   const result = spawnSync(process.execPath,
-    [cli, 'run', '--json', '--data-dir', dataDir, '--local-agent', 'probe.flow.ts', '--input', '{}'],
+    [cliPath, 'run', '--json', '--data-dir', dataDir, '--local-agent', 'probe.flow.ts', '--input', '{}'],
     { cwd: root, encoding: 'utf8', timeout: 120_000, env: { ...baseEnv(root), ...AGENT, ...ORDINARY } });
   expect(result.status, result.stderr + result.stdout).toBe(0);
   const det = lines(join(root, 'det.env'));
@@ -109,4 +109,37 @@ it('a withheld agent key is absent from the det step and present in the agent st
   expect(det.get('DELIVERED_SECRET')).toBe(ORDINARY['DELIVERED_SECRET']);
   const agent = JSON.parse(readFileSync(join(root, 'agent.env'), 'utf8')) as Record<string, string>;
   for (const [name, value] of Object.entries(AGENT)) expect(agent[name], `${name} lost by the agent`).toBe(value);
+}, 120_000);
+
+/**
+ * RESIDUAL CONTROL -- not fixed by this PR. Withholding keeps the values out
+ * of the det step's env and out of relayflowd's own /proc environ, but the
+ * flows CLI holds them in ITS process environment (that is how agent steps
+ * get them), and a det step of the same uid can read any same-uid
+ * /proc/<pid>/environ. This test pins that exposure so it is never mistaken
+ * for a boundary; when the host stops placing agent keys in the CLI's
+ * environ (or processes are separated by uid), it must flip deliberately.
+ */
+it('RESIDUAL: a det step can still read a withheld value from the CLI process environ', async () => {
+  const value = AGENT['ANTHROPIC_API_KEY']!;
+  const hits = (root: string) => join(root, 'cli-environ-hits');
+  const root = fixture(`
+  await f.run(${JSON.stringify(`for e in /proc/[0-9]*/environ; do if grep -qaF -- '${value}' "$e" 2>/dev/null; then echo "$e $(cat "\${e%environ}comm")"; fi; done > '__HITS__'; true`)});`);
+  // The command embeds the value only to search for it; the step env itself
+  // has no withheld name (asserted in the test above).
+  const flowPath = join(root, 'probe.flow.ts');
+  writeFileSync(flowPath, readFileSync(flowPath, 'utf8').replace('__HITS__', hits(root)));
+  const dataDir = join(root, 'data');
+  await startDaemon(root, dataDir, ['--det-withhold', Object.keys(AGENT).join(',')]);
+  const cli = spawn(process.execPath,
+    [cliPath, 'run', '--json', '--data-dir', dataDir, '--local-agent', 'probe.flow.ts', '--input', '{}'],
+    { cwd: root, env: { ...baseEnv(root), ...AGENT, ...ORDINARY }, stdio: 'ignore' });
+  const exit = await new Promise<number | null>(done => cli.on('exit', done));
+  expect(exit).toBe(0);
+  const lines = readFileSync(hits(root), 'utf8').split('\n').filter(Boolean);
+  console.log(`[residual] same-uid processes whose environ holds the withheld value (cli=${cli.pid}):\n${lines.join('\n')}`);
+  const found = lines.map(line => Number(line.split('/')[2]));
+  expect(found, 'the CLI process environ no longer exposes the value: update the residual').toContain(cli.pid);
+  const daemonPid = JSON.parse(readFileSync(join(dataDir, 'connection.json'), 'utf8')).pid as number;
+  expect(found, 'relayflowd itself must never hold a withheld value').not.toContain(daemonPid);
 }, 120_000);
