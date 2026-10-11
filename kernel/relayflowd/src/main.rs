@@ -154,11 +154,12 @@ fn main() -> Result<()> {
                 .map(relayflowd::withhold::Withhold::parse)
                 .transpose()
                 .unwrap_or_else(|refusal| refuse(refusal));
-            if let Some(withheld) = &withheld {
-                withheld
-                    .refuse_if_held(|name| std::env::var_os(name).is_some())
-                    .unwrap_or_else(|refusal| refuse(refusal));
-                relayflowd::withhold::make_non_dumpable().unwrap_or_else(|refusal| refuse(refusal));
+            // Clean before serving: no deterministic work is admitted while
+            // this process's initial environment holds a withheld value.
+            if let Some(withheld) = &withheld
+                && withheld.held_by_this_process()
+            {
+                refuse(withheld.reexec_clean());
             }
             server::serve(&cli.data_dir, withheld)?
         }

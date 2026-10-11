@@ -61,51 +61,60 @@ impl Withhold {
         self.0.iter().map(String::as_str)
     }
 
-    /// Refuse when the daemon's own environment holds a withheld name.
-    ///
-    /// Stripping at spawn hides a value from the step's env, but a step runs
-    /// as the daemon's uid and could read the daemon's `/proc/<pid>/environ`.
-    /// Removing the name in-process does not help: `unsetenv` never changes
-    /// what `/proc/<pid>/environ` shows. The host controls this env and never
-    /// needs a withheld value in it, so a daemon that holds one is
-    /// misconfigured and fails closed instead of serving.
-    pub fn refuse_if_held(
+    /// Whether this process's own environment holds any withheld name.
+    pub fn held_by_this_process(&self) -> bool {
+        self.names().any(|name| std::env::var_os(name).is_some())
+    }
+
+    /// `vars` without any withheld name.
+    pub fn clean<K: AsRef<std::ffi::OsStr>, V>(
         &self,
-        held: impl Fn(&str) -> bool,
-    ) -> Result<(), WithholdRefusal> {
-        match self.names().find(|name| held(name)) {
-            Some(name) => Err(WithholdRefusal {
-                code: "withhold_in_daemon_env",
-                name: name.to_owned(),
-            }),
-            None => Ok(()),
+        vars: impl IntoIterator<Item = (K, V)>,
+    ) -> Vec<(K, V)> {
+        vars.into_iter()
+            .filter(|(name, _)| {
+                !self
+                    .0
+                    .iter()
+                    .any(|withheld| name.as_ref() == withheld.as_str())
+            })
+            .collect()
+    }
+
+    /// Replace this process with itself -- same executable, same argv --
+    /// minus every withheld name in its environment, before it serves.
+    ///
+    /// A step runs as the daemon's uid and can read the daemon's
+    /// `/proc/<pid>/environ`, which shows the environment the process was
+    /// exec'd with: `unsetenv` never changes it. Only a fresh `execve` with a
+    /// clean environment does. Returns only if the exec failed; the caller
+    /// then refuses to start rather than serve while holding the values.
+    #[cfg(target_os = "linux")]
+    pub fn reexec_clean(&self) -> WithholdRefusal {
+        use std::os::unix::process::CommandExt;
+        let mut args = std::env::args_os();
+        let mut command = std::process::Command::new("/proc/self/exe");
+        if let Some(arg0) = args.next() {
+            command.arg0(arg0);
+        }
+        let error = command
+            .args(args)
+            .env_clear()
+            .envs(self.clean(std::env::vars_os()))
+            .exec();
+        WithholdRefusal {
+            code: "withhold_reexec_failed",
+            name: error.kind().to_string(),
         }
     }
-}
 
-/// Make this process non-dumpable (`PR_SET_DUMPABLE` 0), so processes of the
-/// same uid -- every `f.run` step, which runs as the daemon's uid -- cannot
-/// open its `/proc/<pid>/environ`, `mem` or `maps`. Those files become
-/// root-owned and the kernel's ptrace-read check needs CAP_SYS_PTRACE.
-/// Side effects: no core dump on a crash, and `/proc/<pid>` entries are
-/// root-owned (`ps` still lists it; `cmdline` stays readable). The flag is
-/// reset to the default for every exec'd child, so steps are unaffected.
-#[cfg(target_os = "linux")]
-pub fn make_non_dumpable() -> Result<(), WithholdRefusal> {
-    // SAFETY: prctl(PR_SET_DUMPABLE) only changes this process's flag.
-    if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
-        return Err(WithholdRefusal {
-            code: "withhold_not_dumpable_failed",
+    #[cfg(not(target_os = "linux"))]
+    pub fn reexec_clean(&self) -> WithholdRefusal {
+        WithholdRefusal {
+            code: "withhold_in_daemon_env",
             name: String::new(),
-        });
+        }
     }
-    Ok(())
-}
-
-#[cfg(not(target_os = "linux"))]
-pub fn make_non_dumpable() -> Result<(), WithholdRefusal> {
-    // No /proc/<pid>/environ to protect on these platforms.
-    Ok(())
 }
 
 fn valid_name(name: &str) -> bool {
@@ -119,7 +128,14 @@ fn valid_name(name: &str) -> bool {
 fn protected(name: &str) -> bool {
     matches!(
         name,
-        "PATH" | "HOME" | "SHELL" | "USER" | "LOGNAME" | "TMPDIR" | "FLOWS_INPUT" | "RELAYFLOW_MEMORY"
+        "PATH"
+            | "HOME"
+            | "SHELL"
+            | "USER"
+            | "LOGNAME"
+            | "TMPDIR"
+            | "FLOWS_INPUT"
+            | "RELAYFLOW_MEMORY"
     ) || name.starts_with("LD_")
         || name.starts_with("DYLD_")
 }
@@ -138,15 +154,17 @@ mod tests {
     }
 
     #[test]
-    fn refuses_a_daemon_that_holds_a_withheld_value() {
+    fn clean_drops_exactly_the_withheld_names() {
         let withheld = Withhold::parse("ANTHROPIC_API_KEY,OPENAI_API_KEY").unwrap();
-        assert!(withheld.refuse_if_held(|_| false).is_ok());
-        let refusal = withheld
-            .refuse_if_held(|name| name == "OPENAI_API_KEY")
-            .unwrap_err();
+        let vars = [
+            ("PATH", "/bin"),
+            ("OPENAI_API_KEY", "x"),
+            ("OPENAI_API_KEY_HINT", "y"),
+            ("ANTHROPIC_API_KEY", "z"),
+        ];
         assert_eq!(
-            (refusal.code, refusal.name.as_str()),
-            ("withhold_in_daemon_env", "OPENAI_API_KEY")
+            withheld.clean(vars),
+            [("PATH", "/bin"), ("OPENAI_API_KEY_HINT", "y")]
         );
     }
 
@@ -160,8 +178,16 @@ mod tests {
         assert_eq!(code("1X"), "withhold_invalid");
         assert_eq!(code("A B"), "withhold_invalid");
         for name in [
-            "PATH", "HOME", "SHELL", "USER", "LOGNAME", "TMPDIR", "FLOWS_INPUT",
-            "RELAYFLOW_MEMORY", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES",
+            "PATH",
+            "HOME",
+            "SHELL",
+            "USER",
+            "LOGNAME",
+            "TMPDIR",
+            "FLOWS_INPUT",
+            "RELAYFLOW_MEMORY",
+            "LD_PRELOAD",
+            "DYLD_INSERT_LIBRARIES",
         ] {
             assert_eq!(code(&format!("OK,{name}")), "withhold_protected", "{name}");
         }

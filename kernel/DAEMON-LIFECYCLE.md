@@ -318,7 +318,15 @@ agent-only credentials in the CLI's env passes their names here.
   `HOME`, `SHELL`, `USER`, `LOGNAME`, `TMPDIR`, `FLOWS_INPUT`, `RELAYFLOW_MEMORY`, `LD_*`,
   `DYLD_*`). Duplicates are deduplicated.
 - **Without the flag** nothing changes.
-- **Names only.** No value is ever passed to or held by the daemon for this.
+- **Clean before serving.** A step runs as the daemon's uid and can read the daemon's own
+  `/proc/<pid>/environ`, which `unsetenv` never changes. So if the daemon was started with a
+  withheld name in its environment, it `execve`s itself (same executable, same argv) without those
+  names before it binds the socket or admits any work. If that exec fails, it refuses to start
+  (status 78).
+- **Names only.** No value is ever passed to the daemon for this.
+- **Not a boundary against a malicious step of the same uid.** Other processes of that uid still
+  hold the values, the flows CLI and the agent processes among them, and a step can read their
+  `/proc/<pid>/environ`. See PR #658 for the residual.
 
 The working directory is unchanged: with no placed workspace a step still runs
 in the daemon's cwd.
