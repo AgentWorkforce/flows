@@ -204,6 +204,49 @@ pub fn authenticate_journal(wire: &mut Wire, secret: &str) -> String {
         .to_owned()
 }
 
+/// This process's pid and `/proc/self/stat` start time: the authored-child
+/// identity the delegation is bound to (SO_PEERCRED check, proposal §4.3.6).
+pub fn self_identity() -> (u32, u64) {
+    let stat = std::fs::read_to_string("/proc/self/stat").unwrap();
+    let after_comm = &stat[stat.rfind(')').unwrap() + 2..];
+    let start_time = after_comm.split(' ').nth(19).unwrap().parse().unwrap();
+    (std::process::id(), start_time)
+}
+
+/// Owner J mints a delegation of the CURRENT root-body attempt for one
+/// authored child (pid, start time). Amendment A1: the daemon returns only
+/// the non-secret `delegation_id`; D is derived, never sent.
+pub fn delegate(journal: &mut Wire, lease: &Value, child: (u32, u64)) -> anyhow::Result<String> {
+    let issued = journal.request(
+        "session.delegate",
+        json!({"root_run_id": lease["run_id"], "step": lease["step_id"],
+               "attempt_id": lease["attempt"], "delegate_pid": child.0,
+               "delegate_start_time": child.1,
+               "ops": ["child.start", "child.resume", "child.read"]}),
+    )?;
+    Ok(issued["delegation_id"].as_str().unwrap().to_owned())
+}
+
+/// D = HMAC-SHA256(K, "relayflowd-delegation-v1" 0x00 delegation_id), hex:
+/// the parent derives it and hands it to the child in its stdin request.
+pub fn delegation_secret(secret: &str, delegation_id: &str) -> String {
+    hmac(
+        &hex_bytes(secret),
+        format!("relayflowd-delegation-v1\0{delegation_id}").as_bytes(),
+    )
+}
+
+/// The authored child's bind: `auth.delegate {delegation_id, mac}` with
+/// mac = HMAC-SHA256(D, nonce "authored-child"). The child never holds K.
+pub fn bind_delegate(wire: &mut Wire, d: &str, delegation_id: &str) -> anyhow::Result<Value> {
+    let nonce = nonce(wire);
+    let mac = hmac(&hex_bytes(d), format!("{nonce}authored-child").as_bytes());
+    wire.request(
+        "auth.delegate",
+        json!({"delegation_id": delegation_id, "mac": mac}),
+    )
+}
+
 /// `run.start` the pinned root under the reserved key, on a journal
 /// connection that is already authenticated.
 pub fn run_root(wire: &mut Wire, root: &Value, env: Value) -> anyhow::Result<Value> {

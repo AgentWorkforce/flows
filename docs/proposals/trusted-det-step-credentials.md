@@ -246,13 +246,15 @@ local check. The kernel's authority pin is the binding check.
   - Read fd 3 to EOF and `close()` it.
   - Delete the env name.
   - Hold K only in a closure.
-- **The authored child.** Authored bodies run in a separate Node child: `authored-node-entry.ts`,
-  spawned by `authored-node-runner.ts`, which already lists a 4th pipe in that spawn's `stdio`
-  (`authored-node-runner.ts:89,109`; P for the spawn shape).
-  - The child needs K for its own journal and peer proofs. The CLI passes K over a **fresh** pipe
-    listed explicitly in that spawn's `stdio`, never by re-sharing the inherited fd.
-  - The child reads it to EOF and closes it before importing user code.
-  - Agents and det steps spawned later get no alias.
+- **The authored child gets no K** (this supersedes the earlier "fresh pipe with K" text; C1,
+  §4.3.6).
+  - Under Bun, authored bodies run in a separate Node child: `authored-node-entry.ts`, spawned at
+    `authored-node-runner.ts:87-90` with stdio `['pipe', 'inherit', 'inherit', 'pipe']`. This is P,
+    verified on 2ee558ee, which equals current main.
+  - The child receives only a narrow delegation secret D, inside its **existing** stdin request.
+    That request is validated before any authored module loads (`authored-node-entry.ts:58-77`); it
+    already carries a 64-hex `channelKey` the same way.
+  - So K lives only in the CLI parent. Agents and det steps spawned later get no alias.
 - **Descriptor controls.**
   - No agent or det descendant may hold an fd aliasing either K pipe (`pipe:[inode]`).
   - A surviving alias would read EOF, because the content is consumed and the writer is closed.
@@ -263,8 +265,8 @@ local check. The kernel's authority pin is the binding check.
   |---|---|
   | (a) fd 3 is closed before any user import: the authored child and the agent hold no descriptor to K's source, and no env carries the fd name or K | asserted |
   | (b) no det or agent grandchild has an fd aliasing a K pipe | asserted |
-  | (c) the authored child receives K only through its explicit fresh pipe | unit spec for the runner, to be written with the implementation |
-- **HOST GATE: memory posture (J1).** K lives in the CLI and authored-child heaps, so
+  | (c) the authored child never receives K; it receives D only in its stdin request | unit spec for the runner, to be written with the implementation |
+- **HOST GATE: memory posture (J1).** K lives in the CLI heap and D in the authored-child heap, so
   confidentiality against same-user agents depends on the process posture. **`ptrace_scope ≥ 1`
   alone is insufficient**, for two reasons (https://docs.kernel.org/admin-guide/LSM/Yama.html;
   `security/yama/yama_lsm.c:356-374`):
@@ -400,6 +402,107 @@ Linkage, not a live lease, is the authority for resuming already-linked runs.
 | a later probe of the child's env | unchanged |
 | a valid owner resume after archive restore under the new K | allowed |
 
+#### 4.3.6 Authored-child session delegation (C1)
+
+**The problem, verified on 2ee558ee (current main).**
+- Under Bun the CLI creates journal J and the paired root peer P (`authored-root.ts:109-119`).
+- It keeps P's root lease in the parent while running the body through `runAuthoredInNode`
+  (`authored-root.ts:327-340`).
+- The Node child opens a **new** `JournalClient` (`authored-node-entry.ts:78-79`).
+
+Handing that child K would make J_child just another authenticated session, which §4.3.3 and
+§4.3.5 refuse as `lineage_not_owned`.
+
+**Adopted interface:** Native's, at cloud `design/hosted-step-env-boundary` @ `d88b166b` §3, with
+one amendment (A1).
+
+1. **Mint.** After spawning the child, the parent calls `session.delegate` on J with:
+   - `root_run_id`, `step: "authored-root"`, `attempt_id: A`;
+   - `delegate_pid: C`, `delegate_start_time: T` (from `/proc/C/stat`);
+   - `ops: ["child.start", "child.resume", "child.read"]`.
+
+   Under the root run lock, the daemon requires all of these:
+   - J is authenticated with the current K;
+   - J is paired with P;
+   - P holds the live lease on exactly `(root, authored-root, A)`;
+   - the root is non-terminal.
+
+   It then records the delegation in memory only, with state `unbound`. There is one live
+   delegation per (J, A); minting a new one revokes the old.
+2. **Hand-off.** The parent puts D in the child's existing stdin request, before any authored
+   module loads. D is never logged, journaled or echoed.
+3. **Bind.** The child opens J_child, takes a `hello` nonce, and sends
+   `auth.delegate {delegation_id, mac: HMAC-SHA256(D, nonce ‖ "authored-child")}`.
+   - The daemon additionally requires `SO_PEERCRED` pid == C **and** `/proc/C/stat` start time ==
+     T, so a copied D is useless in any other process.
+   - D binds exactly one session. A second bind returns `delegation_used`.
+   - Platforms without peer-pid credentials refuse delegation.
+4. **Narrow operations.** J_child may:
+   - `run.start` children keyed `authoredChildAdmissionKey(root, id)`, including det declarations;
+   - `run.resume` linked runs;
+   - read linked runs.
+
+   It may **not**:
+   - start or resume the root;
+   - `worker.attach`, or take any lease;
+   - delegate further;
+   - replace the root's env;
+   - touch unlinked runs.
+
+   Every refusal (`lineage_not_owned`) happens before any registry, hub or env mutation.
+5. **Liveness on every operation.** Atomically under the run lock, before any mutation, the daemon
+   re-checks:
+   - D is bound to this session;
+   - J is connected;
+   - P still leases the same A;
+   - the root is non-terminal;
+   - K is unchanged.
+
+   Any failure returns `delegation_invalid` and revokes the delegation.
+6. **Revocation triggers:**
+   - P loses the lease (release, expiry or abandonment);
+   - the attempt changes (a retry delegates afresh);
+   - the root becomes terminal (§4.3.2);
+   - J, P or the delegate disconnects;
+   - the daemon restarts;
+   - a Cloud resume mints a new K.
+7. **Restore stays separate.** Under the new K the CLI re-establishes root ownership (§4.3.5),
+   then mints a new delegation for its new child. Earlier children stay linked through the journal,
+   and no delegation survives.
+
+**Amendment A1 (generic side): D never crosses the socket.**
+- **Problem.** Native's text has the daemon "return D to J alone" and also says D is "never put on
+  the wire". The first contradicts the second, and it would put a secret in a protocol response,
+  which §4.3.2 forbids for K-derived material.
+- **Fix.** `session.delegate` returns only a non-secret `delegation_id`. Both the parent (holding
+  K) and the daemon derive `D = HMAC-SHA256(K, "relayflowd-delegation-v1" ‖ 0x00 ‖
+  delegation_id)`.
+- **What is unchanged:** the child still receives only D (never K), in its stdin request, and still
+  binds with `auth.delegate {delegation_id, mac}`. Security is unchanged otherwise, and no new
+  secret crosses the socket.
+- **For Native:** please adopt A1 in the host doc.
+
+**Controls** (`kernel/relayflowd/tests/det_credentials_design/delegation.rs`, ignored; and the
+SDK Bun-parent future test).
+
+| Case | Expected |
+|---|---|
+| legitimate delegated child admits declaring det work | allowed |
+| legitimate delegated child resumes its linked child | allowed |
+| independently K-authenticated, undelegated session | refused |
+| non-owner mint | refused |
+| wrong parent, step or attempt | refused |
+| wrong pid | bind refused |
+| D replay on a second session | `delegation_used` |
+| root resume, `worker.attach` or re-delegation from J_child | refused |
+| a stale delegation after P loses the lease | `delegation_invalid`, and no registry admission |
+
+The kernel test's "child" is a second connection of the test process, so pid binding uses that
+process's own identity. The real Bun-parent/Node-child path is in
+`packages/sdk/tests/det-credentials-live.design.test.ts`, "Bun parent, Node authored child". Like
+the other SDK future test, it **cannot count as executing any guard today**: on main it stops at the
+absent interface.
+
 #### 4.3.4 What remains unauthenticated
 
 - **Code inside the legitimate CLI after K intake.** The semi-trusted body can admit credentialed
@@ -472,11 +575,12 @@ detail, before append.
 | `hello` | `det_credentials`, `auth_nonce`, `det_withheld` |
 | `serve` | `--det-frame-stdin` + frame (§4.1); fail closed |
 | new verb | `auth.prove {purpose, mac}` |
+| new verbs (C1) | `session.delegate` → `{delegation_id}` (owner J only); `auth.delegate {delegation_id, mac}` (binds one authored-child session, `SO_PEERCRED` pid and start time) |
 | spec | deterministic `credentials` |
 | `run.start` | `parent {run_id, step_id, attempt, child_id}`; reserved key + authority pin |
 | `run.resume`, idempotent `run.start`, `env` replacement | for any run of an entitled lineage (root **or** linked child), require the lineage's authenticated owner, checked before any mutation (§4.3.5); new code `lineage_not_owned` |
 | dispatch | root-lineage leases only to the paired peer |
-| errors | `auth_failed`, `root_not_authenticated`, `lineage_not_owned`, `parent_not_held`, `credential_unavailable` |
+| errors | `auth_failed`, `root_not_authenticated`, `lineage_not_owned`, `parent_not_held`, `credential_unavailable`, `delegation_used`, `delegation_invalid` |
 | journal | no new entry types or fields |
 
 ## 6. SDK and Surface changes
@@ -726,7 +830,10 @@ CLI fd 3: K
 - **J1-J5:** the memory posture (E2B refused: unsafe per a reported historical probe, or unknown), ownership of every lineage mutation,
   the resolver byte store, the pipe-evidence limit, and CF-only containment with schema/epoch and
   producer HOLD. Aligned with Native `3d7f30b9`.
-- **Q2 (Native):** the fd-3 transport, synchronous intake, the authored child's fresh pipe, and the
+- **C1:** the authored-child delegation is adopted from Native (`d88b166b`), with amendment A1
+  (§4.3.6). It supersedes the "fresh pipe with K" text.
+- **Q2 (Native):** the fd-3 transport, synchronous intake, the authored child's hand-off (now D,
+  not K), and the
   memory-posture host gate (§4.3.2, corrected by J1: Yama scope alone is insufficient). L9 is
   stated.
 - **Q3 (lead):** revocation at terminal lineage completion, including descendants, failure and
@@ -756,6 +863,7 @@ The lead's freeze acceptance of `5eb22527` and Native's `44add524` is pending.
 | V2-V4 | §6, §7 HOST GATES | host specs |
 | Q2-Q4, CF containment | §4.3.2, §6 P2, §11 | SDK live K asserts; P2 and runner unit specs (future) |
 | J1-J4 | §4.3.2, §4.3.4, §4.3.5, §6 P2, §14 | `ownership::*`; evidence limit stated |
+| C1 authored-child delegation | §4.3.6 | `delegation::*`; SDK Bun-parent future test |
 | W1 graph completeness | §4.3.1, §3, §8 L8 | `root_auth::the_authority_pin_needs_the_exact_resolved_graph_*` |
 
 ## 14. Fixture and evidence
@@ -771,9 +879,9 @@ absent**. Each one hits one of:
 They are **not** separate security regressions. Main's actual defects are what §1.1 reproduces.
 
 **Kernel** (`kernel/relayflowd/tests/det_credentials_design.rs` plus
-`det_credentials_design/{harness,contract,current_behaviour,entitlement,ownership,root_auth,k_handling,lifecycle,leaks}.rs`):
+`det_credentials_design/{harness,contract,current_behaviour,delegation,entitlement,ownership,root_auth,k_handling,lifecycle,leaks}.rs`):
 - 1 current-behaviour test, not ignored.
-- 18 future tests, `#[ignore = "... det_credentials interface absent"]`.
+- 20 future tests, `#[ignore = "... det_credentials interface absent"]`.
 
 **Evidence limit (J4).** The future SDK live test hands K to the CLI through an **unlinked,
 seekable file** opened on fd 3, not a pipe. It therefore **cannot** prove real pipe-inode aliasing,
@@ -811,4 +919,4 @@ No running system was touched.
 - **Native** (interface reference, not reviewed):
   - flows `fix/hosted-step-env-policy` @ `93f0cda855376538b3667befa20115f05cd16c20`;
   - cloud `design/hosted-step-env-boundary` @ `eb338424`, `900df5ae`, `eb2f4786`,
-    `a903e8f83e7340ed678c52860420f8ec106384ea`, `41cc8cb3`, `44add524`, `e4cd859e`, `24c37812`, `3d7f30b9` (current; supersedes `24c37812`).
+    `a903e8f83e7340ed678c52860420f8ec106384ea`, `41cc8cb3`, `44add524`, `e4cd859e`, `24c37812`, `3d7f30b9`, `d88b166b` (C1 delegation source).

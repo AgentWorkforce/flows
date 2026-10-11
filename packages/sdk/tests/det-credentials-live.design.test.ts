@@ -123,16 +123,16 @@ process.stdout.write(${JSON.stringify(readFileSync(FIXTURE, 'utf8'))});
      * inheritance semantics; a real pipe-backed fixture is required once the
      * interface exists.
      */
-    run(env: Record<string, string>, secret?: string) {
+    run(env: Record<string, string>, secret?: string, runtime: string = process.execPath) {
       const args = [cli, 'run', '--json', '--data-dir', dataDir, '--local-agent', 'probe.flow.ts', '--input', '{}'];
       if (secret === undefined) {
-        return spawnSync(process.execPath, args, { cwd: root, encoding: 'utf8', timeout: 120_000, env: { ...baseEnv(root), ...env } });
+        return spawnSync(runtime, args, { cwd: root, encoding: 'utf8', timeout: 120_000, env: { ...baseEnv(root), ...env } });
       }
       writeFileSync(dump('k'), secret, { mode: 0o600 });
       const fd = openSync(dump('k'), 'r');
       unlinkSync(dump('k'));
       try {
-        return spawnSync(process.execPath, args, {
+        return spawnSync(runtime, args, {
           cwd: root, encoding: 'utf8', timeout: 120_000, stdio: ['ignore', 'pipe', 'pipe', fd],
           env: { ...baseEnv(root), ...env, FLOWS_CREDENTIAL_ROOT_PROOF_FD: '3' },
         });
@@ -226,6 +226,50 @@ __write(${JSON.stringify(dump('authored.json'))}, JSON.stringify({ fds: __seen, 
     const authored = JSON.parse(readFileSync(f.dump('authored.json'), 'utf8')) as
       { fds: Record<string, string>; env: Record<string, string> };
     expect(Object.values(authored.fds).filter(target => target.startsWith(f.dump('k')))).toEqual([]);
+    expect(authored.env['FLOWS_CREDENTIAL_ROOT_PROOF_FD']).toBeUndefined();
+    expect(Object.values(authored.env)).not.toContain(secret);
+  }, 120_000);
+});
+
+/**
+ * C1 (proposal §4.3.6): under Bun the CLI keeps journal J and the root lease
+ * in the parent and runs the authored body in a Node child with its OWN
+ * journal connection (authored-root.ts:327-340, authored-node-entry.ts:78-79).
+ * The child's declaring f.run only works through the owner's delegation of
+ * the exact current attempt (session.delegate on J; D, never K, in the child's
+ * stdin request; auth.delegate bound by SO_PEERCRED pid and start time). The
+ * refusal controls (undelegated, wrong parent/step/attempt, wrong pid, D
+ * replay, stale) are kernel-level: det_credentials_design/delegation.rs.
+ * Like the test above, this cannot count as executing any guard today: on
+ * main it stops at the absent interface.
+ */
+describe('future contract: Bun parent, Node authored child (design fixture)', () => {
+  it.skipIf(DESIGN)('the delegated authored child admits declaring det work under the root lease', async () => {
+    const f = fixture(dump => `
+  await f.run(${JSON.stringify(`env > '${dump('declared.env')}'`)}, { credentials: ['GH_TOKEN'] });`, dump => `
+// Authored-child import time: it must hold no K, no K fd and no fd name.
+import { writeFileSync as __write } from 'node:fs';
+__write(${JSON.stringify(dump('authored.json'))}, JSON.stringify({ env: process.env }));`);
+    const secret = '5a1f0c9e7b3d2a4f6e8c1b0d9a7f5e3c2b4d6f8a0c1e3b5d7f9a2c4e6b8d0f1a';
+    const identity = 'cloud-state-fixture-0002';
+    const displayFields = ['/name', '/steps/0/instruction/flowName'];
+    await f.startDaemon(['--det-frame-stdin'], {}, JSON.stringify({
+      credentials: { GH_TOKEN: TOKEN },
+      capability: secret,
+      pins: {
+        root_authority_sha256: execFileSync(process.execPath, [cli, 'root-authority', 'probe.flow.ts',
+          '--input', '{}', '--admission-identity', identity, '--display-fields', displayFields.join(',')],
+        { cwd: f.root, encoding: 'utf8' }).trim(),
+        display_fields: displayFields,
+        root_admission_key: `authored-root:${createHash('sha256').update(identity).digest('hex')}`,
+      },
+      withhold: Object.keys(AGENT),
+    }) + '\n');
+    const result = f.run({ ...AGENT, RELAYFLOW_AUTHORED_ADMISSION_KEY: identity }, secret,
+      process.env['FLOWS_BUILD_BUN'] ?? 'bun');
+    expect(result.status, result.stderr + result.stdout).toBe(0);
+    expect(lines(f.dump('declared.env')).get('GH_TOKEN')).toBe(TOKEN);
+    const authored = JSON.parse(readFileSync(f.dump('authored.json'), 'utf8')) as { env: Record<string, string> };
     expect(authored.env['FLOWS_CREDENTIAL_ROOT_PROOF_FD']).toBeUndefined();
     expect(Object.values(authored.env)).not.toContain(secret);
   }, 120_000);

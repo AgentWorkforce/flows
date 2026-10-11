@@ -24,6 +24,8 @@
 mod contract;
 #[path = "det_credentials_design/current_behaviour.rs"]
 mod current_behaviour;
+#[path = "det_credentials_design/delegation.rs"]
+mod delegation;
 #[path = "det_credentials_design/entitlement.rs"]
 mod entitlement;
 #[path = "det_credentials_design/harness.rs"]
