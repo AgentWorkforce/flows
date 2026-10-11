@@ -101,9 +101,22 @@ pub struct ProtocolHub {
     /// Each live run's client-supplied step environment. Memory only: never
     /// journaled, so it ends with the run or with this process.
     step_envs: Mutex<BTreeMap<String, Arc<StepEnv>>>,
+    /// `serve --det-withhold`: fixed for the process lifetime.
+    withheld: Option<Arc<crate::withhold::Withhold>>,
 }
 
 impl ProtocolHub {
+    pub fn with_withheld(withheld: Option<crate::withhold::Withhold>) -> Self {
+        Self {
+            withheld: withheld.map(Arc::new),
+            ..Self::default()
+        }
+    }
+
+    pub fn withheld_names(&self) -> Option<Arc<crate::withhold::Withhold>> {
+        self.withheld.clone()
+    }
+
     #[cfg(test)]
     pub fn watcher_count(&self, connection_id: u64) -> usize {
         self.sessions

@@ -127,6 +127,11 @@ pub trait StepDispatcher: Send + Sync {
         None
     }
 
+    /// Names every deterministic step's env loses (`serve --det-withhold`).
+    fn withheld(&self) -> Option<std::sync::Arc<crate::withhold::Withhold>> {
+        None
+    }
+
     /// Heartbeat-renewed operational deadline for one live assignment. The
     /// journal retains the original grant; a live server projection must use
     /// the assignment it currently owns instead of rewriting that history.
