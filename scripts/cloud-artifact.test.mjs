@@ -196,6 +196,31 @@ test('verification rejects an artifact without the agent credential isolation ca
   });
 });
 
+test('verification still accepts an artifact published before det-withhold-v1', async () => {
+  await withUnpackedArtifact('c', async (root) => {
+    const manifest = await readManifest(root);
+    manifest.capabilities = ['local-agent-env-fd-v1'];
+    await writeManifest(root, manifest);
+    const verified = await verifyArtifactDirectory(root);
+    assert.deepEqual(verified.capabilities, ['local-agent-env-fd-v1']);
+  });
+});
+
+test('verification rejects an unknown capability', async () => {
+  for (const capabilities of [
+    ['local-agent-env-fd-v1', 'det-withhold-v1', 'unknown-v1'],
+    ['local-agent-env-fd-v1', 'unknown-v1'],
+    ['det-withhold-v1', 'local-agent-env-fd-v1'],
+  ]) {
+    await withUnpackedArtifact('d', async (root) => {
+      const manifest = await readManifest(root);
+      manifest.capabilities = capabilities;
+      await writeManifest(root, manifest);
+      await assert.rejects(verifyArtifactDirectory(root), /unsupported schema or target/u, capabilities.join(','));
+    });
+  }
+});
+
 test('CLI rejects a misspelled build option in artifact vocabulary', () => {
   const result = spawnSync(process.execPath, [
     fileURLToPath(new URL('./cloud-artifact.mjs', import.meta.url)),
