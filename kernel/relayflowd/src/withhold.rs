@@ -60,6 +60,52 @@ impl Withhold {
     pub fn names(&self) -> impl Iterator<Item = &str> {
         self.0.iter().map(String::as_str)
     }
+
+    /// Refuse when the daemon's own environment holds a withheld name.
+    ///
+    /// Stripping at spawn hides a value from the step's env, but a step runs
+    /// as the daemon's uid and could read the daemon's `/proc/<pid>/environ`.
+    /// Removing the name in-process does not help: `unsetenv` never changes
+    /// what `/proc/<pid>/environ` shows. The host controls this env and never
+    /// needs a withheld value in it, so a daemon that holds one is
+    /// misconfigured and fails closed instead of serving.
+    pub fn refuse_if_held(
+        &self,
+        held: impl Fn(&str) -> bool,
+    ) -> Result<(), WithholdRefusal> {
+        match self.names().find(|name| held(name)) {
+            Some(name) => Err(WithholdRefusal {
+                code: "withhold_in_daemon_env",
+                name: name.to_owned(),
+            }),
+            None => Ok(()),
+        }
+    }
+}
+
+/// Make this process non-dumpable (`PR_SET_DUMPABLE` 0), so processes of the
+/// same uid -- every `f.run` step, which runs as the daemon's uid -- cannot
+/// open its `/proc/<pid>/environ`, `mem` or `maps`. Those files become
+/// root-owned and the kernel's ptrace-read check needs CAP_SYS_PTRACE.
+/// Side effects: no core dump on a crash, and `/proc/<pid>` entries are
+/// root-owned (`ps` still lists it; `cmdline` stays readable). The flag is
+/// reset to the default for every exec'd child, so steps are unaffected.
+#[cfg(target_os = "linux")]
+pub fn make_non_dumpable() -> Result<(), WithholdRefusal> {
+    // SAFETY: prctl(PR_SET_DUMPABLE) only changes this process's flag.
+    if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
+        return Err(WithholdRefusal {
+            code: "withhold_not_dumpable_failed",
+            name: String::new(),
+        });
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn make_non_dumpable() -> Result<(), WithholdRefusal> {
+    // No /proc/<pid>/environ to protect on these platforms.
+    Ok(())
 }
 
 fn valid_name(name: &str) -> bool {
@@ -88,6 +134,19 @@ mod tests {
         assert_eq!(
             parsed.names().collect::<Vec<_>>(),
             ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"]
+        );
+    }
+
+    #[test]
+    fn refuses_a_daemon_that_holds_a_withheld_value() {
+        let withheld = Withhold::parse("ANTHROPIC_API_KEY,OPENAI_API_KEY").unwrap();
+        assert!(withheld.refuse_if_held(|_| false).is_ok());
+        let refusal = withheld
+            .refuse_if_held(|name| name == "OPENAI_API_KEY")
+            .unwrap_err();
+        assert_eq!(
+            (refusal.code, refusal.name.as_str()),
+            ("withhold_in_daemon_env", "OPENAI_API_KEY")
         );
     }
 

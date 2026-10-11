@@ -120,8 +120,12 @@ impl Fixture {
     /// Run a daemon that must refuse to start. One that serves instead is
     /// killed and reported, never waited on forever.
     fn refused(&self, args: &[&str]) -> Output {
+        self.refused_with(args, &[])
+    }
+
+    fn refused_with(&self, args: &[&str], env: &[(String, String)]) -> Output {
         let child = self
-            .command(args, &[])
+            .command(args, env)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -282,26 +286,69 @@ fn withheld_names_never_reach_a_det_step_of_any_run() {
 }
 
 #[test]
-fn an_env_free_client_inheriting_the_daemon_env_is_stripped_too() {
+fn a_daemon_whose_own_env_holds_a_withheld_value_refuses_to_start() {
     let fixture = Fixture::new();
-    // The daemon's own env carries the values (a host or a first CLI that
-    // exported them); a client that sends no env inherits it.
-    let mut daemon_env: Vec<(String, String)> = TRACKED
-        .iter()
-        .map(|name| ((*name).to_owned(), fake(name)))
-        .collect();
-    daemon_env.extend(
-        ORDINARY
-            .iter()
-            .map(|(n, v)| ((*n).to_owned(), (*v).to_owned())),
+    // A host (or a first CLI) that exported a withheld value into the daemon
+    // env: stripping at spawn could not hide it from /proc/<daemon>/environ.
+    let output = fixture.refused_with(
+        &["--det-withhold", &flag()],
+        &[("OPENAI_API_KEY".to_owned(), fake("OPENAI_API_KEY"))],
     );
-    let _daemon = fixture.serve(&["--det-withhold", &flag()], &daemon_env);
+    let said = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(78), "{said}");
+    assert!(
+        said.contains("withhold_in_daemon_env") && said.contains("\"OPENAI_API_KEY\""),
+        "{said}"
+    );
+    assert!(!said.contains(&fake("OPENAI_API_KEY")), "{said}");
+}
+
+#[test]
+fn an_env_free_client_inherits_a_daemon_env_without_withheld_values() {
+    let fixture = Fixture::new();
+    let ordinary: Vec<(String, String)> = ORDINARY
+        .iter()
+        .map(|(n, v)| ((*n).to_owned(), (*v).to_owned()))
+        .collect();
+    let _daemon = fixture.serve(&["--det-withhold", &flag()], &ordinary);
     let run = fixture.connect().start(
         json!([dump_step("dump", &fixture.dump("legacy.env"))]),
         None,
     );
     assert_eq!(run["status"], "completed", "{run}");
     assert_withheld(&fixture.dump("legacy.env"));
+}
+
+#[test]
+fn a_det_step_cannot_read_the_daemons_proc_environ() {
+    let fixture = Fixture::new();
+    let mut daemon = fixture.serve(&["--det-withhold", &flag()], &[]);
+    let pid = daemon.0.as_ref().unwrap().id();
+    // The test process has the daemon's uid, like every step.
+    let opened = fs::read(format!("/proc/{pid}/environ"));
+    assert_eq!(
+        opened.as_ref().map_err(std::io::Error::kind).err(),
+        Some(std::io::ErrorKind::PermissionDenied),
+        "a same-uid process opened the daemon's environ"
+    );
+    // And from inside a step, whose parent is the daemon. The client is a
+    // legacy SDK that still sends the agent keys in its env.
+    let dumped = fixture.dump("parent.environ");
+    let command = format!(
+        "if tr '\\0' '\\n' < /proc/$PPID/environ > '{d}' 2>/dev/null; then echo readable >> '{d}'; \
+         else echo denied > '{d}'; fi",
+        d = dumped.display()
+    );
+    let step = json!({"id": "peek", "type": "deterministic", "command": command});
+    let run = fixture.connect().start(json!([step]), Some(cli_env()));
+    assert_eq!(run["status"], "completed", "{run}");
+    let text = fs::read_to_string(&dumped).unwrap();
+    assert_eq!(
+        text.trim(),
+        "denied",
+        "the step read /proc/$PPID/environ:\n{text}"
+    );
+    daemon.kill();
 }
 
 #[test]

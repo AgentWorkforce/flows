@@ -145,14 +145,21 @@ fn main() -> Result<()> {
             println!("{}", serde_json::to_string(&outcome)?);
         }
         Command::Serve { det_withhold } => {
+            let refuse = |refusal: relayflowd::withhold::WithholdRefusal| -> ! {
+                eprintln!("relayflowd: {refusal}");
+                std::process::exit(relayflowd::withhold::REFUSED_EXIT);
+            };
             let withheld = det_withhold
                 .as_deref()
                 .map(relayflowd::withhold::Withhold::parse)
                 .transpose()
-                .unwrap_or_else(|refusal| {
-                    eprintln!("relayflowd: {refusal}");
-                    std::process::exit(relayflowd::withhold::REFUSED_EXIT);
-                });
+                .unwrap_or_else(|refusal| refuse(refusal));
+            if let Some(withheld) = &withheld {
+                withheld
+                    .refuse_if_held(|name| std::env::var_os(name).is_some())
+                    .unwrap_or_else(|refusal| refuse(refusal));
+                relayflowd::withhold::make_non_dumpable().unwrap_or_else(|refusal| refuse(refusal));
+            }
             server::serve(&cli.data_dir, withheld)?
         }
     }
