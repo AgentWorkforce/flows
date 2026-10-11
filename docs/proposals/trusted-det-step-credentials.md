@@ -272,7 +272,7 @@ local check. The kernel's authority pin is the binding check.
   - scope 1 honours `PR_SET_PTRACER` exceptions.
 
   The host must establish an explicit, **supported posture**, and otherwise **refuse binding**.
-  Every condition must hold (aligned with Native @ `24c37812`):
+  Every condition must hold (aligned with Native @ `3d7f30b9`):
   - Yama scope ≥ 1;
   - **no `CAP_SYS_PTRACE`** for agent, det-step and authored processes (effective, permitted and
     bounding sets);
@@ -501,7 +501,7 @@ detail, before append.
 | P3 | `authoredRootAuthority({manifest, rootPath, input, admissionIdentity, extensions, localAgent})` → `{record, digest}` | The full normalized authority (§3 table) built from P1 and P2. CLI form: `flows root-authority <flow> --input <json> --admission-identity <id> --display-fields <ptrs>`, which prints the digest. |
 
 **P2 resolver spec (Q4; Native's answer).**
-- **Input (J3; host side at Native `24c37812`).** The host keeps a **content-addressed, read-only
+- **Input (J3; host side at Native `3d7f30b9`).** The host keeps a **content-addressed, read-only
   byte store** (sha256 → bytes), written alongside the manifest at write time. That store is the
   resolver's input. Hashes alone cannot be parsed. The resolver receives trusted write-time source
   **bytes**, keyed by path, from the host's own write record: either the bytes the host wrote, or an
@@ -539,7 +539,7 @@ sends none today).
 
 | Tuple (artifact, SDK, daemon features, host) | Behaviour |
 |---|---|
-| a32faa2d / 2.0.43, `["reported_cost"]` | Steps inherit the daemon env, so **foreign runs inherit it too**. Safe only if no daemon secret is present. **HOST GATE (V2): pre-mint and pre-spawn refusal of any daemon secret for this tuple, including on retry and restore.** Not enforced today: served `launch-runner.ts:657-712` has no tuple exclusion. |
+| YAML artifacts a32faa2d (run `167d7d34`) and 34e5f906 (run `bace8ad1`), plus the 2.0.43 pin; all pre-#655, `["reported_cost"]` only (Native-reported tuple data) | Steps inherit the daemon env, so **foreign runs inherit it too**. Safe only if no daemon secret is present. **HOST GATE (V2): pre-mint and pre-spawn refusal of any daemon secret for this tuple, including on retry and restore.** Not enforced today: served `launch-runner.ts:657-712` has no tuple exclusion. |
 | 2.0.46, `reported_cost` + `step_env` (TS **and** YAML) | D1 and D2. Withdrawn by the host. |
 | any tuple without `det_credentials` | A credentialed launch is refused (HOST GATE). |
 | next (§4-§6), host with frame + K + tracker | This contract. |
@@ -696,7 +696,7 @@ CLI fd 3: K
   | quarantine redrive | operator redrive passes through the same internal step | the same fence applies |
   | launch runner | before **every** sandbox-acquisition branch: warm-pool borrow, resume of a provisioning sandbox, label adoption | refuses |
   | bootstrap | inside the sandbox | manifest and tuple check before spawn |
-- **Rolling order (J5; aligned with Native `24c37812`).**
+- **Rolling order (J5; aligned with Native `3d7f30b9`).**
   1. Make all three consumers B-aware: the CF consumer Worker, the cloud-web launch-step handlers,
      and the reaper Lambda.
   2. Bootstrap verification ships with them.
@@ -725,7 +725,7 @@ CLI fd 3: K
 - **Q1 (lead):** the file re-read is dropped; the expiry gates are kept (§4.6).
 - **J1-J5:** the memory posture (E2B refused: unsafe per a reported historical probe, or unknown), ownership of every lineage mutation,
   the resolver byte store, the pipe-evidence limit, and CF-only containment with schema/epoch and
-  producer HOLD. Aligned with Native `24c37812`.
+  producer HOLD. Aligned with Native `3d7f30b9`.
 - **Q2 (Native):** the fd-3 transport, synchronous intake, the authored child's fresh pipe, and the
   memory-posture host gate (§4.3.2, corrected by J1: Yama scope alone is insufficient). L9 is
   stated.
@@ -811,4 +811,4 @@ No running system was touched.
 - **Native** (interface reference, not reviewed):
   - flows `fix/hosted-step-env-policy` @ `93f0cda855376538b3667befa20115f05cd16c20`;
   - cloud `design/hosted-step-env-boundary` @ `eb338424`, `900df5ae`, `eb2f4786`,
-    `a903e8f83e7340ed678c52860420f8ec106384ea`, `41cc8cb3`, `44add524`, `e4cd859e`, `24c37812`.
+    `a903e8f83e7340ed678c52860420f8ec106384ea`, `41cc8cb3`, `44add524`, `e4cd859e`, `24c37812`, `3d7f30b9` (current; supersedes `24c37812`).
