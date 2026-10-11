@@ -84,6 +84,12 @@ export interface HelloResult {
    * predate it, which then accept none of the optional fields it gates.
    */
   features?: string[];
+  /**
+   * Env names the daemon strips from every deterministic step
+   * (`relayflowd serve --det-withhold`). Names only. A client must leave
+   * their values out of the `env` it sends; the daemon strips them anyway.
+   */
+  det_withheld?: string[];
 }
 
 export interface StepSpend {
