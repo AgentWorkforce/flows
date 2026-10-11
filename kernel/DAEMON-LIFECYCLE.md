@@ -305,6 +305,21 @@ daemon. Instead each run carries its own step environment:
 - A `run.start` / `run.resume` with no `env` (a client that predates
   `step_env`) keeps the old behavior: steps inherit the daemon's environment.
 
+**Withheld names (`serve --det-withhold A,B,...`).** A trusted host that keeps
+agent-only credentials in the CLI's env passes their names here.
+
+- **Strip.** The daemon removes them from every `f.run` spawn, after the base env is chosen
+  (`exec_det.rs`). That covers a run that sent its own env, an env-free client inheriting the
+  daemon env, every attempt, and a restart started with the same flag.
+- **Advertise.** It lists them as `hello.det_withheld`. A current SDK then leaves their values out
+  of the env it sends on `run.start` and `run.resume`. The strip, not the SDK, is the
+  enforcement.
+- **Startup refusals (status 78):** an empty list, a malformed name, or a protected name (`PATH`,
+  `HOME`, `SHELL`, `USER`, `LOGNAME`, `TMPDIR`, `FLOWS_INPUT`, `RELAYFLOW_MEMORY`, `LD_*`,
+  `DYLD_*`). Duplicates are deduplicated.
+- **Without the flag** nothing changes.
+- **Names only.** No value is ever passed to or held by the daemon for this.
+
 The working directory is unchanged: with no placed workspace a step still runs
 in the daemon's cwd.
 
