@@ -60,8 +60,12 @@ function baseEnv(home: string): Record<string, string> {
   return env;
 }
 
-/** `body(dump)` is the flow body; `dump(name)` is an absolute path under the root. */
-function fixture(body: (dump: (name: string) => string) => string) {
+/**
+ * `body(dump)` is the flow body and `prelude(dump)` module top-level code,
+ * which runs when the SDK imports the user module; `dump(name)` is an
+ * absolute path under the root.
+ */
+function fixture(body: (dump: (name: string) => string) => string, prelude: (dump: (name: string) => string) => string = () => '') {
   const root = mkdtempSync(join(tmpdir(), 'flows-det-cred-live-'));
   const dump = (name: string) => join(root, name);
   roots.push(root);
@@ -84,7 +88,7 @@ process.stdout.write(${JSON.stringify(readFileSync(FIXTURE, 'utf8'))});
   writeFileSync(join(root, 'flows.json'), JSON.stringify({ cli: claude, models: [MODEL] }));
   writeFileSync(join(root, 'package.json'), '{"type":"module"}');
   writeFileSync(join(root, 'probe.flow.ts'),
-    `import { flow } from '@relayflows/surface';\nexport default flow('probe', async f => {\n${body(dump)}\n  f.done('success');\n});\n`);
+    `import { flow } from '@relayflows/surface';\n${prelude(dump)}\nexport default flow('probe', async f => {\n${body(dump)}\n  f.done('success');\n});\n`);
   const dataDir = join(root, 'data');
   return {
     root,
@@ -162,7 +166,13 @@ describe('future contract (design fixture)', () => {
     const f = fixture(dump => `
   await f.run(${JSON.stringify(`env > '${dump('declared.env')}'`)}, { credentials: ['GH_TOKEN'] });
   await f.run(${JSON.stringify(`env > '${dump('undeclared.env')}'`)});
-  await f.agent('probe', { task: 'dump env', model: '${MODEL}' });`);
+  await f.agent('probe', { task: 'dump env', model: '${MODEL}' });`, dump => `
+// Runs at user-module import time, inside the authored child: by now the SDK
+// must have consumed and closed every K descriptor (proposal §4.3.2).
+import { readdirSync as __fds, readlinkSync as __link, writeFileSync as __write } from 'node:fs';
+const __seen = {};
+for (const fd of __fds('/proc/self/fd')) { try { __seen[fd] = __link('/proc/self/fd/' + fd); } catch {} }
+__write(${JSON.stringify(dump('authored.json'))}, JSON.stringify({ fds: __seen, env: process.env }));`);
     const secret = '5a1f0c9e7b3d2a4f6e8c1b0d9a7f5e3c2b4d6f8a0c1e3b5d7f9a2c4e6b8d0f1a';
     // The host derives a non-secret admission identity (Cloud: from the state
     // key) and reserves the matching kernel key (authored-root.ts:106,584-586).
@@ -208,5 +218,12 @@ describe('future contract (design fixture)', () => {
     }
     const fds = JSON.parse(readFileSync(f.dump('agent.fds'), 'utf8')) as Record<string, string>;
     expect(Object.values(fds).filter(target => target.startsWith(f.dump('k')))).toEqual([]);
+    // Control (a): at user-module import the authored child holds no K source
+    // descriptor, no fd-name env and no K.
+    const authored = JSON.parse(readFileSync(f.dump('authored.json'), 'utf8')) as
+      { fds: Record<string, string>; env: Record<string, string> };
+    expect(Object.values(authored.fds).filter(target => target.startsWith(f.dump('k')))).toEqual([]);
+    expect(authored.env['FLOWS_CREDENTIAL_ROOT_PROOF_FD']).toBeUndefined();
+    expect(Object.values(authored.env)).not.toContain(secret);
   }, 120_000);
 });

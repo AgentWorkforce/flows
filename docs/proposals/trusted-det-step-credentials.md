@@ -226,19 +226,42 @@ local check. The kernel's authority pin is the binding check.
 
 #### 4.3.2 K: challenge-response protocol
 
-- **Minting and SDK intake.** The host mints K (`randomBytes(32)`) per daemon lifetime and gives it
-  to the daemon in the frame, and to the legitimate CLI on an **inherited pipe, fd 3**
-  (`FLOWS_CREDENTIAL_ROOT_PROOF_FD=3`). Before loading any authored module or spawning any child,
-  the SDK:
-  - reads fd 3 to EOF and `close()`s it;
-  - deletes the env name;
-  - keeps K in memory only.
-- **Descriptor controls.** Node opens fds close-on-exec unless listed in `stdio`, and the SDK never
-  lists or dups K's descriptor.
-  - No descriptor in any agent or det child may alias the pipe (`pipe:[inode]`).
-  - A surviving alias reads EOF, because the content is consumed and the host closed the writer.
-  - The fixture asserts that the agent has no fd to K's source and that no child env carries K or
-    the fd name.
+- **Minting and transport (Q2; Native's answer, labels kept: P = code-cited, I = inferred).**
+  - The host mints K with `randomBytes(32)` per daemon lifetime and puts it in the daemon frame.
+  - It spawns the CLI with an extra stdio slot (`[…, …, …, "pipe"]`, fd 3;
+    `FLOWS_CREDENTIAL_ROOT_PROOF_FD=3`), writes K, and closes its write end, so the reader reaches
+    EOF.
+- **Synchronous intake (required).** libuv does not close inherited non-stdio fds in children; it
+  relies on CLOEXEC, and an inherited fd 3 has none (I). So the SDK MUST do all of the following
+  **synchronously at process start, before loading any user module and before spawning anything**.
+  Otherwise every grandchild inherits the pipe.
+  - Read fd 3 to EOF and `close()` it.
+  - Delete the env name.
+  - Hold K only in a closure.
+- **The authored child.** Authored bodies run in a separate Node child: `authored-node-entry.ts`,
+  spawned by `authored-node-runner.ts`, which already lists a 4th pipe in that spawn's `stdio`
+  (`authored-node-runner.ts:89,109`; P for the spawn shape).
+  - The child needs K for its own journal and peer proofs. The CLI passes K over a **fresh** pipe
+    listed explicitly in that spawn's `stdio`, never by re-sharing the inherited fd.
+  - The child reads it to EOF and closes it before importing user code.
+  - Agents and det steps spawned later get no alias.
+- **Descriptor controls.**
+  - No agent or det descendant may hold an fd aliasing either K pipe (`pipe:[inode]`).
+  - A surviving alias would read EOF, because the content is consumed and the writer is closed.
+  - The SDK never dups or re-lists a K descriptor.
+- **Spec controls (SDK fixture; the future test asserts the observable parts):**
+
+  | Control | Status |
+  |---|---|
+  | (a) fd 3 is closed before any user import: the authored child and the agent hold no descriptor to K's source, and no env carries the fd name or K | asserted |
+  | (b) no det or agent grandchild has an fd aliasing a K pipe | asserted |
+  | (c) the authored child receives K only through its explicit fresh pipe | unit spec for the runner, to be written with the implementation |
+- **HOST GATE: Yama.**
+  - K lives in the CLI and authored-child heaps. Confidentiality against same-user agents relies on
+    Yama `ptrace_scope ≥ 1`. Agents are CLI descendants; the bootstrap-spawned daemon is not their
+    ancestor.
+  - The bootstrap reads `/proc/sys/kernel/yama/ptrace_scope` and **refuses credential binding below
+    1**. The sandbox provider's value is unverified (I).
 - **Nonce.** Every `hello` result carries `auth_nonce`: 32 random bytes, hex.
   - It is single-use and bound to that connection.
   - It is consumed by the first `auth.prove` attempt, success or failure.
@@ -264,13 +287,28 @@ local check. The kernel's authority pin is the binding check.
   | `root_not_authenticated` | a root operation, or the reserved key, from a connection without a journal proof; or an authority mismatch |
   | `parent_not_held` | child linkage failed (§4.3.3) |
   | `credential_unavailable` | an unentitled declaration |
-- **Scope and revocation.**
+- **Scope and revocation (Q3, decided by the lead).**
   - K serves one root lineage in one daemon lifetime.
-  - It is revoked, along with every proof-derived trust, when the root lineage completes or is
-    canceled, or when the daemon exits.
-  - A Cloud resume is a new sandbox and a new daemon, so it mints a **new K**. Old or foreign K
-    produces `auth_failed`.
-  - The restored registry carries lineage, never K.
+  - **Terminality.** The lineage is terminal when the root run **and every linked descendant** have
+    a terminal journal fact: completed, failed or canceled. **Parking and waiting are not
+    terminal.**
+  - **What is revoked, at that event:**
+    - K;
+    - every authenticated session and paired peer;
+    - every cached grant and every credential execution authority.
+
+    None survives revocation: later proofs return `auth_failed`, and later spawns of a declaring
+    step return `credential_unavailable`. A daemon exit also revokes everything.
+  - **Ordering.**
+    1. Every det step's output is redacted (§4.4) **before** its `step.completed` is appended.
+    2. The terminal run fact is appended only after all descendant facts.
+    3. Revocation takes effect atomically with appending the root lineage's terminal fact, under the
+       run lock and **before** the completion response or watch frame is sent.
+
+    So no completion frame or journal entry carries an unredacted value, and no grant is usable
+    after the terminal event.
+  - A Cloud resume is a new sandbox, so it mints a **new K**. An old or foreign K returns
+    `auth_failed`. The restored registry carries lineage, never K.
 - **Handling.** K, nonces and MACs are held in memory only. They are never echoed, debug-printed,
   journaled, put in watch or stream frames, checkpointed or registered.
 
@@ -349,9 +387,10 @@ detail, before append.
     assumed 60-min lifetime is **not** sufficient evidence by itself.
 - **Future, only if budgets grow:** keep stdin open for `{NAME: newValue}` update frames, which
   need an in-sandbox mint path that does not exist.
-- **Dropped:** per-spawn file re-read (revision 2). No renewed plain file exists for the
-  daemon-only token, and the repository grant does not use this channel. This reverses the lead's
-  earlier "keep" (Q1).
+- **Dropped (Q1, confirmed by the lead):** the per-spawn file re-read and refresh path for the
+  daemon-only token. No renewed file exists for it. **No refresh may be inferred from repository
+  token files**, which belong to a different lifecycle (§1). Trusted provider expiry and actual
+  remaining-lifetime gates stay (above).
 
 ## 5. Wire and kernel changes (additive, feature-gated)
 
@@ -385,8 +424,30 @@ detail, before append.
 | # | Interface | Notes |
 |---|---|---|
 | P1 | `canonicalJsonSnapshot(value): JsonValue` | Exported. Exactly the semantics of today's **private** `jsonSnapshot` (`authored-root.ts:592-596`: a `JSON.stringify` → `JSON.parse` round trip, so `undefined` and functions drop and `toJSON` applies), throwing on a non-serializable value. Composed with the exported `canonicalize`, it is how host and SDK derive the input record identically. |
-| P2 | `resolveAuthoredGraph(manifest: {path → sha256}, rootPath, surfaceResolver)` | Static and **non-executing**. Returns the exact ordered reachable `[{path, sourceSha256, surface}]`, or `unsupported` (dynamic import, unresolved specifier). Never runs authored code. |
+| P2 | `resolveAuthoredGraph(manifest: {path → sha256}, rootPath, pinnedSurface: {packageName, version, installPath})` | Static and **non-executing** (spec below). Returns the exact ordered reachable `[{path, sourceSha256, surface}]` or `unsupported`. Never runs authored code. |
 | P3 | `authoredRootAuthority({manifest, rootPath, input, admissionIdentity, extensions, localAgent})` → `{record, digest}` | The full normalized authority (§3 table) built from P1 and P2. CLI form: `flows root-authority <flow> --input <json> --admission-identity <id> --display-fields <ptrs>`, which prints the digest. |
+
+**P2 resolver spec (Q4; Native's answer).**
+- **Pinned install.** Cloud installs exactly **one** Surface package per run, pinned by the authority
+  (`packageName@version`, sha-verified). P: cloud `bootstrap-inner.mjs:3536-3538`
+  (`assertRelayflowV2AuthoredSurfaceAuthority`, then `packageName + '@' + version`);
+  `packages/core/src/workflow-launch/relayflow-v2-authored.ts:156`
+  (`assertRelayflowV2SurfaceAuthority`).
+- **Edges.**
+  - The resolver parses each manifest module's **static** import and re-export specifiers. TS
+    type-only imports are excluded from edges.
+  - It resolves each relative specifier inside the manifest, and requires **every**
+    `@relayflows/surface` specifier to resolve to the single pinned `installPath`.
+  - Each module's `surface` record is that pinned tuple.
+- **Refuse (`unsupported`, so no binding)** on any of:
+  - (r1) a nested or alternate copy of the Surface package, e.g. in the bundle's own
+    `node_modules`;
+  - (r2) a dynamic `import()` or computed `require` of any module or of Surface;
+  - (r3) a parse failure or unsupported syntax;
+  - (r4) resolution outside the manifest or the pinned install.
+- **Spec controls** (unit tests to be written with P2): one case per refusal r1-r4, plus a positive
+  case showing that type-only imports add no edge. Graph-equality controls are in
+  `root_auth::the_authority_pin_needs_the_exact_resolved_graph_*`.
 
 **YAML is not a runtime exception.** It uses the same `JournalClient`, which sends `env` whenever
 `step_env` is listed. The YAML root also sends the reserved admission key (`cli/run.ts:285-291`
@@ -420,6 +481,7 @@ sends none today).
    | V3 token expiry | trusted `expiresAt` carried through; remaining lifetime checked at acquisition and at bootstrap |
    | registry restoration | the archive lists the whole state dir except cache dirs (`relayflow-v2-state-archive.ts:38-56`); the data dir is `stateDir/journal` (`relayflow-v2-executor.ts:627`), restored at `:575-622` |
    | exact root and source authority | §4.3.1 |
+   | Yama | `ptrace_scope ≥ 1`, or refuse binding (§4.3.2) |
    | V4 consumer epoch | the B consumer-epoch mapping is **proposed** work: today's helper derives only the existing House/project-default epochs. Exact old-consumer refusal needs a future causal spec. |
 
 6. On a Cloud resume: restore the archive, mint a new K, re-supply the frame, and prove with the new
@@ -473,6 +535,9 @@ CLI fd 3: K
 - **L6. "No files" means kernel and SDK persistence only.** It does not cover env dumps outside the
   data dir (the fixture writes some, deliberately), or anything an entitled step writes.
 - **L7. A raw client's own outgoing bytes** (§4.5).
+- **L9. The authored body shares a heap with K.** The semi-trusted authored body runs in the
+  same process as the authored child's copy of K. The SDK keeps K in a closure, but that is **not
+  a hard boundary**.
 - **L8. The root authority is complete only together with P2.** Without the resolver's exact graph,
   a supplied `sources[]` proves records, not completeness, which is why P2 is mandatory and
   `unsupported` refuses.
@@ -508,46 +573,67 @@ CLI fd 3: K
 10. **K sent on the wire.** Rejected in favour of challenge-response.
 11. **Gate-8 proxy.** The end state; this design is compatible with it.
 
-## 11. Release and containment (D6; host-owned, Native rev 3 §7)
+## 11. Release and containment (D6; host-owned)
 
 - **Never overwrite an existing immutable tuple.** The current 2.0.46 artifact has no policy or
   credential flag. Source patches fix neither admitted 2.0.46 tuples nor queued jobs. Ship a
   **matched new tuple**: package, runtime artifact whose manifest declares the capabilities, and a
   host change gated on it.
-- **Rolling order:**
-  1. consumers first, with bootstrap verification;
-  2. producer last.
-- **Fences**, each against an explicit withdrawn-authority list:
+- **The served launch transport is CF-native, not SQS.** Verified in cloud `origin/main`
+  `7bda9a145`:
+  - **Transport.** `infra/workflow-launch-cf-queue.ts:11-27` says it is "the only durable launch
+    transport", with "no SQS fallback". The run route refuses new launches when the flag is off,
+    and the stuck-run reaper also produces into this queue.
+  - **Thin consumer.** The queue handler is `packages/web/lib/workflows/launch-queue-consumer.ts`
+    (`infra/workflow-launch-cf-queue.ts:76-95`). It carries no launcher deps and forwards each
+    message over the `CLOUD_WEB` service binding to `/cloud/api/v1/internal/workflow-launch/step`
+    (`launch-queue-consumer.ts:25,111-120`).
+  - **Shared parsers.** That route (`packages/web/app/api/v1/internal/workflow-launch/step/route.ts:8-12,90-93`)
+    calls the shared `processWorkflowLaunchQueueRecord` (launch-worker), or
+    `processWorkflowLaunchDlqRecord` for `disposition: "dlq"`. The consumer-epoch check lives there
+    (`launch-worker.ts:619-623`, `relayflow_v2_consumer_epoch_mismatch`).
+  - **Terminalization and quarantine.**
+    - The DLQ consumer acks only after cloud-web commits the terminal job and run
+      (`launch-queue-consumer.ts:147-160`).
+    - Exhausted DLQ deliveries go to a durable terminalization queue
+      (`infra/workflow-launch-cf-queue.ts:42-58`).
+    - Undecodable records are retained, never acked (`launch-queue-consumer.ts:129-145`), and go to
+      a 14-day quarantine (`infra/workflow-launch-cf-queue.ts:61-75`).
+- **Fences on that path**, each against an explicit withdrawn-authority list:
 
-  | Fence | Rule |
-  |---|---|
-  | producer (run route) | refuses new admissions and resumes |
-  | queue consumer | refuses at the epoch check; covers retries and reaper re-enqueues |
-  | launch runner | refuses before **every** sandbox-acquisition branch: warm-pool borrow, resume of a provisioning sandbox, label adoption |
-  | bootstrap | manifest and tuple check before spawn |
-
-  Old-consumer refusal via a new consumer epoch is **proposed** (V4).
+  | Fence | Where | Rule |
+  |---|---|---|
+  | producer | run route (new admission and resume) | refuses |
+  | internal launch step | `processWorkflowLaunchQueueRecord`, at the epoch check, reached via the thin consumer for every primary delivery, retry and reaper re-enqueue | refuses; this is the single shared consumer gate |
+  | DLQ / terminalization | `processWorkflowLaunchDlqRecord` | terminalizes only; **never launches** a withdrawn tuple; idempotent by job and run |
+  | quarantine redrive | operator redrive passes through the same internal step | the same fence applies |
+  | launch runner | before **every** sandbox-acquisition branch: warm-pool borrow, resume of a provisioning sandbox, label adoption | refuses |
+  | bootstrap | inside the sandbox | manifest and tuple check before spawn |
+- **Rolling order.** The consumer gate and bootstrap verification ship in cloud-web first, because
+  the thin Worker only forwards. The producer and pin change ship last. Old-consumer refusal via a
+  new consumer epoch is **proposed** (V4).
 - **HOST GATE: reaper relabel (W2; Native @ `44add524`).**
-  - **Hazard.** The stuck-run reaper recomputes the consumer epoch with its own code when it
-    re-enqueues (cloud `packages/core/src/sync/stuck-run-reaper-core.ts:1246-1255`,
-    `consumerEpoch: relayflowV2LaunchConsumerEpoch(authority)`). An **old** reaper could relabel a
-    B job and let an old consumer execute it.
-  - **Mitigation (Native):**
-    - rolling order (reapers ship with consumers);
-    - drain before rollback;
-    - an optional transitional `relayflow_version` fence.
-  - No kernel change is needed.
+  - **Confirmed:** the reaper recomputes the epoch with its own code when it re-enqueues
+    (`packages/core/src/sync/stuck-run-reaper-core.ts:1246-1255`).
+  - Whether an old consumer would actually execute a relabelled B job is **conditional**. It depends
+    on whether that consumer's persisted schema and authority parsing accept the B envelope, and
+    then on the later tuple gates. **It is not proven merely because extra fields are tolerated.**
+  - Mitigation (Native): rolling order; drain before rollback; an optional transitional
+    `relayflow_version` fence. No kernel change is needed.
 - **Rollback** keeps the withdrawn-authority list. It never automatically re-admits 2.0.46.
   Re-enabling 2.0.46 needs its own explicit lead risk decision.
 
-## 12. Open questions
+## 12. Resolved questions
 
-- **Q1 (lead).** Confirm dropping the per-spawn file re-read (§4.6).
-- **Q2 (Native).** The fd-3 pipe semantics and the Yama assumption. The transport is specified,
-  **not** approved.
-- **Q3 (lead).** Revoke K at root completion (as specified), or at daemon exit only?
-- **Q4 (Native).** P2's surface resolution: how does the resolver map a node to its Surface tuple
-  without executing it?
+- **Q1 (lead):** the file re-read is dropped; the expiry gates are kept (§4.6).
+- **Q2 (Native):** the fd-3 transport, synchronous intake, the authored child's fresh pipe, and the
+  Yama host gate (§4.3.2). L9 is stated.
+- **Q3 (lead):** revocation at terminal lineage completion, including descendants, failure and
+  cancellation; parking is not terminal; with the stated ordering (§4.3.2).
+- **Q4 (Native):** the static resolver against the single pinned Surface install, with refusals
+  r1-r4 (§6 P2).
+
+The lead's freeze acceptance of `5eb22527` and Native's `44add524` is pending.
 
 ## 13. Review-finding map
 
@@ -567,6 +653,7 @@ CLI fd 3: K
 | (6) repository vs daemon-only | §1 | — |
 | V1 full authority; exact child lease; P1 | §3, §4.3.1, §4.3.3, §6 | `root_auth::the_authority_pin_*`, `entitlement::authored_child_*` |
 | V2-V4 | §6, §7 HOST GATES | host specs |
+| Q2-Q4, CF containment | §4.3.2, §6 P2, §11 | SDK live K asserts; P2 and runner unit specs (future) |
 | W1 graph completeness | §4.3.1, §3, §8 L8 | `root_auth::the_authority_pin_needs_the_exact_resolved_graph_*` |
 
 ## 14. Fixture and evidence
