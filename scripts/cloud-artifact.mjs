@@ -22,7 +22,7 @@ import { pathToFileURL } from 'node:url';
 const SHA256 = /^[a-f0-9]{64}$/u;
 const SOURCE_COMMIT = /^[a-f0-9]{40}$/u;
 const REQUIRED_EXECUTABLES = ['bin/flows', 'bin/relayflowd'];
-const RUNTIME_CAPABILITIES = ['local-agent-env-fd-v1'];
+const RUNTIME_CAPABILITIES = ['local-agent-env-fd-v1', 'det-withhold-v1'];
 
 export async function buildCloudArtifact(options) {
   assertSourceCommit(options.sourceCommit);

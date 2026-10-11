@@ -24,7 +24,7 @@ test('builds and verifies the exact Linux x64 Cloud artifact contract', async ()
     });
     const verified = await verifyCloudArtifact(built.archivePath, built.archiveSha256);
     assert.equal(verified.sourceCommit, 'a'.repeat(40));
-    assert.deepEqual(verified.capabilities, ['local-agent-env-fd-v1']);
+    assert.deepEqual(verified.capabilities, ['local-agent-env-fd-v1', 'det-withhold-v1']);
     assert.deepEqual(
       verified.files.map((file) => file.path),
       ['bin/flows', 'bin/relayflowd'],
