@@ -124,11 +124,14 @@ it('RESIDUAL: a det step can still read a withheld value from the CLI process en
   const value = AGENT['ANTHROPIC_API_KEY']!;
   const hits = (root: string) => join(root, 'cli-environ-hits');
   const root = fixture(`
-  await f.run(${JSON.stringify(`for e in /proc/[0-9]*/environ; do if grep -qaF -- '${value}' "$e" 2>/dev/null; then echo "$e $(cat "\${e%environ}comm")"; fi; done > '__HITS__'; true`)});`);
-  // The command embeds the value only to search for it; the step env itself
-  // has no withheld name (asserted in the test above).
+  await f.run(${JSON.stringify(`for e in /proc/[0-9]*/environ; do if grep -qaF -f '__SENTINEL__' "$e" 2>/dev/null; then echo "$e $(cat "\${e%environ}comm")"; fi; done > '__HITS__'; true`)});`);
+  // Every same-uid /proc/<pid>/environ is scanned for the fake value. The
+  // value is read from a file outside the data dir, so it is never in the
+  // step command, the journal or this test's output: only pids and comms.
   const flowPath = join(root, 'probe.flow.ts');
-  writeFileSync(flowPath, readFileSync(flowPath, 'utf8').replace('__HITS__', hits(root)));
+  writeFileSync(join(root, 'sentinel'), value);
+  writeFileSync(flowPath, readFileSync(flowPath, 'utf8')
+    .replace('__HITS__', hits(root)).replace('__SENTINEL__', join(root, 'sentinel')));
   const dataDir = join(root, 'data');
   await startDaemon(root, dataDir, ['--det-withhold', Object.keys(AGENT).join(',')]);
   const cli = spawn(process.execPath,
@@ -137,9 +140,40 @@ it('RESIDUAL: a det step can still read a withheld value from the CLI process en
   const exit = await new Promise<number | null>(done => cli.on('exit', done));
   expect(exit).toBe(0);
   const lines = readFileSync(hits(root), 'utf8').split('\n').filter(Boolean);
-  console.log(`[residual] same-uid processes whose environ holds the withheld value (cli=${cli.pid}):\n${lines.join('\n')}`);
+  console.log(`[residual] same-uid processes whose /proc environ holds the fake withheld value (flows CLI pid=${cli.pid}, relayflowd pid=${JSON.parse(readFileSync(join(dataDir, 'connection.json'), 'utf8')).pid}):\n${lines.join('\n')}`);
   const found = lines.map(line => Number(line.split('/')[2]));
   expect(found, 'the CLI process environ no longer exposes the value: update the residual').toContain(cli.pid);
   const daemonPid = JSON.parse(readFileSync(join(dataDir, 'connection.json'), 'utf8')).pid as number;
   expect(found, 'relayflowd itself must never hold a withheld value').not.toContain(daemonPid);
+}, 120_000);
+
+/**
+ * Hosted `run`, `resume` and `answer` pass `--no-spawn`: a flagged daemon
+ * that died between readiness and the command must never be replaced by an
+ * auto-spawned UNFLAGGED one (which would withhold nothing), and no step runs.
+ */
+it('--no-spawn never auto-spawns an unflagged daemon after the flagged one dies', async () => {
+  const root = fixture();
+  const dataDir = join(root, 'data');
+  await startDaemon(root, dataDir, ['--det-withhold', Object.keys(AGENT).join(',')]);
+  const daemonPid = JSON.parse(readFileSync(join(dataDir, 'connection.json'), 'utf8')).pid as number;
+  process.kill(-daemons[0]!.pid!, 'SIGKILL');
+  while ((() => { try { process.kill(daemonPid, 0); return true; } catch { return false; } })()) {
+    await new Promise(done => setTimeout(done, 20));
+  }
+  const env = { ...baseEnv(root), ...AGENT, ...ORDINARY, RELAYFLOWD_BIN: resolveDaemon() };
+  for (const args of [
+    ['run', '--json', '--no-spawn', '--data-dir', dataDir, '--local-agent', 'probe.flow.ts', '--input', '{}'],
+    ['resume', '--json', '--no-spawn', '--data-dir', dataDir, '01M4NAAAAAAAAAAAAAAAAAAAAA'],
+    ['answer', '--json', '--no-spawn', '--data-dir', dataDir, '01M4NAAAAAAAAAAAAAAAAAAAAA', 'human-1', 'yes'],
+  ]) {
+    const result = spawnSync(process.execPath, [cliPath, ...args],
+      { cwd: root, encoding: 'utf8', timeout: 60_000, env });
+    expect(result.status, `${args[0]}: ${result.stderr}${result.stdout}`).toBe(2);
+    expect(existsSync(socketPathFor(dataDir)) && (() => {
+      try { process.kill(JSON.parse(readFileSync(join(dataDir, 'connection.json'), 'utf8')).pid, 0); return true; }
+      catch { return false; }
+    })(), `${args[0]} spawned a replacement daemon`).toBe(false);
+  }
+  expect(existsSync(join(root, 'det.env')), 'a step ran without a daemon').toBe(false);
 }, 120_000);
