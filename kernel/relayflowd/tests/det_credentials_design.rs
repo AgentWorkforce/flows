@@ -28,6 +28,8 @@ mod current_behaviour;
 mod delegation;
 #[path = "det_credentials_design/entitlement.rs"]
 mod entitlement;
+#[path = "det_credentials_design/frame.rs"]
+mod frame;
 #[path = "det_credentials_design/harness.rs"]
 mod harness;
 #[path = "det_credentials_design/k_handling.rs"]

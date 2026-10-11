@@ -101,9 +101,24 @@ pub struct ProtocolHub {
     /// Each live run's client-supplied step environment. Memory only: never
     /// journaled, so it ends with the run or with this process.
     step_envs: Mutex<BTreeMap<String, Arc<StepEnv>>>,
+    /// The host's det-step configuration (argv withhold names and, when a
+    /// frame was sent, the credential binding). Memory only; fixed for the
+    /// process lifetime.
+    det: Option<Arc<crate::det_credentials::HostConfig>>,
 }
 
 impl ProtocolHub {
+    pub fn with_det(config: crate::det_credentials::HostConfig) -> Self {
+        Self {
+            det: Some(Arc::new(config)),
+            ..Self::default()
+        }
+    }
+
+    pub fn det(&self) -> Option<&crate::det_credentials::HostConfig> {
+        self.det.as_deref()
+    }
+
     #[cfg(test)]
     pub fn watcher_count(&self, connection_id: u64) -> usize {
         self.sessions

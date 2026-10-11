@@ -13,7 +13,8 @@ pub const BOUND: &str = "GH_TOKEN";
 pub const BOUND_VALUE: &str = "ghs_fixtureDaemonOnly_7Q2w9E4rT1xY";
 /// The root's kernel admission key: host-RESERVED so it cannot be squatted.
 /// It gives idempotent admission only and is never authentication.
-pub const ROOT_KEY: &str = "authored-root:fixture-owned-root-0001";
+pub const ROOT_KEY: &str =
+    "authored-root:00f1a7e5f1a7e5f1a7e5f1a7e5f1a7e5f1a7e5f1a7e5f1a7e5f1a7e5f1a7e5f1";
 /// K: 32 random bytes (hex) per daemon lifetime, in the frame and on the
 /// legitimate CLI's fd 3 only. It never crosses the socket.
 pub const ROOT_SECRET: &str = "5a1f0c9e7b3d2a4f6e8c1b0d9a7f5e3c2b4d6f8a0c1e3b5d7f9a2c4e6b8d0f1a";
@@ -62,6 +63,11 @@ pub struct Binding {
     /// False models a host that asks for a frame and sends none.
     pub send_frame: bool,
     pub withhold: Vec<&'static str>,
+    /// Replaces the default (supported) posture attestation.
+    pub posture: Option<Value>,
+    /// The host's argv `--det-withhold` set; `None` means the same names as
+    /// the frame's `withhold`.
+    pub argv_withhold: Option<Vec<&'static str>>,
 }
 
 /// What Cloud's bootstrap would declare for a Babysitter run rooted at `root`.
@@ -73,12 +79,21 @@ pub fn cloud_binding(root: &Value) -> Binding {
         secret: Some(ROOT_SECRET),
         send_frame: true,
         withhold: AGENT_ONLY.iter().map(|(name, _)| *name).collect(),
+        posture: None,
+        argv_withhold: None,
     }
 }
 
 impl Binding {
     pub(super) fn args(&self) -> Vec<String> {
-        vec!["--det-frame-stdin".to_owned()]
+        let mut args: Vec<String> = ["--det-frame-stdin", "--det-ack-fd", "3"]
+            .map(str::to_owned)
+            .to_vec();
+        let withhold = self.argv_withhold.as_ref().unwrap_or(&self.withhold);
+        if !withhold.is_empty() {
+            args.extend(["--det-withhold".to_owned(), withhold.join(",")]);
+        }
+        args
     }
 
     /// One JSON line. Fields the test leaves out model a host that omitted them.
@@ -91,7 +106,17 @@ impl Binding {
         if let Some(root) = &self.root_spec {
             pins["root_authority_sha256"] = json!(authority_sha256(root, &self.display_fields));
         }
-        let mut frame = json!({"pins": pins, "withhold": self.withhold});
+        // The host's posture attestation (wire §1.2), consistent with how the
+        // harness starts the daemon (no_new_privs) and this machine's Yama.
+        let yama: i64 = std::fs::read_to_string("/proc/sys/kernel/yama/ptrace_scope")
+            .map_or(0, |text| text.trim().parse().unwrap_or(0));
+        let posture = self.posture.clone().unwrap_or(json!({
+            "schema": "relayflow-host-posture-v1", "yamaPtraceScope": yama,
+            "cliNoNewPrivs": true, "daemonNoNewPrivs": true, "sudoEscalation": "absent",
+            "sharedUserNamespace": false, "observedAt": "2026-10-11T00:00:00Z",
+        }));
+        let mut frame =
+            json!({"version": 1, "pins": pins, "withhold": self.withhold, "posture": posture});
         if let Some(secret) = self.secret {
             frame["capability"] = json!(secret);
         }

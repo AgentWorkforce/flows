@@ -1,4 +1,5 @@
 pub mod clock;
+pub mod det_credentials;
 pub mod engine;
 pub mod exec_det;
 pub mod memory;

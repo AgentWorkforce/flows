@@ -37,7 +37,13 @@ use protocol::*;
 mod tests;
 
 #[cfg(unix)]
-pub fn serve(data_dir: &Path) -> Result<()> {
+pub fn serve(
+    data_dir: &Path,
+    det: (
+        crate::det_credentials::HostConfig,
+        Option<crate::det_credentials::ack::AckFd>,
+    ),
+) -> Result<()> {
     use std::{
         io::{BufRead, BufReader},
         os::unix::net::UnixListener,
@@ -68,7 +74,12 @@ pub fn serve(data_dir: &Path) -> Result<()> {
     let listener = UnixListener::bind(&socket_path)
         .with_context(|| format!("bind socket {}", socket_path.display()))?;
     lifecycle::publish(data_dir, &socket_path)?;
-    let hub = Arc::new(ProtocolHub::default());
+    let (config, ack) = det;
+    if let (Some(binding), Some(ack)) = (&config.binding, ack) {
+        // Wire §1.3: the ack follows validation, posture and the socket bind.
+        ack.accepted(binding).context("write det frame ack")?;
+    }
+    let hub = Arc::new(ProtocolHub::with_det(config));
     reconcile::spawn_reconciler(data_dir.to_path_buf(), hub.clone());
     // Trigger-plane liveness sweep (RFC-0001 gate 2, Native silent-death
     // answer). Runs on a coarser cadence than the lease reconciler above
@@ -138,7 +149,13 @@ fn abandon_connection(data_dir: &Path, hub: &std::sync::Arc<ProtocolHub>, connec
 }
 
 #[cfg(not(unix))]
-pub fn serve(_data_dir: &Path) -> Result<()> {
+pub fn serve(
+    _data_dir: &Path,
+    _det: (
+        crate::det_credentials::HostConfig,
+        Option<crate::det_credentials::ack::AckFd>,
+    ),
+) -> Result<()> {
     anyhow::bail!("journal protocol v0 requires Unix domain sockets")
 }
 
@@ -166,11 +183,18 @@ fn handle_request(
             // Additive capabilities within protocol 0. A client sends an
             // optional request field only when the daemon lists it, so a newer
             // SDK never trips an older daemon's `deny_unknown_fields`.
-            Ok(json!({
+            let mut hello = json!({
                 "protocol": PROTOCOL_VERSION,
                 "server": "relayflowd",
-                "features": ["reported_cost", "step_env"],
-            }))
+                "features": ["reported_cost", "step_env", "det_credentials"],
+            });
+            // Wire §2: names only, advisory; present whenever any are set.
+            if let Some(names) = hub.det().map(|det| det.stripped_names())
+                && !names.is_empty()
+            {
+                hello["det_withheld"] = json!(names);
+            }
+            Ok(hello)
         }
         "run.start" => {
             let params: RunStartParams = decode_params(request.params)?;

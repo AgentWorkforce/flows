@@ -53,7 +53,19 @@ enum Command {
         pause_after_request: bool,
     },
     /// Serve journal protocol v0 over a Unix socket.
-    Serve,
+    Serve {
+        /// Read the trusted host's det-step credential frame from stdin
+        /// (docs/proposals/trusted-det-step-credentials-wire.md §1).
+        #[arg(long)]
+        det_frame_stdin: bool,
+        /// Inherited descriptor for the frame's ack or refusal line.
+        #[arg(long)]
+        det_ack_fd: Option<i32>,
+        /// Comma-separated names every deterministic step's env loses. Needs
+        /// no frame and no posture (wire §1.1).
+        #[arg(long)]
+        det_withhold: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -137,7 +149,25 @@ fn main() -> Result<()> {
             };
             println!("{}", serde_json::to_string(&outcome)?);
         }
-        Command::Serve => server::serve(&cli.data_dir)?,
+        Command::Serve {
+            det_frame_stdin,
+            det_ack_fd,
+            det_withhold,
+        } => {
+            let det = relayflowd::det_credentials::bind_from_host(
+                det_frame_stdin,
+                det_ack_fd,
+                det_withhold.as_deref(),
+            )
+                .unwrap_or_else(|refusal| {
+                    eprintln!(
+                        "relayflowd: {}",
+                        relayflowd::det_credentials::ack::refusal_line(&refusal)
+                    );
+                    std::process::exit(relayflowd::det_credentials::ack::REFUSED_EXIT);
+                });
+            server::serve(&cli.data_dir, det)?
+        }
     }
     Ok(())
 }

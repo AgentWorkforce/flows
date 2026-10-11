@@ -14,6 +14,16 @@
   - All hex is lowercase.
   - `‖` means byte concatenation, and `0x00` is a single zero byte.
 - **Not covered here:** behaviour and threat model, which are in G§2–§8.
+- **Decisions since the first draft:**
+  - **R1:** ACKED by the coordinator and Native, with Native's three conditions on
+    `root-authority` (§5.3): no execution; explicit `--manifest`/`--store` with sha
+    verification; output listing every hashed pin.
+  - **(a) `imports` closure:** **DECIDED** by the lead, option (i).
+  - **Withhold decoupling:** **DECIDED** by the lead. argv `--det-withhold <names>` needs no
+    frame and no posture. A frame can never narrow it (a narrowing frame is refused with
+    `withhold_narrowed`). No frame is an explicit, host-selected unbound mode, never a fallback.
+  - **The host never places a daemon-only credential in env or argv.**
+  - **`PR_SET_PTRACER`:** only a source-level guard. It is not verified runtime posture.
 
 ## 0. Reconciliation of the root pins (R1, PROPOSED; needs flows and Native ack)
 

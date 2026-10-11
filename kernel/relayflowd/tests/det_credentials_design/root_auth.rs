@@ -231,10 +231,9 @@ fn redelivery_after_losing_the_authenticated_peer_fails_closed() {
 }
 
 #[test]
-#[ignore = "DESIGN FIXTURE (docs/proposals/trusted-det-step-credentials.md): det_credentials interface absent"]
 fn a_daemon_without_a_complete_frame_refuses_every_binding() {
     let fixture = Fixture::new();
-    let root = spec(vec![probe("p", &[BOUND])]);
+    let root = spec(vec![det("p", "true", &[])]);
     {
         // The interface is advertised by any daemon that implements it.
         let _plain = Daemon::start(&fixture, None, &[]);

@@ -15,6 +15,7 @@
 use std::{
     fs,
     io::{BufRead, BufReader, Read, Write},
+    os::fd::FromRawFd,
     os::unix::{net::UnixStream, process::CommandExt},
     path::{Path, PathBuf},
     process::{Child, Command, ExitStatus, Stdio},
@@ -69,6 +70,7 @@ impl Fixture {
 pub struct Daemon {
     child: Option<Child>,
     output: Capture,
+    ack: Option<Capture>,
 }
 
 /// A daemon that refused to serve: its exit status and everything it printed.
@@ -102,10 +104,22 @@ impl Daemon {
         binding: Option<&Binding>,
         env: &[(&str, &str)],
     ) -> std::result::Result<Self, Refused> {
+        Self::try_start_args(fixture, binding, env, &[])
+    }
+
+    /// `try_start` with extra `serve` arguments (e.g. an argv-only
+    /// `--det-withhold` with no frame).
+    pub fn try_start_args(
+        fixture: &Fixture,
+        binding: Option<&Binding>,
+        env: &[(&str, &str)],
+        extra: &[&str],
+    ) -> std::result::Result<Self, Refused> {
         let mut command = Command::new(env!("CARGO_BIN_EXE_relayflowd"));
         command
             .args(["--data-dir", fixture.data_dir.to_str().unwrap(), "serve"])
             .args(binding.map(Binding::args).unwrap_or_default())
+            .args(extra)
             .env_clear()
             .env("PATH", std::env::var("PATH").unwrap_or_default())
             .env("HOME", &fixture.scratch)
@@ -121,7 +135,43 @@ impl Daemon {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .process_group(0);
+        // A binding daemon gets, as a host would give it: the ack pipe on fd 3
+        // (wire §1.1) and the posture its attestation reports (wire §1.5):
+        // no_new_privs and no CAP_SYS_PTRACE in any set, bounding included.
+        let ack = binding.map(|_| {
+            let mut fds = [0; 2];
+            // SAFETY: pipe2(2) writes two descriptors into the array. O_CLOEXEC
+            // keeps them out of every other concurrently spawned child.
+            assert_eq!(unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) }, 0);
+            let (read_end, write_end) = (fds[0], fds[1]);
+            let posture = PostureSetup::prepare();
+            // SAFETY: only async-signal-safe calls between fork and exec.
+            unsafe {
+                command.pre_exec(move || {
+                    // dup2 clears O_CLOEXEC on fd 3 only; both pipe ends close at exec.
+                    if libc::dup2(write_end, 3) < 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    posture.apply()
+                });
+            }
+            (read_end, write_end)
+        });
         let mut child = command.spawn().unwrap();
+        let ack_line = ack.map(|(read_end, write_end)| {
+            // SAFETY: the parent's copy of the write end is no longer needed;
+            // the read end is owned from here on.
+            unsafe { libc::close(write_end) };
+            let mut reader = unsafe { std::fs::File::from_raw_fd(read_end) };
+            let line = Capture::default();
+            let sink = line.clone();
+            thread::spawn(move || {
+                let mut text = Vec::new();
+                let _ = reader.read_to_end(&mut text);
+                *sink.lock().unwrap() = text;
+            });
+            line
+        });
         {
             // Dropping the handle closes stdin either way. Writes can fail
             // with EPIPE when the daemon already exited: that is a refusal,
@@ -144,13 +194,20 @@ impl Daemon {
         loop {
             if let Some(status) = child.try_wait().unwrap() {
                 thread::sleep(Duration::from_millis(50));
-                let output = String::from_utf8_lossy(&output.lock().unwrap()).into_owned();
+                let mut output = String::from_utf8_lossy(&output.lock().unwrap()).into_owned();
+                if let Some(line) = &ack_line {
+                    output.push_str(&String::from_utf8_lossy(&line.lock().unwrap()));
+                }
                 return Err(Refused { status, output });
             }
-            if UnixStream::connect(&socket).is_ok() {
+            let acked = ack_line.as_ref().is_none_or(|line| {
+                String::from_utf8_lossy(&line.lock().unwrap()).contains("\"accepted\"")
+            });
+            if acked && UnixStream::connect(&socket).is_ok() {
                 return Ok(Self {
                     child: Some(child),
                     output,
+                    ack: ack_line,
                 });
             }
             assert!(
@@ -167,6 +224,12 @@ impl Daemon {
             unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL) };
             let _ = child.wait();
         }
+    }
+
+    /// The line the daemon wrote on its ack fd (wire §1.3).
+    pub fn ack_line(&self) -> String {
+        let ack = self.ack.as_ref().expect("a binding daemon");
+        String::from_utf8_lossy(&ack.lock().unwrap()).into_owned()
     }
 
     pub fn output(&self) -> Vec<u8> {
@@ -381,5 +444,80 @@ pub fn copy_tree(from: &Path, to: &Path) {
         } else {
             fs::copy(entry.path(), target).unwrap();
         }
+    }
+}
+
+/// Gives a spawned daemon the posture a supported host provides. Unprivileged
+/// processes cannot drop a capability from the bounding set, so when this
+/// machine's bounding set still holds CAP_SYS_PTRACE the daemon runs in a
+/// fresh user namespace (own uid/gid mapped to themselves), drops it there,
+/// clears its capabilities and sets no_new_privs. Nothing in relayflowd is
+/// relaxed for tests: the daemon still reads and checks its own posture.
+#[derive(Clone, Copy)]
+struct PostureSetup {
+    own_namespace: bool,
+    uid_map: [u8; 32],
+    gid_map: [u8; 32],
+}
+
+impl PostureSetup {
+    fn prepare() -> Self {
+        let status = fs::read_to_string("/proc/self/status").unwrap_or_default();
+        let bounding_has_ptrace = status
+            .lines()
+            .find_map(|line| line.strip_prefix("CapBnd:"))
+            .and_then(|hex| u64::from_str_radix(hex.trim(), 16).ok())
+            .is_none_or(|mask| mask & (1 << 19) != 0);
+        // SAFETY: getuid/getgid have no preconditions.
+        let (uid, gid) = unsafe { (libc::getuid(), libc::getgid()) };
+        let map = |id: u32| {
+            let mut bytes = [0u8; 32];
+            let text = format!("{id} {id} 1");
+            bytes[..text.len()].copy_from_slice(text.as_bytes());
+            bytes
+        };
+        Self {
+            own_namespace: bounding_has_ptrace,
+            uid_map: map(uid),
+            gid_map: map(gid),
+        }
+    }
+
+    /// Runs between fork and exec: raw syscalls only.
+    fn apply(&self) -> std::io::Result<()> {
+        let fail = || Err(std::io::Error::last_os_error());
+        // SAFETY: plain syscalls on this (forked, single-threaded) process.
+        unsafe {
+            if self.own_namespace {
+                if libc::unshare(libc::CLONE_NEWUSER) != 0 {
+                    return fail();
+                }
+                for (path, bytes) in [
+                    (c"/proc/self/setgroups", &b"deny"[..]),
+                    (c"/proc/self/uid_map", &self.uid_map[..]),
+                    (c"/proc/self/gid_map", &self.gid_map[..]),
+                ] {
+                    let len = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
+                    let fd = libc::open(path.as_ptr(), libc::O_WRONLY);
+                    if fd < 0 || libc::write(fd, bytes.as_ptr().cast(), len) != len as isize {
+                        return fail();
+                    }
+                    libc::close(fd);
+                }
+                if libc::prctl(libc::PR_CAPBSET_DROP, 19, 0, 0, 0) != 0 {
+                    return fail();
+                }
+                // capset(2): clear effective, permitted and inheritable.
+                let header = [0x2008_0522u32, 0];
+                let data = [0u32; 6];
+                if libc::syscall(libc::SYS_capset, header.as_ptr(), data.as_ptr()) != 0 {
+                    return fail();
+                }
+            }
+            if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
+                return fail();
+            }
+        }
+        Ok(())
     }
 }
