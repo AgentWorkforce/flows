@@ -25,6 +25,12 @@
 
   §13 maps each finding to its section and test.
 
+> **The binding is NOT usable on today's E2B image (J1 finding).** The memory-posture host gate
+> (§4.3.2) would refuse it. This is Native's production observation, not re-verified here: on
+> 2026-10-10, run `bace8ad1` recorded `user=user` with **passwordless sudo**, so any agent can
+> become root and read any process's memory, K included. Using B on E2B needs an image or template
+> change, such as an unprivileged agent uid with no sudo, which is **outside this design**.
+
 ## 1. Problem: #655 broke the boundary in both directions
 
 flows#655 (`acb9c2ce`, merged `edc9f5b4`, released v2.0.46) sends the CLI's whole `process.env` as
@@ -256,12 +262,27 @@ local check. The kernel's authority pin is the binding check.
   | (a) fd 3 is closed before any user import: the authored child and the agent hold no descriptor to K's source, and no env carries the fd name or K | asserted |
   | (b) no det or agent grandchild has an fd aliasing a K pipe | asserted |
   | (c) the authored child receives K only through its explicit fresh pipe | unit spec for the runner, to be written with the implementation |
-- **HOST GATE: Yama.**
-  - K lives in the CLI and authored-child heaps. Confidentiality against same-user agents relies on
-    Yama `ptrace_scope ≥ 1`. Agents are CLI descendants; the bootstrap-spawned daemon is not their
-    ancestor.
-  - The bootstrap reads `/proc/sys/kernel/yama/ptrace_scope` and **refuses credential binding below
-    1**. The sandbox provider's value is unverified (I).
+- **HOST GATE: memory posture (J1).** K lives in the CLI and authored-child heaps, so
+  confidentiality against same-user agents depends on the process posture. **`ptrace_scope ≥ 1`
+  alone is insufficient**, for two reasons (https://docs.kernel.org/admin-guide/LSM/Yama.html;
+  `security/yama/yama_lsm.c:356-374`):
+  - `CAP_SYS_PTRACE` bypasses scopes 1 and 2;
+  - scope 1 honours `PR_SET_PTRACER` exceptions.
+
+  The host must establish an explicit, **supported posture**, and otherwise **refuse binding**.
+  Every condition must hold (aligned with Native @ `24c37812`):
+  - Yama scope ≥ 1;
+  - **no `CAP_SYS_PTRACE`** for agent, det-step and authored processes (effective, permitted and
+    bounding sets);
+  - **no escalation path** (no sudo, setuid or capability gain) for those processes;
+  - **no `PR_SET_PTRACER` exceptions** set by any process holding K;
+  - **no namespace grant** that gives agents ptrace rights over CLI, authored-child or daemon pids.
+  - **Current E2B posture: UNSUPPORTED**, so the gate refuses. Native observed passwordless sudo on
+    run `bace8ad1` (above).
+
+  An unknown posture is **not** safe by inference; the sandbox provider's posture is currently
+  unknown. This revision authorizes no live probe or sysctl change; the posture is specified, not
+  measured.
 - **Nonce.** Every `hello` result carries `auth_nonce`: 32 random bytes, hex.
   - It is single-use and bound to that connection.
   - It is consumed by the first `auth.prove` attempt, success or failure.
@@ -328,12 +349,61 @@ local check. The kernel's authority pin is the binding check.
 - **Restore.** The registry row for the reserved key, plus journaled linkage, identify the lineage.
   `run.resume` needs a journal proof under the **new** K.
 
+#### 4.3.5 Authenticated ownership of every lineage mutation (J2)
+
+**Today's code.** `run.start` binds the caller's env in its admission callback, and does so even
+when admission returns an **existing** run. `run.resume` replaces it. Both happen before
+dispatch:
+- `kernel/relayflowd/src/server.rs:185-189`: `hub.set_step_env(run_id, env.clone())` inside
+  `watch(run_id, existing)`;
+- `kernel/relayflowd/src/server.rs:303-305`: `run.resume` calls `hub.set_step_env`.
+
+So an unauthenticated caller who resumes, or re-starts by key, a linked child could replace its
+env, for example its `PATH`. That is a **design counterexample, not a demonstrated exploit**.
+
+**Rule.** For any run in an entitled lineage (root or linked child), the following require the
+connection to be the lineage's **authenticated owner**:
+- `run.resume`;
+- an idempotent `run.start` that resolves to an existing run;
+- any `env` replacement.
+
+The owner is a journal session proven under the daemon's **current** K for this lineage. The check
+happens **before** any registry write, hub change (`set_step_env`, watch registration), env
+replacement or dispatch. Refusals:
+
+| Caller | Code |
+|---|---|
+| unauthenticated | `root_not_authenticated` |
+| authenticated, but not this lineage's journal session | `lineage_not_owned` |
+
+Neither changes the bound env.
+
+**Restore authority.** It does **not** require an obsolete live lease. After a daemon restart or
+Cloud restore, every pre-restart session and lease is gone. The owner is then whichever journal
+session first proves under the **new** K. It may:
+- resume the root and any child that the registry and journal link to the root (reserved root key
+  plus journaled `parent_run_id`);
+- start new children, once its paired peer holds the root body's current attempt (§4.3.3).
+
+Linkage, not a live lease, is the authority for resuming already-linked runs.
+
+**Controls** (`kernel/relayflowd/tests/det_credentials_design/ownership.rs`):
+
+| Case | Expected |
+|---|---|
+| foreign-session resume | `lineage_not_owned` |
+| unauthenticated child resume with `PATH` | `root_not_authenticated` |
+| duplicate start (env overwrite) | refused |
+| a later probe of the child's env | unchanged |
+| a valid owner resume after archive restore under the new K | allowed |
+
 #### 4.3.4 What remains unauthenticated
 
 - **Code inside the legitimate CLI after K intake.** The semi-trusted body can admit credentialed
   children, by design.
-- **Same-uid ptrace or `/proc/<pid>/mem`.** Blocked only under Yama `ptrace_scope ≥ 1` or uid
-  separation. That is a host assumption.
+- **Same-uid ptrace or `/proc/<pid>/mem`.** Not blocked by Yama scope alone. Blocked only under
+  the full supported posture of §4.3.2 (scope, no `CAP_SYS_PTRACE`, namespace, no ptracer
+  exceptions) or uid separation. That posture is a host gate, not a guarantee.
 - **Dynamic child step content.** Only the root authority is pinned.
 - **Socket reachability** (L1).
 
@@ -401,9 +471,9 @@ detail, before append.
 | new verb | `auth.prove {purpose, mac}` |
 | spec | deterministic `credentials` |
 | `run.start` | `parent {run_id, step_id, attempt, child_id}`; reserved key + authority pin |
-| `run.resume` | of the root, requires a journal proof |
+| `run.resume`, idempotent `run.start`, `env` replacement | for any run of an entitled lineage (root **or** linked child), require the lineage's authenticated owner, checked before any mutation (§4.3.5); new code `lineage_not_owned` |
 | dispatch | root-lineage leases only to the paired peer |
-| errors | `auth_failed`, `root_not_authenticated`, `parent_not_held`, `credential_unavailable` |
+| errors | `auth_failed`, `root_not_authenticated`, `lineage_not_owned`, `parent_not_held`, `credential_unavailable` |
 | journal | no new entry types or fields |
 
 ## 6. SDK and Surface changes
@@ -424,10 +494,19 @@ detail, before append.
 | # | Interface | Notes |
 |---|---|---|
 | P1 | `canonicalJsonSnapshot(value): JsonValue` | Exported. Exactly the semantics of today's **private** `jsonSnapshot` (`authored-root.ts:592-596`: a `JSON.stringify` → `JSON.parse` round trip, so `undefined` and functions drop and `toJSON` applies), throwing on a non-serializable value. Composed with the exported `canonicalize`, it is how host and SDK derive the input record identically. |
-| P2 | `resolveAuthoredGraph(manifest: {path → sha256}, rootPath, pinnedSurface: {packageName, version, installPath})` | Static and **non-executing** (spec below). Returns the exact ordered reachable `[{path, sourceSha256, surface}]` or `unsupported`. Never runs authored code. |
+| P2 | `resolveAuthoredGraph(sources: {path → {sha256, bytes}}, rootPath, pinnedSurface: {packageName, version, installPath})` | Static and **non-executing** (spec below). Returns the exact ordered reachable `[{path, sourceSha256, surface}]` or `unsupported`. Never runs authored code. |
 | P3 | `authoredRootAuthority({manifest, rootPath, input, admissionIdentity, extensions, localAgent})` → `{record, digest}` | The full normalized authority (§3 table) built from P1 and P2. CLI form: `flows root-authority <flow> --input <json> --admission-identity <id> --display-fields <ptrs>`, which prints the digest. |
 
 **P2 resolver spec (Q4; Native's answer).**
+- **Input (J3; host side at Native `24c37812`).** The host keeps a **content-addressed, read-only
+  byte store** (sha256 → bytes), written alongside the manifest at write time. That store is the
+  resolver's input. Hashes alone cannot be parsed. The resolver receives trusted write-time source
+  **bytes**, keyed by path, from the host's own write record: either the bytes the host wrote, or an
+  index of them. Alternatively, the host performs an **immutable read**: it opens each file and
+  verifies sha256 of exactly the bytes read against the manifest, **before** graph resolution.
+  - Any byte/hash mismatch, missing file or extra unread input → `unsupported`.
+  - The resolver never parses bytes it has not verified against the manifest, and never reads the
+    working tree.
 - **Pinned install.** Cloud installs exactly **one** Surface package per run, pinned by the authority
   (`packageName@version`, sha-verified). P: cloud `bootstrap-inner.mjs:3536-3538`
   (`assertRelayflowV2AuthoredSurfaceAuthority`, then `packageName + '@' + version`);
@@ -481,7 +560,7 @@ sends none today).
    | V3 token expiry | trusted `expiresAt` carried through; remaining lifetime checked at acquisition and at bootstrap |
    | registry restoration | the archive lists the whole state dir except cache dirs (`relayflow-v2-state-archive.ts:38-56`); the data dir is `stateDir/journal` (`relayflow-v2-executor.ts:627`), restored at `:575-622` |
    | exact root and source authority | §4.3.1 |
-   | Yama | `ptrace_scope ≥ 1`, or refuse binding (§4.3.2) |
+   | memory posture (J1) | Yama ≥ 1 **and** no `CAP_SYS_PTRACE` for agent, step and authored processes **and** no escalation path **and** no ptracer exceptions **and** no namespace grant; unknown → refuse. **Today's E2B image fails this gate** (Native, run `bace8ad1`: passwordless sudo), so binding is refused until an image change outside this design. |
    | V4 consumer epoch | the B consumer-epoch mapping is **proposed** work: today's helper derives only the existing House/project-default epochs. Exact old-consumer refusal needs a future causal spec. |
 
 6. On a Cloud resume: restore the archive, mint a new K, re-supply the frame, and prove with the new
@@ -526,7 +605,7 @@ CLI fd 3: K
 - **L2. `/proc` exposure.**
   - **Mitigated:** values are not in the daemon's environ or cmdline, and K is in neither.
   - **Still exposed:** an entitled det step's environ while it runs, and daemon and CLI memory to
-    same-uid ptrace without Yama.
+    same-uid ptrace unless the full §4.3.2 posture holds (scope ≥ 1 alone is not enough).
   - stdin delivery hardens the daemon's own exposure. It is **not a boundary for steps**.
 - **L3. Transformed values** (base64, split, reversed) escape substring redaction.
 - **L4. A semi-trusted body renaming values.** It can copy an agent value under an unwithheld
@@ -535,6 +614,10 @@ CLI fd 3: K
 - **L6. "No files" means kernel and SDK persistence only.** It does not cover env dumps outside the
   data dir (the fixture writes some, deliberately), or anything an entitled step writes.
 - **L7. A raw client's own outgoing bytes** (§4.5).
+- **L10. Today's E2B posture is unsupported.** Per Native's production observation (run
+  `bace8ad1`, passwordless sudo), agents can escalate to root and read any memory. The J1 gate
+  therefore refuses binding on the current image. No part of this design closes that; an image or
+  template change is required.
 - **L9. The authored body shares a heap with K.** The semi-trusted authored body runs in the
   same process as the authored child's copy of K. The SDK keeps K in a closure, but that is **not
   a hard boundary**.
@@ -609,13 +692,23 @@ CLI fd 3: K
   | quarantine redrive | operator redrive passes through the same internal step | the same fence applies |
   | launch runner | before **every** sandbox-acquisition branch: warm-pool borrow, resume of a provisioning sandbox, label adoption | refuses |
   | bootstrap | inside the sandbox | manifest and tuple check before spawn |
-- **Rolling order.** The consumer gate and bootstrap verification ship in cloud-web first, because
-  the thin Worker only forwards. The producer and pin change ship last. Old-consumer refusal via a
-  new consumer epoch is **proposed** (V4).
+- **Rolling order (J5; aligned with Native `24c37812`).**
+  1. Make all three consumers B-aware: the CF consumer Worker, the cloud-web launch-step handlers,
+     and the reaper Lambda.
+  2. Bootstrap verification ships with them.
+  3. A **producer HOLD** stays in place until all three are B-aware. The producer and pin change
+     ship last.
+- **Schema and epoch.** B persists a **new `schemaVersion` and a B consumer epoch** (proposed).
+  Today's authority parser already requires an exact match on both, `root.schemaVersion ===
+  expectedSchemaVersion` and `root.consumerEpoch === expectedEpoch` (P:
+  `packages/core/src/workflow-launch/relayflow-v2-authority.ts:205-222`). So an old consumer's
+  parser refuses a B envelope, and an old reaper's recomputation cannot make it acceptable. Later
+  tuple gates still apply.
 - **HOST GATE: reaper relabel (W2; Native @ `44add524`).**
   - **Confirmed:** the reaper recomputes the epoch with its own code when it re-enqueues
     (`packages/core/src/sync/stuck-run-reaper-core.ts:1246-1255`).
-  - Whether an old consumer would actually execute a relabelled B job is **conditional**. It depends
+  - With B's new `schemaVersion` and epoch, an old parser refuses the envelope (above). Beyond
+    that, whether an old consumer would execute a relabelled B job is **conditional**. It depends
     on whether that consumer's persisted schema and authority parsing accept the B envelope, and
     then on the later tuple gates. **It is not proven merely because extra fields are tolerated.**
   - Mitigation (Native): rolling order; drain before rollback; an optional transitional
@@ -626,8 +719,12 @@ CLI fd 3: K
 ## 12. Resolved questions
 
 - **Q1 (lead):** the file re-read is dropped; the expiry gates are kept (§4.6).
+- **J1-J5:** the memory posture (E2B currently unsupported), ownership of every lineage mutation,
+  the resolver byte store, the pipe-evidence limit, and CF-only containment with schema/epoch and
+  producer HOLD. Aligned with Native `24c37812`.
 - **Q2 (Native):** the fd-3 transport, synchronous intake, the authored child's fresh pipe, and the
-  Yama host gate (§4.3.2). L9 is stated.
+  memory-posture host gate (§4.3.2, corrected by J1: Yama scope alone is insufficient). L9 is
+  stated.
 - **Q3 (lead):** revocation at terminal lineage completion, including descendants, failure and
   cancellation; parking is not terminal; with the stated ordering (§4.3.2).
 - **Q4 (Native):** the static resolver against the single pinned Surface install, with refusals
@@ -654,6 +751,7 @@ The lead's freeze acceptance of `5eb22527` and Native's `44add524` is pending.
 | V1 full authority; exact child lease; P1 | §3, §4.3.1, §4.3.3, §6 | `root_auth::the_authority_pin_*`, `entitlement::authored_child_*` |
 | V2-V4 | §6, §7 HOST GATES | host specs |
 | Q2-Q4, CF containment | §4.3.2, §6 P2, §11 | SDK live K asserts; P2 and runner unit specs (future) |
+| J1-J4 | §4.3.2, §4.3.4, §4.3.5, §6 P2, §14 | `ownership::*`; evidence limit stated |
 | W1 graph completeness | §4.3.1, §3, §8 L8 | `root_auth::the_authority_pin_needs_the_exact_resolved_graph_*` |
 
 ## 14. Fixture and evidence
@@ -669,9 +767,19 @@ absent**. Each one hits one of:
 They are **not** separate security regressions. Main's actual defects are what §1.1 reproduces.
 
 **Kernel** (`kernel/relayflowd/tests/det_credentials_design.rs` plus
-`det_credentials_design/{harness,contract,current_behaviour,entitlement,root_auth,k_handling,lifecycle,leaks}.rs`):
+`det_credentials_design/{harness,contract,current_behaviour,entitlement,ownership,root_auth,k_handling,lifecycle,leaks}.rs`):
 - 1 current-behaviour test, not ignored.
-- 17 future tests, `#[ignore = "... det_credentials interface absent"]`.
+- 18 future tests, `#[ignore = "... det_credentials interface absent"]`.
+
+**Evidence limit (J4).** The future SDK live test hands K to the CLI through an **unlinked,
+seekable file** opened on fd 3, not a pipe. It therefore **cannot** prove real pipe-inode aliasing,
+EOF-after-writer-close, or inheritance semantics. Its descriptor asserts are path checks against
+that file. Once the interface exists, the gate requires:
+- a **real pipe-backed** causal fixture: the host writes K and closes the writer, and the test
+  checks `pipe:[inode]` aliases in every descendant;
+- the **fresh authored-child pipe** checks.
+
+The current forced failures remain interface-absence failures.
 
 **SDK** (`packages/sdk/tests/`):
 - `det-credentials.design.test.ts`: real `JournalClient` wire, every fake agent key and a bound
@@ -699,4 +807,4 @@ No running system was touched.
 - **Native** (interface reference, not reviewed):
   - flows `fix/hosted-step-env-policy` @ `93f0cda855376538b3667befa20115f05cd16c20`;
   - cloud `design/hosted-step-env-boundary` @ `eb338424`, `900df5ae`, `eb2f4786`,
-    `a903e8f83e7340ed678c52860420f8ec106384ea`, `41cc8cb3`, `44add524`.
+    `a903e8f83e7340ed678c52860420f8ec106384ea`, `41cc8cb3`, `44add524`, `e4cd859e`, `24c37812`.

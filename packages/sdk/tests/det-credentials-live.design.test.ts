@@ -118,7 +118,10 @@ process.stdout.write(${JSON.stringify(readFileSync(FIXTURE, 'utf8'))});
     },
     /**
      * The host's CLI spawn: cliEnv, plus an inherited fd 3 carrying K when
-     * given (the host would use a pipe; a fake K in an unlinked file models it).
+     * given. EVIDENCE LIMIT (proposal §14, J4): this is an unlinked seekable
+     * FILE, not a pipe, so it cannot prove pipe-inode aliasing, EOF or
+     * inheritance semantics; a real pipe-backed fixture is required once the
+     * interface exists.
      */
     run(env: Record<string, string>, secret?: string) {
       const args = [cli, 'run', '--json', '--data-dir', dataDir, '--local-agent', 'probe.flow.ts', '--input', '{}'];

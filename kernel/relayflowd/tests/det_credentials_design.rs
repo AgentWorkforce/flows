@@ -34,5 +34,7 @@ mod k_handling;
 mod leaks;
 #[path = "det_credentials_design/lifecycle.rs"]
 mod lifecycle;
+#[path = "det_credentials_design/ownership.rs"]
+mod ownership;
 #[path = "det_credentials_design/root_auth.rs"]
 mod root_auth;
