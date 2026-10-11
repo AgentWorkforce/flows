@@ -66,13 +66,13 @@ any non-whitespace byte after the line is refused with `frame_trailing_data`.
   },
   "withhold": ["ANTHROPIC_API_KEY", "HOUSE_PROXY_CREDENTIAL"],
   "posture": {
-    "attested": "supported",
-    "yama_ptrace_scope": 1,
-    "cap_sys_ptrace_absent": true,
-    "escalation_absent": true,
-    "ptracer_exceptions_absent": true,
-    "namespace_grant_absent": true,
-    "evidence": "<free text, no secrets>"
+    "schema": "relayflow-host-posture-v1",
+    "yamaPtraceScope": 1,
+    "cliNoNewPrivs": true,
+    "daemonNoNewPrivs": true,
+    "sudoEscalation": "absent",
+    "sharedUserNamespace": false,
+    "observedAt": "<RFC 3339 timestamp>"
   }
 }
 ```
@@ -86,7 +86,7 @@ any non-whitespace byte after the line is refused with `frame_trailing_data`.
 | `pins.display_fields` | array of JSON pointers, excluded from the digest; may be empty (YAML roots) | G§4.3.1 |
 | `pins.root_admission_key` | the reserved kernel admission key: `authored-root:` + sha256 hex of the admission identity (`authored-root.ts:584-586`) | G§4.3.2 |
 | `withhold` | array of names (same grammar as `credentials` keys); host-tracked agent and house writes plus `HOUSE_PROXY_CREDENTIAL` | G§4.5; H§4 |
-| `posture` | host attestation of G§4.3.2 J1. `attested` ∈ `"supported"`, `"unsupported"`, `"unknown"`. Anything but `"supported"`, or any `*_absent: false`, or `yama_ptrace_scope < 1`, means the daemon refuses to bind (`posture_unsupported`). The daemon also checks locally (§1.5). | **PROPOSED**; G§4.3.2 J1 |
+| `posture` | host attestation of G§4.3.2 J1, shape **PROPOSED (Native)**. Refused (`posture_unsupported`, field = the offending key) if: `schema` ≠ `relayflow-host-posture-v1`; any value is `null` or `"unknown"`; `yamaPtraceScope < 1`; `cliNoNewPrivs` or `daemonNoNewPrivs` is not `true`; `sudoEscalation` ≠ `"absent"`; or `sharedUserNamespace` ≠ `false`. `sudoEscalation` may be `"absent"` only under NoNewPrivs 1. Today's image reports `"present"` (Native's reported historical probe), so binding is refused. The daemon also checks its own local readings (§1.5) and **refuses on any disagreement** with the attestation. | **PROPOSED (Native)**; G§4.3.2 J1 |
 
 **Protected names.** Neither `credentials` nor `withhold` may contain `PATH`, `HOME`,
 `FLOWS_INPUT`, `RELAYFLOW_MEMORY`, `LD_*` or `DYLD_*` (G§4.1). A name may not be both bound and
@@ -157,8 +157,37 @@ These run **on Linux only**. Any other platform refuses with `posture_unsupporte
 | `/proc/self/status` `CapEff`/`CapPrm`/`CapAmb`/`CapBnd` | bit 19 (`CAP_SYS_PTRACE`) is set in any of them (`local:cap_sys_ptrace`) |
 | `/proc/self/status` `NoNewPrivs` | not `1` (`local:no_new_privs`) |
 
-The host must start relayflowd and the CLI with `NoNewPrivs` set (PROPOSED). That blocks sudo and
-setuid escalation from them and their descendants.
+The CLI performs the same three local checks before it reads `--host-capability-fd`, and refuses
+with `host_posture_unsupported`. Each local reading must agree with the matching attestation field:
+Yama ↔ `yamaPtraceScope`, and own `NoNewPrivs` ↔ `cliNoNewPrivs` or `daemonNoNewPrivs`.
+
+### 1.6 NoNewPrivs: options, no decision (neither is granted)
+
+**Default:** refuse binding on today's posture.
+
+**(A) Host runs the CLI and daemon under `no_new_privs`** (`setpriv --no-new-privs` or a prctl
+helper).
+- **Coverage:** the whole tree, including every `f.run` step.
+- **Breaks:** steps that use sudo, such as `sudo apt-get install`.
+- **Status:** a product decision for the lead. Not the default.
+
+**(B) Flows sets `no_new_privs` only on the agent processes it spawns.**
+- **How flows spawns agents (verified on `2ee558ee`).** The SDK spawns agent CLIs **directly**,
+  not through the broker:
+  - `child_process.spawn` at `packages/sdk/src/worker-cli.ts:436` (adapter CLIs);
+  - `packages/sdk/src/wrapper-session.ts:137` (wrapper CLIs).
+- **Feasibility.** Node has no prctl API, so (B) needs one of:
+  - prefixing the spawn with `setpriv --no-new-privs --` (util-linux; present on this dev host at
+    `/usr/bin/setpriv`; presence in the sandbox image is **unknown**);
+  - a minimal static helper that calls `prctl(PR_SET_NO_NEW_PRIVS, 1)` and then `execve`.
+
+  Either way it must fail closed if the helper is missing.
+- **Gap (B) leaves.** Det steps are spawned by the daemon, not the SDK, and run untrusted repository
+  code with the run's uid.
+  - Under (B) they keep sudo, so repository code can still escalate and read K or D from the CLI or
+    authored-child memory.
+  - So (B) **alone does not satisfy J1**. It needs either (A) for det steps too, or a uid split
+    between K-holding processes and steps. That is a decision for the lead.
 
 `PR_SET_PTRACER` is never called by relayflowd or the SDK. That is enforced by a source test, not
 probed. Namespace grants are host-attested only.
@@ -354,5 +383,9 @@ exit 0 on success; exit 2 with {"refused":"<reason>"} on any resolver or record 
 
 - **R1** (§0): the pins are carried as a digest computed from the H§2.2 inputs. Needs flows and
   Native ack.
-- **(a)** The `imports` closure in the root authority (§5.2, §5.3): pending the lead and Native.
+- **(a)** The `imports` closure (path → sha256) in the root authority (§5.2, §5.3).
+  - Native accepts it: the host pins the closure the resolver computes over its write-time
+    manifest and byte store, and refuses anything outside the manifest.
+  - Still **PROPOSED**, pending the lead.
+- **NoNewPrivs** (§1.6): option (A) or (B), neither granted.
 - The **PROPOSED** names in this document.
