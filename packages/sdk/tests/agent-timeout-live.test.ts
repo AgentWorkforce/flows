@@ -30,7 +30,9 @@ if (request?.instruction.includes('TIMEOUT_TEST')) {
   writeFileSync(join(f.root, 'flows.json'), JSON.stringify({ cli: f.wrapper, models: ['claude-opus-5'] }));
   writeFileSync(f.flowPath, `import { flow } from '@relayflows/surface';
 export default flow('timeout-test', { budget: { wallclock: '2m' } }, async f => {
-  const result = await f.agent('repair', { task: 'TIMEOUT_TEST', timeout: '300ms', model: 'claude-opus-5' })
+  // transportRetries 0: this deadline is the result the gate judges. The default
+  // budget would continue once in the dirty workspace before the gate runs.
+  const result = await f.agent('repair', { task: 'TIMEOUT_TEST', timeout: '300ms', model: 'claude-opus-5', transportRetries: 0 })
     .gate(r => r.completionReason === 'timeout' && ${gate});
   if (result.completionReason === 'timeout') {
     await f.run(${JSON.stringify(pause ? 'test -f paused || { touch paused; sleep 120; }; cat work.txt > published' : 'cat work.txt > published')});

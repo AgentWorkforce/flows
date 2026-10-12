@@ -18,6 +18,7 @@ import { snapshotJsonValue } from './json-value.js';
 import { authoredChildAdmissionKey } from './authored-admission.js';
 import { alsoRecord, recordAuthoredChild } from './authored-step-index.js';
 import type { StepFailedDetails } from './failure-kinds.js';
+import { LOCAL_AGENT_WORKSPACE } from './local-agent-pins.js';
 import { authoredWorkerSlots, type AuthoredWorkerSlots } from './worker-slots.js';
 
 const AGENT_TIMEOUT = Symbol('declared agent timeout');
@@ -278,7 +279,15 @@ export function authoredWorkerRunner(
         id, type: 'agent', instruction: options.task,
         ...(timeoutMs === undefined ? {} : { timeoutMs }),
         ...(permissionsSnapshot === undefined ? {} : { permissions: permissionsSnapshot }),
-        ...(localAgentStream === undefined ? {} : { surfaces: { streams: [{ stream: localAgentStream }] } }),
+        ...(localAgentStream === undefined ? {} : { surfaces: {
+          streams: [{ stream: localAgentStream }],
+          // A deadline continues in this process's tree. Declare the surface
+          // the local worker holds so the dirty stamp is a pin the kernel can
+          // match, and a fresh worker at the clean revision cannot take it.
+          ...(timeoutMs !== undefined && options.workspace === undefined
+            ? { workspace: [{ surface: LOCAL_AGENT_WORKSPACE }] }
+            : {}),
+        } }),
         ...(options.workspace === undefined ? {} : { surfaces: { workspace: [{ surface: options.workspace }] } }),
         ...(options.cli === undefined ? {} : { cli: options.cli }),
         ...(options.model === undefined ? {} : { model: options.model }),

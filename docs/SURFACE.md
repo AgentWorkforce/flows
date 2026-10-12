@@ -724,7 +724,11 @@ compiler/SDK validation limit; the kernel validates positive milliseconds
 fitting in `i64` and carries the declaration to the worker.
 
 ```ts
-const repair = await f.agent('repair', { task: 'Repair failing checks.', timeout: '45m' });
+const repair = await f.agent('repair', {
+  task: 'Repair failing checks.',
+  timeout: '45m',
+  transportRetries: 0, // the deadline is the result; do not continue
+});
 if (repair.completionReason === 'timeout') {
   await f.run('git push'); // publish what the agent already committed
 }
@@ -751,11 +755,18 @@ native artifact paths remain under `trajectory_tail.transcript.artifacts.paths`
 in the journal (a bounded list). Wrappers discard partial stdout on timeout
 and provide the deadline message; they have no transcript artifact list. A
 wrapper result envelope emitted before the deadline still supplies its usage.
-No workspace reset occurs: committed work and uncommitted edits remain, and
-the following step sees that potentially dirty tree even with
-`recoveryMode: 'reset'`. Unlike crash/lease recovery in RFC Appendix A, timeout
-settles the step with no successor attempt. Resume replays the recorded timeout
-and does not execute that agent again. Incurred spend remains charged:
+No workspace reset occurs on the settling attempt: committed work and
+uncommitted edits remain, and the following step sees that potentially dirty
+tree. The default transport budget is one. A deadline then journals `timeout`
+with disposition `retry`, the dirty end pins, and the trajectory tail, and the
+next attempt recovers as `inspect` even when `recoveryMode` is `reset`. The
+continuation sees the edits and the journaled tail. The dirty revision's
+stamp includes file contents and deletions, so a deletion-only edit and two
+different edits of the same paths are distinct pins. After a human answers a
+`manual` park, that attempt inspects the dirty pins. A second deadline seals
+the step. Set `transportRetries: 0` when the deadline itself is the result you
+branch on: that attempt settles with no successor, and resume replays the
+recorded timeout without executing the agent again. Incurred spend remains charged:
 reported usage is priced as usual, and usage never reported before the deadline
 is journaled as dollar-unmetered rather than as a measured $0.
 

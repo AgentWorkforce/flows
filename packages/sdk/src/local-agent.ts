@@ -4,9 +4,10 @@ import type { JournalClient } from './journal-client.js';
 import { AgentWorker } from './worker.js';
 import type { KernelRunSpec } from './spec.js';
 import { communicationInstruction } from './communication/spec.js';
+import { LOCAL_AGENT_REVISION, LOCAL_AGENT_WORKSPACE } from './local-agent-pins.js';
 import { DEFAULT_LOCAL_AGENT_CAPACITY } from './worker-slots.js';
 
-/** A local worker for stream-only steps; no workspace recovery is claimed. */
+/** A local worker. It holds `local-workspace` at `local` so a deadline can stamp the dirty tree. */
 export async function attachLocalAgent(
   client: JournalClient,
   dataDir?: string,
@@ -24,7 +25,8 @@ export async function attachLocalAgent(
   // This worker has consumed no messages: its read offsets are zero, including
   // named declarative streams. The kernel retains ownership of dispatch pins
   // and rejects a resume whose required offsets this worker does not hold.
-  // No worktree revision is invented.
+  // `local-workspace` starts at `local`. A deadline stamps that revision from
+  // the dirty tree, so a replacement worker still at `local` cannot take it.
   const stream = requestedStream ?? `local-agent-${randomUUID()}`;
   const worker = new AgentWorker(client, {
     workerId: stream,
@@ -33,8 +35,10 @@ export async function attachLocalAgent(
     // this same number (worker-slots.ts), so they never ask for more.
     capacity,
     dataDir, onPtyReady, runRoot, environment,
-    pins: { workspace: [], streams: [...new Set([stream, ...declaredStreams])]
-      .map(stream => ({ stream, read_offset: 0 })) },
+    pins: {
+      workspace: [{ surface: LOCAL_AGENT_WORKSPACE, revision_id: LOCAL_AGENT_REVISION }],
+      streams: [...new Set([stream, ...declaredStreams])].map(stream => ({ stream, read_offset: 0 })),
+    },
   });
   let failure: unknown;
   // The cause travels with the close, so the flow's next request names it.

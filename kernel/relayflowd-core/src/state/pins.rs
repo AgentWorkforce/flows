@@ -36,15 +36,22 @@ impl RunState {
         // must carry that exact revision forward, surfaces the chain has never
         // produced are worker-sourced and unconstrained here.
         if let Some(previous) = runtime.last_completion_reason {
-            let expected = match spec.kind {
-                StepKind::Agent {
-                    recovery_mode: RecoveryMode::Inspect,
-                    ..
-                } => runtime
-                    .last_end_pins
-                    .as_ref()
-                    .or(runtime.last_start_pins.as_ref()),
-                StepKind::Agent { .. } => runtime.last_start_pins.as_ref(),
+            // Same choice `start_actions` journals. A CLI deadline continues
+            // as inspect, so the retry's start pin is the dirty end pin even
+            // when the step declared reset.
+            let expected = match &spec.kind {
+                StepKind::Agent { recovery_mode, .. } => {
+                    match crate::machine::recovery_mode_for_attempt(*recovery_mode, Some(previous))
+                    {
+                        RecoveryMode::Inspect => runtime
+                            .last_end_pins
+                            .as_ref()
+                            .or(runtime.last_start_pins.as_ref()),
+                        RecoveryMode::Reset | RecoveryMode::Manual => {
+                            runtime.last_start_pins.as_ref()
+                        }
+                    }
+                }
                 _ => None,
             };
             if let Some(expected) = expected

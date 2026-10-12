@@ -102,7 +102,7 @@ export interface TranscriptDigest {
   final_text?: string;
   final_text_truncated?: boolean;
   failure?: { kind: 'result' | 'tool_result' | 'stderr'; excerpt: string; truncated?: boolean };
-  artifacts?: { count: number; paths: string[] };
+  artifacts?: { count: number; paths: string[]; deleted?: string[] };
   /**
    * Set when even the ordered reductions left the digest over its cap and it
    * was cut back to fixed-size fields — every provider-supplied string but a
@@ -636,7 +636,13 @@ function coreDigest(d: TranscriptDigest): TranscriptDigest {
       counts: [], last_calls: [], total_calls: d.tools.total_calls, shown_calls: 0, complete: d.tools.complete,
     };
   }
-  if (d.artifacts !== undefined) core.artifacts = { count: d.artifacts.count, paths: [] };
+  if (d.artifacts !== undefined) {
+    core.artifacts = {
+      count: d.artifacts.count,
+      paths: [],
+      ...(d.artifacts.deleted === undefined ? {} : { deleted: [] }),
+    };
+  }
   if (d.final_text !== undefined || d.final_text_truncated === true) core.final_text_truncated = true;
   if (d.failure !== undefined) core.failure = { kind: d.failure.kind, excerpt: '', truncated: true };
   return core;
@@ -649,8 +655,19 @@ function keepLastCalls(d: TranscriptDigest, n: number): TranscriptDigest {
 }
 
 function keepArtifactPaths(d: TranscriptDigest, n: number): TranscriptDigest {
-  if (d.artifacts === undefined || d.artifacts.paths.length <= n) return d;
-  return { ...d, artifacts: { count: d.artifacts.count, paths: d.artifacts.paths.slice(0, n) } };
+  const artifacts = d.artifacts;
+  if (artifacts === undefined) return d;
+  const deleted = artifacts.deleted;
+  if (artifacts.paths.length <= n && (deleted === undefined || deleted.length <= n)) return d;
+  const kept = deleted === undefined ? undefined : deleted.slice(0, n);
+  return {
+    ...d,
+    artifacts: {
+      count: artifacts.count,
+      paths: artifacts.paths.slice(0, n),
+      ...(kept === undefined ? {} : { deleted: kept }),
+    },
+  };
 }
 
 function cutFinalText(d: TranscriptDigest, maxBytes: number): TranscriptDigest {

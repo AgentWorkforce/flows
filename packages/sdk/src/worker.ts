@@ -222,10 +222,30 @@ export class AgentWorker extends EventEmitter {
         ...(usage !== undefined ? { usage } : {}),
         ...(cost === undefined ? {} : { reported_cost: cost }),
         started_pins: dispatch.pins,
-        end_pins: dispatch.pins,
+        end_pins: completionReason === 'timeout'
+          ? deadlineEndPins(dispatch.pins, result.workspace_stamp)
+          : dispatch.pins,
       },
     );
   }
+}
+
+/**
+ * A deadline's end pin names the dirty tree the next attempt must inspect.
+ * The stamp covers file contents and deletions, not the file bytes: the tail
+ * is capped and the bytes stay on this worker's disk. An empty diff keeps
+ * the start pin.
+ */
+function deadlineEndPins(pins: Pins, stamp: string | undefined): Pins {
+  const workspace = pins.workspace ?? [];
+  if (stamp === undefined || workspace.length === 0) return pins;
+  if (workspace.every(pin => pin.revision_id === '')) return pins;
+  return {
+    ...pins,
+    workspace: workspace.map(pin => pin.revision_id === ''
+      ? pin
+      : { ...pin, revision_id: `${pin.revision_id}+${stamp}` }),
+  };
 }
 
 /**
@@ -238,9 +258,15 @@ function transcriptDigest(transcript: TranscriptDigest, attempt: number, result:
     attempt,
     exit_code: result.exit_code,
     ...transcript,
-    ...(result.artifacts === undefined ? {} : { artifacts: {
-      count: result.artifacts.length, paths: result.artifacts.slice(0, ARTIFACT_PATHS_MAX),
-    } }),
+    ...(result.artifacts === undefined && (result.deleted === undefined || result.deleted.length === 0) ? {} : {
+      artifacts: {
+        count: result.artifacts?.length ?? 0,
+        paths: (result.artifacts ?? []).slice(0, ARTIFACT_PATHS_MAX),
+        ...(result.deleted === undefined || result.deleted.length === 0 ? {} : {
+          deleted: result.deleted.slice(0, ARTIFACT_PATHS_MAX),
+        }),
+      },
+    }),
   });
 }
 
