@@ -701,6 +701,8 @@ describe('flows run: observer link integration', () => {
     ['--no-observer-link', ['--no-observer-link'], {}],
     ['FLOWS_NO_OBSERVER=1', [], { FLOWS_NO_OBSERVER: '1' }],
     ['--json', ['--json'], {}],
+    ['--cloud-mirror', ['--cloud-mirror', '--no-spawn'], {}],
+    ['FLOWS_CLOUD_MIRROR=1', ['--no-spawn'], { FLOWS_CLOUD_MIRROR: '1' }],
   ] as const)('does not print the missing-key hint with %s', async (_label, flags, env) => {
     const dataDir = temporaryProject();
     await startCliLoopback(dataDir, {
@@ -713,6 +715,7 @@ describe('flows run: observer link integration', () => {
     });
     vi.stubEnv('RELAYCAST_WORKSPACE_KEY', '');
     vi.stubEnv('FLOWS_NO_OBSERVER', 'FLOWS_NO_OBSERVER' in env ? env.FLOWS_NO_OBSERVER : '');
+    vi.stubEnv('FLOWS_CLOUD_MIRROR', 'FLOWS_CLOUD_MIRROR' in env ? env.FLOWS_CLOUD_MIRROR : '');
 
     const output = capture();
     expect(await runCli(['run', ...flags, '--data-dir', dataDir, HELLO_DETERMINISTIC], output.io)).toBe(0);

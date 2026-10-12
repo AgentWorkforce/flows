@@ -254,6 +254,15 @@ export async function runCli(
     return 2;
   }
 
+  if (parsed.command === 'run' && !parsed.json && !parsed.noObserverLink
+    && !(parsed.cloudMirror || cloudMirrorRequested(process.env))) {
+    const link = resolveObserverLinkEnv(process.env);
+    if (!link.suppressed && link.workspaceKey === undefined) {
+      io.stderr('[observer] no workspace key configured; set RELAYCAST_WORKSPACE_KEY or configure '
+        + '~/.agentworkforce/relay/workspaces.json for an Observer link, or pass --cloud-mirror for the Cloud dashboard');
+    }
+  }
+
   if ((parsed.command === 'run' || parsed.command === 'resume') && parsed.detach) {
     const result = await startDetachedRun(args, {
       ...parsed, ...(options.selfCommand === undefined ? {} : { selfCommand: options.selfCommand }),
@@ -377,7 +386,6 @@ export async function runCli(
   const startedSteps = new Map<string, number>();
   const observer = parsed.noObserverLink ? undefined : createObserverSession(parsed.command, io, process.env, {
     onObserverUrl: url => options.detachedReceipt?.observerUrl(url),
-    hintWhenUnavailable: parsed.command === 'run' && !parsed.json,
   });
   const runnerLog: string[] = [];
   // Opt-in, unlike the observer link beside it. The observer is the default

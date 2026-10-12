@@ -39,8 +39,6 @@ export interface ObserverSessionDeps {
   onObserverUrl?: (url: string) => void;
   fetch?: ProjectionFetch;
   mint?: (options: MintObserverOptions) => Promise<MintOutcome>;
-  /** Explain the two watchability choices when a local run has no workspace key. */
-  hintWhenUnavailable?: boolean;
 }
 
 export function createObserverSession(
@@ -50,14 +48,7 @@ export function createObserverSession(
   deps: ObserverSessionDeps = {},
 ): ObserverSession | undefined {
   const link = resolveObserverLinkEnv(env);
-  if (link.suppressed) return undefined;
-  if (link.workspaceKey === undefined) {
-    if (deps.hintWhenUnavailable) {
-      io.stderr('[observer] no workspace key configured; set RELAYCAST_WORKSPACE_KEY or configure '
-        + '~/.agentworkforce/relay/workspaces.json for an Observer link, or pass --cloud-mirror for the Cloud dashboard');
-    }
-    return undefined;
-  }
+  if (link.suppressed || link.workspaceKey === undefined) return undefined;
   const workspaceKey = link.workspaceKey;
   const mint = deps.mint ?? mintObserverUrl;
   const liveSinceMs = command === 'resume' ? Date.now() : 0;

@@ -47,6 +47,25 @@ describe('detached CLI contract', () => {
     expect(process.env['FLOWS_LOCAL_AGENT_ENV_FD']).toBe('42');
   });
 
+  it('prints the missing-key hint in the parent before a detached child starts', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'detach-observer-home-'));
+    roots.push(home);
+    vi.stubEnv('AGENT_RELAY_HOME', home);
+    vi.stubEnv('RELAYCAST_WORKSPACE_KEY', '');
+    vi.stubEnv('FLOWS_NO_OBSERVER', '');
+    vi.stubEnv('FLOWS_LOCAL_AGENT_ENV_FD', '42');
+    const stderr: string[] = [];
+
+    expect(await runCli(['run', '--detach', 'flow.yaml'], {
+      stdout: () => {}, stderr: line => stderr.push(line),
+    })).toBe(2);
+
+    expect(stderr.filter(line => line.startsWith('[observer]'))).toEqual([
+      '[observer] no workspace key configured; set RELAYCAST_WORKSPACE_KEY or configure '
+        + '~/.agentworkforce/relay/workspaces.json for an Observer link, or pass --cloud-mirror for the Cloud dashboard',
+    ]);
+  });
+
   it('discovers detach in help and in worker park remedies', async () => {
     const lines: string[] = [];
     await runCli(['--help'], { stdout: line => lines.push(line), stderr: () => {} });
