@@ -760,7 +760,10 @@ uncommitted edits remain, and the following step sees that potentially dirty
 tree. The default transport budget is one. A deadline then journals `timeout`
 with disposition `retry`, the dirty end pins, and the trajectory tail, and the
 next attempt recovers as `inspect` even when `recoveryMode` is `reset`. The
-continuation sees the edits and the journaled tail. A second deadline seals
+continuation sees the edits and the journaled tail. The dirty revision's
+stamp includes file contents and deletions, so a deletion-only edit and two
+different edits of the same paths are distinct pins. After a human answers a
+`manual` park, that attempt inspects the dirty pins. A second deadline seals
 the step. Set `transportRetries: 0` when the deadline itself is the result you
 branch on: that attempt settles with no successor, and resume replays the
 recorded timeout without executing the agent again. Incurred spend remains charged:

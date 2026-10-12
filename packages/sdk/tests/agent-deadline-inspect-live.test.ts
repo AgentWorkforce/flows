@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
+import { deadlineWorkspaceStamp, workspaceFileSignature } from '../src/agent-artifacts.js';
 import { AgentWorker } from '../src/worker.js';
 import { compileSpec, toKernelSpec } from '../src/compile.js';
 import type { KernelRunSpec } from '../src/spec.js';
@@ -81,7 +81,10 @@ setTimeout(() => {}, 30_000);
   expect(tail).toContain('kept.txt');
   const endPins = timedOut.payload?.['end_pins'] as { workspace?: Array<{ revision_id?: string }> };
   const revision = endPins.workspace?.[0]?.revision_id ?? '';
-  const stamp = createHash('sha256').update('kept.txt').digest('hex').slice(0, 16);
+  const stamp = deadlineWorkspaceStamp(
+    new Map(),
+    new Map([['kept.txt', workspaceFileSignature(Buffer.from('still-here\n'))]]),
+  );
   expect(revision).toBe(`rev-clean+${stamp}`);
   const completions = (await client.journalRead(started.run_id, 1, 1000)).entries as Array<{
     entry_type: string; attempt?: number; payload?: { disposition?: string };

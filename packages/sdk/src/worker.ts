@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { communicationInstruction } from './communication/spec.js';
 import { workerSpend } from './worker-spend.js';
 import { reportedCost } from './reported-cost.js';
@@ -224,7 +223,7 @@ export class AgentWorker extends EventEmitter {
         ...(cost === undefined ? {} : { reported_cost: cost }),
         started_pins: dispatch.pins,
         end_pins: completionReason === 'timeout'
-          ? deadlineEndPins(dispatch.pins, result.artifacts)
+          ? deadlineEndPins(dispatch.pins, result.workspace_stamp)
           : dispatch.pins,
       },
     );
@@ -233,14 +232,14 @@ export class AgentWorker extends EventEmitter {
 
 /**
  * A deadline's end pin names the dirty tree the next attempt must inspect.
- * The stamp is the artifact path list, not the file bytes: the tail is capped
- * and the bytes stay on this worker's disk. An empty diff keeps the start pin.
+ * The stamp covers file contents and deletions, not the file bytes: the tail
+ * is capped and the bytes stay on this worker's disk. An empty diff keeps
+ * the start pin.
  */
-function deadlineEndPins(pins: Pins, artifacts: readonly string[] | undefined): Pins {
+function deadlineEndPins(pins: Pins, stamp: string | undefined): Pins {
   const workspace = pins.workspace ?? [];
-  if (artifacts === undefined || artifacts.length === 0 || workspace.length === 0) return pins;
+  if (stamp === undefined || workspace.length === 0) return pins;
   if (workspace.every(pin => pin.revision_id === '')) return pins;
-  const stamp = createHash('sha256').update([...artifacts].sort().join('\n')).digest('hex').slice(0, 16);
   return {
     ...pins,
     workspace: workspace.map(pin => pin.revision_id === ''
@@ -259,9 +258,15 @@ function transcriptDigest(transcript: TranscriptDigest, attempt: number, result:
     attempt,
     exit_code: result.exit_code,
     ...transcript,
-    ...(result.artifacts === undefined ? {} : { artifacts: {
-      count: result.artifacts.length, paths: result.artifacts.slice(0, ARTIFACT_PATHS_MAX),
-    } }),
+    ...(result.artifacts === undefined && (result.deleted === undefined || result.deleted.length === 0) ? {} : {
+      artifacts: {
+        count: result.artifacts?.length ?? 0,
+        paths: (result.artifacts ?? []).slice(0, ARTIFACT_PATHS_MAX),
+        ...(result.deleted === undefined || result.deleted.length === 0 ? {} : {
+          deleted: result.deleted.slice(0, ARTIFACT_PATHS_MAX),
+        }),
+      },
+    }),
   });
 }
 

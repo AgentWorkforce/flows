@@ -1,6 +1,6 @@
 import { realpathSync } from 'node:fs';
 import { basename, dirname, join, resolve, sep } from 'node:path';
-import { diffWorkspaceFiles, snapshotWorkspaceFiles } from './agent-artifacts.js';
+import { deadlineWorkspaceStamp, deletedWorkspaceFiles, diffWorkspaceFiles, snapshotWorkspaceFiles } from './agent-artifacts.js';
 import { claudeResultOutcome, decodeProviderResult, decodeWrapperResult, requirePricedUsage } from './worker-usage.js';
 import { openSidechannel, type SidechannelContext } from './pty-sidechannel.js';
 import {
@@ -88,6 +88,18 @@ export interface WorkerCliResult {
    */
   artifacts?: string[];
   /**
+   * Content-and-deletion identity of the dirty tree, 16 hex characters.
+   * Present when the workspace changed. A deadline appends it to the end-pin
+   * revision so two different edits of the same paths, and a deletion with no
+   * new file, do not look like the clean start.
+   */
+  workspace_stamp?: string;
+  /**
+   * Paths removed during the attempt, cwd-relative and sorted. Journaled
+   * beside `artifacts`. Absent when nothing was deleted.
+   */
+  deleted?: string[];
+  /**
    * The attempt's transcript digest (`agent-transcript.ts`): provider result
    * metadata, tool calls summarized, final text, failure excerpt, and — when
    * the spawn had a sidechannel context with an attempt — the pointer to the
@@ -167,9 +179,27 @@ export async function runAgentCli(
       const before = await snapshotWorkspaceFiles(artifactRoot);
       const result = await execute();
       const kernelData = sidechannel === undefined ? undefined : realPath(resolve(sidechannel.dataDir));
-      const artifacts = diffWorkspaceFiles(before, await snapshotWorkspaceFiles(artifactRoot))
-        .filter(path => !under(realPath(resolve(artifactRoot, path)), kernelData));
-      return { ...result, artifacts };
+      const after = await snapshotWorkspaceFiles(artifactRoot);
+      const visible = (files: Map<string, string>) => {
+        const out = new Map<string, string>();
+        for (const [path, signature] of files) {
+          // `canonicalTree` keeps a deleted path under the data dir excluded:
+          // the file is gone, so a plain realpath falls back to the spelling
+          // and can miss a symlinked data dir.
+          if (!under(canonicalTree(resolve(artifactRoot, path)), kernelData)) out.set(path, signature);
+        }
+        return out;
+      };
+      const stampBefore = visible(before);
+      const stampAfter = visible(after);
+      const workspace_stamp = deadlineWorkspaceStamp(stampBefore, stampAfter);
+      const deleted = deletedWorkspaceFiles(stampBefore, stampAfter);
+      return {
+        ...result,
+        artifacts: diffWorkspaceFiles(stampBefore, stampAfter),
+        ...(workspace_stamp === undefined ? {} : { workspace_stamp }),
+        ...(deleted.length === 0 ? {} : { deleted }),
+      };
     });
 
   async function execute(): Promise<WorkerCliResult> {

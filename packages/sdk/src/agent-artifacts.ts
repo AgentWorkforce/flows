@@ -70,8 +70,41 @@ async function walk(root: string, current: string, out: Map<string, string>): Pr
       if (isEnoent(error)) continue;
       throw error;
     }
-    out.set(relative(root, path).split(sep).join('/'), `${info.size}:${createHash('sha256').update(bytes).digest('hex')}`);
+    out.set(relative(root, path).split(sep).join('/'), workspaceFileSignature(bytes));
   }
+}
+
+/** Byte length and sha256. The deadline pin uses this, not the path alone. */
+export function workspaceFileSignature(bytes: Uint8Array): string {
+  return `${bytes.length}:${createHash('sha256').update(bytes).digest('hex')}`;
+}
+
+/**
+ * Identity of a dirty tree. Each added or changed file contributes its content
+ * signature, and each deletion contributes its path. Undefined when nothing
+ * changed. Two trees that edit the same paths differently, or that only delete
+ * a file, receive different stamps.
+ */
+export function deadlineWorkspaceStamp(
+  before: ReadonlyMap<string, string>,
+  after: ReadonlyMap<string, string>,
+): string | undefined {
+  const lines: string[] = [];
+  for (const path of [...new Set([...before.keys(), ...after.keys()])].sort()) {
+    const prior = before.get(path);
+    const next = after.get(path);
+    if (prior === next) continue;
+    lines.push(next === undefined ? `D ${path}` : `C ${next} ${path}`);
+  }
+  if (lines.length === 0) return undefined;
+  return createHash('sha256').update(lines.join('\n')).digest('hex').slice(0, 16);
+}
+
+/** Paths present in `before` and absent in `after`, sorted. */
+export function deletedWorkspaceFiles(before: ReadonlyMap<string, string>, after: ReadonlyMap<string, string>): string[] {
+  const deleted: string[] = [];
+  for (const path of before.keys()) if (!after.has(path)) deleted.push(path);
+  return deleted.sort();
 }
 
 /** `dir`-relative paths present in `after` that are new or changed since `before`, sorted. */

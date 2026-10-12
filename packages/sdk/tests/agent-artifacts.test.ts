@@ -1,9 +1,16 @@
+import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { chmod, open } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { diffWorkspaceFiles, snapshotWorkspaceFiles } from '../src/agent-artifacts.js';
+import {
+  deadlineWorkspaceStamp,
+  deletedWorkspaceFiles,
+  diffWorkspaceFiles,
+  snapshotWorkspaceFiles,
+  workspaceFileSignature,
+} from '../src/agent-artifacts.js';
 
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -13,6 +20,38 @@ function tempDir(): string {
   dirs.push(dir);
   return dir;
 }
+
+describe('deadlineWorkspaceStamp', () => {
+  it('is undefined when nothing changed', () => {
+    const files = new Map([['a.txt', '1:abc']]);
+    expect(deadlineWorkspaceStamp(files, new Map(files))).toBeUndefined();
+  });
+
+  it('stamps a new file from its content signature', () => {
+    const signature = workspaceFileSignature(Buffer.from('still-here\n'));
+    const stamp = deadlineWorkspaceStamp(new Map(), new Map([['kept.txt', signature]]));
+    const line = `C ${signature} kept.txt`;
+    expect(stamp).toBe(createHash('sha256').update(line).digest('hex').slice(0, 16));
+  });
+
+  it('differs when the same path has different contents', () => {
+    const one = deadlineWorkspaceStamp(new Map(), new Map([['fix.ts', '4:aaa']]));
+    const two = deadlineWorkspaceStamp(new Map(), new Map([['fix.ts', '4:bbb']]));
+    expect(one).toBeDefined();
+    expect(two).toBeDefined();
+    expect(one).not.toBe(two);
+  });
+
+  it('stamps a deletion that the path diff does not list', () => {
+    const before = new Map([['gone.txt', '1:abc']]);
+    const after = new Map<string, string>();
+    expect(deadlineWorkspaceStamp(before, after)).toBe(
+      createHash('sha256').update('D gone.txt').digest('hex').slice(0, 16),
+    );
+    expect(deletedWorkspaceFiles(before, after)).toEqual(['gone.txt']);
+    expect(diffWorkspaceFiles(before, after)).toEqual([]);
+  });
+});
 
 describe('snapshotWorkspaceFiles / diffWorkspaceFiles', () => {
   it('reports a newly written nested file as an artifact', async () => {

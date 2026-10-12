@@ -298,11 +298,20 @@ is a separate, explicit budget (`retry.max_transport_retries`, default one so a
 single process loss remains resumable; set zero to disable).
 `crashed`, `lease_expired`, and an agent CLI `timeout` consume it. A deadline
 is not a judged result: it does not increment `semantic_executions`, and the
-completion keeps the worker's end pins and trajectory tail. The next attempt
-recovers as `inspect` even when the step declared `reset`, so the dirty pin
-and the tail are what the continuation sees. The attempt-started record still
-carries the declared mode. `manual` parks. A second deadline seals when the
-transport budget is the default one. A deterministic command timeout,
+completion keeps the worker's end pins and trajectory tail. The end revision
+is the start revision plus a stamp of the workspace delta: each added or
+changed file by its content signature, each deletion by its path. An empty
+diff keeps the start pin. The next attempt recovers as `inspect` even when
+the step declared `reset`, so the dirty pin and the tail are what the
+continuation sees. The attempt-started record still carries the declared
+mode. `manual` still parks for a human. After that answer the attempt
+inspects the dirty pins: the attached worker was advanced to them, and a
+retry that asked for the clean start pin would be refused. A second deadline
+seals when the transport budget is the default one. A local agent with a
+deadline declares the surface `local-workspace`, which that worker holds at
+revision `local` until a deadline stamps it. Selection prefers a worker
+already standing at the attempt's revisions, so a fresh worker still at
+`local` does not take the continuation. A deterministic command timeout,
 `worker_error`, budget, cancellation, and an ordinary nonzero CLI exit stay
 terminal regardless of the budget; semantic verification retry remains
 bounded only by `max_iterations`.

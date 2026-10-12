@@ -42,9 +42,33 @@ pub(super) fn select_worker_for_step<'a>(
             (load < worker.capacity).then_some((worker, load))
         })
         .min_by(|(left, left_load), (right, right_load)| {
-            normalized_load_order(*left_load, left.capacity, *right_load, right.capacity)
+            let left_match = revisions_match(left, required_pins);
+            let right_match = revisions_match(right, required_pins);
+            // A worker already at the attempt's revisions can take an inspect
+            // continuation. A restoring reset still needs a worker that only
+            // holds the surfaces, so a miss stays eligible and loses the tie.
+            right_match.cmp(&left_match).then_with(|| {
+                normalized_load_order(*left_load, left.capacity, *right_load, right.capacity)
+            })
         })
         .map(|(worker, _)| worker)
+}
+
+/// Does this worker already stand at every revision and stream offset the
+/// attempt requires? Surface presence is `worker_can_pin`; this is the value.
+fn revisions_match(worker: &Worker, required: &Pins) -> bool {
+    required.workspace.iter().all(|pin| {
+        worker.pins.workspace.iter().any(|held| {
+            workspace_surfaces_equal(&held.surface, &pin.surface)
+                && held.revision_id == pin.revision_id
+        })
+    }) && required.streams.iter().all(|pin| {
+        worker
+            .pins
+            .streams
+            .iter()
+            .any(|held| held.stream == pin.stream && held.read_offset == pin.read_offset)
+    })
 }
 
 fn worker_load(sessions: &Sessions, connection_id: u64) -> usize {

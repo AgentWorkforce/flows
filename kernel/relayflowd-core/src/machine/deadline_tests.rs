@@ -210,6 +210,75 @@ fn manual_agent_deadline_parks() {
 }
 
 #[test]
+fn manual_deadline_answer_inspects_the_dirty_pins() {
+    let spec = deadline_spec("manual");
+    let clean = pins("rev-clean");
+    let dirty = pins("rev-clean+deadbeef");
+    let first = started(&spec, "rev-clean");
+    let running = RunState::fold("run", spec.clone(), std::slice::from_ref(&first)).unwrap();
+    let parked = completion_actions(
+        "run",
+        &spec.steps[0],
+        1,
+        running.steps["agent"].semantic_executions,
+        Some(&clean),
+        timeout_result(&dirty),
+        20,
+    );
+    let Action::Append(completed) = &parked[0] else {
+        panic!("manual deadline must journal a completion")
+    };
+    let payload: StepCompletedPayload = serde_json::from_value(completed.payload.clone()).unwrap();
+    assert_eq!(payload.disposition, Disposition::Park);
+    assert_eq!(payload.end_pins.as_ref(), Some(&dirty));
+
+    let mut entries = vec![first];
+    entries.extend(appends(parked));
+    let waiting = RunState::fold("run", spec.clone(), &entries).unwrap();
+    assert!(matches!(
+        waiting.steps["agent"].state,
+        StepState::NeedsHuman { .. }
+    ));
+
+    entries.push(JournalEntry::new(
+        EntryType::WaitCompleted,
+        "run",
+        Some("agent".to_owned()),
+        Some(1),
+        30,
+        WaitCompletedPayload {
+            wait_id: "answered".to_owned(),
+            completion_reason: WaitCompletionReason::HumanResponded,
+            result: json!("retry"),
+        },
+    ));
+    let ready = RunState::fold("run", spec.clone(), &entries).unwrap();
+    let retry = next_actions(&ready, 30);
+    let Action::Append(second_started) = &retry[0] else {
+        panic!("the answered park must journal a start")
+    };
+    let second_started: AttemptStartedPayload =
+        serde_json::from_value(second_started.payload.clone()).unwrap();
+    let Action::Dispatch {
+        pins: dispatched,
+        recovery,
+        ..
+    } = &retry[1]
+    else {
+        panic!("the answered park must dispatch")
+    };
+    let recovery = recovery.as_ref().expect("agent dispatch carries recovery");
+    assert_eq!(second_started.recovery_mode, Some(RecoveryMode::Manual));
+    assert_eq!(recovery.mode, RecoveryMode::Inspect);
+    assert!(recovery.restore_pins.is_none());
+    assert_eq!(dispatched, &dirty);
+    assert_eq!(second_started.pins, dirty);
+    entries.extend(appends(retry));
+    RunState::fold("run", spec.clone(), &entries)
+        .expect("the dirty start pin is the pin chain after a manual answer");
+}
+
+#[test]
 fn deterministic_command_timeout_stays_terminal() {
     let spec = crate::RunSpec::parse(&json!({
         "steps": [{

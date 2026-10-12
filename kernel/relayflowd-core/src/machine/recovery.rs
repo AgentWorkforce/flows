@@ -17,16 +17,20 @@ use crate::{
 /// The mode the next attempt actually runs under.
 ///
 /// A CLI deadline journals `timeout` and keeps the dirty end pins. Declared
-/// `reset` would restore the start pin and drop those edits, so the
-/// continuation runs as `inspect`. The attempt-started record still carries
-/// the declared mode. `manual` is unchanged: settlement parks before a new
-/// attempt is started.
+/// `reset` would restore the start pin and drop those edits. Declared
+/// `manual` still parks first; after the human answers, asking for the clean
+/// start pin would refuse the worker, which the completion already advanced
+/// to the dirty end pins. Both continuations run as `inspect`. The
+/// attempt-started record still carries the declared mode. A crash or an
+/// expired lease under `manual` stays `manual`.
 pub(crate) fn recovery_mode_for_attempt(
     declared: RecoveryMode,
     last_completion_reason: Option<CompletionReason>,
 ) -> RecoveryMode {
     match (declared, last_completion_reason) {
-        (RecoveryMode::Reset, Some(CompletionReason::Timeout)) => RecoveryMode::Inspect,
+        (RecoveryMode::Reset | RecoveryMode::Manual, Some(CompletionReason::Timeout)) => {
+            RecoveryMode::Inspect
+        }
         (declared, _) => declared,
     }
 }
