@@ -296,9 +296,16 @@ retry; `inspect` resumes inside the dirty workspace with the failed attempt's
 tail injected; `manual` parks as `wait.human` with `diff_ref`. Infrastructure retry
 is a separate, explicit budget (`retry.max_transport_retries`, default one so a
 single process loss remains resumable; set zero to disable).
-Only `crashed` and `lease_expired` consume it. `worker_error`, timeout, budget,
-cancellation, and an ordinary nonzero CLI exit are terminal regardless of the
-budget; semantic verification retry remains bounded only by `max_iterations`.
+`crashed`, `lease_expired`, and an agent CLI `timeout` consume it. A deadline
+is not a judged result: it does not increment `semantic_executions`, and the
+completion keeps the worker's end pins and trajectory tail. The next attempt
+recovers as `inspect` even when the step declared `reset`, so the dirty pin
+and the tail are what the continuation sees. The attempt-started record still
+carries the declared mode. `manual` parks. A second deadline seals when the
+transport budget is the default one. A deterministic command timeout,
+`worker_error`, budget, cancellation, and an ordinary nonzero CLI exit stay
+terminal regardless of the budget; semantic verification retry remains
+bounded only by `max_iterations`.
 One kernel-side `worker_error` is not terminal: a dispatch the kernel refuses
 because the attached worker does not hold the attempt's journaled pins
 (Appendix A rule 2, `DispatchOutcome::PinMismatch`) ran nothing, so the step is
@@ -308,7 +315,10 @@ re-elected against those same pins under `max_iterations`
 The kernel learns of a dead attempt two ways, and the recovery mode applies to
 both: the kernel notices an abandoned lease (`abandonment_actions`), or the
 worker reports its own loss through `step.complete` with `crashed` /
-`lease_expired` (`completion_actions`). Under `manual` either path journals
+`lease_expired` (`completion_actions`). A CLI deadline is a third report,
+`step.complete` with `timeout`: unlike abandonment it keeps the end pins and
+the tail, because the worker still holds the dirty tree. Under `manual` a
+crash, an expired lease, or a CLI deadline journals
 `step.completed` with `disposition: park` and then the `wait.human` a human
 answers, each its own append. A process death between the two leaves the step
 folded to the placeholder wait id `park-<step>-<attempt>` with nothing to

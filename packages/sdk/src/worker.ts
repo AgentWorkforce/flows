@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { communicationInstruction } from './communication/spec.js';
 import { workerSpend } from './worker-spend.js';
 import { reportedCost } from './reported-cost.js';
@@ -222,10 +223,30 @@ export class AgentWorker extends EventEmitter {
         ...(usage !== undefined ? { usage } : {}),
         ...(cost === undefined ? {} : { reported_cost: cost }),
         started_pins: dispatch.pins,
-        end_pins: dispatch.pins,
+        end_pins: completionReason === 'timeout'
+          ? deadlineEndPins(dispatch.pins, result.artifacts)
+          : dispatch.pins,
       },
     );
   }
+}
+
+/**
+ * A deadline's end pin names the dirty tree the next attempt must inspect.
+ * The stamp is the artifact path list, not the file bytes: the tail is capped
+ * and the bytes stay on this worker's disk. An empty diff keeps the start pin.
+ */
+function deadlineEndPins(pins: Pins, artifacts: readonly string[] | undefined): Pins {
+  const workspace = pins.workspace ?? [];
+  if (artifacts === undefined || artifacts.length === 0 || workspace.length === 0) return pins;
+  if (workspace.every(pin => pin.revision_id === '')) return pins;
+  const stamp = createHash('sha256').update([...artifacts].sort().join('\n')).digest('hex').slice(0, 16);
+  return {
+    ...pins,
+    workspace: workspace.map(pin => pin.revision_id === ''
+      ? pin
+      : { ...pin, revision_id: `${pin.revision_id}+${stamp}` }),
+  };
 }
 
 /**

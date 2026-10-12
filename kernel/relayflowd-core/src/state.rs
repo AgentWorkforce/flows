@@ -328,12 +328,15 @@ impl RunState {
             step.last_completion_reason = Some(payload.completion_reason);
             step.trajectory_tail = payload.trajectory_tail.clone();
         }
+        let agent_deadline = is_agent && payload.completion_reason == CompletionReason::Timeout;
         if !matches!(
             payload.completion_reason,
             CompletionReason::Crashed | CompletionReason::LeaseExpired
-        ) {
-            // The attempt ran to completion and produced a result the gate
-            // could judge; only these consume `max_iterations` allowance.
+        ) && !agent_deadline
+        {
+            // The attempt ran to a result a gate could judge. A crash, an
+            // expired lease, and an agent CLI deadline did not: those consume
+            // the transport budget, so `max_iterations: 1` can still continue.
             step.semantic_executions = step.semantic_executions.saturating_add(1);
         }
         step.state = match payload.disposition {

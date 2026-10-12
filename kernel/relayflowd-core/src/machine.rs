@@ -255,7 +255,9 @@ fn start_actions(state: &RunState, step: &StepSpec, attempt: u32, now_ms: i64) -
             surfaces,
             ..
         } => {
-            let retry_pins = match recovery_mode {
+            let effective_mode =
+                recovery::recovery_mode_for_attempt(*recovery_mode, runtime.last_completion_reason);
+            let retry_pins = match effective_mode {
                 RecoveryMode::Inspect => runtime
                     .last_end_pins
                     .as_ref()
@@ -267,9 +269,9 @@ fn start_actions(state: &RunState, step: &StepSpec, attempt: u32, now_ms: i64) -
                 None => carried_pins(state.current_pins.as_ref(), surfaces),
             };
             let recovery = RecoveryInstruction {
-                mode: *recovery_mode,
+                mode: effective_mode,
                 restore_pins: (runtime.last_completion_reason.is_some()
-                    && *recovery_mode == RecoveryMode::Reset)
+                    && effective_mode == RecoveryMode::Reset)
                     .then(|| pins.clone()),
                 previous_completion_reason: runtime.last_completion_reason,
                 trajectory_tail: runtime.trajectory_tail.clone(),
@@ -445,10 +447,15 @@ fn settle_attempt(
             result.failure_reason,
             None | Some(CompletionReason::VerificationFailed)
         );
+    // A CLI deadline stopped the process; it is not a result a gate judged.
+    // A deterministic command timeout stays that command's result and does
+    // not join this budget.
+    let agent_deadline = matches!(step.kind, StepKind::Agent { .. })
+        && matches!(result.failure_reason, Some(CompletionReason::Timeout));
     let transport_failure = matches!(
         result.failure_reason,
         Some(CompletionReason::Crashed | CompletionReason::LeaseExpired)
-    );
+    ) || agent_deadline;
     // Appendix A rule 4: a dead attempt under `manual` parks as `needs_human`
     // with a diff, whichever way the kernel learned of the death. The
     // abandoned-lease path (`abandonment_actions`) always honoured that; a
@@ -622,10 +629,13 @@ fn deterministic_ulid(
 }
 
 mod recovery;
+pub(crate) use recovery::recovery_mode_for_attempt;
 pub use recovery::{abandonment_actions, recovery_actions, recovery_actions_filtered};
 
 mod parallel;
 
+#[cfg(test)]
+mod deadline_tests;
 #[cfg(test)]
 mod parallel_tests;
 #[cfg(test)]
