@@ -270,7 +270,7 @@ Resume an interrupted local run from where its journal left off
 
 ## flows run
 
-Run a flow locally, or submit it to Cloud with --cloud
+Run locally with an Observer link (workspace key) or --cloud-mirror (Cloud dashboard), or submit with --cloud
 
 | Argument | Required | Description |
 | --- | --- | --- |
@@ -292,6 +292,7 @@ Run a flow locally, or submit it to Cloud with --cloud
 | `--reuse-from <run-id>` | Reuse memoized step outputs from an earlier run | — |
 | `--cloud` | Submit to Agent Relay Cloud instead of running locally | — |
 | `--wait` | With --cloud, poll until the hosted run reaches a terminal state | — |
+| `--budget-minutes <n>` | With --cloud, set this admission’s run budget (30-180 minutes); a resume does not inherit it | — |
 | `--sync-code` | With --cloud, upload the working directory as the run’s tree; pull results back with `flows sync` | — |
 | `--no-connect` | With --cloud, refuse a missing integration instead of offering to connect it | — |
 

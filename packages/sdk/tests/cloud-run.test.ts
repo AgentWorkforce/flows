@@ -53,6 +53,29 @@ describe('hosted v2 submission', () => {
     expect(JSON.parse(body.workflow).steps[0]).toMatchObject({ id: 'gate', type: 'deterministic', command: 'printf verified' });
   });
 
+  it('sends an explicit run budget only on the hosted run request', async () => {
+    const requests: Array<{ path: string; body: Record<string, unknown> }> = [];
+    const options = await cloud((path, body) => {
+      requests.push({ path, body: body as Record<string, unknown> });
+      return { runId: 'budgeted-run', status: 'pending' };
+    });
+
+    await runInCloud(flow, { ...options, runBudgetMinutes: 75 });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      path: '/api/v1/workflows/run',
+      body: { relayflowV2RunBudgetMinutes: 75 },
+    });
+  });
+
+  it.each([29, 181, 30.5, Number.NaN])('refuses invalid run budget %s before HTTP', async runBudgetMinutes => {
+    const fetch = vi.spyOn(globalThis, 'fetch');
+    await expect(runInCloud(flow, { token: 'test-token', runBudgetMinutes }))
+      .rejects.toMatchObject({ code: 'configuration', message: 'runBudgetMinutes must be an integer from 30 to 180.' });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('refreshes the login before resolving the hosted submission base URL', async () => {
     const home = await mkdtemp(join(tmpdir(), 'cloud-run-refresh-'));
     dirs.push(home);
@@ -329,10 +352,35 @@ describe('thin cloud CLI', () => {
     expect(JSON.parse(output[0]!)).toMatchObject({ ok: true, runId: 'cli-1', status: 'pending' });
   });
 
+  it('sends --budget-minutes as relayflowV2RunBudgetMinutes', async () => {
+    let request: Record<string, unknown> | undefined;
+    const options = await cloud((_path, body) => {
+      request = body as Record<string, unknown>;
+      return { runId: 'cli-budget', status: 'pending' };
+    });
+    vi.stubEnv('FLOWS_CLOUD_URL', options.apiUrl);
+    vi.stubEnv('FLOWS_CLOUD_TOKEN', options.token);
+    const dir = await mkdtemp(join(tmpdir(), 'cloud-cli-budget-'));
+    dirs.push(dir);
+    const path = join(dir, 'flow.yaml');
+    await writeFile(path, JSON.stringify(flow));
+
+    expect(await runCli(['run', '--cloud', '--budget-minutes', '120', path], {
+      stdout: () => {}, stderr: () => {},
+    })).toBe(0);
+    expect(request).toMatchObject({ relayflowV2RunBudgetMinutes: 120 });
+  });
+
   it.each([
     ['check', '--cloud', 'flow.yaml'], ['run', '--cloud', '--no-spawn', 'flow.yaml'],
     ['run', '--cloud', '--cloud', 'flow.yaml'], ['run', '--cloud', '--input', '{}', 'flow.yaml'],
     ['run', '--cloud', '--data-dir', 'x', 'flow.yaml'],
+    ['run', '--budget-minutes', '60', 'flow.yaml'],
+    ['resume', '--budget-minutes', '60', 'run-1'],
+    ['run', '--cloud', '--budget-minutes', '29', 'flow.yaml'],
+    ['run', '--cloud', '--budget-minutes', '181', 'flow.yaml'],
+    ['run', '--cloud', '--budget-minutes', '30.5', 'flow.yaml'],
+    ['run', '--cloud', '--budget-minutes', '60', '--budget-minutes', '90', 'flow.yaml'],
     // `--local-agent` describes a local wrapper process, so it says nothing
     // about a run Cloud executes: refused rather than silently dropped.
     ['run', '--cloud', '--local-agent', 'flow.yaml'],

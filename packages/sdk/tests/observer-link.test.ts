@@ -669,7 +669,7 @@ describe('flows run: observer link integration', () => {
     expect(output.stderr.some(line => line.includes('this run was not projected'))).toBe(true);
   });
 
-  it('emits no observer line and no fetch when no workspace key is set', async () => {
+  it('hints how to make the run watchable when no workspace key is set', async () => {
     const dataDir = temporaryProject();
     await startCliLoopback(dataDir, {
       hello: sendOk,
@@ -691,7 +691,35 @@ describe('flows run: observer link integration', () => {
     expect(exit).toBe(0);
     expect(fetch).not.toHaveBeenCalled();
     expect(output.stdout.some((line) => line.startsWith('Observer:'))).toBe(false);
-    expect(output.stderr.some((line) => line.includes('[observer]'))).toBe(false);
+    expect(output.stderr.filter(line => line.startsWith('Observer unavailable:'))).toEqual([
+      'Observer unavailable: no workspace key configured; set RELAYCAST_WORKSPACE_KEY or configure '
+        + '~/.agentworkforce/relay/workspaces.json for an Observer link, or pass --cloud-mirror for the Cloud dashboard',
+    ]);
+  });
+
+  it.each([
+    ['--no-observer-link', ['--no-observer-link'], {}],
+    ['FLOWS_NO_OBSERVER=1', [], { FLOWS_NO_OBSERVER: '1' }],
+    ['--json', ['--json'], {}],
+    ['--cloud-mirror', ['--cloud-mirror', '--no-spawn'], {}],
+    ['FLOWS_CLOUD_MIRROR=1', ['--no-spawn'], { FLOWS_CLOUD_MIRROR: '1' }],
+  ] as const)('does not print the missing-key hint with %s', async (_label, flags, env) => {
+    const dataDir = temporaryProject();
+    await startCliLoopback(dataDir, {
+      hello: sendOk,
+      'subscription.inspect': (ctx) => sendResult(ctx, { subscriptions: [] }),
+      'run.start': (ctx) => sendResult(ctx, {
+        run_id: 'run-observer-hint-suppressed', status: 'completed',
+        completion_reason: 'success', completed_steps: 2,
+      }),
+    });
+    vi.stubEnv('RELAYCAST_WORKSPACE_KEY', '');
+    vi.stubEnv('FLOWS_NO_OBSERVER', 'FLOWS_NO_OBSERVER' in env ? env.FLOWS_NO_OBSERVER : '');
+    vi.stubEnv('FLOWS_CLOUD_MIRROR', 'FLOWS_CLOUD_MIRROR' in env ? env.FLOWS_CLOUD_MIRROR : '');
+
+    const output = capture();
+    expect(await runCli(['run', ...flags, '--data-dir', dataDir, HELLO_DETERMINISTIC], output.io)).toBe(0);
+    expect(output.stderr.some(line => line.includes('no workspace key configured'))).toBe(false);
   });
 
   it('warns on stderr and proceeds normally when the mint API 500s', async () => {

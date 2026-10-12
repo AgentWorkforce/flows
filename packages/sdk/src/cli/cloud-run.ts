@@ -9,8 +9,9 @@ import type { CliIo } from '../cli.js';
 
 /** Presentation only: the central CLI parser owns argv; the SDK owns the lifecycle. */
 export async function runCloudCli(
-  { value: path, json, wait, input, syncCode, noConnect = false }: {
+  { value: path, json, wait, input, syncCode, noConnect = false, budgetMinutes }: {
     value: string; json: boolean; wait: boolean; input: string | undefined; syncCode: boolean; noConnect?: boolean;
+    budgetMinutes?: number;
   },
   io: CliIo,
   /**
@@ -27,7 +28,11 @@ export async function runCloudCli(
   let submitting = false;
   let harnesses: readonly string[] = [];
   try {
-    const options: RunInCloudOptions = { signal, onSubmit: () => { submitting = true; } };
+    const options: RunInCloudOptions = {
+      signal,
+      onSubmit: () => { submitting = true; },
+      ...(budgetMinutes === undefined ? {} : { runBudgetMinutes: budgetMinutes }),
+    };
     if (isAuthoredFlowPath(path)) {
       // Same parse as a local direct run, so a file-or-inline argument means
       // the same thing on both sides of `--cloud`.

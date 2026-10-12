@@ -60,8 +60,13 @@ does not get them back.
 ```sh
 flows run --cloud examples/cloud-gates/cloud-gates.flow.yaml
 flows run --cloud --wait --json examples/cloud-gates/cloud-gates.flow.yaml
+flows run --cloud --budget-minutes 90 examples/cloud-gates/cloud-gates.flow.yaml
 flows run --cloud --input '{}' review.flow.ts
 ```
+
+`--budget-minutes <n>` sets this hosted admission's run budget to an integer
+from 30 through 180 minutes. It is not stored in the flow, and a later resume
+does not inherit it; the resumed admission uses Cloud's default run budget.
 
 An authored `.flow.ts` takes `--input` exactly as a local direct run does (an
 existing JSON file, otherwise inline JSON), and travels as one self-contained
@@ -162,6 +167,12 @@ A local run is watchable by default through its **observer link** — free, off 
 workspace key, a step projection in its own channel, printed by every `flows
 run` unless `--no-observer-link`. That is the default way to follow a run you
 started in a terminal, and it is unchanged.
+
+The Observer link needs `RELAYCAST_WORKSPACE_KEY` or an active workspace key in
+`~/.agentworkforce/relay/workspaces.json`. When neither is available, a plain
+`flows run` prints one hint: configure a workspace key for the Observer link,
+or pass `--cloud-mirror` for the Cloud dashboard. `--no-observer-link`,
+`FLOWS_NO_OBSERVER=1`, and `--json` suppress that human-facing hint.
 
 `--cloud-mirror` additionally puts the run on the **Cloud dashboard**: the
 richer, hosted view of the same run.
