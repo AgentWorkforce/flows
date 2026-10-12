@@ -258,7 +258,7 @@ export async function runCli(
     && !(parsed.cloudMirror || cloudMirrorRequested(process.env))) {
     const link = resolveObserverLinkEnv(process.env);
     if (!link.suppressed && link.workspaceKey === undefined) {
-      io.stderr('[observer] no workspace key configured; set RELAYCAST_WORKSPACE_KEY or configure '
+      io.stderr('Observer unavailable: no workspace key configured; set RELAYCAST_WORKSPACE_KEY or configure '
         + '~/.agentworkforce/relay/workspaces.json for an Observer link, or pass --cloud-mirror for the Cloud dashboard');
     }
   }

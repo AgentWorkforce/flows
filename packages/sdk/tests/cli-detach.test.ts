@@ -60,8 +60,8 @@ describe('detached CLI contract', () => {
       stdout: () => {}, stderr: line => stderr.push(line),
     })).toBe(2);
 
-    expect(stderr.filter(line => line.startsWith('[observer]'))).toEqual([
-      '[observer] no workspace key configured; set RELAYCAST_WORKSPACE_KEY or configure '
+    expect(stderr.filter(line => line.startsWith('Observer unavailable:'))).toEqual([
+      'Observer unavailable: no workspace key configured; set RELAYCAST_WORKSPACE_KEY or configure '
         + '~/.agentworkforce/relay/workspaces.json for an Observer link, or pass --cloud-mirror for the Cloud dashboard',
     ]);
   });

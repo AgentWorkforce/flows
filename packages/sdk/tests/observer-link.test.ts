@@ -691,8 +691,8 @@ describe('flows run: observer link integration', () => {
     expect(exit).toBe(0);
     expect(fetch).not.toHaveBeenCalled();
     expect(output.stdout.some((line) => line.startsWith('Observer:'))).toBe(false);
-    expect(output.stderr.filter(line => line.startsWith('[observer]'))).toEqual([
-      '[observer] no workspace key configured; set RELAYCAST_WORKSPACE_KEY or configure '
+    expect(output.stderr.filter(line => line.startsWith('Observer unavailable:'))).toEqual([
+      'Observer unavailable: no workspace key configured; set RELAYCAST_WORKSPACE_KEY or configure '
         + '~/.agentworkforce/relay/workspaces.json for an Observer link, or pass --cloud-mirror for the Cloud dashboard',
     ]);
   });
