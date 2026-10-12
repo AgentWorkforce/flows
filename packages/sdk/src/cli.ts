@@ -48,6 +48,7 @@ import { runCloudLogsFollow, runCloudStatusWatch } from './cli/cloud-live.js';
 import { transcriptTailSource } from './transcript-tail.js';
 import { checkTypeScriptFlow } from './cli/check-typescript.js';
 import { runCloudCli } from './cli/cloud-run.js';
+import { isCloudRunBudgetMinutes } from './cloud-run.js';
 import { runCloudSyncCli } from './cli/cloud-sync.js';
 import { parseCloudDeployArgs, runCloudDeployCli, runCloudDeploymentsCli, runCloudUndeployCli, type CloudDeployArgs } from './cli/cloud-deploy.js';
 import { runCloudRollbackCli, runCloudVersionsCli } from './cli/cloud-versions.js';
@@ -100,7 +101,7 @@ export type ParsedArgs =
   | BuildArgs
   | DeployArgs
   | { command: 'serve-webhook'; dataDir: string; port: number; admitted?: readonly string[] }
-  | { command: 'cloud-run'; value: string; json: boolean; wait: boolean; input: string | undefined; syncCode: boolean; noConnect: boolean }
+  | { command: 'cloud-run'; value: string; json: boolean; wait: boolean; input: string | undefined; syncCode: boolean; noConnect: boolean; budgetMinutes: number | undefined }
   | { command: 'sync'; runId: string; json: boolean; root: string; dryRun: boolean }
   | CloudDeployArgs
   | { command: 'deployments'; json: boolean }
@@ -147,8 +148,8 @@ const USAGE = [
   'flows check [--against-daemon|--no-daemon-check] [--watch] [--json] [--explain-warnings] <flow.ts|flow.yaml|spec.json>',
   'flows serve-webhook --data-dir <dir> --port <p> [--allow <name>[,<name>]]',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--detach] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] [--reuse-from <run-id>] <flow.yaml|spec.json>',
-  'flows run --cloud [--json] [--wait] [--sync-code] [--no-connect] <flow.yaml|spec.json>',
-  'flows run --cloud [--json] [--wait] [--sync-code] [--no-connect] <flow.ts> --input <inline-json-or-file>',
+  'flows run --cloud [--json] [--wait] [--sync-code] [--no-connect] [--budget-minutes <n>] <flow.yaml|spec.json>',
+  'flows run --cloud [--json] [--wait] [--sync-code] [--no-connect] [--budget-minutes <n>] <flow.ts> --input <inline-json-or-file>',
   'flows sync [--json] [--dry-run] [--dir <path>] <run-id>',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--detach] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <flow.ts> --input <inline-json-or-file>',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
@@ -376,6 +377,7 @@ export async function runCli(
   const startedSteps = new Map<string, number>();
   const observer = parsed.noObserverLink ? undefined : createObserverSession(parsed.command, io, process.env, {
     onObserverUrl: url => options.detachedReceipt?.observerUrl(url),
+    hintWhenUnavailable: parsed.command === 'run' && !parsed.json,
   });
   const runnerLog: string[] = [];
   // Opt-in, unlike the observer link beside it. The observer is the default
@@ -536,9 +538,9 @@ async function checkAuthoredFlowComposed(path: string): Promise<{ report: CheckR
 
 /**
  * Resolve the pending observer-mint into a URL (or nothing), and route any
- * mint warning to stderr under a `[observer]` label. Silent-skip (`undefined`
- * input) prints nothing at all, so a workspace with no observer configured
- * produces no observer output on stderr or stdout.
+ * mint warning to stderr under a `[observer]` label. An `undefined` input
+ * prints nothing here; any missing-key hint was already emitted while the
+ * observer session was configured.
  */
 async function observerUrlFrom(
   mint: Promise<{ observerUrl?: string; warning?: string }> | undefined,
@@ -729,6 +731,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   let wait = false;
   let syncCode = false;
   let noConnect = false;
+  let budgetMinutes: number | undefined;
   let localAgent = false;
   let detach = false;
   let agentCapacity: number | undefined;
@@ -752,6 +755,13 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
       else if (argument === '--wait') wait = true;
       else if (argument === '--sync-code') syncCode = true;
       else noConnect = true;
+      continue;
+    }
+    if (argument === '--budget-minutes') {
+      const value = args[++index];
+      if (command !== 'run' || budgetMinutes !== undefined || value === undefined || !/^[0-9]+$/.test(value)) return undefined;
+      budgetMinutes = Number(value);
+      if (!isCloudRunBudgetMinutes(budgetMinutes)) return undefined;
       continue;
     }
     if (argument === '--detach') {
@@ -865,9 +875,9 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
     if (detach || allowHumanInfluenced || sawDataDir || !spawn || localAgent || noObserverLink || cloudMirror
       || reuseFromRunId !== undefined) return undefined;
     if (sawInput && !isAuthoredFlowPath(positionals[0]!)) return undefined;
-    return { command: 'cloud-run', value: positionals[0]!, json, wait, input, syncCode, noConnect };
+    return { command: 'cloud-run', value: positionals[0]!, json, wait, input, syncCode, noConnect, budgetMinutes };
   }
-  if (wait || syncCode || noConnect) return undefined;
+  if (wait || syncCode || noConnect || budgetMinutes !== undefined) return undefined;
   if (reuseFromRunId !== undefined && isAuthoredFlowPath(positionals[0]!)) return undefined;
 
   if (command === 'run' && input !== undefined && !isAuthoredFlowPath(positionals[0]!)) return undefined;

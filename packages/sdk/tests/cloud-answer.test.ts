@@ -53,7 +53,7 @@ function env() {
 
 describe('Cloud answer and resume', () => {
   it('discovers the wait, answers, rechecks and resumes using original authority without inputs', async () => {
-    const calls = cloud(replies());
+    const calls = cloud(replies({ ...parked, relayflowV2RunBudgetMinutes: 120 }));
     expect(await answerCloudFlow(RUN, true, { ...options, note: 'reviewed' })).toEqual({
       runId: 'resumed-1', resumedFrom: RUN, waitId: 'human-2', answer: true, resumedByCloud: false,
     });
@@ -64,6 +64,7 @@ describe('Cloud answer and resume', () => {
     expect(calls[4]!.body).toEqual({ workflow, authoredAuthority: submitted, fileType: 'ts',
       relayflowVersion: 'v2', resume: RUN, workspaceId: 'original-workspace' });
     expect(calls[4]!.body).not.toHaveProperty('inputs');
+    expect(calls[4]!.body).not.toHaveProperty('relayflowV2RunBudgetMinutes');
   });
 
   it.each([

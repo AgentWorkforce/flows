@@ -11,10 +11,10 @@
  * scoped, short-lived observer token on their behalf and hand *that* to the
  * URL. The workspace admin key never leaves the operator's machine.
  *
- * Everything here is best-effort. A missing workspace key means "no observer
- * link, silently" — this is a parity feature relaying v1's convenience, not a
- * requirement of a local run. A mint failure emits a labeled diagnostic to
- * stderr and continues; a run must never fail because the observer link failed.
+ * Everything here is best-effort. A missing workspace key means no observer
+ * link; the human-facing CLI explains the alternatives for a plain local run.
+ * A mint failure emits a labeled diagnostic to stderr and continues; a run
+ * must never fail because the observer link failed.
  */
 
 import { readFileSync } from 'node:fs';
@@ -165,7 +165,7 @@ export interface ResolveObserverLinkEnvOptions {
  * 2. Active workspace key from `~/.agentworkforce/relay/workspaces.json`
  *    (populated by `agent-relay cloud login` + `agent-relay workspace
  *    set_key`), when readable.
- * 3. Nothing -- silent skip, same as an unset primary env var.
+ * 3. Nothing -- the caller decides whether its output mode warrants a hint.
  *
  * `FLOWS_NO_OBSERVER=1` still suppresses regardless of source.
  */
@@ -189,7 +189,7 @@ export function resolveObserverLinkEnv(
 /**
  * Read the observer-link config from the environment. Both trims and
  * emptiness-checks the workspace key so a `RELAYCAST_WORKSPACE_KEY=` with no
- * value reads the same as unset (no observer link, silently).
+ * value reads the same as unset (no observer link).
  */
 export function readObserverLinkEnv(
   env: NodeJS.ProcessEnv = process.env,
@@ -258,7 +258,7 @@ export interface MintObserverOutcome {
   /**
    * A short diagnostic to log when mint failed. `undefined` on success or on
    * "no observer link is possible" (missing key/suppressed) so the caller can
-   * distinguish silent-skip from "warn about the miss".
+   * distinguish an unavailable link from "warn about a mint failure".
    */
   warning?: string;
 }

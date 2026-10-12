@@ -300,7 +300,7 @@ export const CLI_VERBS = [
   },
   {
     name: 'run',
-    description: 'Run a flow locally, or submit it to Cloud with --cloud',
+    description: 'Run locally with an Observer link (workspace key) or --cloud-mirror (Cloud dashboard), or submit with --cloud',
     args: [{ name: 'flow', description: 'flow.yaml, flow.ts, spec.json, or <flow>@sha256:<digest>', required: true }],
     options: [
       ...LOCAL_EXECUTION_OPTIONS,
@@ -309,6 +309,10 @@ export const CLI_VERBS = [
       { flags: '--reuse-from <run-id>', description: 'Reuse memoized step outputs from an earlier run' },
       { flags: '--cloud', description: 'Submit to Agent Relay Cloud instead of running locally' },
       { flags: '--wait', description: 'With --cloud, poll until the hosted run reaches a terminal state' },
+      {
+        flags: '--budget-minutes <n>',
+        description: 'With --cloud, set this admission’s run budget (30-180 minutes); a resume does not inherit it',
+      },
       {
         flags: '--sync-code',
         description: 'With --cloud, upload the working directory as the run’s tree; pull results back with `flows sync`',

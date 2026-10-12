@@ -158,7 +158,7 @@ const INVOCATIONS: readonly { verb: string; argv: readonly string[]; variant: Pa
   { verb: 'run', argv: ['run', '--reuse-from', RUN_ID, 'flow.yaml'], variant: 'run' },
   { verb: 'run', argv: ['run', '--bucket', 'file:///tmp/bucket', DIGEST], variant: 'run' },
   // `--cloud` is the second variant of the same verb.
-  { verb: 'run', argv: ['run', '--cloud', '--wait', 'flow.yaml'], variant: 'cloud-run' },
+  { verb: 'run', argv: ['run', '--cloud', '--wait', '--budget-minutes', '90', 'flow.yaml'], variant: 'cloud-run' },
   { verb: 'run', argv: ['run', '--cloud', '--sync-code', '--no-connect', 'review.flow.ts'], variant: 'cloud-run' },
   { verb: 'runs', argv: ['runs'], variant: 'runs' },
   { verb: 'runs', argv: ['runs', '--limit', '5', '--json'], variant: 'runs' },

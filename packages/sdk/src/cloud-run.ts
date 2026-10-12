@@ -17,9 +17,20 @@ import { cloudRunState, isCloudRunActive, type CloudRunState } from './cloud-run
 import { packWorkingTree, prepareCloudSync, uploadCloudCode } from './cloud-sync.js';
 
 export type CloudFlowSource = FlowSpec | { path: string };
+export const MIN_CLOUD_RUN_BUDGET_MINUTES = 30;
+export const MAX_CLOUD_RUN_BUDGET_MINUTES = 180;
+
+export function isCloudRunBudgetMinutes(value: number): boolean {
+  return Number.isSafeInteger(value)
+    && value >= MIN_CLOUD_RUN_BUDGET_MINUTES
+    && value <= MAX_CLOUD_RUN_BUDGET_MINUTES;
+}
+
 export interface RunInCloudOptions extends CloudConnectionOptions {
   /** Existing Cloud workspace to run in; provisioning/authorization remains server-side. */
   workspaceId?: string;
+  /** Hosted run deadline in minutes. Applies to this admission only, not a later resume. */
+  runBudgetMinutes?: number;
   /** Exact JSON input. Required at runtime for authored .flow.ts; refused for declarative source. */
   input?: JsonValue;
   /**
@@ -252,6 +263,10 @@ export async function runInCloud(
 ): Promise<CloudRunReceipt> {
   // Validate locally first: resolving the connection may refresh a stored
   // login, which posts the refresh token and rotates the credential file.
+  if (options.runBudgetMinutes !== undefined && !isCloudRunBudgetMinutes(options.runBudgetMinutes)) {
+    throw new CloudFlowError('configuration',
+      `runBudgetMinutes must be an integer from ${MIN_CLOUD_RUN_BUDGET_MINUTES} to ${MAX_CLOUD_RUN_BUDGET_MINUTES}.`);
+  }
   const envSecrets = snapshotEnvSecrets(options.envSecrets);
   const submission = await prepareCloudSubmission(flow, options);
   const { baseUrl } = await resolveCloudConnection(options);
@@ -281,6 +296,7 @@ export async function runInCloud(
     result = await cloudFetch('/api/v1/workflows/run', options, { method: 'POST', detail: true, body: JSON.stringify({
       ...cloudSubmissionBody(submission),
       ...(options.workspaceId === undefined ? {} : { workspaceId: options.workspaceId }),
+      ...(options.runBudgetMinutes === undefined ? {} : { relayflowV2RunBudgetMinutes: options.runBudgetMinutes }),
       ...(synced === undefined ? {} : { runId: synced.runId, s3CodeKey: synced.codeKey }),
       ...(envSecrets === undefined ? {} : { envSecrets }),
     }) });
