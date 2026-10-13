@@ -152,3 +152,25 @@ it('accepts completion even when the PTY exits before the helper response flushe
   const f = fixture(); await f.execute({ keepAlive: false });
   expect(f.client.stepComplete.mock.calls.at(-1)?.[4]).toBe('success');
 });
+
+it('retires an idle exited session before a later message can send', async () => {
+  const f = fixture(); await f.execute();
+  fake.event!({ kind: 'agent_exit', name: instruction.agentName });
+  await f.execute({ operation: 'message' });
+  expect(fake.send).not.toHaveBeenCalled();
+  expect(fake.release).toHaveBeenCalledTimes(1);
+  expect(fake.close).toHaveBeenCalledTimes(1);
+  expect(f.client.stepComplete.mock.calls.at(-1)?.[4]).toBe('worker_error');
+});
+
+it('retries failed idle-exit cleanup without sending to the dead PTY', async () => {
+  const f = fixture(); await f.execute();
+  fake.release.mockRejectedValueOnce(new Error('broker unavailable'));
+  fake.event!({ kind: 'agent_exit', name: instruction.agentName });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await f.execute({ operation: 'message' });
+  expect(fake.send).not.toHaveBeenCalled();
+  expect(fake.release).toHaveBeenCalledTimes(2);
+  expect(fake.close).toHaveBeenCalledTimes(1);
+  expect(f.client.stepComplete.mock.calls.at(-1)?.[4]).toBe('worker_error');
+});

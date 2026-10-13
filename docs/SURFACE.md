@@ -454,6 +454,10 @@ duplicate turn completions are refused. `keepAlive: true` retains the session fo
 `f.message`; otherwise completion releases it. `f.release` journals an explicit,
 idempotent release, so a later step can safely remove the worktree. Closing the
 flow's local worker releases remaining sessions and disconnects from the broker.
+Retained sessions require a local worker stream and reject attached named or
+predicate gates before spawning. Validate their results in a later step so the
+agent name remains available for explicit cleanup. An idle PTY exit retires the
+session; subsequent messages fail immediately.
 
 `timeout` accepts milliseconds or a duration, defaults to 60 minutes, and is
 bounded at 60 minutes. `f.message` inherits the agent timeout unless overridden.

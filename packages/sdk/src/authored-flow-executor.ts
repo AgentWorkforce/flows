@@ -579,7 +579,14 @@ export async function executeAuthoredFlow<Input = undefined>(
         id,
         'agent',
         () => assertOperationAllowed('agent', definition.name, requestedCompletion),
-        () => observeStep(id, 'agent', () => worker.agent(id, options, agentOp.namedGate, name), onProgress),
+        () => observeStep(id, 'agent', () => {
+          if (options.transport === 'broker' && options.keepAlive
+            && (agentOp.namedGate !== undefined || agentOp.predicateGate !== undefined)) {
+            throw new AuthoredFlowExecutionError('agent_cli_unresolved',
+              'Retained broker agents do not support gates; validate their result in a later step');
+          }
+          return worker.agent(id, options, agentOp.namedGate, name);
+        }, onProgress),
         lifecycle,
         displayLabel(typeof name === 'string' ? name : undefined),
       );

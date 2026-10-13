@@ -30,6 +30,8 @@ export function authoredBroker(definition: { name: string }, rootRunId: string |
     async agent(id: string, name: string, options: AgentOptions, verification?: NamedGate): Promise<AgentResult> {
       const problem = brokerOptionsError(options);
       if (problem) invalid(`f.agent options: ${problem}`);
+      if (options.keepAlive && localStream === undefined) invalid('Retained broker agents require a local agent worker stream');
+      if (options.keepAlive && verification !== undefined) invalid('Retained broker agents do not support gates; validate their result in a later step');
       if (typeof options.task !== 'string' || !options.task.trim()) invalid('f.agent task must be nonempty');
       if (options.workspace !== undefined || options.permissions !== undefined) invalid('Broker agents use cwd; workspace and permissions are not supported');
       if ((options.maxIterations ?? 1) !== 1 || (options.transportRetries ?? 0) !== 0

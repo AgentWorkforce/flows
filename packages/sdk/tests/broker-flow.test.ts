@@ -58,3 +58,18 @@ it('journals spawn, message, and release through the authored surface and worker
   }
   await worker.close(); expect(fake.release).toHaveBeenCalledTimes(1);
 });
+
+it.each(['named', 'predicate'] as const)('refuses a retained spawn with a %s gate before allocating a PTY', async gate => {
+  const fixture = chainFixture(); cleanups.push(() => fixture.close());
+  const client = await fixture.connect();
+  const definition = flow('broker-gated', async f => {
+    const agent = f.agent('implement', { task: 'Open PR', transport: 'broker', cli: 'codex', keepAlive: true });
+    if (gate === 'predicate') await agent.gate(() => false);
+    else await agent.gate({ type: 'artifact_exists', path: 'result.json' });
+    f.done('success');
+  });
+  await expect(executeAuthoredFlow(definition, client, undefined, {
+    flowPath: fixture.flowPath, localAgentStream: 'fake-local-worker', dataDir: fixture.data,
+  })).rejects.toThrow('Retained broker agents do not support gates');
+  expect(fake.spawn).not.toHaveBeenCalled();
+});

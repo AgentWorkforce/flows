@@ -43,6 +43,13 @@ it('only accepts retained agents created by this flow', async () => {
   await expect(broker.release('agent-1', 'someone-else')).rejects.toThrow('No retained');
   expect(run).not.toHaveBeenCalled();
 });
+it('refuses retained sessions without a local worker pin', async () => {
+  const run = vi.fn();
+  const broker = authoredBroker({ name: 'demo' }, 'root', undefined, run);
+  await expect(broker.agent('agent-0', 'worker', { transport: 'broker', task: 'Work', keepAlive: true }))
+    .rejects.toThrow('local agent worker stream');
+  expect(run).not.toHaveBeenCalled();
+});
 it.each([
   { skills: ['../unsafe'] }, { keepAlive: 'yes' }, { channel: 'bad channel' },
   { resume: 'previous' }, { maxIterations: 2 }, { transportRetries: 1 }, { cwd: '' },

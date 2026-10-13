@@ -25,6 +25,8 @@ interface Session {
   tools?: Awaited<ReturnType<typeof openCommunicationTools>>;
   turn?: Turn;
   unsubscribe?: () => void;
+  exited?: string;
+  releasing?: Promise<void>;
 }
 
 /** Worker-owned live resources. Only journaled agent dispatches start a turn. */
@@ -41,12 +43,19 @@ export class BrokerSessions {
   private async release(name: string): Promise<void> {
     const session = this.sessions.get(name);
     if (!session) return;
+    if (session.releasing) return session.releasing;
+    session.releasing = Promise.resolve().then(() => this.releaseSession(name, session));
+    try { await session.releasing; }
+    finally { session.releasing = undefined; }
+  }
+
+  private async releaseSession(name: string, session: Session): Promise<void> {
     session.turn?.reject(new Error('Broker session released'));
     await session.pty?.handle.release('Flow broker session ended', { deleteIdentity: true });
-    this.sessions.delete(name);
     session.unsubscribe?.();
     try { await session.tools?.close(); }
     finally { try { await session.pty?.close(); } finally { await session.broker.shutdown(); } }
+    this.sessions.delete(name);
   }
 
   async complete(client: JournalClient, dispatch: StepDispatchEvent, instruction: BrokerInstruction, dataDir: string): Promise<void> {
@@ -77,6 +86,10 @@ export class BrokerSessions {
     if (instruction.operation === 'release') {
       await this.release(name);
       return { released: true };
+    }
+    if (session?.exited) {
+      await this.release(name);
+      throw new Error(`Broker agent ${name}: ${session.exited}`);
     }
     if (instruction.operation === 'message' && !session) {
       throw new Error(`Broker agent ${name} is no longer available; its worker session was lost or released`);
@@ -120,9 +133,12 @@ export class BrokerSessions {
           return { completed: true };
         });
         session.unsubscribe = broker.onEvent(event => {
-          if (!current.turn?.completed && event.name === name && ['agent_exit', 'agent_exited', 'agent_released'].includes(event.kind)) {
-            current.turn?.reject(new Error(`Broker agent ${name}: ${event.kind}`));
-          }
+          if (event.name !== name || !['agent_exit', 'agent_exited', 'agent_released'].includes(event.kind)) return;
+          current.exited = event.kind;
+          if (!current.turn?.completed) current.turn?.reject(new Error(`Broker agent ${name}: ${event.kind}`));
+          // An idle exit retires resources immediately. A failed release stays
+          // in the map and is retried (and surfaced) on the next call or close.
+          if (!current.turn) void this.release(name).catch(() => {});
         });
         broker.connectEvents();
         const task = `${workerInstruction(instruction.task, dispatch)}\n\n${this.completionPrompt(session, turnId)}\n${instruction.keepAlive ? 'Stay alive after completing; later flow steps can send more work.' : 'The flow releases this session after completion.'}`;
@@ -154,7 +170,7 @@ export class BrokerSessions {
     } finally {
       signal.removeEventListener('abort', abort);
       if (session) session.turn = undefined;
-      if (!succeeded || !instruction.keepAlive) await this.release(name);
+      if (!succeeded || !instruction.keepAlive || session?.exited) await this.release(name);
     }
   }
 
