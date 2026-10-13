@@ -50,15 +50,22 @@ Monitoring reads every PR's current head, paginated check runs and commit status
 GitHub mergeability and merge state, changes-requested reviews, and paginated
 unresolved review threads. Latest status per context wins. Unknown mergeability,
 pending/failed checks, stale check SHAs, drafts, unresolved threads, and blocked
-merge states keep the PR pending. A ready PR is open, non-draft, clean and mergeable,
+merge states keep the PR pending. Pending checks and unknown mergeability wait
+without repair messages; completed failures, conflicts, behind branches, drafts,
+and review findings trigger repairs. Repairs get an immediate fresh snapshot.
+A ready PR is open, non-draft, clean and mergeable,
 with acceptable completed checks and current-head GO reviews. No checks is allowed
 when GitHub reports clean mergeability. The flow reports readiness for human merge;
 it does not claim to replace repository protection rules.
 
 The monitor starts after implementation and initial review. Its deadline and poll
 waits are journaled commands; repair/reviewer timeouts are capped to the remaining
-budget. Budget expiry, provider errors, agent timeouts, exhausted review passes,
-or cleanup failures complete with `needs_human` and details. Empty issue lists
+budget. Budget expiry reports the last observed status and starts no further
+GitHub reads; a completed clean snapshot takes precedence over expiry. Budget
+expiry, agent timeouts returned as results, invalid summaries, exhausted review
+passes, or refused dirty-worktree removal complete with `needs_human` and details.
+Failed journal steps and session-release errors propagate their failure after
+cleanup attempts; catching them cannot overwrite the runtime's verdict. Empty issue lists
 complete successfully without allocating sessions or worktrees.
 
 Worktrees live beneath the run directory's ignored `.relayflow/issue-swarm.*`.

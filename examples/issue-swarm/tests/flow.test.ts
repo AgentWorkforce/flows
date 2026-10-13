@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Ctx, AgentOptions, AgentResult } from '@relayflows/surface';
-import { issueSwarm, parseInput, shellWord, parseReview } from '../issue-swarm.flow.ts';
+import { issueSwarm, parseInput, parseIssues, shellWord, parseReview } from '../issue-swarm.flow.ts';
 
 const head = 'a'.repeat(40);
 const result = (summary: unknown = {}, agentName?: string): AgentResult => ({ completionReason: 'success', summary: JSON.stringify(summary), artifacts: [], agentName });
@@ -14,10 +14,10 @@ function fake() {
   const x = {
     events, agents, messages, done, issues, tick: 0, failCreate: 0, failRelease: '', dirty: 0, failAgent: 0, failedCheck: false,
     reviewNoGo: 0, malformedReview: false, head, unknownMerge: false, unresolved: false, pushOnFix: false, messageTimeout: false,
-    repo: 'acme/widgets', origin: 'acme/widgets',
+    repo: 'acme/widgets', origin: 'acme/widgets', pendingCheck: false, readyOnSleep: false, snapshotCost: 0, stateReads: 0,
   };
   const f = {
-    run: async (command: string) => {
+    run: async (command: string, options?: { onNonZero?: string }) => {
       events.push(command);
       if (command.startsWith('command -v')) return '';
       if (command === 'gh repo view --json nameWithOwner,defaultBranchRef') return JSON.stringify({ nameWithOwner: x.repo, defaultBranchRef: { name: 'main' } });
@@ -31,16 +31,25 @@ function fake() {
       }
       if (command.startsWith('gh pr list')) return JSON.stringify([{ number: Number(/\/issue-(\d+)'/.exec(command)![1]) + 10 }]);
       if (command.startsWith('node -e')) {
+        if (++x.stateReads > 1) x.tick += x.snapshotCost;
         const pr = Number(/,([0-9]+)\)\.then\(value/.exec(command)![1]);
-        return JSON.stringify({ number: pr, state: 'open', merged: false, draft: false, headSha: x.head, headRef: `issue-swarm.abc123/issue-${pr - 10}`, headRepo: 'acme/widgets', body: `Fixes #${pr - 10}`, mergeable: x.unknownMerge ? null : true, mergeState: x.unknownMerge ? 'unknown' : 'clean', checks: x.failedCheck ? [{ name: 'tests', sha: x.head, status: 'completed', conclusion: 'failure' }] : [], unresolved: x.unresolved ? [{ id: 'thread-1', comments: ['fix it'] }] : [], changesRequested: [] });
+        return JSON.stringify({ number: pr, state: 'open', merged: false, draft: false, headSha: x.head, headRef: `issue-swarm.abc123/issue-${pr - 10}`, headRepo: 'acme/widgets', body: `Fixes #${pr - 10}`, mergeable: x.unknownMerge ? null : true, mergeState: x.unknownMerge ? 'unknown' : 'clean', checks: x.pendingCheck ? [{ name: 'tests', sha: x.head, status: 'in_progress', conclusion: null }] : x.failedCheck ? [{ name: 'tests', sha: x.head, status: 'completed', conclusion: 'failure' }] : [], unresolved: x.unresolved ? [{ id: 'thread-1', comments: ['fix it'] }] : [], changesRequested: [] });
       }
       if (command === 'node -p Date.now()') return String(x.tick);
-      if (command.startsWith('sleep ')) { x.tick += Number(command.slice(6)) * 1000; return ''; }
-      if (command.startsWith('if [ -e')) {
-        if (x.dirty && command.includes(`/issue-${x.dirty}'`)) throw Error('worktree has uncommitted changes');
+      if (command.startsWith('sleep ')) {
+        x.tick += Number(command.slice(6)) * 1000;
+        if (x.readyOnSleep) { x.pendingCheck = false; x.unknownMerge = false; }
         return '';
       }
-      if (command.startsWith('rmdir')) return '';
+      if (command.startsWith('if [ -e')) {
+        const dirty = !!x.dirty && command.includes(`/issue-${x.dirty}'`);
+        if (options?.onNonZero !== 'record') {
+          if (dirty) throw Error('worktree has uncommitted changes');
+          return '';
+        }
+        return { ok: !dirty, exitCode: dirty ? 1 : 0, output: dirty ? 'worktree has uncommitted changes' : '', stdout: '', stderr: '' };
+      }
+      if (command.startsWith('rmdir')) return options?.onNonZero === 'record' ? { ok: true, exitCode: 0, output: '', stdout: '', stderr: '' } : '';
       throw Error(`Unexpected command ${command}`);
     },
     agent: async (name: string, options: AgentOptions) => {
@@ -110,6 +119,23 @@ test('monitor sends CI and review-thread repairs, then captures fresh state', as
   assert.match(x.messages[0]!.text, /check tests: completed\/failure/);
   assert.match(x.messages[0]!.text, /unresolved thread thread-1/);
   assert.equal(x.messages[0]?.timeout, 60_000);
+  assert.ok(!x.events.some(e => e.startsWith('sleep ')));
+});
+
+test('pending checks and unknown mergeability wait without repair pushes', async () => {
+  const x = fake(); x.state.pendingCheck = true; x.state.unknownMerge = true; x.state.readyOnSleep = true;
+  await issueSwarm(x.f, { label: 'agent', count: 1, reviewRounds: 1, monitorMinutes: 1 });
+  assert.equal(x.done[0]?.reason, 'success');
+  assert.equal(x.messages.length, 0);
+  assert.equal(x.state.tick, 30_000);
+  assert.equal(x.agents.length, 4);
+});
+
+test('a completed clean snapshot takes precedence over deadline expiry', async () => {
+  const x = fake(); x.state.snapshotCost = 60_000;
+  await issueSwarm(x.f, { label: 'agent', count: 1, monitorMinutes: 1 });
+  assert.equal(x.done[0]?.reason, 'success');
+  assert.equal(x.state.tick, 60_000);
 });
 
 test('monitor fixes that push a new head trigger all three reviewers again', async () => {
@@ -155,16 +181,16 @@ test('zero monitor budget captures status but sends no monitor repair', async ()
 
 test('a failed lane waits for peers and still releases each returned session', async () => {
   const x = fake(); x.state.failAgent = 1;
-  await issueSwarm(x.f, { label: 'agent', count: 2 });
-  assert.equal(x.done[0]?.reason, 'needs_human');
+  await assert.rejects(issueSwarm(x.f, { label: 'agent', count: 2 }), /Swarm lane failed/);
+  assert.equal(x.done.length, 0);
   assert.ok(x.events.includes('release:live-implement-2'));
   assert.ok(x.events.indexOf('release:live-implement-2') > x.events.lastIndexOf('agent:review-2-1-code-structure'));
 });
 
 test('worktree creation failure still cleans up the successful sibling lane', async () => {
   const x = fake(); x.state.failCreate = 1;
-  await issueSwarm(x.f, { label: 'agent', count: 2 });
-  assert.equal(x.done[0]?.reason, 'needs_human');
+  await assert.rejects(issueSwarm(x.f, { label: 'agent', count: 2 }), /Swarm lane failed/);
+  assert.equal(x.done.length, 0);
   assert.ok(!x.agents.some(a => a.name === 'implement-1'));
   assert.ok(x.events.includes('release:live-implement-2'));
 });
@@ -178,11 +204,10 @@ test('malformed reviewer result releases implementers and cannot produce GO', as
 
 test('release failures preserve that worktree and do not skip other cleanup', async () => {
   const x = fake(); x.state.failRelease = 'live-implement-1';
-  await issueSwarm(x.f, { label: 'agent', count: 2 });
-  assert.equal(x.done[0]?.reason, 'needs_human');
+  await assert.rejects(issueSwarm(x.f, { label: 'agent', count: 2 }), /release failed/);
+  assert.equal(x.done.length, 0);
   assert.ok(!x.events.some(e => e.startsWith('if [ -e') && e.includes('/issue-1')));
   assert.ok(x.events.some(e => e.startsWith('if [ -e') && e.includes('/issue-2')));
-  assert.match(x.done[0]!.detail, /release failed/);
 });
 
 test('dirty worktree is preserved and cleanup error reported', async () => {
@@ -199,6 +224,12 @@ test('empty issue list allocates no agents or worktrees', async () => {
   assert.equal(x.done[0]?.reason, 'success');
   assert.equal(x.agents.length, 0);
   assert.ok(!x.events.some(e => e.startsWith('mkdir')));
+});
+
+test('title-only issues normalize null body without losing their identity', () => {
+  assert.deepEqual(parseIssues('[{"number":7,"title":"Fix typo","body":null,"url":"https://github.com/acme/widgets/issues/7"}]', 1), [
+    { number: 7, title: 'Fix typo', body: '', url: 'https://github.com/acme/widgets/issues/7' },
+  ]);
 });
 
 test('invalid input fails before effects; label shell metacharacters stay quoted', async () => {

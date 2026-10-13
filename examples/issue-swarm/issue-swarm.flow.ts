@@ -1,6 +1,10 @@
 // A self-contained source file so saved flows stay readable in the online editor.
 import { flow, type Ctx, type AgentResult } from '@relayflows/surface';
 
+class NeedsHuman extends Error {}
+const humanFailure = (error: unknown): boolean => error instanceof NeedsHuman || error instanceof SyntaxError
+  || (error instanceof AggregateError && error.errors.every(humanFailure));
+
 export interface Input {
   repo?: string;
   label: string;
@@ -12,21 +16,21 @@ export interface Input {
 }
 
 export function parseInput(input: Input) {
-  if (!input || typeof input !== 'object') throw new Error('Input must be an object');
+  if (!input || typeof input !== 'object') throw new NeedsHuman('Input must be an object');
   const text = (value: unknown, name: string): string => {
     if (typeof value !== 'string' || !value.trim() || /[\x00-\x1f\x7f]/.test(value)) {
-      throw new Error(`${name} must be a nonempty string without control characters`);
+      throw new NeedsHuman(`${name} must be a nonempty string without control characters`);
     }
     return value.trim();
   };
   const integer = (value: unknown, name: string, min: number, max: number): number => {
     if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
-      throw new Error(`${name} must be an integer from ${min} to ${max}`);
+      throw new NeedsHuman(`${name} must be an integer from ${min} to ${max}`);
     }
     return value;
   };
   const repo = input.repo === undefined ? undefined : text(input.repo, 'repo');
-  if (repo && !/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new Error('repo must be owner/name');
+  if (repo && !/^[\w.-]+\/[\w.-]+$/.test(repo)) throw new NeedsHuman('repo must be owner/name');
   return {
     repo, label: text(input.label, 'label'),
     count: integer(input.count ?? 3, 'count', 1, 20),
@@ -42,15 +46,15 @@ export const shellWord = (value: string): string => `'${value.replaceAll("'", "'
 export interface Issue { number: number; title: string; body: string; url: string }
 export function parseIssues(raw: string, count: number): Issue[] {
   const value = JSON.parse(raw);
-  if (!Array.isArray(value)) throw new Error('Malformed issue list');
+  if (!Array.isArray(value)) throw new NeedsHuman('Malformed issue list');
   const seen = new Set<number>();
   return value.slice(0, count).map(issue => {
     if (!Number.isSafeInteger(issue?.number) || issue.number < 1 || seen.has(issue.number)
-      || typeof issue.title !== 'string' || typeof issue.body !== 'string' || typeof issue.url !== 'string') {
-      throw new Error('Malformed or duplicate issue');
+      || typeof issue.title !== 'string' || (issue.body !== null && typeof issue.body !== 'string') || typeof issue.url !== 'string') {
+      throw new NeedsHuman('Malformed or duplicate issue');
     }
     seen.add(issue.number);
-    return issue as Issue;
+    return { ...issue, body: issue.body ?? '' } as Issue;
   });
 }
 
@@ -164,18 +168,36 @@ export function blockers(state: PrState, reviewedHead?: string): string[] {
   return reasons;
 }
 
-export function readPr(f: Ctx, repo: string, number: number, timeout: number | string = '2m'): PromiseLike<PrState> {
+/** Pending provider state needs time, not a new commit that invalidates GO. */
+export function repairFindings(state: PrState): string[] {
+  const findings: string[] = [];
+  if (state.draft) findings.push('PR is draft');
+  if (state.mergeable === false) findings.push('merge conflicts');
+  if (state.mergeState === 'behind') findings.push('branch is behind its base');
+  for (const check of state.checks) {
+    if (check.sha === state.headSha && check.status === 'completed'
+      && ['failure', 'error', 'cancelled', 'timed_out', 'action_required', 'startup_failure'].includes(check.conclusion ?? '')) {
+      findings.push(`check ${check.name}: ${check.status}/${check.conclusion}`);
+    }
+  }
+  for (const login of state.changesRequested) findings.push(`changes requested by ${login}`);
+  for (const thread of state.unresolved) findings.push(`unresolved thread ${thread.id}: ${thread.comments.join('\n')}`);
+  return findings;
+}
+
+export async function readPr(f: Ctx, repo: string, number: number, timeout: number | string = '2m'): Promise<PrState> {
   // The collector runs inside f.run. The injected gh port is also used by tests;
   // no GitHub credentials or process access enters the flow body.
   const script = `const {execFileSync}=require('node:child_process'); const gh=async args=>JSON.parse(execFileSync('gh',args,{encoding:'utf8',timeout:30000,maxBuffer:8*1024*1024})); (${capturePr.toString()})(gh,${JSON.stringify(repo)},${number}).then(value=>{const out=JSON.stringify(value);if(Buffer.byteLength(out)>55000)throw Error('PR state exceeds journal output limit');process.stdout.write(out)}).catch(e=>{console.error(e.message);process.exit(1)});`;
-  return f.run(`node -e ${shellWord(script)}`, { timeout }).then(raw => JSON.parse(raw) as PrState);
+  const raw = await f.run(`node -e ${shellWord(script)}`, { timeout });
+  return JSON.parse(raw) as PrState;
 }
 
 
 export const lenses = ['maintainability', 'git-history', 'code-structure'] as const;
 
 export function requireSuccess(result: AgentResult): void {
-  if (result.completionReason !== 'success') throw new Error(`Agent completion: ${result.completionReason}`);
+  if (result.completionReason !== 'success') throw new NeedsHuman(`Agent completion: ${result.completionReason}`);
 }
 
 export function parseReview(result: AgentResult, head: string): { verdict: 'GO' | 'NO-GO'; findings: string[] } {
@@ -185,7 +207,7 @@ export function parseReview(result: AgentResult, head: string): { verdict: 'GO' 
     || !Array.isArray(review.findings) || review.findings.some((f: unknown) => typeof f !== 'string' || !f.trim())
     || (review.verdict === 'GO' && review.findings.length > 0)
     || (review.verdict === 'NO-GO' && review.findings.length === 0)) {
-    throw new Error('Review requires GO/NO-GO, exact headSha, and consistent findings');
+    throw new NeedsHuman('Review requires GO/NO-GO, exact headSha, and consistent findings');
   }
   return review;
 }
@@ -232,8 +254,9 @@ interface Lane {
 }
 
 const now = async (f: Ctx): Promise<number> => {
-  const value = Number((await f.run('node -p Date.now()', { timeout: '5s' })).trim());
-  if (!Number.isSafeInteger(value) || value < 0) throw new Error('Invalid journaled clock');
+  const raw = (await f.run('node -p Date.now()', { timeout: '5s' })).trim();
+  const value = Number(raw);
+  if (!/^\d+$/.test(raw) || !Number.isSafeInteger(value)) throw new NeedsHuman('Invalid journaled clock');
   return value;
 };
 
@@ -242,6 +265,7 @@ export async function issueSwarm(f: Ctx, input: Input): Promise<void> {
   let directory: string | undefined;
   let reason: 'success' | 'needs_human' = 'success';
   let detail = 'No matching issues';
+  const executionErrors: unknown[] = [];
   try {
     const c = parseInput(input);
     await f.run(`command -v git && command -v gh && command -v node && command -v ${shellWord(c.implementerCli)} && command -v ${shellWord(c.reviewerCli)} && gh auth status`, { timeout: '1m' });
@@ -250,16 +274,16 @@ export async function issueSwarm(f: Ctx, input: Input): Promise<void> {
     if (typeof repo !== 'string' || !/^[\w.-]+\/[\w.-]+$/.test(repo)
       || repo.toLowerCase() !== local.nameWithOwner?.toLowerCase()
       || typeof local.defaultBranchRef?.name !== 'string' || !local.defaultBranchRef.name) {
-      throw new Error('Run inside a checkout of repo with an origin and a default branch');
+      throw new NeedsHuman('Run inside a checkout of repo with an origin and a default branch');
     }
     const origin = (await f.run('gh repo view "$(git remote get-url origin)" --json nameWithOwner --jq .nameWithOwner')).trim();
-    if (origin.toLowerCase() !== repo.toLowerCase()) throw new Error('origin must point to repo, not a different fork');
+    if (origin.toLowerCase() !== repo.toLowerCase()) throw new NeedsHuman('origin must point to repo, not a different fork');
     const issues = parseIssues(await f.run(`gh issue list --repo ${shellWord(repo)} --state open --label ${shellWord(c.label)} --limit ${c.count} --json number,title,body,url`), c.count);
     if (issues.length) {
       const base = (await f.run(`git fetch origin ${shellWord(local.defaultBranchRef.name)} >&2 && git rev-parse FETCH_HEAD`, { timeout: '2m' })).trim();
-      if (!/^[a-f0-9]{40}$/.test(base)) throw new Error('Missing fetched base SHA');
+      if (!/^[a-f0-9]{40}$/.test(base)) throw new NeedsHuman('Missing fetched base SHA');
       directory = (await f.run('mkdir -p .relayflow && mktemp -d "$(pwd -P)/.relayflow/issue-swarm.XXXXXX"')).trim();
-      if (!/^\/[^\n\r]*\/\.relayflow\/issue-swarm\.[A-Za-z0-9]+$/.test(directory)) throw new Error('Invalid worktree directory');
+      if (!/^\/[^\n\r]*\/\.relayflow\/issue-swarm\.[A-Za-z0-9]+$/.test(directory)) throw new NeedsHuman('Invalid worktree directory');
       const token = directory.split('/').pop()!;
       for (const issue of issues) lanes.push({ issue, cwd: `${directory}/issue-${issue.number}`, branch: `${token}/issue-${issue.number}`, reviews: 0, findings: [] });
 
@@ -267,7 +291,7 @@ export async function issueSwarm(f: Ctx, input: Input): Promise<void> {
         const state = await readPr(f, repo, lane.pr!, timeout);
         if (state.headRef !== lane.branch || state.headRepo.toLowerCase() !== repo.toLowerCase()
           || !state.body.split(/\r?\n/).some(line => line.trim() === `Fixes #${lane.issue.number}`)) {
-          throw new Error(`PR #${lane.pr} does not match the owning branch/repo or close issue #${lane.issue.number}`);
+          throw new NeedsHuman(`PR #${lane.pr} does not match the owning branch/repo or close issue #${lane.issue.number}`);
         }
         return state;
       };
@@ -297,9 +321,9 @@ export async function issueSwarm(f: Ctx, input: Input): Promise<void> {
         });
         lane.agentName = result.agentName;
         requireSuccess(result);
-        if (!lane.agentName) throw new Error('Broker did not return implementer agentName');
+        if (!lane.agentName) throw new NeedsHuman('Broker did not return implementer agentName');
         const prs = JSON.parse(await f.run(`gh pr list --repo ${shellWord(repo)} --state open --head ${shellWord(lane.branch)} --json number`));
-        if (!Array.isArray(prs) || prs.length !== 1 || !Number.isSafeInteger(prs[0]?.number) || prs[0].number < 1) throw new Error(`Expected one open PR for ${lane.branch}`);
+        if (!Array.isArray(prs) || prs.length !== 1 || !Number.isSafeInteger(prs[0]?.number) || prs[0].number < 1) throw new NeedsHuman(`Expected one open PR for ${lane.branch}`);
         lane.pr = prs[0].number;
         while (lane.reviews < c.reviewRounds) {
           const state = await stateFor(lane);
@@ -323,50 +347,62 @@ export async function issueSwarm(f: Ctx, input: Input): Promise<void> {
         const pending = lanes.map((lane, i) => ({ lane, state: states[i]!, reasons: blockers(states[i]!, lane.reviewedHead) })).filter(item => item.reasons.length);
         detail = lanes.map((lane, i) => `${repo}#${lane.pr}: ${blockers(states[i]!, lane.reviewedHead).join('; ') || 'ready for human merge'}`).join('\n');
         remaining = deadline - await now(f);
-        if (!pending.length && (snapshotOnly || remaining > 0)) break;
+        if (!pending.length) break;
         if (remaining <= 0) { reason = 'needs_human'; break; }
-        for (const { lane, state, reasons } of pending) {
+        let acted = false;
+        for (const { lane, state } of pending) {
           remaining = deadline - await now(f);
           if (remaining <= 0) break;
           if (state.state !== 'open' || state.merged) continue;
           if (lane.reviewedHead !== state.headSha) {
             if (lane.reviews >= c.reviewRounds) continue;
             await review(lane, state, Math.min(remaining, 30 * 60_000));
+            acted = true;
             // A GO can clear a stale-head-only blocker without asking for edits.
             if (!blockers(state, lane.reviewedHead).length) continue;
             if (!lane.reviewedHead && lane.reviews >= c.reviewRounds) continue;
           }
           remaining = deadline - await now(f);
-          if (remaining > 0) await fix(lane, [...reasons, ...lane.findings], Math.min(remaining, 30 * 60_000));
+          const findings = [...repairFindings(state), ...lane.findings];
+          if (remaining > 0 && findings.length) {
+            await fix(lane, findings, Math.min(remaining, 30 * 60_000));
+            acted = true;
+          }
         }
         remaining = deadline - await now(f);
         if (remaining <= 0) { reason = 'needs_human'; break; }
+        if (acted) continue;
         await f.run(`sleep ${Math.min(30, remaining / 1000)}`, { timeout: Math.min(30_000, remaining) + 5_000 });
       }
-      if (reason === 'needs_human') detail = `Monitor deadline reached.\n${detail}`;
+      if (reason === 'needs_human') detail = `Monitor deadline reached. Last observed state:\n${detail}`;
     }
   } catch (error) {
     reason = 'needs_human';
     detail = error instanceof AggregateError ? error.errors.map(String).join('\n') : String(error);
     detail += lanes.map(lane => `\nIssue #${lane.issue.number}: ${lane.pr ? `PR #${lane.pr}` : 'PR not confirmed'}; branch ${lane.branch}`).join('');
+    if (!humanFailure(error)) executionErrors.push(error);
   } finally {
     const cleanupErrors: string[] = [];
     for (const lane of lanes) {
       try {
         if (lane.agentName) await f.release(lane.agentName);
         // No --force: dirty work is preserved and explicitly reported.
-        await f.run(`if [ -e ${shellWord(lane.cwd)} ]; then git worktree remove ${shellWord(lane.cwd)}; fi`, { timeout: '1m' });
-      } catch (error) { cleanupErrors.push(`${lane.cwd}: ${String(error)}`); }
+        const removed = await f.run(`if [ -e ${shellWord(lane.cwd)} ]; then git worktree remove ${shellWord(lane.cwd)}; fi`, { timeout: '1m', onNonZero: 'record' });
+        if (!removed.ok) cleanupErrors.push(`${lane.cwd}: ${removed.output}`);
+      } catch (error) { executionErrors.push(error); cleanupErrors.push(`${lane.cwd}: ${String(error)}`); }
     }
     if (directory && !cleanupErrors.length) {
-      try { await f.run(`rmdir ${shellWord(directory)}`); }
-      catch (error) { cleanupErrors.push(`${directory}: ${String(error)}`); }
+      try {
+        const removed = await f.run(`rmdir ${shellWord(directory)}`, { onNonZero: 'record' });
+        if (!removed.ok) cleanupErrors.push(`${directory}: ${removed.output}`);
+      } catch (error) { executionErrors.push(error); cleanupErrors.push(`${directory}: ${String(error)}`); }
     }
     if (cleanupErrors.length) {
       reason = 'needs_human';
       detail += `\nCleanup requires attention (branches retained):\n${cleanupErrors.join('\n')}`;
     }
   }
+  if (executionErrors.length) throw executionErrors[0];
   f.done(reason, { detail });
 }
 
