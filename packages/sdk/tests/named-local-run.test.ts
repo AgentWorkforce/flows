@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -118,6 +118,21 @@ describe('named local flows against a fake HTTP server', () => {
       expect(await resolveNamedFlow(value)).toBeUndefined();
     }
     expect(requests).toEqual([]);
+  });
+
+  it('lets a bare local file win, but resolves a name shared by a directory', async () => {
+    const name = `named-${randomUUID()}`;
+    const local = join(process.cwd(), name);
+    try {
+      await writeFile(local, source, { flag: 'wx' });
+      expect(await resolveNamedFlow(name)).toBeUndefined();
+      expect(requests).toEqual([]);
+      await rm(local);
+      await mkdir(local);
+      response.body = { ...named, name };
+      expect(await resolveNamedFlow(name)).toMatchObject({ flowId, flowVersionId: versionId });
+      expect(requests[0]!.path).toBe(`/api/v1/flows/by-name/${name}`);
+    } finally { await rm(local, { recursive: true, force: true }); }
   });
 
   it('fails closed on source mismatch, corrupted cache and a missing name', async () => {

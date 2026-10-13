@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { isFlowName } from './bundle-transport.js';
@@ -20,7 +20,12 @@ export async function resolveNamedFlow(
   value: string,
   options: CloudConnectionOptions & { cacheRoot?: string } = {},
 ): Promise<NamedFlowSource | undefined> {
-  if (existsSync(value) || !isFlowName(value)) return undefined;
+  if (!isFlowName(value)) return undefined;
+  try {
+    if ((await stat(value)).isFile()) return undefined;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
   const result = await cloudFetch(`/api/v1/flows/by-name/${encodeURIComponent(value)}`, options, { method: 'GET', detail: true });
   if (!isCloudRecord(result) || result.name !== value || result.fileType !== 'ts'
     || typeof result.source !== 'string' || Buffer.byteLength(result.source) > 256_000
