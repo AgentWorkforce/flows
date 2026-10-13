@@ -45,6 +45,11 @@ function fake() {
     },
     agent: async (name: string, options: AgentOptions) => {
       events.push(`agent:${name}`); agents.push({ name, options });
+      // Match the broker contract: these declarations are unsupported, even
+      // though the shared AgentOptions type permits them for direct transport.
+      if (options.permissions !== undefined || options.workspace !== undefined) {
+        throw Error('Broker agents use cwd; workspace and permissions are not supported');
+      }
       if (name.startsWith('implement')) {
         if (name === `implement-${x.failAgent}`) throw Error('implementation failed');
         return result({}, `live-${name}`);
