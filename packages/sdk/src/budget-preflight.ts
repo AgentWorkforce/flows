@@ -1,3 +1,4 @@
+import { brokerInstruction } from './communication/broker-spec.js';
 import type { CompiledFlowSpec } from './compile.js';
 import type { PreflightWarning } from './preflight.js';
 import { hasPricing } from './model-pricing.js';
@@ -34,10 +35,17 @@ export function budgetDiagnostics(
   flow: CompiledFlowSpec,
   resolved: ReadonlyMap<string, BudgetStepResolution> = new Map(),
 ): PreflightWarning[] {
-  if (flow.budget?.pricing !== 'frozen' || flow.budget.maxDollars === undefined) return [];
+  const dollarBudget = flow.budget?.pricing === 'frozen' && flow.budget.maxDollars !== undefined;
   const warnings: PreflightWarning[] = [];
   for (const step of flow.steps) {
     if (step.type === 'deterministic') continue;
+    const broker = step.type === 'agent' ? brokerInstruction(step.instruction) : undefined;
+    if (broker) {
+      if (broker.operation !== 'release') warnings.push({ severity: 'warning', kind: 'budget_unmetered', stepId: step.id,
+        message: `Step "${step.id}" uses a broker session that reports no token or dollar usage. Token and dollar ceilings cannot bound its spend; timeout bounds its duration.` });
+      continue;
+    }
+    if (!dollarBudget) continue;
     const resolution = resolved.get(step.id);
     const model = resolution?.model
       ?? step.model ?? (step.type === 'agent' && step.agent !== undefined

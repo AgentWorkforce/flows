@@ -120,7 +120,7 @@ export class BrokerSessions {
           return { completed: true };
         });
         session.unsubscribe = broker.onEvent(event => {
-          if (event.name === name && ['agent_exit', 'agent_exited', 'agent_released'].includes(event.kind)) {
+          if (!current.turn?.completed && event.name === name && ['agent_exit', 'agent_exited', 'agent_released'].includes(event.kind)) {
             current.turn?.reject(new Error(`Broker agent ${name}: ${event.kind}`));
           }
         });

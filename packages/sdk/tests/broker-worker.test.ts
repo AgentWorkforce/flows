@@ -4,12 +4,13 @@ import type { StepDispatchEvent } from '../src/protocol.js';
 import { BrokerSessions } from '../src/communication/broker-worker.js';
 import { BROKER_TYPE, type BrokerInstruction } from '../src/communication/broker-spec.js';
 const fake = vi.hoisted(() => ({
+  event: undefined as undefined | ((event: { kind: string; name: string }) => void),
   invoke: undefined as undefined | ((request: { operation: string; values: string[] }) => Promise<unknown>),
   release: vi.fn(async () => {}), shutdown: vi.fn(async () => {}), close: vi.fn(async () => {}),
   ready: vi.fn(async () => ({ reason: 'ready' })), spawn: vi.fn(), send: vi.fn(), install: vi.fn(),
 }));
 vi.mock('../src/communication/relay.js', () => ({ connectLocalBroker: async () => ({
-  spawnPty: fake.spawn, sendMessage: fake.send, shutdown: fake.shutdown, connectEvents: () => {}, onEvent: () => () => {},
+  spawnPty: fake.spawn, sendMessage: fake.send, shutdown: fake.shutdown, connectEvents: () => {}, onEvent: (callback: typeof fake.event) => { fake.event = callback; return () => {}; },
 }) }));
 vi.mock('../src/communication/skills.js', () => ({ installBrokerSkills: fake.install }));
 vi.mock('../src/communication/tools.js', () => ({ openCommunicationTools: async (invoke: typeof fake.invoke) => {
@@ -139,4 +140,15 @@ it('releases on lease loss without writing a worker-error completion', async () 
   } as StepDispatchEvent, instruction, '/tmp/flows-broker-tests').catch(error => error);
   expect(isLeaseLost(error)).toBe(true); expect(client.stepComplete).not.toHaveBeenCalled();
   expect(fake.release).toHaveBeenCalledTimes(1);
+});
+
+it('accepts completion even when the PTY exits before the helper response flushes', async () => {
+  fake.spawn.mockImplementationOnce(async input => {
+    const turn = /complete '([^']+)'/.exec(input.task)![1]!;
+    await fake.invoke!({ operation: 'complete', values: [turn, '{}'] });
+    fake.event!({ kind: 'agent_exit', name: input.name });
+    return { name: input.name, release: fake.release, waitForReady: fake.ready };
+  });
+  const f = fixture(); await f.execute({ keepAlive: false });
+  expect(f.client.stepComplete.mock.calls.at(-1)?.[4]).toBe('success');
 });

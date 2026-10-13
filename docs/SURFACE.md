@@ -419,7 +419,8 @@ channel, timeout })` starts an interactive PTY on the existing local Relay broke
 Install the optional `@agent-relay/harness-driver` and `@agent-relay/sdk` packages
 and start the broker with `agent-relay up` in the run root. The SDK connects using
 that root's connection file (or `AGENT_RELAY_STATE_DIR`). It does not start a
-private broker.
+private broker. Preflight checks the optional packages and a read-only broker
+health request before admitting the step.
 
 ```ts
 const implementer = await f.agent("implement-42", {
@@ -457,7 +458,9 @@ flow's local worker releases remaining sessions and disconnects from the broker.
 `timeout` accepts milliseconds or a duration, defaults to 60 minutes, and is
 bounded at 60 minutes. `f.message` inherits the agent timeout unless overridden.
 A timeout resolves with `completionReason: "timeout"` and releases the session.
-Transport errors fail the step. Broker sessions use `maxIterations: 1` and
+Transport errors fail the step. Broker sessions report no token or dollar usage;
+preflight warns that those budget ceilings cannot bound their spend, including
+when the declared model has a frozen price. Broker sessions use `maxIterations: 1` and
 `transportRetries: 0`; `resume`, `recoveryMode`, `workspace`, and `permissions`
 are refused. Completed calls replay from the journal. A lost worker cannot
 reattach a retained session's completion socket: a later message fails closed
