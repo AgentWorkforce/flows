@@ -530,6 +530,26 @@ describe('authored submission refusals are named (flows#461)', () => {
       expected: { packageName: '@relayflows/surface', version: '2.0.11' }, received: { packageName: '@relayflows/surface', version: surface.version } });
   });
 
+  it('withholds an authored-authority refusal that quotes an envSecrets value', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cloud-authority-secret-'));
+    dirs.push(dir);
+    await symlink(join(process.cwd(), 'node_modules'), join(dir, 'node_modules'), 'dir');
+    const path = join(dir, 'pinned.flow.ts');
+    await writeFile(path, "import { flow } from '@relayflows/surface';\nexport default flow('pinned', async f => f.done('success'));\n");
+    const secret = 'sk-authored-authority-secret-value';
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
+      error: 'relayflow_v2_authored_authority_invalid',
+      message: `bad env ${secret}`,
+      expected: { packageName: '@relayflows/surface', version: secret },
+    }), { status: 400, headers: { 'content-type': 'application/json' } }));
+    const error = await runInCloud({ path }, { apiUrl: 'https://cloud-contract.example', token: 'test-scoped-cloud-token', input: {},
+      envSecrets: { NATIVE_API_TOKEN: secret } })
+      .then(() => undefined, (e: unknown) => e as CloudFlowError);
+    expect(error).toMatchObject({ code: 'unsupported_source', status: 400 });
+    expect(error!.refusal).toEqual({ code: 'relayflow_v2_authored_authority_invalid', error: 'withheld: quoted an envSecrets value' });
+    expect(JSON.stringify({ message: error!.message, refusal: error!.refusal, stack: error!.stack })).not.toContain(secret);
+  });
+
   it('reads a bare { error: "<code>" } refusal from the run route', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'cloud-refusal-'));
     dirs.push(dir);
@@ -724,6 +744,16 @@ describe('per-run envSecrets', () => {
       .catch((error: unknown) => error as CloudFlowError);
     expect(failure).toMatchObject({ code: 'http_error', status: 400, refusal: { code: 'invalid_env_secrets' } });
     expect((failure as Error).message).toContain('invalid_env_secrets');
+    expect(JSON.stringify({ message: (failure as Error).message, refusal: (failure as CloudFlowError).refusal,
+      stack: (failure as Error).stack })).not.toContain(SECRET);
+  });
+
+  it('withholds an envSecrets value quoted in refusal metadata, not just its message', async () => {
+    const options = await cloud(() => ({ code: 'version_mismatch', error: 'Version mismatch',
+      expected: { packageName: '@relayflows/surface', version: SECRET }, received: { version: '2.0.1' } }), 400);
+    const failure = await runInCloud(flow, { ...options, envSecrets: { NATIVE_API_TOKEN: SECRET } })
+      .catch((error: unknown) => error as CloudFlowError);
+    expect(failure).toMatchObject({ code: 'http_error', status: 400, refusal: { code: 'version_mismatch' } });
     expect(JSON.stringify({ message: (failure as Error).message, refusal: (failure as CloudFlowError).refusal,
       stack: (failure as Error).stack })).not.toContain(SECRET);
   });

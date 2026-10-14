@@ -47,8 +47,8 @@ await runInCloud({ path: './onboard.flow.ts' }, {
 
 They travel only with that run's submission: not in the flow source, its
 inputs, the receipt, or a schedule (`scheduleInCloud` cannot carry them), and
-errors never quote them: a Cloud refusal whose message contains a value keeps
-its code and has its message withheld. Names
+errors never quote them: a Cloud refusal that contains a value anywhere (its
+message or fields such as `expected`) keeps its code and has the rest withheld. Names
 must match `^[A-Za-z_][A-Za-z0-9_]*$` and are checked before any request; Cloud
 refuses names it owns (run identity, Relay/Relayfile auth, provider keys such as
 `ANTHROPIC_API_KEY`). Cloud masks the values in captured run output (logs,
