@@ -120,6 +120,31 @@ function snapshotEnvSecrets(value: unknown): Record<string, string> | undefined 
 }
 
 /**
+ * A Cloud refusal is Cloud's own text. Should any of it ever quote an
+ * envSecrets value — the message, or a field such as `expected`/`received` —
+ * keep only a safe refusal code and drop the rest, so the value never reaches
+ * an error message, a log line or a caller's error report.
+ */
+function withheldIfQuotingSecret(error: unknown, envSecrets: Record<string, string> | undefined): unknown {
+  if (envSecrets === undefined || !(error instanceof CloudFlowError) || error.refusal === undefined) return error;
+  const values = Object.values(envSecrets).filter(value => value.length > 0);
+  const quotes = (text: string): boolean => values.some(value => text.includes(value));
+  if (!quotes(error.message) && !refusalStrings(error.refusal).some(quotes)) return error;
+  const code = quotes(error.refusal.code) ? 'withheld' : error.refusal.code;
+  return new CloudFlowError(error.code,
+    `Cloud refused (${code}); its message was withheld because it quoted an envSecrets value.`,
+    error.status, { code, error: 'withheld: quoted an envSecrets value' });
+}
+
+/** Every string anywhere in a refusal, so a field added later is checked too. */
+function refusalStrings(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap(refusalStrings);
+  if (value !== null && typeof value === 'object') return Object.values(value).flatMap(refusalStrings);
+  return [];
+}
+
+/**
  * Submit a declarative flow to Cloud's pinned v2 runtime. Compilation only
  * happens here; Cloud owns provisioning and the Rust engine owns execution.
  * Returns acceptance, not completion. No local daemon, CLI probe, or node up.
@@ -300,7 +325,10 @@ export async function runInCloud(
       ...(synced === undefined ? {} : { runId: synced.runId, s3CodeKey: synced.codeKey }),
       ...(envSecrets === undefined ? {} : { envSecrets }),
     }) });
-  } catch (error) {
+  } catch (caught) {
+    // Withhold first: every error thrown from here, including the rewrite
+    // below, carries only a refusal that quotes no envSecrets value.
+    const error = withheldIfQuotingSecret(caught, envSecrets);
     // Cloud accepts exactly one authored Surface (the one its sandbox runs).
     // A CLI on another release is refused with this code; say which side is
     // which instead of leaving the user with a bare 400 (flows#461).
