@@ -38,6 +38,7 @@ export class AuthoredPromiseGraph {
   private readonly attributedRoots = new Map<number, number>();
   private readonly roots = new Set<number>();
   private readonly pending = new Set<number>();
+  private readonly combinatorCaptures: Set<number>[] = [];
   private dependencyCache: { readonly start: number; readonly found: ReadonlySet<number>; readonly version: number } | undefined;
   /** Bumped by every graph change, so derived answers can be cached between changes. */
   private changes = 0;
@@ -54,6 +55,7 @@ export class AuthoredPromiseGraph {
         this.triggers.set(asyncId, triggerAsyncId);
         this.creationContexts.set(asyncId, executionAsyncId());
         this.promiseIds.set(resource, asyncId);
+        for (const capture of this.combinatorCaptures) capture.add(asyncId);
         this.handles.set(asyncId, resource as Promise<unknown>);
         this.pending.add(asyncId);
         const root = this.roots.has(triggerAsyncId)
@@ -103,6 +105,14 @@ export class AuthoredPromiseGraph {
     return this.promiseIds.get(value);
   }
 
+  /** The intrinsic creates per-member reaction promises as well as its aggregate. */
+  captureCombinator<T>(call: () => T): { readonly value: T; readonly created: ReadonlySet<number> } {
+    const created = new Set<number>();
+    this.combinatorCaptures.push(created);
+    try { return { value: call(), created }; }
+    finally { this.combinatorCaptures.pop(); }
+  }
+
   /** Mark a promise whose descendants belong to an authored operation. */
   registerRoot(asyncId: number): void {
     if (asyncId <= 0 || this.roots.has(asyncId)) return;
@@ -148,6 +158,18 @@ export class AuthoredPromiseGraph {
     return causes;
   }
 
+  /**
+   * A promise created directly in one async context but settled in another
+   * can be a join. Its resolution edge names only the settling member, so a
+   * frontier may use it only when a combinator registered all members.
+   */
+  hasUnobservedJoinShape(asyncId: number): boolean {
+    const trigger = this.triggers.get(asyncId);
+    const resolution = this.resolutionCauses.get(asyncId);
+    return trigger !== undefined && trigger === this.creationContexts.get(asyncId)
+      && resolution !== undefined && resolution !== trigger;
+  }
+
   wasAdoptedFromResolvingContext(asyncId: number): boolean {
     return this.adoptedFromResolvingContext.has(asyncId);
   }
@@ -180,6 +202,7 @@ export class AuthoredPromiseGraph {
     this.attributedRoots.clear();
     this.roots.clear();
     this.pending.clear();
+    this.combinatorCaptures.length = 0;
     this.dependencyCache = undefined;
   }
 

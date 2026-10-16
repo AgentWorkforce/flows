@@ -148,6 +148,7 @@ function moduleUsesIntrinsicPromise(source: string): boolean {
     if (ts.isIdentifier(node) && ['Promise', 'globalThis', 'global'].includes(node.text)) return true;
     return ts.forEachChild(node, touchesPromiseOutsideDefinition) === true;
   };
+  let definesDefaultBody = false;
   for (const statement of file.statements) {
     if (ts.isExportAssignment(statement)) {
       // Only the final body argument is allowed to mention Promise.all. Do
@@ -158,6 +159,8 @@ function moduleUsesIntrinsicPromise(source: string): boolean {
       const args = call.arguments;
       if (!ts.isArrowFunction(args[args.length - 1]!)) return false;
       if (args.slice(0, -1).some(touchesPromiseOutsideDefinition)) return false;
+      if (definesDefaultBody) return false;
+      definesDefaultBody = true;
       continue;
     }
     if (touchesPromiseOutsideDefinition(statement)) return false;
@@ -196,5 +199,7 @@ function moduleUsesIntrinsicPromise(source: string): boolean {
     ts.forEachChild(node, visit);
   };
   visit(file);
-  return !unsafe;
+  // The body may come from another module, where a free Promise name can be
+  // shadowed without appearing in this source. In that case use serial IDs.
+  return definesDefaultBody && !unsafe;
 }

@@ -128,6 +128,16 @@ describe('parallel run admission', () => {
       .toBe(false);
   });
 
+  it('requires the entry module itself to define the body', () => {
+    const candidate = body(`async f => {
+      await Promise.all([f.run('A'), f.run('B')]);
+      await f.run('X');
+      f.done('success');
+    }`);
+    expect(eligible(candidate, `export { default } from './impl.ts';`)).toBe(false);
+    expect(eligible(candidate, `import impl from './impl.ts'; export default impl;`)).toBe(false);
+  });
+
   it('keeps groups with empty async branches serial', () => {
     expect(eligible(body(`async f => {
       const warm = async () => {};

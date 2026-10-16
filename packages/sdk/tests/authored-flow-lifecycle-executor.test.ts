@@ -13,6 +13,16 @@ import {
 } from './journal-client-loopback.js';
 
 const unobservedAll = Promise.all.bind(Promise);
+const handmadeAll = <T>(values: readonly PromiseLike<T>[]): Promise<T[]> =>
+  new Promise((resolve, reject) => {
+    const result: T[] = new Array(values.length);
+    let remaining = values.length;
+    if (remaining === 0) resolve(result);
+    values.forEach((value, index) => Promise.resolve(value).then(item => {
+      result[index] = item;
+      if (--remaining === 0) resolve(result);
+    }, reject));
+  });
 
 describe('authored flow lifecycle through the journal executor', () => {
   let path: string;
@@ -37,12 +47,14 @@ describe('authored flow lifecycle through the journal executor', () => {
         const command = step['command'] as string;
         startedSpecs.push(spec);
         stepByRun.set(runId, { id: step['id'] as string, command });
-        sendResult(ctx, {
+        const complete = () => sendResult(ctx, {
           run_id: runId,
           status: command === 'false' ? 'failed' : 'completed',
           completion_reason: command === 'false' ? 'step_failed' : 'success',
           completed_steps: 1,
         });
+        if (command.startsWith('hold-')) setTimeout(complete, 300);
+        else complete();
       },
       'journal.read': (ctx, params) => {
         const step = stepByRun.get(params.run_id as string)!;
@@ -103,6 +115,23 @@ describe('authored flow lifecycle through the journal executor', () => {
     expect(startedSpecs).toHaveLength(startedBefore);
   });
 
+  it('closes an already queued ninth child as soon as a violation is caught', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-queued-violation', async f => {
+      const children = Array.from({ length: 9 }, (_, index) => f.run(`hold-${index}`));
+      const joined = Promise.allSettled(children);
+      setTimeout(() => {
+        try { f.llm('unsupported', { output: { type: 'string' } }); }
+        catch { /* the root failure still owns this scope */ }
+      }, 30);
+      await joined;
+      f.done('success');
+    }), { executionMode: 'parallel' })).rejects.toMatchObject({ code: 'step_failed' });
+    expect(startedSpecs.slice(startedBefore).map(spec =>
+      (spec['steps'] as Array<{ command: string }>)[0]!.command))
+      .toEqual(Array.from({ length: 8 }, (_, index) => `hold-${index}`));
+  });
+
   it('refuses a parallel follow-up through an unobserved Promise.all', async () => {
     const startedBefore = startedSpecs.length;
     await expect(execute(flow('parallel-unobserved-aggregate', async f => {
@@ -115,6 +144,97 @@ describe('authored flow lifecycle through the journal executor', () => {
       'parallel-unobserved-aggregate/run-1',
       'parallel-unobserved-aggregate/run-2',
     ]);
+  });
+
+  it('refuses an unobserved join after an earlier step', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-late-unobserved-aggregate', async f => {
+      await f.run('printf W');
+      await unobservedAll([f.run('printf A'), f.run('printf B'), f.run('printf C')]);
+      await f.run('printf X');
+      f.done('success');
+    }), { executionMode: 'parallel' })).rejects.toThrow(/unregistered aggregate/u);
+    expect(startedSpecs.slice(startedBefore).map(spec => spec['name']))
+      .toEqual([
+        'parallel-late-unobserved-aggregate/run-1',
+        expect.stringMatching(/^parallel-late-unobserved-aggregate\/run-after-/u),
+        expect.stringMatching(/^parallel-late-unobserved-aggregate\/run-after-/u),
+        expect.stringMatching(/^parallel-late-unobserved-aggregate\/run-after-/u),
+      ]);
+  });
+
+  it('refuses a hand-written join after an earlier step', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-late-handmade-aggregate', async f => {
+      await f.run('printf W');
+      await handmadeAll([f.run('printf A'), f.run('printf B')]);
+      await f.run('printf X');
+      f.done('success');
+    }), { executionMode: 'parallel' })).rejects.toThrow(/unregistered aggregate/u);
+    expect(startedSpecs.slice(startedBefore)).toHaveLength(3);
+  });
+
+  it('admits sequential awaits in parallel mode', async () => {
+    await expect(execute(flow('parallel-sequential', async f => {
+      await f.run('printf A');
+      await f.run('printf B');
+      await f.run('printf C');
+      f.done('success');
+    }), { executionMode: 'parallel' })).resolves.toMatchObject({ completionReason: 'success' });
+  });
+
+  it('admits branch dependents after a shared predecessor', async () => {
+    await expect(execute(flow('parallel-shared-branch-predecessor', async f => {
+      await f.run('printf W');
+      const a = async () => { await f.run('printf A'); await f.run('printf A2'); };
+      const b = async () => { await f.run('printf B'); await f.run('printf B2'); };
+      await Promise.all([a(), b()]);
+      await f.run('printf X');
+      f.done('success');
+    }), { executionMode: 'parallel' })).resolves.toMatchObject({ completionReason: 'success' });
+  });
+
+  it('refuses a follow-up after the Promise observer is replaced between steps', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-replaced-observer', async f => {
+      await f.run('printf W');
+      const observed = Promise.all;
+      Promise.all = unobservedAll as typeof Promise.all;
+      try {
+        await Promise.all([f.run('printf A'), f.run('printf B')]);
+        await f.run('printf X');
+      } finally { Promise.all = observed; }
+      f.done('success');
+    }), { executionMode: 'parallel' })).rejects.toThrow(/observer was replaced/u);
+    expect(startedSpecs.slice(startedBefore).map(spec => spec['name']))
+      .toEqual(['parallel-replaced-observer/run-1']);
+  });
+
+  it('also refuses a replaced Promise.allSettled observer before admission', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-replaced-all-settled', async f => {
+      await f.run('printf W');
+      const observed = Promise.allSettled;
+      Promise.allSettled = ((values: Iterable<unknown>) => observed.call(Promise, values)) as typeof Promise.allSettled;
+      try { await f.run('printf X'); }
+      finally { Promise.allSettled = observed; }
+      f.done('success');
+    }), { executionMode: 'parallel' })).rejects.toThrow(/observer was replaced/u);
+    expect(startedSpecs.slice(startedBefore).map(spec => spec['name']))
+      .toEqual(['parallel-replaced-all-settled/run-1']);
+  });
+
+  it('keeps an unrelated Promise.race replacement from changing certified all groups', async () => {
+    await expect(execute(flow('parallel-unrelated-race-patch', async f => {
+      await f.run('printf W');
+      const observed = Promise.race;
+      Promise.race = ((values: Iterable<unknown>) => observed.call(Promise, Array.from(values))) as typeof Promise.race;
+      try {
+        await Promise.all([f.run('printf A'), f.run('printf B')]);
+        await f.run('printf X');
+      } finally { Promise.race = observed; }
+      f.done('success');
+    }), { executionMode: 'parallel' })).resolves.toMatchObject({ completionReason: 'success' });
   });
 
   it('admits a parallel follow-up through the observed intrinsic Promise.all', async () => {

@@ -975,8 +975,11 @@ The root records its execution mode before its body runs. Parallel mode is
 selected only for a narrow source grammar: awaited `Promise.all` groups of
 direct `f.run` calls, and locally declared async branches made only of awaited
 `f.run` calls or direct run groups. Every branch must contain a direct `f.run`.
-The module must leave the intrinsic `Promise` and `globalThis.Promise`
-unshadowed; a module that binds either name uses serial mode. Generated arrays
+The entry module must directly define and export the flow body. Re-exports and
+imported flow definitions use serial mode, because their `Promise` binding
+belongs to another module. The defining module must leave the intrinsic
+`Promise` and `globalThis.Promise` unshadowed; a module that binds either name
+uses serial mode. Generated arrays
 such as `Array.from` use
 serial mode. Branches may not mutate shared values, await
 timers or other promises, or call `f.done`; completion belongs at the end of
@@ -1003,7 +1006,8 @@ its own journal; the root's child index records completion facts as they arrive,
 readers match them by step id and run id.
 In parallel mode, if the bounded causal walk cannot identify a follow-up's
 full predecessor frontier, the frontier passes through an unregistered promise
-aggregate, a non-run effect appears, or a new initial child
+aggregate, an intrinsic Promise combinator observer has been replaced, a
+non-run effect appears, or a new initial child
 appears after the body's first turn, the root fails before admitting that
 effect rather than issuing an ambiguous replay key. Once this happens, no
 later child is admitted. The failure remains a root failure even when authored

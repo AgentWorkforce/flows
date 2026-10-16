@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AUTHORED_STEP_STREAM } from '../src/authored-step-index.js';
@@ -34,6 +34,94 @@ function killDaemon(data: string): void {
 }
 
 describe('parallel authored deterministic steps', () => {
+  it.each(['after a first step', 'with the group first'])(
+    'keeps a re-exported body serial %s and reuses completed effects on resume', async (shape) => {
+      const fixture = chainFixture();
+      closes.push(() => fixture.close());
+      writeFileSync(fixture.flowPath, `export { default } from './impl.ts';\n`);
+      writeFileSync(`${fixture.root}/impl.ts`, `import { flow } from '@relayflows/surface';
+const Promise = { all: globalThis.Promise.all.bind(globalThis.Promise) };
+export default flow('reexported-body', async f => {
+  ${shape === 'after a first step' ? "await f.run('printf W >> effects');" : ''}
+  await Promise.all([f.run('sleep 0.2; printf A'), f.run('printf B'), f.run('printf C')]);
+  await f.run('printf X >> effects');
+  await f.run('test -f release || { touch stalled; sleep 120; }; printf Z >> effects', { timeout: '5m' });
+  f.done('success');
+});\n`);
+      const cli = fixture.invokeAsync('run', '--no-observer-link', '--json', '--data-dir', fixture.data,
+        fixture.flowPath, '--input', '{}');
+      const cliExited = new Promise<void>(resolve => cli.once('exit', () => resolve()));
+      await until(() => existsSync(`${fixture.root}/stalled`) ? true : undefined, 're-export stall');
+      const rootRunId = runIds(fixture.data)[0]!;
+      const reader = new JournalClient(socketPathFor(fixture.data));
+      await reader.connect();
+      await reader.hello('reexport-serial-test');
+      try {
+        expect(await readAuthoredRootMetadata(reader, rootRunId))
+          .toMatchObject({ executionMode: 'serial' });
+      } finally { reader.close(); }
+      expect(readFileSync(`${fixture.root}/effects`, 'utf8')).toBe(
+        shape === 'after a first step' ? 'WX' : 'X');
+      cli.kill('SIGKILL');
+      await cliExited;
+      killDaemon(fixture.data);
+      writeFileSync(`${fixture.root}/release`, '');
+      const resumed = fixture.invoke('resume', '--no-observer-link', '--json', '--data-dir', fixture.data, rootRunId);
+      expect(resumed.status, resumed.stderr + resumed.stdout).toBe(0);
+      expect(readFileSync(`${fixture.root}/effects`, 'utf8')).toBe(
+        shape === 'after a first step' ? 'WXZ' : 'XZ');
+    }, 120_000);
+
+  it('refuses an imported Promise.all patch before admitting another parallel effect', () => {
+    const fixture = chainFixture();
+    closes.push(() => fixture.close());
+    writeFileSync(`${fixture.root}/patch.mjs`, `const intrinsic = Promise.all;
+const timer = setInterval(() => {
+  if (Promise.all === intrinsic) return;
+  Promise.all = function (values) { return intrinsic.call(Promise, values); };
+  clearInterval(timer);
+}, 1);\n`);
+    writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
+import './patch.mjs';
+export default flow('imported-promise-patch', async f => {
+  await f.run('sleep 0.2; printf W >> effects');
+  await Promise.all([f.run('printf A >> effects'), f.run('printf B >> effects')]);
+  await f.run('printf X >> effects');
+  f.done('success');
+});\n`);
+    const result = fixture.invoke('run', '--no-observer-link', '--json', '--data-dir', fixture.data,
+      fixture.flowPath, '--input', '{}');
+    expect(result.status, result.stderr + result.stdout).toBe(1);
+    expect(readFileSync(`${fixture.root}/effects`, 'utf8')).toBe('W');
+  }, 60_000);
+
+  it('fails closed on the reviewer imported patch during a prior step', () => {
+    const fixture = chainFixture();
+    closes.push(() => fixture.close());
+    mkdirSync(`${fixture.root}/lib`);
+    writeFileSync(`${fixture.root}/lib/patch.mjs`, `const I = Function('return this')()['Pro' + 'mise'];
+const intrinsicAll = I.all;
+const t = setInterval(() => { if (I.all !== intrinsicAll) { clearInterval(t); I.all = function all(xs) { return intrinsicAll.call(I, xs); }; } }, 2);
+t.unref();\n`);
+    writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
+import './lib/patch.mjs';
+export default flow('q6Pw', async f => {
+  await f.run('sleep 0.3; printf W');
+  const a = async () => { await f.run('sleep 0.4; printf A'); await f.run('printf a >> effects'); };
+  const b = async () => { await f.run('printf B'); await f.run('printf b >> effects'); };
+  const c = async () => { await f.run('sleep 0.2; printf C'); await f.run('printf c >> effects'); };
+  await Promise.all([a(), b(), c()]);
+  await f.run('printf X >> effects');
+  await f.run('test -f release || { touch stalled; sleep 120; }; printf Z >> effects', { timeout: '5m' });
+  f.done('success');
+});\n`);
+    const result = fixture.invoke('run', '--no-observer-link', '--json', '--data-dir', fixture.data,
+      fixture.flowPath, '--input', '{}');
+    expect(result.status, result.stderr + result.stdout).toBe(1);
+    const effects = existsSync(`${fixture.root}/effects`) ? readFileSync(`${fixture.root}/effects`, 'utf8') : '';
+    expect(effects).not.toContain('X');
+  }, 60_000);
+
   it('overlaps two sleep 2 commands started in Promise.all', () => {
     const fixture = chainFixture();
     closes.push(() => fixture.close());

@@ -73,6 +73,8 @@ interface Aggregate {
 export class AuthoredStepGraph {
   private readonly stepPromises = new Map<number, string>();
   private readonly aggregates = new Map<number, Aggregate>();
+  private readonly registeredAggregates = new Set<number>();
+  private readonly registeredCombinatorInternals = new Set<number>();
   private readonly registeredMembers = new Set<number>();
   private readonly contexts = new Map<number, Frontier>();
   private readonly nodes = new Map<string, StepNode>();
@@ -81,7 +83,7 @@ export class AuthoredStepGraph {
   constructor(
     private readonly causesOf: (asyncId: number) => readonly number[],
     private readonly walkLimit = MAX_WALK,
-    private readonly adoptedOutsideCombinator: (asyncId: number) => boolean = () => false,
+    private readonly unobservedJoinShape: (asyncId: number) => boolean = () => false,
   ) {}
 
   /** A combinator's aggregate and its members, for expansion once it settles. */
@@ -90,7 +92,10 @@ export class AuthoredStepGraph {
     promise: Promise<unknown>,
     combinator: Combinator,
     members: readonly number[],
+    created: ReadonlySet<number> = new Set(),
   ): void {
+    this.registeredAggregates.add(aggregateId);
+    for (const id of created) this.registeredCombinatorInternals.add(id);
     for (const member of members) this.registeredMembers.add(member);
     const expandsOn = EXPANDS_ON[combinator];
     if (expandsOn === undefined || members.length === 0) return;
@@ -133,6 +138,8 @@ export class AuthoredStepGraph {
   release(): void {
     this.stepPromises.clear();
     this.aggregates.clear();
+    this.registeredAggregates.clear();
+    this.registeredCombinatorInternals.clear();
     this.registeredMembers.clear();
     this.contexts.clear();
     this.nodes.clear();
@@ -155,12 +162,15 @@ export class AuthoredStepGraph {
         candidates.add(step);
         continue;
       }
-      // An operation promise is already a complete, named frontier. Beyond
-      // those, an aggregate adopted only from its resolver's context may hide
-      // other members. Intrinsic Promise.all aggregates are registered before
-      // settlement and therefore never enter this unsafe path.
-      unregisteredAggregate ||= this.adoptedOutsideCombinator(current)
-        && !this.aggregates.has(current) && !this.registeredMembers.has(current);
+      // A join's resolution edge contains only its settling member. In
+      // parallel mode the full member list is safe only if our combinator
+      // observer registered it before the promise settled. The creation and
+      // resolution contexts also catch an unobserved join created after a
+      // previous step, where root-adoption alone cannot detect it.
+      const possibleJoin = this.unobservedJoinShape(current)
+        && !this.registeredAggregates.has(current) && !this.registeredMembers.has(current)
+        && !this.registeredCombinatorInternals.has(current);
+      unregisteredAggregate ||= possibleJoin;
       const answered = current === start ? undefined : this.contexts.get(current);
       if (answered !== undefined) {
         for (const found of answered.steps) candidates.add(found);

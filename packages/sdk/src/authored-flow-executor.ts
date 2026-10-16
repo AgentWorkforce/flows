@@ -305,10 +305,12 @@ export async function executeAuthoredFlow<Input = undefined>(
   let requestedDetail: string | undefined;
   let firstBodyTurn = true;
   let parallelViolation: AuthoredFlowExecutionError | undefined;
+  let closeParallelSlots: ((reason: unknown) => void) | undefined;
   const qualify = (id: string): string => `${options.stepPrefix ?? ''}${id}`;
   const branchOrdinals = new Map<string, number>();
   const rejectParallel = (message: string): never => {
     parallelViolation ??= new AuthoredFlowExecutionError('step_failed', message);
+    closeParallelSlots?.(parallelViolation);
     throw parallelViolation;
   };
   const assertParallelRunOnly = (kind: string): void => {
@@ -319,6 +321,8 @@ export async function executeAuthoredFlow<Input = undefined>(
     const sequence = nextStep++;
     if (options.executionMode !== 'parallel') return qualify(`${kind}-${sequence}`);
     if (kind !== 'run') rejectParallel(`parallel f.run body attempted ${kind} before admission`);
+    if (!lifecycle.combinatorsObserved()) rejectParallel(
+      'cannot assign a replay-stable f.run identity: the intrinsic Promise combinator observer was replaced');
     const predecessors = lifecycle.invocationPredecessors();
     if (predecessors.unregisteredAggregate) rejectParallel(
       'cannot assign a replay-stable f.run identity: its causal frontier passes through an unregistered aggregate');
@@ -356,6 +360,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     },
     options.executionMode === 'parallel',
   );
+  closeParallelSlots = lowerDeterministic.stop;
 
   const worker = authoredWorkerRunner(
     definition, journal, flowPath, journalSteps, waitOptions,

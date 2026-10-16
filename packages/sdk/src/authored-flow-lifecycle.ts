@@ -42,7 +42,8 @@ const stepOwners = new WeakMap<object, {
  * claim was wrong: it covered whichever member happened to resolve the
  * aggregate. What is true is narrower and is what the code now implements —
  * these four are exact, and `adoptFromResolvingContext` in the promise graph is
- * a best-effort fallback for aggregates built by hand.
+ * a fallback for aggregates built by hand. Parallel f.run admission additionally
+ * rejects unregistered join shapes on its causal path and checks observer identity.
  *
  * The interception is disclosed to authors in `docs/SURFACE.md`. It is spec
  * transparent: `Symbol.iterator` is read exactly once (as the intrinsic does),
@@ -67,9 +68,9 @@ const observedCombinators: Record<CombinatorName, Combinator> = Object.fromEntri
     ): Promise<unknown> {
       const members = collectMembers(values);
       if (members === undefined) return native.call(this, values);
-      const aggregate = native.call(this, members);
-      activeLifecycle.getStore()?.registerCombinator(members, aggregate, name);
-      return aggregate;
+      const lifecycle = activeLifecycle.getStore();
+      if (lifecycle === undefined) return native.call(this, members);
+      return lifecycle.observeCombinator(native, this, members, name);
     };
     Object.defineProperty(observed, 'name', { value: name, configurable: true });
     Object.defineProperty(observed, 'length', { value: 1, configurable: true });
@@ -142,7 +143,8 @@ export class AuthoredFlowLifecycle {
     this.stepGraph = new AuthoredStepGraph(
       (asyncId) => this.graph.causesOf(asyncId),
       undefined,
-      (asyncId) => this.graph.wasAdoptedFromResolvingContext(asyncId),
+      (asyncId) => this.graph.wasAdoptedFromResolvingContext(asyncId)
+        || this.graph.hasUnobservedJoinShape(asyncId),
     );
     installPromiseAllObserver();
     try {
@@ -165,6 +167,7 @@ export class AuthoredFlowLifecycle {
     values: readonly unknown[],
     aggregate: Promise<unknown>,
     combinator: CombinatorName,
+    created: ReadonlySet<number>,
   ): void {
     const aggregateId = this.graph.idOf(aggregate);
     if (aggregateId === undefined) return;
@@ -190,7 +193,18 @@ export class AuthoredFlowLifecycle {
     }
     this.promiseAllGroups.push({ aggregate: aggregateId, members: memberIds });
     this.registrations++;
-    this.stepGraph.registerAggregate(aggregateId, aggregate, combinator, awaitedMembers);
+    this.stepGraph.registerAggregate(aggregateId, aggregate, combinator, awaitedMembers, created);
+  }
+
+  observeCombinator(
+    native: Combinator,
+    constructor: PromiseConstructor,
+    values: readonly unknown[],
+    name: CombinatorName,
+  ): Promise<unknown> {
+    const { value, created } = this.graph.captureCombinator(() => native.call(constructor, values));
+    this.registerCombinator(values, value, name, created);
+    return value;
   }
 
   /**
@@ -226,6 +240,12 @@ export class AuthoredFlowLifecycle {
     readonly unregisteredAggregate: boolean;
   } {
     return this.stepGraph.predecessorsAt(executionAsyncId());
+  }
+
+  /** The observation contract must still be installed when a child is admitted. */
+  combinatorsObserved(): boolean {
+    return Promise.all === (observedCombinators.all as unknown)
+      && Promise.allSettled === (observedCombinators.allSettled as unknown);
   }
 
   registerInvocation(
