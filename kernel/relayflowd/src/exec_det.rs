@@ -81,11 +81,25 @@ pub(crate) fn execute_placed_with_input(
             Ok(selected) => Some(selected),
             Err(error) => return worker_error(&error),
         },
-        None if !step.secrets.is_empty() => return worker_error("step secrets are unavailable without a run environment"),
+        None if !step.secrets.is_empty() => {
+            return worker_error("step secrets are unavailable without a run environment");
+        }
         None if std::env::var_os("RELAY_SECRET_ENV_NAMES").is_some() => {
-            let inherited = crate::step_env::StepEnv::from(
-                std::env::vars().collect::<std::collections::BTreeMap<_, _>>(),
-            );
+            let inherited = std::env::vars_os()
+                .map(|(name, value)| {
+                    let name = name
+                        .into_string()
+                        .map_err(|_| "run environment contains a non-Unicode name".to_owned())?;
+                    let value = value.into_string().map_err(|_| {
+                        format!("run environment variable {name:?} contains a non-Unicode value")
+                    })?;
+                    Ok((name, value))
+                })
+                .collect::<Result<std::collections::BTreeMap<_, _>, String>>();
+            let inherited = match inherited {
+                Ok(vars) => crate::step_env::StepEnv::from(vars),
+                Err(error) => return worker_error(&error),
+            };
             match inherited.for_step(&[]) {
                 Ok(selected) => Some(selected),
                 Err(error) => return worker_error(&error),
@@ -245,8 +259,8 @@ fn worker_error(detail: &str) -> AttemptResult {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
     use serde_json::json;
+    use std::collections::BTreeMap;
 
     use super::*;
 
@@ -256,12 +270,20 @@ mod tests {
             ("PATH".into(), "/bin:/usr/bin".into()),
             ("NATIVE_API_TOKEN".into(), "native-secret".into()),
             ("OTHER_TOKEN".into(), "other-secret".into()),
-            ("RELAY_SECRET_ENV_NAMES".into(), "[\"NATIVE_API_TOKEN\",\"OTHER_TOKEN\"]".into()),
+            (
+                "RELAY_SECRET_ENV_NAMES".into(),
+                "[\"NATIVE_API_TOKEN\",\"OTHER_TOKEN\"]".into(),
+            ),
         ]));
-        for (grant, expected) in [(None, "unset:unset"), (Some("NATIVE_API_TOKEN"), "native-secret:unset")] {
+        for (grant, expected) in [
+            (None, "unset:unset"),
+            (Some("NATIVE_API_TOKEN"), "native-secret:unset"),
+        ] {
             let mut value = json!({"id": "shell", "type": "deterministic",
                 "command": "printf '%s:%s' \"${NATIVE_API_TOKEN-unset}\" \"${OTHER_TOKEN-unset}\""});
-            if let Some(name) = grant { value["secrets"] = json!([name]); }
+            if let Some(name) = grant {
+                value["secrets"] = json!([name]);
+            }
             let step: StepSpec = serde_json::from_value(value).unwrap();
             let result = execute_placed_with_input(&step, None, None, None, Some(&env), None);
             assert_eq!(result.output["stdout_tail"], expected);

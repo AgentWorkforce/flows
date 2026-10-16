@@ -73,6 +73,25 @@ it('communication agents drop delivered secrets by default on a scoped runtime',
   }, ['RELAY_API_KEY'])).toThrow('Relay broker credentials');
 });
 
+it('communication Claude keeps trusted Bedrock and repository setup without user secrets', () => {
+  const source = {
+    CLAUDE_CODE_USE_BEDROCK: '1', AWS_BEARER_TOKEN_BEDROCK: 'bedrock-login',
+    AWS_REGION: 'eu-west-1', GH_CONFIG_DIR: '/tmp/gh', GIT_ASKPASS: '/tmp/askpass',
+    GIT_CONFIG_KEY_1: 'core.hooksPath', GIT_CONFIG_VALUE_1: '/dev/null',
+    HTTPS_PROXY: 'https://proxy.example.test',
+    USER_SECRET: 'user-secret',
+    RELAY_SECRET_ENV_NAMES: '["CLAUDE_CODE_USE_BEDROCK","AWS_BEARER_TOKEN_BEDROCK","USER_SECRET"]',
+    RELAY_PLATFORM_AGENT_ENV_NAMES: '["CLAUDE_CODE_USE_BEDROCK","AWS_BEARER_TOKEN_BEDROCK","AWS_REGION"]',
+  };
+  const env = agentEnvironment('claude', source);
+  expect(env).toMatchObject({ CLAUDE_CODE_USE_BEDROCK: '1', AWS_BEARER_TOKEN_BEDROCK: 'bedrock-login',
+    AWS_REGION: 'eu-west-1', GH_CONFIG_DIR: '/tmp/gh', GIT_ASKPASS: '/tmp/askpass',
+    GIT_CONFIG_KEY_1: 'core.hooksPath', GIT_CONFIG_VALUE_1: '/dev/null',
+    HTTPS_PROXY: 'https://proxy.example.test' });
+  expect(env).not.toHaveProperty('USER_SECRET');
+  expect(agentEnvironment('codex', source)).not.toHaveProperty('AWS_BEARER_TOKEN_BEDROCK');
+});
+
 it('passes provider-specific proxy routing only to Cursor and Grok children', () => {
   const cursorProxy = 'https://proxy.test/v1/house/cursor/runs/run-1';
   const source = {

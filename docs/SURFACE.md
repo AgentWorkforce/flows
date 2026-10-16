@@ -1008,8 +1008,9 @@ step gets only the names in its `secrets` declaration. For example,
 value, while the next `f.run` without a grant does not. The same `secrets`
 option is available on `f.agent` and `f.llm` and in declarative steps. Agent
 CLIs start from an allowlist of system variables and their selected CLI login,
-then receive declared secrets. A misspelled or unavailable name refuses the
-step. Without a secret-name manifest, self-hosted deterministic steps retain
+Cloud-managed repository git/gh setup and model login selected for the CLI stay
+available; user-delivered names remain grant-only. A misspelled or unavailable
+name refuses the step. Without a secret-name manifest, self-hosted deterministic steps retain
 the legacy run environment; set the manifest when supplying secrets.
 
 The environment is held in daemon memory only. It is never written to the
@@ -1021,7 +1022,11 @@ secret grant refuses a daemon without the `step_secret_scoping` capability.
 Until that daemon upgrade, a plain agent/LLM step keeps its legacy environment
 so an SDK upgrade alone does not change a hosted run's existing behavior.
 Upgrading the daemon changes plain agent/LLM steps to the clean environment
-even when no step declares a grant; grant any needed delivered secrets by name.
+even when no step declares a grant. With a delivered-name manifest, it also
+removes ungranted secrets from `f.run` shell children. Grant any needed
+delivered secrets by name. A same-user step can still inspect another
+process's `/proc/<pid>/environ` on Linux or read CLI login files under
+`HOME`; environment filtering is not process isolation.
 `kernel/DAEMON-LIFECYCLE.md`
 §3 has the protocol.
 

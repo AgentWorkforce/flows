@@ -72,7 +72,7 @@ it('keeps plain runs with delivered secrets working on an older daemon', async (
   }
 });
 
-it('never forwards the private signal-read token on run.start or run.resume', async () => {
+it('never forwards CLI-only signal or model-login metadata on run.start or run.resume', async () => {
   const path = sockPath();
   const received: Record<string, unknown>[] = [];
   const server = startLoopback(path, {
@@ -82,7 +82,9 @@ it('never forwards the private signal-read token on run.start or run.resume', as
   });
   const client = new JournalClient(path);
   const prior = process.env.RELAYFLOW_V2_SIGNAL_READ_TOKEN;
+  const priorPlatform = process.env.RELAY_PLATFORM_AGENT_ENV_NAMES;
   process.env.RELAYFLOW_V2_SIGNAL_READ_TOKEN = 'private-signal-token';
+  process.env.RELAY_PLATFORM_AGENT_ENV_NAMES = '[]';
   try {
     await client.connect();
     await client.hello('signal-token-gate');
@@ -92,10 +94,13 @@ it('never forwards the private signal-read token on run.start or run.resume', as
     for (const params of received) {
       expect(params).toHaveProperty('env');
       expect(params['env']).not.toHaveProperty('RELAYFLOW_V2_SIGNAL_READ_TOKEN');
+      expect(params['env']).not.toHaveProperty('RELAY_PLATFORM_AGENT_ENV_NAMES');
     }
   } finally {
     if (prior === undefined) delete process.env.RELAYFLOW_V2_SIGNAL_READ_TOKEN;
     else process.env.RELAYFLOW_V2_SIGNAL_READ_TOKEN = prior;
+    if (priorPlatform === undefined) delete process.env.RELAY_PLATFORM_AGENT_ENV_NAMES;
+    else process.env.RELAY_PLATFORM_AGENT_ENV_NAMES = priorPlatform;
     client.close();
     await new Promise<void>(resolve => server.close(() => resolve()));
     rmSync(path, { force: true });

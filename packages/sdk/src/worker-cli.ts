@@ -31,7 +31,7 @@ import {
 } from './wrapper-session.js';
 import { wrapperEnvironment } from './wrapper-runtime.js';
 import { applyStepEnvironment } from './step-env.js';
-import { SIGNAL_READ_TOKEN_ENV, agentStepEnvironment } from './step-secrets.js';
+import { PLATFORM_AGENT_ENV_NAMES, SIGNAL_READ_TOKEN_ENV, agentStepEnvironment } from './step-secrets.js';
 import { TAIL_CLOSE_TIMEOUT_MS, openTranscriptTail, type TranscriptTailWriter } from './transcript-tail.js';
 import {
   isRetryableSpawnError,
@@ -162,6 +162,7 @@ export async function runAgentCli(
     // The old-daemon compatibility path retains other legacy variables, but
     // this CLI-only signal capability must never enter an agent subprocess.
     delete childEnvironment[SIGNAL_READ_TOKEN_ENV];
+    delete childEnvironment[PLATFORM_AGENT_ENV_NAMES];
   } catch (error) {
     return { exit_code: null, stdout_tail: '',
       stderr_tail: error instanceof Error ? error.message : 'step secret grant is invalid' };
