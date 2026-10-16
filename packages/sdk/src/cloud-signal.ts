@@ -4,6 +4,7 @@ import { CloudFlowError, cloudFetch, cloudRunId, isCloudRecord, resolveCloudConn
 const SIGNAL_NAME = /^[A-Za-z0-9_-]{1,80}$/u;
 const MAX_BYTES = 4 * 1024;
 const HELD_GET_MS = 25_000;
+const HOSTED_SIGNAL_READ_TOKEN_ENV = 'RELAYFLOW_V2_SIGNAL_READ_TOKEN';
 
 function signalPath(runId: string, name: string): string {
   cloudRunId(runId);
@@ -46,7 +47,20 @@ export async function waitForCloudSignal(
   }
   for (;;) {
     options.signal?.throwIfAborted();
-    const { baseUrl, token } = await resolveCloudConnection(options);
+    let connection: { baseUrl: string; token: string };
+    try {
+      connection = await resolveCloudConnection(options);
+    } catch (error) {
+      // The hosted run's read-only credential is only a fallback for waits.
+      // Explicit Cloud credentials and stored logins retain precedence, and
+      // postCloudSignal never sees this token.
+      const hostedToken = process.env[HOSTED_SIGNAL_READ_TOKEN_ENV];
+      if (!(error instanceof CloudFlowError) || error.code !== 'configuration'
+        || error.reason !== 'auth_missing' || options.token !== undefined
+        || process.env['FLOWS_CLOUD_TOKEN'] !== undefined || hostedToken === undefined) throw error;
+      connection = await resolveCloudConnection({ ...options, token: hostedToken });
+    }
+    const { baseUrl, token } = connection;
     const deadline = AbortSignal.timeout(requestTimeout);
     let response: Response;
     try {

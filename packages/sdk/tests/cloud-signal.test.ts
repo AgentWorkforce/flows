@@ -1,9 +1,12 @@
+import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { postCloudSignal, waitForCloudSignal } from '../src/cloud-signal.js';
 
 const options = { apiUrl: 'https://cloud.example', token: 'scoped-token' };
 const path = '/api/v1/workflows/runs/run_1/signals/render_done';
-afterEach(() => { vi.restoreAllMocks(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
 describe('Cloud completion signals', () => {
   it('holds GET until a POST completes, with no interval or one-second polling', async () => {
@@ -45,6 +48,44 @@ describe('Cloud completion signals', () => {
     });
     expect(await waitForCloudSignal('run_1', 'render_done', options)).toBe(7);
     expect(reads).toBe(2);
+  });
+
+  it('uses the hosted read token for GET only when no Cloud login is configured', async () => {
+    vi.stubEnv('AGENT_RELAY_HOME', join(tmpdir(), `cloud-signal-${randomUUID()}`));
+    vi.stubEnv('FLOWS_CLOUD_TOKEN', undefined);
+    vi.stubEnv('RELAYFLOW_V2_SIGNAL_READ_TOKEN', 'hosted-read-secret');
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ payload: 7, acceptedAt: 123 }));
+    expect(await waitForCloudSignal('run_1', 'render_done', { apiUrl: 'https://cloud.example' })).toBe(7);
+    expect(new Headers(fetch.mock.calls[0]![1]?.headers).get('authorization')).toBe('Bearer hosted-read-secret');
+  });
+
+  it('never uses the hosted read token for POST or exposes it in an auth refusal', async () => {
+    vi.stubEnv('AGENT_RELAY_HOME', join(tmpdir(), `cloud-signal-${randomUUID()}`));
+    vi.stubEnv('FLOWS_CLOUD_TOKEN', undefined);
+    vi.stubEnv('RELAYFLOW_V2_SIGNAL_READ_TOKEN', 'hosted-read-secret');
+    const logged = [vi.spyOn(console, 'log').mockImplementation(() => {}),
+      vi.spyOn(console, 'warn').mockImplementation(() => {}),
+      vi.spyOn(console, 'error').mockImplementation(() => {})];
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 403 }));
+    await expect(postCloudSignal('run_1', 'render_done', { complete: true }, { apiUrl: 'https://cloud.example' }))
+      .rejects.toMatchObject({ code: 'configuration', reason: 'auth_missing' });
+    expect(fetch).not.toHaveBeenCalled();
+    let refusal: unknown;
+    try {
+      await waitForCloudSignal('run_1', 'render_done', { apiUrl: 'https://cloud.example' });
+    } catch (error) { refusal = error; }
+    expect(refusal).toMatchObject({ code: 'http_error', status: 403 });
+    expect(String(refusal)).not.toContain('hosted-read-secret');
+    expect(logged.flatMap(spy => spy.mock.calls).flat().join(' ')).not.toContain('hosted-read-secret');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('prefers an existing FLOWS_CLOUD_TOKEN over the hosted read token', async () => {
+    vi.stubEnv('FLOWS_CLOUD_TOKEN', 'operator-token');
+    vi.stubEnv('RELAYFLOW_V2_SIGNAL_READ_TOKEN', 'hosted-read-secret');
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ payload: 7, acceptedAt: 123 }));
+    expect(await waitForCloudSignal('run_1', 'render_done', { apiUrl: 'https://cloud.example' })).toBe(7);
+    expect(new Headers(fetch.mock.calls[0]![1]?.headers).get('authorization')).toBe('Bearer operator-token');
   });
 
   it('rejects malformed names and oversized payloads before an HTTP request', async () => {
