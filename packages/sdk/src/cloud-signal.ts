@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import { CloudFlowError, cloudFetch, cloudRunId, isCloudRecord, resolveCloudConnection,
   type CloudConnectionOptions } from './cloud-http.js';
 
@@ -34,8 +35,8 @@ export async function postCloudSignal(
 }
 
 /**
- * Wait on Cloud's held GET. A 204 is the server's 25-second safety timeout;
- * re-arm immediately with no client polling interval. The caller may abort.
+ * Wait on Cloud's held GET. A normally held 204 re-arms immediately. A fast
+ * 204 backs off so a proxy or broken server cannot turn this into a hot loop.
  */
 export async function waitForCloudSignal(
   runId: string, name: string, options: CloudConnectionOptions = {},
@@ -45,6 +46,7 @@ export async function waitForCloudSignal(
   if (!Number.isSafeInteger(requestTimeout) || requestTimeout <= HELD_GET_MS) {
     throw new CloudFlowError('invalid_input', 'Signal requestTimeoutMs must exceed 25 seconds.');
   }
+  let fast204BackoffMs = 250;
   for (;;) {
     options.signal?.throwIfAborted();
     let connection: { baseUrl: string; token: string };
@@ -62,6 +64,7 @@ export async function waitForCloudSignal(
     }
     const { baseUrl, token } = connection;
     const deadline = AbortSignal.timeout(requestTimeout);
+    const requestStartedAt = performance.now();
     let response: Response;
     try {
       response = await fetch(`${baseUrl}${path}?waitMs=${HELD_GET_MS}`, {
@@ -75,7 +78,20 @@ export async function waitForCloudSignal(
       throw new CloudFlowError(deadline.aborted ? 'transient_error' : 'transport_error',
         'Cloud signal wait failed; retrying the wait is safe.');
     }
-    if (response.status === 204) continue;
+    if (response.status === 204) {
+      if (performance.now() - requestStartedAt < 1_000) {
+        try {
+          await delay(fast204BackoffMs, undefined, { signal: options.signal });
+        } catch (error) {
+          options.signal?.throwIfAborted();
+          throw error;
+        }
+        fast204BackoffMs = Math.min(fast204BackoffMs * 2, 5_000);
+      } else {
+        fast204BackoffMs = 250;
+      }
+      continue;
+    }
     if (!response.ok) throw new CloudFlowError('http_error', `Cloud signal wait failed with HTTP ${response.status}.`, response.status);
     let body: unknown;
     try { body = await response.json(); }

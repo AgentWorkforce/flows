@@ -40,14 +40,34 @@ describe('Cloud completion signals', () => {
     expect(calls.every(call => call.path === path && call.auth === 'Bearer scoped-token')).toBe(true);
   });
 
-  it('re-arms immediately after a held GET times out with 204', async () => {
+  it('backs off a fast 204 before re-arming', async () => {
     let reads = 0;
+    const started = performance.now();
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
       reads += 1;
       return reads === 1 ? new Response(null, { status: 204 }) : Response.json({ payload: 7, acceptedAt: 123 });
     });
     expect(await waitForCloudSignal('run_1', 'render_done', options)).toBe(7);
     expect(reads).toBe(2);
+    expect(performance.now() - started).toBeGreaterThanOrEqual(200);
+  });
+
+  it('bounds instant 204 retries and lets abort interrupt the backoff', async () => {
+    const controller = new AbortController();
+    let reads = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      reads += 1;
+      if (reads > 8) throw new Error('instant-204 hot loop');
+      return new Response(null, { status: 204 });
+    });
+    const abort = setTimeout(() => controller.abort(new Error('cancel wait')), 30);
+    try {
+      await expect(waitForCloudSignal('run_1', 'render_done', { ...options, signal: controller.signal }))
+        .rejects.toThrow('cancel wait');
+      expect(reads).toBeLessThanOrEqual(2);
+    } finally {
+      clearTimeout(abort);
+    }
   });
 
   it('uses the hosted read token for GET only when no Cloud login is configured', async () => {
