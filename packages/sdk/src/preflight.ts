@@ -553,8 +553,12 @@ function probeResolvedCli(
   if (outcome === undefined) {
     try {
       outcome = { result: managed
-        ? probes.cli(resolution.cli, resolution.source, resolution.model, 'managed', secrets)
-        : probes.cli(resolution.cli, resolution.source, resolution.model, undefined, secrets) };
+        ? secrets?.length
+          ? probes.cli(resolution.cli, resolution.source, resolution.model, 'managed', secrets)
+          : probes.cli(resolution.cli, resolution.source, resolution.model, 'managed')
+        : secrets?.length
+          ? probes.cli(resolution.cli, resolution.source, resolution.model, undefined, secrets)
+          : probes.cli(resolution.cli, resolution.source, resolution.model) };
     } catch (error) {
       const detail = error instanceof CliProbeError ? error.detail : undefined;
       outcome = { failure: detail ?? null };
