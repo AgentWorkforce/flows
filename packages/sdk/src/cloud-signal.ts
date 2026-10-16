@@ -1,0 +1,110 @@
+import { setTimeout as delay } from 'node:timers/promises';
+import { CloudFlowError, cloudFetch, cloudRunId, isCloudRecord, resolveCloudConnection,
+  transportError, type CloudConnectionOptions } from './cloud-http.js';
+
+const SIGNAL_NAME = /^[A-Za-z0-9_-]{1,80}$/u;
+const MAX_BYTES = 4 * 1024;
+const HELD_GET_MS = 25_000;
+const HOSTED_SIGNAL_READ_TOKEN_ENV = 'RELAYFLOW_V2_SIGNAL_READ_TOKEN';
+
+function signalPath(runId: string, name: string): string {
+  cloudRunId(runId);
+  if (!SIGNAL_NAME.test(name)) {
+    throw new CloudFlowError('invalid_input', 'Signal name must contain only letters, digits, underscores, or hyphens (1–80 characters).');
+  }
+  return `/api/v1/workflows/runs/${runId}/signals/${name}`;
+}
+
+/** Store a run-scoped completion. Retrying the same JSON payload is safe. */
+export async function postCloudSignal(
+  runId: string, name: string, payload: unknown, options: CloudConnectionOptions = {},
+): Promise<{ accepted: true; duplicate: boolean }> {
+  const path = signalPath(runId, name);
+  if (payload === undefined) throw new CloudFlowError('invalid_input', 'Signal payload must be present.');
+  let body: string;
+  try { body = JSON.stringify({ payload }); }
+  catch { throw new CloudFlowError('invalid_input', 'Signal payload must be JSON serializable.'); }
+  // JSON.stringify omits a function, symbol, or toJSON() result of undefined.
+  // This envelope has only one field, so {} means the payload was lost.
+  if (body === '{}') throw new CloudFlowError('invalid_input', 'Signal payload must be JSON serializable.');
+  if (new TextEncoder().encode(body).byteLength > MAX_BYTES) {
+    throw new CloudFlowError('invalid_input', 'Signal payload exceeds 4 KiB.');
+  }
+  const result = await cloudFetch(path, options, { method: 'POST', body, detail: true });
+  if (!isCloudRecord(result) || result.accepted !== true || typeof result.duplicate !== 'boolean') {
+    throw new CloudFlowError('invalid_response', 'Cloud returned an invalid signal receipt.');
+  }
+  return { accepted: true, duplicate: result.duplicate };
+}
+
+/**
+ * Wait on Cloud's held GET. A normally held 204 re-arms immediately. A fast
+ * 204 backs off so a proxy or broken server cannot turn this into a hot loop.
+ */
+export async function waitForCloudSignal(
+  runId: string, name: string, options: CloudConnectionOptions = {},
+): Promise<unknown> {
+  const path = signalPath(runId, name);
+  const requestTimeout = options.requestTimeoutMs ?? 30_000;
+  if (!Number.isSafeInteger(requestTimeout) || requestTimeout <= HELD_GET_MS) {
+    throw new CloudFlowError('invalid_input', 'Signal requestTimeoutMs must exceed 25 seconds.');
+  }
+  let fast204BackoffMs = 250;
+  for (;;) {
+    options.signal?.throwIfAborted();
+    let connection: { baseUrl: string; token: string };
+    try {
+      connection = await resolveCloudConnection(options);
+    } catch (error) {
+      // The hosted run's read-only credential is only a fallback for waits.
+      // Explicit Cloud credentials and stored logins retain precedence, and
+      // postCloudSignal never sees this token.
+      const hostedToken = process.env[HOSTED_SIGNAL_READ_TOKEN_ENV];
+      if (!(error instanceof CloudFlowError) || error.code !== 'configuration'
+        || error.reason !== 'auth_missing' || options.token !== undefined
+        || process.env['FLOWS_CLOUD_TOKEN'] !== undefined || hostedToken === undefined) throw error;
+      connection = await resolveCloudConnection({ ...options, token: hostedToken });
+    }
+    const { baseUrl, token } = connection;
+    const deadline = AbortSignal.timeout(requestTimeout);
+    const requestStartedAt = performance.now();
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}${path}?waitMs=${HELD_GET_MS}`, {
+        method: 'GET',
+        headers: { authorization: `Bearer ${token}` },
+        signal: options.signal ? AbortSignal.any([options.signal, deadline]) : deadline,
+        redirect: 'error',
+      });
+    } catch (error) {
+      options.signal?.throwIfAborted();
+      throw transportError(deadline.aborted ? deadline.reason : error);
+    }
+    if (response.status === 204) {
+      if (performance.now() - requestStartedAt < 1_000) {
+        try {
+          await delay(fast204BackoffMs, undefined, { signal: options.signal });
+        } catch (error) {
+          options.signal?.throwIfAborted();
+          throw error;
+        }
+        fast204BackoffMs = Math.min(fast204BackoffMs * 2, 5_000);
+      } else {
+        fast204BackoffMs = 250;
+      }
+      continue;
+    }
+    if (!response.ok) throw new CloudFlowError('http_error', `Cloud signal wait failed with HTTP ${response.status}.`, response.status);
+    let body: unknown;
+    try { body = await response.json(); }
+    catch (error) {
+      options.signal?.throwIfAborted();
+      if (!(error instanceof SyntaxError)) throw transportError(deadline.aborted ? deadline.reason : error);
+      throw new CloudFlowError('invalid_response', 'Cloud returned an invalid signal.');
+    }
+    if (!isCloudRecord(body) || !Object.hasOwn(body, 'payload') || typeof body.acceptedAt !== 'number') {
+      throw new CloudFlowError('invalid_response', 'Cloud returned an invalid signal.');
+    }
+    return body.payload;
+  }
+}
