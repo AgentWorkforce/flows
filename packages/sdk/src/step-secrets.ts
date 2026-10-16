@@ -50,9 +50,10 @@ const CLI_LOGIN: Record<CliAdapterKind, readonly string[]> = {
   'relayflows-wrapper-v1': [],
 };
 
-/** A selected CLI can use its own delivered model login without a step grant. */
+/** A selected CLI can use its own delivered login; Bedrock needs Cloud's marker. */
 export function isCliLoginName(kind: string, name: string): boolean {
-  return Object.hasOwn(CLI_LOGIN, kind) && CLI_LOGIN[kind as CliAdapterKind].includes(name);
+  return !BEDROCK_LOGIN.has(name) && Object.hasOwn(CLI_LOGIN, kind)
+    && CLI_LOGIN[kind as CliAdapterKind].includes(name);
 }
 
 export function deliveredNames(source: NodeJS.ProcessEnv): ReadonlySet<string> | undefined {

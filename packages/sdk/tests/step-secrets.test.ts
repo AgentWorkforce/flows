@@ -144,6 +144,47 @@ describe('per-step secret grants', () => {
     expect(agentProbeEnvironment(delivered, 'relayflows-wrapper-v1')).not.toHaveProperty('OPENAI_API_KEY');
   });
 
+  it('requires the trusted platform marker for delivered Bedrock credentials', () => {
+    const delivered = {
+      ANTHROPIC_API_KEY: 'claude-login', AWS_ACCESS_KEY_ID: 'user-app-key',
+      AWS_SECRET_ACCESS_KEY: 'user-app-secret', CLAUDE_CODE_USE_BEDROCK: '1',
+      RELAY_SECRET_ENV_NAMES: JSON.stringify([
+        'ANTHROPIC_API_KEY', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'CLAUDE_CODE_USE_BEDROCK',
+      ]),
+    };
+    for (const env of [
+      agentStepEnvironment(delivered, 'claude'),
+      agentProbeEnvironment(delivered, 'claude'),
+      agentEnvironment('claude', delivered),
+      agentEnvironment('claude', delivered, undefined, false),
+    ]) {
+      expect(env.ANTHROPIC_API_KEY).toBe('claude-login');
+      expect(env).not.toHaveProperty('AWS_ACCESS_KEY_ID');
+      expect(env).not.toHaveProperty('AWS_SECRET_ACCESS_KEY');
+      expect(env).not.toHaveProperty('CLAUDE_CODE_USE_BEDROCK');
+    }
+    for (const env of [
+      agentStepEnvironment(delivered, 'claude', ['AWS_ACCESS_KEY_ID']),
+      agentProbeEnvironment(delivered, 'claude', ['AWS_ACCESS_KEY_ID']),
+      agentEnvironment('claude', delivered, ['AWS_ACCESS_KEY_ID']),
+    ]) {
+      expect(env.AWS_ACCESS_KEY_ID).toBe('user-app-key');
+      expect(env).not.toHaveProperty('AWS_SECRET_ACCESS_KEY');
+    }
+    const selected = { ...delivered,
+      RELAY_PLATFORM_AGENT_ENV_NAMES: '["CLAUDE_CODE_USE_BEDROCK","AWS_ACCESS_KEY_ID","AWS_SECRET_ACCESS_KEY"]' };
+    for (const env of [
+      agentStepEnvironment(selected, 'claude'),
+      agentProbeEnvironment(selected, 'claude'),
+      agentEnvironment('claude', selected),
+      agentEnvironment('claude', selected, undefined, false),
+    ]) {
+      expect(env.AWS_ACCESS_KEY_ID).toBe('user-app-key');
+      expect(env.AWS_SECRET_ACCESS_KEY).toBe('user-app-secret');
+      expect(env.CLAUDE_CODE_USE_BEDROCK).toBe('1');
+    }
+  });
+
   it('refuses a spoofed platform agent marker', () => {
     expect(() => agentStepEnvironment({ ...source,
       RELAY_PLATFORM_AGENT_ENV_NAMES: '["GH_TOKEN"]' }, 'claude')).toThrow();
