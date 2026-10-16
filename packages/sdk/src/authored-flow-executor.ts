@@ -828,6 +828,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     // race a commit this one is still making.
     await memoryWrites.settle();
     try {
+      lowerDeterministic.stop(bodyFailure);
       worker.stop(bodyFailure);
       await stopAuthoredOperations(authoredSteps, bodyFailure);
       // A durable wait hands execution back to the control plane. Its
@@ -862,6 +863,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     // Same as a failed body: no learn may outlive the attempt that started it.
     await memoryWrites.settle();
     try {
+      lowerDeterministic.stop(missingCompletion);
       worker.stop(missingCompletion);
       await stopAuthoredOperations(authoredSteps, missingCompletion);
       await activities.closeAll('canceled');
@@ -881,6 +883,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     }
     await verifyAuthoredOperations(definition.name, authoredSteps, lifecycle);
   } catch (error) {
+    lowerDeterministic.stop(error);
     try {
       await activities.closeAll('canceled');
     } finally {

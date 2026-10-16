@@ -965,39 +965,38 @@ If a process-wide intrinsic replacement is unacceptable in your deployment, do
 not run authored TypeScript bodies in that process; the declarative YAML path
 does not install it.
 
-### `f.run` on the local daemon: one at a time, in the run's environment
+### `f.run` on the local daemon: concurrent children, in the run's environment
 
-Two properties of `f.run` on a local `relayflowd` surprise people. Both are how
-the current kernel works, not promises of the Surface.
+Two properties of `f.run` on a local `relayflowd` are useful to know.
 
-**Within one run, `f.run` steps run one after another.** `Promise.all` over two
-`f.run('sleep 2')` steps takes about 4s, not 2s. The SDK starts both steps at
-once, but the body talks to the daemon over a single connection. The daemon
-handles each connection's requests in order (`kernel/relayflowd/src/server.rs`),
-and the request that starts a deterministic step returns only after the
-command exits (`engine/drive.rs` → `exec_det.rs`). A declared `budget` also
-queues operations in order (`authored-budget.ts`). `Promise.all` stays correct
-authoring: results come back in declaration order, and the steps will overlap
-once the kernel dispatches in parallel.
+**Independent `f.run` steps overlap.** `Promise.all` over two
+`f.run('sleep 2')` steps takes about 2s of step time. Each deterministic child
+uses its own journal connection because the daemon handles requests on one
+connection in order and `run.start` returns only after its command exits. An
+authored body admits at most eight deterministic children at once; additional
+calls wait for a slot. A declared `budget` still queues these operations in
+order for exact accounting (`authored-budget.ts`). `Promise.all` returns results
+in declaration order. For durable authored runs, child identities come from
+the root run and step id, so replay or resume finds the same child even if
+peers finish in a different order. Each child has its own journal; the root's
+child index records completion facts as they arrive, and readers match them
+by step id and run id.
 
 What runs concurrently today:
 
 - `f.agent` and `f.llm` steps, up to `--agent-capacity`. They run in worker
   processes, not in the daemon's request path.
-- Separate `flows run` invocations. Each has its own connection to the daemon,
-  so their `f.run` steps overlap. For parallel shell work, start the lanes as
-  separate runs.
+- Separate `flows run` invocations. Their steps overlap as well.
 - Inside one step, a command that waits on its own background jobs, such as
   `f.run('a & b & wait')`. A single `f.run` cannot start a background job and
   return before it finishes: the step waits on the command's output pipes.
 
-`f.dispatch` children share their parent body's connection, so they are
-serialized too.
+`f.dispatch` child bodies use the same bounded parallel `f.run` path.
 
 **`f.run` gets the environment of the `flows run` that started the run,
 but the daemon's working directory.** Every `flows run` on a data dir attaches
 to the same `relayflowd`, which spawns the shell steps. The CLI sends its
-`process.env` with the run, and that run's steps are spawned with exactly
+`process.env` with each child run, and that run's steps are spawned with exactly
 that environment, plus `FLOWS_INPUT` and `RELAYFLOW_MEMORY`. Two runs on one
 daemon each see their own variables. `flows resume` sends the resuming CLI's
 environment, which replaces the run's from then on.

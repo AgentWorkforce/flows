@@ -19,7 +19,7 @@ import { authoredChildAdmissionKey } from './authored-admission.js';
 import { alsoRecord, recordAuthoredChild } from './authored-step-index.js';
 import type { StepFailedDetails } from './failure-kinds.js';
 import { LOCAL_AGENT_WORKSPACE } from './local-agent-pins.js';
-import { authoredWorkerSlots, type AuthoredWorkerSlots } from './worker-slots.js';
+import { authoredWorkerSlots, WorkerSlots, type AuthoredWorkerSlots } from './worker-slots.js';
 import { validateStepSecrets } from './step-secrets.js';
 
 const AGENT_TIMEOUT = Symbol('declared agent timeout');
@@ -358,6 +358,11 @@ export function authoredDeterministicRunner(
   context: AuthoredStepContext = {},
 ) {
   const rootRunId = context.rootRunId;
+  // run.start drives a deterministic child to completion before replying. The
+  // daemon reads one connection in order, so sharing the body's connection
+  // would serialize Promise.all. Each admitted child gets its own connection;
+  // this limit bounds both daemon threads and shell commands per authored body.
+  const slots = new WorkerSlots(8);
   // One lowering, two readers. `record` changes what the child run's verdict
   // MEANS, so the reader changes with it; everything before the read — spec,
   // admission key, budget, child index — is deliberately shared, because a
@@ -386,8 +391,9 @@ export function authoredDeterministicRunner(
       });
       return read(outcome);
     };
-    if (terminal) return journal.runStart(spec, undefined, admissionKey).then(consume);
-    return budget.execute(journal, spec, consume, admissionKey);
+    return slots.run(async () => terminal
+      ? consume(await journal.runStart(spec, undefined, admissionKey, false, true))
+      : budget.execute(journal, spec, consume, admissionKey, true));
   }
   const lowerRun = (id: string, command: string, terminal = false, leaseMs?: number, verification?: NamedGate,
     secrets?: string[]): Promise<string> =>
@@ -398,6 +404,7 @@ export function authoredDeterministicRunner(
     secrets?: string[]): Promise<RecordedRunOutcome> =>
     lower(id, command, false, leaseMs, verification, 'record', secrets,
       outcome => readRecordedOutcome(journal, outcome, id, journalSteps, context));
+  lowerRun.stop = (reason: unknown): void => slots.close(reason);
   return lowerRun;
 }
 
