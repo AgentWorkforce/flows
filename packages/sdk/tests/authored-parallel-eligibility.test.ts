@@ -171,4 +171,16 @@ describe('parallel run admission', () => {
       f.done('success');
     }`))).toBe(false);
   });
+
+  it('uses serial mode when the body names the injected certifier', () => {
+    for (const source of [
+      `const __certifyParallelBranch = async () => { await f.run('P'); };
+       const b = async () => { await f.run('B'); };
+       await Promise.all([__certifyParallelBranch(), b()]);`,
+      `const __certifyParallelBranch = await f.run('V');
+       const a = async () => { await f.run('A'); };
+       const b = async () => { await f.run('B'); };
+       await Promise.all([a(), b()]);`,
+    ]) expect(eligible(body(`async f => { ${source} f.done('success'); }`)), source).toBe(false);
+  });
 });

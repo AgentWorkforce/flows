@@ -1,6 +1,6 @@
 import ts from 'typescript';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
-import { parallelBodySyntaxEligible } from './authored-parallel-eligibility.js';
+import { parallelBodySyntaxEligible, unwrapParallelExpression } from './authored-parallel-eligibility.js';
 
 const functionSource = Function.prototype.toString;
 
@@ -43,13 +43,15 @@ export function instrumentParallelBody<T extends Function>(
       && node.expression.name.text === 'all' && node.arguments.length === 1) {
       const members = node.arguments[0];
       if (members && ts.isArrayLiteralExpression(members)) {
-        for (const member of members.elements) {
+        for (const outer of members.elements) {
+          if (!ts.isExpression(outer)) continue;
+          const member = unwrapParallelExpression(outer);
           if (!ts.isCallExpression(member) || member.arguments.length !== 0) continue;
           const named = ts.isIdentifier(member.expression) && branches.has(member.expression.text);
           const inline = ts.isParenthesizedExpression(member.expression)
             && ts.isArrowFunction(member.expression.expression);
-          if (named || inline) calls.push({ start: member.getStart(file) - prefix.length,
-            end: member.getEnd() - prefix.length });
+          if (named || inline) calls.push({ start: outer.getStart(file) - prefix.length,
+            end: outer.getEnd() - prefix.length });
         }
       }
     }

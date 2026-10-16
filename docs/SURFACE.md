@@ -957,9 +957,9 @@ concurrent flow closes.
 - *Behaviour:* the replacement delegates to the intrinsic and is specified to
   behave identically. A non-iterable argument is handed straight through, so
   `Promise.all(5)` and `Promise.all(null)` return the same rejected promises the
-  intrinsic returns; `name` and `length` match. If `Promise.all` has already been
-  replaced by something else, the flow refuses to start rather than fighting over
-  the intrinsic.
+  intrinsic returns; `name` and `length` match. A replacement after the observer
+  is installed violates the authored lifecycle contract. A process that starts
+  with a Promise preload uses the existing serial scheduler for new roots.
 
 If a process-wide intrinsic replacement is unacceptable in your deployment, do
 not run authored TypeScript bodies in that process; the declarative YAML path
@@ -984,7 +984,9 @@ their body's Promise binding cannot be certified from the entry file. Other
 imports also use serial mode because they may alter Promise before the body
 starts. The defining module must leave the intrinsic `Promise` and
 `globalThis.Promise` unshadowed; a module that binds either name uses serial
-mode. Generated arrays such as `Array.from` use serial mode. Branches may not
+mode. An authored process started with a `--import`, `--require`, or loader
+preload, or with an already replaced Promise intrinsic, also admits new roots
+in serial mode. Generated arrays such as `Array.from` use serial mode. Branches may not
 mutate shared values, await
 timers or other promises, or call `f.done`; completion belongs at the end of
 the root body. The check is conservative: an unrecognized source form uses

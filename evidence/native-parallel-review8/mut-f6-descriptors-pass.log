@@ -1,0 +1,9 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ✓ tests/authored-flow-lifecycle-executor.test.ts (45 tests | 44 skipped) 3ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 44 skipped (45)
+   Start at  00:52:07
+   Duration  1.26s (transform 468ms, setup 12ms, collect 1.01s, tests 3ms, environment 0ms, prepare 34ms)

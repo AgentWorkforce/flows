@@ -3,7 +3,7 @@ import type { Server } from 'node:net';
 import { flow, type Ctx, type FlowHandle, type Step } from '@relayflows/surface';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { executeAuthoredFlow, type ExecuteAuthoredFlowOptions } from '../src/authored-flow-executor.js';
-import { parallelPromiseIntrinsicsIntact } from '../src/authored-flow-lifecycle.js';
+import { AuthoredFlowLifecycle, parallelPromiseIntrinsicsIntact } from '../src/authored-flow-lifecycle.js';
 import { JournalClient } from '../src/journal-client.js';
 import {
   kernelDialectError,
@@ -49,7 +49,62 @@ describe('authored flow lifecycle through the journal executor', () => {
       target[name] = original;
       expect(detected, name).toBe(false);
     }
+    const constructor = Promise.prototype.constructor;
+    const constructorDescriptor = Object.getOwnPropertyDescriptor(Promise.prototype, 'constructor')!;
+    try {
+      Promise.prototype.constructor = class OtherPromise {} as unknown as PromiseConstructor;
+      expect(parallelPromiseIntrinsicsIntact(), 'prototype constructor').toBe(false);
+    } finally { Promise.prototype.constructor = constructor; }
+    try {
+      Object.defineProperty(Promise.prototype, 'constructor', {
+        ...constructorDescriptor, enumerable: !constructorDescriptor.enumerable,
+      });
+      expect(parallelPromiseIntrinsicsIntact(), 'prototype constructor descriptor').toBe(false);
+    } finally { Object.defineProperty(Promise.prototype, 'constructor', constructorDescriptor); }
+    const species = Object.getOwnPropertyDescriptor(Promise, Symbol.species)!;
+    try {
+      Object.defineProperty(Promise, Symbol.species, { configurable: true, get: () => Promise });
+      expect(parallelPromiseIntrinsicsIntact(), 'species getter').toBe(false);
+    } finally { Object.defineProperty(Promise, Symbol.species, species); }
+    try {
+      Object.defineProperty(Promise, Symbol.species, { ...species, enumerable: !species.enumerable });
+      expect(parallelPromiseIntrinsicsIntact(), 'species descriptor').toBe(false);
+    } finally { Object.defineProperty(Promise, Symbol.species, species); }
+    const toString = Function.prototype.toString;
+    try {
+      Function.prototype.toString = function () { return toString.call(this); };
+      expect(parallelPromiseIntrinsicsIntact(), 'function toString').toBe(false);
+    } finally { Function.prototype.toString = toString; }
+    const nodeOptions = process.env['NODE_OPTIONS'];
+    try {
+      process.env['NODE_OPTIONS'] = '--import=/tmp/preload.mjs';
+      expect(parallelPromiseIntrinsicsIntact(), 'NODE_OPTIONS preload').toBe(false);
+    } finally {
+      if (nodeOptions === undefined) delete process.env['NODE_OPTIONS'];
+      else process.env['NODE_OPTIONS'] = nodeOptions;
+    }
+    process.execArgv.push('--require', '/tmp/preload.cjs');
+    try { expect(parallelPromiseIntrinsicsIntact(), 'execArgv preload').toBe(false); }
+    finally { process.execArgv.splice(-2); }
     expect(parallelPromiseIntrinsicsIntact()).toBe(true);
+  });
+
+  it('refuses untracked thenables before invoking their user-supplied then', () => {
+    const violations: string[] = [];
+    const lifecycle = new AuthoredFlowLifecycle(message => violations.push(message));
+    let thenReads = 0;
+    const hiddenThenable = new Proxy({}, { get: (_target, name) => {
+      if (name === 'then') { thenReads++; return (resolve: (value: string) => void) => resolve('A'); }
+      return undefined;
+    } });
+    try {
+      expect(() => lifecycle.runBody(() => Promise.all([
+        hiddenThenable,
+        Promise.resolve('B'),
+      ]))).toThrow(/member with no tracked provenance/u);
+      expect(violations).toContain('parallel Promise.all contains a member with no tracked provenance');
+      expect(thenReads).toBe(0);
+    } finally { lifecycle.close(); }
   });
   let path: string;
   let server: Server;

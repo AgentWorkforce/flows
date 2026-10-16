@@ -1,6 +1,12 @@
 import ts from 'typescript';
 
 const functionSource = Function.prototype.toString;
+const reservedCertifier = '__certifyParallelBranch';
+
+/** Keep admission and call-site instrumentation in agreement on parentheses. */
+export function unwrapParallelExpression(node: ts.Expression): ts.Expression {
+  return ts.isParenthesizedExpression(node) ? unwrapParallelExpression(node.expression) : node;
+}
 
 /** A closed grammar for deterministic Promise.all branches. Unknown bodies stay serial. */
 export function parallelRunEligible(body: Function, moduleSource: string): boolean {
@@ -27,13 +33,21 @@ export function parallelBodySyntaxEligible(body: Function): boolean {
   if (parameter === undefined || !ts.isIdentifier(parameter) || expression.parameters.length !== 1) return false;
   const context = parameter.text;
   if (['Promise', 'globalThis', 'global'].includes(context)) return false;
+  // The instrumented body is re-evaluated with a private callback parameter.
+  // A lexical binding or reference with that spelling could capture it.
+  let namesCertifier = false;
+  const checkCertifierName = (node: ts.Node): void => {
+    if (ts.isIdentifier(node) && node.text === reservedCertifier) namesCertifier = true;
+    ts.forEachChild(node, checkCertifierName);
+  };
+  checkCertifierName(expression);
+  if (namesCertifier) return false;
   const branches = new Map<string, ts.ArrowFunction>();
   const rootValues = new Set<string>();
   let groups = 0;
   let runs = 0;
 
-  const unwrap = (node: ts.Expression): ts.Expression =>
-    ts.isParenthesizedExpression(node) ? unwrap(node.expression) : node;
+  const unwrap = unwrapParallelExpression;
   const method = (node: ts.Expression, owner: string, name: string): node is ts.CallExpression => {
     const value = unwrap(node);
     return ts.isCallExpression(value) && ts.isPropertyAccessExpression(value.expression)

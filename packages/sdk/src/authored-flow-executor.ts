@@ -290,7 +290,21 @@ export async function executeAuthoredFlow<Input = undefined>(
   const journalSteps: AuthoredFlowJournalStep[] = [];
   const authoredSteps: AuthoredFlowOperation<unknown>[] = [];
   const memoryWrites = new MemoryWriteTracker();
-  const lifecycle = new AuthoredFlowLifecycle();
+  let parallelViolation: AuthoredFlowExecutionError | undefined;
+  let closeParallelSlots: ((reason: unknown) => void) | undefined;
+  let signalParallelFailure: ((reason: unknown) => void) | undefined;
+  const parallelFailure = options.executionMode === 'parallel'
+    ? new Promise<never>((_resolve, reject) => { signalParallelFailure = reject; }) : undefined;
+  // A violation can occur synchronously before the body's promise is returned.
+  // Keep its rejection handled until the body is raced against it below.
+  void parallelFailure?.catch(() => {});
+  const markParallelViolation = (message: string): void => {
+    parallelViolation ??= new AuthoredFlowExecutionError('step_failed', message);
+    closeParallelSlots?.(parallelViolation);
+    signalParallelFailure?.(parallelViolation);
+  };
+  const lifecycle = new AuthoredFlowLifecycle(options.executionMode === 'parallel'
+    ? markParallelViolation : undefined);
   const activities = new AuthoredActivities(journal, options.rootRunId);
   const edgeOverrides = new Map<string, AuthoredStepEdges>();
   const stepEdges = (step: string): AuthoredStepEdges | undefined => {
@@ -305,13 +319,10 @@ export async function executeAuthoredFlow<Input = undefined>(
   let requestedCompletion: LoweredCompletionReason | undefined;
   let requestedDetail: string | undefined;
   let firstBodyTurn = true;
-  let parallelViolation: AuthoredFlowExecutionError | undefined;
-  let closeParallelSlots: ((reason: unknown) => void) | undefined;
   const qualify = (id: string): string => `${options.stepPrefix ?? ''}${id}`;
   const branchOrdinals = new Map<string, number>();
   const rejectParallel = (message: string): never => {
-    parallelViolation ??= new AuthoredFlowExecutionError('step_failed', message);
-    closeParallelSlots?.(parallelViolation);
+    markParallelViolation(message);
     throw parallelViolation;
   };
   const assertParallelRunOnly = (kind: string): void => {
@@ -867,7 +878,8 @@ export async function executeAuthoredFlow<Input = undefined>(
       ? instrumentParallelBody(definition.body, promise => lifecycle.certifyBranchPromise(promise))
       : definition.body;
     const bodyPromise = lifecycle.runBody(() => body(context, input as Input));
-    await bodyPromise;
+    if (parallelFailure === undefined) await bodyPromise;
+    else await Promise.race([bodyPromise, parallelFailure]);
   } catch (error) {
     bodyFailed = true;
     bodyFailure = error;

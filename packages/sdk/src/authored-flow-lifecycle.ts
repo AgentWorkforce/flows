@@ -22,6 +22,11 @@ const nativePromiseCatch = Promise.prototype.catch;
 const nativePromiseFinally = Promise.prototype.finally;
 const nativePromiseResolve = Promise.resolve;
 const nativePromiseReject = Promise.reject;
+const nativePromisePrototypeConstructorDescriptor = Object.getOwnPropertyDescriptor(Promise.prototype, 'constructor');
+const nativePromisePrototypeConstructor = Promise.prototype.constructor;
+const nativePromiseSpeciesDescriptor = Object.getOwnPropertyDescriptor(Promise, Symbol.species);
+const nativePromiseSpeciesGetter = nativePromiseSpeciesDescriptor?.get;
+const nativeFunctionToString = Function.prototype.toString;
 const activeLifecycle = new AsyncLocalStorage<AuthoredFlowLifecycle>();
 const stepOwners = new WeakMap<object, {
   lifecycle: AuthoredFlowLifecycle;
@@ -65,6 +70,28 @@ const nativeCombinators = Object.freeze(
   Object.fromEntries(COMBINATORS.map((name) => [name, Promise[name] as unknown as Combinator])),
 ) as Readonly<Record<CombinatorName, Combinator>>;
 
+const originallyNative = (value: unknown): boolean => typeof value === 'function'
+  && /\{\s*\[native code\]\s*\}/u.test(nativeFunctionToString.call(value));
+const nativeAtModuleLoad = [
+  nativePromiseConstructor, nativePromiseThen, nativePromiseCatch, nativePromiseFinally,
+  nativePromiseResolve, nativePromiseReject, nativePromisePrototypeConstructor,
+  nativePromiseSpeciesGetter, nativeFunctionToString, ...Object.values(nativeCombinators),
+].every(originallyNative);
+
+function sameDescriptor(actual: PropertyDescriptor | undefined, original: PropertyDescriptor | undefined): boolean {
+  return actual !== undefined && original !== undefined
+    && actual.configurable === original.configurable && actual.enumerable === original.enumerable
+    && actual.writable === original.writable && actual.value === original.value
+    && actual.get === original.get && actual.set === original.set;
+}
+
+/** Preloaded code can replace an intrinsic before this module takes its snapshot. */
+function authoredProcessHasPreload(): boolean {
+  const preload = /--(?:import|require|loader|experimental-loader)(?:=|\s|$)|-r(?:=|\s|\S)/u;
+  return process.execArgv.some(arg => preload.test(arg))
+    || preload.test(process.env['NODE_OPTIONS'] ?? '');
+}
+
 const observedCombinators: Record<CombinatorName, Combinator> = Object.fromEntries(
   COMBINATORS.map((name) => {
     const native = nativeCombinators[name];
@@ -88,7 +115,14 @@ let combinatorObservers = 0;
 
 /** An imported module must not substitute any primitive used to construct joins. */
 export function parallelPromiseIntrinsicsIntact(): boolean {
-  if (Promise !== nativePromiseConstructor || Promise.prototype !== nativePromisePrototype
+  if (!nativeAtModuleLoad || authoredProcessHasPreload()
+    || Function.prototype.toString !== nativeFunctionToString
+    || Promise !== nativePromiseConstructor || Promise.prototype !== nativePromisePrototype
+    || !sameDescriptor(Object.getOwnPropertyDescriptor(Promise.prototype, 'constructor'),
+      nativePromisePrototypeConstructorDescriptor)
+    || Promise.prototype.constructor !== nativePromisePrototypeConstructor
+    || !sameDescriptor(Object.getOwnPropertyDescriptor(Promise, Symbol.species), nativePromiseSpeciesDescriptor)
+    || Object.getOwnPropertyDescriptor(Promise, Symbol.species)?.get !== nativePromiseSpeciesGetter
     || Promise.prototype.then !== nativePromiseThen
     || Promise.prototype.catch !== nativePromiseCatch
     || Promise.prototype.finally !== nativePromiseFinally
@@ -150,7 +184,7 @@ export class AuthoredFlowLifecycle {
   private registrations = 0;
   private groupsByInvocation: { readonly key: string; readonly groups: Map<number, ReadonlySet<number>> } | undefined;
 
-  constructor() {
+  constructor(private readonly refuseUnknownThenable?: (message: string) => void) {
     this.graph = new AuthoredPromiseGraph(
       () => activeLifecycle.getStore() === this,
       (asyncId) => {
@@ -220,6 +254,19 @@ export class AuthoredFlowLifecycle {
     values: readonly unknown[],
     name: CombinatorName,
   ): Promise<unknown> {
+    // Check before the native combinator reads any unknown `then` getter. A
+    // member with no tracked promise id or owned step has no causal identity
+    // to expand on a later follow-up. This also covers proxy thenables whose
+    // `then` is synthesized by a get trap and has no property descriptor.
+    if (this.refuseUnknownThenable !== undefined) {
+      for (const value of values) {
+        if ((typeof value !== 'object' && typeof value !== 'function') || value === null) continue;
+        if (stepOwners.get(value)?.lifecycle === this || this.graph.idOf(value) !== undefined) continue;
+        const message = `parallel Promise.${name} contains a member with no tracked provenance`;
+        this.refuseUnknownThenable(message);
+        throw new AuthoredFlowExecutionError('step_failed', message);
+      }
+    }
     const { value, created } = this.graph.captureCombinator(() => native.call(constructor, values));
     this.registerCombinator(values, value, name, created);
     return value;

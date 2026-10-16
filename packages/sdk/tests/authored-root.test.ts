@@ -177,10 +177,13 @@ describe('durable authored root', () => {
   });
 
   it('pins a certified Promise.all run body to parallel mode before dispatch', async () => {
-    const loaded = await fixture(false, 0, async f => {
+    const body = async (f: Ctx) => {
       await Promise.all([f.run('printf a'), f.run('printf b')]);
       f.done('success');
-    });
+    };
+    const loaded = await fixture(false, 0, body);
+    await writeFile(loaded.sourcePath,
+      `import { flow } from '@relayflows/surface';\nexport default flow('flagship', ${Function.prototype.toString.call(body)});\n`);
     const journal = new RootJournal();
     journal.startStatus = outcome(journal.runId, 'completed', 'success');
     journal.entries = [completedEntry()];
@@ -189,6 +192,22 @@ describe('durable authored root', () => {
     const step = (journal.starts[0]!.spec as { steps: Array<{ instruction: string }> }).steps[0]!;
     expect(JSON.parse(step.instruction)).toMatchObject({
       kind: 'relayflows.authored-root.parallel.v2', identityVersion: 2, executionMode: 'parallel',
+    });
+  });
+
+  it('keeps a synthetic source unrelated to its in-memory body serial', async () => {
+    const loaded = await fixture(false, 0, async f => {
+      await Promise.all([f.run('printf a'), f.run('printf b')]);
+      f.done('success');
+    });
+    const journal = new RootJournal();
+    journal.startStatus = outcome(journal.runId, 'completed', 'success');
+    journal.entries = [completedEntry()];
+    await executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'synthetic-source' });
+    const step = (journal.starts[0]!.spec as { steps: Array<{ instruction: string }> }).steps[0]!;
+    expect(JSON.parse(step.instruction)).toMatchObject({
+      kind: 'relayflows.authored-root.v1', identityVersion: 2, executionMode: 'serial',
     });
   });
 

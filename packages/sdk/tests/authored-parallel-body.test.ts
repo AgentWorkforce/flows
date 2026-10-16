@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { instrumentParallelBody } from '../src/authored-parallel-body.js';
+import { parallelBodySyntaxEligible } from '../src/authored-parallel-eligibility.js';
 
 describe('certified authored parallel body', () => {
   it('records the exact branch-call promises before the join is awaited', async () => {
@@ -20,6 +21,39 @@ describe('certified authored parallel body', () => {
     expect(new Set(certified).size).toBe(2);
     await result;
     expect(commands).toEqual(['A', 'B', 'A2', 'B2']);
+  });
+
+  it('certifies every parenthesized branch member accepted by the grammar', async () => {
+    const body = new Function(`return (async f => {
+      const a = async () => { await f.run('A'); };
+      const b = async () => { await f.run('B'); };
+      await Promise.all([(a()), ((b())), (((async () => { await f.run('C'); })()))]);
+      f.done('success');
+    });`)() as (ctx: { run: (command: string) => Promise<string>; done: (reason: string) => void }) => Promise<void>;
+    expect(parallelBodySyntaxEligible(body)).toBe(true);
+    const certified: Promise<unknown>[] = [];
+    const commands: string[] = [];
+    const executable = instrumentParallelBody(body, promise => certified.push(promise));
+    await executable({ run: async command => { commands.push(command); return command; }, done: () => {} });
+    expect(certified).toHaveLength(3);
+    expect(new Set(certified).size).toBe(3);
+    expect(commands).toEqual(['A', 'B', 'C']);
+  });
+
+  it('rejects a body that could capture the certifier before any effect', () => {
+    for (const source of [
+      `const __certifyParallelBranch = async () => { await f.run('P'); };
+       const b = async () => { await f.run('B'); };
+       await Promise.all([__certifyParallelBranch(), b()]);`,
+      `const __certifyParallelBranch = await f.run('V');
+       const a = async () => { await f.run('A'); };
+       const b = async () => { await f.run('B'); };
+       await Promise.all([a(), b()]);`,
+    ]) {
+      const body = new Function(`return (async f => { ${source} f.done('success'); });`)() as Function;
+      expect(parallelBodySyntaxEligible(body), source).toBe(false);
+      expect(() => instrumentParallelBody(body, () => {}), source).toThrow(/lost its source certificate/u);
+    }
   });
 
   it('refuses an unsupported join before executing the body', () => {
