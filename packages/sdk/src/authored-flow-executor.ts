@@ -316,16 +316,19 @@ export async function executeAuthoredFlow<Input = undefined>(
       throw new AuthoredFlowExecutionError('step_failed',
         'cannot assign a replay-stable f.run identity: its causal predecessor graph is truncated');
     }
-    const parent = predecessors.steps.length === 1 ? predecessors.steps[0] : undefined;
-    const inBranch = parent !== undefined && parallelRoots.has(parent);
     const signature = JSON.stringify([...predecessors.steps].sort());
+    // A continuation after Promise.all has several predecessors. It belongs to
+    // the same concurrent region as its members, and a global sequence number
+    // would change when another branch wins a completion race. Keep the whole
+    // sorted frontier as the replay identity, including at joins.
+    const inBranch = predecessors.steps.some(step => parallelRoots.has(step));
     const siblings = authoredSteps.filter(operation => operation.verb === 'run'
       && (operation.lifecycle === 'created' || operation.lifecycle === 'running')
       && runPredecessors.get(operation.id) === signature);
     const id = inBranch
-      ? qualify(`run-after-${createHash('sha256').update(parent).digest('hex')}-${(branchOrdinals.get(parent) ?? 0) + 1}`)
+      ? qualify(`run-after-${createHash('sha256').update(signature).digest('hex')}-${(branchOrdinals.get(signature) ?? 0) + 1}`)
       : qualify(`run-${sequence}`);
-    if (inBranch) branchOrdinals.set(parent, (branchOrdinals.get(parent) ?? 0) + 1);
+    if (inBranch) branchOrdinals.set(signature, (branchOrdinals.get(signature) ?? 0) + 1);
     if (inBranch || siblings.length > 0) {
       parallelRoots.add(id);
       for (const sibling of siblings) parallelRoots.add(sibling.id);

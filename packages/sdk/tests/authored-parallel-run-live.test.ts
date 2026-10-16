@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AUTHORED_STEP_STREAM } from '../src/authored-step-index.js';
 import { JournalClient } from '../src/journal-client.js';
@@ -307,4 +308,83 @@ export default flow('parallel-branch-recovery', async f => {
     expect(resumed.status, resumed.stderr + resumed.stdout).toBe(0);
     expect([...readFileSync(`${fixture.root}/branch-effects`, 'utf8')].sort()).toEqual(['!', 'L', 'R', 'l', 'r']);
   }, 120_000);
+
+  it.each([
+    {
+      name: 'two branches that each join two runs',
+      branches: `
+  const left = async () => {
+    await Promise.all([f.run('sleep 1; printf left-a'), f.run('printf left-b')]);
+    await f.run('printf L >> effects; printf left-effect');
+  };
+  const right = async () => {
+    await Promise.all([f.run('printf right-a'), f.run('sleep 1; printf right-b')]);
+    await f.run('printf R >> effects; printf right-effect');
+  };`,
+    },
+    {
+      name: 'a chain beside a branch with a join',
+      branches: `
+  const left = async () => {
+    await f.run('sleep 1; printf left-a');
+    await f.run('printf left-b');
+    await f.run('printf L >> effects; printf left-effect');
+  };
+  const right = async () => {
+    await Promise.all([f.run('printf right-a'), f.run('sleep 1; printf right-b')]);
+    await f.run('printf R >> effects; printf right-effect');
+  };`,
+    },
+  ])('does not replay a completed effect after a crash: $name', async ({ branches }) => {
+    const fixture = chainFixture();
+    closes.push(() => fixture.close());
+    writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
+export default flow('parallel-join-recovery', async f => {${branches}
+  await Promise.all([left(), right()]);
+  await f.run('test -f stalled || { touch stalled; sleep 120; }; printf resumed', { timeout: '5m' });
+  f.done('success');
+});
+`);
+    const cli = fixture.invokeAsync('run', '--no-observer-link', '--json', '--data-dir', fixture.data,
+      fixture.flowPath, '--input', '{}');
+    const cliExited = new Promise<void>(resolve => cli.once('exit', () => resolve()));
+    await until(() => existsSync(`${fixture.root}/stalled`) ? true : undefined, 'join recovery stall');
+    expect([...readFileSync(`${fixture.root}/effects`, 'utf8')].sort()).toEqual(['L', 'R']);
+    const rootRunId = runIds(fixture.data)[0]!;
+    cli.kill('SIGKILL');
+    await cliExited;
+    killDaemon(fixture.data);
+    const resumed = fixture.invoke('resume', '--no-observer-link', '--json', '--data-dir', fixture.data, rootRunId);
+    expect(resumed.status, resumed.stderr + resumed.stdout).toBe(0);
+    expect([...readFileSync(`${fixture.root}/effects`, 'utf8')].sort()).toEqual(['L', 'R']);
+  }, 120_000);
+
+  it.skipIf(process.env.RELAYFLOWS_PREVIOUS_CLI === undefined)(
+    'resumes a sequential 2.0.50 run without replaying completed effects', async () => {
+      const fixture = chainFixture();
+      closes.push(() => fixture.close());
+      writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
+export default flow('legacy-sequential-resume', async f => {
+  await f.run('printf A >> effects');
+  await f.run('printf B >> effects');
+  await f.run('test -f stalled || { touch stalled; sleep 120; }; printf ready', { timeout: '5m' });
+  await f.run('printf D >> effects');
+  f.done('success');
+});
+`);
+      const cli = spawn(process.execPath, [process.env.RELAYFLOWS_PREVIOUS_CLI!, 'run',
+        '--no-observer-link', '--json', '--data-dir', fixture.data, fixture.flowPath, '--input', '{}'],
+      { cwd: fixture.root, stdio: 'pipe', env: { ...process.env, RELAYFLOWD_BIN: fixture.binary } });
+      const cliExited = new Promise<void>(resolve => cli.once('exit', () => resolve()));
+      await until(() => existsSync(`${fixture.root}/stalled`) ? true : undefined, 'legacy run stall');
+      expect(readFileSync(`${fixture.root}/effects`, 'utf8')).toBe('AB');
+      const rootRunId = runIds(fixture.data)[0]!;
+      cli.kill('SIGKILL');
+      await cliExited;
+      killDaemon(fixture.data);
+      const resumed = fixture.invoke('resume', '--no-observer-link', '--json', '--data-dir', fixture.data, rootRunId);
+      expect(resumed.status, resumed.stderr + resumed.stdout).toBe(0);
+      expect(readFileSync(`${fixture.root}/effects`, 'utf8')).toBe('ABD');
+    }, 120_000,
+  );
 });
