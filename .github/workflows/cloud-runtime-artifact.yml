@@ -191,8 +191,13 @@ jobs:
           npm run typecheck
           npm run build
           npm run typecheck:tests
+          # npm pack in this test invokes prepare and rewrites SDK dist even
+          # with --ignore-scripts. Run it after the built-CLI readers so every
+          # test still gates without a concurrent partial rebuild.
           RELAYFLOWD_BIN="$GITHUB_WORKSPACE/kernel/target/release/relayflowd" \
-            ./node_modules/.bin/vitest run
+            ./node_modules/.bin/vitest run --exclude tests/cli-package-gate.test.ts
+          RELAYFLOWD_BIN="$GITHUB_WORKSPACE/kernel/target/release/relayflowd" \
+            ./node_modules/.bin/vitest run tests/cli-package-gate.test.ts
 
       - name: Build standalone flows CLI
         run: |
