@@ -492,8 +492,8 @@ function findConfig(start: string): string | undefined {
 function systemProbes(flowDirectory: string, config: ProjectConfig, environment?: NodeJS.ProcessEnv): PreflightProbes {
   return {
     helper: helperReady,
-    cli: (cli, source, model, execution) => probeCli(cli,
-      source === 'project' ? config.directory : flowDirectory, model, execution, environment),
+    cli: (cli, source, model, execution, secrets) => probeCli(cli,
+      source === 'project' ? config.directory : flowDirectory, model, execution, environment, secrets),
     executor: (trigger) => config.executors.includes(trigger.executor),
     // A deterministic step runs in the daemon's working directory — the
     // directory `flows run` was invoked from, or Cloud's code mount — not in
@@ -521,7 +521,7 @@ function bindResolvedCliPaths(
       if (resolution === undefined) return step;
       const directory = resolution.source === 'project' ? configDirectory : flowDirectory;
       const managed = step.type === 'agent' && communicationInstruction(step.instruction) !== undefined;
-      const outcome = probeCache.get(cliProbeKey(resolution, managed));
+      const outcome = probeCache.get(cliProbeKey(resolution, managed, step.secrets));
       const executable = outcome !== undefined && 'result' in outcome
         ? outcome.result.executable
         : undefined;

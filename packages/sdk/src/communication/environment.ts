@@ -44,13 +44,12 @@ export function agentEnvironment(cli: string, source: NodeJS.ProcessEnv = proces
   const cliName = basename(cli).replace(/\.exe$/i, '');
   const credentials = { ...selected(source, providerNames[cliName] ?? []),
     ...selected(source, [...repositoryEnvironmentNames(source), ...networkNames]) };
-  if (!scopeSecrets) {
-    if (grants?.length) throw new Error('per-step secret grants require a daemon with step_secret_scoping support');
-    return { ...Object.fromEntries(relayNames.map(name => [name, ''])), ...credentials } as Record<string, string>;
+  if (!scopeSecrets && grants?.length) {
+    throw new Error('per-step secret grants require a daemon with step_secret_scoping support');
   }
   const names = deliveredNames(source);
   const platform = platformAgentNames(source, cliName);
-  const allowed = validateStepSecrets(grants, source);
+  const allowed = scopeSecrets ? validateStepSecrets(grants, source) : [];
   if (allowed.some(name => relayNames.includes(name))) {
     throw new Error('Relay broker credentials cannot be granted to a communication agent');
   }

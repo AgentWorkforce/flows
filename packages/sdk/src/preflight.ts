@@ -91,7 +91,7 @@ export interface PreflightProbes {
    * model in scope, so readiness answers "can this CLI use THIS model" rather
    * than the weaker "is this CLI authenticated at all".
    */
-  cli(cli: string, source: CliResolutionSource, model?: string, execution?: 'managed'): CliProbeResult;
+  cli(cli: string, source: CliResolutionSource, model?: string, execution?: 'managed', secrets?: string[]): CliProbeResult;
   executor(trigger: TriggerSpec): boolean;
   command(binary: string): boolean;
 }
@@ -340,7 +340,7 @@ function preflightSync(flow: unknown, options: PreflightOptions): PreflightResul
     }
     const resolution = resolutionByStep.get(step.id)!;
     probeResolvedCli(resolution, options.probes, cliProbeResults, diagnostics,
-      step.type === 'agent' && communicationInstruction(step.instruction) !== undefined);
+      step.type === 'agent' && communicationInstruction(step.instruction) !== undefined, step.secrets);
   }
 
   for (const trigger of compiled.triggers ?? []) {
@@ -529,8 +529,9 @@ function resolveCli(
   return undefined;
 }
 
-export function cliProbeKey(resolution: CliResolution, managed = false): string {
-  return JSON.stringify([resolution.cli, resolution.source, resolution.model ?? null, managed]);
+export function cliProbeKey(resolution: CliResolution, managed = false, secrets?: readonly string[]): string {
+  return JSON.stringify([resolution.cli, resolution.source, resolution.model ?? null, managed,
+    ...(secrets?.length ? [[...secrets].sort()] : [])]);
 }
 
 function probeResolvedCli(
@@ -539,6 +540,7 @@ function probeResolvedCli(
   cache: Map<string, CliProbeOutcome>,
   diagnostics: PreflightDiagnostic[],
   managed = false,
+  secrets?: string[],
 ): void {
   // Source is load-bearing: the same relative CLI string resolves from the
   // flow directory for step/named/flow declarations and the config directory for
@@ -546,13 +548,13 @@ function probeResolvedCli(
   // Model is part of the key: the same CLI probed with two different models
   // is two different questions, and caching on the CLI alone would let a
   // model that the CLI cannot resolve inherit an earlier model's pass.
-  const cacheKey = cliProbeKey(resolution, managed);
+  const cacheKey = cliProbeKey(resolution, managed, secrets);
   let outcome = cache.get(cacheKey);
   if (outcome === undefined) {
     try {
       outcome = { result: managed
-        ? probes.cli(resolution.cli, resolution.source, resolution.model, 'managed')
-        : probes.cli(resolution.cli, resolution.source, resolution.model) };
+        ? probes.cli(resolution.cli, resolution.source, resolution.model, 'managed', secrets)
+        : probes.cli(resolution.cli, resolution.source, resolution.model, undefined, secrets) };
     } catch (error) {
       const detail = error instanceof CliProbeError ? error.detail : undefined;
       outcome = { failure: detail ?? null };

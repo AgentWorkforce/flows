@@ -72,6 +72,45 @@ it('keeps plain runs with delivered secrets working on an older daemon', async (
   }
 });
 
+it('removes withheld delivered names from the manifest and refuses their grants at admission', async () => {
+  const path = sockPath();
+  const received: Record<string, unknown>[] = [];
+  const server = startLoopback(path, {
+    hello: ctx => sendResult(ctx, { protocol: 0, server: 'relayflowd',
+      features: ['step_env', 'step_secret_scoping'], det_withheld: ['HIDDEN_SECRET'] }),
+    'run.start': (ctx, params) => { received.push(params); sendResult(ctx, { run_id: 'run-01', status: 'completed' }); },
+    'run.resume': (ctx, params) => { received.push(params); sendResult(ctx, { run_id: 'run-01', status: 'completed' }); },
+  });
+  const client = new JournalClient(path);
+  const saved = { ...process.env };
+  Object.assign(process.env, {
+    HIDDEN_SECRET: 'withheld-value', VISIBLE_SECRET: 'visible-value',
+    RELAY_SECRET_ENV_NAMES: '["HIDDEN_SECRET","VISIBLE_SECRET"]',
+  });
+  try {
+    await client.connect();
+    await client.hello('withheld-delivered');
+    await client.runStart(HELLO_SPEC);
+    await client.runResume('run-01');
+    expect(received).toHaveLength(2);
+    for (const params of received) {
+      const env = params['env'] as Record<string, string>;
+      expect(env).not.toHaveProperty('HIDDEN_SECRET');
+      expect(env.RELAY_SECRET_ENV_NAMES).toBe('["VISIBLE_SECRET"]');
+    }
+    const granted = { ...HELLO_SPEC,
+      steps: HELLO_SPEC.steps.map(step => ({ ...step, secrets: ['HIDDEN_SECRET'] })) };
+    expect(() => client.runStart(granted)).toThrow('withheld by the daemon');
+    expect(received).toHaveLength(2);
+  } finally {
+    for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
+    Object.assign(process.env, saved);
+    client.close();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    rmSync(path, { force: true });
+  }
+});
+
 it('never forwards CLI-only signal or model-login metadata on run.start or run.resume', async () => {
   const path = sockPath();
   const received: Record<string, unknown>[] = [];

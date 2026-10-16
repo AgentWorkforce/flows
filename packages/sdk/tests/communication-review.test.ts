@@ -67,10 +67,32 @@ it('communication agents drop delivered secrets by default on a scoped runtime',
   expect(granted.NATIVE_API_TOKEN).toBe('delivered-native-key');
   expect(granted).not.toHaveProperty('ANTHROPIC_API_KEY');
   expect(granted.RELAY_API_KEY).toBe('');
-  expect(agentEnvironment('claude', source, undefined, false).ANTHROPIC_API_KEY).toBe('delivered-provider-key');
+  expect(agentEnvironment('claude', source, undefined, false)).not.toHaveProperty('ANTHROPIC_API_KEY');
   expect(() => agentEnvironment('claude', {
     ...source, RELAY_SECRET_ENV_NAMES: JSON.stringify(['RELAY_API_KEY']),
   }, ['RELAY_API_KEY'])).toThrow('Relay broker credentials');
+});
+
+it('legacy communication agents still strip delivered repository names', () => {
+  const source = {
+    GH_TOKEN: 'user-github-secret', GITLAB_TOKEN: 'user-gitlab-secret',
+    GIT_CONFIG_KEY_1: 'user-git-secret', HTTPS_PROXY: 'user-proxy-secret',
+    GH_CONFIG_DIR: '/trusted/gh',
+    CLAUDE_CODE_USE_BEDROCK: '1', AWS_BEARER_TOKEN_BEDROCK: 'selected-bedrock-login',
+    RELAY_SECRET_ENV_NAMES: JSON.stringify([
+      'GH_TOKEN', 'GITLAB_TOKEN', 'GIT_CONFIG_KEY_1', 'HTTPS_PROXY',
+      'CLAUDE_CODE_USE_BEDROCK', 'AWS_BEARER_TOKEN_BEDROCK',
+    ]),
+    RELAY_PLATFORM_AGENT_ENV_NAMES: JSON.stringify([
+      'CLAUDE_CODE_USE_BEDROCK', 'AWS_BEARER_TOKEN_BEDROCK',
+    ]),
+  };
+  const env = agentEnvironment('claude', source, undefined, false);
+  for (const name of ['GH_TOKEN', 'GITLAB_TOKEN', 'GIT_CONFIG_KEY_1', 'HTTPS_PROXY']) {
+    expect(env).not.toHaveProperty(name);
+  }
+  expect(env).toMatchObject({ GH_CONFIG_DIR: '/trusted/gh',
+    CLAUDE_CODE_USE_BEDROCK: '1', AWS_BEARER_TOKEN_BEDROCK: 'selected-bedrock-login' });
 });
 
 it('communication Claude keeps trusted Bedrock and repository setup without user secrets', () => {

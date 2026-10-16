@@ -57,4 +57,13 @@ describe('bundle execution preflight', () => {
       severity: 'warning', kind: 'command_unresolved',
     }));
   });
+
+  it('reloads a grant-bearing canonical bundle without dropping its secret names', async () => {
+    const f = await setup();
+    await writeFile(join(f.root, 'scoped.yaml'), 'version: 0.1.0\nname: scoped\nsteps:\n  - id: run\n    type: deterministic\n    command: "true"\n    secrets: [NATIVE_API_TOKEN]\n');
+    const bundle = await buildFlow(join(f.root, 'scoped.yaml'), join(f.root, 'dist/flows'), () => {});
+    const checked = await checkRunnableBundle(bundle, 'scoped');
+    expect(checked.report.ok).toBe(true);
+    expect(checked.flow?.steps[0]?.secrets).toEqual(['NATIVE_API_TOKEN']);
+  });
 });

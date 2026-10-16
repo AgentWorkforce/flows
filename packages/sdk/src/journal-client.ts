@@ -25,7 +25,8 @@ import {
   type StepUsage,
 } from './protocol.js';
 import type { KernelRunSpec, StepType } from './spec.js';
-import { PLATFORM_AGENT_ENV_NAMES, SIGNAL_READ_TOKEN_ENV, validateStepSecrets } from './step-secrets.js';
+import { PLATFORM_AGENT_ENV_NAMES, SECRET_ENV_NAMES, SIGNAL_READ_TOKEN_ENV,
+  deliveredNames, validateStepSecrets } from './step-secrets.js';
 
 export interface JournalClientOptions {
   /** Opt-in total budget for read-only requests; interactive clients stay single-shot. */
@@ -135,7 +136,13 @@ export class JournalClient extends JournalConnection {
     admissionKey?: string,
     watch = false,
   ): Promise<VerbContract['run.start']['result']> {
-    for (const step of spec.steps) validateStepSecrets(step.secrets, process.env);
+    for (const step of spec.steps) {
+      for (const name of validateStepSecrets(step.secrets, process.env)) {
+        if (this.withheld.has(name)) {
+          throw new Error(`step secret ${JSON.stringify(name)} is withheld by the daemon`);
+        }
+      }
+    }
     if (!this.features.has('step_secret_scoping') && spec.steps.some(step => step.secrets?.length)) {
       throw new Error('per-step secret grants require a daemon with step_secret_scoping support');
     }
@@ -172,9 +179,16 @@ export class JournalClient extends JournalConnection {
       return {};
     }
     const env: Record<string, string> = {};
+    const delivered = deliveredNames(process.env);
+    if (delivered !== undefined && this.withheld.has(SECRET_ENV_NAMES)) {
+      throw new Error(`${SECRET_ENV_NAMES} is withheld by the daemon; delivered secrets cannot be scoped`);
+    }
     for (const [key, value] of Object.entries(process.env)) {
       if (value !== undefined && key !== SIGNAL_READ_TOKEN_ENV && key !== PLATFORM_AGENT_ENV_NAMES
-        && !this.withheld.has(key)) env[key] = value;
+        && !this.withheld.has(key)) {
+        env[key] = key === SECRET_ENV_NAMES && delivered !== undefined
+          ? JSON.stringify([...delivered].filter(name => !this.withheld.has(name))) : value;
+      }
     }
     return { env };
   }

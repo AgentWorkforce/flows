@@ -291,6 +291,25 @@ mod tests {
     }
 
     #[test]
+    fn a_shell_step_accepts_a_manifest_after_withheld_names_are_removed() {
+        let env = crate::step_env::StepEnv::from(BTreeMap::from([
+            ("PATH".into(), "/bin:/usr/bin".into()),
+            ("VISIBLE_SECRET".into(), "visible-value".into()),
+            (
+                "RELAY_SECRET_ENV_NAMES".into(),
+                "[\"VISIBLE_SECRET\"]".into(),
+            ),
+        ]));
+        let step: StepSpec = serde_json::from_value(json!({
+            "id": "plain", "type": "deterministic", "command": "true"
+        }))
+        .unwrap();
+        let result = execute_placed_with_input(&step, None, None, None, Some(&env), None);
+        assert_eq!(result.output["exit_code"], 0);
+        assert_eq!(result.failure_reason, None);
+    }
+
+    #[test]
     fn captures_deterministic_output() {
         let step: StepSpec = serde_json::from_value(json!({
             "id": "hello", "type": "deterministic", "command": ["/bin/sh", "-c", "printf hello"]

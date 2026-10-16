@@ -115,3 +115,22 @@ export function agentStepEnvironment(
   for (const name of grants) env[name] = source[name];
   return env;
 }
+
+/** Provider readiness probes run before worker attach, but obey the step's grants. */
+export function agentProbeEnvironment(
+  source: NodeJS.ProcessEnv,
+  kind: CliAdapterKind,
+  declaration?: unknown,
+): NodeJS.ProcessEnv {
+  const env = { ...source };
+  const allowed = new Set(validateStepSecrets(declaration, source));
+  const platform = platformAgentNames(source, kind);
+  for (const name of deliveredNames(source) ?? []) {
+    if (!allowed.has(name) && !platform.has(name)) delete env[name];
+  }
+  delete env[SECRET_ENV_NAMES];
+  delete env[PLATFORM_AGENT_ENV_NAMES];
+  delete env[SIGNAL_READ_TOKEN_ENV];
+  delete env.RELAY_AGENT_TOKEN;
+  return env;
+}
