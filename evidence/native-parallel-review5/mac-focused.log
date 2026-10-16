@@ -1,0 +1,59 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ✓ tests/authored-parallel-eligibility.test.ts (7 tests) 19ms
+ ✓ tests/journal-client-step-env.test.ts (8 tests) 10ms
+ ✓ tests/authored-flow-lifecycle-executor.test.ts (34 tests) 540ms
+ ✓ tests/authored-step-secrets-live.test.ts (2 tests) 1547ms
+   ✓ an authored shell child sees a delivered token only when its own f.run grants it 871ms
+   ✓ parallel authored shell children keep their own secret grants 675ms
+stdout | tests/authored-parallel-run-live.test.ts > parallel authored deterministic steps > overlaps two sleep 2 commands started in Promise.all
+parallel sleep 2 elapsed: 2002 ms
+
+stdout | tests/authored-parallel-run-live.test.ts > parallel authored deterministic steps > starts a fast branch dependent before a slow sibling completes
+fast dependent started after: 1064 ms
+
+ ✓ tests/authored-parallel-run-live.test.ts (37 tests) 186214ms
+   ✓ parallel authored deterministic steps > overlaps two sleep 2 commands started in Promise.all 2915ms
+   ✓ parallel authored deterministic steps > starts a fast branch dependent before a slow sibling completes 3661ms
+   ✓ parallel authored deterministic steps > keeps declaration order when the later child finishes first 2661ms
+   ✓ parallel authored deterministic steps > admits at most eight deterministic children at once 2066ms
+   ✓ parallel authored deterministic steps > does not admit a queued child after a sibling fails 2293ms
+   ✓ parallel authored deterministic steps > replays a completed peer and resumes an unfinished peer after a crash 2435ms
+   ✓ parallel authored deterministic steps > replays follow-up steps in parallel branches after a crash 3431ms
+   ✓ parallel authored deterministic steps > does not replay a completed effect after a crash: 'two branches that each join two runs' 2386ms
+   ✓ parallel authored deterministic steps > does not replay a completed effect after a crash: 'a chain beside a branch with a join' 2444ms
+   ✓ parallel authored deterministic steps > resumes a sequential 2.0.50 run without replaying completed effects 1661ms
+   ✓ parallel authored deterministic steps > refuses a parallel v2 root under 2.0.50 and lets the new CLI resume it 1467ms
+   ✓ parallel authored deterministic steps > keeps a 'race' flow running on serial fallback without replay 2296ms
+   ✓ parallel authored deterministic steps > keeps a 'any' flow running on serial fallback without replay 2293ms
+   ✓ parallel authored deterministic steps > keeps a 'eager' flow running on serial fallback without replay 2068ms
+   ✓ parallel authored deterministic steps > resumes 'llm' branches without replaying completed effects 2246ms
+   ✓ parallel authored deterministic steps > resumes 'agent' branches without replaying completed effects 2083ms
+   ✓ parallel authored deterministic steps > resumes 'dispatch' branches without replaying completed effects 1901ms
+   ✓ parallel authored deterministic steps > resumes 2.0.50 consecutive Promise.all groups after run-4 without replay 1241ms
+   ✓ parallel authored deterministic steps > resumes 2.0.50 consecutive Promise.all groups after run-5 without replay 1339ms
+   ✓ parallel authored deterministic steps > keeps 'closure-shared readiness' serial and replays no completed effect 7972ms
+   ✓ parallel authored deterministic steps > keeps 'shared completion-order array' serial and replays no completed effect 7749ms
+   ✓ parallel authored deterministic steps > keeps 'deep non-step joins with a swallowed …' serial and replays no completed effect 8198ms
+   ✓ parallel authored deterministic steps > keeps done inside a branch on the established serial scheduler 8470ms
+   ✓ parallel authored deterministic steps > retains the base failure when a branch completes before its sibling continues 6649ms
+   ✓ parallel authored deterministic steps > keeps an arguments-alias LLM body serial across six resumes 12255ms
+   ✓ parallel authored deterministic steps > keeps 'bound module Promise' serial without replay across six resumes 10485ms
+   ✓ parallel authored deterministic steps > keeps 'hand-written module Promise' serial without replay across six resumes 9280ms
+   ✓ parallel authored deterministic steps > keeps 'module Promise class' serial without replay across six resumes 8950ms
+   ✓ parallel authored deterministic steps > keeps 'module Promise Native branches' serial without replay across six resumes 9834ms
+   ✓ parallel authored deterministic steps > keeps 'imported Bluebird Promise Native bran…' serial without replay across six resumes 9759ms
+   ✓ parallel authored deterministic steps > keeps 'empty async branches' serial without replay across six resumes 7014ms
+   ✓ parallel authored deterministic steps > keeps a Bluebird group of direct f.run calls serial across six resumes 7724ms
+   ✓ parallel authored deterministic steps > does not replay a completed effect after 'imported timer helper' reorder 12408ms
+   ✓ parallel authored deterministic steps > does not replay a completed effect after 'for-await timer' reorder 11365ms
+   ✓ parallel authored deterministic steps > resumes 2.0.50 A1 nested joins without replay 2517ms
+   ✓ parallel authored deterministic steps > resumes 2.0.50 B1 chain beside join without replay 1350ms
+   ✓ parallel authored deterministic steps > resumes 2.0.50 N2 independent dependents without replay 1349ms
+
+ Test Files  5 passed (5)
+      Tests  88 passed (88)
+   Start at  20:15:47
+   Duration  187.19s (transform 559ms, setup 64ms, collect 2.75s, tests 188.33s, environment 0ms, prepare 197ms)
+

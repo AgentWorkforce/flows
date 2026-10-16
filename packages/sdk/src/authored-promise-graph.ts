@@ -30,6 +30,8 @@ export class AuthoredPromiseGraph {
   private readonly triggers = new Map<number, number>();
   private readonly creationContexts = new Map<number, number>();
   private readonly resolutionCauses = new Map<number, number>();
+  /** Promises attributed only when another promise's reaction resolved them. */
+  private readonly adoptedFromResolvingContext = new Set<number>();
   private readonly promiseIds = new WeakMap<object, number>();
   private readonly handles = new Map<number, Promise<unknown>>();
   private readonly unattributedChildren = new Map<number, number[]>();
@@ -77,6 +79,7 @@ export class AuthoredPromiseGraph {
         // success. Measured; see ops/probes/pr134-repair-0903/combinators.mjs.
         const adopted = this.attributedRoots.get(cause);
         if (adopted !== undefined) {
+          this.adoptedFromResolvingContext.add(asyncId);
           this.attribute(asyncId, adopted);
           return;
         }
@@ -145,6 +148,10 @@ export class AuthoredPromiseGraph {
     return causes;
   }
 
+  wasAdoptedFromResolvingContext(asyncId: number): boolean {
+    return this.adoptedFromResolvingContext.has(asyncId);
+  }
+
   dependsOn(descendant: number, ancestor: number): boolean {
     return this.dependenciesOf(descendant).has(ancestor);
   }
@@ -167,6 +174,7 @@ export class AuthoredPromiseGraph {
     this.triggers.clear();
     this.creationContexts.clear();
     this.resolutionCauses.clear();
+    this.adoptedFromResolvingContext.clear();
     this.handles.clear();
     this.unattributedChildren.clear();
     this.attributedRoots.clear();

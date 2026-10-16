@@ -792,6 +792,120 @@ export default flow('serial-hidden-llm', async function (f) {
   }, 240_000);
 
   it.each([
+    { name: 'bound module Promise', preamble: `const Promise = { all: globalThis.Promise.all.bind(globalThis.Promise) };`,
+      body: `await Promise.all([f.run('sleep 0.1; printf A'), f.run('printf B'), f.run('printf C')]);
+        await f.run('printf X >> effects');`, expected: 'X' },
+    { name: 'hand-written module Promise', preamble: `const Promise = { all: values => new globalThis.Promise((resolve, reject) => {
+        const items = [...values], results = Array(items.length); let remaining = items.length;
+        items.forEach((item, index) => globalThis.Promise.resolve(item).then(value => {
+          results[index] = value; if (--remaining === 0) resolve(results);
+        }, reject));
+      }) };`,
+      body: `await Promise.all([f.run('sleep 0.1; printf A'), f.run('printf B'), f.run('printf C')]);
+        await f.run('printf X >> effects');`, expected: 'X' },
+    { name: 'module Promise class', preamble: `class Promise extends globalThis.Promise {
+        static all(values) { return super.all(values); }
+      }`,
+      body: `await Promise.all([f.run('sleep 0.1; printf A'), f.run('printf B'), f.run('printf C')]);
+        await f.run('printf X >> effects');`, expected: 'X' },
+    { name: 'module Promise Native branches', preamble: `const Promise = {
+        all: globalThis.Promise.all.bind(globalThis.Promise),
+      };`,
+      body: `const left = async () => { await f.run('sleep 0.1; printf A'); await f.run('printf L >> effects'); };
+        const right = async () => { await f.run('printf B'); await f.run('printf R >> effects'); };
+        await Promise.all([left(), right()]);`, expected: 'LR' },
+    { name: 'imported Bluebird Promise Native branches', preamble: `import Promise from 'bluebird';`,
+      body: `const left = async () => { await f.run('sleep 0.1; printf A'); await f.run('printf L >> effects'); };
+        const right = async () => { await f.run('printf B'); await f.run('printf R >> effects'); };
+        await Promise.all([left(), right()]);`, expected: 'LR' },
+    { name: 'empty async branches', preamble: '',
+      body: `const warm = async () => {};
+        await Promise.all([warm(), warm()]);
+        await f.run('printf X >> effects');`, expected: 'X' },
+  ])('keeps $name serial without replay across six resumes', async ({ name, preamble, body, expected }) => {
+    for (let repetition = 0; repetition < 6; repetition++) {
+      const fixture = chainFixture();
+      closes.push(() => fixture.close());
+      writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
+${preamble}
+export default flow('serial-module-${name.replaceAll(' ', '-')}', async f => {
+  ${body}
+  await f.run('test -f release || { touch stalled; sleep 120; }; printf Z >> effects', { timeout: '5m' });
+  f.done('success');
+});
+`);
+      const cli = fixture.invokeAsync('run', '--no-observer-link', '--json', '--data-dir', fixture.data,
+        fixture.flowPath, '--input', '{}');
+      const cliExited = new Promise<void>(resolve => cli.once('exit', () => resolve()));
+      closes.push(async () => {
+        if (cli.exitCode === null && cli.signalCode === null) cli.kill('SIGKILL');
+        await cliExited;
+      });
+      await until(() => existsSync(`${fixture.root}/stalled`) ? true : undefined, `${name} stall`, 60_000);
+      expect([...readFileSync(`${fixture.root}/effects`, 'utf8')].sort().join('')).toBe(expected);
+      const rootRunId = runIds(fixture.data)[0]!;
+      const reader = new JournalClient(socketPathFor(fixture.data));
+      await reader.connect();
+      await reader.hello('module-promise-mode-test');
+      try {
+        expect(await readAuthoredRootMetadata(reader, rootRunId))
+          .toMatchObject({ kind: 'relayflows.authored-root.v1', executionMode: 'serial' });
+      } finally { reader.close(); }
+      cli.kill('SIGKILL');
+      await cliExited;
+      killDaemon(fixture.data);
+      writeFileSync(`${fixture.root}/release`, '');
+      const resumed = fixture.invoke('resume', '--no-observer-link', '--json', '--data-dir', fixture.data, rootRunId);
+      expect(resumed.status, resumed.stderr + resumed.stdout).toBe(0);
+      expect([...readFileSync(`${fixture.root}/effects`, 'utf8')].sort().join(''))
+        .toBe([...expected, 'Z'].sort().join(''));
+      await fixture.close();
+    }
+  }, 240_000);
+
+  it('keeps a Bluebird group of direct f.run calls serial across six resumes', async () => {
+    for (let repetition = 0; repetition < 6; repetition++) {
+      const fixture = chainFixture();
+      closes.push(() => fixture.close());
+      writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
+import Promise from 'bluebird';
+export default flow('serial-bluebird-direct', async f => {
+  await Promise.all([f.run('printf A >> effects'), f.run('printf B >> effects')]);
+  await f.run('test -f release || { touch stalled; sleep 120; }; printf Z >> effects', { timeout: '5m' });
+  f.done('success');
+});
+`);
+      const cli = fixture.invokeAsync('run', '--no-observer-link', '--json', '--data-dir', fixture.data,
+        fixture.flowPath, '--input', '{}');
+      const cliExited = new Promise<void>(resolve => cli.once('exit', () => resolve()));
+      closes.push(async () => {
+        if (cli.exitCode === null && cli.signalCode === null) cli.kill('SIGKILL');
+        await cliExited;
+      });
+      await until(() => existsSync(`${fixture.root}/stalled`) ? true : undefined, 'Bluebird direct stall', 60_000);
+      expect([...readFileSync(`${fixture.root}/effects`, 'utf8')].sort()).toEqual(['A', 'B']);
+      const rootRunId = runIds(fixture.data)[0]!;
+      const reader = new JournalClient(socketPathFor(fixture.data));
+      await reader.connect();
+      await reader.hello('bluebird-direct-mode-test');
+      try {
+        expect(await readAuthoredRootMetadata(reader, rootRunId))
+          .toMatchObject({ kind: 'relayflows.authored-root.v1', executionMode: 'serial' });
+      } finally { reader.close(); }
+      cli.kill('SIGKILL');
+      await cliExited;
+      killDaemon(fixture.data);
+      writeFileSync(`${fixture.root}/release`, '');
+      const resumed = fixture.invoke('resume', '--no-observer-link', '--json', '--data-dir', fixture.data, rootRunId);
+      expect([0, 1]).toContain(resumed.status);
+      if (resumed.status !== 0) expect(resumed.stderr + resumed.stdout).toMatch(/unawaited_step/u);
+      const effects = [...readFileSync(`${fixture.root}/effects`, 'utf8')];
+      for (const effect of ['A', 'B']) expect(effects.filter(item => item === effect)).toHaveLength(1);
+      await fixture.close();
+    }
+  }, 240_000);
+
+  it.each([
     { name: 'imported timer helper', delay: `const pause = () => sleep(300);`, wait: `
     await Promise.all([pause(), pause()]);` },
     { name: 'for-await timer', delay: `async function* paused() { await sleep(300); yield 1; }`, wait: `

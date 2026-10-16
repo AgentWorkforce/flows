@@ -41,6 +41,7 @@ export const MAX_WALK = 10_000;
 interface Frontier {
   readonly steps: readonly string[];
   readonly truncated: boolean;
+  readonly unregisteredAggregate: boolean;
 }
 
 interface StepNode {
@@ -72,6 +73,7 @@ interface Aggregate {
 export class AuthoredStepGraph {
   private readonly stepPromises = new Map<number, string>();
   private readonly aggregates = new Map<number, Aggregate>();
+  private readonly registeredMembers = new Set<number>();
   private readonly contexts = new Map<number, Frontier>();
   private readonly nodes = new Map<string, StepNode>();
   private readonly edges = new Map<string, AuthoredStepEdges>();
@@ -79,6 +81,7 @@ export class AuthoredStepGraph {
   constructor(
     private readonly causesOf: (asyncId: number) => readonly number[],
     private readonly walkLimit = MAX_WALK,
+    private readonly adoptedOutsideCombinator: (asyncId: number) => boolean = () => false,
   ) {}
 
   /** A combinator's aggregate and its members, for expansion once it settles. */
@@ -88,6 +91,7 @@ export class AuthoredStepGraph {
     combinator: Combinator,
     members: readonly number[],
   ): void {
+    for (const member of members) this.registeredMembers.add(member);
     const expandsOn = EXPANDS_ON[combinator];
     if (expandsOn === undefined || members.length === 0) return;
     this.aggregates.set(aggregateId, { promise, expandsOn, members });
@@ -121,7 +125,7 @@ export class AuthoredStepGraph {
   }
 
   /** Causal predecessors of a step being declared in the current async context. */
-  predecessorsAt(contextId: number): { readonly steps: readonly string[]; readonly truncated: boolean } {
+  predecessorsAt(contextId: number): Frontier {
     return this.frontierOf(contextId);
   }
 
@@ -129,6 +133,7 @@ export class AuthoredStepGraph {
   release(): void {
     this.stepPromises.clear();
     this.aggregates.clear();
+    this.registeredMembers.clear();
     this.contexts.clear();
     this.nodes.clear();
   }
@@ -138,6 +143,7 @@ export class AuthoredStepGraph {
     if (memo !== undefined) return memo;
     const candidates = new Set<string>();
     let truncated = false;
+    let unregisteredAggregate = false;
     const visited = new Set<number>([start]);
     const queue = [start];
     // Breadth-first, so that a walk cut short by the limit has already found
@@ -149,10 +155,17 @@ export class AuthoredStepGraph {
         candidates.add(step);
         continue;
       }
+      // An operation promise is already a complete, named frontier. Beyond
+      // those, an aggregate adopted only from its resolver's context may hide
+      // other members. Intrinsic Promise.all aggregates are registered before
+      // settlement and therefore never enter this unsafe path.
+      unregisteredAggregate ||= this.adoptedOutsideCombinator(current)
+        && !this.aggregates.has(current) && !this.registeredMembers.has(current);
       const answered = current === start ? undefined : this.contexts.get(current);
       if (answered !== undefined) {
         for (const found of answered.steps) candidates.add(found);
         truncated ||= answered.truncated;
+        unregisteredAggregate ||= answered.unregisteredAggregate;
         continue;
       }
       for (const id of [...this.waitedFor(current), ...this.causesOf(current)]) {
@@ -168,7 +181,11 @@ export class AuthoredStepGraph {
       }
     }
     const reduced = this.reduce(candidates);
-    const frontier = Object.freeze({ steps: reduced.steps, truncated: truncated || reduced.truncated });
+    const frontier = Object.freeze({
+      steps: reduced.steps,
+      truncated: truncated || reduced.truncated,
+      unregisteredAggregate,
+    });
     this.contexts.set(start, frontier);
     return frontier;
   }
@@ -190,7 +207,7 @@ export class AuthoredStepGraph {
    * reduction reads recorded `after` lists; when one it reads is incomplete,
    * a redundant ancestor can survive, and the result says so.
    */
-  private reduce(candidates: ReadonlySet<string>): Frontier {
+  private reduce(candidates: ReadonlySet<string>): Pick<Frontier, 'steps' | 'truncated'> {
     const ordered = [...candidates].sort((a, b) => this.orderOf(a) - this.orderOf(b));
     if (ordered.length <= 1) return { steps: ordered, truncated: false };
     // An ancestor is always registered before its descendant, so nothing

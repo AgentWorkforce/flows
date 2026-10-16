@@ -2,25 +2,27 @@ import { describe, expect, it } from 'vitest';
 import { parallelRunEligible } from '../src/authored-parallel-eligibility.js';
 
 const body = (source: string): Function => new Function(`return (${source});`)() as Function;
+const eligible = (candidate: Function, moduleSource = `import { flow } from '@relayflows/surface';\nexport default flow('probe', ${Function.prototype.toString.call(candidate)});`) =>
+  parallelRunEligible(candidate, moduleSource);
 
 describe('parallel run admission', () => {
   it('certifies direct Promise.all and awaited branch continuations', () => {
-    expect(parallelRunEligible(body(`async f => {
+    expect(eligible(body(`async f => {
       const outputs = await Promise.all([f.run('a'), f.run('b')]);
       await f.run(outputs[0]);
       f.done('success');
     }`))).toBe(true);
-    expect(parallelRunEligible(body(`async f => {
+    expect(eligible(body(`async f => {
       const left = async () => { await f.run('a'); await f.run('b'); };
       const right = async () => { await f.run('c'); await f.run('d'); };
       await Promise.all([left(), right()]);
       f.done('success');
     }`))).toBe(true);
-    expect(parallelRunEligible(body(`async f => {
+    expect(eligible(body(`async f => {
       await Promise.all([f.run('a'), f.run('b'), f.run('c')]);
       f.done('success');
     }`))).toBe(true);
-    expect(parallelRunEligible(body(`async f => {
+    expect(eligible(body(`async f => {
       const route = async () => { await f.run('route'); await f.run('dependent'); };
       const second = async () => { await f.run('other'); await f.run('follow-up'); };
       await Promise.all([route(), second()]);
@@ -55,7 +57,7 @@ describe('parallel run admission', () => {
         const b = async () => { await f.run('B'); await f.run('C'); };
         await Promise.all([a(), b()]); }`,
     ];
-    for (const source of cases) expect(parallelRunEligible(body(source)), source).toBe(false);
+    for (const source of cases) expect(eligible(body(source)), source).toBe(false);
   });
 
   it('keeps race, any, eager work, timers, and mixed effects serial', () => {
@@ -81,13 +83,13 @@ describe('parallel run admission', () => {
       `async f => { await Promise.all([f.dispatch('a'), f.run('b')]); }`,
       `async f => { const alias = f; await Promise.all([alias.run('a'), f.run('b')]); }`,
     ];
-    for (const source of cases) expect(parallelRunEligible(body(source)), source).toBe(false);
+    for (const source of cases) expect(eligible(body(source)), source).toBe(false);
   });
 
   it('reads the function itself rather than an author-supplied toString', () => {
     const unsafe = body(`async f => { await Promise.race([f.run('a'), f.run('b')]); }`);
     unsafe.toString = () => `async f => { await Promise.all([f.run('a'), f.run('b')]); }`;
-    expect(parallelRunEligible(unsafe)).toBe(false);
+    expect(eligible(unsafe)).toBe(false);
   });
 
   it('keeps generated fanout serial even if Array.from is replaced', () => {
@@ -97,7 +99,47 @@ describe('parallel run admission', () => {
     const original = Array.from;
     try {
       Array.from = ((...args: Parameters<typeof Array.from>) => original(...args)) as typeof Array.from;
-      expect(parallelRunEligible(candidate)).toBe(false);
+      expect(eligible(candidate)).toBe(false);
     } finally { Array.from = original; }
+  });
+
+  it('requires the module Promise binding to be the intrinsic', () => {
+    const candidate = body(`async f => {
+      await Promise.all([f.run('A'), f.run('B')]);
+      await f.run('X');
+      f.done('success');
+    }`);
+    const definition = `export default flow('probe', ${Function.prototype.toString.call(candidate)});`;
+    expect(eligible(candidate, `import { flow } from '@relayflows/surface';\n${definition}`)).toBe(true);
+    for (const prefix of [
+      `const Promise = { all: globalThis.Promise.all.bind(globalThis.Promise) };`,
+      `import Promise from 'bluebird';`,
+      `class Promise extends globalThis.Promise { static all(items) { return super.all(items); } }`,
+      `function helper(Promise) { return Promise; }`,
+      `const globalThis = { Promise: replacement };`,
+      `globalThis.Promise = replacement;`,
+      `globalThis['Promise'] = replacement;`,
+      `Promise.all = replacement;`,
+      `const intrinsic = globalThis; intrinsic.Promise = replacement;`,
+      `global.Promise = replacement;`,
+    ]) expect(eligible(candidate, `${prefix}\n${definition}`), prefix).toBe(false);
+    expect(eligible(candidate,
+      `export default (Promise.all = replacement, flow('probe', ${Function.prototype.toString.call(candidate)}));`))
+      .toBe(false);
+  });
+
+  it('keeps groups with empty async branches serial', () => {
+    expect(eligible(body(`async f => {
+      const warm = async () => {};
+      await Promise.all([warm(), warm()]);
+      await f.run('X');
+      f.done('success');
+    }`))).toBe(false);
+    expect(eligible(body(`async f => {
+      const work = async () => { await f.run('A'); };
+      const warm = async () => {};
+      await Promise.all([work(), warm()]);
+      f.done('success');
+    }`))).toBe(false);
   });
 });

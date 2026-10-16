@@ -139,7 +139,11 @@ export class AuthoredFlowLifecycle {
         for (const probe of this.activeResolverProbes) probe.add(asyncId);
       },
     );
-    this.stepGraph = new AuthoredStepGraph((asyncId) => this.graph.causesOf(asyncId));
+    this.stepGraph = new AuthoredStepGraph(
+      (asyncId) => this.graph.causesOf(asyncId),
+      undefined,
+      (asyncId) => this.graph.wasAdoptedFromResolvingContext(asyncId),
+    );
     installPromiseAllObserver();
     try {
       this.graph.enable();
@@ -216,7 +220,11 @@ export class AuthoredFlowLifecycle {
   }
 
   /** Predecessors for a new invocation, before it has an operation promise. */
-  invocationPredecessors(): { readonly steps: readonly string[]; readonly truncated: boolean } {
+  invocationPredecessors(): {
+    readonly steps: readonly string[];
+    readonly truncated: boolean;
+    readonly unregisteredAggregate: boolean;
+  } {
     return this.stepGraph.predecessorsAt(executionAsyncId());
   }
 

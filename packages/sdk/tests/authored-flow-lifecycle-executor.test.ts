@@ -12,6 +12,8 @@ import {
   startLoopback,
 } from './journal-client-loopback.js';
 
+const unobservedAll = Promise.all.bind(Promise);
+
 describe('authored flow lifecycle through the journal executor', () => {
   let path: string;
   let server: Server;
@@ -89,6 +91,54 @@ describe('authored flow lifecycle through the journal executor', () => {
       f.done('success');
     }), { executionMode: 'parallel' })).rejects.toMatchObject({ code: 'step_failed' });
     expect(startedSpecs).toHaveLength(startedBefore);
+  });
+
+  it('refuses later admissions after a caught parallel violation', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-refusal-stays-closed', async f => {
+      try { f.llm('prompt', { output: { type: 'string' } }); } catch { /* author swallowed refusal */ }
+      try { await f.run('printf E'); } catch { /* this admission must also be refused */ }
+      f.done('success');
+    }), { executionMode: 'parallel' })).rejects.toMatchObject({ code: 'step_failed' });
+    expect(startedSpecs).toHaveLength(startedBefore);
+  });
+
+  it('refuses a parallel follow-up through an unobserved Promise.all', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-unobserved-aggregate', async f => {
+      await unobservedAll([f.run('printf A'), f.run('printf B')]);
+      await f.run('printf X');
+      f.done('success');
+    }), { executionMode: 'parallel' })).rejects.toThrow(/unregistered aggregate/u);
+    const admitted = startedSpecs.slice(startedBefore).map(spec => spec['name']);
+    expect(admitted).toEqual([
+      'parallel-unobserved-aggregate/run-1',
+      'parallel-unobserved-aggregate/run-2',
+    ]);
+  });
+
+  it('admits a parallel follow-up through the observed intrinsic Promise.all', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-observed-aggregate', async f => {
+      await Promise.all([f.run('printf A'), f.run('printf B')]);
+      await f.run('printf X');
+      f.done('success');
+    }), { executionMode: 'parallel' })).resolves.toMatchObject({ completionReason: 'success' });
+    const admitted = startedSpecs.slice(startedBefore).map(spec => String(spec['name']));
+    expect(admitted).toHaveLength(4);
+    expect(admitted[2]).toMatch(/^parallel-observed-aggregate\/run-after-/u);
+  });
+
+  it('keeps observed async route branches parallel through their join', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-observed-routes', async f => {
+      const left = async () => { await f.run('printf A'); await f.run('printf L'); };
+      const right = async () => { await f.run('printf B'); await f.run('printf R'); };
+      await Promise.all([left(), right()]);
+      await f.run('printf X');
+      f.done('success');
+    }), { executionMode: 'parallel' })).resolves.toMatchObject({ completionReason: 'success' });
+    expect(startedSpecs.slice(startedBefore)).toHaveLength(6);
   });
 
   it('keeps a caught parallel activity refusal as a root failure', async () => {

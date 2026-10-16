@@ -1,0 +1,17 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ✓ tests/authored-parallel-run-live.test.ts (37 tests | 30 skipped) 10330ms
+   ✓ parallel authored deterministic steps > resumes a sequential 2.0.50 run without replaying completed effects 1595ms
+   ✓ parallel authored deterministic steps > refuses a parallel v2 root under 2.0.50 and lets the new CLI resume it 1353ms
+   ✓ parallel authored deterministic steps > resumes 2.0.50 consecutive Promise.all groups after run-4 without replay 1249ms
+   ✓ parallel authored deterministic steps > resumes 2.0.50 consecutive Promise.all groups after run-5 without replay 1324ms
+   ✓ parallel authored deterministic steps > resumes 2.0.50 A1 nested joins without replay 2047ms
+   ✓ parallel authored deterministic steps > resumes 2.0.50 B1 chain beside join without replay 1371ms
+   ✓ parallel authored deterministic steps > resumes 2.0.50 N2 independent dependents without replay 1392ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed | 30 skipped (37)
+   Start at  20:19:00
+   Duration  11.43s (transform 419ms, setup 8ms, collect 891ms, tests 10.33s, environment 0ms, prepare 49ms)
+

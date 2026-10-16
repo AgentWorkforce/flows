@@ -95,7 +95,7 @@ export async function executeDurableAuthoredFlow(
   })));
   const definition = loaded.getDefinition(loaded.handle);
   const executionMode = loaded.graph.length === 1 && (loaded.extensions?.length ?? 0) === 0
-    && definition.header.budget === undefined && parallelRunEligible(definition.body)
+    && definition.header.budget === undefined && parallelRunEligible(definition.body, source.toString('utf8'))
     ? 'parallel' : 'serial';
   const metadata: AuthoredRootMetadata = Object.freeze({
     kind: executionMode === 'parallel' ? AUTHORED_PARALLEL_ROOT_KIND : ROOT_KIND,

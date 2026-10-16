@@ -206,3 +206,41 @@ it('refuses a grant absent from the delivered-name manifest before run.start', a
     rmSync(path, { force: true });
   }
 });
+
+it('checks isolated run grants against the peer handshake before admission', async () => {
+  const path = sockPath();
+  let hellos = 0;
+  let starts = 0;
+  const server = startLoopback(path, {
+    hello: ctx => {
+      hellos++;
+      sendResult(ctx, { protocol: 0, server: 'relayflowd',
+        features: ['step_env', 'step_secret_scoping'], det_withheld: ['HIDDEN_SECRET'] });
+    },
+    'run.start': ctx => { starts++; sendResult(ctx, { run_id: 'run-01', status: 'completed' }); },
+  });
+  const client = new JournalClient(path);
+  const priorToken = process.env.HIDDEN_SECRET;
+  const priorManifest = process.env.RELAY_SECRET_ENV_NAMES;
+  process.env.HIDDEN_SECRET = 'withheld-value';
+  process.env.RELAY_SECRET_ENV_NAMES = '["HIDDEN_SECRET"]';
+  try {
+    await client.connect();
+    await client.hello('isolated-secret-grant');
+    const spec = { ...HELLO_SPEC, steps: [
+      { ...HELLO_SPEC.steps[0]!, secrets: ['HIDDEN_SECRET'] },
+    ] };
+    await expect(client.runStart(spec, undefined, undefined, false, true))
+      .rejects.toThrow('withheld by the daemon');
+    expect(hellos).toBe(2);
+    expect(starts).toBe(0);
+  } finally {
+    if (priorToken === undefined) delete process.env.HIDDEN_SECRET;
+    else process.env.HIDDEN_SECRET = priorToken;
+    if (priorManifest === undefined) delete process.env.RELAY_SECRET_ENV_NAMES;
+    else process.env.RELAY_SECRET_ENV_NAMES = priorManifest;
+    client.close();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    rmSync(path, { force: true });
+  }
+});

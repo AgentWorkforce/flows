@@ -315,10 +315,13 @@ export async function executeAuthoredFlow<Input = undefined>(
     if (options.executionMode === 'parallel') rejectParallel(`parallel f.run body attempted ${kind} before admission`);
   };
   const nextId = (kind: string): string => {
+    if (parallelViolation !== undefined) throw parallelViolation;
     const sequence = nextStep++;
     if (options.executionMode !== 'parallel') return qualify(`${kind}-${sequence}`);
     if (kind !== 'run') rejectParallel(`parallel f.run body attempted ${kind} before admission`);
     const predecessors = lifecycle.invocationPredecessors();
+    if (predecessors.unregisteredAggregate) rejectParallel(
+      'cannot assign a replay-stable f.run identity: its causal frontier passes through an unregistered aggregate');
     if (predecessors.truncated) rejectParallel(
       'cannot assign a replay-stable f.run identity: its causal predecessor graph is truncated');
     const signature = JSON.stringify([...predecessors.steps].sort());

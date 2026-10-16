@@ -974,7 +974,10 @@ Two properties of `f.run` on a local `relayflowd` are useful to know.
 The root records its execution mode before its body runs. Parallel mode is
 selected only for a narrow source grammar: awaited `Promise.all` groups of
 direct `f.run` calls, and locally declared async branches made only of awaited
-`f.run` calls or direct run groups. Generated arrays such as `Array.from` use
+`f.run` calls or direct run groups. Every branch must contain a direct `f.run`.
+The module must leave the intrinsic `Promise` and `globalThis.Promise`
+unshadowed; a module that binds either name uses serial mode. Generated arrays
+such as `Array.from` use
 serial mode. Branches may not mutate shared values, await
 timers or other promises, or call `f.done`; completion belongs at the end of
 the root body. The check is conservative: an unrecognized source form uses
@@ -999,10 +1002,12 @@ Each child's admission key comes from the root run and step id. Each child has
 its own journal; the root's child index records completion facts as they arrive, and
 readers match them by step id and run id.
 In parallel mode, if the bounded causal walk cannot identify a follow-up's
-full predecessor frontier, a non-run effect appears, or a new initial child
+full predecessor frontier, the frontier passes through an unregistered promise
+aggregate, a non-run effect appears, or a new initial child
 appears after the body's first turn, the root fails before admitting that
-effect rather than issuing an ambiguous replay key. This failure remains a
-root failure even when authored code catches the immediate exception.
+effect rather than issuing an ambiguous replay key. Once this happens, no
+later child is admitted. The failure remains a root failure even when authored
+code catches the immediate exception.
 
 If one concurrent `f.run` fails, the authored body fails and its waiting
 siblings are cancelled before admission. Children already admitted can finish
@@ -1010,11 +1015,11 @@ their own journal work; their outcomes cannot turn the failed body into a
 success. A child in a separate `f.dispatch` body follows that body's own
 failure and capacity rules.
 
-**Upgrade from 2.0.50:** roots admitted before execution modes were journaled
-resume in serial compatibility mode, preserving the 2.0.50 `kind-N` step ids
+**Upgrade from 2.0.50 or 2.0.51:** roots admitted before execution modes were journaled
+resume in serial compatibility mode, preserving their `kind-N` step ids
 and shared connection. Completed child effects remain bound to their original
 admission keys, including follow-ups after a `Promise.all` join.
-New parallel roots carry a distinct root kind. A 2.0.50 CLI refuses one on
+New parallel roots carry a distinct root kind. A 2.0.50 or 2.0.51 CLI refuses one on
 rollback, leaving it resumable by this or a newer CLI rather than replaying
 parallel follow-ups with old `run-N` identities. New serial roots retain the
 original root kind and serial IDs.

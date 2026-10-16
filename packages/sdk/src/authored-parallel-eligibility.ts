@@ -3,7 +3,11 @@ import ts from 'typescript';
 const functionSource = Function.prototype.toString;
 
 /** A closed grammar for deterministic Promise.all branches. Unknown bodies stay serial. */
-export function parallelRunEligible(body: Function): boolean {
+export function parallelRunEligible(body: Function, moduleSource: string): boolean {
+  // Promise.all is intercepted only when `Promise` resolves to the intrinsic.
+  // Function.toString cannot see a module-level lexical binding, so inspect
+  // the complete source before using the body's narrower grammar.
+  if (!moduleUsesIntrinsicPromise(moduleSource)) return false;
   const file = ts.createSourceFile('authored-body.js', `const body = ${functionSource.call(body)};`,
     ts.ScriptTarget.ES2022, true, ts.ScriptKind.JS);
   if (file.statements.length !== 1) return false;
@@ -119,11 +123,78 @@ export function parallelRunEligible(body: Function): boolean {
     }
     return true;
   };
-  const branch = (arrow: ts.ArrowFunction, depth: number): boolean =>
-    arrow.parameters.length === 0
-    && (ts.isBlock(arrow.body) ? statements(arrow.body, new Set(rootValues), depth)
-      : awaitStep(arrow.body, rootValues, depth));
+  const branch = (arrow: ts.ArrowFunction, depth: number): boolean => {
+    if (arrow.parameters.length !== 0) return false;
+    const before = runs;
+    const valid = ts.isBlock(arrow.body) ? statements(arrow.body, new Set(rootValues), depth)
+      : awaitStep(arrow.body, rootValues, depth);
+    // An empty async branch creates a join with no causal step predecessor.
+    return valid && runs > before;
+  };
 
   if (!statements(expression.body, rootValues, 0)) return false;
   return groups > 0 && runs > 0;
+}
+
+/** Reject any source that can change what a free `Promise` identifier means. */
+function moduleUsesIntrinsicPromise(source: string): boolean {
+  const file = ts.createSourceFile('authored-module.ts', source, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
+  if (((file as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics?.length ?? 0) > 0) {
+    return false;
+  }
+  // Top-level code can alter the constructor or its methods without binding
+  // the name. Leave these modules on the established serial scheduler too.
+  const touchesPromiseOutsideDefinition = (node: ts.Node): boolean => {
+    if (ts.isIdentifier(node) && ['Promise', 'globalThis', 'global'].includes(node.text)) return true;
+    return ts.forEachChild(node, touchesPromiseOutsideDefinition) === true;
+  };
+  for (const statement of file.statements) {
+    if (ts.isExportAssignment(statement)) {
+      // Only the final body argument is allowed to mention Promise.all. Do
+      // not let an expression around flow() mutate Promise while we skip it.
+      const call = statement.expression;
+      if (statement.isExportEquals || !ts.isCallExpression(call)
+        || !ts.isIdentifier(call.expression) || call.expression.text !== 'flow') return false;
+      const args = call.arguments;
+      if (!ts.isArrowFunction(args[args.length - 1]!)) return false;
+      if (args.slice(0, -1).some(touchesPromiseOutsideDefinition)) return false;
+      continue;
+    }
+    if (touchesPromiseOutsideDefinition(statement)) return false;
+  }
+  const forbidden = new Set(['Promise', 'globalThis']);
+  const bindsForbidden = (name: ts.BindingName): boolean => ts.isIdentifier(name)
+    ? forbidden.has(name.text)
+    : name.elements.some(element => ts.isBindingElement(element) && bindsForbidden(element.name));
+  const isGlobalPromise = (node: ts.Node): boolean => {
+    if (ts.isIdentifier(node)) return forbidden.has(node.text);
+    if (ts.isPropertyAccessExpression(node)) return ts.isIdentifier(node.expression)
+      && node.expression.text === 'globalThis' && node.name.text === 'Promise';
+    return ts.isElementAccessExpression(node) && ts.isIdentifier(node.expression)
+      && node.expression.text === 'globalThis' && ts.isStringLiteral(node.argumentExpression)
+      && node.argumentExpression.text === 'Promise';
+  };
+  let unsafe = false;
+  const visit = (node: ts.Node): void => {
+    if (unsafe) return;
+    if ((ts.isVariableDeclaration(node) || ts.isParameter(node) || ts.isBindingElement(node))
+      && bindsForbidden(node.name)) unsafe = true;
+    if ((ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node)
+      || ts.isClassDeclaration(node) || ts.isClassExpression(node)
+      || ts.isEnumDeclaration(node) || ts.isImportEqualsDeclaration(node)
+      || ts.isTypeAliasDeclaration(node) || ts.isInterfaceDeclaration(node))
+      && node.name !== undefined && forbidden.has(node.name.text)) unsafe = true;
+    if (ts.isImportClause(node) && node.name !== undefined && forbidden.has(node.name.text)) unsafe = true;
+    if (ts.isNamespaceImport(node) && forbidden.has(node.name.text)) unsafe = true;
+    if (ts.isImportSpecifier(node) && forbidden.has(node.name.text)) unsafe = true;
+    if (ts.isBinaryExpression(node)
+      && node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment
+      && node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+      && isGlobalPromise(node.left)) unsafe = true;
+    if ((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node))
+      && isGlobalPromise(node.operand)) unsafe = true;
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return !unsafe;
 }
