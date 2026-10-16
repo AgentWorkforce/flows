@@ -1,7 +1,7 @@
 import { AsyncLocalStorage, executionAsyncId } from 'node:async_hooks';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
 import { AuthoredPromiseGraph } from './authored-promise-graph.js';
-import { AuthoredStepGraph } from './authored-step-graph.js';
+import { AuthoredStepGraph, promiseOutcome } from './authored-step-graph.js';
 import type { AuthoredStepEdges } from './authored-step-index.js';
 
 type OperationToken = object;
@@ -9,6 +9,12 @@ type ResolverProbe = Set<number>;
 interface PromiseAllGroup {
   aggregate: number;
   members: ReadonlySet<number>;
+}
+interface AllSettlementGuard {
+  readonly aggregate: Promise<unknown>;
+  readonly aggregateId: number;
+  readonly combinator: 'all' | 'allSettled';
+  readonly members: readonly number[];
 }
 export interface AuthoredOperationInvocation {
   readonly asyncId: number;
@@ -27,6 +33,11 @@ const nativePromisePrototypeConstructor = Promise.prototype.constructor;
 const nativePromiseSpeciesDescriptor = Object.getOwnPropertyDescriptor(Promise, Symbol.species);
 const nativePromiseSpeciesGetter = nativePromiseSpeciesDescriptor?.get;
 const nativeFunctionToString = Function.prototype.toString;
+const nativeArrayIteratorDescriptor = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
+const nativeArrayIterator = Array.prototype[Symbol.iterator];
+const nativeArrayIteratorPrototype = Object.getPrototypeOf(nativeArrayIterator.call([])) as Iterator<unknown>;
+const nativeArrayIteratorNextDescriptor = Object.getOwnPropertyDescriptor(nativeArrayIteratorPrototype, 'next');
+const nativeArrayIteratorNext = nativeArrayIteratorPrototype.next;
 const activeLifecycle = new AsyncLocalStorage<AuthoredFlowLifecycle>();
 const stepOwners = new WeakMap<object, {
   lifecycle: AuthoredFlowLifecycle;
@@ -75,7 +86,8 @@ const originallyNative = (value: unknown): boolean => typeof value === 'function
 const nativeAtModuleLoad = [
   nativePromiseConstructor, nativePromiseThen, nativePromiseCatch, nativePromiseFinally,
   nativePromiseResolve, nativePromiseReject, nativePromisePrototypeConstructor,
-  nativePromiseSpeciesGetter, nativeFunctionToString, ...Object.values(nativeCombinators),
+  nativePromiseSpeciesGetter, nativeFunctionToString, nativeArrayIterator,
+  nativeArrayIteratorNext, ...Object.values(nativeCombinators),
 ].every(originallyNative);
 
 function sameDescriptor(actual: PropertyDescriptor | undefined, original: PropertyDescriptor | undefined): boolean {
@@ -87,9 +99,31 @@ function sameDescriptor(actual: PropertyDescriptor | undefined, original: Proper
 
 /** Preloaded code can replace an intrinsic before this module takes its snapshot. */
 function authoredProcessHasPreload(): boolean {
-  const preload = /--(?:import|require|loader|experimental-loader)(?:=|\s|$)|-r(?:=|\s|\S)/u;
-  return process.execArgv.some(arg => preload.test(arg))
-    || preload.test(process.env['NODE_OPTIONS'] ?? '');
+  const preload = (arg: string): boolean => arg === '-r' || arg.startsWith('-r')
+    || ['--import', '--require', '--loader', '--experimental-loader']
+      .some(flag => arg === flag || arg.startsWith(`${flag}=`));
+  return process.execArgv.some(preload)
+    || nodeOptionTokens(process.env['NODE_OPTIONS'] ?? '').some(preload);
+}
+
+/** NODE_OPTIONS is a command-line string, while execArgv is already tokenized. */
+function nodeOptionTokens(options: string): string[] {
+  const tokens: string[] = [];
+  let token = '';
+  let quote: '"' | "'" | undefined;
+  let escaped = false;
+  for (const char of options) {
+    if (escaped) { token += char; escaped = false; continue; }
+    if (char === '\\' && quote !== "'") { escaped = true; continue; }
+    if (char === quote) { quote = undefined; continue; }
+    if ((char === '"' || char === "'") && quote === undefined) { quote = char; continue; }
+    if (/\s/u.test(char) && quote === undefined) {
+      if (token.length > 0) tokens.push(token);
+      token = '';
+    } else token += char;
+  }
+  if (token.length > 0) tokens.push(token);
+  return tokens;
 }
 
 const observedCombinators: Record<CombinatorName, Combinator> = Object.fromEntries(
@@ -99,11 +133,16 @@ const observedCombinators: Record<CombinatorName, Combinator> = Object.fromEntri
       this: PromiseConstructor,
       values: Iterable<unknown>,
     ): Promise<unknown> {
-      const members = collectMembers(values);
-      if (members === undefined) return native.call(this, values);
       const lifecycle = activeLifecycle.getStore();
+      const declared = lifecycle?.captureParallelArrayMembers(values);
+      const members = collectMembers(values);
+      if (members === undefined) {
+        if (declared !== undefined) lifecycle?.refuseUnsafeCombinator(
+          `parallel Promise.${name} could not inspect its array members`);
+        return native.call(this, values);
+      }
       if (lifecycle === undefined) return native.call(this, members);
-      return lifecycle.observeCombinator(native, this, members, name);
+      return lifecycle.observeCombinator(native, this, members, name, declared);
     };
     Object.defineProperty(observed, 'name', { value: name, configurable: true });
     Object.defineProperty(observed, 'length', { value: 1, configurable: true });
@@ -117,6 +156,12 @@ let combinatorObservers = 0;
 export function parallelPromiseIntrinsicsIntact(): boolean {
   if (!nativeAtModuleLoad || authoredProcessHasPreload()
     || Function.prototype.toString !== nativeFunctionToString
+    || !sameDescriptor(Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator),
+      nativeArrayIteratorDescriptor)
+    || Array.prototype[Symbol.iterator] !== nativeArrayIterator
+    || !sameDescriptor(Object.getOwnPropertyDescriptor(nativeArrayIteratorPrototype, 'next'),
+      nativeArrayIteratorNextDescriptor)
+    || nativeArrayIteratorPrototype.next !== nativeArrayIteratorNext
     || Promise !== nativePromiseConstructor || Promise.prototype !== nativePromisePrototype
     || !sameDescriptor(Object.getOwnPropertyDescriptor(Promise.prototype, 'constructor'),
       nativePromisePrototypeConstructorDescriptor)
@@ -177,6 +222,8 @@ export class AuthoredFlowLifecycle {
   private readonly invocations = new Map<OperationToken, AuthoredOperationInvocation[]>();
   private readonly promiseAllAggregates = new Map<OperationToken, Set<number>>();
   private readonly promiseAllGroups: PromiseAllGroup[] = [];
+  private readonly allSettlementGuards: AllSettlementGuard[] = [];
+  private invalidAllSettlement = false;
   private readonly callbackFailures = new Map<OperationToken, unknown>();
   private completionAsyncId: number | undefined;
   private closed = false;
@@ -208,6 +255,19 @@ export class AuthoredFlowLifecycle {
 
   runBody<T>(body: () => T): T {
     return activeLifecycle.run(this, body);
+  }
+
+  /** Compare the literal array's indexed members with its iterable view. */
+  captureParallelArrayMembers(values: Iterable<unknown>): readonly unknown[] | undefined {
+    if (this.refuseUnknownThenable === undefined || !Array.isArray(values)) return undefined;
+    const members = new Array<unknown>(values.length);
+    for (let i = 0; i < values.length; i++) members[i] = values[i];
+    return members;
+  }
+
+  refuseUnsafeCombinator(message: string): never {
+    this.refuseUnknownThenable?.(message);
+    throw new AuthoredFlowExecutionError('step_failed', message);
   }
 
   registerStep(step: object, operation: OperationToken): void {
@@ -244,6 +304,10 @@ export class AuthoredFlowLifecycle {
       operationAggregates.add(aggregateId);
     }
     this.promiseAllGroups.push({ aggregate: aggregateId, members: memberIds });
+    if (this.refuseUnknownThenable !== undefined
+      && (combinator === 'all' || combinator === 'allSettled')) {
+      this.allSettlementGuards.push({ aggregate, aggregateId, combinator, members: awaitedMembers });
+    }
     this.registrations++;
     this.stepGraph.registerAggregate(aggregateId, aggregate, combinator, awaitedMembers, created);
   }
@@ -253,7 +317,16 @@ export class AuthoredFlowLifecycle {
     constructor: PromiseConstructor,
     values: readonly unknown[],
     name: CombinatorName,
+    declared?: readonly unknown[],
   ): Promise<unknown> {
+    if (declared !== undefined) {
+      if (declared.length !== values.length) this.refuseUnsafeCombinator(
+        `parallel Promise.${name} iterated a different set of array members`);
+      for (let i = 0; i < declared.length; i++) {
+        if (declared[i] !== values[i]) this.refuseUnsafeCombinator(
+          `parallel Promise.${name} iterated a different set of array members`);
+      }
+    }
     // Check before the native combinator reads any unknown `then` getter. A
     // member with no tracked promise id or owned step has no causal identity
     // to expand on a later follow-up. This also covers proxy thenables whose
@@ -263,8 +336,7 @@ export class AuthoredFlowLifecycle {
         if ((typeof value !== 'object' && typeof value !== 'function') || value === null) continue;
         if (stepOwners.get(value)?.lifecycle === this || this.graph.idOf(value) !== undefined) continue;
         const message = `parallel Promise.${name} contains a member with no tracked provenance`;
-        this.refuseUnknownThenable(message);
-        throw new AuthoredFlowExecutionError('step_failed', message);
+        this.refuseUnsafeCombinator(message);
       }
     }
     const { value, created } = this.graph.captureCombinator(() => native.call(constructor, values));
@@ -313,7 +385,30 @@ export class AuthoredFlowLifecycle {
     readonly truncated: boolean;
     readonly unregisteredAggregate: boolean;
   } {
-    return this.stepGraph.predecessorsAt(executionAsyncId());
+    const frontier = this.stepGraph.predecessorsAt(executionAsyncId());
+    return this.hasInvalidAllSettlement()
+      ? { ...frontier, unregisteredAggregate: true }
+      : frontier;
+  }
+
+  /** A fulfilled all (or settled allSettled) must have waited for every member. */
+  private hasInvalidAllSettlement(): boolean {
+    if (this.invalidAllSettlement) return true;
+    let retained = 0;
+    for (const guard of this.allSettlementGuards) {
+      if (this.graph.isPending(guard.aggregateId)) {
+        this.allSettlementGuards[retained++] = guard;
+        continue;
+      }
+      if ((guard.combinator === 'allSettled' || promiseOutcome(guard.aggregate) === 'fulfilled')
+        && guard.members.some(id => this.graph.isPending(id))) {
+        this.invalidAllSettlement = true;
+        return true;
+      }
+      // Once an honest aggregate has settled, its invariant cannot change.
+    }
+    this.allSettlementGuards.length = retained;
+    return false;
   }
 
   /** The observation contract must still be installed when a child is admitted. */
@@ -456,6 +551,7 @@ export class AuthoredFlowLifecycle {
     this.invocations.clear();
     this.promiseAllAggregates.clear();
     this.promiseAllGroups.length = 0;
+    this.allSettlementGuards.length = 0;
     this.groupsByInvocation = undefined;
     this.callbackFailures.clear();
     this.activeResolverProbes.length = 0;

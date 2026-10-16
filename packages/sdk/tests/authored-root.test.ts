@@ -634,6 +634,30 @@ describe('durable authored root', () => {
     expect(journal.peer.completions).toEqual([{ attempt: 2, reason: 'success' }]);
   });
 
+  it('refuses an unsafe pinned parallel resume before dispatch without failing its root', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    const spawned = spawnedEntry(loaded);
+    const step = (spawned as { payload: { spec: { steps: Array<{ instruction: string }> } } })
+      .payload.spec.steps[0]!;
+    step.instruction = JSON.stringify({ ...JSON.parse(step.instruction) as object,
+      kind: 'relayflows.authored-root.parallel.v2', identityVersion: 2, executionMode: 'parallel' });
+    journal.entries = [spawned];
+    const previous = process.env['NODE_OPTIONS'];
+    try {
+      process.env['NODE_OPTIONS'] = '--require=/tmp/preload.cjs';
+      await expect(resumeDurableAuthoredFlow(journal.runId, journal as unknown as JournalClient,
+        { dataDir: '/unused' })).rejects.toMatchObject({
+        code: 'unsupported_promise_lifecycle', rootRunId: journal.runId,
+      });
+    } finally {
+      if (previous === undefined) delete process.env['NODE_OPTIONS'];
+      else process.env['NODE_OPTIONS'] = previous;
+    }
+    expect(journal.resumeCalls).toBe(0);
+    expect(journal.peer.completions).toEqual([]);
+  });
+
   it('parks the root attempt on an unanswered f.human instead of completing it', async () => {
     const loaded = await fixture(false, 0, async f => { await f.human('Ship it?', { to: 'khaliq' }); f.done('success'); });
     const journal = new RootJournal();

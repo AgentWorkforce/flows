@@ -985,10 +985,10 @@ imports also use serial mode because they may alter Promise before the body
 starts. The defining module must leave the intrinsic `Promise` and
 `globalThis.Promise` unshadowed; a module that binds either name uses serial
 mode. An authored process started with a `--import`, `--require`, or loader
-preload, or with an already replaced Promise intrinsic, also admits new roots
-in serial mode. Generated arrays such as `Array.from` use serial mode. Branches may not
-mutate shared values, await
-timers or other promises, or call `f.done`; completion belongs at the end of
+preload, or with an already replaced Promise or Array iterator intrinsic, also
+admits new roots in serial mode. Generated arrays such as `Array.from` use serial
+mode. Branches may not mutate shared values, await timers or other promises,
+or call `f.done`; completion belongs at the end of
 the root body. The check is conservative: an unrecognized source form uses
 serial mode even when its author knows it would be safe. In parallel mode,
 each deterministic child uses its own journal connection because the
@@ -1017,7 +1017,12 @@ non-run effect appears, or a new initial child
 appears after the body's first turn, the root fails before admitting that
 effect rather than issuing an ambiguous replay key. Once this happens, no
 later child is admitted. The failure remains a root failure even when authored
-code catches the immediate exception.
+code catches the immediate exception. Children already in flight finish and
+are journaled before the root reports that failure; the root may therefore
+take as long as its slowest admitted child to fail.
+The same refusal applies if a fulfilled `Promise.all` or settled
+`Promise.allSettled` still has a pending recorded member, which means the join
+did not actually wait for its declared branches.
 
 If one concurrent `f.run` fails, the authored body fails and its waiting
 siblings are cancelled before admission. Children already admitted can finish
@@ -1032,7 +1037,9 @@ admission keys, including follow-ups after a `Promise.all` join.
 New parallel roots carry a distinct root kind. A 2.0.50 or 2.0.51 CLI refuses one on
 rollback, leaving it resumable by this or a newer CLI rather than replaying
 parallel follow-ups with old `run-N` identities. New serial roots retain the
-original root kind and serial IDs.
+original root kind and serial IDs. A pinned parallel root resumed in a process
+with a Node preload or altered Promise or Array iterator intrinsic is refused
+before dispatch and remains resumable in a clean process.
 
 What runs concurrently today:
 

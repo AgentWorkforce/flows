@@ -86,7 +86,81 @@ describe('authored flow lifecycle through the journal executor', () => {
     process.execArgv.push('--require', '/tmp/preload.cjs');
     try { expect(parallelPromiseIntrinsicsIntact(), 'execArgv preload').toBe(false); }
     finally { process.execArgv.splice(-2); }
+    for (const flag of [
+      '--dns-result-order=ipv4first', '--unhandled-rejections=strict',
+      '--report-uncaught-exception', '--redirect-warnings=/tmp/warnings',
+      '--experimental-require-module', '--max-old-space-size=512',
+    ]) {
+      process.execArgv.push(flag);
+      try { expect(parallelPromiseIntrinsicsIntact(), `execArgv ${flag}`).toBe(true); }
+      finally { process.execArgv.pop(); }
+      try {
+        process.env['NODE_OPTIONS'] = flag;
+        expect(parallelPromiseIntrinsicsIntact(), `NODE_OPTIONS ${flag}`).toBe(true);
+      } finally {
+        if (nodeOptions === undefined) delete process.env['NODE_OPTIONS'];
+        else process.env['NODE_OPTIONS'] = nodeOptions;
+      }
+    }
+    for (const flag of ['-r', '-r/tmp/preload.cjs', '--require', '--require=/tmp/preload.cjs',
+      '--import=/tmp/preload.mjs', '--loader=/tmp/loader.mjs', '--experimental-loader=/tmp/loader.mjs']) {
+      process.execArgv.push(flag);
+      try { expect(parallelPromiseIntrinsicsIntact(), `execArgv ${flag}`).toBe(false); }
+      finally { process.execArgv.pop(); }
+      try {
+        process.env['NODE_OPTIONS'] = flag;
+        expect(parallelPromiseIntrinsicsIntact(), `NODE_OPTIONS ${flag}`).toBe(false);
+      } finally {
+        if (nodeOptions === undefined) delete process.env['NODE_OPTIONS'];
+        else process.env['NODE_OPTIONS'] = nodeOptions;
+      }
+    }
+    const iterator = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator)!;
+    const arrayIteratorPrototype = Object.getPrototypeOf([][Symbol.iterator]()) as Iterator<unknown>;
+    const next = Object.getOwnPropertyDescriptor(arrayIteratorPrototype, 'next')!;
+    let iteratorDetected: boolean;
+    try {
+      Object.defineProperty(Array.prototype, Symbol.iterator, { ...iterator, value: function* () {} });
+      iteratorDetected = parallelPromiseIntrinsicsIntact();
+    } finally { Object.defineProperty(Array.prototype, Symbol.iterator, iterator); }
+    expect(iteratorDetected!, 'Array iterator').toBe(false);
+    let nextDetected: boolean;
+    try {
+      Object.defineProperty(arrayIteratorPrototype, 'next', { ...next, value: () => ({ done: true }) });
+      nextDetected = parallelPromiseIntrinsicsIntact();
+    } finally { Object.defineProperty(arrayIteratorPrototype, 'next', next); }
+    expect(nextDetected!, 'Array iterator next').toBe(false);
     expect(parallelPromiseIntrinsicsIntact()).toBe(true);
+  });
+
+  it('refuses a settled all with an in-flight member before the next child admission', () => {
+    for (const combinator of ['all', 'allSettled'] as const) {
+      const lifecycle = new AuthoredFlowLifecycle(() => {});
+      try {
+        lifecycle.runBody(() => {
+          const pending = new Promise<void>(() => {});
+          const aggregate = Promise.resolve('already settled');
+          lifecycle.registerCombinator([pending], aggregate, combinator, new Set());
+          expect(lifecycle.invocationPredecessors().unregisteredAggregate).toBe(true);
+        });
+      } finally { lifecycle.close(); }
+    }
+  });
+
+  it('refuses an iterable view that omits a literal array member', () => {
+    const nativeAll = Promise.all as Parameters<AuthoredFlowLifecycle['observeCombinator']>[0];
+    const violations: string[] = [];
+    const lifecycle = new AuthoredFlowLifecycle(message => violations.push(message));
+    try {
+      lifecycle.runBody(() => {
+        const a = Promise.resolve('A');
+        const b = Promise.resolve('B');
+        const declared = lifecycle.captureParallelArrayMembers([a, b]);
+        expect(() => lifecycle.observeCombinator(nativeAll, Promise, [b], 'all', declared))
+          .toThrow(/different set of array members/u);
+      });
+      expect(violations).toEqual(['parallel Promise.all iterated a different set of array members']);
+    } finally { lifecycle.close(); }
   });
 
   it('refuses untracked thenables before invoking their user-supplied then', () => {

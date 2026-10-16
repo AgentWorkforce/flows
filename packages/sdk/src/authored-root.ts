@@ -165,7 +165,11 @@ export async function resumeDurableAuthoredFlow(
   const metadata = await readAuthoredRootMetadata(journal, rootRunId);
   if (metadata === undefined) return undefined;
   assertAuthoredRuntimeAvailable();
+  assertParallelResumeRuntime(metadata, rootRunId);
   const loaded = await loadPinnedAuthoredSource(metadata);
+  // Source loading itself can alter a process-wide intrinsic. Refuse before
+  // run.resume dispatches a pinned parallel root in that environment.
+  assertParallelResumeRuntime(metadata, rootRunId);
   if (metadata.localAgentStream !== options.localAgentStream) {
     throw new Error('authored root local agent surface mismatch');
   }
@@ -199,6 +203,15 @@ export async function resumeDurableAuthoredFlow(
     cancelDispatch();
     peer.close();
   }
+}
+
+function assertParallelResumeRuntime(metadata: AuthoredRootMetadata, rootRunId: string): void {
+  if (metadata.identityVersion !== 2 || metadata.executionMode !== 'parallel'
+    || parallelPromiseIntrinsicsIntact()) return;
+  const error = new AuthoredFlowExecutionError('unsupported_promise_lifecycle',
+    `pinned parallel root ${rootRunId} cannot resume while a Promise or Array intrinsic is replaced or a Node preload is active. The run remains resumable in a clean process.`);
+  error.rootRunId = rootRunId;
+  throw error;
 }
 
 /**

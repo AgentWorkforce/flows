@@ -105,6 +105,10 @@ export class AuthoredPromiseGraph {
     return this.promiseIds.get(value);
   }
 
+  isPending(asyncId: number): boolean {
+    return this.pending.has(asyncId);
+  }
+
   /** The intrinsic creates per-member reaction promises as well as its aggregate. */
   captureCombinator<T>(call: () => T): { readonly value: T; readonly created: ReadonlySet<number> } {
     const created = new Set<number>();
