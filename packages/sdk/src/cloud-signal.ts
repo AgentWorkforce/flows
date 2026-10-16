@@ -1,6 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { CloudFlowError, cloudFetch, cloudRunId, isCloudRecord, resolveCloudConnection,
-  type CloudConnectionOptions } from './cloud-http.js';
+  transportError, type CloudConnectionOptions } from './cloud-http.js';
 
 const SIGNAL_NAME = /^[A-Za-z0-9_-]{1,80}$/u;
 const MAX_BYTES = 4 * 1024;
@@ -24,6 +24,9 @@ export async function postCloudSignal(
   let body: string;
   try { body = JSON.stringify({ payload }); }
   catch { throw new CloudFlowError('invalid_input', 'Signal payload must be JSON serializable.'); }
+  // JSON.stringify omits a function, symbol, or toJSON() result of undefined.
+  // This envelope has only one field, so {} means the payload was lost.
+  if (body === '{}') throw new CloudFlowError('invalid_input', 'Signal payload must be JSON serializable.');
   if (new TextEncoder().encode(body).byteLength > MAX_BYTES) {
     throw new CloudFlowError('invalid_input', 'Signal payload exceeds 4 KiB.');
   }
@@ -75,8 +78,7 @@ export async function waitForCloudSignal(
       });
     } catch (error) {
       options.signal?.throwIfAborted();
-      throw new CloudFlowError(deadline.aborted ? 'transient_error' : 'transport_error',
-        'Cloud signal wait failed; retrying the wait is safe.');
+      throw transportError(deadline.aborted ? deadline.reason : error);
     }
     if (response.status === 204) {
       if (performance.now() - requestStartedAt < 1_000) {
@@ -95,7 +97,11 @@ export async function waitForCloudSignal(
     if (!response.ok) throw new CloudFlowError('http_error', `Cloud signal wait failed with HTTP ${response.status}.`, response.status);
     let body: unknown;
     try { body = await response.json(); }
-    catch { throw new CloudFlowError('invalid_response', 'Cloud returned an invalid signal.'); }
+    catch (error) {
+      options.signal?.throwIfAborted();
+      if (!(error instanceof SyntaxError)) throw transportError(deadline.aborted ? deadline.reason : error);
+      throw new CloudFlowError('invalid_response', 'Cloud returned an invalid signal.');
+    }
     if (!isCloudRecord(body) || !Object.hasOwn(body, 'payload') || typeof body.acceptedAt !== 'number') {
       throw new CloudFlowError('invalid_response', 'Cloud returned an invalid signal.');
     }

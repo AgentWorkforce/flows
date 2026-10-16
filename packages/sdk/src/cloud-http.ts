@@ -290,7 +290,7 @@ export function isCloudRecord(value: unknown): value is Record<string, unknown> 
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function transportError(error: unknown): CloudFlowError {
+export function transportError(error: unknown): CloudFlowError {
   const cause = error instanceof Error ? error.cause : undefined;
   const code = isCloudRecord(cause) ? cause.code : undefined;
   const transient = (error instanceof Error && error.name === 'TimeoutError')
