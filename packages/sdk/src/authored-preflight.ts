@@ -13,16 +13,16 @@ export function authoredPreflight(path: string, environment?: NodeJS.ProcessEnv)
   return async (flow: FlowSpec) => {
     let config: ProjectConfig;
     try { config = readProjectConfig(directory); }
-    catch { return checkAuthoredFlow(flow, path); }
+    catch { return checkAuthoredFlow(flow, path, undefined, { environment }); }
     const resolved = resolvePreflight(flow, {
       projectCli: config.cli, projectConfigPath: config.path, projectSearchStart: directory,
       models: config.models, modelRegistryPath: config.modelRegistryPath,
     });
-    if (!resolved.ok) return checkAuthoredFlow(flow, path, config);
+    if (!resolved.ok) return checkAuthoredFlow(flow, path, config, { environment });
     await Promise.all(resolved.resolutions.map(async resolution => {
       const step = resolved.compiled!.steps.find(step => step.id === resolution.stepId)!;
       const managed = step.type === 'agent' && communicationInstruction(step.instruction) !== undefined;
-      const key = cliProbeKey(resolution, managed);
+      const key = cliProbeKey(resolution, managed, step.secrets);
       if (probeCache.has(key)) return;
       let probing = pending.get(key);
       if (probing === undefined) {
@@ -30,7 +30,7 @@ export function authoredPreflight(path: string, environment?: NodeJS.ProcessEnv)
           try {
             probeCache.set(key, { result: await probeCliAsync(resolution.cli,
               resolution.source === 'project' ? config.directory : directory,
-              resolution.model, managed ? 'managed' : undefined, environment) });
+              resolution.model, managed ? 'managed' : undefined, environment, step.secrets) });
           } catch (error) {
             probeCache.set(key, { failure: error instanceof CliProbeError ? error.detail : null });
           }

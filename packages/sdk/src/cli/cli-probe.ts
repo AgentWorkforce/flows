@@ -7,6 +7,7 @@ import { adapterIdentification, authenticationProbe, classifyModelProbeFailure, 
 import { MODEL_ENV } from '../worker-cli.js';
 import { CliProbeError, type CliProbeResult } from '../preflight.js';
 import { pinCliAlias, pinCliAliasSync } from './pinned-cli-alias.js';
+import { agentProbeEnvironment } from '../step-secrets.js';
 
 interface ProbeRequest {
   argv0?: string;
@@ -30,7 +31,8 @@ export async function probeCliAsync(...args: Parameters<typeof probeSequence>): 
 }
 
 export function resolveExecutable(command: string, directory: string, environment: NodeJS.ProcessEnv = process.env): string | undefined {
-  return driveSync(executableSequence(command, directory, environment));
+  return driveSync(executableSequence(command, directory,
+    agentProbeEnvironment(environment, 'relayflows-wrapper-v1')));
 }
 
 function driveSync<T>(sequence: Generator<ProbeRequest, T, ProbeOutput>): T {
@@ -94,23 +96,24 @@ function* probeSequence(
   model?: string,
   execution?: 'managed',
   sourceEnvironment: NodeJS.ProcessEnv = process.env,
+  grants?: string[],
 ): Generator<ProbeRequest, CliProbeResult, ProbeOutput> {
-  const executable = yield* executableSequence(cli, directory, sourceEnvironment);
+  const kind = cliAdapterKind(cli);
+  const environment = execution === 'managed'
+    ? { ...brokerEnvironment(sourceEnvironment), ...agentEnvironment(cli, sourceEnvironment, grants) }
+    : agentProbeEnvironment(sourceEnvironment, kind, grants);
+  const executable = yield* executableSequence(cli, directory, environment);
   if (executable === undefined) return { exists: false, authenticated: false };
   // The declaration selects the adapter; the canonical executable selects
   // the bytes. Package-manager links commonly name `claude` or `codex` while
   // targeting a generic `cli.js`, whose basename must not rewrite the adapter
   // contract after resolution.
-  const kind = cliAdapterKind(cli);
   // Relay owns interactive CLI launch/injection. Its generic PTY path is not
   // the headless wrapper protocol; do not demand that protocol from Gemini,
   // Cursor, OpenCode, or other interactive tools. Never invent an auth pass.
   if (execution === 'managed' && kind === 'relayflows-wrapper-v1') {
     return { exists: true, supported: true, authenticated: 'unverified', executable };
   }
-  const environment = execution === 'managed'
-    ? { ...brokerEnvironment(sourceEnvironment), ...agentEnvironment(cli, sourceEnvironment) }
-    : sourceEnvironment;
   const probe = (invocation: CliInvocation): ProbeRequest => ({
     executable,
     argv0: basename(cli),
