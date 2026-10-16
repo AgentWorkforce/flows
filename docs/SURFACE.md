@@ -412,6 +412,64 @@ flow-wide `FlowHeader.workspace` / `tools.fs` scopes. The chief harness above
 remains an aspirational example; this option does not make that entire harness
 executable today.
 
+### Interactive broker sessions
+
+`f.agent(name, { transport: "broker", task, cli, model, cwd, skills, keepAlive,
+channel, timeout })` starts an interactive PTY on the existing local Relay broker.
+Install the optional `@agent-relay/harness-driver` and `@agent-relay/sdk` packages
+and start the broker with `agent-relay up` in the run root. The SDK connects using
+that root's connection file (or `AGENT_RELAY_STATE_DIR`). It does not start a
+private broker. Preflight checks the optional packages and a read-only broker
+health request before admitting the step.
+
+```ts
+const implementer = await f.agent("implement-42", {
+  transport: "broker", cli: "codex", task: "Implement issue #42 and open a PR.",
+  cwd: "/worktrees/issue-42", skills: ["review-fix-signoff-loop"], keepAlive: true,
+});
+const fixed = await f.message(implementer.agentName!, "Address the review findings.", {
+  timeout: "10m",
+});
+await f.release(implementer.agentName!);
+```
+
+Broker `cwd` accepts an existing absolute directory or a path relative to the run
+root, including an external git worktree. `skills` names come from the canonical
+`AgentWorkforce/skills` repository. The `skills` CLI installs full directories,
+including supporting files, in the agent's project before spawning. Supported
+skill targets are Claude Code, Codex, Gemini CLI, Cursor, and OpenCode; an
+unsupported target or installation failure fails the step.
+
+The broker name contains the sanitized flow and authored agent name plus a
+run/step hash. The default channel and broker `team` are `flow-<runId>`; `channel`
+overrides only the channel. Relay Desktop can group `/api/spawned` entries by
+team. Run, flow, and step attribution also appears in `RELAYFLOW_RUN_ID`,
+`RELAYFLOW_FLOW_NAME`, and `RELAYFLOW_STEP_NAME` in the harness environment. The
+broker spawn API has no arbitrary metadata field.
+
+The prompt supplies a scoped completion helper and a turn ID. The agent calls
+`complete TURN_ID JSON_SUMMARY`; `AgentResult.summary` contains that JSON text,
+`agentName` identifies the broker session, and `artifacts` is empty. Stale and
+duplicate turn completions are refused. `keepAlive: true` retains the session for
+`f.message`; otherwise completion releases it. `f.release` journals an explicit,
+idempotent release, so a later step can safely remove the worktree. Closing the
+flow's local worker releases remaining sessions and disconnects from the broker.
+Retained sessions require a local worker stream and reject attached named or
+predicate gates before spawning. Validate their results in a later step so the
+agent name remains available for explicit cleanup. An idle PTY exit retires the
+session; subsequent messages fail immediately.
+
+`timeout` accepts milliseconds or a duration, defaults to 60 minutes, and is
+bounded at 60 minutes. `f.message` inherits the agent timeout unless overridden.
+A timeout resolves with `completionReason: "timeout"` and releases the session.
+Transport errors fail the step. Broker sessions report no token or dollar usage;
+preflight warns that those budget ceilings cannot bound their spend, including
+when the declared model has a frozen price. Broker sessions use `maxIterations: 1` and
+`transportRetries: 0`; `resume`, `recoveryMode`, `workspace`, and `permissions`
+are refused. Completed calls replay from the journal. A lost worker cannot
+reattach a retained session's completion socket: a later message fails closed
+instead of silently spawning a replacement.
+
 ### Agent retry and recovery controls
 
 `f.agent` separates semantic iteration from infrastructure recovery:

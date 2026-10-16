@@ -579,11 +579,33 @@ export async function executeAuthoredFlow<Input = undefined>(
         id,
         'agent',
         () => assertOperationAllowed('agent', definition.name, requestedCompletion),
-        () => observeStep(id, 'agent', () => worker.agent(id, options, agentOp.namedGate), onProgress),
+        () => observeStep(id, 'agent', () => {
+          if (options.transport === 'broker' && options.keepAlive
+            && (agentOp.namedGate !== undefined || agentOp.predicateGate !== undefined)) {
+            throw new AuthoredFlowExecutionError('agent_cli_unresolved',
+              'Retained broker agents do not support gates; validate their result in a later step');
+          }
+          return worker.agent(id, options, agentOp.namedGate, name);
+        }, onProgress),
         lifecycle,
         displayLabel(typeof name === 'string' ? name : undefined),
       );
       return trackStep(authoredSteps, agentOp);
+    },
+    message(agentName, text, messageOptions) {
+      assertOperationAllowed('message', definition.name, requestedCompletion);
+      const id = nextId('agent');
+      return trackStep(authoredSteps, new AuthoredFlowOperation<AgentResult>(id, 'message',
+        () => assertOperationAllowed('message', definition.name, requestedCompletion),
+        () => observeStep(id, 'agent', () => worker.message(id, agentName, text, messageOptions), onProgress),
+        lifecycle));
+    },
+    release(agentName) {
+      assertOperationAllowed('release', definition.name, requestedCompletion);
+      const id = nextId('agent');
+      return trackStep(authoredSteps, new AuthoredFlowOperation<void>(id, 'release',
+        () => assertOperationAllowed('release', definition.name, requestedCompletion),
+        () => observeStep(id, 'agent', () => worker.release(id, agentName), onProgress), lifecycle));
     },
     on(source, activityOptions) {
       assertOperationAllowed('on', definition.name, requestedCompletion);

@@ -25,7 +25,8 @@ export interface RelayMessaging {
   };
 }
 interface RelayModules {
-  HarnessDriverClient: { spawn(options: Record<string, unknown>): Promise<RelayBroker> };
+  HarnessDriverClient: { spawn(options: Record<string, unknown>): Promise<RelayBroker>;
+    connect(options: { cwd: string }): LocalBroker };
   RelaycastMessagingClient: new (options: Record<string, unknown>) => RelayMessaging;
 }
 export async function loadRelayModules(): Promise<RelayModules> {
@@ -99,4 +100,14 @@ async function createRuntime(dataDir: string, runId: string): Promise<RelayRunti
     try { await broker?.shutdown(); } finally { await workspace.agents.delete(publisher); }
     throw error;
   }
+}
+
+/** Connected clients disconnect on shutdown; they never terminate the user's broker. */
+export interface LocalBroker extends RelayBroker {
+  connectEvents(): void;
+  sendMessage(input: { to: string; text: string; from: string; mode: 'wait'; data: Record<string, unknown> }): Promise<{ event_id: string; targets: string[] }>;
+}
+export async function connectLocalBroker(cwd: string): Promise<LocalBroker> {
+  const { HarnessDriverClient } = await loadRelayModules();
+  return HarnessDriverClient.connect({ cwd });
 }

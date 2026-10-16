@@ -1,6 +1,4 @@
 import { communicationHistory } from './history.js';
-import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
-import { basename, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { JournalClient } from '../journal-client.js';
 import type { StepDispatchEvent } from '../protocol.js';
@@ -8,13 +6,12 @@ import type { ResolvedKernelAgentStep } from '../resolved-cli-identity.js';
 import { isLeaseLost, withWorkerLease } from '../worker-lease.js';
 import { isReadInterruptionError } from '../journal-read-policy.js';
 import { workerInstruction } from '../worker-input.js';
-import { resolveCliModel } from '../cli-adapter.js';
 import { resolveAgentCwd } from '../agent-cwd.js';
 import { channelName, type CommunicationInstruction } from './spec.js';
 import { acquireRelayRuntime, type RelayHandle } from './relay.js';
 import { CommunicationSession } from './session.js';
 import { openCommunicationTools } from './tools.js';
-import { agentEnvironment } from './environment.js';
+import { spawnFlowPty, shellQuote } from './pty.js';
 
 export function requireCommunicationCli(cli: string | undefined): void {
   if (!cli?.trim()) throw new Error('Agent communication requires a declared CLI executable');
@@ -62,7 +59,7 @@ async function run(client: JournalClient, dispatch: StepDispatchEvent, instructi
   let pumping: Promise<void> | undefined;
   let receipts = Promise.resolve();
   let unsubscribe: (() => void) | undefined;
-  let cliLinkDirectory: string | undefined;
+  let pty: Awaited<ReturnType<typeof spawnFlowPty>> | undefined;
   try {
     let resolve!: (value: unknown) => void;
     let reject!: (reason: unknown) => void;
@@ -74,8 +71,7 @@ async function run(client: JournalClient, dispatch: StepDispatchEvent, instructi
     if (signal.aborted) abort();
     const session = new CommunicationSession(client, dispatch, instruction, relay, summary => resolve({ summary }), reject);
     tools = await openCommunicationTools(request => session.invoke(request));
-    const quote = (value: string) => "'" + value.replaceAll("'", "'\"'\"'") + "'";
-    const helper = `node ${quote(tools.helperPath)}`;
+    const helper = `node ${shellQuote(tools.helperPath)}`;
     const history = await communicationHistory(client, dispatch, instruction);
     const prompt = `${workerInstruction(instruction.instruction, dispatch)}${history}\n\nYou are flow agent ${dispatch.step_id}. Concurrent peers send messages automatically into your session through Relay. Do not poll for messages. Use your shell/terminal execution tool with ${helper} for flow communication:\n- send PEER STABLE_ID 'message text' (outgoing peers: ${instruction.outgoing.join(', ') || 'none'})\n- ack PEER DELIVERY_SEQ only after processing that message (incoming peers: ${instruction.incoming.join(', ') || 'none'})\n- complete 'summary' when your task and conversation are finished.\nUse these helpers for all peer communication; do not use Relay MCP messaging tools. Stay available for injected messages until the conversation is complete. Use stable semantic message IDs so retries deduplicate sends.`;
     const name = `${relay.prefix}-${dispatch.step_id}`;
@@ -89,23 +85,10 @@ async function run(client: JournalClient, dispatch: StepDispatchEvent, instructi
       });
       void receipts.catch(reject);
     });
-    // Relay supplies each CLI's launch flags and injection behavior.
-    const cliIdentity = spec.cli_identity ?? spec.cli!;
-    const argv0 = basename(cliIdentity);
-    let command = spec.cli!;
-    if (basename(command) !== argv0) {
-      const linkRoot = join(dataDir, 'communication');
-      await mkdir(linkRoot, { recursive: true, mode: 0o700 });
-      cliLinkDirectory = await mkdtemp(join(linkRoot, 'cli-'));
-      command = join(cliLinkDirectory, argv0);
-      await symlink(spec.cli!, command, 'file');
-    }
-    handle = await relay.broker.spawnPty({ name, cli: basename(cliIdentity).replace(/\.exe$/i, ''), task: prompt, channels: [], skipRelayPrompt: true,
-      model: resolveCliModel(cliIdentity, spec.model), cwd: directory,
-      harnessConfig: { runtime: 'pty', command: quote(command), args: [],
-        cwd: directory, env: { ...agentEnvironment(cliIdentity, environment ?? process.env),
-          RELAYFLOW_COMMUNICATION_SOCKET: tools.path, RELAYFLOW_COMMUNICATION_TOKEN: tools.token },
-        delivery: { mode: 'pty-injection', format: 'relay-block' } } });
+    pty = await spawnFlowPty(relay.broker, { name, cli: spec.cli!, identity: spec.cli_identity,
+      model: spec.model, task: prompt, channels: [], cwd: directory, dataDir,
+      environment, socket: tools.path, token: tools.token });
+    handle = pty.handle;
     const ready = await handle.waitForReady(Math.min(instruction.timeoutMs, 90_000));
     if (ready.reason !== 'ready') throw new Error(`Communication agent did not become ready: ${ready.reason}`);
     pumping = (async () => {
@@ -122,7 +105,7 @@ async function run(client: JournalClient, dispatch: StepDispatchEvent, instructi
       finally { try { await handle?.release('Flow communication attempt ended', { deleteIdentity: true }); }
         finally { try { await tools?.close(); } finally {
           try { await relay.close(); }
-          finally { if (cliLinkDirectory) await rm(cliLinkDirectory, { recursive: true, force: true }); }
+          finally { await pty?.close(); }
         } } }
     }
   }

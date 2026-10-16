@@ -1,3 +1,5 @@
+import { checkBrokerEnvironment } from '../communication/broker-preflight.js';
+import { brokerInstruction } from '../communication/broker-spec.js';
 import { validateSpecWithDaemon, type DaemonValidation, type DaemonValidationMode, type DaemonValidationDeps } from '../daemon-spec-validation.js';
 import { communicationInstruction } from '../communication/spec.js';
 import { rememberResolvedCliIdentities } from '../resolved-cli-identity.js';
@@ -246,6 +248,14 @@ export function checkAuthoredFlow(
           effectiveProbeCache,
         )
       : undefined;
+    if (flow?.steps.some(step => step.type === 'agent' && brokerInstruction(step.instruction))) {
+      try { checkBrokerEnvironment(); }
+      catch (error) {
+        result.ok = false;
+        result.diagnostics.push({ severity: 'refusal', kind: 'probe_failed',
+          message: error instanceof Error ? error.message : 'Broker environment could not be checked.' });
+      }
+    }
     if (flow?.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) {
       try { if (options?.communicationChecked !== true) checkCommunicationEnvironment(flow); }
       catch (error) {
@@ -520,7 +530,7 @@ function bindResolvedCliPaths(
       const resolution = byStep.get(step.id);
       if (resolution === undefined) return step;
       const directory = resolution.source === 'project' ? configDirectory : flowDirectory;
-      const managed = step.type === 'agent' && communicationInstruction(step.instruction) !== undefined;
+      const managed = step.type === 'agent' && (communicationInstruction(step.instruction) !== undefined || brokerInstruction(step.instruction) !== undefined);
       const outcome = probeCache.get(cliProbeKey(resolution, managed));
       const executable = outcome !== undefined && 'result' in outcome
         ? outcome.result.executable

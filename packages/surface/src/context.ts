@@ -23,6 +23,8 @@ export interface AgentResult {
    * continue the same conversation.
    */
   sessionId?: string;
+  /** Broker session name; pass to f.message while keepAlive is enabled. */
+  agentName?: string;
 }
 
 /** Per-step declarations: validated and recorded, not currently enforced (gate 8 / #442).
@@ -36,7 +38,7 @@ export interface PermissionsSpec {
 
 export interface AgentOptions {
   /** CLI time limit: milliseconds or ms/s/m duration, at most 60m.
-   * Resolves with completionReason: timeout. No default; direct transport only, maxIterations 1. */
+   * Resolves with completionReason: timeout. No default for direct; broker defaults to 60m. Requires maxIterations 1. */
   timeout?: string | number;
   task: string;
   workspace?: string;
@@ -45,6 +47,8 @@ export interface AgentOptions {
   cli?: string;
   model?: string;
   /**
+   * Broker transport accepts absolute or run-root-relative directories, including
+   * external worktrees. For direct transport:
    * Directory this agent's CLI is spawned in, relative to the run root — the
    * flow-runner's working directory, and where the CLI runs when this is
    * absent. One flow can therefore drive agents in sibling checkouts. The
@@ -68,10 +72,16 @@ export interface AgentOptions {
   resume?: string;
   /**
    * Dispatch transport (flows#385). `'direct'` (default) spawns the CLI as a
-   * local subprocess. `'relay'` posts to agent-relay so the agent registers
+   * local subprocess. `'broker'` opens an interactive local Relay session. `'relay'` posts to agent-relay so the agent registers
    * as a first-class workspace participant that DMs can steer.
    */
-  transport?: 'direct' | 'relay';
+  transport?: 'direct' | 'relay' | 'broker';
+  /** Canonical AgentWorkforce/skills names installed for this broker agent. */
+  skills?: string[];
+  /** Keep the broker session available for f.message until the flow ends. */
+  keepAlive?: boolean;
+  /** Broker session channel; defaults to flow-<runId>. */
+  channel?: string;
   /** Semantic executions allowed when verification rejects output. Default 1. */
   maxIterations?: number;
   /** Additional attempts allowed only after classified transport loss. Default 1. */
@@ -171,6 +181,10 @@ export interface Ctx extends Helpers {
   /** JSON Schema validates the value at runtime; narrow unknown in author code. */
   llm(prompt: string, options: LlmOptions): Step<unknown>;
   agent(name: string, options: AgentOptions): Step<AgentResult>;
+  /** Send work to a retained broker agent and await its next JSON completion. */
+  message(agentName: string, text: string, options?: { timeout?: string | number }): Step<AgentResult>;
+  /** Release a retained broker agent before cleaning up its working directory. */
+  release(agentName: string): Step<void>;
   /** Open a durable, bounded event subscription for this running body. */
   on(source: TriggerSource, options: ActivityOptions): Activity;
   /**

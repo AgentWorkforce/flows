@@ -1,3 +1,4 @@
+import { brokerInstruction } from './communication/broker-spec.js';
 import { communicationInstruction } from './communication/spec.js';
 import { loadPlugins, type LoadedPlugin } from './plugin-loader.js';
 import { PluginError } from './plugin-manifest.js';
@@ -340,7 +341,7 @@ function preflightSync(flow: unknown, options: PreflightOptions): PreflightResul
     }
     const resolution = resolutionByStep.get(step.id)!;
     probeResolvedCli(resolution, options.probes, cliProbeResults, diagnostics,
-      step.type === 'agent' && communicationInstruction(step.instruction) !== undefined);
+      step.type === 'agent' && (communicationInstruction(step.instruction) !== undefined || brokerInstruction(step.instruction) !== undefined));
   }
 
   for (const trigger of compiled.triggers ?? []) {
