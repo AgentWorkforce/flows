@@ -1007,9 +1007,10 @@ step gets only the names in its `secrets` declaration. For example,
 `f.run('node call-api.mjs', { secrets: ['NATIVE_API_TOKEN'] })` receives that
 value, while the next `f.run` without a grant does not. The same `secrets`
 option is available on `f.agent` and `f.llm` and in declarative steps. Agent
-CLIs start from an allowlist of system variables and their selected CLI login,
-Cloud-managed repository git/gh setup and model login selected for the CLI stay
-available; user-delivered names remain grant-only. A misspelled or unavailable
+CLIs start from an allowlist of system variables and their selected CLI login.
+Their own model login stays available even when delivered as a run secret;
+other user-delivered names require an explicit grant. Cloud-managed repository
+git/gh setup also stays available. A misspelled or unavailable
 name refuses the step. Without a secret-name manifest, self-hosted deterministic steps retain
 the legacy run environment; set the manifest when supplying secrets.
 

@@ -50,6 +50,11 @@ const CLI_LOGIN: Record<CliAdapterKind, readonly string[]> = {
   'relayflows-wrapper-v1': [],
 };
 
+/** A selected CLI can use its own delivered model login without a step grant. */
+export function isCliLoginName(kind: string, name: string): boolean {
+  return Object.hasOwn(CLI_LOGIN, kind) && CLI_LOGIN[kind as CliAdapterKind].includes(name);
+}
+
 export function deliveredNames(source: NodeJS.ProcessEnv): ReadonlySet<string> | undefined {
   const raw = source[SECRET_ENV_NAMES];
   if (raw === undefined) return undefined; // self-hosted runs may grant present env names
@@ -109,7 +114,8 @@ export function agentStepEnvironment(
   const grants = validateStepSecrets(declaration, source);
   const env: NodeJS.ProcessEnv = {};
   for (const name of [...BASE_ENV, ...CLI_LOGIN[kind], ...repositoryEnvironmentNames(source)]) {
-    if (known?.has(name) && !grants.includes(name) && !platform.has(name)) continue;
+    if (known?.has(name) && !grants.includes(name) && !platform.has(name)
+      && !isCliLoginName(kind, name)) continue;
     if (source[name] !== undefined) env[name] = source[name];
   }
   for (const name of grants) env[name] = source[name];
@@ -126,7 +132,7 @@ export function agentProbeEnvironment(
   const allowed = new Set(validateStepSecrets(declaration, source));
   const platform = platformAgentNames(source, kind);
   for (const name of deliveredNames(source) ?? []) {
-    if (!allowed.has(name) && !platform.has(name)) delete env[name];
+    if (!allowed.has(name) && !platform.has(name) && !isCliLoginName(kind, name)) delete env[name];
   }
   delete env[SECRET_ENV_NAMES];
   delete env[PLATFORM_AGENT_ENV_NAMES];

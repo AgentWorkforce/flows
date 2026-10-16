@@ -1,6 +1,7 @@
 import { basename } from 'node:path';
 import { wrapperEnvironment } from '../wrapper-runtime.js';
-import { deliveredNames, platformAgentNames, repositoryEnvironmentNames, validateStepSecrets } from '../step-secrets.js';
+import { deliveredNames, isCliLoginName, platformAgentNames, repositoryEnvironmentNames,
+  validateStepSecrets } from '../step-secrets.js';
 
 const terminalNames = ['TERM', 'COLORTERM', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME'];
 const networkNames = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',
@@ -54,7 +55,9 @@ export function agentEnvironment(cli: string, source: NodeJS.ProcessEnv = proces
     throw new Error('Relay broker credentials cannot be granted to a communication agent');
   }
   for (const name of names ?? []) {
-    if (!allowed.includes(name) && !platform.has(name)) delete credentials[name];
+    if (!allowed.includes(name) && !platform.has(name) && !isCliLoginName(cliName, name)) {
+      delete credentials[name];
+    }
   }
   return { ...Object.fromEntries(relayNames.map(name => [name, ''])),
     ...credentials, ...selected(source, allowed) } as Record<string, string>;

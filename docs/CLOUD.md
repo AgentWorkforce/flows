@@ -55,9 +55,9 @@ await f.agent('review', { task: 'Review the result', secrets: [] });
 
 The same `secrets: ['NATIVE_API_TOKEN']` declaration is accepted on a YAML
 step. Unknown or unavailable names refuse the run. A direct agent step starts
-with a small system environment, Cloud-selected model login (including active
-Claude Bedrock login), and trusted repository git/gh setup, plus only its
-declared user-delivered secrets; a Relay-transport agent cannot request run
+with a small system environment, its own model login (including delivered
+login and active Claude Bedrock login), and trusted repository git/gh setup,
+plus only its declared other user-delivered secrets; a Relay-transport agent cannot request run
 secrets. On a self-hosted run, set `RELAY_SECRET_ENV_NAMES` to a JSON array of
 the secret names before `flows run` so deterministic steps can scope them too.
 

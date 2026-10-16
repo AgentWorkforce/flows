@@ -60,14 +60,14 @@ it('communication agents drop delivered secrets by default on a scoped runtime',
     RELAY_SECRET_ENV_NAMES: JSON.stringify(['ANTHROPIC_API_KEY', 'NATIVE_API_TOKEN']),
   };
   const plain = agentEnvironment('claude', source);
-  expect(plain).not.toHaveProperty('ANTHROPIC_API_KEY');
+  expect(plain.ANTHROPIC_API_KEY).toBe('delivered-provider-key');
   expect(plain).not.toHaveProperty('NATIVE_API_TOKEN');
   expect(plain.CLAUDE_CODE_OAUTH_TOKEN).toBe('own-login');
   const granted = agentEnvironment('claude', source, ['NATIVE_API_TOKEN']);
   expect(granted.NATIVE_API_TOKEN).toBe('delivered-native-key');
-  expect(granted).not.toHaveProperty('ANTHROPIC_API_KEY');
+  expect(granted.ANTHROPIC_API_KEY).toBe('delivered-provider-key');
   expect(granted.RELAY_API_KEY).toBe('');
-  expect(agentEnvironment('claude', source, undefined, false)).not.toHaveProperty('ANTHROPIC_API_KEY');
+  expect(agentEnvironment('claude', source, undefined, false).ANTHROPIC_API_KEY).toBe('delivered-provider-key');
   expect(() => agentEnvironment('claude', {
     ...source, RELAY_SECRET_ENV_NAMES: JSON.stringify(['RELAY_API_KEY']),
   }, ['RELAY_API_KEY'])).toThrow('Relay broker credentials');

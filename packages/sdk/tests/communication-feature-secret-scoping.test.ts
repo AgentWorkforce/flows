@@ -38,11 +38,13 @@ it('communication worker uses the negotiated capability to scope its broker chil
       await completeCommunicationDispatch(client as unknown as JournalClient, dispatch,
         { type: 'relayflows.communication.v1', instruction: 'task', incoming: [], outgoing: [], timeoutMs: 1000 },
         root, root, {
-          ANTHROPIC_API_KEY: 'delivered-provider-key', RELAY_SECRET_ENV_NAMES: '["ANTHROPIC_API_KEY"]',
+          ANTHROPIC_API_KEY: 'delivered-provider-key', GH_TOKEN: 'user-repository-secret',
+          RELAY_SECRET_ENV_NAMES: '["ANTHROPIC_API_KEY","GH_TOKEN"]',
           RELAY_API_KEY: 'broker-key', RELAYFLOW_V2_SIGNAL_READ_TOKEN: 'private-signal-token',
         });
       const env = state.environments.at(-1)!;
-      expect(env.ANTHROPIC_API_KEY).toBe(scoped ? undefined : 'delivered-provider-key');
+      expect(env.ANTHROPIC_API_KEY).toBe('delivered-provider-key');
+      expect(env).not.toHaveProperty('GH_TOKEN');
       expect(env.RELAY_API_KEY).toBe('');
       expect(env).not.toHaveProperty('RELAYFLOW_V2_SIGNAL_READ_TOKEN');
     }

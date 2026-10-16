@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { agentStepEnvironment, validateStepSecrets } from '../src/step-secrets.js';
+import { agentProbeEnvironment, agentStepEnvironment, validateStepSecrets } from '../src/step-secrets.js';
 import { compileSpec, toKernelSpec } from '../src/compile.js';
+import { agentEnvironment } from '../src/communication/environment.js';
 
 const source = {
   PATH: '/usr/bin', HOME: '/tmp/home', LANG: 'C.UTF-8',
@@ -75,7 +76,7 @@ describe('per-step secret grants', () => {
       AWS_SECRET_ACCESS_KEY: 'bedrock-secret', AWS_SESSION_TOKEN: 'bedrock-session',
       AWS_REGION: 'eu-west-1', AWS_DEFAULT_REGION: 'eu-west-1' });
     expect(env).not.toHaveProperty('OTHER_TOKEN');
-    expect(env).not.toHaveProperty('ANTHROPIC_API_KEY');
+    expect(env.ANTHROPIC_API_KEY).toBe('user-provider-key');
     expect(env).not.toHaveProperty('RELAY_PLATFORM_AGENT_ENV_NAMES');
     expect(agentStepEnvironment(bedrock, 'codex')).not.toHaveProperty('AWS_ACCESS_KEY_ID');
   });
@@ -106,6 +107,41 @@ describe('per-step secret grants', () => {
     const userToken = { ...repository, GH_TOKEN: 'user-gh-token',
       RELAY_SECRET_ENV_NAMES: '["USER_SECRET","GH_TOKEN"]' };
     expect(agentStepEnvironment(userToken, 'claude')).not.toHaveProperty('GH_TOKEN');
+  });
+
+  it('keeps only the selected CLI login and granted other secrets in every agent path', () => {
+    const delivered = {
+      ANTHROPIC_API_KEY: 'claude-login', OPENAI_API_KEY: 'codex-login',
+      NATIVE_API_TOKEN: 'other-secret', GH_TOKEN: 'user-repository-secret',
+      RELAY_SECRET_ENV_NAMES: JSON.stringify([
+        'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'NATIVE_API_TOKEN', 'GH_TOKEN',
+      ]),
+    };
+    for (const [kind, own, foreign] of [
+      ['claude', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY'],
+      ['codex', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'],
+    ] as const) {
+      for (const env of [
+        agentStepEnvironment(delivered, kind),
+        agentProbeEnvironment(delivered, kind),
+        agentEnvironment(kind, delivered),
+        agentEnvironment(kind, delivered, undefined, false),
+      ]) {
+        expect(env[own]).toBe(delivered[own]);
+        expect(env).not.toHaveProperty(foreign);
+        expect(env).not.toHaveProperty('NATIVE_API_TOKEN');
+        expect(env).not.toHaveProperty('GH_TOKEN');
+      }
+      for (const env of [
+        agentStepEnvironment(delivered, kind, ['NATIVE_API_TOKEN']),
+        agentProbeEnvironment(delivered, kind, ['NATIVE_API_TOKEN']),
+        agentEnvironment(kind, delivered, ['NATIVE_API_TOKEN']),
+      ]) {
+        expect(env.NATIVE_API_TOKEN).toBe('other-secret');
+      }
+    }
+    expect(agentStepEnvironment(delivered, 'relayflows-wrapper-v1')).not.toHaveProperty('ANTHROPIC_API_KEY');
+    expect(agentProbeEnvironment(delivered, 'relayflows-wrapper-v1')).not.toHaveProperty('OPENAI_API_KEY');
   });
 
   it('refuses a spoofed platform agent marker', () => {

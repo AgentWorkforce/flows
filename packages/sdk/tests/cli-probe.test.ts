@@ -148,6 +148,8 @@ it('scopes delivered secrets in PATH lookup and provider probes for checked and 
   command: process.argv[1].split('/').at(-1),
   delivered: process.env.NATIVE_API_TOKEN ?? null,
   github: process.env.GH_TOKEN ?? null,
+  claudeLogin: process.env.ANTHROPIC_API_KEY ?? null,
+  codexLogin: process.env.OPENAI_API_KEY ?? null,
   bedrock: process.env.AWS_BEARER_TOKEN_BEDROCK ?? null,
   repository: process.env.GH_CONFIG_DIR ?? null,
   marker: process.env.RELAY_PLATFORM_AGENT_ENV_NAMES ?? null,
@@ -160,8 +162,9 @@ it('scopes delivered secrets in PATH lookup and provider probes for checked and 
   const environment = { ...process.env,
     PATH: `${directory}:${process.env.PATH ?? ''}`,
     NATIVE_API_TOKEN: 'user-secret', GH_TOKEN: 'user-github-secret',
+    ANTHROPIC_API_KEY: 'claude-login', OPENAI_API_KEY: 'codex-login',
     GH_CONFIG_DIR: '/trusted/gh', AWS_BEARER_TOKEN_BEDROCK: 'selected-bedrock-login',
-    RELAY_SECRET_ENV_NAMES: '["NATIVE_API_TOKEN","GH_TOKEN","AWS_BEARER_TOKEN_BEDROCK"]',
+    RELAY_SECRET_ENV_NAMES: '["NATIVE_API_TOKEN","GH_TOKEN","ANTHROPIC_API_KEY","OPENAI_API_KEY","AWS_BEARER_TOKEN_BEDROCK"]',
     RELAY_PLATFORM_AGENT_ENV_NAMES: '["AWS_BEARER_TOKEN_BEDROCK"]',
   };
   const plain: FlowSpec = { version: '0.1.0', steps: [
@@ -177,11 +180,12 @@ it('scopes delivered secrets in PATH lookup and provider probes for checked and 
   expect(records().some(record => record.command === 'claude')).toBe(true);
   for (const record of records()) {
     expect(record).toMatchObject({ delivered: null, github: null,
+      claudeLogin: 'claude-login', codexLogin: null,
       bedrock: 'selected-bedrock-login', repository: '/trusted/gh', marker: null });
   }
   expect(resolveExecutable('claude', directory, environment)).toBe(realpathSync(claude));
   expect(records().at(-1)).toMatchObject({ command: 'which', delivered: null,
-    github: null, bedrock: null, marker: null });
+    github: null, claudeLogin: null, codexLogin: null, bedrock: null, marker: null });
   const granted: FlowSpec = { ...plain, steps: [{ ...plain.steps[0]!, secrets: ['NATIVE_API_TOKEN'] }] };
   expect(checkAuthoredFlow(granted, join(directory, 'granted.yaml'), undefined,
     { environment }).report.ok).toBe(true);
