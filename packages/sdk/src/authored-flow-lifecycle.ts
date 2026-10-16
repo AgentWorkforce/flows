@@ -215,6 +215,11 @@ export class AuthoredFlowLifecycle {
     return this.stepGraph.edgesOf(step);
   }
 
+  /** Predecessors for a new invocation, before it has an operation promise. */
+  invocationPredecessors(): { readonly steps: readonly string[]; readonly truncated: boolean } {
+    return this.stepGraph.predecessorsAt(executionAsyncId());
+  }
+
   registerInvocation(
     operation: OperationToken,
     asyncId: number,

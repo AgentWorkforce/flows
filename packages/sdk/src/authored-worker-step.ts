@@ -21,7 +21,6 @@ import type { StepFailedDetails } from './failure-kinds.js';
 import { LOCAL_AGENT_WORKSPACE } from './local-agent-pins.js';
 import { authoredWorkerSlots, WorkerSlots, type AuthoredWorkerSlots } from './worker-slots.js';
 import { validateStepSecrets } from './step-secrets.js';
-import { AuthoredResultOrder } from './authored-result-order.js';
 
 const AGENT_TIMEOUT = Symbol('declared agent timeout');
 const WORKSPACE_PERMISSION_ANNOTATION = /:\s*(readonly|readwrite)\s*$/i;
@@ -364,7 +363,6 @@ export function authoredDeterministicRunner(
   // would serialize Promise.all. Each admitted child gets its own connection;
   // this limit bounds both daemon threads and shell commands per authored body.
   const slots = new WorkerSlots(8);
-  const results = new AuthoredResultOrder();
   // One lowering, two readers. `record` changes what the child run's verdict
   // MEANS, so the reader changes with it; everything before the read — spec,
   // admission key, budget, child index — is deliberately shared, because a
@@ -393,10 +391,9 @@ export function authoredDeterministicRunner(
       });
       return read(outcome);
     };
-    const ticket = results.reserve();
-    return slots.run(() => results.run(ticket, async () => terminal
+    return slots.run(async () => terminal
       ? consume(await journal.runStart(spec, undefined, admissionKey, false, true))
-      : budget.execute(journal, spec, consume, admissionKey, true)));
+      : budget.execute(journal, spec, consume, admissionKey, true));
   }
   const lowerRun = (id: string, command: string, terminal = false, leaseMs?: number, verification?: NamedGate,
     secrets?: string[]): Promise<string> =>

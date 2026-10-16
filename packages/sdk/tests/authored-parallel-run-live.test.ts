@@ -65,6 +65,33 @@ export default flow('parallel-run', async f => {
     expect(measured.elapsedMs).toBeLessThan(3_000);
   }, 60_000);
 
+  it('starts a fast branch dependent before a slow sibling completes', () => {
+    const fixture = chainFixture();
+    closes.push(() => fixture.close());
+    writeFileSync(`${fixture.root}/dependent.mjs`, `import { writeFileSync } from 'node:fs';
+writeFileSync('dependent-start.json', JSON.stringify({ elapsedMs: Date.now() - Number(process.argv[2]) }));
+process.stdout.write('dependent');
+`);
+    writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
+export default flow('parallel-dependent', async f => {
+  const started = Date.now();
+  const slow = async () => await f.run('sleep 3; printf slow');
+  const fast = async () => {
+    await f.run('sleep 1; printf fast');
+    return await f.run('node dependent.mjs ' + started);
+  };
+  await Promise.all([slow(), fast()]);
+  f.done('success');
+});
+`);
+    const result = fixture.invoke('run', '--no-observer-link', '--json', '--data-dir', fixture.data,
+      fixture.flowPath, '--input', '{}');
+    expect(result.status, result.stderr + result.stdout).toBe(0);
+    const { elapsedMs } = JSON.parse(readFileSync(`${fixture.root}/dependent-start.json`, 'utf8')) as { elapsedMs: number };
+    console.info(`fast dependent started after: ${elapsedMs} ms`);
+    expect(elapsedMs).toBeLessThan(2_300);
+  }, 60_000);
+
   it('keeps declaration order when the later child finishes first', async () => {
     const fixture = chainFixture();
     closes.push(() => fixture.close());
@@ -132,6 +159,34 @@ export default flow('bounded-parallel-run', async f => {
     }
     expect(active).toBe(0);
     expect(peak).toBe(8);
+  }, 60_000);
+
+  it('does not admit a queued child after a sibling fails', () => {
+    const fixture = chainFixture();
+    closes.push(() => fixture.close());
+    writeFileSync(`${fixture.root}/fail-work.mjs`, `import { appendFileSync, readFileSync } from 'node:fs';
+const id = process.argv[2];
+appendFileSync('fail-starts', id + '\\n');
+const deadline = Date.now() + 10000;
+while (readFileSync('fail-starts', 'utf8').trim().split('\\n').length < 8) {
+  if (Date.now() > deadline) throw new Error('eight children were not admitted');
+  await new Promise(resolve => setTimeout(resolve, 20));
+}
+if (id === '0') process.exit(7);
+await new Promise(resolve => setTimeout(resolve, 500));
+`);
+    writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
+export default flow('queued-child-cancellation', async f => {
+  await Promise.all(Array.from({ length: 9 }, (_, i) => f.run(i === 8
+    ? 'touch queued-started' : 'node fail-work.mjs ' + i)));
+  f.done('success');
+});
+`);
+    const result = fixture.invoke('run', '--no-observer-link', '--json', '--data-dir', fixture.data,
+      fixture.flowPath, '--input', '{}');
+    expect(result.status, result.stderr + result.stdout).toBe(1);
+    expect(readFileSync(`${fixture.root}/fail-starts`, 'utf8').trim().split('\n')).toHaveLength(8);
+    expect(existsSync(`${fixture.root}/queued-started`)).toBe(false);
   }, 60_000);
 
   it('replays a completed peer and resumes an unfinished peer after a crash', async () => {

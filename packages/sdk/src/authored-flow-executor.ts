@@ -1,7 +1,7 @@
 import { assertAuthoredPromiseHooks } from './authored-runtime-capability.js';
 import { pluginHelpers } from './plugin-loader.js';
 import { runPluginEffect } from './authored-plugin-effect.js';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { dirname } from 'node:path';
 import { runHelperEffect } from './authored-helper-effect.js';
 import { checkSlackHelpers } from './slack-preflight.js';
@@ -302,7 +302,37 @@ export async function executeAuthoredFlow<Input = undefined>(
   let requestedCompletion: LoweredCompletionReason | undefined;
   let requestedDetail: string | undefined;
   const qualify = (id: string): string => `${options.stepPrefix ?? ''}${id}`;
-  const nextId = (kind: string): string => qualify(`${kind}-${nextStep++}`);
+  // Concurrent f.run siblings may finish in either order. A follow-up in one
+  // branch takes its identity from that branch's causal predecessor, so replay
+  // cannot bind its admission key to the other branch's command.
+  const parallelRoots = new Set<string>();
+  const branchOrdinals = new Map<string, number>();
+  const runPredecessors = new Map<string, string>();
+  const nextId = (kind: string): string => {
+    const sequence = nextStep++;
+    if (kind !== 'run') return qualify(`${kind}-${sequence}`);
+    const predecessors = lifecycle.invocationPredecessors();
+    if (predecessors.truncated) {
+      throw new AuthoredFlowExecutionError('step_failed',
+        'cannot assign a replay-stable f.run identity: its causal predecessor graph is truncated');
+    }
+    const parent = predecessors.steps.length === 1 ? predecessors.steps[0] : undefined;
+    const inBranch = parent !== undefined && parallelRoots.has(parent);
+    const signature = JSON.stringify([...predecessors.steps].sort());
+    const siblings = authoredSteps.filter(operation => operation.verb === 'run'
+      && (operation.lifecycle === 'created' || operation.lifecycle === 'running')
+      && runPredecessors.get(operation.id) === signature);
+    const id = inBranch
+      ? qualify(`run-after-${createHash('sha256').update(parent).digest('hex')}-${(branchOrdinals.get(parent) ?? 0) + 1}`)
+      : qualify(`run-${sequence}`);
+    if (inBranch) branchOrdinals.set(parent, (branchOrdinals.get(parent) ?? 0) + 1);
+    if (inBranch || siblings.length > 0) {
+      parallelRoots.add(id);
+      for (const sibling of siblings) parallelRoots.add(sibling.id);
+    }
+    runPredecessors.set(id, signature);
+    return id;
+  };
   const assertHelperAllowed = (provider: string): void => {
     if (options.allowedHelperProviders !== undefined && !options.allowedHelperProviders.has(provider)) {
       throw new AuthoredFlowExecutionError(

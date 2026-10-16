@@ -32,8 +32,9 @@ import { MAX_AFTER, displayLabel, type AuthoredStepEdges } from './authored-step
  * body walks a few nodes per step. A walk that still exceeds `walkLimit` stops
  * and says so (`afterTruncated`) rather than guessing silently.
  *
- * This is observational metadata: it never gates execution, and it changes no
- * step id, admission key or resume identity.
+ * Most consumers use this as observational metadata. Parallel f.run follow-up
+ * IDs also use the causal frontier; the executor refuses a truncated frontier
+ * rather than choosing a replay key from incomplete predecessors.
  */
 export const MAX_WALK = 10_000;
 
@@ -117,6 +118,11 @@ export class AuthoredStepGraph {
 
   edgesOf(step: string): AuthoredStepEdges | undefined {
     return this.edges.get(step);
+  }
+
+  /** Causal predecessors of a step being declared in the current async context. */
+  predecessorsAt(contextId: number): { readonly steps: readonly string[]; readonly truncated: boolean } {
+    return this.frontierOf(contextId);
   }
 
   /** Drop the walk state; recorded edges stay readable for late record writes. */

@@ -974,14 +974,25 @@ Two properties of `f.run` on a local `relayflowd` are useful to know.
 uses its own journal connection because the daemon handles requests on one
 connection in order and `run.start` returns only after its command exits. An
 authored body admits at most eight deterministic children at once; additional
-calls wait for a slot. A declared `budget` still queues these operations in
-order for exact accounting (`authored-budget.ts`). `Promise.all` returns results
-in declaration order. The SDK publishes child results to authored continuations
-in invocation order, even when later commands finish first. This keeps
-follow-up step ids stable on replay or resume. For durable authored runs, each
-child's admission key comes from the root run and step id. Each child has its
-own journal; the root's child index records completion facts as they arrive,
-and readers match them by step id and run id.
+calls wait for a slot. This limit belongs to each authored body: a dispatched
+child body has its own eight slots. A declared `budget` still queues these
+operations in order for exact accounting (`authored-budget.ts`). `Promise.all`
+returns results in declaration order while each continuation receives its
+result as soon as that child completes. For durable authored runs, branch
+follow-up ids are rooted in their causal predecessor, so replay or resume
+finds the same child even when completion order changes. Each child's
+admission key comes from the root run and step id. Each child has its own
+journal; the root's child index records completion facts as they arrive, and
+readers match them by step id and run id.
+If the bounded causal walk cannot identify a follow-up's full predecessor
+frontier, the flow fails before admitting that child rather than issuing an
+ambiguous replay key.
+
+If one concurrent `f.run` fails, the authored body fails and its waiting
+siblings are cancelled before admission. Children already admitted can finish
+their own journal work; their outcomes cannot turn the failed body into a
+success. A child in a separate `f.dispatch` body follows that body's own
+failure and capacity rules.
 
 What runs concurrently today:
 
