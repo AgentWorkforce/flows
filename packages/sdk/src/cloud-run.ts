@@ -14,7 +14,7 @@ import {
   type CloudConnectionOptions,
 } from './cloud-http.js';
 import { cloudRunState, isCloudRunActive, type CloudRunState } from './cloud-run-record.js';
-import { packWorkingTree, prepareCloudSync, uploadCloudCode } from './cloud-sync.js';
+import { canUseCodeCache, packWorkingTree, prepareCloudSync, sha256PackedTree, uploadCloudCode } from './cloud-sync.js';
 
 export type CloudFlowSource = FlowSpec | { path: string };
 export const MIN_CLOUD_RUN_BUDGET_MINUTES = 30;
@@ -65,7 +65,7 @@ export interface CloudRunReceipt {
   specHash: string;
   /** Authenticated run API resource; this is not a public sharing URL. */
   apiUrl: string;
-  /** Present when a working tree was synced: what was uploaded, by count and size. */
+  /** Present when a working tree was synced: its file count and uncompressed size. */
   synced?: { files: number; bytes: number; skippedLinks: string[] };
 }
 export interface CloudAuthoredAuthority {
@@ -300,25 +300,34 @@ export async function runInCloud(
   // under it, so the run request below names code Cloud already holds. A
   // refused backend or failed upload therefore never leaves a launched run
   // pointing at a tree that is not there.
-  let synced: { runId: string; codeKey: string; files: number; bytes: number; skippedLinks: string[] } | undefined;
+  let synced: { runId: string; codeKey: string; codeCacheHit: boolean; files: number; bytes: number; skippedLinks: string[] } | undefined;
   if (options.syncCode !== undefined) {
-    const prepared = await prepareCloudSync(options);
     options.signal?.throwIfAborted();
     const packed = await packWorkingTree(options.syncCode.root);
+    let prepared: Awaited<ReturnType<typeof prepareCloudSync>>;
     try {
       options.signal?.throwIfAborted();
-      await uploadCloudCode(prepared, packed, options);
+      const digest = canUseCodeCache(packed) ? await sha256PackedTree(packed) : undefined;
+      prepared = await prepareCloudSync(options, digest);
+      options.signal?.throwIfAborted();
+      if (!prepared.codeCacheHit) await uploadCloudCode(prepared, packed, options);
     } finally {
       packed.dispose();
     }
-    synced = { runId: prepared.runId, codeKey: prepared.codeKey, files: packed.files.length, bytes: packed.bytes,
+    synced = { runId: prepared.runId, codeKey: prepared.codeKey, codeCacheHit: prepared.codeCacheHit === true,
+      files: packed.files.length, bytes: packed.bytes,
       skippedLinks: packed.skippedLinks };
   }
   options.signal?.throwIfAborted();
   options.onSubmit?.();
   let result: unknown;
   try {
-    result = await cloudFetch('/api/v1/workflows/run', options, { method: 'POST', detail: true, body: JSON.stringify({
+    // A cache hit is copied into the run prefix after admission. The R2 copy
+    // may outlast the normal 30s request budget; explicit caller limits win.
+    const submitOptions = synced?.codeCacheHit
+      ? { ...options, requestTimeoutMs: options.requestTimeoutMs ?? 300_000 }
+      : options;
+    result = await cloudFetch('/api/v1/workflows/run', submitOptions, { method: 'POST', detail: true, body: JSON.stringify({
       ...cloudSubmissionBody(submission),
       ...(options.workspaceId === undefined ? {} : { workspaceId: options.workspaceId }),
       ...(options.runBudgetMinutes === undefined ? {} : { relayflowV2RunBudgetMinutes: options.runBudgetMinutes }),
