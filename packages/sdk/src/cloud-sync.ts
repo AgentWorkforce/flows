@@ -40,7 +40,12 @@ export interface PreparedCloudSync {
 
 /** `POST /api/v1/workflows/prepare`, refusing every non-Cloud-API storage backend. */
 export async function prepareCloudSync(options: CloudConnectionOptions, codeSha256?: string): Promise<PreparedCloudSync> {
-  const receipt = await cloudFetch('/api/v1/workflows/prepare', options,
+  // A cache hit copies the archive into the run prefix before prepare returns.
+  // Give that server-side copy the same default budget as a code upload.
+  const prepareOptions = codeSha256
+    ? { ...options, requestTimeoutMs: options.requestTimeoutMs ?? 300_000 }
+    : options;
+  const receipt = await cloudFetch('/api/v1/workflows/prepare', prepareOptions,
     { method: 'POST', ...(codeSha256 ? { body: JSON.stringify({ codeSha256 }) } : {}) });
   if (!isCloudRecord(receipt)) throw new CloudFlowError('invalid_response', 'Cloud prepare returned a non-object.');
   const storage = isCloudRecord(receipt.workflowStorage) ? receipt.workflowStorage : undefined;
