@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, truncate, utimes, writeFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
@@ -9,7 +9,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runCli } from '../src/cli.js';
 import { runInCloud } from '../src/cloud-run.js';
 import {
-  CLOUD_SYNC_PATCH_EXCLUDES, applyCloudPatch, excludedPatchPaths, packWorkingTree, patchedPaths,
+  CLOUD_SYNC_PATCH_EXCLUDES, MAX_CACHED_CODE_BYTES, applyCloudPatch, canUseCodeCache,
+  excludedPatchPaths, packWorkingTree, patchedPaths,
   prepareCloudSync,
   sha256PackedTree,
 } from '../src/cloud-sync.js';
@@ -90,18 +91,41 @@ describe('packWorkingTree', () => {
     const root = await tempDir('cloud-sync-deterministic-');
     const path = join(root, 'content.txt');
     await writeFile(path, 'same bytes\n');
+    await chmod(path, 0o644);
     const first = await packWorkingTree(root);
     const firstBytes = await readFile(first.archivePath);
     const firstDigest = await sha256PackedTree(first);
     first.dispose();
     await utimes(path, new Date('2020-01-01T00:00:00Z'), new Date('2026-10-16T00:00:00Z'));
+    await chmod(path, 0o600); // non-executable permission bits do not change the archive
     const second = await packWorkingTree(root);
     try {
       expect(await readFile(second.archivePath)).toEqual(firstBytes);
       expect(await sha256PackedTree(second)).toBe(firstDigest);
       expect(firstBytes.subarray(4, 8)).toEqual(Buffer.alloc(4)); // gzip mtime
+      expect(firstBytes[9]).toBe(255); // normalized gzip OS byte
     } finally {
       second.dispose();
+    }
+    await chmod(path, 0o755); // executable bits are retained intentionally
+    const third = await packWorkingTree(root);
+    try {
+      expect(await sha256PackedTree(third)).not.toBe(firstDigest);
+    } finally {
+      third.dispose();
+    }
+  });
+
+  it('uses legacy upload when the compressed archive exceeds the cache buffer budget', async () => {
+    const root = await tempDir('cloud-sync-cache-cap-');
+    await writeFile(join(root, 'a'), 'a');
+    const packed = await packWorkingTree(root);
+    try {
+      expect(canUseCodeCache(packed)).toBe(true);
+      await truncate(packed.archivePath, MAX_CACHED_CODE_BYTES + 1);
+      expect(canUseCodeCache(packed)).toBe(false);
+    } finally {
+      packed.dispose();
     }
   });
 

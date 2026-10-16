@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { createReadStream, createWriteStream, existsSync, lstatSync, mkdtempSync, readdirSync, readlinkSync, rmSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { createReadStream, createWriteStream, existsSync, lstatSync, mkdtempSync, readdirSync, readlinkSync, rmSync, statSync } from 'node:fs';
+import { open, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { Readable } from 'node:stream';
@@ -26,6 +26,8 @@ import {
 
 /** Uncompressed bytes. Matches the sandbox's extraction budget with headroom. */
 export const MAX_SYNC_BYTES = 256 * 1024 * 1024;
+/** Above this compressed size, use the unchanged legacy upload path. */
+export const MAX_CACHED_CODE_BYTES = 64 * 1024 * 1024;
 const ALWAYS_SKIPPED = new Set(['.git', 'node_modules']);
 const CODE_KEY = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
@@ -151,11 +153,23 @@ export async function packWorkingTree(root: string): Promise<PackedTree> {
   }
   try {
     await pipeline(Readable.from(flatten(entries())), createGzip({ level: 6 }), createWriteStream(archivePath));
+    // zlib's OS byte can vary by platform while the tar contents are equal.
+    // 255 means unknown OS and does not affect decompression.
+    const archive = await open(archivePath, 'r+');
+    try {
+      await archive.write(Buffer.from([255]), 0, 1, 9);
+    } finally {
+      await archive.close();
+    }
   } catch (error) {
     dispose();
     throw error;
   }
   return { archivePath, files: members, bytes, skippedLinks, dispose };
+}
+
+export function canUseCodeCache(packed: PackedTree): boolean {
+  return statSync(packed.archivePath).size <= MAX_CACHED_CODE_BYTES;
 }
 
 /** Yield file streams chunk by chunk so `Readable.from` never buffers a whole file. */
