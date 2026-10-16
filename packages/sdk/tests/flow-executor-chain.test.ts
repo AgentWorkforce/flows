@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { once } from 'node:events';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flow } from '@relayflows/surface';
 import { executeAuthoredFlow, AuthoredFlowExecutionError } from '../src/authored-flow-executor.js';
@@ -40,14 +40,24 @@ async function setup(output?: string) {
   return { fixture, client, agent, failures };
 }
 
+function isolatedAgentCwd(): string {
+  // The full SDK suite compiles TS fixtures with Bun in tests/fixtures at the
+  // same time. Its unreadable .bun-build scratch files are outside this agent
+  // workspace, so the real artifact scan stays strict without racing them.
+  const directory = mkdtempSync(join(process.cwd(), 'tests', '.chain-agent-'));
+  closes.push(async () => { rmSync(directory, { recursive: true, force: true }); });
+  return relative(process.cwd(), directory);
+}
+
 describe('flow executor LLM and output-binding chain', () => {
   it('runs f.llm -> f.agent -> f.run with schema-verified journal output and the exact allowed model', async () => {
+    const cwd = isolatedAgentCwd();
     const { fixture, client, agent, failures } = await setup();
     const artifact = join(fixture.root, 'result.json');
     const handle = flow('flagship-chain', async f => {
       const value = await f.llm('EXTRACT the message', { output: schema, model: 'test-model' });
       expect(value).toEqual({ message: 'hello from llm' });
-      const drafted = await f.agent('draft', { task: `Draft from ${JSON.stringify(value)}` });
+      const drafted = await f.agent('draft', { task: `Draft from ${JSON.stringify(value)}`, cwd });
       await f.run(`printf '%s' ${shellWord(drafted.summary)} > ${shellWord(artifact)}`);
       f.done('success');
     });
@@ -67,6 +77,7 @@ describe('flow executor LLM and output-binding chain', () => {
   });
 
   it('runs a dollar-budgeted authored Claude agent with the same default used by preflight', async () => {
+    const cwd = isolatedAgentCwd();
     const { fixture, client, agent, failures } = await setup();
     const calls = join(fixture.root, 'claude-calls.jsonl');
     const claude = join(fixture.root, 'claude');
@@ -83,7 +94,7 @@ process.stdout.write(JSON.stringify({ type: 'result', result: 'default-model-age
 `);
     chmodSync(claude, 0o755);
     const handle = flow('default-model-agent', { budget: '$8/run' }, async f => {
-      const result = await f.agent('implementer', { cli: claude, task: 'Implement.' });
+      const result = await f.agent('implementer', { cli: claude, task: 'Implement.', cwd });
       expect(result.summary).toBe('default-model-agent-ok');
       f.done('success');
     });
@@ -226,11 +237,12 @@ export default flow('cli-flagship-resume', async f => {
 
   it('passes a declarative verified value through an agent into a deterministic artifact', async () => {
     const payload = { message: "quotes '\"\n$(touch forbidden) `echo hi`; \\ end" };
+    const cwd = isolatedAgentCwd();
     const { fixture, client, agent } = await setup(JSON.stringify(payload));
     const artifact = join(fixture.root, 'binding.json');
     const spec = compileSpec({ version: '0.1.0', steps: [
       { id: 'extract', type: 'llm', prompt: 'EXTRACT', output: schema },
-      { id: 'draft', type: 'agent', instruction: 'Draft from input.', output: schema,
+      { id: 'draft', type: 'agent', instruction: 'Draft from input.', cwd, output: schema,
         surfaces: { streams: [{ stream: agent.stream }] }, input: { message: { step: 'extract', path: ['message'] } } },
       { id: 'write', type: 'deterministic', input: { message: { step: 'draft', path: ['message'] }, whole: { step: 'extract' } },
         command: `printf '%s' "$FLOWS_INPUT" > ${shellWord(artifact)}` },
