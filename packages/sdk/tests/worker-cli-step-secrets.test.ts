@@ -21,6 +21,7 @@ fs.writeFileSync(${JSON.stringify(observed)}, JSON.stringify({
   grant: process.env.GH_TOKEN ?? null,
   signalRead: process.env.RELAYFLOW_V2_SIGNAL_READ_TOKEN ?? null,
   platformMarker: process.env.RELAY_PLATFORM_AGENT_ENV_NAMES ?? null,
+  relayAgentToken: process.env.RELAY_AGENT_TOKEN ?? null,
 }));
 process.stdout.write(JSON.stringify({ type: 'result', result: 'echoed tok-0123456789abcdef',
   usage: { input_tokens: 2, output_tokens: 1 } }) + '\\n');
@@ -31,6 +32,7 @@ process.stdout.write(JSON.stringify({ type: 'result', result: 'echoed tok-012345
     NATIVE_API_TOKEN: 'native-secret', OTHER_TOKEN: 'other-secret', GH_TOKEN: 'grant-token',
     FAKE_TOKEN: 'tok-0123456789abcdef',
     RELAYFLOW_V2_SIGNAL_READ_TOKEN: 'private-signal-token',
+    RELAY_AGENT_TOKEN: 'relay-agent-token',
     RELAY_PLATFORM_AGENT_ENV_NAMES: '[]',
     RELAY_SECRET_ENV_NAMES: JSON.stringify(['NATIVE_API_TOKEN', 'OTHER_TOKEN', 'GH_TOKEN']),
   };
@@ -41,6 +43,7 @@ process.stdout.write(JSON.stringify({ type: 'result', result: 'echoed tok-012345
   expect(JSON.stringify(without.transcript)).not.toContain('tok-0123456789abcdef');
   expect(JSON.parse(readFileSync(observed, 'utf8'))).toEqual({
     native: null, other: null, login: 'cli-login', grant: null, signalRead: null, platformMarker: null,
+    relayAgentToken: null,
   });
   const withGrant = await runAgentCli(cli, 'task', undefined, undefined, undefined,
     undefined, 'agent', undefined, root, 'direct', undefined, source,
@@ -48,6 +51,7 @@ process.stdout.write(JSON.stringify({ type: 'result', result: 'echoed tok-012345
   expect(withGrant.exit_code).toBe(0);
   expect(JSON.parse(readFileSync(observed, 'utf8'))).toEqual({
     native: 'native-secret', other: null, login: 'cli-login', grant: null, signalRead: null, platformMarker: null,
+    relayAgentToken: null,
   });
   const legacy = await runAgentCli(cli, 'task', undefined, undefined, undefined,
     undefined, 'agent', undefined, root, 'direct', undefined, source,
@@ -55,5 +59,6 @@ process.stdout.write(JSON.stringify({ type: 'result', result: 'echoed tok-012345
   expect(legacy.exit_code).toBe(0);
   expect(JSON.parse(readFileSync(observed, 'utf8'))).toEqual({
     native: 'native-secret', other: 'other-secret', login: 'cli-login', grant: 'grant-token', signalRead: null, platformMarker: null,
+    relayAgentToken: 'relay-agent-token',
   });
 });
