@@ -19,34 +19,39 @@ fs.writeFileSync(${JSON.stringify(observed)}, JSON.stringify({
   other: process.env.OTHER_TOKEN ?? null,
   login: process.env.CLAUDE_CODE_OAUTH_TOKEN ?? null,
   grant: process.env.GH_TOKEN ?? null,
+  signalRead: process.env.RELAYFLOW_V2_SIGNAL_READ_TOKEN ?? null,
 }));
-process.stdout.write(JSON.stringify({ type: 'result', result: 'ok',
+process.stdout.write(JSON.stringify({ type: 'result', result: 'echoed tok-0123456789abcdef',
   usage: { input_tokens: 2, output_tokens: 1 } }) + '\\n');
 `);
   chmodSync(cli, 0o755);
   const source = {
     PATH: process.env.PATH, HOME: root, CLAUDE_CODE_OAUTH_TOKEN: 'cli-login',
     NATIVE_API_TOKEN: 'native-secret', OTHER_TOKEN: 'other-secret', GH_TOKEN: 'grant-token',
+    FAKE_TOKEN: 'tok-0123456789abcdef',
+    RELAYFLOW_V2_SIGNAL_READ_TOKEN: 'private-signal-token',
     RELAY_SECRET_ENV_NAMES: JSON.stringify(['NATIVE_API_TOKEN', 'OTHER_TOKEN']),
   };
   const without = await runAgentCli(cli, 'task', undefined, undefined, undefined,
     undefined, 'agent', undefined, root, 'direct', undefined, source);
   expect(without.exit_code).toBe(0);
+  expect(JSON.stringify(without.transcript)).toContain('[redacted:FAKE_TOKEN]');
+  expect(JSON.stringify(without.transcript)).not.toContain('tok-0123456789abcdef');
   expect(JSON.parse(readFileSync(observed, 'utf8'))).toEqual({
-    native: null, other: null, login: 'cli-login', grant: null,
+    native: null, other: null, login: 'cli-login', grant: null, signalRead: null,
   });
   const withGrant = await runAgentCli(cli, 'task', undefined, undefined, undefined,
     undefined, 'agent', undefined, root, 'direct', undefined, source,
     undefined, undefined, undefined, ['NATIVE_API_TOKEN']);
   expect(withGrant.exit_code).toBe(0);
   expect(JSON.parse(readFileSync(observed, 'utf8'))).toEqual({
-    native: 'native-secret', other: null, login: 'cli-login', grant: null,
+    native: 'native-secret', other: null, login: 'cli-login', grant: null, signalRead: null,
   });
   const legacy = await runAgentCli(cli, 'task', undefined, undefined, undefined,
     undefined, 'agent', undefined, root, 'direct', undefined, source,
     undefined, undefined, undefined, undefined, false);
   expect(legacy.exit_code).toBe(0);
   expect(JSON.parse(readFileSync(observed, 'utf8'))).toEqual({
-    native: 'native-secret', other: 'other-secret', login: 'cli-login', grant: 'grant-token',
+    native: 'native-secret', other: 'other-secret', login: 'cli-login', grant: 'grant-token', signalRead: null,
   });
 });

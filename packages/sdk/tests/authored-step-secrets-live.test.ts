@@ -11,7 +11,7 @@ it('an authored shell child sees a delivered token only when its own f.run grant
   writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
 import { writeFileSync } from 'node:fs';
 export default flow('scoped-shell', async f => {
-  const plain = await f.run('printf %s "$NATIVE_API_TOKEN"');
+  const plain = await f.run('printf "%s:%s" "$NATIVE_API_TOKEN" "$RELAYFLOW_V2_SIGNAL_READ_TOKEN"');
   const granted = await f.run('printf %s "$NATIVE_API_TOKEN"', { secrets: ['NATIVE_API_TOKEN'] });
   writeFileSync('observed.json', JSON.stringify({ plain, granted }));
   f.done('success');
@@ -19,8 +19,10 @@ export default flow('scoped-shell', async f => {
 `);
   const previousToken = process.env.NATIVE_API_TOKEN;
   const previousManifest = process.env.RELAY_SECRET_ENV_NAMES;
+  const previousPrivate = process.env.RELAYFLOW_V2_SIGNAL_READ_TOKEN;
   process.env.NATIVE_API_TOKEN = 'native-secret';
   process.env.RELAY_SECRET_ENV_NAMES = '["NATIVE_API_TOKEN"]';
+  process.env.RELAYFLOW_V2_SIGNAL_READ_TOKEN = 'private-signal-token';
   let result;
   try {
     result = fixture.invoke('run', '--no-observer-link', '--json', '--data-dir', fixture.data,
@@ -30,8 +32,10 @@ export default flow('scoped-shell', async f => {
     else process.env.NATIVE_API_TOKEN = previousToken;
     if (previousManifest === undefined) delete process.env.RELAY_SECRET_ENV_NAMES;
     else process.env.RELAY_SECRET_ENV_NAMES = previousManifest;
+    if (previousPrivate === undefined) delete process.env.RELAYFLOW_V2_SIGNAL_READ_TOKEN;
+    else process.env.RELAYFLOW_V2_SIGNAL_READ_TOKEN = previousPrivate;
   }
   expect(result.status, result.stderr + result.stdout).toBe(0);
   expect(JSON.parse(readFileSync(`${fixture.root}/observed.json`, 'utf8')))
-    .toEqual({ plain: '', granted: 'native-secret' });
+    .toEqual({ plain: ':', granted: 'native-secret' });
 }, 60_000);

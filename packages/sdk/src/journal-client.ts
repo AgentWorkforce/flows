@@ -25,7 +25,7 @@ import {
   type StepUsage,
 } from './protocol.js';
 import type { KernelRunSpec, StepType } from './spec.js';
-import { validateStepSecrets } from './step-secrets.js';
+import { SIGNAL_READ_TOKEN_ENV, validateStepSecrets } from './step-secrets.js';
 
 export interface JournalClientOptions {
   /** Opt-in total budget for read-only requests; interactive clients stay single-shot. */
@@ -173,7 +173,7 @@ export class JournalClient extends JournalConnection {
     }
     const env: Record<string, string> = {};
     for (const [key, value] of Object.entries(process.env)) {
-      if (value !== undefined && !this.withheld.has(key)) env[key] = value;
+      if (value !== undefined && key !== SIGNAL_READ_TOKEN_ENV && !this.withheld.has(key)) env[key] = value;
     }
     return { env };
   }

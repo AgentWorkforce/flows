@@ -46,4 +46,11 @@ describe('per-step secret grants', () => {
   it('fails closed on malformed delivered-name metadata', () => {
     expect(() => agentStepEnvironment({ ...source, RELAY_SECRET_ENV_NAMES: '{' }, 'claude')).toThrow();
   });
+
+  it('never treats the private signal-read credential as a step grant', () => {
+    const privateSource = { ...source, RELAY_SECRET_ENV_NAMES: undefined,
+      RELAYFLOW_V2_SIGNAL_READ_TOKEN: 'private-signal-token' };
+    expect(() => validateStepSecrets(['RELAYFLOW_V2_SIGNAL_READ_TOKEN'], privateSource)).toThrow();
+    expect(agentStepEnvironment(privateSource, 'claude')).not.toHaveProperty('RELAYFLOW_V2_SIGNAL_READ_TOKEN');
+  });
 });

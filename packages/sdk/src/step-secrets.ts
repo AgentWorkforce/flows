@@ -2,6 +2,8 @@ import type { CliAdapterKind } from './cli-adapter.js';
 
 /** Cloud supplies this name-only manifest alongside delivered envSecrets. */
 export const SECRET_ENV_NAMES = 'RELAY_SECRET_ENV_NAMES';
+/** CLI-only hosted signal read capability. Never a run or step secret. */
+export const SIGNAL_READ_TOKEN_ENV = 'RELAYFLOW_V2_SIGNAL_READ_TOKEN';
 const VALID_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 const BASE_ENV = [
@@ -37,7 +39,8 @@ export function deliveredNames(source: NodeJS.ProcessEnv): ReadonlySet<string> |
   if (!Array.isArray(parsed) || !parsed.every(name => typeof name === 'string' && VALID_NAME.test(name))) {
     throw new Error(`${SECRET_ENV_NAMES} must be a JSON array of valid names`);
   }
-  if (new Set(parsed).size !== parsed.length || parsed.includes(SECRET_ENV_NAMES)) {
+  if (new Set(parsed).size !== parsed.length || parsed.includes(SECRET_ENV_NAMES)
+    || parsed.includes(SIGNAL_READ_TOKEN_ENV)) {
     throw new Error(`${SECRET_ENV_NAMES} contains a duplicate or reserved name`);
   }
   return new Set(parsed);
@@ -53,7 +56,8 @@ export function validateStepSecrets(declaration: unknown, source: NodeJS.Process
   const names = declaration as string[];
   if (new Set(names).size !== names.length) throw new Error('step secrets contain duplicate names');
   for (const name of names) {
-    if (name === SECRET_ENV_NAMES || !Object.hasOwn(source, name) || typeof source[name] !== 'string'
+    if (name === SECRET_ENV_NAMES || name === SIGNAL_READ_TOKEN_ENV
+      || !Object.hasOwn(source, name) || typeof source[name] !== 'string'
       || (known !== undefined && !known.has(name))) {
       throw new Error(`step secret ${JSON.stringify(name)} is not available to this run`);
     }

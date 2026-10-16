@@ -108,7 +108,8 @@ it('a withheld agent key is absent from the det step and present in the agent st
   }
   expect(det.get('DELIVERED_SECRET')).toBe(ORDINARY['DELIVERED_SECRET']);
   const agent = JSON.parse(readFileSync(join(root, 'agent.env'), 'utf8')) as Record<string, string>;
-  for (const [name, value] of Object.entries(AGENT)) expect(agent[name], `${name} lost by the agent`).toBe(value);
+  expect(agent['ANTHROPIC_API_KEY']).toBe(AGENT['ANTHROPIC_API_KEY']);
+  expect(agent).not.toHaveProperty('OPENAI_API_KEY'); // Claude receives only Claude login credentials.
 }, 120_000);
 
 /**

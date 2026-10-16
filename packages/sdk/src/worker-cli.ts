@@ -31,7 +31,7 @@ import {
 } from './wrapper-session.js';
 import { wrapperEnvironment } from './wrapper-runtime.js';
 import { applyStepEnvironment } from './step-env.js';
-import { agentStepEnvironment } from './step-secrets.js';
+import { SIGNAL_READ_TOKEN_ENV, agentStepEnvironment } from './step-secrets.js';
 import { TAIL_CLOSE_TIMEOUT_MS, openTranscriptTail, type TranscriptTailWriter } from './transcript-tail.js';
 import {
   isRetryableSpawnError,
@@ -159,6 +159,9 @@ export async function runAgentCli(
     childEnvironment = scopeSecrets
       ? agentStepEnvironment(processEnvironment, kind, secrets)
       : { ...processEnvironment };
+    // The old-daemon compatibility path retains other legacy variables, but
+    // this CLI-only signal capability must never enter an agent subprocess.
+    delete childEnvironment[SIGNAL_READ_TOKEN_ENV];
   } catch (error) {
     return { exit_code: null, stdout_tail: '',
       stderr_tail: error instanceof Error ? error.message : 'step secret grant is invalid' };
@@ -275,9 +278,13 @@ export async function runAgentCli(
   const args = [...invocation.args];
   args.splice(args.length - promptOperand('').length, 0, ...(kind === 'claude' ? ['--output-format', 'stream-json', '--verbose'] : ['--json']));
   const completion = kind === 'claude' ? claudeResultOutcome : undefined;
+  // Retain the source values for output redaction even though the child
+  // receives only its filtered environment. A provider can echo a value from
+  // its prompt or fixture that was not granted as an environment variable.
+  const redactionEnvironment = { ...processEnvironment, ...env };
   return requirePricedUsage(decodeProviderResult(await spawnInvocation(
-    cli, { ...invocation, args }, env, signal, sidechannel, cwd, completion, argv0, kind,
-  ), kind, env), effectiveModel);
+    cli, { ...invocation, args }, env, signal, sidechannel, cwd, completion, argv0, kind, redactionEnvironment,
+  ), kind, redactionEnvironment), effectiveModel);
   }
 }
 
@@ -418,6 +425,7 @@ async function spawnInvocation(
   completion?: (line: string) => { failed: boolean } | undefined,
   argv0?: string,
   kind?: CliAdapterKind,
+  redactionEnvironment: NodeJS.ProcessEnv = env,
 ): Promise<WorkerCliResult> {
   const pendingInput: Buffer[] = [];
   let acceptingDrive = true;
@@ -455,7 +463,7 @@ async function spawnInvocation(
   };
   try {
     writer = sidechannel?.attempt === undefined ? undefined
-      : await openTranscriptWriter(transcriptPath(sidechannel, sidechannel.attempt), env);
+      : await openTranscriptWriter(transcriptPath(sidechannel, sidechannel.attempt), redactionEnvironment);
     channel = sidechannel === undefined ? undefined : await openSidechannel({
       ...sidechannel,
       onDrive() { driven = true; sidechannel.onDrive(); },
@@ -616,7 +624,7 @@ async function spawnInvocation(
       const transport = transportEvidence({
         phase: 'abort', cause: 'lease_lost', exitCode: null, signal: null,
         stderr: 'Agent execution aborted: lease ownership lost.', retryable: false,
-      }, env);
+      }, redactionEnvironment);
       finishAfterStop(
         { exit_code: null, stdout_tail: '', stderr_tail: 'Agent execution aborted: lease ownership lost.', transport },
         'kill',
@@ -654,11 +662,11 @@ async function spawnInvocation(
           phase: 'result_exit_grace', cause: 'result_exit_timeout', exitCode, signal: null,
           stderr: stderrText,
           retryable: false,
-        }, env);
+        }, redactionEnvironment);
         finishAfterStop({
           exit_code: exitCode,
           stdout_tail: Buffer.concat(stdout).toString('utf8'),
-          stderr_tail: redactText(stderrText, env),
+          stderr_tail: redactText(stderrText, redactionEnvironment),
           transport,
         }, 'terminate');
       }, RESULT_EXIT_GRACE_MS);
@@ -690,11 +698,11 @@ async function spawnInvocation(
       const transport = transportEvidence({
         phase: 'spawn', cause: child.pid === undefined ? 'spawn_error' : 'process_error',
         exitCode: null, signal: null, stderr: error.message, errorCode: code, retryable,
-      }, env);
+      }, redactionEnvironment);
       finishOnChildExit({
         exit_code: null,
         stdout_tail: Buffer.concat(stdout).toString('utf8'),
-        stderr_tail: redactText(error.message, env),
+        stderr_tail: redactText(error.message, redactionEnvironment),
         transport,
       });
     });
@@ -711,11 +719,11 @@ async function spawnInvocation(
       const retryable = codexStdinLifecycle || signalName !== null || code === null;
       const transport = transportEvidence({
         phase: 'close', cause, exitCode: code, signal: signalName, stderr: stderrText, retryable,
-      }, env);
+      }, redactionEnvironment);
       finishOnChildExit({
         exit_code: code,
         stdout_tail: Buffer.concat(stdout).toString('utf8'),
-        stderr_tail: redactText(stderrText, env),
+        stderr_tail: redactText(stderrText, redactionEnvironment),
         transport,
       });
     });
@@ -729,7 +737,7 @@ async function spawnInvocation(
           phase: 'timeout', cause: 'timeout', exitCode: null, signal: null,
           stderr: `${Buffer.concat(stderr).toString('utf8')}\n${timeoutMessage}`,
           retryable: false,
-        }, env);
+        }, redactionEnvironment);
         finishAfterStop({
           exit_code: null,
           stdout_tail: Buffer.concat(stdout).toString('utf8'),

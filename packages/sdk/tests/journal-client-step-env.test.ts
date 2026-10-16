@@ -72,6 +72,36 @@ it('keeps plain runs with delivered secrets working on an older daemon', async (
   }
 });
 
+it('never forwards the private signal-read token on run.start or run.resume', async () => {
+  const path = sockPath();
+  const received: Record<string, unknown>[] = [];
+  const server = startLoopback(path, {
+    hello: ctx => sendResult(ctx, { protocol: 0, server: 'relayflowd', features: ['step_env', 'step_secret_scoping'] }),
+    'run.start': (ctx, params) => { received.push(params); sendResult(ctx, { run_id: 'run-01', status: 'completed' }); },
+    'run.resume': (ctx, params) => { received.push(params); sendResult(ctx, { run_id: 'run-01', status: 'completed' }); },
+  });
+  const client = new JournalClient(path);
+  const prior = process.env.RELAYFLOW_V2_SIGNAL_READ_TOKEN;
+  process.env.RELAYFLOW_V2_SIGNAL_READ_TOKEN = 'private-signal-token';
+  try {
+    await client.connect();
+    await client.hello('signal-token-gate');
+    await client.runStart(HELLO_SPEC);
+    await client.runResume('run-01');
+    expect(received).toHaveLength(2);
+    for (const params of received) {
+      expect(params).toHaveProperty('env');
+      expect(params['env']).not.toHaveProperty('RELAYFLOW_V2_SIGNAL_READ_TOKEN');
+    }
+  } finally {
+    if (prior === undefined) delete process.env.RELAYFLOW_V2_SIGNAL_READ_TOKEN;
+    else process.env.RELAYFLOW_V2_SIGNAL_READ_TOKEN = prior;
+    client.close();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    rmSync(path, { force: true });
+  }
+});
+
 it('refuses a declared secret grant on an older daemon before run.start', async () => {
   const path = sockPath();
   let starts = 0;
