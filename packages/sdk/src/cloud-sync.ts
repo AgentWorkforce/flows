@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createGzip } from 'node:zlib';
+import { createHash } from 'node:crypto';
 import {
   CloudFlowError, cloudFetch, cloudRequest, cloudRunId, isCloudRecord, type CloudConnectionOptions,
 } from './cloud-http.js';
@@ -33,11 +34,14 @@ export interface PreparedCloudSync {
   codeKey: string;
   /** Run-scoped upload credential from `prepare`; falls back to the session token. */
   uploadToken?: string;
+  /** Cloud confirmed the immutable archive already exists in this workspace. */
+  codeCacheHit?: boolean;
 }
 
 /** `POST /api/v1/workflows/prepare`, refusing every non-Cloud-API storage backend. */
-export async function prepareCloudSync(options: CloudConnectionOptions): Promise<PreparedCloudSync> {
-  const receipt = await cloudFetch('/api/v1/workflows/prepare', options, { method: 'POST' });
+export async function prepareCloudSync(options: CloudConnectionOptions, codeSha256?: string): Promise<PreparedCloudSync> {
+  const receipt = await cloudFetch('/api/v1/workflows/prepare', options,
+    { method: 'POST', ...(codeSha256 ? { body: JSON.stringify({ codeSha256 }) } : {}) });
   if (!isCloudRecord(receipt)) throw new CloudFlowError('invalid_response', 'Cloud prepare returned a non-object.');
   const storage = isCloudRecord(receipt.workflowStorage) ? receipt.workflowStorage : undefined;
   const credentials = isCloudRecord(receipt.s3Credentials) ? receipt.s3Credentials : undefined;
@@ -49,6 +53,15 @@ export async function prepareCloudSync(options: CloudConnectionOptions): Promise
   }
   const codeKey = typeof receipt.s3CodeKey === 'string' ? receipt.s3CodeKey : '';
   if (!CODE_KEY.test(codeKey)) throw new CloudFlowError('invalid_response', 'Cloud prepare returned an unusable code key.');
+  const codeCache = isCloudRecord(receipt.codeCache) ? receipt.codeCache : undefined;
+  let codeCacheHit: boolean | undefined;
+  if (codeSha256 && (codeCache !== undefined || codeKey.startsWith('code-sha256-'))) {
+    if (!codeCache || codeCache.sha256 !== codeSha256 || typeof codeCache.hit !== 'boolean'
+      || codeKey !== `code-sha256-${codeSha256}.tar.gz`) {
+      throw new CloudFlowError('invalid_response', 'Cloud prepare returned an inconsistent code cache receipt.');
+    }
+    codeCacheHit = codeCache.hit;
+  }
   const uploadToken = credentials?.cloudApiAccessToken;
   if (uploadToken !== undefined && typeof uploadToken !== 'string') {
     throw new CloudFlowError('invalid_response', 'Cloud prepare returned an unusable storage credential.');
@@ -56,7 +69,15 @@ export async function prepareCloudSync(options: CloudConnectionOptions): Promise
   return {
     runId: cloudRunId(receipt.runId), codeKey,
     ...(uploadToken === undefined ? {} : { uploadToken }),
+    ...(codeCacheHit === undefined ? {} : { codeCacheHit }),
   };
+}
+
+/** Hash the deterministic compressed archive without loading it into memory. */
+export async function sha256PackedTree(packed: PackedTree): Promise<string> {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(packed.archivePath)) hash.update(chunk);
+  return hash.digest('hex');
 }
 
 export interface PackedTree {

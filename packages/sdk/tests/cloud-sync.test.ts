@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
@@ -11,6 +11,7 @@ import { runInCloud } from '../src/cloud-run.js';
 import {
   CLOUD_SYNC_PATCH_EXCLUDES, applyCloudPatch, excludedPatchPaths, packWorkingTree, patchedPaths,
   prepareCloudSync,
+  sha256PackedTree,
 } from '../src/cloud-sync.js';
 
 const dirs: string[] = [];
@@ -85,6 +86,25 @@ async function pack(root: string) {
 }
 
 describe('packWorkingTree', () => {
+  it('produces identical gzip bytes and digest for the same tree despite file mtime changes', async () => {
+    const root = await tempDir('cloud-sync-deterministic-');
+    const path = join(root, 'content.txt');
+    await writeFile(path, 'same bytes\n');
+    const first = await packWorkingTree(root);
+    const firstBytes = await readFile(first.archivePath);
+    const firstDigest = await sha256PackedTree(first);
+    first.dispose();
+    await utimes(path, new Date('2020-01-01T00:00:00Z'), new Date('2026-10-16T00:00:00Z'));
+    const second = await packWorkingTree(root);
+    try {
+      expect(await readFile(second.archivePath)).toEqual(firstBytes);
+      expect(await sha256PackedTree(second)).toBe(firstDigest);
+      expect(firstBytes.subarray(4, 8)).toEqual(Buffer.alloc(4)); // gzip mtime
+    } finally {
+      second.dispose();
+    }
+  });
+
   it('packs a Git checkout by ls-files semantics: tracked plus untracked, never ignored, .git or node_modules', async () => {
     const root = await tempDir('cloud-sync-git-');
     git(root, 'init', '-q');
@@ -231,6 +251,53 @@ describe('prepareCloudSync', () => {
 });
 
 describe('runInCloud with syncCode', () => {
+  it('uploads once for identical trees and uploads again after a one-byte change', async () => {
+    const root = await tempDir('cloud-sync-cache-');
+    await writeFile(join(root, 'flow.yaml'), JSON.stringify({
+      version: '0.1.0', name: 'synced', steps: [{ id: 'ls', type: 'deterministic', command: 'ls' }],
+    }));
+    const dataPath = join(root, 'data.txt');
+    await writeFile(dataPath, 'a');
+    let prepares = 0;
+    let priorDigest = '';
+    const { calls, options } = cloud({
+      '/api/v1/workflows/prepare': ({ body }) => {
+        const digest = (body as { codeSha256: string }).codeSha256;
+        expect(digest).toMatch(/^[0-9a-f]{64}$/u);
+        prepares++;
+        const hit = digest === priorDigest;
+        priorDigest = digest;
+        return { ...PREPARED, runId: `run-${prepares}`, s3CodeKey: `code-sha256-${digest}.tar.gz`,
+          codeCache: { sha256: digest, hit } };
+      },
+      '/api/v1/workflows/runs/': () => ({ ok: true }),
+      '/api/v1/workflows/run': () => ({ runId: `run-${prepares}`, status: 'pending' }),
+    });
+    for (let i = 0; i < 2; i++) {
+      await runInCloud({ path: join(root, 'flow.yaml') }, { ...options, syncCode: { root } });
+    }
+    expect(calls.filter(call => call.method === 'PUT')).toHaveLength(1);
+    await writeFile(dataPath, 'b');
+    await runInCloud({ path: join(root, 'flow.yaml') }, { ...options, syncCode: { root } });
+    expect(calls.filter(call => call.method === 'PUT')).toHaveLength(2);
+    expect(new Set(calls.filter(call => call.method === 'PUT').map(call => call.path)).size).toBe(2);
+  });
+
+  it('refuses a prepare response whose digest differs from the packed tree', async () => {
+    const root = await tempDir('cloud-sync-wrong-digest-');
+    await writeFile(join(root, 'flow.yaml'), JSON.stringify({
+      version: '0.1.0', name: 'synced', steps: [{ id: 'ls', type: 'deterministic', command: 'ls' }],
+    }));
+    const wrong = 'a'.repeat(64);
+    const { calls, options } = cloud({
+      '/api/v1/workflows/prepare': () => ({ ...PREPARED,
+        s3CodeKey: `code-sha256-${wrong}.tar.gz`, codeCache: { sha256: wrong, hit: true } }),
+    });
+    await expect(runInCloud({ path: join(root, 'flow.yaml') }, { ...options, syncCode: { root } }))
+      .rejects.toMatchObject({ code: 'invalid_response' });
+    expect(calls.filter(call => call.method === 'PUT')).toHaveLength(0);
+  });
+
   it('prepares, uploads through the Cloud API with the run-scoped token, then submits against the prepared run', async () => {
     const root = await tempDir('cloud-sync-run-');
     await writeFile(join(root, 'flow.yaml'), JSON.stringify({
