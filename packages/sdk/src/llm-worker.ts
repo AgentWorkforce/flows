@@ -64,7 +64,8 @@ export class LlmWorker extends EventEmitter {
     const completed: WorkerCliResult = await withWorkerLease(this.client, dispatch, signal =>
       typeof spec.cli === 'string' && typeof spec.prompt === 'string'
         ? runAgentCli(spec.cli, workerInstruction(prompt, dispatch), dispatch.wake_context, effectiveModel, undefined, signal, 'llm',
-          undefined, undefined, 'direct', undefined, this.environment, spec.cli_identity)
+          undefined, undefined, 'direct', undefined, this.environment, spec.cli_identity,
+          undefined, undefined, spec.secrets, this.client.supportsFeature?.('step_secret_scoping') ?? true)
         : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'llm step has no declared CLI' }));
     const { result, usage } = workerSpend(completed, effectiveModel);
     const cost = reportedCost(completed, effectiveModel);

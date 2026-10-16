@@ -76,7 +76,24 @@ pub(crate) fn execute_placed_with_input(
     if let Some(workspace) = workspace {
         process.current_dir(workspace);
     }
-    if let Some(env) = env {
+    let step_env = match env {
+        Some(env) => match env.for_step(&step.secrets) {
+            Ok(selected) => Some(selected),
+            Err(error) => return worker_error(&error),
+        },
+        None if !step.secrets.is_empty() => return worker_error("step secrets are unavailable without a run environment"),
+        None if std::env::var_os("RELAY_SECRET_ENV_NAMES").is_some() => {
+            let inherited = crate::step_env::StepEnv::from(
+                std::env::vars().collect::<std::collections::BTreeMap<_, _>>(),
+            );
+            match inherited.for_step(&[]) {
+                Ok(selected) => Some(selected),
+                Err(error) => return worker_error(&error),
+            }
+        }
+        None => None,
+    };
+    if let Some(env) = &step_env {
         process.env_clear();
         process.envs(env.vars());
     }
@@ -228,9 +245,28 @@ fn worker_error(detail: &str) -> AttemptResult {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn a_shell_step_sees_only_its_granted_delivered_secret() {
+        let env = crate::step_env::StepEnv::from(BTreeMap::from([
+            ("PATH".into(), "/bin:/usr/bin".into()),
+            ("NATIVE_API_TOKEN".into(), "native-secret".into()),
+            ("OTHER_TOKEN".into(), "other-secret".into()),
+            ("RELAY_SECRET_ENV_NAMES".into(), "[\"NATIVE_API_TOKEN\",\"OTHER_TOKEN\"]".into()),
+        ]));
+        for (grant, expected) in [(None, "unset:unset"), (Some("NATIVE_API_TOKEN"), "native-secret:unset")] {
+            let mut value = json!({"id": "shell", "type": "deterministic",
+                "command": "printf '%s:%s' \"${NATIVE_API_TOKEN-unset}\" \"${OTHER_TOKEN-unset}\""});
+            if let Some(name) = grant { value["secrets"] = json!([name]); }
+            let step: StepSpec = serde_json::from_value(value).unwrap();
+            let result = execute_placed_with_input(&step, None, None, None, Some(&env), None);
+            assert_eq!(result.output["stdout_tail"], expected);
+        }
+    }
 
     #[test]
     fn captures_deterministic_output() {

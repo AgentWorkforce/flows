@@ -1,5 +1,6 @@
 import { basename } from 'node:path';
 import { wrapperEnvironment } from '../wrapper-runtime.js';
+import { deliveredNames, validateStepSecrets } from '../step-secrets.js';
 
 const terminalNames = ['TERM', 'COLORTERM', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME'];
 const relayNames = ['RELAY_API_KEY', 'RELAY_WORKSPACE_KEY', 'AGENT_RELAY_WORKSPACE_KEY',
@@ -32,9 +33,23 @@ export function brokerEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv 
   return { ...Object.fromEntries(Object.keys(source).map(name => [name, undefined])),
     ...wrapperEnvironment(source), ...selected(source, [...terminalNames, 'RELAY_BASE_URL']) };
 }
-export function agentEnvironment(cli: string, source: NodeJS.ProcessEnv = process.env): Record<string, string> {
+export function agentEnvironment(cli: string, source: NodeJS.ProcessEnv = process.env,
+  grants?: string[], scopeSecrets = true): Record<string, string> {
   // Broker transport credentials must not become CLI credentials. The harness
   // protocol accepts string values, so clear those inherited names explicitly.
+  const credentials = selected(source, providerNames[basename(cli).replace(/\.exe$/i, '')] ?? []);
+  if (!scopeSecrets) {
+    if (grants?.length) throw new Error('per-step secret grants require a daemon with step_secret_scoping support');
+    return { ...Object.fromEntries(relayNames.map(name => [name, ''])), ...credentials } as Record<string, string>;
+  }
+  const names = deliveredNames(source);
+  const allowed = validateStepSecrets(grants, source);
+  if (allowed.some(name => relayNames.includes(name))) {
+    throw new Error('Relay broker credentials cannot be granted to a communication agent');
+  }
+  for (const name of names ?? []) {
+    if (!allowed.includes(name)) delete credentials[name];
+  }
   return { ...Object.fromEntries(relayNames.map(name => [name, ''])),
-    ...selected(source, providerNames[basename(cli).replace(/\.exe$/i, '')] ?? []) } as Record<string, string>;
+    ...credentials, ...selected(source, allowed) } as Record<string, string>;
 }

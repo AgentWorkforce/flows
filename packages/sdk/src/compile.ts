@@ -192,6 +192,7 @@ function compileStep(step: StepSpec): StepSpec {
   const base = {
     id: step.id,
     type: step.type,
+    ...(step.secrets?.length ? { secrets: step.secrets } : {}),
     ...((step.dependsOn !== undefined || step.input !== undefined)
       ? { dependsOn: step.input === undefined ? step.dependsOn : [...new Set([...(step.dependsOn ?? []), ...bindingDependencies(step.input)])] } : {}),
     ...(step.input !== undefined ? { input: step.input } : {}),
@@ -636,6 +637,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 function toKernelStep(step: StepSpec, cliIdentity?: string): ResolvedKernelStepSpec {
   const common: ResolvedKernelStepCommon = {
     id: step.id,
+    ...(step.secrets?.length ? { secrets: step.secrets } : {}),
     depends_on: step.input === undefined ? step.dependsOn ?? []
       : [...new Set([...(step.dependsOn ?? []), ...bindingDependencies(step.input)])],
     ...(step.input !== undefined ? { input: step.input } : {}),

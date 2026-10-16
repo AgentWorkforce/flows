@@ -25,6 +25,7 @@ import {
   type StepUsage,
 } from './protocol.js';
 import type { KernelRunSpec, StepType } from './spec.js';
+import { validateStepSecrets } from './step-secrets.js';
 
 export interface JournalClientOptions {
   /** Opt-in total budget for read-only requests; interactive clients stay single-shot. */
@@ -77,6 +78,9 @@ export class JournalClient extends JournalConnection {
       requestTimeoutMs: this.requestTimeoutMs, connectTimeoutMs: this.connectTimeoutMs,
     });
   }
+
+  /** Additive daemon capability negotiated by this session's hello. */
+  supportsFeature(name: string): boolean { return this.features.has(name); }
 
   private request<V extends keyof VerbContract>(verb: V, params: VerbContract[V]['params'],
     timeoutMs: number | null = this.requestTimeoutMs, signal?: AbortSignal): Promise<VerbContract[V]['result']> {
@@ -131,6 +135,10 @@ export class JournalClient extends JournalConnection {
     admissionKey?: string,
     watch = false,
   ): Promise<VerbContract['run.start']['result']> {
+    for (const step of spec.steps) validateStepSecrets(step.secrets, process.env);
+    if (!this.features.has('step_secret_scoping') && spec.steps.some(step => step.secrets?.length)) {
+      throw new Error('per-step secret grants require a daemon with step_secret_scoping support');
+    }
     return this.request('run.start', {
       spec,
       ...(reuseFromRunId === undefined ? {} : { reuse_from_run_id: reuseFromRunId }),
@@ -158,7 +166,11 @@ export class JournalClient extends JournalConnection {
    * alike, so their values never cross the socket from this client.
    */
   private stepEnv(): { env?: Record<string, string> } {
-    if (!this.features.has('step_env')) return {};
+    if (!this.features.has('step_env')) {
+      // A client with no declared grants keeps compatibility with the
+      // currently pinned hosted runtime until Cloud upgrades the artifact.
+      return {};
+    }
     const env: Record<string, string> = {};
     for (const [key, value] of Object.entries(process.env)) {
       if (value !== undefined && !this.withheld.has(key)) env[key] = value;

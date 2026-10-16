@@ -45,6 +45,21 @@ await runInCloud({ path: './onboard.flow.ts' }, {
 });
 ```
 
+Each step must grant a delivered secret by name. An omitted `secrets` option
+grants none:
+
+```ts
+await f.run('node call-native.mjs', { secrets: ['NATIVE_API_TOKEN'] });
+await f.agent('review', { task: 'Review the result', secrets: [] });
+```
+
+The same `secrets: ['NATIVE_API_TOKEN']` declaration is accepted on a YAML
+step. Unknown or unavailable names refuse the run. A direct agent step starts
+with a small system and selected CLI-login environment, plus only its declared
+run secrets; a Relay-transport agent cannot request run secrets. On a
+self-hosted run, set `RELAY_SECRET_ENV_NAMES` to a JSON array of the secret
+names before `flows run` so deterministic steps can scope them too.
+
 They travel only with that run's submission: not in the flow source, its
 inputs, the receipt, or a schedule (`scheduleInCloud` cannot carry them), and
 errors never quote them: a Cloud refusal that contains a value anywhere (its
@@ -55,9 +70,12 @@ refuses names it owns (run identity, Relay/Relayfile auth, provider keys such as
 step rows, transcripts) by name, regardless of what the variable is called,
 once AgentWorkforce/cloud#4469 is deployed; before that, only names containing
 TOKEN, SECRET, KEY, AUTH or similar are masked, so prefer a name like
-`NATIVE_API_TOKEN`. Steps can still read the values, so keep the token
+`NATIVE_API_TOKEN`. A same-user step can still inspect the CLI/bootstrap
+environment through `/proc/<pid>/environ` on Linux or read agent login files
+under `HOME`; per-step env filtering is not process isolation. Keep tokens
 short-lived and narrowly scoped. A run that parks on `f.human` and is resumed
-does not get them back.
+does not get them back. UID separation for step processes is tracked in
+AgentWorkforce/cloud#4715 and needs SOC 2 / penetration-test review.
 
 ```sh
 flows run --cloud examples/cloud-gates/cloud-gates.flow.yaml

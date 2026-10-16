@@ -12,6 +12,7 @@ import { buildMcpProxy, runMcpEffect } from './authored-mcp.js';
 import { AuthoredBudget } from './authored-budget.js';
 import { assertMemoryReachable, authoredMemory, journalLearnLedger, MemoryWriteTracker, scriptMemoryScope } from './authored-memory.js';
 import { authoredDeterministicRunner, authoredWorkerRunner } from './authored-worker-step.js';
+import { validateStepSecrets } from './step-secrets.js';
 import { isSurfaceFlowCompletionReason, isSurfaceRunCompletionReason } from './authored-step-output.js';
 import {
   completionMarker,
@@ -463,6 +464,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   function runOperation(command: string, runOptions?: RunOptions): Step<string> | Step<RunResult> {
     assertOperationAllowed('run', definition.name, requestedCompletion);
     const leaseMs = runOptions?.timeout === undefined ? undefined : parseStepTimeout(runOptions.timeout);
+    const secrets = validateStepSecrets((runOptions as RunOptions & { secrets?: unknown } | undefined)?.secrets, process.env);
     // Refused before an ordinal is consumed or anything is journaled. A
     // misspelled policy must not quietly fall back to the fatal default and
     // take away the very branch the author wrote below this line.
@@ -480,7 +482,7 @@ export async function executeAuthoredFlow<Input = undefined>(
         id, 'run',
         () => assertOperationAllowed('run', definition.name, requestedCompletion),
         () => observeStep(id, 'deterministic',
-          () => lowerDeterministic.recording(id, command, leaseMs, recordOp.namedGate), options.onProgress),
+          () => lowerDeterministic.recording(id, command, leaseMs, recordOp.namedGate, secrets), options.onProgress),
         lifecycle,
         // No label: a command is not a display name. It carries literal
         // tokens and URLs, and no prefix of it is safe to show (displayLabel).
@@ -492,7 +494,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     runOp = new AuthoredFlowOperation<string>(
       id, 'run',
       () => assertOperationAllowed('run', definition.name, requestedCompletion),
-      () => observeStep(id, 'deterministic', () => lowerDeterministic(id, command, false, leaseMs, runOp.namedGate), options.onProgress),
+      () => observeStep(id, 'deterministic', () => lowerDeterministic(id, command, false, leaseMs, runOp.namedGate, secrets), options.onProgress),
       lifecycle,
       // No label: a command is not a display name. It carries literal
       // tokens and URLs, and no prefix of it is safe to show (displayLabel).

@@ -103,7 +103,8 @@ async function run(client: JournalClient, dispatch: StepDispatchEvent, instructi
     handle = await relay.broker.spawnPty({ name, cli: basename(cliIdentity).replace(/\.exe$/i, ''), task: prompt, channels: [], skipRelayPrompt: true,
       model: resolveCliModel(cliIdentity, spec.model), cwd: directory,
       harnessConfig: { runtime: 'pty', command: quote(command), args: [],
-        cwd: directory, env: { ...agentEnvironment(cliIdentity, environment ?? process.env),
+        cwd: directory, env: { ...agentEnvironment(cliIdentity, environment ?? process.env,
+          spec.secrets, client.supportsFeature?.('step_secret_scoping') ?? true),
           RELAYFLOW_COMMUNICATION_SOCKET: tools.path, RELAYFLOW_COMMUNICATION_TOKEN: tools.token },
         delivery: { mode: 'pty-injection', format: 'relay-block' } } });
     const ready = await handle.waitForReady(Math.min(instruction.timeoutMs, 90_000));

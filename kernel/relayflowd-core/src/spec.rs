@@ -143,6 +143,13 @@ impl RunSpec {
             if !ids.insert(step.id.clone()) {
                 return Err(SpecError::DuplicateStep(step.id.clone()));
             }
+            if step.secrets.iter().any(|name| {
+                name == "RELAY_SECRET_ENV_NAMES"
+                    || !name.as_bytes().first().is_some_and(|c| c.is_ascii_alphabetic() || *c == b'_')
+                    || !name.as_bytes().iter().all(|c| c.is_ascii_alphanumeric() || *c == b'_')
+            }) || step.secrets.iter().collect::<BTreeSet<_>>().len() != step.secrets.len() {
+                return Err(SpecError::Malformed(format!("step {}: secrets must be distinct environment variable names", step.id)));
+            }
             if step.max_iterations == 0 {
                 return Err(SpecError::ZeroIterations(step.id.clone()));
             }
@@ -161,6 +168,13 @@ impl RunSpec {
             {
                 return Err(SpecError::Malformed(format!(
                     "step {}: timeout_ms must be positive and fit in i64", step.id
+                )));
+            }
+            if let StepKind::Agent { transport: Some(AgentTransport::Relay), .. } = &step.kind
+                && !step.secrets.is_empty()
+            {
+                return Err(SpecError::Malformed(format!(
+                    "step {}: relay transport cannot deliver per-step secrets", step.id
                 )));
             }
             let cli = match &step.kind {
@@ -371,6 +385,7 @@ pub fn external_surface_contains(declared: &str, target: &str) -> bool {
 const STEP_COMMON_FIELDS: &[&str] = &[
     "id",
     "type",
+    "secrets",
     "depends_on",
     "input",
     "max_iterations",
@@ -458,6 +473,9 @@ fn reject_unknown_step_fields(value: &Value) -> Result<(), SpecError> {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StepSpec {
     pub id: String,
+    /// Names only. Values stay in the run's in-memory step environment.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub secrets: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<crate::input::InputBindings>,
     #[serde(default)]

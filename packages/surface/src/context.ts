@@ -39,6 +39,8 @@ export interface AgentOptions {
    * Resolves with completionReason: timeout. No default; direct transport only, maxIterations 1. */
   timeout?: string | number;
   task: string;
+  /** Run environment secrets this agent may receive by name. Default: none. */
+  secrets?: string[];
   workspace?: string;
   /** Validated declaration only; not currently enforced (gate 8 / #442). */
   permissions?: PermissionsSpec;
@@ -108,6 +110,8 @@ export interface RunResult {
 }
 
 export interface RunOptions {
+  /** Run environment secrets this command may receive by name. Default: none. */
+  secrets?: string[];
   /** Command lease: milliseconds or a duration such as "5m"; default 10m, maximum 15m. */
   timeout?: string | number;
   /**
@@ -121,6 +125,8 @@ export interface RunOptions {
 }
 
 export interface LlmOptions {
+  /** Run environment secrets this model step may receive by name. Default: none. */
+  secrets?: string[];
   /** JSON Schema checked before the result is accepted by the journal. */
   output: Record<string, unknown>;
   cli?: string;

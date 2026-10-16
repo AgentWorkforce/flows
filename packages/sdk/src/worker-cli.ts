@@ -31,6 +31,7 @@ import {
 } from './wrapper-session.js';
 import { wrapperEnvironment } from './wrapper-runtime.js';
 import { applyStepEnvironment } from './step-env.js';
+import { agentStepEnvironment } from './step-secrets.js';
 import { TAIL_CLOSE_TIMEOUT_MS, openTranscriptTail, type TranscriptTailWriter } from './transcript-tail.js';
 import {
   isRetryableSpawnError,
@@ -139,12 +140,29 @@ export async function runAgentCli(
   stepTimeoutMs?: number,
   /** A recorded CLI session to continue (`f.agent` `resume`); agent mode only. */
   resume?: string,
+  /** Names of run secrets this step was granted by its journaled spec. */
+  secrets?: string[],
+  /** A featureless daemon retains its legacy child environment for plain runs. */
+  scopeSecrets = true,
 ): Promise<WorkerCliResult> {
   signal?.throwIfAborted();
   if (signal !== undefined && process.platform === 'win32') {
     throw new Error('Lease-bound agent execution requires macOS or Linux process-group cancellation; Windows is unsupported.');
   }
   const kind = cliAdapterKind(cliIdentity ?? cli);
+  if (!scopeSecrets && secrets?.length) {
+    return { exit_code: null, stdout_tail: '',
+      stderr_tail: 'per-step secret grants require a daemon with step_secret_scoping support' };
+  }
+  let childEnvironment: NodeJS.ProcessEnv;
+  try {
+    childEnvironment = scopeSecrets
+      ? agentStepEnvironment(processEnvironment, kind, secrets)
+      : { ...processEnvironment };
+  } catch (error) {
+    return { exit_code: null, stdout_tail: '',
+      stderr_tail: error instanceof Error ? error.message : 'step secret grant is invalid' };
+  }
   const effectiveModel = resolveCliModel(cliIdentity ?? cli, model);
   const argv0 = cliInvocationArgv0(cli, cliIdentity);
 
@@ -206,7 +224,8 @@ export async function runAgentCli(
   if (kind === 'relayflows-wrapper-v1') {
     // The closed allowlist admits no ambient RELAYFLOW_* value; the four
     // discovery names are set from this dispatch, exactly as for a direct spawn.
-    const wrapperEnv = wrapperEnvironment(processEnvironment);
+    const wrapperEnv = wrapperEnvironment(childEnvironment);
+    for (const name of secrets ?? []) wrapperEnv[name] = childEnvironment[name];
     applyStepEnvironment(wrapperEnv, sidechannel);
     const session = await runWrapperSession(
       cli,
@@ -225,7 +244,7 @@ export async function runAgentCli(
     return requirePricedUsage(session.transport?.cause === 'timeout' ? { ...decoded, stdout_tail: '' } : decoded, effectiveModel);
   }
 
-  const env: NodeJS.ProcessEnv = { ...processEnvironment };
+  const env: NodeJS.ProcessEnv = { ...childEnvironment };
   delete env[WAKE_CONTEXT_ENV];
   delete env[MODEL_ENV];
   // Where this attempt's journal is, so the agent can run `flows status` on

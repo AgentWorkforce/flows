@@ -169,7 +169,7 @@ fn handle_request(
             let mut hello = json!({
                 "protocol": PROTOCOL_VERSION,
                 "server": "relayflowd",
-                "features": ["reported_cost", "step_env"],
+                "features": ["reported_cost", "step_env", "step_secret_scoping"],
             });
             // Names only, so a current SDK omits their values from the env it
             // sends; the strip at spawn is what enforces it.

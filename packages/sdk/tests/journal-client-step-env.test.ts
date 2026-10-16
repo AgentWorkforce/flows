@@ -37,3 +37,98 @@ it.each([
     rmSync(path, { force: true });
   }
 });
+
+it('keeps plain runs with delivered secrets working on an older daemon', async () => {
+  const path = sockPath();
+  const received: Record<string, unknown>[] = [];
+  const server = startLoopback(path, {
+    hello: ctx => sendResult(ctx, { protocol: 0, server: 'relayflowd', features: ['step_env'] }),
+    'run.start': (ctx, params) => { received.push(params); sendResult(ctx, { run_id: 'run-01', status: 'completed' }); },
+    'run.resume': (ctx, params) => { received.push(params); sendResult(ctx, { run_id: 'run-01', status: 'completed' }); },
+  });
+  const client = new JournalClient(path);
+  const priorToken = process.env.NATIVE_API_TOKEN;
+  const priorManifest = process.env.RELAY_SECRET_ENV_NAMES;
+  process.env.NATIVE_API_TOKEN = 'native-secret';
+  process.env.RELAY_SECRET_ENV_NAMES = '["NATIVE_API_TOKEN"]';
+  try {
+    await client.connect();
+    await client.hello('secret-feature-gate');
+    expect(client.supportsFeature('step_secret_scoping')).toBe(false);
+    await client.runStart(HELLO_SPEC);
+    await client.runResume('run-01');
+    expect(received).toHaveLength(2);
+    for (const params of received) {
+      expect((params['env'] as Record<string, string>)['NATIVE_API_TOKEN']).toBe('native-secret');
+    }
+  } finally {
+    if (priorToken === undefined) delete process.env.NATIVE_API_TOKEN;
+    else process.env.NATIVE_API_TOKEN = priorToken;
+    if (priorManifest === undefined) delete process.env.RELAY_SECRET_ENV_NAMES;
+    else process.env.RELAY_SECRET_ENV_NAMES = priorManifest;
+    client.close();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    rmSync(path, { force: true });
+  }
+});
+
+it('refuses a declared secret grant on an older daemon before run.start', async () => {
+  const path = sockPath();
+  let starts = 0;
+  const server = startLoopback(path, {
+    hello: ctx => sendResult(ctx, { protocol: 0, server: 'relayflowd', features: ['step_env'] }),
+    'run.start': ctx => { starts++; sendResult(ctx, { run_id: 'run-01', status: 'completed' }); },
+  });
+  const client = new JournalClient(path);
+  const priorToken = process.env.NATIVE_API_TOKEN;
+  const priorManifest = process.env.RELAY_SECRET_ENV_NAMES;
+  process.env.NATIVE_API_TOKEN = 'native-secret';
+  process.env.RELAY_SECRET_ENV_NAMES = '["NATIVE_API_TOKEN"]';
+  try {
+    await client.connect();
+    await client.hello('declared-secret-feature-gate');
+    expect(() => client.runStart({ ...HELLO_SPEC, steps: [
+      { ...HELLO_SPEC.steps[0]!, secrets: ['NATIVE_API_TOKEN'] },
+    ] })).toThrow('step_secret_scoping');
+    expect(starts).toBe(0);
+  } finally {
+    if (priorToken === undefined) delete process.env.NATIVE_API_TOKEN;
+    else process.env.NATIVE_API_TOKEN = priorToken;
+    if (priorManifest === undefined) delete process.env.RELAY_SECRET_ENV_NAMES;
+    else process.env.RELAY_SECRET_ENV_NAMES = priorManifest;
+    client.close();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    rmSync(path, { force: true });
+  }
+});
+
+it('refuses a grant absent from the delivered-name manifest before run.start', async () => {
+  const path = sockPath();
+  let starts = 0;
+  const server = startLoopback(path, {
+    hello: ctx => sendResult(ctx, { protocol: 0, server: 'relayflowd', features: ['step_env', 'step_secret_scoping'] }),
+    'run.start': ctx => { starts++; sendResult(ctx, { run_id: 'run-01', status: 'completed' }); },
+  });
+  const client = new JournalClient(path);
+  const priorToken = process.env.NATIVE_API_TOKEN;
+  const priorManifest = process.env.RELAY_SECRET_ENV_NAMES;
+  process.env.NATIVE_API_TOKEN = 'native-secret';
+  process.env.RELAY_SECRET_ENV_NAMES = '["NATIVE_API_TOKEN"]';
+  try {
+    await client.connect();
+    await client.hello('unknown-secret-gate');
+    expect(client.supportsFeature('step_secret_scoping')).toBe(true);
+    expect(() => client.runStart({ ...HELLO_SPEC, steps: [
+      { ...HELLO_SPEC.steps[0]!, secrets: ['OTHER_TOKEN'] },
+    ] })).toThrow('OTHER_TOKEN');
+    expect(starts).toBe(0);
+  } finally {
+    if (priorToken === undefined) delete process.env.NATIVE_API_TOKEN;
+    else process.env.NATIVE_API_TOKEN = priorToken;
+    if (priorManifest === undefined) delete process.env.RELAY_SECRET_ENV_NAMES;
+    else process.env.RELAY_SECRET_ENV_NAMES = priorManifest;
+    client.close();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    rmSync(path, { force: true });
+  }
+});

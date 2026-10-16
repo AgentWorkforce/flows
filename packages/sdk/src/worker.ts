@@ -39,7 +39,7 @@ export interface AgentWorkerOptions {
    * the root a dispatch is measured against is a value, not an assumption.
    */
   runRoot?: string;
-  /** Environment inherited by provider CLIs, including agent-only secrets. */
+  /** Source environment; each provider CLI receives only its allowlist and step grants. */
   environment?: NodeJS.ProcessEnv;
 }
 
@@ -156,7 +156,8 @@ export class AgentWorker extends EventEmitter {
             spec.transport === 'relay' ? 'relay' : 'direct',
             { runId: dispatch.run_id, stepId: dispatch.step_id, idempotencyKey: dispatch.idempotency_key,
               dataDir: this.options.dataDir, resultSchema: spec.verification?.json_schema },
-            this.options.environment, spec.cli_identity, spec.timeout_ms, spec.resume)
+            this.options.environment, spec.cli_identity, spec.timeout_ms, spec.resume, spec.secrets,
+            this.client.supportsFeature?.('step_secret_scoping') ?? true)
           : Promise.resolve({ exit_code: null, stdout_tail: '', stderr_tail: 'agent step has no declared CLI' }));
     const { result, usage } = workerSpend(completed, effectiveModel);
     const cost = reportedCost(completed, effectiveModel);

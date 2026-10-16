@@ -1002,11 +1002,27 @@ that environment, plus `FLOWS_INPUT` and `RELAYFLOW_MEMORY`. Two runs on one
 daemon each see their own variables. `flows resume` sends the resuming CLI's
 environment, which replaces the run's from then on.
 
+When `RELAY_SECRET_ENV_NAMES` lists delivered secrets, each deterministic
+step gets only the names in its `secrets` declaration. For example,
+`f.run('node call-api.mjs', { secrets: ['NATIVE_API_TOKEN'] })` receives that
+value, while the next `f.run` without a grant does not. The same `secrets`
+option is available on `f.agent` and `f.llm` and in declarative steps. Agent
+CLIs start from an allowlist of system variables and their selected CLI login,
+then receive declared secrets. A misspelled or unavailable name refuses the
+step. Without a secret-name manifest, self-hosted deterministic steps retain
+the legacy run environment; set the manifest when supplying secrets.
+
 The environment is held in daemon memory only. It is never written to the
 journal, run records, step rows or traces. If the daemon restarts before the
 run finishes, the run's steps fall back to the daemon's own environment until a
 `flows resume` supplies one again. A CLI older than this feature sends no
-environment, and its steps get the daemon's too. `kernel/DAEMON-LIFECYCLE.md`
+environment, and its steps get the daemon's too. A step that declares a
+secret grant refuses a daemon without the `step_secret_scoping` capability.
+Until that daemon upgrade, a plain agent/LLM step keeps its legacy environment
+so an SDK upgrade alone does not change a hosted run's existing behavior.
+Upgrading the daemon changes plain agent/LLM steps to the clean environment
+even when no step declares a grant; grant any needed delivered secrets by name.
+`kernel/DAEMON-LIFECYCLE.md`
 §3 has the protocol.
 
 A step with no placed workspace still runs in the daemon's working directory,

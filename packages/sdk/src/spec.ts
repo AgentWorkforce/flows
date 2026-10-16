@@ -217,6 +217,8 @@ export interface KernelPlacementRequirements extends Omit<PlacementRequirements,
 
 /** Fields shared by every step on the ladder. */
 export interface BaseStepSpec {
+  /** Names of run secrets granted to this step; values never enter the spec. */
+  secrets?: string[];
   /** Named values selected from earlier steps' declared, verified outputs. */
   input?: Record<string, OutputBinding>;
   requirements?: PlacementRequirements;
@@ -478,6 +480,8 @@ export interface KernelVerificationSpec {
 }
 
 export interface KernelStepCommon {
+  /** Names only; the worker/kernel selects values from the run environment. */
+  secrets?: string[];
   input?: Record<string, OutputBinding>;
   requirements?: KernelPlacementRequirements;
   memory?: KernelMemorySpec;
