@@ -356,6 +356,7 @@ export function authoredWorkerRunner(
 export function authoredDeterministicRunner(
   name: string, journal: JournalClient, journalSteps: AuthoredFlowJournalStep[], budget: AuthoredBudget,
   context: AuthoredStepContext = {},
+  parallel = false,
 ) {
   const rootRunId = context.rootRunId;
   // run.start drives a deterministic child to completion before replying. The
@@ -391,9 +392,10 @@ export function authoredDeterministicRunner(
       });
       return read(outcome);
     };
-    return slots.run(async () => terminal
-      ? consume(await journal.runStart(spec, undefined, admissionKey, false, true))
-      : budget.execute(journal, spec, consume, admissionKey, true));
+    const admit = async () => terminal
+      ? consume(await journal.runStart(spec, undefined, admissionKey, false, parallel))
+      : budget.execute(journal, spec, consume, admissionKey, parallel);
+    return parallel ? slots.run(admit) : admit();
   }
   const lowerRun = (id: string, command: string, terminal = false, leaseMs?: number, verification?: NamedGate,
     secrets?: string[]): Promise<string> =>

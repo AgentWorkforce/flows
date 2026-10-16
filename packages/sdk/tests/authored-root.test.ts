@@ -172,7 +172,22 @@ describe('durable authored root', () => {
     });
     expect(metadata.sourceSha256).toMatch(/^[a-f0-9]{64}$/u);
     expect(metadata.extensions).toEqual([]);
+    expect(metadata).toMatchObject({ identityVersion: 2, executionMode: 'serial' });
     expect(journal.peer.completions).toEqual([{ attempt: 1, reason: 'success' }]);
+  });
+
+  it('pins a certified Promise.all run body to parallel mode before dispatch', async () => {
+    const loaded = await fixture(false, 0, async f => {
+      await Promise.all([f.run('printf a'), f.run('printf b')]);
+      f.done('success');
+    });
+    const journal = new RootJournal();
+    journal.startStatus = outcome(journal.runId, 'completed', 'success');
+    journal.entries = [completedEntry()];
+    await executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'certified-group' });
+    const step = (journal.starts[0]!.spec as { steps: Array<{ instruction: string }> }).steps[0]!;
+    expect(JSON.parse(step.instruction)).toMatchObject({ identityVersion: 2, executionMode: 'parallel' });
   });
 
   it('stops waiting for a root re-dispatch when the caller cancels', async () => {

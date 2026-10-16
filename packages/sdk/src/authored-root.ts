@@ -23,6 +23,7 @@ import { helperReceiptWaitId, releaseHelperReceiptWaits } from './helper-park.js
 import { readSubscriptionPark } from './authored-subscription-park.js';
 import { localAgentCredentialEnvironment } from './local-agent-environment.js';
 import { completedResult, rootKernelStep, rootStepIfPresent } from './authored-root-readback.js';
+import { parallelRunEligible } from './authored-parallel-eligibility.js';
 
 export type DurableAuthoredFlowResult =
   | (AuthoredFlowExecutionResult & { readonly rootRunId: string })
@@ -50,6 +51,10 @@ export interface AuthoredRootMetadata {
   readonly sources: readonly AuthoredRootSourceAuthority[];
   /** Plugin-level provenance in lock order; empty when the project declares none. */
   readonly extensions: readonly AuthoredRootExtension[];
+  /** Absent on roots admitted before causal identities existed. */
+  readonly identityVersion?: 2;
+  /** Immutable admission choice; serial uses the 2.0.50 child identity contract. */
+  readonly executionMode?: 'serial' | 'parallel';
   readonly localAgentStream?: string;
   readonly inputPresent: boolean;
   readonly input?: unknown;
@@ -89,6 +94,9 @@ export async function executeDurableAuthoredFlow(
     surface: node.surfaceAuthority,
   })));
   const definition = loaded.getDefinition(loaded.handle);
+  const executionMode = loaded.graph.length === 1 && (loaded.extensions?.length ?? 0) === 0
+    && definition.header.budget === undefined && parallelRunEligible(definition.body)
+    ? 'parallel' : 'serial';
   const metadata: AuthoredRootMetadata = Object.freeze({
     kind: ROOT_KIND,
     flowName: definition.name,
@@ -99,6 +107,8 @@ export async function executeDurableAuthoredFlow(
     extensions: Object.freeze((loaded.extensions ?? []).map(extension => Object.freeze({
       name: extension.name, digest: extension.digest, ref: extension.ref,
     }))),
+    identityVersion: 2,
+    executionMode,
     ...(options.localAgentStream === undefined ? {} : { localAgentStream: options.localAgentStream }),
     inputPresent: input !== undefined,
     ...(input === undefined ? {} : { input: jsonSnapshot(input, 'authored root input') }),
@@ -353,6 +363,8 @@ async function driveRoot(
             ...(options.agentEnvironment === undefined ? {} : { agentEnvironment: options.agentEnvironment }),
             ...(options.workerCapacity === undefined ? {} : { workerCapacity: options.workerCapacity }),
             rootRunId: dispatch.run_id,
+            executionMode: metadata.identityVersion === 2 && metadata.executionMode === 'parallel'
+              ? 'parallel' : 'serial',
             extensions: loaded.extensions,
             flowGraph: loaded.graph,
             ...options.lifecycle,
@@ -608,7 +620,9 @@ function isRootMetadata(value: unknown): value is AuthoredRootMetadata {
     && Array.isArray(sources) && sources.length > 0 && sources.every(isRootSourceAuthority)
     && (root.extensions === undefined || (Array.isArray(root.extensions) && root.extensions.every(isRootExtension)))
     && (root.localAgentStream === undefined
-      || /^local-agent-[a-f0-9-]+$/.test(root.localAgentStream));
+      || /^local-agent-[a-f0-9-]+$/.test(root.localAgentStream))
+    && ((root.identityVersion === undefined && root.executionMode === undefined)
+      || (root.identityVersion === 2 && (root.executionMode === 'serial' || root.executionMode === 'parallel')));
 }
 
 function isRootExtension(value: unknown): value is AuthoredRootExtension {

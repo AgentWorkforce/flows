@@ -969,29 +969,32 @@ does not install it.
 
 Two properties of `f.run` on a local `relayflowd` are useful to know.
 
-**Independent `f.run` steps overlap.** `Promise.all` over two
-`f.run('sleep 2')` steps takes about 2s of step time. Each deterministic child
-uses its own journal connection because the daemon handles requests on one
-connection in order and `run.start` returns only after its command exits. An
-authored body admits at most eight deterministic children at once; additional
-calls wait for a slot. This limit belongs to each authored body: a dispatched
-child body has its own eight slots. A declared `budget` still queues these
-operations in order for exact accounting (`authored-budget.ts`). `Promise.all`
+**Certified `Promise.all` groups of `f.run` steps overlap.** A direct
+`Promise.all` over two `f.run('sleep 2')` steps takes about 2s of step time.
+The root records its execution mode before its body runs. Parallel mode is
+selected only for run-only bodies whose awaited `Promise.all` members and
+locally declared async branches can be identified before admission. In this
+mode, each deterministic child uses its own journal connection because the
+daemon handles requests on one connection in order and `run.start` returns
+only after its command exits. An authored body admits at most eight
+deterministic children at once; additional calls wait for a slot. `Promise.all`
 returns results in declaration order while each continuation receives its
-result as soon as that child completes. For durable authored runs, follow-up
-ids inside a concurrent region are rooted in the full causal predecessor set,
-including a `Promise.all` join. Replay or resume finds the same child when
-those predecessors are the same, regardless of which sibling finished first.
-After `Promise.race`, the predecessor can change if a different member wins
-on replay; do not put a non-idempotent effect after a race of independent
-steps.
+result as soon as that child completes. Follow-up ids inside a certified
+concurrent region use causal predecessor identities for replay.
+
+Other bodies keep the established serial `f.run` scheduler and `kind-N` step
+ids. This includes `Promise.race`, `Promise.any`, eager background work,
+timers, other `f.*` effects, dispatched flows, and a declared `budget`.
+Those bodies continue to run; the fallback only changes whether their
+deterministic child commands overlap. A step whose source cannot be
+certified also uses serial mode. The mode is immutable for the root's lifetime.
 
 Each child's admission key comes from the root run and step id. Each child has
 its own journal; the root's child index records completion facts as they arrive, and
 readers match them by step id and run id.
-If the bounded causal walk cannot identify a follow-up's full predecessor
-frontier, the flow fails before admitting that child rather than issuing an
-ambiguous replay key.
+In parallel mode, if the bounded causal walk cannot identify a follow-up's
+full predecessor frontier, the flow fails before admitting that child rather
+than issuing an ambiguous replay key.
 
 If one concurrent `f.run` fails, the authored body fails and its waiting
 siblings are cancelled before admission. Children already admitted can finish
@@ -999,12 +1002,10 @@ their own journal work; their outcomes cannot turn the failed body into a
 success. A child in a separate `f.dispatch` body follows that body's own
 failure and capacity rules.
 
-**Upgrade from 2.0.50:** let in-flight authored runs with concurrent `f.run`
-branches and follow-ups finish before deploying this version. Version 2.0.50
-named those follow-ups with a global `run-N` counter; this version uses their
-causal predecessors, so resuming such an unfinished run across the upgrade can
-re-admit a completed command. Sequential authored runs retain their `run-N`
-identities and can resume across the upgrade.
+**Upgrade from 2.0.50:** roots admitted before execution modes were journaled
+resume in serial compatibility mode, preserving the 2.0.50 `kind-N` step ids
+and shared connection. Completed child effects remain bound to their original
+admission keys, including follow-ups after a `Promise.all` join.
 
 What runs concurrently today:
 
@@ -1015,7 +1016,7 @@ What runs concurrently today:
   `f.run('a & b & wait')`. A single `f.run` cannot start a background job and
   return before it finishes: the step waits on the command's output pipes.
 
-`f.dispatch` child bodies use the same bounded parallel `f.run` path.
+`f.dispatch` roots currently use serial `f.run` scheduling.
 
 **`f.run` gets the environment of the `flows run` that started the run,
 but the daemon's working directory.** Every `flows run` on a data dir attaches

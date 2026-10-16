@@ -196,6 +196,8 @@ export interface ExecuteAuthoredFlowOptions {
   readonly workerCapacity?: number;
   /** Durable kernel root that owns this body's child admission identities. */
   readonly rootRunId?: string;
+  /** Pinned by the durable root. Legacy roots retain 2.0.50 step identities. */
+  readonly executionMode?: 'serial' | 'parallel';
   /** Installed flow-extension plugins, in lock order, so `f.hook` can AND-compose them. */
   readonly extensions?: readonly LoadedFlowExtension[];
   /**
@@ -302,39 +304,25 @@ export async function executeAuthoredFlow<Input = undefined>(
   let requestedCompletion: LoweredCompletionReason | undefined;
   let requestedDetail: string | undefined;
   const qualify = (id: string): string => `${options.stepPrefix ?? ''}${id}`;
-  // Concurrent f.run siblings may finish in either order. A follow-up in one
-  // branch takes its identity from that branch's causal predecessor, so replay
-  // cannot bind its admission key to the other branch's command.
-  const parallelRoots = new Set<string>();
   const branchOrdinals = new Map<string, number>();
-  const runPredecessors = new Map<string, string>();
   const nextId = (kind: string): string => {
     const sequence = nextStep++;
-    if (kind !== 'run') return qualify(`${kind}-${sequence}`);
+    if (options.executionMode !== 'parallel' || kind !== 'run') return qualify(`${kind}-${sequence}`);
     const predecessors = lifecycle.invocationPredecessors();
     if (predecessors.truncated) {
       throw new AuthoredFlowExecutionError('step_failed',
         'cannot assign a replay-stable f.run identity: its causal predecessor graph is truncated');
     }
     const signature = JSON.stringify([...predecessors.steps].sort());
-    // A continuation after Promise.all has several predecessors. It belongs to
-    // the same concurrent region as its members, and a global sequence number
-    // would change when another branch wins a completion race. Keep the whole
-    // sorted frontier as the replay identity, including at joins.
-    const inBranch = predecessors.steps.some(step => parallelRoots.has(step));
-    const siblings = authoredSteps.filter(operation => operation.verb === 'run'
-      && (operation.lifecycle === 'created' || operation.lifecycle === 'running')
-      && runPredecessors.get(operation.id) === signature);
-    const id = inBranch
-      ? qualify(`run-after-${createHash('sha256').update(signature).digest('hex')}-${(branchOrdinals.get(signature) ?? 0) + 1}`)
-      : qualify(`run-${sequence}`);
-    if (inBranch) branchOrdinals.set(signature, (branchOrdinals.get(signature) ?? 0) + 1);
-    if (inBranch || siblings.length > 0) {
-      parallelRoots.add(id);
-      for (const sibling of siblings) parallelRoots.add(sibling.id);
-    }
-    runPredecessors.set(id, signature);
-    return id;
+    if (predecessors.steps.length === 0) return qualify(`run-${sequence}`);
+    // Each new root pins parallel mode before executing the body. Its
+    // continuations derive their identity only from the causal frontier and
+    // declaration order within that frontier; child lifecycle and completion
+    // order never participate. Legacy roots take the branch above and retain
+    // their original kind-N identities.
+    const ordinal = (branchOrdinals.get(signature) ?? 0) + 1;
+    branchOrdinals.set(signature, ordinal);
+    return qualify(`run-after-${createHash('sha256').update(signature).digest('hex')}-${ordinal}`);
   };
   const assertHelperAllowed = (provider: string): void => {
     if (options.allowedHelperProviders !== undefined && !options.allowedHelperProviders.has(provider)) {
@@ -352,6 +340,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       ...(options.signal === undefined ? {} : { signal: options.signal }),
       stepEdges,
     },
+    options.executionMode === 'parallel',
   );
 
   const worker = authoredWorkerRunner(
@@ -728,6 +717,7 @@ export async function executeAuthoredFlow<Input = undefined>(
             ...(options.agentEnvironment === undefined ? {} : { agentEnvironment: options.agentEnvironment }),
             ...(options.workerCapacity === undefined ? {} : { workerCapacity: options.workerCapacity }),
             ...(options.rootRunId === undefined ? {} : { rootRunId: options.rootRunId }),
+            ...(options.executionMode === undefined ? {} : { executionMode: options.executionMode }),
             flowGraph: options.flowGraph,
             stepPrefix: `${id}--`,
             dispatchDepth: depth + 1,
