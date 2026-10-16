@@ -1,0 +1,7 @@
+{"case":"K1","index":0,"mode":"serial","outcome":"base_failure","effects":"ABLC"}
+{"case":"K1","index":1,"mode":"serial","outcome":"base_failure","effects":"ABLC"}
+{"case":"K1","index":2,"mode":"serial","outcome":"base_failure","effects":"ABLC"}
+{"case":"K1","index":3,"mode":"serial","outcome":"base_failure","effects":"ABLC"}
+{"case":"K1","index":4,"mode":"serial","outcome":"base_failure","effects":"ABLC"}
+{"case":"K1","index":5,"mode":"serial","outcome":"base_failure","effects":"ABLC"}
+{"done":true,"cases":["K1"],"repetitions":6,"forced":false}

@@ -7,8 +7,14 @@ export function parallelRunEligible(body: Function, moduleSource: string): boole
   // Promise.all is intercepted only when `Promise` resolves to the intrinsic.
   // Function.toString cannot see a module-level lexical binding, so inspect
   // the complete source before using the body's narrower grammar.
-  if (!moduleUsesIntrinsicPromise(moduleSource)) return false;
-  const file = ts.createSourceFile('authored-body.js', `const body = ${functionSource.call(body)};`,
+  const bodySource = functionSource.call(body);
+  return moduleUsesIntrinsicPromise(moduleSource, bodySource) && parallelBodySyntaxEligible(body);
+}
+
+/** Independently re-check the closed body grammar at execution time. */
+export function parallelBodySyntaxEligible(body: Function): boolean {
+  const bodySource = functionSource.call(body);
+  const file = ts.createSourceFile('authored-body.js', `const body = ${bodySource};`,
     ts.ScriptTarget.ES2022, true, ts.ScriptKind.JS);
   if (file.statements.length !== 1) return false;
   const declaration = file.statements[0];
@@ -20,6 +26,7 @@ export function parallelRunEligible(body: Function, moduleSource: string): boole
   const parameter = expression.parameters[0]?.name;
   if (parameter === undefined || !ts.isIdentifier(parameter) || expression.parameters.length !== 1) return false;
   const context = parameter.text;
+  if (['Promise', 'globalThis', 'global'].includes(context)) return false;
   const branches = new Map<string, ts.ArrowFunction>();
   const rootValues = new Set<string>();
   let groups = 0;
@@ -110,6 +117,7 @@ export function parallelRunEligible(body: Function, moduleSource: string): boole
       if (!ts.isVariableStatement(statement) || (statement.declarationList.flags & ts.NodeFlags.Const) === 0) return false;
       for (const item of statement.declarationList.declarations) {
         if (!ts.isIdentifier(item.name) || item.initializer === undefined) return false;
+        if (['Promise', 'globalThis', 'global'].includes(item.name.text)) return false;
         if (depth === 0 && ts.isArrowFunction(item.initializer)) {
           if (branches.has(item.name.text) || item.initializer.parameters.length !== 0
             || item.initializer.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword) !== true
@@ -137,7 +145,7 @@ export function parallelRunEligible(body: Function, moduleSource: string): boole
 }
 
 /** Reject any source that can change what a free `Promise` identifier means. */
-function moduleUsesIntrinsicPromise(source: string): boolean {
+function moduleUsesIntrinsicPromise(source: string, bodySource: string): boolean {
   const file = ts.createSourceFile('authored-module.ts', source, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
   if (((file as ts.SourceFile & { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics?.length ?? 0) > 0) {
     return false;
@@ -149,7 +157,21 @@ function moduleUsesIntrinsicPromise(source: string): boolean {
     return ts.forEachChild(node, touchesPromiseOutsideDefinition) === true;
   };
   let definesDefaultBody = false;
+  let importsSurfaceFlow = false;
   for (const statement of file.statements) {
+    if (ts.isImportDeclaration(statement)) {
+      // Imports can execute code before the body starts. Only the direct,
+      // immutable Surface binding can certify the exported body's identity.
+      if (statement.moduleSpecifier.getText(file) !== "'@relayflows/surface'"
+        && statement.moduleSpecifier.getText(file) !== '"@relayflows/surface"') return false;
+      const bindings = statement.importClause?.namedBindings;
+      if (statement.importClause?.name !== undefined || bindings === undefined
+        || !ts.isNamedImports(bindings) || bindings.elements.length !== 1
+        || bindings.elements[0]?.name.text !== 'flow'
+        || bindings.elements[0]?.propertyName !== undefined || importsSurfaceFlow) return false;
+      importsSurfaceFlow = true;
+      continue;
+    }
     if (ts.isExportAssignment(statement)) {
       // Only the final body argument is allowed to mention Promise.all. Do
       // not let an expression around flow() mutate Promise while we skip it.
@@ -157,13 +179,17 @@ function moduleUsesIntrinsicPromise(source: string): boolean {
       if (statement.isExportEquals || !ts.isCallExpression(call)
         || !ts.isIdentifier(call.expression) || call.expression.text !== 'flow') return false;
       const args = call.arguments;
+      if (args.length !== 2 || !ts.isStringLiteral(args[0]!)) return false;
       if (!ts.isArrowFunction(args[args.length - 1]!)) return false;
+      if (args[args.length - 1]!.getText(file) !== bodySource) return false;
       if (args.slice(0, -1).some(touchesPromiseOutsideDefinition)) return false;
       if (definesDefaultBody) return false;
       definesDefaultBody = true;
       continue;
     }
-    if (touchesPromiseOutsideDefinition(statement)) return false;
+    // The certified body cannot use module captures. Other top-level code is
+    // unnecessary for it and may schedule a later mutation through an alias.
+    return false;
   }
   const forbidden = new Set(['Promise', 'globalThis']);
   const bindsForbidden = (name: ts.BindingName): boolean => ts.isIdentifier(name)
@@ -201,5 +227,5 @@ function moduleUsesIntrinsicPromise(source: string): boolean {
   visit(file);
   // The body may come from another module, where a free Promise name can be
   // shadowed without appearing in this source. In that case use serial IDs.
-  return definesDefaultBody && !unsafe;
+  return importsSurfaceFlow && definesDefaultBody && !unsafe;
 }

@@ -15,7 +15,13 @@ export interface AuthoredOperationInvocation {
   bound: boolean;
 }
 
+const nativePromiseConstructor = Promise;
+const nativePromisePrototype = Promise.prototype;
 const nativePromiseThen = Promise.prototype.then;
+const nativePromiseCatch = Promise.prototype.catch;
+const nativePromiseFinally = Promise.prototype.finally;
+const nativePromiseResolve = Promise.resolve;
+const nativePromiseReject = Promise.reject;
 const activeLifecycle = new AsyncLocalStorage<AuthoredFlowLifecycle>();
 const stepOwners = new WeakMap<object, {
   lifecycle: AuthoredFlowLifecycle;
@@ -79,6 +85,17 @@ const observedCombinators: Record<CombinatorName, Combinator> = Object.fromEntri
 ) as Record<CombinatorName, Combinator>;
 
 let combinatorObservers = 0;
+
+/** An imported module must not substitute any primitive used to construct joins. */
+export function parallelPromiseIntrinsicsIntact(): boolean {
+  if (Promise !== nativePromiseConstructor || Promise.prototype !== nativePromisePrototype
+    || Promise.prototype.then !== nativePromiseThen
+    || Promise.prototype.catch !== nativePromiseCatch
+    || Promise.prototype.finally !== nativePromiseFinally
+    || Promise.resolve !== nativePromiseResolve || Promise.reject !== nativePromiseReject) return false;
+  return COMBINATORS.every(name => Promise[name] === (combinatorObservers > 0
+    ? observedCombinators[name] : nativeCombinators[name]) as unknown);
+}
 
 /**
  * Drain an iterable into an array, reading `Symbol.iterator` exactly once.
@@ -184,6 +201,7 @@ export class AuthoredFlowLifecycle {
       const awaited = owner?.lifecycle === this ? this.operationPromises.get(owner.operation) : memberId;
       if (awaited !== undefined) awaitedMembers.push(awaited);
       if (owner?.lifecycle !== this) continue;
+      if (awaited !== undefined) this.stepGraph.certifyMember(awaited);
       let operationAggregates = this.promiseAllAggregates.get(owner.operation);
       if (operationAggregates === undefined) {
         operationAggregates = new Set();
@@ -205,6 +223,15 @@ export class AuthoredFlowLifecycle {
     const { value, created } = this.graph.captureCombinator(() => native.call(constructor, values));
     this.registerCombinator(values, value, name, created);
     return value;
+  }
+
+  /** Mark the exact promise returned by a grammar-certified async branch call. */
+  certifyBranchPromise(promise: Promise<unknown>): void {
+    const id = this.graph.idOf(promise);
+    if (id === undefined) {
+      throw new AuthoredFlowExecutionError('step_failed', 'certified branch promise was not tracked');
+    }
+    this.stepGraph.certifyMember(id);
   }
 
   /**
@@ -244,8 +271,7 @@ export class AuthoredFlowLifecycle {
 
   /** The observation contract must still be installed when a child is admitted. */
   combinatorsObserved(): boolean {
-    return Promise.all === (observedCombinators.all as unknown)
-      && Promise.allSettled === (observedCombinators.allSettled as unknown);
+    return combinatorObservers > 0 && parallelPromiseIntrinsicsIntact();
   }
 
   registerInvocation(

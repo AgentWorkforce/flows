@@ -24,6 +24,7 @@ import { readSubscriptionPark } from './authored-subscription-park.js';
 import { localAgentCredentialEnvironment } from './local-agent-environment.js';
 import { completedResult, rootKernelStep, rootStepIfPresent } from './authored-root-readback.js';
 import { parallelRunEligible } from './authored-parallel-eligibility.js';
+import { parallelPromiseIntrinsicsIntact } from './authored-flow-lifecycle.js';
 
 export type DurableAuthoredFlowResult =
   | (AuthoredFlowExecutionResult & { readonly rootRunId: string })
@@ -95,7 +96,8 @@ export async function executeDurableAuthoredFlow(
   })));
   const definition = loaded.getDefinition(loaded.handle);
   const executionMode = loaded.graph.length === 1 && (loaded.extensions?.length ?? 0) === 0
-    && definition.header.budget === undefined && parallelRunEligible(definition.body, source.toString('utf8'))
+    && definition.header.budget === undefined && parallelPromiseIntrinsicsIntact()
+    && parallelRunEligible(definition.body, source.toString('utf8'))
     ? 'parallel' : 'serial';
   const metadata: AuthoredRootMetadata = Object.freeze({
     kind: executionMode === 'parallel' ? AUTHORED_PARALLEL_ROOT_KIND : ROOT_KIND,

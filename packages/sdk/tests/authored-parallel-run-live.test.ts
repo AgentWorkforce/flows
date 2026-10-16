@@ -72,7 +72,7 @@ export default flow('reexported-body', async f => {
         shape === 'after a first step' ? 'WXZ' : 'XZ');
     }, 120_000);
 
-  it('refuses an imported Promise.all patch before admitting another parallel effect', () => {
+  it('keeps a flow with an imported Promise.all patch on the serial scheduler', () => {
     const fixture = chainFixture();
     closes.push(() => fixture.close());
     writeFileSync(`${fixture.root}/patch.mjs`, `const intrinsic = Promise.all;
@@ -91,11 +91,11 @@ export default flow('imported-promise-patch', async f => {
 });\n`);
     const result = fixture.invoke('run', '--no-observer-link', '--json', '--data-dir', fixture.data,
       fixture.flowPath, '--input', '{}');
-    expect(result.status, result.stderr + result.stdout).toBe(1);
-    expect(readFileSync(`${fixture.root}/effects`, 'utf8')).toBe('W');
+    expect(result.status, result.stderr + result.stdout).toBe(0);
+    expect([...readFileSync(`${fixture.root}/effects`, 'utf8')].sort().join('')).toBe('ABWX');
   }, 60_000);
 
-  it('fails closed on the reviewer imported patch during a prior step', () => {
+  it('keeps the reviewer imported patch runnable in serial mode', () => {
     const fixture = chainFixture();
     closes.push(() => fixture.close());
     mkdirSync(`${fixture.root}/lib`);
@@ -112,14 +112,13 @@ export default flow('q6Pw', async f => {
   const c = async () => { await f.run('sleep 0.2; printf C'); await f.run('printf c >> effects'); };
   await Promise.all([a(), b(), c()]);
   await f.run('printf X >> effects');
-  await f.run('test -f release || { touch stalled; sleep 120; }; printf Z >> effects', { timeout: '5m' });
+  await f.run('printf Z >> effects');
   f.done('success');
 });\n`);
     const result = fixture.invoke('run', '--no-observer-link', '--json', '--data-dir', fixture.data,
       fixture.flowPath, '--input', '{}');
-    expect(result.status, result.stderr + result.stdout).toBe(1);
-    const effects = existsSync(`${fixture.root}/effects`) ? readFileSync(`${fixture.root}/effects`, 'utf8') : '';
-    expect(effects).not.toContain('X');
+    expect(result.status, result.stderr + result.stdout).toBe(0);
+    expect([...readFileSync(`${fixture.root}/effects`, 'utf8')].sort().join('')).toBe('XZabc');
   }, 60_000);
 
   it('overlaps two sleep 2 commands started in Promise.all', () => {

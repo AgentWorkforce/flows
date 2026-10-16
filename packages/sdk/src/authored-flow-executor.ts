@@ -56,6 +56,7 @@ import {
   verifyAuthoredOperations,
 } from './authored-flow-operation.js';
 import { AuthoredFlowLifecycle } from './authored-flow-lifecycle.js';
+import { instrumentParallelBody } from './authored-parallel-body.js';
 import { AuthoredActivities } from './authored-activity.js';
 import { displayLabel, type AuthoredStepEdges } from './authored-step-index.js';
 import { JournalClient } from './journal-client.js';
@@ -322,7 +323,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     if (options.executionMode !== 'parallel') return qualify(`${kind}-${sequence}`);
     if (kind !== 'run') rejectParallel(`parallel f.run body attempted ${kind} before admission`);
     if (!lifecycle.combinatorsObserved()) rejectParallel(
-      'cannot assign a replay-stable f.run identity: the intrinsic Promise combinator observer was replaced');
+      'cannot assign a replay-stable f.run identity: a Promise intrinsic was replaced');
     const predecessors = lifecycle.invocationPredecessors();
     if (predecessors.unregisteredAggregate) rejectParallel(
       'cannot assign a replay-stable f.run identity: its causal frontier passes through an unregistered aggregate');
@@ -862,7 +863,10 @@ export async function executeAuthoredFlow<Input = undefined>(
   let bodyFailure: unknown;
   try {
     if (options.executionMode === 'parallel') queueMicrotask(() => { firstBodyTurn = false; });
-    const bodyPromise = lifecycle.runBody(() => definition.body(context, input as Input));
+    const body = options.executionMode === 'parallel'
+      ? instrumentParallelBody(definition.body, promise => lifecycle.certifyBranchPromise(promise))
+      : definition.body;
+    const bodyPromise = lifecycle.runBody(() => body(context, input as Input));
     await bodyPromise;
   } catch (error) {
     bodyFailed = true;

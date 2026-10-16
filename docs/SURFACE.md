@@ -975,13 +975,17 @@ The root records its execution mode before its body runs. Parallel mode is
 selected only for a narrow source grammar: awaited `Promise.all` groups of
 direct `f.run` calls, and locally declared async branches made only of awaited
 `f.run` calls or direct run groups. Every branch must contain a direct `f.run`.
-The entry module must directly define and export the flow body. Re-exports and
-imported flow definitions use serial mode, because their `Promise` binding
-belongs to another module. The defining module must leave the intrinsic
-`Promise` and `globalThis.Promise` unshadowed; a module that binds either name
-uses serial mode. Generated arrays
-such as `Array.from` use
-serial mode. Branches may not mutate shared values, await
+The entry module must import `{ flow }` directly from `@relayflows/surface` and
+pass the body arrow literally to `export default flow('name', async f => {...})`.
+The entry
+has no other top-level statements in parallel mode. Re-exports,
+local flow factories, and imported flow definitions use serial mode, because
+their body's Promise binding cannot be certified from the entry file. Other
+imports also use serial mode because they may alter Promise before the body
+starts. The defining module must leave the intrinsic `Promise` and
+`globalThis.Promise` unshadowed; a module that binds either name uses serial
+mode. Generated arrays such as `Array.from` use serial mode. Branches may not
+mutate shared values, await
 timers or other promises, or call `f.done`; completion belongs at the end of
 the root body. The check is conservative: an unrecognized source form uses
 serial mode even when its author knows it would be safe. In parallel mode,
@@ -1006,7 +1010,7 @@ its own journal; the root's child index records completion facts as they arrive,
 readers match them by step id and run id.
 In parallel mode, if the bounded causal walk cannot identify a follow-up's
 full predecessor frontier, the frontier passes through an unregistered promise
-aggregate, an intrinsic Promise combinator observer has been replaced, a
+aggregate, a Promise constructor, method, or combinator has been replaced, a
 non-run effect appears, or a new initial child
 appears after the body's first turn, the root fails before admitting that
 effect rather than issuing an ambiguous replay key. Once this happens, no

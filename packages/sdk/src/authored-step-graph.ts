@@ -64,6 +64,7 @@ const EXPANDS_ON: Readonly<Record<Combinator, Outcome | 'always' | undefined>> =
 
 interface Aggregate {
   readonly promise: Promise<unknown>;
+  readonly combinator: Combinator;
   /** Cached once settled: a settled promise never changes state. */
   outcome?: Outcome;
   readonly expandsOn: Outcome | 'always';
@@ -75,7 +76,8 @@ export class AuthoredStepGraph {
   private readonly aggregates = new Map<number, Aggregate>();
   private readonly registeredAggregates = new Set<number>();
   private readonly registeredCombinatorInternals = new Set<number>();
-  private readonly registeredMembers = new Set<number>();
+  private readonly certifiedMembers = new Set<number>();
+  private readonly unsafeAggregates = new Set<number>();
   private readonly contexts = new Map<number, Frontier>();
   private readonly nodes = new Map<string, StepNode>();
   private readonly edges = new Map<string, AuthoredStepEdges>();
@@ -96,10 +98,15 @@ export class AuthoredStepGraph {
   ): void {
     this.registeredAggregates.add(aggregateId);
     for (const id of created) this.registeredCombinatorInternals.add(id);
-    for (const member of members) this.registeredMembers.add(member);
+    if (combinator === 'race' || combinator === 'any') this.unsafeAggregates.add(aggregateId);
     const expandsOn = EXPANDS_ON[combinator];
     if (expandsOn === undefined || members.length === 0) return;
-    this.aggregates.set(aggregateId, { promise, expandsOn, members });
+    this.aggregates.set(aggregateId, { promise, combinator, expandsOn, members });
+  }
+
+  /** Only direct steps and branch calls proven by the body grammar are safe members. */
+  certifyMember(asyncId: number): void {
+    this.certifiedMembers.add(asyncId);
   }
 
   /**
@@ -140,7 +147,8 @@ export class AuthoredStepGraph {
     this.aggregates.clear();
     this.registeredAggregates.clear();
     this.registeredCombinatorInternals.clear();
-    this.registeredMembers.clear();
+    this.certifiedMembers.clear();
+    this.unsafeAggregates.clear();
     this.contexts.clear();
     this.nodes.clear();
   }
@@ -167,9 +175,13 @@ export class AuthoredStepGraph {
       // observer registered it before the promise settled. The creation and
       // resolution contexts also catch an unobserved join created after a
       // previous step, where root-adoption alone cannot detect it.
-      const possibleJoin = this.unobservedJoinShape(current)
-        && !this.registeredAggregates.has(current) && !this.registeredMembers.has(current)
-        && !this.registeredCombinatorInternals.has(current);
+      const aggregate = this.aggregates.get(current);
+      const rejectedAll = aggregate?.combinator === 'all'
+        && promiseOutcome(aggregate.promise) === 'rejected';
+      const possibleJoin = this.unsafeAggregates.has(current) || rejectedAll
+        || (this.unobservedJoinShape(current)
+        && !this.registeredAggregates.has(current) && !this.certifiedMembers.has(current)
+        && !this.registeredCombinatorInternals.has(current));
       unregisteredAggregate ||= possibleJoin;
       const answered = current === start ? undefined : this.contexts.get(current);
       if (answered !== undefined) {

@@ -138,6 +138,25 @@ describe('parallel run admission', () => {
     expect(eligible(candidate, `import impl from './impl.ts'; export default impl;`)).toBe(false);
   });
 
+  it('requires the exported arrow to be the actual body from the direct Surface binding', () => {
+    const candidate = body(`async f => {
+      await Promise.all([f.run('A'), f.run('B')]);
+      await f.run('X');
+      f.done('success');
+    }`);
+    const decoy = `export default flow('decoy', async f => { await f.run('decoy'); });`;
+    const exact = `export default flow('real', ${Function.prototype.toString.call(candidate)});`;
+    expect(eligible(candidate, `const flow = () => impl; ${decoy}`)).toBe(false);
+    expect(eligible(candidate, `import { flow } from './wrap.ts'; ${decoy}`)).toBe(false);
+    expect(eligible(candidate, `import { flow } from '@relayflows/surface'; ${decoy}`)).toBe(false);
+    expect(eligible(candidate, exact)).toBe(false);
+    expect(eligible(candidate, `const flow = () => impl; ${exact}`)).toBe(false);
+    expect(eligible(candidate, `import { flow } from './wrap.ts'; ${exact}`)).toBe(false);
+    expect(eligible(candidate, `import { flow } from '@relayflows/surface';\nimport './patch.mjs';\nexport default flow('real', ${Function.prototype.toString.call(candidate)});`)).toBe(false);
+    expect(eligible(candidate, `import { flow } from '@relayflows/surface';\nconst alias = Function('return this')();\nexport default flow('real', ${Function.prototype.toString.call(candidate)});`)).toBe(false);
+    expect(eligible(candidate, `import { flow } from '@relayflows/surface';\nexport default flow('real', { get extra() { throw new Error('side effect'); } }, ${Function.prototype.toString.call(candidate)});`)).toBe(false);
+  });
+
   it('keeps groups with empty async branches serial', () => {
     expect(eligible(body(`async f => {
       const warm = async () => {};

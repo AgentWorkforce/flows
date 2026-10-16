@@ -1,0 +1,183 @@
+MUTATION f1
+COMMAND npx vitest run tests/authored-step-graph.test.ts -t does not trust a user-built join merely because it is a combinator member
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ❯ tests/authored-step-graph.test.ts (27 tests | 1 failed | 26 skipped) 4ms
+   × the authored step DAG > does not trust a user-built join merely because it is a combinator member 3ms
+     → expected false to be true // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-step-graph.test.ts > the authored step DAG > does not trust a user-built join merely because it is a combinator member
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/authored-step-graph.test.ts:88:59
+     86|     const graph = new AuthoredStepGraph(id => id === 3 ? [2] : [], und…
+     87|     graph.registerAggregate(1, Promise.resolve(), 'all', [2]);
+     88|     expect(graph.predecessorsAt(3).unregisteredAggregate).toBe(true);
+       |                                                           ^
+     89|     const certified = new AuthoredStepGraph(id => id === 3 ? [2] : [],…
+     90|     certified.registerAggregate(1, Promise.resolve(), 'all', [2]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 26 skipped (27)
+   Start at  23:49:49
+   Duration  348ms (transform 69ms, setup 10ms, collect 68ms, tests 4ms, environment 0ms, prepare 70ms)
+
+RESTORED f1 SHA256 138ba3e8259e4d084251b02257f70c12e394e91d51625a03344ccd9a9e60c050
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ✓ tests/authored-step-graph.test.ts (27 tests | 26 skipped) 1ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 26 skipped (27)
+   Start at  23:49:49
+   Duration  359ms (transform 47ms, setup 11ms, collect 52ms, tests 1ms, environment 0ms, prepare 101ms)
+
+MUTATION f2-binding
+COMMAND npx vitest run tests/authored-parallel-eligibility.test.ts -t requires the exported arrow to be the actual body from the direct Surface binding
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ❯ tests/authored-parallel-eligibility.test.ts (9 tests | 1 failed | 8 skipped) 8ms
+   × parallel run admission > requires the exported arrow to be the actual body from the direct Surface binding 8ms
+     → expected true to be false // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-parallel-eligibility.test.ts > parallel run admission > requires the exported arrow to be the actual body from the direct Surface binding
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/authored-parallel-eligibility.test.ts:152:40
+    150|     expect(eligible(candidate, `import { flow } from './wrap.ts'; ${de…
+    151|     expect(eligible(candidate, `import { flow } from '@relayflows/surf…
+    152|     expect(eligible(candidate, exact)).toBe(false);
+       |                                        ^
+    153|     expect(eligible(candidate, `const flow = () => impl; ${exact}`)).t…
+    154|     expect(eligible(candidate, `import { flow } from './wrap.ts'; ${ex…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 8 skipped (9)
+   Start at  23:49:50
+   Duration  670ms (transform 25ms, setup 9ms, collect 424ms, tests 8ms, environment 0ms, prepare 41ms)
+
+RESTORED f2-binding SHA256 3802b56d109ae111bc774928669409951a33f830c3c2bc16575597df904b26d2
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ✓ tests/authored-parallel-eligibility.test.ts (9 tests | 8 skipped) 7ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 8 skipped (9)
+   Start at  23:49:51
+   Duration  517ms (transform 33ms, setup 11ms, collect 203ms, tests 7ms, environment 0ms, prepare 81ms)
+
+MUTATION f2-body
+COMMAND npx vitest run tests/authored-parallel-eligibility.test.ts -t requires the exported arrow to be the actual body from the direct Surface binding
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ❯ tests/authored-parallel-eligibility.test.ts (9 tests | 1 failed | 8 skipped) 30ms
+   × parallel run admission > requires the exported arrow to be the actual body from the direct Surface binding 29ms
+     → expected true to be false // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-parallel-eligibility.test.ts > parallel run admission > requires the exported arrow to be the actual body from the direct Surface binding
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/authored-parallel-eligibility.test.ts:151:89
+    149|     expect(eligible(candidate, `const flow = () => impl; ${decoy}`)).t…
+    150|     expect(eligible(candidate, `import { flow } from './wrap.ts'; ${de…
+    151|     expect(eligible(candidate, `import { flow } from '@relayflows/surf…
+       |                                                                                         ^
+    152|     expect(eligible(candidate, exact)).toBe(false);
+    153|     expect(eligible(candidate, `const flow = () => impl; ${exact}`)).t…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 8 skipped (9)
+   Start at  23:49:52
+   Duration  510ms (transform 22ms, setup 8ms, collect 193ms, tests 30ms, environment 0ms, prepare 97ms)
+
+RESTORED f2-body SHA256 3802b56d109ae111bc774928669409951a33f830c3c2bc16575597df904b26d2
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ✓ tests/authored-parallel-eligibility.test.ts (9 tests | 8 skipped) 6ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 8 skipped (9)
+   Start at  23:49:53
+   Duration  408ms (transform 26ms, setup 12ms, collect 196ms, tests 6ms, environment 0ms, prepare 37ms)
+
+MUTATION f3
+COMMAND npx vitest run tests/authored-flow-lifecycle-executor.test.ts -t detects replacement of every Promise primitive used by parallel joins
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ❯ tests/authored-flow-lifecycle-executor.test.ts (44 tests | 1 failed | 43 skipped) 5ms
+   × authored flow lifecycle through the journal executor > detects replacement of every Promise primitive used by parallel joins 4ms
+     → resolve: expected true to be false // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-flow-lifecycle-executor.test.ts > authored flow lifecycle through the journal executor > detects replacement of every Promise primitive used by parallel joins
+AssertionError: resolve: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/authored-flow-lifecycle-executor.test.ts:42:30
+     40|       const detected = parallelPromiseIntrinsicsIntact();
+     41|       target[name] = original;
+     42|       expect(detected, name).toBe(false);
+       |                              ^
+     43|     }
+     44|     for (const name of ['then', 'catch', 'finally']) {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 43 skipped (44)
+   Start at  23:49:54
+   Duration  1.61s (transform 521ms, setup 9ms, collect 1.41s, tests 5ms, environment 0ms, prepare 36ms)
+
+RESTORED f3 SHA256 14a9237ea459a67ca3f514492d63776aea798f97d15a8ac4c31fd9c7c846ada4
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ✓ tests/authored-flow-lifecycle-executor.test.ts (44 tests | 43 skipped) 3ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 43 skipped (44)
+   Start at  23:49:56
+   Duration  1.28s (transform 410ms, setup 10ms, collect 1.04s, tests 3ms, environment 0ms, prepare 41ms)
