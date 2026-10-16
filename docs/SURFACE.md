@@ -1010,7 +1010,9 @@ option is available on `f.agent` and `f.llm` and in declarative steps. Agent
 CLIs start from an allowlist of system variables and their selected CLI login.
 Their own model login stays available even when delivered as a run secret;
 delivered AWS/Bedrock names need Cloud's selected-login marker or a grant.
-Other user-delivered names require an explicit grant. Cloud-managed repository
+Generic cloud credentials such as `GOOGLE_API_KEY` and
+`GOOGLE_APPLICATION_CREDENTIALS` also need a grant; Gemini's own
+`GEMINI_API_KEY` remains login. Other user-delivered names require an explicit grant. Cloud-managed repository
 git/gh setup also stays available. A misspelled or unavailable
 name refuses the step. Without a secret-name manifest, self-hosted deterministic steps retain
 the legacy run environment; set the manifest when supplying secrets.

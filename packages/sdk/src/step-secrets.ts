@@ -50,10 +50,12 @@ const CLI_LOGIN: Record<CliAdapterKind, readonly string[]> = {
   'relayflows-wrapper-v1': [],
 };
 
-/** A selected CLI can use its own delivered login; Bedrock needs Cloud's marker. */
-export function isCliLoginName(kind: string, name: string): boolean {
-  return !BEDROCK_LOGIN.has(name) && Object.hasOwn(CLI_LOGIN, kind)
-    && CLI_LOGIN[kind as CliAdapterKind].includes(name);
+/** A selected CLI can use its own delivered login; generic cloud credentials need a grant. */
+export function isCliLoginName(kind: string, name: string, providerNames?: readonly string[]): boolean {
+  if (BEDROCK_LOGIN.has(name) || name.startsWith('AWS_')
+    || name === 'GOOGLE_APPLICATION_CREDENTIALS' || name === 'GOOGLE_API_KEY') return false;
+  const names = providerNames ?? (Object.hasOwn(CLI_LOGIN, kind) ? CLI_LOGIN[kind as CliAdapterKind] : []);
+  return names.includes(name);
 }
 
 export function deliveredNames(source: NodeJS.ProcessEnv): ReadonlySet<string> | undefined {

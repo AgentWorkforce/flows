@@ -55,7 +55,8 @@ export function agentEnvironment(cli: string, source: NodeJS.ProcessEnv = proces
     throw new Error('Relay broker credentials cannot be granted to a communication agent');
   }
   for (const name of names ?? []) {
-    if (!allowed.includes(name) && !platform.has(name) && !isCliLoginName(cliName, name)) {
+    if (!allowed.includes(name) && !platform.has(name)
+      && !isCliLoginName(cliName, name, providerNames[cliName])) {
       delete credentials[name];
     }
   }
