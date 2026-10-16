@@ -81,6 +81,7 @@ export {
 } from './flow-extension-loader.js';
 
 export { CloudFlowError, type CloudConnectionOptions, type CloudConfigurationReason } from './cloud-http.js';
+export { postCloudSignal, waitForCloudSignal } from './cloud-signal.js';
 export {
   listCloudRuns, getCloudRunDetail, getCloudRunSteps, getCloudRunLog,
   type CloudRunSummary, type CloudRunList, type CloudRunDetail, type CloudStep, type CloudStepAttempt,
