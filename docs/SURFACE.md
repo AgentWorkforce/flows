@@ -976,11 +976,12 @@ connection in order and `run.start` returns only after its command exits. An
 authored body admits at most eight deterministic children at once; additional
 calls wait for a slot. A declared `budget` still queues these operations in
 order for exact accounting (`authored-budget.ts`). `Promise.all` returns results
-in declaration order. For durable authored runs, child identities come from
-the root run and step id, so replay or resume finds the same child even if
-peers finish in a different order. Each child has its own journal; the root's
-child index records completion facts as they arrive, and readers match them
-by step id and run id.
+in declaration order. The SDK publishes child results to authored continuations
+in invocation order, even when later commands finish first. This keeps
+follow-up step ids stable on replay or resume. For durable authored runs, each
+child's admission key comes from the root run and step id. Each child has its
+own journal; the root's child index records completion facts as they arrive,
+and readers match them by step id and run id.
 
 What runs concurrently today:
 

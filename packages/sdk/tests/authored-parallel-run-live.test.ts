@@ -158,6 +158,15 @@ export default flow('parallel-recovery', async f => {
     const reader = new JournalClient(socketPathFor(fixture.data));
     await reader.connect();
     await reader.hello('parallel-recovery-test');
+    await until(async () => {
+      try {
+        await reader.journalRead(rootRunId, 1, 1);
+        return true;
+      } catch (error) {
+        if (error instanceof Error && /no such table: meta/u.test(error.message)) return undefined;
+        throw error;
+      }
+    }, 'root journal initialization');
     let firstChildRunId: string;
     let secondChildRunId: string;
     try {
@@ -206,5 +215,41 @@ export default flow('parallel-recovery', async f => {
         .toHaveLength(1);
       expect(runIds(fixture.data)).toHaveLength(4); // root, both children, completion marker
     } finally { after.close(); }
+  }, 120_000);
+
+  it('replays follow-up steps in parallel branches after a crash', async () => {
+    const fixture = chainFixture();
+    closes.push(() => fixture.close());
+    writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
+import { appendFileSync } from 'node:fs';
+export default flow('parallel-branch-recovery', async f => {
+  const left = async () => {
+    await f.run('sleep 2; printf left-initial');
+    await f.run('printf L >> branch-effects; printf left-follow');
+    await f.run('printf l >> branch-effects; printf left-last');
+  };
+  const right = async () => {
+    await f.run('printf right-initial');
+    await f.run('printf R >> branch-effects; printf right-follow');
+    await f.run('printf r >> branch-effects; printf right-last');
+  };
+  await Promise.all([left(), right()]);
+  await f.run('test -f branch-stalled || { touch branch-stalled; sleep 120; }; printf resumed');
+  appendFileSync('branch-effects', '!');
+  f.done('success');
+});
+`);
+    const cli = fixture.invokeAsync('run', '--no-observer-link', '--json', '--data-dir', fixture.data,
+      fixture.flowPath, '--input', '{}');
+    const cliExited = new Promise<void>(resolve => cli.once('exit', () => resolve()));
+    await until(() => existsSync(`${fixture.root}/branch-stalled`) ? true : undefined, 'branch stall');
+    expect([...readFileSync(`${fixture.root}/branch-effects`, 'utf8')].sort()).toEqual(['L', 'R', 'l', 'r']);
+    const rootRunId = runIds(fixture.data)[0]!;
+    cli.kill('SIGKILL');
+    await cliExited;
+    killDaemon(fixture.data);
+    const resumed = fixture.invoke('resume', '--no-observer-link', '--json', '--data-dir', fixture.data, rootRunId);
+    expect(resumed.status, resumed.stderr + resumed.stdout).toBe(0);
+    expect([...readFileSync(`${fixture.root}/branch-effects`, 'utf8')].sort()).toEqual(['!', 'L', 'R', 'l', 'r']);
   }, 120_000);
 });
