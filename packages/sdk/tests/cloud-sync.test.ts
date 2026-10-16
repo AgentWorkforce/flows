@@ -297,9 +297,10 @@ describe('runInCloud with syncCode', () => {
       '/api/v1/workflows/runs/': () => ({ ok: true }),
       '/api/v1/workflows/run': () => ({ runId: `run-${prepares}`, status: 'pending' }),
     });
-    for (let i = 0; i < 2; i++) {
-      await runInCloud({ path: join(root, 'flow.yaml') }, { ...options, syncCode: { root } });
-    }
+    await runInCloud({ path: join(root, 'flow.yaml') }, { ...options, syncCode: { root } });
+    const deadline = vi.spyOn(AbortSignal, 'timeout');
+    await runInCloud({ path: join(root, 'flow.yaml') }, { ...options, syncCode: { root } });
+    expect(deadline.mock.calls.map(([milliseconds]) => milliseconds)).toEqual([30_000, 300_000]);
     expect(calls.filter(call => call.method === 'PUT')).toHaveLength(1);
     await writeFile(dataPath, 'b');
     await runInCloud({ path: join(root, 'flow.yaml') }, { ...options, syncCode: { root } });

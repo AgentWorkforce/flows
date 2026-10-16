@@ -300,7 +300,7 @@ export async function runInCloud(
   // under it, so the run request below names code Cloud already holds. A
   // refused backend or failed upload therefore never leaves a launched run
   // pointing at a tree that is not there.
-  let synced: { runId: string; codeKey: string; files: number; bytes: number; skippedLinks: string[] } | undefined;
+  let synced: { runId: string; codeKey: string; codeCacheHit: boolean; files: number; bytes: number; skippedLinks: string[] } | undefined;
   if (options.syncCode !== undefined) {
     options.signal?.throwIfAborted();
     const packed = await packWorkingTree(options.syncCode.root);
@@ -314,14 +314,20 @@ export async function runInCloud(
     } finally {
       packed.dispose();
     }
-    synced = { runId: prepared.runId, codeKey: prepared.codeKey, files: packed.files.length, bytes: packed.bytes,
+    synced = { runId: prepared.runId, codeKey: prepared.codeKey, codeCacheHit: prepared.codeCacheHit === true,
+      files: packed.files.length, bytes: packed.bytes,
       skippedLinks: packed.skippedLinks };
   }
   options.signal?.throwIfAborted();
   options.onSubmit?.();
   let result: unknown;
   try {
-    result = await cloudFetch('/api/v1/workflows/run', options, { method: 'POST', detail: true, body: JSON.stringify({
+    // A cache hit is copied into the run prefix after admission. The R2 copy
+    // may outlast the normal 30s request budget; explicit caller limits win.
+    const submitOptions = synced?.codeCacheHit
+      ? { ...options, requestTimeoutMs: options.requestTimeoutMs ?? 300_000 }
+      : options;
+    result = await cloudFetch('/api/v1/workflows/run', submitOptions, { method: 'POST', detail: true, body: JSON.stringify({
       ...cloudSubmissionBody(submission),
       ...(options.workspaceId === undefined ? {} : { workspaceId: options.workspaceId }),
       ...(options.runBudgetMinutes === undefined ? {} : { relayflowV2RunBudgetMinutes: options.runBudgetMinutes }),
