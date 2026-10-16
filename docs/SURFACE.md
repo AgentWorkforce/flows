@@ -978,11 +978,16 @@ calls wait for a slot. This limit belongs to each authored body: a dispatched
 child body has its own eight slots. A declared `budget` still queues these
 operations in order for exact accounting (`authored-budget.ts`). `Promise.all`
 returns results in declaration order while each continuation receives its
-result as soon as that child completes. For durable authored runs, branch
-follow-up ids are rooted in their causal predecessor, so replay or resume
-finds the same child even when completion order changes. Each child's
-admission key comes from the root run and step id. Each child has its own
-journal; the root's child index records completion facts as they arrive, and
+result as soon as that child completes. For durable authored runs, follow-up
+ids inside a concurrent region are rooted in the full causal predecessor set,
+including a `Promise.all` join. Replay or resume finds the same child when
+those predecessors are the same, regardless of which sibling finished first.
+After `Promise.race`, the predecessor can change if a different member wins
+on replay; do not put a non-idempotent effect after a race of independent
+steps.
+
+Each child's admission key comes from the root run and step id. Each child has
+its own journal; the root's child index records completion facts as they arrive, and
 readers match them by step id and run id.
 If the bounded causal walk cannot identify a follow-up's full predecessor
 frontier, the flow fails before admitting that child rather than issuing an
@@ -993,6 +998,13 @@ siblings are cancelled before admission. Children already admitted can finish
 their own journal work; their outcomes cannot turn the failed body into a
 success. A child in a separate `f.dispatch` body follows that body's own
 failure and capacity rules.
+
+**Upgrade from 2.0.50:** let in-flight authored runs with concurrent `f.run`
+branches and follow-ups finish before deploying this version. Version 2.0.50
+named those follow-ups with a global `run-N` counter; this version uses their
+causal predecessors, so resuming such an unfinished run across the upgrade can
+re-admit a completed command. Sequential authored runs retain their `run-N`
+identities and can resume across the upgrade.
 
 What runs concurrently today:
 
