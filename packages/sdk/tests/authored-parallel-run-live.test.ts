@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AUTHORED_STEP_STREAM } from '../src/authored-step-index.js';
 import { JournalClient } from '../src/journal-client.js';
@@ -39,15 +39,20 @@ describe('parallel authored deterministic steps', () => {
     closes.push(() => fixture.close());
     const previousEnv = process.env.FLOWS_PARALLEL_TEST_ENV;
     process.env.FLOWS_PARALLEL_TEST_ENV = 'peer-env';
+    writeFileSync(`${fixture.root}/span.mjs`, `import { writeFileSync } from 'node:fs';
+const name = process.argv[2];
+writeFileSync(name + '-start', String(Date.now()));
+await new Promise(resolve => setTimeout(resolve, 2000));
+writeFileSync(name + '-end', String(Date.now()));
+writeFileSync(name + '-env', process.env.FLOWS_PARALLEL_TEST_ENV || 'missing');
+process.stdout.write(name + ':' + process.env.FLOWS_PARALLEL_TEST_ENV);
+`);
     writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
-import { writeFileSync } from 'node:fs';
 export default flow('parallel-run', async f => {
-  const started = Date.now();
-  const outputs = await Promise.all([
-    f.run('sleep 2; printf first:$FLOWS_PARALLEL_TEST_ENV'),
-    f.run('sleep 2; printf second:$FLOWS_PARALLEL_TEST_ENV'),
+  await Promise.all([
+    f.run('node span.mjs first'),
+    f.run('node span.mjs second'),
   ]);
-  writeFileSync('result.json', JSON.stringify({ elapsedMs: Date.now() - started, outputs }));
   f.done('success');
 });
 `);
@@ -60,28 +65,35 @@ export default flow('parallel-run', async f => {
       else process.env.FLOWS_PARALLEL_TEST_ENV = previousEnv;
     }
     expect(result.status, result.stderr + result.stdout).toBe(0);
-    const measured = JSON.parse(readFileSync(`${fixture.root}/result.json`, 'utf8')) as {
-      elapsedMs: number; outputs: string[];
-    };
-    expect(measured.outputs).toEqual(['first:peer-env', 'second:peer-env']);
-    console.info(`parallel sleep 2 elapsed: ${measured.elapsedMs} ms`);
-    expect(measured.elapsedMs).toBeLessThan(3_000);
+    const firstStart = Number(readFileSync(`${fixture.root}/first-start`, 'utf8'));
+    const secondStart = Number(readFileSync(`${fixture.root}/second-start`, 'utf8'));
+    const firstEnd = Number(readFileSync(`${fixture.root}/first-end`, 'utf8'));
+    const secondEnd = Number(readFileSync(`${fixture.root}/second-end`, 'utf8'));
+    const elapsedMs = Math.max(firstEnd, secondEnd) - Math.min(firstStart, secondStart);
+    expect(readFileSync(`${fixture.root}/first-env`, 'utf8')).toBe('peer-env');
+    expect(readFileSync(`${fixture.root}/second-env`, 'utf8')).toBe('peer-env');
+    console.info(`parallel sleep 2 elapsed: ${elapsedMs} ms`);
+    expect(elapsedMs).toBeLessThan(3_000);
   }, 60_000);
 
   it('starts a fast branch dependent before a slow sibling completes', () => {
     const fixture = chainFixture();
     closes.push(() => fixture.close());
     writeFileSync(`${fixture.root}/dependent.mjs`, `import { writeFileSync } from 'node:fs';
-writeFileSync('dependent-start.json', JSON.stringify({ elapsedMs: Date.now() - Number(process.argv[2]) }));
+writeFileSync('dependent-start', String(Date.now()));
 process.stdout.write('dependent');
+`);
+    writeFileSync(`${fixture.root}/slow.mjs`, `import { writeFileSync } from 'node:fs';
+writeFileSync('slow-start', String(Date.now()));
+await new Promise(resolve => setTimeout(resolve, 3000));
+process.stdout.write('slow');
 `);
     writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
 export default flow('parallel-dependent', async f => {
-  const started = Date.now();
-  const slow = async () => await f.run('sleep 3; printf slow');
+  const slow = async () => await f.run('node slow.mjs');
   const fast = async () => {
     await f.run('sleep 1; printf fast');
-    return await f.run('node dependent.mjs ' + started);
+    return await f.run('node dependent.mjs');
   };
   await Promise.all([slow(), fast()]);
   f.done('success');
@@ -90,7 +102,8 @@ export default flow('parallel-dependent', async f => {
     const result = fixture.invoke('run', '--no-observer-link', '--json', '--data-dir', fixture.data,
       fixture.flowPath, '--input', '{}');
     expect(result.status, result.stderr + result.stdout).toBe(0);
-    const { elapsedMs } = JSON.parse(readFileSync(`${fixture.root}/dependent-start.json`, 'utf8')) as { elapsedMs: number };
+    const elapsedMs = Number(readFileSync(`${fixture.root}/dependent-start`, 'utf8'))
+      - Number(readFileSync(`${fixture.root}/slow-start`, 'utf8'));
     console.info(`fast dependent started after: ${elapsedMs} ms`);
     expect(elapsedMs).toBeLessThan(2_300);
   }, 60_000);
@@ -99,20 +112,19 @@ export default flow('parallel-dependent', async f => {
     const fixture = chainFixture();
     closes.push(() => fixture.close());
     writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
-import { writeFileSync } from 'node:fs';
 export default flow('out-of-order-parallel-run', async f => {
   const outputs = await Promise.all([
     f.run('sleep 2; printf slow'),
     f.run('printf fast'),
   ]);
-  writeFileSync('ordered.json', JSON.stringify(outputs));
+  await f.run('printf ' + outputs[0] + ':' + outputs[1] + ' > ordered.txt');
   f.done('success');
 });
 `);
     const result = fixture.invoke('run', '--no-observer-link', '--json', '--data-dir', fixture.data,
       fixture.flowPath, '--input', '{}');
     expect(result.status, result.stderr + result.stdout).toBe(0);
-    expect(JSON.parse(readFileSync(`${fixture.root}/ordered.json`, 'utf8'))).toEqual(['slow', 'fast']);
+    expect(readFileSync(`${fixture.root}/ordered.txt`, 'utf8')).toBe('slow:fast');
     const rootRunId = runIds(fixture.data)[0]!;
     const reader = new JournalClient(socketPathFor(fixture.data));
     await reader.connect();
@@ -122,7 +134,8 @@ export default flow('out-of-order-parallel-run', async f => {
         .map(message => (message as { message?: unknown }).message ?? message) as Array<{
           step?: string; state?: string;
         }>;
-      expect(records.filter(record => record.state === 'completed' && record.step !== 'complete-3')
+      expect(records.filter(record => record.state === 'completed'
+        && (record.step === 'run-1' || record.step === 'run-2'))
         .map(record => record.step)).toEqual(['run-2', 'run-1']);
     } finally { reader.close(); }
   }, 60_000);
@@ -143,7 +156,11 @@ appendFileSync('spans.jsonl', JSON.stringify({ id, edge: 'end', at: Date.now() }
 `);
     writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
 export default flow('bounded-parallel-run', async f => {
-  await Promise.all(Array.from({ length: 9 }, (_, i) => f.run('node work.mjs ' + i)));
+  await Promise.all([
+    f.run('node work.mjs 0'), f.run('node work.mjs 1'), f.run('node work.mjs 2'),
+    f.run('node work.mjs 3'), f.run('node work.mjs 4'), f.run('node work.mjs 5'),
+    f.run('node work.mjs 6'), f.run('node work.mjs 7'), f.run('node work.mjs 8'),
+  ]);
   f.done('success');
 });
 `);
@@ -180,8 +197,11 @@ await new Promise(resolve => setTimeout(resolve, 500));
 `);
     writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
 export default flow('queued-child-cancellation', async f => {
-  await Promise.all(Array.from({ length: 9 }, (_, i) => f.run(i === 8
-    ? 'touch queued-started' : 'node fail-work.mjs ' + i)));
+  await Promise.all([
+    f.run('node fail-work.mjs 0'), f.run('node fail-work.mjs 1'), f.run('node fail-work.mjs 2'),
+    f.run('node fail-work.mjs 3'), f.run('node fail-work.mjs 4'), f.run('node fail-work.mjs 5'),
+    f.run('node fail-work.mjs 6'), f.run('node fail-work.mjs 7'), f.run('touch queued-started'),
+  ]);
   f.done('success');
 });
 `);
@@ -196,13 +216,12 @@ export default flow('queued-child-cancellation', async f => {
     const fixture = chainFixture();
     closes.push(() => fixture.close());
     writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
-import { writeFileSync } from 'node:fs';
 export default flow('parallel-recovery', async f => {
   const outputs = await Promise.all([
     f.run('printf x >> first-count; sleep 1; printf first'),
     f.run('test -f stalled-marker || { touch stalled-marker; sleep 120; }; printf second', { timeout: '5m' }),
   ]);
-  writeFileSync('recovered.json', JSON.stringify(outputs));
+  await f.run('printf ' + outputs[0] + ':' + outputs[1] + ' > recovered.txt');
   f.done('success');
 });
 `);
@@ -253,7 +272,7 @@ export default flow('parallel-recovery', async f => {
 
     const resumed = fixture.invoke('resume', '--no-observer-link', '--json', '--data-dir', fixture.data, rootRunId);
     expect(resumed.status, resumed.stderr + resumed.stdout).toBe(0);
-    expect(JSON.parse(readFileSync(`${fixture.root}/recovered.json`, 'utf8'))).toEqual(['first', 'second']);
+    expect(readFileSync(`${fixture.root}/recovered.txt`, 'utf8')).toBe('first:second');
     expect(readFileSync(`${fixture.root}/first-count`, 'utf8')).toBe('x');
 
     const after = new JournalClient(socketPathFor(fixture.data));
@@ -271,7 +290,7 @@ export default flow('parallel-recovery', async f => {
       const firstEntries = (await after.journalRead(firstChildRunId, 1, 100)).entries;
       expect(firstEntries.filter(entry => (entry as { entry_type?: string }).entry_type === 'step.completed'))
         .toHaveLength(1);
-      expect(runIds(fixture.data)).toHaveLength(4); // root, both children, completion marker
+      expect(runIds(fixture.data)).toHaveLength(5); // root, both children, follow-up, completion marker
     } finally { after.close(); }
   }, 120_000);
 
@@ -279,7 +298,6 @@ export default flow('parallel-recovery', async f => {
     const fixture = chainFixture();
     closes.push(() => fixture.close());
     writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
-import { appendFileSync } from 'node:fs';
 export default flow('parallel-branch-recovery', async f => {
   const left = async () => {
     await f.run('sleep 2; printf left-initial');
@@ -293,7 +311,7 @@ export default flow('parallel-branch-recovery', async f => {
   };
   await Promise.all([left(), right()]);
   await f.run('test -f branch-stalled || { touch branch-stalled; sleep 120; }; printf resumed');
-  appendFileSync('branch-effects', '!');
+  await f.run('printf ! >> branch-effects');
   f.done('success');
 });
 `);
@@ -387,6 +405,47 @@ export default flow('legacy-sequential-resume', async f => {
       const resumed = fixture.invoke('resume', '--no-observer-link', '--json', '--data-dir', fixture.data, rootRunId);
       expect(resumed.status, resumed.stderr + resumed.stdout).toBe(0);
       expect(readFileSync(`${fixture.root}/effects`, 'utf8')).toBe('ABD');
+    }, 120_000,
+  );
+
+  it.skipIf(process.env.RELAYFLOWS_PREVIOUS_CLI === undefined)(
+    'refuses a parallel v2 root under 2.0.50 and lets the new CLI resume it', async () => {
+      const fixture = chainFixture();
+      closes.push(() => fixture.close());
+      writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
+export default flow('rollback-parallel-root', async f => {
+  await Promise.all([f.run('printf A >> effects'), f.run('printf B >> effects')]);
+  await f.run('test -f release || { touch stalled; sleep 120; }; printf C >> effects', { timeout: '5m' });
+  f.done('success');
+});
+`);
+      const cli = fixture.invokeAsync('run', '--no-observer-link', '--json', '--data-dir', fixture.data,
+        fixture.flowPath, '--input', '{}');
+      const cliExited = new Promise<void>(resolve => cli.once('exit', () => resolve()));
+      await until(() => existsSync(`${fixture.root}/stalled`) ? true : undefined, 'rollback stall');
+      const before = [...readFileSync(`${fixture.root}/effects`, 'utf8')].sort();
+      expect(before).toEqual(['A', 'B']);
+      const rootRunId = runIds(fixture.data)[0]!;
+      const reader = new JournalClient(socketPathFor(fixture.data));
+      await reader.connect();
+      await reader.hello('rollback-root-kind-test');
+      try {
+        expect(await readAuthoredRootMetadata(reader, rootRunId))
+          .toMatchObject({ kind: 'relayflows.authored-root.parallel.v2', executionMode: 'parallel' });
+      } finally { reader.close(); }
+      cli.kill('SIGKILL');
+      await cliExited;
+      killDaemon(fixture.data);
+      writeFileSync(`${fixture.root}/release`, '');
+      const old = spawnSync(process.execPath, [process.env.RELAYFLOWS_PREVIOUS_CLI!, 'resume',
+        '--no-observer-link', '--json', '--data-dir', fixture.data, rootRunId],
+      { cwd: fixture.root, env: { ...process.env, RELAYFLOWD_BIN: fixture.binary }, encoding: 'utf8', timeout: 30_000 });
+      expect(old.status, old.stderr + old.stdout).not.toBe(0);
+      expect(old.stderr + old.stdout).toMatch(/malformed authority metadata/u);
+      expect([...readFileSync(`${fixture.root}/effects`, 'utf8')].sort()).toEqual(before);
+      const resumed = fixture.invoke('resume', '--no-observer-link', '--json', '--data-dir', fixture.data, rootRunId);
+      expect(resumed.status, resumed.stderr + resumed.stdout).toBe(0);
+      expect([...readFileSync(`${fixture.root}/effects`, 'utf8')].sort()).toEqual(['A', 'B', 'C']);
     }, 120_000,
   );
 
@@ -583,6 +642,209 @@ export default flow('legacy-consecutive-groups', async f => {
       }, 240_000,
     );
   }
+
+  it.each([
+    { name: 'closure-shared readiness', expected: ['A', 'B', 'C'], preamble: `
+let releaseFirst;
+const ready = new Promise(resolve => { releaseFirst = resolve; });`, body: `
+  const left = async () => {
+    await f.run('printf A >> effects');
+    releaseFirst();
+    await f.run('printf B >> effects');
+  };
+  const right = async () => {
+    await Promise.all([ready, ready]);
+    await f.run('printf C >> effects');
+  };
+  await Promise.all([left(), right()]);` },
+    { name: 'shared completion-order array', expected: ['A', 'B'], preamble: '', body: `
+  const out = [];
+  const left = async () => { out.push(await f.run('printf A >> effects; printf a')); };
+  const right = async () => { out.push(await f.run('printf B >> effects; printf b')); };
+  await Promise.all([left(), right()]);
+  await f.run('printf ' + out.join('') + ' > order');` },
+    { name: 'deep non-step joins with a swallowed refusal', expected: ['A', 'B'], preamble: '', body: `
+  const descend = async n => n === 0 ? undefined : Promise.all([descend(n - 1), descend(n - 1)]);
+  await Promise.all([descend(12), f.run('printf A >> effects')]);
+  try { await f.run('printf B >> effects'); } catch { /* would silently skip B */ }` },
+  ])('keeps $name serial and replays no completed effect', async ({ name, expected, preamble, body }) => {
+    for (let repetition = 0; repetition < 6; repetition++) {
+      const fixture = chainFixture();
+      closes.push(() => fixture.close());
+      writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';${preamble}
+export default flow('serial-review-${name.replaceAll(' ', '-')}', async f => {${body}
+  await f.run('test -f release || { touch stalled; sleep 120; }; printf Z >> effects', { timeout: '5m' });
+  f.done('success');
+});
+`);
+      const cli = fixture.invokeAsync('run', '--no-observer-link', '--json', '--data-dir', fixture.data,
+        fixture.flowPath, '--input', '{}');
+      const cliExited = new Promise<void>(resolve => cli.once('exit', () => resolve()));
+      closes.push(async () => {
+        if (cli.exitCode === null && cli.signalCode === null) cli.kill('SIGKILL');
+        await cliExited;
+      });
+      await until(() => existsSync(`${fixture.root}/stalled`) ? true : undefined, `${name} stall`, 60_000);
+      expect([...readFileSync(`${fixture.root}/effects`, 'utf8')].sort()).toEqual(expected);
+      const rootRunId = runIds(fixture.data)[0]!;
+      const reader = new JournalClient(socketPathFor(fixture.data));
+      await reader.connect();
+      await reader.hello('serial-review-test');
+      try {
+        expect(await readAuthoredRootMetadata(reader, rootRunId))
+          .toMatchObject({ kind: 'relayflows.authored-root.v1', executionMode: 'serial' });
+      } finally { reader.close(); }
+      const order = existsSync(`${fixture.root}/order`) ? readFileSync(`${fixture.root}/order`, 'utf8') : undefined;
+      cli.kill('SIGKILL');
+      await cliExited;
+      killDaemon(fixture.data);
+      writeFileSync(`${fixture.root}/release`, '');
+      const resumed = fixture.invoke('resume', '--no-observer-link', '--json', '--data-dir', fixture.data, rootRunId);
+      expect(resumed.status, resumed.stderr + resumed.stdout).toBe(0);
+      expect([...readFileSync(`${fixture.root}/effects`, 'utf8')].sort()).toEqual([...expected, 'Z'].sort());
+      if (order !== undefined) expect(readFileSync(`${fixture.root}/order`, 'utf8')).toBe(order);
+      await fixture.close();
+    }
+  }, 240_000);
+
+  it('keeps done inside a branch on the established serial scheduler', async () => {
+    for (let repetition = 0; repetition < 6; repetition++) {
+      const fixture = chainFixture();
+      closes.push(() => fixture.close());
+      writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
+export default flow('serial-branch-completion', async f => {
+  const b = async () => { await f.run('sleep 0.4; printf B >> effects'); await f.run('printf C >> effects'); };
+  const a = async () => { await f.run('sleep 0.1; printf A >> effects'); f.done('success'); };
+  await Promise.all([b(), a()]);
+});
+`);
+      const result = fixture.invoke('run', '--no-observer-link', '--json', '--data-dir', fixture.data,
+        fixture.flowPath, '--input', '{}');
+      expect(result.status, result.stderr + result.stdout).toBe(0);
+      expect([...readFileSync(`${fixture.root}/effects`, 'utf8')].sort()).toEqual(['A', 'B', 'C']);
+      await fixture.close();
+    }
+  }, 120_000);
+
+  it('retains the base failure when a branch completes before its sibling continues', async () => {
+    for (let repetition = 0; repetition < 6; repetition++) {
+      const fixture = chainFixture();
+      closes.push(() => fixture.close());
+      writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
+export default flow('serial-early-completion', async f => {
+  const a = async () => { await f.run('sleep 0.4; printf A >> effects'); f.done('success'); };
+  const b = async () => { await f.run('sleep 0.1; printf B >> effects'); await f.run('printf C >> effects'); };
+  await Promise.all([a(), b()]);
+});
+`);
+      const result = fixture.invoke('run', '--no-observer-link', '--json', '--data-dir', fixture.data,
+        fixture.flowPath, '--input', '{}');
+      expect(result.status).not.toBe(0);
+      expect(result.stderr + result.stdout).toMatch(/operation_after_completion/u);
+      await fixture.close();
+    }
+  }, 120_000);
+
+  it('keeps an arguments-alias LLM body serial across six resumes', async () => {
+    for (let repetition = 0; repetition < 6; repetition++) {
+      const fixture = chainFixture();
+      closes.push(() => fixture.close());
+      writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
+export default flow('serial-hidden-llm', async function (f) {
+  const g = arguments[0];
+  const output = { type: 'object', properties: { message: { type: 'string' } }, required: ['message'] };
+  const left = async () => { await g.llm('left', { output, model: 'test-model' }); await f.run('printf L >> effects'); };
+  const right = async () => { await g.llm('right', { output, model: 'test-model' }); await f.run('printf R >> effects'); };
+  await Promise.all([left(), right()]);
+  await f.run('test -f release || { touch stalled; sleep 120; }; printf Z >> effects', { timeout: '5m' });
+  f.done('success');
+});
+`);
+      const cli = fixture.invokeAsync('run', '--no-observer-link', '--json', '--local-agent',
+        '--data-dir', fixture.data, fixture.flowPath, '--input', '{}');
+      const cliExited = new Promise<void>(resolve => cli.once('exit', () => resolve()));
+      closes.push(async () => {
+        if (cli.exitCode === null && cli.signalCode === null) cli.kill('SIGKILL');
+        await cliExited;
+      });
+      await until(() => existsSync(`${fixture.root}/stalled`) ? true : undefined, 'hidden LLM stall', 90_000);
+      expect([...readFileSync(`${fixture.root}/effects`, 'utf8')].sort()).toEqual(['L', 'R']);
+      expect(fixture.requests()).toHaveLength(2);
+      const rootRunId = runIds(fixture.data)[0]!;
+      const reader = new JournalClient(socketPathFor(fixture.data));
+      await reader.connect();
+      await reader.hello('hidden-llm-mode-test');
+      try {
+        expect(await readAuthoredRootMetadata(reader, rootRunId))
+          .toMatchObject({ kind: 'relayflows.authored-root.v1', executionMode: 'serial' });
+      } finally { reader.close(); }
+      cli.kill('SIGKILL');
+      await cliExited;
+      killDaemon(fixture.data);
+      writeFileSync(`${fixture.root}/release`, '');
+      const resumed = fixture.invoke('resume', '--no-observer-link', '--json', '--local-agent',
+        '--data-dir', fixture.data, rootRunId);
+      expect(resumed.status, resumed.stderr + resumed.stdout).toBe(0);
+      expect([...readFileSync(`${fixture.root}/effects`, 'utf8')].sort()).toEqual(['L', 'R', 'Z']);
+      expect(fixture.requests()).toHaveLength(2);
+      await fixture.close();
+    }
+  }, 240_000);
+
+  it.each([
+    { name: 'imported timer helper', delay: `const pause = () => sleep(300);`, wait: `
+    await Promise.all([pause(), pause()]);` },
+    { name: 'for-await timer', delay: `async function* paused() { await sleep(300); yield 1; }`, wait: `
+    for await (const value of paused()) { void value; }` },
+  ])('does not replay a completed effect after $name reorder', async ({ name, delay, wait }) => {
+    for (let repetition = 0; repetition < 6; repetition++) {
+      const fixture = chainFixture();
+      closes.push(() => fixture.close());
+      writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
+import { setTimeout as sleep } from 'node:timers/promises';
+export default flow('serial-reorder-${name.replaceAll(' ', '-')}', async f => {
+  ${delay}
+  const late = async () => { ${wait}
+    await f.run('printf L >> effects');
+  };
+  const fast = async () => {
+    await f.run('sleep 0.2; printf A >> effects');
+    await f.run('sleep 0.2; printf B >> effects');
+    await f.run('printf C >> effects');
+  };
+  await Promise.all([fast(), late()]);
+  await f.run('test -f release || { touch stalled; sleep 120; }; printf Z >> effects', { timeout: '5m' });
+  f.done('success');
+});
+`);
+      const cli = fixture.invokeAsync('run', '--no-observer-link', '--json', '--data-dir', fixture.data,
+        fixture.flowPath, '--input', '{}');
+      const cliExited = new Promise<void>(resolve => cli.once('exit', () => resolve()));
+      closes.push(async () => {
+        if (cli.exitCode === null && cli.signalCode === null) cli.kill('SIGKILL');
+        await cliExited;
+      });
+      await until(() => existsSync(`${fixture.root}/stalled`) ? true : undefined, `${name} stall`, 60_000);
+      expect([...readFileSync(`${fixture.root}/effects`, 'utf8')].sort()).toEqual(['A', 'B', 'C', 'L']);
+      const rootRunId = runIds(fixture.data)[0]!;
+      const reader = new JournalClient(socketPathFor(fixture.data));
+      await reader.connect();
+      await reader.hello('reorder-mode-test');
+      try {
+        expect(await readAuthoredRootMetadata(reader, rootRunId))
+          .toMatchObject({ kind: 'relayflows.authored-root.v1', executionMode: 'serial' });
+      } finally { reader.close(); }
+      cli.kill('SIGKILL');
+      await cliExited;
+      killDaemon(fixture.data);
+      writeFileSync(`${fixture.root}/release`, '');
+      const resumed = fixture.invoke('resume', '--no-observer-link', '--json', '--data-dir', fixture.data, rootRunId);
+      expect([0, 1]).toContain(resumed.status);
+      const effects = [...readFileSync(`${fixture.root}/effects`, 'utf8')];
+      for (const effect of ['A', 'B', 'C', 'L']) expect(effects.filter(item => item === effect)).toHaveLength(1);
+      await fixture.close();
+    }
+  }, 240_000);
 
   const legacyUpgradeCases = [
     { name: 'A1 nested joins', effects: ['L', 'R'], body: `

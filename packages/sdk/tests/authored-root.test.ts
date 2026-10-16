@@ -187,7 +187,9 @@ describe('durable authored root', () => {
     await executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
       { dataDir: '/unused', admissionKey: 'certified-group' });
     const step = (journal.starts[0]!.spec as { steps: Array<{ instruction: string }> }).steps[0]!;
-    expect(JSON.parse(step.instruction)).toMatchObject({ identityVersion: 2, executionMode: 'parallel' });
+    expect(JSON.parse(step.instruction)).toMatchObject({
+      kind: 'relayflows.authored-root.parallel.v2', identityVersion: 2, executionMode: 'parallel',
+    });
   });
 
   it('stops waiting for a root re-dispatch when the caller cancels', async () => {

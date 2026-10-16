@@ -2,7 +2,7 @@ import { rmSync } from 'node:fs';
 import type { Server } from 'node:net';
 import { flow, type Ctx, type FlowHandle, type Step } from '@relayflows/surface';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
+import { executeAuthoredFlow, type ExecuteAuthoredFlowOptions } from '../src/authored-flow-executor.js';
 import { JournalClient } from '../src/journal-client.js';
 import {
   kernelDialectError,
@@ -64,12 +64,13 @@ describe('authored flow lifecycle through the journal executor', () => {
     rmSync(path, { force: true });
   });
 
-  async function execute(handle: FlowHandle): Promise<Awaited<ReturnType<typeof executeAuthoredFlow>>> {
+  async function execute(handle: FlowHandle, options: ExecuteAuthoredFlowOptions = {})
+    : Promise<Awaited<ReturnType<typeof executeAuthoredFlow>>> {
     const client = new JournalClient(path, { requestTimeoutMs: 2000 });
     await client.connect();
     await client.hello('authored-flow-lifecycle-test');
     try {
-      return await executeAuthoredFlow(handle, client);
+      return await executeAuthoredFlow(handle, client, undefined, options);
     } finally {
       client.close();
     }
@@ -80,6 +81,34 @@ describe('authored flow lifecycle through the journal executor', () => {
       expect.objectContaining({ name: expect.stringContaining('/complete-') }),
     );
   }
+
+  it('keeps a caught parallel non-run refusal as a root failure', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-hidden-llm', async f => {
+      try { f.llm('prompt', { output: { type: 'string' } }); } catch { /* author swallowed refusal */ }
+      f.done('success');
+    }), { executionMode: 'parallel' })).rejects.toMatchObject({ code: 'step_failed' });
+    expect(startedSpecs).toHaveLength(startedBefore);
+  });
+
+  it('keeps a caught parallel activity refusal as a root failure', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-hidden-activity', async f => {
+      try { f.on(undefined as never, undefined as never); } catch { /* author swallowed refusal */ }
+      f.done('success');
+    }), { executionMode: 'parallel' })).rejects.toMatchObject({ code: 'step_failed' });
+    expect(startedSpecs).toHaveLength(startedBefore);
+  });
+
+  it('keeps a caught late zero-predecessor refusal as a root failure', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-hidden-late-run', async f => {
+      await Promise.resolve();
+      try { await f.run('printf hidden'); } catch { /* author swallowed refusal */ }
+      f.done('success');
+    }), { executionMode: 'parallel' })).rejects.toMatchObject({ code: 'step_failed' });
+    expect(startedSpecs).toHaveLength(startedBefore);
+  });
 
   it('refuses native resolver callbacks without starting terminal success', async () => {
     const startedBefore = startedSpecs.length;

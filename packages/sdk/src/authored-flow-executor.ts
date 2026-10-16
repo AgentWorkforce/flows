@@ -303,18 +303,29 @@ export async function executeAuthoredFlow<Input = undefined>(
   let nextStep = 1;
   let requestedCompletion: LoweredCompletionReason | undefined;
   let requestedDetail: string | undefined;
+  let firstBodyTurn = true;
+  let parallelViolation: AuthoredFlowExecutionError | undefined;
   const qualify = (id: string): string => `${options.stepPrefix ?? ''}${id}`;
   const branchOrdinals = new Map<string, number>();
+  const rejectParallel = (message: string): never => {
+    parallelViolation ??= new AuthoredFlowExecutionError('step_failed', message);
+    throw parallelViolation;
+  };
+  const assertParallelRunOnly = (kind: string): void => {
+    if (options.executionMode === 'parallel') rejectParallel(`parallel f.run body attempted ${kind} before admission`);
+  };
   const nextId = (kind: string): string => {
     const sequence = nextStep++;
-    if (options.executionMode !== 'parallel' || kind !== 'run') return qualify(`${kind}-${sequence}`);
+    if (options.executionMode !== 'parallel') return qualify(`${kind}-${sequence}`);
+    if (kind !== 'run') rejectParallel(`parallel f.run body attempted ${kind} before admission`);
     const predecessors = lifecycle.invocationPredecessors();
-    if (predecessors.truncated) {
-      throw new AuthoredFlowExecutionError('step_failed',
-        'cannot assign a replay-stable f.run identity: its causal predecessor graph is truncated');
-    }
+    if (predecessors.truncated) rejectParallel(
+      'cannot assign a replay-stable f.run identity: its causal predecessor graph is truncated');
     const signature = JSON.stringify([...predecessors.steps].sort());
-    if (predecessors.steps.length === 0) return qualify(`run-${sequence}`);
+    if (predecessors.steps.length === 0) {
+      if (!firstBodyTurn) rejectParallel('parallel f.run had no causal predecessor after the first body turn');
+      return qualify(`run-${sequence}`);
+    }
     // Each new root pins parallel mode before executing the body. Its
     // continuations derive their identity only from the causal frontier and
     // declaration order within that frontier; child lifecycle and completion
@@ -527,6 +538,7 @@ export async function executeAuthoredFlow<Input = undefined>(
 
   const slackRun = options.rootRunId ?? randomUUID();
   function slackOperation<T>(call: SlackCall): Step<T> {
+    assertParallelRunOnly(`slack.${call.verb}`);
     assertOperationAllowed(`slack.${call.verb}`, definition.name, requestedCompletion);
     assertHelperAllowed(call.provider);
     const snapshot = snapshotJsonValue(call, 'f.slack call') as unknown as SlackCall;
@@ -557,6 +569,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   const context: Ctx = {
     ...createHelpers(<T>(call: HelperCall): Step<T> => {
       const verb = `${call.provider}.${call.verb}`;
+      assertParallelRunOnly(verb);
       assertOperationAllowed(verb, definition.name, requestedCompletion);
       assertHelperAllowed(call.provider);
       const snapshot = snapshotJsonValue(call, `f.${verb} call`) as unknown as HelperCall;
@@ -586,7 +599,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     }),
     memory: authoredMemory(
       scriptMemoryScope(flowPath, definition.name),
-      () => assertOperationAllowed('memory', definition.name, requestedCompletion),
+      () => { assertParallelRunOnly('memory'); assertOperationAllowed('memory', definition.name, requestedCompletion); },
       definition.header.memory?.script !== false,
       memoryWrites,
       options.rootRunId === undefined ? undefined : journalLearnLedger(journal, options.rootRunId),
@@ -610,6 +623,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       return trackStep(authoredSteps, agentOp);
     },
     on(source, activityOptions) {
+      assertParallelRunOnly('on');
       assertOperationAllowed('on', definition.name, requestedCompletion);
       // Activity ids are root-scoped (`activity-N`); a child's own counter would collide.
       if ((options.dispatchDepth ?? 0) > 0) {
@@ -820,7 +834,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       requestedDetail = detail;
     },
     cloud: unsupportedCloud(
-      () => assertOperationAllowed('cloud', definition.name, requestedCompletion),
+      () => { assertParallelRunOnly('cloud'); assertOperationAllowed('cloud', definition.name, requestedCompletion); },
     ),
   };
 
@@ -839,12 +853,16 @@ export async function executeAuthoredFlow<Input = undefined>(
   let bodyFailed = false;
   let bodyFailure: unknown;
   try {
+    if (options.executionMode === 'parallel') queueMicrotask(() => { firstBodyTurn = false; });
     const bodyPromise = lifecycle.runBody(() => definition.body(context, input as Input));
     await bodyPromise;
   } catch (error) {
     bodyFailed = true;
     bodyFailure = error;
   }
+  // A source certificate is a performance admission decision, never a way
+  // for authored try/catch to turn a refused effect into successful output.
+  if (parallelViolation !== undefined) { bodyFailed = true; bodyFailure = parallelViolation; }
   if (bodyFailed) {
     // An in-flight learn must land or fail before this attempt gives the root
     // back: a re-driven attempt reads the memory-learn stream, and must not

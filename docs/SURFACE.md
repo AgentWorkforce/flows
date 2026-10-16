@@ -972,9 +972,14 @@ Two properties of `f.run` on a local `relayflowd` are useful to know.
 **Certified `Promise.all` groups of `f.run` steps overlap.** A direct
 `Promise.all` over two `f.run('sleep 2')` steps takes about 2s of step time.
 The root records its execution mode before its body runs. Parallel mode is
-selected only for run-only bodies whose awaited `Promise.all` members and
-locally declared async branches can be identified before admission. In this
-mode, each deterministic child uses its own journal connection because the
+selected only for a narrow source grammar: awaited `Promise.all` groups of
+direct `f.run` calls, and locally declared async branches made only of awaited
+`f.run` calls or direct run groups. Generated arrays such as `Array.from` use
+serial mode. Branches may not mutate shared values, await
+timers or other promises, or call `f.done`; completion belongs at the end of
+the root body. The check is conservative: an unrecognized source form uses
+serial mode even when its author knows it would be safe. In parallel mode,
+each deterministic child uses its own journal connection because the
 daemon handles requests on one connection in order and `run.start` returns
 only after its command exits. An authored body admits at most eight
 deterministic children at once; additional calls wait for a slot. `Promise.all`
@@ -984,7 +989,8 @@ concurrent region use causal predecessor identities for replay.
 
 Other bodies keep the established serial `f.run` scheduler and `kind-N` step
 ids. This includes `Promise.race`, `Promise.any`, eager background work,
-timers, other `f.*` effects, dispatched flows, and a declared `budget`.
+timers, closure-shared promises or mutable results, other `f.*` effects,
+dispatched flows, and a declared `budget`.
 Those bodies continue to run; the fallback only changes whether their
 deterministic child commands overlap. A step whose source cannot be
 certified also uses serial mode. The mode is immutable for the root's lifetime.
@@ -993,8 +999,10 @@ Each child's admission key comes from the root run and step id. Each child has
 its own journal; the root's child index records completion facts as they arrive, and
 readers match them by step id and run id.
 In parallel mode, if the bounded causal walk cannot identify a follow-up's
-full predecessor frontier, the flow fails before admitting that child rather
-than issuing an ambiguous replay key.
+full predecessor frontier, a non-run effect appears, or a new initial child
+appears after the body's first turn, the root fails before admitting that
+effect rather than issuing an ambiguous replay key. This failure remains a
+root failure even when authored code catches the immediate exception.
 
 If one concurrent `f.run` fails, the authored body fails and its waiting
 siblings are cancelled before admission. Children already admitted can finish
@@ -1006,6 +1014,10 @@ failure and capacity rules.
 resume in serial compatibility mode, preserving the 2.0.50 `kind-N` step ids
 and shared connection. Completed child effects remain bound to their original
 admission keys, including follow-ups after a `Promise.all` join.
+New parallel roots carry a distinct root kind. A 2.0.50 CLI refuses one on
+rollback, leaving it resumable by this or a newer CLI rather than replaying
+parallel follow-ups with old `run-N` identities. New serial roots retain the
+original root kind and serial IDs.
 
 What runs concurrently today:
 

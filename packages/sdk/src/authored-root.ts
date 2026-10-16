@@ -6,7 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { canonicalize } from './canonical.js';
 import { compileSpec, toKernelSpec } from './compile.js';
 import { executeAuthoredFlow, type AuthoredFlowExecutionResult, type AuthoredFlowSuspendedResult } from './authored-flow-executor.js';
-import { AUTHORED_ROOT_KIND } from './authored-verdict.js';
+import { AUTHORED_PARALLEL_ROOT_KIND, AUTHORED_ROOT_KIND } from './authored-verdict.js';
 import {
   loadAuthoredFlow,
   type LoadedAuthoredFlow,
@@ -43,7 +43,7 @@ export interface AuthoredRootExtension {
 }
 
 export interface AuthoredRootMetadata {
-  readonly kind: typeof ROOT_KIND;
+  readonly kind: typeof ROOT_KIND | typeof AUTHORED_PARALLEL_ROOT_KIND;
   readonly flowName: string;
   readonly flowPath: string;
   readonly sourceSha256: string;
@@ -98,7 +98,7 @@ export async function executeDurableAuthoredFlow(
     && definition.header.budget === undefined && parallelRunEligible(definition.body)
     ? 'parallel' : 'serial';
   const metadata: AuthoredRootMetadata = Object.freeze({
-    kind: ROOT_KIND,
+    kind: executionMode === 'parallel' ? AUTHORED_PARALLEL_ROOT_KIND : ROOT_KIND,
     flowName: definition.name,
     flowPath: loaded.sourcePath,
     sourceSha256: sha256(source),
@@ -612,7 +612,10 @@ function isRootMetadata(value: unknown): value is AuthoredRootMetadata {
   const root = value as Partial<AuthoredRootMetadata>;
   const surface = root.surface as Partial<SurfaceModuleAuthority> | undefined;
   const sources = root.sources;
-  return root.kind === ROOT_KIND && typeof root.flowName === 'string'
+  return (root.kind === ROOT_KIND || root.kind === AUTHORED_PARALLEL_ROOT_KIND)
+    && (root.kind !== AUTHORED_PARALLEL_ROOT_KIND
+      || (root.identityVersion === 2 && root.executionMode === 'parallel'))
+    && typeof root.flowName === 'string'
     && typeof root.flowPath === 'string' && /^[a-f0-9]{64}$/.test(root.sourceSha256 ?? '')
     && typeof root.inputPresent === 'boolean' && surface?.packageName === '@relayflows/surface'
     && typeof surface.version === 'string' && /^[a-f0-9]{64}$/.test(surface.packageSha256 ?? '')
