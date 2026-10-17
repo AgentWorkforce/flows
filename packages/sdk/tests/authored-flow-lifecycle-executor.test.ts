@@ -26,6 +26,32 @@ const handmadeAll = <T>(values: readonly PromiseLike<T>[]): Promise<T[]> =>
   });
 
 describe('authored flow lifecycle through the journal executor', () => {
+  it('parses whole NODE_OPTIONS flags, including quoted values and preloads', () => {
+    const previous = process.env['NODE_OPTIONS'];
+    try {
+      for (const options of [
+        '--dns-result-order=ipv4first', '--unhandled-rejections=strict',
+        '--max-old-space-size=2048', '--enable-source-maps', '--trace-warnings',
+        '--title="workflow -r --require=only-text"',
+      ]) {
+        process.env['NODE_OPTIONS'] = options;
+        expect(parallelPromiseIntrinsicsIntact(), options).toBe(true);
+      }
+      for (const options of [
+        '-r ./lib/noop.cjs', '--require=./lib/noop.cjs',
+        '--require="./lib/noop.cjs"', '--import=data:text/javascript,void%200',
+        '--loader ./lib/noop.mjs', '--experimental-loader=./lib/noop.mjs',
+        '--title="harmless" --require=./lib/noop.cjs',
+      ]) {
+        process.env['NODE_OPTIONS'] = options;
+        expect(parallelPromiseIntrinsicsIntact(), options).toBe(false);
+      }
+    } finally {
+      if (previous === undefined) delete process.env['NODE_OPTIONS'];
+      else process.env['NODE_OPTIONS'] = previous;
+    }
+  });
+
   it('detects replacement of every Promise primitive used by parallel joins', () => {
     expect(parallelPromiseIntrinsicsIntact()).toBe(true);
     const nativePromise = globalThis.Promise;

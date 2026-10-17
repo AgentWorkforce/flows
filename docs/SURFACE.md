@@ -1037,9 +1037,10 @@ admission keys, including follow-ups after a `Promise.all` join.
 New parallel roots carry a distinct root kind. A 2.0.50 or 2.0.51 CLI refuses one on
 rollback, leaving it resumable by this or a newer CLI rather than replaying
 parallel follow-ups with old `run-N` identities. New serial roots retain the
-original root kind and serial IDs. A pinned parallel root resumed in a process
-with a Node preload or altered Promise or Array iterator intrinsic is refused
-before dispatch and remains resumable in a clean process.
+original root kind and serial IDs. An active pinned parallel root resumed in a
+process with a Node preload or altered Promise or Array iterator intrinsic is
+refused before dispatch and remains resumable in a clean process. A completed
+root reports its journaled result without dispatching new work.
 
 What runs concurrently today:
 

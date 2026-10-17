@@ -89,6 +89,7 @@ class RootJournal {
   dispatchOnStart = true;
   dispatchLeaseMs = 30;
   resumeCalls = 0;
+  getCalls = 0;
   entries: Array<Record<string, unknown>> = [];
   readonly childEntries = new Map<string, Array<Record<string, unknown>>>();
   readonly streamed = new Map<string, unknown[]>();
@@ -117,6 +118,11 @@ class RootJournal {
       queueMicrotask(() => this.peer.emit('step.dispatch', dispatch(runId, 2, this.dispatchLeaseMs)));
     }
     return this.resumeStatus;
+  }
+  async runGet(runId: string) {
+    this.getCalls += 1;
+    return { run_id: runId, status: this.resumeStatus.status, steps: {},
+      budget: { tokens_in: 0, tokens_out: 0, dollars: '0' } };
   }
   async journalRead(runId: string, fromSeq = 1): Promise<{ entries: Array<Record<string, unknown>> }> {
     // Numbered like the kernel's `journal.read`, so paginating readers
@@ -648,13 +654,43 @@ describe('durable authored root', () => {
       process.env['NODE_OPTIONS'] = '--require=/tmp/preload.cjs';
       await expect(resumeDurableAuthoredFlow(journal.runId, journal as unknown as JournalClient,
         { dataDir: '/unused' })).rejects.toMatchObject({
-        code: 'unsupported_promise_lifecycle', rootRunId: journal.runId,
+        code: 'unsafe_parallel_runtime', rootRunId: journal.runId,
       });
     } finally {
       if (previous === undefined) delete process.env['NODE_OPTIONS'];
       else process.env['NODE_OPTIONS'] = previous;
     }
     expect(journal.resumeCalls).toBe(0);
+    expect(journal.getCalls).toBe(1);
+    expect(journal.peer.completions).toEqual([]);
+  });
+
+  it('reads a completed parallel root under a preload without dispatching it', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    const spawned = spawnedEntry(loaded);
+    const step = (spawned as { payload: { spec: { steps: Array<{ instruction: string }> } } })
+      .payload.spec.steps[0]!;
+    step.instruction = JSON.stringify({ ...JSON.parse(step.instruction) as object,
+      kind: 'relayflows.authored-root.parallel.v2', identityVersion: 2, executionMode: 'parallel' });
+    journal.entries = [spawned, completedEntry()];
+    journal.resumeStatus = outcome(journal.runId, 'completed', 'success');
+    const onRunReceipt = vi.fn();
+    const previous = process.env['NODE_OPTIONS'];
+    try {
+      process.env['NODE_OPTIONS'] = '--require=/tmp/preload.cjs';
+      await expect(resumeDurableAuthoredFlow(journal.runId, journal as unknown as JournalClient,
+        { dataDir: '/unused', lifecycle: { onRunReceipt } })).resolves.toMatchObject({
+        rootRunId: journal.runId, completionReason: 'success',
+      });
+    } finally {
+      if (previous === undefined) delete process.env['NODE_OPTIONS'];
+      else process.env['NODE_OPTIONS'] = previous;
+    }
+    expect(journal.getCalls).toBe(1);
+    expect(journal.resumeCalls).toBe(0);
+    expect(onRunReceipt).toHaveBeenCalledTimes(1);
+    expect(onRunReceipt).toHaveBeenCalledWith({ runId: journal.runId, flow: 'flagship' });
     expect(journal.peer.completions).toEqual([]);
   });
 

@@ -133,7 +133,7 @@ export async function executeDurableAuthoredFlow(
     options.lifecycle?.onRunReceipt?.({ runId: outcome.run_id, flow: definition.name });
     if (outcome.status === 'completed') {
       dispatchWait.cancel();
-      return await completedResult(journal, outcome, outcome.run_id);
+      return await completedResult(journal, outcome.run_id);
     }
     assertRootCanDispatch(outcome);
     await releaseHelperReceiptWaits(journal, outcome.run_id);
@@ -164,14 +164,22 @@ export async function resumeDurableAuthoredFlow(
 ): Promise<DurableAuthoredFlowResult | undefined> {
   const metadata = await readAuthoredRootMetadata(journal, rootRunId);
   if (metadata === undefined) return undefined;
+  if (metadata.localAgentStream !== options.localAgentStream) {
+    throw new Error('authored root local agent surface mismatch');
+  }
+  const completed = await completedParallelRootOrAssertRuntime(metadata, rootRunId, journal);
+  if (completed !== undefined) {
+    options.lifecycle?.onRunReceipt?.({ runId: rootRunId, flow: metadata.flowName });
+    return completed;
+  }
   assertAuthoredRuntimeAvailable();
-  assertParallelResumeRuntime(metadata, rootRunId);
   const loaded = await loadPinnedAuthoredSource(metadata);
   // Source loading itself can alter a process-wide intrinsic. Refuse before
   // run.resume dispatches a pinned parallel root in that environment.
-  assertParallelResumeRuntime(metadata, rootRunId);
-  if (metadata.localAgentStream !== options.localAgentStream) {
-    throw new Error('authored root local agent surface mismatch');
+  const completedAfterLoad = await completedParallelRootOrAssertRuntime(metadata, rootRunId, journal);
+  if (completedAfterLoad !== undefined) {
+    options.lifecycle?.onRunReceipt?.({ runId: rootRunId, flow: metadata.flowName });
+    return completedAfterLoad;
   }
   const stream = rootStreamFromMetadata(await rootKernelStep(journal, rootRunId));
   const peer = journal.createPeer();
@@ -189,7 +197,7 @@ export async function resumeDurableAuthoredFlow(
     options.lifecycle?.onRunReceipt?.({ runId: rootRunId, flow: metadata.flowName });
     if (outcome.status === 'completed') {
       dispatchWait.cancel();
-      return await completedResult(journal, outcome, rootRunId);
+      return await completedResult(journal, rootRunId);
     }
     assertRootCanDispatch(outcome);
     await assertNoOpenHumanWait(journal, outcome);
@@ -205,10 +213,17 @@ export async function resumeDurableAuthoredFlow(
   }
 }
 
-function assertParallelResumeRuntime(metadata: AuthoredRootMetadata, rootRunId: string): void {
+async function completedParallelRootOrAssertRuntime(
+  metadata: AuthoredRootMetadata, rootRunId: string, journal: JournalClient,
+): Promise<DurableAuthoredFlowResult | undefined> {
   if (metadata.identityVersion !== 2 || metadata.executionMode !== 'parallel'
-    || parallelPromiseIntrinsicsIntact()) return;
-  const error = new AuthoredFlowExecutionError('unsupported_promise_lifecycle',
+    || parallelPromiseIntrinsicsIntact()) return undefined;
+  // A completed root has nothing left to dispatch. A read-only snapshot avoids
+  // refusing it under a preload while preserving the pre-dispatch guard for
+  // an active root. Readback still uses the journaled authored verdict.
+  const snapshot = await journal.runGet(rootRunId);
+  if (snapshot.status === 'completed') return completedResult(journal, rootRunId);
+  const error = new AuthoredFlowExecutionError('unsafe_parallel_runtime',
     `pinned parallel root ${rootRunId} cannot resume while a Promise or Array intrinsic is replaced or a Node preload is active. The run remains resumable in a clean process.`);
   error.rootRunId = rootRunId;
   throw error;

@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
+import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AUTHORED_STEP_STREAM } from '../src/authored-step-index.js';
 import { JournalClient } from '../src/journal-client.js';
@@ -34,6 +35,49 @@ function killDaemon(data: string): void {
 }
 
 describe('parallel authored deterministic steps', () => {
+  it('reports an active parallel resume as an environment refusal and a completed one as done', async () => {
+    const fixture = chainFixture();
+    closes.push(() => fixture.close());
+    writeFileSync(`${fixture.root}/noop.cjs`, 'module.exports = 1;\n');
+    writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
+export default flow('completed-parallel-resume', async f => {
+  await Promise.all([f.run('printf A >> effects'), f.run('printf B >> effects')]);
+  await f.run('test -f release || { touch stalled; sleep 120; }; printf X >> effects', { timeout: '5m' });
+  await f.run('printf Z >> effects');
+  f.done('success');
+});
+`);
+    const cli = fixture.invokeAsync('run', '--no-observer-link', '--json', '--data-dir', fixture.data,
+      fixture.flowPath, '--input', '{}');
+    const cliExited = new Promise<void>(done => cli.once('exit', () => done()));
+    await until(() => existsSync(`${fixture.root}/stalled`) ? true : undefined, 'parallel resume stall');
+    const rootRunId = runIds(fixture.data)[0]!;
+    cli.kill('SIGKILL');
+    await cliExited;
+    killDaemon(fixture.data);
+    writeFileSync(`${fixture.root}/release`, '');
+
+    const preloadResume = () => spawnSync(process.execPath,
+      [resolve('dist/cli.js'), 'resume', '--no-observer-link', '--json', '--data-dir', fixture.data, rootRunId],
+      { cwd: fixture.root, encoding: 'utf8', timeout: 60_000,
+        env: { ...process.env, RELAYFLOWD_BIN: fixture.binary,
+          NODE_OPTIONS: `--require=${fixture.root}/noop.cjs` } });
+    const refused = preloadResume();
+    expect(refused.status, refused.stderr + refused.stdout).toBe(2);
+    expect(JSON.parse(refused.stdout)).toMatchObject({
+      diagnostics: [expect.objectContaining({ severity: 'refusal', kind: 'unsafe_parallel_runtime' })],
+    });
+    expect([...readFileSync(`${fixture.root}/effects`, 'utf8')].sort()).toEqual(['A', 'B']);
+
+    const resumed = fixture.invoke('resume', '--no-observer-link', '--json', '--data-dir', fixture.data, rootRunId);
+    expect(resumed.status, resumed.stderr + resumed.stdout).toBe(0);
+    expect([...readFileSync(`${fixture.root}/effects`, 'utf8')].sort()).toEqual(['A', 'B', 'X', 'Z']);
+
+    const completed = preloadResume();
+    expect(completed.status, completed.stderr + completed.stdout).toBe(0);
+    expect([...readFileSync(`${fixture.root}/effects`, 'utf8')].sort()).toEqual(['A', 'B', 'X', 'Z']);
+  }, 150_000);
+
   it.each(['after a first step', 'with the group first'])(
     'keeps a re-exported body serial %s and reuses completed effects on resume', async (shape) => {
       const fixture = chainFixture();
