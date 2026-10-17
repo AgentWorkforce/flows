@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ✓ tests/authored-parallel-run-live.test.ts (42 tests | 41 skipped) 3748ms
+   ✓ parallel authored deterministic steps > reports an active parallel resume as an environment refusal and a completed one as done 3747ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 41 skipped (42)
+   Start at  17:03:16
+   Duration  5.92s (transform 878ms, setup 20ms, collect 1.80s, tests 3.75s, environment 0ms, prepare 56ms)
