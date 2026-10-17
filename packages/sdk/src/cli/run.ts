@@ -415,9 +415,11 @@ export async function resumeFlow(
       return { exitCode: 2, report: { ...base, runId, socketPath,
         diagnostics: [{ severity: 'refusal', kind: 'human_influenced_run', message: error.message.replace(/^human_influenced_run: /, '') }] } };
     }
-    if (error instanceof AuthoredFlowExecutionError && error.code === 'unsupported_promise_lifecycle') {
+    if (error instanceof AuthoredFlowExecutionError
+      && (error.code === 'unsafe_parallel_runtime' || error.code === 'unsupported_promise_lifecycle')) {
       return { exitCode: 2, report: { ...base, runId, socketPath,
-        diagnostics: [{ severity: 'refusal', kind: 'invalid_spec', message: error.message }] } };
+        diagnostics: [{ severity: 'refusal',
+          kind: error.code === 'unsafe_parallel_runtime' ? error.code : 'invalid_spec', message: error.message }] } };
     }
     if (error instanceof AuthoredFlowExecutionError
       && (error.code === 'helper_slack.credential_missing' || error.code === 'helper_slack.mount_required'

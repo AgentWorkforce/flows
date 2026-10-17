@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { authoredVerdictOf, AUTHORED_ROOT_KIND } from '../src/authored-verdict.js';
+import { authoredVerdictOf, AUTHORED_PARALLEL_ROOT_KIND, AUTHORED_ROOT_KIND } from '../src/authored-verdict.js';
 import { canonicalize } from '../src/canonical.js';
 import { parseStatusArgs, runStatus, type StatusOptions } from '../src/cli/status.js';
 import type { JournalEvent } from '../src/journal-client.js';
@@ -86,6 +86,8 @@ async function status(argv: string[], options: StatusOptions = {}) {
 describe('projecting the authored verdict out of a root journal', () => {
   it('reads the verdict and its detail', () => {
     expect(authoredVerdictOf(journal({ detail: FINDING })))
+      .toEqual({ reason: 'step_failed', detail: FINDING });
+    expect(authoredVerdictOf(journal({ kind: AUTHORED_PARALLEL_ROOT_KIND, detail: FINDING })))
       .toEqual({ reason: 'step_failed', detail: FINDING });
   });
 

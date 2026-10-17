@@ -6,7 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { canonicalize } from './canonical.js';
 import { compileSpec, toKernelSpec } from './compile.js';
 import { executeAuthoredFlow, type AuthoredFlowExecutionResult, type AuthoredFlowSuspendedResult } from './authored-flow-executor.js';
-import { AUTHORED_ROOT_KIND } from './authored-verdict.js';
+import { AUTHORED_PARALLEL_ROOT_KIND, AUTHORED_ROOT_KIND } from './authored-verdict.js';
 import {
   loadAuthoredFlow,
   type LoadedAuthoredFlow,
@@ -23,6 +23,8 @@ import { helperReceiptWaitId, releaseHelperReceiptWaits } from './helper-park.js
 import { readSubscriptionPark } from './authored-subscription-park.js';
 import { localAgentCredentialEnvironment } from './local-agent-environment.js';
 import { completedResult, rootKernelStep, rootStepIfPresent } from './authored-root-readback.js';
+import { parallelRunEligible } from './authored-parallel-eligibility.js';
+import { parallelPromiseIntrinsicsIntact } from './authored-flow-lifecycle.js';
 
 export type DurableAuthoredFlowResult =
   | (AuthoredFlowExecutionResult & { readonly rootRunId: string })
@@ -42,7 +44,7 @@ export interface AuthoredRootExtension {
 }
 
 export interface AuthoredRootMetadata {
-  readonly kind: typeof ROOT_KIND;
+  readonly kind: typeof ROOT_KIND | typeof AUTHORED_PARALLEL_ROOT_KIND;
   readonly flowName: string;
   readonly flowPath: string;
   readonly sourceSha256: string;
@@ -50,6 +52,10 @@ export interface AuthoredRootMetadata {
   readonly sources: readonly AuthoredRootSourceAuthority[];
   /** Plugin-level provenance in lock order; empty when the project declares none. */
   readonly extensions: readonly AuthoredRootExtension[];
+  /** Absent on roots admitted before causal identities existed. */
+  readonly identityVersion?: 2;
+  /** Immutable admission choice; serial uses the 2.0.50 child identity contract. */
+  readonly executionMode?: 'serial' | 'parallel';
   readonly localAgentStream?: string;
   readonly inputPresent: boolean;
   readonly input?: unknown;
@@ -89,8 +95,12 @@ export async function executeDurableAuthoredFlow(
     surface: node.surfaceAuthority,
   })));
   const definition = loaded.getDefinition(loaded.handle);
+  const executionMode = loaded.graph.length === 1 && (loaded.extensions?.length ?? 0) === 0
+    && definition.header.budget === undefined && parallelPromiseIntrinsicsIntact()
+    && parallelRunEligible(definition.body, source.toString('utf8'))
+    ? 'parallel' : 'serial';
   const metadata: AuthoredRootMetadata = Object.freeze({
-    kind: ROOT_KIND,
+    kind: executionMode === 'parallel' ? AUTHORED_PARALLEL_ROOT_KIND : ROOT_KIND,
     flowName: definition.name,
     flowPath: loaded.sourcePath,
     sourceSha256: sha256(source),
@@ -99,6 +109,8 @@ export async function executeDurableAuthoredFlow(
     extensions: Object.freeze((loaded.extensions ?? []).map(extension => Object.freeze({
       name: extension.name, digest: extension.digest, ref: extension.ref,
     }))),
+    identityVersion: 2,
+    executionMode,
     ...(options.localAgentStream === undefined ? {} : { localAgentStream: options.localAgentStream }),
     inputPresent: input !== undefined,
     ...(input === undefined ? {} : { input: jsonSnapshot(input, 'authored root input') }),
@@ -121,7 +133,7 @@ export async function executeDurableAuthoredFlow(
     options.lifecycle?.onRunReceipt?.({ runId: outcome.run_id, flow: definition.name });
     if (outcome.status === 'completed') {
       dispatchWait.cancel();
-      return await completedResult(journal, outcome, outcome.run_id);
+      return await completedResult(journal, outcome.run_id);
     }
     assertRootCanDispatch(outcome);
     await releaseHelperReceiptWaits(journal, outcome.run_id);
@@ -152,10 +164,22 @@ export async function resumeDurableAuthoredFlow(
 ): Promise<DurableAuthoredFlowResult | undefined> {
   const metadata = await readAuthoredRootMetadata(journal, rootRunId);
   if (metadata === undefined) return undefined;
-  assertAuthoredRuntimeAvailable();
-  const loaded = await loadPinnedAuthoredSource(metadata);
   if (metadata.localAgentStream !== options.localAgentStream) {
     throw new Error('authored root local agent surface mismatch');
+  }
+  const completed = await completedParallelRootOrAssertRuntime(metadata, rootRunId, journal);
+  if (completed !== undefined) {
+    options.lifecycle?.onRunReceipt?.({ runId: rootRunId, flow: metadata.flowName });
+    return completed;
+  }
+  assertAuthoredRuntimeAvailable();
+  const loaded = await loadPinnedAuthoredSource(metadata);
+  // Source loading itself can alter a process-wide intrinsic. Refuse before
+  // run.resume dispatches a pinned parallel root in that environment.
+  const completedAfterLoad = await completedParallelRootOrAssertRuntime(metadata, rootRunId, journal);
+  if (completedAfterLoad !== undefined) {
+    options.lifecycle?.onRunReceipt?.({ runId: rootRunId, flow: metadata.flowName });
+    return completedAfterLoad;
   }
   const stream = rootStreamFromMetadata(await rootKernelStep(journal, rootRunId));
   const peer = journal.createPeer();
@@ -173,7 +197,7 @@ export async function resumeDurableAuthoredFlow(
     options.lifecycle?.onRunReceipt?.({ runId: rootRunId, flow: metadata.flowName });
     if (outcome.status === 'completed') {
       dispatchWait.cancel();
-      return await completedResult(journal, outcome, rootRunId);
+      return await completedResult(journal, rootRunId);
     }
     assertRootCanDispatch(outcome);
     await assertNoOpenHumanWait(journal, outcome);
@@ -187,6 +211,22 @@ export async function resumeDurableAuthoredFlow(
     cancelDispatch();
     peer.close();
   }
+}
+
+async function completedParallelRootOrAssertRuntime(
+  metadata: AuthoredRootMetadata, rootRunId: string, journal: JournalClient,
+): Promise<DurableAuthoredFlowResult | undefined> {
+  if (metadata.identityVersion !== 2 || metadata.executionMode !== 'parallel'
+    || parallelPromiseIntrinsicsIntact()) return undefined;
+  // A completed root has nothing left to dispatch. A read-only snapshot avoids
+  // refusing it under a preload while preserving the pre-dispatch guard for
+  // an active root. Readback still uses the journaled authored verdict.
+  const snapshot = await journal.runGet(rootRunId);
+  if (snapshot.status === 'completed') return completedResult(journal, rootRunId);
+  const error = new AuthoredFlowExecutionError('unsafe_parallel_runtime',
+    `pinned parallel root ${rootRunId} cannot resume while a Promise or Array intrinsic is replaced or a Node preload is active. The run remains resumable in a clean process.`);
+  error.rootRunId = rootRunId;
+  throw error;
 }
 
 /**
@@ -353,6 +393,8 @@ async function driveRoot(
             ...(options.agentEnvironment === undefined ? {} : { agentEnvironment: options.agentEnvironment }),
             ...(options.workerCapacity === undefined ? {} : { workerCapacity: options.workerCapacity }),
             rootRunId: dispatch.run_id,
+            executionMode: metadata.identityVersion === 2 && metadata.executionMode === 'parallel'
+              ? 'parallel' : 'serial',
             extensions: loaded.extensions,
             flowGraph: loaded.graph,
             ...options.lifecycle,
@@ -600,7 +642,10 @@ function isRootMetadata(value: unknown): value is AuthoredRootMetadata {
   const root = value as Partial<AuthoredRootMetadata>;
   const surface = root.surface as Partial<SurfaceModuleAuthority> | undefined;
   const sources = root.sources;
-  return root.kind === ROOT_KIND && typeof root.flowName === 'string'
+  return (root.kind === ROOT_KIND || root.kind === AUTHORED_PARALLEL_ROOT_KIND)
+    && (root.kind !== AUTHORED_PARALLEL_ROOT_KIND
+      || (root.identityVersion === 2 && root.executionMode === 'parallel'))
+    && typeof root.flowName === 'string'
     && typeof root.flowPath === 'string' && /^[a-f0-9]{64}$/.test(root.sourceSha256 ?? '')
     && typeof root.inputPresent === 'boolean' && surface?.packageName === '@relayflows/surface'
     && typeof surface.version === 'string' && /^[a-f0-9]{64}$/.test(surface.packageSha256 ?? '')
@@ -608,7 +653,9 @@ function isRootMetadata(value: unknown): value is AuthoredRootMetadata {
     && Array.isArray(sources) && sources.length > 0 && sources.every(isRootSourceAuthority)
     && (root.extensions === undefined || (Array.isArray(root.extensions) && root.extensions.every(isRootExtension)))
     && (root.localAgentStream === undefined
-      || /^local-agent-[a-f0-9-]+$/.test(root.localAgentStream));
+      || /^local-agent-[a-f0-9-]+$/.test(root.localAgentStream))
+    && ((root.identityVersion === undefined && root.executionMode === undefined)
+      || (root.identityVersion === 2 && (root.executionMode === 'serial' || root.executionMode === 'parallel')));
 }
 
 function isRootExtension(value: unknown): value is AuthoredRootExtension {

@@ -2,7 +2,8 @@ import { rmSync } from 'node:fs';
 import type { Server } from 'node:net';
 import { flow, type Ctx, type FlowHandle, type Step } from '@relayflows/surface';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { executeAuthoredFlow } from '../src/authored-flow-executor.js';
+import { executeAuthoredFlow, type ExecuteAuthoredFlowOptions } from '../src/authored-flow-executor.js';
+import { AuthoredFlowLifecycle, parallelPromiseIntrinsicsIntact } from '../src/authored-flow-lifecycle.js';
 import { JournalClient } from '../src/journal-client.js';
 import {
   kernelDialectError,
@@ -12,7 +13,199 @@ import {
   startLoopback,
 } from './journal-client-loopback.js';
 
+const unobservedAll = Promise.all.bind(Promise);
+const handmadeAll = <T>(values: readonly PromiseLike<T>[]): Promise<T[]> =>
+  new Promise((resolve, reject) => {
+    const result: T[] = new Array(values.length);
+    let remaining = values.length;
+    if (remaining === 0) resolve(result);
+    values.forEach((value, index) => Promise.resolve(value).then(item => {
+      result[index] = item;
+      if (--remaining === 0) resolve(result);
+    }, reject));
+  });
+
 describe('authored flow lifecycle through the journal executor', () => {
+  it('parses whole NODE_OPTIONS flags, including quoted values and preloads', () => {
+    const previous = process.env['NODE_OPTIONS'];
+    try {
+      for (const options of [
+        '--dns-result-order=ipv4first', '--unhandled-rejections=strict',
+        '--max-old-space-size=2048', '--enable-source-maps', '--trace-warnings',
+        '--title="workflow -r --require=only-text"',
+      ]) {
+        process.env['NODE_OPTIONS'] = options;
+        expect(parallelPromiseIntrinsicsIntact(), options).toBe(true);
+      }
+      for (const options of [
+        '-r ./lib/noop.cjs', '--require=./lib/noop.cjs',
+        '--require="./lib/noop.cjs"', '--import=data:text/javascript,void%200',
+        '--loader ./lib/noop.mjs', '--experimental-loader=./lib/noop.mjs',
+        '--title="harmless" --require=./lib/noop.cjs',
+      ]) {
+        process.env['NODE_OPTIONS'] = options;
+        expect(parallelPromiseIntrinsicsIntact(), options).toBe(false);
+      }
+    } finally {
+      if (previous === undefined) delete process.env['NODE_OPTIONS'];
+      else process.env['NODE_OPTIONS'] = previous;
+    }
+  });
+
+  it('detects replacement of every Promise primitive used by parallel joins', () => {
+    expect(parallelPromiseIntrinsicsIntact()).toBe(true);
+    const nativePromise = globalThis.Promise;
+    try {
+      globalThis.Promise = function ReplacedPromise() {} as unknown as PromiseConstructor;
+      expect(parallelPromiseIntrinsicsIntact(), 'constructor').toBe(false);
+    } finally { globalThis.Promise = nativePromise; }
+    for (const name of ['resolve', 'reject', 'all', 'allSettled', 'race', 'any']) {
+      const target = Promise as unknown as Record<string, unknown>;
+      const original = target[name];
+      target[name] = () => undefined;
+      const detected = parallelPromiseIntrinsicsIntact();
+      target[name] = original;
+      expect(detected, name).toBe(false);
+    }
+    for (const name of ['then', 'catch', 'finally']) {
+      const target = Promise.prototype as unknown as Record<string, unknown>;
+      const original = target[name];
+      target[name] = () => undefined;
+      const detected = parallelPromiseIntrinsicsIntact();
+      target[name] = original;
+      expect(detected, name).toBe(false);
+    }
+    const constructor = Promise.prototype.constructor;
+    const constructorDescriptor = Object.getOwnPropertyDescriptor(Promise.prototype, 'constructor')!;
+    try {
+      Promise.prototype.constructor = class OtherPromise {} as unknown as PromiseConstructor;
+      expect(parallelPromiseIntrinsicsIntact(), 'prototype constructor').toBe(false);
+    } finally { Promise.prototype.constructor = constructor; }
+    try {
+      Object.defineProperty(Promise.prototype, 'constructor', {
+        ...constructorDescriptor, enumerable: !constructorDescriptor.enumerable,
+      });
+      expect(parallelPromiseIntrinsicsIntact(), 'prototype constructor descriptor').toBe(false);
+    } finally { Object.defineProperty(Promise.prototype, 'constructor', constructorDescriptor); }
+    const species = Object.getOwnPropertyDescriptor(Promise, Symbol.species)!;
+    try {
+      Object.defineProperty(Promise, Symbol.species, { configurable: true, get: () => Promise });
+      expect(parallelPromiseIntrinsicsIntact(), 'species getter').toBe(false);
+    } finally { Object.defineProperty(Promise, Symbol.species, species); }
+    try {
+      Object.defineProperty(Promise, Symbol.species, { ...species, enumerable: !species.enumerable });
+      expect(parallelPromiseIntrinsicsIntact(), 'species descriptor').toBe(false);
+    } finally { Object.defineProperty(Promise, Symbol.species, species); }
+    const toString = Function.prototype.toString;
+    try {
+      Function.prototype.toString = function () { return toString.call(this); };
+      expect(parallelPromiseIntrinsicsIntact(), 'function toString').toBe(false);
+    } finally { Function.prototype.toString = toString; }
+    const nodeOptions = process.env['NODE_OPTIONS'];
+    try {
+      process.env['NODE_OPTIONS'] = '--import=/tmp/preload.mjs';
+      expect(parallelPromiseIntrinsicsIntact(), 'NODE_OPTIONS preload').toBe(false);
+    } finally {
+      if (nodeOptions === undefined) delete process.env['NODE_OPTIONS'];
+      else process.env['NODE_OPTIONS'] = nodeOptions;
+    }
+    process.execArgv.push('--require', '/tmp/preload.cjs');
+    try { expect(parallelPromiseIntrinsicsIntact(), 'execArgv preload').toBe(false); }
+    finally { process.execArgv.splice(-2); }
+    for (const flag of [
+      '--dns-result-order=ipv4first', '--unhandled-rejections=strict',
+      '--report-uncaught-exception', '--redirect-warnings=/tmp/warnings',
+      '--experimental-require-module', '--max-old-space-size=512',
+    ]) {
+      process.execArgv.push(flag);
+      try { expect(parallelPromiseIntrinsicsIntact(), `execArgv ${flag}`).toBe(true); }
+      finally { process.execArgv.pop(); }
+      try {
+        process.env['NODE_OPTIONS'] = flag;
+        expect(parallelPromiseIntrinsicsIntact(), `NODE_OPTIONS ${flag}`).toBe(true);
+      } finally {
+        if (nodeOptions === undefined) delete process.env['NODE_OPTIONS'];
+        else process.env['NODE_OPTIONS'] = nodeOptions;
+      }
+    }
+    for (const flag of ['-r', '-r/tmp/preload.cjs', '--require', '--require=/tmp/preload.cjs',
+      '--import=/tmp/preload.mjs', '--loader=/tmp/loader.mjs', '--experimental-loader=/tmp/loader.mjs']) {
+      process.execArgv.push(flag);
+      try { expect(parallelPromiseIntrinsicsIntact(), `execArgv ${flag}`).toBe(false); }
+      finally { process.execArgv.pop(); }
+      try {
+        process.env['NODE_OPTIONS'] = flag;
+        expect(parallelPromiseIntrinsicsIntact(), `NODE_OPTIONS ${flag}`).toBe(false);
+      } finally {
+        if (nodeOptions === undefined) delete process.env['NODE_OPTIONS'];
+        else process.env['NODE_OPTIONS'] = nodeOptions;
+      }
+    }
+    const iterator = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator)!;
+    const arrayIteratorPrototype = Object.getPrototypeOf([][Symbol.iterator]()) as Iterator<unknown>;
+    const next = Object.getOwnPropertyDescriptor(arrayIteratorPrototype, 'next')!;
+    let iteratorDetected: boolean;
+    try {
+      Object.defineProperty(Array.prototype, Symbol.iterator, { ...iterator, value: function* () {} });
+      iteratorDetected = parallelPromiseIntrinsicsIntact();
+    } finally { Object.defineProperty(Array.prototype, Symbol.iterator, iterator); }
+    expect(iteratorDetected!, 'Array iterator').toBe(false);
+    let nextDetected: boolean;
+    try {
+      Object.defineProperty(arrayIteratorPrototype, 'next', { ...next, value: () => ({ done: true }) });
+      nextDetected = parallelPromiseIntrinsicsIntact();
+    } finally { Object.defineProperty(arrayIteratorPrototype, 'next', next); }
+    expect(nextDetected!, 'Array iterator next').toBe(false);
+    expect(parallelPromiseIntrinsicsIntact()).toBe(true);
+  });
+
+  it('refuses a settled all with an in-flight member before the next child admission', () => {
+    for (const combinator of ['all', 'allSettled'] as const) {
+      const lifecycle = new AuthoredFlowLifecycle(() => {});
+      try {
+        lifecycle.runBody(() => {
+          const pending = new Promise<void>(() => {});
+          const aggregate = Promise.resolve('already settled');
+          lifecycle.registerCombinator([pending], aggregate, combinator, new Set());
+          expect(lifecycle.invocationPredecessors().unregisteredAggregate).toBe(true);
+        });
+      } finally { lifecycle.close(); }
+    }
+  });
+
+  it('refuses an iterable view that omits a literal array member', () => {
+    const nativeAll = Promise.all as Parameters<AuthoredFlowLifecycle['observeCombinator']>[0];
+    const violations: string[] = [];
+    const lifecycle = new AuthoredFlowLifecycle(message => violations.push(message));
+    try {
+      lifecycle.runBody(() => {
+        const a = Promise.resolve('A');
+        const b = Promise.resolve('B');
+        const declared = lifecycle.captureParallelArrayMembers([a, b]);
+        expect(() => lifecycle.observeCombinator(nativeAll, Promise, [b], 'all', declared))
+          .toThrow(/different set of array members/u);
+      });
+      expect(violations).toEqual(['parallel Promise.all iterated a different set of array members']);
+    } finally { lifecycle.close(); }
+  });
+
+  it('refuses untracked thenables before invoking their user-supplied then', () => {
+    const violations: string[] = [];
+    const lifecycle = new AuthoredFlowLifecycle(message => violations.push(message));
+    let thenReads = 0;
+    const hiddenThenable = new Proxy({}, { get: (_target, name) => {
+      if (name === 'then') { thenReads++; return (resolve: (value: string) => void) => resolve('A'); }
+      return undefined;
+    } });
+    try {
+      expect(() => lifecycle.runBody(() => Promise.all([
+        hiddenThenable,
+        Promise.resolve('B'),
+      ]))).toThrow(/member with no tracked provenance/u);
+      expect(violations).toContain('parallel Promise.all contains a member with no tracked provenance');
+      expect(thenReads).toBe(0);
+    } finally { lifecycle.close(); }
+  });
   let path: string;
   let server: Server;
   let nextRun = 1;
@@ -35,12 +228,14 @@ describe('authored flow lifecycle through the journal executor', () => {
         const command = step['command'] as string;
         startedSpecs.push(spec);
         stepByRun.set(runId, { id: step['id'] as string, command });
-        sendResult(ctx, {
+        const complete = () => sendResult(ctx, {
           run_id: runId,
           status: command === 'false' ? 'failed' : 'completed',
           completion_reason: command === 'false' ? 'step_failed' : 'success',
           completed_steps: 1,
         });
+        if (command.startsWith('hold-')) setTimeout(complete, 300);
+        else complete();
       },
       'journal.read': (ctx, params) => {
         const step = stepByRun.get(params.run_id as string)!;
@@ -64,12 +259,13 @@ describe('authored flow lifecycle through the journal executor', () => {
     rmSync(path, { force: true });
   });
 
-  async function execute(handle: FlowHandle): Promise<Awaited<ReturnType<typeof executeAuthoredFlow>>> {
+  async function execute(handle: FlowHandle, options: ExecuteAuthoredFlowOptions = {})
+    : Promise<Awaited<ReturnType<typeof executeAuthoredFlow>>> {
     const client = new JournalClient(path, { requestTimeoutMs: 2000 });
     await client.connect();
     await client.hello('authored-flow-lifecycle-test');
     try {
-      return await executeAuthoredFlow(handle, client);
+      return await executeAuthoredFlow(handle, client, undefined, options);
     } finally {
       client.close();
     }
@@ -80,6 +276,199 @@ describe('authored flow lifecycle through the journal executor', () => {
       expect.objectContaining({ name: expect.stringContaining('/complete-') }),
     );
   }
+
+  it('keeps a caught parallel non-run refusal as a root failure', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-hidden-llm', async f => {
+      try { f.llm('prompt', { output: { type: 'string' } }); } catch { /* author swallowed refusal */ }
+      f.done('success');
+    }), { executionMode: 'parallel' })).rejects.toMatchObject({ code: 'step_failed' });
+    expect(startedSpecs).toHaveLength(startedBefore);
+  });
+
+  it('refuses later admissions after a caught parallel violation', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-refusal-stays-closed', async f => {
+      try { f.llm('prompt', { output: { type: 'string' } }); } catch { /* author swallowed refusal */ }
+      try { await f.run('printf E'); } catch { /* this admission must also be refused */ }
+      f.done('success');
+    }), { executionMode: 'parallel' })).rejects.toMatchObject({ code: 'step_failed' });
+    expect(startedSpecs).toHaveLength(startedBefore);
+  });
+
+  it('refuses generated fanout before admitting a child', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-queued-violation', async f => {
+      const children = Array.from({ length: 9 }, (_, index) => f.run(`hold-${index}`));
+      const joined = Promise.allSettled(children);
+      setTimeout(() => {
+        try { f.llm('unsupported', { output: { type: 'string' } }); }
+        catch { /* the root failure still owns this scope */ }
+      }, 30);
+      await joined;
+      f.done('success');
+    }), { executionMode: 'parallel' })).rejects.toMatchObject({ code: 'step_failed' });
+    expect(startedSpecs).toHaveLength(startedBefore);
+  });
+
+  it('refuses a parallel follow-up through an unobserved Promise.all', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-unobserved-aggregate', async f => {
+      await unobservedAll([f.run('printf A'), f.run('printf B')]);
+      await f.run('printf X');
+      f.done('success');
+    }), { executionMode: 'parallel' })).rejects.toThrow(/lost its source certificate/u);
+    const admitted = startedSpecs.slice(startedBefore).map(spec => spec['name']);
+    expect(admitted).toEqual([]);
+  });
+
+  it('refuses an unobserved join after an earlier step', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-late-unobserved-aggregate', async f => {
+      await f.run('printf W');
+      await unobservedAll([f.run('printf A'), f.run('printf B'), f.run('printf C')]);
+      await f.run('printf X');
+      f.done('success');
+    }), { executionMode: 'parallel' })).rejects.toThrow(/lost its source certificate/u);
+    expect(startedSpecs.slice(startedBefore).map(spec => spec['name']))
+      .toEqual([]);
+  });
+
+  it('refuses a hand-written join after an earlier step', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-late-handmade-aggregate', async f => {
+      await f.run('printf W');
+      await handmadeAll([f.run('printf A'), f.run('printf B')]);
+      await f.run('printf X');
+      f.done('success');
+    }), { executionMode: 'parallel' })).rejects.toThrow(/lost its source certificate/u);
+    expect(startedSpecs.slice(startedBefore)).toHaveLength(0);
+  });
+
+  it('refuses a sequential-only body forced into parallel mode', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-sequential', async f => {
+      await f.run('printf A');
+      await f.run('printf B');
+      await f.run('printf C');
+      f.done('success');
+    }), { executionMode: 'parallel' })).rejects.toThrow(/lost its source certificate/u);
+    expect(startedSpecs).toHaveLength(startedBefore);
+  });
+
+  it('admits branch dependents after a shared predecessor', async () => {
+    await expect(execute(flow('parallel-shared-branch-predecessor', async f => {
+      await f.run('printf W');
+      const a = async () => { await f.run('printf A'); await f.run('printf A2'); };
+      const b = async () => { await f.run('printf B'); await f.run('printf B2'); };
+      await Promise.all([a(), b()]);
+      await f.run('printf X');
+      f.done('success');
+    }), { executionMode: 'parallel' })).resolves.toMatchObject({ completionReason: 'success' });
+  });
+
+  it('refuses a body that writes Promise.all before its first child', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-replaced-observer', async f => {
+      await f.run('printf W');
+      const observed = Promise.all;
+      Promise.all = unobservedAll as typeof Promise.all;
+      try {
+        await Promise.all([f.run('printf A'), f.run('printf B')]);
+        await f.run('printf X');
+      } finally { Promise.all = observed; }
+      f.done('success');
+    }), { executionMode: 'parallel' })).rejects.toThrow(/lost its source certificate/u);
+    expect(startedSpecs.slice(startedBefore).map(spec => spec['name']))
+      .toEqual([]);
+  });
+
+  it('refuses a body that writes Promise.allSettled before its first child', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-replaced-all-settled', async f => {
+      await f.run('printf W');
+      const observed = Promise.allSettled;
+      Promise.allSettled = ((values: Iterable<unknown>) => observed.call(Promise, values)) as typeof Promise.allSettled;
+      try { await f.run('printf X'); }
+      finally { Promise.allSettled = observed; }
+      f.done('success');
+    }), { executionMode: 'parallel' })).rejects.toThrow(/lost its source certificate/u);
+    expect(startedSpecs.slice(startedBefore).map(spec => spec['name']))
+      .toEqual([]);
+  });
+
+  it('refuses a body that writes Promise.race before its first child', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-unrelated-race-patch', async f => {
+      await f.run('printf W');
+      const observed = Promise.race;
+      Promise.race = ((values: Iterable<unknown>) => observed.call(Promise, Array.from(values))) as typeof Promise.race;
+      try {
+        await Promise.all([f.run('printf A'), f.run('printf B')]);
+        await f.run('printf X');
+      } finally { Promise.race = observed; }
+      f.done('success');
+    }), { executionMode: 'parallel' })).rejects.toThrow(/lost its source certificate/u);
+    expect(startedSpecs.slice(startedBefore).map(spec => spec['name']))
+      .toEqual([]);
+  });
+
+  it('refuses a body that writes Promise.resolve before its first child', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-replaced-resolve', async f => {
+      await f.run('printf W');
+      const original = Promise.resolve;
+      Promise.resolve = ((value: unknown) => original.call(Promise, value)) as typeof Promise.resolve;
+      try { await f.run('printf X'); }
+      finally { Promise.resolve = original; }
+      f.done('success');
+    }), { executionMode: 'parallel' })).rejects.toThrow(/lost its source certificate/u);
+    expect(startedSpecs.slice(startedBefore).map(spec => spec['name']))
+      .toEqual([]);
+  });
+
+  it('admits a parallel follow-up through the observed intrinsic Promise.all', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-observed-aggregate', async f => {
+      await Promise.all([f.run('printf A'), f.run('printf B')]);
+      await f.run('printf X');
+      f.done('success');
+    }), { executionMode: 'parallel' })).resolves.toMatchObject({ completionReason: 'success' });
+    const admitted = startedSpecs.slice(startedBefore).map(spec => String(spec['name']));
+    expect(admitted).toHaveLength(4);
+    expect(admitted[2]).toMatch(/^parallel-observed-aggregate\/run-after-/u);
+  });
+
+  it('keeps observed async route branches parallel through their join', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-observed-routes', async f => {
+      const left = async () => { await f.run('printf A'); await f.run('printf L'); };
+      const right = async () => { await f.run('printf B'); await f.run('printf R'); };
+      await Promise.all([left(), right()]);
+      await f.run('printf X');
+      f.done('success');
+    }), { executionMode: 'parallel' })).resolves.toMatchObject({ completionReason: 'success' });
+    expect(startedSpecs.slice(startedBefore)).toHaveLength(6);
+  });
+
+  it('keeps a caught parallel activity refusal as a root failure', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-hidden-activity', async f => {
+      try { f.on(undefined as never, undefined as never); } catch { /* author swallowed refusal */ }
+      f.done('success');
+    }), { executionMode: 'parallel' })).rejects.toMatchObject({ code: 'step_failed' });
+    expect(startedSpecs).toHaveLength(startedBefore);
+  });
+
+  it('keeps a caught late zero-predecessor refusal as a root failure', async () => {
+    const startedBefore = startedSpecs.length;
+    await expect(execute(flow('parallel-hidden-late-run', async f => {
+      await Promise.resolve();
+      try { await f.run('printf hidden'); } catch { /* author swallowed refusal */ }
+      f.done('success');
+    }), { executionMode: 'parallel' })).rejects.toMatchObject({ code: 'step_failed' });
+    expect(startedSpecs).toHaveLength(startedBefore);
+  });
 
   it('refuses native resolver callbacks without starting terminal success', async () => {
     const startedBefore = startedSpecs.length;

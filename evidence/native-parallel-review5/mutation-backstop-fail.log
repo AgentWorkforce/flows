@@ -1,0 +1,33 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ❯ tests/authored-flow-lifecycle-executor.test.ts (34 tests | 1 failed | 33 skipped) 16ms
+   × authored flow lifecycle through the journal executor > refuses a parallel follow-up through an unobserved Promise.all 14ms
+     → expected [Function] to throw error matching /unregistered aggregate/u but got 'unawaited_step: flow "parallel-unobse…'
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-flow-lifecycle-executor.test.ts > authored flow lifecycle through the journal executor > refuses a parallel follow-up through an unobserved Promise.all
+AssertionError: expected [Function] to throw error matching /unregistered aggregate/u but got 'unawaited_step: flow "parallel-unobse…'
+
+- Expected: 
+/unregistered aggregate/u
+
++ Received: 
+"unawaited_step: flow \"parallel-unobserved-aggregate\" returned with unawaited steps: run-1 (f.run)"
+
+ ❯ tests/authored-flow-lifecycle-executor.test.ts:108:5
+    106|   it('refuses a parallel follow-up through an unobserved Promise.all',…
+    107|     const startedBefore = startedSpecs.length;
+    108|     await expect(execute(flow('parallel-unobserved-aggregate', async f…
+       |     ^
+    109|       await unobservedAll([f.run('printf A'), f.run('printf B')]);
+    110|       await f.run('printf X');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 33 skipped (34)
+   Start at  20:15:25
+   Duration  986ms (transform 323ms, setup 9ms, collect 788ms, tests 16ms, environment 0ms, prepare 32ms)
+

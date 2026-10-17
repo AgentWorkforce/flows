@@ -30,12 +30,15 @@ export class AuthoredPromiseGraph {
   private readonly triggers = new Map<number, number>();
   private readonly creationContexts = new Map<number, number>();
   private readonly resolutionCauses = new Map<number, number>();
+  /** Promises attributed only when another promise's reaction resolved them. */
+  private readonly adoptedFromResolvingContext = new Set<number>();
   private readonly promiseIds = new WeakMap<object, number>();
   private readonly handles = new Map<number, Promise<unknown>>();
   private readonly unattributedChildren = new Map<number, number[]>();
   private readonly attributedRoots = new Map<number, number>();
   private readonly roots = new Set<number>();
   private readonly pending = new Set<number>();
+  private readonly combinatorCaptures: Set<number>[] = [];
   private dependencyCache: { readonly start: number; readonly found: ReadonlySet<number>; readonly version: number } | undefined;
   /** Bumped by every graph change, so derived answers can be cached between changes. */
   private changes = 0;
@@ -52,6 +55,7 @@ export class AuthoredPromiseGraph {
         this.triggers.set(asyncId, triggerAsyncId);
         this.creationContexts.set(asyncId, executionAsyncId());
         this.promiseIds.set(resource, asyncId);
+        for (const capture of this.combinatorCaptures) capture.add(asyncId);
         this.handles.set(asyncId, resource as Promise<unknown>);
         this.pending.add(asyncId);
         const root = this.roots.has(triggerAsyncId)
@@ -77,6 +81,7 @@ export class AuthoredPromiseGraph {
         // success. Measured; see ops/probes/pr134-repair-0903/combinators.mjs.
         const adopted = this.attributedRoots.get(cause);
         if (adopted !== undefined) {
+          this.adoptedFromResolvingContext.add(asyncId);
           this.attribute(asyncId, adopted);
           return;
         }
@@ -98,6 +103,18 @@ export class AuthoredPromiseGraph {
 
   idOf(value: object): number | undefined {
     return this.promiseIds.get(value);
+  }
+
+  isPending(asyncId: number): boolean {
+    return this.pending.has(asyncId);
+  }
+
+  /** The intrinsic creates per-member reaction promises as well as its aggregate. */
+  captureCombinator<T>(call: () => T): { readonly value: T; readonly created: ReadonlySet<number> } {
+    const created = new Set<number>();
+    this.combinatorCaptures.push(created);
+    try { return { value: call(), created }; }
+    finally { this.combinatorCaptures.pop(); }
   }
 
   /** Mark a promise whose descendants belong to an authored operation. */
@@ -145,6 +162,22 @@ export class AuthoredPromiseGraph {
     return causes;
   }
 
+  /**
+   * A promise created directly in one async context but settled in another
+   * can be a join. Its resolution edge names only the settling member, so a
+   * frontier may use it only when a combinator registered all members.
+   */
+  hasUnobservedJoinShape(asyncId: number): boolean {
+    const trigger = this.triggers.get(asyncId);
+    const resolution = this.resolutionCauses.get(asyncId);
+    return trigger !== undefined && trigger === this.creationContexts.get(asyncId)
+      && resolution !== undefined && resolution !== trigger;
+  }
+
+  wasAdoptedFromResolvingContext(asyncId: number): boolean {
+    return this.adoptedFromResolvingContext.has(asyncId);
+  }
+
   dependsOn(descendant: number, ancestor: number): boolean {
     return this.dependenciesOf(descendant).has(ancestor);
   }
@@ -167,11 +200,13 @@ export class AuthoredPromiseGraph {
     this.triggers.clear();
     this.creationContexts.clear();
     this.resolutionCauses.clear();
+    this.adoptedFromResolvingContext.clear();
     this.handles.clear();
     this.unattributedChildren.clear();
     this.attributedRoots.clear();
     this.roots.clear();
     this.pending.clear();
+    this.combinatorCaptures.length = 0;
     this.dependencyCache = undefined;
   }
 

@@ -72,6 +72,26 @@ async function graphOf(body: (op: Op) => Promise<void>, { stepsFail = false } = 
 const after = (...labels: string[]) => ({ after: labels.sort(), truncated: false });
 
 describe('the authored step DAG', () => {
+  it('marks race, any, and rejected all as unsafe parallel frontiers', () => {
+    for (const kind of ['race', 'any', 'all'] as const) {
+      const aggregate = kind === 'all' ? Promise.reject(new Error('failed')) : Promise.resolve('winner');
+      void aggregate.catch(() => {});
+      const graph = new AuthoredStepGraph(id => id === 2 ? [1] : []);
+      graph.registerAggregate(1, aggregate, kind, kind === 'all' ? [4] : []);
+      expect(graph.predecessorsAt(2).unregisteredAggregate, kind).toBe(true);
+    }
+  });
+
+  it('does not trust a user-built join merely because it is a combinator member', () => {
+    const graph = new AuthoredStepGraph(id => id === 3 ? [2] : [], undefined, id => id === 2);
+    graph.registerAggregate(1, Promise.resolve(), 'all', [2]);
+    expect(graph.predecessorsAt(3).unregisteredAggregate).toBe(true);
+    const certified = new AuthoredStepGraph(id => id === 3 ? [2] : [], undefined, id => id === 2);
+    certified.registerAggregate(1, Promise.resolve(), 'all', [2]);
+    certified.certifyMember(2);
+    expect(certified.predecessorsAt(3).unregisteredAggregate).toBe(false);
+  });
+
   it('draws no edge between siblings of a parallel fan-out', async () => {
     const graph = await graphOf(async (op) => {
       const a = op('a', 15);

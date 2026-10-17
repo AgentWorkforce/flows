@@ -957,47 +957,106 @@ concurrent flow closes.
 - *Behaviour:* the replacement delegates to the intrinsic and is specified to
   behave identically. A non-iterable argument is handed straight through, so
   `Promise.all(5)` and `Promise.all(null)` return the same rejected promises the
-  intrinsic returns; `name` and `length` match. If `Promise.all` has already been
-  replaced by something else, the flow refuses to start rather than fighting over
-  the intrinsic.
+  intrinsic returns; `name` and `length` match. A replacement after the observer
+  is installed violates the authored lifecycle contract. A process that starts
+  with a Promise preload uses the existing serial scheduler for new roots.
 
 If a process-wide intrinsic replacement is unacceptable in your deployment, do
 not run authored TypeScript bodies in that process; the declarative YAML path
 does not install it.
 
-### `f.run` on the local daemon: one at a time, in the run's environment
+### `f.run` on the local daemon: concurrent children, in the run's environment
 
-Two properties of `f.run` on a local `relayflowd` surprise people. Both are how
-the current kernel works, not promises of the Surface.
+Two properties of `f.run` on a local `relayflowd` are useful to know.
 
-**Within one run, `f.run` steps run one after another.** `Promise.all` over two
-`f.run('sleep 2')` steps takes about 4s, not 2s. The SDK starts both steps at
-once, but the body talks to the daemon over a single connection. The daemon
-handles each connection's requests in order (`kernel/relayflowd/src/server.rs`),
-and the request that starts a deterministic step returns only after the
-command exits (`engine/drive.rs` → `exec_det.rs`). A declared `budget` also
-queues operations in order (`authored-budget.ts`). `Promise.all` stays correct
-authoring: results come back in declaration order, and the steps will overlap
-once the kernel dispatches in parallel.
+**Certified `Promise.all` groups of `f.run` steps overlap.** A direct
+`Promise.all` over two `f.run('sleep 2')` steps takes about 2s of step time.
+The root records its execution mode before its body runs. Parallel mode is
+selected only for a narrow source grammar: awaited `Promise.all` groups of
+direct `f.run` calls, and locally declared async branches made only of awaited
+`f.run` calls or direct run groups. Every branch must contain a direct `f.run`.
+The entry module must import `{ flow }` directly from `@relayflows/surface` and
+pass the body arrow literally to `export default flow('name', async f => {...})`.
+The entry
+has no other top-level statements in parallel mode. Re-exports,
+local flow factories, and imported flow definitions use serial mode, because
+their body's Promise binding cannot be certified from the entry file. Other
+imports also use serial mode because they may alter Promise before the body
+starts. The defining module must leave the intrinsic `Promise` and
+`globalThis.Promise` unshadowed; a module that binds either name uses serial
+mode. An authored process started with a `--import`, `--require`, or loader
+preload, or with an already replaced Promise or Array iterator intrinsic, also
+admits new roots in serial mode. Generated arrays such as `Array.from` use serial
+mode. Branches may not mutate shared values, await timers or other promises,
+or call `f.done`; completion belongs at the end of
+the root body. The check is conservative: an unrecognized source form uses
+serial mode even when its author knows it would be safe. In parallel mode,
+each deterministic child uses its own journal connection because the
+daemon handles requests on one connection in order and `run.start` returns
+only after its command exits. An authored body admits at most eight
+deterministic children at once; additional calls wait for a slot. `Promise.all`
+returns results in declaration order while each continuation receives its
+result as soon as that child completes. Follow-up ids inside a certified
+concurrent region use causal predecessor identities for replay.
+
+Other bodies keep the established serial `f.run` scheduler and `kind-N` step
+ids. This includes `Promise.race`, `Promise.any`, eager background work,
+timers, closure-shared promises or mutable results, other `f.*` effects,
+dispatched flows, and a declared `budget`.
+Those bodies continue to run; the fallback only changes whether their
+deterministic child commands overlap. A step whose source cannot be
+certified also uses serial mode. The mode is immutable for the root's lifetime.
+
+Each child's admission key comes from the root run and step id. Each child has
+its own journal; the root's child index records completion facts as they arrive, and
+readers match them by step id and run id.
+In parallel mode, if the bounded causal walk cannot identify a follow-up's
+full predecessor frontier, the frontier passes through an unregistered promise
+aggregate, a Promise constructor, method, or combinator has been replaced, a
+non-run effect appears, or a new initial child
+appears after the body's first turn, the root fails before admitting that
+effect rather than issuing an ambiguous replay key. Once this happens, no
+later child is admitted. The failure remains a root failure even when authored
+code catches the immediate exception. Children already in flight finish and
+are journaled before the root reports that failure; the root may therefore
+take as long as its slowest admitted child to fail.
+The same refusal applies if a fulfilled `Promise.all` or settled
+`Promise.allSettled` still has a pending recorded member, which means the join
+did not actually wait for its declared branches.
+
+If one concurrent `f.run` fails, the authored body fails and its waiting
+siblings are cancelled before admission. Children already admitted can finish
+their own journal work; their outcomes cannot turn the failed body into a
+success. A child in a separate `f.dispatch` body follows that body's own
+failure and capacity rules.
+
+**Upgrade from 2.0.50 or 2.0.51:** roots admitted before execution modes were journaled
+resume in serial compatibility mode, preserving their `kind-N` step ids
+and shared connection. Completed child effects remain bound to their original
+admission keys, including follow-ups after a `Promise.all` join.
+New parallel roots carry a distinct root kind. A 2.0.50 or 2.0.51 CLI refuses one on
+rollback, leaving it resumable by this or a newer CLI rather than replaying
+parallel follow-ups with old `run-N` identities. New serial roots retain the
+original root kind and serial IDs. An active pinned parallel root resumed in a
+process with a Node preload or altered Promise or Array iterator intrinsic is
+refused before dispatch and remains resumable in a clean process. A completed
+root reports its journaled result without dispatching new work.
 
 What runs concurrently today:
 
 - `f.agent` and `f.llm` steps, up to `--agent-capacity`. They run in worker
   processes, not in the daemon's request path.
-- Separate `flows run` invocations. Each has its own connection to the daemon,
-  so their `f.run` steps overlap. For parallel shell work, start the lanes as
-  separate runs.
+- Separate `flows run` invocations. Their steps overlap as well.
 - Inside one step, a command that waits on its own background jobs, such as
   `f.run('a & b & wait')`. A single `f.run` cannot start a background job and
   return before it finishes: the step waits on the command's output pipes.
 
-`f.dispatch` children share their parent body's connection, so they are
-serialized too.
+`f.dispatch` roots currently use serial `f.run` scheduling.
 
 **`f.run` gets the environment of the `flows run` that started the run,
 but the daemon's working directory.** Every `flows run` on a data dir attaches
 to the same `relayflowd`, which spawns the shell steps. The CLI sends its
-`process.env` with the run, and that run's steps are spawned with exactly
+`process.env` with each child run, and that run's steps are spawned with exactly
 that environment, plus `FLOWS_INPUT` and `RELAYFLOW_MEMORY`. Two runs on one
 daemon each see their own variables. `flows resume` sends the resuming CLI's
 environment, which replaces the run's from then on.

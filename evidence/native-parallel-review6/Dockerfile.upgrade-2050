@@ -1,0 +1,8 @@
+FROM node:22-trixie
+RUN mkdir -p /bench && cd /bench && npm install --ignore-scripts \
+    @relayflows/sdk@2.0.50 @relayflows/surface@2.0.50 \
+    @relayflows/runtime-linux-x64@2.0.50 bluebird@3.7.2
+COPY dist/ /bench/sdk-head/dist/
+COPY package.json /bench/sdk-head/package.json
+COPY upgrade.mjs /bench/upgrade.mjs
+WORKDIR /bench

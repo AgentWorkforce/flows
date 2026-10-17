@@ -81,6 +81,8 @@ try {
     request.metadata.inputPresent ? request.metadata.input : undefined, {
       getDefinition: loaded.getDefinition, dataDir: request.dataDir,
       flowPath: request.metadata.flowPath, rootRunId: request.rootRunId,
+      executionMode: request.metadata.identityVersion === 2 && request.metadata.executionMode === 'parallel'
+        ? 'parallel' : 'serial',
       extensions: loaded.extensions,
       flowGraph: loaded.graph,
       localAgentStream: request.localAgentStream, signal: controller.signal,
