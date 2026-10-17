@@ -11,6 +11,10 @@ export class BundleFailure extends Error {
   constructor(readonly kind: BundleFailureKind, message: string) { super(message); }
 }
 export interface DigestReference { name: string; digest: string }
+/** Bare cloud names exclude file extensions and directory separators. */
+export function isFlowName(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/u.test(value);
+}
 export function parseDigestReference(value: string): DigestReference | undefined {
   // Match the safe single-component name grammar used by sealBundle.
   const match = /^([A-Za-z0-9][A-Za-z0-9._-]*)@sha256:([0-9a-f]{64})$/.exec(value);

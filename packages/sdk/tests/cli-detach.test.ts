@@ -62,7 +62,7 @@ describe('detached CLI contract', () => {
 
     expect(stderr.filter(line => line.startsWith('Observer unavailable:'))).toEqual([
       'Observer unavailable: no workspace key configured; set RELAYCAST_WORKSPACE_KEY or configure '
-        + '~/.agentworkforce/relay/workspaces.json for an Observer link, or pass --cloud-mirror for the Cloud dashboard',
+        + '~/.agentworkforce/relay/workspaces.json for an Observer link, or sign in with agent-relay cloud login for the Cloud dashboard',
     ]);
   });
 

@@ -192,18 +192,25 @@ started in a terminal, and it is unchanged.
 The Observer link needs `RELAYCAST_WORKSPACE_KEY` or an active workspace key in
 `~/.agentworkforce/relay/workspaces.json`. When neither is available, a plain
 `flows run` prints one hint: configure a workspace key for the Observer link,
-or pass `--cloud-mirror` for the Cloud dashboard. `--no-observer-link`,
+or sign in with `agent-relay cloud login` for the Cloud dashboard. `--no-observer-link`,
 `FLOWS_NO_OBSERVER=1`, and `--json` suppress that human-facing hint.
 
-`--cloud-mirror` additionally puts the run on the **Cloud dashboard**: the
-richer, hosted view of the same run.
+Signed-in local runs also appear on the **Cloud dashboard**. The CLI reuses
+`agent-relay cloud login` credentials (or `FLOWS_CLOUD_TOKEN`). Signed-out runs
+print one note and continue locally.
 
 ```sh
-flows run --cloud-mirror review.flow.ts --input '{"pr":7}'
+agent-relay cloud login
+flows deploy review.flow.ts             # save a manual flow without a trigger
+flows run review --input '{"pr":7}'      # resolve your saved flow and run locally
 # Dashboard: https://…/dashboard/workflow/<run>/runner  ·  flows status --cloud --watch <run>
-
-FLOWS_CLOUD_MIRROR=1 flows run review.flow.ts     # for a whole shell
 ```
+
+`flows run <name>` resolves a bare name only when no local file exists. It
+verifies the source SHA-256 and caches the immutable source at
+`~/.agentworkforce/flows/cache/<name>/<sha256>.flow.ts`. Named runs carry their
+flow and version IDs so they appear in that flow's run history. File paths and
+bundle digest references retain their existing behavior.
 
 Nothing about execution changes. The run executes locally, against the local
 daemon, under your own credentials; the journal is still the record. What is
@@ -227,26 +234,14 @@ DAG both while the run is live and after its final report. Internal authored
 `complete-N` receipts remain durable journal evidence and are intentionally not
 shown as work nodes.
 
-### Why it is opt-in
+### What local reporting stores
 
-Because it is the richer view, it is also the one that *stores* all of that.
-The mirror sends the flow source, step metadata, agent transcripts and this
-invocation's own stderr. Transcripts are the sharp edge: they are whatever the
-agent printed, which includes file contents, command output, and anything it
-read out of its environment. Every string goes through the same redactor
-`flows status` uses — but redaction is pattern matching, and pattern matching
-has a false-negative rate.
-
-So the trigger is an explicit request, never the presence of a login. A
-developer who signed in once to run something hosted has not thereby agreed to
-publish every unrelated experiment in every checkout on that machine into their
-workspace, where anyone who can read the workspace can read it. `--cloud-mirror`
-is that agreement, per run; `FLOWS_CLOUD_MIRROR=1` is it for a shell.
-
-Only an affirmative counts for the environment variable (`1`, `true`, `on`,
-`yes`). Anything else — unset, empty, `0`, or a value nobody meant as a switch
-— leaves the run local, because the cost of reading a stray value as consent is
-someone's runs being uploaded.
+The dashboard stores the flow source, step metadata, agent transcripts and
+this invocation's output. Reported strings pass through the same redactor as
+`flows status`. Reporting follows only the current run and child journals
+named by its authored-step index. Reporting failures leave local execution and
+the journal unchanged. `--cloud-mirror` and `FLOWS_CLOUD_MIRROR=1` remain explicit
+requests for reporting; signed-in runs report automatically without either.
 
 The terminal line names Cloud's run id as well as the page, because the
 report's own `runId` is the *journal's* and every hosted read verb (`flows

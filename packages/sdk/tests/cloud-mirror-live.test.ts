@@ -164,27 +164,26 @@ describe('a local run on the Cloud dashboard', () => {
     expect(terminal.body).toMatchObject({ status: 'completed', callbackToken: 'cb' });
   }, 120_000);
 
-  it('sends nothing at all unless it is asked to', async () => {
+  it('reports signed-in runs automatically and keeps signed-out runs local', async () => {
     seen = [];
-    // The default: a local run is watchable through its observer link and
-    // never reaches the dashboard on its own.
     const plain = await runCli(['run', '--no-observer-link', '--data-dir', join(work, 'data'), FLOW]);
-    // A value nobody meant as a switch is not consent either.
-    const vague = await runCli(['run', '--no-observer-link', '--data-dir', join(work, 'data'), FLOW],
+    const zero = await runCli(['run', '--no-observer-link', '--data-dir', join(work, 'data'), FLOW],
       { FLOWS_CLOUD_MIRROR: '0' });
 
-    expect(plain.code).toBe(0);
-    expect(vague.code).toBe(0);
-    expect(seen).toEqual([]);
-    expect(plain.stderr).not.toContain('Dashboard:');
-    expect(vague.stderr).not.toContain('Dashboard:');
+    expect(plain.code, plain.stderr).toBe(0);
+    expect(zero.code, zero.stderr).toBe(0);
+    expect(plain.stderr).toContain('Dashboard:');
+    expect(zero.stderr).toContain('Dashboard:');
+    expect(seen.filter(call => call.url === '/api/v1/workflows/local-run')).toHaveLength(2);
+    expect(seen.filter(call => call.url === '/api/v1/workflows/callback')).toHaveLength(2);
 
-    // And the shell switch does turn it on.
-    const shell = await runCli(['run', '--no-observer-link', '--data-dir', join(work, 'data'), FLOW],
-      { FLOWS_CLOUD_MIRROR: '1' });
-    expect(shell.code).toBe(0);
-    expect(shell.stderr).toContain('Dashboard:');
-    expect(seen.some((call) => call.url === '/api/v1/workflows/local-run')).toBe(true);
+    seen = [];
+    const signedOut = await runCli(['run', '--no-observer-link', '--data-dir', join(work, 'data'), FLOW],
+      { FLOWS_CLOUD_TOKEN: undefined });
+    expect(signedOut.code, signedOut.stderr).toBe(0);
+    expect(signedOut.stderr).toContain('Not signed in; this run stays local');
+    expect(signedOut.stderr).not.toContain('Dashboard:');
+    expect(seen).toEqual([]);
   }, 180_000);
 
   it('publishes a composed authored flow as one connected dashboard DAG', async () => {
