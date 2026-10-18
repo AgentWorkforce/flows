@@ -207,13 +207,25 @@ describe('durable authored root', () => {
     }
   });
 
-  it('pins a certified Promise.all run body to parallel mode before dispatch', async () => {
-    const bodySource = `async f => {
+  it.each([
+    ['plain', 'async f', ''],
+    ['TS1param', 'async (f: any)', ''],
+    ['TS2annot', 'async f', "const w: string = await f.run('printf W');"],
+    ['TS3ret', 'async f', ''],
+  ].flatMap(([name, signature, prelude]) => (['strip', 'transform'] as const)
+    .map(mode => ({ name, signature, prelude, mode }))))(
+    'pins a certified $name body loaded with $mode to parallel mode before dispatch', async ({ name, signature, prelude, mode }) => {
+    const branchType = name === 'TS3ret' ? ': Promise<void>' : '';
+    const bodySource = `${signature} => {
+      ${prelude}
+      const a = async ()${branchType} => { await f.run('printf A'); };
+      const b = async ()${branchType} => { await f.run('printf B'); };
+      await Promise.all([a(), b()]);
       await Promise.all([f.run('printf a'), f.run('printf b')]);
       f.done('success');
     }`;
     const source = `import { flow } from '@relayflows/surface';\nexport default flow('flagship', ${bodySource});\n`;
-    const transformed = stripTypeScriptTypes(source, { mode: 'transform', sourceUrl: 'file:///flagship.flow.ts' });
+    const transformed = stripTypeScriptTypes(source, { mode, sourceUrl: 'file:///flagship.flow.ts' });
     const file = ts.createSourceFile('flagship.js', transformed, ts.ScriptTarget.ES2022, true, ts.ScriptKind.JS);
     const exported = file.statements[1] as ts.ExportAssignment;
     const call = exported.expression as ts.CallExpression;
@@ -366,7 +378,7 @@ describe('durable authored root', () => {
       { dataDir: '/unused', admissionKey: 'with-detail' },
     );
 
-    expect(result.completionDetail).toBe('review found 1 P2: review.clean was not created');
+    expect(result).toMatchObject({ completionDetail: 'review found 1 P2: review.clean was not created' });
     expect(journal.peer.outputs.at(-1)).toMatchObject({
       name: 'flagship',
       completionReason: 'step_failed',
@@ -424,8 +436,8 @@ describe('durable authored root', () => {
       { dataDir: '/unused', admissionKey: 'legacy-no-detail' },
     );
 
-    expect(result.completionReason).toBe('step_failed');
-    expect(result.completionDetail).toBeUndefined();
+    expect(result).toMatchObject({ completionReason: 'step_failed' });
+    expect('completionDetail' in result ? result.completionDetail : undefined).toBeUndefined();
     expect('completionDetail' in result).toBe(false);
   });
 
@@ -806,7 +818,7 @@ describe('durable authored root', () => {
 async function fixture(
   fails = false,
   delayMs = 0,
-  body?: Parameters<typeof flow>[1],
+  body?: Parameters<typeof flow>[2],
 ): Promise<LoadedAuthoredFlow> {
   const directory = await mkdtemp(join(tmpdir(), 'authored-root-'));
   directories.push(directory);

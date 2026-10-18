@@ -84,7 +84,7 @@ try {
     }
     const { parallelLoadedBodyEligible } = await import('./authored-parallel-eligibility.js');
     if (!await parallelLoadedBodyEligible(loaded.getDefinition(loaded.handle).body,
-      bytes.toString('utf8'), pathToFileURL(request.metadata.flowPath).href)) {
+      bytes.toString('utf8'), pathToFileURL(request.metadata.flowPath).href, 'transform')) {
       throw new AuthoredFlowExecutionError('step_failed', 'parallel f.run body lost its source certificate');
     }
   }

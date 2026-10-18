@@ -108,7 +108,10 @@ export async function executeDurableAuthoredFlow(
     const { parallelLoadedBodyEligible, parallelPinnedSourceEligible } = await import('./authored-parallel-eligibility.js');
     parallelEligible = parallelPromiseIntrinsicsIntact()
       && (process.versions['bun'] === undefined
-        ? await parallelLoadedBodyEligible(definition.body, source.toString('utf8'), pathToFileURL(loaded.sourcePath).href)
+        // Native imports strip by default, or transform with Node's opt-in
+        // flag. Require exact identity with one of those loader outputs.
+        ? await parallelLoadedBodyEligible(definition.body, source.toString('utf8'), pathToFileURL(loaded.sourcePath).href, 'strip')
+          || await parallelLoadedBodyEligible(definition.body, source.toString('utf8'), pathToFileURL(loaded.sourcePath).href, 'transform')
         : parallelPinnedSourceEligible(source.toString('utf8')));
     if (!parallelEligible) parallelIneligibleReason = parallelPromiseIntrinsicsIntact()
       ? 'source_certificate' : 'runtime_intrinsics';

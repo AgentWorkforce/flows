@@ -42,7 +42,16 @@ beforeEach(()=>{
   }));
 });
 describe('authored IPC result durable verification',()=>{
-  it('accepts causal parallel ids only when every claimed child matches the durable root index', async () => {
+  it.each([
+    ['matching', undefined],
+    ['forged edges', { after: ['forged-step'] }],
+    ['missing edges', { after: undefined }],
+    ['extra edge', { after: ['run-1', 'forged-step'] }],
+    ['missing truncation', { afterTruncated: undefined }],
+    ['false truncation', { afterTruncated: false }],
+    ['forged label', { label: 'forged-label' }],
+    ['missing label', { label: undefined }],
+  ] as const)('checks %s causal parallel claims against the durable root index', async (_name, forged) => {
     const dependent = `run-after-${'a'.repeat(64)}-1`;
     const claimed: AuthoredFlowExecutionResult = { rootRunId:'root', name:'example', completionReason:'success',
       journalSteps:[
@@ -64,13 +73,12 @@ describe('authored IPC result durable verification',()=>{
       ...(step.afterTruncated === undefined ? {} : {afterTruncated:step.afterTruncated}),
       ...(step.label === undefined ? {} : {label:step.label})}));
     await expect(verifyAuthoredNodeResult(claimed,parallelMetadata,'root','socket')).resolves.toBeUndefined();
-    for (const forged of [
-      { after:['forged-step'] }, { afterTruncated:undefined }, { label:'forged-label' },
-    ]) {
+    if (forged !== undefined) {
       const altered = { ...claimed, journalSteps:claimed.journalSteps.map((step,index) =>
         index === 2 ? { ...step, ...forged } : step) };
-      await expect(verifyAuthoredNodeResult(altered,parallelMetadata,'root','socket'))
+      await expect(verifyAuthoredNodeResult(altered as unknown as AuthoredFlowExecutionResult,parallelMetadata,'root','socket'))
         .rejects.toThrow('no matching durable completion');
+      return;
     }
     streamRecords[1] = {...streamRecords[1],runId:'unclaimed-child'};
     await expect(verifyAuthoredNodeResult(claimed,parallelMetadata,'root','socket'))
@@ -84,8 +92,9 @@ describe('authored IPC result durable verification',()=>{
   });
 
   it('accepts only a declared, durably settled agent timeout', async () => {
-    const claimed = result();
-    claimed.journalSteps[0]!.completionReason = 'timeout';
+    const base = result();
+    const claimed: AuthoredFlowExecutionResult = { ...base, journalSteps: base.journalSteps.map((step, index) =>
+      index === 0 ? { ...step, completionReason: 'timeout' } : step) };
     const step = { id: 'run-1', type: 'agent', timeout_ms: 1000 };
     records.set('child-1', [
       { entry_type: 'run.spawned', payload: { spec: { name: 'example/run-1', steps: [step] } } },
@@ -120,7 +129,7 @@ describe('authored IPC result durable verification',()=>{
     ['a gate whose child run has no durable completion', [{id:'run-1.gate',runId:'child-missing',completionReason:'success'}]],
   ] as const)('refuses %s',async(_label,gateSteps)=>{
     const base=result();
-    const claimed:AuthoredFlowExecutionResult={...base,journalSteps:[base.journalSteps[0]!,...gateSteps,base.journalSteps[1]!]};
+    const claimed={...base,journalSteps:[base.journalSteps[0]!,...gateSteps,base.journalSteps[1]!]} as unknown as AuthoredFlowExecutionResult;
     records.set('child-gate',entries(':','run-1.gate'));
     mocks.runGet.mockImplementation(async (run_id:string)=>{
       if(run_id==='child-missing') return {run_id,status:'running',steps:{}};

@@ -1,0 +1,6 @@
+Temporary .tsconfig-review676.json:
+{"extends": "./tsconfig.tests.json", "include": ["src/**/*.ts", "tests/authored-node-admission.test.ts", "tests/authored-rollback-readback.test.ts", "tests/authored-parallel-eligibility.test.ts", "tests/authored-node-result.test.ts", "tests/authored-root.test.ts", "tests/authored-node-runtime.test.ts"]}
+$ cd packages/sdk
+$ /Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node node_modules/typescript/bin/tsc -p .tsconfig-review676.json --noEmit
+
+exit_code=0

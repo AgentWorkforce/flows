@@ -18,16 +18,17 @@ export function parallelRunEligible(body: Function, moduleSource: string): boole
 }
 
 /**
- * Match the body Node actually loaded against the same transformed source its
+ * Match the body Node actually loaded against the same type-stripped source its
  * TypeScript loader serves. First certify the original bytes: transforming
  * away a declaration must never make an unsafe module appear closed.
  */
 export async function parallelLoadedBodyEligible(
   body: Function, moduleSource: string, sourceUrl: string,
+  mode: 'strip' | 'transform',
 ): Promise<boolean> {
   if (!parallelPinnedSourceEligible(moduleSource)) return false;
   const { stripTypeScriptTypes } = await import('node:module') as unknown as {
-    stripTypeScriptTypes?: (source: string, options: { mode: 'transform'; sourceUrl: string }) => string;
+    stripTypeScriptTypes?: (source: string, options: { mode: 'strip' | 'transform'; sourceUrl: string }) => string;
   };
   if (typeof stripTypeScriptTypes !== 'function') return false;
   // The pinned loader suppresses this one Node warning on its own thread.
@@ -40,7 +41,10 @@ export async function parallelLoadedBodyEligible(
       if (rest[0] === 'ExperimentalWarning' && String(warning).startsWith('stripTypeScriptTypes')) return;
       (emitWarning as (...args: unknown[]) => void).call(process, warning, ...rest);
     }) as typeof process.emitWarning;
-    transformed = stripTypeScriptTypes(moduleSource, { mode: 'transform', sourceUrl });
+    transformed = stripTypeScriptTypes(moduleSource, { mode, sourceUrl });
+  } catch {
+    // A loader mode unavailable in this Node version cannot certify a body.
+    return false;
   } finally {
     process.emitWarning = emitWarning;
   }
@@ -52,7 +56,7 @@ export async function parallelLoadedBodyEligible(
  * by its embedded Node child. Bun reformats function toString output, so its
  * in-memory body cannot be compared byte-for-byte with the source. Certify
  * the closed source module instead; the Node child loads those hash-pinned
- * bytes and independently checks the body's grammar before any child starts.
+ * bytes and checks exact body/source identity and grammar before any child starts.
  */
 export function parallelPinnedSourceEligible(moduleSource: string): boolean {
   const bodySource = certifiedModuleBody(moduleSource);

@@ -1,0 +1,4 @@
+$ df -h /System/Volumes/Data
+Filesystem      Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s5   228Gi   194Gi   7.2Gi    97%    4.0M   76M    5%   /System/Volumes/Data
+exit_code=0

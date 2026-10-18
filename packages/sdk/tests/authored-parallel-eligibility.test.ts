@@ -30,7 +30,7 @@ export default flow('hosted', async f => {
     expect(parallelPinnedSourceEligible(source.replace('Promise.all', 'Promise.race'))).toBe(false);
   });
 
-  it('matches the Node-loaded body to transformed source, including TypeScript annotations', async () => {
+  it.each(['strip', 'transform'] as const)('matches the Node-loaded body to %s source, including TypeScript annotations', async mode => {
     const bodies = [
       `async (f: any) => { await Promise.all([f.run('A'), f.run('B')]); f.done('success'); }`,
       `async f => { const w: string = await f.run('W');
@@ -41,13 +41,13 @@ export default flow('hosted', async f => {
     ];
     for (const candidate of bodies) {
       const source = `import { flow } from '@relayflows/surface';\nexport default flow('typed', ${candidate});`;
-      const transformedBody = stripTypeScriptTypes(candidate, { mode: 'transform', sourceUrl: 'file:///typed.flow.ts' });
+      const transformedBody = stripTypeScriptTypes(candidate, { mode, sourceUrl: 'file:///typed.flow.ts' });
       const loaded = new Function(`return ${transformedBody}`)() as Function;
       expect(parallelPinnedSourceEligible(source), candidate).toBe(true);
-      expect(await parallelLoadedBodyEligible(loaded, source, 'file:///typed.flow.ts'), candidate).toBe(true);
+      expect(await parallelLoadedBodyEligible(loaded, source, 'file:///typed.flow.ts', mode), candidate).toBe(true);
       const substitute = body(`async f => {
         await Promise.all([f.run('other-a'), f.run('other-b')]); f.done('success'); }`);
-      expect(await parallelLoadedBodyEligible(substitute, source, 'file:///typed.flow.ts'), candidate).toBe(false);
+      expect(await parallelLoadedBodyEligible(substitute, source, 'file:///typed.flow.ts', mode), candidate).toBe(false);
     }
   });
 
