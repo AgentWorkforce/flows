@@ -888,13 +888,15 @@ export async function executeAuthoredFlow<Input = undefined>(
   // for authored try/catch to turn a refused effect into successful output.
   if (parallelViolation !== undefined) { bodyFailed = true; bodyFailure = parallelViolation; }
   if (bodyFailed) {
+    // Refuse queued work immediately. A slow memory commit must not leave an
+    // admission slot open after the body has already failed.
+    lowerDeterministic.stop(bodyFailure);
+    worker.stop(bodyFailure);
     // An in-flight learn must land or fail before this attempt gives the root
     // back: a re-driven attempt reads the memory-learn stream, and must not
     // race a commit this one is still making.
     await memoryWrites.settle();
     try {
-      lowerDeterministic.stop(bodyFailure);
-      worker.stop(bodyFailure);
       await stopAuthoredOperations(authoredSteps, bodyFailure);
       // A durable wait hands execution back to the control plane. Its
       // subscriptions must keep receiving events while no body is running.
@@ -925,11 +927,12 @@ export async function executeAuthoredFlow<Input = undefined>(
       'missing_completion',
       `flow "${definition.name}" returned without done()`,
     );
-    // Same as a failed body: no learn may outlive the attempt that started it.
+    // Close queued admissions before waiting for a learn; the attempt still
+    // waits for every write before handing the root back.
+    lowerDeterministic.stop(missingCompletion);
+    worker.stop(missingCompletion);
     await memoryWrites.settle();
     try {
-      lowerDeterministic.stop(missingCompletion);
-      worker.stop(missingCompletion);
       await stopAuthoredOperations(authoredSteps, missingCompletion);
       await activities.closeAll('canceled');
     } finally {
