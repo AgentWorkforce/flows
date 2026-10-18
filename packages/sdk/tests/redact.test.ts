@@ -36,6 +36,7 @@ describe('redact', () => {
 
   it.each([
     ['relay token', 'key rk_live_abc123DEF', 'key [redacted]'],
+    ['relaycast run token', 'run rt_live_abc123-DEF_x', 'run [redacted]'],
     ['observer token', 'see ot_live_xyz-9', 'see [redacted]'],
     ['agent token', 'at_0123456789', '[redacted]'],
     ['bearer', 'Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.x.y', 'Authorization: Bearer [redacted]'],
