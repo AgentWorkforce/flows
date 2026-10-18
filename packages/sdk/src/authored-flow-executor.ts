@@ -55,8 +55,7 @@ import {
   stopAuthoredOperations,
   verifyAuthoredOperations,
 } from './authored-flow-operation.js';
-import { AuthoredFlowLifecycle } from './authored-flow-lifecycle.js';
-import { instrumentParallelBody } from './authored-parallel-body.js';
+import { AuthoredFlowLifecycle, parallelPromiseIntrinsicsIntact } from './authored-flow-lifecycle.js';
 import { AuthoredActivities } from './authored-activity.js';
 import { displayLabel, type AuthoredStepEdges } from './authored-step-index.js';
 import { JournalClient } from './journal-client.js';
@@ -873,10 +872,14 @@ export async function executeAuthoredFlow<Input = undefined>(
   let bodyFailed = false;
   let bodyFailure: unknown;
   try {
-    if (options.executionMode === 'parallel') queueMicrotask(() => { firstBodyTurn = false; });
-    const body = options.executionMode === 'parallel'
-      ? instrumentParallelBody(definition.body, promise => lifecycle.certifyBranchPromise(promise))
-      : definition.body;
+    let body = definition.body;
+    if (options.executionMode === 'parallel') {
+      const { instrumentParallelBody } = await import('./authored-parallel-body.js');
+      if (!parallelPromiseIntrinsicsIntact()) rejectParallel(
+        'parallel f.run body lost its Promise or Array intrinsic before execution');
+      body = instrumentParallelBody(body, promise => lifecycle.certifyBranchPromise(promise));
+      queueMicrotask(() => { firstBodyTurn = false; });
+    }
     const bodyPromise = lifecycle.runBody(() => body(context, input as Input));
     if (parallelFailure === undefined) await bodyPromise;
     else await Promise.race([bodyPromise, parallelFailure]);

@@ -23,7 +23,6 @@ import { helperReceiptWaitId, releaseHelperReceiptWaits } from './helper-park.js
 import { readSubscriptionPark } from './authored-subscription-park.js';
 import { localAgentCredentialEnvironment } from './local-agent-environment.js';
 import { completedResult, rootKernelStep, rootStepIfPresent } from './authored-root-readback.js';
-import { parallelRunEligible } from './authored-parallel-eligibility.js';
 import { parallelPromiseIntrinsicsIntact } from './authored-flow-lifecycle.js';
 
 export type DurableAuthoredFlowResult =
@@ -95,10 +94,17 @@ export async function executeDurableAuthoredFlow(
     surface: node.surfaceAuthority,
   })));
   const definition = loaded.getDefinition(loaded.handle);
-  const executionMode = loaded.graph.length === 1 && (loaded.extensions?.length ?? 0) === 0
-    && definition.header.budget === undefined && parallelPromiseIntrinsicsIntact()
-    && parallelRunEligible(definition.body, source.toString('utf8'))
-    ? 'parallel' : 'serial';
+  let parallelEligible = false;
+  if (loaded.graph.length === 1 && (loaded.extensions?.length ?? 0) === 0
+    && definition.header.budget === undefined && parallelPromiseIntrinsicsIntact()) {
+    // The parser is needed only for an authored run, never for an ordinary
+    // CLI check or watch reload. Recheck intrinsics after the async import;
+    // author code could have replaced them while it was loading.
+    const { parallelRunEligible } = await import('./authored-parallel-eligibility.js');
+    parallelEligible = parallelPromiseIntrinsicsIntact()
+      && parallelRunEligible(definition.body, source.toString('utf8'));
+  }
+  const executionMode = parallelEligible ? 'parallel' : 'serial';
   const metadata: AuthoredRootMetadata = Object.freeze({
     kind: executionMode === 'parallel' ? AUTHORED_PARALLEL_ROOT_KIND : ROOT_KIND,
     flowName: definition.name,

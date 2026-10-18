@@ -48,3 +48,31 @@ git diff --name-only origin/main HEAD -- packages/sdk/tests/cli-watch.test.ts pa
 
 The adjacent logs are the local main and branch reruns. GitHub Actions uses
 Node 22.23.3 and Bun 1.4.0, so the new CI job remains the Linux check.
+
+## Same-workflow main control and startup diagnosis
+
+The same `linux-x64-artifact` workflow was dispatched on main `5de41849` as
+[run 39094544639](https://github.com/AgentWorkforce/flows/actions/runs/39094544639).
+Its `Test SDK and type-level authoring contracts` step passed, including all
+11 `cli-watch.test.ts` cases (23.9 seconds for that file), and the full
+workflow concluded successfully.
+This makes the four timeout failures on #667's
+[run 39084034162](https://github.com/AgentWorkforce/flows/actions/runs/39084034162)
+specific to that full-suite execution, despite unchanged watch source/tests.
+
+The parallel scheduler introduced eager TypeScript parser imports through
+`authored-root.ts` and `authored-flow-executor.ts`. Eight alternating local
+one-shot YAML checks measured warm median startup of 299 ms at the old #667
+head versus 197 ms for published 2.0.51. With those two imports deferred to
+authored run admission/execution, the same paired check measured 189 ms versus
+191 ms for published 2.0.51. The parser still uses the startup snapshot of
+`Function.prototype.toString`, and both Promise/Array intrinsics are rechecked
+after each async import before parallel admission or body execution.
+
+The four failing watch cases spawn a fresh check CLI for each report and keep
+five-second outer case deadlines. Running the existing 11 watch tests in their
+own Vitest invocation passed 11/11 in 10.9 seconds, with each affected case
+under 1.7 seconds. The local test script and Linux artifact workflow now run
+that file separately from concurrent live-test workers; the test cases and
+their deadlines are unchanged. Focused parser, parallel overlap, queued-child
+failure, and crash/resume tests passed after the deferred-import change.

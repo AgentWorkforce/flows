@@ -1,8 +1,7 @@
 import ts from 'typescript';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
+import { authoredFunctionSource } from './authored-flow-lifecycle.js';
 import { parallelBodySyntaxEligible, unwrapParallelExpression } from './authored-parallel-eligibility.js';
-
-const functionSource = Function.prototype.toString;
 
 /**
  * Execute a certified body with its branch-call promises marked at the call
@@ -16,7 +15,7 @@ export function instrumentParallelBody<T extends Function>(
   body: T,
   certifyBranch: (promise: Promise<unknown>) => void,
 ): T {
-  const source = functionSource.call(body);
+  const source = authoredFunctionSource(body);
   if (!parallelBodySyntaxEligible(body)) {
     throw new AuthoredFlowExecutionError('step_failed', 'parallel f.run body lost its source certificate');
   }

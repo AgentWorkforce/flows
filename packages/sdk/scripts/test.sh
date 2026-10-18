@@ -10,5 +10,8 @@ npm run typecheck:tests
 # The packaging gate calls npm pack on this SDK. With npm 10, pack still runs
 # prepare even with --ignore-scripts, rebuilding dist while other test files
 # execute the built CLI. Keep the full gate, but run it after those readers.
-vitest run --exclude tests/cli-package-gate.test.ts
+# Watch checks spawn a fresh CLI for each report. Give their existing five-second
+# case deadlines an uncontended runner instead of competing with live tests.
+vitest run tests/cli-watch.test.ts
+vitest run --exclude tests/cli-package-gate.test.ts --exclude tests/cli-watch.test.ts
 vitest run tests/cli-package-gate.test.ts

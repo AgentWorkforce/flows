@@ -33,6 +33,10 @@ const nativePromisePrototypeConstructor = Promise.prototype.constructor;
 const nativePromiseSpeciesDescriptor = Object.getOwnPropertyDescriptor(Promise, Symbol.species);
 const nativePromiseSpeciesGetter = nativePromiseSpeciesDescriptor?.get;
 const nativeFunctionToString = Function.prototype.toString;
+/** Use the startup snapshot even when a source parser is loaded on demand. */
+export function authoredFunctionSource(value: Function): string {
+  return nativeFunctionToString.call(value);
+}
 const nativeArrayIteratorDescriptor = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
 const nativeArrayIterator = Array.prototype[Symbol.iterator];
 const nativeArrayIteratorPrototype = Object.getPrototypeOf(nativeArrayIterator.call([])) as Iterator<unknown>;

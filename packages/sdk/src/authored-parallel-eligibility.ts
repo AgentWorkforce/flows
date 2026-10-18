@@ -1,6 +1,6 @@
 import ts from 'typescript';
+import { authoredFunctionSource } from './authored-flow-lifecycle.js';
 
-const functionSource = Function.prototype.toString;
 const reservedCertifier = '__certifyParallelBranch';
 
 /** Keep admission and call-site instrumentation in agreement on parentheses. */
@@ -13,13 +13,13 @@ export function parallelRunEligible(body: Function, moduleSource: string): boole
   // Promise.all is intercepted only when `Promise` resolves to the intrinsic.
   // Function.toString cannot see a module-level lexical binding, so inspect
   // the complete source before using the body's narrower grammar.
-  const bodySource = functionSource.call(body);
+  const bodySource = authoredFunctionSource(body);
   return moduleUsesIntrinsicPromise(moduleSource, bodySource) && parallelBodySyntaxEligible(body);
 }
 
 /** Independently re-check the closed body grammar at execution time. */
 export function parallelBodySyntaxEligible(body: Function): boolean {
-  const bodySource = functionSource.call(body);
+  const bodySource = authoredFunctionSource(body);
   const file = ts.createSourceFile('authored-body.js', `const body = ${bodySource};`,
     ts.ScriptTarget.ES2022, true, ts.ScriptKind.JS);
   if (file.statements.length !== 1) return false;
