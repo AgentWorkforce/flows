@@ -161,6 +161,9 @@ describe('durable authored root', () => {
   it('journals exact source and Surface authority and completes the admitted root', async () => {
     const loaded = await fixture();
     const journal = new RootJournal();
+    // This case checks authority and completion, not lease renewal. A 30 ms
+    // fake lease can expire when the full CI suite pauses the event loop.
+    journal.dispatchLeaseMs = 30_000;
 
     const result = await executeDurableAuthoredFlow(
       loaded, journal as unknown as JournalClient, { topic: 'relay' },
