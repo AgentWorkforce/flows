@@ -58,6 +58,8 @@ export type AuthoredFlowExecutionErrorCode =
   | 'unsupported_header'
   | 'unsettled_derived_work'
   | 'unsupported_promise_lifecycle'
+  /** A pinned parallel root cannot dispatch safely in this process environment. */
+  | 'unsafe_parallel_runtime'
   | 'unsupported_workspace_permission'
   | 'unbounded_subscription'
   | 'activity_closed'

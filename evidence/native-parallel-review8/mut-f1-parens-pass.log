@@ -1,0 +1,9 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ✓ tests/authored-parallel-body.test.ts (5 tests | 4 skipped) 6ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 4 skipped (5)
+   Start at  00:51:58
+   Duration  414ms (transform 28ms, setup 11ms, collect 196ms, tests 6ms, environment 0ms, prepare 35ms)

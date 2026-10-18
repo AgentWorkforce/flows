@@ -194,8 +194,12 @@ jobs:
           # npm pack in this test invokes prepare and rewrites SDK dist even
           # with --ignore-scripts. Run it after the built-CLI readers so every
           # test still gates without a concurrent partial rebuild.
+          # Watch tests spawn a fresh CLI for each report and keep five-second
+          # case deadlines. Run them apart from the concurrent live-test pool.
           RELAYFLOWD_BIN="$GITHUB_WORKSPACE/kernel/target/release/relayflowd" \
-            ./node_modules/.bin/vitest run --exclude tests/cli-package-gate.test.ts
+            ./node_modules/.bin/vitest run tests/cli-watch.test.ts
+          RELAYFLOWD_BIN="$GITHUB_WORKSPACE/kernel/target/release/relayflowd" \
+            ./node_modules/.bin/vitest run --exclude tests/cli-package-gate.test.ts --exclude tests/cli-watch.test.ts
           RELAYFLOWD_BIN="$GITHUB_WORKSPACE/kernel/target/release/relayflowd" \
             ./node_modules/.bin/vitest run tests/cli-package-gate.test.ts
 

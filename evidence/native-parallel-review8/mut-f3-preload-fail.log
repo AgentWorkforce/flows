@@ -1,0 +1,32 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ❯ tests/authored-flow-lifecycle-executor.test.ts (45 tests | 1 failed | 44 skipped) 6ms
+   × authored flow lifecycle through the journal executor > detects replacement of every Promise primitive used by parallel joins 4ms
+     → NODE_OPTIONS preload: expected true to be false // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-flow-lifecycle-executor.test.ts > authored flow lifecycle through the journal executor > detects replacement of every Promise primitive used by parallel joins
+AssertionError: NODE_OPTIONS preload: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/authored-flow-lifecycle-executor.test.ts:81:73
+     79|     try {
+     80|       process.env['NODE_OPTIONS'] = '--import=/tmp/preload.mjs';
+     81|       expect(parallelPromiseIntrinsicsIntact(), 'NODE_OPTIONS preload'…
+       |                                                                         ^
+     82|     } finally {
+     83|       if (nodeOptions === undefined) delete process.env['NODE_OPTIONS'…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 44 skipped (45)
+   Start at  00:52:00
+   Duration  1.70s (transform 510ms, setup 9ms, collect 1.38s, tests 6ms, environment 0ms, prepare 44ms)

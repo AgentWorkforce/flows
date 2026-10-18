@@ -135,7 +135,12 @@ export class JournalClient extends JournalConnection {
     reuseFromRunId?: string,
     admissionKey?: string,
     watch = false,
+    isolated = false,
   ): Promise<VerbContract['run.start']['result']> {
+    if (isolated) {
+      if (watch) throw new Error('an isolated run.start cannot keep a watch on its temporary session');
+      return this.runStartIsolated(spec, reuseFromRunId, admissionKey);
+    }
     for (const step of spec.steps) {
       for (const name of validateStepSecrets(step.secrets, process.env)) {
         if (this.withheld.has(name)) {
@@ -153,6 +158,20 @@ export class JournalClient extends JournalConnection {
       ...(watch ? { watch: true } : {}),
       ...this.stepEnv(),
     }, null);
+  }
+
+  /** Drive a blocking deterministic child on its own socket, then close it. */
+  private async runStartIsolated(
+    spec: KernelRunSpec, reuseFromRunId?: string, admissionKey?: string,
+  ): Promise<VerbContract['run.start']['result']> {
+    const peer = this.createPeer();
+    try {
+      await peer.connect();
+      await peer.hello('flows-authored-deterministic');
+      return await peer.runStart(spec, reuseFromRunId, admissionKey);
+    } finally {
+      peer.close();
+    }
   }
 
   /** §3 memoized resume. */

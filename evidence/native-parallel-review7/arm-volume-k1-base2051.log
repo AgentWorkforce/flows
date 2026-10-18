@@ -1,0 +1,7 @@
+{"case":"K1","index":0,"outcome":"base_failure","effects":"ABLC"}
+{"case":"K1","index":1,"outcome":"base_failure","effects":"ABLC"}
+{"case":"K1","index":2,"outcome":"base_failure","effects":"ABLC"}
+{"case":"K1","index":3,"outcome":"base_failure","effects":"ABLC"}
+{"case":"K1","index":4,"outcome":"base_failure","effects":"ABLC"}
+{"case":"K1","index":5,"outcome":"base_failure","effects":"ABLC"}
+{"done":true,"cases":["K1"],"repetitions":6,"forced":false}

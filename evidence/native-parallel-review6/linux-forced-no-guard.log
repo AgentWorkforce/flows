@@ -1,0 +1,7 @@
+{"name":"Q5w","index":0,"mode":"parallel","result":"replayed_under_mutation","before":"X","after":"XXZ"}
+{"name":"Q5w","index":1,"mode":"parallel","result":"no_replay_this_timing","before":"X","after":"XZ"}
+{"name":"Q5w","index":2,"mode":"parallel","result":"replayed_under_mutation","before":"X","after":"XXZ"}
+{"name":"Q5w","index":3,"mode":"parallel","result":"no_replay_this_timing","before":"X","after":"XZ"}
+{"name":"Q5w","index":4,"mode":"parallel","result":"no_replay_this_timing","before":"X","after":"XZ"}
+{"name":"Q5w","index":5,"mode":"parallel","result":"replayed_under_mutation","before":"X","after":"XXZ"}
+{"done":true,"cases":["Q5w"],"repetitions":6,"mutation":"forced_no_guard","replays":3}

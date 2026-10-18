@@ -1,0 +1,12 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+(node:78931) [FLOWS_ROOT_LEASE_LOST] Warning: authored root run_id=root-run attempt=1: lease_conflict: attempt has no active worker lease. Waiting for the kernel to retry it.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/authored-root.test.ts (41 tests) 534ms
+ ✓ tests/authored-flow-lifecycle-executor.test.ts (48 tests) 635ms
+
+ Test Files  2 passed (2)
+      Tests  89 passed (89)
+   Start at  17:03:13
+   Duration  2.61s (transform 499ms, setup 20ms, collect 3.34s, tests 1.17s, environment 0ms, prepare 171ms)
