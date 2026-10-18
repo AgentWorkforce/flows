@@ -2,6 +2,9 @@ import { EventEmitter } from 'node:events';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { stripTypeScriptTypes } from 'node:module';
+import { pathToFileURL } from 'node:url';
+import ts from 'typescript';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flow, type Ctx } from '@relayflows/surface';
 import { getFlowDefinition } from '@relayflows/surface/runtime';
@@ -205,13 +208,18 @@ describe('durable authored root', () => {
   });
 
   it('pins a certified Promise.all run body to parallel mode before dispatch', async () => {
-    const body = async (f: Ctx) => {
+    const bodySource = `async f => {
       await Promise.all([f.run('printf a'), f.run('printf b')]);
       f.done('success');
-    };
-    const loaded = await fixture(false, 0, body);
-    await writeFile(loaded.sourcePath,
-      `import { flow } from '@relayflows/surface';\nexport default flow('flagship', ${Function.prototype.toString.call(body)});\n`);
+    }`;
+    const source = `import { flow } from '@relayflows/surface';\nexport default flow('flagship', ${bodySource});\n`;
+    const transformed = stripTypeScriptTypes(source, { mode: 'transform', sourceUrl: 'file:///flagship.flow.ts' });
+    const file = ts.createSourceFile('flagship.js', transformed, ts.ScriptTarget.ES2022, true, ts.ScriptKind.JS);
+    const exported = file.statements[1] as ts.ExportAssignment;
+    const call = exported.expression as ts.CallExpression;
+    const loadedBody = new Function(`return ${call.arguments[1]!.getText(file)};`)() as (f: Ctx) => Promise<void>;
+    const loaded = await fixture(false, 0, loadedBody);
+    await writeFile(loaded.sourcePath, source);
     const journal = new RootJournal();
     journal.startStatus = outcome(journal.runId, 'completed', 'success');
     journal.entries = [completedEntry()];
@@ -219,7 +227,7 @@ describe('durable authored root', () => {
       { dataDir: '/unused', admissionKey: 'certified-group' });
     const step = (journal.starts[0]!.spec as { steps: Array<{ instruction: string }> }).steps[0]!;
     expect(JSON.parse(step.instruction)).toMatchObject({
-      kind: 'relayflows.authored-root.parallel.v2', identityVersion: 2, executionMode: 'parallel',
+      kind: 'relayflows.authored-root.parallel.v3', identityVersion: 2, executionMode: 'parallel',
     });
   });
 

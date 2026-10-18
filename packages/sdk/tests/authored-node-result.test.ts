@@ -48,7 +48,7 @@ describe('authored IPC result durable verification',()=>{
       journalSteps:[
         {id:'run-1',runId:'child-1',completionReason:'success'},
         {id:'run-2',runId:'child-2',completionReason:'success'},
-        {id:dependent,runId:'child-3',completionReason:'success'},
+        {id:dependent,runId:'child-3',completionReason:'success',after:['run-1'],afterTruncated:true,label:'dependent'},
         {id:'complete-4',runId:'child-4',completionReason:'success'},
       ] };
     const parallelMetadata = { ...metadata, identityVersion:2, executionMode:'parallel' } as AuthoredRootMetadata;
@@ -59,8 +59,19 @@ describe('authored IPC result durable verification',()=>{
     mocks.runGet.mockImplementation(async (run_id:string)=>({run_id,status:'completed',
       steps:{[runIds.get(run_id)!]:{state:'done'}}}));
     streamRecords = claimed.journalSteps.map(step => ({index:'relayflows.authored-step.v1',
-      step:step.id,runId:step.runId,state:'completed',completionReason:'success'}));
+      step:step.id,runId:step.runId,state:'completed',completionReason:'success',
+      ...(step.after === undefined ? {} : {after:step.after}),
+      ...(step.afterTruncated === undefined ? {} : {afterTruncated:step.afterTruncated}),
+      ...(step.label === undefined ? {} : {label:step.label})}));
     await expect(verifyAuthoredNodeResult(claimed,parallelMetadata,'root','socket')).resolves.toBeUndefined();
+    for (const forged of [
+      { after:['forged-step'] }, { afterTruncated:undefined }, { label:'forged-label' },
+    ]) {
+      const altered = { ...claimed, journalSteps:claimed.journalSteps.map((step,index) =>
+        index === 2 ? { ...step, ...forged } : step) };
+      await expect(verifyAuthoredNodeResult(altered,parallelMetadata,'root','socket'))
+        .rejects.toThrow('no matching durable completion');
+    }
     streamRecords[1] = {...streamRecords[1],runId:'unclaimed-child'};
     await expect(verifyAuthoredNodeResult(claimed,parallelMetadata,'root','socket'))
       .rejects.toThrow('no matching durable completion');

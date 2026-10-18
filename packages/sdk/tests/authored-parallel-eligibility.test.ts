@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { parallelPinnedSourceEligible, parallelRunEligible } from '../src/authored-parallel-eligibility.js';
+import { stripTypeScriptTypes } from 'node:module';
+import { parallelLoadedBodyEligible, parallelPinnedSourceEligible, parallelRunEligible } from '../src/authored-parallel-eligibility.js';
 
 const body = (source: string): Function => new Function(`return (${source});`)() as Function;
 const eligible = (candidate: Function, moduleSource = `import { flow } from '@relayflows/surface';\nexport default flow('probe', ${Function.prototype.toString.call(candidate)});`) =>
@@ -27,6 +28,27 @@ export default flow('hosted', async f => {
     expect(parallelPinnedSourceEligible(source.replace("import { flow }", "import { flow, webhook }"))).toBe(false);
     expect(parallelPinnedSourceEligible(`${source}\nconst Promise = globalThis.Promise;`)).toBe(false);
     expect(parallelPinnedSourceEligible(source.replace('Promise.all', 'Promise.race'))).toBe(false);
+  });
+
+  it('matches the Node-loaded body to transformed source, including TypeScript annotations', async () => {
+    const bodies = [
+      `async (f: any) => { await Promise.all([f.run('A'), f.run('B')]); f.done('success'); }`,
+      `async f => { const w: string = await f.run('W');
+        await Promise.all([f.run(w), f.run('B')]); f.done('success'); }`,
+      `async f => { const a = async (): Promise<void> => { await f.run('A'); };
+        const b = async (): Promise<void> => { await f.run('B'); };
+        await Promise.all([a(), b()]); f.done('success'); }`,
+    ];
+    for (const candidate of bodies) {
+      const source = `import { flow } from '@relayflows/surface';\nexport default flow('typed', ${candidate});`;
+      const transformedBody = stripTypeScriptTypes(candidate, { mode: 'transform', sourceUrl: 'file:///typed.flow.ts' });
+      const loaded = new Function(`return ${transformedBody}`)() as Function;
+      expect(parallelPinnedSourceEligible(source), candidate).toBe(true);
+      expect(await parallelLoadedBodyEligible(loaded, source, 'file:///typed.flow.ts'), candidate).toBe(true);
+      const substitute = body(`async f => {
+        await Promise.all([f.run('other-a'), f.run('other-b')]); f.done('success'); }`);
+      expect(await parallelLoadedBodyEligible(substitute, source, 'file:///typed.flow.ts'), candidate).toBe(false);
+    }
   });
 
   it('certifies direct Promise.all and awaited branch continuations', () => {

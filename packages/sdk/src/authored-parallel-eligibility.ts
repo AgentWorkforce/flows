@@ -18,6 +18,36 @@ export function parallelRunEligible(body: Function, moduleSource: string): boole
 }
 
 /**
+ * Match the body Node actually loaded against the same transformed source its
+ * TypeScript loader serves. First certify the original bytes: transforming
+ * away a declaration must never make an unsafe module appear closed.
+ */
+export async function parallelLoadedBodyEligible(
+  body: Function, moduleSource: string, sourceUrl: string,
+): Promise<boolean> {
+  if (!parallelPinnedSourceEligible(moduleSource)) return false;
+  const { stripTypeScriptTypes } = await import('node:module') as unknown as {
+    stripTypeScriptTypes?: (source: string, options: { mode: 'transform'; sourceUrl: string }) => string;
+  };
+  if (typeof stripTypeScriptTypes !== 'function') return false;
+  // The pinned loader suppresses this one Node warning on its own thread.
+  // Recomputing the text here happens on the main thread; suppress only this
+  // call's warning and restore the original writer before yielding again.
+  const emitWarning = process.emitWarning;
+  let transformed: string;
+  try {
+    process.emitWarning = ((warning: string | Error, ...rest: unknown[]) => {
+      if (rest[0] === 'ExperimentalWarning' && String(warning).startsWith('stripTypeScriptTypes')) return;
+      (emitWarning as (...args: unknown[]) => void).call(process, warning, ...rest);
+    }) as typeof process.emitWarning;
+    transformed = stripTypeScriptTypes(moduleSource, { mode: 'transform', sourceUrl });
+  } finally {
+    process.emitWarning = emitWarning;
+  }
+  return parallelRunEligible(body, transformed);
+}
+
+/**
  * The compiled Bun CLI owns the root lease, but the pinned source is executed
  * by its embedded Node child. Bun reformats function toString output, so its
  * in-memory body cannot be compared byte-for-byte with the source. Certify

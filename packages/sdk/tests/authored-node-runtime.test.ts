@@ -122,6 +122,70 @@ export default flow('runtime-case', async f => {
     expect(existsSync(join(f.directory, 'joined'))).toBe(true);
   }, 120_000);
 
+  it.each([
+    ['TS1param', 'async (f: any)', ''],
+    ['TS2annot', 'async f', `const w: string = await f.run('printf W >> effects');`],
+    ['TS3ret', 'async f', ''],
+  ])('admits %s as parallel in both standalone and Node CLIs', async (_name, signature, prelude) => {
+    const branchReturn = _name === 'TS3ret' ? ': Promise<void>' : '';
+    const source = `import { flow } from '@relayflows/surface';
+export default flow('typed-parallel', ${signature} => {
+  ${prelude}
+  const a = async ()${branchReturn} => { await f.run('sleep 0.2; printf A >> effects'); };
+  const b = async ()${branchReturn} => { await f.run('sleep 0.1; printf B >> effects'); };
+  const c = async ()${branchReturn} => { await f.run('sleep 0.15; printf C >> effects'); };
+  await Promise.all([a(), b(), c()]);
+  await f.run('printf X >> effects');
+  f.done('success');
+});
+`;
+    for (const side of ['standalone', 'node'] as const) {
+      const f = fixture('');
+      writeFileSync(join(f.directory, 'case.flow.ts'), source);
+      const run = side === 'standalone' ? f.run() : spawnSync(process.execPath,
+        ['--experimental-transform-types', resolve('dist/cli.js'), 'run', 'case.flow.ts', '--input', '{}', ...f.flags],
+        { cwd: f.directory, env: f.env, encoding: 'utf8', timeout: 60_000 });
+      expect(run.status, `${side}: ${run.stderr + run.stdout}`).toBe(0);
+      const report = JSON.parse(run.stdout) as { runId: string };
+      const reader = new JournalClient(socketFor(join(f.directory, 'data')));
+      await reader.connect(); await reader.hello('typed-parallel-test');
+      try {
+        expect(await readAuthoredRootMetadata(reader, report.runId))
+          .toMatchObject({ kind: 'relayflows.authored-root.parallel.v3', executionMode: 'parallel' });
+      } finally { reader.close(); }
+      expect([...readFileSync(join(f.directory, 'effects'), 'utf8')].sort())
+        .toEqual([...(_name === 'TS2annot' ? 'WABCX' : 'ABCX')].sort());
+    }
+  }, 120_000);
+
+  it('refuses a Surface-substituted body before standalone parallel effects', async () => {
+    const f = fixture('');
+    writeFileSync(join(f.directory, 'case.flow.ts'), `import { flow } from '@relayflows/surface';
+export default flow('substituted', async f => {
+  const a = async () => { await f.run('printf A >> effects'); };
+  const b = async () => { await f.run('printf B >> effects'); };
+  await Promise.all([a(), b()]);
+  f.done('success');
+});
+`);
+    writeFileSync(join(f.directory, 'node_modules/@relayflows/surface/index.js'), `
+export * from './dist/index.js';
+import { flow as realFlow } from './dist/index.js';
+export function flow(name, _body) {
+  return realFlow(name, async f => {
+    const p = async () => { await f.run('printf p >> effects'); };
+    const q = async () => { await f.run('printf q >> effects'); };
+    await Promise.all([p(), q()]);
+    f.done('success');
+  });
+}
+`);
+    const run = f.run();
+    expect(run.status, run.stderr + run.stdout).not.toBe(0);
+    expect(run.stderr + run.stdout).toContain('parallel f.run body lost its source certificate');
+    expect(existsSync(join(f.directory, 'effects'))).toBe(false);
+  }, 120_000);
+
   it('serializes the immutable prepared binding facts through the Node and CLI boundary', () => {
     const f = fixture(`const activity=f.on(webhook('github_pull_request',{action:'opened',repository:{id:7}}),{settle:'2m',idle:'1h',deadline:'1d',includeSelf:true});await activity.next();f.done('success');`);
     const result = f.run(); expect(result.status, result.stderr + result.stdout).toBe(4);

@@ -1,0 +1,19 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/hosted-parallel/packages/sdk
+
+ ✓ tests/authored-node-result.test.ts (46 tests) 10ms
+(node:52258) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/authored-parallel-eligibility.test.ts (12 tests) 62ms
+(node:52248) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:52248) [FLOWS_ROOT_LEASE_LOST] Warning: authored root run_id=root-run attempt=1: lease_conflict: attempt has no active worker lease. Waiting for the kernel to retry it.
+ ✓ tests/authored-root.test.ts (42 tests) 493ms
+(node:52265) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/authored-status-detail.test.ts (23 tests) 212ms
+
+ Test Files  4 passed (4)
+      Tests  123 passed (123)
+   Start at  19:54:21
+   Duration  2.33s (transform 452ms, setup 23ms, collect 2.07s, tests 778ms, environment 0ms, prepare 148ms)

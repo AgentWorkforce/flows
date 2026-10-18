@@ -374,7 +374,11 @@ export async function verifyAuthoredNodeResult(
       if (indexed.length !== count || indexed.some(step => {
         const matching = claimed.get(step.step);
         return matching === undefined || step.state !== 'completed'
-          || step.runId !== matching.runId || step.completionReason !== matching.completionReason;
+          || step.runId !== matching.runId || step.completionReason !== matching.completionReason
+          || step.label !== matching.label || step.afterTruncated !== matching.afterTruncated
+          || (step.after === undefined ? matching.after !== undefined
+            : !Array.isArray(step.after) || !Array.isArray(matching.after) || step.after.length !== matching.after.length
+              || step.after.some((id, index) => id !== matching.after?.[index]));
       })) invalid('parallel index');
     }
     for (const [index, claimed] of [...ordered, ...gates].entries()) {

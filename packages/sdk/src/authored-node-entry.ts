@@ -2,6 +2,7 @@ import { FLOW_READ_BUDGET_MS, isReadInterruptionError } from './journal-read-pol
 import { Worker } from 'node:worker_threads';
 import { createHash, createHmac } from 'node:crypto';
 import { readFileSync, writeSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { JournalClient } from './journal-client.js';
 import { executeAuthoredFlow } from './authored-flow-executor.js';
 import { loadPinnedAuthoredSource } from './authored-source-authority.js';
@@ -81,9 +82,9 @@ try {
     if (createHash('sha256').update(bytes).digest('hex') !== request.metadata.sourceSha256) {
       throw new Error('authored root source authority mismatch');
     }
-    const { parallelPinnedSourceEligible, parallelBodySyntaxEligible } = await import('./authored-parallel-eligibility.js');
-    if (!parallelPinnedSourceEligible(bytes.toString('utf8'))
-      || !parallelBodySyntaxEligible(loaded.getDefinition(loaded.handle).body)) {
+    const { parallelLoadedBodyEligible } = await import('./authored-parallel-eligibility.js');
+    if (!await parallelLoadedBodyEligible(loaded.getDefinition(loaded.handle).body,
+      bytes.toString('utf8'), pathToFileURL(request.metadata.flowPath).href)) {
       throw new AuthoredFlowExecutionError('step_failed', 'parallel f.run body lost its source certificate');
     }
   }
