@@ -1,0 +1,1 @@
+{"ok":true,"command":"run","resolutions":[],"diagnostics":[],"path":"par.flow.ts","rootRunId":"01M57SMB30E9AD784XVP5T2X9S","runId":"01M57SMB30E9AD784XVP5T2X9S","socketPath":"/Users/khaliqgant/.agent-tmp/relayflowd-9fb8f3c4039e.sock","completedSteps":8,"status":"completed","completionReason":"success","subscriptions":[]}

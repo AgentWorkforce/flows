@@ -185,6 +185,25 @@ describe('durable authored root', () => {
     expect(journal.peer.completions).toEqual([{ attempt: 1, reason: 'success' }]);
   });
 
+  it('reports a serial admission reason only when operator diagnostics are enabled', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    journal.startStatus = outcome(journal.runId, 'completed', 'success');
+    journal.entries = [completedEntry()];
+    const previous = process.env['FLOWS_PARALLEL_DEBUG'];
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      process.env['FLOWS_PARALLEL_DEBUG'] = '1';
+      await executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+        { dataDir: '/unused', admissionKey: 'operator-diagnostic' });
+      expect(stderr).toHaveBeenCalledWith('[flows] parallel f.run admission: serial (source_certificate)\n');
+    } finally {
+      stderr.mockRestore();
+      if (previous === undefined) delete process.env['FLOWS_PARALLEL_DEBUG'];
+      else process.env['FLOWS_PARALLEL_DEBUG'] = previous;
+    }
+  });
+
   it('pins a certified Promise.all run body to parallel mode before dispatch', async () => {
     const body = async (f: Ctx) => {
       await Promise.all([f.run('printf a'), f.run('printf b')]);

@@ -1,11 +1,12 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { JournalClient } from '../src/journal-client.js';
 import { socketFor } from '../src/cli/run.js';
 import { assertAuthoredNodeVersion } from '../src/authored-runtime-capability.js';
+import { readAuthoredRootMetadata } from '../src/authored-root.js';
 
 const root = resolve('../..'), sdk = resolve('.');
 const fixtures: string[] = [];
@@ -15,7 +16,7 @@ const bun = process.env['FLOWS_BUILD_BUN'] ?? 'bun';
 const wrapperHelper = resolve('../../testdata/preflight/wrapper-session.mjs');
 
 beforeAll(() => {
-  expect(spawnSync(bun, ['--version'], { encoding: 'utf8' }).stdout.trim()).toBe('1.4.0');
+  expect(spawnSync(bun, ['--version'], { encoding: 'utf8' }).stdout.trim()).toMatch(/^1\.4\.\d+$/);
   expect(existsSync(daemon), 'build the current kernel or set RELAYFLOWD_BIN').toBe(true);
   stage = mkdtempSync(join(tmpdir(), 'authored-standalone-build-'));
   cli = join(stage, 'flows');
@@ -91,7 +92,36 @@ async function entries(directory: string, runId: string) {
   finally { client.close(); }
 }
 
-describe('Bun 1.4.0 standalone → native Node authored lifecycle', () => {
+describe('Bun 1.4.x standalone → native Node authored lifecycle', () => {
+  it('runs a certified Promise.all group in parallel through the embedded Node runner', async () => {
+    const f = fixture('');
+    writeFileSync(join(f.directory, 'case.flow.ts'), `import { flow } from '@relayflows/surface';
+export default flow('runtime-case', async f => {
+  const a = async () => { await f.run('touch a-start; sleep 2; touch a-end'); await f.run('touch a-dep'); };
+  const b = async () => { await f.run('touch b-start; sleep 2; touch b-end'); await f.run('touch b-dep'); };
+  const c = async () => { await f.run('touch c-start; sleep 2; touch c-end'); await f.run('touch c-dep'); };
+  await Promise.all([a(), b(), c()]);
+  await f.run('touch joined');
+  f.done('success');
+});
+`);
+    const first = f.run();
+    expect(first.status, first.stderr + first.stdout).toBe(0);
+    const report = JSON.parse(first.stdout) as { runId: string };
+    const reader = new JournalClient(socketFor(join(f.directory, 'data')));
+    await reader.connect(); await reader.hello('standalone-parallel-test');
+    try {
+      expect(await readAuthoredRootMetadata(reader, report.runId))
+        .toMatchObject({ executionMode: 'parallel', identityVersion: 2 });
+    } finally { reader.close(); }
+    const timestamp = (name: string) => statSync(join(f.directory, name)).mtimeMs;
+    const starts = ['a', 'b', 'c'].map(name => timestamp(`${name}-start`));
+    const ends = ['a', 'b', 'c'].map(name => timestamp(`${name}-end`));
+    expect(Math.max(...starts)).toBeLessThan(Math.min(...ends));
+    for (const name of ['a', 'b', 'c']) expect(timestamp(`${name}-dep`)).toBeGreaterThanOrEqual(timestamp(`${name}-end`));
+    expect(existsSync(join(f.directory, 'joined'))).toBe(true);
+  }, 120_000);
+
   it('serializes the immutable prepared binding facts through the Node and CLI boundary', () => {
     const f = fixture(`const activity=f.on(webhook('github_pull_request',{action:'opened',repository:{id:7}}),{settle:'2m',idle:'1h',deadline:'1d',includeSelf:true});await activity.next();f.done('success');`);
     const result = f.run(); expect(result.status, result.stderr + result.stdout).toBe(4);

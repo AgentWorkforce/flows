@@ -95,14 +95,27 @@ export async function executeDurableAuthoredFlow(
   })));
   const definition = loaded.getDefinition(loaded.handle);
   let parallelEligible = false;
-  if (loaded.graph.length === 1 && (loaded.extensions?.length ?? 0) === 0
-    && definition.header.budget === undefined && parallelPromiseIntrinsicsIntact()) {
+  let parallelIneligibleReason: string | undefined;
+  if (loaded.graph.length !== 1) parallelIneligibleReason = 'source_graph';
+  else if ((loaded.extensions?.length ?? 0) !== 0) parallelIneligibleReason = 'extensions';
+  else if (definition.header.budget !== undefined) parallelIneligibleReason = 'shared_budget';
+  else if (!parallelPromiseIntrinsicsIntact()) parallelIneligibleReason = 'runtime_intrinsics';
+  else {
     // The parser is needed only for an authored run, never for an ordinary
     // CLI check or watch reload. Recheck intrinsics after the async import;
     // author code could have replaced them while it was loading.
-    const { parallelRunEligible } = await import('./authored-parallel-eligibility.js');
+    const { parallelRunEligible, parallelPinnedSourceEligible } = await import('./authored-parallel-eligibility.js');
     parallelEligible = parallelPromiseIntrinsicsIntact()
-      && parallelRunEligible(definition.body, source.toString('utf8'));
+      && (process.versions['bun'] === undefined
+        ? parallelRunEligible(definition.body, source.toString('utf8'))
+        : parallelPinnedSourceEligible(source.toString('utf8')));
+    if (!parallelEligible) parallelIneligibleReason = parallelPromiseIntrinsicsIntact()
+      ? 'source_certificate' : 'runtime_intrinsics';
+  }
+  // Opt-in operator diagnostic only: changing root metadata would change its
+  // admission spec hash and could disrupt a 2.0.52 in-flight serial root.
+  if (parallelIneligibleReason !== undefined && process.env['FLOWS_PARALLEL_DEBUG'] === '1') {
+    process.stderr.write(`[flows] parallel f.run admission: serial (${parallelIneligibleReason})\n`);
   }
   const executionMode = parallelEligible ? 'parallel' : 'serial';
   const metadata: AuthoredRootMetadata = Object.freeze({

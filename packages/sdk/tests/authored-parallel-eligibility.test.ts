@@ -1,11 +1,34 @@
 import { describe, expect, it } from 'vitest';
-import { parallelRunEligible } from '../src/authored-parallel-eligibility.js';
+import { parallelPinnedSourceEligible, parallelRunEligible } from '../src/authored-parallel-eligibility.js';
 
 const body = (source: string): Function => new Function(`return (${source});`)() as Function;
 const eligible = (candidate: Function, moduleSource = `import { flow } from '@relayflows/surface';\nexport default flow('probe', ${Function.prototype.toString.call(candidate)});`) =>
   parallelRunEligible(candidate, moduleSource);
 
 describe('parallel run admission', () => {
+  it('certifies the pinned standalone source while retaining the closed module grammar', () => {
+    const source = `import { flow } from '@relayflows/surface';
+export default flow('hosted', async f => {
+  const a = async () => { await f.run('A'); await f.run('a-dep'); };
+  const b = async () => { await f.run('B'); await f.run('b-dep'); };
+  await Promise.all([a(), b()]);
+  await f.run('join');
+  f.done('success');
+});`;
+    const reformatted = body(`async (f) => {
+      const a = async () => { await f.run("A"); await f.run("a-dep"); },
+        b = async () => { await f.run("B"); await f.run("b-dep"); };
+      await Promise.all([a(), b()]); await f.run("join"); f.done("success");
+    }`);
+    // Bun emits this kind of reformatted Function.toString body. The Node CLI
+    // keeps its exact body/source identity requirement.
+    expect(parallelRunEligible(reformatted, source)).toBe(false);
+    expect(parallelPinnedSourceEligible(source)).toBe(true);
+    expect(parallelPinnedSourceEligible(source.replace("import { flow }", "import { flow, webhook }"))).toBe(false);
+    expect(parallelPinnedSourceEligible(`${source}\nconst Promise = globalThis.Promise;`)).toBe(false);
+    expect(parallelPinnedSourceEligible(source.replace('Promise.all', 'Promise.race'))).toBe(false);
+  });
+
   it('certifies direct Promise.all and awaited branch continuations', () => {
     expect(eligible(body(`async f => {
       const outputs = await Promise.all([f.run('a'), f.run('b')]);
