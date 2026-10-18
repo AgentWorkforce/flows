@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { createProjection } from './projection.js';
 import { brokerEnvironment } from './environment.js';
 import { relayCredential, runTokenAgents, runTokenProvider } from './run-token.js';
+import { AgentTokenSession, rotatingMessaging } from './agent-token.js';
 
 export interface RelayEvent { kind: string; name?: string; event_id?: string; delivery_id?: string; verification?: string; [key: string]: unknown }
 export interface RelayHandle {
@@ -92,19 +93,25 @@ async function createRuntime(dataDir: string, runId: string): Promise<RelayRunti
   const publisher = `${prefix}-journal`;
   const registration = await workspace.register({ name: publisher, type: 'agent' });
   let broker: RelayBroker | undefined;
+  // Run-token mode: the journal agent's at_live_ expires (relaycast#550), so it
+  // is rotated in memory and the messaging client follows the current token.
+  const session = credential.kind === 'run-token' ? new AgentTokenSession(publisher, registration, baseUrl) : undefined;
+  const release = async () => { session?.stop(); await workspace.delete(publisher); };
   try {
-    const messaging = new RelaycastMessagingClient({ ...(credential.kind === 'workspace-key'
-      ? { workspaceKey: credential.workspaceKey } : {}), ...baseUrl, agentToken: registration.token });
+    session?.start();
+    const messaging = credential.kind === 'workspace-key'
+      ? new RelaycastMessagingClient({ workspaceKey: credential.workspaceKey, ...baseUrl, agentToken: registration.token })
+      : rotatingMessaging(session!, agentToken => new RelaycastMessagingClient({ ...baseUrl, agentToken }));
     const cwd = join(dataDir, 'communication', prefix);
     await mkdir(cwd, { recursive: true, mode: 0o700 });
     broker = await HarnessDriverClient.spawn({ ...brokerCredential, brokerName: prefix, cwd, channels: [],
       ...(process.env.RELAYFLOW_RELAY_BROKER_BIN ? { binaryPath: process.env.RELAYFLOW_RELAY_BROKER_BIN } : {}),
       env: brokerEnvironment(process.env) });
     return { broker, messaging, prefix, channel, project: createProjection(messaging, channel, runId), close: async () => {
-      try { await broker!.shutdown(); } finally { await workspace.delete(publisher); }
+      try { await broker!.shutdown(); } finally { await release(); }
     } };
   } catch (error) {
-    try { await broker?.shutdown(); } finally { await workspace.delete(publisher); }
+    try { await broker?.shutdown(); } finally { await release(); }
     throw error;
   }
 }

@@ -77,8 +77,9 @@ export function runTokenProvider(file: string): () => Promise<string> {
   };
 }
 
+export interface AgentRegistration { token: string; tokenExpiresAt?: string }
 export interface RunTokenAgents {
-  register(input: { name: string; type: string }): Promise<{ token: string }>;
+  register(input: { name: string; type: string }): Promise<AgentRegistration>;
   delete(name: string): Promise<void>;
 }
 
@@ -88,31 +89,55 @@ export interface RunTokenAgents {
  * `rt_live_` (relaycast#559). The Agent Relay messaging client takes one
  * static credential at construction, so it cannot re-read a rotating file.
  */
+export function relaycastBaseUrl(baseUrl?: string): string {
+  return (baseUrl?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, '');
+}
+
+/** A Relaycast HTTP failure. Carries status and code only, never a credential. */
+export class RelaycastHttpError extends Error {
+  constructor(readonly method: string, readonly path: string, readonly status: number, readonly code: string) {
+    super(`Relaycast ${method} ${path} failed (${status} ${code}).`);
+  }
+}
+
+/** One envelope-aware Relaycast request authenticated by `token`. */
+export async function relaycastRequest(doFetch: typeof fetch, base: string, token: string,
+  method: string, path: string, body?: unknown): Promise<unknown> {
+  const response = await doFetch(`${base}${path}`, {
+    method,
+    headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  if (response.status === 204) return undefined;
+  let envelope: { ok?: unknown; data?: unknown; error?: { code?: unknown; message?: unknown } } | undefined;
+  try { envelope = await response.json() as typeof envelope; } catch { envelope = undefined; }
+  if (response.ok && envelope?.ok === true) return envelope.data;
+  const code = typeof envelope?.error?.code === 'string' ? envelope.error.code : 'unexpected_response';
+  throw new RelaycastHttpError(method, path, response.status, code);
+}
+
 export function runTokenAgents(credential: () => Promise<string>,
   options: { baseUrl?: string; fetch?: typeof fetch } = {}): RunTokenAgents {
-  const base = (options.baseUrl?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, '');
+  const base = relaycastBaseUrl(options.baseUrl);
   const doFetch = options.fetch ?? fetch;
+  // A 401 can mean Cloud rotated the file between our read and the request;
+  // retry once, and the provider re-reads the file for the retry.
   async function call(method: string, path: string, body?: unknown): Promise<unknown> {
-    const token = await credential();
-    const response = await doFetch(`${base}${path}`, {
-      method,
-      headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
-    if (response.status === 204) return undefined;
-    let envelope: { ok?: unknown; data?: unknown; error?: { code?: unknown; message?: unknown } } | undefined;
-    try { envelope = await response.json() as typeof envelope; } catch { envelope = undefined; }
-    if (response.ok && envelope?.ok === true) return envelope.data;
-    const code = typeof envelope?.error?.code === 'string' ? envelope.error.code : 'unexpected_response';
-    throw new Error(`Relaycast ${method} ${path} failed (${response.status} ${code}).`);
+    try {
+      return await relaycastRequest(doFetch, base, await credential(), method, path, body);
+    } catch (error) {
+      if (!(error instanceof RelaycastHttpError) || error.status !== 401) throw error;
+      return relaycastRequest(doFetch, base, await credential(), method, path, body);
+    }
   }
   return {
     async register(input) {
-      const data = await call('POST', '/v1/agents', input) as { token?: unknown } | undefined;
+      const data = await call('POST', '/v1/agents', input) as { token?: unknown; token_expires_at?: unknown } | undefined;
       if (typeof data?.token !== 'string' || !data.token) {
         throw new Error('Relaycast POST /v1/agents returned no agent token.');
       }
-      return { token: data.token };
+      return { token: data.token,
+        ...(typeof data.token_expires_at === 'string' ? { tokenExpiresAt: data.token_expires_at } : {}) };
     },
     async delete(name) {
       await call('DELETE', `/v1/agents/${encodeURIComponent(name)}`);
