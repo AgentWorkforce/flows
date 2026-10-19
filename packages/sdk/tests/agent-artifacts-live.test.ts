@@ -32,7 +32,19 @@ function resolveDaemon(): string {
   }
 }
 
-afterEach(() => {
+/** Poll until `pid` is gone; give up quietly after `ms` and let the retried rm cope. */
+async function untilExited(pid: number, ms = 10_000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    try { process.kill(pid, 0); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') return;
+      throw error;
+    }
+    await new Promise(done => setTimeout(done, 25));
+  }
+}
+
+afterEach(async () => {
   for (const root of roots.splice(0)) {
     const connection = join(root, 'data/connection.json');
     if (existsSync(connection)) {
@@ -41,9 +53,13 @@ afterEach(() => {
         try { process.kill(pid, 'SIGTERM'); } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
         }
+        // The daemon is not our child, so there is no exit event. Removing its
+        // data dir while it is still writing races it: an entry created after
+        // rm's readdir fails the final rmdir with ENOTEMPTY.
+        await untilExited(pid);
       }
     }
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 5 });
   }
 });
 
