@@ -2066,6 +2066,65 @@ is derived from the run id alone, so it is present even when the evidence could
 not be read or the failure shape was not recognised — a failure the CLI cannot
 explain still says where the record is rather than ending the trail.
 
+### Hosted completion signals: `@relayflows/surface/signals`
+
+```ts
+import { flow } from "@relayflows/surface";
+import { waitForSignal } from "@relayflows/surface/signals";
+
+export default flow("native-build", async (f) => {
+  await f.run("./scripts/kick-off-native-build.sh");
+  const done = (await waitForSignal("native_done")) as { artifactUrl: string };
+  await f.run(`curl -fsSL '${done.artifactUrl}' -o native.zip`);
+  f.done("success");
+});
+```
+
+`waitForSignal(name, options?)` waits on a hosted run's completion signal and
+returns the JSON `payload` some other system posted for that name (for
+example CI calling the SDK's `postCloudSignal` with a `workflow:invoke:write`
+token). It lives in Surface, not the SDK, because a hosted Cloud run
+materializes only the pinned `@relayflows/surface` next to the flow source;
+the subpath imports nothing beyond Node built-ins and calls Cloud with the
+global `fetch`.
+
+Call it **in the authored body**. Cloud gives only the authored process the
+run-bound, GET-only signal-read token; `f.run` children, the daemon, and
+agents never receive it, so a command that tries to wait from inside a step
+has no credential. Defaults, each overridable through `options`:
+
+| Option | Default |
+|---|---|
+| `runId` | `RELAYFLOW_V2_CLOUD_RUN_ID`, Cloud's run ID (not the engine's `RELAYFLOW_RUN_ID`) |
+| `token` | `RELAYFLOW_V2_SIGNAL_READ_TOKEN` |
+| `apiUrl` | `FLOWS_CLOUD_URL`, else `https://agentrelay.com/cloud` |
+| `waitMs` | `25000` (per held request; 0–25000) |
+| `requestTimeoutMs` | `30000` (must exceed `waitMs`) |
+| `signal` | none: the wait has no overall deadline; pass `AbortSignal.timeout(ms)` to bound it |
+
+The wire behaviour is the one `@relayflows/sdk`'s `waitForCloudSignal` uses,
+which now delegates here: names match `^[A-Za-z0-9_-]{1,80}$` and run IDs
+`^[A-Za-z0-9_-]{1,128}$` before any request; each GET is held for `waitMs`; a
+`204` re-arms, after a 250 ms backoff doubling to a 5 s cap when Cloud answers
+in under a second (reset after a normally held `204`). Failures are a
+`SignalError` with a `code`: the caller's abort reason is rethrown unchanged;
+the per-request deadline and connection resets are `transient_error`; other
+network failures `transport_error`; a non-2xx is `http_error` (response bodies
+are never echoed); malformed JSON or a body without `payload` and a numeric
+`acceptedAt` is `invalid_response`; a missing run ID, token, or bad URL is
+`configuration`.
+
+The wait is not a journaled step. On resume the body calls it again; a read
+does not consume the signal, so Cloud answers with the same stored payload
+until the signal expires. A module
+that imports anything besides `{ flow }` from `@relayflows/surface` is not
+certified for parallel `Promise.all` branches, so a flow that imports this
+subpath runs its `f.run` groups on the serial scheduler.
+
+Hosted availability needs a Cloud runtime that pins a Surface with this
+subpath and whose Bun compatibility envelope exports `./signals`; locally, the
+helper works anywhere you pass `runId` and `token`.
+
 ## 6. The gate contract, and remaining open surface questions
 
 The data/code split is settled: Relayflows does not have a serializable
