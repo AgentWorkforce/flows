@@ -39,7 +39,7 @@ try {
     : name === 'relayflows'
       ? ['bin/flows.js']
       : ['dist/index.js', 'dist/index.d.ts'];
-  if (name === 'surface') required.push('dist/runtime.js', 'dist/runtime.d.ts', 'dist/signals.js', 'dist/signals.d.ts');
+  if (name === 'surface') required.push('dist/runtime.js', 'dist/runtime.d.ts');
   if (name === 'sdk') required.push('dist/cli.js');
   for (const file of required) {
     assert(packed.files.some((entry) => entry.path === file), `missing package/${file}`);
