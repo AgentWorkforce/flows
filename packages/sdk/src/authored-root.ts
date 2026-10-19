@@ -3,10 +3,11 @@ import { loadPinnedAuthoredSource } from './authored-source-authority.js';
 import { assertAuthoredRuntimeAvailable, runAuthoredInNode } from './authored-node-runner.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import { canonicalize } from './canonical.js';
 import { compileSpec, toKernelSpec } from './compile.js';
 import { executeAuthoredFlow, type AuthoredFlowExecutionResult, type AuthoredFlowSuspendedResult } from './authored-flow-executor.js';
-import { AUTHORED_PARALLEL_ROOT_KIND, AUTHORED_ROOT_KIND } from './authored-verdict.js';
+import { AUTHORED_PARALLEL_ROOT_KIND, AUTHORED_PARALLEL_ROOT_KIND_V3, AUTHORED_ROOT_KIND } from './authored-verdict.js';
 import {
   loadAuthoredFlow,
   type LoadedAuthoredFlow,
@@ -43,7 +44,7 @@ export interface AuthoredRootExtension {
 }
 
 export interface AuthoredRootMetadata {
-  readonly kind: typeof ROOT_KIND | typeof AUTHORED_PARALLEL_ROOT_KIND;
+  readonly kind: typeof ROOT_KIND | typeof AUTHORED_PARALLEL_ROOT_KIND | typeof AUTHORED_PARALLEL_ROOT_KIND_V3;
   readonly flowName: string;
   readonly flowPath: string;
   readonly sourceSha256: string;
@@ -95,18 +96,34 @@ export async function executeDurableAuthoredFlow(
   })));
   const definition = loaded.getDefinition(loaded.handle);
   let parallelEligible = false;
-  if (loaded.graph.length === 1 && (loaded.extensions?.length ?? 0) === 0
-    && definition.header.budget === undefined && parallelPromiseIntrinsicsIntact()) {
+  let parallelIneligibleReason: string | undefined;
+  if (loaded.graph.length !== 1) parallelIneligibleReason = 'source_graph';
+  else if ((loaded.extensions?.length ?? 0) !== 0) parallelIneligibleReason = 'extensions';
+  else if (definition.header.budget !== undefined) parallelIneligibleReason = 'shared_budget';
+  else if (!parallelPromiseIntrinsicsIntact()) parallelIneligibleReason = 'runtime_intrinsics';
+  else {
     // The parser is needed only for an authored run, never for an ordinary
     // CLI check or watch reload. Recheck intrinsics after the async import;
     // author code could have replaced them while it was loading.
-    const { parallelRunEligible } = await import('./authored-parallel-eligibility.js');
+    const { parallelLoadedBodyEligible, parallelPinnedSourceEligible } = await import('./authored-parallel-eligibility.js');
     parallelEligible = parallelPromiseIntrinsicsIntact()
-      && parallelRunEligible(definition.body, source.toString('utf8'));
+      && (process.versions['bun'] === undefined
+        // Native imports strip by default, or transform with Node's opt-in
+        // flag. Require exact identity with one of those loader outputs.
+        ? await parallelLoadedBodyEligible(definition.body, source.toString('utf8'), pathToFileURL(loaded.sourcePath).href, 'strip')
+          || await parallelLoadedBodyEligible(definition.body, source.toString('utf8'), pathToFileURL(loaded.sourcePath).href, 'transform')
+        : parallelPinnedSourceEligible(source.toString('utf8')));
+    if (!parallelEligible) parallelIneligibleReason = parallelPromiseIntrinsicsIntact()
+      ? 'source_certificate' : 'runtime_intrinsics';
+  }
+  // Opt-in operator diagnostic only: changing root metadata would change its
+  // admission spec hash and could disrupt a 2.0.52 in-flight serial root.
+  if (parallelIneligibleReason !== undefined && process.env['FLOWS_PARALLEL_DEBUG'] === '1') {
+    process.stderr.write(`[flows] parallel f.run admission: serial (${parallelIneligibleReason})\n`);
   }
   const executionMode = parallelEligible ? 'parallel' : 'serial';
   const metadata: AuthoredRootMetadata = Object.freeze({
-    kind: executionMode === 'parallel' ? AUTHORED_PARALLEL_ROOT_KIND : ROOT_KIND,
+    kind: executionMode === 'parallel' ? AUTHORED_PARALLEL_ROOT_KIND_V3 : ROOT_KIND,
     flowName: definition.name,
     flowPath: loaded.sourcePath,
     sourceSha256: sha256(source),
@@ -648,8 +665,9 @@ function isRootMetadata(value: unknown): value is AuthoredRootMetadata {
   const root = value as Partial<AuthoredRootMetadata>;
   const surface = root.surface as Partial<SurfaceModuleAuthority> | undefined;
   const sources = root.sources;
-  return (root.kind === ROOT_KIND || root.kind === AUTHORED_PARALLEL_ROOT_KIND)
-    && (root.kind !== AUTHORED_PARALLEL_ROOT_KIND
+  return (root.kind === ROOT_KIND || root.kind === AUTHORED_PARALLEL_ROOT_KIND
+      || root.kind === AUTHORED_PARALLEL_ROOT_KIND_V3)
+    && (root.kind === ROOT_KIND
       || (root.identityVersion === 2 && root.executionMode === 'parallel'))
     && typeof root.flowName === 'string'
     && typeof root.flowPath === 'string' && /^[a-f0-9]{64}$/.test(root.sourceSha256 ?? '')

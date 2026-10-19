@@ -2,6 +2,7 @@ import { FLOW_READ_BUDGET_MS, isReadInterruptionError } from './journal-read-pol
 import { Worker } from 'node:worker_threads';
 import { createHash, createHmac } from 'node:crypto';
 import { readFileSync, writeSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { JournalClient } from './journal-client.js';
 import { executeAuthoredFlow } from './authored-flow-executor.js';
 import { loadPinnedAuthoredSource } from './authored-source-authority.js';
@@ -73,6 +74,20 @@ try {
   // NODE_OPTIONS remain the child's inherited values.
   const agentEnvironment = validatedLocalAgentEnvironment(request.agentEnvironment);
   const loaded = await loadPinnedAuthoredSource(request.metadata, true);
+  if (request.metadata.identityVersion === 2 && request.metadata.executionMode === 'parallel') {
+    // Bun admitted the root from the source AST because its Function.toString
+    // is reformatted. Reconfirm that exact source and the Node-loaded body
+    // before executing any child. A changed file or a changed body fails closed.
+    const bytes = readFileSync(request.metadata.flowPath);
+    if (createHash('sha256').update(bytes).digest('hex') !== request.metadata.sourceSha256) {
+      throw new Error('authored root source authority mismatch');
+    }
+    const { parallelLoadedBodyEligible } = await import('./authored-parallel-eligibility.js');
+    if (!await parallelLoadedBodyEligible(loaded.getDefinition(loaded.handle).body,
+      bytes.toString('utf8'), pathToFileURL(request.metadata.flowPath).href, 'transform')) {
+      throw new AuthoredFlowExecutionError('step_failed', 'parallel f.run body lost its source certificate');
+    }
+  }
   if (request.localAgentStream !== request.metadata.localAgentStream) throw new Error('authored root local agent surface mismatch');
   if (request.workerCapacity !== undefined && !isAgentCapacity(request.workerCapacity)) throw new Error('invalid authored worker capacity');
   client = new JournalClient(request.socketPath, { readBudgetMs: FLOW_READ_BUDGET_MS, budgetHandshake: true });

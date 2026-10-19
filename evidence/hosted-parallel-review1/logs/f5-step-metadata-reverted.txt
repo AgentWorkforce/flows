@@ -1,0 +1,71 @@
+--- authored-node-runner.ts
++++ authored-node-runner.ts (reverted)
+@@ -374,11 +374,7 @@
+       if (indexed.length !== count || indexed.some(step => {
+         const matching = claimed.get(step.step);
+         return matching === undefined || step.state !== 'completed'
+-          || step.runId !== matching.runId || step.completionReason !== matching.completionReason
+-          || step.label !== matching.label || step.afterTruncated !== matching.afterTruncated
+-          || (step.after === undefined ? matching.after !== undefined
+-            : !Array.isArray(step.after) || !Array.isArray(matching.after) || step.after.length !== matching.after.length
+-              || step.after.some((id, index) => id !== matching.after?.[index]));
++          || step.runId !== matching.runId || step.completionReason !== matching.completionReason;
+       })) invalid('parallel index');
+     }
+     for (const [index, claimed] of [...ordered, ...gates].entries()) {
+
+$ cd packages/sdk
+$ FLOWS_2052_SDK=/tmp/ms-boot-2052-npm/node_modules/@relayflows/sdk /Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node node_modules/vitest/vitest.mjs run tests/authored-node-result.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/hosted-parallel/packages/sdk
+
+ ❯ tests/authored-node-result.test.ts (53 tests | 7 failed) 15ms
+   × authored IPC result durable verification > checks forged edges causal parallel claims against the durable root index 3ms
+     → promise resolved "undefined" instead of rejecting
+   × authored IPC result durable verification > checks missing edges causal parallel claims against the durable root index 0ms
+     → promise resolved "undefined" instead of rejecting
+   × authored IPC result durable verification > checks extra edge causal parallel claims against the durable root index 0ms
+     → promise resolved "undefined" instead of rejecting
+   × authored IPC result durable verification > checks missing truncation causal parallel claims against the durable root index 0ms
+     → promise resolved "undefined" instead of rejecting
+   × authored IPC result durable verification > checks false truncation causal parallel claims against the durable root index 0ms
+     → promise resolved "undefined" instead of rejecting
+   × authored IPC result durable verification > checks forged label causal parallel claims against the durable root index 0ms
+     → promise resolved "undefined" instead of rejecting
+   × authored IPC result durable verification > checks missing label causal parallel claims against the durable root index 0ms
+     → promise resolved "undefined" instead of rejecting
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-node-result.test.ts > authored IPC result durable verification > checks forged edges causal parallel claims against the durable root index
+ FAIL  tests/authored-node-result.test.ts > authored IPC result durable verification > checks missing edges causal parallel claims against the durable root index
+ FAIL  tests/authored-node-result.test.ts > authored IPC result durable verification > checks extra edge causal parallel claims against the durable root index
+ FAIL  tests/authored-node-result.test.ts > authored IPC result durable verification > checks missing truncation causal parallel claims against the durable root index
+ FAIL  tests/authored-node-result.test.ts > authored IPC result durable verification > checks false truncation causal parallel claims against the durable root index
+ FAIL  tests/authored-node-result.test.ts > authored IPC result durable verification > checks forged label causal parallel claims against the durable root index
+ FAIL  tests/authored-node-result.test.ts > authored IPC result durable verification > checks missing label causal parallel claims against the durable root index
+AssertionError: promise resolved "undefined" instead of rejecting
+
+- Expected: 
+[Error: rejected promise]
+
++ Received: 
+undefined
+
+ ❯ tests/authored-node-result.test.ts:79:128
+     77|       const altered = { ...claimed, journalSteps:claimed.journalSteps.…
+     78|         index === 2 ? { ...step, ...forged } : step) };
+     79|       await expect(verifyAuthoredNodeResult(altered as unknown as Auth…
+       |                                                                                                                                ^
+     80|         .rejects.toThrow('no matching durable completion');
+     81|       return;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ Test Files  1 failed (1)
+      Tests  7 failed | 46 passed (53)
+   Start at  20:13:08
+   Duration  272ms (transform 92ms, setup 9ms, collect 154ms, tests 15ms, environment 0ms, prepare 21ms)
+
+
+exit_code=1

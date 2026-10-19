@@ -1,0 +1,18 @@
+Restored byte-for-byte: authored-parallel-eligibility.ts
+sha256=0f24a8da7b18cee3bae52415507332a99a109eb3c182c951d35b6ec2eab9bafb
+$ cd packages/sdk
+$ FLOWS_2052_SDK=/tmp/ms-boot-2052-npm/node_modules/@relayflows/sdk /Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node node_modules/vitest/vitest.mjs run tests/authored-parallel-eligibility.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/hosted-parallel/packages/sdk
+
+(node:61736) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/authored-parallel-eligibility.test.ts (13 tests) 61ms
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  20:12:59
+   Duration  447ms (transform 51ms, setup 9ms, collect 283ms, tests 61ms, environment 0ms, prepare 20ms)
+
+
+exit_code=0

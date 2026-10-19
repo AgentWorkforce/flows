@@ -20,6 +20,7 @@ import type {
 import { HUMAN_WAIT_ID } from './authored-human.js';
 import { assertAuthoredPromiseHooks } from './authored-runtime-capability.js';
 import { settlingCompletion } from './step-settling.js';
+import { readAuthoredStepIndex } from './authored-step-index.js';
 import { isTransportRetries } from './validate.js';
 
 let embeddedSource: string | undefined;
@@ -347,10 +348,16 @@ export async function verifyAuthoredNodeResult(
   const authored = result.journalSteps.filter(step => typeof step?.id === 'string' && !isGate(step.id));
   const gates = result.journalSteps.filter(step => typeof step?.id === 'string' && isGate(step.id));
   if (!Number.isSafeInteger(count) || authored.length !== count || isGate(terminal.id)) invalid(`count ${authored.length}!=${count}`);
+  const parallel = metadata.identityVersion === 2 && metadata.executionMode === 'parallel';
   const ordinal = (id: string): number => Number(/-([1-9][0-9]*)$/.exec(id)?.[1]);
-  // Parallel awaits may finish in either order; validate a copy in declaration order.
-  const ordered = [...authored].sort((a,b)=>ordinal(a.id)-ordinal(b.id));
+  // Serial ids have one global ordinal. Parallel ids have one ordinal per
+  // causal predecessor, so several valid siblings end in `-1`. Validate the
+  // complete parallel claim against the root's durable child index instead.
+  const ordered = parallel ? [...authored] : [...authored].sort((a,b)=>ordinal(a.id)-ordinal(b.id));
   const authoredIds = new Set(ordered.map(step => step.id));
+  if (parallel && (gates.length !== 0 || authoredIds.size !== count
+    || ordered.some(step => step === terminal ? !/^complete-[1-9][0-9]*$/u.test(step.id)
+      : !/^run-(?:[1-9][0-9]*|after-[a-f0-9]{64}-[1-9][0-9]*)$/u.test(step.id)))) invalid('parallel ids');
   for (const gate of gates) {
     if (!authoredIds.has(gate.id.slice(0, -'.gate'.length))) invalid(`orphan ${gate.id}`);
   }
@@ -361,9 +368,23 @@ export async function verifyAuthoredNodeResult(
   await journal.connect();
   try {
     await journal.hello('flows-authored-result-verifier');
+    if (parallel) {
+      const indexed = await readAuthoredStepIndex(journal, rootRunId);
+      const claimed = new Map(ordered.map(step => [step.id, step]));
+      if (indexed.length !== count || indexed.some(step => {
+        const matching = claimed.get(step.step);
+        return matching === undefined || step.state !== 'completed'
+          || step.runId !== matching.runId || step.completionReason !== matching.completionReason
+          || step.label !== matching.label || step.afterTruncated !== matching.afterTruncated
+          || (step.after === undefined ? matching.after !== undefined
+            : !Array.isArray(step.after) || !Array.isArray(matching.after) || step.after.length !== matching.after.length
+              || step.after.some((id, index) => id !== matching.after?.[index]));
+      })) invalid('parallel index');
+    }
     for (const [index, claimed] of [...ordered, ...gates].entries()) {
       if (!claimed || typeof claimed.id !== 'string' || typeof claimed.runId !== 'string'
-        || (index < ordered.length && ordinal(claimed.id) !== index+1) || !['success', 'timeout'].includes(claimed.completionReason)
+        || (!parallel && index < ordered.length && ordinal(claimed.id) !== index+1)
+        || !['success', 'timeout'].includes(claimed.completionReason)
         || runs.has(claimed.runId)) invalid(`claim ${claimed?.id}`);
       runs.add(claimed.runId);
       const state = await journal.runGet(claimed.runId);

@@ -989,8 +989,10 @@ preload, or with an already replaced Promise or Array iterator intrinsic, also
 admits new roots in serial mode. Generated arrays such as `Array.from` use serial
 mode. Branches may not mutate shared values, await timers or other promises,
 or call `f.done`; completion belongs at the end of
-the root body. The check is conservative: an unrecognized source form uses
-serial mode even when its author knows it would be safe. In parallel mode,
+the root body. TypeScript annotations on the body parameter, awaited values,
+and branch return types are allowed when the type-stripped body loaded by Node
+matches the certified source exactly. The check is conservative: an unrecognized
+source form uses serial mode even when its author knows it would be safe. In parallel mode,
 each deterministic child uses its own journal connection because the
 daemon handles requests on one connection in order and `run.start` returns
 only after its command exits. An authored body admits at most eight
@@ -1034,10 +1036,12 @@ failure and capacity rules.
 resume in serial compatibility mode, preserving their `kind-N` step ids
 and shared connection. Completed child effects remain bound to their original
 admission keys, including follow-ups after a `Promise.all` join.
-New parallel roots carry a distinct root kind. A 2.0.50 or 2.0.51 CLI refuses one on
-rollback, leaving it resumable by this or a newer CLI rather than replaying
-parallel follow-ups with old `run-N` identities. New serial roots retain the
-original root kind and serial IDs. An active pinned parallel root resumed in a
+New 2.0.53 parallel roots carry the `parallel.v3` root kind. A 2.0.52 or older
+CLI refuses one before dispatch on rollback, leaving it resumable by a 2.0.53
+or newer CLI. The 2.0.53 CLI can still resume earlier `parallel.v2` roots.
+Cloud must keep a 2.0.53-capable artifact available for every active
+`parallel.v3` root; rollback cannot resume those roots on 2.0.52. New serial
+roots retain the original root kind and serial IDs. An active pinned parallel root resumed in a
 process with a Node preload or altered Promise or Array iterator intrinsic is
 refused before dispatch and remains resumable in a clean process. A completed
 root reports its journaled result without dispatching new work.

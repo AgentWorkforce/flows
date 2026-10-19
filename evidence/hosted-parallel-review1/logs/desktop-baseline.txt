@@ -1,0 +1,52 @@
+$ cd packages/sdk
+$ node node_modules/vitest/vitest.mjs run tests/authored-parallel-eligibility.test.ts tests/authored-node-result.test.ts tests/authored-root.test.ts tests/authored-status-detail.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/hosted-parallel/packages/sdk
+
+(node:58685) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:58685) [FLOWS_ROOT_LEASE_LOST] Warning: authored root run_id=root-run attempt=1: lease_conflict: attempt has no active worker lease. Waiting for the kernel to retry it.
+ ❯ tests/authored-root.test.ts (42 tests | 1 failed) 451ms
+   × durable authored root > pins a certified Promise.all run body to parallel mode before dispatch 2ms
+     → The property 'options.mode' must be one of: 'strip'. Received 'transform'
+ ✓ tests/authored-node-result.test.ts (46 tests) 9ms
+(node:58697) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ tests/authored-parallel-eligibility.test.ts (12 tests | 1 failed) 18ms
+   × parallel run admission > matches the Node-loaded body to transformed source, including TypeScript annotations 1ms
+     → The property 'options.mode' must be one of: 'strip'. Received 'transform'
+ ✓ tests/authored-status-detail.test.ts (23 tests) 193ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-parallel-eligibility.test.ts > parallel run admission > matches the Node-loaded body to transformed source, including TypeScript annotations
+TypeError: The property 'options.mode' must be one of: 'strip'. Received 'transform'
+ ❯ tests/authored-parallel-eligibility.test.ts:44:31
+     42|     for (const candidate of bodies) {
+     43|       const source = `import { flow } from '@relayflows/surface';\nexp…
+     44|       const transformedBody = stripTypeScriptTypes(candidate, { mode: …
+       |                               ^
+     45|       const loaded = new Function(`return ${transformedBody}`)() as Fu…
+     46|       expect(parallelPinnedSourceEligible(source), candidate).toBe(tru…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified Promise.all run body to parallel mode before dispatch
+TypeError: The property 'options.mode' must be one of: 'strip'. Received 'transform'
+ ❯ tests/authored-root.test.ts:216:25
+    214|     }`;
+    215|     const source = `import { flow } from '@relayflows/surface';\nexpor…
+    216|     const transformed = stripTypeScriptTypes(source, { mode: 'transfor…
+       |                         ^
+    217|     const file = ts.createSourceFile('flagship.js', transformed, ts.Sc…
+    218|     const exported = file.statements[1] as ts.ExportAssignment;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+ Test Files  2 failed | 2 passed (4)
+      Tests  2 failed | 121 passed (123)
+   Start at  20:05:52
+   Duration  2.85s (transform 474ms, setup 22ms, collect 1.68s, tests 671ms, environment 0ms, prepare 120ms)
+
+
+exit_code=1

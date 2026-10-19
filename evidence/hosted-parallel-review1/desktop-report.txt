@@ -1,0 +1,581 @@
+flows#676 desktop continuation from 2d4ca4255a260a3fbab45575e5a5b533554af567
+
+F1/F3/F4/F5 code and focused verification are ready for review. Live verification
+remains unfinished: the internal disk is below the required 10 GB build floor.
+The prior WIP is preserved in ancestry.
+
+The WIP already added the child body/source identity check, parallel.v3 root kind,
+and comparisons for after, afterTruncated and label. This continuation fixes npm
+admission for Node's default strip loader as well as its opt-in transform loader.
+Both paths retain exact body/source identity and the original closed source grammar.
+The embedded child still accepts only the transform output its pinned loader serves.
+An unavailable stripping mode cannot certify a body.
+
+F2 remains accepted as out of scope per ms-lead's review decision: a tampered,
+hash-pinned Surface that patches intrinsics only in Node can fail closed before
+effects. No F2 code change is included.
+
+Focused result: 142 tests passed. Per-mutant failing tests on revert (counts overlap):
+  F1 exact body identity in shared certifier: 2
+  F3 type-stripped identity at npm admission: 7
+  F4 new-root v3 marker emission: 8
+  F5 durable edge/truncation/label comparison: 7
+  Additional regression: reverting this continuation's strip-mode admission: 4
+Each mutant's source diff, complete failing output, byte-for-byte restoration hash,
+and complete passing rerun follow below. These are focused mutations, not live
+standalone revert proofs. In particular F1 does not exercise the child IPC entry
+with a substituted Surface; that remains in the blocked SUB1 live fixture.
+
+The cached published 2.0.52 SDK readback test accepts v2 metadata as its positive
+control and refuses v3 with journalRead as its only operation. This checks the old
+resume function with a mock journal; it is not the RB_NATW/RB_N2 crash/resume run.
+The native importer tests exercise TS1param/TS2annot/TS3ret with and without Node's
+transform-types flag; the standalone execution matrix still needs the live gate.
+
+Focused type checking covers SDK source and all touched test files, including the
+standalone tests, with noEmit. Small type-only repairs in existing test fixtures
+allow those previously excluded tests to be checked without weakening assertions.
+
+Outstanding: once disk exceeds the floor, build the npm and standalone artifacts,
+run the macOS review fixtures (including SUB1, TS1param/TS2annot/TS3ret, FG_edges,
+RB_NATW/RB_N2), capture live revert evidence, and obtain independent review/CI.
+No build, install or heavy/live tests were run by this desktop continuation.
+PATH Node 26 lacks transform mode; the initial WIP baseline failure is preserved in
+logs/desktop-baseline.txt. Verification below uses cached Node 22.22.2.
+
+Reproduce focused mutations from repo root:
+REVIEW_NODE=/Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node FLOWS_2052_SDK=/tmp/ms-boot-2052-npm/node_modules/@relayflows/sdk python3 evidence/hosted-parallel-review1/focused-reverts.py
+
+Reproduce type checking from repo root:
+REVIEW_NODE=/Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node python3 evidence/hosted-parallel-review1/focused-types.py
+
+The optional rollback test requires an existing unmodified @relayflows/sdk@2.0.52
+installation; FLOWS_2052_SDK names its package directory. No install is performed.
+
+Captured commands and complete outputs
+
+evidence/hosted-parallel-review1/logs/desktop-disk.txt
+$ df -h /System/Volumes/Data
+Filesystem      Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s5   228Gi   194Gi   7.2Gi    97%    4.0M   76M    5%   /System/Volumes/Data
+exit_code=0
+
+evidence/hosted-parallel-review1/logs/desktop-focused.txt
+$ cd packages/sdk
+$ FLOWS_2052_SDK=/tmp/ms-boot-2052-npm/node_modules/@relayflows/sdk /Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node node_modules/vitest/vitest.mjs run tests/authored-node-admission.test.ts tests/authored-rollback-readback.test.ts tests/authored-parallel-eligibility.test.ts tests/authored-node-result.test.ts tests/authored-root.test.ts tests/authored-status-detail.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/hosted-parallel/packages/sdk
+
+(node:61856) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:61856) [FLOWS_ROOT_LEASE_LOST] Warning: authored root run_id=root-run attempt=1: lease_conflict: attempt has no active worker lease. Waiting for the kernel to retry it.
+ ✓ tests/authored-root.test.ts (49 tests) 555ms
+ ✓ tests/authored-node-result.test.ts (53 tests) 11ms
+(node:61864) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/authored-parallel-eligibility.test.ts (13 tests) 59ms
+(node:61868) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/authored-status-detail.test.ts (23 tests) 431ms
+ ✓ tests/authored-rollback-readback.test.ts (1 test) 288ms
+ ✓ tests/authored-node-admission.test.ts (3 tests) 319ms
+
+ Test Files  6 passed (6)
+      Tests  142 passed (142)
+   Start at  20:13:12
+   Duration  3.56s (transform 408ms, setup 20ms, collect 1.36s, tests 1.66s, environment 0ms, prepare 118ms)
+
+
+exit_code=0
+
+evidence/hosted-parallel-review1/logs/desktop-typecheck.txt
+Temporary .tsconfig-review676.json:
+{"extends": "./tsconfig.tests.json", "include": ["src/**/*.ts", "tests/authored-node-admission.test.ts", "tests/authored-rollback-readback.test.ts", "tests/authored-parallel-eligibility.test.ts", "tests/authored-node-result.test.ts", "tests/authored-root.test.ts", "tests/authored-node-runtime.test.ts"]}
+$ cd packages/sdk
+$ /Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node node_modules/typescript/bin/tsc -p .tsconfig-review676.json --noEmit
+
+exit_code=0
+
+evidence/hosted-parallel-review1/logs/f1-body-identity-reverted.txt
+--- authored-parallel-eligibility.ts
++++ authored-parallel-eligibility.ts (reverted)
+@@ -48,7 +48,7 @@
+   } finally {
+     process.emitWarning = emitWarning;
+   }
+-  return parallelRunEligible(body, transformed);
++  return parallelBodySyntaxEligible(body);
+ }
+ 
+ /**
+
+$ cd packages/sdk
+$ FLOWS_2052_SDK=/tmp/ms-boot-2052-npm/node_modules/@relayflows/sdk /Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node node_modules/vitest/vitest.mjs run tests/authored-parallel-eligibility.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/hosted-parallel/packages/sdk
+
+(node:61728) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ tests/authored-parallel-eligibility.test.ts (13 tests | 2 failed) 62ms
+   × parallel run admission > matches the Node-loaded body to strip source, including TypeScript annotations 34ms
+     → async (f: any) => { await Promise.all([f.run('A'), f.run('B')]); f.done('success'); }: expected true to be false // Object.is equality
+   × parallel run admission > matches the Node-loaded body to transform source, including TypeScript annotations 5ms
+     → async (f: any) => { await Promise.all([f.run('A'), f.run('B')]); f.done('success'); }: expected true to be false // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-parallel-eligibility.test.ts > parallel run admission > matches the Node-loaded body to strip source, including TypeScript annotations
+ FAIL  tests/authored-parallel-eligibility.test.ts > parallel run admission > matches the Node-loaded body to transform source, including TypeScript annotations
+AssertionError: async (f: any) => { await Promise.all([f.run('A'), f.run('B')]); f.done('success'); }: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/authored-parallel-eligibility.test.ts:50:110
+     48|       const substitute = body(`async f => {
+     49|         await Promise.all([f.run('other-a'), f.run('other-b')]); f.don…
+     50|       expect(await parallelLoadedBodyEligible(substitute, source, 'fil…
+       |                                                                                                              ^
+     51|     }
+     52|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 11 passed (13)
+   Start at  20:12:59
+   Duration  700ms (transform 71ms, setup 10ms, collect 496ms, tests 62ms, environment 0ms, prepare 51ms)
+
+
+exit_code=1
+
+evidence/hosted-parallel-review1/logs/f1-body-identity-restored.txt
+Restored byte-for-byte: authored-parallel-eligibility.ts
+sha256=0f24a8da7b18cee3bae52415507332a99a109eb3c182c951d35b6ec2eab9bafb
+$ cd packages/sdk
+$ FLOWS_2052_SDK=/tmp/ms-boot-2052-npm/node_modules/@relayflows/sdk /Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node node_modules/vitest/vitest.mjs run tests/authored-parallel-eligibility.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/hosted-parallel/packages/sdk
+
+(node:61736) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/authored-parallel-eligibility.test.ts (13 tests) 61ms
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  20:12:59
+   Duration  447ms (transform 51ms, setup 9ms, collect 283ms, tests 61ms, environment 0ms, prepare 20ms)
+
+
+exit_code=0
+
+evidence/hosted-parallel-review1/logs/f3-type-identity-reverted.txt
+--- authored-root.ts
++++ authored-root.ts (reverted)
+@@ -105,13 +105,12 @@
+     // The parser is needed only for an authored run, never for an ordinary
+     // CLI check or watch reload. Recheck intrinsics after the async import;
+     // author code could have replaced them while it was loading.
+-    const { parallelLoadedBodyEligible, parallelPinnedSourceEligible } = await import('./authored-parallel-eligibility.js');
++    const { parallelRunEligible, parallelPinnedSourceEligible } = await import('./authored-parallel-eligibility.js');
+     parallelEligible = parallelPromiseIntrinsicsIntact()
+       && (process.versions['bun'] === undefined
+         // Native imports strip by default, or transform with Node's opt-in
+         // flag. Require exact identity with one of those loader outputs.
+-        ? await parallelLoadedBodyEligible(definition.body, source.toString('utf8'), pathToFileURL(loaded.sourcePath).href, 'strip')
+-          || await parallelLoadedBodyEligible(definition.body, source.toString('utf8'), pathToFileURL(loaded.sourcePath).href, 'transform')
++        ? parallelRunEligible(definition.body, source.toString('utf8'))
+         : parallelPinnedSourceEligible(source.toString('utf8')));
+     if (!parallelEligible) parallelIneligibleReason = parallelPromiseIntrinsicsIntact()
+       ? 'source_certificate' : 'runtime_intrinsics';
+
+$ cd packages/sdk
+$ FLOWS_2052_SDK=/tmp/ms-boot-2052-npm/node_modules/@relayflows/sdk /Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node node_modules/vitest/vitest.mjs run tests/authored-root.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/hosted-parallel/packages/sdk
+
+(node:61746) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:61746) [FLOWS_ROOT_LEASE_LOST] Warning: authored root run_id=root-run attempt=1: lease_conflict: attempt has no active worker lease. Waiting for the kernel to retry it.
+ ❯ tests/authored-root.test.ts (49 tests | 7 failed) 529ms
+   × durable authored root > pins a certified 'plain' body loaded with 'transform' to parallel mode before dispatch 10ms
+     → expected { executionMode: 'serial', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS1param' body loaded with 'strip' to parallel mode before dispatch 4ms
+     → expected { executionMode: 'serial', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS1param' body loaded with 'transform' to parallel mode before dispatch 2ms
+     → expected { executionMode: 'serial', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS2annot' body loaded with 'strip' to parallel mode before dispatch 2ms
+     → expected { executionMode: 'serial', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS2annot' body loaded with 'transform' to parallel mode before dispatch 2ms
+     → expected { executionMode: 'serial', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS3ret' body loaded with 'strip' to parallel mode before dispatch 3ms
+     → expected { executionMode: 'serial', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS3ret' body loaded with 'transform' to parallel mode before dispatch 2ms
+     → expected { executionMode: 'serial', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'plain' body loaded with 'transform' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS1param' body loaded with 'strip' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS1param' body loaded with 'transform' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS2annot' body loaded with 'strip' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS2annot' body loaded with 'transform' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS3ret' body loaded with 'strip' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS3ret' body loaded with 'transform' to parallel mode before dispatch
+AssertionError: expected { executionMode: 'serial', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "executionMode": "parallel",
++   "executionMode": "serial",
+    "identityVersion": 2,
+-   "kind": "relayflows.authored-root.parallel.v3",
++   "kind": "relayflows.authored-root.v1",
+  }
+
+ ❯ tests/authored-root.test.ts:241:42
+    239|       { dataDir: '/unused', admissionKey: 'certified-group' });
+    240|     const step = (journal.starts[0]!.spec as { steps: Array<{ instruct…
+    241|     expect(JSON.parse(step.instruction)).toMatchObject({
+       |                                          ^
+    242|       kind: 'relayflows.authored-root.parallel.v3', identityVersion: 2…
+    243|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ Test Files  1 failed (1)
+      Tests  7 failed | 42 passed (49)
+   Start at  20:13:00
+   Duration  1.97s (transform 439ms, setup 9ms, collect 1.33s, tests 529ms, environment 0ms, prepare 20ms)
+
+
+exit_code=1
+
+evidence/hosted-parallel-review1/logs/f3-type-identity-restored.txt
+Restored byte-for-byte: authored-root.ts
+sha256=5c8c80638f19cc034e310bb09a429ff9f529106f080f3e12ad2cbf1a1a76ea99
+$ cd packages/sdk
+$ FLOWS_2052_SDK=/tmp/ms-boot-2052-npm/node_modules/@relayflows/sdk /Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node node_modules/vitest/vitest.mjs run tests/authored-root.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/hosted-parallel/packages/sdk
+
+(node:61759) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:61759) [FLOWS_ROOT_LEASE_LOST] Warning: authored root run_id=root-run attempt=1: lease_conflict: attempt has no active worker lease. Waiting for the kernel to retry it.
+ ✓ tests/authored-root.test.ts (49 tests) 548ms
+
+ Test Files  1 passed (1)
+      Tests  49 passed (49)
+   Start at  20:13:02
+   Duration  1.56s (transform 352ms, setup 9ms, collect 905ms, tests 548ms, environment 0ms, prepare 20ms)
+
+
+exit_code=0
+
+evidence/hosted-parallel-review1/logs/f4-root-marker-reverted.txt
+--- authored-root.ts
++++ authored-root.ts (reverted)
+@@ -123,7 +123,7 @@
+   }
+   const executionMode = parallelEligible ? 'parallel' : 'serial';
+   const metadata: AuthoredRootMetadata = Object.freeze({
+-    kind: executionMode === 'parallel' ? AUTHORED_PARALLEL_ROOT_KIND_V3 : ROOT_KIND,
++    kind: executionMode === 'parallel' ? AUTHORED_PARALLEL_ROOT_KIND : ROOT_KIND,
+     flowName: definition.name,
+     flowPath: loaded.sourcePath,
+     sourceSha256: sha256(source),
+
+$ cd packages/sdk
+$ FLOWS_2052_SDK=/tmp/ms-boot-2052-npm/node_modules/@relayflows/sdk /Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node node_modules/vitest/vitest.mjs run tests/authored-root.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/hosted-parallel/packages/sdk
+
+(node:61769) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:61769) [FLOWS_ROOT_LEASE_LOST] Warning: authored root run_id=root-run attempt=1: lease_conflict: attempt has no active worker lease. Waiting for the kernel to retry it.
+ ❯ tests/authored-root.test.ts (49 tests | 8 failed) 550ms
+   × durable authored root > pins a certified 'plain' body loaded with 'strip' to parallel mode before dispatch 38ms
+     → expected { executionMode: 'parallel', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'plain' body loaded with 'transform' to parallel mode before dispatch 10ms
+     → expected { executionMode: 'parallel', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS1param' body loaded with 'strip' to parallel mode before dispatch 5ms
+     → expected { executionMode: 'parallel', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS1param' body loaded with 'transform' to parallel mode before dispatch 4ms
+     → expected { executionMode: 'parallel', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS2annot' body loaded with 'strip' to parallel mode before dispatch 3ms
+     → expected { executionMode: 'parallel', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS2annot' body loaded with 'transform' to parallel mode before dispatch 7ms
+     → expected { executionMode: 'parallel', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS3ret' body loaded with 'strip' to parallel mode before dispatch 5ms
+     → expected { executionMode: 'parallel', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS3ret' body loaded with 'transform' to parallel mode before dispatch 4ms
+     → expected { executionMode: 'parallel', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'plain' body loaded with 'strip' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'plain' body loaded with 'transform' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS1param' body loaded with 'strip' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS1param' body loaded with 'transform' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS2annot' body loaded with 'strip' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS2annot' body loaded with 'transform' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS3ret' body loaded with 'strip' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS3ret' body loaded with 'transform' to parallel mode before dispatch
+AssertionError: expected { executionMode: 'parallel', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+    "executionMode": "parallel",
+    "identityVersion": 2,
+-   "kind": "relayflows.authored-root.parallel.v3",
++   "kind": "relayflows.authored-root.parallel.v2",
+  }
+
+ ❯ tests/authored-root.test.ts:241:42
+    239|       { dataDir: '/unused', admissionKey: 'certified-group' });
+    240|     const step = (journal.starts[0]!.spec as { steps: Array<{ instruct…
+    241|     expect(JSON.parse(step.instruction)).toMatchObject({
+       |                                          ^
+    242|       kind: 'relayflows.authored-root.parallel.v3', identityVersion: 2…
+    243|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ Test Files  1 failed (1)
+      Tests  8 failed | 41 passed (49)
+   Start at  20:13:04
+   Duration  1.56s (transform 353ms, setup 8ms, collect 911ms, tests 550ms, environment 0ms, prepare 20ms)
+
+
+exit_code=1
+
+evidence/hosted-parallel-review1/logs/f4-root-marker-restored.txt
+Restored byte-for-byte: authored-root.ts
+sha256=5c8c80638f19cc034e310bb09a429ff9f529106f080f3e12ad2cbf1a1a76ea99
+$ cd packages/sdk
+$ FLOWS_2052_SDK=/tmp/ms-boot-2052-npm/node_modules/@relayflows/sdk /Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node node_modules/vitest/vitest.mjs run tests/authored-root.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/hosted-parallel/packages/sdk
+
+(node:61783) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:61783) [FLOWS_ROOT_LEASE_LOST] Warning: authored root run_id=root-run attempt=1: lease_conflict: attempt has no active worker lease. Waiting for the kernel to retry it.
+ ✓ tests/authored-root.test.ts (49 tests) 639ms
+
+ Test Files  1 passed (1)
+      Tests  49 passed (49)
+   Start at  20:13:06
+   Duration  1.68s (transform 365ms, setup 9ms, collect 933ms, tests 639ms, environment 0ms, prepare 21ms)
+
+
+exit_code=0
+
+evidence/hosted-parallel-review1/logs/f5-step-metadata-reverted.txt
+--- authored-node-runner.ts
++++ authored-node-runner.ts (reverted)
+@@ -374,11 +374,7 @@
+       if (indexed.length !== count || indexed.some(step => {
+         const matching = claimed.get(step.step);
+         return matching === undefined || step.state !== 'completed'
+-          || step.runId !== matching.runId || step.completionReason !== matching.completionReason
+-          || step.label !== matching.label || step.afterTruncated !== matching.afterTruncated
+-          || (step.after === undefined ? matching.after !== undefined
+-            : !Array.isArray(step.after) || !Array.isArray(matching.after) || step.after.length !== matching.after.length
+-              || step.after.some((id, index) => id !== matching.after?.[index]));
++          || step.runId !== matching.runId || step.completionReason !== matching.completionReason;
+       })) invalid('parallel index');
+     }
+     for (const [index, claimed] of [...ordered, ...gates].entries()) {
+
+$ cd packages/sdk
+$ FLOWS_2052_SDK=/tmp/ms-boot-2052-npm/node_modules/@relayflows/sdk /Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node node_modules/vitest/vitest.mjs run tests/authored-node-result.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/hosted-parallel/packages/sdk
+
+ ❯ tests/authored-node-result.test.ts (53 tests | 7 failed) 15ms
+   × authored IPC result durable verification > checks forged edges causal parallel claims against the durable root index 3ms
+     → promise resolved "undefined" instead of rejecting
+   × authored IPC result durable verification > checks missing edges causal parallel claims against the durable root index 0ms
+     → promise resolved "undefined" instead of rejecting
+   × authored IPC result durable verification > checks extra edge causal parallel claims against the durable root index 0ms
+     → promise resolved "undefined" instead of rejecting
+   × authored IPC result durable verification > checks missing truncation causal parallel claims against the durable root index 0ms
+     → promise resolved "undefined" instead of rejecting
+   × authored IPC result durable verification > checks false truncation causal parallel claims against the durable root index 0ms
+     → promise resolved "undefined" instead of rejecting
+   × authored IPC result durable verification > checks forged label causal parallel claims against the durable root index 0ms
+     → promise resolved "undefined" instead of rejecting
+   × authored IPC result durable verification > checks missing label causal parallel claims against the durable root index 0ms
+     → promise resolved "undefined" instead of rejecting
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-node-result.test.ts > authored IPC result durable verification > checks forged edges causal parallel claims against the durable root index
+ FAIL  tests/authored-node-result.test.ts > authored IPC result durable verification > checks missing edges causal parallel claims against the durable root index
+ FAIL  tests/authored-node-result.test.ts > authored IPC result durable verification > checks extra edge causal parallel claims against the durable root index
+ FAIL  tests/authored-node-result.test.ts > authored IPC result durable verification > checks missing truncation causal parallel claims against the durable root index
+ FAIL  tests/authored-node-result.test.ts > authored IPC result durable verification > checks false truncation causal parallel claims against the durable root index
+ FAIL  tests/authored-node-result.test.ts > authored IPC result durable verification > checks forged label causal parallel claims against the durable root index
+ FAIL  tests/authored-node-result.test.ts > authored IPC result durable verification > checks missing label causal parallel claims against the durable root index
+AssertionError: promise resolved "undefined" instead of rejecting
+
+- Expected: 
+[Error: rejected promise]
+
++ Received: 
+undefined
+
+ ❯ tests/authored-node-result.test.ts:79:128
+     77|       const altered = { ...claimed, journalSteps:claimed.journalSteps.…
+     78|         index === 2 ? { ...step, ...forged } : step) };
+     79|       await expect(verifyAuthoredNodeResult(altered as unknown as Auth…
+       |                                                                                                                                ^
+     80|         .rejects.toThrow('no matching durable completion');
+     81|       return;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ Test Files  1 failed (1)
+      Tests  7 failed | 46 passed (53)
+   Start at  20:13:08
+   Duration  272ms (transform 92ms, setup 9ms, collect 154ms, tests 15ms, environment 0ms, prepare 21ms)
+
+
+exit_code=1
+
+evidence/hosted-parallel-review1/logs/f5-step-metadata-restored.txt
+Restored byte-for-byte: authored-node-runner.ts
+sha256=11e0f0d1d2571b5793ed22668e10407533c79347c7aa100c400c232e0b2ee9bd
+$ cd packages/sdk
+$ FLOWS_2052_SDK=/tmp/ms-boot-2052-npm/node_modules/@relayflows/sdk /Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node node_modules/vitest/vitest.mjs run tests/authored-node-result.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/hosted-parallel/packages/sdk
+
+ ✓ tests/authored-node-result.test.ts (53 tests) 11ms
+
+ Test Files  1 passed (1)
+      Tests  53 passed (53)
+   Start at  20:13:08
+   Duration  261ms (transform 93ms, setup 9ms, collect 145ms, tests 11ms, environment 0ms, prepare 21ms)
+
+
+exit_code=0
+
+evidence/hosted-parallel-review1/logs/wip-strip-mode-reverted.txt
+--- authored-root.ts
++++ authored-root.ts (reverted)
+@@ -110,8 +110,7 @@
+       && (process.versions['bun'] === undefined
+         // Native imports strip by default, or transform with Node's opt-in
+         // flag. Require exact identity with one of those loader outputs.
+-        ? await parallelLoadedBodyEligible(definition.body, source.toString('utf8'), pathToFileURL(loaded.sourcePath).href, 'strip')
+-          || await parallelLoadedBodyEligible(definition.body, source.toString('utf8'), pathToFileURL(loaded.sourcePath).href, 'transform')
++        ? await parallelLoadedBodyEligible(definition.body, source.toString('utf8'), pathToFileURL(loaded.sourcePath).href, 'transform')
+         : parallelPinnedSourceEligible(source.toString('utf8')));
+     if (!parallelEligible) parallelIneligibleReason = parallelPromiseIntrinsicsIntact()
+       ? 'source_certificate' : 'runtime_intrinsics';
+
+$ cd packages/sdk
+$ FLOWS_2052_SDK=/tmp/ms-boot-2052-npm/node_modules/@relayflows/sdk /Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node node_modules/vitest/vitest.mjs run tests/authored-root.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/hosted-parallel/packages/sdk
+
+(node:61815) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:61815) [FLOWS_ROOT_LEASE_LOST] Warning: authored root run_id=root-run attempt=1: lease_conflict: attempt has no active worker lease. Waiting for the kernel to retry it.
+ ❯ tests/authored-root.test.ts (49 tests | 4 failed) 515ms
+   × durable authored root > pins a certified 'plain' body loaded with 'strip' to parallel mode before dispatch 36ms
+     → expected { executionMode: 'serial', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS1param' body loaded with 'strip' to parallel mode before dispatch 4ms
+     → expected { executionMode: 'serial', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS2annot' body loaded with 'strip' to parallel mode before dispatch 3ms
+     → expected { executionMode: 'serial', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS3ret' body loaded with 'strip' to parallel mode before dispatch 4ms
+     → expected { executionMode: 'serial', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'plain' body loaded with 'strip' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS1param' body loaded with 'strip' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS2annot' body loaded with 'strip' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS3ret' body loaded with 'strip' to parallel mode before dispatch
+AssertionError: expected { executionMode: 'serial', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "executionMode": "parallel",
++   "executionMode": "serial",
+    "identityVersion": 2,
+-   "kind": "relayflows.authored-root.parallel.v3",
++   "kind": "relayflows.authored-root.v1",
+  }
+
+ ❯ tests/authored-root.test.ts:241:42
+    239|       { dataDir: '/unused', admissionKey: 'certified-group' });
+    240|     const step = (journal.starts[0]!.spec as { steps: Array<{ instruct…
+    241|     expect(JSON.parse(step.instruction)).toMatchObject({
+       |                                          ^
+    242|       kind: 'relayflows.authored-root.parallel.v3', identityVersion: 2…
+    243|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 45 passed (49)
+   Start at  20:13:08
+   Duration  1.51s (transform 348ms, setup 11ms, collect 888ms, tests 515ms, environment 0ms, prepare 20ms)
+
+
+exit_code=1
+
+evidence/hosted-parallel-review1/logs/wip-strip-mode-restored.txt
+Restored byte-for-byte: authored-root.ts
+sha256=5c8c80638f19cc034e310bb09a429ff9f529106f080f3e12ad2cbf1a1a76ea99
+$ cd packages/sdk
+$ FLOWS_2052_SDK=/tmp/ms-boot-2052-npm/node_modules/@relayflows/sdk /Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node node_modules/vitest/vitest.mjs run tests/authored-root.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/hosted-parallel/packages/sdk
+
+(node:61843) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:61843) [FLOWS_ROOT_LEASE_LOST] Warning: authored root run_id=root-run attempt=1: lease_conflict: attempt has no active worker lease. Waiting for the kernel to retry it.
+ ✓ tests/authored-root.test.ts (49 tests) 534ms
+
+ Test Files  1 passed (1)
+      Tests  49 passed (49)
+   Start at  20:13:10
+   Duration  1.55s (transform 357ms, setup 8ms, collect 913ms, tests 534ms, environment 0ms, prepare 20ms)
+
+
+exit_code=0

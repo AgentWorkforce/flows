@@ -540,7 +540,7 @@ export default flow('legacy-sequential-resume', async f => {
   );
 
   it.skipIf(process.env.RELAYFLOWS_PREVIOUS_CLI === undefined)(
-    'refuses a parallel v2 root under 2.0.50 and lets the new CLI resume it', async () => {
+    'refuses a parallel v3 root under an older CLI and lets the new CLI resume it', async () => {
       const fixture = chainFixture();
       closes.push(() => fixture.close());
       writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
@@ -562,7 +562,7 @@ export default flow('rollback-parallel-root', async f => {
       await reader.hello('rollback-root-kind-test');
       try {
         expect(await readAuthoredRootMetadata(reader, rootRunId))
-          .toMatchObject({ kind: 'relayflows.authored-root.parallel.v2', executionMode: 'parallel' });
+          .toMatchObject({ kind: 'relayflows.authored-root.parallel.v3', executionMode: 'parallel' });
       } finally { reader.close(); }
       cli.kill('SIGKILL');
       await cliExited;
