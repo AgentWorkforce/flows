@@ -11,7 +11,28 @@
  * credential lives only in that process; `f.run` children and agents never
  * receive it.
  */
+import { AsyncResource } from "node:async_hooks";
 import { setTimeout as delay } from "node:timers/promises";
+
+/**
+ * The async context every held request runs in: this module's load context,
+ * which is outside any authored flow body.
+ *
+ * The authored completion gate treats every promise created in the body's
+ * async context after an `f.run` as work derived from that step, and fails the
+ * run if one rejected or is still pending when the body returns. Node 22's
+ * bundled undici creates a body stream even for a 204, which has no body: the
+ * stream is unreachable, so its internal promise stays pending, and an abort
+ * after the response (the request deadline) rejects it. Run in the body's
+ * context, one 204 fails the flow with `unsettled_derived_work` or "derived
+ * handler for run-1 (f.run) rejected: The operation was aborted due to
+ * timeout". Node 24 creates no such stream.
+ *
+ * Those promises are the transport's, not the author's. The promise the body
+ * awaits — this helper's — is still created and tracked in the authored
+ * context, and every request outcome still reaches it.
+ */
+const requestContext = new AsyncResource("RelayflowsSignalRequest");
 
 /** The longest hold Cloud's signal GET accepts, and the default. */
 export const SIGNAL_MAX_WAIT_MS = 25_000;
@@ -130,6 +151,26 @@ function transportError(cause: unknown, error: SignalErrorFactory): Error {
     : error("transport_error", "Cloud transport failed; check TLS and the configured URL (redirects are refused).");
 }
 
+/**
+ * The abort signal for one held request, detached from the deadline and the
+ * caller's signal once that request has settled. Both outlive the request; an
+ * abort reaching a settled `fetch` makes Node 22's undici reject an internal
+ * promise of the answered response.
+ */
+function requestScope(deadline: AbortSignal, caller?: AbortSignal): { signal: AbortSignal; release(): void } {
+  const controller = new AbortController();
+  const sources = caller === undefined ? [deadline] : [caller, deadline];
+  const forwards = sources.map(source => () => controller.abort(source.reason));
+  sources.forEach((source, index) => {
+    if (source.aborted) controller.abort(source.reason);
+    else source.addEventListener("abort", forwards[index]!, { once: true });
+  });
+  return {
+    signal: controller.signal,
+    release: () => sources.forEach((source, index) => source.removeEventListener("abort", forwards[index]!)),
+  };
+}
+
 function normalizeCloudBaseUrl(raw: string): string | undefined {
   try {
     const url = new URL(raw);
@@ -172,21 +213,24 @@ export async function holdSignalWait(
     options.signal?.throwIfAborted();
     const { baseUrl, token } = await hooks.connection();
     const deadline = AbortSignal.timeout(requestTimeout);
+    const request = requestScope(deadline, options.signal);
     const requestStartedAt = performance.now();
     let response: Response;
     try {
-      response = await fetch(`${baseUrl}${path}?waitMs=${waitMs}`, {
+      response = await requestContext.runInAsyncScope(() => fetch(`${baseUrl}${path}?waitMs=${waitMs}`, {
         method: "GET",
         headers: { authorization: `Bearer ${token}` },
-        signal: options.signal ? AbortSignal.any([options.signal, deadline]) : deadline,
+        signal: request.signal,
         // A redirect must never carry the credential to a different origin.
         redirect: "error",
-      });
+      }));
     } catch (cause) {
+      request.release();
       options.signal?.throwIfAborted();
       throw transportError(deadline.aborted ? deadline.reason : cause, error);
     }
     if (response.status === 204) {
+      request.release();
       if (performance.now() - requestStartedAt < FAST_204_MS) {
         try {
           await sleep(fast204BackoffMs, options.signal);
@@ -201,7 +245,10 @@ export async function holdSignalWait(
       continue;
     }
     // Do not echo server response bodies: they may contain credentials or source.
-    if (!response.ok) throw error("http_error", `Cloud signal wait failed with HTTP ${response.status}.`, response.status);
+    if (!response.ok) {
+      request.release();
+      throw error("http_error", `Cloud signal wait failed with HTTP ${response.status}.`, response.status);
+    }
     let body: unknown;
     try {
       body = await response.json();
@@ -209,6 +256,8 @@ export async function holdSignalWait(
       options.signal?.throwIfAborted();
       if (!(cause instanceof SyntaxError)) throw transportError(deadline.aborted ? deadline.reason : cause, error);
       throw error("invalid_response", "Cloud returned an invalid signal.");
+    } finally {
+      request.release();
     }
     if (!isRecord(body) || !Object.hasOwn(body, "payload") || typeof body.acceptedAt !== "number") {
       throw error("invalid_response", "Cloud returned an invalid signal.");

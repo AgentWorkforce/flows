@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { holdSignalWait, SignalError, waitForSignal } from '../src/signals.js';
 
@@ -204,6 +205,63 @@ describe('@relayflows/surface/signals waitForSignal', () => {
     const result = expect(waiting).rejects.toMatchObject({ code: 'transient_error' });
     await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledOnce());
     deadline.abort(new DOMException('deadline', 'TimeoutError'));
+    await result;
+  });
+
+  // Node 22's undici rejects a (handled) promise of an answered 204's body
+  // stream when that request's signal aborts later, and the authored
+  // completion gate fails the run on it. A settled request's signal must
+  // therefore never abort: not from its deadline, not from the caller.
+  it('detaches each settled request from its deadline and the caller signal', async () => {
+    const caller = new AbortController();
+    const signals: AbortSignal[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      signals.push(init!.signal!);
+      return signals.length === 1 ? new Response(null, { status: 204 })
+        : Response.json({ payload: 'done', acceptedAt: 1 });
+    });
+    expect(await waitForSignal('render_done', {
+      ...options, waitMs: 0, requestTimeoutMs: 5, signal: caller.signal,
+    })).toBe('done');
+    await new Promise(resolve => setTimeout(resolve, 30));
+    caller.abort(new Error('caller gave up later'));
+    expect(signals).toHaveLength(2);
+    expect(signals.map(signal => signal.aborted)).toEqual([false, false]);
+  });
+
+  // The authored completion gate tracks promises by async context. Requests
+  // run outside the caller's, so transport-internal promises (Node 22 leaves
+  // one pending per 204) are never counted as the flow author's work.
+  it('runs each held request outside the caller async context', async () => {
+    const context = new AsyncLocalStorage<string>();
+    const seen: Array<string | undefined> = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      seen.push(context.getStore());
+      return seen.length <= 3 ? new Response(null, { status: 204 })
+        : Response.json({ payload: 'done', acceptedAt: 1 });
+    });
+    clock.sleep = async () => undefined;
+    const result = await context.run('authored-body', async () => {
+      const payload = await waitForSignal('render_done', options);
+      return { payload, store: context.getStore() };
+    });
+    expect(result).toEqual({ payload: 'done', store: 'authored-body' });
+    expect(seen).toEqual([undefined, undefined, undefined, undefined]);
+  });
+
+  it('still aborts an in-flight request on its deadline or the caller signal', async () => {
+    const hang = (_input: unknown, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal!.reason), { once: true });
+    });
+    vi.spyOn(globalThis, 'fetch').mockImplementation(hang);
+    await expect(waitForSignal('render_done', { ...options, waitMs: 0, requestTimeoutMs: 5 }))
+      .rejects.toMatchObject({ code: 'transient_error' });
+    const caller = new AbortController();
+    const reason = new Error('stop');
+    const waiting = waitForSignal('render_done', { ...options, signal: caller.signal });
+    const result = expect(waiting).rejects.toBe(reason);
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2));
+    caller.abort(reason);
     await result;
   });
 
