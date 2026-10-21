@@ -3,7 +3,7 @@ import { FLOW_READ_BUDGET_MS } from './journal-read-policy.js';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import type { Readable } from 'node:stream';
@@ -35,10 +35,33 @@ const refusal = (): AuthoredFlowExecutionError => new AuthoredFlowExecutionError
   'authored execution requires the embedded Node runner and Node >=22.14 on PATH (or an absolute FLOWS_AUTHORED_NODE); no workflow body was executed',
 );
 interface NodeAuthority { path: string; version: string; executableSha256: string }
+/**
+ * One authored run asks for the Node authority before root admission and
+ * again before spawning the body. Each probe spawns Node and hashes its whole
+ * executable (~100 MB), which a cold sandbox pays on the startup path twice.
+ * Reuse the previous answer only for the same candidate selection and an
+ * unchanged executable file. The spawned child still hashes the executable it
+ * actually runs and the parent compares that report with this authority, so
+ * a binary replaced after the probe is refused, never trusted.
+ */
+let probedAuthority: { key: string; fingerprint: string; authority: NodeAuthority } | undefined;
+function executableFingerprint(path: string): string {
+  const stat = statSync(path, { bigint: true });
+  return [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(':');
+}
 function nodeAuthority(): NodeAuthority {
   if (embeddedSource === undefined) throw refusal();
   const override = process.env['FLOWS_AUTHORED_NODE'];
   if (override !== undefined && !isAbsolute(override)) throw refusal();
+  const key = `${override ?? ''}\0${process.env['PATH'] ?? ''}`;
+  if (probedAuthority?.key === key) {
+    try {
+      if (executableFingerprint(probedAuthority.authority.path) === probedAuthority.fingerprint) {
+        return probedAuthority.authority;
+      }
+    } catch { /* A vanished executable is re-probed, and refused there. */ }
+  }
+  probedAuthority = undefined;
   const probe = spawnSync(override ?? 'node', ['--input-type=module', '--eval', `
 import {createHook} from 'node:async_hooks';
 import {stripTypeScriptTypes,register} from 'node:module';
@@ -56,8 +79,17 @@ process.stdout.write(JSON.stringify({path:process.execPath,version:process.versi
     const [major, minor] = value.version.split('.').map(Number);
     if (major! < 22 || (major === 22 && minor! < 14)) throw refusal();
     const path = realpathSync(value.path);
-    return { path, version: value.version, executableSha256: hash(readFileSync(path)) };
+    const fingerprint = executableFingerprint(path);
+    const authority = { path, version: value.version, executableSha256: hash(readFileSync(path)) };
+    // A file rewritten while it was being hashed is not reused.
+    if (executableFingerprint(path) === fingerprint) probedAuthority = { key, fingerprint, authority };
+    return authority;
   } catch { throw refusal(); }
+}
+
+/** Test seam: resolve the authored Node authority exactly as the runner does. */
+export function authoredNodeAuthorityForTest(): Readonly<NodeAuthority> {
+  return nodeAuthority();
 }
 
 /** Called before root admission/resume; declarative commands never reach it. */
