@@ -3,9 +3,9 @@ import { FLOW_READ_BUDGET_MS } from './journal-read-policy.js';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { accessSync, constants as fsConstants, readFileSync, realpathSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { delimiter, isAbsolute, join } from 'node:path';
 import type { Readable } from 'node:stream';
 import type { AuthoredRootMetadata } from './authored-root.js';
 import type { AuthoredExecutionRuntime, AuthoredFlowExecutionResult, ExecuteAuthoredFlowOptions } from './authored-flow-executor.js';
@@ -39,22 +39,40 @@ interface NodeAuthority { path: string; version: string; executableSha256: strin
  * One authored run asks for the Node authority before root admission and
  * again before spawning the body. Each probe spawns Node and hashes its whole
  * executable (~100 MB), which a cold sandbox pays on the startup path twice.
- * Reuse the previous answer only for the same candidate selection and an
- * unchanged executable file. The spawned child still hashes the executable it
- * actually runs and the parent compares that report with this authority, so
- * a binary replaced after the probe is refused, never trusted.
+ * Reuse the previous answer only while the same candidate is selected (the
+ * override or the first `node` on PATH, by path and by realpath, so a
+ * retargeted symlink re-probes) and the executable it resolved is unchanged.
+ * The spawned child still hashes the executable it actually runs and the
+ * parent compares that report with this authority, so a binary replaced
+ * after the probe is refused, never trusted.
  */
-let probedAuthority: { key: string; fingerprint: string; authority: NodeAuthority } | undefined;
+let probedAuthority: { selection: string; fingerprint: string; authority: NodeAuthority } | undefined;
 function executableFingerprint(path: string): string {
   const stat = statSync(path, { bigint: true });
   return [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(':');
+}
+/** The candidate `spawnSync(override ?? 'node')` would run, by path and realpath. */
+function selectedCandidate(override: string | undefined): string | undefined {
+  const directories = (process.env['PATH'] ?? '').split(delimiter);
+  // A relative PATH entry resolves against the working directory; do not
+  // guess which candidate the spawn would pick, just probe every time.
+  if (override === undefined && directories.some(directory => !isAbsolute(directory))) return undefined;
+  const candidates = override !== undefined ? [override] : directories.map(directory => join(directory, 'node'));
+  for (const candidate of candidates) {
+    try {
+      if (!statSync(candidate).isFile()) continue;
+      accessSync(candidate, fsConstants.X_OK);
+      return `${candidate}\0${realpathSync(candidate)}`;
+    } catch { /* Not this candidate. */ }
+  }
+  return undefined;
 }
 function nodeAuthority(): NodeAuthority {
   if (embeddedSource === undefined) throw refusal();
   const override = process.env['FLOWS_AUTHORED_NODE'];
   if (override !== undefined && !isAbsolute(override)) throw refusal();
-  const key = `${override ?? ''}\0${process.env['PATH'] ?? ''}`;
-  if (probedAuthority?.key === key) {
+  const selection = selectedCandidate(override);
+  if (selection !== undefined && probedAuthority?.selection === selection) {
     try {
       if (executableFingerprint(probedAuthority.authority.path) === probedAuthority.fingerprint) {
         return probedAuthority.authority;
@@ -81,8 +99,11 @@ process.stdout.write(JSON.stringify({path:process.execPath,version:process.versi
     const path = realpathSync(value.path);
     const fingerprint = executableFingerprint(path);
     const authority = { path, version: value.version, executableSha256: hash(readFileSync(path)) };
-    // A file rewritten while it was being hashed is not reused.
-    if (executableFingerprint(path) === fingerprint) probedAuthority = { key, fingerprint, authority };
+    // Reuse only an answer for a candidate that could be identified, and not
+    // one whose file was rewritten while it was being hashed.
+    if (selection !== undefined && executableFingerprint(path) === fingerprint) {
+      probedAuthority = { selection, fingerprint, authority };
+    }
     return authority;
   } catch { throw refusal(); }
 }
