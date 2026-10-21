@@ -31,6 +31,14 @@ import { setTimeout as delay } from "node:timers/promises";
  * Those promises are the transport's, not the author's. The promise the body
  * awaits — this helper's — is still created and tracked in the authored
  * context, and every request outcome still reaches it.
+ *
+ * Known limit: the resource captures the AsyncLocalStorage stores active when
+ * this module is first evaluated. A static import (the documented usage) loads
+ * it before any flow body runs, so they are empty. A first dynamic import from
+ * inside a body, or any other `als.run(...)`, pins that store for every later
+ * request in the process, including other runs'. Creating the resource lazily
+ * does not help: its first use is always inside a body. Node offers no way to
+ * name an empty context without the storage instances themselves.
  */
 const requestContext = new AsyncResource("RelayflowsSignalRequest");
 
@@ -83,7 +91,10 @@ export class SignalError extends Error {
 export interface WaitForSignalOptions {
   /** Hold per request, 0–25000 ms. Defaults to 25000. */
   waitMs?: number;
-  /** Cancels the wait; the caller's abort reason is rethrown unchanged. */
+  /**
+   * Cancels the wait; the caller's abort reason is rethrown unchanged. In an
+   * authored body after an `f.run`, an abort fails the run even if caught.
+   */
   signal?: AbortSignal;
   /** Defaults to `process.env.RELAYFLOW_V2_CLOUD_RUN_ID`. */
   runId?: string;
@@ -246,7 +257,15 @@ export async function holdSignalWait(
     }
     // Do not echo server response bodies: they may contain credentials or source.
     if (!response.ok) {
-      request.release();
+      // The refusal body is never read. Cancel it while the deadline still
+      // bounds this request, so a stalled body cannot hold the connection.
+      try {
+        await requestContext.runInAsyncScope(() => response.body?.cancel());
+      } catch {
+        // The refusal below is the error this wait reports.
+      } finally {
+        request.release();
+      }
       throw error("http_error", `Cloud signal wait failed with HTTP ${response.status}.`, response.status);
     }
     let body: unknown;
@@ -295,7 +314,10 @@ function hostedConnection(options: WaitForSignalOptions): { baseUrl: string; tok
  *
  * Call it in the authored flow body, not inside an `f.run` command: only the
  * authored process holds the run-bound read token. The wait has no overall
- * deadline; pass `signal` (e.g. `AbortSignal.timeout(ms)`) to bound it.
+ * deadline. Aborting it through `signal` fails the run even when the body
+ * catches the abort: after an `f.run`, the authored completion gate fails on
+ * any rejected promise derived from that step. So `signal` can stop a run
+ * that waited too long, but cannot time a wait out and continue.
  */
 export async function waitForSignal(name: string, options: WaitForSignalOptions = {}): Promise<unknown> {
   const runId = options.runId ?? process.env[HOSTED_RUN_ID_ENV];

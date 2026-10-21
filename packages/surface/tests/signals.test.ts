@@ -249,6 +249,43 @@ describe('@relayflows/surface/signals waitForSignal', () => {
     expect(seen).toEqual([undefined, undefined, undefined, undefined]);
   });
 
+  // Pins a documented limit: the request context is captured when the module
+  // is first evaluated, so a first import inside a store pins that store.
+  it('pins the AsyncLocalStorage store active when the module is first evaluated', async () => {
+    const context = new AsyncLocalStorage<string>();
+    vi.resetModules();
+    const late = await context.run('run-A', () => import('../src/signals.js'));
+    const seen: Array<string | undefined> = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      seen.push(context.getStore());
+      return Response.json({ payload: 'done', acceptedAt: 1 });
+    });
+    await context.run('run-B', () => late.waitForSignal('render_done', options));
+    await context.run('run-B', () => waitForSignal('render_done', options));
+    expect(seen).toEqual(['run-A', undefined]);
+  });
+
+  // Greptile on #682: releasing first left a stalled refusal body holding the
+  // connection with no deadline. The body is cancelled outside the caller's
+  // async context while the deadline still reaches the request.
+  it('cancels a stalled refusal body before detaching the request deadline', async () => {
+    const deadline = new AbortController();
+    vi.spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal);
+    const context = new AsyncLocalStorage<string>();
+    const cancels: Array<{ deadlineReachesRequest: boolean; store: string | undefined }> = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => new Response(new ReadableStream({
+      pull: () => new Promise<void>(() => undefined),
+      cancel: () => {
+        deadline.abort(new DOMException('deadline', 'TimeoutError'));
+        cancels.push({ deadlineReachesRequest: init!.signal!.aborted, store: context.getStore() });
+      },
+    }), { status: 503 }));
+    const refusal = await context.run('authored-body', () => waitForSignal('render_done', options))
+      .catch((error: unknown) => error);
+    expect(refusal).toMatchObject({ code: 'http_error', status: 503 });
+    expect(cancels).toEqual([{ deadlineReachesRequest: true, store: undefined }]);
+  });
+
   it('still aborts an in-flight request on its deadline or the caller signal', async () => {
     const hang = (_input: unknown, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
       init?.signal?.addEventListener('abort', () => reject(init.signal!.reason), { once: true });

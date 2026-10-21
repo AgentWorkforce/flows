@@ -2100,7 +2100,7 @@ has no credential. Defaults, each overridable through `options`:
 | `apiUrl` | `FLOWS_CLOUD_URL`, else `https://agentrelay.com/cloud` |
 | `waitMs` | `25000` (per held request; 0–25000) |
 | `requestTimeoutMs` | `30000` (must exceed `waitMs`) |
-| `signal` | none: the wait has no overall deadline; pass `AbortSignal.timeout(ms)` to bound it |
+| `signal` | none: the wait has no overall deadline (see below before passing one) |
 
 The wire behaviour is the one `@relayflows/sdk`'s `waitForCloudSignal` uses,
 which now delegates here: names match `^[A-Za-z0-9_-]{1,80}$` and run IDs
@@ -2113,6 +2113,15 @@ network failures `transport_error`; a non-2xx is `http_error` (response bodies
 are never echoed); malformed JSON or a body without `payload` and a numeric
 `acceptedAt` is `invalid_response`; a missing run ID, token, or bad URL is
 `configuration`.
+
+An abort through `signal` ends the run, whether or not the body catches it.
+After an `f.run`, the authored completion gate fails the run on any rejected
+promise derived from that step, so `try { await waitForSignal(name, { signal:
+AbortSignal.timeout(ms) }) } catch {}` fails with `operation_callback_failed`,
+and uncaught it fails with the abort reason. Racing the wait against a timer
+fails too: the losing wait is still in flight when the body returns
+(`unsettled_derived_work`). Pass `signal` only to stop a run that has waited
+too long; there is no supported way yet to time a wait out and continue.
 
 The wait is not a journaled step. On resume the body calls it again; a read
 does not consume the signal, so Cloud answers with the same stored payload
