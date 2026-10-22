@@ -287,12 +287,12 @@ describe('deployToCloud', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('refuses non-authored sources, empty sources, duplicate providers and a blank approver before HTTP', async () => {
+  it('refuses non-authored sources, excessive sources, duplicate providers and a blank approver before HTTP', async () => {
     const path = await authoredFlow();
     const calls = cloud({});
     const base = { path, repository: { owner: 'o', name: 'r' }, sources: [parseTriggerSource('github')], approver: 'k' };
     await expect(deployToCloud({ ...base, path: 'flow.yaml' })).rejects.toMatchObject({ code: 'unsupported_source' });
-    await expect(deployToCloud({ ...base, sources: [] })).rejects.toMatchObject({ code: 'invalid_input' });
+    await expect(deployToCloud({ ...base, sources: Array.from({ length: 11 }, () => parseTriggerSource('github')) })).rejects.toMatchObject({ code: 'invalid_input' });
     await expect(deployToCloud({ ...base, sources: [parseTriggerSource('github'), parseTriggerSource('github')] }))
       .rejects.toMatchObject({ code: 'invalid_input' });
     await expect(deployToCloud({ ...base, approver: '  ' })).rejects.toMatchObject({ code: 'invalid_input' });

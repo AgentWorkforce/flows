@@ -7,6 +7,7 @@ import { communicationInstruction } from '../communication/spec.js';
 import { checkCommunicationEnvironment, CommunicationEnvironmentError } from '../communication/preflight.js';
 import { parseHumanRecipient } from '../human-to.js';
 import { parseDigestReference } from '../bundle-transport.js';
+import { resolveNamedFlow } from '../cloud-flow-source.js';
 import { prepareDigestRun } from './run-digest.js';
 import { attachReuseSummary } from './reuse.js';
 import { resumeHelperEffect } from '../authored-helper-effect.js';
@@ -47,6 +48,7 @@ import { DEFAULT_LOCAL_AGENT_CAPACITY } from '../worker-slots.js';
 import { localAgentEnvironment } from '../local-agent-environment.js';
 import {
   checkFlow,
+  inputFailureReport,
   type CheckReport,
 } from './check.js';
 
@@ -182,6 +184,17 @@ export async function runFlow(
   dataDir: string,
   options: RunLifecycleOptions = {},
 ): Promise<RunExecution> {
+  try {
+    const named = await resolveNamedFlow(path);
+    if (named) {
+      const { runDirectFlow } = await import('./direct-run.js');
+      return runDirectFlow(named.path, '{}', dataDir, options);
+    }
+  } catch (error) {
+    return { exitCode: 2, report: fromCheckReport('run', inputFailureReport({
+      kind: 'input_unreadable', message: error instanceof Error ? error.message : String(error),
+    }, path)) };
+  }
   const agentEnvironment = localAgentEnvironment();
   const prepared = parseDigestReference(path) ? await prepareDigestRun(path, options.bucket) : undefined;
   if (prepared && 'exitCode' in prepared) return prepared;
