@@ -1,6 +1,7 @@
 import { rmSync } from 'node:fs';
 import type { Server } from 'node:net';
 import { flow, type Ctx, type FlowHandle, type Step } from '@relayflows/surface';
+import { waitForSignal } from '@relayflows/surface/signals';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { executeAuthoredFlow, type ExecuteAuthoredFlowOptions } from '../src/authored-flow-executor.js';
 import { AuthoredFlowLifecycle, parallelPromiseIntrinsicsIntact } from '../src/authored-flow-lifecycle.js';
@@ -715,6 +716,53 @@ describe('authored flow lifecycle through the journal executor', () => {
     expect(result.completionReason).toBe('success');
     expect(result.journalSteps.map((step) => step.id)).toEqual(['run-1', 'run-2', 'complete-3']);
   });
+
+  // Hosted run 4e320b7a (Node 22): a signal posted 11 minutes after run-1
+  // resumed the body, run-2 completed, and the gate then failed the run with
+  // "derived handler for run-1 (f.run) rejected: The operation was aborted due
+  // to timeout". Node 22's undici creates an unreachable body stream for a 204:
+  // its internal promise stays pending, and rejects when the request signal
+  // aborts after the response. This fetch does the same, so the test does not
+  // depend on the runtime's undici. Each case is one face of that failure:
+  // the deadline fires before the body returns (rejected), it has not fired
+  // yet (pending), and several held rounds before the signal lands.
+  it.each([
+    { rounds: 1, requestTimeoutMs: 5 },
+    { rounds: 1, requestTimeoutMs: 60_000 },
+    { rounds: 3, requestTimeoutMs: 5 },
+  ])('completes a signal wait after $rounds 204 round(s) with a $requestTimeoutMs ms request deadline',
+    async ({ rounds, requestTimeoutMs }) => {
+      const realFetch = globalThis.fetch;
+      let reads = 0;
+      let payload: unknown;
+      globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
+        reads += 1;
+        if (reads > rounds) return Response.json({ payload: { ok: true }, acceptedAt: 1 });
+        const orphanedBodyStream = new Promise<never>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(init.signal!.reason), { once: true });
+        });
+        orphanedBodyStream.catch(() => undefined);
+        return new Response(null, { status: 204 });
+      }) as typeof fetch;
+      try {
+        const result = await execute(flow('long-signal-wait', async (f) => {
+          await f.run('true');
+          payload = await waitForSignal('native_done', {
+            runId: 'run_1', apiUrl: 'https://cloud.example', token: 'read-token',
+            waitMs: 0, requestTimeoutMs,
+          });
+          // Outlive the short request deadlines before the body finishes.
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          await f.run('printf resumed');
+          f.done('success');
+        }));
+        expect(reads).toBe(rounds + 1);
+        expect(payload).toEqual({ ok: true });
+        expect(result.completionReason).toBe('success');
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+    });
 
   it('preserves direct await, Promise.resolve, and Promise.all authoring', async () => {
     const result = await execute(flow('supported-awaits', async (f) => {
