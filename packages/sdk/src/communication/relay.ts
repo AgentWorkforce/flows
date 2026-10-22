@@ -3,6 +3,8 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createProjection } from './projection.js';
 import { brokerEnvironment } from './environment.js';
+import { relayCredential, runTokenAgents, runTokenProvider } from './run-token.js';
+import { AgentTokenSession, rotatingMessaging } from './agent-token.js';
 
 export interface RelayEvent { kind: string; name?: string; event_id?: string; delivery_id?: string; verification?: string; [key: string]: unknown }
 export interface RelayHandle {
@@ -40,9 +42,9 @@ export async function loadRelayModules(): Promise<RelayModules> {
   }
 }
 export function relayWorkspaceKey(env = process.env): string {
-  const key = env.RELAY_API_KEY?.trim();
-  if (!key?.startsWith('rk_live_')) throw new Error('Agent communication requires RELAY_API_KEY for an existing workspace.');
-  return key;
+  const credential = relayCredential({ RELAY_API_KEY: env.RELAY_API_KEY });
+  if (credential.kind !== 'workspace-key') throw new Error('Agent communication requires RELAY_API_KEY for an existing workspace.');
+  return credential.workspaceKey;
 }
 export interface RelayRuntime {
   broker: RelayBroker;
@@ -75,28 +77,41 @@ export async function acquireRelayRuntime(dataDir: string, runId: string): Promi
   }
 }
 async function createRuntime(dataDir: string, runId: string): Promise<RelayRuntime> {
-  const workspaceKey = relayWorkspaceKey();
+  const credential = relayCredential();
   const { HarnessDriverClient, RelaycastMessagingClient } = await loadRelayModules();
   const hash = createHash('sha256').update(runId).digest('hex').slice(0, 12);
   const prefix = `flow-${hash}-${randomUUID().slice(0, 8)}`;
   const channel = `wf-${runId.toLowerCase()}`;
-  const options = { workspaceKey, ...(process.env.RELAY_BASE_URL ? { baseUrl: process.env.RELAY_BASE_URL } : {}) };
-  const workspace = new RelaycastMessagingClient(options);
+  const baseUrl = process.env.RELAY_BASE_URL ? { baseUrl: process.env.RELAY_BASE_URL } : {};
+  // Run-token mode: agent admin re-reads the file per request, the broker gets
+  // only the file path, and no workspace key exists anywhere in this process.
+  const workspace = credential.kind === 'run-token'
+    ? runTokenAgents(runTokenProvider(credential.file), baseUrl)
+    : new RelaycastMessagingClient({ workspaceKey: credential.workspaceKey, ...baseUrl }).agents;
+  const brokerCredential = credential.kind === 'run-token'
+    ? { runTokenFile: credential.file } : { workspaceKey: credential.workspaceKey };
   const publisher = `${prefix}-journal`;
-  const registration = await workspace.agents.register({ name: publisher, type: 'agent' });
+  const registration = await workspace.register({ name: publisher, type: 'agent' });
   let broker: RelayBroker | undefined;
+  // Run-token mode: the journal agent's at_live_ expires (relaycast#550), so it
+  // is rotated in memory and the messaging client follows the current token.
+  const session = credential.kind === 'run-token' ? new AgentTokenSession(publisher, registration, baseUrl) : undefined;
+  const release = async () => { session?.stop(); await workspace.delete(publisher); };
   try {
-    const messaging = new RelaycastMessagingClient({ ...options, agentToken: registration.token });
+    session?.start();
+    const messaging = credential.kind === 'workspace-key'
+      ? new RelaycastMessagingClient({ workspaceKey: credential.workspaceKey, ...baseUrl, agentToken: registration.token })
+      : rotatingMessaging(session!, agentToken => new RelaycastMessagingClient({ ...baseUrl, agentToken }));
     const cwd = join(dataDir, 'communication', prefix);
     await mkdir(cwd, { recursive: true, mode: 0o700 });
-    broker = await HarnessDriverClient.spawn({ workspaceKey, brokerName: prefix, cwd, channels: [],
+    broker = await HarnessDriverClient.spawn({ ...brokerCredential, brokerName: prefix, cwd, channels: [],
       ...(process.env.RELAYFLOW_RELAY_BROKER_BIN ? { binaryPath: process.env.RELAYFLOW_RELAY_BROKER_BIN } : {}),
       env: brokerEnvironment(process.env) });
     return { broker, messaging, prefix, channel, project: createProjection(messaging, channel, runId), close: async () => {
-      try { await broker!.shutdown(); } finally { await workspace.agents.delete(publisher); }
+      try { await broker!.shutdown(); } finally { await release(); }
     } };
   } catch (error) {
-    try { await broker?.shutdown(); } finally { await workspace.agents.delete(publisher); }
+    try { await broker?.shutdown(); } finally { await release(); }
     throw error;
   }
 }

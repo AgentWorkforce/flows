@@ -7,7 +7,7 @@ const terminalNames = ['TERM', 'COLORTERM', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 
 const networkNames = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',
   'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy'];
 const relayNames = ['RELAY_API_KEY', 'RELAY_WORKSPACE_KEY', 'AGENT_RELAY_WORKSPACE_KEY',
-  'RELAY_BROKER_API_KEY', 'RELAY_AGENT_TOKEN', 'RELAY_NODE_TOKEN', 'RELAY_WORKSPACES_JSON'];
+  'RELAY_BROKER_API_KEY', 'RELAY_AGENT_TOKEN', 'RELAY_NODE_TOKEN', 'RELAY_WORKSPACES_JSON', 'RELAY_RUN_TOKEN_FILE'];
 // Multi-provider CLIs select their provider in their own configuration.
 const multiProvider = ['OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL',
   'GEMINI_API_KEY', 'GOOGLE_API_KEY', 'OPENROUTER_API_KEY'] as const;
