@@ -48,7 +48,7 @@ import {
   AuthoredHumanParked,
   type AuthoredFlowExecutionErrorCode,
 } from './authored-flow-error.js';
-import { readHumanAnswer } from './authored-human.js';
+import { readHumanWait } from './authored-human.js';
 import { parseHumanTo } from './human-to.js';
 import {
   AuthoredFlowOperation,
@@ -58,6 +58,7 @@ import {
 import { AuthoredFlowLifecycle, parallelPromiseIntrinsicsIntact } from './authored-flow-lifecycle.js';
 import { AuthoredActivities } from './authored-activity.js';
 import { displayLabel, type AuthoredStepEdges } from './authored-step-index.js';
+import { assertSerialOrdinal, serialOrdinals, serialReplayOrderMismatch, type SerialOrdinals } from './authored-serial-ordinals.js';
 import { JournalClient } from './journal-client.js';
 import { PluginError } from './plugin-manifest.js';
 import { createHookEvaluator } from './authored-hooks.js';
@@ -209,6 +210,15 @@ export interface ExecuteAuthoredFlowOptions {
   readonly flowGraph?: readonly LoadedAuthoredFlowNode[];
   /** Internal namespace for descendant step/admission identities. */
   readonly stepPrefix?: string;
+  /**
+   * The step ids the root's index held when this attempt began, read by the
+   * root driver on a re-dispatch and shared with dispatched children, so a
+   * serial body is checked against the journal it is replaying
+   * (authored-serial-ordinals.ts). Absent on a first attempt: nothing to replay.
+   */
+  readonly journaledSteps?: readonly string[];
+  /** Root-owned replay refusal, shared with dispatched children so one refusal stops the whole tree. */
+  readonly replayLatch?: { violation?: AuthoredFlowExecutionError };
   /** Current child depth. Root is zero; dispatch is capped at three. */
   readonly dispatchDepth?: number;
   /** Parent predecessors inherited by the first operation in a child body. */
@@ -327,10 +337,42 @@ export async function executeAuthoredFlow<Input = undefined>(
   const assertParallelRunOnly = (kind: string): void => {
     if (options.executionMode === 'parallel') rejectParallel(`parallel f.run body attempted ${kind} before admission`);
   };
+  // Serial bodies only: parallel ids come from the causal frontier, not one
+  // shared counter. A refusal is latched, so an author `catch` around the
+  // call cannot let the body go on to admit anything else.
+  const journaledSteps = options.executionMode === 'parallel' || options.rootRunId === undefined
+    ? undefined : options.journaledSteps;
+  const ordinals: SerialOrdinals | undefined = journaledSteps === undefined
+    ? undefined : serialOrdinals(journaledSteps, options.stepPrefix ?? '');
+  const replayLatch = options.replayLatch ?? {};
+  const refuseReplay = (error: AuthoredFlowExecutionError): never => {
+    replayLatch.violation ??= error;
+    throw replayLatch.violation;
+  };
+  const assertNoReplayViolation = (): void => {
+    if (replayLatch.violation !== undefined) throw replayLatch.violation;
+  };
+  // Every operation re-checks at start: a step declared before the refusal
+  // and awaited after it is refused too, not admitted.
+  const assertStartAllowed = (verb: string): void => {
+    assertNoReplayViolation();
+    assertOperationAllowed(verb, definition.name, requestedCompletion);
+  };
+  const claimedOrdinals = new Set<number>();
+  const serialId = (kind: string, sequence: number): string => {
+    assertNoReplayViolation();
+    claimedOrdinals.add(sequence);
+    if (ordinals !== undefined) {
+      try { assertSerialOrdinal(ordinals, kind, sequence); } catch (error) {
+        refuseReplay(error as AuthoredFlowExecutionError);
+      }
+    }
+    return qualify(`${kind}-${sequence}`);
+  };
   const nextId = (kind: string): string => {
     if (parallelViolation !== undefined) throw parallelViolation;
+    if (options.executionMode !== 'parallel') return serialId(kind, nextStep++);
     const sequence = nextStep++;
-    if (options.executionMode !== 'parallel') return qualify(`${kind}-${sequence}`);
     if (kind !== 'run') rejectParallel(`parallel f.run body attempted ${kind} before admission`);
     if (!lifecycle.combinatorsObserved()) rejectParallel(
       'cannot assign a replay-stable f.run identity: a Promise intrinsic was replaced');
@@ -486,7 +528,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     let llmOp!: AuthoredFlowOperation<unknown>;
     llmOp = new AuthoredFlowOperation(
       id, 'llm',
-      () => assertOperationAllowed('llm', definition.name, requestedCompletion),
+      () => assertStartAllowed('llm'),
       () => observeStep(id, 'llm', () => {
         if (typeof prompt === 'string') {
           if (values.length !== 1 || values[0] === undefined) {
@@ -532,7 +574,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       let recordOp!: AuthoredFlowOperation<RunResult>;
       recordOp = new AuthoredFlowOperation<RunResult>(
         id, 'run',
-        () => assertOperationAllowed('run', definition.name, requestedCompletion),
+        () => assertStartAllowed('run'),
         () => observeStep(id, 'deterministic',
           () => lowerDeterministic.recording(id, command, leaseMs, recordOp.namedGate, secrets), options.onProgress),
         lifecycle,
@@ -545,7 +587,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     let runOp!: AuthoredFlowOperation<string>;
     runOp = new AuthoredFlowOperation<string>(
       id, 'run',
-      () => assertOperationAllowed('run', definition.name, requestedCompletion),
+      () => assertStartAllowed('run'),
       () => observeStep(id, 'deterministic', () => lowerDeterministic(id, command, false, leaseMs, runOp.namedGate, secrets), options.onProgress),
       lifecycle,
       // No label: a command is not a display name. It carries literal
@@ -561,10 +603,10 @@ export async function executeAuthoredFlow<Input = undefined>(
     assertOperationAllowed(`slack.${call.verb}`, definition.name, requestedCompletion);
     assertHelperAllowed(call.provider);
     const snapshot = snapshotJsonValue(call, 'f.slack call') as unknown as SlackCall;
-    const id = qualify(`slack-${slackRun}-${nextStep++}`);
+    const id = serialId(`slack-${slackRun}`, nextStep++);
     return trackStep(authoredSteps, new AuthoredFlowOperation<T>(
       id, `slack.${call.verb}`,
-      () => assertOperationAllowed(`slack.${call.verb}`, definition.name, requestedCompletion),
+      () => assertStartAllowed(`slack.${call.verb}`),
       async () => {
         const receipt = await runHelperEffect(journal, definition.name, id, snapshot,
           options.dataDir ?? dirname(journal.socketPath), journalSteps, options.rootRunId);
@@ -581,7 +623,22 @@ export async function executeAuthoredFlow<Input = undefined>(
     declared: definition.header?.hooks ?? [],
     extensions: options.extensions ?? [],
     peekStep: () => nextStep,
-    restoreStep: (step) => { nextStep = step; },
+    restoreStep: (step, hook) => {
+      // A replayed verdict jumps the counter to the watermark it recorded,
+      // which also counts ordinals other branches took while the hook ran.
+      // Skipping one of those would hand that branch's completed step a fresh
+      // ordinal and run it again, so a jump over a journaled ordinal this
+      // attempt has not claimed is refused. (It also refuses skipping the
+      // hook's own steps; resuming past those already fails at the kernel.)
+      for (let ordinal = nextStep; ordinals !== undefined && ordinal < step; ordinal++) {
+        const journaled = ordinals.get(ordinal)?.[0];
+        if (journaled !== undefined && !claimedOrdinals.has(ordinal)) {
+          refuseReplay(serialReplayOrderMismatch(
+            `hook step "${hook}" would skip ordinal ${ordinal}, journaled as step "${journaled.step}"`));
+        }
+      }
+      nextStep = step;
+    },
     ...(options.signal === undefined ? {} : { signal: options.signal }),
   });
 
@@ -592,9 +649,9 @@ export async function executeAuthoredFlow<Input = undefined>(
       assertOperationAllowed(verb, definition.name, requestedCompletion);
       assertHelperAllowed(call.provider);
       const snapshot = snapshotJsonValue(call, `f.${verb} call`) as unknown as HelperCall;
-      const id = qualify(`${call.provider}-${slackRun}-${nextStep++}`);
+      const id = serialId(`${call.provider}-${slackRun}`, nextStep++);
       return trackStep(authoredSteps, new AuthoredFlowOperation<T>(id, verb,
-        () => assertOperationAllowed(verb, definition.name, requestedCompletion),
+        () => assertStartAllowed(verb),
         async () => await runHelperEffect(journal, definition.name, id, snapshot,
           options.dataDir ?? dirname(journal.socketPath), journalSteps, options.rootRunId) as T,
         lifecycle));
@@ -610,7 +667,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       const id = nextId('mcp');
       return trackStep(authoredSteps, new AuthoredFlowOperation(
         id, 'mcp',
-        () => assertOperationAllowed('mcp', definition.name, requestedCompletion),
+        () => assertStartAllowed('mcp'),
         () => runMcpEffect(journal, definition.name, id, server, tool, args,
           known, checkedMcp.servers[server]!, journalSteps, options.rootRunId),
         lifecycle,
@@ -618,7 +675,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     }),
     memory: authoredMemory(
       scriptMemoryScope(flowPath, definition.name),
-      () => { assertParallelRunOnly('memory'); assertOperationAllowed('memory', definition.name, requestedCompletion); },
+      () => { assertParallelRunOnly('memory'); assertNoReplayViolation(); assertOperationAllowed('memory', definition.name, requestedCompletion); },
       definition.header.memory?.script !== false,
       memoryWrites,
       options.rootRunId === undefined ? undefined : journalLearnLedger(journal, options.rootRunId),
@@ -634,7 +691,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       agentOp = new AuthoredFlowOperation<AgentResult>(
         id,
         'agent',
-        () => assertOperationAllowed('agent', definition.name, requestedCompletion),
+        () => assertStartAllowed('agent'),
         () => observeStep(id, 'agent', () => worker.agent(id, options, agentOp.namedGate), onProgress),
         lifecycle,
         displayLabel(typeof name === 'string' ? name : undefined),
@@ -643,6 +700,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     },
     on(source, activityOptions) {
       assertParallelRunOnly('on');
+      assertNoReplayViolation();
       assertOperationAllowed('on', definition.name, requestedCompletion);
       // Activity ids are root-scoped (`activity-N`); a child's own counter would collide.
       if ((options.dispatchDepth ?? 0) > 0) {
@@ -697,7 +755,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       let humanOp!: AuthoredFlowOperation<boolean>;
       humanOp = new AuthoredFlowOperation<boolean>(
         id, 'human',
-        () => assertOperationAllowed('human', definition.name, requestedCompletion),
+        () => assertStartAllowed('human'),
         () => observeStep(id, 'deterministic', async () => {
           const rootRunId = options.rootRunId;
           if (rootRunId === undefined) {
@@ -706,7 +764,15 @@ export async function executeAuthoredFlow<Input = undefined>(
               `f.human needs a durable root to park in; "${id}" has no run to wait on. Run the flow with flows run.`,
             );
           }
-          const recorded = await readHumanAnswer(journal, rootRunId, id);
+          const { answer: recorded, asked } = await readHumanWait(journal, rootRunId, id);
+          // The answer is keyed by the wait id alone, and a reordered resume
+          // can hand that id to a different f.human: never apply an answer
+          // to a question nobody was asked.
+          if (asked.some(wait => wait.question !== question || wait.to !== to)) {
+            refuseReplay(serialReplayOrderMismatch(
+              `ordinal ${id.slice(id.lastIndexOf('-') + 1)} is journaled as human step "${id}" asking a `
+                + 'different question or recipient, but this resume reached it with another f.human'));
+          }
           if (recorded === undefined) throw new AuthoredHumanParked({ waitId: id, question, to }, rootRunId);
           const record = { human: id, to, answer: recorded.answer,
             ...(recorded.note === undefined ? {} : { note: recorded.note }),
@@ -735,7 +801,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       dispatchOp = new AuthoredFlowOperation<DispatchResult>(
         id,
         'dispatch',
-        () => assertOperationAllowed('dispatch', definition.name, requestedCompletion),
+        () => assertStartAllowed('dispatch'),
         async () => {
           const inheritedAfter = stepEdges(id)?.after ?? [];
           const currentHelperAuthority = helperAuthority(definition);
@@ -743,6 +809,8 @@ export async function executeAuthoredFlow<Input = undefined>(
             ? currentHelperAuthority
             : new Set([...currentHelperAuthority].filter(provider => options.allowedHelperProviders!.has(provider)));
           const childResult = await executeAuthoredFlow(child.handle, journal, inputSnapshot, {
+            ...(journaledSteps === undefined ? {} : { journaledSteps }),
+            replayLatch,
             getDefinition: child.getDefinition,
             dataDir: options.dataDir,
             flowPath: child.path,
@@ -799,7 +867,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       const snapshot = snapshotJsonValue(input, 'f.hook input');
       return trackStep(authoredSteps, new AuthoredFlowOperation<boolean>(
         id, 'hook',
-        () => assertOperationAllowed('hook', definition.name, requestedCompletion),
+        () => assertStartAllowed('hook'),
         async () => {
           const verdict = await evaluateHook(id, name, snapshot, context);
           const record = { hook: name, step: id, verdict: verdict ? 'pass' : 'fail' };
@@ -862,7 +930,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     assertOperationAllowed(label, definition.name, requestedCompletion);
     const id = nextId('plugin');
     return trackStep(authoredSteps, new AuthoredFlowOperation(
-      id, label, () => assertOperationAllowed(label, definition.name, requestedCompletion),
+      id, label, () => assertStartAllowed(label),
       () => runPluginEffect(journal, definition.name, id, plugin, verb, args,
         journalSteps, budget, options.rootRunId),
       lifecycle,
@@ -890,6 +958,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   // A source certificate is a performance admission decision, never a way
   // for authored try/catch to turn a refused effect into successful output.
   if (parallelViolation !== undefined) { bodyFailed = true; bodyFailure = parallelViolation; }
+  if (replayLatch.violation !== undefined) { bodyFailed = true; bodyFailure = replayLatch.violation; }
   if (bodyFailed) {
     // Refuse queued work immediately. A slow memory commit must not leave an
     // admission slot open after the body has already failed.
@@ -982,7 +1051,8 @@ export async function executeAuthoredFlow<Input = undefined>(
   // explanation the root had already journaled to `run_admission_conflict`.
   // With no detail there is no environment in the command and nothing to
   // commit, so that path is untouched.
-  const terminalId = qualify(`complete-${nextStep}`);
+  const terminalId = options.executionMode === 'parallel'
+    ? qualify(`complete-${nextStep}`) : serialId('complete', nextStep);
   const verdict = await commitAuthoredVerdict(journal, options.rootRunId, terminalId, {
     reason: requestedCompletion,
     ...(requestedDetail === undefined ? {} : { detail: requestedDetail }),

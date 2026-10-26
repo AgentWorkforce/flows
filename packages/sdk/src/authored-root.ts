@@ -19,12 +19,13 @@ import { SPEC_SCHEMA_VERSION } from './spec.js';
 import type { RunLifecycleOptions } from './cli/run.js';
 import { isLeaseLost, withWorkerLease } from './worker-lease.js';
 import { AuthoredFlowExecutionError, AuthoredHumanParked } from './authored-flow-error.js';
-import { readOpenHumanWaits, resumeCommand } from './authored-human.js';
+import { readHumanWaitIds, readOpenHumanWaits, resumeCommand } from './authored-human.js';
 import { helperReceiptWaitId, releaseHelperReceiptWaits } from './helper-park.js';
 import { readSubscriptionPark } from './authored-subscription-park.js';
 import { localAgentCredentialEnvironment } from './local-agent-environment.js';
 import { completedResult, rootKernelStep, rootStepIfPresent } from './authored-root-readback.js';
 import { parallelPromiseIntrinsicsIntact } from './authored-flow-lifecycle.js';
+import { readAuthoredStepIndex } from './authored-step-index.js';
 
 export type DurableAuthoredFlowResult =
   | (AuthoredFlowExecutionResult & { readonly rootRunId: string })
@@ -391,6 +392,14 @@ async function driveRoot(
       // A lost root lease must also stop body reads still inside their budget.
       const releaseReads = journal.scopeReads?.(rootSignal) ?? (() => {});
       try {
+        // A re-dispatched serial body replays an earlier attempt; give it that
+        // attempt's step index so a reordered resume is refused, not re-run.
+        // A first attempt has nothing to replay and reads nothing.
+        const parallel = metadata.identityVersion === 2 && metadata.executionMode === 'parallel';
+        const journaledSteps = parallel || dispatch.attempt <= 1 ? undefined : [
+          ...(await readAuthoredStepIndex(journal, dispatch.run_id)).map(record => record.step),
+          ...await readHumanWaitIds(journal, dispatch.run_id),
+        ];
         const callerSignal = options.lifecycle?.signal;
         const signal = callerSignal === undefined ? rootSignal : AbortSignal.any([callerSignal, rootSignal]);
         if (process.versions['bun'] !== undefined) {
@@ -401,6 +410,7 @@ async function driveRoot(
               agentEnvironment: localAgentCredentialEnvironment(options.agentEnvironment),
             }),
             ...(options.workerCapacity === undefined ? {} : { workerCapacity: options.workerCapacity }),
+            ...(journaledSteps === undefined ? {} : { journaledSteps }),
             ...options.lifecycle, signal,
           });
         }
@@ -416,8 +426,8 @@ async function driveRoot(
             ...(options.agentEnvironment === undefined ? {} : { agentEnvironment: options.agentEnvironment }),
             ...(options.workerCapacity === undefined ? {} : { workerCapacity: options.workerCapacity }),
             rootRunId: dispatch.run_id,
-            executionMode: metadata.identityVersion === 2 && metadata.executionMode === 'parallel'
-              ? 'parallel' : 'serial',
+            executionMode: parallel ? 'parallel' : 'serial',
+            ...(journaledSteps === undefined ? {} : { journaledSteps }),
             extensions: loaded.extensions,
             flowGraph: loaded.graph,
             ...options.lifecycle,

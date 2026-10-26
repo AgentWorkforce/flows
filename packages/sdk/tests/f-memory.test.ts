@@ -188,6 +188,18 @@ it('persists a learned finding that a later run of the same flow recalls', async
   expect(JSON.parse(readFileSync(join(compacted, file!), 'utf8'))).toMatchObject({ projectId: scope, decisions: [finding] });
 });
 
+it('does not learn after a serial replay refusal the author caught', async () => {
+  const finding = { question: 'replay order', chosen: 'refuse', reasoning: 'never write after a refusal' };
+  await expect(executeAuthoredFlow(flow('memory-example', { memory: { script: true } }, async f => {
+    try { await f.run('printf L'); } catch { /* author swallowed the refusal */ }
+    await f.memory.learn(finding);
+    f.done('success');
+  }), completingJournal(), undefined, { flowPath: join(dir, 'test.flow.ts'), rootRunId: 'root-1', journaledSteps: ['llm-1'] }))
+    .rejects.toMatchObject({ code: 'serial_replay_order_mismatch' });
+  expect(store.appended).toEqual([]);
+  expect(existsSync(compactedDir())).toBe(false);
+});
+
 it('learns idempotently and only into its own script scope', async () => {
   const memory = memoryFor(scope);
   const finding = { question: 'cache invalidation', chosen: 'ttl', reasoning: 'simple' };

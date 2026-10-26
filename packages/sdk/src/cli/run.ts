@@ -432,7 +432,8 @@ export async function resumeFlow(
     // leaving it on `protocolFailure` meant `flows run` printed the evidence
     // while `flows resume` still printed `protocol_error` and
     // `RUN <id> unknown` for the identical failure.
-    if (error instanceof AuthoredFlowExecutionError && (error.code === 'step_failed' || error.code === 'gate_failed')) {
+    if (error instanceof AuthoredFlowExecutionError && (error.code === 'step_failed' || error.code === 'gate_failed'
+      || error.code === 'serial_replay_order_mismatch')) {
       return authoredStepFailure('resume', base, socketPath, error, runId);
     }
     if (error instanceof AuthoredFlowExecutionError && error.code === 'result_unreadable') {
@@ -632,10 +633,11 @@ export function authoredStepFailure(
         severity: 'failure',
         // A predicate gate that judged false is a run failure with its own
         // name, so the report says which kind of check the body did not pass.
-        kind: error.code === 'gate_failed' ? 'gate_failed' : 'step_failed',
+        // A refused out-of-order replay names itself the same way.
+        kind: error.code === 'gate_failed' || error.code === 'serial_replay_order_mismatch' ? error.code : 'step_failed',
         // The `step_failed: ` prefix `AuthoredFlowExecutionError` adds is
         // redundant once the diagnostic is labelled `[step_failed]`.
-        message: error.message.replace(/^(?:step_failed|gate_failed): /, ''),
+        message: error.message.replace(/^(?:step_failed|gate_failed|serial_replay_order_mismatch): /, ''),
       }],
     },
   };

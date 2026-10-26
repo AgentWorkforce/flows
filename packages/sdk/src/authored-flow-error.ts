@@ -58,6 +58,12 @@ export type AuthoredFlowExecutionErrorCode =
   | 'unsupported_header'
   | 'unsettled_derived_work'
   | 'unsupported_promise_lifecycle'
+  /**
+   * A resumed serial body reached a journaled step id with a different call:
+   * concurrent branches resolved in another order than the journaled run.
+   * Refused before the step is admitted (authored-serial-ordinals.ts).
+   */
+  | 'serial_replay_order_mismatch'
   /** A pinned parallel root cannot dispatch safely in this process environment. */
   | 'unsafe_parallel_runtime'
   | 'unsupported_workspace_permission'

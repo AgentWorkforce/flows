@@ -127,13 +127,18 @@ export async function runPluginEffect(
       if (dispatchExpired) await cancelChildRun();
       if (outcome.status !== 'completed') await completed;
       if (diagnostic !== undefined) {
-        try { await readCompletedStepOutput(journal, outcome.run_id, id, journalSteps, {}, outcome.status); }
+        try {
+          await readCompletedStepOutput(journal, outcome.run_id, id, journalSteps,
+            rootRunId === undefined ? {} : { rootRunId }, outcome.status);
+        }
         catch (error) {
           if (!(error instanceof AuthoredFlowExecutionError) || error.code !== 'step_failed') throw error;
           throw new PluginStepError(diagnostic, outcome.run_id);
         }
       }
-      const receipt = await readCompletedStepOutput(journal, outcome.run_id, id, journalSteps, {}, outcome.status) as { output: unknown };
+      // Indexed on the root like every other child, so a resume can see its ordinal.
+      const receipt = await readCompletedStepOutput(journal, outcome.run_id, id, journalSteps,
+        rootRunId === undefined ? {} : { rootRunId }, outcome.status) as { output: unknown };
       return receipt.output;
     }, admissionKey), deadline]);
   } finally {

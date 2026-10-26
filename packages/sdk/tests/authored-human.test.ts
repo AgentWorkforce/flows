@@ -188,6 +188,28 @@ describe('f.human lowering', () => {
     } finally { journal.close(); }
   });
 
+  // The answer is keyed by wait id alone. A serial resume whose branches
+  // resolve in another order can hand `human-1` to a different f.human; the
+  // recorded answer belongs to the question that was asked, never to it.
+  it.each([
+    ['a different question', 'Delete prod?', 'khaliq'],
+    ['a different recipient', 'Ship it?', 'marketing'],
+  ])('refuses to apply an answer journaled for %s', async (_case, question, to) => {
+    for (const entries of [[asked], [asked, answered({ answer: true, answeredBy: 'khaliq' })]]) {
+      rootEntries = entries;
+      started.length = 0;
+      const journal = await client();
+      try {
+        const handle = flow('ask', async f => { await f.human(question, { to }); f.done('success'); });
+        await expect(executeAuthoredFlow(handle, journal, undefined, { rootRunId: ROOT })).rejects.toMatchObject({
+          code: 'serial_replay_order_mismatch',
+          message: expect.stringContaining('ordinal 1 is journaled as human step "human-1" asking a different question or recipient'),
+        });
+        expect(started).toEqual([]);
+      } finally { journal.close(); }
+    }
+  });
+
   it('refuses a recorded answer that is not { answer: boolean, answeredBy }', async () => {
     for (const bad of [{ answer: 'yes', answeredBy: 'khaliq' }, { answer: true }, { answer: true, answeredBy: ' ' }]) {
       rootEntries = [asked, answered(bad)];
