@@ -311,12 +311,47 @@ export async function packageTreeSha256(root: string): Promise<string> {
   }
   await visit(root);
   const hash = createHash('sha256');
-  for (const path of files) {
-    const bytes = await readFile(path);
+  await readInOrder(files, SURFACE_READ_CONCURRENCY, (path, bytes) => {
     const name = relative(root, path).split(sep).join('/');
     hash.update(name).update('\0').update(String(bytes.length)).update('\0').update(bytes);
-  }
+  });
   return hash.digest('hex');
+}
+
+/**
+ * Surface is about 600 small files, and both the CLI and the authored Node
+ * child hash it on the startup path. Awaiting one read at a time paid a
+ * filesystem round trip per file; a sandbox disk made that several hundred ms.
+ */
+const SURFACE_READ_CONCURRENCY = 32;
+
+/**
+ * Read `paths` with at most `limit` reads in flight, but hand each file to
+ * `consume` strictly in `paths` order, so the digest is the serial walk's.
+ * After a failure no new read starts; once the started reads settle, the
+ * lowest-index failure is thrown, which is the error a serial walk would hit.
+ */
+async function readInOrder(
+  paths: readonly string[],
+  limit: number,
+  consume: (path: string, bytes: Buffer) => void,
+): Promise<void> {
+  const ready = new Map<number, Buffer>();
+  const failures = new Map<number, unknown>();
+  let next = 0, consumed = 0;
+  const worker = async (): Promise<void> => {
+    while (failures.size === 0 && next < paths.length) {
+      const index = next++;
+      try { ready.set(index, await readFile(paths[index]!)); } catch (error) { failures.set(index, error); }
+      for (let bytes = ready.get(consumed); bytes !== undefined; bytes = ready.get(consumed)) {
+        ready.delete(consumed);
+        consume(paths[consumed]!, bytes);
+        consumed += 1;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, paths.length) }, worker));
+  if (failures.size !== 0) throw failures.get(Math.min(...failures.keys()));
 }
 
 // Exported for callers (internal SDK tests, and any co-located flow that is
