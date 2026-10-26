@@ -358,8 +358,10 @@ export async function executeAuthoredFlow<Input = undefined>(
     assertNoReplayViolation();
     assertOperationAllowed(verb, definition.name, requestedCompletion);
   };
+  const claimedOrdinals = new Set<number>();
   const serialId = (kind: string, sequence: number): string => {
     assertNoReplayViolation();
+    claimedOrdinals.add(sequence);
     if (ordinals !== undefined) {
       try { assertSerialOrdinal(ordinals, kind, sequence); } catch (error) {
         refuseReplay(error as AuthoredFlowExecutionError);
@@ -621,7 +623,22 @@ export async function executeAuthoredFlow<Input = undefined>(
     declared: definition.header?.hooks ?? [],
     extensions: options.extensions ?? [],
     peekStep: () => nextStep,
-    restoreStep: (step) => { nextStep = step; },
+    restoreStep: (step, hook) => {
+      // A replayed verdict jumps the counter to the watermark it recorded,
+      // which also counts ordinals other branches took while the hook ran.
+      // Skipping one of those would hand that branch's completed step a fresh
+      // ordinal and run it again, so a jump over a journaled ordinal this
+      // attempt has not claimed is refused. (It also refuses skipping the
+      // hook's own steps; resuming past those already fails at the kernel.)
+      for (let ordinal = nextStep; ordinals !== undefined && ordinal < step; ordinal++) {
+        const journaled = ordinals.get(ordinal)?.[0];
+        if (journaled !== undefined && !claimedOrdinals.has(ordinal)) {
+          refuseReplay(serialReplayOrderMismatch(
+            `hook step "${hook}" would skip ordinal ${ordinal}, journaled as step "${journaled.step}"`));
+        }
+      }
+      nextStep = step;
+    },
     ...(options.signal === undefined ? {} : { signal: options.signal }),
   });
 

@@ -4,6 +4,7 @@ import { flow, webhook, type FlowHandle } from '@relayflows/surface';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { executeAuthoredFlow, type ExecuteAuthoredFlowOptions } from '../src/authored-flow-executor.js';
 import { serialOrdinals } from '../src/authored-serial-ordinals.js';
+import type { LoadedFlowExtension } from '../src/flow-extension-loader.js';
 import { JournalClient } from '../src/journal-client.js';
 import { sendOk, sendResult, sockPath, startLoopback } from './journal-client-loopback.js';
 
@@ -17,6 +18,7 @@ describe('serial replay ordinal guard', () => {
   let path: string;
   let server: Server;
   let journaled: string[] = [];
+  let hookRecords: unknown[] = [];
   const started: string[] = [];
   const writes: unknown[] = [];
   const subscriptions: unknown[] = [];
@@ -44,7 +46,10 @@ describe('serial replay ordinal guard', () => {
             output: { exit_code: 0, stdout_tail: '', stderr_tail: '' } },
         }] });
       },
-      'stream.read': (ctx) => sendResult(ctx, { messages: [], next_offset: 0 }),
+      'stream.read': (ctx, params) => {
+        const messages = params.stream === 'hooks' && (params.from_offset as number) === 0 ? hookRecords : [];
+        sendResult(ctx, { messages, next_offset: messages.length });
+      },
       'subscription.open': (ctx, params) => { subscriptions.push(params); sendResult(ctx, { state: 'open' }); },
       'subscription.close': (ctx) => sendResult(ctx, { state: 'closed' }),
       'stream.append': (ctx, params) => {
@@ -59,7 +64,7 @@ describe('serial replay ordinal guard', () => {
     rmSync(path, { force: true });
   });
 
-  beforeEach(() => { journaled = []; started.length = 0; writes.length = 0; subscriptions.length = 0; nextRun = 1; stepOf.clear(); });
+  beforeEach(() => { journaled = []; hookRecords = []; started.length = 0; writes.length = 0; subscriptions.length = 0; nextRun = 1; stepOf.clear(); });
 
   async function execute(handle: FlowHandle, options: ExecuteAuthoredFlowOptions = { rootRunId: ROOT, journaledSteps: journaled }) {
     const journal = new JournalClient(path, { requestTimeoutMs: 2000 });
@@ -136,6 +141,26 @@ describe('serial replay ordinal guard', () => {
       f.done('success');
     }))).rejects.toMatchObject({ code: 'serial_replay_order_mismatch' });
     expect(subscriptions).toEqual([]);
+  });
+
+  it('refuses a replayed hook watermark that would skip a concurrent branch past its journaled ordinal', async () => {
+    // The earlier attempt: hook-1 ran while the branch completed run-2 = a and
+    // run-3 = b, so its verdict recorded afterStep 4. Replaying that watermark
+    // before b is declared would hand b ordinal 4 and run it again.
+    journaled = ['run-2', 'run-3', 'hook-1'];
+    hookRecords = [{ hook: 'h', step: 'hook-1', plugin: 'ext', verdict: 'pass', afterStep: 4 }];
+    const extensions = [{ name: 'ext', hooks: { h: async () => true } } as unknown as LoadedFlowExtension];
+    await expect(execute(flow('hook-replay', { hooks: ['h'] }, async f => {
+      await Promise.all([
+        f.hook('h', {}),
+        (async () => { await f.run('printf a'); await f.run('printf b'); })(),
+      ]);
+      f.done('success');
+    }), { rootRunId: ROOT, journaledSteps: journaled, extensions })).rejects.toMatchObject({
+      code: 'serial_replay_order_mismatch',
+      message: expect.stringContaining('hook step "hook-1" would skip ordinal 3, journaled as step "run-3"'),
+    });
+    expect(started).not.toContain('run-4');
   });
 
   it('refuses the completion marker at an ordinal an earlier attempt gave a step', async () => {

@@ -142,7 +142,10 @@ export async function runMcpEffect(
     childRunId = outcome.run_id;
     if (outcome.status !== 'completed') await completed;
     if (diagnostic !== undefined) {
-      try { await readCompletedStepOutput(journal, outcome.run_id, id, journalSteps, {}, outcome.status); }
+      try {
+        await readCompletedStepOutput(journal, outcome.run_id, id, journalSteps,
+          rootRunId === undefined ? {} : { rootRunId }, outcome.status);
+      }
       catch (error) {
         if (!(error instanceof AuthoredFlowExecutionError) || error.code !== 'step_failed') throw error;
         throw new McpStepError(diagnostic, outcome.run_id);

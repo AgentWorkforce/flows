@@ -3,6 +3,8 @@ import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { chainFixture } from './flow-chain-fixture.js';
+import { addExtensionPlugin } from '../src/cli/add-extension.js';
+import { SHA_A, entriesFromDirectory, fakeGithub } from './fake-github.js';
 
 /**
  * Serial step ids are `<kind>-<N>` from one counter assigned in call order.
@@ -368,4 +370,80 @@ export default flow('child', async f => {
       expect(reordered.callsAfter).toBe(3);
     }, 240_000,
   );
+
+  /** Install an extension whose `h` hook is `hookSource`, then run, stall, kill and resume `body`. */
+  async function runHookStallResume(hookSource: string, body: string) {
+    const fixture = chainFixture();
+    closes.push(() => fixture.close());
+    const fixtureRoot = resolve('../../testdata/plugins/extension-babysitter');
+    const manifest = JSON.parse(readFileSync(`${fixtureRoot}/flows-plugin.json`, 'utf8')) as Record<string, unknown>;
+    const entries = entriesFromDirectory(fixtureRoot, 'examples/babysitter').map(entry => {
+      if (entry.path.endsWith('flows-plugin.json')) {
+        // Offline: no preflight server probe, no integrations.
+        return { ...entry, data: Buffer.from(JSON.stringify({ ...manifest, triggers: [],
+          preflight: { credentials: [], servers: [] },
+          extends: { handlers: false, hooks: ['h'] },
+          compat: { ...(manifest.compat as object), base: [{ name: 'replay-hook', version: '*' }] } })) };
+      }
+      if (entry.path.endsWith('babysitter.flow.ts')) {
+        return { ...entry, data: Buffer.from(`import { flow } from '@relayflows/surface';
+export const hooks = { h: ${hookSource} };
+export default flow('babysitter', async f => { f.done('success'); });
+`) };
+      }
+      return entry;
+    });
+    const fetch = fakeGithub({ 'AgentWorkforce/flows': { refs: { main: SHA_A }, commits: { [SHA_A]: { entries } } } }).fetch;
+    const io = { stdout: () => {}, stderr: (text: string) => { throw new Error(text); } };
+    expect(await addExtensionPlugin(`github:AgentWorkforce/flows@${SHA_A}#examples/babysitter`, io,
+      { cwd: fixture.root, fetch, now: () => new Date('2026-10-26T00:00:00Z') })).toBe(0);
+    writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
+import { existsSync, writeFileSync } from 'node:fs';
+export default flow('replay-hook', { version: '1.0.0', hooks: ['h'] }, async f => {${body}
+  if (!existsSync('release')) { writeFileSync('stalled', ''); await new Promise(resolve => setTimeout(resolve, 120000)); }
+  f.done('success');
+});
+`);
+    const cli = fixture.invokeAsync('run', '--no-observer-link', '--json', '--data-dir', fixture.data,
+      fixture.flowPath, '--input', '{}');
+    let cliOutput = '';
+    cli.stdout?.on('data', chunk => { cliOutput += String(chunk); });
+    cli.stderr?.on('data', chunk => { cliOutput += String(chunk); });
+    const cliExited = new Promise<void>(r => cli.once('exit', () => r()));
+    closes.push(async () => {
+      if (cli.exitCode === null && cli.signalCode === null) cli.kill('SIGKILL');
+      await cliExited;
+    });
+    await until(() => {
+      if (cli.exitCode !== null) throw new Error(`exited before stall: ${cliOutput}`);
+      return existsSync(`${fixture.root}/stalled`);
+    }, 'hook stall');
+    const before = effects(fixture.root);
+    const rootRunId = runIds(fixture.data)[0]!;
+    cli.kill('SIGKILL');
+    await cliExited;
+    killDaemon(fixture.data);
+    writeFileSync(`${fixture.root}/release`, '');
+    const resumed = fixture.invoke('resume', '--no-observer-link', '--json', '--data-dir', fixture.data, rootRunId);
+    return { before, resumed, output: resumed.stdout + resumed.stderr, after: effects(fixture.root) };
+  }
+
+  it('refuses a replayed hook verdict that would skip a concurrent branch past its journaled ordinal', async () => {
+    // Original: hook-1 runs for 800ms while the branch completes run-2 = a and
+    // run-3 = b, so the verdict records afterStep 4. On the resume the verdict
+    // replays first: jumping the counter to 4 would hand b ordinal 4, a fresh
+    // admission key, and run it again. Without this guard the live resume is
+    // currently stopped by the kernel refusing hook-1's own marker (a separate
+    // defect, also on main); authored-serial-ordinals.test.ts pins the re-run.
+    const r = await runHookStallResume('async () => { await new Promise(resolve => setTimeout(resolve, 800)); return true; }', `
+  await Promise.all([
+    f.hook('h', {}),
+    (async () => { await f.run('printf a >> effects'); await f.run('printf b >> effects'); })(),
+  ]);`);
+    expect(r.before).toBe('ab');
+    expect(r.resumed.status, r.output).toBe(1);
+    expect(r.output).toMatch(MISMATCH);
+    expect(r.output).toMatch(/hook step \\?"hook-1\\?" would skip ordinal 3, journaled as step \\?"run-3\\?"/u);
+    expect(r.after).toBe('ab');
+  }, 180_000);
 });
