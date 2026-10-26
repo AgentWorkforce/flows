@@ -105,13 +105,29 @@ export async function readHumanAnswer(
   runId: string,
   waitId: string,
 ): Promise<HumanAnswer | undefined> {
+  return (await readHumanWait(journal, runId, waitId)).answer;
+}
+
+/**
+ * `readHumanAnswer`, plus every question the run has parked on under
+ * `waitId`. The answer is keyed by the wait id alone, so the executor checks
+ * that the question it is about to answer is the one that was asked.
+ */
+export async function readHumanWait(
+  journal: JournalClient,
+  runId: string,
+  waitId: string,
+): Promise<{ answer?: HumanAnswer; asked: Array<{ question: unknown; to: unknown }> }> {
+  const asked: Array<{ question: unknown; to: unknown }> = [];
   for (const entry of await readWaitEntries(journal, runId)) {
-    if (entry.entry_type === 'wait.completed' && entry.payload?.wait_id === waitId
-      && entry.payload.completionReason === 'human_responded') {
-      return parseHumanAnswer(entry.payload.result, waitId);
+    if (entry.payload?.wait_id !== waitId) continue;
+    if (entry.entry_type === 'wait.human') {
+      asked.push({ question: entry.payload.prompt, to: entry.payload.requested_of });
+    } else if (entry.payload.completionReason === 'human_responded') {
+      return { answer: parseHumanAnswer(entry.payload.result, waitId), asked };
     }
   }
-  return undefined;
+  return { asked };
 }
 
 /** Every `wait.human` on the run that no `wait.completed` has closed. */

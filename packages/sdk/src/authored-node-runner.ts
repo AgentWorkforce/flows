@@ -191,6 +191,7 @@ export async function runAuthoredInNode(
               child.stdin!.write(JSON.stringify({ channelKey, metadata, socketPath, rootRunId,
                 dataDir: options.dataDir, localAgentStream: options.localAgentStream,
                 workerCapacity: options.workerCapacity,
+                ...(options.journaledSteps === undefined ? {} : { journaledSteps: options.journaledSteps }),
                 agentEnvironment: options.agentEnvironment }) + '\n');
             } else if (!ready || result) throw new Error('unexpected authored runtime message');
             else if (message.type === 'progress') options.onProgress?.(message.event);

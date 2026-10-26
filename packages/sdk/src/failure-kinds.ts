@@ -138,6 +138,8 @@ export const RUN_FAILURE_KINDS = [
   'unsafe_parallel_runtime',
   /** A predicate `.gate(fn)` judged false; the verdict is journaled as `<step>.gate`. */
   'gate_failed',
+  /** A resumed serial body reached a journaled step id with a different call; refused, not executed. */
+  'serial_replay_order_mismatch',
   /** `flows answer` named a wait the run is not asking: unknown, or already answered. */
   'human_wait_unknown',
   /** `f.memory.learn` was given a finding without non-empty string fields. */

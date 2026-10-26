@@ -53,7 +53,7 @@ try {
     executableSha256: hash(process.execPath), payloadSha256: hash(process.argv[1]!) } });
   const request = await new Promise<{ channelKey: string; metadata: AuthoredRootMetadata; socketPath: string;
     rootRunId: string; dataDir: string; localAgentStream?: string; workerCapacity?: number;
-    agentEnvironment?: unknown }>((resolve, reject) => {
+    journaledSteps?: unknown; agentEnvironment?: unknown }>((resolve, reject) => {
     let buffer = '';
     process.stdin.setEncoding('utf8');
     const onData = (chunk: string): void => {
@@ -90,6 +90,8 @@ try {
   }
   if (request.localAgentStream !== request.metadata.localAgentStream) throw new Error('authored root local agent surface mismatch');
   if (request.workerCapacity !== undefined && !isAgentCapacity(request.workerCapacity)) throw new Error('invalid authored worker capacity');
+  if (request.journaledSteps !== undefined && (!Array.isArray(request.journaledSteps)
+    || !request.journaledSteps.every(step => typeof step === 'string'))) throw new Error('invalid authored journaled steps');
   client = new JournalClient(request.socketPath, { readBudgetMs: FLOW_READ_BUDGET_MS, budgetHandshake: true });
   await client.connect(); await client.hello('flows-authored-node');
   const result = await executeAuthoredFlow(loaded.handle, client,
@@ -102,6 +104,7 @@ try {
       flowGraph: loaded.graph,
       localAgentStream: request.localAgentStream, signal: controller.signal,
       ...(request.workerCapacity === undefined ? {} : { workerCapacity: request.workerCapacity }),
+      ...(request.journaledSteps === undefined ? {} : { journaledSteps: request.journaledSteps as string[] }),
       ...(agentEnvironment === undefined ? {} : { agentEnvironment: { ...process.env, ...agentEnvironment } }),
       onProgress: event => send({ type: 'progress', event }),
       onWait: event => send({ type: 'wait', event }),
