@@ -1,7 +1,8 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { accessSync, constants as fsConstants, createReadStream, readFileSync, realpathSync, statSync } from 'node:fs';
+import { accessSync, constants as fsConstants, readFileSync, realpathSync, statSync } from 'node:fs';
 import { delimiter, isAbsolute, join } from 'node:path';
+import { Worker } from 'node:worker_threads';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
 
 export const authoredNodeRefusal = (): AuthoredFlowExecutionError => new AuthoredFlowExecutionError(
@@ -108,51 +109,101 @@ export function nodeAuthority(): NodeAuthority {
 /**
  * The CLI loads the flow (importing it and hashing its Surface package)
  * before it first asks for the Node authority. A prewarm runs the same probe
- * and hash concurrently with that load, without blocking it, and only fills
- * the memo above under the same rules. It never answers by itself:
- * {@link awaitNodeAuthority} still validates the memo, and a failed or
- * unusable prewarm leaves the probe and its refusal to that call.
+ * concurrently with that load, hashes the executable on a worker thread so
+ * the load keeps the main thread, and only fills the memo above under the
+ * same rules. It never answers by itself: {@link awaitNodeAuthority} still
+ * validates the memo, and a failed, stopped or unusable prewarm leaves the
+ * probe and its refusal to that call.
  */
-let prewarm: Promise<void> | undefined;
+let prewarm: { readonly done: Promise<void>; readonly stop: AbortController } | undefined;
 export function prewarmNodeAuthority(): void {
-  prewarm ??= probeInBackground().catch(() => { /* A miss: the next call probes, and refuses, itself. */ });
+  if (prewarm !== undefined) return;
+  const stop = new AbortController();
+  prewarm = { stop, done: probeInBackground(stop.signal).catch(() => { /* A miss: the next call probes, and refuses, itself. */ }) };
+}
+
+/** Stop a prewarm that is still running, so a run that ends early does not wait for it. */
+export async function stopNodeAuthorityPrewarm(): Promise<void> {
+  prewarm?.stop.abort();
+  await prewarm?.done;
 }
 
 export async function awaitNodeAuthority(): Promise<NodeAuthority> {
-  await prewarm;
+  await prewarm?.done;
   return nodeAuthority();
 }
 
-async function probeInBackground(): Promise<void> {
+async function probeInBackground(signal: AbortSignal): Promise<void> {
   const request = rememberedOrProbe();
   // Nothing a later call could reuse: an unidentifiable candidate is never remembered.
   if (!('command' in request) || request.selection === undefined) return;
-  const { path, version, fingerprint } = probedNode(await probeOutput(request.command));
-  remember(request.selection, fingerprint, { path, version, executableSha256: await fileSha256(path) });
+  const { path, version, fingerprint } = probedNode(await probeOutput(request.command, signal));
+  remember(request.selection, fingerprint, { path, version, executableSha256: await fileSha256(path, signal) });
 }
 
-/** `spawnSync`'s contract above, without blocking: exit 0, bounded output and time. */
-function probeOutput(command: string): Promise<string> {
+/**
+ * `spawnSync`'s contract above, without blocking: exit 0 within the time
+ * limit, and at most PROBE_MAX_BYTES on stdout and on stderr (spawnSync's
+ * maxBuffer bounds each stream).
+ */
+function probeOutput(command: string, signal: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, PROBE_ARGS, { env: process.env, stdio: ['ignore', 'pipe', 'ignore'] });
-    let stdout = '';
-    const fail = (error: Error): void => { child.kill('SIGKILL'); reject(error); };
-    const timer = setTimeout(() => fail(new Error('node probe timed out')), PROBE_TIMEOUT_MS);
-    child.stdout.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => {
-      stdout += chunk;
-      if (Buffer.byteLength(stdout) > PROBE_MAX_BYTES) fail(new Error('node probe output exceeded limit'));
-    });
-    child.once('error', error => { clearTimeout(timer); reject(error); });
-    child.once('close', code => {
+    if (signal.aborted) { reject(new Error('node probe stopped')); return; }
+    const child = spawn(command, PROBE_ARGS, { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const stdout: Buffer[] = [];
+    const bytes = { stdout: 0, stderr: 0 };
+    let settled = false;
+    const finish = (error: Error | undefined): void => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      if (code === 0) resolve(stdout); else reject(new Error('node probe failed'));
-    });
+      signal.removeEventListener('abort', stopped);
+      if (error === undefined) { resolve(Buffer.concat(stdout).toString('utf8')); return; }
+      // A grandchild may hold the pipes open; close this side so nothing waits on them.
+      child.kill('SIGKILL'); child.stdout.destroy(); child.stderr.destroy();
+      reject(error);
+    };
+    const stopped = (): void => finish(new Error('node probe stopped'));
+    const timer = setTimeout(() => finish(new Error('node probe timed out')), PROBE_TIMEOUT_MS);
+    signal.addEventListener('abort', stopped, { once: true });
+    const bounded = (stream: 'stdout' | 'stderr') => (chunk: Buffer): void => {
+      bytes[stream] += chunk.length;
+      if (bytes[stream] > PROBE_MAX_BYTES) finish(new Error(`node probe ${stream} exceeded limit`));
+      else if (stream === 'stdout') stdout.push(chunk);
+    };
+    child.stdout.on('data', bounded('stdout'));
+    child.stderr.on('data', bounded('stderr'));
+    child.once('error', error => finish(error));
+    child.once('close', code => finish(code === 0 ? undefined : new Error('node probe failed')));
   });
 }
 
-async function fileSha256(path: string): Promise<string> {
-  const digest = createHash('sha256');
-  for await (const chunk of createReadStream(path, { highWaterMark: 1 << 20 })) digest.update(chunk as Buffer);
-  return digest.digest('hex');
+/** SHA-256 of a file, computed on a worker thread. */
+const HASH_WORKER = `
+const { parentPort, workerData } = require('node:worker_threads');
+const { createHash } = require('node:crypto');
+const { readFileSync } = require('node:fs');
+try { parentPort.postMessage({ sha256: createHash('sha256').update(readFileSync(workerData)).digest('hex') }); }
+catch (error) { parentPort.postMessage({ error: String(error) }); }
+`;
+function fileSha256(path: string, signal: AbortSignal): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) { reject(new Error('node hash stopped')); return; }
+    const worker = new Worker(HASH_WORKER, { eval: true, workerData: path });
+    let settled = false;
+    const finish = (error: Error | undefined, sha256?: string): void => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', stopped);
+      void worker.terminate();
+      if (error === undefined && sha256 !== undefined && /^[a-f0-9]{64}$/.test(sha256)) resolve(sha256);
+      else reject(error ?? new Error('node hash failed'));
+    };
+    const stopped = (): void => finish(new Error('node hash stopped'));
+    signal.addEventListener('abort', stopped, { once: true });
+    worker.once('message', (message: { sha256?: string; error?: string }) =>
+      finish(message.error === undefined ? undefined : new Error(message.error), message.sha256));
+    worker.once('error', error => finish(error));
+    worker.once('exit', () => finish(new Error('node hash worker exited')));
+  });
 }

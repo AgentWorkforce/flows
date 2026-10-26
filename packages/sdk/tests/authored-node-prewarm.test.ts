@@ -8,6 +8,15 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 // The candidate here is a stand-in that answers the probe (optionally slowly,
 // wrongly or verbosely) and records each invocation.
 let directory: string, probes: string, previousOverride: string | undefined;
+// The prewarm hashes on a worker thread so the flow load keeps the main thread.
+const workers = vi.hoisted(() => ({ constructed: 0 }));
+vi.mock('node:worker_threads', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:worker_threads')>();
+  class CountedWorker extends actual.Worker {
+    constructor(...args: ConstructorParameters<typeof actual.Worker>) { super(...args); workers.constructed += 1; }
+  }
+  return { ...actual, Worker: CountedWorker };
+});
 type Authority = typeof import('../src/authored-node-authority.js');
 let authority: Authority;
 
@@ -19,6 +28,7 @@ beforeAll(() => {
 
 beforeEach(async () => {
   writeFileSync(probes, '');
+  workers.constructed = 0;
   // The prewarm and its memo are per process; give every case a fresh module.
   vi.resetModules();
   authority = await import('../src/authored-node-authority.js');
@@ -33,10 +43,11 @@ afterAll(() => rmSync(directory, { recursive: true, force: true }));
 
 const probeLog = (): string[] => readFileSync(probes, 'utf8').split('\n').filter(Boolean);
 
-function candidate(name: string, { delaySeconds = 0, exit = 0, padding = 0 } = {}): string {
+function candidate(name: string, { delaySeconds = 0, exit = 0, padding = 0, stderrBytes = 0 } = {}): string {
   const path = join(directory, name);
   const answer = JSON.stringify({ path, version: '22.14.0' }) + ' '.repeat(padding);
   writeFileSync(path, `#!/bin/sh\necho ${name} >> ${JSON.stringify(probes)}\nsleep ${delaySeconds}\n`
+    + (stderrBytes > 0 ? `head -c ${stderrBytes} /dev/zero | tr '\\0' x >&2\n` : '')
     + `printf '%s' '${answer}'\nexit ${exit}\n`);
   chmodSync(path, 0o755);
   process.env['FLOWS_AUTHORED_NODE'] = path;
@@ -55,6 +66,7 @@ describe('authored Node authority prewarm', () => {
     });
     expect(authority.nodeAuthority()).toBe(resolved);
     expect(probeLog()).toEqual(['node-a']);
+    expect(workers.constructed).toBe(1);
   });
 
   it('returns at once and leaves the event loop free while the probe runs', async () => {
@@ -89,5 +101,22 @@ describe('authored Node authority prewarm', () => {
     authority.prewarmNodeAuthority();
     await expect(authority.awaitNodeAuthority()).rejects.toThrow('requires the embedded Node runner');
     expect(probeLog()).toEqual(['node-verbose', 'node-verbose']);
+  });
+
+  it('does not trust a probe whose stderr is over the limit the synchronous probe enforces', async () => {
+    candidate('node-noisy', { stderrBytes: 5000 });
+    authority.prewarmNodeAuthority();
+    await expect(authority.awaitNodeAuthority()).rejects.toThrow('requires the embedded Node runner');
+    expect(probeLog()).toEqual(['node-noisy', 'node-noisy']);
+  });
+
+  it('stops a slow probe at once when the run no longer needs it', async () => {
+    candidate('node-stuck', { delaySeconds: 5 });
+    authority.prewarmNodeAuthority();
+    while (probeLog().length === 0) await new Promise(resolve => setTimeout(resolve, 10));
+    const started = performance.now();
+    await authority.stopNodeAuthorityPrewarm();
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(probeLog()).toEqual(['node-stuck']);
   });
 });

@@ -93,6 +93,27 @@ async function entries(directory: string, runId: string) {
 }
 
 describe('Bun 1.4.x standalone → native Node authored lifecycle', () => {
+  it('does not wait for a slow Node probe when the flow is refused before it needs Node', () => {
+    const f = fixture('');
+    const node = join(f.directory, 'slow-node-wrapper');
+    writeFileSync(node, `#!/bin/sh\necho probe >> node-probes\nsleep 8\nexec ${JSON.stringify(process.execPath)} "$@"\n`);
+    chmodSync(node, 0o755);
+    // The import fails only once the slow probe is under way, so the refusal races a live probe.
+    writeFileSync(join(f.directory, 'case.flow.ts'), `import { flow } from '@relayflows/surface';
+import { existsSync } from 'node:fs';
+const deadline = Date.now() + 5000;
+while (!existsSync('node-probes') && Date.now() < deadline) await new Promise(r => setTimeout(r, 10));
+throw new Error('refused after the probe began');
+export default flow('runtime-case', async f => { f.done('success'); });
+`);
+    const started = Date.now();
+    const run = f.invoke(['run', 'case.flow.ts', '--input', '{}'], { FLOWS_AUTHORED_NODE: node });
+    expect(run.status, run.stderr + run.stdout).toBe(2);
+    expect(run.stdout).toContain('refused after the probe began');
+    expect(readFileSync(join(f.directory, 'node-probes'), 'utf8')).toBe('probe\n');
+    expect(Date.now() - started).toBeLessThan(5000);
+  }, 60_000);
+
   it('starts the Node probe while it imports the flow, and probes once per run', () => {
     const f = fixture('');
     const node = join(f.directory, 'node-probe-wrapper');

@@ -19,7 +19,8 @@ import type {
 import { HUMAN_WAIT_ID } from './authored-human.js';
 import { assertAuthoredPromiseHooks } from './authored-runtime-capability.js';
 import {
-  authoredNodeRefusal as refusal, awaitNodeAuthority, nodeAuthority, prewarmNodeAuthority, type NodeAuthority,
+  authoredNodeRefusal as refusal, awaitNodeAuthority, nodeAuthority, prewarmNodeAuthority, stopNodeAuthorityPrewarm,
+  type NodeAuthority,
 } from './authored-node-authority.js';
 import { settlingCompletion } from './step-settling.js';
 import { readAuthoredStepIndex } from './authored-step-index.js';
@@ -51,6 +52,11 @@ async function embeddedNodeAuthority(): Promise<NodeAuthority> {
  */
 export function prewarmAuthoredRuntime(): void {
   if (process.versions['bun'] !== undefined && embeddedSource !== undefined) prewarmNodeAuthority();
+}
+
+/** A run that ends before it needs Node must not wait for the prewarm to finish. */
+export async function stopAuthoredRuntimePrewarm(): Promise<void> {
+  await stopNodeAuthorityPrewarm();
 }
 
 /** Called before root admission/resume; declarative commands never reach it. */

@@ -14,7 +14,7 @@ import {
   AuthoredFlowExecutionError,
 } from '../authored-flow-executor.js';
 import { executeDurableAuthoredFlow } from '../authored-root.js';
-import { prewarmAuthoredRuntime } from '../authored-node-runner.js';
+import { prewarmAuthoredRuntime, stopAuthoredRuntimePrewarm } from '../authored-node-runner.js';
 import { AuthoredHumanParked } from '../authored-flow-error.js';
 import { AuthoredFlowLoadError } from '../authored-flow-loader.js';
 import { DirectInputError, parseDirectInput } from '../direct-input.js';
@@ -43,6 +43,20 @@ export async function runDirectFlow(
   inputArgument: string | undefined,
   dataDir: string,
   options: RunLifecycleOptions = {},
+): Promise<RunExecution> {
+  try {
+    return await runDirectFlowPrewarmed(path, inputArgument, dataDir, options);
+  } finally {
+    // A refused or failed run may return before anything awaits the prewarm.
+    await stopAuthoredRuntimePrewarm();
+  }
+}
+
+async function runDirectFlowPrewarmed(
+  path: string,
+  inputArgument: string | undefined,
+  dataDir: string,
+  options: RunLifecycleOptions,
 ): Promise<RunExecution> {
   // Consume and close the agent-only descriptor before authored source is
   // imported by trigger preflight. Authored code never receives this object.
