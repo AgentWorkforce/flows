@@ -326,32 +326,37 @@ export async function packageTreeSha256(root: string): Promise<string> {
 const SURFACE_READ_CONCURRENCY = 32;
 
 /**
- * Read `paths` with at most `limit` reads in flight, but hand each file to
- * `consume` strictly in `paths` order, so the digest is the serial walk's.
- * After a failure no new read starts; once the started reads settle, the
- * lowest-index failure is thrown, which is the error a serial walk would hit.
+ * Read `paths` through a window of at most `limit` files, started in order
+ * and handed to `consume` strictly in `paths` order, so the digest is the
+ * serial walk's. The window bounds buffered bytes as well as reads in flight:
+ * a slow early file stops new reads instead of letting later files pile up.
+ * After any read fails no new read starts. The lowest-index failure, the
+ * error a serial walk would meet first, is thrown once every started read
+ * has settled.
  */
 async function readInOrder(
   paths: readonly string[],
   limit: number,
   consume: (path: string, bytes: Buffer) => void,
 ): Promise<void> {
-  const ready = new Map<number, Buffer>();
-  const failures = new Map<number, unknown>();
-  let next = 0, consumed = 0;
-  const worker = async (): Promise<void> => {
-    while (failures.size === 0 && next < paths.length) {
-      const index = next++;
-      try { ready.set(index, await readFile(paths[index]!)); } catch (error) { failures.set(index, error); }
-      for (let bytes = ready.get(consumed); bytes !== undefined; bytes = ready.get(consumed)) {
-        ready.delete(consumed);
-        consume(paths[consumed]!, bytes);
-        consumed += 1;
-      }
-    }
+  const reads: Array<Promise<Buffer>> = [];
+  let failed = false, next = 0;
+  const start = (): void => {
+    const read = readFile(paths[next++]!);
+    read.catch(() => { failed = true; });
+    reads.push(read);
   };
-  await Promise.all(Array.from({ length: Math.min(limit, paths.length) }, worker));
-  if (failures.size !== 0) throw failures.get(Math.min(...failures.keys()));
+  while (next < paths.length && reads.length < limit) start();
+  for (let index = 0; reads.length !== 0; index += 1) {
+    let bytes: Buffer;
+    try { bytes = await reads[0]!; } catch (error) {
+      await Promise.allSettled(reads);
+      throw error;
+    }
+    reads.shift();
+    consume(paths[index]!, bytes);
+    if (!failed && next < paths.length) start();
+  }
 }
 
 // Exported for callers (internal SDK tests, and any co-located flow that is
