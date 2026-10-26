@@ -101,6 +101,17 @@ describe('serial replay ordinal guard', () => {
     expect(started).toEqual([]);
   });
 
+  it('does not start a step declared before the refusal and awaited after it', async () => {
+    journaled = ['llm-2'];
+    await expect(execute(flow('saved-step', async f => {
+      const pending = f.run('printf P');
+      try { await f.run('printf Q'); } catch { /* author swallowed the refusal */ }
+      await pending;
+      f.done('success');
+    }))).rejects.toMatchObject({ code: 'serial_replay_order_mismatch' });
+    expect(started).toEqual([]);
+  });
+
   it('refuses the completion marker at an ordinal an earlier attempt gave a step', async () => {
     journaled = ['run-1', 'run-2'];
     await expect(execute(flow('fewer-steps', async f => {

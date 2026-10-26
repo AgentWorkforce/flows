@@ -344,8 +344,19 @@ export async function executeAuthoredFlow<Input = undefined>(
     ? undefined : serialOrdinals(journaledSteps, options.stepPrefix ?? '');
   let replayViolation: AuthoredFlowExecutionError | undefined;
   const refuseReplay = (error: AuthoredFlowExecutionError): never => {
-    replayViolation ??= error;
+    if (replayViolation === undefined) {
+      replayViolation = error;
+      // Admissions already waiting for a worker slot never reach the kernel.
+      lowerDeterministic.stop(error);
+      worker.stop(error);
+    }
     throw replayViolation;
+  };
+  // Every operation re-checks at start: a step declared before the refusal
+  // and awaited after it is refused too, not admitted.
+  const assertStartAllowed = (verb: string): void => {
+    if (replayViolation !== undefined) throw replayViolation;
+    assertOperationAllowed(verb, definition.name, requestedCompletion);
   };
   const serialId = (kind: string, sequence: number): string => {
     if (replayViolation !== undefined) throw replayViolation;
@@ -515,7 +526,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     let llmOp!: AuthoredFlowOperation<unknown>;
     llmOp = new AuthoredFlowOperation(
       id, 'llm',
-      () => assertOperationAllowed('llm', definition.name, requestedCompletion),
+      () => assertStartAllowed('llm'),
       () => observeStep(id, 'llm', () => {
         if (typeof prompt === 'string') {
           if (values.length !== 1 || values[0] === undefined) {
@@ -561,7 +572,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       let recordOp!: AuthoredFlowOperation<RunResult>;
       recordOp = new AuthoredFlowOperation<RunResult>(
         id, 'run',
-        () => assertOperationAllowed('run', definition.name, requestedCompletion),
+        () => assertStartAllowed('run'),
         () => observeStep(id, 'deterministic',
           () => lowerDeterministic.recording(id, command, leaseMs, recordOp.namedGate, secrets), options.onProgress),
         lifecycle,
@@ -574,7 +585,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     let runOp!: AuthoredFlowOperation<string>;
     runOp = new AuthoredFlowOperation<string>(
       id, 'run',
-      () => assertOperationAllowed('run', definition.name, requestedCompletion),
+      () => assertStartAllowed('run'),
       () => observeStep(id, 'deterministic', () => lowerDeterministic(id, command, false, leaseMs, runOp.namedGate, secrets), options.onProgress),
       lifecycle,
       // No label: a command is not a display name. It carries literal
@@ -593,7 +604,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     const id = serialId(`slack-${slackRun}`, nextStep++);
     return trackStep(authoredSteps, new AuthoredFlowOperation<T>(
       id, `slack.${call.verb}`,
-      () => assertOperationAllowed(`slack.${call.verb}`, definition.name, requestedCompletion),
+      () => assertStartAllowed(`slack.${call.verb}`),
       async () => {
         const receipt = await runHelperEffect(journal, definition.name, id, snapshot,
           options.dataDir ?? dirname(journal.socketPath), journalSteps, options.rootRunId);
@@ -623,7 +634,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       const snapshot = snapshotJsonValue(call, `f.${verb} call`) as unknown as HelperCall;
       const id = serialId(`${call.provider}-${slackRun}`, nextStep++);
       return trackStep(authoredSteps, new AuthoredFlowOperation<T>(id, verb,
-        () => assertOperationAllowed(verb, definition.name, requestedCompletion),
+        () => assertStartAllowed(verb),
         async () => await runHelperEffect(journal, definition.name, id, snapshot,
           options.dataDir ?? dirname(journal.socketPath), journalSteps, options.rootRunId) as T,
         lifecycle));
@@ -639,7 +650,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       const id = nextId('mcp');
       return trackStep(authoredSteps, new AuthoredFlowOperation(
         id, 'mcp',
-        () => assertOperationAllowed('mcp', definition.name, requestedCompletion),
+        () => assertStartAllowed('mcp'),
         () => runMcpEffect(journal, definition.name, id, server, tool, args,
           known, checkedMcp.servers[server]!, journalSteps, options.rootRunId),
         lifecycle,
@@ -663,7 +674,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       agentOp = new AuthoredFlowOperation<AgentResult>(
         id,
         'agent',
-        () => assertOperationAllowed('agent', definition.name, requestedCompletion),
+        () => assertStartAllowed('agent'),
         () => observeStep(id, 'agent', () => worker.agent(id, options, agentOp.namedGate), onProgress),
         lifecycle,
         displayLabel(typeof name === 'string' ? name : undefined),
@@ -726,7 +737,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       let humanOp!: AuthoredFlowOperation<boolean>;
       humanOp = new AuthoredFlowOperation<boolean>(
         id, 'human',
-        () => assertOperationAllowed('human', definition.name, requestedCompletion),
+        () => assertStartAllowed('human'),
         () => observeStep(id, 'deterministic', async () => {
           const rootRunId = options.rootRunId;
           if (rootRunId === undefined) {
@@ -772,7 +783,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       dispatchOp = new AuthoredFlowOperation<DispatchResult>(
         id,
         'dispatch',
-        () => assertOperationAllowed('dispatch', definition.name, requestedCompletion),
+        () => assertStartAllowed('dispatch'),
         async () => {
           const inheritedAfter = stepEdges(id)?.after ?? [];
           const currentHelperAuthority = helperAuthority(definition);
@@ -842,7 +853,7 @@ export async function executeAuthoredFlow<Input = undefined>(
       const snapshot = snapshotJsonValue(input, 'f.hook input');
       return trackStep(authoredSteps, new AuthoredFlowOperation<boolean>(
         id, 'hook',
-        () => assertOperationAllowed('hook', definition.name, requestedCompletion),
+        () => assertStartAllowed('hook'),
         async () => {
           const verdict = await evaluateHook(id, name, snapshot, context);
           const record = { hook: name, step: id, verdict: verdict ? 'pass' : 'fail' };
@@ -905,7 +916,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     assertOperationAllowed(label, definition.name, requestedCompletion);
     const id = nextId('plugin');
     return trackStep(authoredSteps, new AuthoredFlowOperation(
-      id, label, () => assertOperationAllowed(label, definition.name, requestedCompletion),
+      id, label, () => assertStartAllowed(label),
       () => runPluginEffect(journal, definition.name, id, plugin, verb, args,
         journalSteps, budget, options.rootRunId),
       lifecycle,
