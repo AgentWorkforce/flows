@@ -1012,7 +1012,10 @@ resume whose branches resolve in a different order than the journaled run is
 refused as `serial_replay_order_mismatch` (or, for a same-kind swap, by the
 kernel as `run_admission_conflict`) before the step is admitted: a completed
 step is never re-run under another ordinal, and a recorded `f.human` answer is
-never applied to a different question. A step whose source cannot be
+never applied to a different question. The same refusal applies to an
+`f.human` whose question or recipient text differs from the one it parked on,
+for example one built from the time of day: like an `f.run` whose command
+changes between attempts, that run cannot be resumed. A step whose source cannot be
 certified also uses serial mode. The mode is immutable for the root's lifetime.
 
 Each child's admission key comes from the root run and step id. Each child has

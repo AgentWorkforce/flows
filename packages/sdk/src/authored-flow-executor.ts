@@ -217,6 +217,8 @@ export interface ExecuteAuthoredFlowOptions {
    * (authored-serial-ordinals.ts). Absent on a first attempt: nothing to replay.
    */
   readonly journaledSteps?: readonly string[];
+  /** Root-owned replay refusal, shared with dispatched children so one refusal stops the whole tree. */
+  readonly replayLatch?: { violation?: AuthoredFlowExecutionError };
   /** Current child depth. Root is zero; dispatch is capped at three. */
   readonly dispatchDepth?: number;
   /** Parent predecessors inherited by the first operation in a child body. */
@@ -342,24 +344,22 @@ export async function executeAuthoredFlow<Input = undefined>(
     ? undefined : options.journaledSteps;
   const ordinals: SerialOrdinals | undefined = journaledSteps === undefined
     ? undefined : serialOrdinals(journaledSteps, options.stepPrefix ?? '');
-  let replayViolation: AuthoredFlowExecutionError | undefined;
+  const replayLatch = options.replayLatch ?? {};
   const refuseReplay = (error: AuthoredFlowExecutionError): never => {
-    if (replayViolation === undefined) {
-      replayViolation = error;
-      // Admissions already waiting for a worker slot never reach the kernel.
-      lowerDeterministic.stop(error);
-      worker.stop(error);
-    }
-    throw replayViolation;
+    replayLatch.violation ??= error;
+    throw replayLatch.violation;
+  };
+  const assertNoReplayViolation = (): void => {
+    if (replayLatch.violation !== undefined) throw replayLatch.violation;
   };
   // Every operation re-checks at start: a step declared before the refusal
   // and awaited after it is refused too, not admitted.
   const assertStartAllowed = (verb: string): void => {
-    if (replayViolation !== undefined) throw replayViolation;
+    assertNoReplayViolation();
     assertOperationAllowed(verb, definition.name, requestedCompletion);
   };
   const serialId = (kind: string, sequence: number): string => {
-    if (replayViolation !== undefined) throw replayViolation;
+    assertNoReplayViolation();
     if (ordinals !== undefined) {
       try { assertSerialOrdinal(ordinals, kind, sequence); } catch (error) {
         refuseReplay(error as AuthoredFlowExecutionError);
@@ -658,7 +658,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     }),
     memory: authoredMemory(
       scriptMemoryScope(flowPath, definition.name),
-      () => { assertParallelRunOnly('memory'); assertOperationAllowed('memory', definition.name, requestedCompletion); },
+      () => { assertParallelRunOnly('memory'); assertNoReplayViolation(); assertOperationAllowed('memory', definition.name, requestedCompletion); },
       definition.header.memory?.script !== false,
       memoryWrites,
       options.rootRunId === undefined ? undefined : journalLearnLedger(journal, options.rootRunId),
@@ -683,6 +683,7 @@ export async function executeAuthoredFlow<Input = undefined>(
     },
     on(source, activityOptions) {
       assertParallelRunOnly('on');
+      assertNoReplayViolation();
       assertOperationAllowed('on', definition.name, requestedCompletion);
       // Activity ids are root-scoped (`activity-N`); a child's own counter would collide.
       if ((options.dispatchDepth ?? 0) > 0) {
@@ -792,6 +793,7 @@ export async function executeAuthoredFlow<Input = undefined>(
             : new Set([...currentHelperAuthority].filter(provider => options.allowedHelperProviders!.has(provider)));
           const childResult = await executeAuthoredFlow(child.handle, journal, inputSnapshot, {
             ...(journaledSteps === undefined ? {} : { journaledSteps }),
+            replayLatch,
             getDefinition: child.getDefinition,
             dataDir: options.dataDir,
             flowPath: child.path,
@@ -811,11 +813,6 @@ export async function executeAuthoredFlow<Input = undefined>(
             onProgress,
             ...(options.onWait === undefined ? {} : { onWait: options.onWait }),
             ...(options.signal === undefined ? {} : { signal: options.signal }),
-          }).catch((error: unknown) => {
-            if (error instanceof AuthoredFlowExecutionError && error.code === 'serial_replay_order_mismatch') {
-              refuseReplay(error);
-            }
-            throw error;
           });
           if (childResult.completionReason !== 'success') {
             throw new AuthoredFlowExecutionError(
@@ -944,7 +941,7 @@ export async function executeAuthoredFlow<Input = undefined>(
   // A source certificate is a performance admission decision, never a way
   // for authored try/catch to turn a refused effect into successful output.
   if (parallelViolation !== undefined) { bodyFailed = true; bodyFailure = parallelViolation; }
-  if (replayViolation !== undefined) { bodyFailed = true; bodyFailure = replayViolation; }
+  if (replayLatch.violation !== undefined) { bodyFailed = true; bodyFailure = replayLatch.violation; }
   if (bodyFailed) {
     // Refuse queued work immediately. A slow memory commit must not leave an
     // admission slot open after the body has already failed.

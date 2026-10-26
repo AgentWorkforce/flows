@@ -1,6 +1,6 @@
 import { rmSync } from 'node:fs';
 import type { Server } from 'node:net';
-import { flow, type FlowHandle } from '@relayflows/surface';
+import { flow, webhook, type FlowHandle } from '@relayflows/surface';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { executeAuthoredFlow, type ExecuteAuthoredFlowOptions } from '../src/authored-flow-executor.js';
 import { serialOrdinals } from '../src/authored-serial-ordinals.js';
@@ -19,6 +19,7 @@ describe('serial replay ordinal guard', () => {
   let journaled: string[] = [];
   const started: string[] = [];
   const writes: unknown[] = [];
+  const subscriptions: unknown[] = [];
   const stepOf = new Map<string, string>();
   let nextRun = 1;
 
@@ -44,6 +45,8 @@ describe('serial replay ordinal guard', () => {
         }] });
       },
       'stream.read': (ctx) => sendResult(ctx, { messages: [], next_offset: 0 }),
+      'subscription.open': (ctx, params) => { subscriptions.push(params); sendResult(ctx, { state: 'open' }); },
+      'subscription.close': (ctx) => sendResult(ctx, { state: 'closed' }),
       'stream.append': (ctx, params) => {
         writes.push({ verb: 'stream.append', stream: params.stream, message: params.message });
         sendResult(ctx, { offset: writes.length });
@@ -56,7 +59,7 @@ describe('serial replay ordinal guard', () => {
     rmSync(path, { force: true });
   });
 
-  beforeEach(() => { journaled = []; started.length = 0; writes.length = 0; nextRun = 1; stepOf.clear(); });
+  beforeEach(() => { journaled = []; started.length = 0; writes.length = 0; subscriptions.length = 0; nextRun = 1; stepOf.clear(); });
 
   async function execute(handle: FlowHandle, options: ExecuteAuthoredFlowOptions = { rootRunId: ROOT, journaledSteps: journaled }) {
     const journal = new JournalClient(path, { requestTimeoutMs: 2000 });
@@ -112,6 +115,29 @@ describe('serial replay ordinal guard', () => {
     expect(started).toEqual([]);
   });
 
+  it('refuses an f.run at the ordinal of a dispatch whose child had started but not finished', async () => {
+    journaled = ['dispatch-1--run-1'];
+    await expect(execute(flow('unfinished-dispatch', async f => {
+      await f.run('printf L');
+      f.done('success');
+    }))).rejects.toMatchObject({
+      code: 'serial_replay_order_mismatch',
+      message: expect.stringContaining('ordinal 1 is journaled as dispatch step "dispatch-1--run-1", but this resume reached it with run'),
+    });
+    expect(started).toEqual([]);
+  });
+
+  it('does not open an f.on activity after a refusal the author caught', async () => {
+    journaled = ['llm-1'];
+    await expect(execute(flow('activity-after-refusal', async f => {
+      try { await f.run('printf L'); } catch { /* author swallowed the refusal */ }
+      try { f.on(webhook('pull_request'), { settle: '2m', idle: '1h', deadline: '1d' }); } catch { /* refused */ }
+      await new Promise(resolve => setTimeout(resolve, 50));
+      f.done('success');
+    }))).rejects.toMatchObject({ code: 'serial_replay_order_mismatch' });
+    expect(subscriptions).toEqual([]);
+  });
+
   it('refuses the completion marker at an ordinal an earlier attempt gave a step', async () => {
     journaled = ['run-1', 'run-2'];
     await expect(execute(flow('fewer-steps', async f => {
@@ -156,11 +182,13 @@ describe('serial replay ordinal guard', () => {
 
   it('reads only the ordinals journaled directly under a body prefix', () => {
     const steps = ['run-1', 'llm-2', 'run-2.gate', 'dispatch-3--run-1', 'dispatch-3--dispatch-2--llm-1',
-      `slack-01M5TYGZ0TSXD62DHZC1TYBQNM-4`, 'complete-5', 'run-after-abc-1x'];
-    expect([...serialOrdinals(steps, '')].map(([ordinal, { kind }]) => [ordinal, kind])).toEqual([
-      [1, 'run'], [2, 'llm'], [4, 'slack-01M5TYGZ0TSXD62DHZC1TYBQNM'], [5, 'complete'],
+      `slack-01M5TYGZ0TSXD62DHZC1TYBQNM-4`, 'complete-5', 'run-after-abc-1x', 'run-6--odd'];
+    const kinds = (prefix: string) => [...serialOrdinals(steps, prefix)]
+      .map(([ordinal, holders]) => [ordinal, [...new Set(holders.map(holder => holder.kind))]]);
+    // A descendant claims its dispatch's ordinal; only a dispatch has descendants.
+    expect(kinds('')).toEqual([
+      [1, ['run']], [2, ['llm']], [3, ['dispatch']], [4, ['slack-01M5TYGZ0TSXD62DHZC1TYBQNM']], [5, ['complete']],
     ]);
-    expect([...serialOrdinals(steps, 'dispatch-3--')].map(([ordinal, { kind }]) => [ordinal, kind]))
-      .toEqual([[1, 'run']]);
+    expect(kinds('dispatch-3--')).toEqual([[1, ['run']], [2, ['dispatch']]]);
   });
 });

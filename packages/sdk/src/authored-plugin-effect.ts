@@ -133,7 +133,9 @@ export async function runPluginEffect(
           throw new PluginStepError(diagnostic, outcome.run_id);
         }
       }
-      const receipt = await readCompletedStepOutput(journal, outcome.run_id, id, journalSteps, {}, outcome.status) as { output: unknown };
+      // Indexed on the root like every other child, so a resume can see its ordinal.
+      const receipt = await readCompletedStepOutput(journal, outcome.run_id, id, journalSteps,
+        rootRunId === undefined ? {} : { rootRunId }, outcome.status) as { output: unknown };
       return receipt.output;
     }, admissionKey), deadline]);
   } finally {

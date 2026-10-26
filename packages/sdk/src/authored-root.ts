@@ -19,7 +19,7 @@ import { SPEC_SCHEMA_VERSION } from './spec.js';
 import type { RunLifecycleOptions } from './cli/run.js';
 import { isLeaseLost, withWorkerLease } from './worker-lease.js';
 import { AuthoredFlowExecutionError, AuthoredHumanParked } from './authored-flow-error.js';
-import { readOpenHumanWaits, resumeCommand } from './authored-human.js';
+import { readHumanWaitIds, readOpenHumanWaits, resumeCommand } from './authored-human.js';
 import { helperReceiptWaitId, releaseHelperReceiptWaits } from './helper-park.js';
 import { readSubscriptionPark } from './authored-subscription-park.js';
 import { localAgentCredentialEnvironment } from './local-agent-environment.js';
@@ -396,8 +396,10 @@ async function driveRoot(
         // attempt's step index so a reordered resume is refused, not re-run.
         // A first attempt has nothing to replay and reads nothing.
         const parallel = metadata.identityVersion === 2 && metadata.executionMode === 'parallel';
-        const journaledSteps = parallel || dispatch.attempt <= 1 ? undefined
-          : (await readAuthoredStepIndex(journal, dispatch.run_id)).map(record => record.step);
+        const journaledSteps = parallel || dispatch.attempt <= 1 ? undefined : [
+          ...(await readAuthoredStepIndex(journal, dispatch.run_id)).map(record => record.step),
+          ...await readHumanWaitIds(journal, dispatch.run_id),
+        ];
         const callerSignal = options.lifecycle?.signal;
         const signal = callerSignal === undefined ? rootSignal : AbortSignal.any([callerSignal, rootSignal]);
         if (process.versions['bun'] !== undefined) {

@@ -51,7 +51,8 @@ export async function runHelperEffect(
   const outcome = await journal.runStart(spec, undefined, admissionKey);
   await atomicJson(join(dataDir, 'helper-runs', `${outcome.run_id}.json`), { provider: call.provider });
   await driveHelperEffect(journal, outcome.run_id, spec.steps[0] as KernelAgentStep, call, dataDir);
-  const output = await readCompletedStepOutput(journal, outcome.run_id, stepId, journalSteps);
+  const output = await readCompletedStepOutput(journal, outcome.run_id, stepId, journalSteps,
+    rootRunId === undefined ? {} : { rootRunId });
   return (output as { receipt: unknown }).receipt;
 }
 

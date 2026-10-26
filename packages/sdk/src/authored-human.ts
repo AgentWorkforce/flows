@@ -130,6 +130,21 @@ export async function readHumanWait(
   return { asked };
 }
 
+/**
+ * Every `f.human` wait id the run has parked on, answered or not. A parked
+ * question is not in the step index until its answer is lowered, but it
+ * already holds its serial ordinal.
+ */
+export async function readHumanWaitIds(journal: JournalClient, runId: string): Promise<string[]> {
+  const ids = new Set<string>();
+  for (const entry of await readWaitEntries(journal, runId)) {
+    const waitId = entry.payload?.wait_id;
+    if (entry.entry_type === 'wait.human' && typeof waitId === 'string'
+      && /(?:^|--)human-[1-9][0-9]*$/u.test(waitId)) ids.add(waitId);
+  }
+  return [...ids];
+}
+
 /** Every `wait.human` on the run that no `wait.completed` has closed. */
 export async function readOpenHumanWaits(journal: JournalClient, runId: string): Promise<OpenHumanWait[]> {
   const open = new Map<string, OpenHumanWait>();
