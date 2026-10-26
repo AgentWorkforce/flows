@@ -9,13 +9,13 @@ import { SHA_A, entriesFromDirectory, fakeGithub } from './fake-github.js';
 /**
  * Serial step ids are `<kind>-<N>` from one counter assigned in call order.
  * Inside `Promise.all` that order is result-arrival order. Each case forces
- * the original run's order with a fake model that answers "slow" prompts
+ * the original run's order with a fake model that holds "slow" prompts
  * after a delay; the resume replays both completed results from the journal
  * with no delay, so the other branch resolves first and reaches the lower
  * ordinal. These are live: real daemon, real journal, real admission keys.
  */
 const closes: Array<() => Promise<void>> = [];
-afterEach(async () => { for (const close of closes.splice(0).reverse()) await close(); });
+afterEach(async () => { for (const close of closes.splice(0).reverse()) await close(); }, 60_000);
 
 async function until(read: () => boolean, what: string, timeoutMs = 90_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -34,6 +34,37 @@ function effects(root: string): string {
   return existsSync(`${root}/effects`) ? readFileSync(`${root}/effects`, 'utf8') : '';
 }
 
+/**
+ * A chain fixture whose teardown stops every daemon it started and waits for
+ * it to exit before the directory is removed: a daemon still flushing its
+ * journal while the tree is deleted fails the removal with ENOTEMPTY.
+ */
+function trackedFixture(): ReturnType<typeof chainFixture> {
+  const fixture = chainFixture();
+  closes.push(async () => {
+    await stopDaemon(fixture.data);
+    await fixture.close();
+  });
+  return fixture;
+}
+
+async function stopDaemon(data: string): Promise<void> {
+  if (!existsSync(`${data}/connection.json`)) return;
+  const { pid } = JSON.parse(readFileSync(`${data}/connection.json`, 'utf8')) as { pid: number };
+  const alive = (): boolean => {
+    try { process.kill(pid, 0); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false;
+      throw error;
+    }
+    // Killed but never reaped (its parent is gone and nothing adopts it):
+    // a zombie has exited and holds no files open.
+    try { return !/^\d+ \(.*\) Z /u.test(readFileSync(`/proc/${pid}/stat`, 'utf8')); } catch { return true; }
+  };
+  if (!alive()) return;
+  process.kill(pid, 'SIGKILL');
+  await until(() => !alive(), `daemon ${pid} exit`, 5_000);
+}
+
 function killDaemon(data: string): void {
   const { pid } = JSON.parse(readFileSync(`${data}/connection.json`, 'utf8')) as { pid: number };
   try { process.kill(pid, 'SIGKILL'); } catch (error) {
@@ -42,7 +73,11 @@ function killDaemon(data: string): void {
 }
 
 /**
- * Fake model/agent CLI: an instruction containing "slow" answers after 1.5s;
+ * Fake model/agent CLI. An instruction containing "slow" is held until the
+ * other branch has taken its next ordinal: that branch signals by writing
+ * `go` (an instruction naming "right-second", or a `touch go` command), so the
+ * original order never depends on how loaded the host is. "lazy" answers after
+ * a fixed 1.5s, for the one case whose other branch parks instead of stepping.
  * one containing "stall" touches `stalled` and holds until `release` exists,
  * then answers after 1s.
  */
@@ -54,7 +89,13 @@ if (process.argv[2] === 'auth') process.exit(0);
 const request = await receiveWrapperRequest();
 if (request) {
   appendFileSync(${JSON.stringify(fixture.calls)}, JSON.stringify(request) + '\\n');
-  if (request.instruction.includes('slow')) await new Promise(r => setTimeout(r, 1500));
+  const go = ${JSON.stringify(`${fixture.root}/go`)};
+  if (request.instruction.includes('right-second')) writeFileSync(go, '');
+  if (request.instruction.includes('slow')) {
+    const deadline = Date.now() + 60_000;
+    while (!existsSync(go) && Date.now() < deadline) await new Promise(r => setTimeout(r, 25));
+  }
+  if (request.instruction.includes('lazy')) await new Promise(r => setTimeout(r, 1500));
   if (request.instruction.includes('stall')) {
     writeFileSync(${JSON.stringify(`${fixture.root}/stalled`)}, '');
     while (!existsSync(${JSON.stringify(`${fixture.root}/release`)})) await new Promise(r => setTimeout(r, 50));
@@ -70,8 +111,8 @@ interface StallOptions {
   readonly header?: string;
   /** Files written beside the flow before it runs. */
   readonly files?: Readonly<Record<string, string>>;
-  /** Extra flows.json keys. */
-  readonly flowsJson?: Readonly<Record<string, unknown>>;
+  /** Extra flows.json keys, given the fixture root for absolute paths. */
+  readonly flowsJson?: (root: string) => Readonly<Record<string, unknown>>;
   /** Kill only once this holds for the effects so far (the stall marker must exist too). */
   readonly ready?: (effects: string) => boolean;
   /** The CLI that runs the original attempt; the resume always uses this checkout's. */
@@ -79,13 +120,12 @@ interface StallOptions {
 }
 
 async function runStallResume(body: string, options: StallOptions = {}) {
-  const fixture = chainFixture();
-  closes.push(() => fixture.close());
+  const fixture = trackedFixture();
   delayedModel(fixture);
   for (const [name, text] of Object.entries(options.files ?? {})) writeFileSync(`${fixture.root}/${name}`, text);
   if (options.flowsJson !== undefined) {
     const flowsJson = JSON.parse(readFileSync(`${fixture.root}/flows.json`, 'utf8')) as Record<string, unknown>;
-    writeFileSync(`${fixture.root}/flows.json`, JSON.stringify({ ...flowsJson, ...options.flowsJson }));
+    writeFileSync(`${fixture.root}/flows.json`, JSON.stringify({ ...flowsJson, ...options.flowsJson(fixture.root) }));
   }
   // Agents sharing a working directory take turns (worker-cli.ts
   // serializedByDirectory); distinct trees let the two branches overlap.
@@ -125,7 +165,7 @@ ${body}
   const resumed = fixture.invoke('resume', '--no-observer-link', '--json', '--local-agent',
     '--data-dir', fixture.data, rootRunId);
   return {
-    before, callsBefore, resumed, output: resumed.stdout + resumed.stderr,
+    root: fixture.root, before, callsBefore, resumed, output: resumed.stdout + resumed.stderr,
     after: effects(fixture.root),
     callsAfter: fixture.requests().length,
   };
@@ -154,7 +194,7 @@ describe('serial authored step identity under reordered result arrival', () => {
     // Original: run-3 = R, llm-4 = "left-second". Resume asks for llm-3.
     const r = await runStallResume(`
   const left = async () => { await f.llm('left slow', { output, model: 'test-model' }); await f.llm('left-second', { output, model: 'test-model' }); };
-  const right = async () => { await f.llm('right', { output, model: 'test-model' }); await f.run('printf R >> effects'); };
+  const right = async () => { await f.llm('right', { output, model: 'test-model' }); await f.run('printf R >> effects; touch go'); };
   await Promise.all([left(), right()]);`);
     expect(r.before).toBe('R');
     expect(r.callsBefore).toBe(3);
@@ -185,7 +225,7 @@ describe('serial authored step identity under reordered result arrival', () => {
   it.each([
     { name: 'f.run vs f.run', before: 'RL', body: `
   const left = async () => { await f.llm('left slow', { output, model: 'test-model' }); await f.run('printf L >> effects'); };
-  const right = async () => { await f.llm('right', { output, model: 'test-model' }); await f.run('printf R >> effects'); };` },
+  const right = async () => { await f.llm('right', { output, model: 'test-model' }); await f.run('printf R >> effects; touch go'); };` },
     { name: 'f.llm vs f.llm', before: '', body: `
   const left = async () => { await f.llm('left slow', { output, model: 'test-model' }); await f.llm('left-second', { output, model: 'test-model' }); };
   const right = async () => { await f.llm('right', { output, model: 'test-model' }); await f.llm('right-second', { output, model: 'test-model' }); };` },
@@ -207,7 +247,7 @@ describe('serial authored step identity under reordered result arrival', () => {
     // Right is the slow one here, so left resolves first in the original run
     // and again on the resume: every id matches its journaled call.
     const r = await runStallResume(`
-  const left = async () => { await f.llm('left', { output, model: 'test-model' }); await f.run('printf L >> effects'); };
+  const left = async () => { await f.llm('left', { output, model: 'test-model' }); await f.run('printf L >> effects; touch go'); };
   const right = async () => { await f.llm('right slow', { output, model: 'test-model' }); await f.llm('right-second', { output, model: 'test-model' }); };
   await Promise.all([left(), right()]);`);
     expect(r.before).toBe('L');
@@ -220,13 +260,12 @@ describe('serial authored step identity under reordered result arrival', () => {
     // Original: right resolves first and parks on human-3 asking the RIGHT
     // question; it is answered. Resume: left resolves first and reaches
     // human-3 with the LEFT question. The answer is keyed by wait id alone.
-    const fixture = chainFixture();
-    closes.push(() => fixture.close());
+    const fixture = trackedFixture();
     delayedModel(fixture);
     writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
 export default flow('serial-replay-human', async f => {
   const output = { type: 'object', properties: { message: { type: 'string' } }, required: ['message'] };
-  const left = async () => { await f.llm('left slow', { output, model: 'test-model' }); return f.human('Delete the left bucket?', { to: 'khaliq' }); };
+  const left = async () => { await f.llm('left lazy', { output, model: 'test-model' }); return f.human('Delete the left bucket?', { to: 'khaliq' }); };
   const right = async () => { await f.llm('right', { output, model: 'test-model' }); return f.human('Ship the right release?', { to: 'khaliq' }); };
   const [deleteLeft] = await Promise.all([left(), right()]);
   if (deleteLeft) await f.run('printf DELETED >> effects');
@@ -252,14 +291,22 @@ export default flow('serial-replay-human', async f => {
   it('refuses an f.run that reaches the ordinal a parked f.human holds', async () => {
     // Original: right parks on human-3 before its answer is lowered, so
     // human-3 is not in the step index; left then completes run-4 = L.
-    const fixture = chainFixture();
-    closes.push(() => fixture.close());
+    const fixture = trackedFixture();
     delayedModel(fixture);
     writeFileSync(fixture.flowPath, `import { flow } from '@relayflows/surface';
+import { existsSync } from 'node:fs';
 export default flow('serial-replay-parked-human', async f => {
   const output = { type: 'object', properties: { message: { type: 'string' } }, required: ['message'] };
   const left = async () => { await f.llm('left slow', { output, model: 'test-model' }); await f.run('printf L >> effects'); };
-  const right = async () => { await f.llm('right', { output, model: 'test-model' }); await f.human('Ship it?', { to: 'khaliq' }); };
+  // human-3 is taken as soon as right's answer arrives; the park waits for
+  // left's effect so the journal holds both before the run stops.
+  const right = async () => {
+    await f.llm('right', { output, model: 'test-model' });
+    const ask = f.human('Ship it?', { to: 'khaliq' });
+    await f.run('touch go');
+    while (!existsSync('effects')) await new Promise(resolve => setTimeout(resolve, 25));
+    await ask;
+  };
   await Promise.all([left(), right()]);
   f.done('success');
 });
@@ -291,7 +338,7 @@ export default flow('serial-replay-parked-human', async f => {
       header: "{ use: ['./child.flow.ts'] }",
       files: { 'child.flow.ts': `import { flow } from '@relayflows/surface';
 export default flow('child', async f => {
-  await f.run('printf C >> effects');
+  await f.run('printf C >> effects; touch go');
   await f.llm('child stall', { output: { type: 'object' }, model: 'test-model' });
   f.done('success');
 });
@@ -306,15 +353,15 @@ export default flow('child', async f => {
   }, 180_000);
 
   it('refuses an f.run that reaches the ordinal a completed f.mcp call holds', async () => {
-    const log = `${process.env.TMPDIR ?? '.'}/mcp-calls-${process.pid}-${Date.now()}`;
     const r = await runStallResume(`
   const left = async () => { await f.llm('left slow', { output, model: 'test-model' }); await f.run('printf L >> effects'); };
-  const right = async () => { await f.llm('right', { output, model: 'test-model' }); await f.mcp.foo.echo({ n: 1 }); };
+  const right = async () => { await f.llm('right', { output, model: 'test-model' }); await f.mcp.foo.echo({ n: 1 }); await f.run('touch go'); };
   await Promise.all([left(), right()]);`, {
       header: "{ tools: { mcp: ['foo'] } }",
-      flowsJson: { mcp: { foo: { command: process.execPath, args: [resolve('../../testdata/mock-mcp-server/ok.mjs'), '', log] } } },
+      flowsJson: root => ({ mcp: { foo: { command: process.execPath,
+        args: [resolve('../../testdata/mock-mcp-server/ok.mjs'), '', `${root}/mcp-calls.jsonl`] } } }),
     });
-    const toolCalls = () => readFileSync(log, 'utf8').trim().split('\n')
+    const toolCalls = () => readFileSync(`${r.root}/mcp-calls.jsonl`, 'utf8').trim().split('\n')
       .filter(line => JSON.parse(line).method === 'tools/call').length;
     expect(r.before).toBe('L');
     expect(toolCalls()).toBe(1);
@@ -355,7 +402,7 @@ export default flow('child', async f => {
     'resumes a previous-release serial root in order and refuses it reordered', async () => {
       const firstCli = process.env.RELAYFLOWS_PREVIOUS_CLI!;
       const inOrder = await runStallResume(`
-  const left = async () => { await f.llm('left', { output, model: 'test-model' }); await f.run('printf L >> effects'); };
+  const left = async () => { await f.llm('left', { output, model: 'test-model' }); await f.run('printf L >> effects; touch go'); };
   const right = async () => { await f.llm('right slow', { output, model: 'test-model' }); await f.llm('right-second', { output, model: 'test-model' }); };
   await Promise.all([left(), right()]);`, { firstCli });
       expect(inOrder.resumed.status, inOrder.output).toBe(0);
@@ -373,8 +420,7 @@ export default flow('child', async f => {
 
   /** Install an extension whose `h` hook is `hookSource`, then run, stall, kill and resume `body`. */
   async function runHookStallResume(hookSource: string, body: string) {
-    const fixture = chainFixture();
-    closes.push(() => fixture.close());
+    const fixture = trackedFixture();
     const fixtureRoot = resolve('../../testdata/plugins/extension-babysitter');
     const manifest = JSON.parse(readFileSync(`${fixtureRoot}/flows-plugin.json`, 'utf8')) as Record<string, unknown>;
     const entries = entriesFromDirectory(fixtureRoot, 'examples/babysitter').map(entry => {
