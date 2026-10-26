@@ -93,6 +93,29 @@ async function entries(directory: string, runId: string) {
 }
 
 describe('Bun 1.4.x standalone → native Node authored lifecycle', () => {
+  it('starts the Node probe while it imports the flow, and probes once per run', () => {
+    const f = fixture('');
+    const node = join(f.directory, 'node-probe-wrapper');
+    // Only the probe runs the selected candidate; the body runs the real path it reports.
+    writeFileSync(node, `#!/bin/sh\necho probe >> node-probes\nexec ${JSON.stringify(process.execPath)} "$@"\n`);
+    chmodSync(node, 0o755);
+    writeFileSync(join(f.directory, 'case.flow.ts'), `import { flow } from '@relayflows/surface';
+import { existsSync, writeFileSync } from 'node:fs';
+if (process.versions.bun) {
+  // Bun evaluates this while it loads the flow: has the Node probe begun?
+  const deadline = Date.now() + 5000;
+  while (!existsSync('node-probes') && Date.now() < deadline) await new Promise(r => setTimeout(r, 10));
+  writeFileSync('probe-began-during-load', String(existsSync('node-probes')));
+}
+export default flow('runtime-case', async f => { await f.run('touch ran'); f.done('success'); });
+`);
+    const run = f.invoke(['run', 'case.flow.ts', '--input', '{}'], { FLOWS_AUTHORED_NODE: node });
+    expect(run.status, run.stderr + run.stdout).toBe(0);
+    expect(readFileSync(join(f.directory, 'probe-began-during-load'), 'utf8')).toBe('true');
+    expect(readFileSync(join(f.directory, 'node-probes'), 'utf8')).toBe('probe\n');
+    expect(existsSync(join(f.directory, 'ran'))).toBe(true);
+  }, 120_000);
+
   it('runs a certified Promise.all group in parallel through the embedded Node runner', async () => {
     const f = fixture('');
     writeFileSync(join(f.directory, 'case.flow.ts'), `import { flow } from '@relayflows/surface';

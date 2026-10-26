@@ -14,6 +14,7 @@ import {
   AuthoredFlowExecutionError,
 } from '../authored-flow-executor.js';
 import { executeDurableAuthoredFlow } from '../authored-root.js';
+import { prewarmAuthoredRuntime } from '../authored-node-runner.js';
 import { AuthoredHumanParked } from '../authored-flow-error.js';
 import { AuthoredFlowLoadError } from '../authored-flow-loader.js';
 import { DirectInputError, parseDirectInput } from '../direct-input.js';
@@ -60,6 +61,9 @@ export async function runDirectFlow(
     };
   }
 
+  // Loading the flow below imports it and hashes its Surface package; let
+  // the Node probe and executable hash run meanwhile instead of after it.
+  prewarmAuthoredRuntime();
   // Declared triggers are knowable before any daemon or step is started.
   // Importing the authored module is unavoidable here — trigger sources
   // are only observable after `flow(...).on(webhook(...))` has run — but
