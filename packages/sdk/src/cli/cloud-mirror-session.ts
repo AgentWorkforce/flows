@@ -1,26 +1,5 @@
-// The Cloud half of `flows run` / `flows resume`: also put this local run on
-// the Cloud dashboard.
-//
-// Opt-in, and deliberately the only opt-in thing on this path.
-//
-// A local run is already watchable by default: `observer-session.ts` beside
-// this one projects the run into its own channel and prints a read-only link,
-// off a workspace key, for free. That is the right default — it is a step
-// projection, it costs nothing, and a run that never joins a workspace is not
-// a defect (RFC-0001 settled decision 7).
-//
-// The dashboard is the richer, hosted view of the same run: the flow source,
-// every step's transcript, the run graph, the logs, and the run sitting in the
-// same history as the hosted ones. It is also the one that *stores* all of
-// that. So it is asked for — `--cloud-mirror`, or `FLOWS_CLOUD_MIRROR=1` for a
-// shell — and never turned on by a login happening to be present. Mirroring
-// someone's local runs because they once signed in is not a default anyone
-// consented to.
-//
-// Best-effort once it is on, like the observer: a registration failure is one
-// labeled stderr line, and nothing here can change a run's exit code or its
-// journal. But it is a *louder* line than it used to be, because the run asked
-// for this and did not get it.
+// Signed-in local runs project their journal onto the Cloud dashboard.
+// Reporting is best-effort and never changes the durable run outcome.
 
 import { readFile } from 'node:fs/promises';
 import type { CliIo } from '../cli.js';
@@ -59,7 +38,7 @@ export interface CloudMirrorSession {
    */
   receipt(): Promise<CloudMirrorReceipt | undefined>;
   /** A journaled entry; the first one names the run for a declarative flow. */
-  onJournalEntry(entry: { run_id: string }): void;
+  onJournalEntry(entry: { run_id: string; entry_type?: string; step_id?: string | null }): void;
   /** Step transitions, pushed as lifecycle events the run page's stream shows. */
   onProgress(event: ProgressEvent): void;
   /** Publish the final report and the terminal status. Never rejects. */
@@ -82,7 +61,7 @@ export interface CloudMirrorRequest {
   /** Lines the CLI has printed for this run, uploaded as the run's `runner.log`. */
   log: () => readonly string[];
   /** How the dashboard was asked for, so a refusal can name the right switch. */
-  requested: 'flag' | 'env';
+  requested: 'flag' | 'env' | 'login';
 }
 
 /**
@@ -147,7 +126,14 @@ export function createCloudMirrorSession(
       void open(run.runId);
     },
     onJournalEntry(entry) {
-      void open(entry.run_id);
+      const opened = open(entry.run_id);
+      if (entry.step_id && (entry.entry_type === 'step.attempt.started' || entry.entry_type === 'step.completed')) {
+        void opened.then(mirror => mirror?.event({
+          eventType: entry.entry_type === 'step.completed' ? 'relayflow.step.completed' : 'relayflow.step.started',
+          stepName: entry.step_id!,
+          payload: { journalRunId: entry.run_id },
+        }));
+      }
     },
     async receipt() {
       if (opening === undefined) return undefined;
@@ -194,6 +180,7 @@ export function mirrorSourceFromPath(
   path: string,
   inputArgument: string | undefined,
   dataDir: string,
+  named?: { flowId: string; flowVersionId: string; source: string },
 ): (runId: string) => Promise<MirrorRunSource> {
   const fromJournal = mirrorSourceFromJournal(dataDir);
   return async (runId) => {
@@ -203,9 +190,10 @@ export function mirrorSourceFromPath(
     // the dashboard, so fall back to what the journal recorded — the same
     // source a resume mirrors.
     if (parseDigestReference(path)) return fromJournal(runId);
-    const workflow = await readFile(path, 'utf8');
+    const workflow = named?.source ?? await readFile(path, 'utf8');
     if (!isAuthoredFlowPath(path)) return { workflow, fileType: 'yaml' };
-    return { workflow, fileType: 'ts', inputs: parseDirectInput(inputArgument) };
+    return { workflow, fileType: 'ts', inputs: parseDirectInput(inputArgument),
+      ...(named === undefined ? {} : { flowId: named.flowId, flowVersionId: named.flowVersionId }) };
   };
 }
 
@@ -305,7 +293,13 @@ function completionReport(report: RunReport): Record<string, unknown> {
  * missing-login case is the common one and names the two commands that fix
  * it: sign in, or stop asking.
  */
-function mirrorRefusal(error: unknown, requested: 'flag' | 'env'): string {
+function mirrorRefusal(error: unknown, requested: 'flag' | 'env' | 'login'): string {
+  if (requested === 'login') {
+    if (error instanceof CloudFlowError && error.reason === 'auth_missing') {
+      return 'Not signed in; this run stays local. Sign in with `agent-relay cloud login` to report runs.';
+    }
+    return `Local run reporting unavailable: ${error instanceof Error ? error.message : String(error)}; the run itself is unaffected.`;
+  }
   const asked = requested === 'flag' ? '--cloud-mirror' : `${MIRROR_ENV}=1`;
   if (error instanceof CloudFlowError && error.code === 'configuration') {
     return error.reason === 'auth_missing'
