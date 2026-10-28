@@ -1,5 +1,5 @@
 import { authoredBroker } from './authored-broker.js';
-import { brokerOptionsError } from './communication/broker-spec.js';
+import { brokerInstruction, brokerOptionsError } from './communication/broker-spec.js';
 import { dirname, resolve, isAbsolute, relative, sep } from 'node:path';
 import type { AuthoredBudget } from './authored-budget.js';
 import { parseBudget } from './budget.js';
@@ -161,9 +161,10 @@ export function authoredWorkerRunner(
       onCompleted === undefined ? context : { ...context, onCompleted }, execution.report.status);
     };
     const admissionKey = authoredChildAdmissionKey(rootRunId, id);
+    const cleanup = step.type === 'agent' && brokerInstruction(step.instruction)?.operation === 'release';
     const admit = async () => budget === undefined
       ? consume(await journal.runStart(spec, undefined, admissionKey))
-      : budget.execute(journal, spec, consume, admissionKey);
+      : budget.execute(journal, spec, consume, admissionKey, false, cleanup);
     return slotScopes === undefined ? admit() : slotScopes[step.type === 'llm' ? 'llm' : 'agent'].run(admit);
   }
 

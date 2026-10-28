@@ -127,6 +127,18 @@ it('releases on readiness failure', async () => {
   const f = fixture(); await f.execute(); expect(fake.release).toHaveBeenCalledTimes(1);
   expect(f.client.stepComplete.mock.calls.at(-1)?.[4]).toBe('worker_error');
 });
+it('times out a spawn that never returns and releases a PTY that arrives later', async () => {
+  let resolveSpawn: (value: unknown) => void = () => {};
+  fake.spawn.mockImplementationOnce(() => new Promise(resolve => { resolveSpawn = resolve; }));
+  const f = fixture();
+  await f.execute({ timeoutMs: 100 });
+  expect(f.client.stepComplete.mock.calls.at(-1)?.[4]).toBe('timeout');
+  const lateRelease = vi.fn(async () => {});
+  resolveSpawn({ name: 'late', release: lateRelease, waitForReady: fake.ready });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  expect(lateRelease).toHaveBeenCalledWith('Flow broker session ended', { deleteIdentity: true });
+  expect(fake.release).not.toHaveBeenCalled();
+});
 it('times out even when message submission never responds', async () => {
   const f = fixture(); await f.execute(); fake.send.mockImplementationOnce(() => new Promise(() => {}));
   await f.execute({ operation: 'message', timeoutMs: 10 });
