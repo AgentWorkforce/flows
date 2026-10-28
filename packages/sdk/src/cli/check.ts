@@ -248,7 +248,7 @@ export function checkAuthoredFlow(
           effectiveProbeCache,
         )
       : undefined;
-    if (flow?.steps.some(step => step.type === 'agent' && brokerInstruction(step.instruction))) {
+    if (flow?.steps.some(step => step.type === 'agent' && brokerInstruction(step.instruction)?.operation === 'spawn')) {
       try { checkBrokerEnvironment(); }
       catch (error) {
         result.ok = false;

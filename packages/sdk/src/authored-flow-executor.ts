@@ -708,10 +708,13 @@ export async function executeAuthoredFlow<Input = undefined>(
     message(agentName, text, messageOptions) {
       assertOperationAllowed('message', definition.name, requestedCompletion);
       const id = nextId('agent');
-      return trackStep(authoredSteps, new AuthoredFlowOperation<AgentResult>(id, 'message',
+      let messageOp!: AuthoredFlowOperation<AgentResult>;
+      messageOp = new AuthoredFlowOperation<AgentResult>(id, 'message',
         () => assertStartAllowed('message'),
-        () => observeStep(id, 'agent', () => worker.message(id, agentName, text, messageOptions), onProgress),
-        lifecycle));
+        () => observeStep(id, 'agent',
+          () => worker.message(id, agentName, text, messageOptions, messageOp.namedGate), onProgress),
+        lifecycle);
+      return trackStep(authoredSteps, messageOp);
     },
     release(agentName) {
       assertOperationAllowed('release', definition.name, requestedCompletion);

@@ -43,6 +43,13 @@ it('only accepts retained agents created by this flow', async () => {
   await expect(broker.release('agent-1', 'someone-else')).rejects.toThrow('No retained');
   expect(run).not.toHaveBeenCalled();
 });
+it('forwards a named gate on a retained message', async () => {
+  const { broker, run } = setup();
+  const result = await broker.agent('agent-0', 'implement', { transport: 'broker', task: 'Implement', cli: 'codex', keepAlive: true });
+  const gate = { type: 'artifact_exists' as const, path: 'result.json' };
+  await broker.message('agent-1', result.agentName!, 'Fix', undefined, gate);
+  expect(run.mock.calls[1]![0]).toMatchObject({ verification: gate });
+});
 it('carries declared secrets onto spawn, message, and release', async () => {
   const { broker, run } = setup();
   const result = await broker.agent('agent-0', 'implement', { transport: 'broker', task: 'Implement', cli: 'codex',

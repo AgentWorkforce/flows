@@ -51,12 +51,13 @@ export function authoredBroker(definition: { name: string }, rootRunId: string |
       if (instruction.keepAlive && result.completionReason === 'success') declarations.set(instruction.agentName, declaration);
       return result;
     },
-    async message(id: string, name: string, text: string, options?: { timeout?: string | number }): Promise<AgentResult> {
+    async message(id: string, name: string, text: string, options?: { timeout?: string | number },
+      verification?: NamedGate): Promise<AgentResult> {
       const declaration = lookup(name);
       if (typeof text !== 'string' || !text.trim()) invalid('f.message text must be nonempty');
       const result = await execute(id, { ...declaration, instruction: { ...declaration.instruction,
         operation: 'message', task: text, timeoutMs: options?.timeout === undefined
-          ? declaration.instruction.timeoutMs : parseAgentStepTimeout(options.timeout) } });
+          ? declaration.instruction.timeoutMs : parseAgentStepTimeout(options.timeout) } }, verification);
       return result;
     },
     async release(id: string, name: string): Promise<void> {
