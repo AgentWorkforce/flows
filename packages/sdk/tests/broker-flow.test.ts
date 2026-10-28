@@ -87,6 +87,37 @@ it('runs a named gate on f.message against the broker result', async () => {
   expect(fake.send).toHaveBeenCalledTimes(1);
 });
 
+it('releases a retained session after a budgeted named-gate failure', async () => {
+  const fixture = chainFixture(); cleanups.push(() => fixture.close());
+  const client = await fixture.connect();
+  const worker = await attachLocalAgent(client, fixture.data, undefined, undefined, 2, fixture.root);
+  cleanups.push(() => worker.close());
+  const complete = (text: string, json: string) => {
+    const turn = /complete '([^']+)'/.exec(text)![1]!;
+    setTimeout(() => void fake.invoke!({ operation: 'complete', values: [turn, json] }), 1);
+  };
+  fake.spawn.mockImplementation(async input => {
+    complete(input.task, '{"pr":42}');
+    return { name: input.name, release: fake.release, waitForReady: async () => ({ reason: 'ready' }) };
+  });
+  fake.send.mockImplementation(async input => {
+    complete(input.text, '{"fixed":true}'); return { event_id: 'event', targets: [input.to] };
+  });
+  const definition = flow('broker-release-after-failure', { budget: '$1/run' }, async f => {
+    const agent = await f.agent('implement', { task: 'Open PR', transport: 'broker', cli: 'codex', keepAlive: true });
+    try {
+      await f.message(agent.agentName!, 'Fix').gate({ type: 'artifact_exists', path: 'result.json' });
+    } finally {
+      await f.release(agent.agentName!);
+    }
+    f.done('success');
+  });
+  await expect(executeAuthoredFlow(definition, client, undefined, {
+    flowPath: fixture.flowPath, localAgentStream: worker.stream, dataDir: fixture.data, workerCapacity: 2,
+  })).rejects.toThrow(/agent-\d+\.gate/);
+  expect(fake.release).toHaveBeenCalled();
+});
+
 it.each(['named', 'predicate'] as const)('refuses a retained spawn with a %s gate before allocating a PTY', async gate => {
   const fixture = chainFixture(); cleanups.push(() => fixture.close());
   const client = await fixture.connect();

@@ -69,6 +69,25 @@ describe('budget attribution', () => {
   });
 });
 
+describe('authored budget cleanup', () => {
+  it('journals a cleanup step after a failed budgeted step without sending the exhausted header', async () => {
+    const budget = new AuthoredBudget('$0.001/run');
+    const client = {
+      runStart: vi.fn()
+        .mockResolvedValueOnce({ run_id: 'r1', status: 'failed', completion_reason: 'step_failed', completed_steps: 1 })
+        .mockResolvedValueOnce({ run_id: 'r2', status: 'completed', completion_reason: 'success', completed_steps: 1 }),
+      journalRead: vi.fn(async () => ({ entries: [] })),
+    };
+    const spec = { version: '0.1.0', steps: [{ id: 'release' }] } as never;
+    await expect(budget.execute(client as unknown as JournalClient, spec, async () => { throw new Error('gate'); })).rejects.toThrow('gate');
+    await expect(budget.execute(client as unknown as JournalClient, spec, async () => 'blocked')).rejects.toThrow('prior budgeted step');
+    await expect(budget.execute(client as unknown as JournalClient, spec, async () => 'released', undefined, false, true)).resolves.toBe('released');
+    const calls = client.runStart.mock.calls as unknown as [Record<string, unknown>][];
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.[0]).not.toHaveProperty('budget');
+  });
+});
+
 describe('authored budget refusal names the limit it crossed', () => {
   const charge = (payload: Record<string, unknown>) => ({seq: 1, entry_type: 'step.completed', at_ms: 0, payload});
   // The shape of Cloud run f28314ed: 26 steps summed to 132.9 min of step

@@ -144,12 +144,25 @@ export class BrokerSessions {
         });
         broker.connectEvents();
         const task = `${workerInstruction(instruction.task, dispatch)}\n\n${this.completionPrompt(session, turnId)}\n${instruction.keepAlive ? 'Stay alive after completing; later flow steps can send more work.' : 'The flow releases this session after completion.'}`;
-        session.pty = await spawnFlowPty(broker, { name, cli: spec.cli, identity: spec.cli_identity,
+        const spawned = spawnFlowPty(broker, { name, cli: spec.cli, identity: spec.cli_identity,
           model: spec.model, task, cwd, dataDir, skipRelayPrompt: false, channels: [instruction.channel], team: `flow-${owner}`,
           environment: this.environment, socket: session.tools.path, token: session.tools.token,
           secrets: spec.secrets, scopeSecrets,
           metadata: { runId: owner, flow: instruction.flow, step: instruction.step } });
-        signal.throwIfAborted();
+        let pty: Awaited<ReturnType<typeof spawnFlowPty>> | undefined;
+        try {
+          pty = await Promise.race([spawned, aborted]);
+          signal.throwIfAborted();
+          session.pty = pty;
+        } catch (error) {
+          // Spawn can resolve after the timeout. The session release below
+          // only sees a handle that was stored in time.
+          if (session.pty === undefined) void spawned.then(async late => {
+            try { await late.handle.release('Flow broker session ended', { deleteIdentity: true }); }
+            finally { await late.close(); }
+          }, () => {});
+          throw error;
+        }
         const ready = await Promise.race([session.pty.handle.waitForReady(Math.min(instruction.timeoutMs, 90_000)),
           result.then(() => ({ reason: 'ready' }))]);
         if (ready.reason !== 'ready') throw new Error(`Broker agent did not become ready: ${ready.reason}`);
