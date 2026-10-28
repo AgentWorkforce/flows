@@ -45,17 +45,38 @@ await runInCloud({ path: './onboard.flow.ts' }, {
 });
 ```
 
+Each step must grant a delivered secret by name. An omitted `secrets` option
+grants none:
+
+```ts
+await f.run('node call-native.mjs', { secrets: ['NATIVE_API_TOKEN'] });
+await f.agent('review', { task: 'Review the result', secrets: [] });
+```
+
+The same `secrets: ['NATIVE_API_TOKEN']` declaration is accepted on a YAML
+step. Unknown or unavailable names refuse the run. A direct agent step starts
+with a small system environment, its own model login (including delivered
+login and Cloud-selected Claude Bedrock login), and trusted repository git/gh setup,
+plus only its declared other user-delivered secrets; a Relay-transport agent cannot request run
+secrets. On a self-hosted run, set `RELAY_SECRET_ENV_NAMES` to a JSON array of
+the secret names before `flows run` so deterministic steps can scope them too.
+
 They travel only with that run's submission: not in the flow source, its
-inputs, the receipt, or a schedule (`scheduleInCloud` cannot carry them). Names
+inputs, the receipt, or a schedule (`scheduleInCloud` cannot carry them), and
+errors never quote them: a Cloud refusal that contains a value anywhere (its
+message or fields such as `expected`) keeps its code and has the rest withheld. Names
 must match `^[A-Za-z_][A-Za-z0-9_]*$` and are checked before any request; Cloud
 refuses names it owns (run identity, Relay/Relayfile auth, provider keys such as
 `ANTHROPIC_API_KEY`). Cloud masks the values in captured run output (logs,
 step rows, transcripts) by name, regardless of what the variable is called,
 once AgentWorkforce/cloud#4469 is deployed; before that, only names containing
 TOKEN, SECRET, KEY, AUTH or similar are masked, so prefer a name like
-`NATIVE_API_TOKEN`. Steps can still read the values, so keep the token
+`NATIVE_API_TOKEN`. A same-user step can still inspect the CLI/bootstrap
+environment through `/proc/<pid>/environ` on Linux or read agent login files
+under `HOME`; per-step env filtering is not process isolation. Keep tokens
 short-lived and narrowly scoped. A run that parks on `f.human` and is resumed
-does not get them back.
+does not get them back. UID separation for step processes is tracked in
+AgentWorkforce/cloud#4715 and needs SOC 2 / penetration-test review.
 
 ```sh
 flows run --cloud examples/cloud-gates/cloud-gates.flow.yaml
@@ -171,18 +192,25 @@ started in a terminal, and it is unchanged.
 The Observer link needs `RELAYCAST_WORKSPACE_KEY` or an active workspace key in
 `~/.agentworkforce/relay/workspaces.json`. When neither is available, a plain
 `flows run` prints one hint: configure a workspace key for the Observer link,
-or pass `--cloud-mirror` for the Cloud dashboard. `--no-observer-link`,
+or sign in with `agent-relay cloud login` for the Cloud dashboard. `--no-observer-link`,
 `FLOWS_NO_OBSERVER=1`, and `--json` suppress that human-facing hint.
 
-`--cloud-mirror` additionally puts the run on the **Cloud dashboard**: the
-richer, hosted view of the same run.
+Signed-in local runs also appear on the **Cloud dashboard**. The CLI reuses
+`agent-relay cloud login` credentials (or `FLOWS_CLOUD_TOKEN`). Signed-out runs
+print one note and continue locally.
 
 ```sh
-flows run --cloud-mirror review.flow.ts --input '{"pr":7}'
+agent-relay cloud login
+flows deploy review.flow.ts             # save a manual flow without a trigger
+flows run review --input '{"pr":7}'      # resolve your saved flow and run locally
 # Dashboard: https://…/dashboard/workflow/<run>/runner  ·  flows status --cloud --watch <run>
-
-FLOWS_CLOUD_MIRROR=1 flows run review.flow.ts     # for a whole shell
 ```
+
+`flows run <name>` resolves a bare name only when no local file exists. It
+verifies the source SHA-256 and caches the immutable source at
+`~/.agentworkforce/flows/cache/<name>/<sha256>.flow.ts`. Named runs carry their
+flow and version IDs so they appear in that flow's run history. File paths and
+bundle digest references retain their existing behavior.
 
 Nothing about execution changes. The run executes locally, against the local
 daemon, under your own credentials; the journal is still the record. What is
@@ -206,26 +234,14 @@ DAG both while the run is live and after its final report. Internal authored
 `complete-N` receipts remain durable journal evidence and are intentionally not
 shown as work nodes.
 
-### Why it is opt-in
+### What local reporting stores
 
-Because it is the richer view, it is also the one that *stores* all of that.
-The mirror sends the flow source, step metadata, agent transcripts and this
-invocation's own stderr. Transcripts are the sharp edge: they are whatever the
-agent printed, which includes file contents, command output, and anything it
-read out of its environment. Every string goes through the same redactor
-`flows status` uses — but redaction is pattern matching, and pattern matching
-has a false-negative rate.
-
-So the trigger is an explicit request, never the presence of a login. A
-developer who signed in once to run something hosted has not thereby agreed to
-publish every unrelated experiment in every checkout on that machine into their
-workspace, where anyone who can read the workspace can read it. `--cloud-mirror`
-is that agreement, per run; `FLOWS_CLOUD_MIRROR=1` is it for a shell.
-
-Only an affirmative counts for the environment variable (`1`, `true`, `on`,
-`yes`). Anything else — unset, empty, `0`, or a value nobody meant as a switch
-— leaves the run local, because the cost of reading a stray value as consent is
-someone's runs being uploaded.
+The dashboard stores the flow source, step metadata, agent transcripts and
+this invocation's output. Reported strings pass through the same redactor as
+`flows status`. Reporting follows only the current run and child journals
+named by its authored-step index. Reporting failures leave local execution and
+the journal unchanged. `--cloud-mirror` and `FLOWS_CLOUD_MIRROR=1` remain explicit
+requests for reporting; signed-in runs report automatically without either.
 
 The terminal line names Cloud's run id as well as the page, because the
 report's own `runId` is the *journal's* and every hosted read verb (`flows

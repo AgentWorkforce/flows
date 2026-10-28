@@ -1,0 +1,36 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ❯ tests/authored-parallel-eligibility.test.ts (10 tests | 1 failed | 9 skipped) 10ms
+   × parallel run admission > uses serial mode when the body names the injected certifier 9ms
+     → const __certifyParallelBranch = async () => { await f.run('P'); };
+       const b = async () => { await f.run('B'); };
+       await Promise.all([__certifyParallelBranch(), b()]);: expected true to be false // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-parallel-eligibility.test.ts > parallel run admission > uses serial mode when the body names the injected certifier
+AssertionError: const __certifyParallelBranch = async () => { await f.run('P'); };
+       const b = async () => { await f.run('B'); };
+       await Promise.all([__certifyParallelBranch(), b()]);: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/authored-parallel-eligibility.test.ts:184:86
+    182|        const b = async () => { await f.run('B'); };
+    183|        await Promise.all([a(), b()]);`,
+    184|     ]) expect(eligible(body(`async f => { ${source} f.done('success');…
+       |                                                                                      ^
+    185|   });
+    186| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 9 skipped (10)
+   Start at  00:51:58
+   Duration  506ms (transform 28ms, setup 11ms, collect 203ms, tests 10ms, environment 0ms, prepare 35ms)

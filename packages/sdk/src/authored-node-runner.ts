@@ -3,9 +3,9 @@ import { FLOW_READ_BUDGET_MS } from './journal-read-policy.js';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { readFileSync, realpathSync } from 'node:fs';
+import { accessSync, constants as fsConstants, readFileSync, realpathSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { delimiter, isAbsolute, join } from 'node:path';
 import type { Readable } from 'node:stream';
 import type { AuthoredRootMetadata } from './authored-root.js';
 import type { AuthoredExecutionRuntime, AuthoredFlowExecutionResult, ExecuteAuthoredFlowOptions } from './authored-flow-executor.js';
@@ -20,6 +20,7 @@ import type {
 import { HUMAN_WAIT_ID } from './authored-human.js';
 import { assertAuthoredPromiseHooks } from './authored-runtime-capability.js';
 import { settlingCompletion } from './step-settling.js';
+import { readAuthoredStepIndex } from './authored-step-index.js';
 import { isTransportRetries } from './validate.js';
 
 let embeddedSource: string | undefined;
@@ -34,10 +35,51 @@ const refusal = (): AuthoredFlowExecutionError => new AuthoredFlowExecutionError
   'authored execution requires the embedded Node runner and Node >=22.14 on PATH (or an absolute FLOWS_AUTHORED_NODE); no workflow body was executed',
 );
 interface NodeAuthority { path: string; version: string; executableSha256: string }
+/**
+ * One authored run asks for the Node authority before root admission and
+ * again before spawning the body. Each probe spawns Node and hashes its whole
+ * executable (~100 MB), which a cold sandbox pays on the startup path twice.
+ * Reuse the previous answer only while the same candidate is selected (the
+ * override or the first `node` on PATH, by path and by realpath, so a
+ * retargeted symlink re-probes) and the executable it resolved is unchanged.
+ * The spawned child still hashes the executable it actually runs and the
+ * parent compares that report with this authority, so a binary replaced
+ * after the probe is refused, never trusted.
+ */
+let probedAuthority: { selection: string; fingerprint: string; authority: NodeAuthority } | undefined;
+function executableFingerprint(path: string): string {
+  const stat = statSync(path, { bigint: true });
+  return [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs].join(':');
+}
+/** The candidate `spawnSync(override ?? 'node')` would run, by path and realpath. */
+function selectedCandidate(override: string | undefined): string | undefined {
+  const directories = (process.env['PATH'] ?? '').split(delimiter);
+  // A relative PATH entry resolves against the working directory; do not
+  // guess which candidate the spawn would pick, just probe every time.
+  if (override === undefined && directories.some(directory => !isAbsolute(directory))) return undefined;
+  const candidates = override !== undefined ? [override] : directories.map(directory => join(directory, 'node'));
+  for (const candidate of candidates) {
+    try {
+      if (!statSync(candidate).isFile()) continue;
+      accessSync(candidate, fsConstants.X_OK);
+      return `${candidate}\0${realpathSync(candidate)}`;
+    } catch { /* Not this candidate. */ }
+  }
+  return undefined;
+}
 function nodeAuthority(): NodeAuthority {
   if (embeddedSource === undefined) throw refusal();
   const override = process.env['FLOWS_AUTHORED_NODE'];
   if (override !== undefined && !isAbsolute(override)) throw refusal();
+  const selection = selectedCandidate(override);
+  if (selection !== undefined && probedAuthority?.selection === selection) {
+    try {
+      if (executableFingerprint(probedAuthority.authority.path) === probedAuthority.fingerprint) {
+        return probedAuthority.authority;
+      }
+    } catch { /* A vanished executable is re-probed, and refused there. */ }
+  }
+  probedAuthority = undefined;
   const probe = spawnSync(override ?? 'node', ['--input-type=module', '--eval', `
 import {createHook} from 'node:async_hooks';
 import {stripTypeScriptTypes,register} from 'node:module';
@@ -55,8 +97,20 @@ process.stdout.write(JSON.stringify({path:process.execPath,version:process.versi
     const [major, minor] = value.version.split('.').map(Number);
     if (major! < 22 || (major === 22 && minor! < 14)) throw refusal();
     const path = realpathSync(value.path);
-    return { path, version: value.version, executableSha256: hash(readFileSync(path)) };
+    const fingerprint = executableFingerprint(path);
+    const authority = { path, version: value.version, executableSha256: hash(readFileSync(path)) };
+    // Reuse only an answer for a candidate that could be identified, and not
+    // one whose file was rewritten while it was being hashed.
+    if (selection !== undefined && executableFingerprint(path) === fingerprint) {
+      probedAuthority = { selection, fingerprint, authority };
+    }
+    return authority;
   } catch { throw refusal(); }
+}
+
+/** Test seam: resolve the authored Node authority exactly as the runner does. */
+export function authoredNodeAuthorityForTest(): Readonly<NodeAuthority> {
+  return nodeAuthority();
 }
 
 /** Called before root admission/resume; declarative commands never reach it. */
@@ -137,6 +191,7 @@ export async function runAuthoredInNode(
               child.stdin!.write(JSON.stringify({ channelKey, metadata, socketPath, rootRunId,
                 dataDir: options.dataDir, localAgentStream: options.localAgentStream,
                 workerCapacity: options.workerCapacity,
+                ...(options.journaledSteps === undefined ? {} : { journaledSteps: options.journaledSteps }),
                 agentEnvironment: options.agentEnvironment }) + '\n');
             } else if (!ready || result) throw new Error('unexpected authored runtime message');
             else if (message.type === 'progress') options.onProgress?.(message.event);
@@ -347,10 +402,16 @@ export async function verifyAuthoredNodeResult(
   const authored = result.journalSteps.filter(step => typeof step?.id === 'string' && !isGate(step.id));
   const gates = result.journalSteps.filter(step => typeof step?.id === 'string' && isGate(step.id));
   if (!Number.isSafeInteger(count) || authored.length !== count || isGate(terminal.id)) invalid(`count ${authored.length}!=${count}`);
+  const parallel = metadata.identityVersion === 2 && metadata.executionMode === 'parallel';
   const ordinal = (id: string): number => Number(/-([1-9][0-9]*)$/.exec(id)?.[1]);
-  // Parallel awaits may finish in either order; validate a copy in declaration order.
-  const ordered = [...authored].sort((a,b)=>ordinal(a.id)-ordinal(b.id));
+  // Serial ids have one global ordinal. Parallel ids have one ordinal per
+  // causal predecessor, so several valid siblings end in `-1`. Validate the
+  // complete parallel claim against the root's durable child index instead.
+  const ordered = parallel ? [...authored] : [...authored].sort((a,b)=>ordinal(a.id)-ordinal(b.id));
   const authoredIds = new Set(ordered.map(step => step.id));
+  if (parallel && (gates.length !== 0 || authoredIds.size !== count
+    || ordered.some(step => step === terminal ? !/^complete-[1-9][0-9]*$/u.test(step.id)
+      : !/^run-(?:[1-9][0-9]*|after-[a-f0-9]{64}-[1-9][0-9]*)$/u.test(step.id)))) invalid('parallel ids');
   for (const gate of gates) {
     if (!authoredIds.has(gate.id.slice(0, -'.gate'.length))) invalid(`orphan ${gate.id}`);
   }
@@ -361,9 +422,23 @@ export async function verifyAuthoredNodeResult(
   await journal.connect();
   try {
     await journal.hello('flows-authored-result-verifier');
+    if (parallel) {
+      const indexed = await readAuthoredStepIndex(journal, rootRunId);
+      const claimed = new Map(ordered.map(step => [step.id, step]));
+      if (indexed.length !== count || indexed.some(step => {
+        const matching = claimed.get(step.step);
+        return matching === undefined || step.state !== 'completed'
+          || step.runId !== matching.runId || step.completionReason !== matching.completionReason
+          || step.label !== matching.label || step.afterTruncated !== matching.afterTruncated
+          || (step.after === undefined ? matching.after !== undefined
+            : !Array.isArray(step.after) || !Array.isArray(matching.after) || step.after.length !== matching.after.length
+              || step.after.some((id, index) => id !== matching.after?.[index]));
+      })) invalid('parallel index');
+    }
     for (const [index, claimed] of [...ordered, ...gates].entries()) {
       if (!claimed || typeof claimed.id !== 'string' || typeof claimed.runId !== 'string'
-        || (index < ordered.length && ordinal(claimed.id) !== index+1) || !['success', 'timeout'].includes(claimed.completionReason)
+        || (!parallel && index < ordered.length && ordinal(claimed.id) !== index+1)
+        || !['success', 'timeout'].includes(claimed.completionReason)
         || runs.has(claimed.runId)) invalid(`claim ${claimed?.id}`);
       runs.add(claimed.runId);
       const state = await journal.runGet(claimed.runId);

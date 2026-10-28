@@ -2,6 +2,7 @@ import { FLOW_READ_BUDGET_MS, isReadInterruptionError } from './journal-read-pol
 import { Worker } from 'node:worker_threads';
 import { createHash, createHmac } from 'node:crypto';
 import { readFileSync, writeSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { JournalClient } from './journal-client.js';
 import { executeAuthoredFlow } from './authored-flow-executor.js';
 import { loadPinnedAuthoredSource } from './authored-source-authority.js';
@@ -52,7 +53,7 @@ try {
     executableSha256: hash(process.execPath), payloadSha256: hash(process.argv[1]!) } });
   const request = await new Promise<{ channelKey: string; metadata: AuthoredRootMetadata; socketPath: string;
     rootRunId: string; dataDir: string; localAgentStream?: string; workerCapacity?: number;
-    agentEnvironment?: unknown }>((resolve, reject) => {
+    journaledSteps?: unknown; agentEnvironment?: unknown }>((resolve, reject) => {
     let buffer = '';
     process.stdin.setEncoding('utf8');
     const onData = (chunk: string): void => {
@@ -73,18 +74,37 @@ try {
   // NODE_OPTIONS remain the child's inherited values.
   const agentEnvironment = validatedLocalAgentEnvironment(request.agentEnvironment);
   const loaded = await loadPinnedAuthoredSource(request.metadata, true);
+  if (request.metadata.identityVersion === 2 && request.metadata.executionMode === 'parallel') {
+    // Bun admitted the root from the source AST because its Function.toString
+    // is reformatted. Reconfirm that exact source and the Node-loaded body
+    // before executing any child. A changed file or a changed body fails closed.
+    const bytes = readFileSync(request.metadata.flowPath);
+    if (createHash('sha256').update(bytes).digest('hex') !== request.metadata.sourceSha256) {
+      throw new Error('authored root source authority mismatch');
+    }
+    const { parallelLoadedBodyEligible } = await import('./authored-parallel-eligibility.js');
+    if (!await parallelLoadedBodyEligible(loaded.getDefinition(loaded.handle).body,
+      bytes.toString('utf8'), pathToFileURL(request.metadata.flowPath).href, 'transform')) {
+      throw new AuthoredFlowExecutionError('step_failed', 'parallel f.run body lost its source certificate');
+    }
+  }
   if (request.localAgentStream !== request.metadata.localAgentStream) throw new Error('authored root local agent surface mismatch');
   if (request.workerCapacity !== undefined && !isAgentCapacity(request.workerCapacity)) throw new Error('invalid authored worker capacity');
+  if (request.journaledSteps !== undefined && (!Array.isArray(request.journaledSteps)
+    || !request.journaledSteps.every(step => typeof step === 'string'))) throw new Error('invalid authored journaled steps');
   client = new JournalClient(request.socketPath, { readBudgetMs: FLOW_READ_BUDGET_MS, budgetHandshake: true });
   await client.connect(); await client.hello('flows-authored-node');
   const result = await executeAuthoredFlow(loaded.handle, client,
     request.metadata.inputPresent ? request.metadata.input : undefined, {
       getDefinition: loaded.getDefinition, dataDir: request.dataDir,
       flowPath: request.metadata.flowPath, rootRunId: request.rootRunId,
+      executionMode: request.metadata.identityVersion === 2 && request.metadata.executionMode === 'parallel'
+        ? 'parallel' : 'serial',
       extensions: loaded.extensions,
       flowGraph: loaded.graph,
       localAgentStream: request.localAgentStream, signal: controller.signal,
       ...(request.workerCapacity === undefined ? {} : { workerCapacity: request.workerCapacity }),
+      ...(request.journaledSteps === undefined ? {} : { journaledSteps: request.journaledSteps as string[] }),
       ...(agentEnvironment === undefined ? {} : { agentEnvironment: { ...process.env, ...agentEnvironment } }),
       onProgress: event => send({ type: 'progress', event }),
       onWait: event => send({ type: 'wait', event }),

@@ -62,7 +62,8 @@ export class BrokerSessions {
     let output: unknown;
     let reason: 'success' | 'worker_error' | 'timeout' = 'success';
     try {
-      output = await withWorkerLease(client, dispatch, signal => this.run(dispatch, instruction, dataDir, signal));
+      output = await withWorkerLease(client, dispatch, signal => this.run(dispatch, instruction, dataDir, signal,
+        client.supportsFeature?.('step_secret_scoping') ?? true));
     } catch (error) {
       if (isLeaseLost(error) || isReadInterruptionError(error)) throw error;
       reason = error instanceof Error && error.name === 'TimeoutError' ? 'timeout' : 'worker_error';
@@ -78,7 +79,8 @@ export class BrokerSessions {
     }
   }
 
-  private async run(dispatch: StepDispatchEvent, instruction: BrokerInstruction, dataDir: string, lease: AbortSignal): Promise<unknown> {
+  private async run(dispatch: StepDispatchEvent, instruction: BrokerInstruction, dataDir: string, lease: AbortSignal,
+    scopeSecrets = true): Promise<unknown> {
     const { agentName: name, owner } = instruction;
     let session = this.sessions.get(name);
     if (session && session.owner !== owner) throw new Error('Broker agent belongs to another flow');
@@ -145,6 +147,7 @@ export class BrokerSessions {
         session.pty = await spawnFlowPty(broker, { name, cli: spec.cli, identity: spec.cli_identity,
           model: spec.model, task, cwd, dataDir, skipRelayPrompt: false, channels: [instruction.channel], team: `flow-${owner}`,
           environment: this.environment, socket: session.tools.path, token: session.tools.token,
+          secrets: spec.secrets, scopeSecrets,
           metadata: { runId: owner, flow: instruction.flow, step: instruction.step } });
         signal.throwIfAborted();
         const ready = await Promise.race([session.pty.handle.waitForReady(Math.min(instruction.timeoutMs, 90_000)),

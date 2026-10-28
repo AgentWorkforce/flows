@@ -1,0 +1,8 @@
+async f => {
+  const a = async () => { await f.run('echo A-start $(date +%s%3N); sleep 2; echo A-end $(date +%s%3N)'); await f.run('echo a-dep $(date +%s%3N)'); };
+  const b = async () => { await f.run('echo B-start $(date +%s%3N); sleep 2; echo B-end $(date +%s%3N)'); await f.run('echo b-dep $(date +%s%3N)'); };
+  const c = async () => { await f.run('echo C-start $(date +%s%3N); sleep 2; echo C-end $(date +%s%3N)'); await f.run('echo c-dep $(date +%s%3N)'); };
+  await Promise.all([a(), b(), c()]);
+  await f.run('echo join $(date +%s%3N)');
+  f.done('success');
+}

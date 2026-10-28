@@ -1,0 +1,32 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ❯ tests/authored-flow-lifecycle-executor.test.ts (45 tests | 1 failed | 44 skipped) 7ms
+   × authored flow lifecycle through the journal executor > refuses untracked thenables before invoking their user-supplied then 4ms
+     → expected [Function] to throw an error
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-flow-lifecycle-executor.test.ts > authored flow lifecycle through the journal executor > refuses untracked thenables before invoking their user-supplied then
+AssertionError: expected [Function] to throw an error
+
+- Expected:
+null
+
++ Received:
+undefined
+
+ ❯ tests/authored-flow-lifecycle-executor.test.ts:104:12
+    102|         hiddenThenable,
+    103|         Promise.resolve('B'),
+    104|       ]))).toThrow(/member with no tracked provenance/u);
+       |            ^
+    105|       expect(violations).toContain('parallel Promise.all contains a me…
+    106|       expect(thenReads).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 44 skipped (45)
+   Start at  00:52:03
+   Duration  1.29s (transform 447ms, setup 18ms, collect 998ms, tests 7ms, environment 0ms, prepare 56ms)

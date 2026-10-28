@@ -21,7 +21,8 @@ import { authoredChildAdmissionKey } from './authored-admission.js';
 import { alsoRecord, recordAuthoredChild } from './authored-step-index.js';
 import type { StepFailedDetails } from './failure-kinds.js';
 import { LOCAL_AGENT_WORKSPACE } from './local-agent-pins.js';
-import { authoredWorkerSlots, type AuthoredWorkerSlots } from './worker-slots.js';
+import { authoredWorkerSlots, WorkerSlots, type AuthoredWorkerSlots } from './worker-slots.js';
+import { validateStepSecrets } from './step-secrets.js';
 
 const AGENT_TIMEOUT = Symbol('declared agent timeout');
 const WORKSPACE_PERMISSION_ANNOTATION = /:\s*(readonly|readwrite)\s*$/i;
@@ -188,7 +189,9 @@ export function authoredWorkerRunner(
       }
     },
     async agent(id: string, options: AgentOptions, verification?: NamedGate, name = id): Promise<AgentResult> {
-      if (options.transport === 'broker') return broker.agent(id, name, options, verification);
+      const secrets = validateStepSecrets((options as AgentOptions & { secrets?: unknown }).secrets,
+        agentEnvironment ?? process.env);
+      if (options.transport === 'broker') return broker.agent(id, name, options, verification, secrets);
       const brokerProblem = brokerOptionsError(options);
       if (brokerProblem) throw new AuthoredFlowExecutionError('agent_cli_unresolved', brokerProblem);
       if (options.workspace !== undefined && localAgentStream !== undefined) {
@@ -291,6 +294,7 @@ export function authoredWorkerRunner(
         : snapshotJsonValue(permissions, 'f.agent options.permissions') as unknown as PermissionsSpec;
       const output = await run({
         id, type: 'agent', instruction: options.task,
+        ...(secrets.length ? { secrets } : {}),
         ...(timeoutMs === undefined ? {} : { timeoutMs }),
         ...(permissionsSnapshot === undefined ? {} : { permissions: permissionsSnapshot }),
         ...(localAgentStream === undefined ? {} : { surfaces: {
@@ -337,11 +341,14 @@ export function authoredWorkerRunner(
       }
       const snapshot = options === undefined ? undefined : snapshotJsonValue(options, 'f.llm options');
       if (snapshot !== undefined && (typeof snapshot !== 'object' || snapshot === null || Array.isArray(snapshot)
-        || Object.keys(snapshot).some(key => !['output', 'cli', 'model'].includes(key)))) {
-        throw new AuthoredFlowExecutionError('llm_cli_unresolved', 'f.llm options accepts only output, cli, and model.');
+        || Object.keys(snapshot).some(key => !['output', 'cli', 'model', 'secrets'].includes(key)))) {
+        throw new AuthoredFlowExecutionError('llm_cli_unresolved', 'f.llm options accepts only output, cli, model, and secrets.');
       }
+      const secrets = validateStepSecrets((snapshot as { secrets?: unknown } | undefined)?.secrets,
+        agentEnvironment ?? process.env);
       const output = await run({
         id, type: 'llm', prompt, ...snapshot as unknown as LlmOptions,
+        ...(secrets.length ? { secrets } : {}),
         ...(verification === undefined ? {} : { verification }),
       });
       if (options === undefined && typeof output !== 'string') {
@@ -363,8 +370,14 @@ export function authoredWorkerRunner(
 export function authoredDeterministicRunner(
   name: string, journal: JournalClient, journalSteps: AuthoredFlowJournalStep[], budget: AuthoredBudget,
   context: AuthoredStepContext = {},
+  parallel = false,
 ) {
   const rootRunId = context.rootRunId;
+  // run.start drives a deterministic child to completion before replying. The
+  // daemon reads one connection in order, so sharing the body's connection
+  // would serialize Promise.all. Each admitted child gets its own connection;
+  // this limit bounds both daemon threads and shell commands per authored body.
+  const slots = new WorkerSlots(8);
   // One lowering, two readers. `record` changes what the child run's verdict
   // MEANS, so the reader changes with it; everything before the read — spec,
   // admission key, budget, child index — is deliberately shared, because a
@@ -372,6 +385,7 @@ export function authoredDeterministicRunner(
   function lower<T>(
     id: string, command: string, terminal: boolean, leaseMs: number | undefined,
     verification: NamedGate | undefined, onNonZero: 'record' | undefined,
+    secrets: string[] | undefined,
     read: (outcome: import('./protocol.js').RunOutcome) => Promise<T>,
   ): Promise<T> {
     const spec = toKernelSpec(compileSpec({
@@ -379,6 +393,7 @@ export function authoredDeterministicRunner(
       name: `${name}/${id}`,
       steps: [{
         id, type: 'deterministic', command,
+        ...(secrets?.length ? { secrets } : {}),
         ...(leaseMs === undefined ? {} : { lease_ms: leaseMs }),
         ...(onNonZero === undefined ? {} : { onNonZero }),
         ...(verification === undefined ? {} : { verification }),
@@ -391,16 +406,21 @@ export function authoredDeterministicRunner(
       });
       return read(outcome);
     };
-    if (terminal) return journal.runStart(spec, undefined, admissionKey).then(consume);
-    return budget.execute(journal, spec, consume, admissionKey);
+    const admit = async () => terminal
+      ? consume(await journal.runStart(spec, undefined, admissionKey, false, parallel))
+      : budget.execute(journal, spec, consume, admissionKey, parallel);
+    return parallel ? slots.run(admit) : admit();
   }
-  const lowerRun = (id: string, command: string, terminal = false, leaseMs?: number, verification?: NamedGate): Promise<string> =>
-    lower(id, command, terminal, leaseMs, verification, undefined,
+  const lowerRun = (id: string, command: string, terminal = false, leaseMs?: number, verification?: NamedGate,
+    secrets?: string[]): Promise<string> =>
+    lower(id, command, terminal, leaseMs, verification, undefined, secrets,
       outcome => readSuccessfulOutput(journal, outcome, id, journalSteps, context));
   /** `f.run(..., { onNonZero: 'record' })`: the exit code is the result, not a throw. */
-  lowerRun.recording = (id: string, command: string, leaseMs?: number, verification?: NamedGate): Promise<RecordedRunOutcome> =>
-    lower(id, command, false, leaseMs, verification, 'record',
+  lowerRun.recording = (id: string, command: string, leaseMs?: number, verification?: NamedGate,
+    secrets?: string[]): Promise<RecordedRunOutcome> =>
+    lower(id, command, false, leaseMs, verification, 'record', secrets,
       outcome => readRecordedOutcome(journal, outcome, id, journalSteps, context));
+  lowerRun.stop = (reason: unknown): void => slots.close(reason);
   return lowerRun;
 }
 

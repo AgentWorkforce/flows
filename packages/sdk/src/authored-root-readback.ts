@@ -3,7 +3,6 @@ import type { AuthoredFlowExecutionResult } from './authored-flow-executor.js';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
 import { isSurfaceCompletionReason } from './authored-step-output.js';
 import { JournalFrameError, JournalProtocolError, type JournalClient } from './journal-client.js';
-import type { RunOutcome } from './protocol.js';
 
 /*
  * Reading an authored root back from its journal, and what a failed read
@@ -44,7 +43,7 @@ export async function rootStepIfPresent(journal: JournalClient, runId: string): 
  * it back is interrupted, the outcome is still known: say so, rather than
  * recasting a finished run as resumable.
  */
-export function completedResult(journal: JournalClient, outcome: RunOutcome, rootRunId: string): Promise<AuthoredFlowExecutionResult & { readonly rootRunId: string }> {
+export function completedResult(journal: JournalClient, rootRunId: string): Promise<AuthoredFlowExecutionResult & { readonly rootRunId: string }> {
   return completedRootResult(journal, rootRunId).catch(error => {
     // A bad frame or a journal with no stored result is a definite fact; any
     // other failure — interrupted, canceled, or a daemon-side read error such

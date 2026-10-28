@@ -2,6 +2,9 @@ import { EventEmitter } from 'node:events';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { stripTypeScriptTypes } from 'node:module';
+import { pathToFileURL } from 'node:url';
+import ts from 'typescript';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flow, type Ctx } from '@relayflows/surface';
 import { getFlowDefinition } from '@relayflows/surface/runtime';
@@ -89,6 +92,7 @@ class RootJournal {
   dispatchOnStart = true;
   dispatchLeaseMs = 30;
   resumeCalls = 0;
+  getCalls = 0;
   entries: Array<Record<string, unknown>> = [];
   readonly childEntries = new Map<string, Array<Record<string, unknown>>>();
   readonly streamed = new Map<string, unknown[]>();
@@ -117,6 +121,11 @@ class RootJournal {
       queueMicrotask(() => this.peer.emit('step.dispatch', dispatch(runId, 2, this.dispatchLeaseMs)));
     }
     return this.resumeStatus;
+  }
+  async runGet(runId: string) {
+    this.getCalls += 1;
+    return { run_id: runId, status: this.resumeStatus.status, steps: {},
+      budget: { tokens_in: 0, tokens_out: 0, dollars: '0' } };
   }
   async journalRead(runId: string, fromSeq = 1): Promise<{ entries: Array<Record<string, unknown>> }> {
     // Numbered like the kernel's `journal.read`, so paginating readers
@@ -155,6 +164,9 @@ describe('durable authored root', () => {
   it('journals exact source and Surface authority and completes the admitted root', async () => {
     const loaded = await fixture();
     const journal = new RootJournal();
+    // This case checks authority and completion, not lease renewal. A 30 ms
+    // fake lease can expire when the full CI suite pauses the event loop.
+    journal.dispatchLeaseMs = 30_000;
 
     const result = await executeDurableAuthoredFlow(
       loaded, journal as unknown as JournalClient, { topic: 'relay' },
@@ -172,7 +184,79 @@ describe('durable authored root', () => {
     });
     expect(metadata.sourceSha256).toMatch(/^[a-f0-9]{64}$/u);
     expect(metadata.extensions).toEqual([]);
+    expect(metadata).toMatchObject({ identityVersion: 2, executionMode: 'serial' });
     expect(journal.peer.completions).toEqual([{ attempt: 1, reason: 'success' }]);
+  });
+
+  it('reports a serial admission reason only when operator diagnostics are enabled', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    journal.startStatus = outcome(journal.runId, 'completed', 'success');
+    journal.entries = [completedEntry()];
+    const previous = process.env['FLOWS_PARALLEL_DEBUG'];
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      process.env['FLOWS_PARALLEL_DEBUG'] = '1';
+      await executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+        { dataDir: '/unused', admissionKey: 'operator-diagnostic' });
+      expect(stderr).toHaveBeenCalledWith('[flows] parallel f.run admission: serial (source_certificate)\n');
+    } finally {
+      stderr.mockRestore();
+      if (previous === undefined) delete process.env['FLOWS_PARALLEL_DEBUG'];
+      else process.env['FLOWS_PARALLEL_DEBUG'] = previous;
+    }
+  });
+
+  it.each([
+    ['plain', 'async f', ''],
+    ['TS1param', 'async (f: any)', ''],
+    ['TS2annot', 'async f', "const w: string = await f.run('printf W');"],
+    ['TS3ret', 'async f', ''],
+  ].flatMap(([name, signature, prelude]) => (['strip', 'transform'] as const)
+    .map(mode => ({ name, signature, prelude, mode }))))(
+    'pins a certified $name body loaded with $mode to parallel mode before dispatch', async ({ name, signature, prelude, mode }) => {
+    const branchType = name === 'TS3ret' ? ': Promise<void>' : '';
+    const bodySource = `${signature} => {
+      ${prelude}
+      const a = async ()${branchType} => { await f.run('printf A'); };
+      const b = async ()${branchType} => { await f.run('printf B'); };
+      await Promise.all([a(), b()]);
+      await Promise.all([f.run('printf a'), f.run('printf b')]);
+      f.done('success');
+    }`;
+    const source = `import { flow } from '@relayflows/surface';\nexport default flow('flagship', ${bodySource});\n`;
+    const transformed = stripTypeScriptTypes(source, { mode, sourceUrl: 'file:///flagship.flow.ts' });
+    const file = ts.createSourceFile('flagship.js', transformed, ts.ScriptTarget.ES2022, true, ts.ScriptKind.JS);
+    const exported = file.statements[1] as ts.ExportAssignment;
+    const call = exported.expression as ts.CallExpression;
+    const loadedBody = new Function(`return ${call.arguments[1]!.getText(file)};`)() as (f: Ctx) => Promise<void>;
+    const loaded = await fixture(false, 0, loadedBody);
+    await writeFile(loaded.sourcePath, source);
+    const journal = new RootJournal();
+    journal.startStatus = outcome(journal.runId, 'completed', 'success');
+    journal.entries = [completedEntry()];
+    await executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'certified-group' });
+    const step = (journal.starts[0]!.spec as { steps: Array<{ instruction: string }> }).steps[0]!;
+    expect(JSON.parse(step.instruction)).toMatchObject({
+      kind: 'relayflows.authored-root.parallel.v3', identityVersion: 2, executionMode: 'parallel',
+    });
+  });
+
+  it('keeps a synthetic source unrelated to its in-memory body serial', async () => {
+    const loaded = await fixture(false, 0, async f => {
+      await Promise.all([f.run('printf a'), f.run('printf b')]);
+      f.done('success');
+    });
+    const journal = new RootJournal();
+    journal.startStatus = outcome(journal.runId, 'completed', 'success');
+    journal.entries = [completedEntry()];
+    await executeDurableAuthoredFlow(loaded, journal as unknown as JournalClient, undefined,
+      { dataDir: '/unused', admissionKey: 'synthetic-source' });
+    const step = (journal.starts[0]!.spec as { steps: Array<{ instruction: string }> }).steps[0]!;
+    expect(JSON.parse(step.instruction)).toMatchObject({
+      kind: 'relayflows.authored-root.v1', identityVersion: 2, executionMode: 'serial',
+    });
   });
 
   it('stops waiting for a root re-dispatch when the caller cancels', async () => {
@@ -294,7 +378,7 @@ describe('durable authored root', () => {
       { dataDir: '/unused', admissionKey: 'with-detail' },
     );
 
-    expect(result.completionDetail).toBe('review found 1 P2: review.clean was not created');
+    expect(result).toMatchObject({ completionDetail: 'review found 1 P2: review.clean was not created' });
     expect(journal.peer.outputs.at(-1)).toMatchObject({
       name: 'flagship',
       completionReason: 'step_failed',
@@ -352,8 +436,8 @@ describe('durable authored root', () => {
       { dataDir: '/unused', admissionKey: 'legacy-no-detail' },
     );
 
-    expect(result.completionReason).toBe('step_failed');
-    expect(result.completionDetail).toBeUndefined();
+    expect(result).toMatchObject({ completionReason: 'step_failed' });
+    expect('completionDetail' in result ? result.completionDetail : undefined).toBeUndefined();
     expect('completionDetail' in result).toBe(false);
   });
 
@@ -598,6 +682,60 @@ describe('durable authored root', () => {
     expect(journal.peer.completions).toEqual([{ attempt: 2, reason: 'success' }]);
   });
 
+  it('refuses an unsafe pinned parallel resume before dispatch without failing its root', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    const spawned = spawnedEntry(loaded);
+    const step = (spawned as { payload: { spec: { steps: Array<{ instruction: string }> } } })
+      .payload.spec.steps[0]!;
+    step.instruction = JSON.stringify({ ...JSON.parse(step.instruction) as object,
+      kind: 'relayflows.authored-root.parallel.v2', identityVersion: 2, executionMode: 'parallel' });
+    journal.entries = [spawned];
+    const previous = process.env['NODE_OPTIONS'];
+    try {
+      process.env['NODE_OPTIONS'] = '--require=/tmp/preload.cjs';
+      await expect(resumeDurableAuthoredFlow(journal.runId, journal as unknown as JournalClient,
+        { dataDir: '/unused' })).rejects.toMatchObject({
+        code: 'unsafe_parallel_runtime', rootRunId: journal.runId,
+      });
+    } finally {
+      if (previous === undefined) delete process.env['NODE_OPTIONS'];
+      else process.env['NODE_OPTIONS'] = previous;
+    }
+    expect(journal.resumeCalls).toBe(0);
+    expect(journal.getCalls).toBe(1);
+    expect(journal.peer.completions).toEqual([]);
+  });
+
+  it('reads a completed parallel root under a preload without dispatching it', async () => {
+    const loaded = await fixture();
+    const journal = new RootJournal();
+    const spawned = spawnedEntry(loaded);
+    const step = (spawned as { payload: { spec: { steps: Array<{ instruction: string }> } } })
+      .payload.spec.steps[0]!;
+    step.instruction = JSON.stringify({ ...JSON.parse(step.instruction) as object,
+      kind: 'relayflows.authored-root.parallel.v2', identityVersion: 2, executionMode: 'parallel' });
+    journal.entries = [spawned, completedEntry()];
+    journal.resumeStatus = outcome(journal.runId, 'completed', 'success');
+    const onRunReceipt = vi.fn();
+    const previous = process.env['NODE_OPTIONS'];
+    try {
+      process.env['NODE_OPTIONS'] = '--require=/tmp/preload.cjs';
+      await expect(resumeDurableAuthoredFlow(journal.runId, journal as unknown as JournalClient,
+        { dataDir: '/unused', lifecycle: { onRunReceipt } })).resolves.toMatchObject({
+        rootRunId: journal.runId, completionReason: 'success',
+      });
+    } finally {
+      if (previous === undefined) delete process.env['NODE_OPTIONS'];
+      else process.env['NODE_OPTIONS'] = previous;
+    }
+    expect(journal.getCalls).toBe(1);
+    expect(journal.resumeCalls).toBe(0);
+    expect(onRunReceipt).toHaveBeenCalledTimes(1);
+    expect(onRunReceipt).toHaveBeenCalledWith({ runId: journal.runId, flow: 'flagship' });
+    expect(journal.peer.completions).toEqual([]);
+  });
+
   it('parks the root attempt on an unanswered f.human instead of completing it', async () => {
     const loaded = await fixture(false, 0, async f => { await f.human('Ship it?', { to: 'khaliq' }); f.done('success'); });
     const journal = new RootJournal();
@@ -680,7 +818,7 @@ describe('durable authored root', () => {
 async function fixture(
   fails = false,
   delayMs = 0,
-  body?: Parameters<typeof flow>[1],
+  body?: Parameters<typeof flow>[2],
 ): Promise<LoadedAuthoredFlow> {
   const directory = await mkdtemp(join(tmpdir(), 'authored-root-'));
   directories.push(directory);

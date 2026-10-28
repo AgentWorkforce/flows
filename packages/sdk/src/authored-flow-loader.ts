@@ -311,12 +311,52 @@ export async function packageTreeSha256(root: string): Promise<string> {
   }
   await visit(root);
   const hash = createHash('sha256');
-  for (const path of files) {
-    const bytes = await readFile(path);
+  await readInOrder(files, SURFACE_READ_CONCURRENCY, (path, bytes) => {
     const name = relative(root, path).split(sep).join('/');
     hash.update(name).update('\0').update(String(bytes.length)).update('\0').update(bytes);
-  }
+  });
   return hash.digest('hex');
+}
+
+/**
+ * Surface is about 600 small files, and both the CLI and the authored Node
+ * child hash it on the startup path. Awaiting one read at a time paid a
+ * filesystem round trip per file; a sandbox disk made that several hundred ms.
+ */
+const SURFACE_READ_CONCURRENCY = 32;
+
+/**
+ * Read `paths` through a window of at most `limit` files, started in order
+ * and handed to `consume` strictly in `paths` order, so the digest is the
+ * serial walk's. The window bounds buffered bytes as well as reads in flight:
+ * a slow early file stops new reads instead of letting later files pile up.
+ * After any read fails no new read starts. The lowest-index failure, the
+ * error a serial walk would meet first, is thrown once every started read
+ * has settled.
+ */
+async function readInOrder(
+  paths: readonly string[],
+  limit: number,
+  consume: (path: string, bytes: Buffer) => void,
+): Promise<void> {
+  const reads: Array<Promise<Buffer>> = [];
+  let failed = false, next = 0;
+  const start = (): void => {
+    const read = readFile(paths[next++]!);
+    read.catch(() => { failed = true; });
+    reads.push(read);
+  };
+  while (next < paths.length && reads.length < limit) start();
+  for (let index = 0; reads.length !== 0; index += 1) {
+    let bytes: Buffer;
+    try { bytes = await reads[0]!; } catch (error) {
+      await Promise.allSettled(reads);
+      throw error;
+    }
+    reads.shift();
+    consume(paths[index]!, bytes);
+    if (!failed && next < paths.length) start();
+  }
 }
 
 // Exported for callers (internal SDK tests, and any co-located flow that is

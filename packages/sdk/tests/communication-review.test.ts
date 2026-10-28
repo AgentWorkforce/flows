@@ -51,6 +51,100 @@ it('does not carry ambient secrets into the broker, and scopes provider credenti
   expect(agentEnvironment('/custom/cli', source)).not.toHaveProperty('GITHUB_TOKEN');
 });
 
+it('communication agents drop delivered secrets by default on a scoped runtime', () => {
+  const source = {
+    ANTHROPIC_API_KEY: 'delivered-provider-key',
+    CLAUDE_CODE_OAUTH_TOKEN: 'own-login',
+    NATIVE_API_TOKEN: 'delivered-native-key',
+    RELAY_API_KEY: 'broker-key',
+    RELAY_SECRET_ENV_NAMES: JSON.stringify(['ANTHROPIC_API_KEY', 'NATIVE_API_TOKEN']),
+  };
+  const plain = agentEnvironment('claude', source);
+  expect(plain.ANTHROPIC_API_KEY).toBe('delivered-provider-key');
+  expect(plain).not.toHaveProperty('NATIVE_API_TOKEN');
+  expect(plain.CLAUDE_CODE_OAUTH_TOKEN).toBe('own-login');
+  const granted = agentEnvironment('claude', source, ['NATIVE_API_TOKEN']);
+  expect(granted.NATIVE_API_TOKEN).toBe('delivered-native-key');
+  expect(granted.ANTHROPIC_API_KEY).toBe('delivered-provider-key');
+  expect(granted.RELAY_API_KEY).toBe('');
+  expect(agentEnvironment('claude', source, undefined, false).ANTHROPIC_API_KEY).toBe('delivered-provider-key');
+  expect(() => agentEnvironment('claude', {
+    ...source, RELAY_SECRET_ENV_NAMES: JSON.stringify(['RELAY_API_KEY']),
+  }, ['RELAY_API_KEY'])).toThrow('Relay broker credentials');
+});
+
+it('legacy communication agents still strip delivered repository names', () => {
+  const source = {
+    GH_TOKEN: 'user-github-secret', GITLAB_TOKEN: 'user-gitlab-secret',
+    GIT_CONFIG_KEY_1: 'user-git-secret', HTTPS_PROXY: 'user-proxy-secret',
+    GH_CONFIG_DIR: '/trusted/gh',
+    CLAUDE_CODE_USE_BEDROCK: '1', AWS_BEARER_TOKEN_BEDROCK: 'selected-bedrock-login',
+    RELAY_SECRET_ENV_NAMES: JSON.stringify([
+      'GH_TOKEN', 'GITLAB_TOKEN', 'GIT_CONFIG_KEY_1', 'HTTPS_PROXY',
+      'CLAUDE_CODE_USE_BEDROCK', 'AWS_BEARER_TOKEN_BEDROCK',
+    ]),
+    RELAY_PLATFORM_AGENT_ENV_NAMES: JSON.stringify([
+      'CLAUDE_CODE_USE_BEDROCK', 'AWS_BEARER_TOKEN_BEDROCK',
+    ]),
+  };
+  const env = agentEnvironment('claude', source, undefined, false);
+  for (const name of ['GH_TOKEN', 'GITLAB_TOKEN', 'GIT_CONFIG_KEY_1', 'HTTPS_PROXY']) {
+    expect(env).not.toHaveProperty(name);
+  }
+  expect(env).toMatchObject({ GH_CONFIG_DIR: '/trusted/gh',
+    CLAUDE_CODE_USE_BEDROCK: '1', AWS_BEARER_TOKEN_BEDROCK: 'selected-bedrock-login' });
+});
+
+it('communication CLIs keep only their own delivered login, never generic cloud credentials', () => {
+  const source = {
+    GEMINI_API_KEY: 'gemini-login', CURSOR_API_KEY: 'cursor-login',
+    XAI_API_KEY: 'grok-login', FACTORY_API_KEY: 'droid-login',
+    GOOGLE_API_KEY: 'application-google-key',
+    GOOGLE_APPLICATION_CREDENTIALS: '/tmp/application-service-account.json',
+    AWS_ACCESS_KEY_ID: 'application-aws-key', GH_TOKEN: 'user-repository-secret',
+    RELAY_SECRET_ENV_NAMES: JSON.stringify([
+      'GEMINI_API_KEY', 'CURSOR_API_KEY', 'XAI_API_KEY', 'FACTORY_API_KEY',
+      'GOOGLE_API_KEY', 'GOOGLE_APPLICATION_CREDENTIALS', 'AWS_ACCESS_KEY_ID', 'GH_TOKEN',
+    ]),
+  };
+  for (const [cli, own] of [
+    ['gemini', 'GEMINI_API_KEY'], ['cursor-agent', 'CURSOR_API_KEY'],
+    ['grok', 'XAI_API_KEY'], ['droid', 'FACTORY_API_KEY'],
+  ] as const) {
+    for (const scopeSecrets of [true, false]) {
+      const env = agentEnvironment(cli, source, undefined, scopeSecrets);
+      expect(env[own]).toBe(source[own]);
+      for (const foreign of ['GEMINI_API_KEY', 'CURSOR_API_KEY', 'XAI_API_KEY', 'FACTORY_API_KEY']) {
+        if (foreign !== own) expect(env).not.toHaveProperty(foreign);
+      }
+      for (const generic of ['GOOGLE_API_KEY', 'GOOGLE_APPLICATION_CREDENTIALS', 'AWS_ACCESS_KEY_ID', 'GH_TOKEN']) {
+        expect(env).not.toHaveProperty(generic);
+      }
+    }
+  }
+  expect(agentEnvironment('gemini', source, ['GOOGLE_API_KEY']).GOOGLE_API_KEY)
+    .toBe('application-google-key');
+});
+
+it('communication Claude keeps trusted Bedrock and repository setup without user secrets', () => {
+  const source = {
+    CLAUDE_CODE_USE_BEDROCK: '1', AWS_BEARER_TOKEN_BEDROCK: 'bedrock-login',
+    AWS_REGION: 'eu-west-1', GH_CONFIG_DIR: '/tmp/gh', GIT_ASKPASS: '/tmp/askpass',
+    GIT_CONFIG_KEY_1: 'core.hooksPath', GIT_CONFIG_VALUE_1: '/dev/null',
+    HTTPS_PROXY: 'https://proxy.example.test',
+    USER_SECRET: 'user-secret',
+    RELAY_SECRET_ENV_NAMES: '["CLAUDE_CODE_USE_BEDROCK","AWS_BEARER_TOKEN_BEDROCK","USER_SECRET"]',
+    RELAY_PLATFORM_AGENT_ENV_NAMES: '["CLAUDE_CODE_USE_BEDROCK","AWS_BEARER_TOKEN_BEDROCK","AWS_REGION"]',
+  };
+  const env = agentEnvironment('claude', source);
+  expect(env).toMatchObject({ CLAUDE_CODE_USE_BEDROCK: '1', AWS_BEARER_TOKEN_BEDROCK: 'bedrock-login',
+    AWS_REGION: 'eu-west-1', GH_CONFIG_DIR: '/tmp/gh', GIT_ASKPASS: '/tmp/askpass',
+    GIT_CONFIG_KEY_1: 'core.hooksPath', GIT_CONFIG_VALUE_1: '/dev/null',
+    HTTPS_PROXY: 'https://proxy.example.test' });
+  expect(env).not.toHaveProperty('USER_SECRET');
+  expect(agentEnvironment('codex', source)).not.toHaveProperty('AWS_BEARER_TOKEN_BEDROCK');
+});
+
 it('passes provider-specific proxy routing only to Cursor and Grok children', () => {
   const cursorProxy = 'https://proxy.test/v1/house/cursor/runs/run-1';
   const source = {

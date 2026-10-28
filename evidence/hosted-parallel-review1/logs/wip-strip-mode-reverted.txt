@@ -1,0 +1,72 @@
+--- authored-root.ts
++++ authored-root.ts (reverted)
+@@ -110,8 +110,7 @@
+       && (process.versions['bun'] === undefined
+         // Native imports strip by default, or transform with Node's opt-in
+         // flag. Require exact identity with one of those loader outputs.
+-        ? await parallelLoadedBodyEligible(definition.body, source.toString('utf8'), pathToFileURL(loaded.sourcePath).href, 'strip')
+-          || await parallelLoadedBodyEligible(definition.body, source.toString('utf8'), pathToFileURL(loaded.sourcePath).href, 'transform')
++        ? await parallelLoadedBodyEligible(definition.body, source.toString('utf8'), pathToFileURL(loaded.sourcePath).href, 'transform')
+         : parallelPinnedSourceEligible(source.toString('utf8')));
+     if (!parallelEligible) parallelIneligibleReason = parallelPromiseIntrinsicsIntact()
+       ? 'source_certificate' : 'runtime_intrinsics';
+
+$ cd packages/sdk
+$ FLOWS_2052_SDK=/tmp/ms-boot-2052-npm/node_modules/@relayflows/sdk /Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node node_modules/vitest/vitest.mjs run tests/authored-root.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/hosted-parallel/packages/sdk
+
+(node:61815) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:61815) [FLOWS_ROOT_LEASE_LOST] Warning: authored root run_id=root-run attempt=1: lease_conflict: attempt has no active worker lease. Waiting for the kernel to retry it.
+ ❯ tests/authored-root.test.ts (49 tests | 4 failed) 515ms
+   × durable authored root > pins a certified 'plain' body loaded with 'strip' to parallel mode before dispatch 36ms
+     → expected { executionMode: 'serial', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS1param' body loaded with 'strip' to parallel mode before dispatch 4ms
+     → expected { executionMode: 'serial', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS2annot' body loaded with 'strip' to parallel mode before dispatch 3ms
+     → expected { executionMode: 'serial', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS3ret' body loaded with 'strip' to parallel mode before dispatch 4ms
+     → expected { executionMode: 'serial', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'plain' body loaded with 'strip' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS1param' body loaded with 'strip' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS2annot' body loaded with 'strip' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS3ret' body loaded with 'strip' to parallel mode before dispatch
+AssertionError: expected { executionMode: 'serial', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "executionMode": "parallel",
++   "executionMode": "serial",
+    "identityVersion": 2,
+-   "kind": "relayflows.authored-root.parallel.v3",
++   "kind": "relayflows.authored-root.v1",
+  }
+
+ ❯ tests/authored-root.test.ts:241:42
+    239|       { dataDir: '/unused', admissionKey: 'certified-group' });
+    240|     const step = (journal.starts[0]!.spec as { steps: Array<{ instruct…
+    241|     expect(JSON.parse(step.instruction)).toMatchObject({
+       |                                          ^
+    242|       kind: 'relayflows.authored-root.parallel.v3', identityVersion: 2…
+    243|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 45 passed (49)
+   Start at  20:13:08
+   Duration  1.51s (transform 348ms, setup 11ms, collect 888ms, tests 515ms, environment 0ms, prepare 20ms)
+
+
+exit_code=1

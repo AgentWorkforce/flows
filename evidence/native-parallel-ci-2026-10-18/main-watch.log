@@ -1,0 +1,25 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/main-control/packages/sdk
+
+ ❯ tests/cli-watch.test.ts (11 tests | 2 failed | 7 skipped) 13410ms
+   × flows check --watch > watches transitive relative use imports, cycles, and nearest config changes 5025ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   × flows check --watch > refreshes the import graph and notices missing imports being created 5041ms
+     → Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+   ✓ flows check --watch > detects a nearer config appearing and falls back after it is deleted 1684ms
+   ✓ flows check --watch > keeps watching after the target is deleted and recreated 1582ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/cli-watch.test.ts > flows check --watch > watches transitive relative use imports, cycles, and nearest config changes
+ FAIL  tests/cli-watch.test.ts > flows check --watch > refreshes the import graph and notices missing imports being created
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 2 passed | 7 skipped (11)
+   Start at  02:36:12
+   Duration  49.80s (transform 7.16s, setup 377ms, collect 35.52s, tests 13.41s, environment 0ms, prepare 236ms)

@@ -12,6 +12,7 @@ export async function spawnFlowPty(broker: Pick<RelayBroker, 'spawnPty'>, option
   skipRelayPrompt?: boolean;
   cwd: string; dataDir: string; channels: string[]; team?: string;
   environment?: NodeJS.ProcessEnv; socket: string; token: string;
+  secrets?: string[]; scopeSecrets?: boolean;
   metadata?: { runId: string; flow: string; step: string };
 }) {
   const identity = options.identity ?? options.cli;
@@ -31,7 +32,8 @@ export async function spawnFlowPty(broker: Pick<RelayBroker, 'spawnPty'>, option
       ...(options.team === undefined ? {} : { team: options.team }),
       model: resolveCliModel(identity, options.model), cwd: options.cwd,
       harnessConfig: { runtime: 'pty', command: shellQuote(command), args: [], cwd: options.cwd,
-        env: { ...agentEnvironment(identity, options.environment ?? process.env),
+        env: { ...agentEnvironment(identity, options.environment ?? process.env,
+          options.secrets, options.scopeSecrets ?? true),
           RELAYFLOW_COMMUNICATION_SOCKET: options.socket, RELAYFLOW_COMMUNICATION_TOKEN: options.token,
           ...(options.metadata === undefined ? {} : {
             RELAYFLOW_RUN_ID: options.metadata.runId, RELAYFLOW_FLOW_NAME: options.metadata.flow,

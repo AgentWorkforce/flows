@@ -1,0 +1,32 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ❯ tests/authored-step-graph.test.ts (27 tests | 1 failed | 26 skipped) 4ms
+   × the authored step DAG > does not trust a user-built join merely because it is a combinator member 3ms
+     → expected false to be true // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-step-graph.test.ts > the authored step DAG > does not trust a user-built join merely because it is a combinator member
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/authored-step-graph.test.ts:88:59
+     86|     const graph = new AuthoredStepGraph(id => id === 3 ? [2] : [], und…
+     87|     graph.registerAggregate(1, Promise.resolve(), 'all', [2]);
+     88|     expect(graph.predecessorsAt(3).unregisteredAggregate).toBe(true);
+       |                                                           ^
+     89|     const certified = new AuthoredStepGraph(id => id === 3 ? [2] : [],…
+     90|     certified.registerAggregate(1, Promise.resolve(), 'all', [2]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 26 skipped (27)
+   Start at  23:49:49
+   Duration  348ms (transform 69ms, setup 10ms, collect 68ms, tests 4ms, environment 0ms, prepare 70ms)

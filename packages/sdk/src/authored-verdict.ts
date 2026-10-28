@@ -21,6 +21,10 @@ import type { JournalEvent } from './journal-reader.js';
 
 /** The `instruction` discriminator `authored-root.ts` writes into the root step. */
 export const AUTHORED_ROOT_KIND = 'relayflows.authored-root.v1';
+/** Parallel roots admitted before 2.0.53; the 2.0.52 CLI recognizes these. */
+export const AUTHORED_PARALLEL_ROOT_KIND = 'relayflows.authored-root.parallel.v2';
+/** Newly admitted parallel roots must be refused by the 2.0.52 CLI on rollback. */
+export const AUTHORED_PARALLEL_ROOT_KIND_V3 = 'relayflows.authored-root.parallel.v3';
 
 export interface AuthoredVerdict {
   readonly reason: LoweredCompletionReason;
@@ -76,7 +80,9 @@ export function declaresAuthoredRoot(spawned: JournalEvent): boolean {
   if (step === null || step['id'] !== 'authored-root') return false;
   if (typeof step['instruction'] !== 'string') return false;
   try {
-    return record(JSON.parse(step['instruction']))?.['kind'] === AUTHORED_ROOT_KIND;
+    const kind = record(JSON.parse(step['instruction']))?.['kind'];
+    return kind === AUTHORED_ROOT_KIND || kind === AUTHORED_PARALLEL_ROOT_KIND
+      || kind === AUTHORED_PARALLEL_ROOT_KIND_V3;
   } catch {
     return false;
   }

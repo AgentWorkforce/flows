@@ -1,0 +1,32 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ❯ tests/authored-flow-lifecycle-executor.test.ts (45 tests | 1 failed | 44 skipped) 6ms
+   × authored flow lifecycle through the journal executor > detects replacement of every Promise primitive used by parallel joins 4ms
+     → prototype constructor descriptor: expected true to be false // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-flow-lifecycle-executor.test.ts > authored flow lifecycle through the journal executor > detects replacement of every Promise primitive used by parallel joins
+AssertionError: prototype constructor descriptor: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/authored-flow-lifecycle-executor.test.ts:62:85
+     60|         ...constructorDescriptor, enumerable: !constructorDescriptor.e…
+     61|       });
+     62|       expect(parallelPromiseIntrinsicsIntact(), 'prototype constructor…
+       |                                                                                     ^
+     63|     } finally { Object.defineProperty(Promise.prototype, 'constructor'…
+     64|     const species = Object.getOwnPropertyDescriptor(Promise, Symbol.sp…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 44 skipped (45)
+   Start at  00:52:06
+   Duration  1.18s (transform 417ms, setup 9ms, collect 949ms, tests 6ms, environment 0ms, prepare 35ms)

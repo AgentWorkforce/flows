@@ -1,0 +1,12 @@
+
+> @relayflows/sdk@2.0.51 build
+> tsc && node scripts/make-cli-executable.mjs
+
+
+> @relayflows/sdk@2.0.51 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+
+> @relayflows/sdk@2.0.51 typecheck:tests
+> tsc -p tsconfig.tests.json
+

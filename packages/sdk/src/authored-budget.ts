@@ -108,8 +108,9 @@ export class AuthoredBudget {
   }
 
   async execute<T>(journal: JournalClient, spec: KernelRunSpec,
-    consume: (outcome: RunOutcome) => Promise<T>, admissionKey?: string): Promise<T> {
-    if (this.limit === undefined) return consume(await journal.runStart(spec, undefined, admissionKey));
+    consume: (outcome: RunOutcome) => Promise<T>, admissionKey?: string,
+    isolatedStart = false): Promise<T> {
+    if (this.limit === undefined) return consume(await journal.runStart(spec, undefined, admissionKey, false, isolatedStart));
     const previous = this.tail;
     let release!: () => void;
     this.tail = new Promise<void>(resolve => { release = resolve; });
@@ -134,7 +135,7 @@ export class AuthoredBudget {
         ...(this.limit.window === 'day' && day !== undefined ? { day } : {}),
         ...(total.unmetered ? { dollars_unmetered: true as const } : {}),
       };
-      const outcome = await journal.runStart({ ...spec, budget: { ...this.limit, prior_spend: priorSpend } }, undefined, admissionKey);
+      const outcome = await journal.runStart({ ...spec, budget: { ...this.limit, prior_spend: priorSpend } }, undefined, admissionKey, false, isolatedStart);
       try {
         if (outcome.completion_reason === 'budget_exceeded') {
           throw new AuthoredFlowExecutionError('step_failed', budgetExceededMessage(this.limit!, total, spec), 'budget_exceeded', outcome.run_id);

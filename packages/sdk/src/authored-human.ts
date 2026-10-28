@@ -105,13 +105,44 @@ export async function readHumanAnswer(
   runId: string,
   waitId: string,
 ): Promise<HumanAnswer | undefined> {
+  return (await readHumanWait(journal, runId, waitId)).answer;
+}
+
+/**
+ * `readHumanAnswer`, plus every question the run has parked on under
+ * `waitId`. The answer is keyed by the wait id alone, so the executor checks
+ * that the question it is about to answer is the one that was asked.
+ */
+export async function readHumanWait(
+  journal: JournalClient,
+  runId: string,
+  waitId: string,
+): Promise<{ answer?: HumanAnswer; asked: Array<{ question: unknown; to: unknown }> }> {
+  const asked: Array<{ question: unknown; to: unknown }> = [];
   for (const entry of await readWaitEntries(journal, runId)) {
-    if (entry.entry_type === 'wait.completed' && entry.payload?.wait_id === waitId
-      && entry.payload.completionReason === 'human_responded') {
-      return parseHumanAnswer(entry.payload.result, waitId);
+    if (entry.payload?.wait_id !== waitId) continue;
+    if (entry.entry_type === 'wait.human') {
+      asked.push({ question: entry.payload.prompt, to: entry.payload.requested_of });
+    } else if (entry.payload.completionReason === 'human_responded') {
+      return { answer: parseHumanAnswer(entry.payload.result, waitId), asked };
     }
   }
-  return undefined;
+  return { asked };
+}
+
+/**
+ * Every `f.human` wait id the run has parked on, answered or not. A parked
+ * question is not in the step index until its answer is lowered, but it
+ * already holds its serial ordinal.
+ */
+export async function readHumanWaitIds(journal: JournalClient, runId: string): Promise<string[]> {
+  const ids = new Set<string>();
+  for (const entry of await readWaitEntries(journal, runId)) {
+    const waitId = entry.payload?.wait_id;
+    if (entry.entry_type === 'wait.human' && typeof waitId === 'string'
+      && /(?:^|--)human-[1-9][0-9]*$/u.test(waitId)) ids.add(waitId);
+  }
+  return [...ids];
 }
 
 /** Every `wait.human` on the run that no `wait.completed` has closed. */

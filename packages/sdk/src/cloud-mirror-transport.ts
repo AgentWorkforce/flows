@@ -69,6 +69,8 @@ export interface MirrorRunSource {
    * red "Needs review" row can see it was answered.
    */
   resumedFromRunId?: string;
+  flowId?: string;
+  flowVersionId?: string;
 }
 
 /** One lifecycle event, in the vocabulary Cloud's session event stream uses. */
@@ -98,6 +100,8 @@ export async function registerLocalRun(
     body: JSON.stringify({
       workflow: source.workflow,
       fileType: source.fileType,
+      ...(source.flowId === undefined ? {} : { flowId: source.flowId }),
+      ...(source.flowVersionId === undefined ? {} : { flowVersionId: source.flowVersionId }),
       relayflowVersion: 'v2',
       ...(source.inputs === undefined ? {} : { inputs: source.inputs }),
       ...(source.resumedFromRunId === undefined ? {} : { resumedFromRunId: source.resumedFromRunId }),

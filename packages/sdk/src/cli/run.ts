@@ -7,6 +7,7 @@ import { communicationInstruction } from '../communication/spec.js';
 import { checkCommunicationEnvironment, CommunicationEnvironmentError } from '../communication/preflight.js';
 import { parseHumanRecipient } from '../human-to.js';
 import { parseDigestReference } from '../bundle-transport.js';
+import { resolveNamedFlow } from '../cloud-flow-source.js';
 import { prepareDigestRun } from './run-digest.js';
 import { attachReuseSummary } from './reuse.js';
 import { resumeHelperEffect } from '../authored-helper-effect.js';
@@ -47,6 +48,7 @@ import { DEFAULT_LOCAL_AGENT_CAPACITY } from '../worker-slots.js';
 import { localAgentEnvironment } from '../local-agent-environment.js';
 import {
   checkFlow,
+  inputFailureReport,
   type CheckReport,
 } from './check.js';
 
@@ -182,6 +184,17 @@ export async function runFlow(
   dataDir: string,
   options: RunLifecycleOptions = {},
 ): Promise<RunExecution> {
+  try {
+    const named = await resolveNamedFlow(path);
+    if (named) {
+      const { runDirectFlow } = await import('./direct-run.js');
+      return runDirectFlow(named.path, '{}', dataDir, options);
+    }
+  } catch (error) {
+    return { exitCode: 2, report: fromCheckReport('run', inputFailureReport({
+      kind: 'input_unreadable', message: error instanceof Error ? error.message : String(error),
+    }, path)) };
+  }
   const agentEnvironment = localAgentEnvironment();
   const prepared = parseDigestReference(path) ? await prepareDigestRun(path, options.bucket) : undefined;
   if (prepared && 'exitCode' in prepared) return prepared;
@@ -415,9 +428,11 @@ export async function resumeFlow(
       return { exitCode: 2, report: { ...base, runId, socketPath,
         diagnostics: [{ severity: 'refusal', kind: 'human_influenced_run', message: error.message.replace(/^human_influenced_run: /, '') }] } };
     }
-    if (error instanceof AuthoredFlowExecutionError && error.code === 'unsupported_promise_lifecycle') {
+    if (error instanceof AuthoredFlowExecutionError
+      && (error.code === 'unsafe_parallel_runtime' || error.code === 'unsupported_promise_lifecycle')) {
       return { exitCode: 2, report: { ...base, runId, socketPath,
-        diagnostics: [{ severity: 'refusal', kind: 'invalid_spec', message: error.message }] } };
+        diagnostics: [{ severity: 'refusal',
+          kind: error.code === 'unsafe_parallel_runtime' ? error.code : 'invalid_spec', message: error.message }] } };
     }
     if (error instanceof AuthoredFlowExecutionError
       && (error.code === 'helper_slack.credential_missing' || error.code === 'helper_slack.mount_required'
@@ -430,7 +445,8 @@ export async function resumeFlow(
     // leaving it on `protocolFailure` meant `flows run` printed the evidence
     // while `flows resume` still printed `protocol_error` and
     // `RUN <id> unknown` for the identical failure.
-    if (error instanceof AuthoredFlowExecutionError && (error.code === 'step_failed' || error.code === 'gate_failed')) {
+    if (error instanceof AuthoredFlowExecutionError && (error.code === 'step_failed' || error.code === 'gate_failed'
+      || error.code === 'serial_replay_order_mismatch')) {
       return authoredStepFailure('resume', base, socketPath, error, runId);
     }
     if (error instanceof AuthoredFlowExecutionError && error.code === 'result_unreadable') {
@@ -630,10 +646,11 @@ export function authoredStepFailure(
         severity: 'failure',
         // A predicate gate that judged false is a run failure with its own
         // name, so the report says which kind of check the body did not pass.
-        kind: error.code === 'gate_failed' ? 'gate_failed' : 'step_failed',
+        // A refused out-of-order replay names itself the same way.
+        kind: error.code === 'gate_failed' || error.code === 'serial_replay_order_mismatch' ? error.code : 'step_failed',
         // The `step_failed: ` prefix `AuthoredFlowExecutionError` adds is
         // redundant once the diagnostic is labelled `[step_failed]`.
-        message: error.message.replace(/^(?:step_failed|gate_failed): /, ''),
+        message: error.message.replace(/^(?:step_failed|gate_failed|serial_replay_order_mismatch): /, ''),
       }],
     },
   };

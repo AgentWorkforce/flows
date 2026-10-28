@@ -5,7 +5,7 @@ import type { StepSpec } from './spec.js';
 import { BROKER_TYPE, brokerAgentName, brokerOptionsError, type BrokerInstruction } from './communication/broker-spec.js';
 import { AuthoredFlowExecutionError } from './authored-flow-error.js';
 
-type Declaration = { instruction: BrokerInstruction; cli?: string; model?: string };
+type Declaration = { instruction: BrokerInstruction; cli?: string; model?: string; secrets?: string[] };
 
 /** Broker options stay in a journaled instruction; the kernel only sees agent steps. */
 export function authoredBroker(definition: { name: string }, rootRunId: string | undefined,
@@ -14,12 +14,14 @@ export function authoredBroker(definition: { name: string }, rootRunId: string |
   const declarations = new Map<string, Declaration>();
   const invalid = (message: string): never => { throw new AuthoredFlowExecutionError('agent_cli_unresolved', message); };
   const execute = async (id: string, declaration: Declaration, verification?: NamedGate): Promise<AgentResult> => {
-    const { instruction, cli, model } = declaration;
+    const { instruction, cli, model, secrets } = declaration;
     const output = await run({ id, type: 'agent', instruction: JSON.stringify(instruction), cli, model,
       timeoutMs: instruction.timeoutMs,
       // Retained sessions must return to the same worker, including after a child completes.
       surfaces: localStream === undefined ? undefined : { streams: [{ stream: localStream }] },
-      maxIterations: 1, transportRetries: 0, verification });
+      maxIterations: 1, transportRetries: 0,
+      ...(secrets?.length ? { secrets } : {}),
+      ...(verification === undefined ? {} : { verification }) });
     if (!output || typeof output !== 'object' || !('completionReason' in output)) {
       throw new AuthoredFlowExecutionError('journal_protocol_violation', 'Broker step produced an invalid result');
     }
@@ -27,7 +29,8 @@ export function authoredBroker(definition: { name: string }, rootRunId: string |
   };
   const lookup = (name: string): Declaration => declarations.get(name) ?? invalid(`No retained broker agent named ${name} in this flow`);
   return {
-    async agent(id: string, name: string, options: AgentOptions, verification?: NamedGate): Promise<AgentResult> {
+    async agent(id: string, name: string, options: AgentOptions, verification?: NamedGate,
+      secrets?: string[]): Promise<AgentResult> {
       const problem = brokerOptionsError(options);
       if (problem) invalid(`f.agent options: ${problem}`);
       if (options.keepAlive && localStream === undefined) invalid('Retained broker agents require a local agent worker stream');
@@ -42,7 +45,8 @@ export function authoredBroker(definition: { name: string }, rootRunId: string |
         task: options.task, cwd: options.cwd, skills: options.skills ?? [],
         channel: options.channel ?? `flow-${owner}`, keepAlive: options.keepAlive ?? false,
         timeoutMs: options.timeout === undefined ? 3_600_000 : parseAgentStepTimeout(options.timeout) };
-      const declaration = { instruction, cli: options.cli, model: options.model };
+      const declaration = { instruction, cli: options.cli, model: options.model,
+        ...(secrets?.length ? { secrets } : {}) };
       const result = await execute(id, declaration, verification);
       if (instruction.keepAlive && result.completionReason === 'success') declarations.set(instruction.agentName, declaration);
       return result;
@@ -60,6 +64,7 @@ export function authoredBroker(definition: { name: string }, rootRunId: string |
       await run({ id, type: 'agent', cli: declaration.cli, model: declaration.model,
         instruction: JSON.stringify({ ...declaration.instruction, operation: 'release' }),
         surfaces: localStream === undefined ? undefined : { streams: [{ stream: localStream }] },
+        ...(declaration.secrets?.length ? { secrets: declaration.secrets } : {}),
         maxIterations: 1, transportRetries: 0 });
       // Keep the declaration so an explicit release remains idempotent.
     },

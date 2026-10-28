@@ -1,9 +1,9 @@
 import { once } from 'node:events';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { Server } from 'node:net';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { JournalClient, JournalRequestTimeoutError } from '../src/journal-client.js';
-import { JournalReadInterruptedError, isReadInterruptionError } from '../src/journal-read-policy.js';
+import { JournalReadInterruptedError, JournalReadPolicy, isReadInterruptionError } from '../src/journal-read-policy.js';
 import { JournalFrameError } from '../src/journal-client.js';
 import { HELLO_SPEC, sendOk, sendResult, sockPath, startLoopback, type LoopbackHandlers } from './journal-client-loopback.js';
 
@@ -159,14 +159,36 @@ it('reconnects the reader after it disconnects within the read budget', async ()
   await expect(client.streamAppend('run', 'stream', {})).resolves.toBeDefined();
 });
 
-it('surfaces an exhausted reader disconnect as a typed read interruption, not a body failure', async () => {
+it('surfaces an exhausted reader as a typed read interruption, not a body failure', async () => {
   const client = await setup({ 'run.get': ctx => { ctx.socket.destroy(); } }, 250);
   const error = await client.runGet('run').catch(error => error);
-  expect(error).toBeInstanceOf(JournalReadInterruptedError);
+  // Under load, the 50ms request timer can fire before the socket close is
+  // observed. Both outcomes are typed read interruptions and keep the run
+  // resumable; the exact transport-loss class is tested without that race below.
   expect(isReadInterruptionError(error)).toBe(true);
   expect(error.verb).toBe('run.get');
   expect(error.attempts).toBeGreaterThan(1);
   expect(error.message).toContain('read budget 250ms');
+});
+
+it('retains the transport-loss class when every reader attempt disconnects', async () => {
+  vi.useFakeTimers();
+  try {
+    const policy = new JournalReadPolicy();
+    const pending = policy.read('run.get', 10, 80, async () => {
+      throw new JournalReadInterruptedError('run.get', 1, 0, undefined,
+        { cause: new Error('reader connection closed') });
+    }).catch(error => error);
+    for (let elapsed = 0; elapsed < 80; elapsed += 10) {
+      await vi.advanceTimersByTimeAsync(10);
+    }
+    const error = await pending;
+    expect(error).toBeInstanceOf(JournalReadInterruptedError);
+    expect(error.verb).toBe('run.get');
+    expect(error.message).toContain('read budget 80ms');
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it('a canceled read settles promptly and frees the serial read queue', async () => {

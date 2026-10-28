@@ -22,13 +22,14 @@ function fixture() {
   const started = Promise.withResolvers<any>();
   const journal = {
     createPeer: () => peer,
+    streamAppend: vi.fn(async () => ({ offset: 0 })),
     runStart: vi.fn(async (spec: any) => { started.resolve(spec); return { run_id: 'mcp-run' }; }),
     runCancel: vi.fn(async () => ({ run_id: 'mcp-run', state: 'canceled' as const })),
     journalRead: vi.fn(async () => ({ entries: [{ entry_type: 'step.completed', step_id: 'mcp-1',
       payload: { completionReason: 'success', output: { type: 'mcp', output: { ok: true } } } },
       { entry_type: 'run.completed', payload: { completionReason: 'success' } }] })),
   };
-  const run = () => runMcpEffect(journal as unknown as JournalClient, 'test', 'mcp-1', 'foo', 'echo', {}, true, { command: 'unused' }, []);
+  const run = (rootRunId?: string) => runMcpEffect(journal as unknown as JournalClient, 'test', 'mcp-1', 'foo', 'echo', {}, true, { command: 'unused' }, [], rootRunId);
   return { peer, journal, started, run };
 }
 
@@ -119,4 +120,27 @@ it('renews the worker lease while a long-running MCP tool is in flight', async (
     provider.resolve({ ok: true });
     await running.catch(() => undefined);
   }
+});
+
+// A failed MCP call that carries a diagnostic is still a journaled child run:
+// it is indexed on the root, so a serial resume can see its ordinal.
+it('indexes a failed MCP call that carries a diagnostic on the root run', async () => {
+  vi.mocked(openMcpSession).mockResolvedValue({
+    callTool: vi.fn(async () => ({ isError: true })), close: vi.fn(async () => {}), listTools: vi.fn(),
+  });
+  const f = fixture();
+  f.journal.journalRead.mockResolvedValue({ entries: [{ entry_type: 'step.completed', step_id: 'mcp-1',
+    payload: { completionReason: 'worker_error', output: null } as never },
+  { entry_type: 'run.completed', payload: { completionReason: 'step_failed' } }] });
+  const running = f.run('root-1');
+  const spec = await f.started.promise;
+  f.peer.emit('step.dispatch', {
+    run_id: 'mcp-run', step_id: 'mcp-1', step_type: 'agent', spec: spec.steps[0],
+    attempt: 1, idempotency_key: 'kernel-key', pins: {},
+    lease_deadline_ms: Date.now() + 45_000, lease_id: 'lease-mcp-1',
+  });
+  await expect(running).rejects.toMatchObject({ code: 'step_failed', diagnostic: 'mcp_tool_error' });
+  expect(f.journal.streamAppend).toHaveBeenCalledWith('root-1', 'authored-steps', expect.objectContaining({
+    step: 'mcp-1', runId: 'mcp-run', state: 'completed', completionReason: 'worker_error',
+  }));
 });

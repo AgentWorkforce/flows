@@ -1,0 +1,2 @@
+{"s":"PL7mid","start":"deep","resume":"deep","i":0,"fresh":true,"code1":"timeout","code":"timeout","effects":"","effects1":"","out1":"","mode":"parallel","journalReplay":false,"dups":[],"ids":["run-1 c=1 touch /w/runs/r8f5-mutant/PL7mid/deep-deep-0/wstart; sleep 0.3; printf"],"letterDup":false,"replay":false,"ok":false,"ms":8018}
+SUMMARY PL7mid deep>deep ok=0/1 replay=0 fresh=1 mode=parallel codes=timeout effects=

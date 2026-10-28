@@ -1,0 +1,65 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ❯ tests/cli-watch.test.ts (11 tests | 2 failed) 31898ms
+   × flows check --watch > forwards required daemon validation through watch despite the offline test environment 5257ms
+     → Matcher did not succeed in 5000ms
+   ✓ flows check --watch > rechecks syntax errors, clears once, and returns the last refusal on Ctrl-C 3514ms
+   ✓ flows check --watch > streams JSON lines without ANSI, recovers after atomic saves, and exits zero after repair 2100ms
+   ✓ flows check --watch > coalesces 20 concurrent saves into at most two rechecks 2090ms
+   ✓ flows check --watch > watches transitive relative use imports, cycles, and nearest config changes 2693ms
+   ✓ flows check --watch > refreshes the import graph and notices missing imports being created 2343ms
+   ✓ flows check --watch > reloads authored TypeScript instead of reusing the first imported definition 4437ms
+   × flows check --watch > detects a nearer config appearing and falls back after it is deleted 6338ms
+     → Matcher did not succeed in 5000ms
+   ✓ flows check --watch > keeps watching after the target is deleted and recreated 2144ms
+   ✓ flows check --watch > queues changes during a slow check without overlapping checks 782ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/cli-watch.test.ts > flows check --watch > forwards required daemon validation through watch despite the offline test environment
+Error: Matcher did not succeed in 5000ms
+ ❯ until tests/cli-watch.test.ts:59:65
+     57|
+     58| async function until(predicate: () => boolean): Promise<void> {
+     59|   await expect.poll(predicate, { timeout: 5000, interval: 20 }).toBe(t…
+       |                                                                 ^
+     60| }
+     61|
+ ❯ tests/cli-watch.test.ts:78:11
+
+Caused by: AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/cli-watch.test.ts > flows check --watch > detects a nearer config appearing and falls back after it is deleted
+Error: Matcher did not succeed in 5000ms
+ ❯ until tests/cli-watch.test.ts:59:65
+     57|
+     58| async function until(predicate: () => boolean): Promise<void> {
+     59|   await expect.poll(predicate, { timeout: 5000, interval: 20 }).toBe(t…
+       |                                                                 ^
+     60| }
+     61|
+ ❯ tests/cli-watch.test.ts:181:11
+
+Caused by: AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 9 passed (11)
+   Start at  02:39:22
+   Duration  82.70s (transform 9.71s, setup 303ms, collect 49.59s, tests 31.90s, environment 0ms, prepare 398ms)

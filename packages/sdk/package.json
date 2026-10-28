@@ -1,6 +1,6 @@
 {
   "name": "@relayflows/sdk",
-  "version": "2.0.50",
+  "version": "2.0.55",
   "description": "TypeScript-first authoring SDK for Relayflows. Compiles specs; speaks the journal protocol.",
   "type": "module",
   "main": "./dist/index.js",
@@ -50,7 +50,7 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@relayfile/adapter-core": "0.6.2",
     "@relayfile/relay-helpers": "0.4.12",
-    "@relayflows/surface": "2.0.50",
+    "@relayflows/surface": "2.0.55",
     "@types/js-yaml": "^4.0.9",
     "acorn": "^8.18.0",
     "ai-hist": "0.4.1",
@@ -65,6 +65,7 @@
   "devDependencies": {
     "@agent-relay/cli-surface": "^12.2.4",
     "@types/node": "^22.7.0",
+    "bluebird": "^3.7.2",
     "esbuild": "^0.21.5",
     "vitest": "^2.1.0"
   },

@@ -304,6 +304,7 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
   let stopped = false;
   /** Set immediately before the terminal callback; nothing may publish after it. */
   let terminalReported = false;
+  const pendingEvents = new Set<Promise<boolean>>();
   let sequence = 0;
   let acknowledged: string | undefined;
   let acknowledgedAt = now();
@@ -558,7 +559,10 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
       timer.unref?.();
     },
     event(event) {
-      void options.client.publishEvent(event);
+      if (stopped || terminalReported || pendingEvents.size >= 256) return;
+      const pending = options.client.publishEvent(event);
+      pendingEvents.add(pending);
+      void pending.finally(() => pendingEvents.delete(pending));
     },
     async finish(outcome) {
       if (timer !== undefined) { clearInterval(timer); timer = undefined; }
@@ -592,6 +596,10 @@ export function createRunMirror(options: RunMirrorOptions): RunMirror {
         }
         await uploadTranscripts(deadline);
         await publishFinal(deadline);
+        await Promise.race([
+          Promise.allSettled(pendingEvents),
+          new Promise<void>(done => { setTimeout(done, remaining(deadline)).unref?.(); }),
+        ]);
         // Last, always: this transition revokes the credential every call
         // above depends on.
         terminalReported = true;

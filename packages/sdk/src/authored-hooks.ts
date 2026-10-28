@@ -32,7 +32,8 @@ export function createHookEvaluator(options: {
   readonly declared: readonly string[];
   readonly extensions: readonly LoadedFlowExtension[];
   readonly peekStep?: () => number;
-  readonly restoreStep?: (step: number) => void;
+  /** Restore the parent watermark a recorded verdict carries; `hook` is the replayed hook step. */
+  readonly restoreStep?: (step: number, hook: string) => void;
   readonly signal?: AbortSignal;
 }): (id: string, name: string, input: unknown, context: Ctx) => Promise<boolean> {
   let recorded: Promise<Map<string, HookRecord>> | undefined;
@@ -83,7 +84,7 @@ export function createHookEvaluator(options: {
       const existing = await lookup(`${id}:noop`);
       const record = existing ?? { hook: name, step: id, plugin: null, verdict: 'noop' as const };
       if (existing === undefined) await append(record);
-      else if (existing.afterStep !== undefined) options.restoreStep?.(existing.afterStep);
+      else if (existing.afterStep !== undefined) options.restoreStep?.(existing.afterStep, id);
       return true;
     }
     for (const extension of impls) {
@@ -111,7 +112,7 @@ export function createHookEvaluator(options: {
         };
         await append(record);
       } else if (record.afterStep !== undefined) {
-        options.restoreStep?.(record.afterStep);
+        options.restoreStep?.(record.afterStep, id);
       }
       if (record.verdict === 'fail') return false;
     }

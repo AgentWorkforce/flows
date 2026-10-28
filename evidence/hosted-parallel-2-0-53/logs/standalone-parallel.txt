@@ -1,0 +1,11 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/hosted-parallel/packages/sdk
+
+ ✓ tests/authored-node-runtime.test.ts (18 tests | 17 skipped) 10524ms
+   ✓ Bun 1.4.x standalone → native Node authored lifecycle > runs a certified Promise.all group in parallel through the embedded Node runner 5735ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 17 skipped (18)
+   Start at  17:20:08
+   Duration  12.32s (transform 759ms, setup 13ms, collect 1.65s, tests 10.52s, environment 0ms, prepare 37ms)
+

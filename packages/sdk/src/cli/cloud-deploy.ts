@@ -98,7 +98,7 @@ export function parseCloudDeployArgs(args: readonly string[]): CloudDeployArgs |
     value = arg;
   }
   if (value === undefined) return undefined;
-  if (flow === undefined && (repo === undefined || on.length === 0)) return undefined;
+  if (flow === undefined && on.length > 0 && repo === undefined) return undefined;
   return { command: 'cloud-deploy', value, flow, repo, on, approver, name, agents, draft, noConnect, json, plugins };
 }
 
@@ -119,7 +119,7 @@ export async function runCloudDeployCli(args: CloudDeployArgs, io: CliIo): Promi
   // by deployToCloud, not here.
   let harnesses: readonly string[] = agents instanceof CloudFlowError ? [] : agents ?? [];
   try {
-    if (args.approver === undefined) {
+    if (args.on.length > 0 && args.approver === undefined) {
       throw new CloudFlowError('invalid_input',
         '--approver <handle> is required: every launched run receives it as input.approver for f.human.');
     }
@@ -128,7 +128,7 @@ export async function runCloudDeployCli(args: CloudDeployArgs, io: CliIo): Promi
     if (agents === undefined) harnesses = (await flowRequirementsForPath(args.value))?.harnesses ?? [];
     const deployment = await deployToCloud({
       path: args.value,
-      repository: parseRepository(args.repo!),
+      ...(args.repo === undefined ? {} : { repository: parseRepository(args.repo) }),
       sources: args.on.map(parseTriggerSource),
       approver: args.approver,
       draft: args.draft,
@@ -144,12 +144,12 @@ export async function runCloudDeployCli(args: CloudDeployArgs, io: CliIo): Promi
     io.stdout(`${deployment.status === 'draft' ? 'SAVED' : 'DEPLOYED'} ${deployment.agentId} ${deployment.status}`
       + (deployment.version === undefined ? '' : ` · ${describeVersionChange(deployment.version)}`));
     io.stdout(`  flow: ${deployment.name} (${args.value}, sha256 ${deployment.sourceSha256.slice(0, 12)})`);
-    io.stdout(`  repository: ${describeRepository(deployment.repository)}`);
+    if (deployment.repository) io.stdout(`  repository: ${describeRepository(deployment.repository)}`);
     for (const source of deployment.sources) io.stdout(`  on: ${describeSource(source)}`);
     const requires = describeFlowRequirements(deployment.requirements);
     if (requires) io.stdout(`  requires: ${requires}`);
     for (const provider of deployment.connected) io.stdout(`  connected: ${provider}`);
-    io.stdout(deployment.status === 'draft'
+    io.stdout(deployment.sources.length === 0 ? `Run locally: flows run ${deployment.name}` : deployment.status === 'draft'
       ? 'Saved without activating; activate it from the Cloud dashboard, or redeploy without --draft.'
       : 'Each matching ticket launches a run of this source in a fresh branch; list with: flows deployments');
     return 0;

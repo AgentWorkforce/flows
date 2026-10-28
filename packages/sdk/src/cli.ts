@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { resolveNamedFlow, type NamedFlowSource } from './cloud-flow-source.js';
+import { isFlowName } from './bundle-transport.js';
+import { CloudFlowError } from './cloud-http.js';
 import { unavailableValidation, validationAnnotation, type DaemonValidationMode } from './daemon-spec-validation.js';
 import { foldUnprovableEffects, type FoldOptions } from './cli/diagnostic-fold.js';
 import { startDetachedRun, emitDetachedHandle } from './cli/detached-run.js';
@@ -134,6 +137,7 @@ const USAGE = [
   'flows plugin update [--json] [--yes] [--to <ref>] [<name>]',
   'flows build [--out <dir>] <flow.yaml|flow.ts>',
   'flows build --verify <bundle-dir>',
+  'flows deploy <flow.ts> [--name <name>] [--json]',
   'flows deploy <flow.ts> --repo <owner/name|gitlab:group/project> --on <provider>[:key=value,...] [--on ...] --approver <handle> [--agents claude[,codex]] [--name <name>] [--draft] [--plugin <ref>] [--no-connect] [--json]',
   'flows deploy <flow.ts> --flow <name|listener-id> [--plugin <ref>] [--no-connect] [--json]',
   'flows deployments [--json]',
@@ -152,6 +156,7 @@ const USAGE = [
   'flows run --cloud [--json] [--wait] [--sync-code] [--no-connect] [--budget-minutes <n>] <flow.ts> --input <inline-json-or-file>',
   'flows sync [--json] [--dry-run] [--dir <path>] <run-id>',
   'flows run [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--detach] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <flow.ts> --input <inline-json-or-file>',
+  'flows run <name> [--input <inline-json-or-file>]',
   'flows tick start --schedule-id <id> --interval-ms <ms> [--epoch-ms <ms>] [--max-catch-up <n>] [--poll-interval-ms <ms>] [--data-dir <dir>] <spec.json>',
   'flows resume [--allow-human-influenced] [--json] [--no-spawn] [--no-observer-link] [--cloud-mirror] [--detach] [--data-dir <dir>] [--local-agent [--agent-capacity <n>]] <run-id>',
   'flows answer --cloud [--json] [--note <text>] [--source <path>] <run-id> <yes|no>',
@@ -259,7 +264,7 @@ export async function runCli(
     const link = resolveObserverLinkEnv(process.env);
     if (!link.suppressed && link.workspaceKey === undefined) {
       io.stderr('Observer unavailable: no workspace key configured; set RELAYCAST_WORKSPACE_KEY or configure '
-        + '~/.agentworkforce/relay/workspaces.json for an Observer link, or pass --cloud-mirror for the Cloud dashboard');
+        + '~/.agentworkforce/relay/workspaces.json for an Observer link, or sign in with agent-relay cloud login for the Cloud dashboard');
     }
   }
 
@@ -379,6 +384,27 @@ export async function runCli(
     }, io) as CliExitCode);
   }
 
+  let named: NamedFlowSource | undefined;
+  if (parsed.command === 'run') {
+    try {
+      named = await resolveNamedFlow(parsed.value);
+      if (!named && parsed.input !== undefined && !isAuthoredFlowPath(parsed.value)) {
+        throw new CloudFlowError('invalid_input', '--input requires an authored .flow.ts or a saved flow name.');
+      }
+      if (named) {
+        if (parsed.reuseFromRunId !== undefined) throw new CloudFlowError('invalid_input', '--reuse-from is not supported for authored named flows.');
+        parsed.value = named.path;
+        parsed.input ??= '{}';
+      }
+    } catch (error) {
+      const code = error instanceof CloudFlowError ? error.refusal?.code ?? error.code : 'flow_resolution_failed';
+      const message = error instanceof Error ? error.message : String(error);
+      if (parsed.json) io.stdout(JSON.stringify({ ok: false, code, message }));
+      else io.stderr(`${code}: ${message}`);
+      return 2;
+    }
+  }
+
   // Attach-or-spawn runs inside `runFlow`/`resumeFlow`/`runDirectFlow`, at the
   // single `connect()` seam immediately before journal-client.ts is used --
   // not here. Hoisting it above the dispatch would start a daemon as a side
@@ -388,21 +414,13 @@ export async function runCli(
     onObserverUrl: url => options.detachedReceipt?.observerUrl(url),
   });
   const runnerLog: string[] = [];
-  // Opt-in, unlike the observer link beside it. The observer is the default
-  // way to watch a local run: it is free, it needs only a workspace key, and
-  // it carries a step projection. The dashboard is the richer, hosted view —
-  // it stores the flow source, every step's transcript and this invocation's
-  // own output — so a local run joins it because someone asked, never because
-  // a login happened to be lying around.
-  const mirror = !(parsed.cloudMirror || cloudMirrorRequested(process.env))
-    ? undefined
-    : createCloudMirrorSession({
+  const mirror = createCloudMirrorSession({
       source: parsed.command === 'run'
-        ? mirrorSourceFromPath(parsed.value, parsed.input, parsed.dataDir)
+        ? mirrorSourceFromPath(parsed.value, parsed.input, parsed.dataDir, named)
         : mirrorSourceFromJournal(parsed.dataDir),
       dataDir: parsed.dataDir,
       log: () => runnerLog,
-      requested: parsed.cloudMirror ? 'flag' : 'env',
+      requested: parsed.cloudMirror ? 'flag' : cloudMirrorRequested(process.env) ? 'env' : 'login',
     }, io);
   // Everything this invocation prints, kept in order, so the mirror can upload
   // it as the run's `runner.log` — the object the dashboard's log pane reads,
@@ -888,7 +906,7 @@ function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   if (wait || syncCode || noConnect || budgetMinutes !== undefined) return undefined;
   if (reuseFromRunId !== undefined && isAuthoredFlowPath(positionals[0]!)) return undefined;
 
-  if (command === 'run' && input !== undefined && !isAuthoredFlowPath(positionals[0]!)) return undefined;
+  if (command === 'run' && input !== undefined && !isAuthoredFlowPath(positionals[0]!) && !isFlowName(positionals[0]!)) return undefined;
   return command === 'check'
     ? { command, json, watch, explainWarnings, value: positionals[0]!,
         daemonValidation: daemonValidation ?? (process.env['FLOWS_NO_DAEMON_CHECK'] === '1' ? 'off'

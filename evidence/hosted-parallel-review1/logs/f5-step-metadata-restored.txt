@@ -1,0 +1,16 @@
+Restored byte-for-byte: authored-node-runner.ts
+sha256=11e0f0d1d2571b5793ed22668e10407533c79347c7aa100c400c232e0b2ee9bd
+$ cd packages/sdk
+$ FLOWS_2052_SDK=/tmp/ms-boot-2052-npm/node_modules/@relayflows/sdk /Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node node_modules/vitest/vitest.mjs run tests/authored-node-result.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/hosted-parallel/packages/sdk
+
+ ✓ tests/authored-node-result.test.ts (53 tests) 11ms
+
+ Test Files  1 passed (1)
+      Tests  53 passed (53)
+   Start at  20:13:08
+   Duration  261ms (transform 93ms, setup 9ms, collect 145ms, tests 11ms, environment 0ms, prepare 21ms)
+
+
+exit_code=0

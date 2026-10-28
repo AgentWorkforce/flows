@@ -21,6 +21,7 @@ export const AGENT_DECLARATION_FIELDS = ['cli', 'model'] as const;
 export const STEP_COMMON_FIELDS = [
   'id',
   'type',
+  'secrets',
   'dependsOn',
   'input',
   'verification',

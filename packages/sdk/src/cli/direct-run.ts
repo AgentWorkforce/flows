@@ -221,7 +221,8 @@ export async function runDirectFlow(
     // diagnostic carried up from `classifyOutcome` already names the step, its
     // exit code and its output tail; this branch is what lets it reach the
     // terminal. `resumeFlow` takes the same branch, through the same helper.
-    if (error instanceof AuthoredFlowExecutionError && (error.code === 'step_failed' || error.code === 'gate_failed')) {
+    if (error instanceof AuthoredFlowExecutionError && (error.code === 'step_failed' || error.code === 'gate_failed'
+      || error.code === 'serial_replay_order_mismatch')) {
       return authoredStepFailure('run', base, socketPath, error);
     }
     if (error instanceof AuthoredFlowExecutionError && error.code === 'result_unreadable') {

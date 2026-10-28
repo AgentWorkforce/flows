@@ -14,7 +14,7 @@ import {
   type CloudConnectionOptions,
 } from './cloud-http.js';
 import { cloudRunState, isCloudRunActive, type CloudRunState } from './cloud-run-record.js';
-import { packWorkingTree, prepareCloudSync, uploadCloudCode } from './cloud-sync.js';
+import { canUseCodeCache, packWorkingTree, prepareCloudSync, sha256PackedTree, uploadCloudCode } from './cloud-sync.js';
 
 export type CloudFlowSource = FlowSpec | { path: string };
 export const MIN_CLOUD_RUN_BUDGET_MINUTES = 30;
@@ -65,7 +65,7 @@ export interface CloudRunReceipt {
   specHash: string;
   /** Authenticated run API resource; this is not a public sharing URL. */
   apiUrl: string;
-  /** Present when a working tree was synced: what was uploaded, by count and size. */
+  /** Present when a working tree was synced: its file count and uncompressed size. */
   synced?: { files: number; bytes: number; skippedLinks: string[] };
 }
 export interface CloudAuthoredAuthority {
@@ -117,6 +117,31 @@ function snapshotEnvSecrets(value: unknown): Record<string, string> | undefined 
     copy[name] = secret;
   }
   return Object.keys(copy).length === 0 ? undefined : copy;
+}
+
+/**
+ * A Cloud refusal is Cloud's own text. Should any of it ever quote an
+ * envSecrets value — the message, or a field such as `expected`/`received` —
+ * keep only a safe refusal code and drop the rest, so the value never reaches
+ * an error message, a log line or a caller's error report.
+ */
+function withheldIfQuotingSecret(error: unknown, envSecrets: Record<string, string> | undefined): unknown {
+  if (envSecrets === undefined || !(error instanceof CloudFlowError) || error.refusal === undefined) return error;
+  const values = Object.values(envSecrets).filter(value => value.length > 0);
+  const quotes = (text: string): boolean => values.some(value => text.includes(value));
+  if (!quotes(error.message) && !refusalStrings(error.refusal).some(quotes)) return error;
+  const code = quotes(error.refusal.code) ? 'withheld' : error.refusal.code;
+  return new CloudFlowError(error.code,
+    `Cloud refused (${code}); its message was withheld because it quoted an envSecrets value.`,
+    error.status, { code, error: 'withheld: quoted an envSecrets value' });
+}
+
+/** Every string anywhere in a refusal, so a field added later is checked too. */
+function refusalStrings(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap(refusalStrings);
+  if (value !== null && typeof value === 'object') return Object.values(value).flatMap(refusalStrings);
+  return [];
 }
 
 /**
@@ -275,32 +300,44 @@ export async function runInCloud(
   // under it, so the run request below names code Cloud already holds. A
   // refused backend or failed upload therefore never leaves a launched run
   // pointing at a tree that is not there.
-  let synced: { runId: string; codeKey: string; files: number; bytes: number; skippedLinks: string[] } | undefined;
+  let synced: { runId: string; codeKey: string; codeCacheHit: boolean; files: number; bytes: number; skippedLinks: string[] } | undefined;
   if (options.syncCode !== undefined) {
-    const prepared = await prepareCloudSync(options);
     options.signal?.throwIfAborted();
     const packed = await packWorkingTree(options.syncCode.root);
+    let prepared: Awaited<ReturnType<typeof prepareCloudSync>>;
     try {
       options.signal?.throwIfAborted();
-      await uploadCloudCode(prepared, packed, options);
+      const digest = canUseCodeCache(packed) ? await sha256PackedTree(packed) : undefined;
+      prepared = await prepareCloudSync(options, digest);
+      options.signal?.throwIfAborted();
+      if (!prepared.codeCacheHit) await uploadCloudCode(prepared, packed, options);
     } finally {
       packed.dispose();
     }
-    synced = { runId: prepared.runId, codeKey: prepared.codeKey, files: packed.files.length, bytes: packed.bytes,
+    synced = { runId: prepared.runId, codeKey: prepared.codeKey, codeCacheHit: prepared.codeCacheHit === true,
+      files: packed.files.length, bytes: packed.bytes,
       skippedLinks: packed.skippedLinks };
   }
   options.signal?.throwIfAborted();
   options.onSubmit?.();
   let result: unknown;
   try {
-    result = await cloudFetch('/api/v1/workflows/run', options, { method: 'POST', detail: true, body: JSON.stringify({
+    // A cache hit is copied into the run prefix after admission. The R2 copy
+    // may outlast the normal 30s request budget; explicit caller limits win.
+    const submitOptions = synced?.codeCacheHit
+      ? { ...options, requestTimeoutMs: options.requestTimeoutMs ?? 300_000 }
+      : options;
+    result = await cloudFetch('/api/v1/workflows/run', submitOptions, { method: 'POST', detail: true, body: JSON.stringify({
       ...cloudSubmissionBody(submission),
       ...(options.workspaceId === undefined ? {} : { workspaceId: options.workspaceId }),
       ...(options.runBudgetMinutes === undefined ? {} : { relayflowV2RunBudgetMinutes: options.runBudgetMinutes }),
       ...(synced === undefined ? {} : { runId: synced.runId, s3CodeKey: synced.codeKey }),
       ...(envSecrets === undefined ? {} : { envSecrets }),
     }) });
-  } catch (error) {
+  } catch (caught) {
+    // Withhold first: every error thrown from here, including the rewrite
+    // below, carries only a refusal that quotes no envSecrets value.
+    const error = withheldIfQuotingSecret(caught, envSecrets);
     // Cloud accepts exactly one authored Surface (the one its sandbox runs).
     // A CLI on another release is refused with this code; say which side is
     // which instead of leaving the user with a bare 400 (flows#461).

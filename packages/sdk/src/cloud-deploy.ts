@@ -1,3 +1,4 @@
+import { isFlowName } from './bundle-transport.js';
 import { randomBytes, createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
@@ -73,10 +74,10 @@ export interface FlowTriggerSource {
 
 export interface DeployToCloudInput {
   path: string;
-  repository: DeployRepository;
+  repository?: DeployRepository;
   sources: FlowTriggerSource[];
   /** The `f.human` approver handle every launched run receives as `input.approver`. */
-  approver: string;
+  approver?: string;
   /** Defaults to the flow's declared name. */
   name?: string;
   /**
@@ -118,7 +119,7 @@ export interface CloudDeployment {
   agentId: string;
   name: string;
   status: string;
-  repository: DeployRepository;
+  repository?: DeployRepository;
   sources: FlowTriggerSource[];
   sourceSha256: string;
   /** What the source declared it needs; the harnesses became `inputs.agents` unless `agents` was given. */
@@ -255,28 +256,32 @@ export async function deployToCloud(
   input: DeployToCloudInput, options: CloudConnectionOptions = {},
 ): Promise<CloudDeployment> {
   const { bytes, source, definition, extensions, projectCli } = await loadDeploySource(input);
-  if (input.sources.length === 0 || input.sources.length > 10) {
-    throw new CloudFlowError('invalid_input', 'Give between one and ten --on trigger sources.');
+  if (input.sources.length > 10) {
+    throw new CloudFlowError('invalid_input', 'Give at most ten --on trigger sources.');
   }
   if (new Set(input.sources.map(s => s.provider)).size !== input.sources.length) {
     throw new CloudFlowError('invalid_input', 'Each trigger provider can be given once.');
   }
-  const approver = input.approver.trim();
-  if (!approver) throw new CloudFlowError('invalid_input', '--approver must name who approves f.human questions.');
+  const manual = input.sources.length === 0;
+  const approver = input.approver?.trim();
+  if (!manual && !input.repository) throw new CloudFlowError('invalid_input', 'Triggered deployments require --repo.');
+  if (!manual && !approver) throw new CloudFlowError('invalid_input', '--approver must name who approves f.human questions.');
   const name = (input.name ?? definition.name).trim();
   if (!name || name.length > 100) throw new CloudFlowError('invalid_input', 'Deployment name must be 1-100 characters.');
+  if (manual && !isFlowName(name)) throw new CloudFlowError('invalid_input',
+    'Manual flow names must start with a letter or digit and contain only letters, digits, underscores or hyphens (up to 100 characters). Use --name.');
   // Scope same-host sources to the target rather than waking on every project.
-  const target = `${input.repository.owner}/${input.repository.name}`;
+  const target = input.repository ? `${input.repository.owner}/${input.repository.name}` : undefined;
   const sources = input.sources.map(s => {
     if (s.provider === 'github' && s.settings['repository'] === undefined) {
-      if (input.repository.host === 'gitlab') {
+      if (input.repository?.host === 'gitlab') {
         throw new CloudFlowError('invalid_input',
           'A GitLab target needs an explicit --on github:repository=owner/name for a GitHub source.');
       }
-      return { ...s, settings: { ...s.settings, repository: target } };
+      return { ...s, settings: { ...s.settings, repository: target! } };
     }
-    if (s.provider === 'gitlab' && s.settings['project'] === undefined && input.repository.host === 'gitlab') {
-      return { ...s, settings: { ...s.settings, project: target } };
+    if (s.provider === 'gitlab' && s.settings['project'] === undefined && input.repository?.host === 'gitlab') {
+      return { ...s, settings: { ...s.settings, project: target! } };
     }
     return s;
   });
@@ -298,7 +303,7 @@ export async function deployToCloud(
   // refused here rather than silently replaced by Claude, which activation
   // would then check while the deployed runs still call the declared CLI.
   const unsupported = requirements.harnesses.filter(harness => !(FLOW_AGENT_HARNESSES as readonly string[]).includes(harness));
-  if (input.agents === undefined && unsupported.length > 0) {
+  if (!manual && input.agents === undefined && unsupported.length > 0) {
     const uses = requirements.harnessUses.filter(use => unsupported.includes(use.harness));
     throw new CloudFlowError('unsupported_source',
       `This flow declares ${uses.map(use => `${use.harness} (${use.detail})`).join(', ')}, which Cloud deployments cannot run yet; `
@@ -307,7 +312,7 @@ export async function deployToCloud(
   const declaredAgents = requirements.harnesses.filter((harness): harness is FlowAgentHarness => !unsupported.includes(harness));
   const agents = input.agents ?? (declaredAgents.length > 0 ? declaredAgents : ['claude']);
   // A draft activates nothing, so Cloud checks nothing; match it here.
-  const connected = input.draft || input.checkConnections === false
+  const connected = manual || input.draft || input.checkConnections === false
     ? []
     : (await ensureIntegrationsConnected(requirements, {
         ...options, workspaceId: workspace.id, ...(input.connect === undefined ? {} : { prompt: input.connect }),

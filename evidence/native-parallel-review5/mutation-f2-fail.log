@@ -1,0 +1,33 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ❯ tests/authored-parallel-eligibility.test.ts (7 tests | 1 failed | 6 skipped) 8ms
+   × parallel run admission > keeps groups with empty async branches serial 7ms
+     → expected true to be false // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-parallel-eligibility.test.ts > parallel run admission > keeps groups with empty async branches serial
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/authored-parallel-eligibility.test.ts:137:11
+    135|       await f.run('X');
+    136|       f.done('success');
+    137|     }`))).toBe(false);
+       |           ^
+    138|     expect(eligible(body(`async f => {
+    139|       const work = async () => { await f.run('A'); };
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 skipped (7)
+   Start at  20:15:00
+   Duration  435ms (transform 20ms, setup 21ms, collect 196ms, tests 8ms, environment 0ms, prepare 46ms)
+
