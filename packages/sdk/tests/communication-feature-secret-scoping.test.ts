@@ -49,5 +49,24 @@ it('communication worker uses the negotiated capability to scope its broker chil
       expect(env).not.toHaveProperty('RELAYFLOW_V2_SIGNAL_READ_TOKEN');
     }
     expect(state.environments).toHaveLength(2);
+    const client = new EventEmitter() as EventEmitter & Record<string, unknown>;
+    client.supportsFeature = (name: string) => name === 'step_secret_scoping';
+    client.stepHeartbeat = async () => ({ lease_deadline_ms: Date.now() + 30_000 });
+    client.stepComplete = async () => ({});
+    const dispatch = {
+      run_id: 'run', step_id: 'agent', step_type: 'agent', attempt: 1,
+      idempotency_key: 'key-granted', lease_id: 'lease', lease_deadline_ms: Date.now() + 30_000,
+      pins: { workspace: [], streams: [] },
+      spec: { cli: 'claude', instruction: 'task', secrets: ['GH_TOKEN'] },
+    } satisfies StepDispatchEvent;
+    await completeCommunicationDispatch(client as unknown as JournalClient, dispatch,
+      { type: 'relayflows.communication.v1', instruction: 'task', incoming: [], outgoing: [], timeoutMs: 1000 },
+      root, root, {
+        ANTHROPIC_API_KEY: 'delivered-provider-key', GH_TOKEN: 'user-repository-secret',
+        RELAY_SECRET_ENV_NAMES: '["ANTHROPIC_API_KEY","GH_TOKEN"]',
+        RELAY_API_KEY: 'broker-key',
+      });
+    expect(state.environments.at(-1)!.GH_TOKEN).toBe('user-repository-secret');
+    expect(state.environments.at(-1)!.ANTHROPIC_API_KEY).toBe('delivered-provider-key');
   } finally { rmSync(root, { recursive: true, force: true }); }
 }, 10_000);

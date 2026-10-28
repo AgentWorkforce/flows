@@ -1,0 +1,14 @@
+{
+  "name": "@relayflows/issue-swarm-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@relayflows/surface": "file:../../packages/surface",
+    "@types/node": "^22.20.2",
+    "typescript": "^5.6.0"
+  }
+}

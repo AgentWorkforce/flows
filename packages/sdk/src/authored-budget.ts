@@ -109,13 +109,17 @@ export class AuthoredBudget {
 
   async execute<T>(journal: JournalClient, spec: KernelRunSpec,
     consume: (outcome: RunOutcome) => Promise<T>, admissionKey?: string,
-    isolatedStart = false): Promise<T> {
+    isolatedStart = false, cleanup = false): Promise<T> {
     if (this.limit === undefined) return consume(await journal.runStart(spec, undefined, admissionKey, false, isolatedStart));
     const previous = this.tail;
     let release!: () => void;
     this.tail = new Promise<void>(resolve => { release = resolve; });
     await previous;
     try {
+      // A broker release stays journaled after a failed gate or an exhausted
+      // header. It carries no budget, so the kernel cannot refuse it, and it
+      // does not latch another failure over the one that required cleanup.
+      if (cleanup) return await consume(await journal.runStart(spec, undefined, admissionKey, false, isolatedStart));
       if (this.failed) throw new AuthoredFlowExecutionError('step_failed', 'A prior budgeted step did not finish successfully.');
       // Window selection follows journal timestamps, never the SDK host clock.
       const day = this.charges.at(-1)?.day;
@@ -162,7 +166,7 @@ export class AuthoredBudget {
         }
       }
     } catch (error) {
-      this.failed = true;
+      if (!cleanup) this.failed = true;
       throw error;
     } finally { release(); }
   }

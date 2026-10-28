@@ -1,3 +1,5 @@
+import { brokerInstruction } from './communication/broker-spec.js';
+import { BrokerSessions } from './communication/broker-worker.js';
 import { communicationInstruction } from './communication/spec.js';
 import { workerSpend } from './worker-spend.js';
 import { reportedCost } from './reported-cost.js';
@@ -60,6 +62,7 @@ export interface AgentWorkerOptions {
  * shutdown.
  */
 export class AgentWorker extends EventEmitter {
+  private readonly brokerSessions: BrokerSessions;
   private attached = false;
   private closing = false;
   private readonly inFlight: Set<Promise<void>> = new Set();
@@ -69,6 +72,7 @@ export class AgentWorker extends EventEmitter {
     private readonly options: AgentWorkerOptions,
   ) {
     super();
+    this.brokerSessions = new BrokerSessions(options.runRoot, options.environment);
   }
 
   async attach(): Promise<void> {
@@ -107,6 +111,7 @@ export class AgentWorker extends EventEmitter {
     if (pending.length > 0) {
       await Promise.allSettled(pending);
     }
+    await this.brokerSessions.close();
     this.attached = false;
   }
 
@@ -126,6 +131,12 @@ export class AgentWorker extends EventEmitter {
     if (helper !== undefined) {
       if (this.options.dataDir === undefined) throw new Error('Helper worker requires a data directory for durable receipts');
       await completeHelperDispatch(this.client, dispatch, helper, this.options.dataDir);
+      return;
+    }
+    const broker = brokerInstruction(spec.instruction);
+    if (broker) {
+      if (!this.options.dataDir) throw new Error('Broker agents require a worker data directory');
+      await this.brokerSessions.complete(this.client, dispatch, broker, this.options.dataDir);
       return;
     }
     const communication = communicationInstruction(spec.instruction);

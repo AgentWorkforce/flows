@@ -39,7 +39,7 @@ export interface PluginManifest {
   preflight: { credentials: readonly string[]; servers: readonly string[] };
 }
 const identifier = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
-const reserved = new Set(['run', 'llm', 'agent', 'human', 'dispatch', 'done', 'cloud', 'memory', 'mcp', 'slack', '__proto__', 'constructor', 'prototype', 'then']);
+const reserved = new Set(['run', 'llm', 'agent', 'message', 'release', 'human', 'dispatch', 'done', 'cloud', 'memory', 'mcp', 'slack', '__proto__', 'constructor', 'prototype', 'then']);
 const object = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every(s => typeof s === 'string' && s.trim().length > 0);
 export function pluginPackageName(name: string): string {

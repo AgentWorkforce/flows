@@ -1,3 +1,4 @@
+import { brokerInstruction } from './communication/broker-spec.js';
 import { dirname, resolve } from 'node:path';
 import { checkAuthoredFlow, readProjectConfig, type ProjectConfig } from './cli/check.js';
 import { probeCliAsync } from './cli/cli-probe.js';
@@ -21,7 +22,7 @@ export function authoredPreflight(path: string, environment?: NodeJS.ProcessEnv)
     if (!resolved.ok) return checkAuthoredFlow(flow, path, config, { environment });
     await Promise.all(resolved.resolutions.map(async resolution => {
       const step = resolved.compiled!.steps.find(step => step.id === resolution.stepId)!;
-      const managed = step.type === 'agent' && communicationInstruction(step.instruction) !== undefined;
+      const managed = step.type === 'agent' && (communicationInstruction(step.instruction) !== undefined || brokerInstruction(step.instruction) !== undefined);
       const key = cliProbeKey(resolution, managed, step.secrets);
       if (probeCache.has(key)) return;
       let probing = pending.get(key);

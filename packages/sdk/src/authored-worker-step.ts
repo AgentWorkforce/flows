@@ -1,3 +1,5 @@
+import { authoredBroker } from './authored-broker.js';
+import { brokerInstruction, brokerOptionsError } from './communication/broker-spec.js';
 import { dirname, resolve, isAbsolute, relative, sep } from 'node:path';
 import type { AuthoredBudget } from './authored-budget.js';
 import { parseBudget } from './budget.js';
@@ -159,14 +161,24 @@ export function authoredWorkerRunner(
       onCompleted === undefined ? context : { ...context, onCompleted }, execution.report.status);
     };
     const admissionKey = authoredChildAdmissionKey(rootRunId, id);
+    const cleanup = step.type === 'agent' && brokerInstruction(step.instruction)?.operation === 'release';
     const admit = async () => budget === undefined
       ? consume(await journal.runStart(spec, undefined, admissionKey))
-      : budget.execute(journal, spec, consume, admissionKey);
+      : budget.execute(journal, spec, consume, admissionKey, false, cleanup);
     return slotScopes === undefined ? admit() : slotScopes[step.type === 'llm' ? 'llm' : 'agent'].run(admit);
   }
 
+  const broker = authoredBroker(definition, rootRunId, localAgentStream, async step => {
+    const output = await run(step);
+    if (typeof output === 'object' && output !== null && AGENT_TIMEOUT in output) {
+      return { completionReason: 'timeout', summary: String(output[AGENT_TIMEOUT]), artifacts: [] };
+    }
+    return output;
+  });
   return {
     slots,
+    message: broker.message,
+    release: broker.release,
     /** Refuse every agent/LLM call still waiting for a worker slot (body teardown). */
     stop(reason: unknown): void {
       if (ownsSlots) {
@@ -177,9 +189,12 @@ export function authoredWorkerRunner(
         slotScopes?.llm.close(reason);
       }
     },
-    async agent(id: string, options: AgentOptions, verification?: NamedGate): Promise<AgentResult> {
+    async agent(id: string, options: AgentOptions, verification?: NamedGate, name = id): Promise<AgentResult> {
       const secrets = validateStepSecrets((options as AgentOptions & { secrets?: unknown }).secrets,
         agentEnvironment ?? process.env);
+      if (options.transport === 'broker') return broker.agent(id, name, options, verification, secrets);
+      const brokerProblem = brokerOptionsError(options);
+      if (brokerProblem) throw new AuthoredFlowExecutionError('agent_cli_unresolved', brokerProblem);
       if (options.workspace !== undefined && localAgentStream !== undefined) {
         throw new AuthoredFlowExecutionError('unsupported_workspace_permission',
           'The local agent worker accepts stream-only steps. Remove workspace or attach a worker that holds its revision pins.');
