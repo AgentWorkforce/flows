@@ -139,6 +139,25 @@ it('times out a spawn that never returns and releases a PTY that arrives later',
   expect(lateRelease).toHaveBeenCalledWith('Flow broker session ended', { deleteIdentity: true });
   expect(fake.release).not.toHaveBeenCalled();
 });
+it('a late release failure stays inside the timed-out spawn', async () => {
+  let resolveSpawn: (value: unknown) => void = () => {};
+  fake.spawn.mockImplementationOnce(() => new Promise(resolve => { resolveSpawn = resolve; }));
+  const rejections: unknown[] = [];
+  const onRejection = (error: unknown) => { rejections.push(error); };
+  process.on('unhandledRejection', onRejection);
+  try {
+    const f = fixture();
+    await f.execute({ timeoutMs: 100 });
+    const lateRelease = vi.fn(async () => { throw new Error('late release failed'); });
+    resolveSpawn({ name: 'late', release: lateRelease, waitForReady: fake.ready });
+    await new Promise(resolve => setTimeout(resolve, 30));
+    expect(lateRelease).toHaveBeenCalledTimes(1);
+    expect(rejections).toEqual([]);
+    expect(f.client.stepComplete.mock.calls.at(-1)?.[4]).toBe('timeout');
+  } finally {
+    process.off('unhandledRejection', onRejection);
+  }
+});
 it('times out even when message submission never responds', async () => {
   const f = fixture(); await f.execute(); fake.send.mockImplementationOnce(() => new Promise(() => {}));
   await f.execute({ operation: 'message', timeoutMs: 10 });
