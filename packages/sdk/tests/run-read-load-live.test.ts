@@ -10,7 +10,11 @@ import { chainFixture, shellWord } from './flow-chain-fixture.js';
 it('completes a CPU-saturating deterministic flow with reads in flight and preserves its journal', async () => {
   const fixture = chainFixture();
   const primary = await fixture.connect();
-  const client = new JournalClient(primary.socketPath, { requestTimeoutMs: 100, readBudgetMs: 15_000 });
+  // The 100ms per-request bound is what forces reads to retry under load. The
+  // handshake meets the same load (the daemon is pinned to one CPU that the
+  // concurrent suite also uses), so budget it like a flow client does rather
+  // than leaving it a single 100ms shot that fails before any read starts.
+  const client = new JournalClient(primary.socketPath, { requestTimeoutMs: 100, readBudgetMs: 15_000, budgetHandshake: true });
   let processors = availableParallelism();
   if (process.platform === 'linux') {
     // Saturate the daemon's entire CPU allocation without starving unrelated

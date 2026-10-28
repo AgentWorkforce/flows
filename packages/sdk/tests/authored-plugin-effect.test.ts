@@ -23,6 +23,7 @@ function fixture() {
   const started = Promise.withResolvers<any>();
   const journal = {
     createPeer: () => peer,
+    streamAppend: vi.fn(async () => ({ offset: 0 })),
     runStart: vi.fn(async (spec: any) => { started.resolve(spec); return { run_id: 'plugin-run' }; }),
     runCancel: vi.fn(async () => {}),
     journalRead: vi.fn(async () => ({ entries: [{ entry_type: 'step.completed', step_id: 'plugin-1',
@@ -30,8 +31,8 @@ function fixture() {
       { entry_type: 'run.completed', payload: { completionReason: 'success' } }] })),
   };
   const plugin = readPlugin(resolve('../../testdata/plugins/helper-datadog'), '@flows/helper-datadog');
-  const run = () => runPluginEffect(journal as unknown as JournalClient, 'test', 'plugin-1', plugin,
-    plugin.manifest.verbs[0]!, {}, [], new AuthoredBudget(undefined));
+  const run = (rootRunId?: string) => runPluginEffect(journal as unknown as JournalClient, 'test', 'plugin-1', plugin,
+    plugin.manifest.verbs[0]!, {}, [], new AuthoredBudget(undefined), rootRunId);
   return { peer, journal, started, run };
 }
 
@@ -111,4 +112,32 @@ it('clears the deadline on dispatch so a provider can complete after 30 seconds'
     provider.resolve({ ok: true });
     await running.catch(() => undefined);
   }
+});
+
+// A plugin effect is a child run like any other: its completion, failed or
+// not, is indexed on the root so a serial resume can see its ordinal.
+it.each([
+  { name: 'completed', reason: 'success' },
+  { name: 'failed with a diagnostic', reason: 'worker_error' },
+])('indexes a $name plugin effect on the root run', async ({ reason }) => {
+  const f = fixture();
+  if (reason === 'success') vi.mocked(invokePlugin).mockResolvedValue({ ok: true });
+  else vi.mocked(invokePlugin).mockRejectedValue(new Error('provider refused'));
+  if (reason !== 'success') f.journal.journalRead.mockResolvedValue({ entries: [{ entry_type: 'step.completed', step_id: 'plugin-1',
+    payload: { completionReason: 'worker_error', output: null } as never },
+  { entry_type: 'run.completed', payload: { completionReason: 'step_failed' } }] });
+  const running = f.run('root-1');
+  const settled = running.then(value => ({ value }), (error: unknown) => ({ error }));
+  const spec = await f.started.promise;
+  f.peer.emit('step.dispatch', {
+    run_id: 'plugin-run', step_id: 'plugin-1', step_type: 'agent', spec: spec.steps[0],
+    attempt: 1, idempotency_key: 'kernel-key', pins: {},
+    lease_deadline_ms: Date.now() + 45_000, lease_id: 'lease-plugin-1',
+  });
+  await vi.advanceTimersByTimeAsync(100);
+  if (reason === 'success') expect(await settled).toEqual({ value: { ok: true } });
+  else expect(await settled).toMatchObject({ error: { code: 'step_failed', diagnostic: 'plugin_execution_failed' } });
+  expect(f.journal.streamAppend).toHaveBeenCalledWith('root-1', 'authored-steps', expect.objectContaining({
+    step: 'plugin-1', runId: 'plugin-run', state: 'completed', completionReason: reason,
+  }));
 });

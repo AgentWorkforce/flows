@@ -1007,6 +1007,16 @@
       "description": "Fields shared by every step on the ladder.",
       "type": "object",
       "properties": {
+        "secrets": {
+          "title": "secrets",
+          "description": "Names of run secrets granted to this step; values never enter the spec.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "title": "secrets items",
+            "description": "secrets items value."
+          }
+        },
         "input": {
           "title": "input",
           "description": "Named values selected from earlier steps' declared, verified outputs.",
@@ -1080,6 +1090,16 @@
       "description": "Rung 1 — a pure script. Executed by the `relayflowd` binary: spawn command,\ncapture stdout/exit code. Output = `{exit_code, stdout_tail}`. Gate-1\ndeterministic steps with placement requirements pin their worktree base commit.",
       "type": "object",
       "properties": {
+        "secrets": {
+          "title": "secrets",
+          "description": "Names of run secrets granted to this step; values never enter the spec.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "title": "secrets items",
+            "description": "secrets items value."
+          }
+        },
         "input": {
           "title": "input",
           "description": "Named values selected from earlier steps' declared, verified outputs.",
@@ -1201,6 +1221,16 @@
       "description": "Rung 2 — a bare model call. No workspace, output is a value. The kernel\nnever calls a model: it dispatches to an attached SDK worker (§5) which\nreturns `{output, usage}`; the kernel then runs the verification gate.",
       "type": "object",
       "properties": {
+        "secrets": {
+          "title": "secrets",
+          "description": "Names of run secrets granted to this step; values never enter the spec.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "title": "secrets items",
+            "description": "secrets items value."
+          }
+        },
         "input": {
           "title": "input",
           "description": "Named values selected from earlier steps' declared, verified outputs.",
@@ -1327,6 +1357,16 @@
       "description": "Rung 3 — a harnessed agent in a workspace. Dispatched like `llm`, plus\nAppendix A in full: pins declared workspace revisions and stream offsets;\nevery writeback is a journaled `effect.recorded` deduped by\n`(step_id, idempotency_key, surface_path)`.",
       "type": "object",
       "properties": {
+        "secrets": {
+          "title": "secrets",
+          "description": "Names of run secrets granted to this step; values never enter the spec.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "title": "secrets items",
+            "description": "secrets items value."
+          }
+        },
         "input": {
           "title": "input",
           "description": "Named values selected from earlier steps' declared, verified outputs.",
@@ -2050,6 +2090,16 @@
       "description": "KernelStepCommon in the Relayflows spec.",
       "type": "object",
       "properties": {
+        "secrets": {
+          "title": "secrets",
+          "description": "Names only; the worker/kernel selects values from the run environment.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "title": "secrets items",
+            "description": "secrets items value."
+          }
+        },
         "input": {
           "title": "input",
           "description": "input in the Relayflows spec.",
@@ -2115,6 +2165,16 @@
       "description": "KernelDeterministicStep in the Relayflows spec.",
       "type": "object",
       "properties": {
+        "secrets": {
+          "title": "secrets",
+          "description": "Names only; the worker/kernel selects values from the run environment.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "title": "secrets items",
+            "description": "secrets items value."
+          }
+        },
         "input": {
           "title": "input",
           "description": "input in the Relayflows spec.",
@@ -2208,6 +2268,16 @@
       "description": "KernelLlmStep in the Relayflows spec.",
       "type": "object",
       "properties": {
+        "secrets": {
+          "title": "secrets",
+          "description": "Names only; the worker/kernel selects values from the run environment.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "title": "secrets items",
+            "description": "secrets items value."
+          }
+        },
         "input": {
           "title": "input",
           "description": "input in the Relayflows spec.",
@@ -2393,6 +2463,16 @@
       "description": "KernelAgentStep in the Relayflows spec.",
       "type": "object",
       "properties": {
+        "secrets": {
+          "title": "secrets",
+          "description": "Names only; the worker/kernel selects values from the run environment.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "title": "secrets items",
+            "description": "secrets items value."
+          }
+        },
         "input": {
           "title": "input",
           "description": "input in the Relayflows spec.",

@@ -1,0 +1,4 @@
+SUMMARY PL7mid deep>deep ok=0/6 replay=0 fresh=6 mode=parallel codes=1 effects=
+SUMMARY PL7mid deep>deep ok=0/1 replay=0 fresh=1 mode=parallel codes=timeout effects=
+SUMMARY PL7mid deep>deep ok=0/6 replay=0 fresh=6 mode=parallel codes=1 effects=
+F5: 6/6 prompt failures before mutation, 1/1 timeout with race removed, 6/6 prompt failures after byte-for-byte restore

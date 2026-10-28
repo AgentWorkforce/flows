@@ -189,6 +189,7 @@ describe('closed per-verb step fields', () => {
     expect(STEP_COMMON_FIELDS).toEqual([
       'id',
       'type',
+      'secrets',
       'dependsOn',
       'input',
       'verification',

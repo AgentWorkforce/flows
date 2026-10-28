@@ -60,6 +60,25 @@ it('spawns with channel/team/metadata/skills, then reuses the retained session f
   }));
   await sessions.close(); expect(fake.release).toHaveBeenCalledTimes(1); expect(fake.shutdown).toHaveBeenCalledTimes(1);
 });
+it('passes a declared secret into the broker PTY and withholds other delivered secrets', async () => {
+  await sessions.close();
+  sessions = new BrokerSessions(process.cwd(), {
+    OPENAI_API_KEY: 'codex-key', GH_TOKEN: 'repository-secret', OTHER_SECRET: 'granted',
+    RELAY_SECRET_ENV_NAMES: '["OPENAI_API_KEY","GH_TOKEN","OTHER_SECRET"]', RELAY_API_KEY: 'broker-key',
+  });
+  const client = { supportsFeature: () => true, stepHeartbeat: vi.fn(async () => ({ lease_deadline_ms: Date.now() + 30_000 })),
+    stepComplete: vi.fn(async () => ({})) };
+  await sessions.complete(client as unknown as JournalClient, {
+    run_id: 'child-secret', step_id: 'agent', attempt: 1, idempotency_key: 'key-secret', pins: {},
+    lease_id: 'lease', lease_deadline_ms: Date.now() + 30_000,
+    spec: { type: 'agent', cli: 'codex', instruction: '', secrets: ['OTHER_SECRET'] },
+  } as StepDispatchEvent, instruction, '/tmp/flows-broker-tests');
+  const env = fake.spawn.mock.calls[0]![0].harnessConfig.env as Record<string, string>;
+  expect(env.OTHER_SECRET).toBe('granted');
+  expect(env.OPENAI_API_KEY).toBe('codex-key');
+  expect(env).not.toHaveProperty('GH_TOKEN');
+  expect(env.RELAY_API_KEY).toBe('');
+});
 it('explicit release is idempotent and later messages fail closed', async () => {
   const f = fixture(); await f.execute(); await f.execute({ operation: 'release' }); await f.execute({ operation: 'release' });
   expect(fake.release).toHaveBeenCalledTimes(1);
@@ -151,4 +170,26 @@ it('accepts completion even when the PTY exits before the helper response flushe
   });
   const f = fixture(); await f.execute({ keepAlive: false });
   expect(f.client.stepComplete.mock.calls.at(-1)?.[4]).toBe('success');
+});
+
+it('retires an idle exited session before a later message can send', async () => {
+  const f = fixture(); await f.execute();
+  fake.event!({ kind: 'agent_exit', name: instruction.agentName });
+  await f.execute({ operation: 'message' });
+  expect(fake.send).not.toHaveBeenCalled();
+  expect(fake.release).toHaveBeenCalledTimes(1);
+  expect(fake.close).toHaveBeenCalledTimes(1);
+  expect(f.client.stepComplete.mock.calls.at(-1)?.[4]).toBe('worker_error');
+});
+
+it('retries failed idle-exit cleanup without sending to the dead PTY', async () => {
+  const f = fixture(); await f.execute();
+  fake.release.mockRejectedValueOnce(new Error('broker unavailable'));
+  fake.event!({ kind: 'agent_exit', name: instruction.agentName });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await f.execute({ operation: 'message' });
+  expect(fake.send).not.toHaveBeenCalled();
+  expect(fake.release).toHaveBeenCalledTimes(2);
+  expect(fake.close).toHaveBeenCalledTimes(1);
+  expect(f.client.stepComplete.mock.calls.at(-1)?.[4]).toBe('worker_error');
 });

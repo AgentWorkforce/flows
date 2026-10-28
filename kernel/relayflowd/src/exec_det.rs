@@ -76,7 +76,38 @@ pub(crate) fn execute_placed_with_input(
     if let Some(workspace) = workspace {
         process.current_dir(workspace);
     }
-    if let Some(env) = env {
+    let step_env = match env {
+        Some(env) => match env.for_step(&step.secrets) {
+            Ok(selected) => Some(selected),
+            Err(error) => return worker_error(&error),
+        },
+        None if !step.secrets.is_empty() => {
+            return worker_error("step secrets are unavailable without a run environment");
+        }
+        None if std::env::var_os("RELAY_SECRET_ENV_NAMES").is_some() => {
+            let inherited = std::env::vars_os()
+                .map(|(name, value)| {
+                    let name = name
+                        .into_string()
+                        .map_err(|_| "run environment contains a non-Unicode name".to_owned())?;
+                    let value = value.into_string().map_err(|_| {
+                        format!("run environment variable {name:?} contains a non-Unicode value")
+                    })?;
+                    Ok((name, value))
+                })
+                .collect::<Result<std::collections::BTreeMap<_, _>, String>>();
+            let inherited = match inherited {
+                Ok(vars) => crate::step_env::StepEnv::from(vars),
+                Err(error) => return worker_error(&error),
+            };
+            match inherited.for_step(&[]) {
+                Ok(selected) => Some(selected),
+                Err(error) => return worker_error(&error),
+            }
+        }
+        None => None,
+    };
+    if let Some(env) = &step_env {
         process.env_clear();
         process.envs(env.vars());
     }
@@ -229,8 +260,54 @@ fn worker_error(detail: &str) -> AttemptResult {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+    use std::collections::BTreeMap;
 
     use super::*;
+
+    #[test]
+    fn a_shell_step_sees_only_its_granted_delivered_secret() {
+        let env = crate::step_env::StepEnv::from(BTreeMap::from([
+            ("PATH".into(), "/bin:/usr/bin".into()),
+            ("NATIVE_API_TOKEN".into(), "native-secret".into()),
+            ("OTHER_TOKEN".into(), "other-secret".into()),
+            (
+                "RELAY_SECRET_ENV_NAMES".into(),
+                "[\"NATIVE_API_TOKEN\",\"OTHER_TOKEN\"]".into(),
+            ),
+        ]));
+        for (grant, expected) in [
+            (None, "unset:unset"),
+            (Some("NATIVE_API_TOKEN"), "native-secret:unset"),
+        ] {
+            let mut value = json!({"id": "shell", "type": "deterministic",
+                "command": "printf '%s:%s' \"${NATIVE_API_TOKEN-unset}\" \"${OTHER_TOKEN-unset}\""});
+            if let Some(name) = grant {
+                value["secrets"] = json!([name]);
+            }
+            let step: StepSpec = serde_json::from_value(value).unwrap();
+            let result = execute_placed_with_input(&step, None, None, None, Some(&env), None);
+            assert_eq!(result.output["stdout_tail"], expected);
+        }
+    }
+
+    #[test]
+    fn a_shell_step_accepts_a_manifest_after_withheld_names_are_removed() {
+        let env = crate::step_env::StepEnv::from(BTreeMap::from([
+            ("PATH".into(), "/bin:/usr/bin".into()),
+            ("VISIBLE_SECRET".into(), "visible-value".into()),
+            (
+                "RELAY_SECRET_ENV_NAMES".into(),
+                "[\"VISIBLE_SECRET\"]".into(),
+            ),
+        ]));
+        let step: StepSpec = serde_json::from_value(json!({
+            "id": "plain", "type": "deterministic", "command": "true"
+        }))
+        .unwrap();
+        let result = execute_placed_with_input(&step, None, None, None, Some(&env), None);
+        assert_eq!(result.output["exit_code"], 0);
+        assert_eq!(result.failure_reason, None);
+    }
 
     #[test]
     fn captures_deterministic_output() {

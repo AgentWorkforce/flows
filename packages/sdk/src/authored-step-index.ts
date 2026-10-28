@@ -150,7 +150,8 @@ export async function alsoRecord(
  * Fold the root's stream back into one record per authored step.
  *
  * A `completed` record supersedes the `admitted` one for the same step; first
- * admission order is preserved so the index reads in the order the body ran.
+ * admission order is preserved for each step, while different children can
+ * first appear in completion order when they finish concurrently.
  * Records this version does not recognise are skipped rather than trusted.
  */
 export async function readAuthoredStepIndex(

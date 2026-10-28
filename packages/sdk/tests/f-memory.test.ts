@@ -26,6 +26,7 @@ import { AuthoredFlowExecutionError } from '../src/authored-flow-error.js';
 import { emptyReport, memoryWriteFailure } from '../src/cli/run.js';
 import { JournalClient } from '../src/journal-client.js';
 import { preflightMemory } from '../src/preflight.js';
+import { WorkerSlots } from '../src/worker-slots.js';
 
 let dir: string;
 let scope: string;
@@ -37,7 +38,7 @@ beforeEach(() => {
   execFileSync(process.execPath, [fileURLToPath(new URL('../../../testdata/memory/seed.mjs', import.meta.url)), dbPath, scope]);
   vi.stubEnv('AI_HIST_DB', dbPath);
 });
-afterEach(() => { vi.unstubAllEnvs(); rmSync(dir, { recursive: true, force: true }); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); rmSync(dir, { recursive: true, force: true }); });
 
 /** The daemon's stream storage, with the kernel's paging contract (`engine/remote.rs` `read_stream`). */
 function streamStore() {
@@ -185,6 +186,18 @@ it('persists a learned finding that a later run of the same flow recalls', async
   const compacted = compactedDir();
   const [file] = readdirSync(compacted);
   expect(JSON.parse(readFileSync(join(compacted, file!), 'utf8'))).toMatchObject({ projectId: scope, decisions: [finding] });
+});
+
+it('does not learn after a serial replay refusal the author caught', async () => {
+  const finding = { question: 'replay order', chosen: 'refuse', reasoning: 'never write after a refusal' };
+  await expect(executeAuthoredFlow(flow('memory-example', { memory: { script: true } }, async f => {
+    try { await f.run('printf L'); } catch { /* author swallowed the refusal */ }
+    await f.memory.learn(finding);
+    f.done('success');
+  }), completingJournal(), undefined, { flowPath: join(dir, 'test.flow.ts'), rootRunId: 'root-1', journaledSteps: ['llm-1'] }))
+    .rejects.toMatchObject({ code: 'serial_replay_order_mismatch' });
+  expect(store.appended).toEqual([]);
+  expect(existsSync(compactedDir())).toBe(false);
 });
 
 it('learns idempotently and only into its own script scope', async () => {
@@ -362,6 +375,7 @@ it('publishes the first commit when another attempt on the root committed the sa
 });
 
 it('lets an in-flight learn land before a body without done() hands the root back', async () => {
+  const closeSlots = vi.spyOn(WorkerSlots.prototype, 'close');
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
   const realAppend = store.streamAppend.bind(store);
@@ -377,12 +391,14 @@ it('lets an in-flight learn land before a body without done() hands the root bac
   void incomplete.catch(() => { settled = true; });
   await new Promise(resolve => setTimeout(resolve, 100));
   expect(settled).toBe(false);
+  expect(closeSlots).toHaveBeenCalledWith(expect.objectContaining({ code: 'missing_completion' }));
   release();
   await expect(incomplete).rejects.toMatchObject({ code: 'missing_completion' });
   expect(store.list('root-1', MEMORY_LEARN_STREAM)).toHaveLength(1);
 });
 
 it('lets an in-flight learn land before a failed body hands the root back', async () => {
+  const closeSlots = vi.spyOn(WorkerSlots.prototype, 'close');
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
   const realAppend = store.streamAppend.bind(store);
@@ -399,6 +415,9 @@ it('lets an in-flight learn land before a failed body hands the root back', asyn
   void failing.catch(() => { settled = true; });
   await new Promise(resolve => setTimeout(resolve, 100));
   expect(settled).toBe(false);
+  // Closing the deterministic/worker queues must not wait for the memory
+  // commit: otherwise a queued command can be admitted after body failure.
+  expect(closeSlots).toHaveBeenCalledWith(expect.objectContaining({ message: 'body failed' }));
   release();
   await expect(failing).rejects.toThrow('body failed');
   expect(store.list('root-1', MEMORY_LEARN_STREAM)).toHaveLength(1);

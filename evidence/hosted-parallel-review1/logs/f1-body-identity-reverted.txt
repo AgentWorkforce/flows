@@ -1,0 +1,54 @@
+--- authored-parallel-eligibility.ts
++++ authored-parallel-eligibility.ts (reverted)
+@@ -48,7 +48,7 @@
+   } finally {
+     process.emitWarning = emitWarning;
+   }
+-  return parallelRunEligible(body, transformed);
++  return parallelBodySyntaxEligible(body);
+ }
+ 
+ /**
+
+$ cd packages/sdk
+$ FLOWS_2052_SDK=/tmp/ms-boot-2052-npm/node_modules/@relayflows/sdk /Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node node_modules/vitest/vitest.mjs run tests/authored-parallel-eligibility.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/hosted-parallel/packages/sdk
+
+(node:61728) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ tests/authored-parallel-eligibility.test.ts (13 tests | 2 failed) 62ms
+   × parallel run admission > matches the Node-loaded body to strip source, including TypeScript annotations 34ms
+     → async (f: any) => { await Promise.all([f.run('A'), f.run('B')]); f.done('success'); }: expected true to be false // Object.is equality
+   × parallel run admission > matches the Node-loaded body to transform source, including TypeScript annotations 5ms
+     → async (f: any) => { await Promise.all([f.run('A'), f.run('B')]); f.done('success'); }: expected true to be false // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-parallel-eligibility.test.ts > parallel run admission > matches the Node-loaded body to strip source, including TypeScript annotations
+ FAIL  tests/authored-parallel-eligibility.test.ts > parallel run admission > matches the Node-loaded body to transform source, including TypeScript annotations
+AssertionError: async (f: any) => { await Promise.all([f.run('A'), f.run('B')]); f.done('success'); }: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/authored-parallel-eligibility.test.ts:50:110
+     48|       const substitute = body(`async f => {
+     49|         await Promise.all([f.run('other-a'), f.run('other-b')]); f.don…
+     50|       expect(await parallelLoadedBodyEligible(substitute, source, 'fil…
+       |                                                                                                              ^
+     51|     }
+     52|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 11 passed (13)
+   Start at  20:12:59
+   Duration  700ms (transform 71ms, setup 10ms, collect 496ms, tests 62ms, environment 0ms, prepare 51ms)
+
+
+exit_code=1

@@ -32,14 +32,16 @@ import { MAX_AFTER, displayLabel, type AuthoredStepEdges } from './authored-step
  * body walks a few nodes per step. A walk that still exceeds `walkLimit` stops
  * and says so (`afterTruncated`) rather than guessing silently.
  *
- * This is observational metadata: it never gates execution, and it changes no
- * step id, admission key or resume identity.
+ * Most consumers use this as observational metadata. Parallel f.run follow-up
+ * IDs also use the causal frontier; the executor refuses a truncated frontier
+ * rather than choosing a replay key from incomplete predecessors.
  */
 export const MAX_WALK = 10_000;
 
 interface Frontier {
   readonly steps: readonly string[];
   readonly truncated: boolean;
+  readonly unregisteredAggregate: boolean;
 }
 
 interface StepNode {
@@ -62,6 +64,7 @@ const EXPANDS_ON: Readonly<Record<Combinator, Outcome | 'always' | undefined>> =
 
 interface Aggregate {
   readonly promise: Promise<unknown>;
+  readonly combinator: Combinator;
   /** Cached once settled: a settled promise never changes state. */
   outcome?: Outcome;
   readonly expandsOn: Outcome | 'always';
@@ -71,6 +74,10 @@ interface Aggregate {
 export class AuthoredStepGraph {
   private readonly stepPromises = new Map<number, string>();
   private readonly aggregates = new Map<number, Aggregate>();
+  private readonly registeredAggregates = new Set<number>();
+  private readonly registeredCombinatorInternals = new Set<number>();
+  private readonly certifiedMembers = new Set<number>();
+  private readonly unsafeAggregates = new Set<number>();
   private readonly contexts = new Map<number, Frontier>();
   private readonly nodes = new Map<string, StepNode>();
   private readonly edges = new Map<string, AuthoredStepEdges>();
@@ -78,6 +85,7 @@ export class AuthoredStepGraph {
   constructor(
     private readonly causesOf: (asyncId: number) => readonly number[],
     private readonly walkLimit = MAX_WALK,
+    private readonly unobservedJoinShape: (asyncId: number) => boolean = () => false,
   ) {}
 
   /** A combinator's aggregate and its members, for expansion once it settles. */
@@ -86,10 +94,19 @@ export class AuthoredStepGraph {
     promise: Promise<unknown>,
     combinator: Combinator,
     members: readonly number[],
+    created: ReadonlySet<number> = new Set(),
   ): void {
+    this.registeredAggregates.add(aggregateId);
+    for (const id of created) this.registeredCombinatorInternals.add(id);
+    if (combinator === 'race' || combinator === 'any') this.unsafeAggregates.add(aggregateId);
     const expandsOn = EXPANDS_ON[combinator];
     if (expandsOn === undefined || members.length === 0) return;
-    this.aggregates.set(aggregateId, { promise, expandsOn, members });
+    this.aggregates.set(aggregateId, { promise, combinator, expandsOn, members });
+  }
+
+  /** Only direct steps and branch calls proven by the body grammar are safe members. */
+  certifyMember(asyncId: number): void {
+    this.certifiedMembers.add(asyncId);
   }
 
   /**
@@ -119,10 +136,19 @@ export class AuthoredStepGraph {
     return this.edges.get(step);
   }
 
+  /** Causal predecessors of a step being declared in the current async context. */
+  predecessorsAt(contextId: number): Frontier {
+    return this.frontierOf(contextId);
+  }
+
   /** Drop the walk state; recorded edges stay readable for late record writes. */
   release(): void {
     this.stepPromises.clear();
     this.aggregates.clear();
+    this.registeredAggregates.clear();
+    this.registeredCombinatorInternals.clear();
+    this.certifiedMembers.clear();
+    this.unsafeAggregates.clear();
     this.contexts.clear();
     this.nodes.clear();
   }
@@ -132,6 +158,7 @@ export class AuthoredStepGraph {
     if (memo !== undefined) return memo;
     const candidates = new Set<string>();
     let truncated = false;
+    let unregisteredAggregate = false;
     const visited = new Set<number>([start]);
     const queue = [start];
     // Breadth-first, so that a walk cut short by the limit has already found
@@ -143,10 +170,24 @@ export class AuthoredStepGraph {
         candidates.add(step);
         continue;
       }
+      // A join's resolution edge contains only its settling member. In
+      // parallel mode the full member list is safe only if our combinator
+      // observer registered it before the promise settled. The creation and
+      // resolution contexts also catch an unobserved join created after a
+      // previous step, where root-adoption alone cannot detect it.
+      const aggregate = this.aggregates.get(current);
+      const rejectedAll = aggregate?.combinator === 'all'
+        && promiseOutcome(aggregate.promise) === 'rejected';
+      const possibleJoin = this.unsafeAggregates.has(current) || rejectedAll
+        || (this.unobservedJoinShape(current)
+        && !this.registeredAggregates.has(current) && !this.certifiedMembers.has(current)
+        && !this.registeredCombinatorInternals.has(current));
+      unregisteredAggregate ||= possibleJoin;
       const answered = current === start ? undefined : this.contexts.get(current);
       if (answered !== undefined) {
         for (const found of answered.steps) candidates.add(found);
         truncated ||= answered.truncated;
+        unregisteredAggregate ||= answered.unregisteredAggregate;
         continue;
       }
       for (const id of [...this.waitedFor(current), ...this.causesOf(current)]) {
@@ -162,7 +203,11 @@ export class AuthoredStepGraph {
       }
     }
     const reduced = this.reduce(candidates);
-    const frontier = Object.freeze({ steps: reduced.steps, truncated: truncated || reduced.truncated });
+    const frontier = Object.freeze({
+      steps: reduced.steps,
+      truncated: truncated || reduced.truncated,
+      unregisteredAggregate,
+    });
     this.contexts.set(start, frontier);
     return frontier;
   }
@@ -184,7 +229,7 @@ export class AuthoredStepGraph {
    * reduction reads recorded `after` lists; when one it reads is incomplete,
    * a redundant ancestor can survive, and the result says so.
    */
-  private reduce(candidates: ReadonlySet<string>): Frontier {
+  private reduce(candidates: ReadonlySet<string>): Pick<Frontier, 'steps' | 'truncated'> {
     const ordered = [...candidates].sort((a, b) => this.orderOf(a) - this.orderOf(b));
     if (ordered.length <= 1) return { steps: ordered, truncated: false };
     // An ancestor is always registered before its descendant, so nothing

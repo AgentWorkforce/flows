@@ -1,0 +1,9 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ✓ tests/authored-step-graph.test.ts (27 tests | 26 skipped) 1ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 26 skipped (27)
+   Start at  23:49:49
+   Duration  359ms (transform 47ms, setup 11ms, collect 52ms, tests 1ms, environment 0ms, prepare 101ms)

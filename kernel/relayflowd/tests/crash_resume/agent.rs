@@ -119,8 +119,14 @@ fn rung_c_sigkill_boundaries_resume_only_unfinished_steps_via_real_cli() {
             .spawn()
             .unwrap();
         wait_until(label, || {
-            journal_entries(&fixture.data_dir)
-                .is_some_and(|entries| completed_step_count(&entries) == durable_before_kill)
+            journal_entries(&fixture.data_dir).is_some_and(|entries| {
+                // Engine::start creates the journal before RunSpawned. Killing
+                // that empty journal does not leave a run to resume (#185).
+                entries
+                    .iter()
+                    .any(|entry| entry.entry_type == EntryType::RunSpawned)
+                    && completed_step_count(&entries) == durable_before_kill
+            })
         });
         kill_process_group(&mut run);
 

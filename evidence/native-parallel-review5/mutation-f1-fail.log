@@ -1,0 +1,33 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ❯ tests/authored-parallel-eligibility.test.ts (7 tests | 1 failed | 6 skipped) 7ms
+   × parallel run admission > requires the module Promise binding to be the intrinsic 6ms
+     → const Promise = { all: globalThis.Promise.all.bind(globalThis.Promise) };: expected true to be false // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-parallel-eligibility.test.ts > parallel run admission > requires the module Promise binding to be the intrinsic
+AssertionError: const Promise = { all: globalThis.Promise.all.bind(globalThis.Promise) };: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/authored-parallel-eligibility.test.ts:125:72
+    123|       `const intrinsic = globalThis; intrinsic.Promise = replacement;`,
+    124|       `global.Promise = replacement;`,
+    125|     ]) expect(eligible(candidate, `${prefix}\n${definition}`), prefix)…
+       |                                                                        ^
+    126|     expect(eligible(candidate,
+    127|       `export default (Promise.all = replacement, flow('probe', ${Func…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 skipped (7)
+   Start at  20:14:48
+   Duration  560ms (transform 29ms, setup 27ms, collect 193ms, tests 7ms, environment 0ms, prepare 114ms)
+

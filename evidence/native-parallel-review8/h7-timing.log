@@ -1,0 +1,22 @@
+{"side":"head","i":0,"code":0,"mode":"parallel","cli":1208,"body":460,"routeSpread":10,"routesOverlap":true,"depsOverlap":true}
+{"side":"base","i":0,"code":0,"mode":"absent","cli":1862,"body":1368,"routeSpread":654,"routesOverlap":false,"depsOverlap":false}
+{"side":"base","i":1,"code":0,"mode":"absent","cli":1862,"body":1383,"routeSpread":663,"routesOverlap":false,"depsOverlap":false}
+{"side":"head","i":1,"code":0,"mode":"parallel","cli":1080,"body":458,"routeSpread":5,"routesOverlap":true,"depsOverlap":true}
+{"side":"head","i":2,"code":0,"mode":"parallel","cli":1078,"body":437,"routeSpread":3,"routesOverlap":true,"depsOverlap":true}
+{"side":"base","i":2,"code":0,"mode":"absent","cli":1860,"body":1376,"routeSpread":652,"routesOverlap":false,"depsOverlap":false}
+{"side":"base","i":3,"code":0,"mode":"absent","cli":1857,"body":1370,"routeSpread":653,"routesOverlap":false,"depsOverlap":false}
+{"side":"head","i":3,"code":0,"mode":"parallel","cli":1132,"body":456,"routeSpread":6,"routesOverlap":true,"depsOverlap":true}
+{"side":"head","i":4,"code":0,"mode":"parallel","cli":1175,"body":466,"routeSpread":7,"routesOverlap":true,"depsOverlap":true}
+{"side":"base","i":4,"code":0,"mode":"absent","cli":1857,"body":1377,"routeSpread":668,"routesOverlap":false,"depsOverlap":false}
+{"side":"base","i":5,"code":0,"mode":"absent","cli":1853,"body":1378,"routeSpread":659,"routesOverlap":false,"depsOverlap":false}
+{"side":"head","i":5,"code":0,"mode":"parallel","cli":1115,"body":456,"routeSpread":4,"routesOverlap":true,"depsOverlap":true}
+{"side":"head","i":6,"code":0,"mode":"parallel","cli":1128,"body":456,"routeSpread":3,"routesOverlap":true,"depsOverlap":true}
+{"side":"base","i":6,"code":0,"mode":"absent","cli":1867,"body":1374,"routeSpread":660,"routesOverlap":false,"depsOverlap":false}
+{"side":"base","i":7,"code":0,"mode":"absent","cli":1904,"body":1395,"routeSpread":663,"routesOverlap":false,"depsOverlap":false}
+{"side":"head","i":7,"code":0,"mode":"parallel","cli":1132,"body":464,"routeSpread":3,"routesOverlap":true,"depsOverlap":true}
+{"side":"head","i":8,"code":0,"mode":"parallel","cli":1106,"body":466,"routeSpread":6,"routesOverlap":true,"depsOverlap":true}
+{"side":"base","i":8,"code":0,"mode":"absent","cli":1847,"body":1376,"routeSpread":669,"routesOverlap":false,"depsOverlap":false}
+{"side":"base","i":9,"code":0,"mode":"absent","cli":1833,"body":1353,"routeSpread":657,"routesOverlap":false,"depsOverlap":false}
+{"side":"head","i":9,"code":0,"mode":"parallel","cli":1117,"body":462,"routeSpread":5,"routesOverlap":true,"depsOverlap":true}
+TIMING head mode=parallel codes=0 body p50=460 max=466 cli p50=1128 max=1208 spread p50=5 routesOverlap=10/10 depsOverlap=10/10
+TIMING base mode=absent codes=0 body p50=1376 max=1395 cli p50=1860 max=1904 spread p50=660 routesOverlap=0/10 depsOverlap=0/10

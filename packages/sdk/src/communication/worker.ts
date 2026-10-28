@@ -87,7 +87,8 @@ async function run(client: JournalClient, dispatch: StepDispatchEvent, instructi
     });
     pty = await spawnFlowPty(relay.broker, { name, cli: spec.cli!, identity: spec.cli_identity,
       model: spec.model, task: prompt, channels: [], cwd: directory, dataDir,
-      environment, socket: tools.path, token: tools.token });
+      environment, socket: tools.path, token: tools.token,
+      secrets: spec.secrets, scopeSecrets: client.supportsFeature?.('step_secret_scoping') ?? true });
     handle = pty.handle;
     const ready = await handle.waitForReady(Math.min(instruction.timeoutMs, 90_000));
     if (ready.reason !== 'ready') throw new Error(`Communication agent did not become ready: ${ready.reason}`);

@@ -95,7 +95,9 @@ process.stdout.write(JSON.stringify({ type: 'result', result: 'ok',
     const result = await withEnvironment({ AMBIENT_ONLY: 'must-not-leak' }, () =>
       runAgentCli(claude, 'do the task', undefined, undefined, undefined, undefined,
         'agent', undefined, undefined, 'direct', undefined,
-        { PATH: process.env.PATH, HOUSE_PROVIDER_KEY: 'house-secret' }));
+        { PATH: process.env.PATH, HOUSE_PROVIDER_KEY: 'house-secret',
+          RELAY_SECRET_ENV_NAMES: '["HOUSE_PROVIDER_KEY"]' },
+        undefined, undefined, undefined, ['HOUSE_PROVIDER_KEY']));
 
     expect(result.exit_code).toBe(0);
     expect(JSON.parse(readFileSync(observed, 'utf8'))).toEqual({ secret: 'house-secret', ambient: null });
@@ -206,8 +208,10 @@ process.exit(1);
     });
 
     const rejected = makeWrapper(directory, 'claude', `process.stderr.write('bad request ' + process.env.TRANSPORT_TEST_TOKEN); process.exit(7);`);
-    const rejectedResult = await withEnvironment({ TRANSPORT_TEST_TOKEN: 'transport-secret-123' }, () =>
-      runAgentCli(rejected, 'task', undefined, 'unpriced-test-model'));
+    const rejectedResult = await runAgentCli(rejected, 'task', undefined, 'unpriced-test-model',
+      undefined, undefined, 'agent', undefined, undefined, 'direct', undefined,
+      { PATH: process.env.PATH, TRANSPORT_TEST_TOKEN: 'transport-secret-123' },
+      undefined, undefined, undefined, ['TRANSPORT_TEST_TOKEN']);
     expect(rejectedResult).toMatchObject({
       exit_code: 7,
       transport: { phase: 'close', cause: 'nonzero_exit', signal: null, retryable: false },

@@ -1,0 +1,32 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ❯ tests/authored-parallel-eligibility.test.ts (9 tests | 1 failed | 8 skipped) 8ms
+   × parallel run admission > requires the exported arrow to be the actual body from the direct Surface binding 8ms
+     → expected true to be false // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-parallel-eligibility.test.ts > parallel run admission > requires the exported arrow to be the actual body from the direct Surface binding
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/authored-parallel-eligibility.test.ts:152:40
+    150|     expect(eligible(candidate, `import { flow } from './wrap.ts'; ${de…
+    151|     expect(eligible(candidate, `import { flow } from '@relayflows/surf…
+    152|     expect(eligible(candidate, exact)).toBe(false);
+       |                                        ^
+    153|     expect(eligible(candidate, `const flow = () => impl; ${exact}`)).t…
+    154|     expect(eligible(candidate, `import { flow } from './wrap.ts'; ${ex…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 8 skipped (9)
+   Start at  23:49:50
+   Duration  670ms (transform 25ms, setup 9ms, collect 424ms, tests 8ms, environment 0ms, prepare 41ms)

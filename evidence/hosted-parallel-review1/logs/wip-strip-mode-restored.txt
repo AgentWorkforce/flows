@@ -1,0 +1,19 @@
+Restored byte-for-byte: authored-root.ts
+sha256=5c8c80638f19cc034e310bb09a429ff9f529106f080f3e12ad2cbf1a1a76ea99
+$ cd packages/sdk
+$ FLOWS_2052_SDK=/tmp/ms-boot-2052-npm/node_modules/@relayflows/sdk /Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node node_modules/vitest/vitest.mjs run tests/authored-root.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/hosted-parallel/packages/sdk
+
+(node:61843) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:61843) [FLOWS_ROOT_LEASE_LOST] Warning: authored root run_id=root-run attempt=1: lease_conflict: attempt has no active worker lease. Waiting for the kernel to retry it.
+ ✓ tests/authored-root.test.ts (49 tests) 534ms
+
+ Test Files  1 passed (1)
+      Tests  49 passed (49)
+   Start at  20:13:10
+   Duration  1.55s (transform 357ms, setup 8ms, collect 913ms, tests 534ms, environment 0ms, prepare 20ms)
+
+
+exit_code=0

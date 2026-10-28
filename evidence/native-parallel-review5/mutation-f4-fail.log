@@ -1,0 +1,33 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ❯ tests/authored-flow-lifecycle-executor.test.ts (34 tests | 1 failed | 33 skipped) 15ms
+   × authored flow lifecycle through the journal executor > refuses later admissions after a caught parallel violation 13ms
+     → expected [ { version: '0.1.0', …(2) } ] to have a length of +0 but got 1
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-flow-lifecycle-executor.test.ts > authored flow lifecycle through the journal executor > refuses later admissions after a caught parallel violation
+AssertionError: expected [ { version: '0.1.0', …(2) } ] to have a length of +0 but got 1
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ tests/authored-flow-lifecycle-executor.test.ts:103:26
+    101|       f.done('success');
+    102|     }), { executionMode: 'parallel' })).rejects.toMatchObject({ code: …
+    103|     expect(startedSpecs).toHaveLength(startedBefore);
+       |                          ^
+    104|   });
+    105| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 33 skipped (34)
+   Start at  20:15:12
+   Duration  1.46s (transform 426ms, setup 9ms, collect 1.26s, tests 15ms, environment 0ms, prepare 29ms)
+

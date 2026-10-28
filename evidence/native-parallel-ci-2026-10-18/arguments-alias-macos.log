@@ -1,0 +1,19 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ❯ tests/authored-parallel-run-live.test.ts (42 tests | 1 failed | 41 skipped) 240108ms
+   × parallel authored deterministic steps > keeps an arguments-alias LLM body serial without replay across six resumes 240092ms
+     → Test timed out in 240000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-parallel-run-live.test.ts > parallel authored deterministic steps > keeps an arguments-alias LLM body serial without replay across six resumes
+Error: Test timed out in 240000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 41 skipped (42)
+   Start at  02:40:57
+   Duration  281.32s (transform 6.95s, setup 725ms, collect 39.17s, tests 240.11s, environment 0ms, prepare 817ms)

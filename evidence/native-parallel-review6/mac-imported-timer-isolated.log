@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ✓ tests/authored-parallel-run-live.test.ts > parallel authored deterministic steps > does not replay a completed effect after 'imported timer helper' reorder 175131ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 40 skipped (41)
+   Start at  21:32:08
+   Duration  199.47s (transform 4.58s, setup 15ms, collect 23.90s, tests 175.13s, environment 0ms, prepare 165ms)
+

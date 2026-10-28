@@ -2,9 +2,12 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import { probeCli, probeCliAsync } from '../src/cli/cli-probe.js';
+import { probeCli, probeCliAsync, resolveExecutable } from '../src/cli/cli-probe.js';
 import * as adapters from '../src/cli-adapter.js';
 import { runCli } from '../src/cli.js';
+import { checkAuthoredFlow } from '../src/cli/check.js';
+import { authoredPreflight } from '../src/authored-preflight.js';
+import type { FlowSpec } from '../src/spec.js';
 
 const directories: string[] = [];
 afterEach(() => {
@@ -133,6 +136,61 @@ it('uses an explicit provider environment for every probe process', async () => 
   expect(await probeCliAsync(path, directory, 'test-model', undefined, environment)).toMatchObject({
     authenticated: true, modelAvailable: true,
   });
+});
+
+it('scopes delivered secrets in PATH lookup and provider probes for checked and authored steps', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'scoped-probe-'));
+  directories.push(directory);
+  const observed = join(directory, 'observed.jsonl');
+  const claude = join(directory, 'claude');
+  const which = join(directory, 'which');
+  const record = `require('node:fs').appendFileSync(${JSON.stringify(observed)}, JSON.stringify({
+  command: process.argv[1].split('/').at(-1),
+  delivered: process.env.NATIVE_API_TOKEN ?? null,
+  github: process.env.GH_TOKEN ?? null,
+  claudeLogin: process.env.ANTHROPIC_API_KEY ?? null,
+  codexLogin: process.env.OPENAI_API_KEY ?? null,
+  bedrock: process.env.AWS_BEARER_TOKEN_BEDROCK ?? null,
+  repository: process.env.GH_CONFIG_DIR ?? null,
+  marker: process.env.RELAY_PLATFORM_AGENT_ENV_NAMES ?? null,
+}) + '\\n');`;
+  writeFileSync(claude, `#!/usr/bin/env node\n${record}\nprocess.exit(0);\n`);
+  writeFileSync(which, `#!/usr/bin/env node\n${record}\nprocess.stdout.write(${JSON.stringify(claude + '\n')});\n`);
+  chmodSync(claude, 0o755);
+  chmodSync(which, 0o755);
+  writeFileSync(join(directory, 'flows.json'), '{}');
+  const environment = { ...process.env,
+    PATH: `${directory}:${process.env.PATH ?? ''}`,
+    NATIVE_API_TOKEN: 'user-secret', GH_TOKEN: 'user-github-secret',
+    ANTHROPIC_API_KEY: 'claude-login', OPENAI_API_KEY: 'codex-login',
+    GH_CONFIG_DIR: '/trusted/gh', AWS_BEARER_TOKEN_BEDROCK: 'selected-bedrock-login',
+    RELAY_SECRET_ENV_NAMES: '["NATIVE_API_TOKEN","GH_TOKEN","ANTHROPIC_API_KEY","OPENAI_API_KEY","AWS_BEARER_TOKEN_BEDROCK"]',
+    RELAY_PLATFORM_AGENT_ENV_NAMES: '["AWS_BEARER_TOKEN_BEDROCK"]',
+  };
+  const plain: FlowSpec = { version: '0.1.0', steps: [
+    { id: 'agent', type: 'agent', cli: 'claude', instruction: 'task' },
+  ] };
+  expect(checkAuthoredFlow(plain, join(directory, 'plain.yaml'), undefined,
+    { environment }).report.ok).toBe(true);
+  const runPreflight = authoredPreflight(join(directory, 'plain.ts'), environment);
+  expect((await runPreflight(plain)).report.ok).toBe(true);
+  const records = () => readFileSync(observed, 'utf8').trim().split('\n')
+    .map(line => JSON.parse(line) as Record<string, string | null>);
+  expect(records().some(record => record.command === 'which')).toBe(true);
+  expect(records().some(record => record.command === 'claude')).toBe(true);
+  for (const record of records()) {
+    expect(record).toMatchObject({ delivered: null, github: null,
+      claudeLogin: 'claude-login', codexLogin: null,
+      bedrock: 'selected-bedrock-login', repository: '/trusted/gh', marker: null });
+  }
+  expect(resolveExecutable('claude', directory, environment)).toBe(realpathSync(claude));
+  expect(records().at(-1)).toMatchObject({ command: 'which', delivered: null,
+    github: null, claudeLogin: null, codexLogin: null, bedrock: null, marker: null });
+  const granted: FlowSpec = { ...plain, steps: [{ ...plain.steps[0]!, secrets: ['NATIVE_API_TOKEN'] }] };
+  expect(checkAuthoredFlow(granted, join(directory, 'granted.yaml'), undefined,
+    { environment }).report.ok).toBe(true);
+  expect((await runPreflight(granted)).report.ok).toBe(true);
+  expect(records().at(-1)?.delivered).toBe('user-secret');
 });
 
 it('reports timeout in both drivers while the async driver leaves the loop free', async () => {

@@ -1,0 +1,32 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ❯ tests/authored-parallel-body.test.ts (5 tests | 1 failed | 4 skipped) 8ms
+   × certified authored parallel body > certifies every parenthesized branch member accepted by the grammar 7ms
+     → expected [] to have a length of 3 but got +0
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-parallel-body.test.ts > certified authored parallel body > certifies every parenthesized branch member accepted by the grammar
+AssertionError: expected [] to have a length of 3 but got +0
+
+- Expected
++ Received
+
+- 3
++ 0
+
+ ❯ tests/authored-parallel-body.test.ts:38:23
+     36|     const executable = instrumentParallelBody(body, promise => certifi…
+     37|     await executable({ run: async command => { commands.push(command);…
+     38|     expect(certified).toHaveLength(3);
+       |                       ^
+     39|     expect(new Set(certified).size).toBe(3);
+     40|     expect(commands).toEqual(['A', 'B', 'C']);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 skipped (5)
+   Start at  00:51:57
+   Duration  736ms (transform 48ms, setup 10ms, collect 441ms, tests 8ms, environment 0ms, prepare 66ms)

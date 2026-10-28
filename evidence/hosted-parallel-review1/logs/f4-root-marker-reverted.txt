@@ -1,0 +1,86 @@
+--- authored-root.ts
++++ authored-root.ts (reverted)
+@@ -123,7 +123,7 @@
+   }
+   const executionMode = parallelEligible ? 'parallel' : 'serial';
+   const metadata: AuthoredRootMetadata = Object.freeze({
+-    kind: executionMode === 'parallel' ? AUTHORED_PARALLEL_ROOT_KIND_V3 : ROOT_KIND,
++    kind: executionMode === 'parallel' ? AUTHORED_PARALLEL_ROOT_KIND : ROOT_KIND,
+     flowName: definition.name,
+     flowPath: loaded.sourcePath,
+     sourceSha256: sha256(source),
+
+$ cd packages/sdk
+$ FLOWS_2052_SDK=/tmp/ms-boot-2052-npm/node_modules/@relayflows/sdk /Users/khaliqgant/.local/share/mise/installs/node/22.22.2/bin/node node_modules/vitest/vitest.mjs run tests/authored-root.test.ts --maxWorkers=1 --minWorkers=1
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/hosted-parallel/packages/sdk
+
+(node:61769) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:61769) [FLOWS_ROOT_LEASE_LOST] Warning: authored root run_id=root-run attempt=1: lease_conflict: attempt has no active worker lease. Waiting for the kernel to retry it.
+ ❯ tests/authored-root.test.ts (49 tests | 8 failed) 550ms
+   × durable authored root > pins a certified 'plain' body loaded with 'strip' to parallel mode before dispatch 38ms
+     → expected { executionMode: 'parallel', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'plain' body loaded with 'transform' to parallel mode before dispatch 10ms
+     → expected { executionMode: 'parallel', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS1param' body loaded with 'strip' to parallel mode before dispatch 5ms
+     → expected { executionMode: 'parallel', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS1param' body loaded with 'transform' to parallel mode before dispatch 4ms
+     → expected { executionMode: 'parallel', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS2annot' body loaded with 'strip' to parallel mode before dispatch 3ms
+     → expected { executionMode: 'parallel', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS2annot' body loaded with 'transform' to parallel mode before dispatch 7ms
+     → expected { executionMode: 'parallel', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS3ret' body loaded with 'strip' to parallel mode before dispatch 5ms
+     → expected { executionMode: 'parallel', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+   × durable authored root > pins a certified 'TS3ret' body loaded with 'transform' to parallel mode before dispatch 4ms
+     → expected { executionMode: 'parallel', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'plain' body loaded with 'strip' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'plain' body loaded with 'transform' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS1param' body loaded with 'strip' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS1param' body loaded with 'transform' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS2annot' body loaded with 'strip' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS2annot' body loaded with 'transform' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS3ret' body loaded with 'strip' to parallel mode before dispatch
+ FAIL  tests/authored-root.test.ts > durable authored root > pins a certified 'TS3ret' body loaded with 'transform' to parallel mode before dispatch
+AssertionError: expected { executionMode: 'parallel', …(9) } to match object { …(3) }
+(11 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+    "executionMode": "parallel",
+    "identityVersion": 2,
+-   "kind": "relayflows.authored-root.parallel.v3",
++   "kind": "relayflows.authored-root.parallel.v2",
+  }
+
+ ❯ tests/authored-root.test.ts:241:42
+    239|       { dataDir: '/unused', admissionKey: 'certified-group' });
+    240|     const step = (journal.starts[0]!.spec as { steps: Array<{ instruct…
+    241|     expect(JSON.parse(step.instruction)).toMatchObject({
+       |                                          ^
+    242|       kind: 'relayflows.authored-root.parallel.v3', identityVersion: 2…
+    243|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ Test Files  1 failed (1)
+      Tests  8 failed | 41 passed (49)
+   Start at  20:13:04
+   Duration  1.56s (transform 353ms, setup 8ms, collect 911ms, tests 550ms, environment 0ms, prepare 20ms)
+
+
+exit_code=1

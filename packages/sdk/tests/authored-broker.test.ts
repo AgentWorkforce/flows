@@ -43,6 +43,30 @@ it('only accepts retained agents created by this flow', async () => {
   await expect(broker.release('agent-1', 'someone-else')).rejects.toThrow('No retained');
   expect(run).not.toHaveBeenCalled();
 });
+it('forwards a named gate on a retained message', async () => {
+  const { broker, run } = setup();
+  const result = await broker.agent('agent-0', 'implement', { transport: 'broker', task: 'Implement', cli: 'codex', keepAlive: true });
+  const gate = { type: 'artifact_exists' as const, path: 'result.json' };
+  await broker.message('agent-1', result.agentName!, 'Fix', undefined, gate);
+  expect(run.mock.calls[1]![0]).toMatchObject({ verification: gate });
+});
+it('carries declared secrets onto spawn, message, and release', async () => {
+  const { broker, run } = setup();
+  const result = await broker.agent('agent-0', 'implement', { transport: 'broker', task: 'Implement', cli: 'codex',
+    keepAlive: true, secrets: ['GH_TOKEN'] }, undefined, ['GH_TOKEN']);
+  expect(run.mock.calls[0]![0]).toMatchObject({ secrets: ['GH_TOKEN'] });
+  await broker.message('agent-1', result.agentName!, 'Fix');
+  expect(run.mock.calls[1]![0]).toMatchObject({ secrets: ['GH_TOKEN'] });
+  await broker.release('agent-2', result.agentName!);
+  expect(run.mock.calls[2]![0]).toMatchObject({ secrets: ['GH_TOKEN'] });
+});
+it('refuses retained sessions without a local worker pin', async () => {
+  const run = vi.fn();
+  const broker = authoredBroker({ name: 'demo' }, 'root', undefined, run);
+  await expect(broker.agent('agent-0', 'worker', { transport: 'broker', task: 'Work', keepAlive: true }))
+    .rejects.toThrow('local agent worker stream');
+  expect(run).not.toHaveBeenCalled();
+});
 it.each([
   { skills: ['../unsafe'] }, { keepAlive: 'yes' }, { channel: 'bad channel' },
   { resume: 'previous' }, { maxIterations: 2 }, { transportRetries: 1 }, { cwd: '' },

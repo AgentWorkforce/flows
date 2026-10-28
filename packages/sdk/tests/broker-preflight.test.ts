@@ -7,9 +7,9 @@ import { BROKER_TYPE } from '../src/communication/broker-spec.js';
 const environment = vi.hoisted(() => vi.fn());
 vi.mock('../src/communication/broker-preflight.js', () => ({ checkBrokerEnvironment: environment }));
 afterEach(() => vi.resetAllMocks());
-function spec() {
+function spec(operation: 'spawn' | 'message' | 'release' = 'spawn') {
   return { version: '0.1.0', budget: '$1/run', steps: [{ id: 'agent', type: 'agent', cli: 'claude',
-    model: 'claude-sonnet-4-6', instruction: JSON.stringify({ type: BROKER_TYPE, operation: 'spawn',
+    model: 'claude-sonnet-4-6', instruction: JSON.stringify({ type: BROKER_TYPE, operation,
       owner: 'root', flow: 'test', step: 'implement', agentName: 'test-agent', task: 'Work', skills: [],
       channel: 'flow-root', keepAlive: false, timeoutMs: 1000 }) }] };
 }
@@ -37,4 +37,15 @@ it.each([false, true])('checks broker prerequisites before returning an admissib
     expect(checked.report.diagnostics).toContainEqual(expect.objectContaining({ severity: 'refusal', kind: 'probe_failed', message: 'missing local broker' }));
   }
   expect(checked.report.diagnostics).toContainEqual(expect.objectContaining({ kind: 'budget_unmetered' }));
+});
+it.each(['message', 'release'] as const)('leaves broker %s steps to the worker instead of probing again', operation => {
+  environment.mockImplementation(() => { throw new Error('missing local broker'); });
+  const cache = new Map<string, CliProbeOutcome>([[cliProbeKey({ stepId: 'agent', cli: 'claude', source: 'step',
+    model: 'claude-sonnet-4-6' }, true), { result: { exists: true, authenticated: true, modelAvailable: true, executable: '/usr/bin/true' } }]]);
+  const checked = checkAuthoredFlow(spec(operation) as any, '/tmp/test.flow.ts', {
+    projectConfig: { directory: '/tmp', models: [], executors: [] }, probeCache: cache,
+  });
+  expect(environment).not.toHaveBeenCalled();
+  expect(checked.report.ok).toBe(true);
+  expect(checked.flow).toBeDefined();
 });

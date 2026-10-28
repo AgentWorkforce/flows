@@ -192,6 +192,7 @@ function compileStep(step: StepSpec): StepSpec {
   const base = {
     id: step.id,
     type: step.type,
+    ...(step.secrets?.length ? { secrets: step.secrets } : {}),
     ...((step.dependsOn !== undefined || step.input !== undefined)
       ? { dependsOn: step.input === undefined ? step.dependsOn : [...new Set([...(step.dependsOn ?? []), ...bindingDependencies(step.input)])] } : {}),
     ...(step.input !== undefined ? { input: step.input } : {}),
@@ -466,7 +467,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
   const unionKeys = [
     'id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements', 'input',
     'command', 'timeout_ms', 'lease_ms', 'on_non_zero', 'prompt', 'model', 'cli', 'instruction',
-    'cwd', 'resume', 'recovery_mode', 'surfaces', 'permissions', 'transport', 'cli_identity',
+    'cwd', 'resume', 'recovery_mode', 'surfaces', 'permissions', 'transport', 'cli_identity', 'secrets',
   ] as const;
   const step = requireKernelObject(value, unionKeys, at);
   if (step['cli_identity'] !== undefined) {
@@ -475,7 +476,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
     ], 'untrusted_cli_identity');
   }
   const type = step['type'];
-  const commonKeys = ['id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements', 'input'] as const;
+  const commonKeys = ['id', 'type', 'depends_on', 'max_iterations', 'retry', 'verification', 'memory', 'requirements', 'input', 'secrets'] as const;
   const typeKeys = type === 'deterministic'
     ? ['command', 'timeout_ms', 'lease_ms', 'on_non_zero'] as const
     : type === 'llm'
@@ -491,6 +492,7 @@ function kernelStepToAuthoring(value: unknown, at: string): unknown {
     id: step['id'],
     type,
     ...(step['input'] !== undefined ? { input: step['input'] } : {}),
+    ...(step['secrets'] !== undefined ? { secrets: step['secrets'] } : {}),
     ...(step['requirements'] !== undefined ? { requirements: kernelRequirementsToAuthoring(step['requirements'], `${at}.requirements`) } : {}),
     ...(dependsOn !== undefined && (!Array.isArray(dependsOn) || dependsOn.length > 0)
       ? { dependsOn }
@@ -636,6 +638,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 function toKernelStep(step: StepSpec, cliIdentity?: string): ResolvedKernelStepSpec {
   const common: ResolvedKernelStepCommon = {
     id: step.id,
+    ...(step.secrets?.length ? { secrets: step.secrets } : {}),
     depends_on: step.input === undefined ? step.dependsOn ?? []
       : [...new Set([...(step.dependsOn ?? []), ...bindingDependencies(step.input)])],
     ...(step.input !== undefined ? { input: step.input } : {}),

@@ -13,6 +13,26 @@ fn zero_agent_flow_is_valid() {
 }
 
 #[test]
+fn secret_grants_are_names_only_and_relay_transport_cannot_receive_them() {
+    let spec = RunSpec::parse(&json!({"steps": [{
+        "id": "shell", "type": "deterministic", "command": "true", "secrets": ["NATIVE_API_TOKEN"]
+    }]})).unwrap();
+    assert!(spec.validate().is_ok());
+    assert_eq!(spec.steps[0].secrets, vec!["NATIVE_API_TOKEN"]);
+    for names in [json!(["BAD=NAME"]), json!(["NATIVE_API_TOKEN", "NATIVE_API_TOKEN"])] {
+        let invalid = RunSpec::parse(&json!({"steps": [{
+            "id": "shell", "type": "deterministic", "command": "true", "secrets": names
+        }]})).unwrap();
+        assert!(invalid.validate().is_err());
+    }
+    let relay = RunSpec::parse(&json!({"steps": [{
+        "id": "agent", "type": "agent", "instruction": "review", "transport": "relay",
+        "secrets": ["NATIVE_API_TOKEN"]
+    }]})).unwrap();
+    assert!(relay.validate().is_err());
+}
+
+#[test]
 fn cycles_are_rejected() {
     let spec = RunSpec::parse(&json!({
         "steps": [

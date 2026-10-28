@@ -1,0 +1,9 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ✓ tests/authored-parallel-eligibility.test.ts (9 tests | 8 skipped) 7ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 8 skipped (9)
+   Start at  23:49:51
+   Duration  517ms (transform 33ms, setup 11ms, collect 203ms, tests 7ms, environment 0ms, prepare 81ms)

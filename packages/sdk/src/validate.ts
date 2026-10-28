@@ -388,6 +388,14 @@ class Validator {
     const type = st['type'] as StepType;
     this.checkKeys(st, [...STEP_COMMON_FIELDS, ...STEP_FIELDS_BY_TYPE[type]], at);
 
+    if (st['secrets'] !== undefined) {
+      const names = st['secrets'];
+      if (!Array.isArray(names) || !names.every(name => typeof name === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
+        || new Set(names).size !== names.length || names.includes('RELAY_SECRET_ENV_NAMES')) {
+        this.fail(`${at}.secrets: expected distinct environment variable names`);
+      }
+    }
+
     if (st['requirements'] !== undefined) this.validateRequirements(st['requirements'], `${at}.requirements`);
     if (st['memory'] !== undefined) this.validateMemory(st['memory'], `${at}.memory`);
 
@@ -491,6 +499,9 @@ class Validator {
   }
 
   private validateAgent(st: AgentStepSpec, at: string): void {
+    if (st.transport === 'relay' && st.secrets?.length) {
+      this.fail(`${at}.secrets: relay transport cannot deliver per-step secrets`);
+    }
     if (st.timeoutMs !== undefined) {
       if (!isPosInt(st.timeoutMs) || st.timeoutMs > 60 * 60_000) {
         this.fail(`${at}.timeoutMs: expected a positive integer at most 3600000 (60 minutes)`);

@@ -530,6 +530,26 @@ describe('authored submission refusals are named (flows#461)', () => {
       expected: { packageName: '@relayflows/surface', version: '2.0.11' }, received: { packageName: '@relayflows/surface', version: surface.version } });
   });
 
+  it('withholds an authored-authority refusal that quotes an envSecrets value', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cloud-authority-secret-'));
+    dirs.push(dir);
+    await symlink(join(process.cwd(), 'node_modules'), join(dir, 'node_modules'), 'dir');
+    const path = join(dir, 'pinned.flow.ts');
+    await writeFile(path, "import { flow } from '@relayflows/surface';\nexport default flow('pinned', async f => f.done('success'));\n");
+    const secret = 'sk-authored-authority-secret-value';
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({
+      error: 'relayflow_v2_authored_authority_invalid',
+      message: `bad env ${secret}`,
+      expected: { packageName: '@relayflows/surface', version: secret },
+    }), { status: 400, headers: { 'content-type': 'application/json' } }));
+    const error = await runInCloud({ path }, { apiUrl: 'https://cloud-contract.example', token: 'test-scoped-cloud-token', input: {},
+      envSecrets: { NATIVE_API_TOKEN: secret } })
+      .then(() => undefined, (e: unknown) => e as CloudFlowError);
+    expect(error).toMatchObject({ code: 'unsupported_source', status: 400 });
+    expect(error!.refusal).toEqual({ code: 'relayflow_v2_authored_authority_invalid', error: 'withheld: quoted an envSecrets value' });
+    expect(JSON.stringify({ message: error!.message, refusal: error!.refusal, stack: error!.stack })).not.toContain(secret);
+  });
+
   it('reads a bare { error: "<code>" } refusal from the run route', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'cloud-refusal-'));
     dirs.push(dir);
@@ -716,5 +736,44 @@ describe('per-run envSecrets', () => {
     expect(failure).toMatchObject({ code: 'http_error', status: 400 });
     expect(JSON.stringify({ message: (failure as Error).message, refusal: (failure as CloudFlowError).refusal }))
       .not.toContain(SECRET);
+  });
+
+  it('withholds a Cloud refusal message that quotes an envSecrets value, keeping its code', async () => {
+    const options = await cloud(() => ({ code: 'invalid_env_secrets', error: `NATIVE_API_TOKEN=${SECRET} is not allowed` }), 400);
+    const failure = await runInCloud(flow, { ...options, envSecrets: { NATIVE_API_TOKEN: SECRET } })
+      .catch((error: unknown) => error as CloudFlowError);
+    expect(failure).toMatchObject({ code: 'http_error', status: 400, refusal: { code: 'invalid_env_secrets' } });
+    expect((failure as Error).message).toContain('invalid_env_secrets');
+    expect(JSON.stringify({ message: (failure as Error).message, refusal: (failure as CloudFlowError).refusal,
+      stack: (failure as Error).stack })).not.toContain(SECRET);
+  });
+
+  it('withholds an envSecrets value quoted in refusal metadata, not just its message', async () => {
+    const options = await cloud(() => ({ code: 'version_mismatch', error: 'Version mismatch',
+      expected: { packageName: '@relayflows/surface', version: SECRET }, received: { version: '2.0.1' } }), 400);
+    const failure = await runInCloud(flow, { ...options, envSecrets: { NATIVE_API_TOKEN: SECRET } })
+      .catch((error: unknown) => error as CloudFlowError);
+    expect(failure).toMatchObject({ code: 'http_error', status: 400, refusal: { code: 'version_mismatch' } });
+    expect(JSON.stringify({ message: (failure as Error).message, refusal: (failure as CloudFlowError).refusal,
+      stack: (failure as Error).stack })).not.toContain(SECRET);
+  });
+
+  it('keeps an unrelated Cloud refusal message as Cloud wrote it', async () => {
+    const options = await cloud(() => ({ code: 'quota_exceeded', error: 'Workspace run quota exceeded' }), 429);
+    const failure = await runInCloud(flow, { ...options, envSecrets: { NATIVE_API_TOKEN: SECRET } })
+      .catch((error: unknown) => error as CloudFlowError);
+    expect((failure as Error).message).toBe('Cloud refused (quota_exceeded): Workspace run quota exceeded');
+  });
+
+  it('scopes envSecrets to the one run: a later run on the same options sends none', async () => {
+    const bodies: unknown[] = [];
+    const options = await cloud((_path, body) => {
+      bodies.push(body);
+      return { runId: `run-${bodies.length}`, status: 'pending' };
+    });
+    await runInCloud(flow, { ...options, envSecrets: { NATIVE_API_TOKEN: SECRET } });
+    await runInCloud(flow, options);
+    expect(bodies[0]).toMatchObject({ envSecrets: { NATIVE_API_TOKEN: SECRET } });
+    expect(JSON.stringify(bodies[1])).not.toContain(SECRET);
   });
 });

@@ -1,0 +1,32 @@
+
+ RUN  v2.1.9 /Volumes/Paris Drive/AgentWorkforce/swarm/ms-flows-parallel/flows-parallel/packages/sdk
+
+ ❯ tests/authored-flow-lifecycle-executor.test.ts (44 tests | 1 failed | 43 skipped) 5ms
+   × authored flow lifecycle through the journal executor > detects replacement of every Promise primitive used by parallel joins 4ms
+     → resolve: expected true to be false // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/authored-flow-lifecycle-executor.test.ts > authored flow lifecycle through the journal executor > detects replacement of every Promise primitive used by parallel joins
+AssertionError: resolve: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/authored-flow-lifecycle-executor.test.ts:42:30
+     40|       const detected = parallelPromiseIntrinsicsIntact();
+     41|       target[name] = original;
+     42|       expect(detected, name).toBe(false);
+       |                              ^
+     43|     }
+     44|     for (const name of ['then', 'catch', 'finally']) {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 43 skipped (44)
+   Start at  23:49:54
+   Duration  1.61s (transform 521ms, setup 9ms, collect 1.41s, tests 5ms, environment 0ms, prepare 36ms)

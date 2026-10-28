@@ -58,3 +58,46 @@ it('journals spawn, message, and release through the authored surface and worker
   }
   await worker.close(); expect(fake.release).toHaveBeenCalledTimes(1);
 });
+
+it('runs a named gate on f.message against the broker result', async () => {
+  const fixture = chainFixture(); cleanups.push(() => fixture.close());
+  const client = await fixture.connect();
+  const worker = await attachLocalAgent(client, fixture.data, undefined, undefined, 2, fixture.root);
+  cleanups.push(() => worker.close());
+  const complete = (text: string, json: string) => {
+    const turn = /complete '([^']+)'/.exec(text)![1]!;
+    setTimeout(() => void fake.invoke!({ operation: 'complete', values: [turn, json] }), 1);
+  };
+  fake.spawn.mockImplementation(async input => {
+    complete(input.task, '{"pr":42}');
+    return { name: input.name, release: fake.release, waitForReady: async () => ({ reason: 'ready' }) };
+  });
+  fake.send.mockImplementation(async input => {
+    complete(input.text, '{"fixed":true}'); return { event_id: 'event', targets: [input.to] };
+  });
+  const definition = flow('broker-message-gate', async f => {
+    const agent = await f.agent('implement', { task: 'Open PR', transport: 'broker', cli: 'codex', keepAlive: true });
+    await f.message(agent.agentName!, 'Fix').gate({ type: 'artifact_exists', path: 'result.json' });
+    f.done('success');
+  });
+  await expect(executeAuthoredFlow(definition, client, undefined, {
+    flowPath: fixture.flowPath, localAgentStream: worker.stream, dataDir: fixture.data, workerCapacity: 2,
+  })).rejects.toThrow(/agent-\d+\.gate/);
+  expect(fake.spawn).toHaveBeenCalledTimes(1);
+  expect(fake.send).toHaveBeenCalledTimes(1);
+});
+
+it.each(['named', 'predicate'] as const)('refuses a retained spawn with a %s gate before allocating a PTY', async gate => {
+  const fixture = chainFixture(); cleanups.push(() => fixture.close());
+  const client = await fixture.connect();
+  const definition = flow('broker-gated', async f => {
+    const agent = f.agent('implement', { task: 'Open PR', transport: 'broker', cli: 'codex', keepAlive: true });
+    if (gate === 'predicate') await agent.gate(() => false);
+    else await agent.gate({ type: 'artifact_exists', path: 'result.json' });
+    f.done('success');
+  });
+  await expect(executeAuthoredFlow(definition, client, undefined, {
+    flowPath: fixture.flowPath, localAgentStream: 'fake-local-worker', dataDir: fixture.data,
+  })).rejects.toThrow('Retained broker agents do not support gates');
+  expect(fake.spawn).not.toHaveBeenCalled();
+});
