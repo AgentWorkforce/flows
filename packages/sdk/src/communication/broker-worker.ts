@@ -159,7 +159,9 @@ export class BrokerSessions {
           // only sees a handle that was stored in time.
           if (session.pty === undefined) void spawned.then(async late => {
             try { await late.handle.release('Flow broker session ended', { deleteIdentity: true }); }
-            finally { await late.close(); }
+            catch { /* The timed-out step is already journaled. */ }
+            try { await late.close(); }
+            catch { /* A failed link removal must not reject this detached cleanup. */ }
           }, () => {});
           throw error;
         }
