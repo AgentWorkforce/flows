@@ -483,7 +483,7 @@ const POLL_SECONDS = 300;
 const LOCAL = 'git -c user.name=relay-land -c user.email=relay-land@localhost'; // sandbox-only commits; never pushed
 
 const now = async (f: Ctx): Promise<number> => {
-  const raw = (await f.run('node -p Date.now()', { timeout: '5s' })).trim();
+  const raw = (await f.run('node -p "Date.now()"', { timeout: '5s' })).trim();
   if (!/^\d+$/.test(raw)) throw new Error('invalid journaled clock');
   return Number(raw);
 };
