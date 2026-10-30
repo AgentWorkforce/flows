@@ -138,6 +138,6 @@ test('land-state.json round-trips and refuses other versions', () => {
   assert.equal(parseState('null'), null);
   assert.throws(() => parseState(JSON.stringify({ ...s, version: 2 })), /version 2/);
   assert.throws(() => parseState(JSON.stringify({ ...s, config: { ...s.config, bogus: 1 } })), /unknown key/);
-  assert.deepEqual(JSON.parse(completionDetail(s)), { land: 'next', stage: 'C-1', seq: 3 });
-  assert.deepEqual(JSON.parse(completionDetail(s, true)), { land: 'next', stage: 'C-1', seq: 3, noop: true });
+  assert.deepEqual(JSON.parse(completionDetail(s)), { land: 'next', runId: 'run-1', stage: 'C-1', seq: 3 });
+  assert.deepEqual(JSON.parse(completionDetail(s, true)), { land: 'next', runId: 'run-1', stage: 'C-1', seq: 3, noop: true });
 });

@@ -3,16 +3,16 @@
 // AgentWorkforce/cloud#5806 §5, §7, §8. Phase 0-1: shadow mode only.
 //
 // ONE HOSTED RUN PER STAGE. cloud#5806 Decision A (one hosted run per stage,
-// 40-min cap unchanged): relayed as final by emgrok on 2026-10-29, awaiting
-// Khaliq's direct confirmation. Each invocation runs exactly one stage, under
-// Cloud's 40-minute run ceiling, against state
+// 40-min cap unchanged): confirmed by Khaliq, 2026-10-29. Each invocation runs
+// exactly one stage, under Cloud's 40-minute run ceiling, against state
 // persisted in `<stateDir>/land-state.json`, and ends with a JSON completion
 // detail naming the next stage or a terminal state. Cloud's land queue chains
 // the runs from that detail:
 //
-//   flows run examples/land/land.flow.ts --input '{"stage":"A-adversarial","repo":"owner/name",
-//     "sha":"<40 hex>","sessionId":"<id>","intentFile":"/runs/<runId>/intent.md","stateDir":"/runs/<runId>"}'
-//   → {"land":"next","stage":"A-context","seq":1}
+//   flows run examples/land/land.flow.ts --input '{"stage":"A-adversarial","runId":"lr_<32 hex>",
+//     "repo":"owner/name","sha":"<40 hex>","sessionId":"<id>",
+//     "intentFile":"/runs/<runId>/intent/intent.md","stateDir":"/runs/<runId>"}'
+//   → {"land":"next","runId":"lr_…","stage":"A-context","seq":1}
 //
 //   A-adversarial  the repo's adversarial review. Never given the intent.
 //   A-context      the repo's context review, given intentFile.
@@ -157,6 +157,11 @@ export interface LandInput {
   intentFile: string;
   /** Absolute, outside the checkout: every byte this run writes. */
   stateDir: string;
+  /**
+   * Cloud's land run id (`lr_<32 hex>`): the `Land-Run:` trailer and every
+   * completion detail. Absent for local use: the last segment of stateDir.
+   */
+  runId?: string;
   /** Inline config, or a repo-relative path read at the pinned sha. Default `land.config.json`. */
   config?: unknown;
   /** Linked from an escalation; defaults to the state file's path. */
@@ -165,6 +170,7 @@ export interface LandInput {
   ref?: string;
 }
 
+const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const STATE_PATH = /^\/(?!.*(?:^|\/)\.\.?(?:\/|$))[A-Za-z0-9_.\/-]+$/;
 
 export function parseInput(input: LandInput) {
@@ -185,7 +191,10 @@ export function parseInput(input: LandInput) {
     config: input.config ?? 'land.config.json',
     runUrl: input.runUrl === undefined ? undefined : check(input.runUrl, 'runUrl', /^https:\/\/[^\s]+$/),
     ref: input.ref === undefined ? undefined : check(input.ref, 'ref', /^(?!-)(?!.*\.\.)[A-Za-z0-9_.\/-]+$/),
-    runId: stateDir.split('/').pop()!,
+    // An explicit id is the contract; the stateDir segment is a local convenience, held to the same pattern.
+    runId: input.runId === undefined
+      ? check(stateDir.split('/').pop(), 'runId (from the stateDir segment; pass runId)', RUN_ID)
+      : check(input.runId, 'runId', RUN_ID),
   };
 }
 
@@ -437,8 +446,8 @@ export function nextLandStage(state: LandState, result: StageResult): LandState 
 /** The completion detail Cloud chains on. */
 export function completionDetail(s: LandState, noop = false): string {
   return JSON.stringify(s.terminal
-    ? { land: 'terminal', state: s.terminal.state, seq: s.seq, detail: s.terminal.detail }
-    : { land: 'next', stage: s.cursor, seq: s.seq, ...(noop ? { noop: true } : {}) });
+    ? { land: 'terminal', runId: s.runId, state: s.terminal.state, seq: s.seq, detail: s.terminal.detail }
+    : { land: 'next', runId: s.runId, stage: s.cursor, seq: s.seq, ...(noop ? { noop: true } : {}) });
 }
 
 export function parseState(raw: string): LandState | null {
@@ -594,8 +603,8 @@ export async function land(f: Ctx, raw: LandInput): Promise<void> {
     if ((await f.run('git status --porcelain')).trim()) throw new NeedsHuman('checkout is dirty; land runs on a fresh clone of the pinned sha');
 
     let state = parseState(await f.run(`cat ${shellWord(stateFile)} 2>/dev/null || echo null`));
-    if (state && (state.repo !== input.repo || state.pinnedSha !== input.sha || state.sessionId !== input.sessionId)) {
-      throw new NeedsHuman(`land-state.json belongs to ${state.repo}@${state.pinnedSha.slice(0, 7)} session ${state.sessionId}`);
+    if (state && (state.runId !== input.runId || state.repo !== input.repo || state.pinnedSha !== input.sha || state.sessionId !== input.sessionId)) {
+      throw new NeedsHuman(`land-state.json belongs to run ${state.runId}: ${state.repo}@${state.pinnedSha.slice(0, 7)} session ${state.sessionId}`);
     }
     if (!state && input.stage !== 'A-adversarial') throw new NeedsHuman(`no land-state.json under ${input.stateDir}; a run starts at A-adversarial`);
     if (state?.terminal) return f.done(REASON[state.terminal.state], { detail: completionDetail(state) });

@@ -218,18 +218,18 @@ test('superseded: the land ref moved → cancelled before any work in that run',
 
 test('idempotent cursor: a retried stage whose state write landed is a no-op; a reaped one reruns', async () => {
   const w = world();
-  assert.deepEqual((await w.invoke('A-adversarial')).detail, { land: 'next', stage: 'A-context', seq: 1 });
+  assert.deepEqual((await w.invoke('A-adversarial')).detail, { land: 'next', runId: 'run-1', stage: 'A-context', seq: 1 });
   // Cloud retries the same stage after the state was written: nothing runs.
   const launches = w.launches.length;
-  assert.deepEqual((await w.invoke('A-adversarial')).detail, { land: 'next', stage: 'A-context', seq: 1, noop: true });
+  assert.deepEqual((await w.invoke('A-adversarial')).detail, { land: 'next', runId: 'run-1', stage: 'A-context', seq: 1, noop: true });
   assert.equal(w.launches.length, launches);
   // A run reaped before its state write: the stage reruns from the same state.
   const saved = w.files.get(stateFile)!;
   await w.invoke('A-context');
   w.files.set(stateFile, saved);
-  assert.deepEqual((await w.invoke('A-context')).detail, { land: 'next', stage: 'B', seq: 2 });
+  assert.deepEqual((await w.invoke('A-context')).detail, { land: 'next', runId: 'run-1', stage: 'B', seq: 2 });
   // A stage that is not the cursor never runs.
-  assert.deepEqual((await w.invoke('F')).detail, { land: 'next', stage: 'B', seq: 2, noop: true });
+  assert.deepEqual((await w.invoke('F')).detail, { land: 'next', runId: 'run-1', stage: 'B', seq: 2, noop: true });
   // A terminal run reports its terminal state again.
   for (const stage of ['B', 'D', 'E', 'F']) await w.invoke(stage);
   const again = await w.invoke('F');
@@ -259,7 +259,7 @@ test('the removed githubGateInShadow flag is refused as an unknown key, before a
 test('refusals: no state outside A-adversarial, non-shadow mode, state or intent inside the checkout, wrong run', async () => {
   const cases: Array<[Partial<LandInput> & { stage: string }, RegExp, ReturnType<typeof world>?]> = [
     [{ stage: 'B' }, /a run starts at A-adversarial/],
-    [{ stage: 'A-adversarial', stateDir: `${root}/.relayflow` }, /stateDir must be outside the checkout/],
+    [{ stage: 'A-adversarial', stateDir: `${root}/.relayflow`, runId: 'run-1' }, /stateDir must be outside the checkout/],
     [{ stage: 'A-adversarial', intentFile: `${root}/intent.md` }, /intentFile must be outside the checkout/],
     [{ stage: 'A-adversarial', baseBranch: 'develop' }, /disagrees with land.config/],
     [{ stage: 'A-adversarial', sha: 'HEAD' }, /sha must match/],
@@ -286,4 +286,49 @@ test('refusals: no state outside A-adversarial, non-shadow mode, state or intent
   const wrong = await other.invoke('A-context', { sessionId: 'someone-else' });
   assert.match(wrong.detail.detail as string, /land-state.json belongs to/);
   assert.equal(other.state().cursor, 'A-context', 'a wrong invocation does not poison the state');
+});
+
+test('runId: an explicit Cloud id names the Land-Run trailer and every completion detail, not the stateDir path', async () => {
+  const runId = 'lr_0123456789abcdef0123456789abcdef';
+  const w = world();
+  const { result } = await w.drive({ runId });
+  assert.equal(result.detail.state, 'landed');
+  assert.equal(result.detail.runId, runId);
+  for (const done of w.done) assert.equal(done.detail.runId, runId);
+  assert.equal(w.state().runId, runId);
+  assert.match(w.state().squashPlan.message, new RegExp(`\\nLand-Run: ${runId}$`));
+  assert.doesNotMatch(w.state().squashPlan.message, /Land-Run: run-1/);
+});
+
+test('runId: absent, it falls back to the stateDir segment for local use', async () => {
+  const w = world();
+  await w.drive();
+  assert.equal(w.state().runId, 'run-1');
+  assert.match(w.state().squashPlan.message, /\nLand-Run: run-1$/);
+});
+
+test('runId: a malformed id, or a stateDir segment that is not one, is refused before any work', async () => {
+  for (const [input, message] of [
+    [{ runId: 'lr_bad id' }, /runId must match/],
+    [{ runId: '-lr' }, /runId must match/],
+    [{ runId: 'x'.repeat(129) }, /runId must match/],
+    [{ stateDir: '/runs/run.1' }, /runId \(from the stateDir segment; pass runId\) must match/],
+  ] as const) {
+    const w = world();
+    const result = await w.invoke('A-adversarial', input);
+    assert.equal(result.detail.land, 'refused');
+    assert.match(result.detail.detail as string, message);
+    assert.equal(w.launches.length, 0);
+    assert.equal(w.state(), null);
+  }
+});
+
+test('runId: a stage invoked with another run id is refused and leaves the state alone', async () => {
+  const w = world();
+  await w.invoke('A-adversarial', { runId: 'lr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' });
+  const wrong = await w.invoke('A-context', { runId: 'lr_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' });
+  assert.equal(wrong.detail.land, 'refused');
+  assert.match(wrong.detail.detail as string, /belongs to run lr_a{32}/);
+  assert.equal(w.state().cursor, 'A-context');
+  assert.equal(w.state().seq, 1);
 });

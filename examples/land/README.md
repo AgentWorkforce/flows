@@ -19,20 +19,19 @@ modules.
 ## One hosted run per stage (Decision A)
 
 **Status:** cloud#5806 Decision A (one hosted run per stage, 40-min cap
-unchanged): relayed as final by emgrok on 2026-10-29, awaiting Khaliq's direct
-confirmation. Cloud's 40-minute hosted run ceiling
+unchanged): confirmed by Khaliq, 2026-10-29. Cloud's 40-minute hosted run ceiling
 (`relayflow-v2-run-ceiling.ts`) stays as it is. Each invocation runs exactly
 one stage against `<stateDir>/land-state.json`, then ends with a JSON
 completion detail. Cloud's land queue chains the next run from that detail:
 
 ```sh
 flows run examples/land/land.flow.ts --input '{
-  "stage": "A-adversarial", "repo": "AgentWorkforce/relay-desktop", "sha": "<40 hex>",
-  "sessionId": "<session id>", "intentFile": "/runs/intent/<runId>/intent.md",
+  "stage": "A-adversarial", "runId": "lr_<32 hex>", "repo": "AgentWorkforce/relay-desktop", "sha": "<40 hex>",
+  "sessionId": "<session id>", "intentFile": "/runs/<runId>/intent/intent.md",
   "stateDir": "/runs/<runId>", "runUrl": "https://…/runs/<runId>", "ref": "land/<user>/<sha7>"
 }'
-# completion detail: {"land":"next","stage":"A-context","seq":1}
-#               or:  {"land":"terminal","state":"needs_human","seq":7,"detail":"Land relay-desktop@abc1234 stuck: …"}
+# completion detail: {"land":"next","runId":"lr_…","stage":"A-context","seq":1}
+#               or:  {"land":"terminal","runId":"lr_…","state":"needs_human","seq":7,"detail":"Land relay-desktop@abc1234 stuck: …"}
 ```
 
 Run it from a fresh clone of the repository, checked out at `sha`.
@@ -45,7 +44,8 @@ Run it from a fresh clone of the repository, checked out at `sha`.
 | `baseBranch` | optional; must agree with `land.config.json` |
 | `sessionId` | goes into the `Relay-Session:` trailer |
 | `intentFile` | absolute, outside the checkout; given to context review and the fix agent only |
-| `stateDir` | absolute, outside the checkout, persisted between stage runs; every byte the run writes. Its basename is the `Land-Run:` id |
+| `stateDir` | absolute, outside the checkout, persisted between stage runs; every byte the run writes |
+| `runId` | Cloud's land run id (`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`, e.g. `lr_<32 hex>`): the `Land-Run:` trailer and every completion detail. It must match the state's. Absent for local use: the last segment of `stateDir` |
 | `config` | inline config, or a repo-relative path read with `git show <sha>:<path>` at the first stage; default `land.config.json` |
 | `runUrl` | optional `https://` link for the escalation message |
 | `ref` | optional land ref (branch name); each stage checks it still points at `sha` |
