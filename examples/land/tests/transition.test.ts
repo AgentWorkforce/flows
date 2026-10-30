@@ -17,34 +17,36 @@ const review = (lane: 'adversarial' | 'context', ids: string[] = [], now = t): S
 const ci = (ids: string[] = [], now = t): StageResult => ({ kind: 'ci', findings: ids.map(f), now });
 const fixed = (head: string, ok = true): StageResult => ({ kind: 'fix', headSha: head, guard: { ok, detail: ok ? '' : 'fix round touched 2 file(s) outside change ∪ findings' }, now: t });
 const rebase = (outcome: 'unchanged' | 'rebased' | 'conflict', baseSha = 'b'.repeat(40), headSha = sha): StageResult => ({ kind: 'rebase', outcome, baseSha, headSha, now: t });
+const wouldDispatch = (): StageResult => ({ kind: 'github', wouldDispatch: { flow: 'flows/ci.flow.ts', input: { base: 'origin/main', github: true }, headSha: sha, dispatched: false }, now: t });
 const plan = squashPlan({ base: 'main', baseSha: 'b'.repeat(40), headSha: sha, tree: 't'.repeat(40), subjects: ['feat: x'], sessionId: 's-1', runId: 'run-1', squashAuthor: 'session-human', fixRounds: 0, harness: 'claude' });
 
 /** Feed one gate (A-adversarial, A-context, B) with the given adversarial ids. */
 const gate = (s: LandState, ids: string[], now = t): LandState =>
   nextLandStage(nextLandStage(nextLandStage(s, review('adversarial', ids, now)), review('context', [], now)), ci([], now));
 
-test('clean run: A-adversarial → A-context → B → D → F (E skipped in shadow) → landed', () => {
+test('clean run: A-adversarial → A-context → B → D → E (would dispatch) → F → landed', () => {
   const cursors: Array<string | null> = [];
   let s = start();
-  for (const r of [review('adversarial'), review('context'), ci(), rebase('unchanged'), { kind: 'merge', plan, now: t } as StageResult]) {
+  for (const r of [review('adversarial'), review('context'), ci(), rebase('unchanged'), wouldDispatch(), { kind: 'merge', plan, now: t } as StageResult]) {
     cursors.push(s.cursor); s = nextLandStage(s, r);
   }
-  assert.deepEqual(cursors, ['A-adversarial', 'A-context', 'B', 'D', 'F']);
+  assert.deepEqual(cursors, ['A-adversarial', 'A-context', 'B', 'D', 'E', 'F']);
   assert.equal(s.terminal?.state, 'landed');
   assert.equal(s.squashPlan?.pushed, false);
-  assert.ok(s.log.includes('E: skipped in shadow mode'));
-  assert.equal(s.seq, 5);
+  assert.ok(s.log.includes('E: shadow: would dispatch flows/ci.flow.ts {"github":true} at aaaaaaa'));
+  assert.equal(s.githubGate?.dispatched, false);
+  assert.equal(s.seq, 6);
   assert.deepEqual(JSON.parse(completionDetail(s)).state, 'landed');
 });
 
-test('E runs only when opted in; red sends the run to a fix round, green to F', () => {
-  const opted = start({ config: { ...config, mergePolicy: { ...config.mergePolicy, githubGateInShadow: true } } });
-  const atE = nextLandStage(gate(opted, []), rebase('unchanged'));
+test('E in shadow always reports would-dispatch and moves on to F, without closing a gate', () => {
+  const atE = nextLandStage(gate(start(), []), rebase('unchanged'));
   assert.equal(atE.cursor, 'E');
-  assert.equal(nextLandStage(atE, { kind: 'github', green: true, detail: '', now: t }).cursor, 'F');
-  const red = nextLandStage(atE, { kind: 'github', green: false, detail: 'job x failed', now: t });
-  assert.equal(red.cursor, 'C-1');
-  assert.deepEqual(red.history.at(-1), ['ci:github']);
+  const next = nextLandStage(atE, wouldDispatch());
+  assert.equal(next.cursor, 'F');
+  assert.deepEqual(next.githubGate, { flow: 'flows/ci.flow.ts', input: { base: 'origin/main', github: true }, headSha: sha, dispatched: false });
+  assert.equal(next.history.length, atE.history.length);
+  assert.equal(next.round, 0);
 });
 
 test('the gate unions all three lanes and feeds the fix round', () => {

@@ -37,7 +37,6 @@
       "additionalProperties": false,
       "properties": {
         "mode": { "enum": ["shadow", "approval", "auto"], "default": "shadow", "description": "Phase 0-1 implements shadow only; approval and auto are refused." },
-        "githubGateInShadow": { "type": "boolean", "default": false, "description": "Run stage E (pushes a throwaway ci/<sha> branch) in shadow mode." },
         "squashAuthor": { "enum": ["session-human", "agent-with-human-coauthor"], "default": "session-human", "description": "PLACEHOLDER pending decision (cloud#5806 Q3)." },
         "approvalDropAfterCleanLandings": { "type": ["integer", "null"], "minimum": 1, "maximum": 1000, "default": null, "description": "PLACEHOLDER pending decision (cloud#5806 Q6)." }
       }

@@ -11,7 +11,6 @@ const minimal = { reviewFlows: { adversarial: 'flows/adversarial-review.flow.ts'
 test('defaults: mergePolicy is shadow, placeholders are the spec proposals', () => {
   const c = parseLandConfig(minimal);
   assert.equal(c.mergePolicy.mode, 'shadow');
-  assert.equal(c.mergePolicy.githubGateInShadow, false);
   assert.equal(c.fixLoop.maxRounds, 4);
   assert.equal(c.fixLoop.wallclockMinutes, 180);
   assert.equal(c.fixLoop.harness, 'claude');
@@ -26,7 +25,7 @@ test('a full relay-desktop shaped config round-trips', () => {
     $schema: './land.config.schema.json', ...minimal, baseBranch: 'main', flowsBin: 'flows/node_modules/.bin/flows',
     runner: { os: 'linux', arch: 'x64', commands: ['git', 'node', 'cargo', 'python3', 'claude'], setup: ['npm ci --prefix flows --no-audit --no-fund'], stageMinutes: 25 },
     changelog: 'required',
-    mergePolicy: { mode: 'shadow', githubGateInShadow: true, squashAuthor: 'agent-with-human-coauthor', approvalDropAfterCleanLandings: 10 },
+    mergePolicy: { mode: 'shadow', squashAuthor: 'agent-with-human-coauthor', approvalDropAfterCleanLandings: 10 },
     fixLoop: { maxRounds: 3, wallclockMinutes: 120, harness: 'codex', model: 'gpt-5.5-codex' },
     landRef: 'land/{user}/{sha7}',
   };
@@ -49,7 +48,8 @@ test('refusals: unknown keys, bad enums, unsafe paths, out-of-range numbers', ()
     [{ ...minimal, fixLoop: { wallclockMinutes: 5 } }, /\.fixLoop\.wallclockMinutes/],
     [{ ...minimal, fixLoop: { harness: 'cursor' } }, /\.fixLoop\.harness/],
     [{ ...minimal, fixLoop: { model: 'x y' } }, /\.fixLoop\.model/],
-    [{ ...minimal, mergePolicy: { githubGateInShadow: 'yes' } }, /githubGateInShadow/],
+    // Removed: shadow never has a write token (cloud#5806 decision B), so the flag could never succeed.
+    [{ ...minimal, mergePolicy: { githubGateInShadow: true } }, /\.mergePolicy\.githubGateInShadow: unknown key/],
     [{ ...minimal, landRef: 'land/{user}' }, /\.landRef/],
     [{ ...minimal, runner: { commands: ['git; curl'] } }, /\.runner\.commands\[0\]/],
     [{ ...minimal, baseBranch: '-main' }, /\.baseBranch/],

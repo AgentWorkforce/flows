@@ -2,9 +2,10 @@
 // in shadow mode, planned as a squash commit that is never pushed. Spec:
 // AgentWorkforce/cloud#5806 §5, §7, §8. Phase 0-1: shadow mode only.
 //
-// ONE HOSTED RUN PER STAGE — the PROPOSED design, pending Khaliq's decision
-// on cloud#5806 decision A; not yet decided. Each invocation runs exactly one
-// stage, under Cloud's 40-minute run ceiling, against state
+// ONE HOSTED RUN PER STAGE. cloud#5806 Decision A (one hosted run per stage,
+// 40-min cap unchanged): relayed as final by emgrok on 2026-10-29, awaiting
+// Khaliq's direct confirmation. Each invocation runs exactly one stage, under
+// Cloud's 40-minute run ceiling, against state
 // persisted in `<stateDir>/land-state.json`, and ends with a JSON completion
 // detail naming the next stage or a terminal state. Cloud's land queue chains
 // the runs from that detail:
@@ -18,7 +19,8 @@
 //   B              the repo's local CI + the changelog rule; closes the gate.
 //   C-<n>          fix round n: one fix agent, formatter guard, then A again.
 //   D              fetch the base; rebased → A again, conflict → needs_human.
-//   E              GitHub gate. Skipped in shadow mode: no write token (cloud#5806 decision B, decided).
+//   E              GitHub gate. Shadow never has a write token (cloud#5806 Decision B,
+//                  decided), so it records what it would dispatch and moves on to F.
 //   F              shadow: the would-be squash plan goes into the state. Never push.
 //
 // Every run starts from a fresh clone of the pinned sha. Fix and rebase
@@ -58,7 +60,6 @@ export interface LandConfig {
   changelog: (typeof CHANGELOG_RULES)[number];
   mergePolicy: {
     mode: (typeof MERGE_MODES)[number];
-    githubGateInShadow: boolean;
     squashAuthor: (typeof SQUASH_AUTHORS)[number];
     approvalDropAfterCleanLandings: number | null;
   };
@@ -74,7 +75,6 @@ export const LAND_CONFIG_DEFAULTS = {
   changelog: 'optional',
   mergePolicy: {
     mode: 'shadow',
-    githubGateInShadow: false,
     squashAuthor: 'session-human', // PLACEHOLDER pending decision (cloud#5806 Q3)
     approvalDropAfterCleanLandings: null, // PLACEHOLDER pending decision (cloud#5806 Q6)
   },
@@ -110,10 +110,9 @@ export function parseLandConfig(raw: unknown): LandConfig {
   const c = object(raw, '', ['$schema', 'reviewFlows', 'ciFlow', 'baseBranch', 'flowsBin', 'runner', 'changelog', 'mergePolicy', 'fixLoop', 'landRef']);
   const review = object(c.reviewFlows, '.reviewFlows', ['adversarial', 'context']);
   const runner = object(c.runner ?? {}, '.runner', ['os', 'arch', 'commands', 'setup', 'stageMinutes']);
-  const merge = object(c.mergePolicy ?? {}, '.mergePolicy', ['mode', 'githubGateInShadow', 'squashAuthor', 'approvalDropAfterCleanLandings']);
+  const merge = object(c.mergePolicy ?? {}, '.mergePolicy', ['mode', 'squashAuthor', 'approvalDropAfterCleanLandings']);
   const fix = object(c.fixLoop ?? {}, '.fixLoop', ['maxRounds', 'wallclockMinutes', 'harness', 'model']);
   const drop = merge.approvalDropAfterCleanLandings ?? D.mergePolicy.approvalDropAfterCleanLandings;
-  const gateInShadow = merge.githubGateInShadow ?? D.mergePolicy.githubGateInShadow;
   return {
     reviewFlows: {
       adversarial: text(review.adversarial, '.reviewFlows.adversarial', SAFE_PATH),
@@ -132,7 +131,6 @@ export function parseLandConfig(raw: unknown): LandConfig {
     changelog: oneOf(c.changelog ?? D.changelog, '.changelog', CHANGELOG_RULES),
     mergePolicy: {
       mode: oneOf(merge.mode ?? D.mergePolicy.mode, '.mergePolicy.mode', MERGE_MODES),
-      githubGateInShadow: typeof gateInShadow === 'boolean' ? gateInShadow : fail('.mergePolicy.githubGateInShadow', 'must be a boolean'),
       squashAuthor: oneOf(merge.squashAuthor ?? D.mergePolicy.squashAuthor, '.mergePolicy.squashAuthor', SQUASH_AUTHORS),
       approvalDropAfterCleanLandings: drop === null ? null : integer(drop, '.mergePolicy.approvalDropAfterCleanLandings', 1, 1000),
     },
@@ -149,7 +147,7 @@ export function parseLandConfig(raw: unknown): LandConfig {
 // ---------------------------------------------------------------------- input
 
 export interface LandInput {
-  /** The one stage this hosted run executes; Cloud chains runs from the previous completion detail (proposed, pending cloud#5806 decision A). */
+  /** The one stage this hosted run executes; Cloud chains runs from the previous completion detail (cloud#5806 Decision A). */
   stage: string;
   repo: string;
   sha: string;
@@ -353,8 +351,13 @@ export interface LandState {
   findings: Finding[];
   log: string[];
   escalation?: { reason: string; detail: string; message?: string };
+  /** Stage E in shadow: the GitHub gate it would have dispatched. */
+  githubGate?: GithubDispatch;
   squashPlan?: SquashPlan;
 }
+
+/** What stage E would dispatch. Shadow runs have no write token, so `dispatched` is always false. */
+export interface GithubDispatch { flow: string; input: { base: string; github: true }; headSha: string; dispatched: false }
 
 export type StageResult = { now: number } & (
   | { kind: 'superseded'; refSha: string | null }
@@ -362,7 +365,7 @@ export type StageResult = { now: number } & (
   | { kind: 'ci'; findings: Finding[] }
   | { kind: 'fix'; headSha: string; guard: { ok: boolean; detail: string } }
   | { kind: 'rebase'; outcome: 'unchanged' | 'rebased' | 'conflict'; baseSha: string; headSha: string; detail?: string }
-  | { kind: 'github'; green: boolean; detail: string }
+  | { kind: 'github'; wouldDispatch: GithubDispatch }
   | { kind: 'merge'; plan: SquashPlan }
 );
 
@@ -412,20 +415,19 @@ export function nextLandStage(state: LandState, result: StageResult): LandState 
       return s;
     case 'rebase':
       if (result.outcome === 'conflict') return escalate('rebase_conflict', `${s.config.baseBranch} moved to ${result.baseSha.slice(0, 7)} and the change no longer rebases cleanly`);
-      if (result.outcome === 'unchanged') {
-        const skip = s.config.mergePolicy.mode === 'shadow' && !s.config.mergePolicy.githubGateInShadow;
-        if (skip) s.log.push('E: skipped in shadow mode');
-        s.cursor = skip ? 'F' : 'E';
-        return s;
-      }
+      if (result.outcome === 'unchanged') { s.cursor = 'E'; return s; }
       if (++s.rebases > MAX_REBASES) return escalate('base_churn', `${s.config.baseBranch} moved ${s.rebases} times during the run`);
       s.baseSha = result.baseSha;
       s.log.push(`D: rebased onto ${result.baseSha.slice(0, 7)}`);
       regate(result.headSha);
       return s;
     case 'github':
-      if (result.green) { s.cursor = 'F'; return s; }
-      return closeGate([{ id: 'ci:github', source: 'ci', severity: 'blocker', file: '', title: `GitHub CI red: ${result.detail.slice(-500)}` }]);
+      // Decision B: no write token in shadow, so nothing is dispatched. The
+      // dispatch/await split and "red → C" belong to phase 2.
+      s.githubGate = result.wouldDispatch;
+      s.log.push(`E: shadow: would dispatch ${result.wouldDispatch.flow} {"github":true} at ${result.wouldDispatch.headSha.slice(0, 7)}`);
+      s.cursor = 'F';
+      return s;
     case 'merge':
       s.squashPlan = result.plan;
       return end('landed', `shadow: would land ${s.repo}@${result.plan.headSha.slice(0, 7)} on ${s.config.baseBranch} after ${s.round} fix round(s); not pushed`);
@@ -567,10 +569,7 @@ async function runStage(f: Ctx, r: Run): Promise<StageResult> {
   }
   if (at === 'B') return { kind: 'ci', findings: await localCi(f, r), now: await now(f) };
   if (at === 'D') return rebaseCheck(f, r);
-  if (at === 'E') {
-    const github = await background(f, `${r.dir}/github`, repoFlowCommand(r, 'ci-github', r.state.config.ciFlow, { base: r.base, github: true }), r.state.config.runner.stageMinutes);
-    return { kind: 'github', green: github.exitCode === 0, detail: github.tail, now: await now(f) };
-  }
+  if (at === 'E') return { kind: 'github', wouldDispatch: { flow: r.state.config.ciFlow, input: { base: r.base, github: true }, headSha: r.state.headSha, dispatched: false }, now: await now(f) };
   if (at === 'F') return merge(f, r);
   return fixRound(f, r, Number(at.slice(2)));
 }
@@ -657,5 +656,5 @@ async function save(f: Ctx, stateFile: string, s: LandState): Promise<void> {
   f.done(s.terminal ? REASON[s.terminal.state] : 'success', { detail: completionDetail(s) });
 }
 
-// One stage per run (proposed, pending cloud#5806 decision A): the budget sits under Cloud's 40-minute run ceiling.
+// One stage per run (cloud#5806 Decision A): the budget sits under Cloud's 40-minute run ceiling.
 export default flow<LandInput>('land', { version: '0.2.0', budget: { wallclock: '40m' } }, land);

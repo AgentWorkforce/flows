@@ -18,7 +18,7 @@ const blocker = (file: string, title: string): Raw => ({ severity: 'blocker', fi
  * checkout is a fresh clone each run). Each `invoke` is one hosted stage run.
  */
 function world(over: {
-  config?: unknown; head?: string; adversarial?: Raw[][]; context?: Raw[][]; ciRed?: number[]; githubRed?: number;
+  config?: unknown; head?: string; adversarial?: Raw[][]; context?: Raw[][]; ciRed?: number[];
   roundFiles?: string[][]; baseShas?: string[]; rebaseFails?: boolean; changelog?: [string, string]; refSha?: string;
 } = {}) {
   const files = new Map<string, string>();
@@ -26,7 +26,7 @@ function world(over: {
   const launches: string[] = [];
   const agents: Array<{ name: string; options: AgentOptions }> = [];
   const done: Array<{ reason: string; detail: Record<string, unknown> }> = [];
-  let tick = 0, gate = 0, githubRuns = 0, headCounter = 0, fetches = 0;
+  let tick = 0, gate = 0, headCounter = 0, fetches = 0;
   const record = (ok: boolean, output = '') => ({ ok, exitCode: ok ? 0 : 1, output, stdout: output, stderr: '' });
 
   const invoke = async (stage: string, input: Partial<LandInput> = {}) => {
@@ -59,7 +59,6 @@ function world(over: {
         if (command.startsWith('mkdir -p ') && command.includes('nohup')) { launches.push(command); return 'started'; }
         if (command.startsWith('mkdir -p ')) return '';
         if (command.startsWith('for i in $(seq')) {
-          if (command.includes('/github/exit')) return String(githubRuns++ < (over.githubRed ?? 0) ? 1 : 0);
           return String(command.includes('/ci/exit') && over.ciRed?.includes(gate - 1) ? 1 : 0);
         }
         if (command.startsWith('tail -c')) return 'log tail';
@@ -109,10 +108,10 @@ const neverPushes = (commands: string[][]) => {
   for (const c of commands.flat()) assert.doesNotMatch(c, /git push|gh pr |gh api .*merge|git merge /, c);
 };
 
-test('clean shadow run: one hosted run per stage, E skipped, squash plan written, never pushed', async () => {
+test('clean shadow run: one hosted run per stage, E would dispatch, squash plan written, never pushed', async () => {
   const w = world();
   const { stages, result } = await w.drive();
-  assert.deepEqual(stages, ['A-adversarial', 'A-context', 'B', 'D', 'F']);
+  assert.deepEqual(stages, ['A-adversarial', 'A-context', 'B', 'D', 'E', 'F']);
   assert.equal(result.reason, 'success');
   assert.equal(result.detail.land, 'terminal');
   assert.equal(result.detail.state, 'landed');
@@ -121,7 +120,8 @@ test('clean shadow run: one hosted run per stage, E skipped, squash plan written
   assert.equal(s.version, 1);
   assert.equal(s.squashPlan.pushed, false);
   assert.match(s.squashPlan.message, /Relay-Session: a71ff4c9-365f-4602-8e5a-06db39621973\nLand-Run: run-1$/);
-  assert.ok(s.log.includes('E: skipped in shadow mode'));
+  assert.ok(s.log.includes('E: shadow: would dispatch flows/ci.flow.ts {"github":true} at aaaaaaa'));
+  assert.equal(s.githubGate.dispatched, false);
   assert.equal(w.launches.length, 3, 'one repo flow per stage A-adversarial, A-context, B');
   assert.ok(w.launches.every(c => !c.includes('"github":true')));
   neverPushes(w.commands);
@@ -144,13 +144,13 @@ test('intent isolation: only context review is given intentFile; the adversarial
   assert.ok(ci.every(c => !c.includes('intent')));
   assert.ok(context.length === 1 && context.every(c => c.includes(`"intentFile":"${intentFile}"`)));
   // Each stage run launches exactly one repo flow.
-  assert.deepEqual(w.commands.map(run => run.filter(c => c.includes('nohup')).length), [1, 1, 1, 0, 0]);
+  assert.deepEqual(w.commands.map(run => run.filter(c => c.includes('nohup')).length), [1, 1, 1, 0, 0, 0]);
 });
 
 test('fix loop: the fixup head is carried between runs in land.bundle, then the gate reruns clean', async () => {
   const w = world({ adversarial: [[blocker('probe/src/relay/agents.rs', 'race on upload flag')], []] });
   const { stages, result } = await w.drive();
-  assert.deepEqual(stages, ['A-adversarial', 'A-context', 'B', 'C-1', 'A-adversarial', 'A-context', 'B', 'D', 'F']);
+  assert.deepEqual(stages, ['A-adversarial', 'A-context', 'B', 'C-1', 'A-adversarial', 'A-context', 'B', 'D', 'E', 'F']);
   assert.equal(result.detail.state, 'landed');
   assert.deepEqual(w.agents.map(a => a.name), ['fix-r1']);
   assert.match(w.agents[0]!.options.task, /race on upload flag/);
@@ -195,7 +195,7 @@ test('changelog required with no new Unreleased bullet becomes a finding for the
 test('stage D: a moved base rebases and regates; a conflict ends needs_human', async () => {
   const moved = world({ baseShas: ['b'.repeat(40), 'b'.repeat(40), 'b'.repeat(40), 'c'.repeat(40)] });
   const run = await moved.drive();
-  assert.deepEqual(run.stages, ['A-adversarial', 'A-context', 'B', 'D', 'A-adversarial', 'A-context', 'B', 'D', 'F']);
+  assert.deepEqual(run.stages, ['A-adversarial', 'A-context', 'B', 'D', 'A-adversarial', 'A-context', 'B', 'D', 'E', 'F']);
   assert.equal(moved.state().baseSha, 'c'.repeat(40));
   assert.equal(moved.state().squashPlan.baseSha, 'c'.repeat(40));
 
@@ -231,19 +231,29 @@ test('idempotent cursor: a retried stage whose state write landed is a no-op; a 
   // A stage that is not the cursor never runs.
   assert.deepEqual((await w.invoke('F')).detail, { land: 'next', stage: 'B', seq: 2, noop: true });
   // A terminal run reports its terminal state again.
-  for (const stage of ['B', 'D', 'F']) await w.invoke(stage);
+  for (const stage of ['B', 'D', 'E', 'F']) await w.invoke(stage);
   const again = await w.invoke('F');
   assert.equal(again.detail.state, 'landed');
-  assert.equal(again.detail.seq, 5);
+  assert.equal(again.detail.seq, 6);
 });
 
-test('stage E: opted in for shadow, a red GitHub gate sends the run back to the fix loop', async () => {
-  const w = world({ config: { ...config, mergePolicy: { githubGateInShadow: true } }, githubRed: 1 });
-  const { stages, result } = await w.drive();
-  assert.deepEqual(stages, ['A-adversarial', 'A-context', 'B', 'D', 'E', 'C-1', 'A-adversarial', 'A-context', 'B', 'D', 'E', 'F']);
-  assert.equal(result.detail.state, 'landed');
-  assert.match(w.agents[0]!.options.task, /GitHub CI red/);
+test('stage E in shadow: records what it would dispatch, launches nothing, moves on to F', async () => {
+  const w = world();
+  await w.drive();
+  const e = w.commands[4]!;
+  assert.ok(e.every(c => !c.includes('nohup') && !c.includes('"github":true')), 'E dispatches nothing');
+  assert.ok(w.launches.every(c => !c.includes('"github":true')));
+  assert.deepEqual(w.state().githubGate, { flow: 'flows/ci.flow.ts', input: { base: 'origin/main', github: true }, headSha: sha, dispatched: false });
   neverPushes(w.commands);
+});
+
+test('the removed githubGateInShadow flag is refused as an unknown key, before any work', async () => {
+  const w = world({ config: { ...config, mergePolicy: { githubGateInShadow: true } } });
+  const result = await w.invoke('A-adversarial');
+  assert.equal(result.reason, 'needs_human');
+  assert.match(result.detail.detail as string, /\.mergePolicy\.githubGateInShadow: unknown key/);
+  assert.equal(w.launches.length, 0);
+  assert.equal(w.state(), null);
 });
 
 test('refusals: no state outside A-adversarial, non-shadow mode, state or intent inside the checkout, wrong run', async () => {

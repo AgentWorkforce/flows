@@ -16,10 +16,11 @@ authored `.flow.ts` as one source and refuses local imports
 config validator and the pure helpers share the flow file instead of their own
 modules.
 
-## One hosted run per stage — proposed, pending cloud#5806 decision A
+## One hosted run per stage (Decision A)
 
-**Status:** this is the proposed design. It waits on Khaliq's decision A in
-cloud#5806 and is not decided. Cloud's 40-minute hosted run ceiling
+**Status:** cloud#5806 Decision A (one hosted run per stage, 40-min cap
+unchanged): relayed as final by emgrok on 2026-10-29, awaiting Khaliq's direct
+confirmation. Cloud's 40-minute hosted run ceiling
 (`relayflow-v2-run-ceiling.ts`) stays as it is. Each invocation runs exactly
 one stage against `<stateDir>/land-state.json`, then ends with a JSON
 completion detail. Cloud's land queue chains the next run from that detail:
@@ -55,8 +56,8 @@ Run it from a fresh clone of the repository, checked out at `sha`.
 | `A-context` | the repo's context review flow, given `intentFile` | `B` |
 | `B` | the repo's local CI flow, plus the changelog rule. Closes the gate | `D`, `C-<n>`, or `needs_human` |
 | `C-<n>` | fix round n: one fix agent, a local fixup commit, the formatter guard | `A-adversarial` or `needs_human` |
-| `D` | fetch the base; rebase if it moved | `A-adversarial` (rebased), `F` (shadow), `E`, or `needs_human` (conflict) |
-| `E` | the CI flow with `{"github":true}` | `F`, or `C-<n>` when red |
+| `D` | fetch the base; rebase if it moved | `A-adversarial` (rebased), `E`, or `needs_human` (conflict) |
+| `E` | shadow: records the GitHub gate it would dispatch (`githubGate`, `dispatched: false`). Nothing is dispatched or pushed | `F` |
 | `F` | shadow: writes the squash plan into the state with `pushed: false`. Nothing is pushed | `landed` |
 
 Terminal states and their run verdicts: `landed` (success), `needs_human`,
@@ -64,12 +65,15 @@ Terminal states and their run verdicts: `landed` (success), `needs_human`,
 JSON. A refused invocation reports `{"land":"refused"}` or
 `{"land":"declined"}` and writes no state.
 
-**Stage E in shadow mode (decision B, decided).** Shadow mode skips stage E:
-it has no write token, and relay-desktop's GitHub gate pushes a throwaway
-`ci/<sha>` branch. `mergePolicy.githubGateInShadow` defaults to `false`.
-Stage E is still bounded by `runner.stageMinutes`, which does not cover a full
-GitHub run (about 30–125 minutes). A real stage E needs a dispatch run and an
-await run, and that belongs in phase 2.
+**Stage E in shadow mode (Decision B, decided).** Shadow runs never get a
+write token, and relay-desktop's GitHub gate pushes a throwaway `ci/<sha>`
+branch, so a shadow run could never pass it. Stage E therefore always records
+what it would dispatch (the CI flow, `{"github":true}` and the head sha) and
+moves on to F. There is no flag to turn it on: `mergePolicy.githubGateInShadow`
+was removed, and the validator now rejects it as an unknown key. A real
+stage E, including "red → C", belongs in phase 2. A full GitHub run takes
+about 30–125 minutes, so it needs a dispatch run and an await run to fit under
+the 40-minute ceiling.
 
 ### Why A splits into one run per review flow
 
