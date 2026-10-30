@@ -27,7 +27,8 @@
         "os": { "enum": ["linux", "macos"], "default": "linux" },
         "arch": { "enum": ["x64", "arm64"], "default": "x64" },
         "commands": { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9_.+-]+$" }, "default": ["git", "node"], "description": "Commands that must be on PATH." },
-        "setup": { "type": "array", "items": { "type": "string", "pattern": "^[^\\u0000-\\u001f\\u007f]+$" }, "default": [], "description": "Shell commands run once in the checkout before stage A; must leave it clean." }
+        "setup": { "type": "array", "items": { "type": "string", "pattern": "^[^\\u0000-\\u001f\\u007f]+$" }, "default": [], "description": "Shell commands run in the fresh checkout at the start of every stage run; must leave it clean." },
+        "stageMinutes": { "type": "integer", "minimum": 5, "maximum": 35, "default": 30, "description": "Longest a review, CI or fix step may run inside one hosted stage run; Cloud's run ceiling is 40 minutes." }
       }
     },
     "changelog": { "enum": ["required", "optional"], "default": "optional", "description": "required: the change must add a bullet under ## Unreleased in CHANGELOG.md." },

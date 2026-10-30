@@ -18,13 +18,13 @@ test('defaults: mergePolicy is shadow, placeholders are the spec proposals', () 
   assert.equal(c.fixLoop.model, undefined);
   assert.equal(c.changelog, 'optional');
   assert.equal(c.baseBranch, 'main');
-  assert.deepEqual(c.runner, { os: 'linux', arch: 'x64', commands: ['git', 'node'], setup: [] });
+  assert.deepEqual(c.runner, { os: 'linux', arch: 'x64', commands: ['git', 'node'], setup: [], stageMinutes: 30 });
 });
 
 test('a full relay-desktop shaped config round-trips', () => {
   const full = {
     $schema: './land.config.schema.json', ...minimal, baseBranch: 'main', flowsBin: 'flows/node_modules/.bin/flows',
-    runner: { os: 'linux', arch: 'x64', commands: ['git', 'node', 'cargo', 'python3', 'claude'], setup: ['npm ci --prefix flows --no-audit --no-fund'] },
+    runner: { os: 'linux', arch: 'x64', commands: ['git', 'node', 'cargo', 'python3', 'claude'], setup: ['npm ci --prefix flows --no-audit --no-fund'], stageMinutes: 25 },
     changelog: 'required',
     mergePolicy: { mode: 'shadow', githubGateInShadow: true, squashAuthor: 'agent-with-human-coauthor', approvalDropAfterCleanLandings: 10 },
     fixLoop: { maxRounds: 3, wallclockMinutes: 120, harness: 'codex', model: 'gpt-5.5-codex' },
@@ -53,6 +53,7 @@ test('refusals: unknown keys, bad enums, unsafe paths, out-of-range numbers', ()
     [{ ...minimal, landRef: 'land/{user}' }, /\.landRef/],
     [{ ...minimal, runner: { commands: ['git; curl'] } }, /\.runner\.commands\[0\]/],
     [{ ...minimal, baseBranch: '-main' }, /\.baseBranch/],
+    [{ ...minimal, runner: { stageMinutes: 40 } }, /\.runner\.stageMinutes: must be an integer 5-35/],
   ];
   for (const [raw, message] of bad) assert.throws(() => parseLandConfig(raw), message, JSON.stringify(raw));
 });
@@ -74,9 +75,10 @@ test('JSON schema matches the runtime validator: keys, required, enums and defau
   assert.equal(p.changelog.default, D.changelog);
   assert.equal(p.landRef.default, D.landRef);
   assert.deepEqual(p.runner.properties.commands.default, D.runner.commands);
+  assert.equal(p.runner.properties.stageMinutes.default, D.runner.stageMinutes);
   for (const key of Object.keys(D.mergePolicy) as Array<keyof typeof D.mergePolicy>) assert.equal(p.mergePolicy.properties[key].default, D.mergePolicy[key], key);
   for (const key of ['maxRounds', 'wallclockMinutes', 'harness'] as const) assert.equal(p.fixLoop.properties[key].default, D.fixLoop[key], key);
-  for (const [section, keys] of [['runner', ['os', 'arch', 'commands', 'setup']], ['mergePolicy', Object.keys(D.mergePolicy)], ['fixLoop', ['maxRounds', 'wallclockMinutes', 'harness', 'model']]] as const) {
+  for (const [section, keys] of [['runner', ['os', 'arch', 'commands', 'setup', 'stageMinutes']], ['mergePolicy', Object.keys(D.mergePolicy)], ['fixLoop', ['maxRounds', 'wallclockMinutes', 'harness', 'model']]] as const) {
     assert.deepEqual(Object.keys(p[section].properties).sort(), [...keys].sort(), section);
     assert.equal(p[section].additionalProperties, false, section);
   }

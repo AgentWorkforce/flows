@@ -2,27 +2,30 @@
 // in shadow mode, planned as a squash commit that is never pushed. Spec:
 // AgentWorkforce/cloud#5806 §5, §7, §8. Phase 0-1: shadow mode only.
 //
-//   flows run examples/land/land.flow.ts --input '{"repo":"owner/name","sha":"<40 hex>",
-//     "sessionId":"<id>","intentFile":"/runs/<runId>/intent.md","stateDir":"/runs/<runId>"}'
+// ONE HOSTED RUN PER STAGE — the PROPOSED design, pending Khaliq's decision
+// on cloud#5806 decision A; not yet decided. Each invocation runs exactly one
+// stage, under Cloud's 40-minute run ceiling, against state
+// persisted in `<stateDir>/land-state.json`, and ends with a JSON completion
+// detail naming the next stage or a terminal state. Cloud's land queue chains
+// the runs from that detail:
 //
-// Run it from a fresh clone of the repository checked out at `sha` (Cloud's
-// per-run sandbox). The repository names its own review and CI flows in
-// land.config.json (land.config.schema.json); this flow runs them as nested
-// `flows run` processes with RELAYFLOW_STATE_DIR pointing under stateDir, so
-// no state is ever written inside the checkout.
+//   flows run examples/land/land.flow.ts --input '{"stage":"A-adversarial","repo":"owner/name",
+//     "sha":"<40 hex>","sessionId":"<id>","intentFile":"/runs/<runId>/intent.md","stateDir":"/runs/<runId>"}'
+//   → {"land":"next","stage":"A-context","seq":1}
 //
-// A  adversarial-review ∥ context-review ∥ local CI. Only context-review is
-//    given intentFile; the adversarial fleet's command never names it.
-// B  local CI runs alongside A; the gate needs both green (and the changelog
-//    rule when it is "required").
-// C  fix loop: one fix agent per round, then A + B again (the repo flows
-//    rerun incrementally from their state under stateDir). Stops on the round
-//    cap, a finding surviving STALL_ROUNDS rounds, a count not decreasing for
-//    STALL_ROUNDS rounds, the wallclock budget, or a formatter-guard breach.
-// D  fetch the base; if it moved, rebase and gate again. Conflicts escalate.
-// E  the repo's CI flow with {"github":true}. Skipped in shadow mode unless
-//    mergePolicy.githubGateInShadow (it pushes a throwaway ci/<sha> branch).
-// F  shadow: write the would-be squash commit plan to the report. Never push.
+//   A-adversarial  the repo's adversarial review. Never given the intent.
+//   A-context      the repo's context review, given intentFile.
+//   B              the repo's local CI + the changelog rule; closes the gate.
+//   C-<n>          fix round n: one fix agent, formatter guard, then A again.
+//   D              fetch the base; rebased → A again, conflict → needs_human.
+//   E              GitHub gate. Skipped in shadow mode: no write token (cloud#5806 decision B, decided).
+//   F              shadow: the would-be squash plan goes into the state. Never push.
+//
+// Every run starts from a fresh clone of the pinned sha. Fix and rebase
+// commits are carried between runs in `<stateDir>/land.bundle`, never pushed.
+// The state file is the commit point: a run reaped before writing it reruns
+// the same stage from the same state; a rerun after it was written is a no-op
+// that reports the cursor again.
 //
 // Self-contained on purpose: Cloud submits an authored .flow.ts as one source
 // and refuses local imports (docs/CLOUD.md, "Current limits and scope").
@@ -47,7 +50,11 @@ export interface LandConfig {
   baseBranch: string;
   /** The `flows` CLI the repo's flows run under, repo-relative or on PATH. */
   flowsBin: string;
-  runner: { os: (typeof RUNNER_OS)[number]; arch: (typeof RUNNER_ARCH)[number]; commands: string[]; setup: string[] };
+  runner: {
+    os: (typeof RUNNER_OS)[number]; arch: (typeof RUNNER_ARCH)[number]; commands: string[]; setup: string[];
+    /** The longest a review, CI or fix step may run inside one hosted stage run (Cloud's ceiling is 40m). */
+    stageMinutes: number;
+  };
   changelog: (typeof CHANGELOG_RULES)[number];
   mergePolicy: {
     mode: (typeof MERGE_MODES)[number];
@@ -63,7 +70,7 @@ export interface LandConfig {
 export const LAND_CONFIG_DEFAULTS = {
   baseBranch: 'main',
   flowsBin: 'flows',
-  runner: { os: 'linux', arch: 'x64', commands: ['git', 'node'], setup: [] as string[] },
+  runner: { os: 'linux', arch: 'x64', commands: ['git', 'node'], setup: [] as string[], stageMinutes: 30 },
   changelog: 'optional',
   mergePolicy: {
     mode: 'shadow',
@@ -102,7 +109,7 @@ export function parseLandConfig(raw: unknown): LandConfig {
 
   const c = object(raw, '', ['$schema', 'reviewFlows', 'ciFlow', 'baseBranch', 'flowsBin', 'runner', 'changelog', 'mergePolicy', 'fixLoop', 'landRef']);
   const review = object(c.reviewFlows, '.reviewFlows', ['adversarial', 'context']);
-  const runner = object(c.runner ?? {}, '.runner', ['os', 'arch', 'commands', 'setup']);
+  const runner = object(c.runner ?? {}, '.runner', ['os', 'arch', 'commands', 'setup', 'stageMinutes']);
   const merge = object(c.mergePolicy ?? {}, '.mergePolicy', ['mode', 'githubGateInShadow', 'squashAuthor', 'approvalDropAfterCleanLandings']);
   const fix = object(c.fixLoop ?? {}, '.fixLoop', ['maxRounds', 'wallclockMinutes', 'harness', 'model']);
   const drop = merge.approvalDropAfterCleanLandings ?? D.mergePolicy.approvalDropAfterCleanLandings;
@@ -120,6 +127,7 @@ export function parseLandConfig(raw: unknown): LandConfig {
       arch: oneOf(runner.arch ?? D.runner.arch, '.runner.arch', RUNNER_ARCH),
       commands: words(runner.commands ?? D.runner.commands, '.runner.commands', /^[A-Za-z0-9_.+-]+$/),
       setup: words(runner.setup ?? D.runner.setup, '.runner.setup', /^[^\x00-\x1f\x7f]+$/),
+      stageMinutes: integer(runner.stageMinutes ?? D.runner.stageMinutes, '.runner.stageMinutes', 5, 35),
     },
     changelog: oneOf(c.changelog ?? D.changelog, '.changelog', CHANGELOG_RULES),
     mergePolicy: {
@@ -141,6 +149,8 @@ export function parseLandConfig(raw: unknown): LandConfig {
 // ---------------------------------------------------------------------- input
 
 export interface LandInput {
+  /** The one stage this hosted run executes; Cloud chains runs from the previous completion detail (proposed, pending cloud#5806 decision A). */
+  stage: string;
   repo: string;
   sha: string;
   baseBranch?: string;
@@ -151,8 +161,10 @@ export interface LandInput {
   stateDir: string;
   /** Inline config, or a repo-relative path read at the pinned sha. Default `land.config.json`. */
   config?: unknown;
-  /** Linked from an escalation; defaults to the report path. */
+  /** Linked from an escalation; defaults to the state file's path. */
   runUrl?: string;
+  /** The land ref (branch name) the change was pushed to. When given, each stage checks it still points at `sha`. */
+  ref?: string;
 }
 
 const STATE_PATH = /^\/(?!.*(?:^|\/)\.\.?(?:\/|$))[A-Za-z0-9_.\/-]+$/;
@@ -165,6 +177,7 @@ export function parseInput(input: LandInput) {
   };
   const stateDir = check(input.stateDir, 'stateDir', STATE_PATH).replace(/\/+$/, '');
   return {
+    stage: check(input.stage, 'stage', STAGE) as Stage,
     repo: check(input.repo, 'repo', /^[\w.-]+\/[\w.-]+$/),
     sha: check(input.sha, 'sha', /^[0-9a-f]{40}$/),
     baseBranch: input.baseBranch === undefined ? undefined : check(input.baseBranch, 'baseBranch', /^(?!-)(?!.*\.\.)[A-Za-z0-9_.\/-]+$/),
@@ -173,6 +186,7 @@ export function parseInput(input: LandInput) {
     stateDir,
     config: input.config ?? 'land.config.json',
     runUrl: input.runUrl === undefined ? undefined : check(input.runUrl, 'runUrl', /^https:\/\/[^\s]+$/),
+    ref: input.ref === undefined ? undefined : check(input.ref, 'ref', /^(?!-)(?!.*\.\.)[A-Za-z0-9_.\/-]+$/),
     runId: stateDir.split('/').pop()!,
   };
 }
@@ -307,9 +321,135 @@ export function squashPlan(p: { base: string; baseSha: string; headSha: string; 
   };
 }
 
+// ---------------------------------------------------------------- state machine
+
+export type Stage = 'A-adversarial' | 'A-context' | 'B' | `C-${number}` | 'D' | 'E' | 'F';
+export type Terminal = 'landed' | 'needs_human' | 'cancelled' | 'failed';
+const STAGE = /^(A-adversarial|A-context|B|C-[1-9][0-9]?|D|E|F)$/;
+export const STATE_VERSION = 1;
+export const MAX_REBASES = 3;
+
+export interface LandState {
+  version: typeof STATE_VERSION;
+  /** Bumped by every transition: an idempotency key for the stage that produced it. */
+  seq: number;
+  repo: string; pinnedSha: string; sessionId: string; runId: string; runUrl: string;
+  config: LandConfig;
+  /** The current land-ref sha: pinnedSha plus local fixups and rebases. */
+  headSha: string;
+  baseSha: string;
+  changeFiles: string[];
+  startedAt: number;
+  cursor: Stage | null;
+  terminal: { state: Terminal; detail: string } | null;
+  /** Fix rounds done. */
+  round: number;
+  rebases: number;
+  /** The open gate's lane results; cleared when a gate closes or the head changes. */
+  lanes: { adversarial?: Finding[]; context?: Finding[] };
+  /** Every closed gate's blocking finding ids, oldest first: the convergence input. */
+  history: string[][];
+  gates: Array<{ head: string; blocking: number; ids: string[] }>;
+  findings: Finding[];
+  log: string[];
+  escalation?: { reason: string; detail: string; message?: string };
+  squashPlan?: SquashPlan;
+}
+
+export type StageResult = { now: number } & (
+  | { kind: 'superseded'; refSha: string | null }
+  | { kind: 'review'; lane: 'adversarial' | 'context'; findings: Finding[] }
+  | { kind: 'ci'; findings: Finding[] }
+  | { kind: 'fix'; headSha: string; guard: { ok: boolean; detail: string } }
+  | { kind: 'rebase'; outcome: 'unchanged' | 'rebased' | 'conflict'; baseSha: string; headSha: string; detail?: string }
+  | { kind: 'github'; green: boolean; detail: string }
+  | { kind: 'merge'; plan: SquashPlan }
+);
+
+const KIND: Record<string, StageResult['kind']> = { 'A-adversarial': 'review', 'A-context': 'review', B: 'ci', D: 'rebase', E: 'github', F: 'merge' };
+
+export function initialState(p: Pick<LandState, 'repo' | 'pinnedSha' | 'sessionId' | 'runId' | 'runUrl' | 'config' | 'baseSha' | 'changeFiles' | 'startedAt'>): LandState {
+  return { version: STATE_VERSION, seq: 0, ...p, headSha: p.pinnedSha, cursor: 'A-adversarial', terminal: null, round: 0, rebases: 0, lanes: {}, history: [], gates: [], findings: [], log: [] };
+}
+
+/** Pure: the state after `state.cursor` produced `result`. Never mutates `state`. */
+export function nextLandStage(state: LandState, result: StageResult): LandState {
+  if (state.terminal || !state.cursor) throw new Error(`run is already ${state.terminal?.state}`);
+  const s: LandState = structuredClone(state);
+  s.seq++;
+  const at = state.cursor;
+  const end = (terminal: Terminal, detail: string): LandState => { s.cursor = null; s.terminal = { state: terminal, detail }; s.log.push(`${at}: ${terminal}`); return s; };
+  const escalate = (reason: string, detail: string): LandState => { s.escalation = { reason, detail }; return end('needs_human', detail); };
+  const regate = (head: string) => { s.headSha = head; s.lanes = {}; s.cursor = 'A-adversarial'; };
+  if (result.kind === 'superseded') return end('cancelled', `superseded: land ref now ${result.refSha ?? 'deleted'}, run pinned ${state.pinnedSha}`);
+  const want = at.startsWith('C-') ? 'fix' : KIND[at];
+  if (result.kind !== want) throw new Error(`stage ${at} cannot take a ${result.kind} result`);
+
+  const closeGate = (findings: Finding[]): LandState => {
+    const ids = findings.map(x => x.id);
+    s.history.push(ids); s.gates.push({ head: s.headSha, blocking: ids.length, ids }); s.findings = findings; s.lanes = {};
+    const decision = decideConvergence({ history: s.history, roundsDone: s.round, maxRounds: s.config.fixLoop.maxRounds, elapsedMs: result.now - s.startedAt, budgetMs: s.config.fixLoop.wallclockMinutes * 60_000 });
+    s.log.push(`${at}: gate ${s.gates.length} closed with ${ids.length} blocking`);
+    if (decision.action === 'proceed') { s.cursor = 'D'; return s; }
+    if (decision.action === 'fix') { s.cursor = `C-${s.round + 1}`; return s; }
+    const message = escalationMessage({ repo: s.repo, sha: s.pinnedSha, blockers: ids.length, rounds: s.round, runUrl: s.runUrl });
+    s.escalation = { reason: decision.reason, detail: decision.detail, message };
+    return end('needs_human', message);
+  };
+
+  switch (result.kind) {
+    case 'review':
+      s.lanes[result.lane] = result.findings;
+      s.cursor = result.lane === 'adversarial' ? 'A-context' : 'B';
+      return s;
+    case 'ci':
+      return closeGate([...s.lanes.adversarial ?? [], ...s.lanes.context ?? [], ...result.findings]);
+    case 'fix':
+      s.round = Number(at.slice(2));
+      if (!result.guard.ok) return escalate('formatter_guard', result.guard.detail);
+      s.log.push(`${at}: head ${result.headSha.slice(0, 7)}`);
+      regate(result.headSha);
+      return s;
+    case 'rebase':
+      if (result.outcome === 'conflict') return escalate('rebase_conflict', `${s.config.baseBranch} moved to ${result.baseSha.slice(0, 7)} and the change no longer rebases cleanly`);
+      if (result.outcome === 'unchanged') {
+        const skip = s.config.mergePolicy.mode === 'shadow' && !s.config.mergePolicy.githubGateInShadow;
+        if (skip) s.log.push('E: skipped in shadow mode');
+        s.cursor = skip ? 'F' : 'E';
+        return s;
+      }
+      if (++s.rebases > MAX_REBASES) return escalate('base_churn', `${s.config.baseBranch} moved ${s.rebases} times during the run`);
+      s.baseSha = result.baseSha;
+      s.log.push(`D: rebased onto ${result.baseSha.slice(0, 7)}`);
+      regate(result.headSha);
+      return s;
+    case 'github':
+      if (result.green) { s.cursor = 'F'; return s; }
+      return closeGate([{ id: 'ci:github', source: 'ci', severity: 'blocker', file: '', title: `GitHub CI red: ${result.detail.slice(-500)}` }]);
+    case 'merge':
+      s.squashPlan = result.plan;
+      return end('landed', `shadow: would land ${s.repo}@${result.plan.headSha.slice(0, 7)} on ${s.config.baseBranch} after ${s.round} fix round(s); not pushed`);
+  }
+}
+
+/** The completion detail Cloud chains on. */
+export function completionDetail(s: LandState, noop = false): string {
+  return JSON.stringify(s.terminal
+    ? { land: 'terminal', state: s.terminal.state, seq: s.seq, detail: s.terminal.detail }
+    : { land: 'next', stage: s.cursor, seq: s.seq, ...(noop ? { noop: true } : {}) });
+}
+
+export function parseState(raw: string): LandState | null {
+  const value = JSON.parse(raw);
+  if (value === null) return null;
+  if (value?.version !== STATE_VERSION) throw new NeedsHuman(`land-state.json version ${value?.version}; this flow reads ${STATE_VERSION}`);
+  if (typeof value.pinnedSha !== 'string' || typeof value.seq !== 'number' || !Array.isArray(value.history)) throw new NeedsHuman('land-state.json is malformed');
+  return { ...value, config: parseLandConfig(value.config) };
+}
+
 // ---------------------------------------------------------------------- steps
 
-const POLL_SECONDS = 780; // under f.run's 15-minute lease
+const POLL_SECONDS = 300;
 const LOCAL = 'git -c user.name=relay-land -c user.email=relay-land@localhost'; // sandbox-only commits; never pushed
 
 const now = async (f: Ctx): Promise<number> => {
@@ -318,209 +458,204 @@ const now = async (f: Ctx): Promise<number> => {
   return Number(raw);
 };
 
+/** Written to a temporary name and renamed, so a reaped run never leaves half a file. */
 const writeFile = (path: string, content: string): string =>
-  `printf %s ${shellWord(Buffer.from(content, 'utf8').toString('base64'))} | base64 -d > ${shellWord(path)}`;
+  `printf %s ${shellWord(Buffer.from(content, 'utf8').toString('base64'))} | base64 -d > ${shellWord(`${path}.tmp`)} && mv ${shellWord(`${path}.tmp`)} ${shellWord(path)}`;
 
-/** Run a long command detached and poll it in lease-sized steps (repo flows take up to 45m; GitHub CI ~150m). */
+/**
+ * A repo flow runs longer than one f.run lease (15m), so it runs detached
+ * inside this stage's sandbox and is polled in 5-minute steps, never past
+ * runner.stageMinutes. Nothing outlives the hosted run.
+ */
 export async function background(f: Ctx, dir: string, command: string, minutes: number): Promise<{ exitCode: number; tail: string }> {
   const exit = `${dir}/exit`;
   await f.run(`mkdir -p ${shellWord(dir)} && rm -f ${shellWord(exit)} && ` +
     `{ nohup sh -c ${shellWord(`${command}; echo $? > ${exit}.tmp && mv ${exit}.tmp ${exit}`)} > ${shellWord(`${dir}/log`)} 2>&1 < /dev/null & } && echo started`);
   for (let poll = 0; poll * POLL_SECONDS < minutes * 60; poll++) {
-    const out = (await f.run(`for i in $(seq 1 ${POLL_SECONDS}); do if [ -f ${shellWord(exit)} ]; then cat ${shellWord(exit)}; exit 0; fi; sleep 1; done; echo pending`, { timeout: '14m' })).trim();
-    if (out !== 'pending') {
-      const tail = await f.run(`tail -c 1500 ${shellWord(`${dir}/log`)}`);
-      return { exitCode: Number(out), tail };
-    }
+    const seconds = Math.min(POLL_SECONDS, minutes * 60 - poll * POLL_SECONDS);
+    const out = (await f.run(`for i in $(seq 1 ${seconds}); do if [ -f ${shellWord(exit)} ]; then cat ${shellWord(exit)}; exit 0; fi; sleep 1; done; echo pending`, { timeout: '6m' })).trim();
+    if (out !== 'pending') return { exitCode: Number(out), tail: await f.run(`tail -c 1500 ${shellWord(`${dir}/log`)}`) };
   }
-  throw new NeedsHuman(`${command.split(' --input')[0]} did not finish within ${minutes}m; log at ${dir}/log`);
+  throw new NeedsHuman(`${dir.split('/').pop()} did not finish within runner.stageMinutes (${minutes}m); log at ${dir}/log`);
 }
 
-interface Run {
-  input: ReturnType<typeof parseInput>;
-  config: LandConfig;
-  base: string;
-  root: string;
-  flowsState: string;
-}
+interface Run { input: ReturnType<typeof parseInput>; state: LandState; base: string; flowsState: string; dir: string }
 
 /** The nested `flows run` for a repo flow. Its journal and its state both live under stateDir. */
 export const repoFlowCommand = (r: Run, name: string, path: string, input: unknown): string =>
-  `RELAYFLOW_STATE_DIR=${shellWord(r.flowsState)} ${shellWord(r.config.flowsBin)} run --local-agent --no-observer-link ` +
+  `RELAYFLOW_STATE_DIR=${shellWord(r.flowsState)} ${shellWord(r.state.config.flowsBin)} run --local-agent --no-observer-link ` +
   `--data-dir ${shellWord(`${r.input.stateDir}/relayflowd/${name}`)} ${shellWord(path)} --input ${shellWord(JSON.stringify(input))}`;
-
-/** Wait for every lane before failing, so no journaled step is left in flight. */
-async function settleAll<T extends readonly unknown[]>(tasks: { [K in keyof T]: Promise<T[K]> }): Promise<T> {
-  const results = await Promise.allSettled(tasks);
-  const failed = results.find((x): x is PromiseRejectedResult => x.status === 'rejected');
-  if (failed) throw failed.reason;
-  return results.map(x => (x as PromiseFulfilledResult<unknown>).value) as unknown as T;
-}
 
 const stateName = (path: string): string => path.split('/').pop()!.replace(/\.flow\.(ts|ya?ml)$/, '');
 
-async function reviewFindings(f: Ctx, r: Run, source: string, path: string, out: string, run: { exitCode: number; tail: string }): Promise<Finding[]> {
+async function review(f: Ctx, r: Run, lane: 'adversarial' | 'context'): Promise<Finding[]> {
+  const path = r.state.config.reviewFlows[lane];
+  // The adversarial fleet never receives the intent: not as input, env or path.
+  const input = lane === 'context' ? { base: r.base, intentFile: r.input.intentFile } : { base: r.base };
+  const run = await background(f, `${r.dir}/${lane}`, repoFlowCommand(r, lane, path, input), r.state.config.runner.stageMinutes);
   const report = `${r.flowsState}/${stateName(path)}/report.json`;
-  const raw = await f.run(`if [ -f ${shellWord(report)} ]; then cp ${shellWord(report)} ${shellWord(`${out}.report.json`)} && ` +
+  const raw = await f.run(`if [ -f ${shellWord(report)} ]; then cp ${shellWord(report)} ${shellWord(`${r.dir}/${lane}.report.json`)} && ` +
     `node -e ${shellWord("const r=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));process.stdout.write(JSON.stringify({findings:(r.findings||[]).filter(x=>x.severity==='blocker'||x.severity==='major').slice(0,40).map(({severity,file,line,title})=>({severity,file,line,title:String(title).slice(0,200)}))}))")} ${shellWord(report)}; else echo '{}'; fi`);
   const parsed = JSON.parse(raw);
-  const found = parsed.findings ? blockingFindings(parsed, source) : [];
+  const found = parsed.findings ? blockingFindings(parsed, lane) : [];
   if (run.exitCode !== 0 && found.length === 0) {
-    return [{ id: `${source}:run-failed`, source, severity: 'blocker', file: '', title: `${source} ended red without a blocking finding: ${run.tail.slice(-300)}` }];
+    return [{ id: `${lane}:run-failed`, source: lane, severity: 'blocker', file: '', title: `${lane} ended red without a blocking finding: ${run.tail.slice(-300)}` }];
   }
   return found;
 }
 
-/** Stage A ∥ B, plus the changelog rule. Returns every blocking finding. */
-async function gates(f: Ctx, r: Run, label: string): Promise<Finding[]> {
-  const dir = `${r.input.stateDir}/rounds/${label}`;
-  const { adversarial, context } = r.config.reviewFlows;
-  type Exit = Awaited<ReturnType<typeof background>>;
-  const [adv, ctx, ci] = await settleAll<[Exit, Exit, Exit]>([
-    // The adversarial fleet never receives the intent: not as input, env or path.
-    background(f, `${dir}/adversarial`, repoFlowCommand(r, 'adversarial', adversarial, { base: r.base }), 50),
-    background(f, `${dir}/context`, repoFlowCommand(r, 'context', context, { base: r.base, intentFile: r.input.intentFile }), 50),
-    background(f, `${dir}/ci`, repoFlowCommand(r, 'ci', r.config.ciFlow, { base: r.base }), 60),
-  ]);
-  const findings = [
-    ...await reviewFindings(f, r, 'adversarial', adversarial, `${dir}/adversarial`, adv),
-    ...await reviewFindings(f, r, 'context', context, `${dir}/context`, ctx),
-  ];
-  if (ci.exitCode !== 0) findings.push({ id: 'ci:local', source: 'ci', severity: 'blocker', file: '', title: `local CI red; see ${r.flowsState}/${stateName(r.config.ciFlow)}/report.md` });
-  if (r.config.changelog === 'required') {
+async function localCi(f: Ctx, r: Run): Promise<Finding[]> {
+  const { ciFlow, changelog, runner } = r.state.config;
+  const ci = await background(f, `${r.dir}/ci`, repoFlowCommand(r, 'ci', ciFlow, { base: r.base }), runner.stageMinutes);
+  const findings: Finding[] = [];
+  if (ci.exitCode !== 0) findings.push({ id: 'ci:local', source: 'ci', severity: 'blocker', file: '', title: `local CI red; see ${r.flowsState}/${stateName(ciFlow)}/report.md` });
+  if (changelog === 'required') {
     const section = (rev: string) => `git show ${rev}:CHANGELOG.md 2>/dev/null | awk '/^## /{p=($0 ~ /^## [Uu]nreleased/)} p' | head -c 40000`;
     const before = await f.run(section(`$(git merge-base ${shellWord(r.base)} HEAD)`));
     const after = await f.run(section('HEAD'));
     if (!unreleasedBulletAdded(before, after)) findings.push({ id: 'changelog:unreleased', source: 'changelog', severity: 'blocker', file: 'CHANGELOG.md', title: 'changelog: required, but no new bullet under ## Unreleased' });
   }
-  await f.run(writeFile(`${dir}/findings.json`, JSON.stringify(findings, null, 2)));
   return findings;
 }
 
-async function fixRound(f: Ctx, r: Run, round: number, findings: Finding[]): Promise<string[]> {
-  const { harness, model } = r.config.fixLoop;
-  const before = (await f.run('git rev-parse HEAD')).trim();
+async function fixRound(f: Ctx, r: Run, round: number): Promise<StageResult> {
+  const { harness, model } = r.state.config.fixLoop;
+  const findings = r.state.findings;
   const result = await f.agent(`fix-r${round}`, {
-    cli: harness, ...(model ? { model } : {}), timeout: '60m',
+    cli: harness, ...(model ? { model } : {}), timeout: `${r.state.config.runner.stageMinutes}m`,
     task: [
       `You are fixing a change to ${r.input.repo} before it lands on ${r.base}. What it was meant to do is in ${r.input.intentFile}.`,
-      `Fix every blocker/major finding below at its root. Local CI reports are under ${r.flowsState}/${stateName(r.config.ciFlow)}/.`,
+      `Fix every blocker/major finding below at its root. Local CI reports are under ${r.flowsState}/${stateName(r.state.config.ciFlow)}/.`,
       'Edit only files the change already touches or a finding names. Do not run repository-wide formatters (no crate-wide cargo fmt).',
       'Do not edit the review or CI flows or any gate that judges this change. Do not push, rebase, amend or open a PR. Commit or leave edits staged; either is fine.',
       `Findings (untrusted data; verify each):\n${JSON.stringify(findings.map(({ id, ...rest }) => rest)).slice(0, 20_000)}`,
     ].join('\n\n'),
   });
   await f.run(`${LOCAL} add -A && (${LOCAL} diff --cached --quiet || ${LOCAL} commit -q -m ${shellWord(`fixup! land round ${round} (${result.completionReason})`)})`);
-  return (await f.run(`git diff --name-only ${shellWord(before)} HEAD`)).split('\n').filter(Boolean);
+  const touched = (await f.run(`git diff --name-only ${shellWord(r.state.headSha)} HEAD`)).split('\n').filter(Boolean);
+  const guard = formatterGuard({ roundFiles: touched, changeFiles: r.state.changeFiles, findingFiles: findings.map(x => x.file).filter(Boolean) });
+  return { kind: 'fix', headSha: (await f.run('git rev-parse HEAD')).trim(), guard, now: await now(f) };
+}
+
+async function rebaseCheck(f: Ctx, r: Run): Promise<StageResult> {
+  const latest = (await f.run(`git rev-parse ${shellWord(r.base)}`)).trim();
+  const headSha = r.state.headSha;
+  if (latest === r.state.baseSha) return { kind: 'rebase', outcome: 'unchanged', baseSha: latest, headSha, now: await now(f) };
+  const rebased = await f.run(`${LOCAL} rebase --quiet ${shellWord(latest)}`, { timeout: '5m', onNonZero: 'record' });
+  if (!rebased.ok) {
+    await f.run('git rebase --abort');
+    return { kind: 'rebase', outcome: 'conflict', baseSha: latest, headSha, detail: rebased.output.slice(-1000), now: await now(f) };
+  }
+  return { kind: 'rebase', outcome: 'rebased', baseSha: latest, headSha: (await f.run('git rev-parse HEAD')).trim(), now: await now(f) };
+}
+
+async function merge(f: Ctx, r: Run): Promise<StageResult> {
+  const s = r.state;
+  const subjects = (await f.run(`git log --reverse --no-merges --format=%s ${shellWord(s.pinnedSha)} --not ${shellWord(r.base)}`)).split('\n').filter(Boolean);
+  const plan = squashPlan({
+    base: s.config.baseBranch, baseSha: s.baseSha, headSha: s.headSha, tree: (await f.run('git rev-parse HEAD^{tree}')).trim(),
+    subjects, sessionId: s.sessionId, runId: s.runId, squashAuthor: s.config.mergePolicy.squashAuthor, fixRounds: s.round, harness: s.config.fixLoop.harness,
+  });
+  return { kind: 'merge', plan, now: await now(f) };
+}
+
+async function runStage(f: Ctx, r: Run): Promise<StageResult> {
+  const at = r.state.cursor!;
+  if (at === 'A-adversarial' || at === 'A-context') {
+    const lane = at === 'A-adversarial' ? 'adversarial' : 'context';
+    return { kind: 'review', lane, findings: await review(f, r, lane), now: await now(f) };
+  }
+  if (at === 'B') return { kind: 'ci', findings: await localCi(f, r), now: await now(f) };
+  if (at === 'D') return rebaseCheck(f, r);
+  if (at === 'E') {
+    const github = await background(f, `${r.dir}/github`, repoFlowCommand(r, 'ci-github', r.state.config.ciFlow, { base: r.base, github: true }), r.state.config.runner.stageMinutes);
+    return { kind: 'github', green: github.exitCode === 0, detail: github.tail, now: await now(f) };
+  }
+  if (at === 'F') return merge(f, r);
+  return fixRound(f, r, Number(at.slice(2)));
 }
 
 // ----------------------------------------------------------------------- body
 
-const MAX_REBASES = 3;
+const REASON: Record<Terminal, 'success' | 'needs_human' | 'canceled' | 'step_failed'> = { landed: 'success', needs_human: 'needs_human', cancelled: 'canceled', failed: 'step_failed' };
 
 export async function land(f: Ctx, raw: LandInput): Promise<void> {
-  let stateDir: string | undefined;
-  const report: Record<string, unknown> = { stages: [] as string[] };
-  const stage = (line: string) => (report.stages as string[]).push(line);
-  const finish = async (reason: 'success' | 'needs_human' | 'declined', detail: string) => {
-    report.verdict = reason; report.detail = detail;
-    if (stateDir) await f.run(writeFile(`${stateDir}/land-report.json`, JSON.stringify(report, null, 2)));
-    f.done(reason, { detail });
-  };
+  let stateFile: string | undefined;
+  let owned: LandState | undefined; // set once this run holds the cursor; a failure then becomes the run's verdict
   try {
     const input = parseInput(raw);
     const root = (await f.run('git rev-parse --show-toplevel')).trim();
     for (const [name, path] of [['stateDir', input.stateDir], ['intentFile', input.intentFile]] as const) {
       if (isInside(path, root)) throw new NeedsHuman(`${name} must be outside the checkout ${root}`);
     }
-    stateDir = input.stateDir;
-    await f.run(`mkdir -p ${shellWord(`${stateDir}/rounds`)} && test -s ${shellWord(input.intentFile)}`);
+    stateFile = `${input.stateDir}/land-state.json`;
+    await f.run(`mkdir -p ${shellWord(`${input.stateDir}/stages`)} && test -s ${shellWord(input.intentFile)}`);
     const head = (await f.run('git rev-parse HEAD')).trim();
     if (head !== input.sha) throw new NeedsHuman(`checkout is at ${head}, not the pinned ${input.sha}`);
     if ((await f.run('git status --porcelain')).trim()) throw new NeedsHuman('checkout is dirty; land runs on a fresh clone of the pinned sha');
-    const config = parseLandConfig(typeof input.config === 'string'
+
+    let state = parseState(await f.run(`cat ${shellWord(stateFile)} 2>/dev/null || echo null`));
+    if (state && (state.repo !== input.repo || state.pinnedSha !== input.sha || state.sessionId !== input.sessionId)) {
+      throw new NeedsHuman(`land-state.json belongs to ${state.repo}@${state.pinnedSha.slice(0, 7)} session ${state.sessionId}`);
+    }
+    if (!state && input.stage !== 'A-adversarial') throw new NeedsHuman(`no land-state.json under ${input.stateDir}; a run starts at A-adversarial`);
+    if (state?.terminal) return f.done(REASON[state.terminal.state], { detail: completionDetail(state) });
+    if (state && input.stage !== state.cursor) return f.done('success', { detail: completionDetail(state, true) });
+
+    const config = state?.config ?? parseLandConfig(typeof input.config === 'string'
       ? JSON.parse(await f.run(`git show ${shellWord(`${input.sha}:${input.config}`)}`)) : input.config);
     if (input.baseBranch && input.baseBranch !== config.baseBranch) throw new NeedsHuman(`input baseBranch ${input.baseBranch} disagrees with land.config ${config.baseBranch}`);
-    report.config = config;
-    if (config.mergePolicy.mode !== 'shadow') return await finish('declined', `mergePolicy.mode "${config.mergePolicy.mode}" is not implemented in phase 0-1; only shadow runs`);
+    if (config.mergePolicy.mode !== 'shadow') return f.done('declined', { detail: JSON.stringify({ land: 'declined', detail: `mergePolicy.mode "${config.mergePolicy.mode}" is not implemented in phase 0-1; only shadow runs` }) });
 
     const uname = (await f.run('uname -sm')).trim();
     const want = `${config.runner.os === 'linux' ? 'Linux' : 'Darwin'} ${config.runner.arch === 'x64' ? 'x86_64' : 'arm64'}`;
     if (uname.replace('aarch64', 'arm64') !== want) throw new NeedsHuman(`runner is ${uname}; land.config needs ${want}`);
     await f.run(config.runner.commands.map(c => `command -v ${shellWord(c)} >/dev/null`).join(' && ') || 'true');
+    const base = `origin/${config.baseBranch}`;
+    await f.run(`git fetch --no-tags --quiet origin ${shellWord(`+refs/heads/${config.baseBranch}:refs/remotes/${base}`)}`, { timeout: '5m' });
+
+    if (!state) {
+      const runUrl = input.runUrl ?? `file://${stateFile}`;
+      escalationMessage({ repo: input.repo, sha: input.sha, blockers: 999, rounds: 10, runUrl }); // refuse now a URL no escalation could carry
+      state = initialState({
+        repo: input.repo, pinnedSha: input.sha, sessionId: input.sessionId, runId: input.runId, runUrl, config,
+        baseSha: (await f.run(`git rev-parse ${shellWord(base)}`)).trim(),
+        changeFiles: (await f.run(`git diff --name-only "$(git merge-base ${shellWord(base)} HEAD)" HEAD`)).split('\n').filter(Boolean),
+        startedAt: await now(f),
+      });
+    }
+    owned = state;
+    if (input.ref) {
+      const refSha = (await f.run(`git ls-remote origin ${shellWord(`refs/heads/${input.ref}`)} | cut -f1`)).trim() || null;
+      if (refSha !== state.pinnedSha) return await save(f, stateFile, nextLandStage(state, { kind: 'superseded', refSha, now: await now(f) }));
+    }
+    if (state.headSha !== state.pinnedSha) {
+      const restored = (await f.run(`git fetch --quiet ${shellWord(`${input.stateDir}/land.bundle`)} HEAD && git checkout --quiet --detach FETCH_HEAD && git rev-parse HEAD`)).trim();
+      if (restored !== state.headSha) throw new NeedsHuman(`land.bundle holds ${restored}, state expects ${state.headSha}`);
+    }
     for (const setup of config.runner.setup) await f.run(setup, { timeout: '15m' });
     if ((await f.run('git status --porcelain')).trim()) throw new NeedsHuman('runner.setup left the checkout dirty; ignore its outputs in .gitignore');
 
-    const fetch = `git fetch --no-tags --quiet origin ${shellWord(config.baseBranch)} && git rev-parse FETCH_HEAD`;
-    let baseSha = (await f.run(fetch, { timeout: '5m' })).trim();
-    const r: Run = { input, config, base: `origin/${config.baseBranch}`, root, flowsState: `${stateDir}/flows` };
-    const changeFiles = (await f.run(`git diff --name-only "$(git merge-base ${shellWord(r.base)} HEAD)" HEAD`)).split('\n').filter(Boolean);
-    const start = await now(f);
-    const history: string[][] = [];
-    let rounds = 0, rebases = 0, gate = 0;
-    let findings = await gates(f, r, `gate-${gate++}`);
-    for (;;) {
-      history.push(findings.map(x => x.id));
-      stage(`gate ${history.length}: ${findings.length} blocking`);
-      const decision = decideConvergence({ history, roundsDone: rounds, maxRounds: config.fixLoop.maxRounds, elapsedMs: await now(f) - start, budgetMs: config.fixLoop.wallclockMinutes * 60_000 });
-      if (decision.action === 'escalate') {
-        const message = escalationMessage({ repo: input.repo, sha: input.sha, blockers: findings.length, rounds, runUrl: input.runUrl ?? `file://${stateDir}/land-report.json` });
-        report.escalation = { reason: decision.reason, detail: decision.detail, message, findings };
-        return await finish('needs_human', message);
-      }
-      if (decision.action === 'fix') {
-        rounds++;
-        const touched = await fixRound(f, r, rounds, findings);
-        const guard = formatterGuard({ roundFiles: touched, changeFiles, findingFiles: findings.map(x => x.file).filter(Boolean) });
-        stage(`fix round ${rounds}: ${touched.length} file(s) changed`);
-        if (!guard.ok) {
-          report.escalation = { reason: 'formatter_guard', detail: guard.detail, outside: guard.outside };
-          return await finish('needs_human', guard.detail);
-        }
-        findings = await gates(f, r, `gate-${gate++}`);
-        continue;
-      }
-      // D: rebase check.
-      const latest = (await f.run(fetch, { timeout: '5m' })).trim();
-      if (latest !== baseSha) {
-        const rebased = await f.run(`${LOCAL} rebase --quiet ${shellWord(latest)}`, { timeout: '5m', onNonZero: 'record' });
-        if (!rebased.ok) {
-          await f.run('git rebase --abort');
-          report.escalation = { reason: 'rebase_conflict', detail: rebased.output.slice(-1000) };
-          return await finish('needs_human', `${config.baseBranch} moved to ${latest.slice(0, 7)} and the change no longer rebases cleanly`);
-        }
-        if (++rebases > MAX_REBASES) return await finish('needs_human', `${config.baseBranch} moved ${rebases} times during the run`);
-        stage(`rebased onto ${latest.slice(0, 7)}`);
-        baseSha = latest;
-        findings = await gates(f, r, `gate-${gate++}`);
-        continue;
-      }
-      // E: GitHub gate.
-      if (config.mergePolicy.githubGateInShadow) {
-        const github = await background(f, `${stateDir}/rounds/github-${gate}`, repoFlowCommand(r, 'ci-github', config.ciFlow, { base: r.base, github: true }), 150);
-        stage(`github gate: exit ${github.exitCode}`);
-        if (github.exitCode !== 0) {
-          findings = [{ id: 'ci:github', source: 'ci', severity: 'blocker', file: '', title: `GitHub CI red: ${github.tail.slice(-500)}` }];
-          continue;
-        }
-      } else {
-        stage('github gate: skipped in shadow mode (mergePolicy.githubGateInShadow is false)');
-      }
-      // F: shadow merge — the plan only. Nothing is pushed.
-      const headSha = (await f.run('git rev-parse HEAD')).trim();
-      const subjects = (await f.run(`git log --reverse --no-merges --format=%s ${shellWord(baseSha)}..${shellWord(input.sha)}`)).split('\n').filter(Boolean);
-      report.squashPlan = squashPlan({
-        base: config.baseBranch, baseSha, headSha, tree: (await f.run('git rev-parse HEAD^{tree}')).trim(),
-        subjects, sessionId: input.sessionId, runId: input.runId,
-        squashAuthor: config.mergePolicy.squashAuthor, fixRounds: rounds, harness: config.fixLoop.harness,
-      });
-      report.landRef = config.landRef.replace('{sha7}', input.sha.slice(0, 7));
-      return await finish('success', `shadow: would land ${input.repo}@${headSha.slice(0, 7)} on ${config.baseBranch} after ${rounds} fix round(s); not pushed. Plan: ${stateDir}/land-report.json`);
+    const r: Run = { input, state, base, flowsState: `${input.stateDir}/flows`, dir: `${input.stateDir}/stages/${state.seq}-${state.cursor}` };
+    const next = nextLandStage(state, await runStage(f, r));
+    if (next.headSha !== state.headSha) {
+      const bundle = `${input.stateDir}/land.bundle`;
+      await f.run(`git bundle create --quiet ${shellWord(`${bundle}.tmp`)} HEAD --not ${shellWord(state.pinnedSha)} ${shellWord(base)} && mv ${shellWord(`${bundle}.tmp`)} ${shellWord(bundle)}`);
     }
+    return await save(f, stateFile, next);
   } catch (error) {
     if (!(error instanceof NeedsHuman || error instanceof SyntaxError)) throw error;
-    return await finish('needs_human', error.message);
+    if (!owned || !stateFile) return f.done('needs_human', { detail: JSON.stringify({ land: 'refused', detail: error.message }) });
+    const s: LandState = { ...structuredClone(owned), seq: owned.seq + 1, cursor: null, terminal: { state: 'needs_human', detail: error.message }, escalation: { reason: 'stage_error', detail: error.message } };
+    return await save(f, stateFile, s);
   }
 }
 
-export default flow<LandInput>('land', { version: '0.1.0', budget: { wallclock: '6h' } }, land);
+/** The state write is the stage's commit point; the completion detail repeats what it says. */
+async function save(f: Ctx, stateFile: string, s: LandState): Promise<void> {
+  await f.run(writeFile(stateFile, JSON.stringify(s, null, 2)));
+  f.done(s.terminal ? REASON[s.terminal.state] : 'success', { detail: completionDetail(s) });
+}
+
+// One stage per run (proposed, pending cloud#5806 decision A): the budget sits under Cloud's 40-minute run ceiling.
+export default flow<LandInput>('land', { version: '0.2.0', budget: { wallclock: '40m' } }, land);
