@@ -20,7 +20,7 @@ modules.
 flows run examples/land/land.flow.ts --input '{
   "repo": "AgentWorkforce/relay-desktop", "sha": "<40 hex>",
   "sessionId": "<session id>", "intentFile": "/runs/<runId>/intent.md",
-  "stateDir": "/runs/<runId>/state", "runUrl": "https://…/runs/<runId>"
+  "stateDir": "/runs/<runId>", "runUrl": "https://…/runs/<runId>"
 }'
 ```
 
