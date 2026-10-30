@@ -21,7 +21,7 @@ const MIN_SECRET_LENGTH = 8;
  * bearer, header and vendor shapes a gate render can carry.
  */
 const TOKEN_PATTERNS: readonly RegExp[] = [
-  /\b(?:at|rk|nt|ot|br|arr)_(?:live_)?[A-Za-z0-9_-]+/g,
+  /\b(?:at|rk|rt|nt|ot|br|arr)_(?:live_)?[A-Za-z0-9_-]+/g,
   /\bsk-[A-Za-z0-9_-]{16,}/g,
   /\bghp_[A-Za-z0-9]{20,}/g,
   /\bxox[abp]-[A-Za-z0-9-]+/g,

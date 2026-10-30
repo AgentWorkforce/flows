@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import type { FlowSpec, KernelRunSpec } from '../spec.js';
 import { communicationInstruction } from './spec.js';
+import { checkRunTokenFile, relayCredential } from './run-token.js';
 
 const require = createRequire(import.meta.url);
 export class CommunicationEnvironmentError extends Error {}
@@ -11,8 +12,12 @@ export class CommunicationEnvironmentError extends Error {}
 /** Local-only probes: no broker, workspace creation, or optional runtime import in this process. */
 export function checkCommunicationEnvironment(spec: FlowSpec | KernelRunSpec): void {
   if (!spec.steps.some(step => step.type === 'agent' && communicationInstruction(step.instruction))) return;
-  if (!process.env.RELAY_API_KEY?.trim().startsWith('rk_live_')) {
-    throw new CommunicationEnvironmentError('Agent communication requires RELAY_API_KEY for an existing workspace.');
+  // A run token file wins over RELAY_API_KEY; its value is validated, never logged.
+  try {
+    const credential = relayCredential();
+    if (credential.kind === 'run-token') checkRunTokenFile(credential.file);
+  } catch (error) {
+    throw new CommunicationEnvironmentError((error as Error).message);
   }
   let driverPath: string;
   try {
