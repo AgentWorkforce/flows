@@ -20,7 +20,9 @@ const blocker = (file: string, title: string): Raw => ({ severity: 'blocker', fi
 function world(over: {
   config?: unknown; head?: string; adversarial?: Raw[][]; context?: Raw[][]; ciRed?: number[];
   roundFiles?: string[][]; baseShas?: string[]; rebaseFails?: boolean; changelog?: [string, string]; refSha?: string;
+  home?: string; dir?: string;
 } = {}) {
+  const dir = over.dir ?? stateDir;
   const files = new Map<string, string>();
   const commands: string[][] = [];
   const launches: string[] = [];
@@ -44,13 +46,14 @@ function world(over: {
         if (command === 'git status --porcelain') return '';
         if (command === 'uname -sm') return 'Linux x86_64';
         if (command === 'node -p Date.now()') return String(tick += 60_000);
-        if (command.startsWith('cat ') && command.includes('land-state.json')) return files.get(stateFile) ?? 'null';
+        if (command === `printf '%s' "\${HOME:-}"`) return over.home ?? '';
+        if (command.startsWith('cat ') && command.includes('land-state.json')) return files.get(/^cat '([^']*)'/.exec(command)![1]!) ?? 'null';
         if (command.startsWith('git show ') && command.includes('land.config.json')) return JSON.stringify(over.config ?? config);
         if (command.startsWith('git show ') && command.includes('CHANGELOG.md')) return command.includes('merge-base') ? over.changelog?.[0] ?? '' : over.changelog?.[1] ?? '';
         if (command.startsWith('git fetch --no-tags --quiet origin')) { const list = over.baseShas ?? ['b'.repeat(40)]; baseRef = list[Math.min(fetches++, list.length - 1)]!; return ''; }
         if (command.startsWith('git ls-remote')) return over.refSha ?? sha;
-        if (command.startsWith('git fetch --quiet ') && command.includes('land.bundle')) { head = files.get(`${stateDir}/land.bundle`)!; return head; }
-        if (command.startsWith('git bundle create')) { files.set(`${stateDir}/land.bundle`, head); return ''; }
+        if (command.startsWith('git fetch --quiet ') && command.includes('land.bundle')) { head = files.get(/'([^']*land\.bundle)'/.exec(command)![1]!)!; return head; }
+        if (command.startsWith('git bundle create')) { files.set(/'([^']*land\.bundle)\.tmp'/.exec(command)![1]!, head); return ''; }
         if (command.startsWith('git diff --name-only "$(git merge-base')) return 'probe/src/relay/agents.rs\nCHANGELOG.md';
         if (command.startsWith('git diff --name-only ')) return (over.roundFiles ?? [])[agents.length - 1]?.join('\n') ?? 'probe/src/relay/agents.rs';
         if (command.startsWith('git log --reverse')) return 'feat: upload policy gates relay auto-activation\nfix: review findings';
@@ -100,7 +103,7 @@ function world(over: {
     }
     throw new Error('did not terminate');
   };
-  const state = () => JSON.parse(files.get(stateFile) ?? 'null');
+  const state = () => JSON.parse(files.get(`${dir}/land-state.json`) ?? 'null');
   return { invoke, drive, state, files, commands, launches, agents, done };
 }
 
@@ -331,4 +334,89 @@ test('runId: a stage invoked with another run id is refused and leaves the state
   assert.match(wrong.detail.detail as string, /belongs to run lr_a{32}/);
   assert.equal(w.state().cursor, 'A-context');
   assert.equal(w.state().seq, 1);
+});
+
+const HOME = '/home/agent';
+const homeInput = { stateDir: '$HOME/land-runs/run-1', intentFile: '$HOME/land-runs/run-1/intent/intent.md' };
+
+test('$HOME paths: expanded from the run\'s own HOME, read once per run through a journaled step', async () => {
+  const dir = `${HOME}/land-runs/run-1`;
+  const w = world({ home: HOME, dir });
+  const { stages, result } = await w.drive(homeInput);
+  assert.deepEqual(stages, ['A-adversarial', 'A-context', 'B', 'D', 'E', 'F']);
+  assert.equal(result.detail.state, 'landed');
+  assert.equal(w.state().runId, 'run-1');
+  for (const path of w.files.keys()) assert.ok(path.startsWith(`${dir}/`), path);
+  for (const run of w.commands) assert.equal(run.filter(c => c.includes('${HOME')).length, 1, 'HOME read exactly once per stage run');
+  for (const c of w.commands.flat()) assert.ok(!c.includes('$HOME/'), `unexpanded: ${c}`);
+  const context = w.launches.find(c => c.includes('context-review.flow.ts'))!;
+  assert.ok(context.includes(`"intentFile":"${dir}/intent/intent.md"`));
+  assert.ok(w.launches.find(c => c.includes('adversarial-review.flow.ts'))!.includes(`RELAYFLOW_STATE_DIR='\\''${dir}/flows'\\''`));
+  assert.ok(w.launches.every(c => c.includes(`--data-dir '\\''${dir}/relayflowd/`)));
+  assert.ok(!w.launches.find(c => c.includes('adversarial-review.flow.ts'))!.includes('intent'));
+});
+
+test('$HOME paths: a trailing slash on HOME is normalized', async () => {
+  const w = world({ home: `${HOME}/`, dir: `${HOME}/land-runs/run-1` });
+  assert.equal((await w.invoke('A-adversarial', homeInput)).detail.stage, 'A-context');
+  assert.ok(w.state());
+});
+
+test('$HOME paths: absolute paths never read HOME', async () => {
+  const w = world({ home: HOME });
+  await w.drive();
+  assert.ok(w.commands.flat().every(c => !c.includes('${HOME')));
+});
+
+test('$HOME paths: refused when HOME is unset, relative, or unsafe', async () => {
+  for (const [home, message] of [
+    ['', /HOME must be set to an absolute path to expand \$HOME\/land-runs\/run-1; got ""/],
+    ['home/agent', /HOME must be set to an absolute path/],
+    ['/', /HOME must be set to an absolute path/],
+    ['/home/../root', /HOME must be set to an absolute path/],
+    ['/../root', /HOME must be set to an absolute path/],
+    ['/home/a b', /HOME must be set to an absolute path/],
+  ] as const) {
+    const w = world({ home });
+    const result = await w.invoke('A-adversarial', homeInput);
+    assert.equal(result.detail.land, 'refused', home);
+    assert.match(result.detail.detail as string, message);
+    assert.equal(w.launches.length, 0);
+    assert.equal(w.files.size, 0, 'nothing written');
+  }
+});
+
+test('$HOME paths: only the exact $HOME/ prefix; no other variable, form or .. segment', async () => {
+  for (const stateDir of ['$USER/land-runs/run-1', '${HOME}/land-runs/run-1', '$HOMEDIR/run-1', '~/land-runs/run-1',
+    '$HOME/../etc/run-1', '$HOME/land-runs/./run-1', '$HOME/a/$HOME/run-1', '$HOME', 'land-runs/run-1', '/runs/$HOME/run-1']) {
+    const w = world({ home: HOME });
+    const result = await w.invoke('A-adversarial', { ...homeInput, stateDir, runId: 'run-1' });
+    assert.equal(result.detail.land, 'refused', stateDir);
+    assert.match(result.detail.detail as string, /stateDir must match/, stateDir);
+    assert.ok(w.commands.flat().every(c => !c.includes('${HOME')), 'refused before HOME is read');
+  }
+  const intent = world({ home: HOME });
+  const bad = await intent.invoke('A-adversarial', { ...homeInput, intentFile: '$PWD/intent.md' });
+  assert.match(bad.detail.detail as string, /intentFile must match/);
+});
+
+test('$HOME paths: the outside-checkout check runs on the expanded path', async () => {
+  const w = world({ home: '/runs/run-1/repo' });
+  const result = await w.invoke('A-adversarial', homeInput);
+  assert.equal(result.detail.land, 'refused');
+  assert.match(result.detail.detail as string, /stateDir must be outside the checkout \/runs\/run-1\/repo/);
+  const intent = world({ home: '/runs/run-1/repo' });
+  const r2 = await intent.invoke('A-adversarial', { stateDir, intentFile: '$HOME/intent.md' });
+  assert.match(r2.detail.detail as string, /intentFile must be outside the checkout/);
+});
+
+test('absolute paths: a . or .. in any segment is refused, including the first (/../x)', async () => {
+  for (const stateDir of ['/../etc/run-1', '/runs/../etc/run-1', '/./runs/run-1', '/runs/run-1/..']) {
+    const w = world();
+    const result = await w.invoke('A-adversarial', { stateDir, runId: 'run-1' });
+    assert.equal(result.detail.land, 'refused', stateDir);
+    assert.match(result.detail.detail as string, /stateDir must match/, stateDir);
+  }
+  const w = world();
+  assert.match((await w.invoke('A-adversarial', { intentFile: '/../intent.md' })).detail.detail as string, /intentFile must match/);
 });

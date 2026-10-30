@@ -11,7 +11,10 @@
 //
 //   flows run examples/land/land.flow.ts --input '{"stage":"A-adversarial","runId":"lr_<32 hex>",
 //     "repo":"owner/name","sha":"<40 hex>","sessionId":"<id>",
-//     "intentFile":"/runs/<runId>/intent/intent.md","stateDir":"/runs/<runId>"}'
+//     "intentFile":"$HOME/land-runs/<runId>/intent/intent.md","stateDir":"$HOME/land-runs/<runId>"}'
+//
+// stateDir and intentFile are absolute, or start with the literal `$HOME/`
+// (hosted sandboxes cannot write /runs), expanded from the run's own HOME.
 //   → {"land":"next","runId":"lr_…","stage":"A-context","seq":1}
 //
 //   A-adversarial  the repo's adversarial review. Never given the intent.
@@ -171,7 +174,23 @@ export interface LandInput {
 }
 
 const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
-const STATE_PATH = /^\/(?!.*(?:^|\/)\.\.?(?:\/|$))[A-Za-z0-9_.\/-]+$/;
+// The no-`.`/`..` lookahead sits at position 0 so it also sees the first segment (`/../x`).
+const STATE_PATH = /^(?!.*(?:^|\/)\.\.?(?:\/|$))\/[A-Za-z0-9_.\/-]+$/;
+/** An absolute path, or exactly `$HOME/` + a relative path: no other variable, no `.`/`..` segment. */
+const INPUT_PATH = /^(?!.*(?:^|\/)\.\.?(?:\/|$))(?:\/|\$HOME\/)[A-Za-z0-9_.\/-]+$/;
+export const HOME_PREFIX = '$HOME/';
+
+/**
+ * Hosted sandboxes cannot write /runs, so Cloud passes `$HOME/land-runs/<runId>`.
+ * Only that literal prefix expands, against the HOME the run itself observed.
+ */
+export function expandHome(path: string, home: string | undefined): string {
+  if (!path.startsWith(HOME_PREFIX)) return path;
+  if (!home || !STATE_PATH.test(home.replace(/\/+$/, ''))) throw new NeedsHuman(`HOME must be set to an absolute path to expand ${path}; got ${JSON.stringify(home ?? '')}`);
+  const expanded = `${home.replace(/\/+$/, '')}/${path.slice(HOME_PREFIX.length)}`;
+  if (!STATE_PATH.test(expanded)) throw new NeedsHuman(`${path} does not expand to a safe absolute path`);
+  return expanded;
+}
 
 export function parseInput(input: LandInput) {
   if (!input || typeof input !== 'object') throw new NeedsHuman('input must be an object');
@@ -179,14 +198,14 @@ export function parseInput(input: LandInput) {
     if (typeof value !== 'string' || !pattern.test(value)) throw new NeedsHuman(`${name} must match ${pattern}`);
     return value;
   };
-  const stateDir = check(input.stateDir, 'stateDir', STATE_PATH).replace(/\/+$/, '');
+  const stateDir = check(input.stateDir, 'stateDir', INPUT_PATH).replace(/\/+$/, '');
   return {
     stage: check(input.stage, 'stage', STAGE) as Stage,
     repo: check(input.repo, 'repo', /^[\w.-]+\/[\w.-]+$/),
     sha: check(input.sha, 'sha', /^[0-9a-f]{40}$/),
     baseBranch: input.baseBranch === undefined ? undefined : check(input.baseBranch, 'baseBranch', /^(?!-)(?!.*\.\.)[A-Za-z0-9_.\/-]+$/),
     sessionId: check(input.sessionId, 'sessionId', /^[A-Za-z0-9_.:-]{1,128}$/),
-    intentFile: check(input.intentFile, 'intentFile', STATE_PATH),
+    intentFile: check(input.intentFile, 'intentFile', INPUT_PATH),
     stateDir,
     config: input.config ?? 'land.config.json',
     runUrl: input.runUrl === undefined ? undefined : check(input.runUrl, 'runUrl', /^https:\/\/[^\s]+$/),
@@ -591,7 +610,12 @@ export async function land(f: Ctx, raw: LandInput): Promise<void> {
   let stateFile: string | undefined;
   let owned: LandState | undefined; // set once this run holds the cursor; a failure then becomes the run's verdict
   try {
-    const input = parseInput(raw);
+    const parsed = parseInput(raw);
+    // HOME is read through a journaled step, once per stage run, and only when
+    // a path needs it: replay and resume see the value this run observed.
+    const home = [parsed.stateDir, parsed.intentFile].some(p => p.startsWith(HOME_PREFIX))
+      ? await f.run(`printf '%s' "\${HOME:-}"`) : undefined;
+    const input = { ...parsed, stateDir: expandHome(parsed.stateDir, home), intentFile: expandHome(parsed.intentFile, home) };
     const root = (await f.run('git rev-parse --show-toplevel')).trim();
     for (const [name, path] of [['stateDir', input.stateDir], ['intentFile', input.intentFile]] as const) {
       if (isInside(path, root)) throw new NeedsHuman(`${name} must be outside the checkout ${root}`);

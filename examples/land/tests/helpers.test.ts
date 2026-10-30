@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   decideConvergence, escalationMessage, ESCALATION_MAX_BYTES, findingId, blockingFindings,
-  formatterGuard, unreleasedBulletAdded, isInside, squashPlan,
+  formatterGuard, unreleasedBulletAdded, isInside, squashPlan, expandHome,
 } from '../land.flow.ts';
 
 const decide = (history: string[][], over: Partial<Parameters<typeof decideConvergence>[0]> = {}) =>
@@ -136,4 +136,13 @@ test('squash plan carries the trailers and is never marked pushed', () => {
   assert.equal(plan.pushed, false);
   assert.match(plan.author, /PLACEHOLDER pending decision \(cloud#5806 Q3\)/);
   assert.deepEqual(plan.coAuthors, ['<session agent>', '<fix agent: claude>']);
+});
+
+test('expandHome: only the literal $HOME/ prefix, against an absolute HOME', () => {
+  assert.equal(expandHome('$HOME/land-runs/lr_1', '/home/agent'), '/home/agent/land-runs/lr_1');
+  assert.equal(expandHome('$HOME/land-runs/lr_1', '/home/agent/'), '/home/agent/land-runs/lr_1');
+  assert.equal(expandHome('/runs/lr_1', undefined), '/runs/lr_1', 'absolute paths pass through without HOME');
+  for (const home of [undefined, '', 'home/agent', '/', '/../root', '/home/../x', '/home/./x', '/home/a b']) {
+    assert.throws(() => expandHome('$HOME/x', home), /HOME must be set to an absolute path/, String(home));
+  }
 });

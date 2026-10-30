@@ -27,8 +27,8 @@ completion detail. Cloud's land queue chains the next run from that detail:
 ```sh
 flows run examples/land/land.flow.ts --input '{
   "stage": "A-adversarial", "runId": "lr_<32 hex>", "repo": "AgentWorkforce/relay-desktop", "sha": "<40 hex>",
-  "sessionId": "<session id>", "intentFile": "/runs/<runId>/intent/intent.md",
-  "stateDir": "/runs/<runId>", "runUrl": "https://…/runs/<runId>", "ref": "land/<user>/<sha7>"
+  "sessionId": "<session id>", "intentFile": "$HOME/land-runs/<runId>/intent/intent.md",
+  "stateDir": "$HOME/land-runs/<runId>", "runUrl": "https://…/runs/<runId>", "ref": "land/<user>/<sha7>"
 }'
 # completion detail: {"land":"next","runId":"lr_…","stage":"A-context","seq":1}
 #               or:  {"land":"terminal","runId":"lr_…","state":"needs_human","seq":7,"detail":"Land relay-desktop@abc1234 stuck: …"}
@@ -43,12 +43,30 @@ Run it from a fresh clone of the repository, checked out at `sha`.
 | `sha` | the pinned 40-hex commit; the checkout's `HEAD` must equal it and be clean |
 | `baseBranch` | optional; must agree with `land.config.json` |
 | `sessionId` | goes into the `Relay-Session:` trailer |
-| `intentFile` | absolute, outside the checkout; given to context review and the fix agent only |
-| `stateDir` | absolute, outside the checkout, persisted between stage runs; every byte the run writes |
+| `intentFile` | absolute or `$HOME/…`, outside the checkout; given to context review and the fix agent only |
+| `stateDir` | absolute or `$HOME/…`, outside the checkout, persisted between stage runs; every byte the run writes |
 | `runId` | Cloud's land run id (`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`, e.g. `lr_<32 hex>`): the `Land-Run:` trailer and every completion detail. It must match the state's. Absent for local use: the last segment of `stateDir` |
 | `config` | inline config, or a repo-relative path read with `git show <sha>:<path>` at the first stage; default `land.config.json` |
 | `runUrl` | optional `https://` link for the escalation message |
 | `ref` | optional land ref (branch name); each stage checks it still points at `sha` |
+
+**`$HOME/` paths.** Hosted sandboxes can't write `/runs`: it is root-owned
+on every provider, and there is no sudo. So Cloud passes
+`stateDir: "$HOME/land-runs/<runId>"` and
+`intentFile: "$HOME/land-runs/<runId>/intent/intent.md"`, with a literal
+`$HOME/` prefix.
+
+- **Allowed forms:** `stateDir` and `intentFile` must each be either an
+  absolute path or exactly `$HOME/` followed by a relative path.
+- **Refused:** any other variable (`$USER`, `${HOME}`, `$HOMEDIR`, `~`) and
+  any `.` or `..` segment.
+- **Expansion:** the prefix expands against the HOME the stage run itself
+  observes. HOME is read once per run through a journaled command step, so
+  resume and replay see the recorded value. The read happens only when a path
+  uses the prefix.
+- **HOME refusals:** the run is refused if HOME is unset or not absolute, or
+  if it would produce a `.` or `..` segment.
+- **Checkout check:** the outside-checkout check runs on the expanded path.
 
 | Stage | One hosted run does | Next |
 | --- | --- | --- |
