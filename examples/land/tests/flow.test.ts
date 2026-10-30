@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Ctx, AgentOptions } from '@relayflows/surface';
-import { land, type LandInput } from '../land.flow.ts';
+import { land, UNSHALLOW_IF_SHALLOW, type LandInput } from '../land.flow.ts';
 
 const sha = 'a'.repeat(40);
 const root = '/runs/run-1/repo';
@@ -45,12 +45,12 @@ function world(over: {
         if (command === "git rev-parse 'origin/main'") return baseRef;
         if (command === 'git status --porcelain') return '';
         if (command === 'uname -sm') return 'Linux x86_64';
-        if (command === 'node -p Date.now()') return String(tick += 60_000);
+        if (command === 'node -p "Date.now()"') return String(tick += 60_000);
         if (command === `printf '%s' "\${HOME:-}"`) return over.home ?? '';
         if (command.startsWith('cat ') && command.includes('land-state.json')) return files.get(/^cat '([^']*)'/.exec(command)![1]!) ?? 'null';
         if (command.startsWith('git show ') && command.includes('land.config.json')) return JSON.stringify(over.config ?? config);
         if (command.startsWith('git show ') && command.includes('CHANGELOG.md')) return command.includes('merge-base') ? over.changelog?.[0] ?? '' : over.changelog?.[1] ?? '';
-        if (command.startsWith('git fetch --no-tags --quiet origin')) { const list = over.baseShas ?? ['b'.repeat(40)]; baseRef = list[Math.min(fetches++, list.length - 1)]!; return ''; }
+        if (command.startsWith(`git fetch --no-tags --quiet ${UNSHALLOW_IF_SHALLOW} origin `)) { const list = over.baseShas ?? ['b'.repeat(40)]; baseRef = list[Math.min(fetches++, list.length - 1)]!; return ''; }
         if (command.startsWith('git ls-remote')) return over.refSha ?? sha;
         if (command.startsWith('git fetch --quiet ') && command.includes('land.bundle')) { head = files.get(/'([^']*land\.bundle)'/.exec(command)![1]!)!; return head; }
         if (command.startsWith('git bundle create')) { files.set(/'([^']*land\.bundle)\.tmp'/.exec(command)![1]!, head); return ''; }
@@ -419,4 +419,20 @@ test('absolute paths: a . or .. in any segment is refused, including the first (
   }
   const w = world();
   assert.match((await w.invoke('A-adversarial', { intentFile: '/../intent.md' })).detail.detail as string, /intentFile must match/);
+});
+
+test('the base fetch deepens a shallow checkout and names only the base refspec', async () => {
+  // A deleted land ref must not fail the fetch before supersession: no bare
+  // `git fetch origin`, and the unshallow rides on the explicit base refspec.
+  assert.equal(UNSHALLOW_IF_SHALLOW, '$([ "$(git rev-parse --is-shallow-repository)" = true ] && echo --unshallow)');
+  const { execFileSync } = await import('node:child_process');
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const sh = (cwd: string, script: string) => execFileSync('sh', ['-c', script], { cwd, encoding: 'utf8' }).trim();
+  const root = mkdtempSync(join(tmpdir(), 'land-unshallow-'));
+  sh(root, 'git init -q -b main src && cd src && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m a && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m b');
+  sh(root, `git clone -q --depth 1 file://${root}/src shallow && git clone -q file://${root}/src full`);
+  assert.equal(sh(join(root, 'shallow'), `echo ${UNSHALLOW_IF_SHALLOW}`), '--unshallow');
+  assert.equal(sh(join(root, 'full'), `echo ${UNSHALLOW_IF_SHALLOW}`), '');
 });

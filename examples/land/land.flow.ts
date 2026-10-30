@@ -489,6 +489,9 @@ const now = async (f: Ctx): Promise<number> => {
 };
 
 /** Written to a temporary name and renamed, so a reaped run never leaves half a file. */
+/** `--unshallow` when the checkout is shallow, else nothing (POSIX sh). */
+export const UNSHALLOW_IF_SHALLOW = '$([ "$(git rev-parse --is-shallow-repository)" = true ] && echo --unshallow)';
+
 const writeFile = (path: string, content: string): string =>
   `printf %s ${shellWord(Buffer.from(content, 'utf8').toString('base64'))} | base64 -d > ${shellWord(`${path}.tmp`)} && mv ${shellWord(`${path}.tmp`)} ${shellWord(path)}`;
 
@@ -644,10 +647,11 @@ export async function land(f: Ctx, raw: LandInput): Promise<void> {
     if (uname.replace('aarch64', 'arm64') !== want) throw new NeedsHuman(`runner is ${uname}; land.config needs ${want}`);
     await f.run(config.runner.commands.map(c => `command -v ${shellWord(c)} >/dev/null`).join(' && ') || 'true');
     const base = `origin/${config.baseBranch}`;
-    // Hosted runs clone the land ref shallow; merge-base against the base
-    // needs the shared history, so a shallow checkout is deepened first.
-    await f.run('if [ "$(git rev-parse --is-shallow-repository)" = true ]; then git fetch --no-tags --quiet --unshallow origin; fi', { timeout: '10m' });
-    await f.run(`git fetch --no-tags --quiet origin ${shellWord(`+refs/heads/${config.baseBranch}:refs/remotes/${base}`)}`, { timeout: '5m' });
+    // Hosted runs clone the land ref shallow, and merge-base against the base
+    // needs the shared history: the base fetch also deepens a shallow
+    // checkout. It names only the base refspec, so a deleted land ref cannot
+    // fail it before the supersession check below.
+    await f.run(`git fetch --no-tags --quiet ${UNSHALLOW_IF_SHALLOW} origin ${shellWord(`+refs/heads/${config.baseBranch}:refs/remotes/${base}`)}`, { timeout: '10m' });
 
     if (!state) {
       const runUrl = input.runUrl ?? `file://${stateFile}`;
