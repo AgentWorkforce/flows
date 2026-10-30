@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schema.relayflows.dev/v0.1/land.config.schema.json",
+  "title": "land.config.json",
+  "description": "Per-repository configuration for examples/land/land.flow.ts (AgentWorkforce/cloud#5806 §5). parseLandConfig in land.flow.ts is the runtime validator and the authority; tests/config.test.ts pins this schema to it. Defaults marked PLACEHOLDER are pending Khaliq's decisions in cloud#5806 §15, not decisions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reviewFlows", "ciFlow"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "reviewFlows": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adversarial", "context"],
+      "properties": {
+        "adversarial": { "$ref": "#/$defs/repoPath", "description": "Cold-code review flow. Never receives the session intent." },
+        "context": { "$ref": "#/$defs/repoPath", "description": "Intent-aware review flow. Receives intentFile." }
+      }
+    },
+    "ciFlow": { "$ref": "#/$defs/repoPath", "description": "Local CI flow; also run with {\"github\":true} as the final gate." },
+    "baseBranch": { "type": "string", "pattern": "^(?!-)(?!.*\\.\\.)[A-Za-z0-9_./-]+$", "default": "main" },
+    "flowsBin": { "$ref": "#/$defs/repoPath", "default": "flows", "description": "The flows CLI the repository's flows run under (repo-relative, or a name on PATH)." },
+    "runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "os": { "enum": ["linux", "macos"], "default": "linux" },
+        "arch": { "enum": ["x64", "arm64"], "default": "x64" },
+        "commands": { "type": "array", "items": { "type": "string", "pattern": "^[A-Za-z0-9_.+-]+$" }, "default": ["git", "node"], "description": "Commands that must be on PATH." },
+        "setup": { "type": "array", "items": { "type": "string", "pattern": "^[^\\u0000-\\u001f\\u007f]+$" }, "default": [], "description": "Shell commands run in the fresh checkout at the start of every stage run; must leave it clean." },
+        "stageMinutes": { "type": "integer", "minimum": 5, "maximum": 35, "default": 30, "description": "Longest a review, CI or fix step may run inside one hosted stage run; Cloud's run ceiling is 40 minutes." }
+      }
+    },
+    "changelog": { "enum": ["required", "optional"], "default": "optional", "description": "required: the change must add a bullet under ## Unreleased in CHANGELOG.md." },
+    "mergePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["shadow", "approval", "auto"], "default": "shadow", "description": "Phase 0-1 implements shadow only; approval and auto are refused." },
+        "squashAuthor": { "enum": ["session-human", "agent-with-human-coauthor"], "default": "session-human", "description": "PLACEHOLDER pending decision (cloud#5806 Q3)." },
+        "approvalDropAfterCleanLandings": { "type": ["integer", "null"], "minimum": 1, "maximum": 1000, "default": null, "description": "PLACEHOLDER pending decision (cloud#5806 Q6)." }
+      }
+    },
+    "fixLoop": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxRounds": { "type": "integer", "minimum": 1, "maximum": 10, "default": 4, "description": "PLACEHOLDER pending decision (cloud#5806 Q2)." },
+        "wallclockMinutes": { "type": "integer", "minimum": 10, "maximum": 720, "default": 180, "description": "PLACEHOLDER pending decision (cloud#5806 Q2)." },
+        "harness": { "enum": ["claude", "codex"], "default": "claude" },
+        "model": { "type": "string", "pattern": "^[A-Za-z0-9_.:@/-]+$", "description": "PLACEHOLDER pending decision (cloud#5806 Q2). Unset: the harness's own default." }
+      }
+    },
+    "landRef": { "type": "string", "pattern": "^(?=.*\\{sha7\\})[A-Za-z0-9_./{}-]+$", "default": "land/{user}/{sha7}", "description": "PLACEHOLDER pending decision (cloud#5806 Q5). Reported only; the CLI pushes the ref." }
+  },
+  "$defs": {
+    "repoPath": { "type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))[A-Za-z0-9_./-]+$" }
+  }
+}
