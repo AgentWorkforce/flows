@@ -644,6 +644,9 @@ export async function land(f: Ctx, raw: LandInput): Promise<void> {
     if (uname.replace('aarch64', 'arm64') !== want) throw new NeedsHuman(`runner is ${uname}; land.config needs ${want}`);
     await f.run(config.runner.commands.map(c => `command -v ${shellWord(c)} >/dev/null`).join(' && ') || 'true');
     const base = `origin/${config.baseBranch}`;
+    // Hosted runs clone the land ref shallow; merge-base against the base
+    // needs the shared history, so a shallow checkout is deepened first.
+    await f.run('if [ "$(git rev-parse --is-shallow-repository)" = true ]; then git fetch --no-tags --quiet --unshallow origin; fi', { timeout: '10m' });
     await f.run(`git fetch --no-tags --quiet origin ${shellWord(`+refs/heads/${config.baseBranch}:refs/remotes/${base}`)}`, { timeout: '5m' });
 
     if (!state) {
