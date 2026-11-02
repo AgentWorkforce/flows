@@ -67,6 +67,14 @@ TMPDIR=/Users/khaliqgant/.cache/devin-harness/tmp node node_modules/vitest/vites
       Tests  102 passed (102)
    Start at  12:18:04
    Duration  6.41s (transform 988ms, setup 30ms, collect 2.71s, tests 7.06s, environment 0ms, prepare 137ms)
+
+> @relayflows/sdk@2.0.55 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+
+> @relayflows/sdk@2.0.55 typecheck:tests
+> tsc -p tsconfig.tests.json
+
 ```
 
 The actual replacement workspace CLI token has not been tested by this session. No secret was created, replaced, or printed.
@@ -96,4 +104,12 @@ Do the task 339ms
       Tests  84 passed (84)
    Start at  12:46:04
    Duration  2.89s (transform 911ms, setup 20ms, collect 1.78s, tests 2.17s, environment 0ms, prepare 110ms)
+
+> @relayflows/sdk@2.0.55 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+
+> @relayflows/sdk@2.0.55 typecheck:tests
+> tsc -p tsconfig.tests.json
+
 ```
