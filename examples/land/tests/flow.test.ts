@@ -17,10 +17,16 @@ const blocker = (file: string, title: string): Raw => ({ severity: 'blocker', fi
  * One persistent sandbox world (stateDir survives between hosted runs; the
  * checkout is a fresh clone each run). Each `invoke` is one hosted stage run.
  */
+const snapshotSha = '9'.repeat(40);
+const mergedCommit = 'e'.repeat(40);
+
 function world(over: {
   config?: unknown; head?: string; adversarial?: Raw[][]; context?: Raw[][]; ciRed?: number[];
   roundFiles?: string[][]; baseShas?: string[]; rebaseFails?: boolean; changelog?: [string, string]; refSha?: string;
   home?: string; dir?: string;
+  /** Auto mode: the dispatched repo gate's exit per dispatch attempt; 'pending' when it overruns. */
+  githubExit?: Array<number | 'pending'>; ghRuns?: GhRun[]; ghRunsSeq?: GhRun[][];
+  pushFails?: 'non_ff' | 'other'; landedCommit?: string; headContainsBase?: boolean; fAncestorFails?: boolean; ciFetchFails?: boolean; pushDryRunFails?: boolean;
 } = {}) {
   const dir = over.dir ?? stateDir;
   const files = new Map<string, string>();
@@ -30,6 +36,8 @@ function world(over: {
   const done: Array<{ reason: string; detail: Record<string, unknown> }> = [];
   let tick = 0, gate = 0, headCounter = 0, fetches = 0;
   const record = (ok: boolean, output = '') => ({ ok, exitCode: ok ? 0 : 1, output, stdout: output, stderr: '' });
+  // A head submitted without the base permanently contains it after one rebase.
+  let rebasedOnce = false;
 
   const invoke = async (stage: string, input: Partial<LandInput> = {}) => {
     const ran: string[] = [];
@@ -47,7 +55,7 @@ function world(over: {
         if (command === 'uname -sm') return 'Linux x86_64';
         if (command === 'node -p "Date.now()"') return String(tick += 60_000);
         if (command === `printf '%s' "\${HOME:-}"`) return over.home ?? '';
-        if (command.startsWith('cat ') && command.includes('land-state.json')) return files.get(/^cat '([^']*)'/.exec(command)![1]!) ?? 'null';
+        if (command.startsWith('cat ')) return files.get(/^cat '([^']*)'/.exec(command)![1]!) ?? 'null';
         if (command.startsWith('git show ') && command.includes('land.config.json')) return JSON.stringify(over.config ?? config);
         if (command.startsWith('git show ') && command.includes('CHANGELOG.md')) return command.includes('merge-base') ? over.changelog?.[0] ?? '' : over.changelog?.[1] ?? '';
         if (command.startsWith(`git fetch --no-tags --quiet ${UNSHALLOW_IF_SHALLOW} origin `)) { const list = over.baseShas ?? ['b'.repeat(40)]; baseRef = list[Math.min(fetches++, list.length - 1)]!; return ''; }
@@ -57,12 +65,43 @@ function world(over: {
         if (command.startsWith('git diff --name-only "$(git merge-base')) return 'probe/src/relay/agents.rs\nCHANGELOG.md';
         if (command.startsWith('git diff --name-only ')) return (over.roundFiles ?? [])[agents.length - 1]?.join('\n') ?? 'probe/src/relay/agents.rs';
         if (command.startsWith('git log --reverse')) return 'feat: upload policy gates relay auto-activation\nfix: review findings';
-        if (command.includes(' rebase --quiet ')) { if (!over.rebaseFails) head = `r${'0'.repeat(38)}${++headCounter}`.slice(-40); return record(!over.rebaseFails, over.rebaseFails ? 'CONFLICT (content)' : ''); }
+        if (command.startsWith('git merge-base --is-ancestor')) {
+          // F asks about HEAD; D asks about the recorded head sha. A rebase makes the head contain the base.
+          if (command.endsWith(' HEAD')) return record(!over.fAncestorFails);
+          return record(rebasedOnce || over.headContainsBase !== false);
+        }
+        if (command.includes(' rebase --quiet ')) { if (!over.rebaseFails) { rebasedOnce = true; } if (!over.rebaseFails) head = `r${'0'.repeat(38)}${++headCounter}`.slice(-40); return record(!over.rebaseFails, over.rebaseFails ? 'CONFLICT (content)' : ''); }
         if (command === 'git rebase --abort') return '';
         if (command.startsWith('mkdir -p ') && command.includes('nohup')) { launches.push(command); return 'started'; }
         if (command.startsWith('mkdir -p ')) return '';
         if (command.startsWith('for i in $(seq')) {
+          if (command.includes('/github/exit')) {
+            const attempt = launches.filter(c => c.includes('"github":true')).length - 1;
+            const list = over.githubExit ?? ['pending'];
+            return String(list[Math.min(attempt, list.length - 1)]);
+          }
+          if (command.includes('gh run list')) {
+            const attempt = launches.filter(c => c.includes('"github":true')).length - 1;
+            const seq = over.ghRunsSeq?.[Math.min(attempt, (over.ghRunsSeq.length ?? 1) - 1)];
+            let runs = seq ?? over.ghRuns ?? [{ databaseId: 1, workflowName: 'Desktop CI', status: 'completed', conclusion: 'success', createdAt: '2999-01-01T00:00:00Z' }];
+            const since = /'(\d{4}-\d{2}-\d{2}T[^']+Z)'/.exec(command)?.[1];
+            if (since) runs = runs.filter(x => x.createdAt >= since);
+            if (!runs.length || runs.some(x => x.status !== 'completed')) return 'pending';
+            return JSON.stringify(runs);
+          }
           return String(command.includes('/ci/exit') && over.ciRed?.includes(gate - 1) ? 1 : 0);
+        }
+        if (command.startsWith('git fetch --quiet origin ') && command.includes('refs/heads/ci/*')) return record(over.ciFetchFails !== true, over.ciFetchFails ? 'fetch failed' : '');
+        if (command.startsWith('git log --format=%H --grep')) return over.landedCommit ?? '';
+        if (command.startsWith('git push --dry-run')) return record(over.pushDryRunFails !== true, over.pushDryRunFails ? 'denied' : '');
+        if (command.startsWith('for sha in $(git for-each-ref')) return snapshotSha;
+        if (command.startsWith('gh run list')) return JSON.stringify(over.ghRuns ?? []);
+        if (command.startsWith('git push --quiet origin --delete')) return record(true);
+        if (command.includes(' commit-tree ')) return mergedCommit;
+        if (command.startsWith('git push origin ') && command.includes(':refs/heads/')) {
+          if (over.pushFails === 'non_ff') return record(false, '! [rejected] main -> main (non-fast-forward)');
+          if (over.pushFails === 'other') return record(false, 'error: GH006: protected branch update failed');
+          return record(true);
         }
         if (command.startsWith('tail -c')) return 'log tail';
         if (command.startsWith('if [ -f ')) {
@@ -71,6 +110,8 @@ function world(over: {
           const list = (lane === 'adversarial' ? over.adversarial : over.context) ?? [];
           return JSON.stringify({ findings: list[gate - 1] ?? [] });
         }
+        if (command === 'command -v gh >/dev/null && gh auth status') return record(true);
+
         if (command.startsWith('command -v')) return '';
         if (command.startsWith('git -c user.name=relay-land') && command.includes(' add -A')) { head = `c${'0'.repeat(38)}${++headCounter}`.slice(-40); return ''; }
         if (command.startsWith('printf %s ')) {
@@ -259,7 +300,7 @@ test('the removed githubGateInShadow flag is refused as an unknown key, before a
   assert.equal(w.state(), null);
 });
 
-test('refusals: no state outside A-adversarial, non-shadow mode, state or intent inside the checkout, wrong run', async () => {
+test('refusals: no state outside A-adversarial, approval mode, state or intent inside the checkout, wrong run', async () => {
   const cases: Array<[Partial<LandInput> & { stage: string }, RegExp, ReturnType<typeof world>?]> = [
     [{ stage: 'B' }, /a run starts at A-adversarial/],
     [{ stage: 'A-adversarial', stateDir: `${root}/.relayflow`, runId: 'run-1' }, /stateDir must be outside the checkout/],
@@ -281,7 +322,7 @@ test('refusals: no state outside A-adversarial, non-shadow mode, state or intent
   const approval = world({ config: { ...config, mergePolicy: { mode: 'approval' } } });
   const declined = await approval.invoke('A-adversarial');
   assert.equal(declined.reason, 'declined');
-  assert.match(declined.detail.detail as string, /only shadow runs/);
+  assert.match(declined.detail.detail as string, /is not implemented; shadow and auto run/);
   assert.equal(approval.state(), null);
 
   const other = world();
@@ -435,4 +476,188 @@ test('the base fetch deepens a shallow checkout and names only the base refspec'
   sh(root, `git clone -q --depth 1 file://${root}/src shallow && git clone -q file://${root}/src full`);
   assert.equal(sh(join(root, 'shallow'), `echo ${UNSHALLOW_IF_SHALLOW}`), '--unshallow');
   assert.equal(sh(join(root, 'full'), `echo ${UNSHALLOW_IF_SHALLOW}`), '');
+});
+
+interface GhRun { databaseId: number; workflowName: string; status: string; conclusion: string | null; createdAt: string }
+const autoConfig = { ...config, mergePolicy: { mode: 'auto' } };
+const gh = (conclusion: string | null, status = 'completed', name = 'Desktop CI', createdAt = '2999-01-01T00:00:00Z'): GhRun =>
+  ({ databaseId: 1, workflowName: name, status, conclusion, createdAt });
+
+test('auto: dispatch overruns, the next E awaits the pushed snapshot, F squash-pushes and lands', async () => {
+  const w = world({ config: autoConfig });
+  const { stages, result } = await w.drive();
+  assert.deepEqual(stages, ['A-adversarial', 'A-context', 'B', 'D', 'E', 'E', 'F']);
+  assert.equal(result.reason, 'success');
+  assert.equal(result.detail.state, 'landed');
+  const dispatch = w.launches.find(c => c.includes('ci.flow.ts') && c.includes('"github":true'));
+  assert.ok(dispatch, 'the repo gate really ran with {"github":true}');
+  const book = JSON.parse(w.files.get(`${stateDir}/github-gate.json`)!);
+  assert.equal(book.snapshotSha, snapshotSha);
+  const s = w.state();
+  assert.equal(s.squashPlan.pushed, true);
+  assert.equal(s.squashPlan.commit, mergedCommit);
+  const flat = w.commands.flat();
+  const commitTree = flat.find(c => c.includes(' commit-tree '))!;
+  assert.ok(commitTree.includes('Relay-Session: a71ff4c9-365f-4602-8e5a-06db39621973'), commitTree);
+  assert.ok(commitTree.includes('Land-Run: run-1'), commitTree);
+  assert.ok(flat.includes(`git push origin '${mergedCommit}:refs/heads/main'`), 'squash pushed to main');
+  assert.ok(flat.includes(`git push --quiet origin --delete 'ci/${snapshotSha.slice(0, 12)}'`), 'snapshot branch deleted');
+});
+
+test('auto: a gate that finishes inside the dispatch window applies its verdict in the same run', async () => {
+  const w = world({ config: autoConfig, githubExit: [0] });
+  const { stages, result } = await w.drive();
+  assert.deepEqual(stages, ['A-adversarial', 'A-context', 'B', 'D', 'E', 'F']);
+  assert.equal(result.detail.state, 'landed');
+  const book = JSON.parse(w.files.get(`${stateDir}/github-gate.json`)!);
+  assert.equal(book.attempts, 1, 'the dispatch attempt was persisted before the wait');
+  assert.equal(book.snapshotSha, undefined, 'no await bookkeeping for an in-window verdict');
+});
+
+test('auto: red GitHub gate goes to the next fix round', async () => {
+  const w = world({ config: autoConfig, githubExit: [1, 0] });
+  const { stages, result } = await w.drive();
+  assert.ok(stages.includes('C-1'), stages.join(','));
+  assert.equal(result.detail.state, 'landed');
+  assert.equal(w.agents[0]?.name, 'fix-r1');
+  assert.match(w.agents[0]!.options.task, /github gate ended red/);
+});
+
+test('auto: a failed dispatched run is red to the fix loop', async () => {
+  const w = world({ config: autoConfig, ghRunsSeq: [[gh('failure')], [gh('success')]] });
+  const { stages, result } = await w.drive();
+  assert.ok(stages.includes('C-1'));
+  assert.equal(result.detail.state, 'landed');
+  assert.match(w.agents[0]!.options.task, /GitHub Desktop CI: failure/);
+});
+
+test('auto: still-pending dispatched runs keep E as the cursor across stage runs', async () => {
+  const w = world({ config: autoConfig, ghRuns: [gh(null, 'in_progress')] });
+  await w.invoke('A-adversarial'); await w.invoke('A-context'); await w.invoke('B'); await w.invoke('D');
+  const first = await w.invoke('E');
+  assert.equal(first.detail.stage, 'E');
+  const second = await w.invoke('E');
+  assert.equal(second.detail.stage, 'E');
+  const book = JSON.parse(w.files.get(`${stateDir}/github-gate.json`)!);
+  assert.equal(book.polls, 1);
+});
+
+test('auto: F goes back to D on non-fast-forward', async () => {
+  const w = world({ config: autoConfig, pushFails: 'non_ff' });
+  let last;
+  for (const stage of ['A-adversarial', 'A-context', 'B', 'D', 'E', 'E', 'F']) last = await w.invoke(stage);
+  assert.equal(last!.detail.stage, 'D');
+});
+
+test('auto: a moved base at F goes back to D and regates', async () => {
+  const moved = world({ config: autoConfig, baseShas: ['b'.repeat(40), 'b'.repeat(40), 'b'.repeat(40), 'b'.repeat(40), 'b'.repeat(40), 'c'.repeat(40)] });
+  const { stages, result } = await moved.drive();
+  assert.deepEqual(stages.slice(0, 8), ['A-adversarial', 'A-context', 'B', 'D', 'E', 'E', 'F', 'D']);
+  assert.equal(result.detail.state, 'landed');
+});
+
+test('auto: a non-FF, non-permission push failure ends needs_human', async () => {
+  const w = world({ config: autoConfig, pushFails: 'other' });
+  const { result } = await w.drive();
+  assert.equal(result.detail.state, 'needs_human');
+  assert.match(result.detail.detail as string, /push to main failed/);
+});
+
+test('auto and shadow: the land harness is the review fleets\' clis and the fix agent\'s cli', async () => {
+  for (const cfg of [autoConfig, config]) {
+    const w = world({ config: cfg });
+    await w.drive();
+    const reviewLaunches = w.launches.filter(c => c.includes('-review.flow.ts'));
+    assert.ok(reviewLaunches.length >= 2 && reviewLaunches.every(c => c.includes('"clis":["codex"]')), reviewLaunches[0]);
+  }
+});
+
+test('auto: a stage reaped after the push records the landed commit instead of landing twice', async () => {
+  // F's run-start fetch sees base moved to our own squash commit.
+  const w = world({ config: autoConfig, baseShas: ['b'.repeat(40), 'b'.repeat(40), 'b'.repeat(40), 'b'.repeat(40), 'b'.repeat(40), mergedCommit], landedCommit: mergedCommit });
+  let last;
+  for (const stage of ['A-adversarial', 'A-context', 'B', 'D', 'E', 'E', 'F']) last = await w.invoke(stage);
+  assert.equal(last!.detail.state, 'landed');
+  assert.equal(last!.detail.commit, mergedCommit);
+  assert.ok(!w.commands.at(-1)!.some(c => c.includes(' commit-tree ')), 'no second squash commit');
+});
+
+test('auto: F refuses to squash a head that never contained the base', async () => {
+  const w = world({ config: autoConfig, fAncestorFails: true });
+  let last;
+  for (const stage of ['A-adversarial', 'A-context', 'B', 'D', 'E', 'E', 'F']) last = await w.invoke(stage);
+  assert.equal(last!.detail.stage, 'D');
+});
+
+test('auto: D rebases a head that never contained an unmoved base, then lands', async () => {
+  const w = world({ config: autoConfig, headContainsBase: false });
+  const { stages, result } = await w.drive();
+  assert.ok(stages.filter(x => x === 'D').length >= 2, stages.join(','));
+  assert.equal(w.state().rebases, 1);
+  assert.equal(result.detail.state, 'landed');
+});
+
+test('auto: three red GitHub gates escalate stuck_finding instead of alternating past the stall checks', async () => {
+  const stuckConfig = { ...config, mergePolicy: { mode: 'auto' }, fixLoop: { maxRounds: 5 } };
+  const w = world({ config: stuckConfig, ghRunsSeq: [[gh('failure')], [gh('failure')], [gh('failure')]] });
+  const { stages, result } = await w.drive();
+  assert.ok(stages.includes('C-1'));
+  assert.equal(result.detail.state, 'needs_human');
+  assert.equal(w.state().escalation.reason, 'stuck_finding');
+});
+
+test('auto: a run set still growing between polls stays pending; a stable set gives the verdict', async () => {
+  const r1 = gh('success'), r2 = gh('success');
+  r2.databaseId = 2;
+  // First check sees {r1}, a later poll sees {r1,r2} — the growing set keeps
+  // the gate pending until the set is stable across two consecutive checks.
+  const w = world({ config: autoConfig });
+  await w.invoke('A-adversarial'); await w.invoke('A-context'); await w.invoke('B'); await w.invoke('D');
+  await w.invoke('E');
+  (w as any).setRuns?.(1);
+  // Drive awaits manually through the same invoke loop: poll1 writes {1,2},
+  // poll2 sees a stable set → green.
+  const w2 = world({ config: autoConfig, ghRunsSeq: [[r1, r2]] });
+  await w2.invoke('A-adversarial'); await w2.invoke('A-context'); await w2.invoke('B'); await w2.invoke('D');
+  await w2.invoke('E');
+  const e2 = await w2.invoke('E');
+  assert.equal(e2.detail.stage, 'F');
+  const book = JSON.parse(w2.files.get(`${stateDir}/github-gate.json`)!);
+  assert.deepEqual(book.seenRunIds, [1, 2]);
+});
+
+test('auto: a stale completed run older than the dispatch bound cannot produce a verdict', async () => {
+  const stale = gh('success');
+  stale.createdAt = '1960-01-01T00:00:00Z';
+  const w = world({ config: autoConfig, ghRuns: [stale] });
+  await w.invoke('A-adversarial'); await w.invoke('A-context'); await w.invoke('B'); await w.invoke('D');
+  await w.invoke('E');
+  const e = await w.invoke('E');
+  assert.equal(e.detail.stage, 'E', 'the stale run is filtered by createdAt>=since; the gate stays pending');
+});
+
+test('auto and shadow: a non-default harness is the review fleets\' clis and the fix agent\'s cli', async () => {
+  const claudeConfig = { ...config, fixLoop: { harness: 'claude' } };
+  const w = world({ config: claudeConfig, ciRed: [0] });
+  await w.drive();
+  const reviewLaunches = w.launches.filter(c => c.includes('review'));
+  assert.ok(reviewLaunches.every(c => c.includes('"clis":["claude"]')), reviewLaunches[0]);
+  const fix = w.agents.find(a => a.name === 'fix-r1');
+  assert.equal(fix?.options.cli, 'claude');
+});
+
+test('a harness without a worker adapter fails at stage one with a clear error', async () => {
+  for (const harness of ['grok', 'devin']) {
+    const w = world({ config: { ...config, fixLoop: { harness } } });
+    const { result } = await w.drive();
+    assert.equal(result.reason, 'needs_human');
+    assert.match(JSON.stringify(result.detail), /no worker adapter.*flows#691/);
+  }
+});
+
+test('auto: a push-denied git credential fails preflight before any stage runs', async () => {
+  const w = world({ config: autoConfig, pushDryRunFails: true });
+  const { result } = await w.drive();
+  assert.equal(result.reason, 'needs_human');
+  assert.match(JSON.stringify(result.detail), /push-capable git credential/);
 });

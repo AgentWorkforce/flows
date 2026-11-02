@@ -1,10 +1,11 @@
 # land
 
 One pinned change — `(repo, sha, session)` — reviewed, gated, fixed and, in
-shadow mode, planned as a squash commit that is **never pushed**. This is the
+shadow mode, planned as a squash commit that is **never pushed**; in auto
+mode, really landed. This is the
 flows piece of the autonomous land flow spec,
 [AgentWorkforce/cloud#5806](https://github.com/AgentWorkforce/cloud/issues/5806)
-(§5, §7, §8), at rollout phase 0-1: **shadow mode only**.
+(§5, §7, §8): shadow at rollout phase 0-1, auto at phase 3.
 
 It is generic. Each repository names its own review and CI flows in a
 `land.config.json` at its root ([schema](land.config.schema.json)); this flow
@@ -75,8 +76,8 @@ on every provider, and there is no sudo. So Cloud passes
 | `B` | the repo's local CI flow, plus the changelog rule. Closes the gate | `D`, `C-<n>`, or `needs_human` |
 | `C-<n>` | fix round n: one fix agent, a local fixup commit, the formatter guard | `A-adversarial` or `needs_human` |
 | `D` | fetch the base; rebase if it moved | `A-adversarial` (rebased), `E`, or `needs_human` (conflict) |
-| `E` | shadow: records the GitHub gate it would dispatch (`githubGate`, `dispatched: false`). Nothing is dispatched or pushed | `F` |
-| `F` | shadow: writes the squash plan into the state with `pushed: false`. Nothing is pushed | `landed` |
+| `E` | shadow: records the GitHub gate it would dispatch (`githubGate`, `dispatched: false`). Nothing is dispatched or pushed. auto: dispatches the repo's gate for real — finished inside the window, or as a `ci/<sha>` snapshot the next E run awaits on GitHub | `F` (green), `C-<n>` (red), `E` (still running) |
+| `F` | shadow: writes the squash plan into the state with `pushed: false`. Nothing is pushed. auto: commits the squash onto the latest base and pushes; a moved base or non-fast-forward goes back to `D` | `landed`, `D` |
 
 Terminal states and their run verdicts: `landed` (success), `needs_human`,
 `cancelled` (canceled) and `failed` (step_failed). Every completion detail is
@@ -88,10 +89,19 @@ write token, and relay-desktop's GitHub gate pushes a throwaway `ci/<sha>`
 branch, so a shadow run could never pass it. Stage E therefore always records
 what it would dispatch (the CI flow, `{"github":true}` and the head sha) and
 moves on to F. There is no flag to turn it on: `mergePolicy.githubGateInShadow`
-was removed, and the validator now rejects it as an unknown key. A real
-stage E, including "red → C", belongs in phase 2. A full GitHub run takes
-about 30–125 minutes, so it needs a dispatch run and an await run to fit under
-the 40-minute ceiling.
+was removed, and the validator now rejects it as an unknown key.
+
+**Stage E in auto mode** really runs the repo's GitHub gate (`ci.flow.ts
+{"github":true}`). A full GitHub run takes about 30–125 minutes — more than
+any single stage — so the gate runs in two halves. The dispatch run invokes
+the repo flow detached and waits one `runner.stageMinutes` window: a gate
+short enough to finish applies its verdict at once. A gate that overruns dies
+with the sandbox, but the `ci/<sha>` snapshot it pushed and the GitHub
+Actions runs it dispatched outlive it, so the next E run finds the snapshot
+(its parent is the land head under test) and polls the dispatched runs via
+`gh run list` until they complete — red goes to the next fix round, green to
+F. Bookkeeping lives in `<stateDir>/github-gate.json`, capped at
+`GITHUB_GATE_MAX_ATTEMPTS` dispatches and `GITHUB_GATE_MAX_POLLS` awaits.
 
 ### Why A splits into one run per review flow
 
@@ -166,8 +176,9 @@ Over the limit, the repo owner is dropped first, then the name is cut with
 `…`. The ask and the URL are never cut. A URL that cannot fit is refused at
 the first stage.
 
-`mergePolicy.mode` values `approval` and `auto` pass validation, but a run
-refuses them (`declined`): phase 0-1 implements shadow only.
+`mergePolicy.mode` values `approval` and `auto` pass validation; a run
+refuses `approval` (`declined`). `auto` needs the repository grant's write
+token and `gh` on the runner.
 
 A finding's id is its source, its file and its normalized title.
 relay-desktop's `report.json` has no id field. Its verifier moves lines and
@@ -183,6 +194,7 @@ These defaults are the spec's proposals, not decisions; each is marked
 | --- | --- | --- |
 | `fixLoop.maxRounds` | 4 | Q2 |
 | `fixLoop.wallclockMinutes` | 180 | Q2 |
+| `fixLoop.harness` | `codex` (also the review flows' `clis`; `claude`, `grok` and `devin` accepted) | Q2 |
 | `fixLoop.model` | unset (harness default) | Q2 |
 | `mergePolicy.squashAuthor` | `session-human` | Q3 |
 | `landRef` | `land/{user}/{sha7}` | Q5 |
