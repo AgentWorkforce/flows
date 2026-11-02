@@ -7,6 +7,7 @@ import { adapterIdentification, authenticationProbe, classifyModelProbeFailure, 
 import { MODEL_ENV } from '../worker-cli.js';
 import { CliProbeError, type CliProbeResult } from '../preflight.js';
 import { pinCliAlias, pinCliAliasSync } from './pinned-cli-alias.js';
+import { prepareDevinRuntime } from '../devin-runtime.js';
 import { agentProbeEnvironment } from '../step-secrets.js';
 
 interface ProbeRequest {
@@ -40,15 +41,18 @@ function driveSync<T>(sequence: Generator<ProbeRequest, T, ProbeOutput>): T {
   while (!next.done) {
     const request = next.value;
     const pinned = pinCliAliasSync(request.executable, request.argv0 ?? basename(request.executable));
+    let prepared: ReturnType<typeof prepareProbe> | undefined;
     const result = (() => {
       try {
-        return spawnSync(pinned.executable, request.invocation.args, {
-          ...probeOptions(request),
+        prepared = prepareProbe(request);
+        return spawnSync(pinned.executable, prepared.args, {
+          ...probeOptions({ ...request, environment: prepared.env }),
           // Preserve the old synchronous probe contract: provider CLIs must not
           // inherit a readable stdin that can block auth/identify probes.
           stdio: ['ignore', 'pipe', 'pipe'],
         });
       } finally {
+        prepared?.close();
         pinned.release();
       }
     })();
@@ -69,9 +73,12 @@ function probeOptions({ argv0, directory, invocation, environment }: ProbeReques
 
 async function runProbeAsync(request: ProbeRequest): Promise<ProbeOutput> {
   const pinned = await pinCliAlias(request.executable, request.argv0 ?? basename(request.executable));
+  let prepared: ReturnType<typeof prepareProbe> | undefined;
   try {
+    prepared = prepareProbe(request);
+    const current = prepared;
     return await new Promise((resolve, reject) => {
-      const child = execFile(pinned.executable, request.invocation.args, probeOptions(request),
+      const child = execFile(pinned.executable, current.args, probeOptions({ ...request, environment: current.env }),
         (error, stdout, stderr) => {
           // Numeric exit codes are probe results; launch, timeout, signal and buffer
           // errors are failures to collect a fact, just as in the synchronous driver.
@@ -86,6 +93,7 @@ async function runProbeAsync(request: ProbeRequest): Promise<ProbeOutput> {
       child.stdin?.end();
     });
   } finally {
+    prepared?.close();
     await pinned.release();
   }
 }
@@ -244,4 +252,10 @@ function classifySpawnFailure(
     return new CliProbeError(detail);
   }
   return signal === null ? undefined : new CliProbeError(`signal:${signal}`);
+}
+
+function prepareProbe(request: ProbeRequest) {
+  return cliAdapterKind(request.argv0 ?? request.executable) === 'devin'
+    ? prepareDevinRuntime(request.environment, request.invocation)
+    : { args: request.invocation.args, env: request.environment, close() {} };
 }

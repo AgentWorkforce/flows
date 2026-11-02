@@ -437,7 +437,8 @@ Broker `cwd` accepts an existing absolute directory or a path relative to the ru
 root, including an external git worktree. `skills` names come from the canonical
 `AgentWorkforce/skills` repository. The `skills` CLI installs full directories,
 including supporting files, in the agent's project before spawning. Supported
-skill targets are Claude Code, Codex, Gemini CLI, Cursor, and OpenCode; an
+skill targets are Claude Code, Codex, Gemini CLI, Cursor, OpenCode, and Devin
+(through its Windsurf-compatible skill directory); an
 unsupported target or installation failure fails the step.
 
 The broker name contains the sanitized flow and authored agent name plus a

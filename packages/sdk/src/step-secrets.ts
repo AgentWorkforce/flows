@@ -47,6 +47,7 @@ const CLI_LOGIN: Record<CliAdapterKind, readonly string[]> = {
     'AWS_SESSION_TOKEN', 'AWS_REGION', 'AWS_DEFAULT_REGION',
   ],
   codex: ['CODEX_HOME', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'OPENAI_API_BASE', 'OPENROUTER_API_KEY'],
+  devin: ['DEVIN_API_KEY', 'DEVIN_MODEL'],
   'relayflows-wrapper-v1': [],
 };
 

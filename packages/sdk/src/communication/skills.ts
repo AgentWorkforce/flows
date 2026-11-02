@@ -7,8 +7,9 @@ const execute = promisify(execFile);
 export async function installBrokerSkills(skills: string[], cli: string, cwd: string, signal: AbortSignal): Promise<void> {
   if (!skills.length) return;
   const identity = basename(cli).replace(/\.exe$/i, '');
+  // Devin reads .windsurf/skills, which the canonical skills installer supports.
   const harness = ({ claude: 'claude-code', codex: 'codex', gemini: 'gemini-cli',
-    'cursor-agent': 'cursor', opencode: 'opencode' } as Record<string, string>)[identity];
+    'cursor-agent': 'cursor', opencode: 'opencode', devin: 'windsurf' } as Record<string, string>)[identity];
   if (!harness) throw new Error(`Skill installation is unsupported for broker CLI ${identity}`);
   await execute('npx', ['--yes', 'skills', 'add', 'https://github.com/AgentWorkforce/skills',
     '--skill', ...skills, '--agent', harness, '--yes', '--copy'],

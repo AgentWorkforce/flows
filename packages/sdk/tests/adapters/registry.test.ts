@@ -14,9 +14,9 @@ import {
 } from '../../src/cli-adapter.js';
 
 describe('adapters registry + cli-adapter parity', () => {
-  it('registers claude, codex, and the wrapper protocol', () => {
+  it('registers Claude, Codex, Devin, and the wrapper protocol', () => {
     const kinds = Object.keys(registeredAdapters()).sort();
-    expect(kinds).toEqual(['claude', 'codex', 'relayflows-wrapper-v1']);
+    expect(kinds).toEqual(['claude', 'codex', 'devin', 'relayflows-wrapper-v1']);
   });
 
   it('resolves by basename', () => {

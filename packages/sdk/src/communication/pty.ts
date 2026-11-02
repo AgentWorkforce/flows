@@ -1,5 +1,6 @@
 import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import { basename, join } from 'node:path';
+import { prepareDevinRuntime } from '../devin-runtime.js';
 import { agentEnvironment } from './environment.js';
 import { resolveCliModel } from '../cli-adapter.js';
 import type { RelayBroker } from './relay.js';
@@ -19,6 +20,9 @@ export async function spawnFlowPty(broker: Pick<RelayBroker, 'spawnPty'>, option
   const argv0 = basename(identity);
   let command = options.cli;
   let link: string | undefined;
+  const environment = agentEnvironment(identity, options.environment ?? process.env,
+    options.secrets, options.scopeSecrets ?? true);
+  const prepared = argv0.replace(/\.exe$/i, '') === 'devin' ? prepareDevinRuntime(environment) : undefined;
   try {
     if (basename(command) !== argv0) {
       const root = join(options.dataDir, 'communication');
@@ -32,15 +36,15 @@ export async function spawnFlowPty(broker: Pick<RelayBroker, 'spawnPty'>, option
       ...(options.team === undefined ? {} : { team: options.team }),
       model: resolveCliModel(identity, options.model), cwd: options.cwd,
       harnessConfig: { runtime: 'pty', command: shellQuote(command), args: [], cwd: options.cwd,
-        env: { ...agentEnvironment(identity, options.environment ?? process.env,
-          options.secrets, options.scopeSecrets ?? true),
+        env: { ...(prepared?.env ?? environment),
           RELAYFLOW_COMMUNICATION_SOCKET: options.socket, RELAYFLOW_COMMUNICATION_TOKEN: options.token,
           ...(options.metadata === undefined ? {} : {
             RELAYFLOW_RUN_ID: options.metadata.runId, RELAYFLOW_FLOW_NAME: options.metadata.flow,
             RELAYFLOW_STEP_NAME: options.metadata.step,
           }) }, delivery: { mode: 'pty-injection', format: 'relay-block' } } });
-    return { handle, close: async () => { if (link) await rm(link, { recursive: true, force: true }); } };
+    return { handle, close: async () => { prepared?.close(); if (link) await rm(link, { recursive: true, force: true }); } };
   } catch (error) {
+    prepared?.close();
     if (link) await rm(link, { recursive: true, force: true });
     throw error;
   }

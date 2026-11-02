@@ -98,23 +98,23 @@ it('legacy communication agents still strip delivered repository names', () => {
 it('communication CLIs keep only their own delivered login, never generic cloud credentials', () => {
   const source = {
     GEMINI_API_KEY: 'gemini-login', CURSOR_API_KEY: 'cursor-login',
-    XAI_API_KEY: 'grok-login', FACTORY_API_KEY: 'droid-login',
+    DEVIN_API_KEY: 'devin-login', XAI_API_KEY: 'grok-login', FACTORY_API_KEY: 'droid-login',
     GOOGLE_API_KEY: 'application-google-key',
     GOOGLE_APPLICATION_CREDENTIALS: '/tmp/application-service-account.json',
     AWS_ACCESS_KEY_ID: 'application-aws-key', GH_TOKEN: 'user-repository-secret',
     RELAY_SECRET_ENV_NAMES: JSON.stringify([
-      'GEMINI_API_KEY', 'CURSOR_API_KEY', 'XAI_API_KEY', 'FACTORY_API_KEY',
+      'GEMINI_API_KEY', 'CURSOR_API_KEY', 'XAI_API_KEY', 'DEVIN_API_KEY', 'FACTORY_API_KEY',
       'GOOGLE_API_KEY', 'GOOGLE_APPLICATION_CREDENTIALS', 'AWS_ACCESS_KEY_ID', 'GH_TOKEN',
     ]),
   };
   for (const [cli, own] of [
     ['gemini', 'GEMINI_API_KEY'], ['cursor-agent', 'CURSOR_API_KEY'],
-    ['grok', 'XAI_API_KEY'], ['droid', 'FACTORY_API_KEY'],
+    ['grok', 'XAI_API_KEY'], ['devin', 'DEVIN_API_KEY'], ['droid', 'FACTORY_API_KEY'],
   ] as const) {
     for (const scopeSecrets of [true, false]) {
       const env = agentEnvironment(cli, source, undefined, scopeSecrets);
       expect(env[own]).toBe(source[own]);
-      for (const foreign of ['GEMINI_API_KEY', 'CURSOR_API_KEY', 'XAI_API_KEY', 'FACTORY_API_KEY']) {
+      for (const foreign of ['GEMINI_API_KEY', 'CURSOR_API_KEY', 'XAI_API_KEY', 'DEVIN_API_KEY', 'FACTORY_API_KEY']) {
         if (foreign !== own) expect(env).not.toHaveProperty(foreign);
       }
       for (const generic of ['GOOGLE_API_KEY', 'GOOGLE_APPLICATION_CREDENTIALS', 'AWS_ACCESS_KEY_ID', 'GH_TOKEN']) {
@@ -157,7 +157,7 @@ it('passes provider-specific proxy routing only to Cursor and Grok children', ()
   };
   const cursorNames = ['CURSOR_API_KEY', 'CURSOR_API_ENDPOINT', 'CURSOR_API_BASE_URL'];
   const grokNames = ['XAI_API_KEY', 'GROK_XAI_API_BASE_URL', 'GROK_HOME'];
-  const providerClis = ['claude', 'codex', 'gemini', 'cursor-agent', 'droid', 'grok',
+  const providerClis = ['claude', 'codex', 'gemini', 'cursor-agent', 'droid', 'grok', 'devin',
     'opencode', 'aider', 'goose', 'pi', 'deepagents'];
   expect([...providerEnvironmentCliNames()].sort()).toEqual([...providerClis].sort());
   expect(agentEnvironment('cursor-agent', source)).toMatchObject({

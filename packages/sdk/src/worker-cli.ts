@@ -45,6 +45,7 @@ import {
   type AgentTransport,
 } from './agent-relay-transport.js';
 import { pinCliAlias } from './cli/pinned-cli-alias.js';
+import { prepareDevinRuntime } from './devin-runtime.js';
 import { promptOperand } from './adapters/base.js';
 
 export type { CliTransportCause, CliTransportEvidence, CliTransportPhase } from './cli-transport-evidence.js';
@@ -277,15 +278,21 @@ export async function runAgentCli(
   // The flags go before the `--` that ends the task operand (promptOperand):
   // after it they would reach the CLI as task text, not options.
   const args = [...invocation.args];
-  args.splice(args.length - promptOperand('').length, 0, ...(kind === 'claude' ? ['--output-format', 'stream-json', '--verbose'] : ['--json']));
+  if (kind !== 'devin') args.splice(args.length - promptOperand('').length, 0, ...(kind === 'claude' ? ['--output-format', 'stream-json', '--verbose'] : ['--json']));
   const completion = kind === 'claude' ? claudeResultOutcome : undefined;
   // Retain the source values for output redaction even though the child
   // receives only its filtered environment. A provider can echo a value from
   // its prompt or fixture that was not granted as an environment variable.
   const redactionEnvironment = { ...processEnvironment, ...env };
-  return requirePricedUsage(decodeProviderResult(await spawnInvocation(
-    cli, { ...invocation, args }, env, signal, sidechannel, cwd, completion, argv0, kind, redactionEnvironment,
-  ), kind, redactionEnvironment), effectiveModel);
+  const prepared = kind === 'devin' ? prepareDevinRuntime(env, { ...invocation, args }) : undefined;
+  try {
+    const result = await spawnInvocation(cli,
+      { ...invocation, args: prepared?.args ?? args }, prepared?.env ?? env,
+      signal, sidechannel, cwd, completion, argv0, kind, redactionEnvironment);
+    // Print mode has neither provider frames nor authoritative token counts.
+    return kind === 'devin' ? { ...result, stdout_tail: redactText(result.stdout_tail, redactionEnvironment) }
+      : requirePricedUsage(decodeProviderResult(result, kind, redactionEnvironment), effectiveModel);
+  } finally { prepared?.close(); }
   }
 }
 

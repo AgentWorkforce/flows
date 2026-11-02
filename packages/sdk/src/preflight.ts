@@ -11,7 +11,7 @@ import type { TriggerSource } from '@relayflows/surface';
 import { acceptsAnyOutput, inspectStepGate, type StepGateInspection } from './gate-contract.js';
 import { compileSpec, CompileError } from './compile.js';
 import { helperCall } from './yaml-helpers.js';
-import { resolveCliModelSelection, type CliModelSource } from './cli-adapter.js';
+import { cliAdapterKind, resolveCliModelSelection, type CliModelSource } from './cli-adapter.js';
 import { isNamedGate, NAMED_GATE_FAILURE_KINDS, type NamedGateFailureKind } from './named-gates.js';
 import { namedGateScanCoverageDiagnostics } from './named-gate-preflight.js';
 import { compileScopes, type ScopeInput, type MountRegistry } from './scope-compiler.js';
@@ -286,6 +286,10 @@ export function resolvePreflight(flow: unknown, options: ResolutionOptions): Pre
         message: unresolvedCliMessage(step.id, options),
       });
     } else {
+      if (step.type === 'llm' && cliAdapterKind(resolution.cli) === 'devin') {
+        cliResolutionDiagnostics.push({ severity: 'refusal', kind: 'cli_unsupported', stepId: step.id,
+          cli: resolution.cli, message: `Step "${step.id}" uses Devin for an llm step; Devin supports agent steps only.` });
+      }
       resolutions.push(resolution);
       resolutionByStep.set(step.id, resolution);
     }
@@ -594,7 +598,7 @@ function probeResolvedCli(
       kind: 'cli_unsupported',
       stepId: resolution.stepId,
       cli: resolution.cli,
-      message: `Step "${resolution.stepId}" declares CLI "${resolution.cli}", but it is neither a supported raw Claude/Codex executable nor a conforming Relayflows wrapper; custom wrappers must identify with the relayflows-agent-cli-v1 contract.`,
+      message: `Step "${resolution.stepId}" declares CLI "${resolution.cli}", but it is neither a supported raw Claude/Codex/Devin executable nor a conforming Relayflows wrapper; custom wrappers must identify with the relayflows-agent-cli-v1 contract.`,
     });
   } else if (managed && result.authenticated === 'unverified') {
     diagnostics.push({ severity: 'warning', kind: 'managed_cli_unverified', stepId: resolution.stepId,
