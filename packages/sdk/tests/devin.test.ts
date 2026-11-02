@@ -152,17 +152,17 @@ it('names an empty Devin key in preflight rather than hiding it as a generic pro
   expect(checked.diagnostics).toContainEqual(expect.objectContaining({ kind: 'probe_failed',
     detail: 'devin_api_key_empty', message: expect.stringContaining('DEVIN_API_KEY must contain a non-empty') }));
   expect(checked.diagnostics).toContainEqual(expect.objectContaining({
-    message: expect.stringContaining('LAND_DEVIN_API_KEY') }));
+    message: expect.stringContaining('FLOW_DEVIN_API_KEY') }));
 });
 
-it('points hosted land operators to the CLI-token alias on authentication refusal', () => {
+it('points hosted flow operators to the CLI-token alias on authentication refusal', () => {
   const checked = preflight({ version: '0.1.0', steps: [{ id: 'work', type: 'agent', cli: 'devin',
     instruction: 'work' }] }, { probes: { cli: () => ({ exists: true, supported: true,
       authenticated: false, authExitCode: 1, authFailureDetail: 'Authentication required: invalid api key' }),
       executor: () => true, command: () => true } });
   expect(checked.ok).toBe(false);
   expect(checked.diagnostics).toContainEqual(expect.objectContaining({ kind: 'cli_unauthenticated',
-    message: expect.stringContaining('set LAND_DEVIN_API_KEY to a Devin CLI login token') }));
+    message: expect.stringContaining('set FLOW_DEVIN_API_KEY to a Devin CLI login token') }));
 });
 
 it('removes credential and prompt state when the worker loses its lease', async () => {

@@ -1,6 +1,6 @@
 # Hosted-land credential diagnostics follow-up
 
-Hosted land operators supply a CLI-login token through `LAND_DEVIN_API_KEY`; the Cloud alias passes it to the runtime as `DEVIN_API_KEY`. Local runtime use retains `DEVIN_API_KEY`. Sign-in refusals now state both contexts, and auth probes retain actual error details with credential values redacted.
+Hosted flow operators supply a CLI-login token through `FLOW_DEVIN_API_KEY`; the Cloud alias passes it to the runtime as `DEVIN_API_KEY`. Local runtime use retains `DEVIN_API_KEY`. Sign-in refusals now state both contexts, and auth probes retain actual error details with credential values redacted.
 
 The first regression attempt accidentally ran `npx` from the repository root and selected Vitest 5.1.0. Its new assertion also expected the wrong casing for the redaction marker. That assertion was corrected to the implementation's marker, and the check reran from `packages/sdk` using the installed Vitest 2.1.9. This was a test-expectation failure; the output already showed the credential value redacted.
 
@@ -72,3 +72,28 @@ TMPDIR=/Users/khaliqgant/.cache/devin-harness/tmp node node_modules/vitest/vites
 The actual replacement workspace CLI token has not been tested by this session. No secret was created, replaced, or printed.
 
 Known secret values are redacted before general email/token/hex patterns so an interior match cannot expose a token suffix. The regression includes an echoed padded key with a 32-hex interior fragment.
+
+The hosted operator prefix was subsequently renamed from `LAND_` to `FLOW_`. Current guidance uses `FLOW_DEVIN_API_KEY`; historical captured runs above remain unchanged. Focused rename checks, run from `packages/sdk`:
+
+```sh
+TMPDIR=/Users/khaliqgant/.cache/devin-harness/tmp node node_modules/vitest/vitest.mjs run tests/devin.test.ts tests/preflight.test.ts && npm run typecheck && npm run typecheck:tests
+```
+
+```text
+
+ RUN  v2.1.9 /Volumes/T7/Projects/AgentWorkforce/worktrees/flows/devin-harness-20261102/packages/sdk
+
+ ✓ tests/preflight.test.ts (70 tests) 41ms
+ ✓ tests/devin.test.ts (14 tests) 2126ms
+   ✓ launches print mode with file input and cleans up after --version
+Do the task 339ms
+   ✓ checks provider auth with isolated credentials in both synchronous and asynchronous preflight 346ms
+   ✓ refuses an unavailable model and missing model-probe credentials in both preflight drivers 443ms
+   ✓ fully redacts echoed credentials before shape-based scrubbing 309ms
+   ✓ fully redacts echoed credentials before shape-based scrubbing 380ms
+
+ Test Files  2 passed (2)
+      Tests  84 passed (84)
+   Start at  12:46:04
+   Duration  2.89s (transform 911ms, setup 20ms, collect 1.78s, tests 2.17s, environment 0ms, prepare 110ms)
+```

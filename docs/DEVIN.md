@@ -17,8 +17,8 @@ An optional `model` is passed through `--model`. Execution uses `devin -p
 --respect-workspace-trust false`. Its printed response is the step result.
 Devin is an agent harness; `llm` steps are refused at preflight.
 
-For hosted land flows, provide a Devin CLI login token as the
-`LAND_DEVIN_API_KEY` workspace secret. The Cloud land credential alias
+For hosted flows, provide a Devin CLI login token as the
+`FLOW_DEVIN_API_KEY` workspace secret. The Cloud credential alias
 ([Cloud #5926](https://github.com/AgentWorkforce/cloud/pull/5926)) supplies it to
 the agent runtime as `DEVIN_API_KEY`; local runs set `DEVIN_API_KEY` directly.
 This is the token stored as `windsurf_api_key` by CLI login; a Devin REST API

@@ -607,7 +607,7 @@ function probeResolvedCli(
   } else if (result.authenticated !== true) {
     const command = result.authCommand ?? `${resolution.cli} auth status`;
     const loginHint = cliAdapterKind(resolution.cli) === 'devin'
-      ? ' For hosted land flows, set LAND_DEVIN_API_KEY to a Devin CLI login token; local runs use DEVIN_API_KEY. A REST API key is a different credential.'
+      ? ' For hosted flows, set FLOW_DEVIN_API_KEY to a Devin CLI login token; local runs use DEVIN_API_KEY. A REST API key is a different credential.'
       : '';
     // Say what the probe reported. A refusal that names only the command turns
     // a transient provider rejection and a genuinely unauthenticated CLI into
@@ -676,7 +676,7 @@ function probeFailedMessage(
 ): string {
   const prefix = `Could not verify CLI "${resolution.cli}" for step "${resolution.stepId}"`;
   if (detail === undefined) return `${prefix}.`;
-  if (detail === 'devin_api_key_empty') return `${prefix}: DEVIN_API_KEY must contain a non-empty Devin CLI login token. For hosted land flows, set LAND_DEVIN_API_KEY.`;
+  if (detail === 'devin_api_key_empty') return `${prefix}: DEVIN_API_KEY must contain a non-empty Devin CLI login token. For hosted flows, set FLOW_DEVIN_API_KEY.`;
   if (detail === 'spawn_failed') return `${prefix}: the probe process could not be started.`;
   if (detail.startsWith('signal:')) {
     return `${prefix}: the probe was terminated by signal "${detail.slice('signal:'.length)}".`;
