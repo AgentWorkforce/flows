@@ -215,8 +215,12 @@ function* probeSequence(
  * refusal message that gets pasted into issues does not.
  */
 function redactProbeOutput(text: string, environment: NodeJS.ProcessEnv): string {
-  return redactText(text, { ...environment,
-    ...(environment.DEVIN_API_KEY === undefined ? {} : { DEVIN_API_KEY: environment.DEVIN_API_KEY.trim() }) })
+  const key = environment.DEVIN_API_KEY?.trim();
+  const redacted = redactText(text, { ...environment,
+    ...(key === undefined ? {} : { DEVIN_API_KEY: key }) });
+  // The shared redactor intentionally ignores short values to avoid false
+  // positives. An explicitly supplied Devin credential still stays private.
+  return (key && key.length < 8 ? redacted.replaceAll(key, '[redacted:DEVIN_API_KEY]') : redacted)
     .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '<redacted-email>')
     .replace(/\b(sk|pk|oat|rt)[-_][A-Za-z0-9._-]{8,}/gi, '<redacted-token>')
     .replace(/\b[A-Fa-f0-9]{32,}\b/g, '<redacted-hex>');

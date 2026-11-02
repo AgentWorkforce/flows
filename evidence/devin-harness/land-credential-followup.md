@@ -113,3 +113,53 @@ Do the task 339ms
 > tsc -p tsconfig.tests.json
 
 ```
+
+Short-key review follow-up: preflight removes explicitly supplied normalized Devin credentials even when they are shorter than the shared redactor's eight-character threshold. Regression cases include one, three and seven characters in both probe drivers. Documentation describes the required hosted mapping without a PR-specific dependency. Captured grouped command, from `packages/sdk`:
+
+```sh
+set -o pipefail; { TMPDIR=/Users/khaliqgant/.cache/devin-harness/tmp node node_modules/vitest/vitest.mjs run tests/devin.test.ts tests/cli-probe.test.ts tests/preflight.test.ts && npm run typecheck && npm run typecheck:tests; } 2>&1 | tee /Users/khaliqgant/.cache/devin-harness/flows-short-key-tests.log
+```
+
+```text
+
+ RUN  v2.1.9 /Volumes/T7/Projects/AgentWorkforce/worktrees/flows/devin-harness-20261102/packages/sdk
+
+ ✓ tests/preflight.test.ts (70 tests) 45ms
+ ✓ tests/devin.test.ts (17 tests) 3471ms
+   ✓ launches print mode with file input and cleans up after --version
+Do the task 412ms
+   ✓ redacts the normalized token when the supplied key has surrounding whitespace 348ms
+   ✓ checks provider auth with isolated credentials in both synchronous and asynchronous preflight 338ms
+   ✓ refuses an unavailable model and missing model-probe credentials in both preflight drivers 486ms
+   ✓ fully redacts echoed credentials before shape-based scrubbing 303ms
+   ✓ fully redacts echoed credentials before shape-based scrubbing 312ms
+   ✓ fully redacts echoed credentials before shape-based scrubbing 394ms
+   ✓ fully redacts echoed credentials before shape-based scrubbing 432ms
+ ✓ tests/cli-probe.test.ts (18 tests) 6828ms
+   ✓ executes a canonical shebang target through its authored alias in both probe drivers 323ms
+   ✓ keeps synchronous and asynchronous classification equal: model denied 469ms
+   ✓ keeps synchronous and asynchronous classification equal: auth denied 390ms
+   ✓ keeps missing executables and unsupported identification fail closed 332ms
+   ✓ uses an explicit provider environment for every probe process 318ms
+   ✓ scopes delivered secrets in PATH lookup and provider probes for checked and authored steps 1009ms
+   ✓ reports timeout in both drivers while the async driver leaves the loop free 538ms
+   ✓ reports signal termination in both drivers 370ms
+   ✓ classifies a failed claude model probe from its own output: outdated CLI 388ms
+   ✓ classifies a failed claude model probe from its own output: usage limit 443ms
+   ✓ classifies a failed claude model probe from its own output: rate limit 380ms
+   ✓ classifies a failed claude model probe from its own output: unknown model 429ms
+   ✓ classifies a failed claude model probe from its own output: unrecognised output 441ms
+
+ Test Files  3 passed (3)
+      Tests  105 passed (105)
+   Start at  12:55:36
+   Duration  8.22s (transform 1.05s, setup 34ms, collect 3.03s, tests 10.34s, environment 0ms, prepare 149ms)
+
+
+> @relayflows/sdk@2.0.55 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+
+> @relayflows/sdk@2.0.55 typecheck:tests
+> tsc -p tsconfig.tests.json
+```

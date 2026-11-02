@@ -181,7 +181,8 @@ it('removes credential and prompt state when the worker loses its lease', async 
   expect(readdirSync(privateRoot)).toEqual([]);
 });
 
-it.each([' invalid-devin-secret\n', ' prefix-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-secretSuffix\n'])('fully redacts echoed credentials before shape-based scrubbing', async key => {
+it.each([' invalid-devin-secret\n', ' prefix-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-secretSuffix\n',
+  ' abc\n', ' short01\n', ' ?\n'])('fully redacts echoed credentials before shape-based scrubbing', async key => {
   const f = fixture(); const env = { ...f.env, DEVIN_API_KEY: key };
   for (const probe of [probeCli, probeCliAsync]) {
     const result = await probe(f.cli, f.cwd, undefined, undefined, env);
