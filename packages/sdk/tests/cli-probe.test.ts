@@ -26,6 +26,18 @@ const identify = `if (process.argv[2] === '--relayflows-adapter-v1') {
   console.log('relayflows-agent-cli-v1'); process.exit(0);
 }`;
 
+it.each([
+  ['prefix-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-secretSuffix', 'prefix-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-secretSuffix'],
+])('redacts whole non-Devin secrets and enclosing shapes: %s', async (key, diagnostic) => {
+  const { path, directory } = wrapper(identify + `console.error(${JSON.stringify(`Failure: ${diagnostic}`)}); process.exit(1);`);
+  const environment = { PATH: process.env.PATH, OPENAI_API_KEY: key };
+  for (const probe of [probeCli, probeCliAsync]) {
+    const result = await probe(path, directory, undefined, undefined, environment);
+    expect(result.authenticated).toBe(false);
+    expect(result.authFailureDetail).toBe('Failure: [redacted:OPENAI_API_KEY]');
+  }
+});
+
 it('does not expose the removed authored readiness probe through the public CLI', async () => {
   const stdout: string[] = [];
   const stderr: string[] = [];

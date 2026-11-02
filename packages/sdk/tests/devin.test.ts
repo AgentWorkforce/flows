@@ -75,6 +75,7 @@ const authenticated = fs.existsSync(credentials)
   && fs.readFileSync(credentials, 'utf8') === 'windsurf_api_key = "devin-test-secret"\\n';
 if (args[0] === 'models') {
   if (JSON.stringify(args) !== JSON.stringify(['models', 'list', '--format', 'json'])) process.exit(11);
+  if (process.env.PROBE_DIAGNOSTIC) console.error(process.env.PROBE_DIAGNOSTIC);
   if (!authenticated && fs.existsSync(credentials)) console.error(fs.readFileSync(credentials, 'utf8'));
   process.exit(authenticated ? 0 : 1);
 }
@@ -182,7 +183,7 @@ it('removes credential and prompt state when the worker loses its lease', async 
 });
 
 it.each([' invalid-devin-secret\n', ' prefix-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-secretSuffix\n',
-  ' abc\n', ' short01\n', ' ?\n'])('fully redacts echoed credentials before shape-based scrubbing', async key => {
+  ' abc\n', ' short01\n', ' ?\n'])('fully redacts echoed credentials alongside shape-based scrubbing', async key => {
   const f = fixture(); const env = { ...f.env, DEVIN_API_KEY: key };
   for (const probe of [probeCli, probeCliAsync]) {
     const result = await probe(f.cli, f.cwd, undefined, undefined, env);
@@ -192,5 +193,36 @@ it.each([' invalid-devin-secret\n', ' prefix-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-se
     expect(result.authFailureDetail).not.toContain('prefix-');
     expect(result.authFailureDetail).not.toContain('secretSuffix');
     expect(result.authFailureDetail).toContain('[redacted:DEVIN_API_KEY]');
+  }
+});
+
+it.each([
+  ['abc', 'sk-prefixabcSuffix123456'],
+  ['abc', 'prefixabc@example.com'],
+  ['abc', `${'0'.repeat(16)}abc${'1'.repeat(16)}`],
+  ['a@b.co!', 'a@b.co!'],
+  ['aba', 'ababa'],
+])('redacts the complete overlap between credentials and diagnostic shapes: %s', async (key, diagnostic) => {
+  const f = fixture();
+  const env = { ...f.env, DEVIN_API_KEY: ` ${key}\n`, PROBE_DIAGNOSTIC: `Failure: ${diagnostic}` };
+  for (const probe of [probeCli, probeCliAsync]) {
+    const result = await probe(f.cli, f.cwd, undefined, undefined, env);
+    expect(result.authenticated).toBe(false);
+    expect(result.authFailureDetail).toBe('Failure: [redacted:DEVIN_API_KEY]\nwindsurf_api_key = "[redacted:DEVIN_API_KEY]"');
+  }
+});
+
+it.each([
+  ['Authorization: Bearer abcSECRET_SUFFIX123456', 'Authorization: Bearer [redacted]'],
+  ['Cookie: session=abcSECRET_SUFFIX123456', 'Cookie: [redacted]'],
+  ['PLAIN_SETTING=prefix-aaaaaaaaaaaaaaaaabcaaaaaaaaaaaaaaaa-secretSuffix', 'PLAIN_SETTING=[redacted:PLAIN_SETTING]'],
+])('preserves shared redaction before short-key and supplemental rules: %s', async (diagnostic, expected) => {
+  const f = fixture();
+  const env = { ...f.env, DEVIN_API_KEY: 'abc', PROBE_DIAGNOSTIC: diagnostic,
+    PLAIN_SETTING: 'prefix-aaaaaaaaaaaaaaaaabcaaaaaaaaaaaaaaaa-secretSuffix' };
+  for (const probe of [probeCli, probeCliAsync]) {
+    const result = await probe(f.cli, f.cwd, undefined, undefined, env);
+    expect(result.authenticated).toBe(false);
+    expect(result.authFailureDetail).toBe(`${expected}\nwindsurf_api_key = "[redacted:DEVIN_API_KEY]"`);
   }
 });

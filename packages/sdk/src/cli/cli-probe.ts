@@ -216,14 +216,42 @@ function* probeSequence(
  */
 function redactProbeOutput(text: string, environment: NodeJS.ProcessEnv): string {
   const key = environment.DEVIN_API_KEY?.trim();
-  const redacted = redactText(text, { ...environment,
-    ...(key === undefined ? {} : { DEVIN_API_KEY: key }) });
-  // The shared redactor intentionally ignores short values to avoid false
-  // positives. An explicitly supplied Devin credential still stays private.
-  return (key && key.length < 8 ? redacted.replaceAll(key, '[redacted:DEVIN_API_KEY]') : redacted)
-    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '<redacted-email>')
-    .replace(/\b(sk|pk|oat|rt)[-_][A-Za-z0-9._-]{8,}/gi, '<redacted-token>')
-    .replace(/\b[A-Fa-f0-9]{32,}\b/g, '<redacted-hex>');
+  const normalized = { ...environment, ...(key === undefined ? {} : { DEVIN_API_KEY: key }) };
+  // Preserve the shared redactor's known-value, header and cookie handling.
+  const redacted = redactText(text, normalized);
+  const spans: Array<{ start: number; end: number; replacement: string }> = [];
+  for (const [pattern, replacement] of [
+    [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '<redacted-email>'],
+    [/\b(sk|pk|oat|rt)[-_][A-Za-z0-9._-]{8,}/gi, '<redacted-token>'],
+    [/\b[A-Fa-f0-9]{32,}\b/g, '<redacted-hex>'],
+  ] as const) {
+    for (const match of redacted.matchAll(pattern)) {
+      spans.push({ start: match.index, end: match.index + match[0].length, replacement });
+    }
+  }
+  // Collect short credentials AFTER the shapes, against the same text:
+  // replacing either first can split the other and leak a suffix. Redact the
+  // union of overlapping spans, including keys too short for the shared redactor.
+  if (key && key.length < 8) {
+    for (let start = redacted.indexOf(key); start !== -1; start = redacted.indexOf(key, start + 1)) {
+      spans.push({ start, end: start + key.length, replacement: '[redacted:DEVIN_API_KEY]' });
+    }
+  }
+  spans.sort((a, b) => a.start - b.start);
+  const merged: typeof spans = [];
+  for (const span of spans) {
+    const previous = merged.at(-1);
+    if (previous && span.start < previous.end) {
+      previous.end = Math.max(previous.end, span.end);
+      if (span.replacement.startsWith('[redacted:')) previous.replacement = span.replacement;
+    } else merged.push({ ...span });
+  }
+  let result = ''; let cursor = 0;
+  for (const span of merged) {
+    result += redacted.slice(cursor, span.start) + span.replacement;
+    cursor = span.end;
+  }
+  return result + redacted.slice(cursor);
 }
 
 function* executableSequence(command: string, directory: string, environment: NodeJS.ProcessEnv): Generator<ProbeRequest, string | undefined, ProbeOutput> {
