@@ -248,3 +248,45 @@ dummy_file: models exit=1; invalid api key
 ```
 
 The probe implementation is [probe-cli.py](probe-cli.py). The installer/non-root image evidence is in the companion Cloud PR. A full hosted Cloud flow was not launched; this is CLI/runtime and image-install evidence. Independent Codex review reported no remaining findings on the working diff after fixes.
+
+Follow-up: pin the live harness test and probe to exactly 3000.11.234. The model-probe fixture now verifies exact arguments, the staged credential and rejection paths. The actual workspace secret value/type has not been inspected; the successful live test uses an existing CLI-login token.
+
+```sh
+TMPDIR=/Users/khaliqgant/.cache/devin-harness/tmp /opt/homebrew/bin/python3.14 - <<'PY'
+import os,pathlib,subprocess,tomllib
+key=tomllib.loads((pathlib.Path.home()/'.local/share/devin/credentials.toml').read_text())['windsurf_api_key']
+env=dict(os.environ,DEVIN_API_KEY=key,RELAYFLOWS_REAL_DEVIN_CLI='/Volumes/T7/Projects/AgentWorkforce/artifacts/devin-harness-20261102/cli/bin/devin')
+r=subprocess.run(['node','node_modules/vitest/vitest.mjs','run','tests/real-devin-adapter.test.ts','tests/devin.test.ts'],env=env)
+raise SystemExit(r.returncode)
+PY
+```
+
+```text
+
+ RUN  v2.1.9 /Volumes/T7/Projects/AgentWorkforce/worktrees/flows/devin-harness-20261102/packages/sdk
+
+ ✓ tests/devin.test.ts (9 tests) 2093ms
+   ✓ launches print mode with file input and cleans up after --version
+Do the task 393ms
+   ✓ launches print mode with file input and cleans up after fail 522ms
+   ✓ checks provider auth with isolated credentials in both synchronous and asynchronous preflight 518ms
+   ✓ refuses an unavailable model and missing model-probe credentials in both preflight drivers 628ms
+ ✓ tests/real-devin-adapter.test.ts (1 test) 5507ms
+   ✓ runs the pinned Devin CLI through the real agent worker 5506ms
+
+ Test Files  2 passed (2)
+      Tests  10 passed (10)
+   Start at  11:59:07
+   Duration  5.78s (transform 323ms, setup 20ms, collect 911ms, tests 7.60s, environment 0ms, prepare 99ms)
+```
+
+```sh
+TMPDIR=/Users/khaliqgant/.cache/devin-harness/tmp /opt/homebrew/bin/python3.14 evidence/devin-harness/probe-cli.py --cli /Volumes/T7/Projects/AgentWorkforce/artifacts/devin-harness-20261102/cli/bin/devin
+```
+
+```text
+devin 3000.11.234 (92c83011d113)
+none: models exit=1; not logged in
+dummy_env: models exit=1; not logged in
+dummy_file: models exit=1; invalid api key
+```

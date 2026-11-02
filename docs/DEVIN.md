@@ -17,7 +17,9 @@ An optional `model` is passed through `--model`. Execution uses `devin -p
 --respect-workspace-trust false`. Its printed response is the step result.
 Devin is an agent harness; `llm` steps are refused at preflight.
 
-For hosted runs, provide `DEVIN_API_KEY` as a workspace secret. The verified
+For hosted runs, provide a Devin CLI login token as the `DEVIN_API_KEY`
+workspace secret. This is the token stored as `windsurf_api_key` by CLI login;
+a Devin REST API key is a different credential. The verified
 Devin CLI release `3000.11.234` does not read that variable itself. The worker
 writes it as `windsurf_api_key` in a private `credentials.toml`, selects that
 attempt's XDG data/config/cache directories, and removes the private state

@@ -65,11 +65,23 @@ function fixture() {
   writeFileSync(cli, `#!/usr/bin/env node
 const fs = require('node:fs'); const path = require('node:path');
 const args = process.argv.slice(2);
-if (args.includes('--help')) process.exit(0);
+if (JSON.stringify(args) === JSON.stringify(['auth', 'status', '--help'])) process.exit(0);
 const credentials = path.join(process.env.XDG_DATA_HOME, 'devin', 'credentials.toml');
-if (args[0] === 'models') process.exit(fs.existsSync(credentials) ? 0 : 1);
+const authenticated = fs.existsSync(credentials)
+  && fs.readFileSync(credentials, 'utf8') === 'windsurf_api_key = "devin-test-secret"\\n';
+if (args[0] === 'models') {
+  if (JSON.stringify(args) !== JSON.stringify(['models', 'list', '--format', 'json'])) process.exit(11);
+  process.exit(authenticated ? 0 : 1);
+}
 if (args.includes('--json') || args.includes('--relayflows-identify')) process.exit(10);
-if (!args.includes('--prompt-file')) { console.log('RELAYFLOWS_MODEL_READY'); process.exit(0); }
+if (!args.includes('--prompt-file')) {
+  const model = args[args.indexOf('--model') + 1];
+  const expected = ['-p', '--respect-workspace-trust', 'false', '--model', model, '--',
+    'Reply with exactly RELAYFLOWS_MODEL_READY and nothing else.'];
+  if (!authenticated || JSON.stringify(args) !== JSON.stringify(expected)) process.exit(12);
+  if (model !== 'model') { console.error('Unknown model'); process.exit(1); }
+  console.log('RELAYFLOWS_MODEL_READY'); process.exit(0);
+}
 const promptPath = args[args.indexOf('--prompt-file') + 1];
 const task = fs.readFileSync(promptPath, 'utf8');
 const result = { args, task, credentials, promptPath, keyPresent: !!process.env.DEVIN_API_KEY,
@@ -101,6 +113,17 @@ it('checks provider auth with isolated credentials in both synchronous and async
   expect((await probeCliAsync(f.cli, f.cwd, 'model', undefined, f.env)).modelAvailable).toBe(true);
   expect(probeCli(f.cli, f.cwd, undefined, undefined, { PATH: process.env.PATH, HOME: f.cwd,
     XDG_DATA_HOME: f.cwd }).authenticated).toBe(false);
+});
+
+it('refuses an unavailable model and missing model-probe credentials in both preflight drivers', async () => {
+  const f = fixture();
+  for (const probe of [probeCli, probeCliAsync]) {
+    expect(await probe(f.cli, f.cwd, 'unavailable', undefined, f.env))
+      .toMatchObject({ authenticated: true, modelAvailable: false });
+    expect(await probe(f.cli, f.cwd, 'model', undefined, { PATH: process.env.PATH,
+      HOME: f.cwd, XDG_DATA_HOME: f.cwd }))
+      .toMatchObject({ authenticated: false, modelAvailable: false });
+  }
 });
 
 it('removes credential and prompt state when the worker loses its lease', async () => {

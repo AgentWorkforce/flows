@@ -11,7 +11,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--cli", required=True)
 parser.add_argument("--credentials", type=Path)
 args = parser.parse_args()
-print(subprocess.check_output([args.cli, "--version"], text=True).strip(), flush=True)
+EXPECTED_CLI_VERSION = "3000.11.234"
+version = subprocess.check_output([args.cli, "--version"], text=True).strip()
+print(version, flush=True)
+assert version.startswith(f"devin {EXPECTED_CLI_VERSION} "), "Unexpected Devin CLI version"
 modes = ["none", "dummy_env", "dummy_file"]
 if args.credentials:
     modes.append("existing_login_file")
