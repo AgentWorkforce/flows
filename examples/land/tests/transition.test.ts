@@ -17,7 +17,9 @@ const review = (lane: 'adversarial' | 'context', ids: string[] = [], now = t): S
 const ci = (ids: string[] = [], now = t): StageResult => ({ kind: 'ci', findings: ids.map(f), now });
 const fixed = (head: string, ok = true): StageResult => ({ kind: 'fix', headSha: head, guard: { ok, detail: ok ? '' : 'fix round touched 2 file(s) outside change ∪ findings' }, now: t });
 const rebase = (outcome: 'unchanged' | 'rebased' | 'conflict', baseSha = 'b'.repeat(40), headSha = sha): StageResult => ({ kind: 'rebase', outcome, baseSha, headSha, now: t });
-const wouldDispatch = (): StageResult => ({ kind: 'github', wouldDispatch: { flow: 'flows/ci.flow.ts', input: { base: 'origin/main', github: true }, headSha: sha, dispatched: false }, now: t });
+const wouldDispatch = (): StageResult => ({ kind: 'github', outcome: 'shadow', wouldDispatch: { flow: 'flows/ci.flow.ts', input: { base: 'origin/main', github: true }, headSha: sha, dispatched: false }, now: t });
+const autoConfig = { ...config, mergePolicy: { ...config.mergePolicy, mode: 'auto' as const } };
+const autoStart = (over: Parameters<typeof start>[0] = {}) => start({ config: autoConfig, ...over });
 const plan = squashPlan({ base: 'main', baseSha: 'b'.repeat(40), headSha: sha, tree: 't'.repeat(40), subjects: ['feat: x'], sessionId: 's-1', runId: 'run-1', squashAuthor: 'session-human', fixRounds: 0, harness: 'claude' });
 
 /** Feed one gate (A-adversarial, A-context, B) with the given adversarial ids. */
@@ -27,7 +29,7 @@ const gate = (s: LandState, ids: string[], now = t): LandState =>
 test('clean run: A-adversarial → A-context → B → D → E (would dispatch) → F → landed', () => {
   const cursors: Array<string | null> = [];
   let s = start();
-  for (const r of [review('adversarial'), review('context'), ci(), rebase('unchanged'), wouldDispatch(), { kind: 'merge', plan, now: t } as StageResult]) {
+  for (const r of [review('adversarial'), review('context'), ci(), rebase('unchanged'), wouldDispatch(), { kind: 'merge', outcome: 'planned', plan, now: t } as StageResult]) {
     cursors.push(s.cursor); s = nextLandStage(s, r);
   }
   assert.deepEqual(cursors, ['A-adversarial', 'A-context', 'B', 'D', 'E', 'F']);
@@ -140,4 +142,52 @@ test('land-state.json round-trips and refuses other versions', () => {
   assert.throws(() => parseState(JSON.stringify({ ...s, config: { ...s.config, bogus: 1 } })), /unknown key/);
   assert.deepEqual(JSON.parse(completionDetail(s)), { land: 'next', runId: 'run-1', stage: 'C-1', seq: 3 });
   assert.deepEqual(JSON.parse(completionDetail(s, true)), { land: 'next', runId: 'run-1', stage: 'C-1', seq: 3, noop: true });
+});
+
+test('auto E: pending keeps the cursor at E, green moves to F, red feeds the fix loop', () => {
+  const atE = nextLandStage(gate(autoStart(), []), rebase('unchanged'));
+  const pending = nextLandStage(atE, { kind: 'github', outcome: 'pending', now: t });
+  assert.equal(pending.cursor, 'E');
+  assert.equal(pending.history.length, atE.history.length, 'pending does not close a gate');
+  const green = nextLandStage(pending, { kind: 'github', outcome: 'green', now: t });
+  assert.equal(green.cursor, 'F');
+
+  const red = nextLandStage(pending, { kind: 'github', outcome: 'red', findings: [{ id: 'github:Desktop CI', source: 'github', severity: 'blocker', file: '', title: 'GitHub Desktop CI: failure' }], now: t });
+  assert.equal(red.cursor, 'C-1');
+  assert.deepEqual(red.findings.map(x => x.id), ['github:Desktop CI']);
+  assert.deepEqual(red.history.at(-1), ['github:Desktop CI'], 'a red gate closes a gate like B does');
+});
+
+test('auto E: a red gate still escalates on round cap', () => {
+  const capped = autoStart({ config: { ...autoConfig, fixLoop: { ...autoConfig.fixLoop, maxRounds: 1 } } });
+  let s = nextLandStage(gate(capped, ['a']), fixed('c'.repeat(40)));
+  s = gate(s, []);
+  s = nextLandStage(s, rebase('unchanged'));
+  s = nextLandStage(s, { kind: 'github', outcome: 'red', findings: [{ id: 'github:ci', source: 'github', severity: 'blocker', file: '', title: 'red' }], now: t });
+  assert.equal(s.terminal?.state, 'needs_human');
+  assert.equal(s.escalation?.reason, 'round_cap');
+});
+
+test('auto F: pushed lands with the commit; moved and non_ff go back to D', () => {
+  const atF = nextLandStage(nextLandStage(gate(autoStart(), []), rebase('unchanged')), { kind: 'github', outcome: 'green', now: t });
+  const landed = nextLandStage(atF, { kind: 'merge', outcome: 'pushed', plan, commit: 'd'.repeat(40), now: t });
+  assert.equal(landed.terminal?.state, 'landed');
+  assert.equal(landed.squashPlan?.pushed, true);
+  assert.equal(landed.squashPlan?.commit, 'd'.repeat(40));
+  assert.match(landed.terminal!.detail, /^landed AgentWorkforce\/relay-desktop@ddddddd on main after 0 fix round\(s\)$/);
+
+  for (const outcome of ['moved', 'non_ff'] as const) {
+    const s = nextLandStage(atF, { kind: 'merge', outcome, now: t });
+    assert.equal(s.cursor, 'D', outcome);
+    assert.equal(s.terminal, null);
+  }
+});
+
+test('mode discipline: shadow outcomes refuse auto and vice versa', () => {
+  const shadowE = nextLandStage(gate(start(), []), rebase('unchanged'));
+  assert.throws(() => nextLandStage(shadowE, { kind: 'github', outcome: 'green', now: t }), /cannot take a green outcome under shadow/);
+  const autoE = nextLandStage(gate(autoStart(), []), rebase('unchanged'));
+  assert.throws(() => nextLandStage(autoE, wouldDispatch()), /cannot take a shadow outcome under auto/);
+  const shadowF = nextLandStage(shadowE, wouldDispatch());
+  assert.throws(() => nextLandStage(shadowF, { kind: 'merge', outcome: 'pushed', plan, commit: 'd'.repeat(40), now: t }), /cannot take a pushed outcome under shadow/);
 });

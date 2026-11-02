@@ -13,7 +13,7 @@ test('defaults: mergePolicy is shadow, placeholders are the spec proposals', () 
   assert.equal(c.mergePolicy.mode, 'shadow');
   assert.equal(c.fixLoop.maxRounds, 4);
   assert.equal(c.fixLoop.wallclockMinutes, 180);
-  assert.equal(c.fixLoop.harness, 'claude');
+  assert.equal(c.fixLoop.harness, 'codex');
   assert.equal(c.fixLoop.model, undefined);
   assert.equal(c.changelog, 'optional');
   assert.equal(c.baseBranch, 'main');

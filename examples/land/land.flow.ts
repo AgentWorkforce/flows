@@ -1,6 +1,6 @@
 // land — one pinned change (repo, sha, session) reviewed, gated, fixed and,
-// in shadow mode, planned as a squash commit that is never pushed. Spec:
-// AgentWorkforce/cloud#5806 §5, §7, §8. Phase 0-1: shadow mode only.
+// in shadow mode, planned as a squash commit that is never pushed; in auto
+// mode, landed for real. Spec: AgentWorkforce/cloud#5806 §5, §7, §8.
 //
 // ONE HOSTED RUN PER STAGE. cloud#5806 Decision A (one hosted run per stage,
 // 40-min cap unchanged): confirmed by Khaliq, 2026-10-29. Each invocation runs
@@ -24,7 +24,11 @@
 //   D              fetch the base; rebased → A again, conflict → needs_human.
 //   E              GitHub gate. Shadow never has a write token (cloud#5806 Decision B,
 //                  decided), so it records what it would dispatch and moves on to F.
+//                  Auto runs the repo's gate for real, dispatching in one run
+//                  and awaiting the dispatched GitHub runs in the next ones.
 //   F              shadow: the would-be squash plan goes into the state. Never push.
+//                  Auto: squash the land head onto the latest base and push;
+//                  a moved base or a non-fast-forward goes back to D.
 //
 // Every run starts from a fresh clone of the pinned sha. Fix and rebase
 // commits are carried between runs in `<stateDir>/land.bundle`, never pushed.
@@ -44,7 +48,9 @@ export const shellWord = (value: string): string => `'${value.replaceAll("'", "'
 
 export const MERGE_MODES = ['shadow', 'approval', 'auto'] as const;
 export const CHANGELOG_RULES = ['required', 'optional'] as const;
-export const HARNESSES = ['claude', 'codex'] as const;
+export const HARNESSES = ['claude', 'codex', 'grok', 'devin'] as const;
+/** Harnesses the shipped worker adapters actually support today — grok and devin are accepted names until their adapters land (flows#691). */
+export const WORKER_HARNESSES = new Set<string>(['claude', 'codex']);
 export const SQUASH_AUTHORS = ['session-human', 'agent-with-human-coauthor'] as const;
 export const RUNNER_OS = ['linux', 'macos'] as const;
 export const RUNNER_ARCH = ['x64', 'arm64'] as const;
@@ -84,7 +90,7 @@ export const LAND_CONFIG_DEFAULTS = {
   fixLoop: {
     maxRounds: 4, // PLACEHOLDER pending decision (cloud#5806 Q2): spec proposes 4
     wallclockMinutes: 180, // PLACEHOLDER pending decision (cloud#5806 Q2): spec proposes 3h
-    harness: 'claude',
+    harness: 'codex', // the default for now (grok and devin are accepted)
     model: undefined, // PLACEHOLDER pending decision (cloud#5806 Q2): unset = the harness's own default
   },
   landRef: 'land/{user}/{sha7}', // PLACEHOLDER pending decision (cloud#5806 Q5)
@@ -332,7 +338,7 @@ export function unreleasedBulletAdded(before: string, after: string): boolean {
 
 // ---------------------------------------------------------------- squash plan
 
-export interface SquashPlan { base: string; baseSha: string; headSha: string; tree: string; author: string; coAuthors: string[]; message: string; pushed: false }
+export interface SquashPlan { base: string; baseSha: string; headSha: string; tree: string; author: string; coAuthors: string[]; message: string; pushed: boolean; commit?: string }
 
 export function squashPlan(p: { base: string; baseSha: string; headSha: string; tree: string; subjects: string[]; sessionId: string; runId: string; squashAuthor: LandConfig['mergePolicy']['squashAuthor']; fixRounds: number; harness: string }): SquashPlan {
   const [subject = `Land ${p.headSha.slice(0, 7)}`, ...rest] = p.subjects;
@@ -393,8 +399,16 @@ export type StageResult = { now: number } & (
   | { kind: 'ci'; findings: Finding[] }
   | { kind: 'fix'; headSha: string; guard: { ok: boolean; detail: string } }
   | { kind: 'rebase'; outcome: 'unchanged' | 'rebased' | 'conflict'; baseSha: string; headSha: string; detail?: string }
-  | { kind: 'github'; wouldDispatch: GithubDispatch }
-  | { kind: 'merge'; plan: SquashPlan }
+  | { kind: 'github'; outcome: 'shadow'; wouldDispatch: GithubDispatch }
+  /** Auto: the gate dispatched GitHub-side work that is still running. Cursor stays at E. */
+  | { kind: 'github'; outcome: 'pending' }
+  | { kind: 'github'; outcome: 'green' }
+  /** Auto: the gate came back red; `findings` feed the fix loop like a closed gate. */
+  | { kind: 'github'; outcome: 'red'; findings: Finding[] }
+  | { kind: 'merge'; outcome: 'planned'; plan: SquashPlan }
+  | { kind: 'merge'; outcome: 'pushed'; plan: SquashPlan; commit: string }
+  /** Auto: the base moved since the last gate, or the push was not a fast-forward; back to D. */
+  | { kind: 'merge'; outcome: 'moved' | 'non_ff' }
 );
 
 const KIND: Record<string, StageResult['kind']> = { 'A-adversarial': 'review', 'A-context': 'review', B: 'ci', D: 'rebase', E: 'github', F: 'merge' };
@@ -411,14 +425,24 @@ export function nextLandStage(state: LandState, result: StageResult): LandState 
   const at = state.cursor;
   const end = (terminal: Terminal, detail: string): LandState => { s.cursor = null; s.terminal = { state: terminal, detail }; s.log.push(`${at}: ${terminal}`); return s; };
   const escalate = (reason: string, detail: string): LandState => { s.escalation = { reason, detail }; return end('needs_human', detail); };
-  const regate = (head: string) => { s.headSha = head; s.lanes = {}; s.cursor = 'A-adversarial'; };
+  const regate = (head: string) => { s.headSha = head; s.lanes = {}; s.githubGate = undefined; s.cursor = 'A-adversarial'; };
   if (result.kind === 'superseded') return end('cancelled', `superseded: land ref now ${result.refSha ?? 'deleted'}, run pinned ${state.pinnedSha}`);
   const want = at.startsWith('C-') ? 'fix' : KIND[at];
   if (result.kind !== want) throw new Error(`stage ${at} cannot take a ${result.kind} result`);
 
-  const closeGate = (findings: Finding[]): LandState => {
+  const closeGate = (findings: Finding[], mergeIntoRound = false): LandState => {
     const ids = findings.map(x => x.id);
-    s.history.push(ids); s.gates.push({ head: s.headSha, blocking: ids.length, ids }); s.findings = findings; s.lanes = {};
+    if (mergeIntoRound && s.history.length > 0) {
+      // A red GitHub gate closes this repair round, it does not open a new
+      // one: appending a separate entry would interleave [] and [G] so the
+      // stall checks never see two consecutive identical rounds.
+      const merged = [...new Set([...s.history.at(-1)!, ...ids])];
+      s.history[s.history.length - 1] = merged;
+      s.gates[s.gates.length - 1] = { head: s.headSha, blocking: merged.length, ids: merged };
+    } else {
+      s.history.push(ids); s.gates.push({ head: s.headSha, blocking: ids.length, ids });
+    }
+    s.findings = findings; s.lanes = {};
     const decision = decideConvergence({ history: s.history, roundsDone: s.round, maxRounds: s.config.fixLoop.maxRounds, elapsedMs: result.now - s.startedAt, budgetMs: s.config.fixLoop.wallclockMinutes * 60_000 });
     s.log.push(`${at}: gate ${s.gates.length} closed with ${ids.length} blocking`);
     if (decision.action === 'proceed') { s.cursor = 'D'; return s; }
@@ -450,22 +474,49 @@ export function nextLandStage(state: LandState, result: StageResult): LandState 
       regate(result.headSha);
       return s;
     case 'github':
-      // Decision B: no write token in shadow, so nothing is dispatched. The
-      // dispatch/await split and "red → C" belong to phase 2.
-      s.githubGate = result.wouldDispatch;
-      s.log.push(`E: shadow: would dispatch ${result.wouldDispatch.flow} {"github":true} at ${result.wouldDispatch.headSha.slice(0, 7)}`);
-      s.cursor = 'F';
-      return s;
+      if (result.outcome === 'shadow') {
+        if (s.config.mergePolicy.mode !== 'shadow') throw new Error(`stage E cannot take a shadow outcome under ${s.config.mergePolicy.mode}`);
+        // Decision B: no write token in shadow, so nothing is dispatched.
+        s.githubGate = result.wouldDispatch;
+        s.log.push(`E: shadow: would dispatch ${result.wouldDispatch.flow} {"github":true} at ${result.wouldDispatch.headSha.slice(0, 7)}`);
+        s.cursor = 'F';
+        return s;
+      }
+      if (s.config.mergePolicy.mode === 'shadow') throw new Error(`stage E cannot take a ${result.outcome} outcome under shadow`);
+      if (result.outcome === 'pending') {
+        s.log.push('E: dispatched GitHub gate still running; awaiting it in the next stage run');
+        s.cursor = 'E';
+        return s;
+      }
+      if (result.outcome === 'green') {
+        s.log.push('E: GitHub gate green');
+        s.cursor = 'F';
+        return s;
+      }
+      // A red GitHub gate feeds the fix loop like a closed gate: the same
+      // convergence rules bound the C ↔ E loop.
+      s.log.push(`E: GitHub gate red with ${result.findings.length} blocking`);
+      return closeGate(result.findings, true);
     case 'merge':
-      s.squashPlan = result.plan;
-      return end('landed', `shadow: would land ${s.repo}@${result.plan.headSha.slice(0, 7)} on ${s.config.baseBranch} after ${s.round} fix round(s); not pushed`);
+      if (result.outcome === 'planned') {
+        s.squashPlan = result.plan;
+        return end('landed', `shadow: would land ${s.repo}@${result.plan.headSha.slice(0, 7)} on ${s.config.baseBranch} after ${s.round} fix round(s); not pushed`);
+      }
+      if (s.config.mergePolicy.mode === 'shadow') throw new Error(`stage F cannot take a ${result.outcome} outcome under shadow`);
+      if (result.outcome === 'pushed') {
+        s.squashPlan = { ...result.plan, pushed: true, commit: result.commit };
+        return end('landed', `landed ${s.repo}@${result.commit.slice(0, 7)} on ${s.config.baseBranch} after ${s.round} fix round(s)`);
+      }
+      s.log.push(`F: ${result.outcome === 'moved' ? 'base moved since the last gate' : 'push was not a fast-forward'}; back to D`);
+      s.cursor = 'D';
+      return s;
   }
 }
 
 /** The completion detail Cloud chains on. */
 export function completionDetail(s: LandState, noop = false): string {
   return JSON.stringify(s.terminal
-    ? { land: 'terminal', runId: s.runId, state: s.terminal.state, seq: s.seq, detail: s.terminal.detail }
+    ? { land: 'terminal', runId: s.runId, state: s.terminal.state, seq: s.seq, detail: s.terminal.detail, ...(s.squashPlan?.commit ? { commit: s.squashPlan.commit } : {}) }
     : { land: 'next', runId: s.runId, stage: s.cursor, seq: s.seq, ...(noop ? { noop: true } : {}) });
 }
 
@@ -500,7 +551,7 @@ const writeFile = (path: string, content: string): string =>
  * inside this stage's sandbox and is polled in 5-minute steps, never past
  * runner.stageMinutes. Nothing outlives the hosted run.
  */
-export async function background(f: Ctx, dir: string, command: string, minutes: number): Promise<{ exitCode: number; tail: string }> {
+async function pollBackground(f: Ctx, dir: string, command: string, minutes: number): Promise<{ exitCode: number; tail: string } | 'pending'> {
   const exit = `${dir}/exit`;
   await f.run(`mkdir -p ${shellWord(dir)} && rm -f ${shellWord(exit)} && ` +
     `{ nohup sh -c ${shellWord(`${command}; echo $? > ${exit}.tmp && mv ${exit}.tmp ${exit}`)} > ${shellWord(`${dir}/log`)} 2>&1 < /dev/null & } && echo started`);
@@ -509,7 +560,13 @@ export async function background(f: Ctx, dir: string, command: string, minutes: 
     const out = (await f.run(`for i in $(seq 1 ${seconds}); do if [ -f ${shellWord(exit)} ]; then cat ${shellWord(exit)}; exit 0; fi; sleep 1; done; echo pending`, { timeout: '6m' })).trim();
     if (out !== 'pending') return { exitCode: Number(out), tail: await f.run(`tail -c 1500 ${shellWord(`${dir}/log`)}`) };
   }
-  throw new NeedsHuman(`${dir.split('/').pop()} did not finish within runner.stageMinutes (${minutes}m); log at ${dir}/log`);
+  return 'pending';
+}
+
+export async function background(f: Ctx, dir: string, command: string, minutes: number): Promise<{ exitCode: number; tail: string }> {
+  const result = await pollBackground(f, dir, command, minutes);
+  if (result === 'pending') throw new NeedsHuman(`${dir.split('/').pop()} did not finish within runner.stageMinutes (${minutes}m); log at ${dir}/log`);
+  return result;
 }
 
 interface Run { input: ReturnType<typeof parseInput>; state: LandState; base: string; flowsState: string; dir: string }
@@ -524,7 +581,9 @@ const stateName = (path: string): string => path.split('/').pop()!.replace(/\.fl
 async function review(f: Ctx, r: Run, lane: 'adversarial' | 'context'): Promise<Finding[]> {
   const path = r.state.config.reviewFlows[lane];
   // The adversarial fleet never receives the intent: not as input, env or path.
-  const input = lane === 'context' ? { base: r.base, intentFile: r.input.intentFile } : { base: r.base };
+  // The land run's harness is also the review fleet's cli set for now.
+  const clis = [r.state.config.fixLoop.harness];
+  const input = lane === 'context' ? { base: r.base, intentFile: r.input.intentFile, clis } : { base: r.base, clis };
   const run = await background(f, `${r.dir}/${lane}`, repoFlowCommand(r, lane, path, input), r.state.config.runner.stageMinutes);
   const report = `${r.flowsState}/${stateName(path)}/report.json`;
   const raw = await f.run(`if [ -f ${shellWord(report)} ]; then cp ${shellWord(report)} ${shellWord(`${r.dir}/${lane}.report.json`)} && ` +
@@ -573,7 +632,11 @@ async function fixRound(f: Ctx, r: Run, round: number): Promise<StageResult> {
 async function rebaseCheck(f: Ctx, r: Run): Promise<StageResult> {
   const latest = (await f.run(`git rev-parse ${shellWord(r.base)}`)).trim();
   const headSha = r.state.headSha;
-  if (latest === r.state.baseSha) return { kind: 'rebase', outcome: 'unchanged', baseSha: latest, headSha, now: await now(f) };
+  // An unchanged base still needs a rebase when the head does not contain it:
+  // the submitted head can predate commits already on the base at submit time.
+  if (latest === r.state.baseSha && (await f.run(`git merge-base --is-ancestor ${shellWord(latest)} ${shellWord(headSha)}`, { onNonZero: 'record' })).ok) {
+    return { kind: 'rebase', outcome: 'unchanged', baseSha: latest, headSha, now: await now(f) };
+  }
   const rebased = await f.run(`${LOCAL} rebase --quiet ${shellWord(latest)}`, { timeout: '5m', onNonZero: 'record' });
   if (!rebased.ok) {
     await f.run('git rebase --abort');
@@ -582,6 +645,163 @@ async function rebaseCheck(f: Ctx, r: Run): Promise<StageResult> {
   return { kind: 'rebase', outcome: 'rebased', baseSha: latest, headSha: (await f.run('git rev-parse HEAD')).trim(), now: await now(f) };
 }
 
+// ------------------------------------------------------------- github gate
+
+/**
+ * Stage E's cross-run bookkeeping, kept in `<stateDir>/github-gate.json`: the
+ * file survives the sandbox; the dispatch's detached process does not. The
+ * contract with the repo's GitHub gate (cloud#5806 §7): it pushes a throwaway
+ * `ci/<sha>` snapshot branch and dispatches GitHub Actions workflows on it —
+ * both observable from a fresh sandbox, which is what the await phase needs.
+ */
+interface GithubGateBook {
+  /** The land head under test; a gate book for another head is discarded. */
+  headSha: string;
+  /** ISO lower bound for matching dispatched runs (dispatch time minus slack). */
+  since: string;
+  /** The pushed `ci/<sha12>` snapshot, once discovered on origin. */
+  snapshotSha?: string;
+  /** Sorted run ids observed at the last check; the set must be stable across two checks before a verdict. */
+  seenRunIds?: number[];
+  polls: number;
+  attempts: number;
+}
+
+/** Dispatch attempts for one head before the run gives up waiting for a verdict. */
+export const GITHUB_GATE_MAX_ATTEMPTS = 3;
+/** Await stage runs polling one dispatch before escalation (~3.5h at stageMinutes 35). */
+export const GITHUB_GATE_MAX_POLLS = 6;
+
+/** `gh run list` for the runs dispatched on one snapshot commit, filtered client-side on `since`. */
+const GH_RUN_LIST = (sha: string): string =>
+  `gh run list --commit ${shellWord(sha)} --event workflow_dispatch --limit 50 --json databaseId,workflowName,status,conclusion,createdAt`;
+
+interface GhRun { databaseId: number; workflowName: string; status: string; conclusion: string | null; createdAt: string }
+
+/** Failed dispatched runs become blocking findings, id-stable across fix rounds. */
+const githubFindings = (runs: GhRun[]): Finding[] =>
+  runs.filter(x => x.conclusion !== 'success')
+    .map(x => ({ id: `github:${x.workflowName}`, source: 'github', severity: 'blocker', file: '', title: `GitHub ${x.workflowName}: ${x.conclusion ?? 'failed'}` }));
+
+/** The `ci/<sha>` snapshot the gate pushed for this head (its parent is the head). 'fetch-failed' means the fetch errored — distinct from "no snapshot found". */
+const snapshotForHead = async (f: Ctx, headSha: string): Promise<string | 'fetch-failed' | undefined> => {
+  const fetched = await f.run(`git fetch --quiet origin ${shellWord('+refs/heads/ci/*:refs/remotes/ci/*')}`, { onNonZero: 'record' });
+  if (!fetched.ok) return 'fetch-failed';
+  return (await f.run(
+    `for sha in $(git for-each-ref --sort=-committerdate --format='%(objectname)' refs/remotes/ci); do ` +
+    `if [ "$(git rev-parse "$sha^" 2>/dev/null)" = ${shellWord(headSha)} ]; then echo "$sha"; break; fi; done`)).trim() || undefined;
+};
+
+const writeBook = async (f: Ctx, file: string, book: GithubGateBook): Promise<GithubGateBook> => {
+  await f.run(writeFile(file, JSON.stringify(book)));
+  return book;
+};
+
+/** Best effort: the snapshot branch is the gate's, cleanup must not fail the verdict. */
+const deleteSnapshot = (f: Ctx, snapshotSha: string) =>
+  f.run(`git push --quiet origin --delete ${shellWord(`ci/${snapshotSha.slice(0, 12)}`)}`, { onNonZero: 'record' });
+
+async function githubGate(f: Ctx, r: Run): Promise<StageResult> {
+  const file = `${r.input.stateDir}/github-gate.json`;
+  const minutes = r.state.config.runner.stageMinutes;
+  const saved = JSON.parse((await f.run(`cat ${shellWord(file)} 2>/dev/null || echo null`)).trim()) as GithubGateBook | null;
+  let book = saved && saved.headSha === r.state.headSha ? saved : null;
+
+  // A reaped dispatch leaves a book without a snapshot: recover the one it
+  // pushed (if it got that far) instead of counting a fresh attempt. A failed
+  // fetch is not "no snapshot" — it keeps the run pending under the polls
+  // bound rather than burning a dispatch attempt.
+  if (book && !book.snapshotSha) {
+    const recovered = await snapshotForHead(f, r.state.headSha);
+    if (recovered === 'fetch-failed') {
+      const next = { ...book, polls: book.polls + 1 };
+      if (next.polls >= GITHUB_GATE_MAX_POLLS) throw new NeedsHuman(`GitHub gate on ${r.state.headSha.slice(0, 7)}: cannot list ci/ refs after ${GITHUB_GATE_MAX_POLLS} stage runs`);
+      await writeBook(f, file, next);
+      return { kind: 'github', outcome: 'pending', now: await now(f) };
+    }
+    if (recovered) book = await writeBook(f, file, { ...book, snapshotSha: recovered });
+    else if (book.attempts >= GITHUB_GATE_MAX_ATTEMPTS) throw new NeedsHuman(`GitHub gate was dispatched ${GITHUB_GATE_MAX_ATTEMPTS} times without a verdict`);
+  }
+
+  if (book?.snapshotSha) {
+    // Await phase: poll the dispatched runs until they are all complete and
+    // the observed set is stable across two checks. A set that is still
+    // growing means the previous stage died mid-dispatch — an early verdict
+    // on a subset could pass a gate whose remaining workflows never ran.
+    const snapshotSha = book.snapshotSha;
+    let awaiting = book;
+    for (let poll = 0; poll * POLL_SECONDS < minutes * 60; poll++) {
+      const seconds = Math.min(POLL_SECONDS, minutes * 60 - poll * POLL_SECONDS);
+      // The inner loop waits out the window unless every observed run has
+      // completed — an incomplete set must sleep and re-poll, not return and
+      // let the outer loop burn its stage window in seconds.
+      const nodeFilter =
+        `const runs=JSON.parse(require('fs').readFileSync(0,'utf8')).filter(r=>r.createdAt>=process.argv[1]);` +
+        `if(!runs.length||runs.some(r=>r.status!=='completed'))process.exit(2);` +
+        `process.stdout.write(JSON.stringify(runs))`;
+      const out = (await f.run(
+        `for i in $(seq 1 ${Math.ceil(seconds / 15)}); do ` +
+        `if ${GH_RUN_LIST(snapshotSha)} 2>/dev/null | node -e ${shellWord(nodeFilter)} ${shellWord(awaiting.since)}; then exit 0; fi; ` +
+        `sleep 15; done; echo pending`, { timeout: '6m' })).trim();
+      if (out === 'pending' || !out) continue;
+      const runs = JSON.parse(out.split('\n').pop()!) as GhRun[];
+      const ids = runs.map(x => x.databaseId).sort((a, b) => a - b);
+      const sameSet = awaiting.seenRunIds !== undefined
+        && ids.length === awaiting.seenRunIds.length && ids.every((id, i) => id === awaiting.seenRunIds![i]);
+      if (!sameSet) {
+        awaiting = await writeBook(f, file, { ...awaiting, seenRunIds: ids });
+        continue;
+      }
+      await deleteSnapshot(f, snapshotSha);
+      const findings = githubFindings(runs);
+      if (!findings.length) return { kind: 'github', outcome: 'green', now: await now(f) };
+      return { kind: 'github', outcome: 'red', findings, now: await now(f) };
+    }
+    const next = { ...awaiting, polls: awaiting.polls + 1 };
+    if (next.polls >= GITHUB_GATE_MAX_POLLS) throw new NeedsHuman(`GitHub gate on ${snapshotSha.slice(0, 7)} still running after ${GITHUB_GATE_MAX_POLLS} await stage runs`);
+    await writeBook(f, file, next);
+    return { kind: 'github', outcome: 'pending', now: await now(f) };
+  }
+
+  // Dispatch phase: the attempt is persisted BEFORE the wait — a stage reaped
+  // mid-dispatch must not relaunch (repeating expensive dispatches) or burn a
+  // second attempt slot for the same dispatch. It either finishes inside this
+  // stage's window — the verdict applies at once — or dies with the sandbox
+  // having already pushed its snapshot and dispatched its runs. `since` is
+  // bound now, not after the wait: runs dispatched early in the window must
+  // not be filtered out by a bound taken at timeout.
+  const attempts = (book?.attempts ?? 0) + 1;
+  if (attempts > GITHUB_GATE_MAX_ATTEMPTS) throw new NeedsHuman(`GitHub gate was dispatched ${GITHUB_GATE_MAX_ATTEMPTS} times without a verdict`);
+  const since = new Date(await now(f) - 10 * 60_000).toISOString();
+  book = await writeBook(f, file, { headSha: r.state.headSha, since, polls: 0, attempts });
+  const run = await pollBackground(f, `${r.dir}/github`, repoFlowCommand(r, 'github', r.state.config.ciFlow, { base: r.base, github: true }), minutes);
+  if (run !== 'pending') {
+    // The gate deletes its snapshot on a clean exit; cover a crash so
+    // in-window verdicts cannot leak `ci/<sha>` branches either.
+    const leaked = await snapshotForHead(f, r.state.headSha);
+    if (leaked && leaked !== 'fetch-failed') await deleteSnapshot(f, leaked);
+    const report = `${r.flowsState}/${stateName(r.state.config.ciFlow)}/report.json`;
+    const raw = await f.run(`if [ -f ${shellWord(report)} ]; then node -e ${shellWord(
+      "const r=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));" +
+      "process.stdout.write(JSON.stringify({results:(r.results||[]).filter(x=>!x.ok).slice(0,20).map(({job,step,output})=>({job,step,output:String(output||'').slice(0,200)}))}))")} ${shellWord(report)}; else echo '{}'; fi`);
+    const red = (JSON.parse(raw).results ?? []) as Array<{ job: string; step: string; output: string }>;
+    if (run.exitCode === 0 && red.length === 0) return { kind: 'github', outcome: 'green', now: await now(f) };
+    const findings: Finding[] = red.length
+      ? red.map(x => ({ id: `github:${x.job}:${x.step}`, source: 'github', severity: 'blocker', file: '', title: `GitHub gate ${x.job}: ${x.step} — ${x.output.slice(0, 120)}` }))
+      : [{ id: 'github:run-failed', source: 'github', severity: 'blocker', file: '', title: `github gate ended red without a report: ${run.tail.slice(-300)}` }];
+    return { kind: 'github', outcome: 'red', findings, now: await now(f) };
+  }
+
+  // Killed mid-wait: find the snapshot it pushed — its parent is this head. A
+  // failed fetch leaves the book snapshot-less; the next stage run's recovery
+  // path retries instead of redispatching.
+  const snapshotSha = await snapshotForHead(f, r.state.headSha);
+  if (snapshotSha !== 'fetch-failed') await writeBook(f, file, { ...book, snapshotSha });
+  return { kind: 'github', outcome: 'pending', now: await now(f) };
+}
+
+// ----------------------------------------------------------------------
+
 async function merge(f: Ctx, r: Run): Promise<StageResult> {
   const s = r.state;
   const subjects = (await f.run(`git log --reverse --no-merges --format=%s ${shellWord(s.pinnedSha)} --not ${shellWord(r.base)}`)).split('\n').filter(Boolean);
@@ -589,7 +809,37 @@ async function merge(f: Ctx, r: Run): Promise<StageResult> {
     base: s.config.baseBranch, baseSha: s.baseSha, headSha: s.headSha, tree: (await f.run('git rev-parse HEAD^{tree}')).trim(),
     subjects, sessionId: s.sessionId, runId: s.runId, squashAuthor: s.config.mergePolicy.squashAuthor, fixRounds: s.round, harness: s.config.fixLoop.harness,
   });
-  return { kind: 'merge', plan, now: await now(f) };
+  if (s.config.mergePolicy.mode === 'shadow') return { kind: 'merge', outcome: 'planned', plan, now: await now(f) };
+  // Spec §9: rebase onto the latest base right before push. A base that moved
+  // since the last green gate sends the run back through D for a regate —
+  // unless the move is this run's own squash commit. A stage reaped after the
+  // push but before the state write must not land the same change twice.
+  const latest = (await f.run(`git rev-parse ${shellWord(r.base)}`)).trim();
+  if (latest !== s.baseSha) {
+    const landed = (await f.run(
+      `git log --format=%H --grep=${shellWord(`Land-Run: ${s.runId}$`)} -5 ${shellWord(r.base)}`)).trim().split('\n')[0]!;
+    if (landed) return { kind: 'merge', outcome: 'pushed', plan: { ...plan, headSha: s.headSha, baseSha: latest }, commit: landed, now: await now(f) };
+    return { kind: 'merge', outcome: 'moved', now: await now(f) };
+  }
+  // The squash's tree is the head's, attached to the base as a plain child —
+  // nothing merges the base's content. If the head never contained the base
+  // (it branched before commits already on it when the run started), pushing
+  // that tree would silently revert those base changes. Back to D, which
+  // rebases the head onto the base; the regate then covers the real tree.
+  if (!(await f.run(`git merge-base --is-ancestor ${shellWord(latest)} HEAD`, { onNonZero: 'record' })).ok) {
+    return { kind: 'merge', outcome: 'moved', now: await now(f) };
+  }
+  const ident = 'GIT_AUTHOR_NAME="${LAND_AUTHOR_NAME:-Agent Relay Land}" GIT_AUTHOR_EMAIL="${LAND_AUTHOR_EMAIL:-land@agentrelay.com}" ' +
+    'GIT_COMMITTER_NAME="${LAND_AUTHOR_NAME:-Agent Relay Land}" GIT_COMMITTER_EMAIL="${LAND_AUTHOR_EMAIL:-land@agentrelay.com}"';
+  const commit = (await f.run(`${ident} git commit-tree ${shellWord(plan.tree)} -p ${shellWord(latest)} -m ${shellWord(plan.message)}`)).trim();
+  const push = await f.run(`git push origin ${shellWord(`${commit}:refs/heads/${s.config.baseBranch}`)}`, { timeout: '5m', onNonZero: 'record' });
+  if (!push.ok) {
+    // Only an actual stale base retries through D; a permission or protected
+    // branch rejection is permanent and escalates instead of looping.
+    if (/non-fast-forward|fetch first|stale info/i.test(push.output)) return { kind: 'merge', outcome: 'non_ff', now: await now(f) };
+    throw new NeedsHuman(`push to ${s.config.baseBranch} failed: ${push.output.slice(-500)}`);
+  }
+  return { kind: 'merge', outcome: 'pushed', plan, commit, now: await now(f) };
 }
 
 async function runStage(f: Ctx, r: Run): Promise<StageResult> {
@@ -600,7 +850,10 @@ async function runStage(f: Ctx, r: Run): Promise<StageResult> {
   }
   if (at === 'B') return { kind: 'ci', findings: await localCi(f, r), now: await now(f) };
   if (at === 'D') return rebaseCheck(f, r);
-  if (at === 'E') return { kind: 'github', wouldDispatch: { flow: r.state.config.ciFlow, input: { base: r.base, github: true }, headSha: r.state.headSha, dispatched: false }, now: await now(f) };
+  if (at === 'E') {
+    if (r.state.config.mergePolicy.mode === 'shadow') return { kind: 'github', outcome: 'shadow', wouldDispatch: { flow: r.state.config.ciFlow, input: { base: r.base, github: true }, headSha: r.state.headSha, dispatched: false }, now: await now(f) };
+    return githubGate(f, r);
+  }
   if (at === 'F') return merge(f, r);
   return fixRound(f, r, Number(at.slice(2)));
 }
@@ -640,12 +893,30 @@ export async function land(f: Ctx, raw: LandInput): Promise<void> {
     const config = state?.config ?? parseLandConfig(typeof input.config === 'string'
       ? JSON.parse(await f.run(`git show ${shellWord(`${input.sha}:${input.config}`)}`)) : input.config);
     if (input.baseBranch && input.baseBranch !== config.baseBranch) throw new NeedsHuman(`input baseBranch ${input.baseBranch} disagrees with land.config ${config.baseBranch}`);
-    if (config.mergePolicy.mode !== 'shadow') return f.done('declined', { detail: JSON.stringify({ land: 'declined', detail: `mergePolicy.mode "${config.mergePolicy.mode}" is not implemented in phase 0-1; only shadow runs` }) });
+    if (config.mergePolicy.mode === 'approval') return f.done('declined', { detail: JSON.stringify({ land: 'declined', detail: 'mergePolicy.mode "approval" is not implemented; shadow and auto run' }) });
 
     const uname = (await f.run('uname -sm')).trim();
     const want = `${config.runner.os === 'linux' ? 'Linux' : 'Darwin'} ${config.runner.arch === 'x64' ? 'x86_64' : 'arm64'}`;
     if (uname.replace('aarch64', 'arm64') !== want) throw new NeedsHuman(`runner is ${uname}; land.config needs ${want}`);
     await f.run(config.runner.commands.map(c => `command -v ${shellWord(c)} >/dev/null`).join(' && ') || 'true');
+    if (config.mergePolicy.mode === 'auto') {
+      // Preflight, not polling: the GitHub gate and the push need an authed gh
+      // and a write-capable git credential; prove both at stage one.
+      const gh = await f.run(`command -v gh >/dev/null && gh auth status`, { onNonZero: 'record' });
+      if (!gh.ok) throw new NeedsHuman('mergePolicy.mode "auto" needs gh installed and authenticated (a write repository grant); shadow runs do not');
+      // Write access is proven by dry-running a push to a fresh throwaway ref:
+      // a create is always a fast-forward, so an advanced base or a rebase
+      // pending at D/F can never turn this check into a false refusal.
+      const pushable = await f.run(`git push --dry-run origin HEAD:refs/heads/land-probe/${shellWord(input.runId)}-$$`, { onNonZero: 'record', timeout: '2m' });
+      if (!pushable.ok) throw new NeedsHuman(`mergePolicy.mode "auto" needs a push-capable git credential (a write repository grant): ${pushable.output.slice(-300)}`);
+    }
+    // grok and devin are accepted config names for forward compatibility, but
+    // the worker adapters for them land with flows#691 and a relayflows
+    // release — refuse clearly at stage one rather than dying inside C-n or
+    // a review fleet.
+    if (!WORKER_HARNESSES.has(config.fixLoop.harness)) {
+      throw new NeedsHuman(`fixLoop.harness "${config.fixLoop.harness}" has no worker adapter in this relayflows release (grok and devin arrive with flows#691); use "codex" until then`);
+    }
     const base = `origin/${config.baseBranch}`;
     // Hosted runs clone the land ref shallow, and merge-base against the base
     // needs the shared history: the base fetch also deepens a shallow
