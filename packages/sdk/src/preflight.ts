@@ -606,6 +606,9 @@ function probeResolvedCli(
       message: `Step "${resolution.stepId}" uses Relay's interactive CLI transport. The executable exists, but authentication${resolution.model ? ' and access to model "' + resolution.model + '"' : ''} could not be verified before startup. The managed session must execute its task and report completion; startup or task failure fails the step.` });
   } else if (result.authenticated !== true) {
     const command = result.authCommand ?? `${resolution.cli} auth status`;
+    const loginHint = cliAdapterKind(resolution.cli) === 'devin'
+      ? ' For hosted land flows, set LAND_DEVIN_API_KEY to a Devin CLI login token; local runs use DEVIN_API_KEY. A REST API key is a different credential.'
+      : '';
     // Say what the probe reported. A refusal that names only the command turns
     // a transient provider rejection and a genuinely unauthenticated CLI into
     // the same message, and the difference decides whether retrying is
@@ -621,7 +624,7 @@ function probeResolvedCli(
       kind: 'cli_unauthenticated',
       stepId: resolution.stepId,
       cli: resolution.cli,
-      message: `Step "${resolution.stepId}" declares CLI "${resolution.cli}", but "${command}" exited non-zero${exitCode}; authenticate it or repair that adapter's authentication probe.${detail}`,
+      message: `Step "${resolution.stepId}" declares CLI "${resolution.cli}", but "${command}" exited non-zero${exitCode}; authenticate it or repair that adapter's authentication probe.${detail}${loginHint}`,
     });
   } else if (resolution.model !== undefined && result.modelAvailable !== true) {
     diagnostics.push(modelProbeRefusal(resolution as CliResolution & { model: string }, result));
@@ -673,7 +676,7 @@ function probeFailedMessage(
 ): string {
   const prefix = `Could not verify CLI "${resolution.cli}" for step "${resolution.stepId}"`;
   if (detail === undefined) return `${prefix}.`;
-  if (detail === 'devin_api_key_empty') return `${prefix}: DEVIN_API_KEY must contain a non-empty Devin CLI login token.`;
+  if (detail === 'devin_api_key_empty') return `${prefix}: DEVIN_API_KEY must contain a non-empty Devin CLI login token. For hosted land flows, set LAND_DEVIN_API_KEY.`;
   if (detail === 'spawn_failed') return `${prefix}: the probe process could not be started.`;
   if (detail.startsWith('signal:')) {
     return `${prefix}: the probe was terminated by signal "${detail.slice('signal:'.length)}".`;

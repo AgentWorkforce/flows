@@ -75,6 +75,7 @@ const authenticated = fs.existsSync(credentials)
   && fs.readFileSync(credentials, 'utf8') === 'windsurf_api_key = "devin-test-secret"\\n';
 if (args[0] === 'models') {
   if (JSON.stringify(args) !== JSON.stringify(['models', 'list', '--format', 'json'])) process.exit(11);
+  if (!authenticated && fs.existsSync(credentials)) console.error(fs.readFileSync(credentials, 'utf8'));
   process.exit(authenticated ? 0 : 1);
 }
 if (args.includes('--json') || args.includes('--relayflows-identify')) process.exit(10);
@@ -150,6 +151,18 @@ it('names an empty Devin key in preflight rather than hiding it as a generic pro
   expect(checked.ok).toBe(false);
   expect(checked.diagnostics).toContainEqual(expect.objectContaining({ kind: 'probe_failed',
     detail: 'devin_api_key_empty', message: expect.stringContaining('DEVIN_API_KEY must contain a non-empty') }));
+  expect(checked.diagnostics).toContainEqual(expect.objectContaining({
+    message: expect.stringContaining('LAND_DEVIN_API_KEY') }));
+});
+
+it('points hosted land operators to the CLI-token alias on authentication refusal', () => {
+  const checked = preflight({ version: '0.1.0', steps: [{ id: 'work', type: 'agent', cli: 'devin',
+    instruction: 'work' }] }, { probes: { cli: () => ({ exists: true, supported: true,
+      authenticated: false, authExitCode: 1, authFailureDetail: 'Authentication required: invalid api key' }),
+      executor: () => true, command: () => true } });
+  expect(checked.ok).toBe(false);
+  expect(checked.diagnostics).toContainEqual(expect.objectContaining({ kind: 'cli_unauthenticated',
+    message: expect.stringContaining('set LAND_DEVIN_API_KEY to a Devin CLI login token') }));
 });
 
 it('removes credential and prompt state when the worker loses its lease', async () => {
@@ -166,4 +179,17 @@ it('removes credential and prompt state when the worker loses its lease', async 
   expect(result.exit_code).toBeNull();
   expect(result.transport?.cause).toBe('lease_lost');
   expect(readdirSync(privateRoot)).toEqual([]);
+});
+
+it.each([' invalid-devin-secret\n', ' prefix-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-secretSuffix\n'])('fully redacts echoed credentials before shape-based scrubbing', async key => {
+  const f = fixture(); const env = { ...f.env, DEVIN_API_KEY: key };
+  for (const probe of [probeCli, probeCliAsync]) {
+    const result = await probe(f.cli, f.cwd, undefined, undefined, env);
+    expect(result.authenticated).toBe(false);
+    expect(result.authExitCode).toBe(1);
+    expect(result.authFailureDetail).not.toContain(key.trim());
+    expect(result.authFailureDetail).not.toContain('prefix-');
+    expect(result.authFailureDetail).not.toContain('secretSuffix');
+    expect(result.authFailureDetail).toContain('[redacted:DEVIN_API_KEY]');
+  }
 });

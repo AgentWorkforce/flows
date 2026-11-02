@@ -1,6 +1,7 @@
 import { accessSync, constants, realpathSync } from 'node:fs';
 import { basename, isAbsolute, resolve } from 'node:path';
 import { execFile, spawnSync } from 'node:child_process';
+import { redactText } from '../agent-transcript.js';
 import { agentEnvironment, brokerEnvironment } from '../communication/environment.js';
 import { adapterIdentification, authenticationProbe, classifyModelProbeFailure, cliAdapterKind,
   displayInvocation, modelReadinessProbe, type CliInvocation } from '../cli-adapter.js';
@@ -141,12 +142,16 @@ function* probeSequence(
   const auth = authenticationProbe(kind);
   const authCommand = displayInvocation(cli, auth);
   if (model === undefined) {
+    const authProbe = yield probe(auth);
+    const authenticated = authProbe.status === 0;
     return {
       exists: true,
       supported: true,
-      authenticated: (yield probe(auth)).status === 0,
+      authenticated,
       executable,
       authCommand,
+      ...(authenticated ? {} : { authExitCode: authProbe.status,
+        authFailureDetail: redactProbeOutput(`${authProbe.stderr}${authProbe.stdout}`, sourceEnvironment).trim().slice(0, 500) }),
     };
   }
 
@@ -176,7 +181,7 @@ function* probeSequence(
   // because Claude Code prints the provider's API error there and its own
   // catalog warnings on stderr.
   const failure = classifyModelProbeFailure(kind, `${scopedProbe.stdout}\n${scopedProbe.stderr}`);
-  const modelDetail = redactProbeOutput(scopedProbe.stdout.trim() || scopedProbe.stderr.trim()).slice(0, 500);
+  const modelDetail = redactProbeOutput(scopedProbe.stdout.trim() || scopedProbe.stderr.trim(), sourceEnvironment).slice(0, 500);
   return {
     exists: true,
     supported: true,
@@ -195,7 +200,7 @@ function* probeSequence(
       : {
         authExitCode: authProbe.status,
         authFailureDetail: redactProbeOutput(
-          `${authProbe.stderr}${authProbe.stdout}`,
+          `${authProbe.stderr}${authProbe.stdout}`, sourceEnvironment,
         ).trim().slice(0, 500),
       }),
   };
@@ -209,8 +214,9 @@ function* probeSequence(
  * say WHY a probe failed, which survives redaction; leaking an identity into a
  * refusal message that gets pasted into issues does not.
  */
-function redactProbeOutput(text: string): string {
-  return text
+function redactProbeOutput(text: string, environment: NodeJS.ProcessEnv): string {
+  return redactText(text, { ...environment,
+    ...(environment.DEVIN_API_KEY === undefined ? {} : { DEVIN_API_KEY: environment.DEVIN_API_KEY.trim() }) })
     .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '<redacted-email>')
     .replace(/\b(sk|pk|oat|rt)[-_][A-Za-z0-9._-]{8,}/gi, '<redacted-token>')
     .replace(/\b[A-Fa-f0-9]{32,}\b/g, '<redacted-hex>');

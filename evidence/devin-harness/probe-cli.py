@@ -12,7 +12,7 @@ parser.add_argument("--cli", required=True)
 parser.add_argument("--credentials", type=Path)
 args = parser.parse_args()
 EXPECTED_CLI_VERSION = "3000.11.234"
-version = subprocess.check_output([args.cli, "--version"], text=True).strip()
+version = subprocess.check_output([args.cli, "--version"], text=True, timeout=10).strip()
 print(version, flush=True)
 if not version.startswith(f"devin {EXPECTED_CLI_VERSION} "):
     raise SystemExit("Unexpected Devin CLI version")

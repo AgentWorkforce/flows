@@ -387,13 +387,18 @@ headless exit=0; marker received=True
 A deliberately broken CLI fixture that reports the pinned version but returns a successful model catalog while logged out is still rejected under optimized Python:
 
 ```sh
-cat > /Users/khaliqgant/.cache/devin-harness/fake-devin <<'SH'
-#!/bin/sh
-if [ "$1" = --version ]; then echo "devin 3000.11.234 (fixture)"; fi
-exit 0
-SH
-chmod +x /Users/khaliqgant/.cache/devin-harness/fake-devin
-/opt/homebrew/bin/python3.14 -O evidence/devin-harness/probe-cli.py --cli /Users/khaliqgant/.cache/devin-harness/fake-devin
+/opt/homebrew/bin/python3.14 - <<'PY'
+from pathlib import Path
+import subprocess
+fake=Path('/Users/khaliqgant/.cache/devin-harness/fake-devin')
+fake.write_text('#!/bin/sh\nif [ "$1" = --version ]; then echo "devin 3000.11.234 (fixture)"; fi\nexit 0\n')
+fake.chmod(0o755)
+result=subprocess.run(['/opt/homebrew/bin/python3.14','-O','evidence/devin-harness/probe-cli.py','--cli',str(fake)],text=True,capture_output=True)
+print(result.stdout,end='')
+print(result.stderr,end='')
+print('exit='+str(result.returncode))
+if result.returncode!=1:raise SystemExit('Expected the broken fixture to fail')
+PY
 ```
 
 ```text
@@ -413,3 +418,5 @@ shasum -a 256 evidence/devin-harness/linux-probe-run.original.txt /Users/khaliqg
 888a9b9f3c66193d313a79677a20cd63929dc27a35d49b5535e6cc5373440449  evidence/devin-harness/linux-probe-run.original.txt
 888a9b9f3c66193d313a79677a20cd63929dc27a35d49b5535e6cc5373440449  /Users/khaliqgant/.cache/devin-harness/linux-probe-run.py
 ```
+
+Hosted-land credential guidance and the auth-error regression follow-up are recorded in [land-credential-followup.md](land-credential-followup.md).
