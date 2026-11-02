@@ -219,37 +219,35 @@ function redactProbeOutput(text: string, environment: NodeJS.ProcessEnv): string
   const normalized = { ...environment, ...(key === undefined ? {} : { DEVIN_API_KEY: key }) };
   // Preserve the shared redactor's known-value, header and cookie handling.
   const redacted = redactText(text, normalized);
-  const spans: Array<{ start: number; end: number; replacement: string }> = [];
-  for (const [pattern, replacement] of [
-    [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '<redacted-email>'],
-    [/\b(sk|pk|oat|rt)[-_][A-Za-z0-9._-]{8,}/gi, '<redacted-token>'],
-    [/\b[A-Fa-f0-9]{32,}\b/g, '<redacted-hex>'],
+  // One byte per diagnostic character bounds auxiliary memory even when a
+  // one-character credential matches the entire probe buffer. No span lists.
+  const covered = new Uint8Array(redacted.length);
+  const replacements = ['', '<redacted-email>', '<redacted-token>', '<redacted-hex>', '[redacted:DEVIN_API_KEY]'];
+  for (const [pattern, tag] of [
+    [/(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, 1],
+    [/\b(sk|pk|oat|rt)[-_][A-Za-z0-9._-]{8,}/gi, 2],
+    [/\b[A-Fa-f0-9]{32,}\b/g, 3],
   ] as const) {
-    for (const match of redacted.matchAll(pattern)) {
-      spans.push({ start: match.index, end: match.index + match[0].length, replacement });
-    }
+    for (const match of redacted.matchAll(pattern)) covered.fill(tag, match.index, match.index + match[0].length);
   }
-  // Collect short credentials AFTER the shapes, against the same text:
-  // replacing either first can split the other and leak a suffix. Redact the
-  // union of overlapping spans, including keys too short for the shared redactor.
+  // Mark short credentials AFTER the shapes, on the same text: replacing
+  // either first can split the other and leak a suffix. Connected marks are
+  // redacted together; a known credential's marker takes precedence.
   if (key && key.length < 8) {
     for (let start = redacted.indexOf(key); start !== -1; start = redacted.indexOf(key, start + 1)) {
-      spans.push({ start, end: start + key.length, replacement: '[redacted:DEVIN_API_KEY]' });
+      covered.fill(4, start, start + key.length);
     }
   }
-  spans.sort((a, b) => a.start - b.start);
-  const merged: typeof spans = [];
-  for (const span of spans) {
-    const previous = merged.at(-1);
-    if (previous && span.start < previous.end) {
-      previous.end = Math.max(previous.end, span.end);
-      if (span.replacement.startsWith('[redacted:')) previous.replacement = span.replacement;
-    } else merged.push({ ...span });
-  }
   let result = ''; let cursor = 0;
-  for (const span of merged) {
-    result += redacted.slice(cursor, span.start) + span.replacement;
-    cursor = span.end;
+  for (let start = 0; start < covered.length;) {
+    if (covered[start] === 0) { start++; continue; }
+    let tag = covered[start]!; let end = start + 1;
+    while (end < covered.length && covered[end] !== 0) {
+      if (covered[end] === 4) tag = 4;
+      end++;
+    }
+    result += redacted.slice(cursor, start) + replacements[tag];
+    cursor = end; start = end;
   }
   return result + redacted.slice(cursor);
 }

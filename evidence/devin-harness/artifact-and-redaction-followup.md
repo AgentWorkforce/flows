@@ -174,3 +174,60 @@ AssertionError: examples/land/land.flow.ts: omitted pairs must resolve call-exac
    Duration  158.34s (transform 111ms, setup 9ms, collect 316ms, tests 157.83s, environment 0ms, prepare 28ms)
 
 ```
+
+## Bounded diagnostic coverage follow-up
+
+The span arrays/sort above are replaced by a single byte mask over the
+shared-redacted text. Shape matches and short-key occurrences mark covered
+characters; connected marked runs are emitted once with credential marker
+precedence. Auxiliary coverage storage is one byte per diagnostic character,
+independent of how many matches it contains. Shared redaction remains first.
+An email-start boundary prevents retrying the email matcher inside every suffix
+of a long word.
+
+The fixture writes the full 900,000-character diagnostic synchronously before
+exiting, so both probe drivers receive it completely. The assertion includes the
+credential-file echo after that diagnostic, protecting against a truncated fixture.
+No gates, waivers, or land source were modified.
+
+Working directory: packages/sdk.
+
+```sh
+set -o pipefail; { TMPDIR=/Users/khaliqgant/.cache/devin-harness node node_modules/vitest/vitest.mjs run tests/devin.test.ts tests/cli-probe.test.ts tests/preflight.test.ts tests/agent-transcript.test.ts && npm run typecheck && npm run typecheck:tests; } 2>&1 | tee /Users/khaliqgant/.cache/devin-harness/bounded-redaction-final.log
+```
+
+```text
+
+ RUN  v2.1.9 /Volumes/T7/Projects/AgentWorkforce/worktrees/flows/devin-harness-20261102/packages/sdk
+
+ ✓ tests/agent-transcript.test.ts (29 tests) 153ms
+ ✓ tests/preflight.test.ts (70 tests) 48ms
+ ✓ tests/devin.test.ts (26 tests) 5637ms
+   ✓ redacts a near-buffer-size response to a one-character credential without retaining per-match spans 416ms
+   ✓ checks provider auth with isolated credentials in both synchronous and asynchronous preflight 411ms
+   ✓ refuses an unavailable model and missing model-probe credentials in both preflight drivers 583ms
+   ✓ fully redacts echoed credentials alongside shape-based scrubbing 315ms
+   ✓ redacts the complete overlap between credentials and diagnostic shapes: abc 362ms
+   ✓ redacts the complete overlap between credentials and diagnostic shapes: aba 507ms
+ ✓ tests/cli-probe.test.ts (19 tests) 5979ms
+   ✓ returns the absolute executable selected for a bare CLI name 339ms
+   ✓ keeps synchronous and asynchronous classification equal: model denied 439ms
+   ✓ scopes delivered secrets in PATH lookup and provider probes for checked and authored steps 935ms
+   ✓ reports timeout in both drivers while the async driver leaves the loop free 449ms
+   ✓ reports signal termination in both drivers 532ms
+   ✓ classifies a failed claude model probe from its own output: unrecognised output 377ms
+
+ Test Files  4 passed (4)
+      Tests  144 passed (144)
+   Start at  13:52:47
+   Duration  7.26s (transform 1.09s, setup 44ms, collect 2.86s, tests 11.82s, environment 0ms, prepare 200ms)
+
+
+> @relayflows/sdk@2.0.55 typecheck
+> tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+
+> @relayflows/sdk@2.0.55 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+```

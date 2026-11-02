@@ -76,6 +76,7 @@ const authenticated = fs.existsSync(credentials)
 if (args[0] === 'models') {
   if (JSON.stringify(args) !== JSON.stringify(['models', 'list', '--format', 'json'])) process.exit(11);
   if (process.env.PROBE_DIAGNOSTIC) console.error(process.env.PROBE_DIAGNOSTIC);
+  if (process.env.PROBE_LARGE_OUTPUT) fs.writeFileSync(2, 'x'.repeat(900_000) + '\\n');
   if (!authenticated && fs.existsSync(credentials)) console.error(fs.readFileSync(credentials, 'utf8'));
   process.exit(authenticated ? 0 : 1);
 }
@@ -111,6 +112,16 @@ it.each(['--version\nDo the task', 'fail'])('launches print mode with file input
     '--respect-workspace-trust', 'false', '--model', 'gpt-5.6-sol', '--prompt-file']));
   expect(value.keyPresent).toBe(false); expect(value.mode).toBe(0o600);
   expect(existsSync(value.credentials)).toBe(false); expect(existsSync(value.promptPath)).toBe(false);
+});
+
+it('redacts a near-buffer-size response to a one-character credential without retaining per-match spans', async () => {
+  const f = fixture();
+  const env = { ...f.env, DEVIN_API_KEY: 'x', PROBE_LARGE_OUTPUT: '1' };
+  for (const probe of [probeCli, probeCliAsync]) {
+    const result = await probe(f.cli, f.cwd, undefined, undefined, env);
+    expect(result.authenticated).toBe(false);
+    expect(result.authFailureDetail).toBe('[redacted:DEVIN_API_KEY]\nwindsurf_api_key = "[redacted:DEVIN_API_KEY]"');
+  }
 });
 
 it('redacts the normalized token when the supplied key has surrounding whitespace', async () => {
