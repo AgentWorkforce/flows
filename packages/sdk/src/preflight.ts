@@ -65,6 +65,7 @@ export interface CliProbeResult {
 
 export type CliProbeFailureDetail =
   | 'spawn_failed'
+  | 'devin_api_key_empty'
   | `timeout:${number}ms`
   | `signal:${string}`;
 
@@ -672,6 +673,7 @@ function probeFailedMessage(
 ): string {
   const prefix = `Could not verify CLI "${resolution.cli}" for step "${resolution.stepId}"`;
   if (detail === undefined) return `${prefix}.`;
+  if (detail === 'devin_api_key_empty') return `${prefix}: DEVIN_API_KEY must contain a non-empty Devin CLI login token.`;
   if (detail === 'spawn_failed') return `${prefix}: the probe process could not be started.`;
   if (detail.startsWith('signal:')) {
     return `${prefix}: the probe was terminated by signal "${detail.slice('signal:'.length)}".`;

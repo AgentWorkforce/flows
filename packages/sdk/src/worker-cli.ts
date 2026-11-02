@@ -283,7 +283,8 @@ export async function runAgentCli(
   // Retain the source values for output redaction even though the child
   // receives only its filtered environment. A provider can echo a value from
   // its prompt or fixture that was not granted as an environment variable.
-  const redactionEnvironment = { ...processEnvironment, ...env };
+  const redactionEnvironment = { ...processEnvironment, ...env,
+    ...(kind === 'devin' && env.DEVIN_API_KEY !== undefined ? { DEVIN_API_KEY: env.DEVIN_API_KEY.trim() } : {}) };
   const prepared = kind === 'devin' ? prepareDevinRuntime(env, { ...invocation, args }) : undefined;
   try {
     const result = await spawnInvocation(cli,

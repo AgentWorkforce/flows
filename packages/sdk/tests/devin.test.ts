@@ -34,6 +34,10 @@ it('preserves local interactive login when no API key is supplied and rejects an
   const local = prepareDevinRuntime({ XDG_DATA_HOME: '/local/data' });
   expect(local.env.XDG_DATA_HOME).toBe('/local/data'); local.close();
   expect(() => prepareDevinRuntime({ DEVIN_API_KEY: ' ' })).toThrow('must not be empty');
+  const padded = prepareDevinRuntime({ DEVIN_API_KEY: '  cli-token\n' });
+  expect(readFileSync(join(padded.env.XDG_DATA_HOME!, 'devin', 'credentials.toml'), 'utf8'))
+    .toBe('windsurf_api_key = "cli-token"\n');
+  padded.close();
 });
 
 it('gives only Devin its intrinsic delivered login', () => {
@@ -107,6 +111,14 @@ it.each(['--version\nDo the task', 'fail'])('launches print mode with file input
   expect(existsSync(value.credentials)).toBe(false); expect(existsSync(value.promptPath)).toBe(false);
 });
 
+it('redacts the normalized token when the supplied key has surrounding whitespace', async () => {
+  const f = fixture();
+  const result = await runAgentCli(f.cli, 'task', undefined, undefined, undefined, undefined,
+    'agent', undefined, f.cwd, 'direct', undefined, { ...f.env, DEVIN_API_KEY: ' devin-test-secret\n' });
+  expect(result.exit_code).toBe(0);
+  expect(result.stdout_tail).not.toContain('devin-test-secret');
+});
+
 it('checks provider auth with isolated credentials in both synchronous and asynchronous preflight', async () => {
   const f = fixture();
   expect(probeCli(f.cli, f.cwd, undefined, undefined, f.env).authenticated).toBe(true);
@@ -124,6 +136,20 @@ it('refuses an unavailable model and missing model-probe credentials in both pre
       HOME: f.cwd, XDG_DATA_HOME: f.cwd }))
       .toMatchObject({ authenticated: false, modelAvailable: false });
   }
+});
+
+it('names an empty Devin key in preflight rather than hiding it as a generic probe failure', async () => {
+  const f = fixture(); const env = { ...f.env, DEVIN_API_KEY: ' ' };
+  expect(() => probeCli(f.cli, f.cwd, undefined, undefined, env))
+    .toThrow(expect.objectContaining({ detail: 'devin_api_key_empty' }));
+  await expect(probeCliAsync(f.cli, f.cwd, undefined, undefined, env))
+    .rejects.toMatchObject({ detail: 'devin_api_key_empty' });
+  const checked = preflight({ version: '0.1.0', steps: [{ id: 'work', type: 'agent', cli: f.cli,
+    instruction: 'work' }] }, { probes: { cli: () => probeCli(f.cli, f.cwd, undefined, undefined, env),
+      executor: () => true, command: () => true } });
+  expect(checked.ok).toBe(false);
+  expect(checked.diagnostics).toContainEqual(expect.objectContaining({ kind: 'probe_failed',
+    detail: 'devin_api_key_empty', message: expect.stringContaining('DEVIN_API_KEY must contain a non-empty') }));
 });
 
 it('removes credential and prompt state when the worker loses its lease', async () => {

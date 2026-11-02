@@ -233,7 +233,7 @@ TMPDIR=/Users/khaliqgant/.cache/devin-harness/tmp node node_modules/vitest/vites
    Duration  1.47s (transform 346ms, setup 9ms, collect 684ms, tests 562ms, environment 0ms, prepare 36ms)
 ```
 
-Linux x64 binary probes (remote `linuyc`, pinned archive checksum verified before extraction):
+Linux x64 binary probes (remote `linuyc`, pinned archive checksum verified before extraction). [linux-probe-run.original.txt](linux-probe-run.original.txt) preserves the exact original runner and embedded probe source that produced this output. It is historical evidence; [probe-linux.py](probe-linux.py) is the current readable reproducer. The current reproducer has not been rerun on Linux in this session:
 
 ```sh
 tailscale ssh khaliqgant@linuyc 'python3 -' < /Users/khaliqgant/.cache/devin-harness/linux-probe-run.py
@@ -291,4 +291,125 @@ devin 3000.11.234 (92c83011d113)
 none: models exit=1; not logged in
 dummy_env: models exit=1; not logged in
 dummy_file: models exit=1; invalid api key
+```
+
+Authenticated compiled-worker and headless success evidence is macOS only. Linux evidence covers binary authentication rejection and non-root image installation; it does not claim a successful authenticated Linux worker call.
+
+Review follow-up: blank keys now surface a named preflight diagnostic; surrounding key whitespace is normalized before staging and redaction. The standalone authenticated marker probe now uses `auto` permissions and explicit nonzero failure checks that survive Python `-O`.
+
+```sh
+TMPDIR=/Users/khaliqgant/.cache/devin-harness/tmp npx vitest run tests/devin.test.ts tests/cli-probe.test.ts tests/preflight.test.ts && npm run typecheck && npm run typecheck:tests
+```
+
+```text
+
+ RUN  v2.1.9 /Volumes/T7/Projects/AgentWorkforce/worktrees/flows/devin-harness-20261102/packages/sdk
+
+ ✓ tests/preflight.test.ts (70 tests) 45ms
+ ✓ tests/devin.test.ts (11 tests) 1599ms
+   ✓ checks provider auth with isolated credentials in both synchronous and asynchronous preflight 328ms
+   ✓ refuses an unavailable model and missing model-probe credentials in both preflight drivers 601ms
+ ✓ tests/cli-probe.test.ts (18 tests) 5887ms
+   ✓ executes a canonical shebang target through its authored alias in both probe drivers 384ms
+   ✓ keeps synchronous and asynchronous classification equal: success 329ms
+   ✓ keeps synchronous and asynchronous classification equal: auth denied 326ms
+   ✓ scopes delivered secrets in PATH lookup and provider probes for checked and authored steps 831ms
+   ✓ reports timeout in both drivers while the async driver leaves the loop free 548ms
+   ✓ classifies a failed claude model probe from its own output: usage limit 452ms
+   ✓ classifies a failed claude model probe from its own output: rate limit 318ms
+   ✓ classifies a failed claude model probe from its own output: unknown model 300ms
+   ✓ classifies a failed claude model probe from its own output: unrecognised output 437ms
+
+ Test Files  3 passed (3)
+      Tests  99 passed (99)
+   Start at  12:06:06
+   Duration  7.54s (transform 1.29s, setup 43ms, collect 3.62s, tests 7.53s, environment 0ms, prepare 170ms)
+```
+
+```sh
+TMPDIR=/Users/khaliqgant/.cache/devin-harness/tmp npx vitest run tests/worker-cli.test.ts
+```
+
+```text
+
+ RUN  v2.1.9 /Volumes/T7/Projects/AgentWorkforce/worktrees/flows/devin-harness-20261102/packages/sdk
+
+ ✓ tests/worker-cli.test.ts (31 tests) 33153ms
+   ✓ registered CLI model defaults > passes the same priced Claude default to the real provider invocation 1323ms
+   ✓ registered CLI model defaults > uses the explicitly supplied agent environment for the provider subprocess 588ms
+   ✓ registered CLI model defaults > dispatches canonical generic bytes with the preflight-proved adapter identity 679ms
+   ✓ dash-leading task text > claude agent runs the task "--version" instead of parsing it as an option 626ms
+   ✓ dash-leading task text > claude agent runs the task "-v explain the flag" instead of parsing it as an option 475ms
+   ✓ dash-leading task text > codex agent runs the task "--version" instead of parsing it as an option 553ms
+   ✓ dash-leading task text > codex agent runs the task "-v explain the flag" instead of parsing it as an option 518ms
+   ✓ direct transport lifecycle evidence > classifies only the exact Codex stdin lifecycle signature as retryable 585ms
+   ✓ direct transport lifecycle evidence > records a signal close separately from an ordinary nonzero exit 1108ms
+   ✓ direct transport lifecycle evidence > journals classified lifecycle evidence and reports crashed instead of generic worker_error 646ms
+   ✓ step discovery environment > names the run, step, attempt and an absolute data dir for a direct agent spawn 676ms
+   ✓ step discovery environment > exports none of the four without a data dir, even when the worker inherited them 457ms
+   ✓ wrapper discovery environment > sets the four names from the dispatch and still refuses ambient values and other secrets 571ms
+   ✓ wrapper discovery environment > exports none of the four to a wrapper without a data dir, even when the worker inherited them 474ms
+   ✓ custom wrapper execution identity > passes an explicit safe environment at identification and execution 558ms
+   ✓ custom wrapper execution identity > refuses a wrapper symlink retarget before delivering private values 562ms
+   ✓ custom wrapper execution identity > bounds wrapper execution after acknowledgement 590ms
+   ✓ custom wrapper execution identity > bounds captured wrapper output 579ms
+   ✓ custom wrapper execution identity > refuses a duplicate execute protocol frame 558ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a conforming wrapper leaks a stdio pipe to a background helper 819ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when the leaked helper inherits stderr only 845ms
+   ✓ custom wrapper execution bounds are reader-owned > resolves when a wrapper leaks a stdio pipe and exits before identifying 3297ms
+   ✓ custom wrapper execution bounds are reader-owned > journals a completionReason at the default bound when a wrapper leaks a stdio pipe 11611ms
+   ✓ custom wrapper execution bounds are reader-owned > accepts an execute token and an over-8KiB payload flushed in one write 945ms
+   ✓ custom wrapper execution bounds are reader-owned > accepts the same over-8KiB payload whether or not it coalesces with the execute token 1694ms
+   ✓ custom wrapper execution bounds are reader-owned > still bounds an un-terminated handshake buffer and names the bound 520ms
+   ✓ delivers the journaled memory pack to the real wrapper and excludes its charge from completion usage 529ms
+
+ Test Files  1 passed (1)
+      Tests  31 passed (31)
+   Start at  12:07:13
+   Duration  34.18s (transform 337ms, setup 9ms, collect 842ms, tests 33.15s, environment 0ms, prepare 49ms)
+```
+
+From the repository root:
+
+```sh
+TMPDIR=/Users/khaliqgant/.cache/devin-harness/tmp /opt/homebrew/bin/python3.14 -O evidence/devin-harness/probe-cli.py --cli /Volumes/T7/Projects/AgentWorkforce/artifacts/devin-harness-20261102/cli/bin/devin --credentials /Users/khaliqgant/.local/share/devin/credentials.toml
+```
+
+```text
+devin 3000.11.234 (92c83011d113)
+none: models exit=1; not logged in
+dummy_env: models exit=1; not logged in
+dummy_file: models exit=1; invalid api key
+existing_login_file: models exit=0; catalog received
+headless exit=0; marker received=True
+```
+
+A deliberately broken CLI fixture that reports the pinned version but returns a successful model catalog while logged out is still rejected under optimized Python:
+
+```sh
+cat > /Users/khaliqgant/.cache/devin-harness/fake-devin <<'SH'
+#!/bin/sh
+if [ "$1" = --version ]; then echo "devin 3000.11.234 (fixture)"; fi
+exit 0
+SH
+chmod +x /Users/khaliqgant/.cache/devin-harness/fake-devin
+/opt/homebrew/bin/python3.14 -O evidence/devin-harness/probe-cli.py --cli /Users/khaliqgant/.cache/devin-harness/fake-devin
+```
+
+```text
+devin 3000.11.234 (fixture)
+none: models exit=0; catalog received
+none: unexpected authentication behavior
+exit=1
+```
+
+The committed historical runner is byte-identical to the cache file used for the captured Linux run:
+
+```sh
+shasum -a 256 evidence/devin-harness/linux-probe-run.original.txt /Users/khaliqgant/.cache/devin-harness/linux-probe-run.py
+```
+
+```text
+888a9b9f3c66193d313a79677a20cd63929dc27a35d49b5535e6cc5373440449  evidence/devin-harness/linux-probe-run.original.txt
+888a9b9f3c66193d313a79677a20cd63929dc27a35d49b5535e6cc5373440449  /Users/khaliqgant/.cache/devin-harness/linux-probe-run.py
 ```

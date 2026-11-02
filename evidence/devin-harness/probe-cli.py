@@ -14,7 +14,8 @@ args = parser.parse_args()
 EXPECTED_CLI_VERSION = "3000.11.234"
 version = subprocess.check_output([args.cli, "--version"], text=True).strip()
 print(version, flush=True)
-assert version.startswith(f"devin {EXPECTED_CLI_VERSION} "), "Unexpected Devin CLI version"
+if not version.startswith(f"devin {EXPECTED_CLI_VERSION} "):
+    raise SystemExit("Unexpected Devin CLI version")
 modes = ["none", "dummy_env", "dummy_file"]
 if args.credentials:
     modes.append("existing_login_file")
@@ -42,13 +43,15 @@ for mode in modes:
         print(f"{mode}: models exit={result.returncode}; {detail}", flush=True)
         expected = "catalog received" if mode == "existing_login_file" else (
             "invalid api key" if mode == "dummy_file" else "not logged in")
-        assert detail == expected, f"{mode}: unexpected authentication behavior"
+        if detail != expected:
+            raise SystemExit(f"{mode}: unexpected authentication behavior")
         if mode == "existing_login_file":
             prompt = root / "prompt.txt"
             prompt.write_text("Reply with exactly RELAYFLOWS_DEVIN_READY and nothing else. Do not call tools.")
             result = subprocess.run([args.cli, "-p", "--prompt-file", str(prompt),
-                                     "--permission-mode", "dangerous", "--respect-workspace-trust", "false"],
+                                     "--permission-mode", "auto", "--respect-workspace-trust", "false"],
                                     env=env, cwd=root, capture_output=True, text=True, timeout=60)
             print(f"headless exit={result.returncode}; marker received={result.stdout.strip() == 'RELAYFLOWS_DEVIN_READY'}",
                   flush=True)
-            assert result.returncode == 0 and result.stdout.strip() == 'RELAYFLOWS_DEVIN_READY'
+            if result.returncode != 0 or result.stdout.strip() != 'RELAYFLOWS_DEVIN_READY':
+                raise SystemExit("Headless marker probe failed")

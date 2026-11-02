@@ -255,6 +255,10 @@ function classifySpawnFailure(
 }
 
 function prepareProbe(request: ProbeRequest) {
+  if (cliAdapterKind(request.argv0 ?? request.executable) === 'devin'
+      && request.environment.DEVIN_API_KEY !== undefined && !request.environment.DEVIN_API_KEY.trim()) {
+    throw new CliProbeError('devin_api_key_empty');
+  }
   return cliAdapterKind(request.argv0 ?? request.executable) === 'devin'
     ? prepareDevinRuntime(request.environment, request.invocation)
     : { args: request.invocation.args, env: request.environment, close() {} };
