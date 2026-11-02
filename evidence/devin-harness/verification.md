@@ -280,6 +280,8 @@ Do the task 393ms
    Duration  5.78s (transform 323ms, setup 20ms, collect 911ms, tests 7.60s, environment 0ms, prepare 99ms)
 ```
 
+From the repository root:
+
 ```sh
 TMPDIR=/Users/khaliqgant/.cache/devin-harness/tmp /opt/homebrew/bin/python3.14 evidence/devin-harness/probe-cli.py --cli /Volumes/T7/Projects/AgentWorkforce/artifacts/devin-harness-20261102/cli/bin/devin
 ```
