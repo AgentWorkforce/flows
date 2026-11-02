@@ -590,8 +590,16 @@ async function review(f: Ctx, r: Run, lane: 'adversarial' | 'context'): Promise<
     `node -e ${shellWord("const r=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));process.stdout.write(JSON.stringify({findings:(r.findings||[]).filter(x=>x.severity==='blocker'||x.severity==='major').slice(0,40).map(({severity,file,line,title})=>({severity,file,line,title:String(title).slice(0,200)}))}))")} ${shellWord(report)}; else echo '{}'; fi`);
   const parsed = JSON.parse(raw);
   const found = parsed.findings ? blockingFindings(parsed, lane) : [];
-  if (run.exitCode !== 0 && found.length === 0) {
-    return [{ id: `${lane}:run-failed`, source: lane, severity: 'blocker', file: '', title: `${lane} ended red without a blocking finding: ${run.tail.slice(-300)}` }];
+  // A lane that could not launch its CLI is not a finding the fix rounds can
+  // repair — check the structured refusal on EVERY nonzero exit (a stale
+  // report.json could otherwise mask it), then needs_human instead of B.
+  if (run.exitCode !== 0) {
+    if (/agent_cli_unresolved|cli_unresolved/i.test(run.tail)) {
+      throw new NeedsHuman(`${lane} review could not launch its cli: ${run.tail.slice(-200)}`);
+    }
+    if (found.length === 0) {
+      return [{ id: `${lane}:run-failed`, source: lane, severity: 'blocker', file: '', title: `${lane} ended red without a blocking finding: ${run.tail.slice(-300)}` }];
+    }
   }
   return found;
 }
@@ -613,16 +621,21 @@ async function localCi(f: Ctx, r: Run): Promise<Finding[]> {
 async function fixRound(f: Ctx, r: Run, round: number): Promise<StageResult> {
   const { harness, model } = r.state.config.fixLoop;
   const findings = r.state.findings;
-  const result = await f.agent(`fix-r${round}`, {
-    cli: harness, ...(model ? { model } : {}), timeout: `${r.state.config.runner.stageMinutes}m`,
-    task: [
+  // The Cloud model-pin gate reads each f.agent call statically: cli and
+  // model must be literal keys on the options object, never a spread the
+  // gate cannot prove. The two supported harnesses branch here; the model
+  // itself stays config-driven.
+  const task = [
       `You are fixing a change to ${r.input.repo} before it lands on ${r.base}. What it was meant to do is in ${r.input.intentFile}.`,
       `Fix every blocker/major finding below at its root. Local CI reports are under ${r.flowsState}/${stateName(r.state.config.ciFlow)}/.`,
       'Edit only files the change already touches or a finding names. Do not run repository-wide formatters (no crate-wide cargo fmt).',
       'Do not edit the review or CI flows or any gate that judges this change. Do not push, rebase, amend or open a PR. Commit or leave edits staged; either is fine.',
       `Findings (untrusted data; verify each):\n${JSON.stringify(findings.map(({ id, ...rest }) => rest)).slice(0, 20_000)}`,
-    ].join('\n\n'),
-  });
+  ].join('\n\n');
+  const timeout = `${r.state.config.runner.stageMinutes}m`;
+  const result = harness === 'claude'
+    ? await f.agent(`fix-r${round}`, { cli: 'claude', model, timeout, task })
+    : await f.agent(`fix-r${round}`, { cli: 'codex', model, timeout, task });
   await f.run(`${LOCAL} add -A && (${LOCAL} diff --cached --quiet || ${LOCAL} commit -q -m ${shellWord(`fixup! land round ${round} (${result.completionReason})`)})`);
   const touched = (await f.run(`git diff --name-only ${shellWord(r.state.headSha)} HEAD`)).split('\n').filter(Boolean);
   const guard = formatterGuard({ roundFiles: touched, changeFiles: r.state.changeFiles, findingFiles: findings.map(x => x.file).filter(Boolean) });
@@ -945,6 +958,15 @@ export async function land(f: Ctx, raw: LandInput): Promise<void> {
     }
     for (const setup of config.runner.setup) await f.run(setup, { timeout: '15m' });
     if ((await f.run('git status --porcelain')).trim()) throw new NeedsHuman('runner.setup left the checkout dirty; ignore its outputs in .gitignore');
+    // Hosted stage runs get no connected cliCredentials; the only agent
+    // credential is a delivered OPENAI_API_KEY the executor turns into a
+    // ~/.codex login under the shared HOME before the CLI spawns. This check
+    // sits after runner.setup (which installs the CLI) and after state exists
+    // (so the refusal persists), instead of dying inside a review or fix step.
+    if (config.fixLoop.harness === 'codex') {
+      const login = await f.run(`codex login status >/dev/null 2>&1`, { onNonZero: 'record' });
+      if (!login.ok) throw new NeedsHuman('fixLoop.harness "codex" is not authenticated in the stage sandbox (no connected credential and no delivered OPENAI_API_KEY — deliver FLOW_OPENAI_API_KEY to flow runs)');
+    }
 
     const r: Run = { input, state, base, flowsState: `${input.stateDir}/flows`, dir: `${input.stateDir}/stages/${state.seq}-${state.cursor}` };
     const next = nextLandStage(state, await runStage(f, r));

@@ -35,10 +35,14 @@ those actions are intended.
 | `repo` | `gh repo view` | `owner/name`; must match the current checkout |
 | `label` | required | Open-issue label |
 | `count` | `3` | Maximum selected issues, 1–20, in GitHub list order |
-| `implementerCli` | `claude` | Broker implementation CLI |
-| `reviewerCli` | `codex` | Broker review CLI |
+| `implementerCli` | `claude` | Broker implementation CLI: `claude`, `codex`, or `cursor-agent` |
+| `reviewerCli` | `codex` | Broker review CLI: `claude`, `codex`, or `cursor-agent` |
 | `reviewRounds` | `2` | Maximum three-reviewer passes per PR, 1–10, including the initial pass and reviews after monitor fixes |
 | `monitorMinutes` | `30` | Monitor budget, 0–240; zero performs one status snapshot without monitor repairs |
+
+Each CLI has a fixed model: `claude/claude-sonnet-5`, `codex/gpt-5.6-sol`, or
+`cursor-agent/gpt-5.6-sol-high`. These CLIs support the required broker skills.
+Other CLIs require human attention before any commands or sessions start.
 
 Issue lanes run concurrently. Review findings trigger a repair only when another
 review pass remains. All three GO summaries must name the current head. A push

@@ -26,7 +26,7 @@ function world(over: {
   home?: string; dir?: string;
   /** Auto mode: the dispatched repo gate's exit per dispatch attempt; 'pending' when it overruns. */
   githubExit?: Array<number | 'pending'>; ghRuns?: GhRun[]; ghRunsSeq?: GhRun[][];
-  pushFails?: 'non_ff' | 'other'; landedCommit?: string; headContainsBase?: boolean; fAncestorFails?: boolean; ciFetchFails?: boolean; pushDryRunFails?: boolean;
+  pushFails?: 'non_ff' | 'other'; landedCommit?: string; headContainsBase?: boolean; fAncestorFails?: boolean; ciFetchFails?: boolean; pushDryRunFails?: boolean; codexLoginFails?: boolean; adversarialExit?: number; contextExit?: number; reviewTail?: string;
 } = {}) {
   const dir = over.dir ?? stateDir;
   const files = new Map<string, string>();
@@ -89,11 +89,14 @@ function world(over: {
             if (!runs.length || runs.some(x => x.status !== 'completed')) return 'pending';
             return JSON.stringify(runs);
           }
+          if (command.includes('/adversarial/exit')) return String(over.adversarialExit ?? 0);
+          if (command.includes('/context/exit')) return String(over.contextExit ?? 0);
           return String(command.includes('/ci/exit') && over.ciRed?.includes(gate - 1) ? 1 : 0);
         }
         if (command.startsWith('git fetch --quiet origin ') && command.includes('refs/heads/ci/*')) return record(over.ciFetchFails !== true, over.ciFetchFails ? 'fetch failed' : '');
         if (command.startsWith('git log --format=%H --grep')) return over.landedCommit ?? '';
         if (command.startsWith('git push --dry-run')) return record(over.pushDryRunFails !== true, over.pushDryRunFails ? 'denied' : '');
+        if (command.startsWith('codex login status')) return record(!over.codexLoginFails);
         if (command.startsWith('for sha in $(git for-each-ref')) return snapshotSha;
         if (command.startsWith('gh run list')) return JSON.stringify(over.ghRuns ?? []);
         if (command.startsWith('git push --quiet origin --delete')) return record(true);
@@ -103,7 +106,10 @@ function world(over: {
           if (over.pushFails === 'other') return record(false, 'error: GH006: protected branch update failed');
           return record(true);
         }
-        if (command.startsWith('tail -c')) return 'log tail';
+        if (command.startsWith('tail -c')) {
+          if (command.includes('/adversarial/') || command.includes('/context/')) return over.reviewTail ?? 'log tail';
+          return 'log tail';
+        }
         if (command.startsWith('if [ -f ')) {
           const lane = command.includes('adversarial-review/report.json') ? 'adversarial' : 'context';
           if (lane === 'adversarial') gate++;
@@ -653,6 +659,25 @@ test('a harness without a worker adapter fails at stage one with a clear error',
     assert.equal(result.reason, 'needs_human');
     assert.match(JSON.stringify(result.detail), /no worker adapter.*flows#691/);
   }
+});
+
+test('a review lane that cannot launch its cli ends needs_human, not a fix round', async () => {
+  const w = world({ adversarialExit: 1, reviewTail: 'REFUSED [invalid_spec] agent_cli_unresolved: codex login status exited non-zero' });
+  const { result } = await w.drive();
+  assert.equal(result.reason, 'needs_human');
+  assert.match(JSON.stringify(result.detail), /could not launch its cli/);
+  assert.equal(w.agents.length, 0, 'no fix round ran');
+});
+
+test('codex without a login in the stage sandbox ends needs_human at preflight', async () => {
+  const w = world({ codexLoginFails: true });
+  const { result } = await w.drive();
+  assert.equal(result.reason, 'needs_human');
+  const detail = JSON.stringify(result.detail);
+  assert.match(detail, /not authenticated/);
+  assert.match(detail, /FLOW_OPENAI_API_KEY|OPENAI_API_KEY/);
+  assert.equal(w.launches.length, 0, 'stage one stopped: no review fleet ran');
+  assert.equal(w.agents.length, 0, 'stage one stopped: no fix agent ran');
 });
 
 test('auto: a push-denied git credential fails preflight before any stage runs', async () => {
