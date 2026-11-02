@@ -91,6 +91,8 @@ test('count bounds parallel issues; three broker reviewers per PR; releases befo
   assert.equal(x.agents.filter(a => a.name.startsWith('review')).length, 6);
   for (const { name, options } of x.agents) {
     assert.equal(options.transport, 'broker');
+    assert.equal(options.cli, name.startsWith('implement') ? 'claude' : 'codex');
+    assert.equal(options.model, name.startsWith('implement') ? 'claude-sonnet-5' : 'gpt-5.6-sol');
     assert.deepEqual(options.skills, [name.startsWith('implement') ? 'pr-comments' : 'adversarial-review']);
     assert.equal(options.keepAlive, name.startsWith('implement'));
   }
@@ -100,6 +102,27 @@ test('count bounds parallel issues; three broker reviewers per PR; releases befo
     assert.ok(release > 0 && remove > release);
   }
   assert.ok(x.events.every(e => !/gh pr merge|git worktree remove --force/.test(e)));
+});
+
+test('each selectable CLI pins its model for implementers and reviewers', async () => {
+  for (const [cli, model] of [['claude', 'claude-sonnet-5'], ['codex', 'gpt-5.6-sol'],
+    ['cursor-agent', 'gpt-5.6-sol-high']]) {
+    const x = fake();
+    await issueSwarm(x.f, { label: 'agent', count: 1, implementerCli: cli, reviewerCli: cli });
+    assert.equal(x.done[0]?.reason, 'success');
+    assert.equal(x.agents.length, 4);
+    assert.ok(x.agents.every(a => a.options.cli === cli && a.options.model === model));
+  }
+});
+
+test('unsupported CLI selections fail before commands or sessions start', async () => {
+  for (const [field, cli] of [['implementerCli', 'unconfigured-cli'], ['reviewerCli', 'grok']] as const) {
+    const x = fake();
+    await issueSwarm(x.f, { label: 'agent', [field]: cli });
+    assert.equal(x.done[0]?.reason, 'needs_human');
+    assert.match(x.done[0]!.detail, /pinned model/);
+    assert.equal(x.events.length, 0);
+  }
 });
 
 test('NO-GO findings go to the same implementer, followed by fresh review', async () => {
