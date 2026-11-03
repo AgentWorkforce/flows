@@ -692,7 +692,7 @@ test('codex without a login in the stage sandbox ends needs_human at preflight',
   assert.equal(w.agents.length, 0, 'stage one stopped: no fix agent ran');
 });
 
-test('auto: a push-denied git credential fails preflight before any stage runs', async () => {
+test('auto: a push-denied git credential fails write preflight at E', async () => {
   const w = world({ config: autoConfig, pushDryRunFails: true });
   const { result } = await w.drive();
   assert.equal(result.reason, 'needs_human');
@@ -755,4 +755,28 @@ test('hosted mergeMode is optional locally and validates all supplied values', (
   for (const mergeMode of [null, 1, '', 'Auto', 'unknown']) {
     assert.throws(() => parseInput({ ...input, mergeMode } as LandInput), /mergeMode must match/);
   }
+});
+
+
+test('hosted auto allows read-only A-D and proves write access only at E/F', async () => {
+  const w = world({ config: autoConfig, pushDryRunFails: true,
+    adversarial: [[blocker('probe/src/relay/agents.rs', 'fix')], []], roundFiles: [['probe/src/relay/agents.rs']] });
+  let stage = 'A-adversarial';
+  const seen: string[] = [];
+  for (let i = 0; i < 12 && stage !== 'E'; i++) {
+    seen.push(stage);
+    const result = await w.invoke(stage, { mergeMode: 'auto' });
+    assert.equal(result.reason, 'success', `read-only ${stage} must advance`);
+    assert.equal(result.detail.land, 'next');
+    neverPushes(w.commands);
+    stage = String(result.detail.stage);
+  }
+  assert.equal(stage, 'E');
+  assert.ok(seen.some(s => s.startsWith('C-')), 'the read-only fix agent stage ran');
+  assert.equal(w.agents.length, 1);
+  assert.ok(seen.includes('D'), 'the read-only rebase stage ran');
+  const result = await w.invoke('E', { mergeMode: 'auto' });
+  assert.equal(result.reason, 'needs_human');
+  assert.match(String(result.detail.detail), /push-capable git credential/);
+  assert.equal(w.commands.flat().filter(c => c.includes('git push --dry-run')).length, 1);
 });

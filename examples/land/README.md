@@ -222,3 +222,7 @@ npm ci --prefix ../../packages/surface --ignore-scripts && npm run --prefix ../.
 npm ci && npm test && npm run typecheck
 flows check land.flow.ts
 ```
+
+Hosted auto stages A–D use read-only repository grants. The `gh` authentication
+and push-capability preflight runs at E/F, where Cloud supplies the write grant;
+a denied write grant stops that stage before the GitHub gate or final push.

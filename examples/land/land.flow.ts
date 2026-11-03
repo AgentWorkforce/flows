@@ -921,9 +921,9 @@ export async function land(f: Ctx, raw: LandInput): Promise<void> {
     const want = `${config.runner.os === 'linux' ? 'Linux' : 'Darwin'} ${config.runner.arch === 'x64' ? 'x86_64' : 'arm64'}`;
     if (uname.replace('aarch64', 'arm64') !== want) throw new NeedsHuman(`runner is ${uname}; land.config needs ${want}`);
     await f.run(config.runner.commands.map(c => `command -v ${shellWord(c)} >/dev/null`).join(' && ') || 'true');
-    if (config.mergePolicy.mode === 'auto') {
-      // Preflight, not polling: the GitHub gate and the push need an authed gh
-      // and a write-capable git credential; prove both at stage one.
+    if (config.mergePolicy.mode === 'auto' && (input.stage === 'E' || input.stage === 'F')) {
+      // Cloud grants A-D read-only access. Prove write capability only in
+      // E/F, where the GitHub gate and final push need the scoped write grant.
       const gh = await f.run(`command -v gh >/dev/null && gh auth status`, { onNonZero: 'record' });
       if (!gh.ok) throw new NeedsHuman('mergePolicy.mode "auto" needs gh installed and authenticated (a write repository grant); shadow runs do not');
       // Write access is proven by dry-running a push to a fresh throwaway ref:
