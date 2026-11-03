@@ -652,12 +652,25 @@ test('auto and shadow: a non-default harness is the review fleets\' clis and the
   assert.equal(fix?.options.cli, 'claude');
 });
 
-test('a harness without a worker adapter fails at stage one with a clear error', async () => {
+test('a harness unsupported in land fails at stage one with a clear error', async () => {
   for (const harness of ['grok', 'devin']) {
     const w = world({ config: { ...config, fixLoop: { harness } } });
     const { result } = await w.drive();
     assert.equal(result.reason, 'needs_human');
-    assert.match(JSON.stringify(result.detail), /no worker adapter.*flows#691/);
+    assert.match(JSON.stringify(result.detail), /is not supported in land/);
+    assert.equal(w.launches.length, 0);
+    assert.equal(w.agents.length, 0);
+  }
+});
+
+test('each supported fix harness launches with its literal pinned model', async () => {
+  for (const [harness, model] of [['claude', 'claude-sonnet-5'], ['codex', 'gpt-5.6-sol']] as const) {
+    const w = world({ config: { ...config, fixLoop: { harness } },
+      adversarial: [[blocker('src/fix.ts', 'fix this')], []] });
+    await w.drive();
+    assert.equal(w.agents.length, 1);
+    assert.equal(w.agents[0]!.options.cli, harness);
+    assert.equal(w.agents[0]!.options.model, model);
   }
 });
 
@@ -673,9 +686,8 @@ test('codex without a login in the stage sandbox ends needs_human at preflight',
   const w = world({ codexLoginFails: true });
   const { result } = await w.drive();
   assert.equal(result.reason, 'needs_human');
-  const detail = JSON.stringify(result.detail);
-  assert.match(detail, /not authenticated/);
-  assert.match(detail, /FLOW_OPENAI_API_KEY|OPENAI_API_KEY/);
+  assert.equal(result.detail.detail,
+    'fixLoop.harness "codex" is not authenticated in the stage sandbox (no connected credential and no delivered OPENAI_API_KEY — deliver FLOW_OPENAI_API_KEY to flow runs)');
   assert.equal(w.launches.length, 0, 'stage one stopped: no review fleet ran');
   assert.equal(w.agents.length, 0, 'stage one stopped: no fix agent ran');
 });

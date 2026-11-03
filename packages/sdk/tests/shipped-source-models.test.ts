@@ -30,10 +30,6 @@ const DYNAMIC_PAIR_SOURCE_WAIVERS = new Map([
     'packages/sdk/scripts/dogfood/close-pr.flow.ts',
     ["'close-pr-repair'"],
   ],
-  [
-    'examples/land/land.flow.ts',
-    ['`fix-r${round}`', '`fix-r${round}`'],
-  ],
 ]);
 
 // RelayCron stores these registrations outside the repository, so there is no
