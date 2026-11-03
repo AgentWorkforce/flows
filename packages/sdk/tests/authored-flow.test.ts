@@ -802,6 +802,20 @@ describe('authored flow journal executor', () => {
     return client;
   }
 
+  it('advertises immutable native direct-agent adapters from the executing SDK', async () => {
+    const handle = flow('runtime-agent-adapters', async f => {
+      expect(f.capabilities?.agentClis).toEqual(['claude', 'codex', 'devin']);
+      expect(Object.isFrozen(f.capabilities)).toBe(true);
+      expect(Object.isFrozen(f.capabilities?.agentClis)).toBe(true);
+      expect(() => (f.capabilities!.agentClis as string[]).push('fake')).toThrow(TypeError);
+      f.done('success');
+    });
+    const client = await connectedClient('authored-adapter-capabilities-test');
+    try {
+      await expect(executeAuthoredFlow(handle, client)).resolves.toMatchObject({ completionReason: 'success' });
+    } finally { client.close(); }
+  });
+
   function commandsSince(index: number): string[] {
     return startedSpecs.slice(index).map((spec) => {
       const steps = spec['steps'] as Record<string, unknown>[];

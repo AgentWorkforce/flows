@@ -71,8 +71,12 @@ export interface TriggeredFlowHandle extends FlowHandle {}
  * context or execute a step, so all effects remain behind the journal client.
  */
 export interface Ctx extends Helpers {
-  /** Host-verified ports. Absent from direct/local runs and ordinary authored execution. */
-  readonly capabilities?: { readonly cloud?: CloudCapabilities };
+  /** Runtime metadata and host-verified ports. Older runtimes may omit them. */
+  readonly capabilities?: {
+    /** Native direct-agent adapter identities in this executing SDK. Not CLI installation, auth, or broker support. */
+    readonly agentClis?: readonly string[];
+    readonly cloud?: CloudCapabilities;
+  };
   readonly mcp: Readonly<Record<string, Readonly<Record<string, (args: unknown) => Step<unknown>>>>>;
   /**
    * Run a command. Resolves to its stdout tail, and a nonzero exit ends the
@@ -144,6 +148,8 @@ export interface Ctx extends Helpers {
 
 ```ts
 export interface RunOptions {
+  /** Run environment secrets this command may receive by name. Default: none. */
+  secrets?: string[];
   /** Command lease: milliseconds or a duration such as "5m"; default 10m, maximum 15m. */
   timeout?: string | number;
   /**
@@ -196,6 +202,8 @@ export interface AgentOptions {
    * Resolves with completionReason: timeout. No default for direct; broker defaults to 60m. Requires maxIterations 1. */
   timeout?: string | number;
   task: string;
+  /** Run environment secrets this agent may receive by name. Default: none. */
+  secrets?: string[];
   workspace?: string;
   /** Validated declaration only; not currently enforced (gate 8 / #442). */
   permissions?: PermissionsSpec;
@@ -288,6 +296,8 @@ export interface AgentResult {
 
 ```ts
 export interface LlmOptions {
+  /** Run environment secrets this model step may receive by name. Default: none. */
+  secrets?: string[];
   /** JSON Schema checked before the result is accepted by the journal. */
   output: Record<string, unknown>;
   cli?: string;

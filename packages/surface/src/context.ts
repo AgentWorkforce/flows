@@ -166,8 +166,12 @@ export interface DoneOptions {
  * context or execute a step, so all effects remain behind the journal client.
  */
 export interface Ctx extends Helpers {
-  /** Host-verified ports. Absent from direct/local runs and ordinary authored execution. */
-  readonly capabilities?: { readonly cloud?: CloudCapabilities };
+  /** Runtime metadata and host-verified ports. Older runtimes may omit them. */
+  readonly capabilities?: {
+    /** Native direct-agent adapter identities in this executing SDK. Not CLI installation, auth, or broker support. */
+    readonly agentClis?: readonly string[];
+    readonly cloud?: CloudCapabilities;
+  };
   readonly mcp: Readonly<Record<string, Readonly<Record<string, (args: unknown) => Step<unknown>>>>>;
   /**
    * Run a command. Resolves to its stdout tail, and a nonzero exit ends the

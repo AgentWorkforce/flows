@@ -26,11 +26,19 @@ test('a full relay-desktop shaped config round-trips', () => {
     runner: { os: 'linux', arch: 'x64', commands: ['git', 'node', 'cargo', 'python3', 'claude'], setup: ['npm ci --prefix flows --no-audit --no-fund'], stageMinutes: 25 },
     changelog: 'required',
     mergePolicy: { mode: 'shadow', squashAuthor: 'agent-with-human-coauthor', approvalDropAfterCleanLandings: 10 },
-    fixLoop: { maxRounds: 3, wallclockMinutes: 120, harness: 'codex', model: 'gpt-5.5-codex' },
+    fixLoop: { maxRounds: 3, wallclockMinutes: 120, harness: 'codex', model: undefined },
     landRef: 'land/{user}/{sha7}',
   };
   const { $schema, ...rest } = full;
   assert.deepEqual(parseLandConfig(full), rest);
+});
+
+test('model overrides are explicitly unsupported for every harness', () => {
+  for (const harness of HARNESSES) {
+    for (const model of ['gpt-5.6-sol', 'unsupported', '', null, 7]) {
+      assert.throws(() => parseLandConfig({ ...minimal, fixLoop: { harness, model } }), /\.fixLoop\.model: not supported yet/);
+    }
+  }
 });
 
 test('refusals: unknown keys, bad enums, unsafe paths, out-of-range numbers', () => {

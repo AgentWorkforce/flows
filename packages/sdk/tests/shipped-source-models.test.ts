@@ -12,6 +12,7 @@ const MODELS: Record<string, ReadonlySet<string>> = {
   codex: new Set(['gpt-5.6-sol']),
   'cursor-agent': new Set(['gpt-5.6-sol-high']),
   grok: new Set(['grok-4.7']),
+  devin: new Set(['gpt-5.6-sol']),
 };
 const DYNAMIC_PAIR_SOURCE_WAIVERS = new Map([
   [
@@ -29,10 +30,6 @@ const DYNAMIC_PAIR_SOURCE_WAIVERS = new Map([
   [
     'packages/sdk/scripts/dogfood/close-pr.flow.ts',
     ["'close-pr-repair'"],
-  ],
-  [
-    'examples/land/land.flow.ts',
-    ['`fix-r${round}`', '`fix-r${round}`'],
   ],
 ]);
 

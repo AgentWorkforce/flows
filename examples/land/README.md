@@ -195,10 +195,18 @@ These defaults are the spec's proposals, not decisions; each is marked
 | `fixLoop.maxRounds` | 4 | Q2 |
 | `fixLoop.wallclockMinutes` | 180 | Q2 |
 | `fixLoop.harness` | `codex` (also the review flows' `clis`; `claude`, `grok` and `devin` accepted) | Q2 |
-| `fixLoop.model` | unset (harness default) | Q2 |
+| `fixLoop.model` | unsupported; omit | Fix agents pin Claude `claude-sonnet-5` and Codex/Devin `gpt-5.6-sol` |
 | `mergePolicy.squashAuthor` | `session-human` | Q3 |
 | `landRef` | `land/{user}/{sha7}` | Q5 |
 | `mergePolicy.approvalDropAfterCleanLandings` | `null` | Q6 |
+
+Devin additionally requires `f.capabilities.agentClis` from the executing SDK to
+include `devin`. Missing metadata refuses before any review or fix work. This
+capability describes native direct-agent adapters, not installed CLIs or login
+state. It is introduced by this follow-up and needs a subsequent SDK/Surface
+release; 2.0.57 supplies the adapter but predates this metadata. The separate
+`flowsBin` used for review fleets must be a stable 2.x release >=2.0.57.
+Codex remains the default; Grok remains refused without a native worker adapter.
 
 ## Not in this flow
 

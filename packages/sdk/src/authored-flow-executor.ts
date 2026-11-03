@@ -1,4 +1,5 @@
 import { assertAuthoredPromiseHooks } from './authored-runtime-capability.js';
+import { registeredAdapters } from './cli-adapter.js';
 import { pluginHelpers } from './plugin-loader.js';
 import { runPluginEffect } from './authored-plugin-effect.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -643,6 +644,9 @@ export async function executeAuthoredFlow<Input = undefined>(
   });
 
   const context: Ctx = {
+    capabilities: Object.freeze({ agentClis: Object.freeze(
+      Object.keys(registeredAdapters()).filter(kind => kind !== 'relayflows-wrapper-v1'),
+    ) }),
     ...createHelpers(<T>(call: HelperCall): Step<T> => {
       const verb = `${call.provider}.${call.verb}`;
       assertParallelRunOnly(verb);

@@ -48,7 +48,7 @@
         "maxRounds": { "type": "integer", "minimum": 1, "maximum": 10, "default": 4, "description": "PLACEHOLDER pending decision (cloud#5806 Q2)." },
         "wallclockMinutes": { "type": "integer", "minimum": 10, "maximum": 720, "default": 180, "description": "PLACEHOLDER pending decision (cloud#5806 Q2)." },
         "harness": { "enum": ["claude", "codex", "grok", "devin"], "default": "codex", "description": "Fix agent CLI; also passed to the review flows as their clis. codex is the default for now." },
-        "model": { "type": "string", "pattern": "^[A-Za-z0-9_.:@/-]+$", "description": "PLACEHOLDER pending decision (cloud#5806 Q2). Unset: the harness's own default." }
+        "model": { "not": {}, "description": "Not supported yet. Fix agents use literal supported model pins; omit this property." }
       }
     },
     "landRef": { "type": "string", "pattern": "^(?=.*\\{sha7\\})[A-Za-z0-9_./{}-]+$", "default": "land/{user}/{sha7}", "description": "PLACEHOLDER pending decision (cloud#5806 Q5). Reported only; the CLI pushes the ref." }
