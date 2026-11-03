@@ -686,9 +686,8 @@ test('codex without a login in the stage sandbox ends needs_human at preflight',
   const w = world({ codexLoginFails: true });
   const { result } = await w.drive();
   assert.equal(result.reason, 'needs_human');
-  const detail = JSON.stringify(result.detail);
-  assert.match(detail, /not authenticated/);
-  assert.match(detail, /FLOW_OPENAI_API_KEY/);
+  assert.equal(result.detail.detail,
+    'fixLoop.harness "codex" is not authenticated in the stage sandbox (no connected credential and no delivered OPENAI_API_KEY — deliver FLOW_OPENAI_API_KEY to flow runs)');
   assert.equal(w.launches.length, 0, 'stage one stopped: no review fleet ran');
   assert.equal(w.agents.length, 0, 'stage one stopped: no fix agent ran');
 });

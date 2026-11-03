@@ -194,7 +194,7 @@ These defaults are the spec's proposals, not decisions; each is marked
 | --- | --- | --- |
 | `fixLoop.maxRounds` | 4 | Q2 |
 | `fixLoop.wallclockMinutes` | 180 | Q2 |
-| `fixLoop.harness` | `codex` (also the review flows' `clis`; `claude`, `grok` and `devin` accepted) | Q2 |
+| `fixLoop.harness` | `codex` (also the review flows' `clis`); `claude` supported; `grok` and `devin` reserved and refused | Q2 |
 | `fixLoop.model` | unsupported; omit | Fix agents pin Claude `claude-sonnet-5` and Codex `gpt-5.6-sol` |
 | `mergePolicy.squashAuthor` | `session-human` | Q3 |
 | `landRef` | `land/{user}/{sha7}` | Q5 |
