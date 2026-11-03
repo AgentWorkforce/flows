@@ -627,16 +627,23 @@ export default flow('serial-${name}', async f => {${body}
     expect([...readFileSync(`${fixture.root}/effects`, 'utf8')].sort()).toEqual([...before, 'Z'].sort());
   }, 120_000);
 
+  // Exercise completed-effect reuse with stable serial ordinals. Per-branch
+  // continuations can arrive in another order on replay and are correctly
+  // refused; serial-replay-identity.test.ts covers that separate contract.
   it.each([
     { name: 'llm', localAgent: true, calls: 2, expected: ['L', 'R'], child: undefined, body: `
   const output = { type: 'object', properties: { message: { type: 'string' } }, required: ['message'] };
-  const left = async () => { await f.llm('left', { output, model: 'test-model' }); await f.run('printf L >> effects'); };
-  const right = async () => { await f.llm('right', { output, model: 'test-model' }); await f.run('printf R >> effects'); };
-  await Promise.all([left(), right()]);` },
+  await Promise.all([
+    f.llm('left', { output, model: 'test-model' }),
+    f.llm('right', { output, model: 'test-model' }),
+  ]);
+  await Promise.all([f.run('printf L >> effects'), f.run('printf R >> effects')]);` },
     { name: 'agent', localAgent: true, calls: 2, expected: ['L', 'R'], child: undefined, body: `
-  const left = async () => { await f.agent('left', { task: 'left', model: 'test-model' }); await f.run('printf L >> effects'); };
-  const right = async () => { await f.agent('right', { task: 'right', model: 'test-model' }); await f.run('printf R >> effects'); };
-  await Promise.all([left(), right()]);` },
+  await Promise.all([
+    f.agent('left', { task: 'left', model: 'test-model' }),
+    f.agent('right', { task: 'right', model: 'test-model' }),
+  ]);
+  await Promise.all([f.run('printf L >> effects'), f.run('printf R >> effects')]);` },
     { name: 'dispatch', localAgent: false, calls: 0, expected: ['L', 'R', 'x', 'y'],
       child: `import { flow } from '@relayflows/surface';
 export default flow('child', async (f, input: { token: string }) => {
@@ -645,9 +652,8 @@ export default flow('child', async (f, input: { token: string }) => {
   f.done('success');
 });
 `, body: `
-  const left = async () => { await f.dispatch('child', { token: 'x' }); await f.run('printf L >> effects'); };
-  const right = async () => { await f.dispatch('child', { token: 'y' }); await f.run('printf R >> effects'); };
-  await Promise.all([left(), right()]);` },
+  await Promise.all([f.dispatch('child', { token: 'x' }), f.dispatch('child', { token: 'y' })]);
+  await Promise.all([f.run('printf L >> effects'), f.run('printf R >> effects')]);` },
   ])('resumes $name branches without replaying completed effects', async ({ name, localAgent, calls, expected, child, body }) => {
     const fixture = chainFixture();
     closes.push(() => fixture.close());
