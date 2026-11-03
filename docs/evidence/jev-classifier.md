@@ -1,8 +1,9 @@
 # Jev classifier verification
 
 Captured in the T7 `flows-jev` worktree on 2026-11-03. These are command
-transcripts, not evidence of a production release. Live validation and the
-release/promotion are blocked on access to the Jev credential in 1Password.
+transcripts, not evidence of a production release. Live provider validation
+was subsequently captured by layered-agent against source commit
+`08802cb03beead43356755e9f752699baeb31644`; see the transcript below.
 
 ## Focused tests
 
@@ -39,7 +40,16 @@ npm run check:docs --prefix packages/surface
 
 Captured output: [docs-check.txt](jev-classifier/docs-check.txt).
 
-## Incomplete validation
+## Live provider validation
+
+[jev-live.txt](jev-classifier/jev-live.txt) contains layered-agent's literal
+command, script and output at `08802cb03beead43356755e9f752699baeb31644`.
+That transcript exercises the source client with a documentation change and an
+authorization/keychain rewrite, then missing-key failure and explicit fallback.
+The implementation files were clean at the recorded commit. This was a peer's
+execution, not a second execution by this session.
+
+## Incomplete local validation
 
 The broad SDK attempt used this command from `packages/sdk`:
 
@@ -64,7 +74,7 @@ worktree. Literal excerpt:
    × hosted extension capability isolation > streams verified bytes when the live store is replaced and no writable staging path exists 30ms
 ```
 
-The live API attempt read the key only into the process environment:
+The initial, unsuccessful live API attempt read the key only into the process environment:
 
 ```sh
 TYPESAFE_API_KEY="$(op read -n 'op://Private/Jev API Key/password')" node --input-type=module - <<'JS'
