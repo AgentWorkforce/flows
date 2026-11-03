@@ -1,0 +1,177 @@
+
+> @relayflows/surface@2.0.58 check:docs
+> node ../../scripts/check-authoring-reference.mjs && node --test ../../scripts/authoring-reference.test.mjs
+
+AUTHORING_REFERENCE_OK
+TAP version 13
+# Subtest: extracts overloads in order and preserves lease JSDoc byte-for-byte
+ok 1 - extracts overloads in order and preserves lease JSDoc byte-for-byte
+  ---
+  duration_ms: 169.145875
+  type: 'test'
+  ...
+# Subtest: walks union members even when not re-exported, including nested unions
+ok 2 - walks union members even when not re-exported, including nested unions
+  ---
+  duration_ms: 2.594834
+  type: 'test'
+  ...
+# Subtest: CLI literals refuse unresolved options with command and identifier
+ok 3 - CLI literals refuse unresolved options with command and identifier
+  ---
+  duration_ms: 3.548584
+  type: 'test'
+  ...
+# Subtest: CLI literals resolve imports, spreads, String and templates but refuse dynamic defaults
+ok 4 - CLI literals resolve imports, spreads, String and templates but refuse dynamic defaults
+  ---
+  duration_ms: 871.365
+  type: 'test'
+  ...
+# Subtest: run documents every exported overload and the lease comment
+ok 5 - run documents every exported overload and the lease comment
+  ---
+  duration_ms: 5.199584
+  type: 'test'
+  ...
+# Subtest: done documents all three distinct completion vocabularies
+ok 6 - done documents all three distinct completion vocabularies
+  ---
+  duration_ms: 7.646166
+  type: 'test'
+  ...
+# Subtest: human returns Step<boolean>
+ok 7 - human returns Step<boolean>
+  ---
+  duration_ms: 0.372709
+  type: 'test'
+  ...
+# Subtest: all helper namespaces and mcp are discoverable
+ok 8 - all helper namespaces and mcp are discoverable
+  ---
+  duration_ms: 2.707333
+  type: 'test'
+  ...
+# Subtest: FlowHeader includes every field and its declaration
+ok 9 - FlowHeader includes every field and its declaration
+  ---
+  duration_ms: 1.320667
+  type: 'test'
+  ...
+# Subtest: AgentOptions includes every field and its declaration
+ok 10 - AgentOptions includes every field and its declaration
+  ---
+  duration_ms: 0.895
+  type: 'test'
+  ...
+# Subtest: all named gate variants and both gate overloads are documented
+ok 11 - all named gate variants and both gate overloads are documented
+  ---
+  duration_ms: 0.547917
+  type: 'test'
+  ...
+# Subtest: CLI includes every declared verb, subcommand and literal flag
+ok 12 - CLI includes every declared verb, subcommand and literal flag
+  ---
+  duration_ms: 4.983125
+  type: 'test'
+  ...
+# Subtest: lease prose agrees with type, kernel default and compiler ceiling
+ok 13 - lease prose agrees with type, kernel default and compiler ceiling
+  ---
+  duration_ms: 34.192583
+  type: 'test'
+  ...
+# Subtest: checker accepts exact docs, rejects drift or missing docs, and accepts restoration
+ok 14 - checker accepts exact docs, rejects drift or missing docs, and accepts restoration
+  ---
+  duration_ms: 15061.044084
+  type: 'test'
+  ...
+# Subtest: every relative link in shipped surface markdown resolves inside the packed package
+ok 15 - every relative link in shipped surface markdown resolves inside the packed package
+  ---
+  duration_ms: 16345.285166
+  type: 'test'
+  ...
+# Subtest: every exported surface type the reference mentions is declared in it
+ok 16 - every exported surface type the reference mentions is declared in it
+  ---
+  duration_ms: 60.268375
+  type: 'test'
+  ...
+# Subtest: trigger and helper entry points are documented
+ok 17 - trigger and helper entry points are documented
+  ---
+  duration_ms: 3.852167
+  type: 'test'
+  ...
+# Subtest: in-package re-exports are declared, never pointed at by a source path
+ok 18 - in-package re-exports are declared, never pointed at by a source path
+  ---
+  duration_ms: 0.587209
+  type: 'test'
+  ...
+# Subtest: every provider trigger reachable through star re-exports is documented
+ok 19 - every provider trigger reachable through star re-exports is documented
+  ---
+  duration_ms: 324.419792
+  type: 'test'
+  ...
+# Subtest: every function exported from the package root has its signature in the reference
+ok 20 - every function exported from the package root has its signature in the reference
+  ---
+  duration_ms: 2.058291
+  type: 'test'
+  ...
+# Subtest: every type a rendered declaration names is declared, imported or a TypeScript global
+ok 21 - every type a rendered declaration names is declared, imported or a TypeScript global
+  ---
+  duration_ms: 92.053625
+  type: 'test'
+  ...
+# Subtest: declares every public type, including type-only exports no signature names
+ok 22 - declares every public type, including type-only exports no signature names
+  ---
+  duration_ms: 31.641167
+  type: 'test'
+  ...
+# Subtest: claims only what it declares: dependency types are named, links name their version skew
+ok 23 - claims only what it declares: dependency types are named, links name their version skew
+  ---
+  duration_ms: 1.77925
+  type: 'test'
+  ...
+# Subtest: declares every package-root export, including declarations a star-exported barrel owns
+ok 24 - declares every package-root export, including declarations a star-exported barrel owns
+  ---
+  duration_ms: 30.414292
+  type: 'test'
+  ...
+# Subtest: a copied implementation imports every free function it calls
+ok 25 - a copied implementation imports every free function it calls
+  ---
+  duration_ms: 2.119541
+  type: 'test'
+  ...
+# Subtest: CLI reference lists the root-level flags runCli handles before verbs
+ok 26 - CLI reference lists the root-level flags runCli handles before verbs
+  ---
+  duration_ms: 0.238875
+  type: 'test'
+  ...
+# Subtest: a const assertion names no type
+ok 27 - a const assertion names no type
+  ---
+  duration_ms: 0.593833
+  type: 'test'
+  ...
+1..27
+# tests 27
+# suites 0
+# pass 27
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 33888.080417

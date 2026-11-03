@@ -1,0 +1,13 @@
+
+ RUN  v2.1.9 /Volumes/T7/Projects/AgentWorkforce/worktrees/flows/flows-jev/packages/sdk
+
+ ✓ tests/jev-client.test.ts (35 tests) 101ms
+ ✓ tests/authored-classify.test.ts (5 tests) 832ms
+   ✓ authored Jev classification through the real journal > branches on a recorded value, then replays after SIGKILL without HTTP or a credential 420ms
+ ✓ tests/local-agent-environment.test.ts (8 tests) 14ms
+
+ Test Files  3 passed (3)
+      Tests  48 passed (48)
+   Start at  00:49:40
+   Duration  4.60s (transform 1.75s, setup 149ms, collect 3.28s, tests 947ms, environment 2ms, prepare 329ms)
+

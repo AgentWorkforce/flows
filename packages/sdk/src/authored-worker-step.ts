@@ -1,9 +1,10 @@
+import { classifyPrompt, JEV_MODEL } from './classify-contract.js';
 import { authoredBroker } from './authored-broker.js';
 import { brokerInstruction, brokerOptionsError } from './communication/broker-spec.js';
 import { dirname, resolve, isAbsolute, relative, sep } from 'node:path';
 import type { AuthoredBudget } from './authored-budget.js';
 import { parseBudget } from './budget.js';
-import type { AgentOptions, AgentResult, LlmOptions, NamedGate } from '@relayflows/surface';
+import type { AgentOptions, AgentResult, ClassifyOptions, ClassifyResult, LlmOptions, NamedGate } from '@relayflows/surface';
 import { compileSpec, toKernelSpec, parseAgentStepTimeout } from './compile.js';
 import { isTransportRetries } from './validate.js';
 import { authoredPreflight } from './authored-preflight.js';
@@ -51,7 +52,7 @@ export function authoredWorkerRunner(
     ...(stepEdges === undefined ? {} : { stepEdges }),
     ...(waitOptions.signal === undefined ? {} : { signal: waitOptions.signal }),
   };
-  async function run(step: StepSpec, onCompleted?: AuthoredStepContext['onCompleted']): Promise<unknown> {
+  async function run(step: StepSpec, onCompleted?: AuthoredStepContext['onCompleted'], classifier = false): Promise<unknown> {
     const id = step.id;
     const authoring: FlowSpec = { version: SPEC_SCHEMA_VERSION, name: `${definition.name}/${id}`, steps: [step], ...(headerBudget === undefined ? {} : { budget: parseBudget(headerBudget) }) };
     // The kernel never resolves a `cli` on its own — every declarative
@@ -59,7 +60,10 @@ export function authoredWorkerRunner(
     // (cli/check.ts), searching for the nearest flows.json from `flowPath`
     // and real-probing auth/model readiness. An authored agent step gets
     // nothing for free just because it was declared in TS instead of YAML.
-    const { report, flow: resolved } = await check(authoring);
+    const { report, flow: resolved } = classifier
+      ? { report: { ok: true, diagnostics: [], gates: [], resolutions: [] },
+        flow: compileSpec(authoring) }
+      : await check(authoring);
     if (!report.ok || resolved === undefined) {
       const refusal = report.diagnostics.find(
         (diagnostic): diagnostic is PreflightDiagnostic & { severity: 'refusal' } =>
@@ -335,6 +339,12 @@ export function authoredWorkerRunner(
         completionReason: 'success', summary: typeof stdout === 'string' ? stdout : JSON.stringify(output), artifacts,
         ...(sessionId === undefined ? {} : { sessionId }),
       };
+    },
+    async classify<Options extends Record<string, string>>(id: string, options: ClassifyOptions<Options>, verification?: NamedGate): Promise<ClassifyResult<keyof Options & string>> {
+      const output = await run({ id, type: 'llm', model: JEV_MODEL,
+        prompt: classifyPrompt(options), maxIterations: 1,
+        ...(verification === undefined ? {} : { verification }) }, undefined, true);
+      return output as ClassifyResult<keyof Options & string>;
     },
     async llm(id: string, prompt: string, options?: LlmOptions, verification?: NamedGate): Promise<unknown> {
       if (options !== undefined && (typeof options !== 'object' || options === null || options.output === undefined)) {
