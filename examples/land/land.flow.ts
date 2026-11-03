@@ -853,7 +853,19 @@ async function merge(f: Ctx, r: Run): Promise<StageResult> {
   const ident = 'GIT_AUTHOR_NAME="${LAND_AUTHOR_NAME:-Agent Relay Land}" GIT_AUTHOR_EMAIL="${LAND_AUTHOR_EMAIL:-land@agentrelay.com}" ' +
     'GIT_COMMITTER_NAME="${LAND_AUTHOR_NAME:-Agent Relay Land}" GIT_COMMITTER_EMAIL="${LAND_AUTHOR_EMAIL:-land@agentrelay.com}"';
   const commit = (await f.run(`${ident} git commit-tree ${shellWord(plan.tree)} -p ${shellWord(latest)} -m ${shellWord(plan.message)}`)).trim();
-  const push = await f.run(`git push origin ${shellWord(`${commit}:refs/heads/${s.config.baseBranch}`)}`, { timeout: '5m', onNonZero: 'record' });
+  // Fence the push on the land ref: superseding this run means a newer push
+  // to its land ref, so the squash goes up atomically with a lease that the
+  // ref still points at the pinned head. If the ref moved, GitHub rejects the
+  // lease and the atomic push lands nothing on the base — however long this
+  // stage's sandbox outlives its cancellation.
+  const ref = r.input.ref;
+  const refspecs = [`${commit}:refs/heads/${s.config.baseBranch}`, ...(ref ? [`${s.pinnedSha}:refs/heads/${ref}`] : [])];
+  const fence = ref ? ` --atomic --force-with-lease=${shellWord(`refs/heads/${ref}:${s.pinnedSha}`)}` : '';
+  const push = await f.run(`git push${fence} origin ${refspecs.map(shellWord).join(' ')}`, { timeout: '5m', onNonZero: 'record' });
+  if (!push.ok && ref) {
+    const refSha = (await f.run(`git ls-remote origin ${shellWord(`refs/heads/${ref}`)} | cut -f1`)).trim() || null;
+    if (refSha !== s.pinnedSha) return { kind: 'superseded', refSha, now: await now(f) };
+  }
   if (!push.ok) {
     // Only an actual stale base retries through D; a permission or protected
     // branch rejection is permanent and escalates instead of looping.

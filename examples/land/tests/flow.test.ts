@@ -26,9 +26,10 @@ function world(over: {
   home?: string; dir?: string;
   /** Auto mode: the dispatched repo gate's exit per dispatch attempt; 'pending' when it overruns. */
   githubExit?: Array<number | 'pending'>; ghRuns?: GhRun[]; ghRunsSeq?: GhRun[][];
-  pushFails?: 'non_ff' | 'other'; landedCommit?: string; headContainsBase?: boolean; fAncestorFails?: boolean; ciFetchFails?: boolean; pushDryRunFails?: boolean; codexLoginFails?: boolean; adversarialExit?: number; contextExit?: number; reviewTail?: string;
+  pushFails?: 'non_ff' | 'other'; landedCommit?: string; headContainsBase?: boolean; fAncestorFails?: boolean; ciFetchFails?: boolean; pushDryRunFails?: boolean; codexLoginFails?: boolean; refMovesAtPush?: string; adversarialExit?: number; contextExit?: number; reviewTail?: string;
 } = {}) {
   const dir = over.dir ?? stateDir;
+  let refMoved: string | undefined;
   const files = new Map<string, string>();
   const commands: string[][] = [];
   const launches: string[] = [];
@@ -59,7 +60,7 @@ function world(over: {
         if (command.startsWith('git show ') && command.includes('land.config.json')) return JSON.stringify(over.config ?? config);
         if (command.startsWith('git show ') && command.includes('CHANGELOG.md')) return command.includes('merge-base') ? over.changelog?.[0] ?? '' : over.changelog?.[1] ?? '';
         if (command.startsWith(`git fetch --no-tags --quiet ${UNSHALLOW_IF_SHALLOW} origin `)) { const list = over.baseShas ?? ['b'.repeat(40)]; baseRef = list[Math.min(fetches++, list.length - 1)]!; return ''; }
-        if (command.startsWith('git ls-remote')) return over.refSha ?? sha;
+        if (command.startsWith('git ls-remote')) return refMoved ?? over.refSha ?? sha;
         if (command.startsWith('git fetch --quiet ') && command.includes('land.bundle')) { head = files.get(/'([^']*land\.bundle)'/.exec(command)![1]!)!; return head; }
         if (command.startsWith('git bundle create')) { files.set(/'([^']*land\.bundle)\.tmp'/.exec(command)![1]!, head); return ''; }
         if (command.startsWith('git diff --name-only "$(git merge-base')) return 'probe/src/relay/agents.rs\nCHANGELOG.md';
@@ -101,7 +102,12 @@ function world(over: {
         if (command.startsWith('gh run list')) return JSON.stringify(over.ghRuns ?? []);
         if (command.startsWith('git push --quiet origin --delete')) return record(true);
         if (command.includes(' commit-tree ')) return mergedCommit;
-        if (command.startsWith('git push origin ') && command.includes(':refs/heads/')) {
+        if ((command.startsWith('git push origin ') || command.startsWith('git push --atomic ')) && command.includes(':refs/heads/')) {
+          if (over.refMovesAtPush && command.includes('--force-with-lease=')) {
+            // A newer push to the land ref landed: the lease is stale and the atomic push lands nothing.
+            refMoved = over.refMovesAtPush;
+            return record(false, ' ! [rejected]        aaaaaaa -> land/khaliq/aaaaaaa (stale info)');
+          }
           if (over.pushFails === 'non_ff') return record(false, '! [rejected] main -> main (non-fast-forward)');
           if (over.pushFails === 'other') return record(false, 'error: GH006: protected branch update failed');
           return record(true);
@@ -700,6 +706,23 @@ test('auto: review and fix stages run on a read-only credential; a push-denied c
   assert.equal(result.reason, 'needs_human');
   assert.match(JSON.stringify(result.detail), /push-capable git credential at stage E/);
   neverPushes(w.commands.map(c => c.filter(x => !x.startsWith('git push --dry-run'))));
+});
+
+test('auto: F fences its push on the land ref, and a superseded run lands nothing', async () => {
+  const ref = 'land/khaliq/aaaaaaa';
+  const ok = world({ config: autoConfig, githubExit: [0] });
+  const { result } = await ok.drive({ ref });
+  assert.equal(result.detail.state, 'landed');
+  const push = ok.commands.flat().find(c => c.startsWith('git push --atomic '))!;
+  assert.match(push, /--force-with-lease='refs\/heads\/land\/khaliq\/aaaaaaa:a{40}'/);
+  assert.match(push, /:refs\/heads\/main' 'a{40}:refs\/heads\/land\/khaliq\/aaaaaaa'/);
+
+  // A newer push to the land ref arrives while this run's F is running.
+  const moved = world({ config: autoConfig, githubExit: [0], refMovesAtPush: 'f'.repeat(40) });
+  const out = await moved.drive({ ref });
+  assert.equal(out.stages.at(-1), 'F');
+  assert.equal(out.result.detail.state, 'cancelled');
+  assert.match(out.result.detail.detail as string, /^superseded: land ref now f{40}/);
 });
 
 test('auto: the push dry-run runs only on stages E and F', async () => {
