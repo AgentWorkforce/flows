@@ -1,6 +1,6 @@
-Live Jev test run by layered-agent (relaycast-cloud session), 2026-11-03T08:59:03Z
-Tested SHA: 08802cb03beead43356755e9f752699baeb31644 (local changes in jev-client.ts or classify-contract.ts at test time: 0 files)
-Key: TYPESAFE_API_KEY from 1Password ("Jev API Key"), read with op read -n into the environment; never printed.
+Live Jev test run by layered-agent (relaycast-cloud session), 2026-11-03T09:20:35Z
+Tested SHA: a61379936da727b0fae758ec8ca61eb3d92a2d1a (uncommitted changes under packages/sdk/src or packages/surface/src at test time: 0 files)
+Key: TYPESAFE_API_KEY ("Jev API Key"; read into the environment, never printed).
 Command (from /Volumes/T7/Projects/AgentWorkforce/worktrees/flows/flows-jev/packages/sdk):
   TYPESAFE_API_KEY="$(op read -n 'op://Private/Jev API Key/password')" npx tsx /private/tmp/claude-501/-Volumes-T7-Projects-AgentWorkforce-relaycast-cloud/00af6b9c-143b-4604-91f0-a7bbcbc2bc4e/scratchpad/jev-live.mts
 Script:

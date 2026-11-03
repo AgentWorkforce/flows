@@ -3,7 +3,7 @@
 Captured in the T7 `flows-jev` worktree on 2026-11-03. These are command
 transcripts, not evidence of a production release. Live provider validation
 was subsequently captured by layered-agent against source commit
-`08802cb03beead43356755e9f752699baeb31644`; see the transcript below.
+`a61379936da727b0fae758ec8ca61eb3d92a2d1a`; see the transcript below.
 
 ## Focused tests
 
@@ -43,7 +43,7 @@ Captured output: [docs-check.txt](jev-classifier/docs-check.txt).
 ## Live provider validation
 
 [jev-live.txt](jev-classifier/jev-live.txt) contains layered-agent's literal
-command, script and output at `08802cb03beead43356755e9f752699baeb31644`.
+command, script and output at `a61379936da727b0fae758ec8ca61eb3d92a2d1a`.
 That transcript exercises the source client with a documentation change and an
 authorization/keychain rewrite, then missing-key failure and explicit fallback.
 The implementation files were clean at the recorded commit. This was a peer's

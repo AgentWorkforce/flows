@@ -1,7 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
-import { pathToFileURL } from 'node:url';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
@@ -97,8 +96,9 @@ describe('authored Jev classification through the real journal', () => {
   it('delivers the unmetered warning through the authored CLI', async () => {
     const { dataDir } = await start();
     const fixture = join(dataDir, 'warning.flow.mjs');
-    const surface = pathToFileURL(resolve('node_modules/@relayflows/surface/dist/index.js')).href;
-    writeFileSync(fixture, `import { flow } from ${JSON.stringify(surface)};
+    mkdirSync(join(dataDir, 'node_modules/@relayflows'), { recursive: true });
+    symlinkSync(resolve('node_modules/@relayflows/surface'), join(dataDir, 'node_modules/@relayflows/surface'));
+    writeFileSync(fixture, `import { flow } from '@relayflows/surface';
       export default flow('classify-warning', async f => {
         await f.classify(${JSON.stringify({ ...options, fallback: 'deep' })}); f.done('success');
       });`);
