@@ -854,12 +854,15 @@ async function merge(f: Ctx, r: Run): Promise<StageResult> {
     'GIT_COMMITTER_NAME="${LAND_AUTHOR_NAME:-Agent Relay Land}" GIT_COMMITTER_EMAIL="${LAND_AUTHOR_EMAIL:-land@agentrelay.com}"';
   const commit = (await f.run(`${ident} git commit-tree ${shellWord(plan.tree)} -p ${shellWord(latest)} -m ${shellWord(plan.message)}`)).trim();
   // Fence the push on the land ref: superseding this run means a newer push
-  // to its land ref, so the squash goes up atomically with a lease that the
-  // ref still points at the pinned head. If the ref moved, GitHub rejects the
-  // lease and the atomic push lands nothing on the base — however long this
-  // stage's sandbox outlives its cancellation.
+  // to its land ref. The squash goes up atomically with the land ref's
+  // deletion, leased on the pinned head. A delete is a real ref update with
+  // an old value, so the server checks it inside the same transaction: if
+  // the ref moved, the whole push fails and nothing lands on the base —
+  // however long this stage's sandbox outlives its cancellation. (Pushing the
+  // ref to its own value would be dropped as up to date and check nothing.)
+  // A landed run no longer needs its land ref.
   const ref = r.input.ref;
-  const refspecs = [`${commit}:refs/heads/${s.config.baseBranch}`, ...(ref ? [`${s.pinnedSha}:refs/heads/${ref}`] : [])];
+  const refspecs = [`${commit}:refs/heads/${s.config.baseBranch}`, ...(ref ? [`:refs/heads/${ref}`] : [])];
   const fence = ref ? ` --atomic --force-with-lease=${shellWord(`refs/heads/${ref}:${s.pinnedSha}`)}` : '';
   const push = await f.run(`git push${fence} origin ${refspecs.map(shellWord).join(' ')}`, { timeout: '5m', onNonZero: 'record' });
   if (!push.ok && ref) {
@@ -940,7 +943,7 @@ export async function land(f: Ctx, raw: LandInput): Promise<void> {
       // Preflight, not polling: the GitHub gate needs an authed gh on every
       // auto stage (a read grant authenticates it too).
       const gh = await f.run(`command -v gh >/dev/null && gh auth status`, { onNonZero: 'record' });
-      if (!gh.ok) throw new NeedsHuman('mergePolicy.mode "auto" needs gh installed and authenticated (a write repository grant); shadow runs do not');
+      if (!gh.ok) throw new NeedsHuman('mergePolicy.mode "auto" needs gh installed and authenticated; shadow runs do not');
       // Only E (the gate's snapshot branch) and F (the squash) push, and Cloud
       // gives only those stages a write grant: A-D, where an agent reviews and
       // fixes untrusted change content, run read-only. So write access is
@@ -975,7 +978,13 @@ export async function land(f: Ctx, raw: LandInput): Promise<void> {
     owned = state;
     if (input.ref) {
       const refSha = (await f.run(`git ls-remote origin ${shellWord(`refs/heads/${input.ref}`)} | cut -f1`)).trim() || null;
-      if (refSha !== state.pinnedSha) return await save(f, stateFile, nextLandStage(state, { kind: 'superseded', refSha, now: await now(f) }));
+      // Stage F deletes the land ref in the same push that lands the squash,
+      // so a replayed F (reaped after its push, before its state write) finds
+      // the ref gone: its own Land-Run trailer on the base means it landed,
+      // and F reconciles that below rather than being called superseded.
+      const landedHere = refSha === null && state.cursor === 'F' &&
+        !!(await f.run(`git log --format=%H --grep=${shellWord(`Land-Run: ${state.runId}$`)} -n 1 ${shellWord(base)}`)).trim();
+      if (refSha !== state.pinnedSha && !landedHere) return await save(f, stateFile, nextLandStage(state, { kind: 'superseded', refSha, now: await now(f) }));
     }
     if (state.headSha !== state.pinnedSha) {
       const restored = (await f.run(`git fetch --quiet ${shellWord(`${input.stateDir}/land.bundle`)} HEAD && git checkout --quiet --detach FETCH_HEAD && git rev-parse HEAD`)).trim();
