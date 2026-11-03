@@ -7,7 +7,11 @@ export const CLASSIFY_BUDGET_WARNING = 'Jev classification reports no token or d
 
 /** Copy in fixed field order: journal reads sort keys, admission binds bytes. */
 export function classifyOptions(raw: unknown): Required<Omit<ClassifyOptions, 'fallback'>> & { fallback?: string } {
-  const value = snapshotJsonValue(raw, 'f.classify options') as unknown as ClassifyOptions;
+  // At most 39 nodes at depth 2; 560 KB covers even six-byte JSON escaping
+  // of every character in the largest valid question, state and 32 criteria.
+  const value = snapshotJsonValue(raw, 'f.classify options', {
+    maxDepth: 2, maxNodes: 40, maxBytes: 560_000,
+  }) as unknown as ClassifyOptions;
   const invalid = (detail: string): never => { throw new TypeError(`f.classify ${detail}`); };
   if (!value || typeof value !== 'object' || Array.isArray(value)
     || Object.keys(value).some(k => !['question', 'state', 'options', 'minConfidence', 'fallback', 'timeoutMs'].includes(k))) {

@@ -12,6 +12,17 @@ const answer = (choice: unknown = 'small', confidence: unknown = 0.9, type = 'ch
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('TypeSafe Jev contract', () => {
+  it('bounds admission before cloning invalid input and admits maximal escaped payloads', () => {
+    for (const extra of ['x'.repeat(560_001), { nested: { deeper: 'invalid' } }, Array(41).fill(0)]) {
+      expect(() => classifyOptions({ ...options, extra })).toThrow(/snapshot .* limit exceeded/);
+    }
+    const choices = Object.fromEntries(Array.from({ length: 32 }, (_, i) => [
+      String(i).padStart(100, '\u0000'), '\u0000'.repeat(2000),
+    ]));
+    expect(classifyOptions({ question: '\u0000'.repeat(4000), state: '\u0000'.repeat(20_000),
+      options: choices, minConfidence: 1, timeoutMs: 30_000, fallback: Object.keys(choices)[0],
+    }).options).toEqual(choices);
+  });
   it('reserves the classifier namespace against helper plugins', () => {
     expect(() => validatePluginManifest({ name: 'helper-collision', version: '1.0.0',
       verbs: [{ namespace: 'classify', method: 'replace', lowersTo: 'effect', args: {} }],
