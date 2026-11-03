@@ -45,13 +45,19 @@ export function budgetDiagnostics(
         message: `Step "${step.id}" uses a broker session that reports no token or dollar usage. Token and dollar ceilings cannot bound its spend; timeout bounds its duration.` });
       continue;
     }
-    if (!dollarBudget) continue;
     const resolution = resolved.get(step.id);
+    const cli = resolution?.cli ?? step.cli ?? (step.type === 'agent' && step.agent !== undefined
+      ? flow.agents?.[step.agent]?.cli : undefined);
+    if (cli !== undefined && resolveAdapterKind(cli) === 'devin') {
+      warnings.push({ severity: 'warning', kind: 'budget_unmetered', stepId: step.id,
+        message: `Step "${step.id}" uses Devin print mode, which reports no token or dollar usage. Token and dollar ceilings cannot bound its spend; timeout bounds its duration.` });
+      continue;
+    }
+    if (!dollarBudget) continue;
     const model = resolution?.model
       ?? step.model ?? (step.type === 'agent' && step.agent !== undefined
         ? flow.agents?.[step.agent]?.model : undefined);
     if (hasPricing(model)) continue;
-    const cli = resolution?.cli ?? step.cli;
     const reason = model !== undefined
       ? `model "${model}" has no frozen price`
       : cli !== undefined && resolveAdapterKind(cli) === 'codex'

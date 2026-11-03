@@ -27,6 +27,8 @@ export function promptOperand(text: string): [separator: '--', text: string] {
 export interface CliInvocation {
   args: string[];
   timeoutMs: number;
+  /** Materialized privately at launch for CLIs whose task input is a file. */
+  promptFile?: string;
   /** Set only for wrapper readiness probes; raw providers receive a model flag. */
   modelEnv?: string;
 }

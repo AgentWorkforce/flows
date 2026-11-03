@@ -1,12 +1,14 @@
 import { accessSync, constants, realpathSync } from 'node:fs';
 import { basename, isAbsolute, resolve } from 'node:path';
 import { execFile, spawnSync } from 'node:child_process';
+import { redactText } from '../agent-transcript.js';
 import { agentEnvironment, brokerEnvironment } from '../communication/environment.js';
 import { adapterIdentification, authenticationProbe, classifyModelProbeFailure, cliAdapterKind,
   displayInvocation, modelReadinessProbe, type CliInvocation } from '../cli-adapter.js';
 import { MODEL_ENV } from '../worker-cli.js';
 import { CliProbeError, type CliProbeResult } from '../preflight.js';
 import { pinCliAlias, pinCliAliasSync } from './pinned-cli-alias.js';
+import { prepareDevinRuntime } from '../devin-runtime.js';
 import { agentProbeEnvironment } from '../step-secrets.js';
 
 interface ProbeRequest {
@@ -40,15 +42,18 @@ function driveSync<T>(sequence: Generator<ProbeRequest, T, ProbeOutput>): T {
   while (!next.done) {
     const request = next.value;
     const pinned = pinCliAliasSync(request.executable, request.argv0 ?? basename(request.executable));
+    let prepared: ReturnType<typeof prepareProbe> | undefined;
     const result = (() => {
       try {
-        return spawnSync(pinned.executable, request.invocation.args, {
-          ...probeOptions(request),
+        prepared = prepareProbe(request);
+        return spawnSync(pinned.executable, prepared.args, {
+          ...probeOptions({ ...request, environment: prepared.env }),
           // Preserve the old synchronous probe contract: provider CLIs must not
           // inherit a readable stdin that can block auth/identify probes.
           stdio: ['ignore', 'pipe', 'pipe'],
         });
       } finally {
+        prepared?.close();
         pinned.release();
       }
     })();
@@ -69,9 +74,12 @@ function probeOptions({ argv0, directory, invocation, environment }: ProbeReques
 
 async function runProbeAsync(request: ProbeRequest): Promise<ProbeOutput> {
   const pinned = await pinCliAlias(request.executable, request.argv0 ?? basename(request.executable));
+  let prepared: ReturnType<typeof prepareProbe> | undefined;
   try {
+    prepared = prepareProbe(request);
+    const current = prepared;
     return await new Promise((resolve, reject) => {
-      const child = execFile(pinned.executable, request.invocation.args, probeOptions(request),
+      const child = execFile(pinned.executable, current.args, probeOptions({ ...request, environment: current.env }),
         (error, stdout, stderr) => {
           // Numeric exit codes are probe results; launch, timeout, signal and buffer
           // errors are failures to collect a fact, just as in the synchronous driver.
@@ -86,6 +94,7 @@ async function runProbeAsync(request: ProbeRequest): Promise<ProbeOutput> {
       child.stdin?.end();
     });
   } finally {
+    prepared?.close();
     await pinned.release();
   }
 }
@@ -133,12 +142,16 @@ function* probeSequence(
   const auth = authenticationProbe(kind);
   const authCommand = displayInvocation(cli, auth);
   if (model === undefined) {
+    const authProbe = yield probe(auth);
+    const authenticated = authProbe.status === 0;
     return {
       exists: true,
       supported: true,
-      authenticated: (yield probe(auth)).status === 0,
+      authenticated,
       executable,
       authCommand,
+      ...(authenticated ? {} : { authExitCode: authProbe.status,
+        authFailureDetail: redactProbeOutput(`${authProbe.stderr}${authProbe.stdout}`, sourceEnvironment).trim().slice(0, 500) }),
     };
   }
 
@@ -168,7 +181,7 @@ function* probeSequence(
   // because Claude Code prints the provider's API error there and its own
   // catalog warnings on stderr.
   const failure = classifyModelProbeFailure(kind, `${scopedProbe.stdout}\n${scopedProbe.stderr}`);
-  const modelDetail = redactProbeOutput(scopedProbe.stdout.trim() || scopedProbe.stderr.trim()).slice(0, 500);
+  const modelDetail = redactProbeOutput(scopedProbe.stdout.trim() || scopedProbe.stderr.trim(), sourceEnvironment).slice(0, 500);
   return {
     exists: true,
     supported: true,
@@ -187,7 +200,7 @@ function* probeSequence(
       : {
         authExitCode: authProbe.status,
         authFailureDetail: redactProbeOutput(
-          `${authProbe.stderr}${authProbe.stdout}`,
+          `${authProbe.stderr}${authProbe.stdout}`, sourceEnvironment,
         ).trim().slice(0, 500),
       }),
   };
@@ -201,11 +214,42 @@ function* probeSequence(
  * say WHY a probe failed, which survives redaction; leaking an identity into a
  * refusal message that gets pasted into issues does not.
  */
-function redactProbeOutput(text: string): string {
-  return text
-    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '<redacted-email>')
-    .replace(/\b(sk|pk|oat|rt)[-_][A-Za-z0-9._-]{8,}/gi, '<redacted-token>')
-    .replace(/\b[A-Fa-f0-9]{32,}\b/g, '<redacted-hex>');
+function redactProbeOutput(text: string, environment: NodeJS.ProcessEnv): string {
+  const key = environment.DEVIN_API_KEY?.trim();
+  const normalized = { ...environment, ...(key === undefined ? {} : { DEVIN_API_KEY: key }) };
+  // Preserve the shared redactor's known-value, header and cookie handling.
+  const redacted = redactText(text, normalized);
+  // One byte per diagnostic character bounds auxiliary memory even when a
+  // one-character credential matches the entire probe buffer. No span lists.
+  const covered = new Uint8Array(redacted.length);
+  const replacements = ['', '<redacted-email>', '<redacted-token>', '<redacted-hex>', '[redacted:DEVIN_API_KEY]'];
+  for (const [pattern, tag] of [
+    [/(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, 1],
+    [/\b(sk|pk|oat|rt)[-_][A-Za-z0-9._-]{8,}/gi, 2],
+    [/\b[A-Fa-f0-9]{32,}\b/g, 3],
+  ] as const) {
+    for (const match of redacted.matchAll(pattern)) covered.fill(tag, match.index, match.index + match[0].length);
+  }
+  // Mark short credentials AFTER the shapes, on the same text: replacing
+  // either first can split the other and leak a suffix. Connected marks are
+  // redacted together; a known credential's marker takes precedence.
+  if (key && key.length < 8) {
+    for (let start = redacted.indexOf(key); start !== -1; start = redacted.indexOf(key, start + 1)) {
+      covered.fill(4, start, start + key.length);
+    }
+  }
+  let result = ''; let cursor = 0;
+  for (let start = 0; start < covered.length;) {
+    if (covered[start] === 0) { start++; continue; }
+    let tag = covered[start]!; let end = start + 1;
+    while (end < covered.length && covered[end] !== 0) {
+      if (covered[end] === 4) tag = 4;
+      end++;
+    }
+    result += redacted.slice(cursor, start) + replacements[tag];
+    cursor = end; start = end;
+  }
+  return result + redacted.slice(cursor);
 }
 
 function* executableSequence(command: string, directory: string, environment: NodeJS.ProcessEnv): Generator<ProbeRequest, string | undefined, ProbeOutput> {
@@ -244,4 +288,14 @@ function classifySpawnFailure(
     return new CliProbeError(detail);
   }
   return signal === null ? undefined : new CliProbeError(`signal:${signal}`);
+}
+
+function prepareProbe(request: ProbeRequest) {
+  if (cliAdapterKind(request.argv0 ?? request.executable) === 'devin'
+      && request.environment.DEVIN_API_KEY !== undefined && !request.environment.DEVIN_API_KEY.trim()) {
+    throw new CliProbeError('devin_api_key_empty');
+  }
+  return cliAdapterKind(request.argv0 ?? request.executable) === 'devin'
+    ? prepareDevinRuntime(request.environment, request.invocation)
+    : { args: request.invocation.args, env: request.environment, close() {} };
 }

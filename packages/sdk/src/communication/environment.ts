@@ -25,6 +25,7 @@ const providerNames: Readonly<Record<string, readonly string[]>> = {
   // AgentWorkforce/cloud#4026's house-provider run contract gives Grok an
   // isolated home plus an xAI-compatible base URL. These remain Grok-scoped.
   grok: ['XAI_API_KEY', 'GROK_XAI_API_BASE_URL', 'GROK_HOME'],
+  devin: ['DEVIN_API_KEY', 'DEVIN_MODEL'],
   ...Object.fromEntries(['opencode', 'aider', 'goose', 'pi', 'deepagents'].map(cli => [cli, multiProvider])),
 };
 /** @internal Names-only test seam; credential lists remain private. */

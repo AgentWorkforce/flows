@@ -2,15 +2,17 @@ import { basename } from 'node:path';
 
 import { claudeAdapter } from './claude.js';
 import { codexAdapter } from './codex.js';
+import { devinAdapter } from './devin.js';
 import { wrapperAdapter } from './wrapper.js';
 import type { HeadlessAdapter } from './base.js';
 
-export type CliAdapterKind = 'claude' | 'codex' | 'relayflows-wrapper-v1';
+export type CliAdapterKind = 'claude' | 'codex' | 'devin' | 'relayflows-wrapper-v1';
 
 /** The registered adapter set. Adding a CLI is adding one file + one entry. */
 const ADAPTERS: Record<CliAdapterKind, HeadlessAdapter> = {
   claude: claudeAdapter,
   codex: codexAdapter,
+  devin: devinAdapter,
   'relayflows-wrapper-v1': wrapperAdapter,
 };
 
@@ -19,6 +21,7 @@ export function resolveAdapter(executable: string): HeadlessAdapter {
   const name = basename(executable).replace(/\.exe$/i, '');
   if (name === 'claude') return ADAPTERS.claude;
   if (name === 'codex') return ADAPTERS.codex;
+  if (name === 'devin') return ADAPTERS.devin;
   return ADAPTERS['relayflows-wrapper-v1'];
 }
 
@@ -32,5 +35,5 @@ export function registeredAdapters(): Readonly<Record<CliAdapterKind, HeadlessAd
   return ADAPTERS;
 }
 
-export { claudeAdapter, codexAdapter, wrapperAdapter };
+export { claudeAdapter, codexAdapter, devinAdapter, wrapperAdapter };
 export type { HeadlessAdapter, CliInvocation, CliAdapterIdentification } from './base.js';

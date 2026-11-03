@@ -51,7 +51,7 @@ it('journals readiness failure and still releases all acquired resources', async
   expect(mocks.close).toHaveBeenCalledTimes(1);
 });
 
-it.each(['claude', 'codex', 'gemini', 'cursor-agent', 'droid', 'opencode', 'aider', 'goose', 'grok', 'pi', 'deepagents', '/opt/custom/tool'])('delegates %s launch and injection to Relay without Claude-only flags', async cli => {
+it.each(['claude', 'codex', 'gemini', 'cursor-agent', 'droid', 'opencode', 'aider', 'goose', 'grok', 'devin', 'pi', 'deepagents', '/opt/custom/tool'])('delegates %s launch and injection to Relay without Claude-only flags', async cli => {
   const f = fixture(cli); await f.execute();
   expect(mocks.spawn).toHaveBeenCalledWith(expect.objectContaining({
     cli: cli.split('/').at(-1),

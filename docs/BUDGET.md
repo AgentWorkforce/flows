@@ -94,8 +94,13 @@ wrapper may return an explicit result envelope after its execution handshake:
 {"protocol":"relayflows-agent-cli-v1-result","output":"answer","usage":{"input_tokens":1000,"output_tokens":200}}
 ```
 
+Devin print mode returns plain text without authoritative usage. Its agent
+steps always warn `budget_unmetered`, even with a priced model, and journal
+unmetered usage with zero reported tokens. Token and dollar ceilings cannot
+measure their spend; use a timeout to bound execution duration.
+
 A priced model with missing or malformed usage produces a journaled worker
-error. An unpriced model's usage is optional: reported tokens are journaled
+error for adapters that report usage. An unpriced model's usage is optional: reported tokens are journaled
 with `dollars_unmetered: true`, and a completion with no reported tokens is
 still marked unmetered (with zero tokens). Workers never omit usage for an
 unpriced step and never send `dollars` alongside `dollars_unmetered`; the kernel
