@@ -22,6 +22,7 @@
     "tests/run-from-digest.test.ts",
     "tests/run-digest-live.test.ts",
     "tests/helpers-fanout.test.ts",
+    "tests/gitlab-helper-path.test.ts",
     "tests/authored-helpers.test.ts",
     "tests/fixtures/build.flow.ts",
     "tests/typed-output.test.ts",
