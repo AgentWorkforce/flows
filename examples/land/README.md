@@ -179,7 +179,10 @@ the first stage.
 
 `mergePolicy.mode` values `approval` and `auto` pass validation; a run
 refuses `approval` (`declined`). `auto` needs the repository grant's write
-token and `gh` on the runner.
+token on stages E and F (Cloud gives A-D a read grant) and `gh` on the runner.
+Stage F lands the squash in one atomic push that also deletes the run's land
+ref, leased on the pinned head, so a superseded run can never land; the write
+grant must therefore be allowed to delete `land/*` branches.
 
 A finding's id is its source, its file and its normalized title.
 relay-desktop's `report.json` has no id field. Its verifier moves lines and

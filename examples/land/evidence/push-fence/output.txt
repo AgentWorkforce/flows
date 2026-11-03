@@ -1,0 +1,4 @@
+git version 2.50.1 (Apple Git-155)
+{"variant": "noop", "race": true, "exit": 0, "mainGotSquash": true, "landRefNow": "newer", "landRefInTransaction": false, "out": ["   00b3772..e3d0dfa  e3d0dface811192c00a495144d8824d25ac1dd36 -> main"]}
+{"variant": "delete", "race": true, "exit": 1, "mainGotSquash": false, "landRefNow": "newer", "landRefInTransaction": true, "out": ["error: failed to push some refs to '<tmp>/remote.git'"]}
+{"variant": "delete", "race": false, "exit": 0, "mainGotSquash": true, "landRefNow": "deleted", "landRefInTransaction": true, "out": ["   0627171..c008e25  c008e25793dc225242ab98174f7542c40181010e -> main"]}
