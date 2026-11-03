@@ -26,10 +26,11 @@ function world(over: {
   home?: string; dir?: string;
   /** Auto mode: the dispatched repo gate's exit per dispatch attempt; 'pending' when it overruns. */
   githubExit?: Array<number | 'pending'>; ghRuns?: GhRun[]; ghRunsSeq?: GhRun[][];
-  pushFails?: 'non_ff' | 'other'; landedCommit?: string; headContainsBase?: boolean; fAncestorFails?: boolean; ciFetchFails?: boolean; pushDryRunFails?: boolean; codexLoginFails?: boolean; refMovesAtPush?: string; refGoneAt?: string; adversarialExit?: number; contextExit?: number; reviewTail?: string;
+  pushFails?: 'non_ff' | 'other'; landedCommit?: string; headContainsBase?: boolean; fAncestorFails?: boolean; ciFetchFails?: boolean; pushDryRunFails?: boolean; codexLoginFails?: boolean; refMovesAtPush?: string; refGoneAt?: string; pushLandsThenDrops?: boolean; adversarialExit?: number; contextExit?: number; reviewTail?: string;
 } = {}) {
   const dir = over.dir ?? stateDir;
   let refMoved: string | undefined;
+  let pushLanded = false;
   const files = new Map<string, string>();
   const commands: string[][] = [];
   const launches: string[] = [];
@@ -61,7 +62,7 @@ function world(over: {
         if (command.startsWith('git show ') && command.includes('land.config.json')) return JSON.stringify(over.config ?? config);
         if (command.startsWith('git show ') && command.includes('CHANGELOG.md')) return command.includes('merge-base') ? over.changelog?.[0] ?? '' : over.changelog?.[1] ?? '';
         if (command.startsWith(`git fetch --no-tags --quiet ${UNSHALLOW_IF_SHALLOW} origin `)) { const list = over.baseShas ?? ['b'.repeat(40)]; baseRef = list[Math.min(fetches++, list.length - 1)]!; return ''; }
-        if (command.startsWith('git ls-remote')) return goneHere ? '' : refMoved ?? over.refSha ?? sha;
+        if (command.startsWith('git ls-remote')) return goneHere || pushLanded ? '' : refMoved ?? over.refSha ?? sha;
         if (command.startsWith('git fetch --quiet ') && command.includes('land.bundle')) { head = files.get(/'([^']*land\.bundle)'/.exec(command)![1]!)!; return head; }
         if (command.startsWith('git bundle create')) { files.set(/'([^']*land\.bundle)\.tmp'/.exec(command)![1]!, head); return ''; }
         if (command.startsWith('git diff --name-only "$(git merge-base')) return 'probe/src/relay/agents.rs\nCHANGELOG.md';
@@ -96,7 +97,7 @@ function world(over: {
           return String(command.includes('/ci/exit') && over.ciRed?.includes(gate - 1) ? 1 : 0);
         }
         if (command.startsWith('git fetch --quiet origin ') && command.includes('refs/heads/ci/*')) return record(over.ciFetchFails !== true, over.ciFetchFails ? 'fetch failed' : '');
-        if (command.startsWith('git log --format=%H --grep')) return over.landedCommit ?? '';
+        if (command.startsWith('git log --format=%H --grep')) return pushLanded ? mergedCommit : over.landedCommit ?? '';
         if (command.startsWith('git push --dry-run')) return record(over.pushDryRunFails !== true, over.pushDryRunFails ? 'denied' : '');
         if (command.startsWith('codex login status')) return record(!over.codexLoginFails);
         if (command.startsWith('for sha in $(git for-each-ref')) return snapshotSha;
@@ -104,6 +105,11 @@ function world(over: {
         if (command.startsWith('git push --quiet origin --delete')) return record(true);
         if (command.includes(' commit-tree ')) return mergedCommit;
         if ((command.startsWith('git push origin ') || command.startsWith('git push --atomic ')) && command.includes(':refs/heads/')) {
+          if (over.pushLandsThenDrops) {
+            // The server accepted the atomic push (squash landed, land ref deleted); the client never heard back.
+            pushLanded = true;
+            return record(false, 'fatal: the remote end hung up unexpectedly');
+          }
           if (over.refMovesAtPush && command.includes('--force-with-lease=')) {
             // A newer push to the land ref landed: the lease is stale and the atomic push lands nothing.
             refMoved = over.refMovesAtPush;
@@ -611,6 +617,14 @@ test('auto: a deleted land ref without this run\'s squash on the base is superse
   const { result } = await w.drive({ ref });
   assert.equal(result.detail.state, 'cancelled');
   assert.match(result.detail.detail as string, /^superseded: land ref now deleted/);
+});
+
+test('auto: a push that landed but failed on the client records landed, not superseded', async () => {
+  const w = world({ config: autoConfig, githubExit: [0], pushLandsThenDrops: true });
+  const { stages, result } = await w.drive({ ref: 'land/khaliq/aaaaaaa' });
+  assert.equal(stages.at(-1), 'F');
+  assert.equal(result.detail.state, 'landed');
+  assert.equal(result.detail.commit, mergedCommit);
 });
 
 test('auto: F refuses to squash a head that never contained the base', async () => {

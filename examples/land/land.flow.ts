@@ -865,6 +865,14 @@ async function merge(f: Ctx, r: Run): Promise<StageResult> {
   const refspecs = [`${commit}:refs/heads/${s.config.baseBranch}`, ...(ref ? [`:refs/heads/${ref}`] : [])];
   const fence = ref ? ` --atomic --force-with-lease=${shellWord(`refs/heads/${ref}:${s.pinnedSha}`)}` : '';
   const push = await f.run(`git push${fence} origin ${refspecs.map(shellWord).join(' ')}`, { timeout: '5m', onNonZero: 'record' });
+  if (!push.ok) {
+    // A push can land and still fail on the client (the connection drops
+    // before the server's answer arrives). This run's own Land-Run trailer on
+    // the fetched base means it landed: record that, never "superseded".
+    await f.run(`git fetch --no-tags --quiet origin ${shellWord(`+refs/heads/${s.config.baseBranch}:refs/remotes/${r.base}`)}`, { timeout: '10m', onNonZero: 'record' });
+    const landed = (await f.run(`git log --format=%H --grep=${shellWord(`Land-Run: ${s.runId}$`)} -n 1 ${shellWord(r.base)}`)).trim();
+    if (landed) return { kind: 'merge', outcome: 'pushed', plan, commit: landed, now: await now(f) };
+  }
   if (!push.ok && ref) {
     const refSha = (await f.run(`git ls-remote origin ${shellWord(`refs/heads/${ref}`)} | cut -f1`)).trim() || null;
     if (refSha !== s.pinnedSha) return { kind: 'superseded', refSha, now: await now(f) };
