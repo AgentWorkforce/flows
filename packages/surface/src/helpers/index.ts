@@ -5,6 +5,7 @@ import type { SlackHelper } from "./slack.js";
 import { createAirtableHelper, type AirtableHelper } from "./airtable.js";
 import { createAsanaHelper, type AsanaHelper } from "./asana.js";
 import { createAzureBlobHelper, type AzureBlobHelper } from "./azure-blob.js";
+import { createBitbucketHelper, type BitbucketHelper } from "./bitbucket.js";
 import { createBoxHelper, type BoxHelper } from "./box.js";
 import { createCalendlyHelper, type CalendlyHelper } from "./calendly.js";
 import { createClickupHelper, type ClickupHelper } from "./clickup.js";
@@ -56,6 +57,7 @@ import type { EffectDispatcher } from "../effect-transport.js";
 export type { AirtableHelper } from "./airtable.js";
 export type { AsanaHelper } from "./asana.js";
 export type { AzureBlobHelper } from "./azure-blob.js";
+export type { BitbucketHelper } from "./bitbucket.js";
 export type { BoxHelper } from "./box.js";
 export type { CalendlyHelper } from "./calendly.js";
 export type { ClickupHelper } from "./clickup.js";
@@ -108,6 +110,7 @@ export interface Helpers {
   airtable: AirtableHelper;
   asana: AsanaHelper;
   azureBlob: AzureBlobHelper;
+  bitbucket: BitbucketHelper;
   box: BoxHelper;
   calendly: CalendlyHelper;
   clickup: ClickupHelper;
@@ -162,6 +165,7 @@ export function createHelpers(dispatch: EffectDispatcher): Omit<Helpers, "slack"
     airtable: createAirtableHelper(dispatch),
     asana: createAsanaHelper(dispatch),
     azureBlob: createAzureBlobHelper(dispatch),
+    bitbucket: createBitbucketHelper(dispatch),
     box: createBoxHelper(dispatch),
     calendly: createCalendlyHelper(dispatch),
     clickup: createClickupHelper(dispatch),

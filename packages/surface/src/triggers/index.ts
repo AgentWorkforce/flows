@@ -3,6 +3,7 @@
 export { airtable } from "./airtable.js";
 export { asana } from "./asana.js";
 export { azure_blob } from "./azure-blob.js";
+export { bitbucket } from "./bitbucket.js";
 export { box } from "./box.js";
 export { calendly } from "./calendly.js";
 export { clickup } from "./clickup.js";
@@ -53,6 +54,7 @@ export const providerEventTypes = Object.freeze({
   "airtable": Object.freeze(["base.create","base.delete","base.update","record.create","record.delete","record.update","table.create","table.delete","table.update"] as const),
   "asana": Object.freeze(["project.added","project.changed","project.deleted","project.removed","section.added","section.changed","section.deleted","section.removed","task.added","task.changed","task.completed","task.deleted","task.removed","workspace.added","workspace.changed","workspace.deleted","workspace.removed"] as const),
   "azure-blob": Object.freeze(["file.created","file.deleted","file.updated"] as const),
+  "bitbucket": Object.freeze(["pullrequest:comment_created","pullrequest:comment_deleted","pullrequest:created","pullrequest:fulfilled","pullrequest:rejected","pullrequest:updated","repo:commit_status_created","repo:commit_status_updated","repo:deleted","repo:push","repo:updated"] as const),
   "box": Object.freeze(["file.created","file.deleted","file.updated"] as const),
   "calendly": Object.freeze(["event_type.canceled","event_type.created","event_type.deleted","event_type.updated","invitee.canceled","invitee.created","invitee.deleted","invitee.updated","scheduled_event.canceled","scheduled_event.created","scheduled_event.deleted","scheduled_event.updated"] as const),
   "clickup": Object.freeze(["folder.created","folder.deleted","folder.updated","list.created","list.deleted","list.updated","space.created","space.deleted","space.updated","task.created","task.deleted","task.updated"] as const),

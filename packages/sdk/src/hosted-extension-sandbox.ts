@@ -125,7 +125,7 @@ const ADDRESS_SPACE_BYTES = 16 * 1024 * 1024 * 1024;
 const DATA_BYTES = 3 * 1024 * 1024 * 1024;
 const SURFACE_RUNTIME_SHA256 = OBJECT_FREEZE({
   'flow.js': '2ba972849bf435bba36b918c348efeab71ec34d180cec7a722e535f482687a6a',
-  'helpers/providers.js': '4eb06d0d85ca0a3434bb2dbba7407e3d95eef2dfbedaeb0e2de0c0c0ea812457',
+  'helpers/providers.js': 'cba2c6767673b47047c6cb9549c63e797b5a9b1af53e293c50ea028f64d21025',
   'provider-trigger.js': 'e2664c65397f93fb486eb6f1e756c7cec3f88b3851d79c23567cad986f80f1ff',
   'schedule.js': '8fe72f176a75ec0b5f26e12db7a597575c259a2e2cbb59690f9dc20a5e63940b',
   'triggers.js': '421609a6ea6d2ea77051dd4826a32e773b7db81dedd1dde91f4187b382cd46e3',

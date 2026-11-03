@@ -9,8 +9,8 @@ export default flow('triage')
   .on(github.pull_request('opened'), async (f, event) => { f.done('success'); });
 ```
 
-Every provider a relayfile adapter can deliver has a namespace — 47 today,
-570 events; see [PROVIDERS.md](PROVIDERS.md) (generated) for the full table.
+Every provider a relayfile adapter can deliver has a namespace — 48 today,
+581 events; see [PROVIDERS.md](PROVIDERS.md) (generated) for the full table.
 Hyphenated providers become identifiers: `azure-blob` → `azure_blob`,
 `google-drive` → `google_drive`; the inbox name and event type keep the
 upstream spelling, so `azure_blob.file_created()` lowers to

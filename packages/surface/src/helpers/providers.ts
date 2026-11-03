@@ -32,6 +32,13 @@ export const helperProviders = [
     ]
   },
   {
+    "provider": "bitbucket",
+    "namespace": "bitbucket",
+    "mockEnv": "RELAYFLOWS_BITBUCKET_MOCK",
+    "supported": false,
+    "resources": []
+  },
+  {
     "provider": "box",
     "namespace": "box",
     "mockEnv": "RELAYFLOWS_BOX_MOCK",

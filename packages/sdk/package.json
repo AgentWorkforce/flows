@@ -48,8 +48,8 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@relayfile/adapter-core": "0.6.2",
-    "@relayfile/relay-helpers": "0.4.12",
+    "@relayfile/adapter-core": "0.8.5",
+    "@relayfile/relay-helpers": "0.6.1",
     "@relayflows/surface": "2.0.59",
     "@types/js-yaml": "^4.0.9",
     "acorn": "^8.18.0",
@@ -75,8 +75,8 @@
     "directory": "packages/sdk"
   },
   "peerDependencies": {
-    "@agent-relay/harness-driver": ">=12.3.1 <13",
-    "@agent-relay/sdk": ">=12.3.1 <13"
+    "@agent-relay/harness-driver": ">=12.3.1 <13 || >=15.1.0 <16",
+    "@agent-relay/sdk": ">=12.3.1 <13 || >=15.1.0 <16"
   },
   "peerDependenciesMeta": {
     "@agent-relay/harness-driver": {
@@ -84,6 +84,11 @@
     },
     "@agent-relay/sdk": {
       "optional": true
+    }
+  },
+  "overrides": {
+    "@relayflows/surface": {
+      "@relayfile/relay-helpers": "$@relayfile/relay-helpers"
     }
   }
 }

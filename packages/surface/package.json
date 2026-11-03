@@ -64,7 +64,7 @@
     "directory": "packages/surface"
   },
   "peerDependencies": {
-    "@relayfile/relay-helpers": "0.4.12"
+    "@relayfile/relay-helpers": "0.6.1"
   },
   "dependencies": {
     "ai-hist": "0.4.1"

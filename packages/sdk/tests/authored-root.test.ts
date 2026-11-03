@@ -167,6 +167,9 @@ describe('durable authored root', () => {
     // This case checks authority and completion, not lease renewal. A 30 ms
     // fake lease can expire when the full CI suite pauses the event loop.
     journal.dispatchLeaseMs = 30_000;
+    // Ownership is renewed before execution; keep that renewal at the same
+    // duration instead of replacing the dispatch lease with the 30 ms default.
+    journal.peer.stepHeartbeat = async () => ({ lease_deadline_ms: Date.now() + 30_000 });
 
     const result = await executeDurableAuthoredFlow(
       loaded, journal as unknown as JournalClient, { topic: 'relay' },
