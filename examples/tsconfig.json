@@ -15,7 +15,8 @@
     "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "types": []
+    "types": ["node"],
+    "typeRoots": ["../packages/surface/node_modules/@types"]
   },
   "include": [
     "../workflows/*.flow.ts",
@@ -26,6 +27,7 @@
     "task-graph/*.ts",
     "pr-review-pipeline/*.ts",
     "pr-reviewer/*.ts",
-    "dependency-upgrade-bot/*.ts"
+    "dependency-upgrade-bot/*.ts",
+    "classify/*.flow.ts"
   ]
 }

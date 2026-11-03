@@ -1,3 +1,5 @@
+import { askJev, JevError } from './jev-client.js';
+import { CLASSIFY_KIND, isClassifyStep } from './classify-contract.js';
 import { workerSpend } from './worker-spend.js';
 import { reportedCost } from './reported-cost.js';
 import { DEFAULT_LOCAL_AGENT_CAPACITY } from './worker-slots.js';
@@ -53,8 +55,36 @@ export class LlmWorker extends EventEmitter {
     void running.finally(() => { this.inFlight.delete(running); });
   };
 
+  private async classify(dispatch: StepDispatchEvent, prompt: string): Promise<void> {
+    let output: unknown;
+    let diagnostic: string | undefined;
+    let reason: CompletionReason = 'success';
+    await withWorkerLease(this.client, dispatch, async signal => {
+      try {
+        const { type, ...options } = JSON.parse(prompt);
+        if (type !== CLASSIFY_KIND) throw new TypeError('invalid classification');
+        output = await askJev(options, this.environment ?? process.env, signal);
+      } catch (error) {
+        signal.throwIfAborted();
+        diagnostic = error instanceof JevError ? error.diagnostic : 'jev_invalid_options';
+        reason = error instanceof JevError ? error.completionReason : 'verification_failed';
+      }
+    });
+    // The provider does not return usage or price; leave cost unknown.
+    await this.client.stepComplete(dispatch.run_id, dispatch.step_id, dispatch.attempt,
+      dispatch.idempotency_key, reason, {
+        output: output ?? { diagnostic },
+        usage: { tokens_in: 0, tokens_out: 0, dollars_unmetered: true },
+        ...(diagnostic === undefined ? {} : { trajectory_tail: { error: `f.classify: ${diagnostic}` } }),
+      });
+  }
+
   private async execute(dispatch: StepDispatchEvent): Promise<void> {
     const spec = dispatch.spec as ResolvedKernelLlmStep;
+    if (isClassifyStep(spec)) {
+      await this.classify(dispatch, spec.prompt);
+      return;
+    }
     const schema = spec.verification?.json_schema;
     const prompt = schema === undefined ? spec.prompt
       : `${spec.prompt}\n\nReturn only a JSON value matching this JSON Schema (no Markdown fences):\n${JSON.stringify(schema)}`;

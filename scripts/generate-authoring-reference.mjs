@@ -33,7 +33,7 @@ export function authoringReference() {
   for (const name of ['HelperTools', 'FlowBody', 'FlowHandle', 'TriggeredFlowHandle']) text += fence(declarationText(flow, name)) + '\n';
   text += '\n## Context\n\n' + render(context, 'Ctx');
   text += '\n## Options and results\n\n';
-  for (const name of ['RunOptions', 'RunResult', 'AgentOptions', 'PermissionsSpec', 'AgentResult', 'LlmOptions', 'DispatchResult', 'DoneOptions']) {
+  for (const name of ['RunOptions', 'RunResult', 'AgentOptions', 'PermissionsSpec', 'AgentResult', 'LlmOptions', 'ClassifyOptions', 'ClassifyResult', 'DispatchResult', 'DoneOptions']) {
     text += `### ${name}\n\n${render(context, name)}\n`;
   }
   text += '## Completion vocabularies\n\nAuthored `f.done` verdicts, kernel run outcomes and step outcomes are distinct closed vocabularies.\n\n| Vocabulary | Type | Used for | Values |\n| --- | --- | --- | --- |\n';

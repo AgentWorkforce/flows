@@ -91,6 +91,8 @@ export interface Ctx extends Helpers {
   llm(strings: TemplateStringsArray, ...values: unknown[]): Step<string>;
   /** JSON Schema validates the value at runtime; narrow unknown in author code. */
   llm(prompt: string, options: LlmOptions): Step<unknown>;
+  /** Classify evidence with Jev; the journal replays the recorded answer on resume. */
+  classify<Options extends Record<string, string>>(options: ClassifyOptions<Options>): Step<ClassifyResult<keyof Options & string>>;
   agent(name: string, options: AgentOptions): Step<AgentResult>;
   /** Send work to a retained broker agent and await its next JSON completion. */
   message(agentName: string, text: string, options?: { timeout?: string | number }): Step<AgentResult>;
@@ -144,6 +146,8 @@ export interface Ctx extends Helpers {
 
 ```ts
 export interface RunOptions {
+  /** Run environment secrets this command may receive by name. Default: none. */
+  secrets?: string[];
   /** Command lease: milliseconds or a duration such as "5m"; default 10m, maximum 15m. */
   timeout?: string | number;
   /**
@@ -196,6 +200,8 @@ export interface AgentOptions {
    * Resolves with completionReason: timeout. No default for direct; broker defaults to 60m. Requires maxIterations 1. */
   timeout?: string | number;
   task: string;
+  /** Run environment secrets this agent may receive by name. Default: none. */
+  secrets?: string[];
   workspace?: string;
   /** Validated declaration only; not currently enforced (gate 8 / #442). */
   permissions?: PermissionsSpec;
@@ -288,10 +294,45 @@ export interface AgentResult {
 
 ```ts
 export interface LlmOptions {
+  /** Run environment secrets this model step may receive by name. Default: none. */
+  secrets?: string[];
   /** JSON Schema checked before the result is accepted by the journal. */
   output: Record<string, unknown>;
   cli?: string;
   model?: string;
+}
+```
+
+### ClassifyOptions
+
+```ts
+/** A bounded choice question answered by TypeSafe Jev. */
+export interface ClassifyOptions<Options extends Record<string, string> = Record<string, string>> {
+  /** Classification instructions, 1–4000 characters. */
+  question: string;
+  /** Evidence, up to 20,000 characters. Never put credentials here. */
+  state: string;
+  /** 2–32 choices: names contain 1–100 characters, criteria 1–2000 characters. */
+  options: Options;
+  /** Minimum accepted confidence in [0, 1]. Default 0.6. */
+  minConfidence?: number;
+  /** Explicit choice on provider failure or low confidence. No implicit fallback. */
+  fallback?: keyof Options & string;
+  /** Total HTTP deadline in milliseconds, including body reads. Default 8000; maximum 30000. */
+  timeoutMs?: number;
+}
+```
+
+### ClassifyResult
+
+```ts
+export interface ClassifyResult<Choice extends string = string> {
+  choice: Choice;
+  /** Provider confidence, or 0 when using a fallback. */
+  confidence: number;
+  completionReason: 'success';
+  /** Present only when the author's explicit fallback was used. */
+  fallbackReason?: string;
 }
 ```
 

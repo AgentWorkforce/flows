@@ -1,3 +1,4 @@
+import { classifyOptions } from './classify-contract.js';
 import { assertAuthoredPromiseHooks } from './authored-runtime-capability.js';
 import { pluginHelpers } from './plugin-loader.js';
 import { runPluginEffect } from './authored-plugin-effect.js';
@@ -23,6 +24,8 @@ import {
 import { commitAuthoredVerdict } from './authored-completion-record.js';
 import {
   type AgentResult,
+  type ClassifyOptions,
+  type ClassifyResult,
   type DispatchResult,
   type LlmOptions,
   type CloudHelper,
@@ -682,6 +685,16 @@ export async function executeAuthoredFlow<Input = undefined>(
     ),
     run: runOperation,
     llm: llmOperation,
+    classify<Options extends Record<string, string>>(options: ClassifyOptions<Options>): Step<ClassifyResult<keyof Options & string>> {
+      assertOperationAllowed('classify', definition.name, requestedCompletion);
+      const snapshot = classifyOptions(options) as ClassifyOptions<Options>;
+      const id = nextId('classify');
+      const operation: AuthoredFlowOperation<ClassifyResult<keyof Options & string>> = new AuthoredFlowOperation(
+        id, 'classify', () => assertStartAllowed('classify'),
+        () => observeStep(id, 'llm', () => worker.classify(id, snapshot, operation.namedGate), onProgress), lifecycle, {},
+      );
+      return trackStep(authoredSteps, operation);
+    },
     agent(name, options) {
       assertOperationAllowed('agent', definition.name, requestedCompletion);
       // Authored headers do not yet declare reusable named agents, so the name

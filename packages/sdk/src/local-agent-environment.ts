@@ -13,6 +13,7 @@ const AGENT_CREDENTIAL_NAMES = new Set([
   'ANTHROPIC_BASE_URL',
   'OPENAI_API_KEY',
   'OPENAI_BASE_URL',
+  'TYPESAFE_API_KEY',
 ]);
 
 export function localAgentEnvironment(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv | undefined {

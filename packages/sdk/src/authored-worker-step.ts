@@ -1,9 +1,10 @@
+import { CLASSIFY_BUDGET_WARNING, classifyPrompt, JEV_MODEL, readClassifyResult } from './classify-contract.js';
 import { authoredBroker } from './authored-broker.js';
 import { brokerInstruction, brokerOptionsError } from './communication/broker-spec.js';
 import { dirname, resolve, isAbsolute, relative, sep } from 'node:path';
 import type { AuthoredBudget } from './authored-budget.js';
 import { parseBudget } from './budget.js';
-import type { AgentOptions, AgentResult, LlmOptions, NamedGate } from '@relayflows/surface';
+import type { AgentOptions, AgentResult, ClassifyOptions, ClassifyResult, LlmOptions, NamedGate } from '@relayflows/surface';
 import { compileSpec, toKernelSpec, parseAgentStepTimeout } from './compile.js';
 import { isTransportRetries } from './validate.js';
 import { authoredPreflight } from './authored-preflight.js';
@@ -335,6 +336,19 @@ export function authoredWorkerRunner(
         completionReason: 'success', summary: typeof stdout === 'string' ? stdout : JSON.stringify(output), artifacts,
         ...(sessionId === undefined ? {} : { sessionId }),
       };
+    },
+    async classify<Options extends Record<string, string>>(id: string, options: ClassifyOptions<Options>, verification?: NamedGate): Promise<ClassifyResult<keyof Options & string>> {
+      // Authored child reports return only values; inherited stderr delivers
+      // this warning to the CLI before any unmetered provider call begins.
+      process.emitWarning(CLASSIFY_BUDGET_WARNING, { code: 'FLOWS_BUDGET_UNMETERED' });
+      const output = await run({ id, type: 'llm', model: JEV_MODEL,
+        prompt: classifyPrompt(options), maxIterations: 1,
+        ...(verification === undefined ? {} : { verification }) });
+      const answer = readClassifyResult(output, options);
+      if (answer === undefined) throw new AuthoredFlowExecutionError(
+        'journal_protocol_violation', `classification step "${id}" produced an invalid journal answer`,
+      );
+      return answer as ClassifyResult<keyof Options & string>;
     },
     async llm(id: string, prompt: string, options?: LlmOptions, verification?: NamedGate): Promise<unknown> {
       if (options !== undefined && (typeof options !== 'object' || options === null || options.output === undefined)) {

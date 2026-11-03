@@ -1,3 +1,4 @@
+import { CLASSIFY_BUDGET_WARNING, isClassifyStep } from './classify-contract.js';
 import { brokerInstruction } from './communication/broker-spec.js';
 import type { CompiledFlowSpec } from './compile.js';
 import type { PreflightWarning } from './preflight.js';
@@ -39,6 +40,11 @@ export function budgetDiagnostics(
   const warnings: PreflightWarning[] = [];
   for (const step of flow.steps) {
     if (step.type === 'deterministic') continue;
+    if (isClassifyStep(step, flow.cli)) {
+      warnings.push({ severity: 'warning', kind: 'budget_unmetered', stepId: step.id,
+        message: `Step "${step.id}": ${CLASSIFY_BUDGET_WARNING}` });
+      continue;
+    }
     const broker = step.type === 'agent' ? brokerInstruction(step.instruction) : undefined;
     if (broker) {
       if (broker.operation !== 'release') warnings.push({ severity: 'warning', kind: 'budget_unmetered', stepId: step.id,
