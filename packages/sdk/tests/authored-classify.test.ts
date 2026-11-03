@@ -1,5 +1,6 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
+import { pathToFileURL } from 'node:url';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -93,6 +94,24 @@ describe('authored Jev classification through the real journal', () => {
     expect(replay.journalSteps.map(s => s.runId)).toEqual(completed.journalSteps.map(s => s.runId));
     expect(fetch).toHaveBeenCalledOnce();
   }, 15_000);
+  it('delivers the unmetered warning through the authored CLI', async () => {
+    const { dataDir } = await start();
+    const fixture = join(dataDir, 'warning.flow.mjs');
+    const surface = pathToFileURL(resolve('node_modules/@relayflows/surface/dist/index.js')).href;
+    writeFileSync(fixture, `import { flow } from ${JSON.stringify(surface)};
+      export default flow('classify-warning', async f => {
+        await f.classify(${JSON.stringify({ ...options, fallback: 'deep' })}); f.done('success');
+      });`);
+    const completed = spawnSync(process.execPath, [resolve('dist/cli.js'), 'run', fixture,
+      '--input', '{}', '--local-agent', '--json', '--no-observer-link', '--data-dir', dataDir], {
+      encoding: 'utf8', timeout: 15_000,
+      env: { ...process.env, TYPESAFE_API_KEY: '', FLOWS_CLOUD_MIRROR: '0' },
+    });
+    expect(completed.status, completed.stderr + completed.stdout).toBe(0);
+    expect(JSON.parse(completed.stdout).completionReason).toBe('success');
+    expect(completed.stderr).toContain('[FLOWS_BUDGET_UNMETERED]');
+    expect(completed.stderr).toContain('Token and dollar ceilings cannot bound its spend');
+  }, 20_000);
   it('refuses a disallowed project model before admitting or calling the provider, even with fallback', async () => {
     const { client, dataDir } = await start();
     writeFileSync(join(dataDir, 'flows.json'), JSON.stringify({ models: ['other-model'] }));

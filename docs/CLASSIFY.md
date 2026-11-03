@@ -56,7 +56,9 @@ covering headers and streamed body reads. Responses are capped at 16 KiB, checke
 while reading. Redirects are refused. Jev does not return usage or price in this
 response, so completions explicitly journal `dollars_unmetered: true` with zero
 reported tokens and no measured dollar amount. Preflight warns that token and
-dollar ceilings cannot bound Jev spend; `timeoutMs` still bounds each HTTP call.
+dollar ceilings cannot bound Jev spend; authored execution also prints a
+`FLOWS_BUDGET_UNMETERED` warning on stderr before the step. `timeoutMs` still
+bounds each HTTP call.
 
 The [review-depth example](../examples/classify/review-depth.flow.ts) applies
 size and sensitive-path floors in deterministic author code after classification.

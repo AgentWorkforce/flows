@@ -1,4 +1,4 @@
-import { isClassifyStep } from './classify-contract.js';
+import { CLASSIFY_BUDGET_WARNING, isClassifyStep } from './classify-contract.js';
 import { brokerInstruction } from './communication/broker-spec.js';
 import type { CompiledFlowSpec } from './compile.js';
 import type { PreflightWarning } from './preflight.js';
@@ -42,7 +42,7 @@ export function budgetDiagnostics(
     if (step.type === 'deterministic') continue;
     if (isClassifyStep(step)) {
       warnings.push({ severity: 'warning', kind: 'budget_unmetered', stepId: step.id,
-        message: `Step "${step.id}" uses Jev classification, which reports no token or dollar usage. Token and dollar ceilings cannot bound its spend; timeoutMs bounds its HTTP duration.` });
+        message: `Step "${step.id}": ${CLASSIFY_BUDGET_WARNING}` });
       continue;
     }
     const broker = step.type === 'agent' ? brokerInstruction(step.instruction) : undefined;

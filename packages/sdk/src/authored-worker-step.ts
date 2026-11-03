@@ -1,4 +1,4 @@
-import { classifyPrompt, JEV_MODEL } from './classify-contract.js';
+import { CLASSIFY_BUDGET_WARNING, classifyPrompt, JEV_MODEL } from './classify-contract.js';
 import { authoredBroker } from './authored-broker.js';
 import { brokerInstruction, brokerOptionsError } from './communication/broker-spec.js';
 import { dirname, resolve, isAbsolute, relative, sep } from 'node:path';
@@ -338,6 +338,9 @@ export function authoredWorkerRunner(
       };
     },
     async classify<Options extends Record<string, string>>(id: string, options: ClassifyOptions<Options>, verification?: NamedGate): Promise<ClassifyResult<keyof Options & string>> {
+      // Authored child reports return only values; inherited stderr delivers
+      // this warning to the CLI before any unmetered provider call begins.
+      process.emitWarning(CLASSIFY_BUDGET_WARNING, { code: 'FLOWS_BUDGET_UNMETERED' });
       const output = await run({ id, type: 'llm', model: JEV_MODEL,
         prompt: classifyPrompt(options), maxIterations: 1,
         ...(verification === undefined ? {} : { verification }) });

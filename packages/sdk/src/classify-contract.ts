@@ -3,6 +3,7 @@ import { snapshotJsonValue } from './json-value.js';
 
 export const JEV_MODEL = 'jev-latest';
 export const CLASSIFY_KIND = 'typesafe.classify';
+export const CLASSIFY_BUDGET_WARNING = 'Jev classification reports no token or dollar usage. Token and dollar ceilings cannot bound its spend; timeoutMs bounds its HTTP duration.';
 
 /** Copy in fixed field order: journal reads sort keys, admission binds bytes. */
 export function classifyOptions(raw: unknown): Required<Omit<ClassifyOptions, 'fallback'>> & { fallback?: string } {
