@@ -1,3 +1,14 @@
 
+> @relayflows/surface@2.0.58 gen:docs
+> node ../../scripts/generate-authoring-reference.mjs
+
+AUTHORING_REFERENCE_GENERATED
+
 > @relayflows/sdk@2.0.58 typecheck
 > tsc --noEmit && tsc -p tsconfig.type-tests.json
+
+
+> @relayflows/sdk@2.0.58 typecheck:tests
+> tsc -p tsconfig.tests.json
+
+EXIT=0

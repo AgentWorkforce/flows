@@ -5,7 +5,23 @@ transcripts, not evidence of a production release. Live provider validation
 was subsequently captured by layered-agent against source commit
 `a61379936da727b0fae758ec8ca61eb3d92a2d1a`; see the transcript below.
 
-## Focused tests
+## Attribution and limits
+
+| Capture | Source scope |
+| --- | --- |
+| `jev-focused.txt`, `surface-package-gate.txt`, `docs-check.txt` | Historical precommit T7 worktree captures; the exact source commit was not recorded. These do **not** verify the final PR head. |
+| `sdk-typecheck.txt` | sf-frame review worktree based on `1359d407fffea7793b5a44126a058218595ae993`, with the subsequent review corrections applied but not yet committed at capture time. Includes the literal exit status. |
+| `jev-live.txt` | Layered-agent's direct client checks at `a61379936da727b0fae758ec8ca61eb3d92a2d1a`, not verification of later worker, policy, example or replay changes. |
+
+Current-head validation belongs to the PR's CI run and the exact-head remote
+transcripts posted on [PR #698](https://github.com/AgentWorkforce/flows/pull/698).
+The historical captures below must not be substituted for those checks.
+
+The `/Volumes/T7/...` paths below are the original capture machine's paths,
+retained literally as evidence. For reproduction, substitute your own worktree
+and its built `relayflowd` binary; heavy runs for this task use sf-frame or CI.
+
+## Historical focused tests
 
 From `packages/sdk`:
 
@@ -29,7 +45,10 @@ bash scripts/surface-package-gate.sh
 Captured output: [surface-package-gate.txt](jev-classifier/surface-package-gate.txt).
 
 ```sh
-npm run typecheck --prefix packages/sdk
+npm run gen:docs --prefix packages/surface && npm run typecheck --prefix packages/sdk && npm run typecheck:tests --prefix packages/sdk
+result=$?
+printf 'EXIT=%s\n' "$result"
+exit "$result"
 ```
 
 Captured output: [sdk-typecheck.txt](jev-classifier/sdk-typecheck.txt).
@@ -108,3 +127,11 @@ Error: Jev API key unavailable
 
 Node.js v22.23.2
 ```
+
+## Dependency audit disposition
+
+The historical package-gate transcript includes npm audit counts. This PR adds
+no dependency or lockfile changes, and the Jev HTTP client uses the platform's
+built-in fetch. The captured functional gate output is not a security audit or
+a claim that existing dependencies have no vulnerabilities. No unrelated
+`npm audit fix` was applied as part of the classifier change.

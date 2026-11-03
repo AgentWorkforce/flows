@@ -40,7 +40,7 @@ export function budgetDiagnostics(
   const warnings: PreflightWarning[] = [];
   for (const step of flow.steps) {
     if (step.type === 'deterministic') continue;
-    if (isClassifyStep(step)) {
+    if (isClassifyStep(step, flow.cli)) {
       warnings.push({ severity: 'warning', kind: 'budget_unmetered', stepId: step.id,
         message: `Step "${step.id}": ${CLASSIFY_BUDGET_WARNING}` });
       continue;

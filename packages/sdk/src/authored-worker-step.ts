@@ -1,4 +1,4 @@
-import { CLASSIFY_BUDGET_WARNING, classifyPrompt, JEV_MODEL } from './classify-contract.js';
+import { CLASSIFY_BUDGET_WARNING, classifyPrompt, JEV_MODEL, readClassifyResult } from './classify-contract.js';
 import { authoredBroker } from './authored-broker.js';
 import { brokerInstruction, brokerOptionsError } from './communication/broker-spec.js';
 import { dirname, resolve, isAbsolute, relative, sep } from 'node:path';
@@ -344,7 +344,11 @@ export function authoredWorkerRunner(
       const output = await run({ id, type: 'llm', model: JEV_MODEL,
         prompt: classifyPrompt(options), maxIterations: 1,
         ...(verification === undefined ? {} : { verification }) });
-      return output as ClassifyResult<keyof Options & string>;
+      const answer = readClassifyResult(output, options);
+      if (answer === undefined) throw new AuthoredFlowExecutionError(
+        'journal_protocol_violation', `classification step "${id}" produced an invalid journal answer`,
+      );
+      return answer as ClassifyResult<keyof Options & string>;
     },
     async llm(id: string, prompt: string, options?: LlmOptions, verification?: NamedGate): Promise<unknown> {
       if (options !== undefined && (typeof options !== 'object' || options === null || options.output === undefined)) {

@@ -3,7 +3,7 @@ import { askJev } from '../src/jev-client.js';
 import { localAgentCredentialEnvironment, validatedLocalAgentEnvironment } from '../src/local-agent-environment.js';
 import { preflight } from '../src/preflight.js';
 import { validatePluginManifest } from '../src/plugin-manifest.js';
-import { classifyOptions, classifyPrompt } from '../src/classify-contract.js';
+import { classifyOptions, classifyPrompt, isClassifyStep, readClassifyResult } from '../src/classify-contract.js';
 
 const options = { question: 'Review depth?', state: 'a diff', options: { small: 'tiny', deep: 'sensitive' } };
 const environment = { TYPESAFE_API_KEY: 'private-test-key' };
@@ -33,6 +33,30 @@ describe('TypeSafe Jev contract', () => {
     expect(allowed.resolutions).toEqual([]);
     expect(allowed.diagnostics).toContainEqual(expect.objectContaining({ kind: 'budget_unmetered' }));
     expect(probe).not.toHaveBeenCalled();
+  });
+  it('honors an explicit flow CLI and shares native dispatch recognition', () => {
+    const step = { id: 'depth', type: 'llm' as const, model: 'jev-latest', prompt: classifyPrompt(options) };
+    expect(isClassifyStep(step)).toBe(true);
+    expect(isClassifyStep({ ...step, prompt: 'ordinary prompt' })).toBe(false);
+    expect(isClassifyStep(step, 'declared-cli')).toBe(false);
+    const cli = vi.fn(() => ({ exists: true, authenticated: true as const, supported: true, modelAvailable: true }));
+    const result = preflight({ version: '0.1.0', name: 'explicit-cli', cli: 'declared-cli', steps: [step] }, {
+      models: ['jev-latest'], modelRegistryPath: '/project/flows.json',
+      probes: { cli, command: () => true, executor: () => false },
+    });
+    expect(result.resolutions).toEqual([expect.objectContaining({ cli: 'declared-cli', stepId: 'depth' })]);
+    expect(cli).toHaveBeenCalledOnce();
+  });
+  it('refuses malformed or foreign journal answers before typed branching', () => {
+    const valid = { choice: 'small', confidence: 0.9, completionReason: 'success' };
+    expect(readClassifyResult(valid, options)).toEqual(valid);
+    for (const patch of [{ choice: 'unknown' }, { confidence: 2 }, { confidence: 0.1 },
+      { completionReason: 'worker_error' }, { fallbackReason: 'jev_timeout' }]) {
+      expect(readClassifyResult({ ...valid, ...patch }, options)).toBeUndefined();
+    }
+    expect(readClassifyResult(null, options)).toBeUndefined();
+    expect(readClassifyResult({ choice: 'deep', confidence: 0, completionReason: 'success', fallbackReason: 'jev_timeout' },
+      { ...options, fallback: 'deep' })).toMatchObject({ choice: 'deep', fallbackReason: 'jev_timeout' });
   });
   it('preserves the provider-only credential overlay through the authored worker handoff', () => {
     const overlay = localAgentCredentialEnvironment({ ...environment, PATH: '/must-not-cross' });
@@ -108,6 +132,16 @@ describe('TypeSafe Jev contract', () => {
     const controller = new AbortController(); const lost = new Error('lease lost'); controller.abort(lost);
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(lost));
     await expect(askJev({ ...options, fallback: 'deep' }, environment, controller.signal)).rejects.toBe(lost);
+  });
+  it('aborts an in-flight provider request on lease loss without using fallback', async () => {
+    const controller = new AbortController(); const lost = new Error('lease lost during HTTP');
+    const fetch = vi.fn((_url, init) => new Promise((_resolve, reject) => {
+      init.signal.addEventListener('abort', () => reject(init.signal.reason));
+      controller.abort(lost);
+    }));
+    vi.stubGlobal('fetch', fetch);
+    await expect(askJev({ ...options, fallback: 'deep' }, environment, controller.signal)).rejects.toBe(lost);
+    expect(fetch).toHaveBeenCalledOnce();
   });
   it.each([
     { state: 'x'.repeat(20_001) }, { question: '' }, { minConfidence: -0.1 }, { minConfidence: 1.1 },

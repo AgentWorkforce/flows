@@ -145,10 +145,11 @@ export interface LlmOptions {
 
 /** A bounded choice question answered by TypeSafe Jev. */
 export interface ClassifyOptions<Options extends Record<string, string> = Record<string, string>> {
+  /** Classification instructions, 1–4000 characters. */
   question: string;
   /** Evidence, up to 20,000 characters. Never put credentials here. */
   state: string;
-  /** Choice names mapped to criteria describing when to select each one. */
+  /** 2–32 choices: names contain 1–100 characters, criteria 1–2000 characters. */
   options: Options;
   /** Minimum accepted confidence in [0, 1]. Default 0.6. */
   minConfidence?: number;

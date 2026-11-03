@@ -1,4 +1,4 @@
-import type { ClassifyOptions } from '@relayflows/surface';
+import type { ClassifyOptions, ClassifyResult } from '@relayflows/surface';
 import { snapshotJsonValue } from './json-value.js';
 
 export const JEV_MODEL = 'jev-latest';
@@ -37,8 +37,23 @@ export function classifyPrompt(options: unknown): string {
 }
 
 /** Recognize the SDK's direct Jev protocol without selecting a project CLI. */
-export function isClassifyStep(step: { type: string; model?: string; cli?: string; prompt?: string }): boolean {
-  if (step.type !== 'llm' || step.model !== JEV_MODEL || step.cli !== undefined || typeof step.prompt !== 'string') return false;
+export function isClassifyStep(step: { type: string; model?: string; cli?: string; prompt?: string }, flowCli?: string): boolean {
+  if (step.type !== 'llm' || step.model !== JEV_MODEL || step.cli !== undefined || flowCli !== undefined || typeof step.prompt !== 'string') return false;
   try { return JSON.parse(step.prompt)?.type === CLASSIFY_KIND; }
   catch { return false; }
+}
+
+/** Refuse a malformed or foreign successful journal value before typed branching. */
+export function readClassifyResult(value: unknown, rawOptions: unknown): ClassifyResult | undefined {
+  const options = classifyOptions(rawOptions);
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const result = value as Record<string, unknown>;
+  const { choice, confidence, completionReason, fallbackReason } = result;
+  if (completionReason !== 'success' || typeof choice !== 'string' || !Object.hasOwn(options.options, choice)
+    || typeof confidence !== 'number' || !Number.isFinite(confidence) || confidence < 0 || confidence > 1) return undefined;
+  if (fallbackReason !== undefined) {
+    if (typeof fallbackReason !== 'string' || !/^[a-z0-9_]{1,64}$/.test(fallbackReason)
+      || options.fallback !== choice || confidence !== 0) return undefined;
+  } else if (confidence < options.minConfidence) return undefined;
+  return { choice, confidence, completionReason: 'success', ...(fallbackReason === undefined ? {} : { fallbackReason }) };
 }

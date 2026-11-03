@@ -279,7 +279,7 @@ export function resolvePreflight(flow: unknown, options: ResolutionOptions): Pre
   for (const step of compiled.steps) {
     if (step.type === 'deterministic') continue;
     if (step.type === 'agent' && helperCall(step) !== undefined) continue;
-    if (isClassifyStep(step)) continue;
+    if (isClassifyStep(step, compiled.cli)) continue;
     const resolution = resolveCli(step, compiled, options.projectCli);
     if (resolution === undefined) {
       cliResolutionDiagnostics.push({
@@ -329,7 +329,7 @@ function preflightSync(flow: unknown, options: PreflightOptions): PreflightResul
     probeNamedGate(step, options.probes, diagnostics);
     warnOnVacuousGate(step, diagnostics);
     warnOnUnprovableEffects(step, options.probes, diagnostics);
-    if (step.type === 'deterministic' || isClassifyStep(step)) continue;
+    if (step.type === 'deterministic' || isClassifyStep(step, compiled.cli)) continue;
     const helper = step.type === 'agent' ? helperCall(step) : undefined;
     if (helper !== undefined) {
       try {

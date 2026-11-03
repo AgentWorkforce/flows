@@ -1,5 +1,5 @@
 import { askJev, JevError } from './jev-client.js';
-import { CLASSIFY_KIND, JEV_MODEL } from './classify-contract.js';
+import { CLASSIFY_KIND, isClassifyStep } from './classify-contract.js';
 import { workerSpend } from './worker-spend.js';
 import { reportedCost } from './reported-cost.js';
 import { DEFAULT_LOCAL_AGENT_CAPACITY } from './worker-slots.js';
@@ -81,7 +81,7 @@ export class LlmWorker extends EventEmitter {
 
   private async execute(dispatch: StepDispatchEvent): Promise<void> {
     const spec = dispatch.spec as ResolvedKernelLlmStep;
-    if (spec.model === JEV_MODEL && spec.cli === undefined) {
+    if (isClassifyStep(spec)) {
       await this.classify(dispatch, spec.prompt);
       return;
     }
