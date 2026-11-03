@@ -49,8 +49,8 @@ export const shellWord = (value: string): string => `'${value.replaceAll("'", "'
 export const MERGE_MODES = ['shadow', 'approval', 'auto'] as const;
 export const CHANGELOG_RULES = ['required', 'optional'] as const;
 export const HARNESSES = ['claude', 'codex', 'grok', 'devin'] as const;
-/** Devin additionally requires the executing SDK's native adapter capability. */
-export const WORKER_HARNESSES = new Set<string>(['claude', 'codex', 'devin']);
+/** Land currently supports Claude and Codex; other names are reserved. */
+export const WORKER_HARNESSES = new Set<string>(['claude', 'codex']);
 export const SQUASH_AUTHORS = ['session-human', 'agent-with-human-coauthor'] as const;
 export const RUNNER_OS = ['linux', 'macos'] as const;
 export const RUNNER_ARCH = ['x64', 'arm64'] as const;
@@ -635,7 +635,6 @@ async function fixRound(f: Ctx, r: Run, round: number): Promise<StageResult> {
     switch (harness) {
       case 'claude': return f.agent(`fix-r${round}`, { cli: 'claude', model: 'claude-sonnet-5', timeout, task });
       case 'codex': return f.agent(`fix-r${round}`, { cli: 'codex', model: 'gpt-5.6-sol', timeout, task });
-      case 'devin': return f.agent(`fix-r${round}`, { cli: 'devin', model: 'gpt-5.6-sol', timeout, task });
       default: throw new NeedsHuman(`Unsupported fix harness: ${harness}`);
     }
   })();
@@ -927,10 +926,7 @@ export async function land(f: Ctx, raw: LandInput): Promise<void> {
       if (!pushable.ok) throw new NeedsHuman(`mergePolicy.mode "auto" needs a push-capable git credential (a write repository grant): ${pushable.output.slice(-300)}`);
     }
     if (!WORKER_HARNESSES.has(config.fixLoop.harness)) {
-      throw new NeedsHuman(`fixLoop.harness "${config.fixLoop.harness}" has no worker adapter in this relayflows release; use "codex"`);
-    }
-    if (config.fixLoop.harness === 'devin' && !f.capabilities?.agentClis?.includes('devin')) {
-      throw new NeedsHuman('fixLoop.harness "devin" requires a runtime advertising the native Devin adapter; use "codex" until that runtime is installed');
+      throw new NeedsHuman(`fixLoop.harness "${config.fixLoop.harness}" is not supported in land; use "codex"`);
     }
     const base = `origin/${config.baseBranch}`;
     // Hosted runs clone the land ref shallow, and merge-base against the base
@@ -960,16 +956,6 @@ export async function land(f: Ctx, raw: LandInput): Promise<void> {
     }
     for (const setup of config.runner.setup) await f.run(setup, { timeout: '15m' });
     if ((await f.run('git status --porcelain')).trim()) throw new NeedsHuman('runner.setup left the checkout dirty; ignore its outputs in .gitignore');
-    if (config.fixLoop.harness === 'devin') {
-      // Review fleets use this separate CLI, while fix agents use the host
-      // SDK capability checked above. Official stable 2.x releases starting
-      // at 2.0.57 include the native Devin adapter.
-      const child = await f.run(`${shellWord(config.flowsBin)} --version`, { onNonZero: 'record', timeout: '10s' });
-      const version = /^2\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(child.stdout.trim());
-      if (!child.ok || !version || !(Number(version[1]) > 0 || Number(version[2]) >= 57)) {
-        throw new NeedsHuman('Devin review fleets require flowsBin to be a stable relayflows 2.x release >=2.0.57; use "codex" until it is installed');
-      }
-    }
     // Hosted stage runs get no connected cliCredentials; the only agent
     // credential is a delivered OPENAI_API_KEY the executor turns into a
     // ~/.codex login under the shared HOME before the CLI spawns. This check

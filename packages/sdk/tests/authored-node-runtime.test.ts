@@ -93,20 +93,6 @@ async function entries(directory: string, runId: string) {
 }
 
 describe('Bun 1.4.x standalone → native Node authored lifecycle', () => {
-  it('advertises native direct-agent adapters inside the embedded Node runner', () => {
-    const f = fixture(`
-      const adapters = f.capabilities?.agentClis;
-      if (!adapters?.includes('devin') || adapters.includes('relayflows-wrapper-v1')
-        || !Object.isFrozen(adapters) || !Object.isFrozen(f.capabilities)) {
-        throw new Error('Native immutable Devin adapter metadata is unavailable');
-      }
-      f.done('success');
-    `);
-    const result = f.run();
-    expect(result.status, result.stderr + result.stdout).toBe(0);
-    expect(JSON.parse(result.stdout)).toMatchObject({ completionReason: 'success' });
-  }, 60_000);
-
   it('runs a certified Promise.all group in parallel through the embedded Node runner', async () => {
     const f = fixture('');
     writeFileSync(join(f.directory, 'case.flow.ts'), `import { flow } from '@relayflows/surface';

@@ -24,8 +24,6 @@ function world(over: {
   config?: unknown; head?: string; adversarial?: Raw[][]; context?: Raw[][]; ciRed?: number[];
   roundFiles?: string[][]; baseShas?: string[]; rebaseFails?: boolean; changelog?: [string, string]; refSha?: string;
   home?: string; dir?: string;
-  agentClis?: readonly string[];
-  flowsVersion?: string;
   /** Auto mode: the dispatched repo gate's exit per dispatch attempt; 'pending' when it overruns. */
   githubExit?: Array<number | 'pending'>; ghRuns?: GhRun[]; ghRunsSeq?: GhRun[][];
   pushFails?: 'non_ff' | 'other'; landedCommit?: string; headContainsBase?: boolean; fAncestorFails?: boolean; ciFetchFails?: boolean; pushDryRunFails?: boolean; codexLoginFails?: boolean; adversarialExit?: number; contextExit?: number; reviewTail?: string;
@@ -47,10 +45,8 @@ function world(over: {
     let head = over.head ?? sha; // fresh clone at the pinned sha
     let baseRef = '';
     const f = {
-      ...(over.agentClis === undefined ? {} : { capabilities: { agentClis: over.agentClis } }),
       run: async (command: string, options?: { onNonZero?: string }) => {
         ran.push(command);
-        if (command.endsWith(' --version')) return record(true, over.flowsVersion ?? '2.0.57');
         if (command === 'git rev-parse --show-toplevel') return root;
         if (command === 'git rev-parse HEAD') return head;
         if (command === 'git rev-parse HEAD^{tree}') return 't'.repeat(40);
@@ -656,45 +652,25 @@ test('auto and shadow: a non-default harness is the review fleets\' clis and the
   assert.equal(fix?.options.cli, 'claude');
 });
 
-test('a harness without a worker adapter fails at stage one with a clear error', async () => {
-  for (const harness of ['grok']) {
+test('a harness unsupported in land fails at stage one with a clear error', async () => {
+  for (const harness of ['grok', 'devin']) {
     const w = world({ config: { ...config, fixLoop: { harness } } });
     const { result } = await w.drive();
     assert.equal(result.reason, 'needs_human');
-    assert.match(JSON.stringify(result.detail), /no worker adapter/);
-  }
-});
-
-test('Devin refuses missing/older runtime metadata before review or fix work', async () => {
-  for (const agentClis of [undefined, [], ['claude', 'codex']]) {
-    const w = world({ config: { ...config, fixLoop: { harness: 'devin' } }, agentClis });
-    const { result } = await w.drive();
-    assert.equal(result.reason, 'needs_human');
-    assert.match(JSON.stringify(result.detail), /requires a runtime advertising the native Devin adapter/);
+    assert.match(JSON.stringify(result.detail), /is not supported in land/);
     assert.equal(w.launches.length, 0);
     assert.equal(w.agents.length, 0);
   }
 });
 
 test('each supported fix harness launches with its literal pinned model', async () => {
-  for (const [harness, model] of [['claude', 'claude-sonnet-5'], ['codex', 'gpt-5.6-sol'], ['devin', 'gpt-5.6-sol']] as const) {
-    const w = world({ config: { ...config, fixLoop: { harness } }, agentClis: ['claude', 'codex', 'devin'],
+  for (const [harness, model] of [['claude', 'claude-sonnet-5'], ['codex', 'gpt-5.6-sol']] as const) {
+    const w = world({ config: { ...config, fixLoop: { harness } },
       adversarial: [[blocker('src/fix.ts', 'fix this')], []] });
     await w.drive();
     assert.equal(w.agents.length, 1);
     assert.equal(w.agents[0]!.options.cli, harness);
     assert.equal(w.agents[0]!.options.model, model);
-  }
-});
-
-test('Devin refuses an older or unknown child flows runtime before review work', async () => {
-  for (const flowsVersion of ['2.0.56', '2.0.57-beta.1', '2.00.057', '2.0.057', '3.0.0', '', 'not a version']) {
-    const w = world({ config: { ...config, fixLoop: { harness: 'devin' } }, agentClis: ['devin'], flowsVersion });
-    const { result } = await w.drive();
-    assert.equal(result.reason, 'needs_human');
-    assert.match(JSON.stringify(result.detail), /flowsBin.*2.0.57/);
-    assert.equal(w.launches.length, 0);
-    assert.equal(w.agents.length, 0);
   }
 });
 
