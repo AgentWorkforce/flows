@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
@@ -83,7 +83,7 @@ describe('authored Jev classification through the real journal', () => {
     const entries = (await first.client.journalRead(step.runId, 1)).entries;
     expect(JSON.stringify(entries)).not.toContain('never-journal-this');
     expect(entries).toEqual(expect.arrayContaining([expect.objectContaining({ entry_type: 'step.completed', payload:
-      expect.objectContaining({ completionReason: 'success', output: result }) })]));
+      expect.objectContaining({ completionReason: 'success', output: result, budget: expect.objectContaining({ dollars_unmetered: true }) }) })]));
     await worker.close(); first.client.close();
     const exited = once(first.child, 'exit'); first.child.kill('SIGKILL'); await exited;
     const second = await start(first.dataDir);
@@ -93,6 +93,18 @@ describe('authored Jev classification through the real journal', () => {
     expect(replay.journalSteps.map(s => s.runId)).toEqual(completed.journalSteps.map(s => s.runId));
     expect(fetch).toHaveBeenCalledOnce();
   }, 15_000);
+  it('refuses a disallowed project model before admitting or calling the provider, even with fallback', async () => {
+    const { client, dataDir } = await start();
+    writeFileSync(join(dataDir, 'flows.json'), JSON.stringify({ models: ['other-model'] }));
+    const fetch = vi.fn(); vi.stubGlobal('fetch', fetch);
+    const handle = flow('disallowed-classify', async f => {
+      await f.classify({ ...options, fallback: 'deep' }); f.done('success');
+    });
+    await expect(executeAuthoredFlow(handle, client, undefined, {
+      dataDir, flowPath: join(dataDir, 'example.flow.ts'),
+    })).rejects.toThrow('jev-latest');
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it('enforces a named gate on the journaled choice', async () => {
     const { client, dataDir } = await start(); await attach(client);
     vi.stubGlobal('fetch', vi.fn().mockImplementation(response));

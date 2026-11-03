@@ -52,7 +52,7 @@ export function authoredWorkerRunner(
     ...(stepEdges === undefined ? {} : { stepEdges }),
     ...(waitOptions.signal === undefined ? {} : { signal: waitOptions.signal }),
   };
-  async function run(step: StepSpec, onCompleted?: AuthoredStepContext['onCompleted'], classifier = false): Promise<unknown> {
+  async function run(step: StepSpec, onCompleted?: AuthoredStepContext['onCompleted']): Promise<unknown> {
     const id = step.id;
     const authoring: FlowSpec = { version: SPEC_SCHEMA_VERSION, name: `${definition.name}/${id}`, steps: [step], ...(headerBudget === undefined ? {} : { budget: parseBudget(headerBudget) }) };
     // The kernel never resolves a `cli` on its own — every declarative
@@ -60,10 +60,7 @@ export function authoredWorkerRunner(
     // (cli/check.ts), searching for the nearest flows.json from `flowPath`
     // and real-probing auth/model readiness. An authored agent step gets
     // nothing for free just because it was declared in TS instead of YAML.
-    const { report, flow: resolved } = classifier
-      ? { report: { ok: true, diagnostics: [], gates: [], resolutions: [] },
-        flow: compileSpec(authoring) }
-      : await check(authoring);
+    const { report, flow: resolved } = await check(authoring);
     if (!report.ok || resolved === undefined) {
       const refusal = report.diagnostics.find(
         (diagnostic): diagnostic is PreflightDiagnostic & { severity: 'refusal' } =>
@@ -343,7 +340,7 @@ export function authoredWorkerRunner(
     async classify<Options extends Record<string, string>>(id: string, options: ClassifyOptions<Options>, verification?: NamedGate): Promise<ClassifyResult<keyof Options & string>> {
       const output = await run({ id, type: 'llm', model: JEV_MODEL,
         prompt: classifyPrompt(options), maxIterations: 1,
-        ...(verification === undefined ? {} : { verification }) }, undefined, true);
+        ...(verification === undefined ? {} : { verification }) });
       return output as ClassifyResult<keyof Options & string>;
     },
     async llm(id: string, prompt: string, options?: LlmOptions, verification?: NamedGate): Promise<unknown> {

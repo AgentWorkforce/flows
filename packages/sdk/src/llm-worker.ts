@@ -74,6 +74,7 @@ export class LlmWorker extends EventEmitter {
     await this.client.stepComplete(dispatch.run_id, dispatch.step_id, dispatch.attempt,
       dispatch.idempotency_key, reason, {
         output: output ?? { diagnostic },
+        usage: { tokens_in: 0, tokens_out: 0, dollars_unmetered: true },
         ...(diagnostic === undefined ? {} : { trajectory_tail: { error: `f.classify: ${diagnostic}` } }),
       });
   }

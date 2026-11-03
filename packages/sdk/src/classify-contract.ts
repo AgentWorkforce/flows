@@ -34,3 +34,10 @@ export function classifyOptions(raw: unknown): Required<Omit<ClassifyOptions, 'f
 export function classifyPrompt(options: unknown): string {
   return JSON.stringify({ type: CLASSIFY_KIND, ...classifyOptions(options) });
 }
+
+/** Recognize the SDK's direct Jev protocol without selecting a project CLI. */
+export function isClassifyStep(step: { type: string; model?: string; cli?: string; prompt?: string }): boolean {
+  if (step.type !== 'llm' || step.model !== JEV_MODEL || step.cli !== undefined || typeof step.prompt !== 'string') return false;
+  try { return JSON.parse(step.prompt)?.type === CLASSIFY_KIND; }
+  catch { return false; }
+}

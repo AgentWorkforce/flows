@@ -2,7 +2,15 @@
 
 `f.classify` asks TypeSafe Jev a choice question and returns a typed choice and
 confidence. Set `TYPESAFE_API_KEY` in the worker's environment. For local runs,
-use `flows run --local-agent examples/classify/review-depth.flow.ts`.
+use:
+
+```sh
+flows run --local-agent examples/classify/review-depth.flow.ts --input '{"summary":"Fix a typo in README.md","paths":["README.md"],"changedLines":1}'
+```
+
+A project with a `models` allowlist in its nearest `flows.json` must include
+`jev-latest` before it can send evidence to Jev. A fallback does not bypass this
+policy.
 
 ```ts
 const depth = await f.classify({
@@ -46,7 +54,9 @@ State is limited to 20,000 JavaScript string characters. Questions contain
 character criteria. `timeoutMs` defaults to 8000 and accepts 1–30000 milliseconds,
 covering headers and streamed body reads. Responses are capped at 16 KiB, checked
 while reading. Redirects are refused. Jev does not return usage or price in this
-response, so cost is left unknown rather than reported as zero.
+response, so completions explicitly journal `dollars_unmetered: true` with zero
+reported tokens and no measured dollar amount. Preflight warns that token and
+dollar ceilings cannot bound Jev spend; `timeoutMs` still bounds each HTTP call.
 
 The [review-depth example](../examples/classify/review-depth.flow.ts) applies
 size and sensitive-path floors in deterministic author code after classification.

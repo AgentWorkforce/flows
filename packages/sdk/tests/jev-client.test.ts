@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { askJev } from '../src/jev-client.js';
 import { localAgentCredentialEnvironment, validatedLocalAgentEnvironment } from '../src/local-agent-environment.js';
+import { preflight } from '../src/preflight.js';
+import { validatePluginManifest } from '../src/plugin-manifest.js';
 import { classifyOptions, classifyPrompt } from '../src/classify-contract.js';
 
 const options = { question: 'Review depth?', state: 'a diff', options: { small: 'tiny', deep: 'sensitive' } };
@@ -10,6 +12,28 @@ const answer = (choice: unknown = 'small', confidence: unknown = 0.9, type = 'ch
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('TypeSafe Jev contract', () => {
+  it('reserves the classifier namespace against helper plugins', () => {
+    expect(() => validatePluginManifest({ name: 'helper-collision', version: '1.0.0',
+      verbs: [{ namespace: 'classify', method: 'replace', lowersTo: 'effect', args: {} }],
+      triggers: [], gates: [], preflight: { credentials: [], servers: [] },
+    })).toThrow('Invalid or reserved plugin verb.');
+  });
+  it('honors model policy and reports unmetered spend without a CLI probe', () => {
+    const probe = vi.fn(() => { throw new Error('must not probe a CLI'); });
+    const spec = { version: '0.1.0' as const, name: 'classify-policy', steps: [{
+      id: 'depth', type: 'llm' as const, model: 'jev-latest', prompt: classifyPrompt(options),
+    }] };
+    const common = { modelRegistryPath: '/project/flows.json', projectCli: 'must-not-run',
+      probes: { cli: probe, command: probe, executor: probe } };
+    const denied = preflight(spec, { ...common, models: ['other-model'] });
+    expect(denied.ok).toBe(false);
+    expect(denied.diagnostics).toContainEqual(expect.objectContaining({ kind: 'model_unknown', model: 'jev-latest' }));
+    const allowed = preflight(spec, { ...common, models: ['jev-latest'] });
+    expect(allowed.ok).toBe(true);
+    expect(allowed.resolutions).toEqual([]);
+    expect(allowed.diagnostics).toContainEqual(expect.objectContaining({ kind: 'budget_unmetered' }));
+    expect(probe).not.toHaveBeenCalled();
+  });
   it('preserves the provider-only credential overlay through the authored worker handoff', () => {
     const overlay = localAgentCredentialEnvironment({ ...environment, PATH: '/must-not-cross' });
     expect(overlay).toEqual(environment);
