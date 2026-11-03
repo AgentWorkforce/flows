@@ -203,8 +203,8 @@ These defaults are the spec's proposals, not decisions; each is marked
 Devin additionally requires `f.capabilities.agentClis` from the executing SDK to
 include `devin`. Missing metadata refuses before any review or fix work. This
 capability describes native direct-agent adapters, not installed CLIs or login
-state. It is introduced by this follow-up and needs a subsequent SDK/Surface
-release; 2.0.57 supplies the adapter but predates this metadata. The separate
+state. SDK 2.0.57 supplies the adapter but predates this metadata, so this
+guard requires a later SDK/Surface release. The separate
 `flowsBin` used for review fleets must be a stable 2.x release >=2.0.57.
 Codex remains the default; Grok remains refused without a native worker adapter.
 

@@ -10,6 +10,24 @@ The metadata is introduced by this follow-up, so enabling this guarded land
 lane requires a subsequent SDK/Surface release. Published 2.0.57 contains the
 native Devin adapter but predates the metadata. No land deployment is changed.
 
+## Reproducing on another checkout
+
+The records below preserve the literal commands and raw captured output from
+this run, as required by the repository evidence policy. Their absolute paths
+identify the original run; they are not prerequisites for another machine.
+Use Node 22, Bun 1.4.x, a built local Surface/SDK and a matching local kernel.
+Set `RELAYFLOWD_BIN` to the kernel executable on your machine. From the repo root:
+
+```sh
+export TMPDIR="${XDG_CACHE_HOME:-$HOME/.cache}/relayflows-land-proof"
+mkdir -p "$TMPDIR"
+: "${RELAYFLOWD_BIN:?Set RELAYFLOWD_BIN to your relayflowd executable}"
+(cd examples/land && npm run typecheck && npm test)
+(cd packages/sdk && node node_modules/vitest/vitest.mjs run tests/authored-flow.test.ts tests/adapters/registry.test.ts tests/shipped-source-models.test.ts && npm run typecheck && npm run typecheck:tests)
+(cd packages/sdk && node node_modules/vitest/vitest.mjs run tests/authored-node-runtime.test.ts -t 'advertises native direct-agent adapters inside')
+(cd packages/surface && npm run typecheck:regressions && npm run check:docs)
+```
+
 ## Land tests and types
 
 Working directory: `examples/land`.
