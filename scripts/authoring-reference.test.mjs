@@ -70,7 +70,8 @@ test('human returns Step<boolean>', () => {
 });
 test('all helper namespaces and mcp are discoverable', () => {
   const names = members(interfaceText(read('packages/surface/src/helpers/index.ts'), 'Helpers'));
-  assert.equal(names.length, 50);
+  assert.equal(names.length, 51);
+  assert.ok(names.includes('bitbucket'));
   for (const name of names) assert.ok(authoring.includes(`| \`f.${name}\` |`), name);
   assert.match(authoring, /Ctx extends Helpers/);
   assert.match(authoring, /readonly mcp:/);

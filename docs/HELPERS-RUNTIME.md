@@ -61,11 +61,12 @@ assigned invented writeback paths.
 ## Upstream gaps in slice S
 
 The supplied provider list contains 48 names including the five original
-providers. The pinned catalog also includes GitLab and Ramp, so regeneration
-currently emits 50 namespaces. Forty have runtime clients. These ten are
+providers. The pinned catalog also includes Bitbucket, GitLab and Ramp, so regeneration
+currently emits 51 namespaces. Forty have runtime clients. These eleven are
 explicitly unavailable, including in mock mode:
 
 - airtable
+- bitbucket
 - docker-hub
 - fathom
 - gcp

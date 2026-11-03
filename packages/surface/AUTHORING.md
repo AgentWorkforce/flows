@@ -465,13 +465,14 @@ The kernel verification fields are `exit_code`, `output_contains` and `json_sche
 
 ## Helper namespaces
 
-`Ctx extends Helpers` exposes 50 namespaces. `f.mcp` is an additional context member. `f.slack` is included in Helpers; see [Slack semantics](https://github.com/AgentWorkforce/flows/blob/main/docs/SLACK-HELPER.md). Resource counts describe the pinned adapter catalog, not bespoke helper methods or an assurance of credentials.
+`Ctx extends Helpers` exposes 51 namespaces. `f.mcp` is an additional context member. `f.slack` is included in Helpers; see [Slack semantics](https://github.com/AgentWorkforce/flows/blob/main/docs/SLACK-HELPER.md). Resource counts describe the pinned adapter catalog, not bespoke helper methods or an assurance of credentials.
 
 | Namespace | Type | Pinned adapter resources |
 | --- | --- | --- |
 | `f.airtable` | `AirtableHelper` | None in pinned catalog |
 | `f.asana` | `AsanaHelper` | 3 |
 | `f.azureBlob` | `AzureBlobHelper` | 2 |
+| `f.bitbucket` | `BitbucketHelper` | None in pinned catalog |
 | `f.box` | `BoxHelper` | 2 |
 | `f.calendly` | `CalendlyHelper` | 3 |
 | `f.clickup` | `ClickupHelper` | 4 |
@@ -573,6 +574,17 @@ Exported from the package root (`import { github } from '@relayflows/surface'`).
 | `azure_blob.file_created(filter?: WebhookFilter)` | `azure-blob` | `file.created` |
 | `azure_blob.file_deleted(filter?: WebhookFilter)` | `azure-blob` | `file.deleted` |
 | `azure_blob.file_updated(filter?: WebhookFilter)` | `azure-blob` | `file.updated` |
+| `bitbucket.pullrequest_comment_created(filter?: WebhookFilter)` | `bitbucket` | `pullrequest:comment_created` |
+| `bitbucket.pullrequest_comment_deleted(filter?: WebhookFilter)` | `bitbucket` | `pullrequest:comment_deleted` |
+| `bitbucket.pullrequest_created(filter?: WebhookFilter)` | `bitbucket` | `pullrequest:created` |
+| `bitbucket.pullrequest_fulfilled(filter?: WebhookFilter)` | `bitbucket` | `pullrequest:fulfilled` |
+| `bitbucket.pullrequest_rejected(filter?: WebhookFilter)` | `bitbucket` | `pullrequest:rejected` |
+| `bitbucket.pullrequest_updated(filter?: WebhookFilter)` | `bitbucket` | `pullrequest:updated` |
+| `bitbucket.repo_commit_status_created(filter?: WebhookFilter)` | `bitbucket` | `repo:commit_status_created` |
+| `bitbucket.repo_commit_status_updated(filter?: WebhookFilter)` | `bitbucket` | `repo:commit_status_updated` |
+| `bitbucket.repo_deleted(filter?: WebhookFilter)` | `bitbucket` | `repo:deleted` |
+| `bitbucket.repo_push(filter?: WebhookFilter)` | `bitbucket` | `repo:push` |
+| `bitbucket.repo_updated(filter?: WebhookFilter)` | `bitbucket` | `repo:updated` |
 | `box.file_created(filter?: WebhookFilter)` | `box` | `file.created` |
 | `box.file_deleted(filter?: WebhookFilter)` | `box` | `file.deleted` |
 | `box.file_updated(filter?: WebhookFilter)` | `box` | `file.updated` |
@@ -1203,6 +1215,7 @@ export const providerEventTypes = Object.freeze({
   "airtable": Object.freeze(["base.create","base.delete","base.update","record.create","record.delete","record.update","table.create","table.delete","table.update"] as const),
   "asana": Object.freeze(["project.added","project.changed","project.deleted","project.removed","section.added","section.changed","section.deleted","section.removed","task.added","task.changed","task.completed","task.deleted","task.removed","workspace.added","workspace.changed","workspace.deleted","workspace.removed"] as const),
   "azure-blob": Object.freeze(["file.created","file.deleted","file.updated"] as const),
+  "bitbucket": Object.freeze(["pullrequest:comment_created","pullrequest:comment_deleted","pullrequest:created","pullrequest:fulfilled","pullrequest:rejected","pullrequest:updated","repo:commit_status_created","repo:commit_status_updated","repo:deleted","repo:push","repo:updated"] as const),
   "box": Object.freeze(["file.created","file.deleted","file.updated"] as const),
   "calendly": Object.freeze(["event_type.canceled","event_type.created","event_type.deleted","event_type.updated","invitee.canceled","invitee.created","invitee.deleted","invitee.updated","scheduled_event.canceled","scheduled_event.created","scheduled_event.deleted","scheduled_event.updated"] as const),
   "clickup": Object.freeze(["folder.created","folder.deleted","folder.updated","list.created","list.deleted","list.updated","space.created","space.deleted","space.updated","task.created","task.deleted","task.updated"] as const),
@@ -1443,6 +1456,12 @@ export type AsanaHelper = JournalHelper<ReturnType<typeof asanaClient>>;
 
 ```ts
 export type AzureBlobHelper = JournalHelper<ReturnType<typeof azureBlobClient>>;
+```
+
+### BitbucketHelper (not exported from the package root)
+
+```ts
+export type BitbucketHelper = UnavailableHelper;
 ```
 
 ### BoxHelper (not exported from the package root)
