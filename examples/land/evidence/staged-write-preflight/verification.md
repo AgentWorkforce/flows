@@ -31,3 +31,13 @@ These are local fixtures; this does not prove the hosted grant boundary.
 
 No runtime packages, model pins, or gates change. No npm release is needed.
 The land operator must redeploy the source after human review and merge.
+
+Literal hash check after restoration:
+
+```sh
+shasum -a 256 examples/land/land.flow.ts
+```
+
+```text
+12e10654f13d52343a2d25d343de85642955825415c5a3cae20cee44bd018ffb  examples/land/land.flow.ts
+```
