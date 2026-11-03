@@ -14,3 +14,10 @@ a superseded stage F pushes.
 - `delete`, no race: the squash lands and the land ref is deleted.
 
 Run: `python3 -I examples/land/evidence/push-fence/fence-race.py` (local git only).
+
+## Permission the fence needs
+
+Stage F deletes the land ref as part of the push, so the auto write grant must
+allow deleting `land/*` branches (no branch rule may block their deletion). A
+`--dry-run` push cannot prove branch rules, so the preflight does not check
+this; a rule that blocks it ends F `needs_human` with GitHub's rejection.

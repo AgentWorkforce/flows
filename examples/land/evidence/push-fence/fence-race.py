@@ -1,5 +1,5 @@
 from pathlib import Path
-import subprocess, tempfile, json, os, sys
+import subprocess, tempfile, json, os, sys, shlex
 SP = sys.argv[1] if len(sys.argv) > 1 else tempfile.mkdtemp(prefix="land-push-fence-")
 env = os.environ.copy()
 env.update({'GIT_AUTHOR_NAME':'F','GIT_AUTHOR_EMAIL':'f@example.test','GIT_COMMITTER_NAME':'F','GIT_COMMITTER_EMAIL':'f@example.test','GIT_CONFIG_GLOBAL':'/dev/null'})
@@ -15,11 +15,15 @@ def trial(variant, race=True):
     (local/'f').write_text('newer\n'); run('commit', '-qam', 'newer'); newer = run('rev-parse', 'HEAD')
     run('remote', 'add', 'origin', str(remote))
     run('push', '-q', 'origin', f'{base}:refs/heads/main', f'{pinned}:refs/heads/land/run', f'{newer}:refs/heads/successor-source')
+    # Capture the ref updates the server receives on every trial; with `race`, a
+    # newer submission also moves the land ref after the advertisement, before the update.
+    hook = remote/'hooks/pre-receive'
+    body = '#!/bin/sh\ncat > ' + shlex.quote(str(root/'cmds.txt')) + '\n'
     if race:
-        hook = remote/'hooks/pre-receive'
-        # A newer submission moves the land ref after the advertisement, before the update.
-        hook.write_text('#!/bin/sh\ncat > "'+str(root/'cmds.txt')+'"\nenv -u GIT_QUARANTINE_PATH -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES git --git-dir="'+str(remote)+'" update-ref refs/heads/land/run '+newer+'\n')
-        hook.chmod(0o755)
+        body += ('env -u GIT_QUARANTINE_PATH -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES git --git-dir='
+                 + shlex.quote(str(remote)) + ' update-ref refs/heads/land/run ' + newer + '\n')
+    hook.write_text(body)
+    hook.chmod(0o755)
     lease = f'--force-with-lease=refs/heads/land/run:{pinned}'
     if variant == 'noop':
         cmd = ['git', 'push', '--atomic', lease, 'origin', f'{squash}:refs/heads/main', f'{pinned}:refs/heads/land/run']

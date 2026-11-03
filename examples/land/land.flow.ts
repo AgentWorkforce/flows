@@ -988,9 +988,10 @@ export async function land(f: Ctx, raw: LandInput): Promise<void> {
       const refSha = (await f.run(`git ls-remote origin ${shellWord(`refs/heads/${input.ref}`)} | cut -f1`)).trim() || null;
       // Stage F deletes the land ref in the same push that lands the squash,
       // so a replayed F (reaped after its push, before its state write) finds
-      // the ref gone: its own Land-Run trailer on the base means it landed,
-      // and F reconciles that below rather than being called superseded.
-      const landedHere = refSha === null && state.cursor === 'F' &&
+      // the ref gone, or recreated by a newer submission: its own Land-Run
+      // trailer on the base means it landed, and F reconciles that below
+      // rather than being called superseded.
+      const landedHere = refSha !== state.pinnedSha && state.cursor === 'F' &&
         !!(await f.run(`git log --format=%H --grep=${shellWord(`Land-Run: ${state.runId}$`)} -n 1 ${shellWord(base)}`)).trim();
       if (refSha !== state.pinnedSha && !landedHere) return await save(f, stateFile, nextLandStage(state, { kind: 'superseded', refSha, now: await now(f) }));
     }

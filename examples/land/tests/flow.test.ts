@@ -26,7 +26,7 @@ function world(over: {
   home?: string; dir?: string;
   /** Auto mode: the dispatched repo gate's exit per dispatch attempt; 'pending' when it overruns. */
   githubExit?: Array<number | 'pending'>; ghRuns?: GhRun[]; ghRunsSeq?: GhRun[][];
-  pushFails?: 'non_ff' | 'other'; landedCommit?: string; headContainsBase?: boolean; fAncestorFails?: boolean; ciFetchFails?: boolean; pushDryRunFails?: boolean; codexLoginFails?: boolean; refMovesAtPush?: string; refGoneAt?: string; pushLandsThenDrops?: boolean; adversarialExit?: number; contextExit?: number; reviewTail?: string;
+  pushFails?: 'non_ff' | 'other'; landedCommit?: string; headContainsBase?: boolean; fAncestorFails?: boolean; ciFetchFails?: boolean; pushDryRunFails?: boolean; codexLoginFails?: boolean; refMovesAtPush?: string; refGoneAt?: string; refRecreatedAt?: string; pushLandsThenDrops?: boolean; adversarialExit?: number; contextExit?: number; reviewTail?: string;
 } = {}) {
   const dir = over.dir ?? stateDir;
   let refMoved: string | undefined;
@@ -62,7 +62,7 @@ function world(over: {
         if (command.startsWith('git show ') && command.includes('land.config.json')) return JSON.stringify(over.config ?? config);
         if (command.startsWith('git show ') && command.includes('CHANGELOG.md')) return command.includes('merge-base') ? over.changelog?.[0] ?? '' : over.changelog?.[1] ?? '';
         if (command.startsWith(`git fetch --no-tags --quiet ${UNSHALLOW_IF_SHALLOW} origin `)) { const list = over.baseShas ?? ['b'.repeat(40)]; baseRef = list[Math.min(fetches++, list.length - 1)]!; return ''; }
-        if (command.startsWith('git ls-remote')) return goneHere || pushLanded ? '' : refMoved ?? over.refSha ?? sha;
+        if (command.startsWith('git ls-remote')) return goneHere || pushLanded ? '' : over.refRecreatedAt === stage ? 'f'.repeat(40) : refMoved ?? over.refSha ?? sha;
         if (command.startsWith('git fetch --quiet ') && command.includes('land.bundle')) { head = files.get(/'([^']*land\.bundle)'/.exec(command)![1]!)!; return head; }
         if (command.startsWith('git bundle create')) { files.set(/'([^']*land\.bundle)\.tmp'/.exec(command)![1]!, head); return ''; }
         if (command.startsWith('git diff --name-only "$(git merge-base')) return 'probe/src/relay/agents.rs\nCHANGELOG.md';
@@ -605,6 +605,15 @@ test('auto: a reaped F whose push already deleted the land ref reconciles as lan
   // F pushed (squash + land ref deletion) and was reaped before its state write.
   const ref = 'land/khaliq/aaaaaaa';
   const w = world({ config: autoConfig, baseShas: ['b'.repeat(40), 'b'.repeat(40), 'b'.repeat(40), 'b'.repeat(40), 'b'.repeat(40), mergedCommit], landedCommit: mergedCommit, refGoneAt: 'F' });
+  let last;
+  for (const stage of ['A-adversarial', 'A-context', 'B', 'D', 'E', 'E', 'F']) last = await w.invoke(stage, { ref });
+  assert.equal(last!.detail.state, 'landed');
+  assert.equal(last!.detail.commit, mergedCommit);
+});
+
+test('auto: a reaped F whose land ref a newer submission recreated still reconciles as landed', async () => {
+  const ref = 'land/khaliq/aaaaaaa';
+  const w = world({ config: autoConfig, baseShas: ['b'.repeat(40), 'b'.repeat(40), 'b'.repeat(40), 'b'.repeat(40), 'b'.repeat(40), mergedCommit], landedCommit: mergedCommit, refRecreatedAt: 'F' });
   let last;
   for (const stage of ['A-adversarial', 'A-context', 'B', 'D', 'E', 'E', 'F']) last = await w.invoke(stage, { ref });
   assert.equal(last!.detail.state, 'landed');
