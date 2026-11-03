@@ -1,0 +1,88 @@
+TAP version 13
+# Subtest: hosted crossed modes refuse before review, agent or push work
+not ok 1 - hosted crossed modes refuse before review, agent or push work
+  ---
+  duration_ms: 4.035458
+  type: 'test'
+  location: '/Volumes/T7/Projects/AgentWorkforce/worktrees/flows/flows-land-mode-contract-20261103/examples/land/tests/flow.test.ts:702:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'success'
+    - 'needs_human'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'needs_human'
+  actual: 'success'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///Volumes/T7/Projects/AgentWorkforce/worktrees/flows/flows-land-mode-contract-20261103/examples/land/tests/flow.test.ts:706:12)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: hosted matching modes preserve real auto pushes and shadow no-push behavior
+ok 2 - hosted matching modes preserve real auto pushes and shadow no-push behavior
+  ---
+  duration_ms: 6.947084
+  type: 'test'
+  ...
+# Subtest: hosted mode mismatch refuses an already-advanced stage without rewriting state
+not ok 3 - hosted mode mismatch refuses an already-advanced stage without rewriting state
+  ---
+  duration_ms: 0.358
+  type: 'test'
+  location: '/Volumes/T7/Projects/AgentWorkforce/worktrees/flows/flows-land-mode-contract-20261103/examples/land/tests/flow.test.ts:725:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'success'
+    - 'needs_human'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'needs_human'
+  actual: 'success'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///Volumes/T7/Projects/AgentWorkforce/worktrees/flows/flows-land-mode-contract-20261103/examples/land/tests/flow.test.ts:731:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: hosted mode mismatch cannot replay a terminal shadow result as an auto landing
+not ok 4 - hosted mode mismatch cannot replay a terminal shadow result as an auto landing
+  ---
+  duration_ms: 0.511875
+  type: 'test'
+  location: '/Volumes/T7/Projects/AgentWorkforce/worktrees/flows/flows-land-mode-contract-20261103/examples/land/tests/flow.test.ts:737:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'success'
+    - 'needs_human'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'needs_human'
+  actual: 'success'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///Volumes/T7/Projects/AgentWorkforce/worktrees/flows/flows-land-mode-contract-20261103/examples/land/tests/flow.test.ts:742:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 1
+# fail 3
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 135.386916

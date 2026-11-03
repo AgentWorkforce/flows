@@ -43,6 +43,7 @@ Run it from a fresh clone of the repository, checked out at `sha`.
 | `repo` | `owner/name` |
 | `sha` | the pinned 40-hex commit; the checkout's `HEAD` must equal it and be clean |
 | `baseBranch` | optional; must agree with `land.config.json` |
+| `mergeMode` | hosted request mode (`shadow`, `approval`, or `auto`); must agree with the pinned `mergePolicy.mode` on the first stage and the persisted config on every resume, including terminal or already-advanced replays. A mismatch returns `needs_human` before review, agent or push work; it never changes the config. Local runs may omit it |
 | `sessionId` | goes into the `Relay-Session:` trailer |
 | `intentFile` | absolute or `$HOME/…`, outside the checkout; given to context review and the fix agent only |
 | `stateDir` | absolute or `$HOME/…`, outside the checkout, persisted between stage runs; every byte the run writes |

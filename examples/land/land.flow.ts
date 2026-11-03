@@ -162,6 +162,8 @@ export interface LandInput {
   repo: string;
   sha: string;
   baseBranch?: string;
+  /** Hosted request mode: must agree with the pinned config and every persisted stage. Local runs may omit it. */
+  mergeMode?: (typeof MERGE_MODES)[number];
   sessionId: string;
   /** Absolute, outside the checkout: the materialized session intent (§4). */
   intentFile: string;
@@ -211,6 +213,7 @@ export function parseInput(input: LandInput) {
     repo: check(input.repo, 'repo', /^[\w.-]+\/[\w.-]+$/),
     sha: check(input.sha, 'sha', /^[0-9a-f]{40}$/),
     baseBranch: input.baseBranch === undefined ? undefined : check(input.baseBranch, 'baseBranch', /^(?!-)(?!.*\.\.)[A-Za-z0-9_.\/-]+$/),
+    mergeMode: input.mergeMode === undefined ? undefined : check(input.mergeMode, 'mergeMode', /^(?:shadow|approval|auto)$/) as (typeof MERGE_MODES)[number],
     sessionId: check(input.sessionId, 'sessionId', /^[A-Za-z0-9_.:-]{1,128}$/),
     intentFile: check(input.intentFile, 'intentFile', INPUT_PATH),
     stateDir,
@@ -902,11 +905,15 @@ export async function land(f: Ctx, raw: LandInput): Promise<void> {
       throw new NeedsHuman(`land-state.json belongs to run ${state.runId}: ${state.repo}@${state.pinnedSha.slice(0, 7)} session ${state.sessionId}`);
     }
     if (!state && input.stage !== 'A-adversarial') throw new NeedsHuman(`no land-state.json under ${input.stateDir}; a run starts at A-adversarial`);
-    if (state?.terminal) return f.done(REASON[state.terminal.state], { detail: completionDetail(state) });
-    if (state && input.stage !== state.cursor) return f.done('success', { detail: completionDetail(state, true) });
-
     const config = state?.config ?? parseLandConfig(typeof input.config === 'string'
       ? JSON.parse(await f.run(`git show ${shellWord(`${input.sha}:${input.config}`)}`)) : input.config);
+    // Check before terminal and already-advanced replays: Cloud interprets the
+    // result using its requested mode, so even a no-op must agree with it.
+    if (input.mergeMode !== undefined && input.mergeMode !== config.mergePolicy.mode) {
+      throw new NeedsHuman(`mergeMode "${input.mergeMode}" disagrees with ${state ? 'persisted' : 'configured'} mergePolicy.mode "${config.mergePolicy.mode}"; start a run with a matching mode`);
+    }
+    if (state?.terminal) return f.done(REASON[state.terminal.state], { detail: completionDetail(state) });
+    if (state && input.stage !== state.cursor) return f.done('success', { detail: completionDetail(state, true) });
     if (input.baseBranch && input.baseBranch !== config.baseBranch) throw new NeedsHuman(`input baseBranch ${input.baseBranch} disagrees with land.config ${config.baseBranch}`);
     if (config.mergePolicy.mode === 'approval') return f.done('declined', { detail: JSON.stringify({ land: 'declined', detail: 'mergePolicy.mode "approval" is not implemented; shadow and auto run' }) });
 
