@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Ctx, AgentOptions } from '@relayflows/surface';
-import { land, UNSHALLOW_IF_SHALLOW, type LandInput } from '../land.flow.ts';
+import { land, parseInput, UNSHALLOW_IF_SHALLOW, type LandInput } from '../land.flow.ts';
 
 const sha = 'a'.repeat(40);
 const root = '/runs/run-1/repo';
@@ -697,4 +697,62 @@ test('auto: a push-denied git credential fails preflight before any stage runs',
   const { result } = await w.drive();
   assert.equal(result.reason, 'needs_human');
   assert.match(JSON.stringify(result.detail), /push-capable git credential/);
+});
+
+test('hosted crossed modes refuse before review, agent or push work', async () => {
+  for (const [requested, configured] of [['auto', 'shadow'], ['shadow', 'auto']] as const) {
+    const w = world({ config: { ...config, mergePolicy: { mode: configured } }, githubExit: [0] });
+    const { result } = await w.drive({ mergeMode: requested });
+    assert.equal(result.reason, 'needs_human');
+    assert.match(String(result.detail.detail), new RegExp(`mergeMode "${requested}".*mergePolicy.mode "${configured}"`));
+    assert.equal(w.launches.length, 0);
+    assert.equal(w.agents.length, 0);
+    neverPushes(w.commands);
+  }
+});
+
+test('hosted matching modes preserve real auto pushes and shadow no-push behavior', async () => {
+  for (const mergeMode of ['auto', 'shadow'] as const) {
+    const w = world({ config: { ...config, mergePolicy: { mode: mergeMode } }, githubExit: [0] });
+    const { result } = await w.drive({ mergeMode });
+    assert.equal(result.reason, 'success');
+    assert.equal(result.detail.state, 'landed');
+    if (mergeMode === 'shadow') neverPushes(w.commands);
+    else assert.equal(result.detail.commit, mergedCommit);
+  }
+});
+
+test('hosted mode mismatch refuses an already-advanced stage without rewriting state', async () => {
+  const w = world();
+  await w.invoke('A-adversarial', { mergeMode: 'shadow' });
+  const before = w.state();
+  const launched = w.launches.length;
+  const result = await w.invoke('A-adversarial', { mergeMode: 'auto' });
+  assert.equal(result.reason, 'needs_human');
+  assert.match(String(result.detail.detail), /mergeMode "auto".*mergePolicy.mode "shadow"/);
+  assert.deepEqual(w.state(), before);
+  assert.equal(w.launches.length, launched);
+});
+
+test('hosted mode mismatch cannot replay a terminal shadow result as an auto landing', async () => {
+  const w = world();
+  await w.drive({ mergeMode: 'shadow' });
+  const before = w.state();
+  const result = await w.invoke('F', { mergeMode: 'auto' });
+  assert.equal(result.reason, 'needs_human');
+  assert.match(String(result.detail.detail), /mergeMode "auto".*mergePolicy.mode "shadow"/);
+  assert.deepEqual(w.state(), before);
+  neverPushes(w.commands);
+});
+
+
+test('hosted mergeMode is optional locally and validates all supplied values', () => {
+  const input = { ...base, stage: 'A-adversarial' };
+  assert.equal(parseInput(input).mergeMode, undefined);
+  for (const mergeMode of ['shadow', 'approval', 'auto'] as const) {
+    assert.equal(parseInput({ ...input, mergeMode }).mergeMode, mergeMode);
+  }
+  for (const mergeMode of [null, 1, '', 'Auto', 'unknown']) {
+    assert.throws(() => parseInput({ ...input, mergeMode } as LandInput), /mergeMode must match/);
+  }
 });

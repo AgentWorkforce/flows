@@ -1,0 +1,554 @@
+
+> test
+> node --experimental-strip-types --test tests/*.test.ts
+
+TAP version 13
+# Subtest: defaults: mergePolicy is shadow, placeholders are the spec proposals
+ok 1 - defaults: mergePolicy is shadow, placeholders are the spec proposals
+  ---
+  duration_ms: 0.82875
+  type: 'test'
+  ...
+# Subtest: a full relay-desktop shaped config round-trips
+ok 2 - a full relay-desktop shaped config round-trips
+  ---
+  duration_ms: 0.202041
+  type: 'test'
+  ...
+# Subtest: model overrides are explicitly unsupported for every harness
+ok 3 - model overrides are explicitly unsupported for every harness
+  ---
+  duration_ms: 0.62175
+  type: 'test'
+  ...
+# Subtest: refusals: unknown keys, bad enums, unsafe paths, out-of-range numbers
+ok 4 - refusals: unknown keys, bad enums, unsafe paths, out-of-range numbers
+  ---
+  duration_ms: 0.40225
+  type: 'test'
+  ...
+# Subtest: JSON schema matches the runtime validator: keys, required, enums and defaults
+ok 5 - JSON schema matches the runtime validator: keys, required, enums and defaults
+  ---
+  duration_ms: 0.124959
+  type: 'test'
+  ...
+# Subtest: every PLACEHOLDER default names its open question
+ok 6 - every PLACEHOLDER default names its open question
+  ---
+  duration_ms: 0.387375
+  type: 'test'
+  ...
+# Subtest: clean shadow run: one hosted run per stage, E would dispatch, squash plan written, never pushed
+ok 7 - clean shadow run: one hosted run per stage, E would dispatch, squash plan written, never pushed
+  ---
+  duration_ms: 3.711459
+  type: 'test'
+  ...
+# Subtest: intent isolation: only context review is given intentFile; the adversarial fleet never sees it
+ok 8 - intent isolation: only context review is given intentFile; the adversarial fleet never sees it
+  ---
+  duration_ms: 1.099166
+  type: 'test'
+  ...
+# Subtest: fix loop: the fixup head is carried between runs in land.bundle, then the gate reruns clean
+ok 9 - fix loop: the fixup head is carried between runs in land.bundle, then the gate reruns clean
+  ---
+  duration_ms: 2.056959
+  type: 'test'
+  ...
+# Subtest: non-convergence: a finding surviving 2 rounds ends needs_human with a ≤150-byte ask
+ok 10 - non-convergence: a finding surviving 2 rounds ends needs_human with a ≤150-byte ask
+  ---
+  duration_ms: 1.041708
+  type: 'test'
+  ...
+# Subtest: formatter guard: a fix round touching files outside change ∪ findings ends needs_human
+ok 11 - formatter guard: a fix round touching files outside change ∪ findings ends needs_human
+  ---
+  duration_ms: 0.409875
+  type: 'test'
+  ...
+# Subtest: changelog required with no new Unreleased bullet becomes a finding for the fix loop
+ok 12 - changelog required with no new Unreleased bullet becomes a finding for the fix loop
+  ---
+  duration_ms: 2.569
+  type: 'test'
+  ...
+# Subtest: stage D: a moved base rebases and regates; a conflict ends needs_human
+ok 13 - stage D: a moved base rebases and regates; a conflict ends needs_human
+  ---
+  duration_ms: 1.433792
+  type: 'test'
+  ...
+# Subtest: superseded: the land ref moved → cancelled before any work in that run
+ok 14 - superseded: the land ref moved → cancelled before any work in that run
+  ---
+  duration_ms: 0.806792
+  type: 'test'
+  ...
+# Subtest: idempotent cursor: a retried stage whose state write landed is a no-op; a reaped one reruns
+ok 15 - idempotent cursor: a retried stage whose state write landed is a no-op; a reaped one reruns
+  ---
+  duration_ms: 1.814917
+  type: 'test'
+  ...
+# Subtest: stage E in shadow: records what it would dispatch, launches nothing, moves on to F
+ok 16 - stage E in shadow: records what it would dispatch, launches nothing, moves on to F
+  ---
+  duration_ms: 1.84225
+  type: 'test'
+  ...
+# Subtest: the removed githubGateInShadow flag is refused as an unknown key, before any work
+ok 17 - the removed githubGateInShadow flag is refused as an unknown key, before any work
+  ---
+  duration_ms: 0.203375
+  type: 'test'
+  ...
+# Subtest: refusals: no state outside A-adversarial, approval mode, state or intent inside the checkout, wrong run
+ok 18 - refusals: no state outside A-adversarial, approval mode, state or intent inside the checkout, wrong run
+  ---
+  duration_ms: 0.379459
+  type: 'test'
+  ...
+# Subtest: runId: an explicit Cloud id names the Land-Run trailer and every completion detail, not the stateDir path
+ok 19 - runId: an explicit Cloud id names the Land-Run trailer and every completion detail, not the stateDir path
+  ---
+  duration_ms: 0.383166
+  type: 'test'
+  ...
+# Subtest: runId: absent, it falls back to the stateDir segment for local use
+ok 20 - runId: absent, it falls back to the stateDir segment for local use
+  ---
+  duration_ms: 0.421917
+  type: 'test'
+  ...
+# Subtest: runId: a malformed id, or a stateDir segment that is not one, is refused before any work
+ok 21 - runId: a malformed id, or a stateDir segment that is not one, is refused before any work
+  ---
+  duration_ms: 0.099542
+  type: 'test'
+  ...
+# Subtest: runId: a stage invoked with another run id is refused and leaves the state alone
+ok 22 - runId: a stage invoked with another run id is refused and leaves the state alone
+  ---
+  duration_ms: 0.12
+  type: 'test'
+  ...
+# Subtest: $HOME paths: expanded from the run's own HOME, read once per run through a journaled step
+ok 23 - $HOME paths: expanded from the run's own HOME, read once per run through a journaled step
+  ---
+  duration_ms: 0.519458
+  type: 'test'
+  ...
+# Subtest: $HOME paths: a trailing slash on HOME is normalized
+ok 24 - $HOME paths: a trailing slash on HOME is normalized
+  ---
+  duration_ms: 0.091167
+  type: 'test'
+  ...
+# Subtest: $HOME paths: absolute paths never read HOME
+ok 25 - $HOME paths: absolute paths never read HOME
+  ---
+  duration_ms: 0.325084
+  type: 'test'
+  ...
+# Subtest: $HOME paths: refused when HOME is unset, relative, or unsafe
+ok 26 - $HOME paths: refused when HOME is unset, relative, or unsafe
+  ---
+  duration_ms: 0.114291
+  type: 'test'
+  ...
+# Subtest: $HOME paths: only the exact $HOME/ prefix; no other variable, form or .. segment
+ok 27 - $HOME paths: only the exact $HOME/ prefix; no other variable, form or .. segment
+  ---
+  duration_ms: 0.153084
+  type: 'test'
+  ...
+# Subtest: $HOME paths: the outside-checkout check runs on the expanded path
+ok 28 - $HOME paths: the outside-checkout check runs on the expanded path
+  ---
+  duration_ms: 0.062125
+  type: 'test'
+  ...
+# Subtest: absolute paths: a . or .. in any segment is refused, including the first (/../x)
+ok 29 - absolute paths: a . or .. in any segment is refused, including the first (/../x)
+  ---
+  duration_ms: 0.084292
+  type: 'test'
+  ...
+# Subtest: the base fetch deepens a shallow checkout and names only the base refspec
+ok 30 - the base fetch deepens a shallow checkout and names only the base refspec
+  ---
+  duration_ms: 155.009458
+  type: 'test'
+  ...
+# Subtest: auto: dispatch overruns, the next E awaits the pushed snapshot, F squash-pushes and lands
+ok 31 - auto: dispatch overruns, the next E awaits the pushed snapshot, F squash-pushes and lands
+  ---
+  duration_ms: 1.877667
+  type: 'test'
+  ...
+# Subtest: auto: a gate that finishes inside the dispatch window applies its verdict in the same run
+ok 32 - auto: a gate that finishes inside the dispatch window applies its verdict in the same run
+  ---
+  duration_ms: 0.484833
+  type: 'test'
+  ...
+# Subtest: auto: red GitHub gate goes to the next fix round
+ok 33 - auto: red GitHub gate goes to the next fix round
+  ---
+  duration_ms: 1.225833
+  type: 'test'
+  ...
+# Subtest: auto: a failed dispatched run is red to the fix loop
+ok 34 - auto: a failed dispatched run is red to the fix loop
+  ---
+  duration_ms: 1.120834
+  type: 'test'
+  ...
+# Subtest: auto: still-pending dispatched runs keep E as the cursor across stage runs
+ok 35 - auto: still-pending dispatched runs keep E as the cursor across stage runs
+  ---
+  duration_ms: 0.380666
+  type: 'test'
+  ...
+# Subtest: auto: F goes back to D on non-fast-forward
+ok 36 - auto: F goes back to D on non-fast-forward
+  ---
+  duration_ms: 0.454708
+  type: 'test'
+  ...
+# Subtest: auto: a moved base at F goes back to D and regates
+ok 37 - auto: a moved base at F goes back to D and regates
+  ---
+  duration_ms: 1.035208
+  type: 'test'
+  ...
+# Subtest: auto: a non-FF, non-permission push failure ends needs_human
+ok 38 - auto: a non-FF, non-permission push failure ends needs_human
+  ---
+  duration_ms: 0.589667
+  type: 'test'
+  ...
+# Subtest: auto and shadow: the land harness is the review fleets' clis and the fix agent's cli
+ok 39 - auto and shadow: the land harness is the review fleets' clis and the fix agent's cli
+  ---
+  duration_ms: 1.1395
+  type: 'test'
+  ...
+# Subtest: auto: a stage reaped after the push records the landed commit instead of landing twice
+ok 40 - auto: a stage reaped after the push records the landed commit instead of landing twice
+  ---
+  duration_ms: 0.505375
+  type: 'test'
+  ...
+# Subtest: auto: F refuses to squash a head that never contained the base
+ok 41 - auto: F refuses to squash a head that never contained the base
+  ---
+  duration_ms: 0.467125
+  type: 'test'
+  ...
+# Subtest: auto: D rebases a head that never contained an unmoved base, then lands
+ok 42 - auto: D rebases a head that never contained an unmoved base, then lands
+  ---
+  duration_ms: 1.51225
+  type: 'test'
+  ...
+# Subtest: auto: three red GitHub gates escalate stuck_finding instead of alternating past the stall checks
+ok 43 - auto: three red GitHub gates escalate stuck_finding instead of alternating past the stall checks
+  ---
+  duration_ms: 1.112542
+  type: 'test'
+  ...
+# Subtest: auto: a run set still growing between polls stays pending; a stable set gives the verdict
+ok 44 - auto: a run set still growing between polls stays pending; a stable set gives the verdict
+  ---
+  duration_ms: 0.54975
+  type: 'test'
+  ...
+# Subtest: auto: a stale completed run older than the dispatch bound cannot produce a verdict
+ok 45 - auto: a stale completed run older than the dispatch bound cannot produce a verdict
+  ---
+  duration_ms: 0.302834
+  type: 'test'
+  ...
+# Subtest: auto and shadow: a non-default harness is the review fleets' clis and the fix agent's cli
+ok 46 - auto and shadow: a non-default harness is the review fleets' clis and the fix agent's cli
+  ---
+  duration_ms: 0.491667
+  type: 'test'
+  ...
+# Subtest: a harness unsupported in land fails at stage one with a clear error
+ok 47 - a harness unsupported in land fails at stage one with a clear error
+  ---
+  duration_ms: 0.114542
+  type: 'test'
+  ...
+# Subtest: each supported fix harness launches with its literal pinned model
+ok 48 - each supported fix harness launches with its literal pinned model
+  ---
+  duration_ms: 1.328459
+  type: 'test'
+  ...
+# Subtest: a review lane that cannot launch its cli ends needs_human, not a fix round
+ok 49 - a review lane that cannot launch its cli ends needs_human, not a fix round
+  ---
+  duration_ms: 0.151041
+  type: 'test'
+  ...
+# Subtest: codex without a login in the stage sandbox ends needs_human at preflight
+ok 50 - codex without a login in the stage sandbox ends needs_human at preflight
+  ---
+  duration_ms: 0.09375
+  type: 'test'
+  ...
+# Subtest: auto: a push-denied git credential fails preflight before any stage runs
+ok 51 - auto: a push-denied git credential fails preflight before any stage runs
+  ---
+  duration_ms: 0.056791
+  type: 'test'
+  ...
+# Subtest: hosted crossed modes refuse before review, agent or push work
+ok 52 - hosted crossed modes refuse before review, agent or push work
+  ---
+  duration_ms: 0.169625
+  type: 'test'
+  ...
+# Subtest: hosted matching modes preserve real auto pushes and shadow no-push behavior
+ok 53 - hosted matching modes preserve real auto pushes and shadow no-push behavior
+  ---
+  duration_ms: 0.555875
+  type: 'test'
+  ...
+# Subtest: hosted mode mismatch refuses an already-advanced stage without rewriting state
+ok 54 - hosted mode mismatch refuses an already-advanced stage without rewriting state
+  ---
+  duration_ms: 0.129667
+  type: 'test'
+  ...
+# Subtest: hosted mode mismatch cannot replay a terminal shadow result as an auto landing
+ok 55 - hosted mode mismatch cannot replay a terminal shadow result as an auto landing
+  ---
+  duration_ms: 0.403
+  type: 'test'
+  ...
+# Subtest: hosted mergeMode is optional locally and validates all supplied values
+ok 56 - hosted mergeMode is optional locally and validates all supplied values
+  ---
+  duration_ms: 0.194916
+  type: 'test'
+  ...
+# Subtest: convergence: a clean gate proceeds, even past the budget or cap
+ok 57 - convergence: a clean gate proceeds, even past the budget or cap
+  ---
+  duration_ms: 1.022875
+  type: 'test'
+  ...
+# Subtest: convergence: findings with rounds and budget left ask for a fix
+ok 58 - convergence: findings with rounds and budget left ask for a fix
+  ---
+  duration_ms: 0.08025
+  type: 'test'
+  ...
+# Subtest: convergence: round cap
+ok 59 - convergence: round cap
+  ---
+  duration_ms: 0.1285
+  type: 'test'
+  ...
+# Subtest: convergence: the same finding id surviving 2 consecutive rounds
+ok 60 - convergence: the same finding id surviving 2 consecutive rounds
+  ---
+  duration_ms: 0.206917
+  type: 'test'
+  ...
+# Subtest: convergence: finding count not decreasing for 2 rounds
+ok 61 - convergence: finding count not decreasing for 2 rounds
+  ---
+  duration_ms: 0.149083
+  type: 'test'
+  ...
+# Subtest: convergence: budget wins over every other rule
+ok 62 - convergence: budget wins over every other rule
+  ---
+  duration_ms: 0.053334
+  type: 'test'
+  ...
+# Subtest: convergence: refuses an empty history
+ok 63 - convergence: refuses an empty history
+  ---
+  duration_ms: 0.217625
+  type: 'test'
+  ...
+# Subtest: escalation: exact template when it fits
+ok 64 - escalation: exact template when it fits
+  ---
+  duration_ms: 0.106792
+  type: 'test'
+  ...
+# Subtest: escalation: a realistic UUID run URL drops the repo owner first
+ok 65 - escalation: a realistic UUID run URL drops the repo owner first
+  ---
+  duration_ms: 0.212916
+  type: 'test'
+  ...
+# Subtest: escalation: over 150 bytes truncates the summary, keeps the ask and URL intact
+ok 66 - escalation: over 150 bytes truncates the summary, keeps the ask and URL intact
+  ---
+  duration_ms: 0.364375
+  type: 'test'
+  ...
+# Subtest: escalation: counts bytes, not code points, and never splits a character
+ok 67 - escalation: counts bytes, not code points, and never splits a character
+  ---
+  duration_ms: 0.109667
+  type: 'test'
+  ...
+# Subtest: escalation: a URL that cannot fit is refused, never cut
+ok 68 - escalation: a URL that cannot fit is refused, never cut
+  ---
+  duration_ms: 0.055083
+  type: 'test'
+  ...
+# Subtest: formatter guard: allows change files and finding files
+ok 69 - formatter guard: allows change files and finding files
+  ---
+  duration_ms: 0.141875
+  type: 'test'
+  ...
+# Subtest: formatter guard: rejects files outside change ∪ findings and flags cargo fmt churn
+ok 70 - formatter guard: rejects files outside change ∪ findings and flags cargo fmt churn
+  ---
+  duration_ms: 0.065333
+  type: 'test'
+  ...
+# Subtest: finding ids survive line moves and the verifier's "raised before" marker
+ok 71 - finding ids survive line moves and the verifier's "raised before" marker
+  ---
+  duration_ms: 0.197792
+  type: 'test'
+  ...
+# Subtest: changelog: requires a new bullet under \#\# Unreleased
+ok 72 - changelog: requires a new bullet under \#\# Unreleased
+  ---
+  duration_ms: 0.195125
+  type: 'test'
+  ...
+# Subtest: isInside
+ok 73 - isInside
+  ---
+  duration_ms: 0.05825
+  type: 'test'
+  ...
+# Subtest: squash plan carries the trailers and is never marked pushed
+ok 74 - squash plan carries the trailers and is never marked pushed
+  ---
+  duration_ms: 0.073625
+  type: 'test'
+  ...
+# Subtest: expandHome: only the literal $HOME/ prefix, against an absolute HOME
+ok 75 - expandHome: only the literal $HOME/ prefix, against an absolute HOME
+  ---
+  duration_ms: 0.187375
+  type: 'test'
+  ...
+# Subtest: clean run: A-adversarial → A-context → B → D → E (would dispatch) → F → landed
+ok 76 - clean run: A-adversarial → A-context → B → D → E (would dispatch) → F → landed
+  ---
+  duration_ms: 1.728416
+  type: 'test'
+  ...
+# Subtest: E in shadow always reports would-dispatch and moves on to F, without closing a gate
+ok 77 - E in shadow always reports would-dispatch and moves on to F, without closing a gate
+  ---
+  duration_ms: 0.251791
+  type: 'test'
+  ...
+# Subtest: the gate unions all three lanes and feeds the fix round
+ok 78 - the gate unions all three lanes and feeds the fix round
+  ---
+  duration_ms: 0.173917
+  type: 'test'
+  ...
+# Subtest: convergence stop: the same finding id surviving 2 consecutive rounds
+ok 79 - convergence stop: the same finding id surviving 2 consecutive rounds
+  ---
+  duration_ms: 0.338791
+  type: 'test'
+  ...
+# Subtest: convergence stop: count not decreasing for 2 rounds
+ok 80 - convergence stop: count not decreasing for 2 rounds
+  ---
+  duration_ms: 0.194583
+  type: 'test'
+  ...
+# Subtest: convergence stop: round cap and wallclock budget
+ok 81 - convergence stop: round cap and wallclock budget
+  ---
+  duration_ms: 0.250333
+  type: 'test'
+  ...
+# Subtest: formatter guard breach and rebase conflict end needs_human; a clean rebase regates
+ok 82 - formatter guard breach and rebase conflict end needs_human; a clean rebase regates
+  ---
+  duration_ms: 0.296709
+  type: 'test'
+  ...
+# Subtest: superseded: the land ref moved (or was deleted) → cancelled, from any stage
+ok 83 - superseded: the land ref moved (or was deleted) → cancelled, from any stage
+  ---
+  duration_ms: 0.201958
+  type: 'test'
+  ...
+# Subtest: pure and fail-closed: no mutation, wrong result kinds and terminal states refused
+ok 84 - pure and fail-closed: no mutation, wrong result kinds and terminal states refused
+  ---
+  duration_ms: 0.406625
+  type: 'test'
+  ...
+# Subtest: idempotent: the same state and result always give the same next state
+ok 85 - idempotent: the same state and result always give the same next state
+  ---
+  duration_ms: 0.335958
+  type: 'test'
+  ...
+# Subtest: land-state.json round-trips and refuses other versions
+ok 86 - land-state.json round-trips and refuses other versions
+  ---
+  duration_ms: 0.36075
+  type: 'test'
+  ...
+# Subtest: auto E: pending keeps the cursor at E, green moves to F, red feeds the fix loop
+ok 87 - auto E: pending keeps the cursor at E, green moves to F, red feeds the fix loop
+  ---
+  duration_ms: 0.124208
+  type: 'test'
+  ...
+# Subtest: auto E: a red gate still escalates on round cap
+ok 88 - auto E: a red gate still escalates on round cap
+  ---
+  duration_ms: 0.117291
+  type: 'test'
+  ...
+# Subtest: auto F: pushed lands with the commit; moved and non_ff go back to D
+ok 89 - auto F: pushed lands with the commit; moved and non_ff go back to D
+  ---
+  duration_ms: 0.120917
+  type: 'test'
+  ...
+# Subtest: mode discipline: shadow outcomes refuse auto and vice versa
+ok 90 - mode discipline: shadow outcomes refuse auto and vice versa
+  ---
+  duration_ms: 0.158792
+  type: 'test'
+  ...
+1..90
+# tests 90
+# suites 0
+# pass 90
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 307.846875
