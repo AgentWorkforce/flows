@@ -42,6 +42,9 @@ import { flow, type Ctx } from '@relayflows/surface';
 
 class NeedsHuman extends Error {}
 
+/** The stages that push in auto mode; Cloud grants contents:write to these only. */
+export const WRITE_STAGES: ReadonlySet<string> = new Set(['E', 'F']);
+
 export const shellWord = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
 
 // ---------------------------------------------------------------- land.config
@@ -922,15 +925,20 @@ export async function land(f: Ctx, raw: LandInput): Promise<void> {
     if (uname.replace('aarch64', 'arm64') !== want) throw new NeedsHuman(`runner is ${uname}; land.config needs ${want}`);
     await f.run(config.runner.commands.map(c => `command -v ${shellWord(c)} >/dev/null`).join(' && ') || 'true');
     if (config.mergePolicy.mode === 'auto') {
-      // Preflight, not polling: the GitHub gate and the push need an authed gh
-      // and a write-capable git credential; prove both at stage one.
+      // Preflight, not polling: the GitHub gate needs an authed gh on every
+      // auto stage (a read grant authenticates it too).
       const gh = await f.run(`command -v gh >/dev/null && gh auth status`, { onNonZero: 'record' });
       if (!gh.ok) throw new NeedsHuman('mergePolicy.mode "auto" needs gh installed and authenticated (a write repository grant); shadow runs do not');
-      // Write access is proven by dry-running a push to a fresh throwaway ref:
-      // a create is always a fast-forward, so an advanced base or a rebase
-      // pending at D/F can never turn this check into a false refusal.
-      const pushable = await f.run(`git push --dry-run origin HEAD:refs/heads/land-probe/${shellWord(input.runId)}-$$`, { onNonZero: 'record', timeout: '2m' });
-      if (!pushable.ok) throw new NeedsHuman(`mergePolicy.mode "auto" needs a push-capable git credential (a write repository grant): ${pushable.output.slice(-300)}`);
+      // Only E (the gate's snapshot branch) and F (the squash) push, and Cloud
+      // gives only those stages a write grant: A-D, where an agent reviews and
+      // fixes untrusted change content, run read-only. So write access is
+      // proven where it is needed, by dry-running a push to a fresh throwaway
+      // ref: a create is always a fast-forward, so an advanced base or a
+      // rebase pending at F can never turn this check into a false refusal.
+      if (WRITE_STAGES.has(input.stage)) {
+        const pushable = await f.run(`git push --dry-run origin HEAD:refs/heads/land-probe/${shellWord(input.runId)}-$$`, { onNonZero: 'record', timeout: '2m' });
+        if (!pushable.ok) throw new NeedsHuman(`mergePolicy.mode "auto" needs a push-capable git credential at stage ${input.stage} (a write repository grant): ${pushable.output.slice(-300)}`);
+      }
     }
     if (!WORKER_HARNESSES.has(config.fixLoop.harness)) {
       throw new NeedsHuman(`fixLoop.harness "${config.fixLoop.harness}" is not supported in land; use "codex"`);

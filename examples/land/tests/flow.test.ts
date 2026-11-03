@@ -692,11 +692,22 @@ test('codex without a login in the stage sandbox ends needs_human at preflight',
   assert.equal(w.agents.length, 0, 'stage one stopped: no fix agent ran');
 });
 
-test('auto: a push-denied git credential fails preflight before any stage runs', async () => {
+test('auto: review and fix stages run on a read-only credential; a push-denied credential stops at E before any push', async () => {
   const w = world({ config: autoConfig, pushDryRunFails: true });
-  const { result } = await w.drive();
+  const { stages, result } = await w.drive();
+  // A-D never need write access: Cloud gives them a read grant.
+  assert.deepEqual(stages, ['A-adversarial', 'A-context', 'B', 'D', 'E']);
   assert.equal(result.reason, 'needs_human');
-  assert.match(JSON.stringify(result.detail), /push-capable git credential/);
+  assert.match(JSON.stringify(result.detail), /push-capable git credential at stage E/);
+  neverPushes(w.commands.map(c => c.filter(x => !x.startsWith('git push --dry-run'))));
+});
+
+test('auto: the push dry-run runs only on stages E and F', async () => {
+  const w = world({ config: autoConfig, githubExit: [0] });
+  await w.drive();
+  const dryRuns = w.commands.map(c => c.filter(x => x.startsWith('git push --dry-run')).length);
+  // One hosted run per stage A-adversarial, A-context, B, D, E, F: only the last two probe.
+  assert.deepEqual(dryRuns.slice(-6), [0, 0, 0, 0, 1, 1]);
 });
 
 test('hosted crossed modes refuse before review, agent or push work', async () => {
