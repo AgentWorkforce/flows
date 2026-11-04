@@ -45,6 +45,12 @@ export interface ConnectionsOutcome {
   connected: string[];
 }
 
+interface IntegrationProbe {
+  ready: boolean;
+  connected: boolean;
+  status: Record<string, unknown> | null;
+}
+
 const WORKSPACE_ID = /^[A-Za-z0-9_-]{1,128}$/u;
 const PROVIDER_ID = /^[a-z0-9][a-z0-9-]{0,63}$/u;
 
@@ -52,12 +58,18 @@ const PROVIDER_ID = /^[a-z0-9][a-z0-9-]{0,63}$/u;
 export async function integrationConnected(
   workspaceId: string, provider: string, options: CloudConnectionOptions,
 ): Promise<boolean> {
+  return (await probeIntegration(workspaceId, provider, options)).ready;
+}
+
+async function probeIntegration(
+  workspaceId: string, provider: string, options: CloudConnectionOptions,
+): Promise<IntegrationProbe> {
   assertIds(workspaceId, provider);
   const base = `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/integrations`;
   try {
     const status = await cloudFetch(`${base}/${encodeURIComponent(provider)}/status?scope=workspace`, options,
       { method: 'GET', detail: true });
-    return isReady(status);
+    return probeFromStatus(status);
   } catch (error) {
     if (!(error instanceof CloudFlowError) || error.code !== 'http_error') throw error;
     if (error.refusal?.code === 'unknown_provider') {
@@ -69,7 +81,8 @@ export async function integrationConnected(
     if (error.status !== 404 && error.status !== 405) throw error;
     const list = await cloudRequest(base, options);
     const rows = Array.isArray(list) ? list : isCloudRecord(list) && Array.isArray(list.integrations) ? list.integrations : [];
-    return rows.some(row => isCloudRecord(row) && row.provider === provider && isReady(row));
+    const row = rows.find(candidate => isCloudRecord(candidate) && candidate.provider === provider);
+    return row === undefined ? { ready: false, connected: false, status: null } : probeFromStatus(row);
   }
 }
 
@@ -84,10 +97,12 @@ export async function ensureIntegrationsConnected(
   const outcome: ConnectionsOutcome = { ready: [], connected: [] };
   for (const integration of requirements.integrations) {
     options.signal?.throwIfAborted();
-    if (await integrationConnected(options.workspaceId, integration.provider, options)) {
+    const probe = await probeIntegration(options.workspaceId, integration.provider, options);
+    if (probe.ready) {
       outcome.ready.push(integration.provider);
       continue;
     }
+    if (probe.connected) throw notReady(integration, probe.status);
     if (options.prompt === undefined) throw notConnected(integration, options);
     const label = providerLabel(integration.provider);
     options.prompt.info(`This flow needs ${label} (${integration.detail}), which is not connected to this workspace.`);
@@ -98,6 +113,20 @@ export async function ensureIntegrationsConnected(
     outcome.connected.push(integration.provider);
   }
   return outcome;
+}
+
+function notReady(integration: FlowIntegrationRequirement, status: Record<string, unknown> | null): CloudFlowError {
+  const label = providerLabel(integration.provider);
+  const details = readinessDetails(status);
+  const configKey = status === null ? undefined : readString(status['configKey']);
+  const credential = configKey === undefined ? 'existing credential' : `existing ${configKey} credential`;
+  const remedy = integration.provider === 'gitlab' && missingProviderSyncStatus(status)
+    ? 'Select the GitLab project in the dashboard integration setup, or re-save the selected project to restart its sync. '
+      + 'Keep the existing connection; do not reconnect or switch to OAuth.'
+    : `Repair the ${credential} from the dashboard; do not create a second connection.`;
+  return new CloudFlowError('integration_not_ready',
+    `${label} is connected to this workspace with its ${credential}, but it is not ready for this flow (${integration.detail})`
+    + `${details === '' ? '.' : `: ${details}.`} ${remedy}`);
 }
 
 async function connectIntegration(provider: string, options: EnsureConnectionsOptions, prompt: ConnectPrompt): Promise<void> {
@@ -145,6 +174,44 @@ function notConnected(integration: FlowIntegrationRequirement, options: EnsureCo
 function isReady(status: unknown): boolean {
   if (!isCloudRecord(status)) return false;
   return status.ready === true || status.state === 'ready' || status.status === 'ready' || status.status === 'connected';
+}
+
+function probeFromStatus(status: unknown): IntegrationProbe {
+  if (!isCloudRecord(status)) return { ready: false, connected: false, status: null };
+  const ready = isReady(status);
+  const oauth = isCloudRecord(status['oauth']) ? status['oauth'] : null;
+  const connected = ready
+    || status['upstreamConnected'] === true
+    || status['connectionMatched'] === true
+    || readString(status['currentConnectionId']) !== undefined
+    || oauth?.['connected'] === true;
+  return { ready, connected, status };
+}
+
+function readinessDetails(status: Record<string, unknown> | null): string {
+  if (status === null) return '';
+  const details: string[] = [];
+  const state = readString(status['state']) ?? readString(status['status']);
+  if (state !== undefined) details.push(`state=${state}`);
+  const initialSync = isCloudRecord(status['initialSync']) ? status['initialSync'] : null;
+  const syncState = initialSync === null ? undefined : readString(initialSync['state']);
+  if (syncState !== undefined) details.push(`initial sync=${syncState}`);
+  if (status['ingressHealthy'] === false) details.push('ingress unhealthy');
+  const webhookHealth = isCloudRecord(status['webhookHealth']) ? status['webhookHealth'] : null;
+  const webhookError = webhookHealth === null ? undefined : readString(webhookHealth['lastError']);
+  if (webhookError !== undefined) details.push(`webhook=${webhookError}`);
+  return details.join('; ');
+}
+
+function missingProviderSyncStatus(status: Record<string, unknown> | null): boolean {
+  if (status === null) return false;
+  const webhookHealth = isCloudRecord(status['webhookHealth']) ? status['webhookHealth'] : null;
+  return webhookHealth !== null
+    && readString(webhookHealth['lastError']) === 'No provider sync status is available';
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
 }
 
 function assertIds(workspaceId: string, provider: string): void {

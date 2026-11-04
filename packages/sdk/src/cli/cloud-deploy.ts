@@ -213,7 +213,7 @@ export function reportCloudFailure(error: unknown, json: boolean, io: CliIo, har
   if (json) io.stdout(JSON.stringify({ ok: false, code, message }));
   else io.stderr(`${code}: ${message}`);
   return error instanceof CloudFlowError
-    && (['configuration', 'unsupported_source', 'invalid_input', 'integration_not_connected'].includes(error.code)
+    && (['configuration', 'unsupported_source', 'invalid_input', 'integration_not_connected', 'integration_not_ready'].includes(error.code)
       || error.status === 403 || error.status === 401)
     ? 2 : 1;
 }

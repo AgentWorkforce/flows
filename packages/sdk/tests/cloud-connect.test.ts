@@ -99,6 +99,30 @@ describe('ensureIntegrationsConnected', () => {
     expect(calls.map(c => c.path)).toEqual([STATUS]);
   });
 
+  it('refuses an unhealthy token connection without offering an OAuth replacement', async () => {
+    const gitlabStatus = '/api/v1/workspaces/ws-1/integrations/gitlab/status';
+    const calls = cloud({
+      [gitlabStatus]: () => ({
+        ready: false,
+        state: 'error',
+        provider: 'gitlab',
+        configKey: 'gitlab-pat',
+        currentConnectionId: 'conn-token',
+        upstreamConnected: true,
+        ingressHealthy: false,
+        initialSync: { state: 'unknown' },
+        webhookHealth: { healthy: false, lastEventAt: null, lastError: 'No provider sync status is available' },
+      }),
+    });
+    const gitlab = { integrations: [{ provider: 'gitlab', from: 'trigger' as const, detail: '--on gitlab' }] };
+    await expect(ensureIntegrationsConnected(gitlab, { workspaceId: 'ws-1', prompt: prompt(true) }))
+      .rejects.toMatchObject({
+        code: 'integration_not_ready',
+        message: expect.stringMatching(/existing gitlab-pat credential.*re-save the selected project.*do not reconnect or switch to OAuth/iu),
+      });
+    expect(calls.map(call => call.path)).toEqual([gitlabStatus]);
+  });
+
   it('refuses when the prompt declines, without opening a session', async () => {
     const calls = cloud({ [STATUS]: () => ({ ready: false }) });
     await expect(ensureIntegrationsConnected(SLACK, { workspaceId: 'ws-1', prompt: prompt(false) }))

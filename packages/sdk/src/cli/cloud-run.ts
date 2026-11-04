@@ -97,7 +97,7 @@ export async function runCloudCli(
     else io.stderr(`${code}: ${message}${runId ? ` (run ${runId})` : ''}`);
     return error instanceof CloudFlowError
       && (['configuration', 'unsupported_source', 'invalid_input', 'unsupported_storage_backend', 'sync_too_large', 'sync_unsupported',
-        'integration_not_connected'].includes(error.code)
+        'integration_not_connected', 'integration_not_ready'].includes(error.code)
         || (runId === undefined && error.code === 'http_error' && [401, 403].includes(error.status ?? 0))) ? 2 : 1;
   }
 }
