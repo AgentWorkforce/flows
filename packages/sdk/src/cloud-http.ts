@@ -45,7 +45,7 @@ export class CloudFlowError extends Error {
   constructor(
     readonly code: 'configuration' | 'unsupported_source' | 'invalid_input' | 'invalid_response' | 'http_error'
       | 'transport_error' | 'transient_error' | 'unsupported_storage_backend' | 'sync_too_large' | 'sync_unsupported'
-      | 'patch_conflict' | 'integration_not_connected',
+      | 'patch_conflict' | 'integration_not_connected' | 'integration_not_ready',
     message: string,
     readonly status?: number,
     readonly refusal?: CloudRefusal,
