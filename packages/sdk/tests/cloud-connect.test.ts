@@ -118,7 +118,9 @@ describe('ensureIntegrationsConnected', () => {
     await expect(ensureIntegrationsConnected(gitlab, { workspaceId: 'ws-1', prompt: prompt(true) }))
       .rejects.toMatchObject({
         code: 'integration_not_ready',
-        message: expect.stringMatching(/existing gitlab-pat credential.*re-save the selected project.*do not reconnect or switch to OAuth/iu),
+        message: expect.stringMatching(
+          /existing gitlab-pat credential.*state=error.*initial sync=unknown.*ingress unhealthy.*webhook=No provider sync status is available.*re-save the selected project.*do not reconnect or switch to OAuth/iu,
+        ),
       });
     expect(calls.map(call => call.path)).toEqual([gitlabStatus]);
   });
