@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { CloudFlowError, cloudFetch, cloudRequest, isCloudRecord, type CloudConnectionOptions } from './cloud-http.js';
 import type { FlowIntegrationRequirement, FlowRequirements } from './flow-requirements.js';
+import { redact } from './redact.js';
 
 /**
  * Integration readiness before a hosted submission — the CLI form of the
@@ -81,8 +82,13 @@ async function probeIntegration(
     if (error.status !== 404 && error.status !== 405) throw error;
     const list = await cloudRequest(base, options);
     const rows = Array.isArray(list) ? list : isCloudRecord(list) && Array.isArray(list.integrations) ? list.integrations : [];
-    const row = rows.find(candidate => isCloudRecord(candidate) && candidate.provider === provider);
-    return row === undefined ? { ready: false, connected: false, status: null } : probeFromStatus(row);
+    const probes = rows
+      .filter(candidate => isCloudRecord(candidate) && candidate.provider === provider)
+      .map(probeFromStatus);
+    return probes.find(probe => probe.ready)
+      ?? probes.find(probe => probe.connected)
+      ?? probes[0]
+      ?? { ready: false, connected: false, status: null };
   }
 }
 
@@ -199,7 +205,7 @@ function readinessDetails(status: Record<string, unknown> | null): string {
   if (status['ingressHealthy'] === false) details.push('ingress unhealthy');
   const webhookHealth = isCloudRecord(status['webhookHealth']) ? status['webhookHealth'] : null;
   const webhookError = webhookHealth === null ? undefined : readString(webhookHealth['lastError']);
-  if (webhookError !== undefined) details.push(`webhook=${webhookError}`);
+  if (webhookError !== undefined) details.push(`webhook=${safeDiagnostic(webhookError)}`);
   return details.join('; ');
 }
 
@@ -212,6 +218,14 @@ function missingProviderSyncStatus(status: Record<string, unknown> | null): bool
 
 function readString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+}
+
+function safeDiagnostic(value: string): string {
+  const printable = redact(value)
+    .replace(/[\u0000-\u001f\u007f-\u009f]/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim();
+  return printable.length <= 256 ? printable : `${printable.slice(0, 255)}…`;
 }
 
 function assertIds(workspaceId: string, provider: string): void {

@@ -75,6 +75,14 @@ describe('integrationConnected', () => {
     expect(await integrationConnected('ws-1', 'slack', {})).toBe(false);
   });
 
+  it('accepts a ready duplicate in the fallback list even when an earlier row is unhealthy', async () => {
+    cloud({ '/api/v1/workspaces/ws-1/integrations': () => [
+      { provider: 'gitlab', status: 'error', currentConnectionId: 'old' },
+      { provider: 'gitlab', status: 'ready', currentConnectionId: 'current' },
+    ] });
+    expect(await integrationConnected('ws-1', 'gitlab', {})).toBe(true);
+  });
+
   it('names a provider Cloud does not know instead of treating it as disconnected', async () => {
     cloud({ [STATUS]: () => ({ status: 404, body: { error: 'Unknown integration provider', code: 'unknown_provider' } }) });
     await expect(integrationConnected('ws-1', 'slack', {}))
@@ -108,7 +116,7 @@ describe('ensureIntegrationsConnected', () => {
         provider: 'gitlab',
         configKey: 'gitlab-pat',
         currentConnectionId: 'conn-token',
-        upstreamConnected: true,
+        upstreamConnected: false,
         ingressHealthy: false,
         initialSync: { state: 'unknown' },
         webhookHealth: { healthy: false, lastEventAt: null, lastError: 'No provider sync status is available' },
@@ -123,6 +131,25 @@ describe('ensureIntegrationsConnected', () => {
         ),
       });
     expect(calls.map(call => call.path)).toEqual([gitlabStatus]);
+  });
+
+  it('redacts, flattens and bounds a provider diagnostic before showing it', async () => {
+    const status = '/api/v1/workspaces/ws-1/integrations/gitlab/status';
+    cloud({
+      [status]: () => ({
+        state: 'error',
+        currentConnectionId: 'conn-token',
+        webhookHealth: {
+          lastError: `Authorization: Bearer secret-token\n\u001b[31m${'x'.repeat(300)}`,
+        },
+      }),
+    });
+    const gitlab = { integrations: [{ provider: 'gitlab', from: 'trigger' as const, detail: '--on gitlab' }] };
+    const error = await ensureIntegrationsConnected(gitlab, { workspaceId: 'ws-1' }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(CloudFlowError);
+    expect((error as CloudFlowError).message).not.toMatch(/secret-token|\n|\u001b/iu);
+    expect((error as CloudFlowError).message).toContain('webhook=Authorization: Bearer [redacted] [31m');
+    expect((error as CloudFlowError).message.length).toBeLessThan(600);
   });
 
   it('refuses when the prompt declines, without opening a session', async () => {
