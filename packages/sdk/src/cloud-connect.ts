@@ -105,6 +105,9 @@ export async function ensureIntegrationsConnected(
     options.signal?.throwIfAborted();
     const probe = await probeIntegration(options.workspaceId, integration.provider, options);
     if (probe.ready) {
+      if (needsEventIngress(integration) && eventIngressReady(probe.status) === false) {
+        throw eventIngressNotReady(integration, probe.status);
+      }
       outcome.ready.push(integration.provider);
       continue;
     }
@@ -119,6 +122,35 @@ export async function ensureIntegrationsConnected(
     outcome.connected.push(integration.provider);
   }
   return outcome;
+}
+
+function needsEventIngress(integration: FlowIntegrationRequirement): boolean {
+  return integration.provider === 'gitlab'
+    && integration.from === 'source'
+    && integration.detail !== 'deploy target';
+}
+
+function eventIngressReady(status: Record<string, unknown> | null): boolean | null {
+  if (status === null) return null;
+  if (typeof status['eventIngressReady'] === 'boolean') return status['eventIngressReady'];
+  if (status['webhookHealthy'] === true) return true;
+  if (status['webhookHealthy'] === false) return false;
+  const webhookHealth = isCloudRecord(status['webhookHealth']) ? status['webhookHealth'] : null;
+  return typeof webhookHealth?.['healthy'] === 'boolean' ? webhookHealth['healthy'] : null;
+}
+
+function eventIngressNotReady(
+  integration: FlowIntegrationRequirement,
+  status: Record<string, unknown> | null,
+): CloudFlowError {
+  const label = providerLabel(integration.provider);
+  const details = readinessDetails(status);
+  return new CloudFlowError('integration_not_ready',
+    `${label} is ready for scheduled sync, but webhook ingress is not verified for this flow source (${integration.detail})`
+    + `${details === '' ? '.' : `: ${details}.`} `
+    + 'Select the project and configure its matching webhook, then deliver a test event. '
+    + 'Waiting for scheduled polling does not make a hosted listener ready. '
+    + 'Keep the existing connection; do not log in again, reconnect, or switch auth type.');
 }
 
 function notReady(integration: FlowIntegrationRequirement, status: Record<string, unknown> | null): CloudFlowError {

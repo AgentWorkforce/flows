@@ -374,6 +374,29 @@ describe('flows deploy / flows deployments', () => {
     expect(errors[0]).toContain('agent-relay cloud login');
   });
 
+  it('preserves a repository allowlist refusal without adding login advice', async () => {
+    const path = await authoredFlow();
+    cloud({
+      '/api/v1/auth/whoami': () => WHOAMI,
+      '/api/v1/flows/deploy': () => ({
+        status: 403,
+        body: {
+          error: 'Select nabis-engineering/it/nabis-slack-atlas in this workspace GitLab integration before deploying.',
+          code: 'flow_repository_not_allowlisted',
+        },
+      }),
+    });
+    const errors: string[] = [];
+    expect(await runCli([
+      'deploy', path, '--repo', 'gitlab:nabis-engineering/it/nabis-slack-atlas',
+      '--on', 'gitlab', '--approver', 'julian.fann', '--json',
+    ], { stdout: line => errors.push(line), stderr: () => {} })).toBe(2);
+    const refusal = JSON.parse(errors[0]!) as { message: string };
+    expect(refusal.message).toContain('Select nabis-engineering/it/nabis-slack-atlas');
+    expect(refusal.message).not.toContain('agent-relay cloud login');
+    expect(refusal.message).not.toContain('cli:auth');
+  });
+
   it.each([
     ['deploy', 'x.flow.ts'],
     ['deploy', 'x.flow.ts', '--repo', 'o/r'],

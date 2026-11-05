@@ -205,8 +205,11 @@ export function reportCloudFailure(error: unknown, json: boolean, io: CliIo, har
   // Cloud names the missing coding-agent credential on activation; say how it is connected.
   message += harnessRemedy(error, harnesses);
   // The deploy routes take a browser session or a `cli:auth` token. A
-  // deployment (CI) token gets 403 `session_required`; say what fixes it.
-  if (error instanceof CloudFlowError && error.status === 403) {
+  // deployment (CI) token gets the typed `session_required` refusal. Other
+  // 403s are authorisation decisions with their own remedies (for example a
+  // GitLab project that has not been selected); calling all of them a login
+  // problem sends an already-authenticated operator into the wrong flow.
+  if (error instanceof CloudFlowError && error.refusal?.code === 'session_required') {
     message += ' Deploying needs an interactive `cli:auth` credential: run `agent-relay cloud login` '
       + '(a deployment token can run flows but not deploy them).';
   }

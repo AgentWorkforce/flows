@@ -98,6 +98,51 @@ describe('ensureIntegrationsConnected', () => {
       .toEqual({ ready: ['slack'], connected: [] });
   });
 
+  it('requires verified webhook ingress for a hosted GitLab source even when scheduled sync is ready', async () => {
+    const gitlab = { integrations: [{ provider: 'gitlab', from: 'source' as const, detail: '--on gitlab' }] };
+    cloud({
+      '/api/v1/workspaces/ws-1/integrations/gitlab/status': () => ({
+        ready: true,
+        state: 'ready',
+        currentConnectionId: 'conn-token',
+        configKey: 'gitlab-pat',
+        eventIngressReady: false,
+        webhookHealthy: null,
+      }),
+    });
+    await expect(ensureIntegrationsConnected(gitlab, { workspaceId: 'ws-1', prompt: prompt(true) }))
+      .rejects.toMatchObject({
+        code: 'integration_not_ready',
+        message: expect.stringMatching(/ready for scheduled sync.*webhook ingress is not verified.*Waiting for scheduled polling.*do not log in again/isu),
+      });
+  });
+
+  it('admits a hosted GitLab source only after webhook ingress is verified', async () => {
+    const gitlab = { integrations: [{ provider: 'gitlab', from: 'source' as const, detail: '--on gitlab' }] };
+    cloud({
+      '/api/v1/workspaces/ws-1/integrations/gitlab/status': () => ({
+        ready: true,
+        state: 'ready',
+        eventIngressReady: true,
+      }),
+    });
+    await expect(ensureIntegrationsConnected(gitlab, { workspaceId: 'ws-1', prompt: prompt(true) }))
+      .resolves.toEqual({ ready: ['gitlab'], connected: [] });
+  });
+
+  it('does not require webhook ingress for GitLab polling and helper use', async () => {
+    const gitlab = { integrations: [{ provider: 'gitlab', from: 'helper' as const, detail: 'f.gitlab' }] };
+    cloud({
+      '/api/v1/workspaces/ws-1/integrations/gitlab/status': () => ({
+        ready: true,
+        state: 'ready',
+        eventIngressReady: false,
+      }),
+    });
+    await expect(ensureIntegrationsConnected(gitlab, { workspaceId: 'ws-1', prompt: prompt(true) }))
+      .resolves.toEqual({ ready: ['gitlab'], connected: [] });
+  });
+
   it('refuses with the provider, the declaration and the remedy when there is no prompt', async () => {
     const calls = cloud({ [STATUS]: () => ({ ready: false }) });
     await expect(ensureIntegrationsConnected(SLACK, { workspaceId: 'ws-1' })).rejects.toMatchObject({
