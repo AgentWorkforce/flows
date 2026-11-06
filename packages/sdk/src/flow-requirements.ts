@@ -113,11 +113,7 @@ export function flowRequirements(
   const harnessUses = new Map<FlowHarness, FlowHarnessRequirement>();
   const mcp = new Set<string>();
   const declare = (requirement: FlowIntegrationRequirement): void => {
-    const current = integrations.get(requirement.provider);
-    if (current === undefined
-      || (isEventSourceRequirement(requirement) && !isEventSourceRequirement(current))) {
-      integrations.set(requirement.provider, requirement);
-    }
+    if (!integrations.has(requirement.provider)) integrations.set(requirement.provider, requirement);
   };
   const need = (harness: FlowHarness | undefined, detail: string): void => {
     if (harness !== undefined && !harnessUses.has(harness)) harnessUses.set(harness, { harness, detail });
@@ -196,10 +192,6 @@ export function flowRequirements(
     harnessUses: uses,
     mcp: [...mcp],
   };
-}
-
-function isEventSourceRequirement(requirement: FlowIntegrationRequirement): boolean {
-  return requirement.from === 'source' && requirement.detail !== 'deploy target';
 }
 
 /** `slack (tools.slack), github (deploy target), claude (agent "review")` — the `REQUIRES` line's body. */

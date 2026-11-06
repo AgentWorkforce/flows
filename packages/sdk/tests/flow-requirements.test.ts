@@ -5,6 +5,7 @@ import { flow, github, schedule, webhook } from '@relayflows/surface';
 import { getFlowDefinition } from '@relayflows/surface/runtime';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runCli } from '../src/cli.js';
+import { helperAuthority } from '../src/authored-dispatch.js';
 import { loadAuthoredFlow } from '../src/authored-flow-loader.js';
 import {
   describeFlowRequirements, flowRequirements, harnessFromCli, mergeFlowExtensionRequirements,
@@ -84,10 +85,13 @@ describe('flowRequirements on an authored definition', () => {
     expect(requirements.harnesses).toEqual([]);
   });
 
-  it('keeps the same provider once while preserving the stricter event-source requirement', () => {
-    const definition = getFlowDefinition(flow('digest', { tools: { slack: true } }, async (f) => { await f.slack.post('#a', 'b'); }));
-    expect(flowRequirements(definition, { sources: [{ provider: 'slack' }] }).integrations)
-      .toEqual([{ provider: 'slack', from: 'source', detail: '--on slack' }]);
+  it('keeps helper authority when the same provider is also an event source', () => {
+    const definition = getFlowDefinition(flow('digest', { tools: { github: true } }, async (f) => {
+      await f.github.issues.list({ owner: 'a', repo: 'b' });
+    }).on(github.issues(), async () => {}));
+    expect(flowRequirements(definition).integrations)
+      .toEqual([{ provider: 'github', from: 'tools', detail: 'tools.github' }]);
+    expect(helperAuthority(definition)).toEqual(new Set(['github']));
   });
 
   it('merges manifest-only extension requirements in declaration order', () => {

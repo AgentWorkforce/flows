@@ -233,6 +233,28 @@ describe('flows schedule / schedules / unschedule', () => {
     expect(refusal.message.includes('cli:auth')).toBe(expectsLogin);
   });
 
+  it.each([
+    ['session_required', true],
+    ['flow_repository_not_allowlisted', false],
+  ])('preserves the typed %s refusal when listing schedules', async (refusalCode, expectsLogin) => {
+    cloud({
+      '/api/v1/workflows/schedules': () => ({
+        status: 403,
+        body: { error: `refused as ${refusalCode}`, code: refusalCode },
+      }),
+    });
+    const out: string[] = [];
+
+    expect(await runCli(
+      ['schedules', '--json'],
+      { stdout: line => out.push(line), stderr: () => {} },
+    )).toBe(2);
+    const refusal = JSON.parse(out[0]!) as { code: string; message: string };
+    expect(refusal.code).toBe(refusalCode);
+    expect(refusal.message).toContain(`refused as ${refusalCode}`);
+    expect(refusal.message.includes('agent-relay cloud login')).toBe(expectsLogin);
+  });
+
   it('lists and deletes schedules', async () => {
     const calls = cloud({
       '/api/v1/workflows/schedules': () => ({ schedules: [SCHEDULE_ROW, { ...SCHEDULE_ROW, id: 'sched-2', name: 'monitor', status: 'paused', lastTriggeredAt: '2026-09-17T19:00:00.000Z', lastTriggerStatus: 'launched' }] }),

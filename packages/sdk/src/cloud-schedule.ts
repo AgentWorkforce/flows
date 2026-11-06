@@ -1,5 +1,5 @@
 import { cronGrid, everyToMs, parseCron, type ScheduleTriggerSource } from '@relayflows/surface';
-import { CloudFlowError, cloudFetch, cloudRequest, isCloudRecord, type CloudConnectionOptions } from './cloud-http.js';
+import { CloudFlowError, cloudFetch, isCloudRecord, type CloudConnectionOptions } from './cloud-http.js';
 import { cloudSubmissionBody, prepareCloudSubmission, type CloudFlowSource } from './cloud-run.js';
 import type { JsonValue } from './json-value.js';
 
@@ -150,7 +150,7 @@ function toCloudSchedule(row: Record<string, unknown>): CloudSchedule {
 }
 
 export async function listCloudSchedules(options: CloudConnectionOptions = {}): Promise<CloudSchedule[]> {
-  const payload = await cloudRequest('/api/v1/workflows/schedules', options);
+  const payload = await cloudFetch('/api/v1/workflows/schedules', options, { method: 'GET', detail: true });
   if (!isCloudRecord(payload) || !Array.isArray(payload.schedules)) {
     throw new CloudFlowError('invalid_response', 'Cloud did not return a schedules list.');
   }
