@@ -3,12 +3,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 use crate::JournalStoreError;
-
-/// Bounded retry for the WAL switch; see `Registry::open`. Named for the
-/// switch specifically -- these are not a general retry policy, and a search
-/// for "retry" elsewhere in the crate should not land on them by accident.
-const WAL_SWITCH_RETRY_ATTEMPTS: usize = 50;
-const WAL_SWITCH_RETRY_SLEEP_MS: u64 = 2;
+use crate::sqlite::{self, WalError};
 
 pub struct Registry {
     connection: Connection,
@@ -47,63 +42,29 @@ impl Registry {
             std::fs::create_dir_all(parent)?;
         }
         let connection = Connection::open(path)?;
-        // The WAL switch: `busy_timeout` does NOT cover it. SQLite takes an
-        // exclusive lock to change journal mode and does not invoke the busy
-        // handler for it, so a concurrent open fails immediately with
-        // `database is locked` however long the timeout is. Measured directly:
-        // with the timeout set first, the racing test still failed 36 times in
-        // 50, and instrumenting the batch statement-by-statement named
-        // `journal_mode` every time.
-        //
-        // So retry it explicitly. WAL is a persistent property of the file, so
-        // a loser here is racing a winner that is setting the same mode.
-        let mut mode = None;
-        for attempt in 0..WAL_SWITCH_RETRY_ATTEMPTS {
-            match connection.query_row("PRAGMA journal_mode = WAL", [], |row| {
-                row.get::<_, String>(0)
-            }) {
-                Ok(observed) => {
-                    mode = Some(observed);
-                    break;
-                }
-                Err(error) => {
-                    if attempt + 1 == WAL_SWITCH_RETRY_ATTEMPTS {
-                        return Err(error.into());
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(WAL_SWITCH_RETRY_SLEEP_MS));
-                }
+        // Fail closed. Swallowing a missed WAL switch would leave the
+        // registry in rollback-journal mode, and a reader would see a
+        // healthy open with none of the concurrency the mode is there
+        // to provide. The switch itself, and why it is not repeated once
+        // the file is already WAL, lives in `sqlite::ensure_wal`.
+        match sqlite::ensure_wal(&connection) {
+            Ok(()) => {}
+            Err(WalError::NotWal(actual)) => {
+                return Err(JournalStoreError::RegistryNotWal {
+                    path: path.to_path_buf(),
+                    actual,
+                });
             }
+            Err(WalError::Sqlite(error)) => return Err(error.into()),
         }
-        // Fail closed. Swallowing the error and continuing would leave the
-        // registry in rollback-journal mode silently, which is exactly the
-        // silent fallback this codebase refuses -- a reader would see a healthy
-        // open and lose the concurrency guarantee the mode is there to provide.
-        let mode = mode.unwrap_or_default();
-        if !mode.eq_ignore_ascii_case("wal") {
-            return Err(JournalStoreError::RegistryNotWal {
-                path: path.to_path_buf(),
-                actual: mode,
-            });
-        }
-
-        // busy_timeout goes on AFTER the WAL switch, deliberately.
-        //
-        // It makes ordinary statements wait instead of failing instantly, which
-        // is what two concurrent deliveries need. But the retry loop above is
-        // bounded in ATTEMPTS, not in wall-clock, so with a 5s timeout already
-        // armed a single open could block 50 x 5s. `crash_resume`'s sigkill
-        // sweep opens the registry many times over, and on a GitHub runner that
-        // compounded into a step that ran past 25 minutes and was cancelled
-        // (run 33960456965) while passing locally in 1.5s.
-        //
-        // Ordering is safe to choose freely here: measured against the seeded
-        // race, timeout-first and timeout-last behaved the same (36/50 and
-        // 34/50 lock failures). The WAL retry is what fixed that, not this.
-        connection.execute_batch(
-            "PRAGMA busy_timeout = 5000;
-             PRAGMA synchronous = FULL;
-
-             CREATE TABLE IF NOT EXISTS runs (
+        // DDL on every open re-takes the write lock just to notice the
+        // tables are already there. Lease renewals are that open. Skip it
+        // once the schema this process knows how to migrate is present;
+        // `schema_is_current` has to name every table and the `boot_id`
+        // column, or an old registry would never be migrated.
+        if !schema_is_current(&connection)? {
+            connection.execute_batch(
+                "CREATE TABLE IF NOT EXISTS runs (
                run_id TEXT PRIMARY KEY,
                file TEXT NOT NULL,
                status TEXT NOT NULL,
@@ -135,34 +96,33 @@ impl Registry {
                run_id TEXT NOT NULL,
                boot_id TEXT NOT NULL
              ) WITHOUT ROWID;",
-        )?;
-        // Trigger-plane liveness lives in a sibling module; its schema is
-        // concatenated so both files' invariants land in the same
-        // connection during initialization. See `subscriptions.rs` for
-        // the LIVENESS_SCHEMA_SQL contents and its rationale.
-        connection.execute_batch(crate::subscriptions::LIVENESS_SCHEMA_SQL)?;
-        // `CREATE TABLE IF NOT EXISTS` above is inert against a database that
-        // predates `boot_id`, so an existing registry needs the column added.
-        // A duplicate-column error means a prior open already did it; anything
-        // else is a real failure and must surface.
-        // Ask the table what it has rather than adding the column and reading
-        // the failure message. Matching on "duplicate column name" would couple
-        // this to SQLite's wording, which is not part of any contract.
-        let has_boot_id = connection
-            .prepare("PRAGMA table_info(event_dedupe)")?
-            .query_map([], |row| row.get::<_, String>(1))?
-            .collect::<Result<Vec<_>, _>>()?
-            .iter()
-            .any(|column| column == "boot_id");
-        if !has_boot_id {
-            connection.execute(
-                "ALTER TABLE event_dedupe ADD COLUMN boot_id TEXT NOT NULL DEFAULT ''",
-                [],
             )?;
+            // Trigger-plane liveness lives in a sibling module; its schema is
+            // concatenated so both files' invariants land in the same
+            // connection during initialization. See `subscriptions.rs` for
+            // the LIVENESS_SCHEMA_SQL contents and its rationale.
+            connection.execute_batch(crate::subscriptions::LIVENESS_SCHEMA_SQL)?;
+            // `CREATE TABLE IF NOT EXISTS` above is inert against a database that
+            // predates `boot_id`, so an existing registry needs the column added.
+            // Ask the table what it has rather than adding the column and reading
+            // the failure message. Matching on "duplicate column name" would couple
+            // this to SQLite's wording, which is not part of any contract.
+            let has_boot_id = connection
+                .prepare("PRAGMA table_info(event_dedupe)")?
+                .query_map([], |row| row.get::<_, String>(1))?
+                .collect::<Result<Vec<_>, _>>()?
+                .iter()
+                .any(|column| column == "boot_id");
+            if !has_boot_id {
+                connection.execute(
+                    "ALTER TABLE event_dedupe ADD COLUMN boot_id TEXT NOT NULL DEFAULT ''",
+                    [],
+                )?;
+            }
+            // Rows written before this column existed carry '', which matches no
+            // live boot id, so they are treated as belonging to a previous boot --
+            // which is exactly right: the process that wrote them is gone.
         }
-        // Rows written before this column existed carry '', which matches no
-        // live boot id, so they are treated as belonging to a previous boot --
-        // which is exactly right: the process that wrote them is gone.
         Ok(Self { connection })
     }
 
@@ -409,6 +369,31 @@ impl Registry {
         )?;
         Ok(())
     }
+}
+
+/// Every table `open` creates, plus the `boot_id` column added after the
+/// fact. A miss falls through to DDL; a hit must not, or every heartbeat
+/// takes a write lock to recreate schema that is already there.
+fn schema_is_current(connection: &Connection) -> Result<bool, rusqlite::Error> {
+    let names = {
+        let mut statement = connection.prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN \
+             ('runs', 'event_dedupe', 'run_admissions', 'subscriptions', 'sweep_claims')",
+        )?;
+        statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    if names.len() != 5 {
+        return Ok(false);
+    }
+    let columns = {
+        let mut statement = connection.prepare("PRAGMA table_info(event_dedupe)")?;
+        statement
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    Ok(columns.iter().any(|column| column == "boot_id"))
 }
 
 #[cfg(test)]
@@ -733,5 +718,161 @@ mod tests {
         let record = registry.lookup("run").unwrap().unwrap();
         assert_eq!(record.file, run_file);
         assert_eq!(record.status, "completed");
+    }
+
+    fn waiting_run(path: &std::path::Path) {
+        let registry = Registry::open(path).unwrap();
+        registry
+            .register("run", std::path::Path::new("run.sqlite3"))
+            .unwrap();
+        registry
+            .set_status("run", "waiting_worker", Some(1))
+            .unwrap();
+        let timeout: i64 = registry
+            .connection()
+            .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(timeout, crate::sqlite::BUSY_TIMEOUT.as_millis() as i64);
+        let mode: String = registry
+            .connection()
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .unwrap();
+        assert!(mode.eq_ignore_ascii_case("wal"), "{mode}");
+    }
+
+    /// A reader must not block a lease renewal. Rollback-journal mode would,
+    /// and the renewal would sit until `busy_timeout` and then fail the
+    /// heartbeat. WAL is what makes the write commit while the read is open.
+    #[test]
+    fn renew_deadline_commits_while_another_connection_holds_a_read() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("r.sqlite3");
+        waiting_run(&path);
+
+        let holder = Registry::open(&path).unwrap();
+        holder.connection().execute_batch("BEGIN").unwrap();
+        let _count: i64 = holder
+            .connection()
+            .query_row("SELECT COUNT(*) FROM runs", [], |row| row.get(0))
+            .unwrap();
+
+        let path_for_writer = path.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let outcome = (|| -> Result<bool, JournalStoreError> {
+                let registry = Registry::open(&path_for_writer)?;
+                registry.renew_deadline("run", 50)
+            })();
+            tx.send(outcome.map_err(|error| error.to_string())).ok();
+        });
+
+        let renewed = rx.recv_timeout(std::time::Duration::from_secs(2));
+        drop(holder);
+        worker.join().unwrap();
+        assert_eq!(
+            renewed.expect("renewal blocked on a reader; journal is not WAL"),
+            Ok(true)
+        );
+        let record = Registry::open(&path)
+            .unwrap()
+            .lookup("run")
+            .unwrap()
+            .unwrap();
+        assert_eq!(record.next_wake_at_ms, Some(50));
+    }
+
+    /// The other connection's open happens *while* the write is held, which
+    /// is the heartbeat path: `Registry::open` then `renew_deadline`. The
+    /// old open re-ran `PRAGMA journal_mode = WAL` and gave up in ~100ms
+    /// because that switch ignores `busy_timeout`.
+    #[test]
+    fn renew_deadline_waits_out_a_short_write_instead_of_failing_locked() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::{Arc, Barrier};
+
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("r.sqlite3");
+        waiting_run(&path);
+
+        let holder = Registry::open(&path).unwrap();
+        holder
+            .connection()
+            .execute_batch("BEGIN IMMEDIATE")
+            .unwrap();
+        holder
+            .connection()
+            .execute(
+                "UPDATE runs SET next_wake_at_ms = 2 WHERE run_id = 'run'",
+                [],
+            )
+            .unwrap();
+
+        let path_for_writer = path.clone();
+        let release = Arc::new(Barrier::new(2));
+        let started = Arc::new(AtomicBool::new(false));
+        let release_for_writer = release.clone();
+        let started_for_writer = started.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            release_for_writer.wait();
+            started_for_writer.store(true, Ordering::SeqCst);
+            let outcome = (|| -> Result<bool, JournalStoreError> {
+                let registry = Registry::open(&path_for_writer)?;
+                registry.renew_deadline("run", 99)
+            })();
+            tx.send(outcome.map_err(|error| error.to_string())).ok();
+        });
+
+        release.wait();
+        let give_up = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while !started.load(Ordering::SeqCst) {
+            assert!(
+                std::time::Instant::now() < give_up,
+                "renewing connection did not start"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let early = rx.recv_timeout(std::time::Duration::from_millis(400));
+        assert!(
+            matches!(early, Err(std::sync::mpsc::RecvTimeoutError::Timeout)),
+            "renewal finished while the write was still open: {early:?}"
+        );
+
+        holder.connection().execute_batch("COMMIT").unwrap();
+        let renewed = rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("renewal did not finish after the writer committed");
+        worker.join().unwrap();
+        assert_eq!(
+            renewed,
+            Ok(true),
+            "a lock that clears must not fail the renewal"
+        );
+        let record = Registry::open(&path)
+            .unwrap()
+            .lookup("run")
+            .unwrap()
+            .unwrap();
+        assert_eq!(record.next_wake_at_ms, Some(99));
+    }
+
+    /// A write that cannot commit is still an error. Waiting out a lock
+    /// must not turn into swallowing the failure.
+    #[test]
+    fn renew_deadline_does_not_swallow_a_write_that_cannot_commit() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("r.sqlite3");
+        waiting_run(&path);
+        let registry = Registry::open(&path).unwrap();
+        registry
+            .connection()
+            .execute_batch("PRAGMA query_only = ON")
+            .unwrap();
+        let error = registry.renew_deadline("run", 5).unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.contains("readonly") || message.contains("read-only"),
+            "{message}"
+        );
     }
 }
