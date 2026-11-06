@@ -118,7 +118,10 @@ export async function ensureIntegrationsConnected(
     if (!await options.prompt.confirm(`Connect ${label} now? (opens browser) [Y/n] `)) {
       throw notConnected(integration, options);
     }
-    await connectIntegration(integration.provider, options, options.prompt);
+    const connectedProbe = await connectIntegration(integration.provider, options, options.prompt);
+    if (needsEventIngress(integration) && eventIngressReady(connectedProbe.status) === false) {
+      throw eventIngressNotReady(integration, connectedProbe.status);
+    }
     outcome.connected.push(integration.provider);
   }
   return outcome;
@@ -163,7 +166,9 @@ function notReady(integration: FlowIntegrationRequirement, status: Record<string
     + `${details === '' ? '.' : `: ${details}.`} ${remedy}`);
 }
 
-async function connectIntegration(provider: string, options: EnsureConnectionsOptions, prompt: ConnectPrompt): Promise<void> {
+async function connectIntegration(
+  provider: string, options: EnsureConnectionsOptions, prompt: ConnectPrompt,
+): Promise<IntegrationProbe> {
   const base = `/api/v1/workspaces/${encodeURIComponent(options.workspaceId)}/integrations`;
   const session = await cloudFetch(`${base}/connect-session`, options, {
     method: 'POST', detail: true,
@@ -188,9 +193,10 @@ async function connectIntegration(provider: string, options: EnsureConnectionsOp
   while (Date.now() < deadline) {
     await sleep(interval, options.signal);
     options.signal?.throwIfAborted();
-    if (await integrationConnected(options.workspaceId, provider, options)) {
+    const probe = await probeIntegration(options.workspaceId, provider, options);
+    if (probe.ready) {
       prompt.info(`${providerLabel(provider)} connected.`);
-      return;
+      return probe;
     }
   }
   throw new CloudFlowError('integration_not_connected',

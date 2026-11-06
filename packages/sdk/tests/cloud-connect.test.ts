@@ -253,6 +253,31 @@ describe('ensureIntegrationsConnected', () => {
     expect(lines[0]).toBe('This flow needs Slack (tools.slack), which is not connected to this workspace.');
   });
 
+  it('checks GitLab event ingress after an interactive connection becomes sync-ready', async () => {
+    let polls = 0;
+    const status = '/api/v1/workspaces/ws-1/integrations/gitlab/status';
+    const calls = cloud({
+      [status]: () => polls++ === 0
+        ? { ready: false }
+        : { ready: true, state: 'ready', eventIngressReady: false },
+      [SESSION]: () => ({ connectLink: 'https://cloud-contract.example/connect/gitlab', workspaceId: 'ws-1' }),
+    });
+    const requirements = flowRequirements({}, { sources: [{ provider: 'gitlab' }] });
+
+    await expect(ensureIntegrationsConnected(requirements, {
+      workspaceId: 'ws-1',
+      prompt: prompt(true),
+      sleep: noSleep,
+      pollIntervalMs: 1,
+    })).rejects.toMatchObject({
+      code: 'integration_not_ready',
+      message: expect.stringMatching(/webhook ingress is not verified.*deliver a test event/isu),
+    });
+
+    expect(calls.filter(call => call.path === status)).toHaveLength(2);
+    expect(calls.filter(call => call.path === SESSION)).toHaveLength(1);
+  });
+
   it('accepts the older sessionUrl name and refuses a non-https link', async () => {
     cloud({ [STATUS]: () => ({ ready: false }), [SESSION]: () => ({ sessionUrl: 'http://cloud-contract.example/connect/abc' }) });
     await expect(ensureIntegrationsConnected(SLACK, { workspaceId: 'ws-1', prompt: prompt(true), sleep: noSleep }))
