@@ -370,7 +370,7 @@ describe('flows deploy / flows deployments', () => {
     const errors: string[] = [];
     expect(await runCli(['deploy', path, '--repo', 'o/r', '--on', 'github', '--approver', 'k', '--json'],
       { stdout: line => errors.push(line), stderr: () => {} })).toBe(2);
-    expect(JSON.parse(errors[0]!)).toMatchObject({ ok: false, code: 'http_error' });
+    expect(JSON.parse(errors[0]!)).toMatchObject({ ok: false, code: 'session_required' });
     expect(errors[0]).toContain('agent-relay cloud login');
   });
 
@@ -392,6 +392,7 @@ describe('flows deploy / flows deployments', () => {
       '--on', 'gitlab', '--approver', 'julian.fann', '--json',
     ], { stdout: line => errors.push(line), stderr: () => {} })).toBe(2);
     const refusal = JSON.parse(errors[0]!) as { message: string };
+    expect(JSON.parse(errors[0]!)).toMatchObject({ code: 'flow_repository_not_allowlisted' });
     expect(refusal.message).toContain('Select nabis-engineering/it/nabis-slack-atlas');
     expect(refusal.message).not.toContain('agent-relay cloud login');
     expect(refusal.message).not.toContain('cli:auth');

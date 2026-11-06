@@ -200,7 +200,7 @@ export async function runCloudUndeployCli({ agentId, json }: { agentId: string; 
 }
 
 export function reportCloudFailure(error: unknown, json: boolean, io: CliIo, harnesses: readonly string[] = []): 1 | 2 {
-  const code = error instanceof CloudFlowError ? error.code : 'cloud_deploy_failed';
+  const code = error instanceof CloudFlowError ? error.refusal?.code ?? error.code : 'cloud_deploy_failed';
   let message = error instanceof Error ? error.message : 'Cloud deploy failed.';
   // Cloud names the missing coding-agent credential on activation; say how it is connected.
   message += harnessRemedy(error, harnesses);
