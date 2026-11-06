@@ -18,6 +18,13 @@ const sourceSha256 = createHash('sha256').update(workflow).digest('hex');
 const authority = { source: { sha256: sourceSha256, surface }, artifact: { sha256: 'original-artifact' } };
 const submitted = { schemaVersion: 1, sourceSha256, byteLength: Buffer.byteLength(workflow), surface };
 const wait = { waitId: 'human-2', question: 'Ship this?', to: 'slack:#eng' };
+const answerRoute = (humanAnswer?: { waitId: string; answer: boolean; note?: string }) => ({
+  runId: RUN,
+  humanWait: wait,
+  ...(humanAnswer === undefined ? {} : { humanAnswer: {
+    ...humanAnswer, answeredBy: 'khaliq@agent-relay.com', at: '2026-11-06T16:41:08.000Z',
+  } }),
+});
 const parked = { runId: RUN, relayflowVersion: 'v2', status: 'failed', workflow,
   relayflowV2Authority: authority, workspaceId: 'original-workspace',
   result: { completionReason: 'needs_human', humanWait: wait } };
@@ -39,8 +46,10 @@ function cloud(replies: Reply[]) {
   });
   return calls;
 }
-function replies(record = parked): Reply[] {
-  return [{ body: record }, { body: { humanWait: wait } }, { body: { ok: true } },
+function replies(record = parked, answer = true, note?: string): Reply[] {
+  const recorded = { waitId: wait.waitId, answer, ...(note === undefined ? {} : { note }) };
+  return [{ body: record }, { body: answerRoute() }, { body: { ...answerRoute(recorded),
+    next: { resume: `POST /api/v1/workflows/run with { "resume": "${RUN}" }` } } },
     { body: record }, { body: { runId: 'resumed-1', status: 'pending' } }];
 }
 function capture() {
@@ -53,8 +62,8 @@ function env() {
 
 describe('Cloud answer and resume', () => {
   it('discovers the wait, answers, rechecks and resumes using original authority without inputs', async () => {
-    const calls = cloud(replies({ ...parked, relayflowV2RunBudgetMinutes: 120 }));
-    expect(await answerCloudFlow(RUN, true, { ...options, note: 'reviewed' })).toEqual({
+    const calls = cloud(replies({ ...parked, relayflowV2RunBudgetMinutes: 120 }, true, 'reviewed'));
+    expect(await answerCloudFlow(RUN, true, { ...options, note: ' reviewed ' })).toEqual({
       runId: 'resumed-1', resumedFrom: RUN, waitId: 'human-2', answer: true, resumedByCloud: false,
     });
     expect(calls.map(c => [c.method, c.path])).toEqual([
@@ -117,7 +126,7 @@ describe('Cloud answer and resume', () => {
   it('reads --source as bytes to recover a truncated stored copy', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'cloud-answer-')); dirs.push(dir);
     const source = join(dir, 'original.flow.ts'); await writeFile(source, workflow);
-    const calls = cloud(replies({ ...parked, workflow: 'prefix' }));
+    const calls = cloud(replies({ ...parked, workflow: 'prefix' }, false));
     await answerCloudFlow(RUN, false, { ...options, source });
     expect(calls[4]!.body).toMatchObject({ workflow });
   });
@@ -130,9 +139,10 @@ describe('Cloud answer and resume', () => {
     expect(calls).toHaveLength(2);
   });
 
-  it.each([{}, { runId: 'different-run', humanWait: wait }, { openWaits: [wait, { ...wait, waitId: 'human-3' }] },
-    { humanWait: { waitId: 'approval' } }, { humanWait: { ...wait, waitId: 'human-3' } },
-    { humanWait: wait, openWaits: [wait] }, { answer: { waitId: 'human-2', answer: 'yes' } }])('refuses absent, ambiguous or inconsistent waits: %j', async body => {
+  it.each([{}, { runId: 'different-run', humanWait: wait }, { runId: RUN, openWaits: [wait, { ...wait, waitId: 'human-3' }] },
+    { runId: RUN, humanWait: { waitId: 'approval' } }, { runId: RUN, humanWait: { ...wait, waitId: 'human-3' } },
+    { runId: RUN, humanWait: wait, openWaits: [wait] },
+    { runId: RUN, humanWait: wait, humanAnswer: { waitId: 'human-2', answer: 'yes' } }])('refuses absent, ambiguous or inconsistent waits: %j', async body => {
     const calls = cloud([{ body: parked }, { body }]);
     await expect(answerCloudFlow(RUN, true, options)).rejects.toMatchObject({ code: 'invalid_response' });
     expect(calls.every(c => c.method === 'GET')).toBe(true);
@@ -146,21 +156,23 @@ describe('Cloud answer and resume', () => {
   });
 
   it('retries from an identical recorded answer without answering twice', async () => {
-    const calls = cloud([{ body: parked }, { body: { humanWait: null, answer: { waitId: 'human-2', answer: true } } },
+    const calls = cloud([{ body: parked }, { body: answerRoute({ waitId: 'human-2', answer: true, note: 'reviewed' }) },
       { body: parked }, { body: { runId: 'resumed-1', status: 'pending' } }]);
-    await answerCloudFlow(RUN, true, options);
+    await answerCloudFlow(RUN, true, { ...options, note: ' reviewed ' });
     expect(calls.filter(c => c.method === 'POST').map(c => c.path)).toEqual(['/api/v1/workflows/run']);
   });
 
   it('discovers a humanWait beside a null openWaits', async () => {
-    const sequence = replies(); sequence[1] = { body: { humanWait: wait, openWaits: null } };
+    const sequence = replies(); sequence[1] = { body: { ...answerRoute(), openWaits: null } };
     const calls = cloud(sequence);
     expect(await answerCloudFlow(RUN, true, options)).toMatchObject({ waitId: 'human-2', runId: 'resumed-1' });
     expect(calls).toHaveLength(5);
   });
 
   it('treats a null recorded note as absent and resumes without answering twice', async () => {
-    const calls = cloud([{ body: parked }, { body: { humanWait: null, answer: { waitId: 'human-2', answer: true, note: null } } },
+    const calls = cloud([{ body: parked }, { body: { ...answerRoute(), humanAnswer: {
+      waitId: 'human-2', answer: true, note: null, answeredBy: 'khaliq@agent-relay.com', at: '2026-11-06T16:41:08.000Z',
+    } } },
       { body: parked }, { body: { runId: 'resumed-1', status: 'pending' } }]);
     await answerCloudFlow(RUN, true, options);
     expect(calls.filter(c => c.method === 'POST').map(c => c.path)).toEqual(['/api/v1/workflows/run']);
@@ -181,12 +193,11 @@ describe('Cloud answer and resume', () => {
     expect(calls).toHaveLength(4);
   });
 
-  it('answers the open wait when the answer route still holds an earlier gate\'s decision', async () => {
-    const sequence = replies();
-    sequence[1] = { body: { humanWait: wait, answer: { waitId: 'human-1', answer: false, note: 'earlier gate' } } };
-    const calls = cloud(sequence);
-    expect(await answerCloudFlow(RUN, true, options)).toMatchObject({ waitId: 'human-2', runId: 'resumed-1' });
-    expect(calls[2]).toMatchObject({ method: 'POST', path: `${path}/answer`, body: { waitId: 'human-2', answer: true } });
+  it('refuses a current wait paired with an earlier gate answer without writes', async () => {
+    const calls = cloud([{ body: parked }, { body: { runId: RUN, humanWait: wait,
+      humanAnswer: { waitId: 'human-1', answer: false, note: 'earlier gate' } } }]);
+    await expect(answerCloudFlow(RUN, true, options)).rejects.toMatchObject({ code: 'invalid_response' });
+    expect(calls.every(c => c.method === 'GET')).toBe(true);
   });
 
   it('does not report a run cancelled after the answer as resumed', async () => {
@@ -196,21 +207,21 @@ describe('Cloud answer and resume', () => {
     expect(calls).toHaveLength(4);
   });
 
-  it('retries with --note when the recorded answer omits its optional note', async () => {
-    const calls = cloud([{ body: parked }, { body: { humanWait: null, answer: { waitId: 'human-2', answer: true } } },
-      { body: parked }, { body: { runId: 'resumed-1', status: 'pending' } }]);
-    await answerCloudFlow(RUN, true, { ...options, note: 'reviewed' });
-    expect(calls.filter(c => c.method === 'POST').map(c => c.path)).toEqual(['/api/v1/workflows/run']);
+  it('refuses a known answer that omits the requested note without writes', async () => {
+    const calls = cloud([{ body: parked }, { body: answerRoute({ waitId: 'human-2', answer: true }) }]);
+    await expect(answerCloudFlow(RUN, true, { ...options, note: 'reviewed' }))
+      .rejects.toThrow('recorded answer differs');
+    expect(calls.every(c => c.method === 'GET')).toBe(true);
   });
 
   it('refuses a recorded note that differs from --note without writes', async () => {
-    const calls = cloud([{ body: parked }, { body: { answer: { waitId: 'human-2', answer: true, note: 'other' } } }]);
+    const calls = cloud([{ body: parked }, { body: answerRoute({ waitId: 'human-2', answer: true, note: 'other' }) }]);
     await expect(answerCloudFlow(RUN, true, { ...options, note: 'reviewed' })).rejects.toThrow('recorded answer differs');
     expect(calls).toHaveLength(2);
   });
 
   it('refuses a conflicting recorded answer without writes', async () => {
-    const calls = cloud([{ body: parked }, { body: { answer: { waitId: 'human-2', answer: false } } }]);
+    const calls = cloud([{ body: parked }, { body: answerRoute({ waitId: 'human-2', answer: false }) }]);
     await expect(answerCloudFlow(RUN, true, options)).rejects.toThrow('recorded answer differs');
     expect(calls).toHaveLength(2);
   });
@@ -232,13 +243,19 @@ describe('Cloud answer and resume', () => {
   });
 
   it('does not resume after an answer refusal in a successful HTTP response', async () => {
-    const sequence = replies(); sequence[2] = { body: { ok: false, error: 'not accepted' } };
+    const sequence = replies(); sequence[2] = { body: { ...answerRoute({ waitId: 'human-2', answer: true }), error: 'not accepted' } };
     const calls = cloud(sequence);
     await expect(answerCloudFlow(RUN, true, options)).rejects.toMatchObject({ answerRecorded: false });
     expect(calls).toHaveLength(3);
   });
 
-  it.each([{}, { ok: null }, { ok: 'true' }, { status: 'recorded' }])('does not resume after an unconfirmed answer acknowledgement %j', async ack => {
+  it.each([{}, { ok: true }, { runId: RUN, humanWait: wait },
+    { ...answerRoute({ waitId: 'human-2', answer: true }), runId: 'different-run' },
+    { ...answerRoute({ waitId: 'human-3', answer: true }) },
+    { ...answerRoute({ waitId: 'human-2', answer: false }) },
+    { ...answerRoute({ waitId: 'human-2', answer: true, note: 'other' }) },
+    { ...answerRoute({ waitId: 'human-2', answer: true }), answer: { waitId: 'human-2', answer: true } },
+  ])('does not resume after an unconfirmed answer acknowledgement %j', async ack => {
     const sequence = replies(); sequence[2] = { body: ack };
     const calls = cloud(sequence);
     await expect(answerCloudFlow(RUN, true, options)).rejects.toMatchObject({ answerRecorded: false });
