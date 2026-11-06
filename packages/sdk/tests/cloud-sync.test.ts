@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, truncate, utimes, writeFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -54,7 +55,9 @@ function cloud(routes: Record<string, (call: Call) => unknown>) {
     calls.push(call);
     const route = Object.keys(routes).find(prefix => path.startsWith(prefix));
     if (!route) return new Response('{"error":"not found"}', { status: 404 });
-    return new Response(JSON.stringify(routes[route]!(call)), { status: 200, headers: { 'content-type': 'application/json' } });
+    const answer = routes[route]!(call);
+    return answer instanceof Response ? answer
+      : new Response(JSON.stringify(answer), { status: 200, headers: { 'content-type': 'application/json' } });
   });
   vi.stubEnv('FLOWS_CLOUD_URL', 'https://cloud-contract.example');
   vi.stubEnv('FLOWS_CLOUD_TOKEN', 'test-scoped-cloud-token');
@@ -275,6 +278,173 @@ describe('prepareCloudSync', () => {
 });
 
 describe('runInCloud with syncCode', () => {
+  it('prepares and uploads once when a cache hit disappears before submission', async () => {
+    const root = await tempDir('cloud-sync-cache-disappeared-');
+    const spoolRoot = await tempDir('cloud-sync-recovery-spool-');
+    await writeFile(join(root, 'flow.yaml'), JSON.stringify({
+      version: '0.1.0', name: 'synced', steps: [{ id: 'ls', type: 'deterministic', command: 'ls' }],
+    }));
+    const dataPath = join(root, 'data.txt');
+    await writeFile(dataPath, 'packed-before-submit');
+    vi.stubEnv('TMPDIR', spoolRoot);
+    let prepares = 0;
+    let submits = 0;
+    const onSubmit = vi.fn();
+    const { calls, options } = cloud({
+      '/api/v1/workflows/prepare': ({ body }) => {
+        prepares++;
+        if (prepares === 1) {
+          const digest = (body as { codeSha256: string }).codeSha256;
+          return { ...PREPARED, runId: 'stale-run', s3CodeKey: `code-sha256-${digest}.tar.gz`,
+            codeCache: { sha256: digest, hit: true } };
+        }
+        expect(body).toBeUndefined(); // force a fresh upload, even if another cache hit is reported
+        return { ...PREPARED, runId: 'recovered-run' };
+      },
+      '/api/v1/workflows/runs/recovered-run/storage/': () => ({ ok: true }),
+      '/api/v1/workflows/run': () => {
+        submits++;
+        if (submits === 1) {
+          writeFileSync(dataPath, 'changed-after-submit');
+          return new Response(JSON.stringify({ error: 'workflow_code_unavailable' }), {
+            status: 503, headers: { 'content-type': 'application/json' },
+          });
+        }
+        return { runId: 'recovered-run', status: 'pending' };
+      },
+    });
+
+    const receipt = await runInCloud({ path: join(root, 'flow.yaml') },
+      { ...options, syncCode: { root }, onSubmit });
+
+    expect(receipt.runId).toBe('recovered-run');
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(calls.map(call => [call.method, call.path])).toEqual([
+      ['POST', '/api/v1/workflows/prepare'],
+      ['POST', '/api/v1/workflows/run'],
+      ['POST', '/api/v1/workflows/prepare'],
+      ['PUT', '/api/v1/workflows/runs/recovered-run/storage/code.tar.gz'],
+      ['POST', '/api/v1/workflows/run'],
+    ]);
+    expect(calls.at(-1)!.body).toMatchObject({ runId: 'recovered-run', s3CodeKey: 'code.tar.gz' });
+    const recoveredArchive = calls.find(call => call.method === 'PUT')!.body as Buffer;
+    expect(gunzipSync(recoveredArchive).toString('latin1')).toContain('packed-before-submit');
+    expect(gunzipSync(recoveredArchive).toString('latin1')).not.toContain('changed-after-submit');
+    expect(await readdir(spoolRoot)).toEqual([]);
+  });
+
+  it('makes only one recovery attempt and leaves unrelated run errors alone', async () => {
+    const root = await tempDir('cloud-sync-cache-recovery-limit-');
+    const spoolRoot = await tempDir('cloud-sync-recovery-failure-spool-');
+    vi.stubEnv('TMPDIR', spoolRoot);
+    await writeFile(join(root, 'flow.yaml'), JSON.stringify({
+      version: '0.1.0', name: 'synced', steps: [{ id: 'ls', type: 'deterministic', command: 'ls' }],
+    }));
+    let prepares = 0;
+    const missing = () => new Response(JSON.stringify({ error: 'workflow_code_unavailable' }), {
+      status: 503, headers: { 'content-type': 'application/json' },
+    });
+    const { calls, options } = cloud({
+      '/api/v1/workflows/prepare': ({ body }) => {
+        prepares++;
+        if (prepares === 1) {
+          const digest = (body as { codeSha256: string }).codeSha256;
+          return { ...PREPARED, runId: 'stale-run', s3CodeKey: `code-sha256-${digest}.tar.gz`,
+            codeCache: { sha256: digest, hit: true } };
+        }
+        return { ...PREPARED, runId: 'recovered-run' };
+      },
+      '/api/v1/workflows/runs/recovered-run/storage/': () => ({ ok: true }),
+      '/api/v1/workflows/run': missing,
+    });
+    await expect(runInCloud({ path: join(root, 'flow.yaml') }, { ...options, syncCode: { root } }))
+      .rejects.toMatchObject({ status: 503, refusal: { code: 'workflow_code_unavailable' } });
+    expect(prepares).toBe(2);
+    expect(calls.filter(call => call.path === '/api/v1/workflows/run')).toHaveLength(2);
+    expect(calls.filter(call => call.method === 'PUT')).toHaveLength(1);
+    expect(await readdir(spoolRoot)).toEqual([]);
+
+    calls.length = 0;
+    prepares = 0;
+    vi.restoreAllMocks();
+    const unrelated = cloud({
+      '/api/v1/workflows/prepare': ({ body }) => {
+        prepares++;
+        const digest = (body as { codeSha256: string }).codeSha256;
+        return { ...PREPARED, s3CodeKey: `code-sha256-${digest}.tar.gz`,
+          codeCache: { sha256: digest, hit: true } };
+      },
+      '/api/v1/workflows/run': () => new Response(JSON.stringify({ error: 'capacity_unavailable' }), {
+        status: 503, headers: { 'content-type': 'application/json' },
+      }),
+    });
+    await expect(runInCloud({ path: join(root, 'flow.yaml') }, { ...unrelated.options, syncCode: { root } }))
+      .rejects.toMatchObject({ status: 503, refusal: { code: 'capacity_unavailable' } });
+    expect(prepares).toBe(1);
+    expect(unrelated.calls.filter(call => call.path === '/api/v1/workflows/run')).toHaveLength(1);
+    expect(unrelated.calls.filter(call => call.method === 'PUT')).toHaveLength(0);
+    expect(await readdir(spoolRoot)).toEqual([]);
+  });
+
+  it('does not resubmit a terminalized run ID or retry unrelated submission failures', async () => {
+    const root = await tempDir('cloud-sync-cache-recovery-safety-');
+    await writeFile(join(root, 'flow.yaml'), JSON.stringify({
+      version: '0.1.0', name: 'synced', steps: [{ id: 'ls', type: 'deterministic', command: 'ls' }],
+    }));
+    let prepares = 0;
+    const { calls, options } = cloud({
+      '/api/v1/workflows/prepare': ({ body }) => {
+        prepares++;
+        if (prepares === 1) {
+          const digest = (body as { codeSha256: string }).codeSha256;
+          return { ...PREPARED, runId: 'stale-run', s3CodeKey: `code-sha256-${digest}.tar.gz`,
+            codeCache: { sha256: digest, hit: true } };
+        }
+        return { ...PREPARED, runId: 'stale-run' };
+      },
+      '/api/v1/workflows/run': () => new Response(JSON.stringify({ error: 'workflow_code_unavailable' }), {
+        status: 503, headers: { 'content-type': 'application/json' },
+      }),
+    });
+    await expect(runInCloud({ path: join(root, 'flow.yaml') }, { ...options, syncCode: { root } }))
+      .rejects.toMatchObject({ code: 'invalid_response' });
+    expect(calls.filter(call => call.path === '/api/v1/workflows/run')).toHaveLength(1);
+    expect(calls.filter(call => call.method === 'PUT')).toHaveLength(0);
+
+    vi.restoreAllMocks();
+    const ambiguous = cloud({
+      '/api/v1/workflows/prepare': ({ body }) => {
+        const digest = (body as { codeSha256: string }).codeSha256;
+        return { ...PREPARED, s3CodeKey: `code-sha256-${digest}.tar.gz`,
+          codeCache: { sha256: digest, hit: true } };
+      },
+      '/api/v1/workflows/run': () => { throw new TypeError('connection lost'); },
+    });
+    await expect(runInCloud({ path: join(root, 'flow.yaml') }, { ...ambiguous.options, syncCode: { root } }))
+      .rejects.toMatchObject({ code: 'transport_error' });
+    expect(ambiguous.calls.filter(call => call.path === '/api/v1/workflows/prepare')).toHaveLength(1);
+    expect(ambiguous.calls.filter(call => call.path === '/api/v1/workflows/run')).toHaveLength(1);
+    expect(ambiguous.calls.filter(call => call.method === 'PUT')).toHaveLength(0);
+
+    vi.restoreAllMocks();
+    const cacheMiss = cloud({
+      '/api/v1/workflows/prepare': ({ body }) => {
+        const digest = (body as { codeSha256: string }).codeSha256;
+        return { ...PREPARED, s3CodeKey: `code-sha256-${digest}.tar.gz`,
+          codeCache: { sha256: digest, hit: false } };
+      },
+      '/api/v1/workflows/runs/prepared-run/storage/': () => ({ ok: true }),
+      '/api/v1/workflows/run': () => new Response(JSON.stringify({ error: 'workflow_code_unavailable' }), {
+        status: 503, headers: { 'content-type': 'application/json' },
+      }),
+    });
+    await expect(runInCloud({ path: join(root, 'flow.yaml') }, { ...cacheMiss.options, syncCode: { root } }))
+      .rejects.toMatchObject({ status: 503, refusal: { code: 'workflow_code_unavailable' } });
+    expect(cacheMiss.calls.filter(call => call.path === '/api/v1/workflows/prepare')).toHaveLength(1);
+    expect(cacheMiss.calls.filter(call => call.path === '/api/v1/workflows/run')).toHaveLength(1);
+    expect(cacheMiss.calls.filter(call => call.method === 'PUT')).toHaveLength(1);
+  });
+
   it('uploads once for identical trees and uploads again after a one-byte change', async () => {
     const root = await tempDir('cloud-sync-cache-');
     await writeFile(join(root, 'flow.yaml'), JSON.stringify({
