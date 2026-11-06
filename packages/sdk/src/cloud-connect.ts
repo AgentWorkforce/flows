@@ -30,6 +30,8 @@ export interface ConnectPrompt {
 
 export interface EnsureConnectionsOptions extends CloudConnectionOptions {
   workspaceId: string;
+  /** Providers this submission is activating as hosted event listeners. Direct runs and schedules omit this. */
+  eventIngressProviders?: readonly string[];
   /** Omitted (`--no-connect`, or no TTY) means a missing integration is a refusal, never a prompt. */
   prompt?: ConnectPrompt;
   /** Status poll cadence while the browser connect is pending. Default 2 seconds. */
@@ -105,6 +107,9 @@ export async function ensureIntegrationsConnected(
     options.signal?.throwIfAborted();
     const probe = await probeIntegration(options.workspaceId, integration.provider, options);
     if (probe.ready) {
+      if (needsEventIngress(integration, options) && eventIngressReady(probe.status) === false) {
+        throw eventIngressNotReady(integration, probe.status);
+      }
       outcome.ready.push(integration.provider);
       continue;
     }
@@ -115,10 +120,39 @@ export async function ensureIntegrationsConnected(
     if (!await options.prompt.confirm(`Connect ${label} now? (opens browser) [Y/n] `)) {
       throw notConnected(integration, options);
     }
-    await connectIntegration(integration.provider, options, options.prompt);
+    const connectedProbe = await connectIntegration(integration.provider, options, options.prompt);
+    if (needsEventIngress(integration, options) && eventIngressReady(connectedProbe.status) === false) {
+      throw eventIngressNotReady(integration, connectedProbe.status);
+    }
     outcome.connected.push(integration.provider);
   }
   return outcome;
+}
+
+function needsEventIngress(
+  integration: FlowIntegrationRequirement, options: EnsureConnectionsOptions,
+): boolean {
+  return integration.provider === 'gitlab'
+    && options.eventIngressProviders?.includes(integration.provider) === true;
+}
+
+function eventIngressReady(status: Record<string, unknown> | null): boolean | null {
+  if (status === null) return null;
+  return typeof status['eventIngressReady'] === 'boolean' ? status['eventIngressReady'] : null;
+}
+
+function eventIngressNotReady(
+  integration: FlowIntegrationRequirement,
+  status: Record<string, unknown> | null,
+): CloudFlowError {
+  const label = providerLabel(integration.provider);
+  const details = readinessDetails(status);
+  return new CloudFlowError('integration_not_ready',
+    `${label} is ready for scheduled sync, but webhook ingress is not verified for this flow source (${integration.detail})`
+    + `${details === '' ? '.' : `: ${details}.`} `
+    + 'Select the project and configure its matching webhook, then deliver a test event. '
+    + 'Waiting for scheduled polling does not make a hosted listener ready. '
+    + 'Keep the existing connection; do not log in again, reconnect, or switch auth type.');
 }
 
 function notReady(integration: FlowIntegrationRequirement, status: Record<string, unknown> | null): CloudFlowError {
@@ -135,7 +169,9 @@ function notReady(integration: FlowIntegrationRequirement, status: Record<string
     + `${details === '' ? '.' : `: ${details}.`} ${remedy}`);
 }
 
-async function connectIntegration(provider: string, options: EnsureConnectionsOptions, prompt: ConnectPrompt): Promise<void> {
+async function connectIntegration(
+  provider: string, options: EnsureConnectionsOptions, prompt: ConnectPrompt,
+): Promise<IntegrationProbe> {
   const base = `/api/v1/workspaces/${encodeURIComponent(options.workspaceId)}/integrations`;
   const session = await cloudFetch(`${base}/connect-session`, options, {
     method: 'POST', detail: true,
@@ -160,9 +196,10 @@ async function connectIntegration(provider: string, options: EnsureConnectionsOp
   while (Date.now() < deadline) {
     await sleep(interval, options.signal);
     options.signal?.throwIfAborted();
-    if (await integrationConnected(options.workspaceId, provider, options)) {
+    const probe = await probeIntegration(options.workspaceId, provider, options);
+    if (probe.ready) {
       prompt.info(`${providerLabel(provider)} connected.`);
-      return;
+      return probe;
     }
   }
   throw new CloudFlowError('integration_not_connected',

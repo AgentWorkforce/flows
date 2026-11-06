@@ -144,11 +144,12 @@ export async function runCloudUnscheduleCli(
 }
 
 function reportFailure(error: unknown, json: boolean, io: CliIo, harnesses: readonly string[] = []): 1 | 2 {
-  const code = error instanceof CloudFlowError ? error.code : 'cloud_schedule_failed';
+  const code = error instanceof CloudFlowError ? error.refusal?.code ?? error.code : 'cloud_schedule_failed';
   let message = error instanceof Error ? error.message : 'Cloud schedule failed.';
   message += harnessRemedy(error, harnesses);
-  // The schedule routes take a browser session or a `cli:auth` token.
-  if (error instanceof CloudFlowError && error.status === 403) {
+  // Only the typed refusal means this valid credential is the wrong kind for
+  // the route. Other 403s carry their own authorisation remedy.
+  if (error instanceof CloudFlowError && error.refusal?.code === 'session_required') {
     message += ' Scheduling needs an interactive `cli:auth` credential: run `agent-relay cloud login`.';
   }
   if (json) io.stdout(JSON.stringify({ ok: false, code, message }));

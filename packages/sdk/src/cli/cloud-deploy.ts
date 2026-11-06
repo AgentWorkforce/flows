@@ -200,15 +200,16 @@ export async function runCloudUndeployCli({ agentId, json }: { agentId: string; 
 }
 
 export function reportCloudFailure(error: unknown, json: boolean, io: CliIo, harnesses: readonly string[] = []): 1 | 2 {
-  const code = error instanceof CloudFlowError ? error.code : 'cloud_deploy_failed';
+  const code = error instanceof CloudFlowError ? error.refusal?.code ?? error.code : 'cloud_deploy_failed';
   let message = error instanceof Error ? error.message : 'Cloud deploy failed.';
   // Cloud names the missing coding-agent credential on activation; say how it is connected.
   message += harnessRemedy(error, harnesses);
-  // The deploy routes take a browser session or a `cli:auth` token. A
-  // deployment (CI) token gets 403 `session_required`; say what fixes it.
-  if (error instanceof CloudFlowError && error.status === 403) {
-    message += ' Deploying needs an interactive `cli:auth` credential: run `agent-relay cloud login` '
-      + '(a deployment token can run flows but not deploy them).';
+  // Older Cloud deployments used the typed `session_required` refusal for
+  // routes that needed browser or cli:auth credentials. Current Cloud also
+  // accepts scoped deployment tokens and names missing scopes itself. Other
+  // 403s keep that server-provided remedy intact.
+  if (error instanceof CloudFlowError && error.refusal?.code === 'session_required') {
+    message += ' Deploying needs an interactive `cli:auth` credential: run `agent-relay cloud login`.';
   }
   if (json) io.stdout(JSON.stringify({ ok: false, code, message }));
   else io.stderr(`${code}: ${message}`);

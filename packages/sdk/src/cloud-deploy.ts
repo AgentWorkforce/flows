@@ -315,7 +315,10 @@ export async function deployToCloud(
   const connected = manual || input.draft || input.checkConnections === false
     ? []
     : (await ensureIntegrationsConnected(requirements, {
-        ...options, workspaceId: workspace.id, ...(input.connect === undefined ? {} : { prompt: input.connect }),
+        ...options,
+        workspaceId: workspace.id,
+        eventIngressProviders: sources.map(source => source.provider),
+        ...(input.connect === undefined ? {} : { prompt: input.connect }),
       })).connected;
   options.signal?.throwIfAborted();
   const result = await cloudFetch('/api/v1/flows/deploy', options, { method: 'POST', detail: true, body: JSON.stringify({

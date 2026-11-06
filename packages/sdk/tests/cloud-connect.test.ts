@@ -7,6 +7,7 @@ import { runCli } from '../src/cli.js';
 import { cliConnectPrompt, harnessRemedy } from '../src/cli/cloud-connect-cli.js';
 import { ensureIntegrationsConnected, integrationConnected, providerLabel, type ConnectPrompt } from '../src/cloud-connect.js';
 import { CloudFlowError } from '../src/cloud-http.js';
+import { flowRequirements } from '../src/flow-requirements.js';
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -45,6 +46,38 @@ const SESSION = '/api/v1/workspaces/ws-1/integrations/connect-session';
 const SLACK = { integrations: [{ provider: 'slack', from: 'tools' as const, detail: 'tools.slack' }] };
 const noSleep = async () => {};
 
+describe('review regressions for real GitLab source requirements', () => {
+  it.each([
+    { header: { tools: { gitlab: true } } },
+    { body: function (f: { gitlab: unknown }) { return f.gitlab; } },
+  ])('retains the source ingress need when the flow also declares GitLab tools/helpers', async (definition) => {
+    const requirements = flowRequirements(definition, { sources: [{ provider: 'gitlab' }] });
+    cloud({
+      '/api/v1/workspaces/ws-1/integrations/gitlab/status': () => ({
+        ready: true, state: 'ready', eventIngressReady: false,
+      }),
+    });
+    await expect(ensureIntegrationsConnected(requirements, {
+      workspaceId: 'ws-1', eventIngressProviders: ['gitlab'], prompt: prompt(true),
+    }))
+      .rejects.toMatchObject({ code: 'integration_not_ready' });
+  });
+
+  it('keeps an older Cloud response compatible when only legacy webhook health is false', async () => {
+    const requirements = flowRequirements({}, { sources: [{ provider: 'gitlab' }] });
+    cloud({
+      '/api/v1/workspaces/ws-1/integrations/gitlab/status': () => ({
+        ready: true, state: 'ready', webhookHealthy: false,
+        webhookHealth: { healthy: false, lastError: 'No provider sync status is available' },
+      }),
+    });
+    await expect(ensureIntegrationsConnected(requirements, {
+      workspaceId: 'ws-1', eventIngressProviders: ['gitlab'], prompt: prompt(true),
+    }))
+      .resolves.toEqual({ ready: ['gitlab'], connected: [] });
+  });
+});
+
 function prompt(answer: boolean, opened: string[] = [], lines: string[] = []): ConnectPrompt {
   return { confirm: async () => answer, info: line => lines.push(line), openUrl: url => { opened.push(url); } };
 }
@@ -57,6 +90,17 @@ async function slackFlow(): Promise<string> {
   await writeFile(path, "import { flow } from '@relayflows/surface';\n"
     + "export default flow<{ channel: string }>('digest', { tools: { slack: true } }, async (f, input) => {\n"
     + "  await f.slack.post(input.channel, 'hi');\n  f.done('success');\n});\n");
+  return path;
+}
+
+async function gitlabHandlerFlow(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'cloud-connect-gitlab-handler-'));
+  dirs.push(dir);
+  await symlink(join(process.cwd(), 'node_modules'), join(dir, 'node_modules'), 'dir');
+  const path = join(dir, 'gitlab-handler.flow.ts');
+  await writeFile(path, "import { flow, gitlab } from '@relayflows/surface';\n"
+    + "export default flow('gitlab-handler', async (f) => { f.done('success'); })\n"
+    + "  .on(gitlab.push(), async (f) => { f.done('success'); });\n");
   return path;
 }
 
@@ -96,6 +140,55 @@ describe('ensureIntegrationsConnected', () => {
     cloud({ [STATUS]: () => ({ ready: true }) });
     expect(await ensureIntegrationsConnected(SLACK, { workspaceId: 'ws-1', prompt: prompt(true) }))
       .toEqual({ ready: ['slack'], connected: [] });
+  });
+
+  it('requires verified webhook ingress for a hosted GitLab source even when scheduled sync is ready', async () => {
+    const gitlab = { integrations: [{ provider: 'gitlab', from: 'source' as const, detail: '--on gitlab' }] };
+    cloud({
+      '/api/v1/workspaces/ws-1/integrations/gitlab/status': () => ({
+        ready: true,
+        state: 'ready',
+        currentConnectionId: 'conn-token',
+        configKey: 'gitlab-pat',
+        eventIngressReady: false,
+        webhookHealthy: null,
+      }),
+    });
+    await expect(ensureIntegrationsConnected(gitlab, {
+      workspaceId: 'ws-1', eventIngressProviders: ['gitlab'], prompt: prompt(true),
+    }))
+      .rejects.toMatchObject({
+        code: 'integration_not_ready',
+        message: expect.stringMatching(/ready for scheduled sync.*webhook ingress is not verified.*Waiting for scheduled polling.*do not log in again/isu),
+      });
+  });
+
+  it('admits a hosted GitLab source only after webhook ingress is verified', async () => {
+    const gitlab = { integrations: [{ provider: 'gitlab', from: 'source' as const, detail: '--on gitlab' }] };
+    cloud({
+      '/api/v1/workspaces/ws-1/integrations/gitlab/status': () => ({
+        ready: true,
+        state: 'ready',
+        eventIngressReady: true,
+      }),
+    });
+    await expect(ensureIntegrationsConnected(gitlab, {
+      workspaceId: 'ws-1', eventIngressProviders: ['gitlab'], prompt: prompt(true),
+    }))
+      .resolves.toEqual({ ready: ['gitlab'], connected: [] });
+  });
+
+  it('does not require webhook ingress for GitLab polling and helper use', async () => {
+    const gitlab = { integrations: [{ provider: 'gitlab', from: 'helper' as const, detail: 'f.gitlab' }] };
+    cloud({
+      '/api/v1/workspaces/ws-1/integrations/gitlab/status': () => ({
+        ready: true,
+        state: 'ready',
+        eventIngressReady: false,
+      }),
+    });
+    await expect(ensureIntegrationsConnected(gitlab, { workspaceId: 'ws-1', prompt: prompt(true) }))
+      .resolves.toEqual({ ready: ['gitlab'], connected: [] });
   });
 
   it('refuses with the provider, the declaration and the remedy when there is no prompt', async () => {
@@ -177,6 +270,32 @@ describe('ensureIntegrationsConnected', () => {
     expect(calls.filter(c => c.path === STATUS)).toHaveLength(3);
     expect(lines).toContain('Slack connected.');
     expect(lines[0]).toBe('This flow needs Slack (tools.slack), which is not connected to this workspace.');
+  });
+
+  it('checks GitLab event ingress after an interactive connection becomes sync-ready', async () => {
+    let polls = 0;
+    const status = '/api/v1/workspaces/ws-1/integrations/gitlab/status';
+    const calls = cloud({
+      [status]: () => polls++ === 0
+        ? { ready: false }
+        : { ready: true, state: 'ready', eventIngressReady: false },
+      [SESSION]: () => ({ connectLink: 'https://cloud-contract.example/connect/gitlab', workspaceId: 'ws-1' }),
+    });
+    const requirements = flowRequirements({}, { sources: [{ provider: 'gitlab' }] });
+
+    await expect(ensureIntegrationsConnected(requirements, {
+      workspaceId: 'ws-1',
+      eventIngressProviders: ['gitlab'],
+      prompt: prompt(true),
+      sleep: noSleep,
+      pollIntervalMs: 1,
+    })).rejects.toMatchObject({
+      code: 'integration_not_ready',
+      message: expect.stringMatching(/webhook ingress is not verified.*deliver a test event/isu),
+    });
+
+    expect(calls.filter(call => call.path === status)).toHaveLength(2);
+    expect(calls.filter(call => call.path === SESSION)).toHaveLength(1);
   });
 
   it('accepts the older sessionUrl name and refuses a non-https link', async () => {
@@ -342,6 +461,22 @@ describe('hosted verbs connect before they submit', () => {
     expect(await runCli(['schedule', path, '--every', '5m', '--input', '{"channel":"#eng"}', '--no-connect'], { stdout: () => {}, stderr: l => stderr.push(l) })).toBe(2);
     expect(stderr[0]).toMatch(/^integration_not_connected: Slack is not connected/u);
     expect(calls.map(c => c.path)).toEqual(['/api/v1/auth/whoami', STATUS]);
+  });
+
+  it.each([
+    ['run', '/api/v1/workflows/run', (path: string) => ['run', '--cloud', path, '--input', '{}']],
+    ['schedule', '/api/v1/workflows/schedules', (path: string) => ['schedule', path, '--every', '5m', '--input', '{}']],
+  ] as const)('flows %s does not require webhook ingress for an authored GitLab handler', async (_verb, submitPath, argv) => {
+    const path = await gitlabHandlerFlow();
+    const status = '/api/v1/workspaces/ws-1/integrations/gitlab/status';
+    const calls = cloud({
+      '/api/v1/auth/whoami': () => WHOAMI,
+      [status]: () => ({ ready: true, state: 'ready', eventIngressReady: false }),
+      [submitPath]: () => ({ status: 500, body: { error: 'submission reached' } }),
+    });
+
+    expect(await runCli(argv(path), { stdout: () => {}, stderr: () => {} })).toBe(1);
+    expect(calls.map(call => call.path)).toEqual(['/api/v1/auth/whoami', status, submitPath]);
   });
 
   it('refuses bad arguments before it connects anything', async () => {

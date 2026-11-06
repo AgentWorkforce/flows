@@ -216,6 +216,27 @@ describe('deployToCloud', () => {
     }
   });
 
+  it('refuses a hosted GitLab listener until its native event ingress is verified', async () => {
+    const path = await authoredFlow();
+    const calls = cloud({
+      '/api/v1/auth/whoami': () => WHOAMI,
+      '/api/v1/workspaces/ws-1/integrations/gitlab/status': () => ({
+        ready: true, state: 'ready', eventIngressReady: false,
+      }),
+      '/api/v1/flows/deploy': () => ({ status: 201, body: { agentId: 'a', status: 'listening' } }),
+    });
+
+    await expect(deployToCloud({
+      path,
+      repository: parseRepository('gitlab:group/project'),
+      sources: [parseTriggerSource('gitlab:labels=agent')],
+      approver: 'k',
+    })).rejects.toMatchObject({ code: 'integration_not_ready' });
+    expect(calls.map(call => call.path)).toEqual([
+      '/api/v1/auth/whoami', '/api/v1/workspaces/ws-1/integrations/gitlab/status',
+    ]);
+  });
+
   it('refuses an unscoped GitHub source for a GitLab target before HTTP', async () => {
     const path = await authoredFlow();
     const calls = cloud({});
@@ -370,8 +391,62 @@ describe('flows deploy / flows deployments', () => {
     const errors: string[] = [];
     expect(await runCli(['deploy', path, '--repo', 'o/r', '--on', 'github', '--approver', 'k', '--json'],
       { stdout: line => errors.push(line), stderr: () => {} })).toBe(2);
-    expect(JSON.parse(errors[0]!)).toMatchObject({ ok: false, code: 'http_error' });
+    expect(JSON.parse(errors[0]!)).toMatchObject({ ok: false, code: 'session_required' });
     expect(errors[0]).toContain('agent-relay cloud login');
+  });
+
+  it('preserves a repository allowlist refusal without adding login advice', async () => {
+    const path = await authoredFlow();
+    cloud({
+      '/api/v1/auth/whoami': () => WHOAMI,
+      '/api/v1/flows/deploy': () => ({
+        status: 403,
+        body: {
+          error: 'Select nabis-engineering/it/nabis-slack-atlas in this workspace GitLab integration before deploying.',
+          code: 'flow_repository_not_allowlisted',
+        },
+      }),
+    });
+    const errors: string[] = [];
+    expect(await runCli([
+      'deploy', path, '--repo', 'gitlab:nabis-engineering/it/nabis-slack-atlas',
+      '--on', 'gitlab', '--approver', 'julian.fann', '--json',
+    ], { stdout: line => errors.push(line), stderr: () => {} })).toBe(2);
+    const refusal = JSON.parse(errors[0]!) as { message: string };
+    expect(JSON.parse(errors[0]!)).toMatchObject({ code: 'flow_repository_not_allowlisted' });
+    expect(refusal.message).toContain('Select nabis-engineering/it/nabis-slack-atlas');
+    expect(refusal.message).not.toContain('agent-relay cloud login');
+    expect(refusal.message).not.toContain('cli:auth');
+  });
+
+  it.each([
+    [
+      'insufficient_scope',
+      'This credential needs flows:listeners:write; its current scopes do not authorize deployment.',
+    ],
+    [
+      'workspace_access_denied',
+      'This credential cannot deploy listeners in the selected workspace.',
+    ],
+  ])('preserves the server remedy for a 403 %s refusal', async (refusalCode, serverRemedy) => {
+    const path = await authoredFlow();
+    cloud({
+      '/api/v1/auth/whoami': () => WHOAMI,
+      '/api/v1/flows/deploy': () => ({
+        status: 403,
+        body: { error: serverRemedy, code: refusalCode },
+      }),
+    });
+    const out: string[] = [];
+    expect(await runCli(
+      ['deploy', path, '--repo', 'o/r', '--on', 'github', '--approver', 'k', '--json'],
+      { stdout: line => out.push(line), stderr: () => {} },
+    )).toBe(2);
+    const refusal = JSON.parse(out[0]!) as { code: string; message: string };
+    expect(refusal).toMatchObject({ code: refusalCode });
+    expect(refusal.message).toContain(serverRemedy);
+    expect(refusal.message).not.toContain('agent-relay cloud login');
+    expect(refusal.message).not.toContain('cli:auth');
   });
 
   it.each([
@@ -546,6 +621,28 @@ describe('flow versions (cloud#4115)', () => {
     expect(post.body).toMatchObject({ requirements: { integrations: ['linear'] } });
     expect(calls.filter(c => c.path.includes('/integrations/')).map(c => c.path))
       .toEqual(['/api/v1/workspaces/ws-1/integrations/linear/status']);
+  });
+
+  it('checks native event ingress when updating an active GitLab listener', async () => {
+    const path = await authoredFlow();
+    const calls = cloud({
+      [`/api/v1/flows/listeners/${LISTENER}`]: () => ({ ...LISTENER_DETAIL, listener: {
+        ...LISTENER_DETAIL.listener,
+        repository: { owner: 'group', name: 'project', host: 'gitlab' },
+        sources: [{ provider: 'gitlab', settings: { project: 'group/project', labels: 'agent' } }],
+      } }),
+      '/api/v1/auth/whoami': () => WHOAMI,
+      '/api/v1/workspaces/ws-1/integrations/gitlab/status': () => ({
+        ready: true, state: 'ready', eventIngressReady: false,
+      }),
+      [`/api/v1/flows/listeners/${LISTENER}/versions`]: () => ({ listenerId: LISTENER, status: 'listening',
+        version: { versionId: 'v4', version: 4, previousVersion: 3, change: 'created' } }),
+    });
+    const { out, io: cliIo } = io();
+
+    expect(await runCli(['deploy', path, '--flow', LISTENER, '--no-connect'], cliIo), out.join('\n')).toBe(2);
+    expect(out[0]).toMatch(/integration_not_ready: GitLab is ready for scheduled sync.*webhook ingress is not verified/isu);
+    expect(calls.some(call => call.method === 'POST')).toBe(false);
   });
 
   it('takes a listener id directly and says when the active version went down', async () => {
