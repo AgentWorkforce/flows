@@ -133,7 +133,10 @@ export async function deployVersionToCloud(
   const connected = listener.status !== 'listening' || input.checkConnections === false
     ? []
     : (await ensureIntegrationsConnected(requirements, {
-        ...options, workspaceId: workspace.id, ...(input.connect === undefined ? {} : { prompt: input.connect }),
+        ...options,
+        workspaceId: workspace.id,
+        eventIngressProviders: listener.sources.map(source => source.provider),
+        ...(input.connect === undefined ? {} : { prompt: input.connect }),
       })).connected;
   options.signal?.throwIfAborted();
   const result = await cloudFetch(`/api/v1/flows/listeners/${encodeURIComponent(agentId)}/versions`, options, {

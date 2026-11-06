@@ -30,6 +30,8 @@ export interface ConnectPrompt {
 
 export interface EnsureConnectionsOptions extends CloudConnectionOptions {
   workspaceId: string;
+  /** Providers this submission is activating as hosted event listeners. Direct runs and schedules omit this. */
+  eventIngressProviders?: readonly string[];
   /** Omitted (`--no-connect`, or no TTY) means a missing integration is a refusal, never a prompt. */
   prompt?: ConnectPrompt;
   /** Status poll cadence while the browser connect is pending. Default 2 seconds. */
@@ -105,7 +107,7 @@ export async function ensureIntegrationsConnected(
     options.signal?.throwIfAborted();
     const probe = await probeIntegration(options.workspaceId, integration.provider, options);
     if (probe.ready) {
-      if (needsEventIngress(integration) && eventIngressReady(probe.status) === false) {
+      if (needsEventIngress(integration, options) && eventIngressReady(probe.status) === false) {
         throw eventIngressNotReady(integration, probe.status);
       }
       outcome.ready.push(integration.provider);
@@ -119,7 +121,7 @@ export async function ensureIntegrationsConnected(
       throw notConnected(integration, options);
     }
     const connectedProbe = await connectIntegration(integration.provider, options, options.prompt);
-    if (needsEventIngress(integration) && eventIngressReady(connectedProbe.status) === false) {
+    if (needsEventIngress(integration, options) && eventIngressReady(connectedProbe.status) === false) {
       throw eventIngressNotReady(integration, connectedProbe.status);
     }
     outcome.connected.push(integration.provider);
@@ -127,10 +129,11 @@ export async function ensureIntegrationsConnected(
   return outcome;
 }
 
-function needsEventIngress(integration: FlowIntegrationRequirement): boolean {
+function needsEventIngress(
+  integration: FlowIntegrationRequirement, options: EnsureConnectionsOptions,
+): boolean {
   return integration.provider === 'gitlab'
-    && integration.from === 'source'
-    && integration.detail !== 'deploy target';
+    && options.eventIngressProviders?.includes(integration.provider) === true;
 }
 
 function eventIngressReady(status: Record<string, unknown> | null): boolean | null {

@@ -57,7 +57,9 @@ describe('review regressions for real GitLab source requirements', () => {
         ready: true, state: 'ready', eventIngressReady: false,
       }),
     });
-    await expect(ensureIntegrationsConnected(requirements, { workspaceId: 'ws-1', prompt: prompt(true) }))
+    await expect(ensureIntegrationsConnected(requirements, {
+      workspaceId: 'ws-1', eventIngressProviders: ['gitlab'], prompt: prompt(true),
+    }))
       .rejects.toMatchObject({ code: 'integration_not_ready' });
   });
 
@@ -69,7 +71,9 @@ describe('review regressions for real GitLab source requirements', () => {
         webhookHealth: { healthy: false, lastError: 'No provider sync status is available' },
       }),
     });
-    await expect(ensureIntegrationsConnected(requirements, { workspaceId: 'ws-1', prompt: prompt(true) }))
+    await expect(ensureIntegrationsConnected(requirements, {
+      workspaceId: 'ws-1', eventIngressProviders: ['gitlab'], prompt: prompt(true),
+    }))
       .resolves.toEqual({ ready: ['gitlab'], connected: [] });
   });
 });
@@ -86,6 +90,17 @@ async function slackFlow(): Promise<string> {
   await writeFile(path, "import { flow } from '@relayflows/surface';\n"
     + "export default flow<{ channel: string }>('digest', { tools: { slack: true } }, async (f, input) => {\n"
     + "  await f.slack.post(input.channel, 'hi');\n  f.done('success');\n});\n");
+  return path;
+}
+
+async function gitlabHandlerFlow(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'cloud-connect-gitlab-handler-'));
+  dirs.push(dir);
+  await symlink(join(process.cwd(), 'node_modules'), join(dir, 'node_modules'), 'dir');
+  const path = join(dir, 'gitlab-handler.flow.ts');
+  await writeFile(path, "import { flow, gitlab } from '@relayflows/surface';\n"
+    + "export default flow('gitlab-handler', async (f) => { f.done('success'); })\n"
+    + "  .on(gitlab.push(), async (f) => { f.done('success'); });\n");
   return path;
 }
 
@@ -139,7 +154,9 @@ describe('ensureIntegrationsConnected', () => {
         webhookHealthy: null,
       }),
     });
-    await expect(ensureIntegrationsConnected(gitlab, { workspaceId: 'ws-1', prompt: prompt(true) }))
+    await expect(ensureIntegrationsConnected(gitlab, {
+      workspaceId: 'ws-1', eventIngressProviders: ['gitlab'], prompt: prompt(true),
+    }))
       .rejects.toMatchObject({
         code: 'integration_not_ready',
         message: expect.stringMatching(/ready for scheduled sync.*webhook ingress is not verified.*Waiting for scheduled polling.*do not log in again/isu),
@@ -155,7 +172,9 @@ describe('ensureIntegrationsConnected', () => {
         eventIngressReady: true,
       }),
     });
-    await expect(ensureIntegrationsConnected(gitlab, { workspaceId: 'ws-1', prompt: prompt(true) }))
+    await expect(ensureIntegrationsConnected(gitlab, {
+      workspaceId: 'ws-1', eventIngressProviders: ['gitlab'], prompt: prompt(true),
+    }))
       .resolves.toEqual({ ready: ['gitlab'], connected: [] });
   });
 
@@ -266,6 +285,7 @@ describe('ensureIntegrationsConnected', () => {
 
     await expect(ensureIntegrationsConnected(requirements, {
       workspaceId: 'ws-1',
+      eventIngressProviders: ['gitlab'],
       prompt: prompt(true),
       sleep: noSleep,
       pollIntervalMs: 1,
@@ -441,6 +461,22 @@ describe('hosted verbs connect before they submit', () => {
     expect(await runCli(['schedule', path, '--every', '5m', '--input', '{"channel":"#eng"}', '--no-connect'], { stdout: () => {}, stderr: l => stderr.push(l) })).toBe(2);
     expect(stderr[0]).toMatch(/^integration_not_connected: Slack is not connected/u);
     expect(calls.map(c => c.path)).toEqual(['/api/v1/auth/whoami', STATUS]);
+  });
+
+  it.each([
+    ['run', '/api/v1/workflows/run', (path: string) => ['run', '--cloud', path, '--input', '{}']],
+    ['schedule', '/api/v1/workflows/schedules', (path: string) => ['schedule', path, '--every', '5m', '--input', '{}']],
+  ] as const)('flows %s does not require webhook ingress for an authored GitLab handler', async (_verb, submitPath, argv) => {
+    const path = await gitlabHandlerFlow();
+    const status = '/api/v1/workspaces/ws-1/integrations/gitlab/status';
+    const calls = cloud({
+      '/api/v1/auth/whoami': () => WHOAMI,
+      [status]: () => ({ ready: true, state: 'ready', eventIngressReady: false }),
+      [submitPath]: () => ({ status: 500, body: { error: 'submission reached' } }),
+    });
+
+    expect(await runCli(argv(path), { stdout: () => {}, stderr: () => {} })).toBe(1);
+    expect(calls.map(call => call.path)).toEqual(['/api/v1/auth/whoami', status, submitPath]);
   });
 
   it('refuses bad arguments before it connects anything', async () => {
