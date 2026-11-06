@@ -250,6 +250,7 @@ describe('Cloud answer and resume', () => {
   });
 
   it.each([{}, { ok: true }, { runId: RUN, humanWait: wait },
+    { ...answerRoute({ waitId: 'human-2', answer: true }), ok: false },
     { ...answerRoute({ waitId: 'human-2', answer: true }), runId: 'different-run' },
     { ...answerRoute({ waitId: 'human-3', answer: true }) },
     { ...answerRoute({ waitId: 'human-2', answer: false }) },

@@ -52,6 +52,9 @@ function readCloudHumanAnswerRecord(body: unknown, runId: string): {
   if (body.error !== undefined && body.error !== null) {
     throw new CloudFlowError('invalid_response', 'Cloud returned an error beside a human answer record.');
   }
+  if (body.ok !== undefined && body.ok !== true) {
+    throw new CloudFlowError('invalid_response', 'Cloud explicitly refused the human answer record.');
+  }
   // An absent and a null field mean the same thing everywhere below.
   const present = (key: string): boolean => body[key] !== undefined && body[key] !== null;
   if (['humanWait', 'wait', 'openWaits'].filter(present).length > 1) {
