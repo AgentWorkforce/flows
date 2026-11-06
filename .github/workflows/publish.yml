@@ -161,7 +161,7 @@ jobs:
 
   # A native macOS job, not a cross-compile from the linux `build` job above.
   # relayflowd's release build has no cross-compile setup (no osxcross, no
-  # macOS SDK on the linux runner), and macos-14 runners are Apple Silicon, so
+  # macOS SDK on the linux runner), and macos-15 runners are Apple Silicon, so
   # `cargo build --release` already targets aarch64-apple-darwin natively —
   # the same reason no `--target` flag is needed below.
   #
@@ -174,7 +174,7 @@ jobs:
   # for no reason; they can run in parallel instead.
   build-darwin-arm64:
     name: Build & pack darwin-arm64 runtime
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     steps:
       - name: Validate release mode
