@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { CloudFlowError, cloudFetch, cloudRunId, isCloudRecord, type CloudConnectionOptions } from './cloud-http.js';
 import { cloudRunState } from './cloud-run-record.js';
 import { readCloudHumanWaitValue } from './cloud-human-wait.js';
+import { readCloudRepositoryGrant } from './cloud-repository-grant.js';
 import { readSurfaceAuthority, type SurfaceModuleAuthority } from './authored-flow-loader.js';
 import type { CloudAuthoredAuthority } from './cloud-run.js';
 
@@ -163,6 +164,10 @@ async function resumeBody(record: Record<string, unknown>, runId: string, source
       throw new CloudFlowError('unsupported_source', 'Cannot resume a run with extensions: Cloud must expose their original submissions.');
     }
   }
+  const repositoryGrant = readCloudRepositoryGrant(authority.repository);
+  if (authority.repository !== undefined && repositoryGrant === undefined) {
+    throw new CloudFlowError('invalid_response', 'Cloud run carries an invalid repository grant; refusing to widen or alter it.');
+  }
   let workflow = record.workflow;
   if (source !== undefined) {
     try { workflow = await readFile(source, 'utf8'); }
@@ -182,6 +187,7 @@ async function resumeBody(record: Record<string, unknown>, runId: string, source
     surface: await resumeSurface(authority.source.surface, source),
   });
   return { workflow, authoredAuthority, fileType: 'ts', relayflowVersion: 'v2', resume: runId,
+    ...(repositoryGrant === undefined ? {} : { repositoryGrant }),
     ...(typeof record.workspaceId === 'string' ? { workspaceId: record.workspaceId } : {}) };
 }
 

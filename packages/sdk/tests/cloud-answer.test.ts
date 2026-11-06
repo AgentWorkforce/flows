@@ -16,6 +16,16 @@ const surface = { packageName: '@relayflows/surface', version: '2.0.18',
 const sourceSha256 = createHash('sha256').update(workflow).digest('hex');
 // The stored attestation shape, which differs from the submission authority.
 const authority = { source: { sha256: sourceSha256, surface }, artifact: { sha256: 'original-artifact' } };
+const repositoryAuthority = {
+  host: 'gitlab', owner: 'Nabis-Engineering/IT', repo: 'Nabis-Slack-Atlas',
+  baseBranch: 'main', baseSha: 'c'.repeat(40), branch: 'feature/e2e-proof', mode: 'head',
+  userId: 'user-1', workspaceId: 'ws-1', relayWorkspaceId: 'rw_1', organizationId: 'org-1',
+  installationId: '86233786', repositoryId: 86233786, connectionId: 'connection-1', providerConfigKey: 'gitlab-pat',
+};
+const repositoryGrant = {
+  host: 'gitlab', owner: 'nabis-engineering/it', repo: 'nabis-slack-atlas',
+  baseBranch: 'main', baseSha: 'c'.repeat(40), branch: 'feature/e2e-proof', mode: 'head',
+};
 const submitted = { schemaVersion: 1, sourceSha256, byteLength: Buffer.byteLength(workflow), surface };
 const wait = { waitId: 'human-2', question: 'Ship this?', to: 'slack:#eng' };
 const answerRoute = (humanAnswer?: { waitId: string; answer: boolean; note?: string }) => ({
@@ -76,6 +86,35 @@ describe('Cloud answer and resume', () => {
     expect(calls[4]!.body).not.toHaveProperty('relayflowV2RunBudgetMinutes');
   });
 
+  it('answers and resumes a repository-backed run with the canonical persisted GitLab grant', async () => {
+    const record = { ...parked, relayflowV2Authority: { ...authority, repository: repositoryAuthority } };
+    const calls = cloud(replies(record));
+    await answerCloudFlow(RUN, true, options);
+    expect(calls.map(c => [c.method, c.path])).toEqual([
+      ['GET', path], ['GET', `${path}/answer`], ['POST', `${path}/answer`], ['GET', path], ['POST', '/api/v1/workflows/run'],
+    ]);
+    expect(calls[4]!.body).toMatchObject({ resume: RUN });
+    expect((calls[4]!.body as Record<string, unknown>).repositoryGrant).toEqual(repositoryGrant);
+  });
+
+  it.each([
+    ['workflows', { ...repositoryAuthority, host: 'github', owner: 'AgentWorkforce', repo: 'Flows', workflows: true },
+      { owner: 'agentworkforce', repo: 'flows', baseBranch: 'main', baseSha: 'c'.repeat(40),
+        branch: 'feature/e2e-proof', mode: 'head', workflows: true }],
+    ['read access', { ...repositoryAuthority, host: 'github', owner: 'AgentWorkforce', repo: 'Flows', access: 'read' },
+      { owner: 'agentworkforce', repo: 'flows', baseBranch: 'main', baseSha: 'c'.repeat(40),
+        branch: 'feature/e2e-proof', mode: 'head', access: 'read' }],
+  ])('retries a known answer without another answer POST and preserves the %s repository restriction', async (_label, repository, expected) => {
+    const record = { ...parked, relayflowV2Authority: { ...authority, repository } };
+    const calls = cloud([{ body: record }, { body: answerRoute({ waitId: 'human-2', answer: true }) },
+      { body: record }, { body: { runId: 'resumed-1', status: 'pending' } }]);
+    await answerCloudFlow(RUN, true, options);
+    const posts = calls.filter(c => c.method === 'POST');
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toMatchObject({ path: '/api/v1/workflows/run' });
+    expect((posts[0]!.body as Record<string, unknown>).repositoryGrant).toEqual(expected);
+  });
+
   it.each([
     ['truncated source', { workflow: workflow.slice(0, 10) }],
     ['missing digest', { relayflowV2Authority: { source: {} } }],
@@ -86,6 +125,22 @@ describe('Cloud answer and resume', () => {
   ])('refuses %s before writes', async (_label, changes) => {
     const calls = cloud(replies({ ...parked, ...changes }));
     await expect(answerCloudFlow(RUN, true, options)).rejects.toMatchObject({ code: 'unsupported_source' });
+    expect(calls.every(c => c.method === 'GET')).toBe(true);
+  });
+
+  it.each([
+    ['null', null],
+    ['unknown access', { ...repositoryAuthority, access: 'write' }],
+    ['GitLab workflows write', { ...repositoryAuthority, workflows: true }],
+    ['GitLab read access', { ...repositoryAuthority, access: 'read' }],
+    ['contradictory access', { ...repositoryAuthority, host: 'github', workflows: true, access: 'read' }],
+    ['unreserved new branch', { ...repositoryAuthority, mode: 'new', branch: 'feature/not-reserved' }],
+    ['invalid base SHA', { ...repositoryAuthority, baseSha: 'not-a-sha' }],
+  ])('refuses a malformed stored repository contract (%s) before writes', async (_label, repository) => {
+    const record = { ...parked, relayflowV2Authority: { ...authority, repository } };
+    const calls = cloud([{ body: record }, { body: answerRoute() }]);
+    await expect(answerCloudFlow(RUN, true, options)).rejects.toMatchObject({ code: 'invalid_response' });
+    expect(calls).toHaveLength(2);
     expect(calls.every(c => c.method === 'GET')).toBe(true);
   });
 
