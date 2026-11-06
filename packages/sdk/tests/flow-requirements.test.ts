@@ -84,10 +84,10 @@ describe('flowRequirements on an authored definition', () => {
     expect(requirements.harnesses).toEqual([]);
   });
 
-  it('keeps the same provider once, first declaration wins', () => {
+  it('keeps the same provider once while preserving the stricter event-source requirement', () => {
     const definition = getFlowDefinition(flow('digest', { tools: { slack: true } }, async (f) => { await f.slack.post('#a', 'b'); }));
     expect(flowRequirements(definition, { sources: [{ provider: 'slack' }] }).integrations)
-      .toEqual([{ provider: 'slack', from: 'tools', detail: 'tools.slack' }]);
+      .toEqual([{ provider: 'slack', from: 'source', detail: '--on slack' }]);
   });
 
   it('merges manifest-only extension requirements in declaration order', () => {

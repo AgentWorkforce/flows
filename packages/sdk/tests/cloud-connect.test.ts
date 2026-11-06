@@ -7,6 +7,7 @@ import { runCli } from '../src/cli.js';
 import { cliConnectPrompt, harnessRemedy } from '../src/cli/cloud-connect-cli.js';
 import { ensureIntegrationsConnected, integrationConnected, providerLabel, type ConnectPrompt } from '../src/cloud-connect.js';
 import { CloudFlowError } from '../src/cloud-http.js';
+import { flowRequirements } from '../src/flow-requirements.js';
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -44,6 +45,34 @@ const STATUS = '/api/v1/workspaces/ws-1/integrations/slack/status';
 const SESSION = '/api/v1/workspaces/ws-1/integrations/connect-session';
 const SLACK = { integrations: [{ provider: 'slack', from: 'tools' as const, detail: 'tools.slack' }] };
 const noSleep = async () => {};
+
+describe('review regressions for real GitLab source requirements', () => {
+  it.each([
+    { header: { tools: { gitlab: true } } },
+    { body: function (f: { gitlab: unknown }) { return f.gitlab; } },
+  ])('retains the source ingress need when the flow also declares GitLab tools/helpers', async (definition) => {
+    const requirements = flowRequirements(definition, { sources: [{ provider: 'gitlab' }] });
+    cloud({
+      '/api/v1/workspaces/ws-1/integrations/gitlab/status': () => ({
+        ready: true, state: 'ready', eventIngressReady: false,
+      }),
+    });
+    await expect(ensureIntegrationsConnected(requirements, { workspaceId: 'ws-1', prompt: prompt(true) }))
+      .rejects.toMatchObject({ code: 'integration_not_ready' });
+  });
+
+  it('keeps an older Cloud response compatible when only legacy webhook health is false', async () => {
+    const requirements = flowRequirements({}, { sources: [{ provider: 'gitlab' }] });
+    cloud({
+      '/api/v1/workspaces/ws-1/integrations/gitlab/status': () => ({
+        ready: true, state: 'ready', webhookHealthy: false,
+        webhookHealth: { healthy: false, lastError: 'No provider sync status is available' },
+      }),
+    });
+    await expect(ensureIntegrationsConnected(requirements, { workspaceId: 'ws-1', prompt: prompt(true) }))
+      .resolves.toEqual({ ready: ['gitlab'], connected: [] });
+  });
+});
 
 function prompt(answer: boolean, opened: string[] = [], lines: string[] = []): ConnectPrompt {
   return { confirm: async () => answer, info: line => lines.push(line), openUrl: url => { opened.push(url); } };

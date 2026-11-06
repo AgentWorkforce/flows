@@ -132,11 +132,7 @@ function needsEventIngress(integration: FlowIntegrationRequirement): boolean {
 
 function eventIngressReady(status: Record<string, unknown> | null): boolean | null {
   if (status === null) return null;
-  if (typeof status['eventIngressReady'] === 'boolean') return status['eventIngressReady'];
-  if (status['webhookHealthy'] === true) return true;
-  if (status['webhookHealthy'] === false) return false;
-  const webhookHealth = isCloudRecord(status['webhookHealth']) ? status['webhookHealth'] : null;
-  return typeof webhookHealth?.['healthy'] === 'boolean' ? webhookHealth['healthy'] : null;
+  return typeof status['eventIngressReady'] === 'boolean' ? status['eventIngressReady'] : null;
 }
 
 function eventIngressNotReady(
