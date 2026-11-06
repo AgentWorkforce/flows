@@ -399,6 +399,36 @@ describe('flows deploy / flows deployments', () => {
   });
 
   it.each([
+    [
+      'insufficient_scope',
+      'This credential needs flows:listeners:write; its current scopes do not authorize deployment.',
+    ],
+    [
+      'workspace_access_denied',
+      'This credential cannot deploy listeners in the selected workspace.',
+    ],
+  ])('preserves the server remedy for a 403 %s refusal', async (refusalCode, serverRemedy) => {
+    const path = await authoredFlow();
+    cloud({
+      '/api/v1/auth/whoami': () => WHOAMI,
+      '/api/v1/flows/deploy': () => ({
+        status: 403,
+        body: { error: serverRemedy, code: refusalCode },
+      }),
+    });
+    const out: string[] = [];
+    expect(await runCli(
+      ['deploy', path, '--repo', 'o/r', '--on', 'github', '--approver', 'k', '--json'],
+      { stdout: line => out.push(line), stderr: () => {} },
+    )).toBe(2);
+    const refusal = JSON.parse(out[0]!) as { code: string; message: string };
+    expect(refusal).toMatchObject({ code: refusalCode });
+    expect(refusal.message).toContain(serverRemedy);
+    expect(refusal.message).not.toContain('agent-relay cloud login');
+    expect(refusal.message).not.toContain('cli:auth');
+  });
+
+  it.each([
     ['deploy', 'x.flow.ts'],
     ['deploy', 'x.flow.ts', '--repo', 'o/r'],
     ['deploy', 'x.flow.ts', '--on', 'github'],
