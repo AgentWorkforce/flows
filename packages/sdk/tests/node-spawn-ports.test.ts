@@ -197,6 +197,32 @@ describe('remote node-spawn port', () => {
     });
   });
 
+  it('retains the handler cleanup identity when the ready-agent roster is unavailable', async () => {
+    vi.useFakeTimers();
+    try {
+      const port = new RemoteNodeSpawnPort({
+        agents: { get: async () => { throw new Error('roster unavailable'); } },
+        nodes: { list: async () => [] },
+        placement: { spawn: async () => ({ invocationId: 'ack_1', actionName: 'spawn', status: 'pending',
+          node: { id: 'node_1', name: 'desktop-1', status: 'online', capabilities: [] },
+          placement: { node: 'desktop-1', confirmed: true, state: 'ready' },
+          confirmation: { invocationId: 'inv_1', actionName: 'spawn', status: 'completed',
+            output: { spawned: true, ready: true, name: 'worker_1', agent_id: 'agent_spawned' } } }) },
+        commands: { getInvocation: vi.fn() },
+      });
+      const pending = port.spawn({ name: 'worker_1', harness: 'codex', task: 'work',
+        idempotencyKey: 'dispatch_1234567890' });
+      await vi.runAllTimersAsync();
+      await expect(pending).rejects.toMatchObject({
+        code: 'spawn_identity_unavailable',
+        cleanup: { id: 'inv_1', nodeId: 'node_1', nodeName: 'desktop-1',
+          name: 'worker_1', agentId: 'agent_spawned' },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('recovers the selected node name from its dispatch id when placement metadata lags', async () => {
     const list = vi.fn(async () => [{ id: 'node_1', name: 'desktop-1', status: 'online', capabilities: [] }]);
     const port = new RemoteNodeSpawnPort({

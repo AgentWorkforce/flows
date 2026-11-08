@@ -98,7 +98,15 @@ export class RemoteNodeSpawnPort implements NodeSpawnPort {
         name: reportedName,
         agentId: outputAgentId,
       };
-      const agent = await this.resolveAgent(reportedName);
+      let agent: RelayAgent;
+      try {
+        agent = await this.resolveAgent(reportedName);
+      } catch (error) {
+        if (error instanceof NodeSpawnError) {
+          throw new NodeSpawnError(error.message, error.code, error.cause ?? error, outputCleanup);
+        }
+        throw error;
+      }
       const exactAgentName = nonempty(agent.name) ? agent.name : reportedName;
       if (!nonempty(agent.id)) {
         throw new NodeSpawnError('The spawned agent identity could not be resolved exactly',
