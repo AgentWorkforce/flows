@@ -28,22 +28,14 @@ export interface AgentRelayEnv {
   sandboxOnly?: boolean;
 }
 export class AgentRelayTransportError extends Error {
-  constructor(message: string, public readonly cause?: unknown) {
+  constructor(
+    message: string,
+    public readonly cause?: unknown,
+    /** Exact cleanup is durable and must be retried by a replacement attempt. */
+    public readonly cleanupPending = false,
+  ) {
     super(message);
     this.name = 'AgentRelayTransportError';
-  }
-}
-
-/**
- * Exact cleanup is durable but incomplete. The worker must not journal a
- * terminal step fact: leaving the lease unresolved lets the kernel dispatch
- * the same durable claim again, where cleanup is retried before any result is
- * accepted or any second spawn can occur.
- */
-export class AgentRelayCleanupPendingError extends AgentRelayTransportError {
-  constructor(message: string, cause?: unknown) {
-    super(message, cause);
-    this.name = 'AgentRelayCleanupPendingError';
   }
 }
 
@@ -269,10 +261,10 @@ export async function runAgentRelayTask(
     const detail = cleanupError === undefined
       ? safeError(error)
       : `${safeError(error)}; exact cleanup remains pending: ${safeError(cleanupError)}`;
-    if (claim.cleanupPending !== undefined && claim.release === undefined) {
-      throw new AgentRelayCleanupPendingError(detail, error);
-    }
-    throw new AgentRelayTransportError(detail, error);
+    const exactCleanupPending = claim.release === undefined
+      && claim.cleanupPending !== undefined
+      && (claim.spawn !== undefined || claim.cleanup !== undefined);
+    throw new AgentRelayTransportError(detail, error, exactCleanupPending);
   }
 
   async function settleLateSpawn(outcome: { spawn?: NodeSpawnReceipt; error?: unknown }): Promise<void> {

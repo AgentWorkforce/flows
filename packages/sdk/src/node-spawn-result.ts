@@ -102,6 +102,8 @@ export async function waitForNodeResult(
     signal?.throwIfAborted();
     throw new Error('Agent Relay result inbox ended before the spawned agent reported completion');
   } finally {
+    // A client that ignores cancellation may leave next() pending forever.
+    // Preserve prompt lease loss while still requesting resource cleanup.
     if (signal?.aborted) void close();
     else await close();
   }

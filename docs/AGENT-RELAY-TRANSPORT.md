@@ -52,8 +52,8 @@ Lease loss or timeout aborts the inbox wait and attempts exact release. A
 post-spawn verification failure carries any exact identity already proven into
 the same cleanup path. Spawn and release action inputs carry their stable
 idempotency keys. A failed cleanup is recorded as pending in the durable claim,
-the result remains unacked, and the worker refuses to journal a terminal step
-fact. Kernel redelivery therefore reopens the same claim and retries exact
+the attempt remains incomplete for kernel redispatch, and the result remains
+unacked. Kernel redelivery therefore reopens the same claim and retries exact
 release before it can accept a result or issue another spawn. A result delivery
 stays unacked until its terminal journal append succeeds, so a worker crash
 cannot turn Relay acknowledgement into fabricated execution truth.
