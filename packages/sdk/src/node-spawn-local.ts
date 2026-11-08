@@ -134,13 +134,30 @@ interface CoreInvocation {
   error_code?: string;
 }
 
+/** Desktop-issued identity for the authorized headless Flows service caller. */
+export interface LocalNodeSpawnCaller {
+  name: string;
+  secret: string;
+}
+
 /**
- * Local native-spawn adapter. The caller name is deliberately explicit: this
- * class never borrows a Desktop registration or provisions a service caller.
+ * Local native-spawn adapter. The caller identity is deliberately explicit:
+ * this class never borrows a Desktop registration or provisions a service
+ * caller. A core without the spawn-callers plugin refuses the secret.
  */
 export class LocalNodeSpawnPort implements NodeSpawnPort {
-  constructor(private readonly core: CoreClient, private readonly callerName: string) {
-    if (!callerName.trim()) throw new NodeSpawnError('Local node spawn requires an explicitly authorized caller name', 'caller_required');
+  private readonly callerName: string;
+  private readonly callerSecret: string;
+
+  constructor(private readonly core: CoreClient, caller: LocalNodeSpawnCaller) {
+    if (!caller.name.trim() || !caller.secret.trim()) {
+      throw new NodeSpawnError(
+        'Local node spawn requires an explicitly authorized service caller',
+        'caller_required',
+      );
+    }
+    this.callerName = caller.name;
+    this.callerSecret = caller.secret;
   }
 
   async targets(): Promise<NodeSpawnTarget[]> {
@@ -164,7 +181,8 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
       : targets.find(candidate => candidate.name === request.node);
     if (!target?.id) throw new NodeSpawnError('No eligible local Agent Relay spawn target', 'no_eligible_node');
     const raw = await this.core.call<CoreInvocation>('spawn.invoke', {
-      caller_name: this.callerName, node_id: target.id, node_name: target.name,
+      caller_name: this.callerName, caller_secret: this.callerSecret,
+      node_id: target.id, node_name: target.name,
       name: request.name, harness: request.harness, task: request.task,
       directory: request.directory, idempotency_key: request.idempotencyKey,
     });
@@ -180,7 +198,8 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
 
   async status(action: NodeSpawnAction, invocationId: string): Promise<NodeSpawnInvocation> {
     const raw = await this.core.call<CoreInvocation>('spawn.status', {
-      caller_name: this.callerName, action, invocation_id: invocationId,
+      caller_name: this.callerName, caller_secret: this.callerSecret,
+      action, invocation_id: invocationId,
     });
     return mapCoreInvocation(action, raw);
   }
@@ -190,7 +209,8 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
     const receipt = request.receipt;
     if (!receipt.nodeId) throw new NodeSpawnError('Local release requires the exact spawn node id', 'release_identity_mismatch');
     const raw = await this.core.call<CoreInvocation>('spawn.release', {
-      caller_name: this.callerName, node_id: receipt.nodeId, node_name: receipt.nodeName,
+      caller_name: this.callerName, caller_secret: this.callerSecret,
+      node_id: receipt.nodeId, node_name: receipt.nodeName,
       name: receipt.name, expected_agent_id: receipt.agentId, idempotency_key: request.idempotencyKey,
     });
     const settled = raw.status === 'completed' ? mapCoreInvocation('release', raw) : await this.wait('release', raw.id);

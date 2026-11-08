@@ -18,14 +18,26 @@ describe('local node-spawn port', () => {
           ready: false, released: true, task_unconfirmed: false } as T;
       },
     };
-    const port = new LocalNodeSpawnPort(core, 'authorized-caller');
+    const port = new LocalNodeSpawnPort(core, {
+      name: 'authorized-caller',
+      secret: 'desktop-service-secret',
+    });
     const receipt = await port.spawn({ name: 'worker_1', harness: 'codex', task: 'work',
       directory: '/workspace', idempotencyKey: 'dispatch_1234567890' });
     await port.release({ receipt, idempotencyKey: 'release_1234567890' });
     expect(calls[1]).toEqual(['spawn.invoke', expect.objectContaining({ caller_name: 'authorized-caller',
-      node_id: 'node_1', name: 'worker_1' })]);
+      caller_secret: 'desktop-service-secret', node_id: 'node_1', name: 'worker_1' })]);
+    expect(calls[2]).toEqual(['spawn.status', expect.objectContaining({ caller_name: 'authorized-caller',
+      caller_secret: 'desktop-service-secret', invocation_id: 'inv_1' })]);
     expect(calls[3]).toEqual(['spawn.release', expect.objectContaining({
-      expected_agent_id: 'agent_1', caller_name: 'authorized-caller' })]);
+      expected_agent_id: 'agent_1', caller_name: 'authorized-caller',
+      caller_secret: 'desktop-service-secret' })]);
+  });
+
+  it('refuses a local service caller without its Desktop-issued secret', () => {
+    const core: CoreClient = { close() {}, async call<T>(): Promise<T> { throw new Error('unused'); } };
+    expect(() => new LocalNodeSpawnPort(core, { name: 'authorized-caller', secret: ' ' }))
+      .toThrow(expect.objectContaining({ code: 'caller_required' }));
   });
 
   it('does not dispatch to an explicitly named node that is not live and handler-ready', async () => {
@@ -36,7 +48,10 @@ describe('local node-spawn port', () => {
         handlers_live: true, stale: false, capabilities: ['spawn:codex'] }] } as T;
       throw new Error('spawn must not be invoked');
     } };
-    const port = new LocalNodeSpawnPort(core, 'authorized-caller');
+    const port = new LocalNodeSpawnPort(core, {
+      name: 'authorized-caller',
+      secret: 'desktop-service-secret',
+    });
     await expect(port.spawn({ name: 'worker_1', harness: 'codex', task: 'work', node: 'desktop-1',
       directory: '/workspace', idempotencyKey: 'dispatch_1234567890' })).rejects.toMatchObject({
       code: 'no_eligible_node',

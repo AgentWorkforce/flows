@@ -28,7 +28,9 @@ harness. Use `RELAYFLOW_NODE_NAME` for an exact node or
 There is deliberately no compatibility fallback to broker 17.2.1. Retained
 local sessions and linked communication remain unavailable until Desktop ships
 the approved core-bridge client package and authorized headless Flows caller.
-An operator-supplied or borrowed coding-session name is not a substitute.
+The local adapter requires both the Desktop-issued caller name and secret on
+invoke, status, and release; an operator-supplied or borrowed coding-session
+name is not a substitute.
 
 ## Hosted and self-hosted execution
 

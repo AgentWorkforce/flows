@@ -251,7 +251,13 @@ export {
   type NodeSpawnRequest,
   type NodeSpawnTarget,
 } from './node-spawn.js';
-export { LocalNodeSpawnPort, connectCore, coreSocketPath, type CoreClient } from './node-spawn-local.js';
+export {
+  LocalNodeSpawnPort,
+  connectCore,
+  coreSocketPath,
+  type CoreClient,
+  type LocalNodeSpawnCaller,
+} from './node-spawn-local.js';
 export { RemoteNodeSpawnPort, type RemoteNodeSpawnClient } from './node-spawn-remote.js';
 export {
   createRemoteNodeSpawnRuntime,
