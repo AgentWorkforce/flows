@@ -240,7 +240,7 @@ export async function runAgentRelayTask(
     let cleanupError: unknown;
     if ((claim.spawn !== undefined || claim.cleanup !== undefined)
       && claim.release === undefined && claim.failure === undefined) {
-      claim = { ...claim, failure: failureFrom(error) };
+      claim = { ...claim, failure: failureRecord(error, options.signal) };
       try { await recordNodeSpawn(claimed.path, claim); }
       catch (stateError) { cleanupError = stateError; }
     }
@@ -367,9 +367,11 @@ function safeError(error: unknown): string {
   return error instanceof Error && error.message ? error.message : 'Node-spawn task failed';
 }
 
-function failureFrom(error: unknown): { code: string; message: string } {
+function failureRecord(error: unknown, signal?: AbortSignal): { code: string; message: string } {
   return {
-    code: error instanceof NodeSpawnError ? error.code : 'node_spawn_failed',
+    code: error instanceof NodeSpawnError
+      ? error.code
+      : signal?.aborted === true ? 'task_cancelled' : 'node_spawn_failed',
     message: safeError(error),
   };
 }

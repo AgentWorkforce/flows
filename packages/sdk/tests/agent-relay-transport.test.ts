@@ -154,6 +154,12 @@ describe('native node-spawn task transport', () => {
     expect(f.release).toHaveBeenCalledWith(expect.objectContaining({
       receipt: expect.objectContaining({ agentId: 'agent_1', nodeName: 'desktop-1' }),
     }));
+    await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime })).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: 'task_cancelled' }),
+    });
+    expect(f.spawn).toHaveBeenCalledOnce();
+    expect(f.release).toHaveBeenCalledOnce();
+    expect(f.status).not.toHaveBeenCalled();
   });
 
   it('returns promptly from a cancelled confirmation and cleans up its late exact receipt', async () => {
