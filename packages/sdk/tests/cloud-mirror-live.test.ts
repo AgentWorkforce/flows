@@ -16,6 +16,7 @@ import { dirname, join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { readDetachedRecord } from '../src/cli/detached-record.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const BUILT_CLI = join(ROOT, 'packages', 'sdk', 'dist', 'cli.js');
@@ -51,7 +52,10 @@ let origin: string;
 let seen: Seen[] = [];
 
 /** One `flows run`, with the stub Cloud configured. */
-function runCli(args: readonly string[], extraEnv: NodeJS.ProcessEnv = {}): Promise<{ stderr: string; code: number }> {
+function runCli(
+  args: readonly string[],
+  extraEnv: NodeJS.ProcessEnv = {},
+): Promise<{ stdout: string; stderr: string; code: number }> {
   return new Promise((done, reject) => {
     const child = spawn(process.execPath, [BUILT_CLI, ...args], {
       cwd: work,
@@ -65,12 +69,46 @@ function runCli(args: readonly string[], extraEnv: NodeJS.ProcessEnv = {}): Prom
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    let stdout = '';
     let stderr = '';
+    child.stdout.on('data', chunk => { stdout += chunk; });
     child.stderr.on('data', chunk => { stderr += chunk; });
-    child.stdout.resume();
     child.on('error', reject);
-    child.on('close', code => done({ stderr, code: code ?? 1 }));
+    child.on('close', code => done({ stdout, stderr, code: code ?? 1 }));
   });
+}
+
+async function waitForDetachedFinish(recordPath: string): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    const record = readDetachedRecord(recordPath);
+    if (record?.phase === 'finished') return;
+    if (record?.phase === 'refused') throw new Error(`detached run refused: ${JSON.stringify(record)}`);
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  throw new Error(`detached run did not finish: ${recordPath}`);
+}
+
+async function waitForSeen(predicate: (call: Seen) => boolean): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    if (seen.some(predicate)) return;
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  throw new Error(`expected Cloud request was not observed: ${JSON.stringify(seen)}`);
+}
+
+async function waitForProcessExit(pid: number): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    try { process.kill(pid, 0); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') return;
+      throw error;
+    }
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  throw new Error(`detached process did not exit: ${pid}`);
 }
 
 beforeAll(async () => {
@@ -164,7 +202,7 @@ describe('a local run on the Cloud dashboard', () => {
     expect(terminal.body).toMatchObject({ status: 'completed', callbackToken: 'cb' });
   }, 120_000);
 
-  it('reports signed-in runs automatically and keeps signed-out runs local', async () => {
+  it('keeps signed-in runs local unless the invocation explicitly opts in', async () => {
     seen = [];
     const plain = await runCli(['run', '--no-observer-link', '--data-dir', join(work, 'data'), FLOW]);
     const zero = await runCli(['run', '--no-observer-link', '--data-dir', join(work, 'data'), FLOW],
@@ -172,18 +210,72 @@ describe('a local run on the Cloud dashboard', () => {
 
     expect(plain.code, plain.stderr).toBe(0);
     expect(zero.code, zero.stderr).toBe(0);
-    expect(plain.stderr).toContain('Dashboard:');
-    expect(zero.stderr).toContain('Dashboard:');
-    expect(seen.filter(call => call.url === '/api/v1/workflows/local-run')).toHaveLength(2);
-    expect(seen.filter(call => call.url === '/api/v1/workflows/callback')).toHaveLength(2);
+    expect(plain.stderr).not.toContain('Dashboard:');
+    expect(zero.stderr).not.toContain('Dashboard:');
+    expect(seen).toEqual([]);
 
     seen = [];
     const signedOut = await runCli(['run', '--no-observer-link', '--data-dir', join(work, 'data'), FLOW],
       { FLOWS_CLOUD_TOKEN: undefined });
     expect(signedOut.code, signedOut.stderr).toBe(0);
-    expect(signedOut.stderr).toContain('Not signed in; this run stays local');
     expect(signedOut.stderr).not.toContain('Dashboard:');
     expect(seen).toEqual([]);
+  }, 180_000);
+
+  it('keeps resume and detach local, while the environment switch remains an explicit opt-in', async () => {
+    const dataDir = join(work, 'resume-data');
+    seen = [];
+    const initial = await runCli(['run', '--json', '--no-observer-link', '--data-dir', dataDir, FLOW]);
+    expect(initial.code, initial.stderr).toBe(0);
+    const runId = (JSON.parse(initial.stdout) as { runId: string }).runId;
+    expect(runId).toMatch(/^[A-Za-z0-9][A-Za-z0-9_-]*$/u);
+    expect(seen).toEqual([]);
+
+    const resumed = await runCli(['resume', runId, '--json', '--no-observer-link', '--data-dir', dataDir]);
+    expect(resumed.code, resumed.stderr).toBe(0);
+    expect(seen).toEqual([]);
+
+    const detachedData = join(work, 'detached-data');
+    const detached = await runCli(['run', '--json', '--no-observer-link', '--detach',
+      '--data-dir', detachedData, FLOW]);
+    expect(detached.code, detached.stderr).toBe(0);
+    const handle = JSON.parse(detached.stdout) as { pid: number; recordPath: string };
+    await waitForDetachedFinish(handle.recordPath);
+    await waitForProcessExit(handle.pid);
+    expect(seen).toEqual([]);
+
+    const mirroredData = join(work, 'env-data');
+    const mirrored = await runCli(['run', '--no-observer-link', '--data-dir', mirroredData, FLOW],
+      { FLOWS_CLOUD_MIRROR: '1' });
+    expect(mirrored.code, mirrored.stderr).toBe(0);
+    expect(seen.some(call => call.url === '/api/v1/workflows/local-run')).toBe(true);
+    expect(mirrored.stderr).toContain('Dashboard:');
+  }, 180_000);
+
+  it('mirrors resume and detached execution when the flag explicitly opts them in', async () => {
+    const dataDir = join(work, 'explicit-resume-data');
+    seen = [];
+    const initial = await runCli(['run', '--json', '--no-observer-link', '--data-dir', dataDir, FLOW]);
+    expect(initial.code, initial.stderr).toBe(0);
+    const runId = (JSON.parse(initial.stdout) as { runId: string }).runId;
+    expect(seen).toEqual([]);
+
+    const resumed = await runCli(['resume', runId, '--cloud-mirror', '--no-observer-link',
+      '--data-dir', dataDir]);
+    expect(resumed.code, resumed.stderr).toBe(0);
+    expect(resumed.stderr).toContain('Dashboard:');
+    expect(seen.some(call => call.url === '/api/v1/workflows/local-run')).toBe(true);
+    expect(seen.some(call => call.url === '/api/v1/workflows/callback')).toBe(true);
+
+    seen = [];
+    const detachedData = join(work, 'explicit-detached-data');
+    const detached = await runCli(['run', '--json', '--no-observer-link', '--cloud-mirror', '--detach',
+      '--data-dir', detachedData, FLOW]);
+    expect(detached.code, detached.stderr).toBe(0);
+    const handle = JSON.parse(detached.stdout) as { recordPath: string };
+    await waitForDetachedFinish(handle.recordPath);
+    await waitForSeen(call => call.url === '/api/v1/workflows/callback');
+    expect(seen.some(call => call.url === '/api/v1/workflows/local-run')).toBe(true);
   }, 180_000);
 
   it('publishes a composed authored flow as one connected dashboard DAG', async () => {

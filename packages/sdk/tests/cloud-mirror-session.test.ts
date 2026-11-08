@@ -125,6 +125,25 @@ describe('createCloudMirrorSession', () => {
     expect(err[0]).toContain('agent-relay cloud login');
   });
 
+  it('names the environment opt-in when it cannot find a Cloud login', async () => {
+    const { io: cli, err } = io();
+    const missing = new CloudFlowError('configuration', 'Set FLOWS_CLOUD_TOKEN …');
+    missing.reason = 'auth_missing';
+    const session = createCloudMirrorSession({
+      source: async () => ({ workflow: 'name: demo\n', fileType: 'yaml' }),
+      dataDir: '/data',
+      log: () => [],
+      requested: 'env',
+    }, cli, {}, { register: vi.fn(async () => { throw missing; }) });
+
+    session.onRunStarted({ runId: '01RUN' });
+    await expect(session.finish(okReport)).resolves.toBeUndefined();
+
+    expect(err).toHaveLength(1);
+    expect(err[0]).toContain(`${MIRROR_ENV}=1 asked for the Cloud dashboard`);
+    expect(err[0]).toContain('no Cloud login, so this run stays local');
+  });
+
   it('names a deployment that does not serve the route yet, without blaming the run', async () => {
     const { io: cli, err } = io();
     const session = createCloudMirrorSession({
