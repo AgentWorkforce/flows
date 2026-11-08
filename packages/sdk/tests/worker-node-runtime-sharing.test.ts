@@ -25,7 +25,7 @@ afterEach(async () => {
 });
 
 describe('AgentWorker node-spawn runtime ownership', () => {
-  it('shares one publisher runtime across parallel relay steps and closes it after both journal writes', async () => {
+  it('shares one publisher runtime and makes concurrent closes await both journal writes', async () => {
     const dataDir = await mkdtemp(join(tmpdir(), 'flows-shared-node-runtime-'));
     roots.push(dataDir);
     const dispatches = [dispatch('edit-a', 'dispatch_aaaaaaaaaa'), dispatch('edit-b', 'dispatch_bbbbbbbbbb')];
@@ -33,6 +33,10 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     const order: string[] = [];
     let bothSpawned!: () => void;
     const ready = new Promise<void>(resolve => { bothSpawned = resolve; });
+    let bothJournalWritesStarted!: () => void;
+    const journalWritesStarted = new Promise<void>(resolve => { bothJournalWritesStarted = resolve; });
+    let finishJournalWrites!: () => void;
+    const journalWritesMayFinish = new Promise<void>(resolve => { finishJournalWrites = resolve; });
     const ack = vi.fn(async ({ inboxItemId }: { inboxItemId: string }) => {
       order.push(`ack:${inboxItemId}`);
       return {};
@@ -80,6 +84,8 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     owner.close.mockImplementation(async () => { order.push('close'); });
     const stepComplete = vi.fn<JournalClient['stepComplete']>(async (_runId, stepId) => {
       order.push(`journal:${stepId}`);
+      if (stepComplete.mock.calls.length === 2) bothJournalWritesStarted();
+      await journalWritesMayFinish;
       return {} as Awaited<ReturnType<JournalClient['stepComplete']>>;
     });
     const client = Object.assign(new EventEmitter(), {
@@ -95,7 +101,19 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     worker.on('error', error => errors.push(error));
     await worker.attach();
     for (const value of dispatches) client.emit('step.dispatch', value);
-    await worker.close();
+    const firstClose = worker.close();
+    const secondClose = worker.close();
+    let firstSettled = false;
+    let secondSettled = false;
+    void firstClose.then(() => { firstSettled = true; });
+    void secondClose.then(() => { secondSettled = true; });
+    await journalWritesStarted;
+    await Promise.resolve();
+    expect(firstSettled).toBe(false);
+    expect(secondSettled).toBe(false);
+    expect(owner.close).not.toHaveBeenCalled();
+    finishJournalWrites();
+    await Promise.all([firstClose, secondClose]);
 
     expect(errors).toEqual([]);
     expect(owner.get).toHaveBeenCalledTimes(2);
