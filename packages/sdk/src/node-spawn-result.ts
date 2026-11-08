@@ -109,7 +109,9 @@ export async function waitForNodeResult(
     if (signal?.aborted) {
       void close().catch(() => undefined);
     } else {
-      await close();
+      // The outcome is already decided. Iterator teardown must not replace it
+      // or hold the worker lease forever when return() rejects or never settles.
+      void close().catch(() => undefined);
     }
   }
 }

@@ -48,7 +48,7 @@ describe('node-spawn result hardening', () => {
   });
 
   it('closes only the normal inbox subscription without acknowledging the delivery', async () => {
-    const returned = vi.fn(async () => ({ done: true as const, value: undefined }));
+    const returned = vi.fn(async () => { throw new Error('iterator close failed'); });
     let delivered = false;
     const ack = vi.fn(async () => ({}));
     const delivery = await waitForNodeResult({ inbox: {
@@ -70,6 +70,23 @@ describe('node-spawn result hardening', () => {
     expect(ack).not.toHaveBeenCalled();
     await delivery.ack();
     expect(ack).toHaveBeenCalledOnce();
+  });
+
+  it('does not wait for an uncooperative normal iterator close after receiving a result', async () => {
+    const returned = vi.fn(() => new Promise<IteratorResult<never>>(() => {}));
+    const delivery = await waitForNodeResult({ inbox: {
+      subscribe: () => ({ [Symbol.asyncIterator]: () => ({
+        next: async () => ({ done: false as const, value: { id: 'delivery_1', message: {
+          id: 'message_1', from: { id: 'agent_1', name: 'worker' },
+          text: NODE_RESULT_PREFIX + JSON.stringify({ version: 1, run_id: 'run_1', step_id: 'step_1',
+            dispatch_id: correlation.dispatchId, status: 'completed', output: { ok: true } }),
+        } } }),
+        return: returned,
+      }) }),
+      ack: async () => ({}), fail: async () => ({}),
+    } }, { agentId: 'agent_1', agentName: 'worker', ...correlation });
+    expect(delivery.envelope.output).toEqual({ ok: true });
+    expect(returned).toHaveBeenCalledOnce();
   });
 
   it('cancels an initial inbox read even when the client ignores its signal option', async () => {

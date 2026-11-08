@@ -28,7 +28,8 @@ The remote path uses `@agent-relay/sdk >=17.2.1 <18`:
 One worker uses one lazy publisher connection across all of its concurrent
 relay steps. Each step closes only its inbox iterator. The default runtime is
 disconnected after worker shutdown drains every step; cancellation teardown is
-best-effort, and injected runtimes remain caller-owned.
+best-effort. Injected runtimes remain caller-owned: their caller must
+disconnect them after every worker sharing that runtime has drained.
 
 Spawn readiness is not task completion. A result without the exact sender and
 attempt correlation cannot complete a step.
