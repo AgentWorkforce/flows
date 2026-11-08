@@ -65,6 +65,13 @@ describe('remote node-spawn runtime', () => {
     expect(relay.disconnect).toHaveBeenCalledOnce();
   });
 
+  it('bounds publisher discovery and cleans up the client on timeout', async () => {
+    relay.me.mockImplementation(() => new Promise(() => {}));
+    const pending = createRemoteNodeSpawnRuntime({ RELAY_AGENT_TOKEN: 'agent-token' });
+    await expect(pending).rejects.toMatchObject({ name: 'TimeoutError' });
+    expect(relay.disconnect).toHaveBeenCalledOnce();
+  }, 20_000);
+
   it('forwards the worker lease cancellation into publisher discovery', async () => {
     relay.me.mockImplementation(() => new Promise(() => {}));
     const controller = new AbortController();
