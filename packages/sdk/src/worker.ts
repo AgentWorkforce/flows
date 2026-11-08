@@ -67,6 +67,7 @@ export interface AgentWorkerOptions {
 export class AgentWorker extends EventEmitter {
   private attached = false;
   private closing = false;
+  private closePromise?: Promise<void>;
   private readonly inFlight: Set<Promise<void>> = new Set();
   private readonly nodeSpawnRuntimeOwner: NodeSpawnRuntimeOwner;
 
@@ -99,15 +100,20 @@ export class AgentWorker extends EventEmitter {
 
   /**
    * Async, drain-aware shutdown. Awaits every dispatch in-flight; ignores
-   * dispatches that arrive after close() begins. Idempotent.
+   * dispatches that arrive after close() begins. Concurrent and later callers
+   * receive the same promise, so none can observe shutdown before the drain.
    *
    * A prior synchronous close() did NOT drain, so a caller shutting
    * mid-dispatch could silently lose an in-flight step's stepComplete
    * journal write when the socket was immediately shut. This closes
    * that hole.
    */
-  async close(): Promise<void> {
-    if (this.closing) return;
+  close(): Promise<void> {
+    this.closePromise ??= this.closeOnce();
+    return this.closePromise;
+  }
+
+  private async closeOnce(): Promise<void> {
     this.closing = true;
     this.client.off('step.dispatch', this.onDispatch);
     const pending = Array.from(this.inFlight);

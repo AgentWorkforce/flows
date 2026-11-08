@@ -25,7 +25,7 @@ afterEach(async () => {
 });
 
 describe('AgentWorker node-spawn runtime ownership', () => {
-  it('shares one publisher runtime across parallel relay steps and closes it after both journal writes', async () => {
+  it('shares one runtime and one concurrent close promise through dispatch drain', async () => {
     const dataDir = await mkdtemp(join(tmpdir(), 'flows-shared-node-runtime-'));
     roots.push(dataDir);
     const dispatches = [dispatch('edit-a', 'dispatch_aaaaaaaaaa'), dispatch('edit-b', 'dispatch_bbbbbbbbbb')];
@@ -33,6 +33,14 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     const order: string[] = [];
     let bothSpawned!: () => void;
     const ready = new Promise<void>(resolve => { bothSpawned = resolve; });
+    let bothJournalsStarted!: () => void;
+    const journalsStarted = new Promise<void>(resolve => { bothJournalsStarted = resolve; });
+    let allowJournals!: () => void;
+    const journalGate = new Promise<void>(resolve => { allowJournals = resolve; });
+    let ownerCloseStarted!: () => void;
+    const closeStarted = new Promise<void>(resolve => { ownerCloseStarted = resolve; });
+    let allowOwnerClose!: () => void;
+    const ownerCloseGate = new Promise<void>(resolve => { allowOwnerClose = resolve; });
     const ack = vi.fn(async ({ inboxItemId }: { inboxItemId: string }) => {
       order.push(`ack:${inboxItemId}`);
       return {};
@@ -77,9 +85,17 @@ describe('AgentWorker node-spawn runtime ownership', () => {
       } },
     };
     owner.get.mockResolvedValue(runtime);
-    owner.close.mockImplementation(async () => { order.push('close'); });
+    owner.close.mockImplementation(async () => {
+      order.push('close');
+      ownerCloseStarted();
+      await ownerCloseGate;
+    });
+    let journalCalls = 0;
     const stepComplete = vi.fn<JournalClient['stepComplete']>(async (_runId, stepId) => {
       order.push(`journal:${stepId}`);
+      journalCalls += 1;
+      if (journalCalls === dispatches.length) bothJournalsStarted();
+      await journalGate;
       return {} as Awaited<ReturnType<JournalClient['stepComplete']>>;
     });
     const client = Object.assign(new EventEmitter(), {
@@ -95,7 +111,28 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     worker.on('error', error => errors.push(error));
     await worker.attach();
     for (const value of dispatches) client.emit('step.dispatch', value);
-    await worker.close();
+    const firstClose = worker.close();
+    const secondClose = worker.close();
+    expect(secondClose).toBe(firstClose);
+    let firstSettled = false;
+    let secondSettled = false;
+    void firstClose.then(() => { firstSettled = true; });
+    void secondClose.then(() => { secondSettled = true; });
+
+    await journalsStarted;
+    await Promise.resolve();
+    expect([firstSettled, secondSettled]).toEqual([false, false]);
+    expect(owner.close).not.toHaveBeenCalled();
+
+    allowJournals();
+    await closeStarted;
+    await Promise.resolve();
+    expect(owner.close).toHaveBeenCalledOnce();
+    expect([firstSettled, secondSettled]).toEqual([false, false]);
+
+    allowOwnerClose();
+    await Promise.all([firstClose, secondClose]);
+    expect([firstSettled, secondSettled]).toEqual([true, true]);
 
     expect(errors).toEqual([]);
     expect(owner.get).toHaveBeenCalledTimes(2);
