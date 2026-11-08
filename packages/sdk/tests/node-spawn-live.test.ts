@@ -18,7 +18,7 @@ import { socketPathFor } from '../src/daemon-connection.js';
 import { JournalClient } from '../src/journal-client.js';
 import { NODE_RESULT_PREFIX } from '../src/node-spawn-result.js';
 import type { NodeSpawnRuntime } from '../src/node-spawn-runtime.js';
-import type { NodeSpawnReceipt } from '../src/node-spawn.js';
+import type { NodeSpawnIdentity, NodeSpawnReceipt } from '../src/node-spawn.js';
 import { AgentWorker } from '../src/worker.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -62,7 +62,7 @@ describe('node-spawn transport through the real journal', () => {
     });
     let dispatchId = '';
     const releases: Array<{
-      receipt: NodeSpawnReceipt;
+      receipt: NodeSpawnIdentity;
       idempotencyKey: string;
     }> = [];
     const ackStates: string[] = [];
@@ -93,7 +93,7 @@ describe('node-spawn transport through the real journal', () => {
         },
         release: async (input) => {
           releases.push({
-            receipt: input.receipt as NodeSpawnReceipt,
+            receipt: input.receipt,
             idempotencyKey: input.idempotencyKey,
           });
           return {
