@@ -4,6 +4,8 @@ import { dirname, isAbsolute, join } from 'node:path';
 import { createConnection, type Socket } from 'node:net';
 import {
   NodeSpawnError,
+  isRecord,
+  nonempty,
   normalizeNodeSpawnStatus,
   terminalStatus,
   type NodeReleaseRequest,
@@ -161,13 +163,20 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
 
   async targets(): Promise<NodeSpawnTarget[]> {
     const result = await this.core.call<{ targets: Array<Record<string, unknown>> }>('spawn.targets');
-    if (!Array.isArray(result.targets)) throw new NodeSpawnError('The core returned invalid spawn targets');
-    return result.targets.map(value => ({
-      id: String(value.id), name: String(value.name), live: value.live === true,
-      handlersLive: value.handlers_live === true, stale: value.stale === true,
-      capabilities: Array.isArray(value.capabilities) ? value.capabilities.filter(v => typeof v === 'string') : [],
-      activeAgents: Number(value.active_agents), reservedAgents: Number(value.reserved_agents), maxAgents: Number(value.max_agents),
-    }));
+    if (!isRecord(result) || !Array.isArray(result.targets)) {
+      throw new NodeSpawnError('The core returned invalid spawn targets', 'invalid_core_response');
+    }
+    return result.targets.map(value => {
+      if (!isRecord(value) || !nonempty(value.id) || !nonempty(value.name)) {
+        throw new NodeSpawnError('The core returned a spawn target without an exact identity', 'invalid_core_response');
+      }
+      return {
+        id: value.id, name: value.name, live: value.live === true,
+        handlersLive: value.handlers_live === true, stale: value.stale === true,
+        capabilities: Array.isArray(value.capabilities) ? value.capabilities.filter(nonempty) : [],
+        activeAgents: Number(value.active_agents), reservedAgents: Number(value.reserved_agents), maxAgents: Number(value.max_agents),
+      };
+    });
   }
 
   async spawn(request: NodeSpawnRequest): Promise<NodeSpawnReceipt> {
@@ -179,7 +188,8 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
         'spawn_invalid_input',
       );
     }
-    const targets = (await this.targets()).filter(candidate => candidate.live && candidate.handlersLive
+    const allTargets = await this.targets();
+    const targets = allTargets.filter(candidate => candidate.live && candidate.handlersLive
       && !candidate.stale && candidate.capabilities.includes(`spawn:${request.harness}`));
     const target = request.node === undefined
       ? targets[0]
@@ -194,8 +204,9 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
     // spawn.invoke is the action receipt; spawn.status is also the boundary
     // that enriches it from the core's exact same-workspace registration.
     const settled = await this.wait('spawn', raw.id, request.timeoutMs);
-    const cleanup = settled.agentId && settled.name && settled.nodeId === target.id
-      ? { id: settled.id, nodeId: settled.nodeId, nodeName: target.name,
+    const settledTarget = allTargets.find(candidate => candidate.id === settled.nodeId);
+    const cleanup = settled.agentId && settled.name && settledTarget?.id
+      ? { id: settled.id, nodeId: settledTarget.id, nodeName: settledTarget.name,
         name: settled.name, agentId: settled.agentId }
       : undefined;
     if (settled.status !== 'completed' || !settled.spawned || !settled.ready

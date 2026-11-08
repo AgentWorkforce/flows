@@ -5,6 +5,7 @@ import {
   normalizeNodeSpawnStatus,
   nonempty,
   terminalStatus,
+  validIdempotencyKey,
   type NodeReleaseRequest,
   type NodeSpawnAction,
   type NodeSpawnIdentity,
@@ -55,6 +56,9 @@ export class RemoteNodeSpawnPort implements NodeSpawnPort {
   }
 
   async spawn(request: NodeSpawnRequest): Promise<NodeSpawnReceipt> {
+    if (!validIdempotencyKey(request.idempotencyKey)) {
+      throw new NodeSpawnError('Invalid node-spawn idempotency key', 'spawn_invalid_input');
+    }
     const capability = `spawn:${request.harness}`;
     const ack = await this.client.placement.spawn({
       capability,
@@ -68,6 +72,7 @@ export class RemoteNodeSpawnPort implements NodeSpawnPort {
       input: {
         name: request.name,
         task: request.task,
+        idempotency_key: request.idempotencyKey,
         ...(request.model === undefined ? {} : { model: request.model }),
         ...(request.directory === undefined ? {} : { worker_cwd: request.directory }),
       },
@@ -85,10 +90,23 @@ export class RemoteNodeSpawnPort implements NodeSpawnPort {
       || (isRecord(output?.warning) && output.warning.code === 'spawn_task_unconfirmed');
     let cleanup: NodeSpawnIdentity | undefined;
     if (confirmation && output?.spawned === true && nodeName) {
+      const outputAgentId = nonempty(output.agent_id) ? output.agent_id : undefined;
+      const outputCleanup: NodeSpawnIdentity | undefined = outputAgentId === undefined ? undefined : {
+        id: confirmation.invocationId,
+        nodeId,
+        nodeName,
+        name: reportedName,
+        agentId: outputAgentId,
+      };
       const agent = await this.resolveAgent(reportedName);
       const exactAgentName = nonempty(agent.name) ? agent.name : reportedName;
       if (!nonempty(agent.id)) {
-        throw new NodeSpawnError('The spawned agent identity could not be resolved exactly', 'spawn_identity_mismatch');
+        throw new NodeSpawnError('The spawned agent identity could not be resolved exactly',
+          'spawn_identity_mismatch', undefined, outputCleanup);
+      }
+      if (exactAgentName !== reportedName || (outputAgentId !== undefined && outputAgentId !== agent.id)) {
+        throw new NodeSpawnError('The spawned agent identity could not be resolved exactly',
+          'spawn_identity_mismatch', undefined, outputCleanup);
       }
       cleanup = {
         id: confirmation.invocationId,
@@ -97,10 +115,6 @@ export class RemoteNodeSpawnPort implements NodeSpawnPort {
         name: exactAgentName,
         agentId: agent.id,
       };
-      if (exactAgentName !== reportedName || (nonempty(output.agent_id) && output.agent_id !== agent.id)) {
-        throw new NodeSpawnError('The spawned agent identity could not be resolved exactly',
-          'spawn_identity_mismatch', undefined, cleanup);
-      }
     }
     if (!confirmation || confirmation.status.toLowerCase() !== 'completed'
       || output?.spawned !== true || output.ready !== true) {
@@ -137,6 +151,9 @@ export class RemoteNodeSpawnPort implements NodeSpawnPort {
   }
 
   async release(request: NodeReleaseRequest): Promise<NodeSpawnInvocation> {
+    if (!validIdempotencyKey(request.idempotencyKey)) {
+      throw new NodeSpawnError('Invalid node-release idempotency key', 'spawn_invalid_input');
+    }
     const receipt = request.receipt;
     const ack = await this.client.placement.spawn({
       capability: 'release',
@@ -147,6 +164,7 @@ export class RemoteNodeSpawnPort implements NodeSpawnPort {
       input: {
         name: receipt.name,
         expected_agent_id: receipt.agentId,
+        idempotency_key: request.idempotencyKey,
         reason: request.reason ?? 'Relayflows attempt ended',
       },
     });

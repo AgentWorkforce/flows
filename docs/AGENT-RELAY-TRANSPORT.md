@@ -34,8 +34,10 @@ Before dispatch, Flows creates and fsyncs a private claim under
 `<data-dir>/node-spawns/`. It binds publisher identity, Relay origin, journal
 identity, stable worker name, and full spawn input. Tokens are never stored.
 
-The current fleet placement SDK has no caller-provided idempotency key. Flows
-therefore sends at most one spawn for a newly created claim. A recorded
+The current fleet placement SDK has no caller-provided idempotency key for the
+placement invocation itself. Flows forwards the durable key to the selected
+node in the spawn action input, and still sends at most one placement spawn
+for a newly created claim. A recorded
 invocation is reconciled with `commands.getInvocation`; an existing claim with
 no recorded acknowledgement is the ambiguous crash window and fails closed.
 It is never answered by a blind second spawn. The stable worker name provides
@@ -48,8 +50,11 @@ delivery; it cannot use that window to spawn or extend remote execution.
 
 Lease loss or timeout aborts the inbox wait and attempts exact release. A
 post-spawn verification failure carries any exact identity already proven into
-the same cleanup path. A failed cleanup is recorded as pending in the durable
-claim and the result remains unacked for an idempotent retry. A result delivery
+the same cleanup path. Spawn and release action inputs carry their stable
+idempotency keys. A failed cleanup is recorded as pending in the durable claim,
+the result remains unacked, and the worker refuses to journal a terminal step
+fact. Kernel redelivery therefore reopens the same claim and retries exact
+release before it can accept a result or issue another spawn. A result delivery
 stays unacked until its terminal journal append succeeds, so a worker crash
 cannot turn Relay acknowledgement into fabricated execution truth.
 

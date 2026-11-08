@@ -41,6 +41,7 @@ import {
 } from './cli-transport-evidence.js';
 import {
   runAgentRelayTask,
+  AgentRelayCleanupPendingError,
   AgentRelayTransportError,
   type AgentTransport,
 } from './agent-relay-transport.js';
@@ -414,6 +415,7 @@ async function runViaAgentRelay(
     return requirePricedUsage(result, model);
   } catch (error) {
     signal?.throwIfAborted();
+    if (error instanceof AgentRelayCleanupPendingError) throw error;
     const detail = error instanceof AgentRelayTransportError ? error.message
       : error instanceof Error ? error.message : 'Relay task transport failed';
     return { exit_code: null, stdout_tail: '', stderr_tail: redactRelayError(detail) };

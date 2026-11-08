@@ -34,6 +34,19 @@ export class AgentRelayTransportError extends Error {
   }
 }
 
+/**
+ * Exact cleanup is durable but incomplete. The worker must not journal a
+ * terminal step fact: leaving the lease unresolved lets the kernel dispatch
+ * the same durable claim again, where cleanup is retried before any result is
+ * accepted or any second spawn can occur.
+ */
+export class AgentRelayCleanupPendingError extends AgentRelayTransportError {
+  constructor(message: string, cause?: unknown) {
+    super(message, cause);
+    this.name = 'AgentRelayCleanupPendingError';
+  }
+}
+
 const RESULT_RECOVERY_WINDOW_MS = 30_000;
 
 export function readAgentRelayEnv(env: NodeJS.ProcessEnv = process.env): Required<Pick<AgentRelayEnv, 'baseUrl' | 'agentToken'>> {
@@ -142,6 +155,23 @@ export async function runAgentRelayTask(
       await recordNodeSpawn(claimed.path, claim);
       options.signal?.throwIfAborted();
     } else {
+      if (claim.cleanupPending !== undefined && claim.result === undefined
+        && claim.release === undefined) {
+        releaseAttempted = true;
+        const cleanup = await tryRelease(runtime, claimed.path, claim, request.idempotencyKey);
+        claim = cleanup.claim;
+        if (cleanup.error !== undefined) throw cleanup.error;
+        throw new NodeSpawnError(
+          claim.failure?.message ?? 'The prior node spawn failed after launch',
+          claim.failure?.code ?? 'spawn_unconfirmed',
+        );
+      }
+      if (claim.release !== undefined && claim.result === undefined) {
+        throw new NodeSpawnError(
+          claim.failure?.message ?? 'The recorded node spawn was released before it reported a result',
+          claim.failure?.code ?? 'spawn_released',
+        );
+      }
       const status = await runtime.port.status('spawn', claim.spawn.id);
       if (status.status !== 'completed') {
         throw new NodeSpawnError('The recorded node spawn is no longer completed',
@@ -216,6 +246,12 @@ export async function runAgentRelayTask(
     };
   } catch (error) {
     let cleanupError: unknown;
+    if ((claim.spawn !== undefined || claim.cleanup !== undefined)
+      && claim.release === undefined && claim.failure === undefined) {
+      claim = { ...claim, failure: failureFrom(error) };
+      try { await recordNodeSpawn(claimed.path, claim); }
+      catch (stateError) { cleanupError = stateError; }
+    }
     if (error instanceof NodeSpawnError && error.cleanup !== undefined && claim.spawn === undefined) {
       claim = { ...claim, cleanup: error.cleanup,
         failure: { code: error.code, message: error.message } };
@@ -233,12 +269,18 @@ export async function runAgentRelayTask(
     const detail = cleanupError === undefined
       ? safeError(error)
       : `${safeError(error)}; exact cleanup remains pending: ${safeError(cleanupError)}`;
+    if (claim.cleanupPending !== undefined && claim.release === undefined) {
+      throw new AgentRelayCleanupPendingError(detail, error);
+    }
     throw new AgentRelayTransportError(detail, error);
   }
 
   async function settleLateSpawn(outcome: { spawn?: NodeSpawnReceipt; error?: unknown }): Promise<void> {
     if (outcome.spawn !== undefined) {
-      claim = { ...claim, spawn: outcome.spawn };
+      claim = { ...claim, spawn: outcome.spawn, failure: {
+        code: 'spawn_cancelled',
+        message: 'The node spawn confirmed after its caller stopped waiting',
+      } };
     } else if (outcome.error instanceof NodeSpawnError && outcome.error.cleanup !== undefined) {
       claim = { ...claim, cleanup: outcome.error.cleanup,
         failure: { code: outcome.error.code, message: outcome.error.message } };
@@ -331,4 +373,11 @@ function releaseKey(key: string): string {
 
 function safeError(error: unknown): string {
   return error instanceof Error && error.message ? error.message : 'Node-spawn task failed';
+}
+
+function failureFrom(error: unknown): { code: string; message: string } {
+  return {
+    code: error instanceof NodeSpawnError ? error.code : 'node_spawn_failed',
+    message: safeError(error),
+  };
 }

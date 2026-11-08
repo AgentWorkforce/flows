@@ -47,6 +47,31 @@ describe('node-spawn result hardening', () => {
     expect(fail).toHaveBeenCalledWith(expect.objectContaining({ inboxItemId: 'delivery_bad', retry: false }));
   });
 
+  it('closes a normal inbox subscription without acknowledging the delivery', async () => {
+    const returned = vi.fn(async () => ({ done: true as const, value: undefined }));
+    let delivered = false;
+    const ack = vi.fn(async () => ({}));
+    const delivery = await waitForNodeResult({ inbox: {
+      subscribe: () => ({ [Symbol.asyncIterator]: () => ({
+        next: async () => {
+          if (delivered) return new Promise<IteratorResult<never>>(() => {});
+          delivered = true;
+          return { done: false as const, value: { id: 'delivery_1', message: { id: 'message_1',
+            from: { id: 'agent_1', name: 'worker' }, text: NODE_RESULT_PREFIX + JSON.stringify({
+              version: 1, run_id: 'run_1', step_id: 'step_1', dispatch_id: correlation.dispatchId,
+              status: 'completed', output: { ok: true },
+            }) } } };
+        },
+        return: returned,
+      }) }),
+      ack, fail: async () => ({}),
+    } }, { agentId: 'agent_1', agentName: 'worker', ...correlation });
+    expect(returned).toHaveBeenCalledOnce();
+    expect(ack).not.toHaveBeenCalled();
+    await delivery.ack();
+    expect(ack).toHaveBeenCalledOnce();
+  });
+
   it('cancels an initial inbox read even when the client ignores its signal option', async () => {
     const returned = vi.fn();
     const controller = new AbortController();
@@ -54,6 +79,21 @@ describe('node-spawn result hardening', () => {
       subscribe: () => ({ [Symbol.asyncIterator]: () => ({
         next: () => new Promise<IteratorResult<never>>(() => {}),
         return: async () => { returned(); return { done: true, value: undefined }; },
+      }) }),
+      ack: async () => ({}), fail: async () => ({}),
+    } }, { agentId: 'agent_1', agentName: 'worker', ...correlation }, controller.signal);
+    controller.abort(new Error('lease lost'));
+    await expect(waiting).rejects.toThrow('lease lost');
+    expect(returned).toHaveBeenCalledOnce();
+  });
+
+  it('does not wait for an uncooperative iterator close after cancellation', async () => {
+    const returned = vi.fn(() => new Promise<IteratorResult<never>>(() => {}));
+    const controller = new AbortController();
+    const waiting = waitForNodeResult({ inbox: {
+      subscribe: () => ({ [Symbol.asyncIterator]: () => ({
+        next: () => new Promise<IteratorResult<never>>(() => {}),
+        return: returned,
       }) }),
       ack: async () => ({}), fail: async () => ({}),
     } }, { agentId: 'agent_1', agentName: 'worker', ...correlation }, controller.signal);

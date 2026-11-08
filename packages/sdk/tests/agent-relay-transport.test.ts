@@ -2,7 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { runAgentRelayTask, type AgentRelayTaskRequest } from '../src/agent-relay-transport.js';
+import { AgentRelayCleanupPendingError, runAgentRelayTask,
+  type AgentRelayTaskRequest } from '../src/agent-relay-transport.js';
 import { NODE_RESULT_PREFIX } from '../src/node-spawn-result.js';
 import type { NodeSpawnRuntime } from '../src/node-spawn-runtime.js';
 import { NodeSpawnError, type NodeSpawnPort, type NodeSpawnReceipt } from '../src/node-spawn.js';
@@ -136,14 +137,23 @@ describe('native node-spawn task transport', () => {
         nodeId: 'node_1', nodeName: 'desktop-1', name: input.name, agentId: 'agent_1',
         spawned: true as const, ready: true as const };
     });
-    await expect(runAgentRelayTask(request(dataDir), {
-      runtime: f.runtime, signal: controller.signal,
-    })).rejects.toThrow('lease lost');
-    await vi.waitFor(() => {
-      expect(f.release).toHaveBeenCalledWith(expect.objectContaining({
-        receipt: expect.objectContaining({ agentId: 'agent_1', nodeName: 'desktop-1' }),
-      }));
+    const order: string[] = [];
+    f.release.mockImplementationOnce(async () => {
+      order.push('release');
+      return { id: 'inv_release_1', action: 'release' as const,
+        status: 'completed' as const, spawned: false, ready: false, released: true };
     });
+    try {
+      await runAgentRelayTask(request(dataDir), { runtime: f.runtime, signal: controller.signal });
+      throw new Error('expected cancellation');
+    } catch (error) {
+      expect(error).toMatchObject({ message: 'lease lost' });
+      order.push('rejected');
+    }
+    expect(order).toEqual(['release', 'rejected']);
+    expect(f.release).toHaveBeenCalledWith(expect.objectContaining({
+      receipt: expect.objectContaining({ agentId: 'agent_1', nodeName: 'desktop-1' }),
+    }));
   });
 
   it('returns promptly from a cancelled confirmation and cleans up its late exact receipt', async () => {
@@ -211,12 +221,71 @@ describe('native node-spawn task transport', () => {
     const f = fixture();
     f.release.mockRejectedValueOnce(new Error('release response lost'));
     await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime }))
-      .rejects.toThrow('release response lost');
+      .rejects.toBeInstanceOf(AgentRelayCleanupPendingError);
     expect(f.ack).not.toHaveBeenCalled();
     const recovered = await runAgentRelayTask(request(dataDir), { runtime: f.runtime });
     expect(f.spawn).toHaveBeenCalledOnce();
     expect(f.release).toHaveBeenCalledTimes(2);
     expect(recovered.receipt.status).toBe('completed');
+  });
+
+  it('does not terminally journal a cleanup failure and recovers through the worker path', async () => {
+    const dataDir = await dataDirectory('flows-node-worker-cleanup-');
+    const f = fixture();
+    f.release.mockRejectedValueOnce(new Error('release response lost'));
+    const client = Object.assign(new EventEmitter(), {
+      workerAttach: vi.fn(async () => ({})),
+      stepHeartbeat: vi.fn(async () => ({ lease_deadline_ms: Date.now() + 30_000 })),
+      stepComplete: vi.fn(async () => ({})),
+    });
+    const worker = new AgentWorker(client as unknown as JournalClient, {
+      workerId: 'worker_1', pins: {}, dataDir, nodeSpawnRuntime: f.runtime,
+    });
+    await worker.attach();
+    const dispatch = (attempt: number): StepDispatchEvent => ({
+      run_id: 'run_1', step_id: 'edit', attempt, step_type: 'agent',
+      spec: { cli: 'codex', instruction: 'Implement the change', transport: 'relay' },
+      idempotency_key: 'dispatch_1234567890', lease_id: `lease_${attempt}`,
+      lease_deadline_ms: Date.now() + 30_000, pins: {},
+    });
+    const failed = new Promise<unknown>(resolve => worker.once('error', resolve));
+    client.emit('step.dispatch', dispatch(1));
+    await expect(failed).resolves.toBeInstanceOf(AgentRelayCleanupPendingError);
+    expect(client.stepComplete).not.toHaveBeenCalled();
+    client.emit('step.dispatch', dispatch(2));
+    await vi.waitFor(() => expect(client.stepComplete).toHaveBeenCalledOnce());
+    await worker.close();
+    expect(f.spawn).toHaveBeenCalledOnce();
+    expect(f.release).toHaveBeenCalledTimes(2);
+    expect(client.stepComplete).toHaveBeenCalledWith('run_1', 'edit', 2,
+      'dispatch_1234567890', 'success', expect.any(Object));
+  });
+
+  it('fails immediately when a prior error already released an agent without a result', async () => {
+    const dataDir = await dataDirectory('flows-node-released-without-result-');
+    const f = fixture();
+    f.runtime.inbox.inbox.subscribe = async function* () {};
+    await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime }))
+      .rejects.toThrow('inbox ended');
+    await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime }))
+      .rejects.toThrow('inbox ended');
+    expect(f.spawn).toHaveBeenCalledOnce();
+    expect(f.release).toHaveBeenCalledOnce();
+    expect(f.status).not.toHaveBeenCalled();
+  });
+
+  it('retries pending cleanup before failing a result-less spawn recovery', async () => {
+    const dataDir = await dataDirectory('flows-node-resultless-cleanup-');
+    const f = fixture();
+    f.runtime.inbox.inbox.subscribe = async function* () {};
+    f.release.mockRejectedValueOnce(new Error('release response lost'));
+    await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime }))
+      .rejects.toBeInstanceOf(AgentRelayCleanupPendingError);
+    await expect(runAgentRelayTask(request(dataDir), { runtime: f.runtime }))
+      .rejects.toThrow('inbox ended');
+    expect(f.spawn).toHaveBeenCalledOnce();
+    expect(f.release).toHaveBeenCalledTimes(2);
+    expect(f.status).not.toHaveBeenCalled();
   });
 
   it('keeps the original deadline across restart and bounds completed-result recovery', async () => {

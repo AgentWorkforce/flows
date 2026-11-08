@@ -62,6 +62,15 @@ describe('local node-spawn port', () => {
     expect(calls).not.toHaveBeenCalled();
   });
 
+  it('refuses local targets without an exact string id instead of fabricating one', async () => {
+    const core: CoreClient = { close() {}, async call<T>(): Promise<T> {
+      return { targets: [{ id: undefined, name: 'desktop-1', live: true,
+        handlers_live: true, capabilities: ['spawn:codex'] }] } as T;
+    } };
+    const port = new LocalNodeSpawnPort(core, { name: 'authorized-caller', secret: 'desktop-service-secret' });
+    await expect(port.targets()).rejects.toMatchObject({ code: 'invalid_core_response' });
+  });
+
   it.each([
     { live: false, handlers_live: true },
     { live: true, handlers_live: false },
@@ -103,8 +112,12 @@ describe('local node-spawn port', () => {
 
   it('refuses a completed local spawn whose returned node identity changed', async () => {
     const core: CoreClient = { close() {}, async call<T>(method: string): Promise<T> {
-      if (method === 'spawn.targets') return { targets: [{ id: 'node_1', name: 'desktop-1', live: true,
-        handlers_live: true, stale: false, capabilities: ['spawn:codex'] }] } as T;
+      if (method === 'spawn.targets') return { targets: [
+        { id: 'node_1', name: 'desktop-1', live: true,
+          handlers_live: true, stale: false, capabilities: ['spawn:codex'] },
+        { id: 'node_other', name: 'desktop-2', live: true,
+          handlers_live: true, stale: false, capabilities: ['spawn:codex'] },
+      ] } as T;
       if (method === 'spawn.invoke') return { id: 'inv_1', status: 'pending', spawned: false,
         ready: false, task_unconfirmed: false } as T;
       return { id: 'inv_1', status: 'completed', node_id: 'node_other', agent_id: 'agent_1',
@@ -112,7 +125,10 @@ describe('local node-spawn port', () => {
     } };
     const port = new LocalNodeSpawnPort(core, { name: 'authorized-caller', secret: 'desktop-service-secret' });
     await expect(port.spawn({ name: 'worker_1', harness: 'codex', task: 'work', directory: '/workspace',
-      idempotencyKey: 'dispatch_1234567890' })).rejects.toMatchObject({ code: 'spawn_identity_mismatch' });
+      idempotencyKey: 'dispatch_1234567890' })).rejects.toMatchObject({
+      code: 'spawn_identity_mismatch',
+      cleanup: { nodeId: 'node_other', nodeName: 'desktop-2', name: 'worker_1', agentId: 'agent_1' },
+    });
   });
 });
 
@@ -136,9 +152,11 @@ describe('remote node-spawn port', () => {
       idempotencyKey: 'dispatch_1234567890' });
     await port.release({ receipt, idempotencyKey: 'release_1234567890' });
     expect(receipt).toMatchObject({ agentId: 'agent_1', nodeName: 'desktop-1', ready: true });
-    expect(placement.mock.calls[0]![0]).toMatchObject({ confirm: true, verifyReady: true });
+    expect(placement.mock.calls[0]![0]).toMatchObject({ confirm: true, verifyReady: true,
+      input: { idempotency_key: 'dispatch_1234567890' } });
     expect(placement.mock.calls[1]![0]).toMatchObject({ capability: 'release', actionName: 'release',
-      node: 'desktop-1', input: { name: 'worker_1', expected_agent_id: 'agent_1' } });
+      node: 'desktop-1', input: { name: 'worker_1', expected_agent_id: 'agent_1',
+        idempotency_key: 'release_1234567890' } });
     expect(getInvocation).toHaveBeenCalledWith('release', 'rel_1');
   });
 
@@ -158,6 +176,24 @@ describe('remote node-spawn port', () => {
       code: 'spawn_task_unconfirmed',
       cleanup: { id: 'inv_1', nodeId: 'node_1', nodeName: 'desktop-1',
         name: 'worker_1', agentId: 'agent_1' },
+    });
+  });
+
+  it('never substitutes a conflicting roster id for the handler cleanup identity', async () => {
+    const port = new RemoteNodeSpawnPort({
+      agents: { get: async name => ({ id: 'agent_roster_replacement', name }) },
+      nodes: { list: async () => [] },
+      placement: { spawn: async () => ({ invocationId: 'ack_1', actionName: 'spawn', status: 'pending',
+        node: { id: 'node_1', name: 'desktop-1', status: 'online', capabilities: [] },
+        placement: { node: 'desktop-1', confirmed: true, state: 'ready' },
+        confirmation: { invocationId: 'inv_1', actionName: 'spawn', status: 'completed',
+          output: { spawned: true, ready: true, name: 'worker_1', agent_id: 'agent_spawned' } } }) },
+      commands: { getInvocation: vi.fn() },
+    });
+    await expect(port.spawn({ name: 'worker_1', harness: 'codex', task: 'work',
+      idempotencyKey: 'dispatch_1234567890' })).rejects.toMatchObject({
+      code: 'spawn_identity_mismatch',
+      cleanup: { agentId: 'agent_spawned', name: 'worker_1', nodeName: 'desktop-1' },
     });
   });
 

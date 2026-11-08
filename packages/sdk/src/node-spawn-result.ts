@@ -62,42 +62,56 @@ export async function waitForNodeResult(
   signal?: AbortSignal,
 ): Promise<NodeResultDelivery> {
   const iterator = client.inbox.subscribe({ signal })[Symbol.asyncIterator]();
-  for (;;) {
-    const next = await abortableNext(iterator, signal);
-    if (next.done) break;
-    const item = next.value;
-    signal?.throwIfAborted();
-    if (item.message.from.id !== expected.agentId || item.message.from.name !== expected.agentName) continue;
-    if (!item.message.text.startsWith(NODE_RESULT_PREFIX)) continue;
-    let raw: unknown;
-    try { raw = JSON.parse(item.message.text.slice(NODE_RESULT_PREFIX.length)); }
-    catch { raw = undefined; }
-    let envelope: NodeResultEnvelope;
-    try { envelope = readNodeResult(raw, expected); }
-    catch (error) {
-      const reason = error instanceof Error ? error.message : 'Malformed Relayflows result';
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => {
+    closing ??= Promise.resolve(iterator.return?.()).then(() => undefined);
+    return closing;
+  };
+  try {
+    for (;;) {
+      const next = await abortableNext(iterator, signal, close);
+      if (next.done) break;
+      const item = next.value;
+      signal?.throwIfAborted();
+      if (item.message.from.id !== expected.agentId || item.message.from.name !== expected.agentName) continue;
+      if (!item.message.text.startsWith(NODE_RESULT_PREFIX)) continue;
+      let raw: unknown;
+      try { raw = JSON.parse(item.message.text.slice(NODE_RESULT_PREFIX.length)); }
+      catch { raw = undefined; }
+      let envelope: NodeResultEnvelope;
+      try { envelope = readNodeResult(raw, expected); }
+      catch (error) {
+        const reason = error instanceof Error ? error.message : 'Malformed Relayflows result';
+        return {
+          inboxItemId: item.id,
+          messageId: item.message.id,
+          envelope: { version: 1, run_id: expected.runId, step_id: expected.stepId,
+            dispatch_id: expected.dispatchId, status: 'failed', error: reason },
+          ack: async () => { await client.inbox.fail({ inboxItemId: item.id, error: reason, retry: false,
+            metadata: { relayflows_result: 'rejected' } }); },
+        };
+      }
       return {
         inboxItemId: item.id,
         messageId: item.message.id,
-        envelope: { version: 1, run_id: expected.runId, step_id: expected.stepId,
-          dispatch_id: expected.dispatchId, status: 'failed', error: reason },
-        ack: async () => { await client.inbox.fail({ inboxItemId: item.id, error: reason, retry: false,
-          metadata: { relayflows_result: 'rejected' } }); },
+        envelope,
+        ack: async () => { await client.inbox.ack({ inboxItemId: item.id, state: 'read',
+          metadata: { relayflows_result: 'journaled' } }); },
       };
     }
-    return {
-      inboxItemId: item.id,
-      messageId: item.message.id,
-      envelope,
-      ack: async () => { await client.inbox.ack({ inboxItemId: item.id, state: 'read',
-        metadata: { relayflows_result: 'journaled' } }); },
-    };
+    signal?.throwIfAborted();
+    throw new Error('Agent Relay result inbox ended before the spawned agent reported completion');
+  } finally {
+    if (signal?.aborted) void close();
+    else await close();
   }
-  signal?.throwIfAborted();
-  throw new Error('Agent Relay result inbox ended before the spawned agent reported completion');
 }
 
-async function abortableNext<T>(iterator: AsyncIterator<T>, signal?: AbortSignal): Promise<IteratorResult<T>> {
+async function abortableNext<T>(
+  iterator: AsyncIterator<T>,
+  signal: AbortSignal | undefined,
+  close: () => Promise<void>,
+): Promise<IteratorResult<T>> {
   signal?.throwIfAborted();
   const pending = iterator.next();
   if (signal === undefined) return pending;
@@ -110,7 +124,7 @@ async function abortableNext<T>(iterator: AsyncIterator<T>, signal?: AbortSignal
   catch (error) {
     if (signal.aborted) {
       void pending.catch(() => undefined);
-      void iterator.return?.();
+      void close();
     }
     throw error;
   } finally {
