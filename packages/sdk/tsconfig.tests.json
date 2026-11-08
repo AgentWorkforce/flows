@@ -76,6 +76,7 @@
     "tests/agent-relay-hardening.test.ts",
     "tests/node-spawn-ports.test.ts",
     "tests/node-spawn-runtime.test.ts",
+    "tests/node-spawn-live.test.ts",
     "tests/worker-node-runtime-sharing.test.ts",
     "tests/webhook-hardening.test.ts",
     "tests/adapters/claude.test.ts",
