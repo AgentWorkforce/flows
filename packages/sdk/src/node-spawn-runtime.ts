@@ -84,6 +84,7 @@ export function createNodeSpawnRuntimeOwner(
   const controller = new AbortController();
   let pending: Promise<NodeSpawnRuntime> | undefined;
   let closed = false;
+  let closePromise: Promise<void> | undefined;
   const get = async (signal?: AbortSignal): Promise<NodeSpawnRuntime> => {
     signal?.throwIfAborted();
     if (closed) throw new NodeSpawnError('Node-spawn runtime owner is closed', 'task_cancelled');
@@ -95,17 +96,14 @@ export function createNodeSpawnRuntimeOwner(
     }
     return waitForRuntime(pending, signal);
   };
-  return {
-    get,
-    close: async () => {
-      if (closed) return;
-      closed = true;
-      controller.abort(new Error('Node-spawn runtime owner closed'));
-      if (provided !== undefined) return;
-      const runtime = await pending?.catch(() => undefined);
-      await runtime?.disconnect?.().catch(() => undefined);
-    },
+  const closeOnce = async (): Promise<void> => {
+    closed = true;
+    controller.abort(new Error('Node-spawn runtime owner closed'));
+    if (provided !== undefined) return;
+    const runtime = await pending?.catch(() => undefined);
+    await runtime?.disconnect?.().catch(() => undefined);
   };
+  return { get, close: () => closePromise ??= closeOnce() };
 }
 
 async function waitForRuntime(pending: Promise<NodeSpawnRuntime>, signal?: AbortSignal): Promise<NodeSpawnRuntime> {

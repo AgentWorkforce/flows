@@ -81,6 +81,31 @@ describe('remote node-spawn runtime', () => {
     expect(disconnect).toHaveBeenCalledOnce();
   });
 
+  it('shares one pending close across concurrent owner shutdown callers', async () => {
+    let releaseDisconnect!: () => void;
+    const disconnect = vi.fn(() => new Promise<void>(resolve => { releaseDisconnect = resolve; }));
+    const runtime = { port: {} as NodeSpawnRuntime['port'], inbox: {} as NodeSpawnRuntime['inbox'],
+      publisher: { id: 'publisher_1', name: 'publisher' }, baseUrl: 'https://cast.agentrelay.com',
+      disconnect } satisfies NodeSpawnRuntime;
+    const owner = createNodeSpawnRuntimeOwner(undefined, async () => runtime);
+    await expect(owner.get()).resolves.toBe(runtime);
+
+    let firstSettled = false;
+    let secondSettled = false;
+    const first = owner.close();
+    const second = owner.close();
+    void first.finally(() => { firstSettled = true; });
+    void second.finally(() => { secondSettled = true; });
+
+    expect(first).toBe(second);
+    await vi.waitFor(() => expect(disconnect).toHaveBeenCalledOnce());
+    expect(firstSettled).toBe(false);
+    expect(secondSettled).toBe(false);
+
+    releaseDisconnect();
+    await expect(Promise.all([first, second])).resolves.toEqual([undefined, undefined]);
+  });
+
   it('honors cancellation during publisher discovery and cleans up the client', async () => {
     relay.me.mockImplementation(() => new Promise(() => {}));
     const controller = new AbortController();
