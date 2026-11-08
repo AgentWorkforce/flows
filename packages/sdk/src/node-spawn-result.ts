@@ -64,7 +64,7 @@ export async function waitForNodeResult(
   const iterator = client.inbox.subscribe({ signal })[Symbol.asyncIterator]();
   let closing: Promise<void> | undefined;
   const close = (): Promise<void> => {
-    closing ??= Promise.resolve(iterator.return?.()).then(() => undefined);
+    closing ??= Promise.resolve().then(() => iterator.return?.()).then(() => undefined);
     return closing;
   };
   try {

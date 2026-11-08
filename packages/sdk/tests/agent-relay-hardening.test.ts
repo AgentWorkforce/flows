@@ -72,6 +72,23 @@ describe('node-spawn result hardening', () => {
     expect(ack).toHaveBeenCalledOnce();
   });
 
+  it('preserves a received result when iterator close throws synchronously', async () => {
+    const returned = vi.fn(() => { throw new Error('synchronous iterator close failed'); });
+    const delivery = await waitForNodeResult({ inbox: {
+      subscribe: () => ({ [Symbol.asyncIterator]: () => ({
+        next: async () => ({ done: false as const, value: { id: 'delivery_1', message: {
+          id: 'message_1', from: { id: 'agent_1', name: 'worker' },
+          text: NODE_RESULT_PREFIX + JSON.stringify({ version: 1, run_id: 'run_1', step_id: 'step_1',
+            dispatch_id: correlation.dispatchId, status: 'completed', output: { ok: true } }),
+        } } }),
+        return: returned,
+      }) }),
+      ack: async () => ({}), fail: async () => ({}),
+    } }, { agentId: 'agent_1', agentName: 'worker', ...correlation });
+    expect(delivery.envelope.output).toEqual({ ok: true });
+    expect(returned).toHaveBeenCalledOnce();
+  });
+
   it('does not wait for an uncooperative normal iterator close after receiving a result', async () => {
     const returned = vi.fn(() => new Promise<IteratorResult<never>>(() => {}));
     const delivery = await waitForNodeResult({ inbox: {
