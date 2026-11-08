@@ -52,7 +52,7 @@ export async function createRemoteNodeSpawnRuntime(
   }
   return {
     port: new RemoteNodeSpawnPort(client),
-    inbox: client,
+    inbox: { inbox: client.inbox, disconnect: () => client.events.disconnect() },
     publisher,
     baseUrl,
     ...(env.RELAYFLOW_NODE_NAME?.trim() ? { node: env.RELAYFLOW_NODE_NAME.trim() } : {}),

@@ -31,6 +31,8 @@ export interface NodeResultInboxClient {
     ack(input: { inboxItemId: string; state?: 'delivered' | 'read'; metadata?: Record<string, unknown> }): Promise<unknown>;
     fail(input: { inboxItemId: string; error: string; retry?: boolean; metadata?: Record<string, unknown> }): Promise<unknown>;
   };
+  /** Closes the agent-scoped event transport after this subscription ends. */
+  disconnect?(): Promise<void>;
 }
 
 export interface NodeResultDelivery {
@@ -104,8 +106,13 @@ export async function waitForNodeResult(
   } finally {
     // A client that ignores cancellation may leave next() pending forever.
     // Preserve prompt lease loss while still requesting resource cleanup.
-    if (signal?.aborted) void close().catch(() => undefined);
-    else await close();
+    if (signal?.aborted) {
+      void close().catch(() => undefined);
+      void client.disconnect?.().catch(() => undefined);
+    } else {
+      try { await close(); }
+      finally { await client.disconnect?.(); }
+    }
   }
 }
 

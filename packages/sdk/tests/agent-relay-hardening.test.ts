@@ -49,9 +49,10 @@ describe('node-spawn result hardening', () => {
 
   it('closes a normal inbox subscription without acknowledging the delivery', async () => {
     const returned = vi.fn(async () => ({ done: true as const, value: undefined }));
+    const disconnect = vi.fn(async () => {});
     let delivered = false;
     const ack = vi.fn(async () => ({}));
-    const delivery = await waitForNodeResult({ inbox: {
+    const delivery = await waitForNodeResult({ disconnect, inbox: {
       subscribe: () => ({ [Symbol.asyncIterator]: () => ({
         next: async () => {
           if (delivered) return new Promise<IteratorResult<never>>(() => {});
@@ -67,6 +68,7 @@ describe('node-spawn result hardening', () => {
       ack, fail: async () => ({}),
     } }, { agentId: 'agent_1', agentName: 'worker', ...correlation });
     expect(returned).toHaveBeenCalledOnce();
+    expect(disconnect).toHaveBeenCalledOnce();
     expect(ack).not.toHaveBeenCalled();
     await delivery.ack();
     expect(ack).toHaveBeenCalledOnce();
@@ -74,8 +76,9 @@ describe('node-spawn result hardening', () => {
 
   it('cancels an initial inbox read even when the client ignores its signal option', async () => {
     const returned = vi.fn();
+    const disconnect = vi.fn(async () => {});
     const controller = new AbortController();
-    const waiting = waitForNodeResult({ inbox: {
+    const waiting = waitForNodeResult({ disconnect, inbox: {
       subscribe: () => ({ [Symbol.asyncIterator]: () => ({
         next: () => new Promise<IteratorResult<never>>(() => {}),
         return: async () => { returned(); return { done: true, value: undefined }; },
@@ -85,6 +88,8 @@ describe('node-spawn result hardening', () => {
     controller.abort(new Error('lease lost'));
     await expect(waiting).rejects.toThrow('lease lost');
     expect(returned).toHaveBeenCalledOnce();
+    await new Promise(resolve => setImmediate(resolve));
+    expect(disconnect).toHaveBeenCalledOnce();
   });
 
   it('does not wait for an uncooperative iterator close after cancellation', async () => {

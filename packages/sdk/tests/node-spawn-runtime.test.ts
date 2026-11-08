@@ -41,10 +41,11 @@ describe('remote node-spawn runtime', () => {
 
   it('allows a literal loopback HTTP credential origin', async () => {
     relay.me.mockResolvedValue({ id: 'publisher_1', name: 'publisher' });
-    await expect(createRemoteNodeSpawnRuntime({
+    const runtime = await createRemoteNodeSpawnRuntime({
       RELAY_AGENT_TOKEN: 'agent-token',
       RELAY_BASE_URL: 'http://127.0.0.1:8787',
-    })).resolves.toMatchObject({
+    });
+    expect(runtime).toMatchObject({
       baseUrl: 'http://127.0.0.1:8787',
       publisher: { id: 'publisher_1', name: 'publisher' },
     });
@@ -52,6 +53,8 @@ describe('remote node-spawn runtime', () => {
       agentToken: 'agent-token',
       baseUrl: 'http://127.0.0.1:8787',
     }]);
+    await runtime.inbox.disconnect?.();
+    expect(relay.disconnect).toHaveBeenCalledOnce();
   });
 
   it('honors cancellation during publisher discovery and cleans up the client', async () => {
