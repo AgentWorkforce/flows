@@ -49,7 +49,7 @@ describe('node-spawn result hardening', () => {
 
   it('closes a normal inbox subscription without acknowledging the delivery', async () => {
     const returned = vi.fn(async () => ({ done: true as const, value: undefined }));
-    const disconnect = vi.fn(async () => {});
+    const disconnect = vi.fn(async () => { throw new Error('disconnect failed'); });
     let delivered = false;
     const ack = vi.fn(async () => ({}));
     const delivery = await waitForNodeResult({ disconnect, inbox: {

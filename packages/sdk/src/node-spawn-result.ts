@@ -111,7 +111,7 @@ export async function waitForNodeResult(
       void client.disconnect?.().catch(() => undefined);
     } else {
       try { await close(); }
-      finally { await client.disconnect?.(); }
+      finally { await client.disconnect?.().catch(() => undefined); }
     }
   }
 }
