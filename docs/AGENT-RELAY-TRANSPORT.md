@@ -25,9 +25,10 @@ The remote path uses `@agent-relay/sdk >=17.2.1 <18`:
 5. Only after `stepComplete` is durably accepted by the journal does Flows ack
    the inbox delivery. Relay is transport; the journal is execution authority.
 
-One worker owns one lazy publisher connection across all of its concurrent
-relay steps. Each step closes only its inbox iterator; worker shutdown drains
-every step before disconnecting the shared publisher identity.
+One worker uses one lazy publisher connection across all of its concurrent
+relay steps. Each step closes only its inbox iterator. The default runtime is
+disconnected after worker shutdown drains every step; cancellation teardown is
+best-effort, and injected runtimes remain caller-owned.
 
 Spawn readiness is not task completion. A result without the exact sender and
 attempt correlation cannot complete a step.

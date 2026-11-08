@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NODE_RESULT_PREFIX } from '../src/node-spawn-result.js';
 import type { NodeSpawnRuntime } from '../src/node-spawn-runtime.js';
+import type { NodeSpawnPort } from '../src/node-spawn.js';
 import type { JournalClient } from '../src/journal-client.js';
 import type { StepDispatchEvent } from '../src/protocol.js';
 
@@ -32,22 +33,26 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     let bothSpawned!: () => void;
     const ready = new Promise<void>(resolve => { bothSpawned = resolve; });
     const ack = vi.fn(async () => ({}));
+    const spawn = vi.fn<NodeSpawnPort['spawn']>(async input => {
+      const agentId = `agent_${spawned.length + 1}`;
+      spawned.push({ name: input.name, agentId, key: input.idempotencyKey });
+      if (spawned.length === 2) bothSpawned();
+      return { id: `spawn_${agentId}`, action: 'spawn', status: 'completed',
+        nodeId: 'node_1', nodeName: 'desktop-1', name: input.name, agentId,
+        spawned: true, ready: true };
+    });
+    const release = vi.fn<NodeSpawnPort['release']>(async input => ({
+      id: `release_${input.receipt.agentId}`, action: 'release', status: 'completed',
+      spawned: false, ready: false, released: true,
+    }));
     const runtime: NodeSpawnRuntime = {
       publisher: { id: 'publisher_1', name: 'flows-publisher' },
       baseUrl: 'https://cast.agentrelay.com',
       port: {
         targets: async () => [],
-        spawn: vi.fn(async input => {
-          const agentId = `agent_${spawned.length + 1}`;
-          spawned.push({ name: input.name, agentId, key: input.idempotencyKey });
-          if (spawned.length === 2) bothSpawned();
-          return { id: `spawn_${agentId}`, action: 'spawn', status: 'completed',
-            nodeId: 'node_1', nodeName: 'desktop-1', name: input.name, agentId,
-            spawned: true, ready: true };
-        }),
+        spawn,
         status: vi.fn(),
-        release: vi.fn(async input => ({ id: `release_${input.receipt.agentId}`,
-          action: 'release', status: 'completed', released: true })),
+        release,
       },
       inbox: { inbox: {
         subscribe: async function* () {
@@ -69,10 +74,14 @@ describe('AgentWorker node-spawn runtime ownership', () => {
     owner.get.mockResolvedValue(runtime);
     const order: string[] = [];
     owner.close.mockImplementation(async () => { order.push('close'); });
+    const stepComplete = vi.fn<JournalClient['stepComplete']>(async () => {
+      order.push('journal');
+      return {} as Awaited<ReturnType<JournalClient['stepComplete']>>;
+    });
     const client = Object.assign(new EventEmitter(), {
       workerAttach: vi.fn(async () => ({})),
       stepHeartbeat: vi.fn(async () => ({ lease_deadline_ms: Date.now() + 30_000 })),
-      stepComplete: vi.fn(async () => { order.push('journal'); return {}; }),
+      stepComplete,
       supportsFeature: vi.fn(() => true),
     });
     const worker = new AgentWorker(client as unknown as JournalClient, {
@@ -86,9 +95,9 @@ describe('AgentWorker node-spawn runtime ownership', () => {
 
     expect(errors).toEqual([]);
     expect(owner.get).toHaveBeenCalledTimes(2);
-    expect(runtime.port.spawn).toHaveBeenCalledTimes(2);
-    expect(client.stepComplete).toHaveBeenCalledTimes(2);
-    expect(client.stepComplete.mock.calls.map(call => [call[1], call[4], call[5]?.output]))
+    expect(spawn).toHaveBeenCalledTimes(2);
+    expect(stepComplete).toHaveBeenCalledTimes(2);
+    expect(stepComplete.mock.calls.map(call => [call[1], call[4], call[5]?.output]))
       .toEqual(expect.arrayContaining([
         ['edit-a', 'success', { step: 'edit-a' }],
         ['edit-b', 'success', { step: 'edit-b' }],
