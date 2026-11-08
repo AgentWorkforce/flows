@@ -210,9 +210,9 @@ export class LocalNodeSpawnPort implements NodeSpawnPort {
         name: settled.name, agentId: settled.agentId }
       : undefined;
     if (settled.status !== 'completed' || !settled.spawned || !settled.ready
-      || settled.taskUnconfirmed || !settled.agentId || !settled.name) {
+      || settled.taskUnconfirmed !== false || !settled.agentId || !settled.name) {
       throw new NodeSpawnError('The local node did not prove a ready spawned agent',
-        settled.taskUnconfirmed ? 'spawn_task_unconfirmed' : settled.errorCode, undefined, cleanup);
+        settled.taskUnconfirmed !== false ? 'spawn_task_unconfirmed' : settled.errorCode, undefined, cleanup);
     }
     if (settled.name !== request.name || settled.nodeId !== target.id) {
       throw new NodeSpawnError('The local spawn result did not preserve its requested identity',

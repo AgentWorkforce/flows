@@ -101,4 +101,20 @@ describe('node-spawn result hardening', () => {
     await expect(waiting).rejects.toThrow('lease lost');
     expect(returned).toHaveBeenCalledOnce();
   });
+
+  it('preserves cancellation when a detached iterator close rejects', async () => {
+    const returned = vi.fn(async () => { throw new Error('close failed'); });
+    const controller = new AbortController();
+    const waiting = waitForNodeResult({ inbox: {
+      subscribe: () => ({ [Symbol.asyncIterator]: () => ({
+        next: () => new Promise<IteratorResult<never>>(() => {}),
+        return: returned,
+      }) }),
+      ack: async () => ({}), fail: async () => ({}),
+    } }, { agentId: 'agent_1', agentName: 'worker', ...correlation }, controller.signal);
+    controller.abort(new Error('lease lost'));
+    await expect(waiting).rejects.toThrow('lease lost');
+    expect(returned).toHaveBeenCalledOnce();
+    await new Promise(resolve => setImmediate(resolve));
+  });
 });

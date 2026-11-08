@@ -42,7 +42,8 @@ describe('local node-spawn port', () => {
       caller_secret: 'desktop-service-secret', invocation_id: 'inv_1' })]);
     expect(calls[3]).toEqual(['spawn.release', expect.objectContaining({
       expected_agent_id: 'agent_1', caller_name: 'authorized-caller',
-      caller_secret: 'desktop-service-secret' })]);
+      caller_secret: 'desktop-service-secret', node_id: 'node_1', node_name: 'desktop-1',
+      name: 'worker_1', idempotency_key: 'release_1234567890' })]);
   });
 
   it('refuses a local service caller without its Desktop-issued secret', () => {
@@ -100,9 +101,12 @@ describe('local node-spawn port', () => {
         handlers_live: true, stale: false, capabilities: ['spawn:codex'] }] } as T;
       if (method === 'spawn.invoke') return { id: 'inv_1', status: 'pending', spawned: false,
         ready: false, task_unconfirmed: false } as T;
-      status();
-      return { id: 'inv_1', status: 'denied', spawned: false, ready: false,
-        task_unconfirmed: false, error_code: 'outside_scope' } as T;
+      if (method === 'spawn.status') {
+        status();
+        return { id: 'inv_1', status: 'denied', spawned: false, ready: false,
+          task_unconfirmed: false, error_code: 'outside_scope' } as T;
+      }
+      throw new Error(`unexpected core method: ${method}`);
     } };
     const port = new LocalNodeSpawnPort(core, { name: 'authorized-caller', secret: 'desktop-service-secret' });
     await expect(port.spawn({ name: 'worker_1', harness: 'codex', task: 'work', directory: '/workspace',
@@ -128,6 +132,24 @@ describe('local node-spawn port', () => {
       idempotencyKey: 'dispatch_1234567890' })).rejects.toMatchObject({
       code: 'spawn_identity_mismatch',
       cleanup: { nodeId: 'node_other', nodeName: 'desktop-2', name: 'worker_1', agentId: 'agent_1' },
+    });
+  });
+
+  it('refuses a completed local spawn without explicit task delivery confirmation', async () => {
+    const core: CoreClient = { close() {}, async call<T>(method: string): Promise<T> {
+      if (method === 'spawn.targets') return { targets: [{ id: 'node_1', name: 'desktop-1', live: true,
+        handlers_live: true, stale: false, capabilities: ['spawn:codex'] }] } as T;
+      if (method === 'spawn.invoke') return { id: 'inv_1', status: 'pending', spawned: false,
+        ready: false, task_unconfirmed: false } as T;
+      if (method === 'spawn.status') return { id: 'inv_1', status: 'completed', node_id: 'node_1',
+        agent_id: 'agent_1', name: 'worker_1', spawned: true, ready: true } as T;
+      throw new Error(`unexpected core method: ${method}`);
+    } };
+    const port = new LocalNodeSpawnPort(core, { name: 'authorized-caller', secret: 'desktop-service-secret' });
+    await expect(port.spawn({ name: 'worker_1', harness: 'codex', task: 'work', directory: '/workspace',
+      idempotencyKey: 'dispatch_1234567890' })).rejects.toMatchObject({
+      code: 'spawn_task_unconfirmed',
+      cleanup: { nodeId: 'node_1', nodeName: 'desktop-1', name: 'worker_1', agentId: 'agent_1' },
     });
   });
 });

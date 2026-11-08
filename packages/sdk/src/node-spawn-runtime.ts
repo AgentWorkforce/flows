@@ -17,13 +17,19 @@ export interface NodeSpawnRuntime {
 
 interface RelayRuntimeClient extends RemoteNodeSpawnClient, NodeResultInboxClient {
   agents: RemoteNodeSpawnClient['agents'] & { me(): Promise<NodeSpawnPublisher> };
+  events: { disconnect(): Promise<void> };
 }
 
-export async function createRemoteNodeSpawnRuntime(env: NodeJS.ProcessEnv = process.env): Promise<NodeSpawnRuntime> {
+const PUBLISHER_DISCOVERY_TIMEOUT_MS = 15_000;
+
+export async function createRemoteNodeSpawnRuntime(
+  env: NodeJS.ProcessEnv = process.env,
+  options: { signal?: AbortSignal } = {},
+): Promise<NodeSpawnRuntime> {
   const agentToken = env.RELAY_AGENT_TOKEN?.trim();
   if (!agentToken) throw new NodeSpawnError(
     'Node-spawn transport requires a dedicated publisher RELAY_AGENT_TOKEN.', 'publisher_token_required');
-  const baseUrl = validateBaseUrl(env.RELAY_BASE_URL?.trim() || 'https://cast.agentrelay.com');
+  const baseUrl = validateNodeSpawnBaseUrl(env.RELAY_BASE_URL?.trim() || 'https://cast.agentrelay.com');
   let RelaycastMessagingClient: new (options: Record<string, unknown>) => RelayRuntimeClient;
   try {
     ({ RelaycastMessagingClient } = await import('@agent-relay/sdk') as unknown as {
@@ -38,7 +44,9 @@ export async function createRemoteNodeSpawnRuntime(env: NodeJS.ProcessEnv = proc
     throw new NodeSpawnError('RELAYFLOW_NODE_SANDBOX_ONLY must be 0 or 1', 'spawn_invalid_input');
   }
   const client = new RelaycastMessagingClient({ baseUrl, agentToken });
-  const publisher = await client.agents.me();
+  const timeout = AbortSignal.timeout(PUBLISHER_DISCOVERY_TIMEOUT_MS);
+  const signal = options.signal === undefined ? timeout : AbortSignal.any([options.signal, timeout]);
+  const publisher = await discoverPublisher(client, signal);
   if (!publisher.id?.trim() || !publisher.name?.trim()) {
     throw new NodeSpawnError('The node-spawn publisher token has no exact Relay identity', 'publisher_identity_missing');
   }
@@ -53,7 +61,24 @@ export async function createRemoteNodeSpawnRuntime(env: NodeJS.ProcessEnv = proc
   };
 }
 
-function validateBaseUrl(raw: string): string {
+async function discoverPublisher(client: RelayRuntimeClient, signal: AbortSignal): Promise<NodeSpawnPublisher> {
+  let onAbort: (() => void) | undefined;
+  try {
+    signal.throwIfAborted();
+    const aborted = new Promise<never>((_resolve, reject) => {
+      onAbort = () => reject(signal.reason ?? new DOMException('The operation was aborted', 'AbortError'));
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+    return await Promise.race([client.agents.me(), aborted]);
+  } catch (error) {
+    if (signal.aborted) void client.events.disconnect().catch(() => undefined);
+    throw error;
+  } finally {
+    if (onAbort !== undefined) signal.removeEventListener('abort', onAbort);
+  }
+}
+
+function validateNodeSpawnBaseUrl(raw: string): string {
   let url: URL;
   try { url = new URL(raw); }
   catch (error) {

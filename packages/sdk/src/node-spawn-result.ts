@@ -104,7 +104,7 @@ export async function waitForNodeResult(
   } finally {
     // A client that ignores cancellation may leave next() pending forever.
     // Preserve prompt lease loss while still requesting resource cleanup.
-    if (signal?.aborted) void close();
+    if (signal?.aborted) void close().catch(() => undefined);
     else await close();
   }
 }
@@ -126,7 +126,7 @@ async function abortableNext<T>(
   catch (error) {
     if (signal.aborted) {
       void pending.catch(() => undefined);
-      void close();
+      void close().catch(() => undefined);
     }
     throw error;
   } finally {

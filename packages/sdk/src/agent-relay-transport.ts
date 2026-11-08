@@ -72,7 +72,7 @@ export async function runAgentRelayTask(
     ...(options.node === undefined ? {} : { RELAYFLOW_NODE_NAME: options.node }),
     ...(options.repo === undefined ? {} : { RELAYFLOW_NODE_REPO: options.repo }),
     ...(options.sandboxOnly === undefined ? {} : { RELAYFLOW_NODE_SANDBOX_ONLY: options.sandboxOnly ? '1' : '0' }),
-  });
+  }, { signal: options.signal });
   const correlation = { runId: request.runId, stepId: request.stepId, dispatchId: request.idempotencyKey };
   const agentName = stableAgentName(request);
   const task = [

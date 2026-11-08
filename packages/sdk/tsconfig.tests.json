@@ -75,6 +75,7 @@
     "tests/broker-retirement.test.ts",
     "tests/agent-relay-hardening.test.ts",
     "tests/node-spawn-ports.test.ts",
+    "tests/node-spawn-runtime.test.ts",
     "tests/webhook-hardening.test.ts",
     "tests/adapters/claude.test.ts",
     "tests/adapters/codex.test.ts",
